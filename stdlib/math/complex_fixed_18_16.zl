@@ -1,0 +1,11 @@
+// Compatibility numerical profile kept out of the profile-neutral Complex
+// core.  Import this module only when Q2.16 is the intended storage boundary.
+import std.math.complex
+
+module ComplexMul18_16 {
+    in a : Complex<fixed<18,16>>
+    in b : Complex<fixed<18,16>>
+    out result : Complex<fixed<18,16>>
+
+    result = complex_quantize_nearest_even_saturate<fixed<18,16>>(a * b)
+}

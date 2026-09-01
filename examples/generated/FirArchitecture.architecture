@@ -1,0 +1,7 @@
+module FirArchitecture
+architecture_model=zlang-fir-architecture-v1 equivalence=mathematical temporal_folding=false
+exploration output=y result=u18 constraints=[parallelism<=2,depth<=2,candidates<=3] theoretical_candidates=4 search_bound=3 explored=3 budget_pruned=1 constraint_pruned=2
+  candidate name=direct kind=direct legal=false parallelism=4 add_depth=2 multipliers=4 adders=3 equivalence=mathematical transformations=[preserve_product_order,balanced_direct_reduction] violations=[parallelism=4 not <=2]
+  candidate name=transposed kind=transposed legal=false parallelism=1 add_depth=3 multipliers=4 adders=3 equivalence=mathematical transformations=[preserve_product_order,transposed_accumulator_chain] violations=[depth=3 not <=2]
+  candidate name=folded_p2 kind=folded legal=true parallelism=2 add_depth=2 multipliers=4 adders=3 equivalence=mathematical transformations=[preserve_product_order,partition_2_accumulator_lanes,balanced_lane_reduction] violations=[none]
+  selected name=folded_p2 kind=folded reason=m28_maximize_estimated_frequency_with_deterministic_tie_break parallelism=2 add_depth=2 equivalence=mathematical

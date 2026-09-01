@@ -1,0 +1,22 @@
+// One functional symmetric FIR.  Four coefficient values are semantically
+// reused at mirrored taps; the source contains no target-resource constructs.
+module SymmetricFixedFIR {
+    clock clk
+    reset rst
+    in samples : vec<8,SF2.10>
+    in coefficients : vec<4,SF2.10>
+    out result : fixed<16,14>
+
+    reg result_reg : fixed<16,14> = 0
+
+    acc = (((samples[0] * coefficients[0] + samples[7] * coefficients[0])
+          + (samples[1] * coefficients[1] + samples[6] * coefficients[1]))
+          + ((samples[2] * coefficients[2] + samples[5] * coefficients[2])
+          + (samples[3] * coefficients[3] + samples[4] * coefficients[3])))
+
+    result_reg <- quantize<fixed<16,14>>(acc) {
+        round nearest_even
+        overflow saturate
+    }
+    result = result_reg
+}

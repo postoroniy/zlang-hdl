@@ -1,0 +1,105 @@
+// AMD 7-series resources: DSP48E1 (UG479), block RAM (UG473), clocks (UG472).
+resource DSP48E1 {
+    port a input signed 25
+    port d input signed 25
+    port b input signed 18
+    port c input signed 48
+    port pcin input signed 48
+    port p output signed 48
+    port pcout output signed 48
+    class dsp_mac
+    operation preadd_multiply_accumulate
+    capability signed true
+    capability preadder true
+    capability accumulator true
+    capability accumulator_modes accumulator_plus_product.accumulator_minus_product
+    // The explicit binding covers both the existing symmetric FIR cascade
+    // and the ordered signed-product cascade used by FFT real/imag paths.
+    // The semantic mapper still validates the exact accumulator mode and
+    // finite-width shape before a physical graph is offered.
+    capability physical_architectures symmetric_fir_cascade.signed_product_reduction
+    capability c_path true
+    capability output_width 48
+    limit preadder 25
+    limit multiplier_a 25
+    limit multiplier_b 18
+    limit product 43
+    limit accumulator 48
+    pipeline_site input_preadd location input_preadd latency 1 ii 1 local true delay_ps 0
+    pipeline_site multiply location multiply latency 1 ii 1 local true delay_ps 0
+    pipeline_site accumulate_output location accumulate_output latency 1 ii 1 local true delay_ps 0
+    pipeline_config unregistered latency 0 ii 1
+    pipeline_config multiply_registered latency 1 ii 1 enable multiply setting mreg 1
+    pipeline_config multiply_output_registered latency 2 ii 1 enable multiply enable accumulate_output setting mreg 1 setting terminal_preg 1
+    pipeline_config fully_pipelined latency 3 ii 1 enable input_preadd enable multiply enable accumulate_output setting areg 1 setting breg 1 setting dreg 1 setting mreg 1 setting terminal_preg 1
+    dedicated pcascade pcout -> pcin width 48 relation adjacent_same_column
+    binding systemverilog dsp48e1_explicit
+    physical_primitive DSP48E1
+    physical_site input_preadd AREG
+    physical_site input_preadd BREG
+    physical_site input_preadd DREG
+    physical_site multiply MREG
+    physical_site accumulate_output PREG
+    physical_edge pcascade PCOUT PCIN
+}
+resource RAMB18E1 {
+    class block_memory
+    operation synchronous_ram
+    capability capacity_bits 18432
+    capability port_modes single.simple_dual.true_dual
+    capability widths 1.2.4.9.18.36
+    capability synchronous_read true
+    capability output_register optional
+    capability byte_write_enable true
+    capability initialization true
+    capability read_during_write read_first.write_first.no_change
+    pipeline_site output location memory_output latency 1 ii 1 local true delay_ps 0
+    pipeline_config core_registered latency 0 ii 1
+    pipeline_config output_registered latency 1 ii 1 enable output setting dorega 1
+    binding systemverilog xilinx_bram_inference
+    physical_primitive RAMB18E1
+    physical_site output DOA_REG
+}
+resource RAMB36E1 {
+    class block_memory
+    operation synchronous_ram
+    capability capacity_bits 36864
+    capability port_modes single.simple_dual.true_dual
+    capability widths 1.2.4.9.18.36.72
+    capability synchronous_read true
+    capability output_register optional
+    capability byte_write_enable true
+    capability initialization true
+    capability read_during_write read_first.write_first.no_change
+    capability cascade true
+    pipeline_site output location memory_output latency 1 ii 1 local true delay_ps 0
+    pipeline_config core_registered latency 0 ii 1
+    pipeline_config output_registered latency 1 ii 1 enable output setting dorega 1
+    dedicated memory_cascade cascade_out -> cascade_in width 1 relation adjacent_same_column
+    binding systemverilog xilinx_bram_inference
+    physical_primitive RAMB36E1
+    physical_site output DOA_REG
+    physical_edge memory_cascade CASCADEOUTA CASCADEINA
+}
+resource LUT6 { class logic operation combinational_logic capability inputs 6 binding systemverilog generic_rtl physical_primitive LUT6 }
+resource FDRE { class register operation register capability reset synchronous binding systemverilog generic_rtl physical_primitive FDRE }
+resource CARRY4 { class arithmetic_chain operation carry dedicated carry carry_out -> carry_in width 1 relation adjacent_slice binding systemverilog generic_rtl physical_primitive CARRY4 physical_edge carry CO CI }
+resource LUTRAM { class distributed_memory operation synchronous_ram capability capacity_bits 64 capability widths 1.2.4 capability synchronous_read false binding systemverilog generic_rtl }
+resource SRL32 { class shift_register operation delay capability depth_max 32 binding systemverilog generic_rtl physical_primitive SRLC32E }
+resource BUFG { class clock_buffer operation clock_buffer capability glitch_free true capability outputs 1 binding systemverilog unsupported physical_primitive BUFG }
+resource PLLE2_ADV { class clock_generator operation clock_multiply_divide capability input_frequency_min_mhz 19 capability input_frequency_max_mhz 800 capability output_frequency_min_mhz 6 capability output_frequency_max_mhz 800 capability outputs 6 capability phase configurable capability lock true binding systemverilog unsupported physical_primitive PLLE2_ADV }
+resource MMCME2_ADV { class clock_generator operation clock_multiply_divide capability input_frequency_min_mhz 10 capability input_frequency_max_mhz 800 capability output_frequency_min_mhz 4 capability output_frequency_max_mhz 800 capability outputs 7 capability phase configurable capability dynamic_phase true capability lock true binding systemverilog unsupported physical_primitive MMCME2_ADV }
+target Xilinx7Series {
+    provides DSP48E1
+    provides RAMB18E1
+    provides RAMB36E1
+    provides LUT6
+    provides FDRE
+    provides CARRY4
+    provides LUTRAM
+    provides SRL32
+    provides BUFG
+    provides PLLE2_ADV
+    provides MMCME2_ADV
+}
+module Xilinx7TargetLibrary {}

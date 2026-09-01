@@ -1,0 +1,82 @@
+struct RegRequest<AW=32,DW=32> {
+    addr : uint<AW>
+    write : bit
+    wdata : uint<DW>
+    wstrb : bits<DW/8>
+}
+
+struct RegResponse<DW=32> {
+    rdata : uint<DW>
+    error : bit
+}
+
+protocol RegBus<AW=32,DW=32> {
+    role requester
+    role responder
+    channel request : rv<RegRequest<AW,DW>> requester -> responder
+    channel response : rv<RegResponse<DW>> responder -> requester
+}
+
+// The core CSR declaration is the sole authority for the fixture's address,
+// reset, and access behavior.  Its canonical access ports are supplied by the
+// compiler's generic CSR composition ABI when this module is instantiated.
+module RegBusCSRBank {
+    clock clk
+    reset rst
+
+    csr registers @ 0 {
+        RW @ 0 {
+            value bit @0 rw = 0
+            reserved0 bits<31> @31:1 reserved
+        }
+        W1C @ 4 {
+            value bit @0 w1c = 0
+            reserved1 bits<31> @31:1 reserved
+        }
+        PULSE @ 8 {
+            value bit @0 pulse
+            reserved2 bits<31> @31:1 reserved
+        }
+    }
+}
+
+module RegBusCSRTarget<AW=32,DW=32> {
+    clock clk
+    reset rst
+    interface regbus : RegBus<AW,DW>.responder @clk
+    out done : bit
+    out rw_value : bit
+    out w1c_value : bit
+    out pulse : bit
+
+    reg response_pending : bit = 0
+    reg response_addr : uint<AW> = 0
+
+    write_access : bit = mux(regbus.request.transfer,
+                             regbus.request.payload.write, 0)
+    read_access : bit = response_pending
+
+    inst bank : RegBusCSRBank {
+        addr = mux(regbus.request.transfer,
+                   regbus.request.payload.addr, response_addr)
+        write = write_access
+        wdata = regbus.request.payload.wdata
+        read = read_access
+    }
+
+    response_pending <- mux(regbus.request.transfer, 1,
+                            mux(regbus.response.transfer, 0, response_pending))
+    response_addr <- mux(regbus.request.transfer,
+                         regbus.request.payload.addr, response_addr)
+
+    regbus.request.ready = mux(response_pending, 0, 1)
+    regbus.response.valid = response_pending
+    regbus.response.payload = RegResponse{
+        rdata = bank.rdata
+        error = 0
+    }
+    rw_value = bank.csr_field_0_0_0_state
+    w1c_value = bank.csr_field_0_1_0_state
+    pulse = bank.csr_field_0_2_0_state
+    done = regbus.request.transfer
+}

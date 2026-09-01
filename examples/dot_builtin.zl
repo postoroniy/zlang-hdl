@@ -1,0 +1,7 @@
+module DotBuiltin {
+    in  a : vec<8, u8>
+    in  b : vec<8, u8>
+    out y : u19
+
+    y = dot(a, b)
+}

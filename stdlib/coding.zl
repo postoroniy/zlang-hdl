@@ -1,0 +1,2 @@
+// Stable short import for the source-authored coding family.
+import std.coding.core

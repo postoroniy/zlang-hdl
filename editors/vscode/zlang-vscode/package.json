@@ -1,0 +1,22 @@
+{
+  "name": "zlang-vscode",
+  "displayName": "ZLang",
+  "description": "Lexical syntax highlighting for the supported ZLang hardware language.",
+  "version": "0.0.9",
+  "publisher": "zlang",
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["Programming Languages"],
+  "contributes": {
+    "languages": [{
+      "id": "zlang",
+      "aliases": ["ZLang", "zlang"],
+      "extensions": [".zl", ".zlang"],
+      "configuration": "./language-configuration.json"
+    }],
+    "grammars": [{
+      "language": "zlang",
+      "scopeName": "source.zlang",
+      "path": "./syntaxes/zlang.tmLanguage.json"
+    }]
+  }
+}

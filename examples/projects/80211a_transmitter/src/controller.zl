@@ -1,0 +1,262 @@
+// IEEE-authoritative packet framing for the bounded 6/12/24 Mbit/s profile.
+//
+// This is ordinary ZLang source.  The input carries one to three valid PSDU
+// bytes in the low bytes of data.  Output bit zero is the earliest DATA bit:
+// sixteen zero SERVICE bits, PSDU bytes (each byte LSB first), six encoder-tail
+// zeros, then zero PAD to the selected N_DBPS boundary.  tail_mask identifies
+// the six bits that a following scrambler must force back to zero.
+
+import wifi80211a_transmitter.data_types
+import wifi80211a_transmitter.scrambler
+
+fn ieee_signal_rate_code(rate : WifiRate) -> bits<4> {
+    switch rate {
+        WifiRate.Continue => 0
+        WifiRate.Bpsk6 => 0b1101
+        WifiRate.Qpsk12 => 0b0101
+        WifiRate.Qam16_24 => 0b1001
+    }
+}
+
+fn ieee_signal_header(rate : WifiRate, length : u12) -> bits<24> {
+    // IEEE numbers the transmitted SIGNAL bits from zero.  ZLang's raw
+    // integer/bit-vector boundary maps representation bit zero to the LSB, so
+    // RATE occupies [3:0], reserved is bit 4, LENGTH occupies [16:5], parity
+    // is bit 17, and the six tail bits occupy [23:18].
+    rate_code = ieee_signal_rate_code(rate)
+    signal_data = concat(length, 0, rate_code)
+    concat(zeros<6>, parity(signal_data), signal_data)
+}
+
+module IeeeSignalHeader24 {
+    in raw_rate : bits<3>
+    in length : u12
+    out valid : bit
+    out header : bits<24>
+
+    rate : WifiRate = enum_decode<WifiRate>(
+        raw_rate,
+        WifiRate.Continue
+    )
+    valid = enum_valid<WifiRate>(raw_rate)
+        & (rate != WifiRate.Continue)
+        & (length != 0)
+    header = ieee_signal_header(rate, length)
+}
+
+module IeeeDataFramer24 {
+    clock clk reset rst
+
+    in command : rv<WifiTxCommand>
+    in psdu : rv<WifiPsduBeat>
+    out signal : rv<bits<24>>
+    out data : rv<WifiFramedWord>
+
+    reg active : bit = 0
+    reg finishing : bit = 0
+    reg input_first : bit = 1
+    reg output_first : bit = 1
+    reg packet_rate : WifiRate = WifiRate.Continue
+    reg remaining_bytes : u12 = 0
+
+    // Occupied low-order byte lanes in pending_word.  A fresh packet starts
+    // with two occupied zero SERVICE bytes.
+    reg pending_word : bits<24> = 0
+    reg occupied_bytes : u2 = 0
+    reg pending_psdu_bytes : u2 = 0
+    reg tail_mask_pending : bits<24> = 0
+    reg symbol_slot : u2 = 0
+
+    fifo signal_words : fifo<bits<24>,2>
+    fifo framed_words : fifo<WifiFramedWord,2>
+
+    decoded_rate : WifiRate = enum_decode<WifiRate>(
+        command.payload.rate,
+        WifiRate.Continue
+    )
+    command_rate_valid = enum_valid<WifiRate>(command.payload.rate)
+        & (decoded_rate != WifiRate.Continue)
+
+    expected_last = remaining_bytes <= 3
+    expected_valid_bytes : u2 = expected_last
+        ? truncate(remaining_bytes)
+        : 3
+    input_shape_valid = (psdu.payload.meta == expected_valid_bytes)
+        & (psdu.payload.last == expected_last)
+        & (psdu.payload.first == input_first)
+
+    masked_psdu : bits<24> = psdu.payload.meta == 1
+        ? (psdu.payload.data & 0x0000ff)
+        : (psdu.payload.meta == 2
+            ? (psdu.payload.data & 0x00ffff)
+            : psdu.payload.data)
+    masked_value : u24 = masked_psdu
+    wide_psdu = extend<48>(masked_value)
+    shifted_psdu : u48 = occupied_bytes == 0
+        ? wide_psdu
+        : (occupied_bytes == 1
+            ? (wide_psdu << 8)
+            : (wide_psdu << 16))
+    pending_value : u24 = pending_word
+    combined : u48 = extend<48>(pending_value) | shifted_psdu
+    combined_bytes : u4 = extend<3>(occupied_bytes)
+        + extend<3>(psdu.payload.meta)
+    combined_psdu_bytes : u4 = extend<3>(pending_psdu_bytes)
+        + extend<3>(psdu.payload.meta)
+    emits_word = combined_bytes >= 3
+    next_occupied : u2 = emits_word
+        ? truncate(combined_bytes - 3)
+        : truncate(combined_bytes)
+    next_pending_word : bits<24> = emits_word
+        ? combined[47:24]
+        : combined[23:0]
+    emitted_valid_bytes : u2 = output_first == 1 ? 1 : 3
+    next_pending_psdu_bytes : u2 = emits_word
+        ? truncate(combined_psdu_bytes - extend<4>(emitted_valid_bytes))
+        : truncate(combined_psdu_bytes)
+
+    symbol_last = (packet_rate == WifiRate.Bpsk6)
+        | ((packet_rate == WifiRate.Qpsk12) & (symbol_slot == 1))
+        | ((packet_rate == WifiRate.Qam16_24) & (symbol_slot == 3))
+    next_symbol_slot : u2 = symbol_last
+        ? 0
+        : truncate(symbol_slot + 1)
+    tail_mask_after_input : bits<24> = next_occupied == 0
+        ? 0x00003f
+        : (next_occupied == 1 ? 0x003f00 : 0x3f0000)
+
+    emitted_meta = WifiWordMeta {
+        rate = packet_rate
+        valid_bytes = emitted_valid_bytes
+        tail_mask = 0
+        symbol_first = symbol_slot == 0
+        symbol_last = symbol_last
+    }
+    emitted_beat : WifiFramedWord = FrameBeat {
+        data = combined[23:0]
+        meta = emitted_meta
+        first = output_first
+        last = 0
+    }
+
+    flush_meta = WifiWordMeta {
+        rate = packet_rate
+        valid_bytes = pending_psdu_bytes
+        tail_mask = tail_mask_pending
+        symbol_first = symbol_slot == 0
+        symbol_last = symbol_last
+    }
+    flush_beat : WifiFramedWord = FrameBeat {
+        data = pending_word
+        meta = flush_meta
+        first = output_first
+        last = symbol_last
+    }
+
+    command.ready = (active == 0)
+        & signal_words.ready
+        & command_rate_valid
+        & (command.payload.length != 0)
+    psdu.ready = active
+        & (finishing == 0)
+        & input_shape_valid
+        & ((emits_word == 0) | framed_words.ready)
+
+    signal.payload = signal_words.front
+    signal.valid = signal_words.valid
+    data.payload = framed_words.front
+    data.valid = framed_words.valid
+
+    accept_command: when command.transfer {
+        signal_words.push(ieee_signal_header(
+            decoded_rate,
+            command.payload.length
+        ))
+        active <- 1
+        finishing <- 0
+        input_first <- 1
+        output_first <- 1
+        packet_rate <- decoded_rate
+        remaining_bytes <- command.payload.length
+        pending_word <- 0
+        occupied_bytes <- 2
+        pending_psdu_bytes <- 0
+        tail_mask_pending <- 0
+        symbol_slot <- 0
+    }
+
+    accept_emit: when psdu.transfer & emits_word {
+        framed_words.push(emitted_beat)
+        remaining_bytes <- truncate(
+            remaining_bytes - extend<12>(psdu.payload.meta)
+        )
+        input_first <- 0
+        output_first <- 0
+        pending_word <- next_pending_word
+        occupied_bytes <- next_occupied
+        pending_psdu_bytes <- next_pending_psdu_bytes
+        symbol_slot <- next_symbol_slot
+        finishing <- psdu.payload.last
+        tail_mask_pending <- psdu.payload.last
+            ? tail_mask_after_input
+            : 0
+    }
+
+    accept_buffer: when psdu.transfer & (emits_word == 0) {
+        remaining_bytes <- truncate(
+            remaining_bytes - extend<12>(psdu.payload.meta)
+        )
+        input_first <- 0
+        pending_word <- next_pending_word
+        occupied_bytes <- next_occupied
+        pending_psdu_bytes <- next_pending_psdu_bytes
+        finishing <- psdu.payload.last
+        tail_mask_pending <- psdu.payload.last
+            ? tail_mask_after_input
+            : 0
+    }
+
+    flush_tail_and_pad: when active & finishing & framed_words.ready {
+        framed_words.push(flush_beat)
+        output_first <- 0
+        pending_word <- 0
+        occupied_bytes <- 0
+        pending_psdu_bytes <- 0
+        tail_mask_pending <- 0
+        symbol_slot <- next_symbol_slot
+        active <- symbol_last == 0
+        finishing <- symbol_last == 0
+        packet_rate <- symbol_last
+            ? WifiRate.Continue
+            : packet_rate
+        remaining_bytes <- 0
+    }
+
+    retire_signal: when signal.transfer {
+        signal_words.pop()
+    }
+
+    retire_data: when data.transfer {
+        framed_words.pop()
+    }
+
+    priority accept_command > accept_emit > accept_buffer > flush_tail_and_pad
+}
+
+module IeeePacketFramerScrambler24 {
+    clock clk reset rst
+
+    in command : rv<WifiTxCommand>
+    in psdu : rv<WifiPsduBeat>
+    out signal : rv<bits<24>>
+    out data : rv<WifiFramedWord>
+
+    framer : IeeeDataFramer24
+    scrambler : IeeeDataScrambler24
+
+    command -> framer.command
+    psdu -> framer.psdu
+    framer.signal -> signal
+    framer.data -> scrambler.input
+    scrambler.output -> data
+}

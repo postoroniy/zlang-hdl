@@ -1,0 +1,13 @@
+module PacketRoundRobin {
+    clock clk
+    reset rst
+
+    in  source_a : packet<u8>
+    in  source_b : packet<u8>
+    out tx       : packet<u8>
+
+    arbiter [source_a, source_b] -> tx {
+        policy round_robin
+        grant packet
+    }
+}

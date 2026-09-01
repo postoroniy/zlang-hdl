@@ -1,0 +1,247 @@
+// IEEE-authoritative convolutional encoding and OFDM interleaving for the
+// bounded 6/12/24 Mbit/s profile.
+//
+// FrameBeat.data bit zero is the earliest DATA bit.  Encoded pairs are
+// then stored with their first transmitted bit at the most-significant end;
+// that is the sequence convention consumed by the IEEE interleaver below.
+
+import wifi80211a_transmitter.controller
+import wifi80211a_transmitter.conv_encoder
+
+struct IeeeWordControl {
+    meta : WifiWordMeta
+    first : bit
+    last : bit
+}
+
+struct IeeeInterleavedBlock192 {
+    rate : WifiRate
+    data : bits<192>
+    controls : vec<4,IeeeWordControl>
+}
+
+// IEEE 802.11 first permutation.  The output sequence is k -> i where
+// i = (N_CBPS / 16) * (k mod 16) + floor(k / 16).  Each bits<48> operand is a
+// transmitted sequence ordered from its MSB to its LSB.
+fn ieee_first48(word : bits<48>) -> bits<48> {
+    generate(i in 0..16) [
+        word[47 - i],
+        word[31 - i],
+        word[15 - i]
+    ]
+}
+
+fn ieee_first96(words : vec<2,bits<48>>) -> bits<96> {
+    generate(i in 0..16) [
+        words[0][47 - i],
+        words[0][31 - i],
+        words[0][15 - i],
+        words[1][47 - i],
+        words[1][31 - i],
+        words[1][15 - i]
+    ]
+}
+
+fn ieee_first192(words : vec<4,bits<48>>) -> bits<192> {
+    generate(i in 0..16) [
+        words[0][47 - i],
+        words[0][31 - i],
+        words[0][15 - i],
+        words[1][47 - i],
+        words[1][31 - i],
+        words[1][15 - i],
+        words[2][47 - i],
+        words[2][31 - i],
+        words[2][15 - i],
+        words[3][47 - i],
+        words[3][31 - i],
+        words[3][15 - i]
+    ]
+}
+
+fn ieee_second192(first : bits<192>) -> bits<192> {
+    // For N_CBPS=192, s=max(N_BPSC/2,1)=2.  Within every 24-bit
+    // transmitted group, the lower twelve representation bits are swapped in
+    // adjacent pairs.  R1/R2 have s=1, so their second permutation is identity.
+    (first & 0xfff000fff000fff000fff000fff000fff000fff000fff000)
+        | ((first & 0x000aaa000aaa000aaa000aaa000aaa000aaa000aaa000aaa) >> 1)
+        | ((first & 0x000555000555000555000555000555000555000555000555) << 1)
+}
+
+fn ieee_interleave_block(
+    rate : WifiRate,
+    words : vec<4,bits<48>>
+) -> bits<192> {
+    switch rate {
+        WifiRate.Bpsk6 => concat(
+            ieee_first48(words[0]),
+            zeros<144>
+        )
+        WifiRate.Qpsk12 => concat(
+            ieee_first96(words[0..2]),
+            zeros<96>
+        )
+        WifiRate.Qam16_24 => ieee_second192(ieee_first192(words))
+        WifiRate.Continue => 0
+    }
+}
+
+module IeeeInterleaverBlock48 {
+    in raw_rate : bits<3>
+    in w0, w1, w2, w3 : bits<48>
+    out block : bits<192>
+
+    rate : WifiRate = enum_decode<WifiRate>(
+        raw_rate,
+        WifiRate.Continue
+    )
+    block = ieee_interleave_block(rate, [w0, w1, w2, w3])
+}
+
+// Stateful symbol collector and 48-bit serializer.  Every accepted symbol is
+// one, two, or four encoded words according to the nominal WifiRate.  All four
+// FrameBeat/WifiWordMeta lanes are retained in the completed block so metadata
+// leaves the stage in the same lane order as the transformed data.
+module IeeeInterleaver48 {
+    clock clk reset rst
+
+    in input : rv<WifiEncodedWord>
+    out output : rv<WifiInterleavedWord>
+
+    reg current_rate : WifiRate = WifiRate.Continue
+    reg input_count : u2 = 0
+    reg words : vec<3,bits<48>> = repeat(0)
+    reg controls : vec<3,IeeeWordControl> = repeat(IeeeWordControl {
+        meta = WifiWordMeta {
+            rate = WifiRate.Continue
+            valid_bytes = 0
+            tail_mask = 0
+            symbol_first = 0
+            symbol_last = 0
+        }
+        first = 0
+        last = 0
+    })
+    reg output_count : u2 = 0
+
+    fifo completed : fifo<IeeeInterleavedBlock192,2>
+
+    WifiEncodedWord { data, meta, first, last } = input.payload
+    incoming_rate = meta.rate
+    at_boundary = input_count == 0
+    rate_supported = (incoming_rate == WifiRate.Bpsk6)
+        | (incoming_rate == WifiRate.Qpsk12)
+        | (incoming_rate == WifiRate.Qam16_24)
+    same_symbol_rate = at_boundary | (incoming_rate == current_rate)
+    effective_rate : WifiRate = at_boundary
+        ? incoming_rate
+        : current_rate
+    expected_last = (effective_rate == WifiRate.Bpsk6)
+        | ((effective_rate == WifiRate.Qpsk12) & (input_count == 1))
+        | ((effective_rate == WifiRate.Qam16_24) & (input_count == 3))
+    metadata_shape = (meta.symbol_first == at_boundary)
+        & (meta.symbol_last == expected_last)
+    accepted_shape = rate_supported & same_symbol_rate & metadata_shape
+    completes = expected_last
+    next_input_count : u2 = completes
+        ? 0
+        : truncate(input_count + 1)
+
+    incoming_control = IeeeWordControl {
+        meta
+        first
+        last
+    }
+    next_words = generate(i in 0..3) {
+        input_count == i ? data : words[i]
+    }
+    next_controls = generate(i in 0..3) {
+        input_count == i ? incoming_control : controls[i]
+    }
+    accepted_words = concat(next_words, [data])
+    accepted_controls = concat(next_controls, [incoming_control])
+    completed_block = IeeeInterleavedBlock192 {
+        rate = effective_rate
+        data = ieee_interleave_block(effective_rate, accepted_words)
+        controls = accepted_controls
+    }
+
+    block_rate = completed.front.rate
+    output_last = (block_rate == WifiRate.Bpsk6)
+        | ((block_rate == WifiRate.Qpsk12) & (output_count == 1))
+        | ((block_rate == WifiRate.Qam16_24) & (output_count == 3))
+    output_data = bitcast<vec<4,bits<48>>>(completed.front.data)[output_count]
+    output_control = completed.front.controls[output_count]
+    retiring_block = output.transfer & output_last
+
+    input.ready = accepted_shape
+        & ((completes == 0) | completed.ready | retiring_block)
+    output.payload = FrameBeat {
+        data = output_data
+        meta = output_control.meta
+        first = output_control.first
+        last = output_control.last
+    }
+    output.valid = completed.valid
+
+    accept: when input.transfer {
+        current_rate <- effective_rate
+        input_count <- next_input_count
+        words <- next_words
+        controls <- next_controls
+    }
+
+    complete: when input.transfer & completes {
+        completed.push(completed_block)
+    }
+
+    advance: when output.transfer {
+        output_count <- output_last
+            ? 0
+            : truncate(output_count + 1)
+    }
+
+    retire: when retiring_block {
+        completed.pop()
+    }
+}
+
+module IeeeEncoderInterleaver24 {
+    clock clk reset rst
+
+    in input : rv<WifiFramedWord>
+    out output : rv<WifiInterleavedWord>
+
+    encoder : IeeeConvolutionalEncoder24
+    interleaver : IeeeInterleaver48
+
+    input -> encoder.input
+    encoder.output -> interleaver.input
+    interleaver.output -> output
+}
+
+// Concrete raw-boundary witness.  Nominal WifiRate values remain internal as
+// required by the enum ABI; command/PSDU inputs are the existing explicit raw
+// IEEE boundary, and the public output is produced only after complete
+// packet framing, scrambling, convolutional encoding, and IEEE interleaving.
+module IeeePacketEncoderInterleaver24 {
+    clock clk reset rst
+
+    in command : rv<WifiTxCommand>
+    in psdu : rv<WifiPsduBeat>
+    out signal : rv<bits<24>>
+    out output : rv<WifiInterleavedWord>
+
+    framer : IeeeDataFramer24
+    scrambler : IeeeDataScrambler24
+    encoder : IeeeConvolutionalEncoder24
+    interleaver : IeeeInterleaver48
+
+    command -> framer.command
+    psdu -> framer.psdu
+    framer.signal -> signal
+    framer.data -> scrambler.input
+    scrambler.output -> encoder.input
+    encoder.output -> interleaver.input
+    interleaver.output -> output
+}

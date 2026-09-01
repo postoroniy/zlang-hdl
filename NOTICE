@@ -1,0 +1,74 @@
+ZLang
+Copyright 2026 Viacheslav Vinogradov
+
+ZLang is licensed under the Apache License, Version 2.0. This NOTICE file is
+informational and does not modify that license.
+
+Third-party attribution
+-----------------------
+
+The 802.11a validation material in the following paths is a clean ZLang port
+informed by the structure and behavior of the Bluespec 802.11a transmitter
+originally authored by Nirav Dave:
+
+    examples/projects/80211a_transmitter/
+    docs/80211a-*.md
+    docs/wifi-*.md
+    tests/fixtures/verification/wifi_verification.zl
+    tests/fixtures/wifi/production_transmitter_tb.sv
+    tests/integration/test_80211a_*.py
+    tests/integration/test_wifi_verification_ux.py
+    tests/semantic/test_80211a_*.py
+    tools/80211a_transmitter_backend_qor.py
+
+The reference implementation is available at:
+
+    https://github.com/freecores/bluespec-80211atransmitter
+
+The audited reference revision is:
+
+    d654bfd4c2ffabc61437c131770beff58dc55b04
+
+Original notice:
+
+    Copyright (c) 2006 Nirav Dave (ndave@csail.mit.edu)
+
+The reference source is licensed under the MIT License. Its license and the
+project-specific attribution are retained in:
+
+    examples/projects/80211a_transmitter/LICENSE
+    examples/projects/80211a_transmitter/NOTICE
+
+The file CODE_OF_CONDUCT.md is adapted from Contributor Covenant version 2.1,
+authored by Coraline Ada Ehmke and stewarded by the Organization for Ethical
+Source. Contributor Covenant 2.1 is licensed under the Creative Commons
+Attribution 4.0 International license (CC BY 4.0):
+
+    https://www.contributor-covenant.org/version/2/1/code_of_conduct.html
+    https://creativecommons.org/licenses/by/4.0/
+
+The adaptation identifies the ZLang reporting channel; its Attribution section
+retains the upstream acknowledgements.
+
+No copy of the IEEE 802.11 standard is distributed with ZLang. Test vectors and
+oracles in this repository are independently computed unless a file states a
+different origin and license.
+
+Generated output policy
+-----------------------
+
+As a project policy, compiling user-authored ZLang source does not by itself
+make the resulting HDL a copy of ZLang or impose the Apache-2.0 license on that
+HDL. Users remain responsible for the rights and license obligations of their
+inputs, copied standard-library material, third-party dependencies, and any
+other content included in generated output. Generated fixtures committed to
+this repository are part of the ZLang distribution and are licensed under
+Apache-2.0 unless an adjacent notice states otherwise.
+
+Trademarks
+----------
+
+IEEE and IEEE 802.11, Arm and AMBA, AMD and Xilinx, Intel, and MATLAB and
+MathWorks are names or marks of their respective owners. Their use in this
+repository is solely descriptive. ZLang is not affiliated with, sponsored by,
+or endorsed by those owners.

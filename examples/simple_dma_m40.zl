@@ -1,0 +1,70 @@
+struct MemRequest { addr:u8 data:u8 write:bit }
+struct MemResponse { data:u8 }
+
+module TransferEngine<AW=8> {
+    in start:bit
+    in base:uint<AW>
+    in data:u8
+
+    out busy:bit
+    interface mem:request_response<MemRequest, MemResponse>{max_outstanding 2 ordering in_order}
+
+    reg count:uint<AW> = 0
+
+    rule advance when mem.response.transfer {
+        count <- truncate<AW>(count + 1)
+    }
+
+    busy = start
+    mem.request.valid = start
+    mem.request.payload = MemRequest {
+        addr = truncate<8>(base + count)
+        data = data
+        write = 1
+    }
+    mem.response.ready = start
+}
+
+module MemoryModel {
+    clock clk
+    reset rst
+
+    in accept:bit
+    in data:u8
+    out seen:bit
+    interface mem:request_response<MemRequest, MemResponse>{max_outstanding 2 ordering in_order}
+
+    mem.request.ready = accept
+    mem.response.valid = mem.request.transfer
+    mem.response.payload = MemResponse { data = data }
+    seen = mem.response.transfer
+}
+
+module SimpleDMA<AW=8> {
+    clock clk
+    reset rst
+
+    in base:uint<AW>
+    in data:u8
+    in start:bit
+    in accept:bit
+    out busy:bit
+
+    inst engine:TransferEngine<AW> {
+        start
+        base
+        data
+    }
+
+    inst memory:MemoryModel {
+        accept
+        data
+    }
+
+    connect engine.mem -> memory.mem {
+        request_buffer 4
+        response_buffer 2
+    }
+
+    busy = engine.busy
+}

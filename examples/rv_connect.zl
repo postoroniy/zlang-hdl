@@ -1,0 +1,6 @@
+module RvConnect {
+  in rx: rv<u8>
+  out tx: rv<u8>
+
+  connect rx -> tx
+}

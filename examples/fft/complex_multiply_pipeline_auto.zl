@@ -1,0 +1,43 @@
+// Pure scalar complex-multiply pipeline kernels.  The real and imaginary
+// components are explicit entry points so each can be selected independently
+// by the generic target planner.
+import std.math.complex
+
+type Sample = fixed<18,16>
+type Twiddle = fixed<16,14>
+type CSample = Complex<Sample>
+type CTwiddle = Complex<Twiddle>
+
+module FFTComplexMultiplyRealAuto {
+    clock clk
+    reset rst
+    in sample : CSample
+    in twiddle : CTwiddle
+    out result : Sample
+
+    exact = sample * twiddle
+
+    result = pipeline(auto, ii==1, fmax>=100) {
+        quantize<Sample>(exact.re) {
+            round nearest_even
+            overflow saturate
+        }
+    }
+}
+
+module FFTComplexMultiplyImagAuto {
+    clock clk
+    reset rst
+    in sample : CSample
+    in twiddle : CTwiddle
+    out result : Sample
+
+    exact = sample * twiddle
+
+    result = pipeline(auto, ii==1, fmax>=100) {
+        quantize<Sample>(exact.im) {
+            round nearest_even
+            overflow saturate
+        }
+    }
+}

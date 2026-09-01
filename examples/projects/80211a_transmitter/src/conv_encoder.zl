@@ -1,0 +1,97 @@
+// IEEE-authoritative K=7 convolutional encoder.
+
+import wifi80211a_transmitter.data_types
+
+struct ConvolutionalResult24 {
+    encoded : bits<48>
+    history : u6
+}
+
+fn encoder_g0(stream : u30) -> bits<24> {
+    truncate<24>(
+        (stream >> 6)
+        ^ (stream >> 4)
+        ^ (stream >> 3)
+        ^ stream
+        ^ (stream >> 1)
+    )
+}
+
+fn encoder_g1(stream : u30) -> bits<24> {
+    truncate<24>(
+        (stream >> 6)
+        ^ (stream >> 4)
+        ^ (stream >> 3)
+        ^ stream
+        ^ (stream >> 5)
+    )
+}
+
+fn interleave24(g0 : bits<24>, g1 : bits<24>) -> bits<48> {
+    bitcast<bits<48>>(
+        generate(i in 0..24) [
+            g0[i],
+            g1[i]
+        ]
+    )
+}
+
+// DATA bit zero is transmitted first.  The exact raw stream presented to the
+// K=7 taps is the accepted DATA word followed by the committed six-bit history.
+fn ieee_convolutional_encode24(
+    word : bits<24>, history : u6
+) -> ConvolutionalResult24 {
+    stream = bitcast<u30>(concat(word, history))
+    next_history = word[23:18]
+    ConvolutionalResult24 {
+        encoded = interleave24(
+            encoder_g0(stream),
+            encoder_g1(stream)
+        )
+        history = next_history
+    }
+}
+
+module IeeeConvolutionalEncode24 {
+    in word : bits<24>
+    in history : u6
+    out result : ConvolutionalResult24
+
+    result = ieee_convolutional_encode24(word, history)
+}
+
+// FrameBeat.first starts a fresh convolutional epoch.  The FIFO preserves
+// backpressure without recomputing or duplicating an accepted word.
+module IeeeConvolutionalEncoder24 {
+    clock clk reset rst
+
+    in input : rv<WifiFramedWord>
+    out output : rv<WifiEncodedWord>
+
+    reg history : u6 = 0
+    fifo words : fifo<WifiEncodedWord,2>
+
+    WifiFramedWord { data, meta, first, last } = input.payload
+    selected_history = first ? 0 : history
+    exact = ieee_convolutional_encode24(data, selected_history)
+    encoded = FrameBeat {
+        data = exact.encoded
+        meta
+        first
+        last
+    }
+
+    input.ready = words.ready
+        & (meta.rate != WifiRate.Continue)
+    output.payload = words.front
+    output.valid = words.valid
+
+    accept: when input.transfer {
+        words.push(encoded)
+        history <- last ? 0 : exact.history
+    }
+
+    retire: when output.transfer {
+        words.pop()
+    }
+}

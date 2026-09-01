@@ -1,0 +1,40 @@
+import std.target.xilinx.series7
+
+architecture Xilinx7SymmetricDSPCascade {
+    operation symmetric_fir_cascade
+    require_resource DSP48E1 4
+    require_dedicated pcascade
+    latency 1
+    ii 1
+    use_pipeline unregistered
+}
+
+architecture Xilinx7SymmetricDSPCascadeMREG {
+    operation symmetric_fir_cascade
+    require_resource DSP48E1 4
+    require_dedicated pcascade
+    latency 2
+    ii 1
+    use_pipeline multiply_registered
+}
+
+architecture Xilinx7SymmetricDSPCascadeMREGPREG {
+    operation symmetric_fir_cascade
+    require_resource DSP48E1 4
+    require_dedicated pcascade
+    latency 3
+    ii 1
+    use_pipeline multiply_output_registered
+}
+
+architecture Xilinx7SymmetricDSPCascadeFullyPipelined {
+    operation symmetric_fir_cascade
+    require_resource DSP48E1 4
+    require_dedicated pcascade
+    latency 4
+    ii 1
+    use_pipeline fully_pipelined
+}
+
+module Xilinx7FirArchitectureLibrary {
+}

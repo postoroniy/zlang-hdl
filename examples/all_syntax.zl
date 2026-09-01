@@ -1,0 +1,451 @@
+// Executable syntax conformance corpus. Every declaration here is accepted by
+// the current parser and semantic pipeline.
+/* Block comments
+are whitespace-equivalent and non-nested.
+*/
+
+import std.math.complex
+import std.bus.axi_stream
+import std.bus.apb
+import std.bus.wishbone
+
+type Byte = u8
+type Sample = SF8.8
+
+struct Pair<type T> {
+    left : T
+    right : T
+}
+
+struct CorpusPair9 { left : u9 right : u9 }
+struct CorpusRequest { id : u2 data : u8 }
+struct CorpusResponse { id : u2 data : u8 }
+struct CorpusEnumBoundary { valid : bit decoded : bits<3> }
+
+enum CorpusPhase { Idle Active Done }
+enum CorpusCode : bits<3> {
+    Continue = 0
+    First = 1
+    Sparse = 4
+}
+
+fn duplicate<type T>(x : T) {
+    x + x
+}
+
+fn type_flag<type T>(x : T) {
+    if T == u8 { 1 } else { 0 }
+}
+
+// Ordinary functions may infer the exact type of their final expression.
+fn exact_literal_tag(high : bits<2>) {
+    concat(high, zeros<2>, ones<2>)
+}
+
+operator +<type T>(a : Pair<T>, b : Pair<T>) {
+    Pair { left = a.left + b.left right = a.right + b.right }
+}
+
+equiv or_zero {
+    x | zero<x> <=> x when unsigned(x) && width(x) == 8
+}
+
+resource CorpusLogic {
+    class standard_cell_logic
+    operation boolean
+    capability capacity_bits 1024
+    limit lut 64
+}
+
+target CorpusTarget {
+    provides CorpusLogic
+}
+
+architecture CorpusArchitecture {
+    operation multiply_add
+    require_resource CorpusLogic 1
+    latency 1
+    ii 1
+}
+
+module ScalarSyntax {
+    in a, b : u8
+    in select : bit
+    out y : u9 = a + b
+    timing {
+        latency 0
+        ii 1
+    }
+    arithmetic : u9 = a + b
+    bitwise : u8 = (a & b) | (a ^ b)
+    complement : u8 = ~a
+    shifted : u8 = (a << 1) >> 1
+    chosen : u9 = select ? extend<9>(a) : extend<9>(b)
+}
+
+module FunctionalSyntax {
+    in values : vec<4,u8>
+    in coefficients : vec<4,u8>
+    out y : u18
+    y = sum(i in 0..4) values[i] * coefficients[i]
+}
+
+module GeneratedSyntax {
+    in values : vec<4,u8>
+    in coefficients : vec<4,u8>
+    out y : u18
+    y = reduce(+, generate(i in 0..4) values[i] * coefficients[i])
+}
+
+module MappedSyntax {
+    in values : vec<4,u8>
+    out y : u11
+    y = sum(map(i in 0..4) { values[i] + values[i] })
+}
+
+module CompileTimeSyntax<N=4> {
+    in values : vec<4,u8>
+    out y : u3
+    size_value : u3 = length(values)
+    power_value : bit = is_power_of_two(N)
+    type_value : u1 = type_flag(values[0])
+    selected_value : u3 = if N == 4 { floor_log2(N) } else { ceil_log2(N) }
+    y = selected_value
+}
+
+// Concise forms below normalize to the same typed IR as their explicit forms.
+module ConciseLoweringSyntax<N=4,IW=index_width(N)> {
+    clock clk reset rst
+    in wide : u16
+    in values : vec<N,u8>
+    in choose_first, choose_second : bit
+    out narrowed : u8
+    out first_pair : vec<2,u8>
+    out selected : u8
+
+    reg held : u8 = 0
+    take_first: when choose_first { held <- values[0] }
+    take_second: when choose_second { held <- values[1] }
+    priority take_first > take_second
+
+    narrowed = truncate(wide)
+    first_pair = values[0..2]
+    selected = held
+}
+
+module FixedSyntax {
+    in a : SF8.8
+    in b : SF8.8
+    out y : SF_Sat8.8
+    exact_sample : SF8.8 = 1.5
+    raw_sample : SF8.8 = fixed_raw(0x0C22)
+    y = quantize<SF_Sat8.8>(a + b) {
+        round nearest_even
+        overflow saturate
+    }
+}
+
+module StructSyntax {
+    in a : u8
+    in b : u8
+    out y : Pair<u9>
+    plain : CorpusPair9 = CorpusPair9 {
+        left = extend<9>(a)
+        right = extend<9>(b)
+    }
+    CorpusPair9 { left, right } = plain
+    original : Pair<u9> = Pair { left right }
+    updated : Pair<u9> = original with { right = left }
+    unchanged : bit = updated != original
+    y = updated
+}
+
+// Hardware text erases to bytes, while tuples remain structural aggregates.
+module TextTupleSyntax {
+    in data : u8
+    in last : bit
+    out letter : char = 'A'
+    out tag : string<4> = "OFDM"
+    out pair : (u8, bit)
+    out restored : (u8, bit)
+    out selected : u8
+    out packed : bits<9>
+    out same : bit
+
+    joined : string<7> = concat("802.", "11a")
+    comment_marker : string<2> = "//"
+    value : (u8, bit) = (data, last)
+    (payload, final) = value
+    pair = (payload, final)
+    restored = unpack<(u8,bit)>(pack(value))
+    selected = value[0]
+    packed = pack(value)
+    same = value == (data, last)
+}
+
+module StateSyntax {
+    clock clk reset rst
+    in enable : bit
+    out value : u8
+    reg count : u8 = 0
+    local : u8 = truncate<8>(count + 1)
+    latched_value : u8 = delay<1>(count)
+    pipe_value : u8 = pipeline(1) { count }
+    priority {
+        increment: when enable { count <- local }
+        hold: when enable == 0 { count <- count }
+    }
+    value = mux(enable, pipe_value, latched_value)
+}
+
+// Recommended physical reset: asynchronous assertion and a fixed two-edge
+// synchronous release.  The external pin remains active-low at the public ABI.
+module AsyncResetSyntax {
+    clock clk
+    async reset arst_n @clk { polarity active_low }
+    in sample : u8
+    out value : u8
+    reg held : u8 = 0
+    held <- sample
+    value = held
+}
+
+module EncodedEnumSyntax {
+    in raw : bits<3>
+    out result : CorpusEnumBoundary
+
+    value : CorpusCode = enum_decode<CorpusCode>(raw, CorpusCode.Continue)
+    result = CorpusEnumBoundary {
+        valid = enum_valid<CorpusCode>(raw)
+        decoded = enum_encode(value)
+    }
+}
+
+module FsmSyntax {
+    clock clk
+    reset rst
+    in start : bit
+    in finish : bit
+    in cancel : bit
+    out phase : bits<2>
+
+    fsm state = CorpusPhase.Idle {
+        Idle { when start -> Active {} }
+        Active {
+            priority {
+                when cancel -> Idle {}
+                when finish -> Done {}
+            }
+        }
+        Done { hold }
+    }
+
+    phase = enum_encode(state)
+}
+
+module VectorStateUpdateSyntax {
+    clock clk
+    reset rst
+    in index : u2
+    in value : u8
+    in write : bit
+    out values : vec<4,u8>
+
+    reg samples : vec<4,u8> = generate(i in 0..4) 0
+    when write { samples[index] <- value }
+    values = samples
+}
+
+module FifoSyntax {
+    clock clk
+    reset rst
+    in rx : rv<u8>
+    out tx : rv<u8>
+    fifo queue : fifo<u8,4>
+    queue.data = rx.payload
+    queue.push = rx.transfer
+    queue.pop = tx.transfer
+    rx.ready = queue.ready
+    tx.payload = queue.front
+    tx.valid = queue.valid
+}
+
+module MemorySyntax {
+    clock clk
+    reset rst
+    in read_address : u4
+    in write_enable : bit
+    in write_address : u4
+    in write_data : u8
+    out read_data : u8
+    memory table : mem<u8,16> {
+        read_latency 1
+        collision read_first
+    }
+    table.read_address = read_address
+    table.write_enable = write_enable
+    table.write_address = write_address
+    table.write_data = write_data
+    read_data = table.read_data
+}
+
+module RuleLocalMemorySyntax {
+    clock clk
+    reset rst
+    in read_enable : bit
+    in read_address : u4
+    in write_enable : bit
+    in write_address : u4
+    in write_data : u8
+    out read_data : u8
+
+    memory table : mem<u8,16> {
+        read_latency 1
+        collision write_first
+    }
+    when read_enable { table.read(read_address) }
+    when write_enable { table.write(write_address, write_data) }
+    read_data = table.read_data
+}
+
+module ReadyValidSyntax {
+    in rx : rv<u8>
+    out tx : rv<u8>
+    tx.payload = rx.payload
+    tx.valid = rx.valid
+    rx.ready = tx.ready
+}
+
+module CreditSyntax {
+    clock clk
+    reset rst
+    in data : u8
+    in send : bit
+    out tx : credit<u8,2>
+    tx.payload = data
+    tx.send = send
+}
+
+module RequestResponseSyntax {
+    clock clk
+    reset rst
+    interface mem : request_response<CorpusRequest,CorpusResponse> {
+        max_outstanding 2
+        ordering out_of_order
+        match_by id
+    }
+    in request_payload : CorpusRequest
+    in issue : bit
+    in accept : bit
+    out response_payload : CorpusResponse
+    mem.request.payload = request_payload
+    mem.request.valid = issue
+    mem.response.ready = accept
+    response_payload = mem.response.payload
+}
+
+module AggregateProtocolSyntax {
+    clock clkI
+    reset rstI @ clkI
+    clock clkO
+    reset rstO @ clkO
+    i : AXIStream<32>.sink @clkI
+    o : AXIStream<32>.source @clkO
+    i -> o { crossing async_fifo(4) }
+}
+
+module ArbitrationSyntax {
+    clock clk
+    reset rst
+    in high : packet<u8>
+    in low : packet<u8>
+    out tx : packet<u8>
+    arbiter [high, low] -> tx {
+        policy fixed_priority
+        grant packet
+    }
+}
+
+module CdcSyntax {
+    clock source_clock
+    reset source_reset @source_clock
+    clock destination_clock
+    reset destination_reset @destination_clock
+    in source : rv<u8> @source_clock
+    out destination : rv<u8> @destination_clock
+    connect source -> destination { crossing async_fifo(4) }
+}
+
+module CsrSyntax {
+    clock clk
+    reset rst
+    csr control @ 0x4000_0000 {
+        CONTROL @ 0x00 {
+            enable bit @0 rw = 0
+            start bit @1 pulse
+            reserved bits<30> @31:2 reserved
+        }
+    }
+}
+
+module ContractSyntax {
+    clock clk
+    reset rst
+    in a : u4
+    in b : u4
+    out y : u5
+    y = a + b
+    assume bounded @ clk disable iff rst { (a < 8) & (b < 8) }
+    guarantee sum_matches @ clk disable iff rst { y == a + b }
+    assert result_width @ clk { y <= 30 }
+    cover maximum_sum @ clk { y == 30 }
+    contract public_behavior @ clk {
+        require legal_inputs { (a < 8) & (b < 8) }
+        ensure output_matches { y == a + b }
+        cover nonzero_output { y != 0 }
+    }
+}
+
+module ExplorationSyntax {
+    clock clk
+    reset rst
+    in a : vec<4,u3>
+    in b : vec<4,u3>
+    out y : u8
+    y = explore {
+        dot(a,b)
+        allow { reduction dsp pipeline reassociate }
+        require { latency >= 1 dsp <= 4 }
+        minimize lut
+    }
+}
+
+// Final/default top: bare `zlangc examples/all_syntax.zl` is deterministic.
+module AllSyntax {
+    /* decimal, hexadecimal and binary spellings are lexical equivalents. */
+    in a : u8
+    in b : u8
+    out y : u9
+    literal : u8 = 0b1010_1100
+    negative_literal : s8 = -123
+    clear_mask : bits<8> = zeros<8>
+    set_mask : bits<8> = ones<8>
+    // Low-level compatibility forms; prefer bitcast at an intentional raw boundary.
+    packed_a : bits<8> = pack(a)
+    packed_pair : bits<16> = concat(packed_a, b)
+    packed_lsb : bit = packed_a[0]
+    high_nibble : bits<4> = packed_pair[15:12]
+    inferred_tag : bits<6> = exact_literal_tag(packed_a[7:6])
+    round_trip : u8 = unpack<u8>(packed_a)
+    vector_a : vec<2,u8> = generate(i in 0..2) extend<8>(i)
+    vector_b : vec<2,u8> = generate(i in 0..2) truncate<8>(extend<8>(i) + 2)
+    literal_vector : vec<2,u8> = [a, b]
+    repeated_vector : vec<2,u8> = repeat(a)
+    explicit_repeat : vec<2,u8> = repeat<2>(b)
+    vectors_match : bit = literal_vector == repeated_vector
+    joined_values : vec<4,u8> = concat(vector_a, vector_b)
+    reshaped_values : vec<2,vec<2,u8>> = reshape(joined_values)
+    concise_raw : bits<32> = bitcast<bits<32>>(reshaped_values)
+    concise_parity : bit = parity(concise_raw)
+    y = round_trip + b
+}

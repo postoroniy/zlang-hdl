@@ -1,0 +1,326 @@
+{
+  "benchmarks": [
+    {
+      "behavior_checks": 5,
+      "category": "datapath",
+      "clash": {
+        "backend": "clash",
+        "backend_source_loc": 12,
+        "behavior_passed": true,
+        "codegen_ms": 1469.466,
+        "generated_rtl_loc": 21,
+        "lint_ms": 60.048,
+        "synthesis": {
+          "elapsed_ms": 335.378,
+          "flip_flops": 0,
+          "logic_depth": 14,
+          "lut_cells": 135,
+          "total_cells": 135
+        }
+      },
+      "direct_systemverilog": {
+        "backend": "direct_systemverilog",
+        "backend_source_loc": 10,
+        "behavior_passed": true,
+        "codegen_ms": 0.041,
+        "generated_rtl_loc": 10,
+        "lint_ms": 57.681,
+        "synthesis": {
+          "elapsed_ms": 345.042,
+          "flip_flops": 0,
+          "logic_depth": 14,
+          "lut_cells": 135,
+          "total_cells": 135
+        }
+      },
+      "frontend_ms": 5.674,
+      "name": "ALU",
+      "zlang_source": "examples/alu.zl",
+      "zlang_source_loc": 13
+    },
+    {
+      "behavior_checks": 3,
+      "category": "pipeline",
+      "clash": {
+        "backend": "clash",
+        "backend_source_loc": 20,
+        "behavior_passed": true,
+        "codegen_ms": 2145.272,
+        "generated_rtl_loc": 33,
+        "lint_ms": 57.846,
+        "synthesis": {
+          "elapsed_ms": 303.502,
+          "flip_flops": 34,
+          "logic_depth": 8,
+          "lut_cells": 136,
+          "total_cells": 170
+        }
+      },
+      "direct_systemverilog": {
+        "backend": "direct_systemverilog",
+        "backend_source_loc": 23,
+        "behavior_passed": true,
+        "codegen_ms": 0.058,
+        "generated_rtl_loc": 23,
+        "lint_ms": 58.39,
+        "synthesis": {
+          "elapsed_ms": 300.043,
+          "flip_flops": 34,
+          "logic_depth": 8,
+          "lut_cells": 136,
+          "total_cells": 170
+        }
+      },
+      "frontend_ms": 2.882,
+      "name": "PipelinedMAC",
+      "zlang_source": "examples/pipelined_mac.zl",
+      "zlang_source_loc": 11
+    },
+    {
+      "behavior_checks": 3,
+      "category": "ready_valid",
+      "clash": {
+        "backend": "clash",
+        "backend_source_loc": 26,
+        "behavior_passed": true,
+        "codegen_ms": 2282.481,
+        "generated_rtl_loc": 23,
+        "lint_ms": 58.22,
+        "synthesis": {
+          "elapsed_ms": 20.623,
+          "flip_flops": 0,
+          "logic_depth": 0,
+          "lut_cells": 0,
+          "total_cells": 0
+        }
+      },
+      "direct_systemverilog": {
+        "backend": "direct_systemverilog",
+        "backend_source_loc": 14,
+        "behavior_passed": true,
+        "codegen_ms": 0.032,
+        "generated_rtl_loc": 14,
+        "lint_ms": 57.701,
+        "synthesis": {
+          "elapsed_ms": 20.858,
+          "flip_flops": 0,
+          "logic_depth": 0,
+          "lut_cells": 0,
+          "total_cells": 0
+        }
+      },
+      "frontend_ms": 2.139,
+      "name": "RvPassthrough",
+      "zlang_source": "examples/rv_passthrough.zl",
+      "zlang_source_loc": 7
+    },
+    {
+      "behavior_checks": 6,
+      "category": "credit",
+      "clash": {
+        "backend": "clash",
+        "backend_source_loc": 40,
+        "behavior_passed": true,
+        "codegen_ms": 2357.006,
+        "generated_rtl_loc": 53,
+        "lint_ms": 58.552,
+        "synthesis": {
+          "elapsed_ms": 163.093,
+          "flip_flops": 2,
+          "logic_depth": 1,
+          "lut_cells": 4,
+          "total_cells": 6
+        }
+      },
+      "direct_systemverilog": {
+        "backend": "direct_systemverilog",
+        "backend_source_loc": 26,
+        "behavior_passed": true,
+        "codegen_ms": 0.025,
+        "generated_rtl_loc": 26,
+        "lint_ms": 57.815,
+        "synthesis": {
+          "elapsed_ms": 148.042,
+          "flip_flops": 2,
+          "logic_depth": 1,
+          "lut_cells": 4,
+          "total_cells": 6
+        }
+      },
+      "frontend_ms": 0.723,
+      "name": "CreditSource",
+      "zlang_source": "examples/credit_source.zl",
+      "zlang_source_loc": 9
+    },
+    {
+      "behavior_checks": 5,
+      "category": "csr",
+      "clash": {
+        "backend": "clash",
+        "backend_source_loc": 39,
+        "behavior_passed": true,
+        "codegen_ms": 2312.063,
+        "generated_rtl_loc": 74,
+        "lint_ms": 59.498,
+        "synthesis": {
+          "elapsed_ms": 225.108,
+          "flip_flops": 5,
+          "logic_depth": 3,
+          "lut_cells": 17,
+          "total_cells": 22
+        }
+      },
+      "direct_systemverilog": {
+        "backend": "direct_systemverilog",
+        "backend_source_loc": 55,
+        "behavior_passed": true,
+        "codegen_ms": 0.086,
+        "generated_rtl_loc": 55,
+        "lint_ms": 57.783,
+        "synthesis": {
+          "elapsed_ms": 224.493,
+          "flip_flops": 5,
+          "logic_depth": 3,
+          "lut_cells": 17,
+          "total_cells": 22
+        }
+      },
+      "frontend_ms": 3.807,
+      "name": "ControlCsr",
+      "zlang_source": "examples/control_csr.zl",
+      "zlang_source_loc": 18
+    },
+    {
+      "behavior_checks": 8,
+      "category": "request_response",
+      "clash": {
+        "backend": "clash",
+        "backend_source_loc": 71,
+        "behavior_passed": true,
+        "codegen_ms": 2861.967,
+        "generated_rtl_loc": 253,
+        "lint_ms": 65.912,
+        "synthesis": {
+          "elapsed_ms": 229.136,
+          "flip_flops": 8,
+          "logic_depth": 3,
+          "lut_cells": 23,
+          "total_cells": 31
+        }
+      },
+      "direct_systemverilog": {
+        "backend": "direct_systemverilog",
+        "backend_source_loc": 78,
+        "behavior_passed": true,
+        "codegen_ms": 0.053,
+        "generated_rtl_loc": 78,
+        "lint_ms": 62.509,
+        "synthesis": {
+          "elapsed_ms": 223.009,
+          "flip_flops": 8,
+          "logic_depth": 3,
+          "lut_cells": 17,
+          "total_cells": 25
+        }
+      },
+      "frontend_ms": 1.991,
+      "name": "RequestClient",
+      "zlang_source": "examples/request_client.zl",
+      "zlang_source_loc": 25
+    },
+    {
+      "behavior_checks": 4,
+      "category": "rules",
+      "clash": {
+        "backend": "clash",
+        "backend_source_loc": 23,
+        "behavior_passed": true,
+        "codegen_ms": 2162.096,
+        "generated_rtl_loc": 32,
+        "lint_ms": 59.286,
+        "synthesis": {
+          "elapsed_ms": 157.792,
+          "flip_flops": 8,
+          "logic_depth": 2,
+          "lut_cells": 11,
+          "total_cells": 19
+        }
+      },
+      "direct_systemverilog": {
+        "backend": "direct_systemverilog",
+        "backend_source_loc": 21,
+        "behavior_passed": true,
+        "codegen_ms": 0.042,
+        "generated_rtl_loc": 21,
+        "lint_ms": 58.143,
+        "synthesis": {
+          "elapsed_ms": 143.954,
+          "flip_flops": 8,
+          "logic_depth": 2,
+          "lut_cells": 10,
+          "total_cells": 18
+        }
+      },
+      "frontend_ms": 1.478,
+      "name": "RuleCounter",
+      "zlang_source": "examples/rule_counter.zl",
+      "zlang_source_loc": 16
+    }
+  ],
+  "clash_version": "Clash, version 1.11.0 (using clash-lib, version: 1.11.0)",
+  "decision": "retain_clash_default_keep_direct_systemverilog_experimental; revisit_region_partition_after_source_mapping_and_broader_backend_coverage",
+  "diagnostics": [
+    {
+      "backend": "clash",
+      "compiler": "GHC/Clash",
+      "elapsed_ms": 784.181,
+      "failed_as_expected": true,
+      "generated_artifact_line": 8,
+      "mentions_missing_symbol": true,
+      "zlang_source_location": false
+    },
+    {
+      "backend": "direct_systemverilog",
+      "compiler": "Verilator",
+      "elapsed_ms": 55.367,
+      "failed_as_expected": true,
+      "generated_artifact_line": 11,
+      "mentions_missing_symbol": true,
+      "zlang_source_location": false
+    }
+  ],
+  "host": "Linux-6.8.0-137-generic-x86_64-with-glibc2.39",
+  "iverilog_version": "Icarus Verilog version 13.0 (devel) (s20251012-54-g6651df6f2)",
+  "python_version": "3.12.3",
+  "schema": "zlang-backend-comparison-v1",
+  "synthesis_constraints": [
+    [
+      "flatten",
+      "true"
+    ],
+    [
+      "lut_inputs",
+      "6"
+    ],
+    [
+      "exclude_flip_flops_from_depth",
+      "true"
+    ],
+    [
+      "formal_cells",
+      "removed"
+    ],
+    [
+      "synth",
+      "flatten"
+    ],
+    [
+      "timing_proxy",
+      "longest_topological_path_without_ff"
+    ]
+  ],
+  "synthesis_target": "generic-lut6",
+  "timing_repetitions": 1,
+  "verilator_version": "Verilator 5.044 2026-01-01 rev v5.044",
+  "yosys_version": "Yosys 0.64 (git sha1 6d2c445ae, g++ 13.3.0-6ubuntu2~24.04.1 -fPIC -O3)"
+}

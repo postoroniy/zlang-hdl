@@ -1,0 +1,11 @@
+import std.target.xilinx.series7
+
+architecture Xilinx7BRAM36SimpleDualPort {
+    operation synchronous_memory
+    require_resource RAMB36E1 1
+    latency 1
+    ii 1
+    use_pipeline core_registered
+}
+
+module Xilinx7MemoryArchitectureLibrary {}

@@ -1,0 +1,14 @@
+module RuleAction {
+  clock clk
+  reset rst
+
+  in enable: bit
+  out fired: bit
+
+  reg count: u8 = 0
+
+  when enable {
+    count <- truncate<8>(count + 1)
+    fired <- 1
+  }
+}

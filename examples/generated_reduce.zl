@@ -1,0 +1,7 @@
+module GeneratedReduce {
+    in  a : vec<4, u8>
+    in  b : vec<4, u8>
+    out y : u18
+
+    y = reduce(+, generate(i in 0..4) a[i] * b[i])
+}

@@ -1,0 +1,662 @@
+?start: compilation_unit
+
+// Declarations and modules are order-independent.  A declaration-only unit is
+// valid as an imported library source; the AST builder marks its synthetic
+// carrier so it is never mistaken for a physical child module.
+compilation_unit: (declaration | module)+
+?declaration: import_decl | type_alias | enum_decl | tagged_union_decl | struct_decl | protocol_decl | module_interface_decl | external_module_decl | function_decl | operator_decl | equiv_decl
+            | resource_decl | target_family_decl | target_instance_decl | architecture_template_decl
+import_decl: _IMPORT LOGICAL_IMPORT [_AS NAME]
+resource_decl: _RESOURCE NAME "{" resource_item* "}"
+?resource_item: _PORT NAME RESOURCE_DIRECTION RESOURCE_SIGNEDNESS WIDTH -> resource_port
+              | _OPERATION NAME -> resource_operation
+              | _RESOURCE_CLASS NAME -> resource_class
+              | _CAPABILITY NAME DEVICE_PART -> resource_capability
+              | _LIMIT NAME WIDTH -> resource_limit
+              | _RESOURCE_REGISTER NAME NUMBER NUMBER -> resource_register
+              | _PIPELINE_SITE NAME _LOCATION NAME _LATENCY NUMBER _II WIDTH _LOCAL NAME _DELAY_PS NUMBER -> resource_pipeline_site
+              | _PIPELINE_CONFIG NAME _LATENCY NUMBER _II WIDTH pipeline_enable* pipeline_setting* -> resource_pipeline_config
+              | _DEDICATED NAME NAME _ARROW NAME _WIDTH WIDTH _RELATION NAME [_FALLBACK NAME] -> resource_dedicated
+              | _BINDING NAME NAME -> resource_binding
+              | _PHYSICAL_PRIMITIVE NAME -> resource_physical_primitive
+              | _PHYSICAL_SITE NAME NAME -> resource_physical_site
+              | _PHYSICAL_EDGE NAME NAME NAME -> resource_physical_edge
+pipeline_enable: _ENABLE NAME
+pipeline_setting: _SETTING NAME NUMBER
+target_family_decl: _TARGET NAME "{" (_PROVIDES NAME)* "}"
+target_instance_decl: _DEVICE NAME ":" NAME "{" target_instance_item* "}"
+?target_instance_item: _PART DEVICE_PART -> target_part
+                     | _INVENTORY NAME WIDTH -> target_inventory
+                     | _DEDICATED_CAPACITY NAME NAME WIDTH -> target_dedicated_capacity
+architecture_template_decl: _ARCHITECTURE NAME "{" architecture_template_item* "}"
+?architecture_template_item: _OPERATION NAME -> architecture_operation
+                           | _REQUIRE_RESOURCE NAME WIDTH -> architecture_resource
+                           | _LATENCY NUMBER -> architecture_latency
+                           | _II WIDTH -> architecture_ii
+                           | _RESOURCE_REGISTER NAME NUMBER -> architecture_register
+                           | _USE_PIPELINE NAME -> architecture_pipeline
+                           | _REQUIRE_DEDICATED NAME -> architecture_dedicated
+protocol_decl: _PROTOCOL NAME [module_parameters] "{" protocol_item* "}"
+?protocol_item: _ROLE role_name -> protocol_role
+              | _CHANNEL NAME ":" port_type role_name "->" role_name [_AT NAME] -> protocol_channel
+              | _MEMBER NAME ":" type_name role_name "->" role_name [_AT NAME] -> protocol_member
+?role_name: NAME | _TARGET -> target_role_name
+type_alias: _TYPE NAME "=" type_name
+enum_decl: _ENUM NAME [":" type_name] "{" enum_member+ "}"
+enum_member: NAME ["=" NUMBER]
+tagged_union_decl: _UNION NAME "{" tagged_union_variant* "}"
+tagged_union_variant: STRUCT_NAME ["{" tagged_union_field* "}"]
+tagged_union_field: NAME ":" type_name
+struct_decl: _STRUCT NAME [module_parameters] "{" struct_field* "}"
+struct_field: NAME ":" type_name
+// Expression-bearing declarations share a boundary so parser source spans can
+// survive into typed and optimization IR without changing surface syntax.
+?source_expr: expr
+// Callable bodies may introduce sequentially scoped immutable inferred
+// aliases.  The final expression is the result; there is deliberately no
+// procedural `return`, mutable local, `let`, or `const` form.
+callable_body: callable_item+
+?callable_item: tuple_destructure_decl | callable_binding | source_expr
+callable_binding: NAME "=" source_expr
+function_decl: _FN NAME [module_parameters] "(" [parameter_list] ")" ["->" type_name] "{" callable_body "}"
+operator_decl: _OPERATOR OPERATOR_SYMBOL [module_parameters] "(" [parameter_list] ")" ["->" type_name] "{" callable_body "}"
+equiv_decl: _EQUIV NAME "{" source_expr _EQUIV_OP source_expr [_WHEN guard_expr] "}"
+guard_expr: GUARD_ATOM ("&&" GUARD_ATOM)*
+parameter_list: parameter ("," parameter)*
+parameter: NAME ":" type_name
+
+module_interface_decl: _INTERFACE NAME [module_parameters] "{" module_signature_item* "}"
+?module_signature_item: port_decl | interface_decl | module_timing_decl | clock_decl | reset_decl | async_reset_decl
+module_interface_ref: NAME [specialization_arguments]
+
+// A bounded typed foreign-component declaration.  Its ZLang function model is
+// the semantic implementation; physical HDL belongs to a backend mapping.
+external_module_decl: _EXTERN _MODULE NAME ":" module_interface_ref "{" _MODEL NAME "}"
+
+module: _MODULE NAME [module_parameters] [module_where] [":" module_interface_ref] "{" module_item* "}"
+module_where: _WHERE compile_time_condition
+module_parameters: "<" module_parameter ("," module_parameter)* _module_parameter_close
+_module_parameter_close: ">" | _CALL_RANGLE
+?module_parameter: _TYPE NAME -> type_module_parameter
+                 | NAME ":" callable_parameter_type -> callable_module_parameter
+                 | NAME ":" type_name -> constant_module_parameter
+                 | NAME ["=" param_value] -> value_module_parameter
+callable_parameter_type: _FN "(" [callable_parameter_types] ")" "->" type_name
+callable_parameter_types: type_name ("," type_name)*
+?param_value: width_expression
+            | NAME "(" (NUMBER|NAME) ")" -> intrinsic_param_value
+            | NAME "(" width_expression ")" -> intrinsic_param_value
+            | NUMBER -> parameter_number
+            | ADD_OP NUMBER -> signed_parameter_number
+            | NAME -> parameter_name
+
+?module_item: port_decl | interface_decl | connect_decl | connection_chain_decl | bare_connect_decl | arbiter_decl | contract_decl | verification_goal_decl | verification_scope_decl | csr_decl | rule_decl | anonymous_rule_decl | rule_priority | priority_block | fsm_decl | fifo_decl | memory_decl | rom_decl | module_timing_decl | struct_destructure_decl | tuple_destructure_decl | assignment | instance_decl | generic_decl | generate_instances | compile_time_if_decl | clock_decl | reset_decl | async_reset_decl | register_decl | next_assignment
+module_timing_decl: _TIMING "{" module_timing_item* "}"
+?module_timing_item: _LATENCY NUMBER -> module_timing_latency
+                   | _II NUMBER -> module_timing_ii
+port_decl: DIRECTION port_name_list ":" port_type [_AT NAME] ["=" source_expr]
+port_name_list: NAME ("," NAME)*
+?port_type: type_name
+          | _WIRE "<" type_name ">" -> wire_interface_type
+          | _RV "<" type_name ">"   -> ready_valid_interface_type
+          | _CREDIT "<" type_name "," WIDTH ">" -> credit_interface_type
+          | _PACKET "<" type_name ">" -> packet_interface_type
+          | _VC_CREDIT "<" type_name "," WIDTH "," WIDTH ">" -> vc_credit_interface_type
+assignment: assignment_target "=" source_expr
+typed_assignment: NAME ":" type_name "=" source_expr
+// Destructuring is nominal-struct-only.  Restricting the leading token to a
+// capitalized nominal type also keeps ordinary locals such as `bitwise` from
+// being split into the builtin `bit` plus an identifier by the contextual
+// lexer at module-item boundaries.
+struct_destructure_decl: destructure_struct_type "{" destructure_field_list "}" "=" source_expr
+tuple_destructure_decl: TUPLE_DESTRUCTURE_LPAR tuple_destructure_names ")" "=" tuple_destructure_rhs
+tuple_destructure_names: NAME "," NAME ("," NAME)*
+?tuple_destructure_rhs: TUPLE_DESTRUCTURE_RHS_NAME -> tuple_destructure_name_rhs
+                       | source_expr
+?destructure_struct_type: STRUCT_NAME -> alias_type
+                        | STRUCT_NAME "<" type_argument ("," type_argument)* ">" -> type_ref
+destructure_field_list: NAME (","? NAME)*
+instance_decl: _INST NAME [instance_array_length] ":" NAME [specialization_arguments] [instance_binding_block]
+generic_decl: generic_decl_name ":" generic_decl_body
+            | GENERIC_ARRAY_DECL_NAME instance_array_length ":" generic_decl_body
+?generic_decl_body: _WHEN source_expr "{" rule_action* "}" -> concise_rule_body
+                  | type_name generic_decl_tail -> generic_type_body
+instance_array_length: "[" storage_depth "]"
+?generic_decl_name: NAME | _CSR -> csr_declaration_name
+?generic_decl_tail: "=" source_expr -> generic_initializer
+                  | "." NAME [_AT NAME] -> generic_protocol
+                  | instance_binding_block -> generic_bindings
+                  | -> generic_empty
+specialization_arguments: "<" specialization_argument ("," specialization_argument)* ">"
+?specialization_argument: NAME "=" module_specialization_value -> named_specialization_argument
+                        | module_specialization_value -> positional_specialization_argument
+?module_specialization_value: FIXED_SHORT_TYPE -> builtin_type
+                            | BUILTIN_TYPE -> builtin_type
+                            | type_ref -> specialization_type_ref
+                            | _VEC "<" (WIDTH|NAME) "," type_name ">" -> vector_type
+                            | _STRING "<" (WIDTH|NAME) ">" -> string_type
+                            | width_expression
+                            | NUMBER -> parameter_number
+                            | callable_specialization_ref
+                            | NAME -> parameter_name
+generate_instances: _GENERATE "(" range_binder ")" "{" instance_generate_item+ "}"
+?instance_generate_item: instance_input_binding | connect_decl
+compile_time_if_decl: _IF compile_time_condition "{" module_item+ "}" [compile_time_else_decl]
+compile_time_else_decl: _ELSE "{" module_item+ "}"
+?compile_time_condition: NOMINAL_TYPE_CONDITION -> type_condition_expr
+                       | expr
+instance_input_binding: hierarchical_target ["=" source_expr]
+instance_binding_block: "{" instance_input_binding+ "}"
+hierarchical_target: NAME hierarchical_target_tail*
+?hierarchical_target_tail: "." NAME -> target_member
+                         | "[" (NUMBER|NAME) "]" -> target_index
+interface_decl: _INTERFACE NAME ":" _REQUEST_RESPONSE "<" type_name "," type_name ">" "{" _MAX_OUTSTANDING WIDTH _ORDERING ORDERING [_MATCH_BY NAME] "}" -> request_response_interface_decl
+              | _INTERFACE NAME ":" protocol_endpoint_ref -> aggregate_interface_decl
+protocol_endpoint_ref: NAME [specialization_arguments] "." role_name [_AT NAME]
+connect_decl: _CONNECT hierarchical_endpoint _ARROW hierarchical_endpoint ["{" connection_option* "}"]
+connection_chain_decl: hierarchical_endpoint _ARROW hierarchical_endpoint _ARROW hierarchical_endpoint (_ARROW hierarchical_endpoint)*
+bare_connect_decl: hierarchical_endpoint _ARROW hierarchical_endpoint ["{" connection_option* "}"]
+// Protocol hierarchy uses the same bounded physical-array selector as scalar
+// instance bindings.  Semantic elaboration resolves the selector completely;
+// no runtime-selected endpoint reaches typed IR or a backend.
+hierarchical_endpoint: NAME [endpoint_index] ("." NAME)*
+endpoint_index: "[" (NUMBER|NAME) "]"
+?connection_option: _BUFFER WIDTH -> connection_buffer
+                  | _REQUEST_BUFFER WIDTH -> connection_request_buffer
+                  | _RESPONSE_BUFFER WIDTH -> connection_response_buffer
+                  | _ADAPTER ADAPTER -> connection_adapter
+                  | _CROSSING crossing_spec -> connection_crossing
+                  | _TRANSFORM pipeline_expr -> connection_transform
+?crossing_spec: CDC_CROSSING -> basic_crossing
+              | _ASYNC_FIFO "(" WIDTH ")" -> async_fifo_crossing
+arbiter_decl: _ARBITER "[" arbiter_sources "]" _ARROW NAME "{" _POLICY ARBITRATION_POLICY _GRANT GRANT_SCOPE "}"
+arbiter_sources: NAME "," NAME ("," NAME)*
+contract_decl: CONTRACT_KIND NAME _AT NAME _DISABLE _IFF NAME "{" source_expr "}"
+// First-class verification declarations use braced expressions because
+// newlines are otherwise insignificant and cannot delimit a bare expression.
+verification_goal_decl: VERIFICATION_GOAL_KIND NAME [_AT NAME] "{" source_expr "}"
+verification_scope_decl: _VERIFICATION_CONTRACT NAME [_AT NAME] "{" verification_clause+ "}"
+?verification_clause: verification_requirement_decl | verification_scoped_goal_decl
+verification_requirement_decl: _VERIFICATION_REQUIRE NAME "{" source_expr "}"
+verification_scoped_goal_decl: VERIFICATION_SCOPED_GOAL_KIND NAME "{" source_expr "}"
+assignment_target: NAME ("." NAME)*
+csr_decl: _CSR NAME _AT NUMBER "{" csr_register* "}"
+csr_register: NAME _AT NUMBER "{" csr_field* "}"
+csr_field: NAME type_name [csr_position] CSR_ACCESS ["=" NUMBER] [csr_binding]
+csr_position: _AT NUMBER [":" NUMBER]
+?csr_binding: _NEXT_ASSIGN signal_ref -> csr_status_binding
+            | _NEXT_ASSIGN _STICKY "(" signal_ref ")" [_PRIORITY CSR_PRIORITY] -> csr_sticky_binding
+            | _ARROW signal_ref -> csr_command_binding
+signal_ref: NAME ("." NAME)*
+clock_decl: _CLOCK NAME [clock_physical_block]
+clock_physical_block: "{" _EDGE NAME "}"
+reset_decl: _RESET NAME [_AT NAME] [reset_physical_block]
+reset_physical_block: "{" _MODE NAME _POLARITY NAME _POWER_UP NAME "}"
+async_reset_decl: _ASYNC _RESET NAME [_AT NAME] [async_reset_physical_block]
+async_reset_physical_block: "{" _POLARITY NAME "}"
+register_decl: _REG NAME ":" type_name "=" source_expr [_AT NAME]
+next_assignment: NAME _NEXT_ASSIGN source_expr
+rule_decl: _RULE NAME _WHEN source_expr "{" rule_action+ "}"
+anonymous_rule_decl: _WHEN source_expr "{" rule_action+ "}"
+?rule_action: rule_assignment_target _NEXT_ASSIGN source_expr -> rule_assignment
+            | NAME "." NAME "(" [source_expr ("," source_expr)*] ")" -> resource_action
+            | QUALIFIED_CALL_HEAD "(" [source_expr ("," source_expr)*] ")" -> qualified_resource_action
+?rule_assignment_target: NAME                         -> scalar_rule_target
+                       | NAME "[" source_expr "]"     -> indexed_rule_target
+rule_priority: _PRIORITY NAME ">" NAME (">" NAME)*
+priority_block: _PRIORITY "{" priority_arm+ "}"
+?priority_arm: NAME ":" _WHEN source_expr "{" rule_action* "}" -> labeled_priority_arm
+             | _WHEN source_expr "{" rule_action* "}" -> anonymous_priority_arm
+             | priority_block -> nested_priority_arm
+fsm_decl: _FSM NAME ":" type_name "=" NAME "{" fsm_state+ "}" -> typed_fsm_decl
+        | _FSM NAME "=" NAME "." NAME "{" fsm_state+ "}" -> inferred_fsm_decl
+fsm_state: NAME "{" fsm_state_body "}"
+?fsm_state_body: _HOLD -> fsm_hold
+               | fsm_transition -> fsm_single_transition
+               | _PRIORITY "{" fsm_transition+ "}" -> fsm_priority
+fsm_transition: [_WHEN source_expr] _ARROW NAME "{" rule_action* "}"
+fifo_decl: _FIFO NAME ":" _FIFO "<" type_name "," storage_depth ">"
+memory_decl: _MEMORY NAME ":" _MEM "<" type_name "," storage_depth ">" "{" _READ_LATENCY WIDTH _COLLISION MEMORY_COLLISION "}"
+rom_decl: _ROM NAME ":" _ROM "<" type_name "," storage_depth ">" "{" _READ_LATENCY WIDTH _INIT source_expr "}"
+
+// Storage depths use the same compile-time integer expression vocabulary as
+// widths, but additionally allow a lone value parameter or signed literal.
+?storage_depth: NUMBER                       -> storage_depth_atom
+              | NAME                         -> storage_depth_atom
+              | WIDTH_SIGN width_atom         -> storage_depth_signed
+              | "(" width_expression ")"     -> storage_depth_parenthesized
+              | width_expression              -> storage_depth_expression
+
+type_name: FIXED_SHORT_TYPE -> builtin_type
+         | BUILTIN_TYPE -> builtin_type
+         | FIXED_GENERIC_TYPE_VALUE -> generic_fixed_type_value
+         | GENERIC_TYPE_VALUE -> generic_type_value
+         | type_ref     -> generic_type_ref
+         | qualified_type_name -> alias_type
+         | NAME         -> alias_type
+         | _VEC "<" (WIDTH|NAME) "," type_name ">" -> vector_type
+         | _STRING "<" (WIDTH|NAME) ">" -> string_type
+         | tuple_type -> tuple_type_passthrough
+tuple_type: "(" type_name "," type_name ("," type_name)* ")"
+type_ref: NAME "<" type_argument ("," type_argument)* ">"
+        | QUALIFIED_TYPE_NAME "<" type_argument ("," type_argument)* ">" -> qualified_type_ref
+qualified_type_name: QUALIFIED_TYPE_NAME -> qualified_name
+?type_argument: param_value | type_ref | qualified_type_name | tuple_type | FIXED_GENERIC_TYPE_VALUE -> type_value_argument
+              | GENERIC_TYPE_VALUE -> type_value_argument
+width_expression: width_atom WIDTH_OP width_atom (WIDTH_OP width_atom)*
+?width_atom: NUMBER
+           | NAME "(" (NUMBER|NAME) ")" -> intrinsic_width
+           | NAME
+           | "(" width_expression ")" -> parenthesized_width
+           | WIDTH_SIGN width_atom       -> signed_width
+
+?expr: conditional
+?conditional: logical_or
+            | logical_or "?" expr ":" conditional -> conditional_expr
+?logical_or: logical_and ("||" logical_and)* -> logical_or_expr
+?logical_and: comparison ("&&" comparison)* -> logical_and_expr
+?comparison: bit_or (COMPARISON_OP bit_or)? -> comparison_expr
+?bit_or: bit_xor ("|" bit_xor)* -> bit_or_expr
+?bit_xor: bit_and ("^" bit_and)* -> bit_xor_expr
+?bit_and: shift ("&" shift)* -> bit_and_expr
+?shift: additive (SHIFT_OP additive)* -> shift_expr
+?additive: product (ADD_OP product)* -> sum_expr
+?product: unary (PRODUCT_OP unary)* -> product_expr
+
+?unary: "-" unary -> unary_negate_expr
+      | "!" unary -> unary_not_expr
+      | "~" unary -> unary_bit_not_expr
+      | atom
+
+?atom: primary
+     | atom "." NAME -> field_expr
+     | atom "[" expr _RANGE expr "]" -> vector_range_expr
+     | atom "[" expr ":" expr "]" -> slice_expr
+     | atom "[" expr "]" -> index_expr
+     | atom _WITH "{" struct_field_value+ "}" -> struct_update_expr
+
+?primary: concat_expr
+     | vector_literal_expr
+     | tuple_literal_expr
+     | CHAR_LITERAL -> char_literal_expr
+     | STRING_LITERAL -> string_literal_expr
+     | bitcast_expr
+     | reshape_expr
+     | pack_expr
+     | unpack_expr
+     | function_call
+     | compile_time_if_expr
+     | FIXED_SHORT_TYPE -> type_value_builtin
+     | FIXED_GENERIC_TYPE_VALUE -> type_value_generic
+     | GENERIC_TYPE_VALUE -> type_value_generic
+     | VEC_GENERIC_TYPE_VALUE -> type_value_vec
+     | quantize_expr
+     | generate_expr
+     | map_expr
+     | indexed_sum_expr
+     | collection_sum_expr
+     | reduce_expr
+     | dot_expr
+     | NAME -> name_expr
+     | STRUCT_NAME -> name_expr
+     | qualified_nominal_ref -> qualified_nominal_expr
+     | pattern_constant_expr
+     | DECIMAL -> rational_expr
+     | NUMBER -> number_expr
+     | resize_expr
+     | mux_expr
+     | switch_expr
+     | delay_expr
+     | pipeline_expr
+     | architecture_expr
+     | implementation_choice_expr
+     | explore_expr
+     | struct_construct_expr
+     | tagged_union_construct_expr
+     | tagged_union_match_expr
+     | "(" expr ")"
+
+vector_literal_expr: "[" [argument_list] "]"
+tuple_literal_expr: "(" expr "," expr ("," expr)* ")"
+
+?range_bound: NUMBER -> range_number
+            | NAME -> range_name
+            | NAME "(" (NUMBER|NAME) ")" -> range_intrinsic
+            | NAME "(" width_expression ")" -> range_intrinsic
+            | "(" width_expression ")" -> range_parenthesized
+            | width_expression -> range_expression
+range_binder: NAME _IN range_bound _RANGE range_bound
+compile_time_if_expr: _IF compile_time_condition "{" expr "}" [compile_time_else_expr]
+compile_time_else_expr: _ELSE "{" expr "}"
+?functional_body: product | "{" expr "}"
+generate_expr: _GENERATE "(" range_binder ")" functional_body
+map_expr: _MAP "(" range_binder ")" functional_body
+indexed_sum_expr: _SUM "(" range_binder ")" functional_body
+collection_sum_expr: _SUM "(" expr ")"
+reduce_expr: _REDUCE "(" REDUCE_OP "," expr ")"
+dot_expr: _DOT "(" expr "," expr ["," ROUNDING_MODE] ")"
+concat_expr: _CONCAT "(" [argument_list] ")"
+bitcast_expr: _BITCAST "<" type_name _angle_call_close "(" expr ")"
+reshape_expr: _RESHAPE ["<" type_name _angle_call_close] "(" expr ")"
+pack_expr: _PACK "(" expr ")"
+unpack_expr: _UNPACK "<" type_name _angle_call_close "(" expr ")"
+
+quantize_expr: _QUANTIZE "(" expr "," ROUNDING_MODE ")" -> contextual_quantize_expr
+             | _QUANTIZE "(" expr ")" "{" _ROUND ROUNDING_MODE _OVERFLOW OVERFLOW_MODE "}" -> contextual_full_quantize_expr
+             | _QUANTIZE "<" type_name _angle_call_close "(" expr ")" "{" _ROUND ROUNDING_MODE _OVERFLOW OVERFLOW_MODE "}" -> full_quantize_expr
+
+function_call: NAME [call_specialization_arguments] "(" [argument_list] ")"
+             | QUALIFIED_CALL_HEAD [call_specialization_arguments] "(" [argument_list] ")" -> qualified_function_call
+             | PATTERN_CONST "(" ")" -> pattern_function_call
+call_specialization_arguments: _CALL_LANGLE call_specialization_argument ("," call_specialization_argument)* _CALL_RANGLE
+?call_specialization_argument: NAME "=" call_specialization_value -> named_call_specialization_argument
+                             | call_specialization_value -> positional_call_specialization_argument
+?call_specialization_value: callable_specialization_ref | type_name | width_expression | NUMBER -> call_parameter_number
+callable_specialization_ref: _FN NAME [callable_ref_specializations]
+callable_ref_specializations: _REF_LANGLE call_specialization_argument ("," call_specialization_argument)* _REF_RANGLE
+// In an ``equiv`` declaration, ``zero<x>``/``ones<x>`` retain their frozen
+// typed-pattern meaning.  Ordinary expressions additionally interpret
+// ``zeros<W>``/``ones<W>`` as exact-width raw bit constants.  Keeping one
+// syntactic form avoids a lexer conflict for ``ones<N>``; semantic context
+// resolves whether the argument is a pattern witness or a compile-time width.
+pattern_constant_expr: PATTERN_CONST "<" pattern_constant_argument ">"
+pattern_constant_argument: width_atom (WIDTH_OP width_atom)*
+argument_list: expr ("," expr)*
+resize_expr: RESIZE_OP "<" (WIDTH|NAME) _angle_call_close "(" expr ")" -> explicit_resize_expr
+           | RESIZE_OP "(" expr ")" -> contextual_resize_expr
+delay_expr: _DELAY "<" WIDTH _angle_call_close "(" expr ")"
+_angle_call_close: ">" | _CALL_RANGLE
+pipeline_expr: _PIPELINE "(" PIPELINE_DEPTH ("," pipeline_constraint)* ")" "{" expr "}"
+pipeline_constraint: PIPELINE_METRIC PIPELINE_RELATION NUMBER
+architecture_expr: _ARCHITECTURE "(" _AUTO ("," architecture_constraint)* ")" "{" expr "}"
+architecture_constraint: ARCHITECTURE_METRIC "<=" NUMBER
+implementation_choice_expr: _CHOICE "(" implementation_selection ")" "{" implementation_arm implementation_arm+ "}"
+?implementation_selection: IMPLEMENTATION_KIND -> explicit_implementation_selection
+                         | _AUTO "," _MINIMIZE "=" COST_METRIC ["," feedback_policy] ("," cost_constraint)* -> cost_implementation_selection
+feedback_policy: _FEEDBACK "=" SYNTHESIS_FEEDBACK
+cost_constraint: COST_METRIC "<=" NUMBER
+implementation_arm: IMPLEMENTATION_KIND "=>" expr
+explore_expr: _EXPLORE "{" expr explore_clause* "}"
+?explore_clause: _ALLOW EXPLORATION_FAMILY -> explore_allow
+               | _AVOID EXPLORATION_FAMILY -> explore_avoid
+               | _ALLOW "{" [EXPLORATION_FAMILY (","? EXPLORATION_FAMILY)*] "}" -> explore_allow_group
+               | _AVOID "{" [EXPLORATION_FAMILY (","? EXPLORATION_FAMILY)*] "}" -> explore_avoid_group
+               | _REQUIRE COST_METRIC EXPLORE_RELATION NUMBER -> explore_require
+               | _REQUIRE "{" [COST_METRIC EXPLORE_RELATION NUMBER (","? COST_METRIC EXPLORE_RELATION NUMBER)*] "}" -> explore_require_group
+               | _MINIMIZE COST_METRIC -> explore_minimize
+               | _MAXIMIZE COST_METRIC -> explore_maximize
+mux_expr: _MUX "(" expr "," expr "," expr ")"
+switch_expr: _SWITCH expr "{" switch_arm+ [else_arm] "}"
+           | _SWITCH QUALIFIED_SWITCH_SUBJECT "{" switch_arm+ [else_arm] "}" -> qualified_switch_expr
+switch_arm: switch_key "=>" expr
+?switch_key: NUMBER -> numeric_switch_key
+           | QUALIFIED_ARM_HEAD -> enum_switch_key
+else_arm: _ELSE "=>" expr
+struct_construct_expr: STRUCT_NAME "{" struct_field_value+ "}"
+                     | QUALIFIED_STRUCT_CONSTRUCT_HEAD "{" struct_field_value+ "}" -> qualified_struct_construct_expr
+qualified_nominal_ref: QUALIFIED_NOMINAL_REF
+// Fieldless variants use the unbraced qualified form (`Message.Idle`).
+// Requiring at least one field here prevents the following rule/FSM body brace
+// from being consumed as an empty union constructor in expressions such as
+// `when phase == TxPhase.Done { ... }`.
+tagged_union_construct_expr: QUALIFIED_CONSTRUCT_HEAD "{" struct_field_value+ "}"
+                           | QUALIFIED_EMPTY_CONSTRUCT_HEAD "{" "}"
+tagged_union_match_expr: _MATCH expr "{" tagged_union_match_arm+ "}"
+                       | _MATCH QUALIFIED_MATCH_SUBJECT "{" tagged_union_match_arm+ "}" -> qualified_tagged_union_match_expr
+tagged_union_match_arm: QUALIFIED_ARM_HEAD ["{" [tagged_union_binders] "}"] "=>" expr
+tagged_union_binders: NAME (","? NAME)*
+struct_field_value: NAME "=" source_expr -> explicit_struct_field_value
+                  | NAME -> shorthand_struct_field_value
+
+DIRECTION.3: /(?:in|out)(?![A-Za-z0-9_])/
+RESIZE_OP.3: /(?:truncate|extend)(?![A-Za-z0-9_])/
+// Keep binary +/- ahead of the anonymous unary-minus token whenever a parser
+// state can legally see both (notably between items in a concise callable
+// body).  In a unary-only state the contextual lexer still emits unary '-'.
+ADD_OP.6: "+" | "-"
+PRODUCT_OP: "*" | "/"
+SHIFT_OP.4: "<<" | ">>"
+WIDTH_OP: "<<" | "+" | "-" | "*" | "/"
+WIDTH_SIGN: "+" | "-"
+COMPARISON_OP.2: "==" | "!=" | "<=" | ">=" | "<" | ">"
+REDUCE_OP.4: "+" | "*" | "&" | "|" | "^"
+BUILTIN_TYPE.2: /(?:(?:uint|sint|bits)<(?:[1-9][0-9]*|[A-Z][A-Za-z0-9_]*(?:[+\-*\/](?:[A-Z][A-Za-z0-9_]*|[0-9]+))*)>|bit|char|[us][1-9][0-9]*)/
+FIXED_SHORT_TYPE.4: /(?:SF_Sat|UF_Sat|SF|UF)[1-9][0-9]*\.[0-9]+/
+FIXED_GENERIC_TYPE_VALUE.5: /(?:fixed|ufixed|fixed_sat|ufixed_sat)<[A-Za-z0-9_()+*\/\-\s]+,[A-Za-z0-9_()+*\/\-\s]+>/
+GENERIC_TYPE_VALUE.5: /[A-Z][A-Za-z0-9_]*<[^<>]*(?:<[^<>]*>[^<>]*)*>/
+VEC_GENERIC_TYPE_VALUE.5: /vec<[0-9]+,[^<>]+>/
+STRUCT_NAME.2: /[A-Z][A-Za-z0-9_]*/
+// Consume only the opening parenthesis after proving this item is a tuple
+// destructure.  The component names are still ordinary NAME tokens, so the
+// normal identifier policy applies and comments remain lexical whitespace.
+TUPLE_DESTRUCTURE_LPAR.12: /(?s:\((?=[^()]*\)(?:\s|\/\*.*?\*\/|\/\/[^\n]*(?:\n|$))*=(?![=>])))/
+// A destructuring RHS followed by the callable's final tuple value is the one
+// otherwise ambiguous whitespace-free item boundary: ``(a,b)=p`` then
+// ``(b,a)``.  Preserve the frozen concise spelling without globally making
+// newlines significant; ordinary calls elsewhere retain normal whitespace.
+TUPLE_DESTRUCTURE_RHS_NAME.12: /[A-Za-z_][A-Za-z0-9_]*(?=[ \t]*\r?\n[ \t]*\((?:[^()]|\([^()]*\))*?,(?:[^()]|\([^()]*\))*\)[ \t\r\n]*\})/
+// These heads use syntax-only lookahead to keep two established boundaries
+// unambiguous.  A concise array declaration must be followed by `[...]:`, and
+// a union payload constructor must begin with an actual field spelling.  The
+// latter prevents a rule/FSM body brace after `Enum.Member` from being stolen
+// by the expression grammar.
+GENERIC_ARRAY_DECL_NAME.11: /[A-Za-z_][A-Za-z0-9_]*(?=[ \t]*\[[^\]\n]+\][ \t]*:)/
+QUALIFIED_CONSTRUCT_HEAD.13: /[A-Z][A-Za-z0-9_]*\.[A-Z][A-Za-z0-9_]*(?=[ \t]*\{[ \t\r\n]*[A-Za-z_][A-Za-z0-9_]*(?:[ \t\r\n]*=|[ \t\r\n]+[A-Za-z_][A-Za-z0-9_]*|[ \t\r\n]*\}))/
+QUALIFIED_EMPTY_CONSTRUCT_HEAD.11: /[A-Z][A-Za-z0-9_]*\.[A-Z][A-Za-z0-9_]*(?=[ \t]*\{[ \t\r\n]*\})/
+// A dotted identifier is a qualified function only when an argument list
+// follows it (possibly after explicit specialization).  Keeping this boundary
+// lexical prevents ordinary field reads such as `a.re + b.re` from committing
+// to the qualified-call production inside concise multi-item callable bodies.
+QUALIFIED_CALL_HEAD.11: /[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*(?=[ \t]*(?:<[^()\n]+>)?[ \t]*\()/
+// A qualified struct constructor must begin with an actual field spelling.
+// Merely looking for ``{`` stole rule/FSM bodies and switch/match bodies after
+// an enum member such as ``phase == TxPhase.Done { ... }``.
+QUALIFIED_STRUCT_CONSTRUCT_HEAD.11: /[A-Za-z_][A-Za-z0-9_]*\.[A-Z][A-Za-z0-9_]*(?=[ \t]*\{[ \t\r\n]*[A-Za-z_][A-Za-z0-9_]*(?:[ \t\r\n]*=|[ \t\r\n]+[A-Za-z_][A-Za-z0-9_]*|[ \t\r\n]*\}))/
+QUALIFIED_NOMINAL_REF.10: /[A-Z][A-Za-z0-9_]*\.[A-Z][A-Za-z0-9_]*/
+QUALIFIED_TYPE_NAME.11: /[A-Za-z_][A-Za-z0-9_]*\.[A-Z][A-Za-z0-9_]*/
+// A qualified arm head must win over ordinary expression field access.  The
+// lookahead is syntax-neutral and applies to enum switches and union matches.
+QUALIFIED_ARM_HEAD.14: /[A-Z][A-Za-z0-9_]*\.[A-Z][A-Za-z0-9_]*(?=\s*(?:\{[^{}]*\})?\s*=>)/
+// Contextual token expected only immediately after `switch`; it keeps the
+// switch body brace from being committed to a fieldless union constructor.
+QUALIFIED_SWITCH_SUBJECT.15: /[A-Z][A-Za-z0-9_]*\.[A-Z][A-Za-z0-9_]*(?=\s*\{)/
+QUALIFIED_MATCH_SUBJECT.15: /[A-Z][A-Za-z0-9_]*\.[A-Z][A-Za-z0-9_]*(?=\s*\{)/
+NOMINAL_TYPE_CONDITION.8: /[A-Z][A-Za-z0-9_]*[ \t]*(?:==|!=)[ \t]*[A-Z][A-Za-z0-9_]*(?:<[^{}\n]+>)?/
+WIDTH: /[1-9][0-9]*/
+PIPELINE_DEPTH.3: /auto(?![A-Za-z0-9_])/ | /[1-9][0-9]*/
+PIPELINE_METRIC.3: /latency(?![A-Za-z0-9_])/ | /throughput(?![A-Za-z0-9_])/ | /ii(?![A-Za-z0-9_])/ | /dsp(?![A-Za-z0-9_])/ | /fmax(?![A-Za-z0-9_])/
+PIPELINE_RELATION.3: "<=" | "==" | ">="
+ARCHITECTURE_METRIC.3: /parallelism(?![A-Za-z0-9_])/ | /depth(?![A-Za-z0-9_])/ | /candidates(?![A-Za-z0-9_])/
+ORDERING.3: /in_order(?![A-Za-z0-9_])/ | /out_of_order(?![A-Za-z0-9_])/
+ADAPTER.3: /rv_to_credit(?![A-Za-z0-9_])/ | /credit_to_rv(?![A-Za-z0-9_])/
+CSR_ACCESS.3: /(?:rw|ro|wo|w1c|pulse|reserved)(?![A-Za-z0-9_])/
+CSR_PRIORITY.3: /hardware(?![A-Za-z0-9_])/ | /software(?![A-Za-z0-9_])/
+MEMORY_COLLISION.3: /read_first(?![A-Za-z0-9_])/ | /write_first(?![A-Za-z0-9_])/
+CDC_CROSSING.3: /sync_level(?![A-Za-z0-9_])/ | /pulse_toggle(?![A-Za-z0-9_])/ | /handshake(?![A-Za-z0-9_])/
+ARBITRATION_POLICY.3: /fixed_priority(?![A-Za-z0-9_])/ | /round_robin(?![A-Za-z0-9_])/
+GRANT_SCOPE.3: /beat(?![A-Za-z0-9_])/ | /packet(?![A-Za-z0-9_])/
+CONTRACT_KIND.3: /assume(?![A-Za-z0-9_])/ | /guarantee(?![A-Za-z0-9_])/
+// Declaration-shape lookahead keeps these words contextual: elsewhere the
+// lexer still returns NAME, so ports and ordinary bindings may use them.
+VERIFICATION_GOAL_KIND.4: /assert(?=[ \t\r\n]+[A-Za-z_][A-Za-z0-9_]*(?:[ \t]*@[ \t]*[A-Za-z_][A-Za-z0-9_]*)?[ \t\r\n]*\{)/ | /cover(?=[ \t\r\n]+[A-Za-z_][A-Za-z0-9_]*(?:[ \t]*@[ \t]*[A-Za-z_][A-Za-z0-9_]*)?[ \t\r\n]*\{)/
+VERIFICATION_SCOPED_GOAL_KIND.4: /assert(?=[ \t\r\n]+[A-Za-z_][A-Za-z0-9_]*[ \t\r\n]*\{)/ | /ensure(?=[ \t\r\n]+[A-Za-z_][A-Za-z0-9_]*[ \t\r\n]*\{)/ | /cover(?=[ \t\r\n]+[A-Za-z_][A-Za-z0-9_]*[ \t\r\n]*\{)/
+_VERIFICATION_CONTRACT.4: /contract(?=[ \t\r\n]+[A-Za-z_][A-Za-z0-9_]*(?:[ \t]*@[ \t]*[A-Za-z_][A-Za-z0-9_]*)?[ \t\r\n]*\{)/
+_VERIFICATION_REQUIRE.4: /require(?=[ \t\r\n]+[A-Za-z_][A-Za-z0-9_]*[ \t\r\n]*\{)/
+IMPLEMENTATION_KIND.3: /mul_add(?![A-Za-z0-9_])/ | /dsp_mac(?![A-Za-z0-9_])/
+COST_METRIC.3: /lut(?![A-Za-z0-9_])/ | /ff(?![A-Za-z0-9_])/ | /dsp(?![A-Za-z0-9_])/ | /bram(?![A-Za-z0-9_])/ | /latency(?![A-Za-z0-9_])/ | /ii(?![A-Za-z0-9_])/ | /fmax_est(?![A-Za-z0-9_])/ | /fmax(?![A-Za-z0-9_])/
+EXPLORATION_FAMILY.3: /pipeline(?![A-Za-z0-9_])/ | /dsp(?![A-Za-z0-9_])/ | /reduction(?![A-Za-z0-9_])/ | /reassociate(?![A-Za-z0-9_])/ | /adapter(?![A-Za-z0-9_])/
+EXPLORE_RELATION.3: "<=" | ">=" | "=="
+SYNTHESIS_FEEDBACK.3: /optional_yosys(?![A-Za-z0-9_])/
+ROUNDING_MODE.4: /toward_zero(?![A-Za-z0-9_])/ | /floor(?![A-Za-z0-9_])/ | /away_zero(?![A-Za-z0-9_])/ | /nearest_even(?![A-Za-z0-9_])/
+OVERFLOW_MODE.4: /wrap(?![A-Za-z0-9_])/ | /saturate(?![A-Za-z0-9_])/
+OPERATOR_SYMBOL.4: "+" | "-" | "*"
+_CALL_LANGLE.10: /<(?=(?:[^<>\n]|<(?:[^<>\n]|<[^<>\n]*>)*>)+>\s*\()/
+// Lower priority than the established call delimiters.  Existing ``f<T>(x)``
+// keeps its lexer path, while ``fn f<T>`` can close without a following ``(``.
+_REF_LANGLE.9: "<"
+_REF_RANGLE.9: ">"
+_CALL_RANGLE.10: />(?=\s*\()/
+DECIMAL.5: /-?[0-9](?:_?[0-9])*\.[0-9](?:_?[0-9])*/
+NUMBER: /(?:0[bB][01](?:_?[01])*|0[xX][0-9a-fA-F](?:_?[0-9a-fA-F])*|[0-9](?:_?[0-9])*)/
+// Raw source characters are printable ASCII. Escapes provide every byte value.
+CHAR_LITERAL.7: /'(?:(?!['\\])[\x20-\x7e]|\\(?:0|n|r|t|\\|'|"|x[0-9a-fA-F]{2}))'/
+STRING_LITERAL.7: /"(?:(?!["\\])[\x20-\x7e]|\\(?:0|n|r|t|\\|'|"|x[0-9a-fA-F]{2}))*"/
+RESOURCE_DIRECTION.3: /input(?![A-Za-z0-9_])/ | /output(?![A-Za-z0-9_])/
+RESOURCE_SIGNEDNESS.3: /signed(?![A-Za-z0-9_])/ | /unsigned(?![A-Za-z0-9_])/
+DEVICE_PART: /[A-Za-z0-9][A-Za-z0-9_.-]*/
+NAME: /[A-Za-z_][A-Za-z0-9_]*/
+_EXPLORE.4: /explore(?![A-Za-z0-9_])/
+_OPERATOR.4: /operator(?![A-Za-z0-9_])/
+_ALLOW.4: /allow(?![A-Za-z0-9_])/
+_AVOID.4: /avoid(?![A-Za-z0-9_])/
+_REQUIRE.4: /require(?![A-Za-z0-9_])/
+_MAXIMIZE.4: /maximize(?![A-Za-z0-9_])/
+_TYPE.3: /type(?![A-Za-z0-9_])/
+_RESOURCE.3: /resource(?![A-Za-z0-9_])/
+_TARGET.3: /target(?![A-Za-z0-9_])/
+_DEVICE.3: /device(?![A-Za-z0-9_])/
+_PORT.3: /port(?![A-Za-z0-9_])/
+_OPERATION.3: /operation(?![A-Za-z0-9_])/
+_RESOURCE_CLASS.3: /class(?![A-Za-z0-9_])/
+_CAPABILITY.3: /capability(?![A-Za-z0-9_])/
+_LIMIT.3: /limit(?![A-Za-z0-9_])/
+_RESOURCE_REGISTER.3: /register_site(?![A-Za-z0-9_])/
+_PIPELINE_SITE.3: /pipeline_site(?![A-Za-z0-9_])/
+_PIPELINE_CONFIG.3: /pipeline_config(?![A-Za-z0-9_])/
+_LOCATION.3: /location(?![A-Za-z0-9_])/
+_LOCAL.3: /local(?![A-Za-z0-9_])/
+_DELAY_PS.3: /delay_ps(?![A-Za-z0-9_])/
+_ENABLE.3: /enable(?![A-Za-z0-9_])/
+_SETTING.3: /setting(?![A-Za-z0-9_])/
+_DEDICATED.3: /dedicated(?![A-Za-z0-9_])/
+_WIDTH.3: /width(?![A-Za-z0-9_])/
+_RELATION.3: /relation(?![A-Za-z0-9_])/
+_FALLBACK.3: /fallback(?![A-Za-z0-9_])/
+_BINDING.3: /binding(?![A-Za-z0-9_])/
+_PHYSICAL_PRIMITIVE.3: /physical_primitive(?![A-Za-z0-9_])/
+_PHYSICAL_SITE.3: /physical_site(?![A-Za-z0-9_])/
+_PHYSICAL_EDGE.3: /physical_edge(?![A-Za-z0-9_])/
+_PROVIDES.3: /provides(?![A-Za-z0-9_])/
+_PART.3: /part(?![A-Za-z0-9_])/
+_INVENTORY.3: /inventory(?![A-Za-z0-9_])/
+_DEDICATED_CAPACITY.3: /dedicated_capacity(?![A-Za-z0-9_])/
+_REQUIRE_RESOURCE.3: /require_resource(?![A-Za-z0-9_])/
+_USE_PIPELINE.3: /use_pipeline(?![A-Za-z0-9_])/
+_REQUIRE_DEDICATED.3: /require_dedicated(?![A-Za-z0-9_])/
+_LATENCY.3: /latency(?![A-Za-z0-9_])/
+_II.3: /ii(?![A-Za-z0-9_])/
+_TIMING.3: /timing(?![A-Za-z0-9_])/
+_MODULE.3: /module(?![A-Za-z0-9_])/
+_EXTERN.3: /extern(?![A-Za-z0-9_])/
+_MODEL.3: /model(?![A-Za-z0-9_])/
+_INST.3: /inst(?![A-Za-z0-9_])/
+_STRUCT.3: /struct(?![A-Za-z0-9_])/
+_ENUM.3: /enum(?![A-Za-z0-9_])/
+_UNION.3: /union(?![A-Za-z0-9_])/
+_FN.3: /fn(?![A-Za-z0-9_])/
+_VEC.3: /vec(?![A-Za-z0-9_])/
+_STRING.3: /string(?![A-Za-z0-9_])/
+_WIRE.3: /wire(?![A-Za-z0-9_])/
+_RV.3: /rv(?![A-Za-z0-9_])/
+_CREDIT.3: /credit(?![A-Za-z0-9_])/
+_PACKET.3: /packet(?![A-Za-z0-9_])/
+_CONCAT.3: /concat(?![A-Za-z0-9_])/
+_WITH.3: /with(?![A-Za-z0-9_])/
+_BITCAST.3: /bitcast(?![A-Za-z0-9_])/
+_RESHAPE.3: /reshape(?![A-Za-z0-9_])/
+_PACK.3: /pack(?![A-Za-z0-9_])/
+_UNPACK.3: /unpack(?![A-Za-z0-9_])/
+_VC_CREDIT.3: /vc_credit(?![A-Za-z0-9_])/
+_INTERFACE.3: /interface(?![A-Za-z0-9_])/
+_REQUEST_RESPONSE.3: /request_response(?![A-Za-z0-9_])/
+_MAX_OUTSTANDING.3: /max_outstanding(?![A-Za-z0-9_])/
+_ORDERING.3: /ordering(?![A-Za-z0-9_])/
+_MATCH_BY.3: /match_by(?![A-Za-z0-9_])/
+_CONNECT.3: /connect(?![A-Za-z0-9_])/
+_TRANSFORM.3: /transform(?![A-Za-z0-9_])/
+// The complete arrow must win before ADD_OP sees its leading minus in parser
+// states shared by arithmetic expressions and FSM/connect declarations.
+_ARROW.12: "->"
+_BUFFER.3: /buffer(?![A-Za-z0-9_])/
+_REQUEST_BUFFER.3: /request_buffer(?![A-Za-z0-9_])/
+_RESPONSE_BUFFER.3: /response_buffer(?![A-Za-z0-9_])/
+_ADAPTER.3: /adapter(?![A-Za-z0-9_])/
+_CROSSING.3: /crossing(?![A-Za-z0-9_])/
+_ASYNC_FIFO.3: /async_fifo(?![A-Za-z0-9_])/
+_ARBITER.3: /arbiter(?![A-Za-z0-9_])/
+_POLICY.3: /policy(?![A-Za-z0-9_])/
+_GRANT.3: /grant(?![A-Za-z0-9_])/
+_DISABLE.3: /disable(?![A-Za-z0-9_])/
+_IFF.3: /iff(?![A-Za-z0-9_])/
+_CSR.3: /csr(?![A-Za-z0-9_])/
+_AT.4: "@"
+_STICKY.3: /sticky(?![A-Za-z0-9_])/
+_PRIORITY.3: /priority(?![A-Za-z0-9_])/
+_FSM.3: /fsm(?![A-Za-z0-9_])/
+_HOLD.3: /hold(?![A-Za-z0-9_])/
+_RULE.3: /rule(?![A-Za-z0-9_])/
+_WHEN.3: /when(?![A-Za-z0-9_])/
+_IF.4: /if(?![A-Za-z0-9_])/
+_FIFO.3: /fifo(?![A-Za-z0-9_])/
+_MEMORY.3: /memory(?![A-Za-z0-9_])/
+_MEM.3: /mem(?![A-Za-z0-9_])/
+// Priority is above the legacy CSR `ro` token so `rom` remains one keyword.
+_ROM.4: /rom(?![A-Za-z0-9_])/
+_READ_LATENCY.3: /read_latency(?![A-Za-z0-9_])/
+_INIT.3: /init(?![A-Za-z0-9_])/
+_COLLISION.3: /collision(?![A-Za-z0-9_])/
+_CLOCK.3: /clock(?![A-Za-z0-9_])/
+_RESET.3: /reset(?![A-Za-z0-9_])/
+_ASYNC.3: /async(?![A-Za-z0-9_])/
+_EDGE.3: /edge(?![A-Za-z0-9_])/
+_MODE.3: /mode(?![A-Za-z0-9_])/
+_POLARITY.3: /polarity(?![A-Za-z0-9_])/
+_POWER_UP.3: /power_up(?![A-Za-z0-9_])/
+// Keep keyword matching from consuming the prefix of identifiers such as
+// `regbus`, which are valid ordinary source names.
+_REG.3: /reg(?![A-Za-z0-9_])/
+// ``delay`` remains a legal user identifier.  The intrinsic keyword is only
+// selected when its mandatory specialization delimiter follows, avoiding a
+// contextual-lexer collision in declarations such as ``fifo delay : ...``.
+_DELAY.3: /delay(?=[ \t]*<)/
+_PIPELINE.3: /pipeline(?![A-Za-z0-9_])/
+_ARCHITECTURE.3: /architecture(?![A-Za-z0-9_])/
+_CHOICE.3: /choice(?![A-Za-z0-9_])/
+_AUTO.3: /auto(?![A-Za-z0-9_])/
+_MINIMIZE.3: /minimize(?![A-Za-z0-9_])/
+_FEEDBACK.3: /feedback(?![A-Za-z0-9_])/
+_NEXT_ASSIGN.5: "<-"
+_MUX.3: /mux(?![A-Za-z0-9_])/
+_SWITCH.5: /switch(?![A-Za-z0-9_])/
+_MATCH.5: /match(?![A-Za-z0-9_])/
+_ELSE.3: /else(?![A-Za-z0-9_])/
+_GENERATE.3: /generate(?![A-Za-z0-9_])/
+_MAP.3: /map(?![A-Za-z0-9_])/
+_SUM.3: /sum(?![A-Za-z0-9_])/
+_REDUCE.3: /reduce(?![A-Za-z0-9_])/
+_DOT.3: /dot(?![A-Za-z0-9_])/
+_QUANTIZE.4: /quantize(?![A-Za-z0-9_])/
+_ROUND.4: /round(?![A-Za-z0-9_])/
+_OVERFLOW.4: /overflow(?![A-Za-z0-9_])/
+_IN.3: /in(?![A-Za-z0-9_])/
+_RANGE.4: ".."
+PATTERN_CONST.5: /zero(?![A-Za-z0-9_])/ | /zeros(?![A-Za-z0-9_])/ | /ones(?![A-Za-z0-9_])/
+GUARD_ATOM: /(unsigned|signed|bits|bit|width|same_type|constant|power_of_two)\([^()]*\)(\s*==\s*[0-9]+)?/
+_EQUIV_OP.6: "<=>"
+_EQUIV.3: /equiv(?![A-Za-z0-9_])/
+_IMPORT.3: /import(?![A-Za-z0-9_])/
+_AS.3: /as(?![A-Za-z0-9_])/
+_PROTOCOL.3: /protocol(?![A-Za-z0-9_])/
+_MEMBER.3: /member(?![A-Za-z0-9_])/
+_WHERE.3: /where(?![A-Za-z0-9_])/
+_ROLE.3: /role(?![A-Za-z0-9_])/
+_CHANNEL.3: /channel(?![A-Za-z0-9_])/
+// Imports remain logical dotted identities.  Physical paths, URLs, and Git
+// revisions belong to the project manifest/lock rather than source syntax.
+LOGICAL_IMPORT: /[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)+/
+
+%import common.WS
+%ignore WS
+%ignore /\/\/[^\n]*/
+// Non-nested block comments are lexical whitespace.
+%ignore /(?s:\/\*.*?\*\/)/

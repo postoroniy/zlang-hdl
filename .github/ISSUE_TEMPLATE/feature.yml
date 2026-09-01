@@ -1,0 +1,26 @@
+name: Feature request
+description: Propose a bounded language, backend, standard-library, or tooling improvement.
+title: "[feature] "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Real-design problem
+      description: Explain the concrete design that cannot be expressed or validated cleanly today.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Include syntax only when a compiler/library solution is insufficient.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Suggested acceptance test
+    validations:
+      required: true
+

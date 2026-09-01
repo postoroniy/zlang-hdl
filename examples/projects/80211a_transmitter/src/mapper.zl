@@ -1,0 +1,376 @@
+// IEEE-authoritative constellation mapping and natural-order
+// FFT-bin serialization for the bounded 6/12/24 Mbit/s profile.
+//
+// WifiRate remains nominal, restarts the pilot epoch at every accepted packet start,
+// and preserves packet/symbol metadata while presenting one Q1.15 complex FFT
+// bin per ready/valid transfer.
+
+import wifi80211a_transmitter.interleaver
+import wifi80211a_transmitter.data_types
+import std.math.complex
+
+type WifiMapperSample = fixed<16,15>
+type WifiMapperComplex = Complex<WifiMapperSample>
+
+fn bpsk_level(value : bit) -> s16 {
+    value ? 32767 : -32768
+}
+
+fn bpsk_symbol(value : bit) -> ComplexRaw16 {
+    ComplexRaw16 { i = bpsk_level(value) q = 0 }
+}
+
+fn qpsk_symbol(value : bits<2>) -> ComplexRaw16 {
+    ComplexRaw16 {
+        i = value[1] ? 23170 : -23170
+        q = value[0] ? 23170 : -23170
+    }
+}
+
+fn qam16_level(value : bits<2>) -> s16 {
+    switch value {
+        0 => -31086
+        1 => -10362
+        2 => 31086
+        3 => 10362
+        else => 0
+    }
+}
+
+fn qam16_symbol(value : bits<4>) -> ComplexRaw16 {
+    ComplexRaw16 {
+        i = qam16_level(value[3:2])
+        q = qam16_level(value[1:0])
+    }
+}
+
+fn null_symbol() -> ComplexRaw16 {
+    ComplexRaw16 { i = 0 q = 0 }
+}
+
+fn frame_from_symbols(
+    symbols : vec<48,ComplexRaw16>,
+    polarity : bit
+) -> vec<64,ComplexRaw16> {
+    concat(
+        generate(i in 0..6) null_symbol(),
+        generate(i in 0..5) symbols[i],
+        [bpsk_symbol(polarity)],
+        generate(i in 0..13) symbols[5 + i],
+        [bpsk_symbol(polarity)],
+        generate(i in 0..6) symbols[18 + i],
+        generate(i in 0..1) null_symbol(),
+        generate(i in 0..6) symbols[24 + i],
+        [bpsk_symbol(polarity)],
+        generate(i in 0..13) symbols[30 + i],
+        [bpsk_symbol(polarity == 0)],
+        generate(i in 0..5) symbols[43 + i],
+        generate(i in 0..5) null_symbol()
+    )
+}
+
+fn mapper_frame48(
+    rate : WifiRate,
+    words : vec<4,bits<48>>,
+    polarity : bit
+) -> vec<64,ComplexRaw16> {
+    frame_from_symbols(
+        switch rate {
+            WifiRate.Bpsk6 => generate(i in 0..48)
+                bpsk_symbol(words[0][47 - i])
+            WifiRate.Qpsk12 => generate(i in 0..48)
+                qpsk_symbol(concat(
+                    words[0][47 - i],
+                    words[1][47 - i]
+                ))
+            WifiRate.Qam16_24 => generate(i in 0..48)
+                qam16_symbol(concat(
+                    words[0][47 - i],
+                    words[1][47 - i],
+                    words[2][47 - i],
+                    words[3][47 - i]
+                ))
+            WifiRate.Continue => generate(i in 0..48) null_symbol()
+        },
+        polarity
+    )
+}
+
+struct WifiMappedFrameMeta {
+    rate : WifiRate
+    symbol_index : u12
+}
+
+type WifiMappedFrame = FrameBeat<vec<64,WifiMapperComplex>,WifiMappedFrameMeta>
+type WifiMappedSample = FrameBeat<WifiMapperComplex,WifiSampleMeta>
+
+fn raw_mapper_sample(value : ComplexRaw16) -> WifiMapperComplex {
+    // The constellation helpers already produce exact signed Q1.15 raw
+    // patterns.  fixed_raw preserves those sixteen bits without quantization.
+    Complex {
+        re = fixed_raw(value.i)
+        im = fixed_raw(value.q)
+    }
+}
+
+fn ieee_mapper_frame(
+    rate : WifiRate,
+    words : vec<4,bits<48>>,
+    polarity : bit
+) -> vec<64,WifiMapperComplex> {
+    generate(i in 0..64) raw_mapper_sample(
+        mapper_frame48(
+            rate,
+            words,
+            polarity
+        )[i]
+    )
+}
+
+// Raw public-boundary numerical witness.  It exercises sparse rate decoding
+// without exposing a nominal enum through a top-level input port.
+module IeeeMapperBlock64 {
+    in raw_rate : bits<3>
+    in word0, word1, word2, word3 : bits<48>
+    in polarity : bit
+    out valid : bit
+    out frame : vec<64,WifiMapperComplex>
+
+    rate : WifiRate = enum_decode<WifiRate>(
+        raw_rate,
+        WifiRate.Continue
+    )
+    valid = enum_valid<WifiRate>(raw_rate)
+        & (rate != WifiRate.Continue)
+    frame = ieee_mapper_frame(
+        rate,
+        [word0, word1, word2, word3],
+        polarity
+    )
+}
+
+module IeeeMapperFrame64 {
+    in raw_rate : bits<3>
+    in word0, word1, word2, word3 : bits<48>
+    in polarity : bit
+    out frame : vec<64,WifiMapperComplex>
+
+    rate : WifiRate = enum_decode<WifiRate>(
+        raw_rate,
+        WifiRate.Continue
+    )
+    frame = ieee_mapper_frame(
+        rate,
+        [word0, word1, word2, word3],
+        polarity
+    )
+}
+
+// Collect the one, two, or four interleaved chunks belonging to one OFDM
+// symbol and commit exactly one whole natural-order FFT frame.  The pilot LFSR
+// advances on this commit only; partial chunks and output stalls do not alter
+// it.  A packet-start beat selects the frozen initial pilot epoch before the
+// same cycle's possible BPSK symbol commit.
+module IeeeMapper64 {
+    clock clk reset rst
+
+    in input : rv<WifiInterleavedWord>
+    out output : rv<WifiMappedFrame>
+
+    reg have_packet : bit = 0
+    reg current_rate : WifiRate = WifiRate.Continue
+    reg input_count : u2 = 0
+    reg words : vec<3,bits<48>> = repeat(0)
+    reg packet_first : bit = 0
+    reg symbol_index : u12 = 0
+    reg pilot_state : bits<127> =
+        0x78869B7EEC8A4A79958C25EA82D72380
+
+    fifo frames : fifo<WifiMappedFrame,2>
+
+    incoming_rate = input.payload.meta.rate
+    at_boundary = input_count == 0
+    rate_supported = (incoming_rate == WifiRate.Bpsk6)
+        | (incoming_rate == WifiRate.Qpsk12)
+        | (incoming_rate == WifiRate.Qam16_24)
+    same_symbol_rate = at_boundary | (incoming_rate == current_rate)
+    effective_rate : WifiRate = at_boundary
+        ? incoming_rate
+        : current_rate
+    completes = (effective_rate == WifiRate.Bpsk6)
+        | ((effective_rate == WifiRate.Qpsk12) & (input_count == 1))
+        | ((effective_rate == WifiRate.Qam16_24) & (input_count == 3))
+    metadata_shape = (input.payload.meta.symbol_first == at_boundary)
+        & (input.payload.meta.symbol_last == completes)
+        & ((input.payload.first == 0) | at_boundary)
+        & ((input.payload.last == 0) | completes)
+    packet_shape = input.payload.first != have_packet
+    accepted_shape = rate_supported
+        & same_symbol_rate
+        & metadata_shape
+        & packet_shape
+
+    next_input_count : u2 = completes
+        ? 0
+        : truncate(input_count + 1)
+    next_words = generate(i in 0..3) {
+        input_count == i ? input.payload.data : words[i]
+    }
+    accepted_words = concat(next_words, [input.payload.data])
+    selected_packet_first = at_boundary
+        ? input.payload.first
+        : packet_first
+
+    epoch_pilot_state : bits<127> = input.payload.first
+        ? 0x78869B7EEC8A4A79958C25EA82D72380
+        : pilot_state
+    pilot_bit = epoch_pilot_state[0]
+    next_pilot_state = (epoch_pilot_state << 1)
+        | (epoch_pilot_state >> 126)
+    effective_symbol_index : u12 = input.payload.first
+        ? 0
+        : symbol_index
+
+    completed_frame : WifiMappedFrame = FrameBeat {
+        data = ieee_mapper_frame(
+            effective_rate,
+            accepted_words,
+            pilot_bit
+        )
+        meta = WifiMappedFrameMeta {
+            rate = effective_rate
+            symbol_index = effective_symbol_index
+        }
+        first = selected_packet_first
+        last = input.payload.last
+    }
+    retiring_frame = output.transfer
+
+    input.ready = accepted_shape
+        & ((completes == 0) | frames.ready | retiring_frame)
+    output.payload = frames.front
+    output.valid = frames.valid
+
+    accept: when input.transfer {
+        have_packet <- input.payload.last == 0
+        current_rate <- effective_rate
+        input_count <- next_input_count
+        words <- next_words
+        packet_first <- at_boundary
+            ? input.payload.first
+            : packet_first
+        pilot_state <- completes
+            ? next_pilot_state
+            : epoch_pilot_state
+        symbol_index <- completes
+            ? truncate(effective_symbol_index + 1)
+            : effective_symbol_index
+    }
+
+    complete: when input.transfer & completes {
+        frames.push(completed_frame)
+    }
+
+    retire: when output.transfer {
+        frames.pop()
+    }
+}
+
+// Explicit whole-frame to scalar serializer.  The data member of each output
+// beat has exactly the rv<Complex<fixed<16,15>>> payload required by
+// IFFT64DIFExactChain; the surrounding FrameBeat keeps packet and symbol
+// attribution available to a later aligned metadata path.
+module IeeeMapperSerializer64 {
+    clock clk reset rst
+
+    in input : rv<WifiMappedFrame>
+    out output : rv<WifiMappedSample>
+
+    fifo frames : fifo<WifiMappedFrame,2>
+    reg sample_index : u6 = 0
+
+    last_sample = sample_index == 63
+    retiring_frame = output.transfer & last_sample
+
+    input.ready = frames.ready | retiring_frame
+    output.payload = FrameBeat {
+        data = frames.front.data[sample_index]
+        meta = WifiSampleMeta {
+            rate = frames.front.meta.rate
+            symbol_index = frames.front.meta.symbol_index
+            symbol_first = sample_index == 0
+            symbol_last = last_sample
+        }
+        first = frames.front.first & (sample_index == 0)
+        last = frames.front.last & last_sample
+    }
+    output.valid = frames.valid
+
+    accept: when input.transfer {
+        frames.push(input.payload)
+    }
+
+    advance: when output.transfer {
+        sample_index <- last_sample
+            ? 0
+            : truncate(sample_index + 1)
+    }
+
+    retire: when retiring_frame {
+        frames.pop()
+    }
+}
+
+module IeeeMapperStream64 {
+    clock clk reset rst
+
+    in input : rv<WifiInterleavedWord>
+    out output : rv<WifiMappedSample>
+
+    mapper : IeeeMapper64
+    serializer : IeeeMapperSerializer64
+
+    input -> mapper.input
+    mapper.output -> serializer.input
+    serializer.output -> output
+}
+
+// Explicit metadata split at the numerical IFFT boundary.  `output` can be
+// connected directly to IFFT64DIFExactChain.input; the scalar sideband remains
+// aligned with the held ready/valid payload for a later reorder/CP metadata
+// path.  No packet information is inferred or discarded implicitly.
+module IeeeMappedSampleToIFFT64 {
+    in input : rv<WifiMappedSample>
+    out output : rv<WifiMapperComplex>
+    out metadata : WifiSampleMeta
+    out packet_first, packet_last : bit
+
+    output.payload = input.payload.data
+    output.valid = input.valid
+    input.ready = output.ready
+    metadata = input.payload.meta
+    packet_first = input.payload.first
+    packet_last = input.payload.last
+}
+
+// Concrete raw-boundary witness for backend and end-to-end packet validation.
+// The nominal WifiRate never crosses a public input boundary.
+module IeeePacketMapper64 {
+    clock clk reset rst
+
+    in command : rv<WifiTxCommand>
+    in psdu : rv<WifiPsduBeat>
+    out signal : rv<bits<24>>
+    out output : rv<WifiMappedSample>
+
+    encoder_interleaver : IeeePacketEncoderInterleaver24
+    mapper : IeeeMapper64
+    serializer : IeeeMapperSerializer64
+
+    command -> encoder_interleaver.command
+    psdu -> encoder_interleaver.psdu
+    encoder_interleaver.signal -> signal
+    encoder_interleaver.output -> mapper.input
+    mapper.output -> serializer.input
+    serializer.output -> output
+}

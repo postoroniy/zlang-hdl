@@ -1,0 +1,17 @@
+saturation root=%2
+equivalence mathematical observations=typed_value
+bounds max_iterations=8 max_terms=256
+result saturated=true truncated=false iterations=1 eclasses=3 candidates=1
+rules none
+rewrite bit_or_zero enabled=true fired=false direction=equality provenance=builtin:bit_or_zero guards=none
+rewrite bit_xor_zero enabled=true fired=false direction=equality provenance=builtin:bit_xor_zero guards=none
+rewrite extend_identity enabled=true fired=false direction=equality provenance=builtin:extend_identity guards=none
+rewrite mux_constant_false enabled=true fired=false direction=equality provenance=builtin:mux_constant_false guards=none
+rewrite mux_constant_true enabled=true fired=false direction=equality provenance=builtin:mux_constant_true guards=none
+rewrite mux_identity enabled=true fired=false direction=equality provenance=builtin:mux_identity guards=none
+rewrite shift_left_zero enabled=true fired=false direction=equality provenance=builtin:shift_left_zero guards=none
+rewrite shift_right_zero enabled=true fired=false direction=equality provenance=builtin:shift_right_zero guards=none
+rewrite truncate_identity enabled=true fired=false direction=equality provenance=builtin:truncate_identity guards=none
+rejections none
+eclass 0 type=u16
+  original (binary:u16 operator=* operand_type=u16 (input:u8 name=x) (constant:u8 value=8))

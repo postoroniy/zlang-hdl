@@ -1,0 +1,17 @@
+* text=auto eol=lf
+
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+*.zl text diff
+*.sv text diff
+*.hs text diff
+*.lark text diff
+*.json text
+*.toml text
+*.yml text
+*.yaml text
+
+examples/generated/** linguist-generated=true
+

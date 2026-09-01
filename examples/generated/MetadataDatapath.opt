@@ -1,0 +1,28 @@
+module MetadataDatapath
+stage selected_architecture
+nodes value=20 state=1 protocol=0 transaction=0 architecture=2
+expressions
+  %0 value.input type=vec<4,u8> width=32 signedness=aggregate latency=0 ii=1 domains=[clk] purity=pure effects=[none] origins=[9:22-9:29:name samples] name=samples
+  %1 value.input type=vec<4,u8> width=32 signedness=aggregate latency=0 ii=1 domains=[clk] purity=pure effects=[none] origins=[9:31-9:43:name coefficients] name=coefficients
+  %2 value.vector_index type=u8 width=8 signedness=unsigned latency=0 ii=1 domains=[clk] purity=pure effects=[none] origins=[9:18-9:44:dot] %0 index=0
+  %3 value.vector_index type=u8 width=8 signedness=unsigned latency=0 ii=1 domains=[clk] purity=pure effects=[none] origins=[9:18-9:44:dot] %1 index=0
+  %4 value.binary type=u16 width=16 signedness=unsigned latency=0 ii=1 domains=[clk] purity=pure effects=[none] origins=[9:18-9:44:dot] %2 %3 operator=* operand_type=u16
+  %5 value.vector_index type=u8 width=8 signedness=unsigned latency=0 ii=1 domains=[clk] purity=pure effects=[none] origins=[9:18-9:44:dot] %0 index=1
+  %6 value.vector_index type=u8 width=8 signedness=unsigned latency=0 ii=1 domains=[clk] purity=pure effects=[none] origins=[9:18-9:44:dot] %1 index=1
+  %7 value.binary type=u16 width=16 signedness=unsigned latency=0 ii=1 domains=[clk] purity=pure effects=[none] origins=[9:18-9:44:dot] %5 %6 operator=* operand_type=u16
+  %8 value.vector_index type=u8 width=8 signedness=unsigned latency=0 ii=1 domains=[clk] purity=pure effects=[none] origins=[9:18-9:44:dot] %0 index=2
+  %9 value.vector_index type=u8 width=8 signedness=unsigned latency=0 ii=1 domains=[clk] purity=pure effects=[none] origins=[9:18-9:44:dot] %1 index=2
+  %10 value.binary type=u16 width=16 signedness=unsigned latency=0 ii=1 domains=[clk] purity=pure effects=[none] origins=[9:18-9:44:dot] %8 %9 operator=* operand_type=u16
+  %11 value.vector_index type=u8 width=8 signedness=unsigned latency=0 ii=1 domains=[clk] purity=pure effects=[none] origins=[9:18-9:44:dot] %0 index=3
+  %12 value.vector_index type=u8 width=8 signedness=unsigned latency=0 ii=1 domains=[clk] purity=pure effects=[none] origins=[9:18-9:44:dot] %1 index=3
+  %13 value.binary type=u16 width=16 signedness=unsigned latency=0 ii=1 domains=[clk] purity=pure effects=[none] origins=[9:18-9:44:dot] %11 %12 operator=* operand_type=u16
+  %14 value.dot type=vec<4,u16> width=64 signedness=aggregate latency=0 ii=1 domains=[clk] purity=pure effects=[none] origins=[9:18-9:44:dot] %0 %1 %4 %7 %10 %13
+  %15 value.reduce type=u18 width=18 signedness=unsigned latency=0 ii=1 domains=[clk] purity=pure effects=[none] origins=[9:18-9:44:dot] %14 operator=+
+  %16 state.delay type=u18 width=18 signedness=unsigned latency=1 ii=1 domains=[clk] purity=observational effects=[time_shift] origins=[9:9-9:45:delay<1>] %15 cycles=1 instance=0
+entities
+  architecture:module:MetadataDatapath architecture.module name=MetadataDatapath
+  architecture:clock_domain:clk architecture.clock_domain name=clk reset=rst
+  value:port:samples value.port name=samples protocol=wire
+  value:port:coefficients value.port name=coefficients protocol=wire
+  value:port:y value.port name=y protocol=wire
+  value:assignment:y:value:0 value.assignment name=y.value %16

@@ -1,0 +1,63 @@
+struct Request { data : u8 }
+struct Response { data : u8 }
+
+module ArrayRequester {
+    clock clk
+    reset rst
+    in data : u8
+    in issue : bit
+    in consume : bit
+    out response : u8
+    interface mem : request_response<Request,Response> {
+        max_outstanding 2
+        ordering in_order
+    }
+    mem.request.payload = Request { data = data }
+    mem.request.valid = issue
+    mem.response.ready = consume
+    response = mem.response.payload.data
+}
+
+module ArrayResponder {
+    clock clk
+    reset rst
+    in accept : bit
+    in produce : bit
+    in response_data : u8
+    out accepted : bit
+    interface mem : request_response<Request,Response> {
+        max_outstanding 2
+        ordering in_order
+    }
+    mem.request.ready = accept
+    mem.response.payload = Response { data = response_data }
+    mem.response.valid = produce
+    accepted = mem.request.transfer
+}
+
+module RequestResponseArrayTop {
+    clock clk
+    reset rst
+    in request_data : vec<2,u8>
+    in issue : vec<2,bit>
+    in accept : vec<2,bit>
+    in consume : vec<2,bit>
+    in produce : vec<2,bit>
+    in response_data : vec<2,u8>
+    out responses : vec<2,u8>
+    out accepted : vec<2,bit>
+
+    inst requester[2] : ArrayRequester
+    inst responder[2] : ArrayResponder
+    generate(i in 0..2) {
+        requester[i].data = request_data[i]
+        requester[i].issue = issue[i]
+        requester[i].consume = consume[i]
+        responder[i].accept = accept[i]
+        responder[i].produce = produce[i]
+        responder[i].response_data = response_data[i]
+        connect requester[i].mem -> responder[i].mem
+    }
+    responses = generate(i in 0..2) requester[i].response
+    accepted = generate(i in 0..2) responder[i].accepted
+}

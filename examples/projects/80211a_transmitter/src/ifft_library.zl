@@ -1,0 +1,215 @@
+// Bounded inverse radix-2 DIF-SDF numerical witness for IFFT64.
+//
+// This reference deliberately uses two mutually exclusive typed banks.  The
+// input bank contains only Q1.15 samples.  The feedback bank contains only the
+// exact Q5.37 result of (a-b)*W.  This avoids the phase-polymorphic element type
+// required by a physical single-delay SDF without inserting any intermediate
+// rounding, saturation, or narrowing.  It is a functionally exact validation
+// architecture, not yet the final one-bank storage implementation.
+import std.math.complex
+import std.dsp.fft
+
+type IFFTStageInput = fixed<16,15>
+type IFFTStageTwiddle = fixed<24,22>
+type IFFTStageDifference = fixed<17,15>
+type IFFTStageOutput = fixed<42,37>
+type IFFTStage2Output = fixed<68,59>
+type IFFTStage3Output = fixed<94,81>
+type IFFTStage4Output = fixed<120,103>
+type IFFTStage5Output = fixed<146,125>
+type IFFTStage6Output = fixed<172,147>
+type IFFTScaledOutput = fixed<179,153>
+
+// A high-phase sum has exact type fixed<17,15>.  The common stage output is
+// fixed<42,37>, the exact complex-product result.  Align by sign extending its
+// raw representation and appending 22 fractional zero bits.  This is an exact
+// representation change: it performs no numerical rounding or overflow step.
+module IFFT64DIFStageExactDualBank<
+    type In,
+    type Out,
+    D=4,
+    CW=index_width(D * 2),
+    IW=index_width(D),
+    OW=42
+> {
+    clock clk reset rst
+
+    in input : rv<Complex<In>>
+    out output : rv<Complex<Out>>
+
+    // Exactly one bank is full at an established low/high phase boundary.
+    // The initial low half only fills input_delay.  Thereafter low phases drain
+    // feedback while filling input_delay; high phases do the reverse.
+    fifo input_delay : fifo<Complex<In>,D>
+    fifo feedback : fifo<Complex<Out>,D>
+    rom twiddles : rom<Complex<IFFTStageTwiddle>,D> {
+        read_latency 1
+        init fft_inverse_twiddles<T=IFFTStageTwiddle,N=D * 2>()
+    }
+
+    reg phase : uint<CW> = 0
+    reg out_valid : bit = 0
+    reg out_re : Out = 0
+    reg out_im : Out = 0
+
+    phase_after_transfer : uint<CW> =
+        phase == ((D * 2) - 1) ? 0 : truncate(phase + 1)
+
+    // Prefetch the twiddle needed after the accepted phase advance.  In a high
+    // contextual truncate(phase) is exactly phase-D for D=4/D=8.
+    twiddles.read_address = if D == 1 {
+        0
+    } else {
+        input.transfer
+            ? (phase == ((D * 2) - 1) ? 0 : truncate(phase + 1))
+            : truncate(phase)
+    }
+
+    high_sum_exact = input_delay.front + input.payload
+    high_difference_exact = input_delay.front - input.payload
+    rotated_difference_exact : Complex<Out> =
+        high_difference_exact * twiddles.read_data
+    // The exact sum has the input scale.  The exact complex product adds the
+    // Q2.22 twiddle scale and two guard bits.  Append 22 fractional zero bits
+    // to the signed raw sum, then sign-extend to the explicit output width.
+    // fixed_raw is target-contextual, so this remains a representation-only
+    // conversion for every concrete specialization.
+    high_sum_aligned : Complex<Out> = Complex {
+        re = fixed_raw(
+            extend<OW>(fixed_to_raw(high_sum_exact.re)) << 22
+        )
+        im = fixed_raw(
+            extend<OW>(fixed_to_raw(high_sum_exact.im)) << 22
+        )
+    }
+
+    input.ready = (out_valid == 0) | output.ready
+    output.valid = out_valid
+    output.payload = Complex { re = out_re im = out_im }
+
+    // Initial fill has no corresponding feedback result to emit.
+    fill: when input.transfer & (phase < D) & feedback.empty {
+        input_delay.push(input.payload)
+        phase <- phase_after_transfer
+    }
+
+    // Later low phases emit the prior frame's already-rotated difference and
+    // concurrently establish the current frame's input delay.
+    low: when input.transfer & (phase < D) & feedback.valid {
+        feedback.pop()
+        input_delay.push(input.payload)
+        out_re <- feedback.front.re
+        out_im <- feedback.front.im
+        out_valid <- 1
+        phase <- phase_after_transfer
+    }
+
+    // High phases use only the Q1.15 input bank, emit an exactly aligned sum,
+    // and put the exact twiddle-rotated difference into the Q5.37 bank.
+    high: when input.transfer & (phase >= D) {
+        input_delay.pop()
+        feedback.push(rotated_difference_exact)
+        out_re <- high_sum_aligned.re
+        out_im <- high_sum_aligned.im
+        out_valid <- 1
+        phase <- phase_after_transfer
+    }
+
+    retire: when output.transfer {
+        out_valid <- 0
+    }
+
+    priority fill > low
+    priority fill > high
+    priority low > high
+    priority fill > retire
+    priority low > retire
+    priority high > retire
+}
+
+module IFFT64DIFStageExactD4 {
+    clock clk reset rst
+    in input : rv<Complex<IFFTStageInput>>
+    out output : rv<Complex<IFFTStageOutput>>
+
+    stage : IFFT64DIFStageExactDualBank<
+        In=IFFTStageInput,Out=IFFTStageOutput,D=4,OW=42
+    >
+    input -> stage.input
+    stage.output -> output
+}
+
+module IFFT64DIFStageExactD8 {
+    clock clk reset rst
+    in input : rv<Complex<IFFTStageInput>>
+    out output : rv<Complex<IFFTStageOutput>>
+
+    stage : IFFT64DIFStageExactDualBank<
+        In=IFFTStageInput,Out=IFFTStageOutput,D=8,OW=42
+    >
+    input -> stage.input
+    stage.output -> output
+}
+
+module IFFT64FinalQuantize {
+    in input : rv<Complex<IFFTStage6Output>>
+    out output : rv<Complex<IFFTStageInput>>
+
+    // Exactly one scale/round/overflow boundary follows the D1 stage.  The
+    // raw value 1 in Q1.6 is exactly 1/64.
+    one_over_64 : fixed<7,6> = fixed_raw(1)
+    scaled : Complex<IFFTScaledOutput> = Complex {
+        re = input.payload.re * one_over_64
+        im = input.payload.im * one_over_64
+    }
+    quantized : Complex<IFFTStageInput> =
+        complex_quantize_nearest_even_saturate<IFFTStageInput>(scaled)
+
+    output.payload = quantized
+    output.valid = input.valid
+    input.ready = output.ready
+}
+
+// The complete six-stage exact-width reference.  Every specialization makes
+// the finite-width recurrence visible in source:
+//
+//   W(next) = W(current) + 26
+//   F(next) = F(current) + 22
+//
+// No stage stores a value in a narrower type.  This is intentionally large;
+// physical width control remains the single final numerical boundary below.
+module IFFT64DIFExactChain {
+    clock clk reset rst
+
+    in input : rv<Complex<IFFTStageInput>>
+    out output : rv<Complex<IFFTStageInput>>
+
+    d32 : IFFT64DIFStageExactDualBank<
+        In=IFFTStageInput,Out=IFFTStageOutput,D=32,OW=42
+    >
+    d16 : IFFT64DIFStageExactDualBank<
+        In=IFFTStageOutput,Out=IFFTStage2Output,D=16,OW=68
+    >
+    d8 : IFFT64DIFStageExactDualBank<
+        In=IFFTStage2Output,Out=IFFTStage3Output,D=8,OW=94
+    >
+    d4 : IFFT64DIFStageExactDualBank<
+        In=IFFTStage3Output,Out=IFFTStage4Output,D=4,OW=120
+    >
+    d2 : IFFT64DIFStageExactDualBank<
+        In=IFFTStage4Output,Out=IFFTStage5Output,D=2,OW=146
+    >
+    d1 : IFFT64DIFStageExactDualBank<
+        In=IFFTStage5Output,Out=IFFTStage6Output,D=1,OW=172
+    >
+    final_quantize : IFFT64FinalQuantize
+
+    input -> d32.input
+    d32.output -> d16.input
+    d16.output -> d8.input
+    d8.output -> d4.input
+    d4.output -> d2.input
+    d2.output -> d1.input
+    d1.output -> final_quantize.input
+    final_quantize.output -> output
+}

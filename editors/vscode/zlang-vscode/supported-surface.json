@@ -1,0 +1,25 @@
+{
+  "keywords": [
+    "import", "module", "extern", "model", "struct", "enum", "union", "type", "fn", "operator", "equiv",
+    "protocol", "role", "channel", "member", "resource", "target", "device",
+    "port", "operation", "class", "capability", "limit", "architecture",
+    "register_site", "pipeline_site", "pipeline_config", "location", "local",
+    "delay_ps", "enable", "setting", "dedicated", "width", "relation",
+    "fallback", "binding", "physical_primitive", "physical_site", "physical_edge",
+    "provides", "part", "inventory", "dedicated_capacity", "require_resource",
+    "use_pipeline", "require_dedicated",
+    "in", "out", "clock", "reset", "async", "edge", "mode", "polarity", "power_up", "inst", "connect", "transform", "interface",
+    "wire", "rv", "credit", "packet", "vc_credit", "request_response",
+    "max_outstanding", "ordering", "match_by", "buffer", "request_buffer",
+    "response_buffer", "adapter", "crossing", "async_fifo", "arbiter", "policy",
+    "grant", "disable", "iff", "csr", "sticky", "rule", "when", "priority", "fsm", "hold",
+    "fifo", "memory", "mem", "rom", "read_latency", "init", "collision", "reg", "delay", "timing",
+    "pipeline", "choice", "auto", "explore", "allow", "avoid", "require",
+    "minimize", "maximize", "generate", "map", "sum", "reduce", "dot", "quantize",
+    "round", "overflow", "with", "if", "else", "switch", "match", "mux", "assume", "guarantee", "assert", "cover", "contract", "ensure"
+  ],
+  "types": ["bit", "char", "string", "uint", "sint", "bits", "uN", "sN", "fixed", "ufixed", "fixed_sat", "ufixed_sat", "SF", "UF", "SF_Sat", "UF_Sat", "vec", "fifo", "mem", "rom", "wire", "rv", "credit", "packet", "vc_credit", "request_response"],
+  "intrinsics": ["truncate", "extend", "quantize", "pack", "unpack", "bitcast", "reshape", "concat", "zeros", "ones", "parity", "enum_encode", "enum_valid", "enum_decode", "fixed_raw", "fixed_to_raw", "fixed_truncate_wrap", "fixed_truncate_saturate", "fixed_round_even_wrap", "fixed_round_even_saturate", "length", "floor_log2", "ceil_log2", "index_width", "is_power_of_two", "pi", "sin", "cos", "log2", "log", "mux", "generate", "map", "sum", "reduce", "dot", "repeat", "delay", "pipeline", "unsigned", "signed", "width", "same_type", "constant", "power_of_two"],
+  "modes": ["rw", "ro", "wo", "w1c", "pulse", "reserved", "in_order", "out_of_order", "fixed_priority", "round_robin", "beat", "packet", "sync_level", "pulse_toggle", "handshake", "async_fifo", "rv_to_credit", "credit_to_rv", "read_first", "write_first", "hardware", "software", "mul_add", "multiply_add", "dsp_mac", "optional_yosys", "reduction", "reassociate", "auto", "nearest_even", "toward_zero", "floor", "away_zero", "wrap", "saturate", "lut", "ff", "dsp", "bram", "latency", "throughput", "ii", "fmax", "fmax_est", "parallelism", "depth", "candidates", "rising", "falling", "synchronous", "asynchronous", "active_high", "active_low", "unspecified"],
+  "operators": ["<=>", "<-", "->", "=>", "..", "==", "!=", "<=", ">=", "<", ">", "&&", "||", "!", "~", "&", "|", "^", "<<", ">>", "+", "-", "*", "/", "=", "?", ":"]
+}

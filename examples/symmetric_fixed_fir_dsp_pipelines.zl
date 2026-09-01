@@ -1,0 +1,59 @@
+// Manual latency contracts for the three registered DSP48E1 configurations.
+// The mathematical expression and final quantization are identical to
+// symmetric_fixed_fir.zl; only the explicit output-delay budget differs.
+module SymmetricFixedFIRMREG {
+    clock clk
+    reset rst
+    in samples : vec<8,SF2.10>
+    in coefficients : vec<4,SF2.10>
+    out result : fixed<16,14>
+    reg q0 : fixed<16,14> = 0
+    reg q1 : fixed<16,14> = 0
+    acc = (((samples[0] * coefficients[0] + samples[7] * coefficients[0])
+          + (samples[1] * coefficients[1] + samples[6] * coefficients[1]))
+          + ((samples[2] * coefficients[2] + samples[5] * coefficients[2])
+          + (samples[3] * coefficients[3] + samples[4] * coefficients[3])))
+    q0 <- quantize<fixed<16,14>>(acc) { round nearest_even overflow saturate }
+    q1 <- q0
+    result = q1
+}
+
+module SymmetricFixedFIRMREGPREG {
+    clock clk
+    reset rst
+    in samples : vec<8,SF2.10>
+    in coefficients : vec<4,SF2.10>
+    out result : fixed<16,14>
+    reg q0 : fixed<16,14> = 0
+    reg q1 : fixed<16,14> = 0
+    reg q2 : fixed<16,14> = 0
+    acc = (((samples[0] * coefficients[0] + samples[7] * coefficients[0])
+          + (samples[1] * coefficients[1] + samples[6] * coefficients[1]))
+          + ((samples[2] * coefficients[2] + samples[5] * coefficients[2])
+          + (samples[3] * coefficients[3] + samples[4] * coefficients[3])))
+    q0 <- quantize<fixed<16,14>>(acc) { round nearest_even overflow saturate }
+    q1 <- q0
+    q2 <- q1
+    result = q2
+}
+
+module SymmetricFixedFIRFullyPipelined {
+    clock clk
+    reset rst
+    in samples : vec<8,SF2.10>
+    in coefficients : vec<4,SF2.10>
+    out result : fixed<16,14>
+    reg q0 : fixed<16,14> = 0
+    reg q1 : fixed<16,14> = 0
+    reg q2 : fixed<16,14> = 0
+    reg q3 : fixed<16,14> = 0
+    acc = (((samples[0] * coefficients[0] + samples[7] * coefficients[0])
+          + (samples[1] * coefficients[1] + samples[6] * coefficients[1]))
+          + ((samples[2] * coefficients[2] + samples[5] * coefficients[2])
+          + (samples[3] * coefficients[3] + samples[4] * coefficients[3])))
+    q0 <- quantize<fixed<16,14>>(acc) { round nearest_even overflow saturate }
+    q1 <- q0
+    q2 <- q1
+    q3 <- q2
+    result = q3
+}

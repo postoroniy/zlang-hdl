@@ -1,0 +1,42 @@
+// Portable high-level target-aware FIR.  The source states numerical and
+// timing requirements; target libraries decide whether generic logic or a
+// physical resource graph implements them.
+module SymmetricFixedFIRAuto {
+    clock clk
+    reset rst
+    in samples : vec<8,SF2.10>
+    in coefficients : vec<4,SF2.10>
+    out result : fixed<16,14>
+
+    acc = (((samples[0] * coefficients[0] + samples[7] * coefficients[0])
+          + (samples[1] * coefficients[1] + samples[6] * coefficients[1]))
+          + ((samples[2] * coefficients[2] + samples[5] * coefficients[2])
+          + (samples[3] * coefficients[3] + samples[4] * coefficients[3])))
+
+    result = pipeline(auto, latency<=8, ii==1, fmax>=100) {
+        quantize<fixed<16,14>>(acc) {
+            round nearest_even
+            overflow saturate
+        }
+    }
+}
+
+module SymmetricFixedFIRAutoExact8 {
+    clock clk
+    reset rst
+    in samples : vec<8,SF2.10>
+    in coefficients : vec<4,SF2.10>
+    out result : fixed<16,14>
+
+    acc = (((samples[0] * coefficients[0] + samples[7] * coefficients[0])
+          + (samples[1] * coefficients[1] + samples[6] * coefficients[1]))
+          + ((samples[2] * coefficients[2] + samples[5] * coefficients[2])
+          + (samples[3] * coefficients[3] + samples[4] * coefficients[3])))
+
+    result = pipeline(auto, latency==8, ii==1, fmax>=100) {
+        quantize<fixed<16,14>>(acc) {
+            round nearest_even
+            overflow saturate
+        }
+    }
+}

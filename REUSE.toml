@@ -1,0 +1,46 @@
+version = 1
+
+[[annotations]]
+path = [
+  ".public-tree-manifest.json",
+  ".gitattributes",
+  ".github/**",
+  ".gitignore",
+  "MANIFEST.in",
+  "*.toml",
+  "*.md",
+  "*.py",
+  "NOTICE",
+  "REUSE.toml",
+  "docs/**",
+  "editors/**",
+  "examples/**",
+  "release/**",
+  "stdlib/**",
+  "tests/**",
+  "tools/**",
+  "zlang/**",
+]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 Viacheslav Vinogradov"
+SPDX-License-Identifier = "Apache-2.0"
+
+[[annotations]]
+path = ["CODE_OF_CONDUCT.md"]
+precedence = "override"
+SPDX-FileCopyrightText = [
+  "Coraline Ada Ehmke",
+  "2026 Viacheslav Vinogradov",
+]
+SPDX-License-Identifier = "CC-BY-4.0"
+
+[[annotations]]
+path = [
+  "examples/projects/80211a_transmitter/**",
+]
+precedence = "override"
+SPDX-FileCopyrightText = [
+  "2006 Nirav Dave",
+  "2026 Viacheslav Vinogradov",
+]
+SPDX-License-Identifier = "MIT"

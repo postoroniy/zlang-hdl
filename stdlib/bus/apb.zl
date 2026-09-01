@@ -1,0 +1,64 @@
+// Compiler-shipped APB source profile (initial 32/32 slice).
+import std.bus.reg
+protocol APB<AW=32,DW=32> {
+    role master
+    role slave
+    channel psel : wire<bit> master -> slave
+    channel penable : wire<bit> master -> slave
+    channel pwrite : wire<bit> master -> slave
+    channel paddr : wire<uint<AW>> master -> slave
+    channel pwdata : wire<uint<DW>> master -> slave
+    channel pready : wire<bit> slave -> master
+    channel prdata : wire<uint<DW>> slave -> master
+    channel pslverr : wire<bit> slave -> master
+}
+
+enum APBBridgePhase {
+    Idle
+    Access
+    Response
+}
+
+module APBToRegBus<AW=32,DW=32> {
+    clock clk
+    reset rst
+    interface apb : APB<AW,DW>.slave @clk
+    interface regbus : RegBus<AW,DW>.requester @clk
+
+    reg addr : uint<AW> = 0
+    reg wdata : uint<DW> = 0
+    reg write : bit = 0
+
+    setup : bit = mux(apb.psel, mux(apb.penable, 0, 1), 0)
+    access : bit = mux(phase == APBBridgePhase.Access, apb.penable, 0)
+    response_phase : bit = mux(phase == APBBridgePhase.Response, 1, 0)
+
+    apb.pready = mux(response_phase, regbus.response.valid, 0)
+    apb.prdata = mux(regbus.response.valid, regbus.response.payload.rdata, 0)
+    apb.pslverr = mux(regbus.response.valid, regbus.response.payload.error, 0)
+
+    regbus.request.valid = access
+    regbus.request.payload = RegRequest{addr=addr write=write wdata=wdata wstrb=0}
+    regbus.response.ready = response_phase
+
+    // Concise FSM is syntax-only: this becomes the same enum register and
+    // guarded atomic rules used throughout the compiler.  APB setup captures
+    // the request before the access phase; response retirement closes the
+    // transaction epoch.
+    fsm phase : APBBridgePhase = Idle {
+        Idle {
+            when setup -> Access {
+                addr <- apb.paddr
+                wdata <- apb.pwdata
+                write <- apb.pwrite
+            }
+        }
+        Access {
+            when regbus.request.ready -> Response {}
+        }
+        Response {
+            when regbus.response.transfer -> Idle {}
+        }
+    }
+
+}

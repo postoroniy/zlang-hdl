@@ -1,0 +1,87 @@
+{
+  "module": "EngineCsr",
+  "data_width": 32,
+  "address_width": 32,
+  "blocks": [
+    {
+      "name": "engine",
+      "base_address": 1342177280,
+      "registers": [
+        {
+          "name": "CONTROL",
+          "offset": 0,
+          "address": 1342177280,
+          "fields": [
+            {
+              "name": "start",
+              "type": "bit",
+              "access": "pulse",
+              "msb": 0,
+              "lsb": 0,
+              "width": 1,
+              "reset": 0,
+              "hardware": {
+                "kind": "command",
+                "signal": "engine_start",
+                "priority": null
+              }
+            },
+            {
+              "name": "reserved0",
+              "type": "bits<31>",
+              "access": "reserved",
+              "msb": 31,
+              "lsb": 1,
+              "width": 31,
+              "reset": 0
+            }
+          ]
+        },
+        {
+          "name": "STATUS",
+          "offset": 4,
+          "address": 1342177284,
+          "fields": [
+            {
+              "name": "busy",
+              "type": "bit",
+              "access": "ro",
+              "msb": 0,
+              "lsb": 0,
+              "width": 1,
+              "reset": 0,
+              "hardware": {
+                "kind": "status",
+                "signal": "engine_busy",
+                "priority": null
+              }
+            },
+            {
+              "name": "error",
+              "type": "bit",
+              "access": "w1c",
+              "msb": 1,
+              "lsb": 1,
+              "width": 1,
+              "reset": 0,
+              "hardware": {
+                "kind": "sticky",
+                "signal": "engine_error",
+                "priority": "hardware"
+              }
+            },
+            {
+              "name": "reserved1",
+              "type": "bits<30>",
+              "access": "reserved",
+              "msb": 31,
+              "lsb": 2,
+              "width": 30,
+              "reset": 0
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

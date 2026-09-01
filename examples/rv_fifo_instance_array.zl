@@ -1,0 +1,31 @@
+// Two physical ready/valid lanes share one specialization and own independent
+// FIFO state.  The parent preserves the existing typed protocol connections.
+module RvBufferedLane {
+    clock clk
+    reset rst
+    in input : rv<u8>
+    out output : rv<u8>
+
+    fifo queue : fifo<u8,2>
+    queue.data = input.payload
+    queue.push = input.transfer
+    queue.pop = output.transfer
+    input.ready = queue.ready
+    output.payload = queue.front
+    output.valid = queue.valid
+}
+
+module RvBufferedLaneArray {
+    clock clk
+    reset rst
+    in input0 : rv<u8>
+    in input1 : rv<u8>
+    out output0 : rv<u8>
+    out output1 : rv<u8>
+
+    inst lane[2] : RvBufferedLane
+    connect input0 -> lane[0].input
+    connect lane[0].output -> output0
+    connect input1 -> lane[1].input
+    connect lane[1].output -> output1
+}

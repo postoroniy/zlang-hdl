@@ -1,0 +1,36 @@
+module FirArchitecture
+stage selected_architecture
+nodes value=29 state=0 protocol=0 transaction=0 architecture=2
+expressions
+  %0 value.input type=vec<4,u8> width=32 signedness=aggregate latency=0 ii=1 domains=[none] purity=pure effects=[none] origins=[7:11-7:18:name samples] name=samples
+  %1 value.vector_index type=u8 width=8 signedness=unsigned latency=0 ii=1 domains=[none] purity=pure effects=[none] origins=[7:11-7:21:index [0]] %0 index=0
+  %2 value.input type=vec<4,u8> width=32 signedness=aggregate latency=0 ii=1 domains=[none] purity=pure effects=[none] origins=[7:24-7:36:name coefficients] name=coefficients
+  %3 value.vector_index type=u8 width=8 signedness=unsigned latency=0 ii=1 domains=[none] purity=pure effects=[none] origins=[7:24-7:39:index [0]] %2 index=0
+  %4 value.binary type=u16 width=16 signedness=unsigned latency=0 ii=1 domains=[none] purity=pure effects=[none] origins=[7:11-7:39:operator *] %1 %3 operator=* operand_type=u16
+  %5 value.vector_index type=u8 width=8 signedness=unsigned latency=0 ii=1 domains=[none] purity=pure effects=[none] origins=[9:11-9:21:index [2]] %0 index=2
+  %6 value.vector_index type=u8 width=8 signedness=unsigned latency=0 ii=1 domains=[none] purity=pure effects=[none] origins=[9:24-9:39:index [2]] %2 index=2
+  %7 value.binary type=u16 width=16 signedness=unsigned latency=0 ii=1 domains=[none] purity=pure effects=[none] origins=[9:11-9:39:operator *] %5 %6 operator=* operand_type=u16
+  %8 value.add type=u17 width=17 signedness=unsigned latency=0 ii=1 domains=[none] purity=pure effects=[none] origins=[none] %4 %7
+  %9 value.vector_index type=u8 width=8 signedness=unsigned latency=0 ii=1 domains=[none] purity=pure effects=[none] origins=[8:11-8:21:index [1]] %0 index=1
+  %10 value.vector_index type=u8 width=8 signedness=unsigned latency=0 ii=1 domains=[none] purity=pure effects=[none] origins=[8:24-8:39:index [1]] %2 index=1
+  %11 value.binary type=u16 width=16 signedness=unsigned latency=0 ii=1 domains=[none] purity=pure effects=[none] origins=[8:11-8:39:operator *] %9 %10 operator=* operand_type=u16
+  %12 value.vector_index type=u8 width=8 signedness=unsigned latency=0 ii=1 domains=[none] purity=pure effects=[none] origins=[10:11-10:21:index [3]] %0 index=3
+  %13 value.vector_index type=u8 width=8 signedness=unsigned latency=0 ii=1 domains=[none] purity=pure effects=[none] origins=[10:24-10:39:index [3]] %2 index=3
+  %14 value.binary type=u16 width=16 signedness=unsigned latency=0 ii=1 domains=[none] purity=pure effects=[none] origins=[10:11-10:39:operator *] %12 %13 operator=* operand_type=u16
+  %15 value.add type=u17 width=17 signedness=unsigned latency=0 ii=1 domains=[none] purity=pure effects=[none] origins=[none] %11 %14
+  %16 value.add type=u18 width=18 signedness=unsigned latency=0 ii=1 domains=[none] purity=pure effects=[none] origins=[6:9-11:6:architecture(auto)] %8 %15
+  %17 value.add type=u17 width=17 signedness=unsigned latency=0 ii=1 domains=[none] purity=pure effects=[none] origins=[7:11-10:39:operator +] %4 %11
+  %18 value.add type=u18 width=18 signedness=unsigned latency=0 ii=1 domains=[none] purity=pure effects=[none] origins=[7:11-10:39:operator +] %17 %7
+  %19 value.add type=u19 width=19 signedness=unsigned latency=0 ii=1 domains=[none] purity=pure effects=[none] origins=[6:9-11:6:architecture(auto)] %18 %14
+  %20 value.add type=u17 width=17 signedness=unsigned latency=0 ii=1 domains=[none] purity=pure effects=[none] origins=[none] %7 %14
+  %21 value.add type=u18 width=18 signedness=unsigned latency=0 ii=1 domains=[none] purity=pure effects=[none] origins=[6:9-11:6:architecture(auto)] %17 %20
+  %22 value.add type=u18 width=18 signedness=unsigned latency=0 ii=1 domains=[none] purity=pure effects=[none] origins=[none] %11 %20
+  %23 value.add type=u19 width=19 signedness=unsigned latency=0 ii=1 domains=[none] purity=pure effects=[none] origins=[none] %4 %22
+  %24 value.truncate type=u18 width=18 signedness=unsigned latency=0 ii=1 domains=[none] purity=pure effects=[none] origins=[6:9-11:6:architecture(auto)] %23
+entities
+  architecture:module:FirArchitecture architecture.module name=FirArchitecture
+  value:port:samples value.port name=samples protocol=wire
+  value:port:coefficients value.port name=coefficients protocol=wire
+  value:port:y value.port name=y protocol=wire
+  value:assignment:y:value:0 value.assignment name=y.value %16
+  architecture:architecture_exploration:y architecture.architecture_exploration name=y %19 %21 %24 %16 selected=folded_p2 search_bound=3 constraints=parallelism<=2,depth<=2,candidates<=3

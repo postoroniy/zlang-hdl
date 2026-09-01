@@ -1,0 +1,54 @@
+struct Request {
+    addr: u8
+}
+
+struct Response {
+    data: u8
+}
+
+module Requester {
+    clock clk
+    reset rst
+    interface bus: request_response<Request, Response> {
+        max_outstanding 1
+        ordering in_order
+    }
+    in fire: bit
+    in accept_response: bit
+
+    bus.request.payload = Request { addr = 7 }
+    bus.request.valid = fire
+    bus.response.ready = accept_response
+}
+
+module Responder {
+    clock clk
+    reset rst
+    interface bus: request_response<Request, Response> {
+        max_outstanding 1
+        ordering in_order
+    }
+    in accept_request: bit
+    in data: u8
+    out response_seen: bit
+
+    bus.request.ready = accept_request
+    bus.response.payload = Response { data = data }
+    bus.response.valid = bus.request.transfer
+    response_seen = bus.response.valid
+}
+
+module HierarchicalRequestResponse {
+    clock clk
+    reset rst
+    in fire: bit
+    in accept_request: bit
+    in accept_response: bit
+    in data: u8
+    out response_seen: bit
+
+    inst requester: Requester { fire accept_response }
+    inst responder: Responder { accept_request data }
+    connect requester.bus -> responder.bus
+    response_seen = responder.response_seen
+}

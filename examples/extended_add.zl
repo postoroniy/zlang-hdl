@@ -1,0 +1,9 @@
+type WideSum = uint<16>
+
+module ExtendedAdd {
+    in  a : u8
+    in  b : u8
+    out y : WideSum
+
+    y = extend<16>(a + b)
+}

@@ -1,0 +1,17 @@
+module ContractedAdd {
+  clock clk
+  reset rst
+
+  in a: u4
+  in b: u4
+  out y: u5
+
+  y = a + b
+
+  assume operands_bounded @ clk disable iff rst {
+    (a < 8) & (b < 8)
+  }
+  guarantee sum_matches @ clk disable iff rst {
+    y == a + b
+  }
+}

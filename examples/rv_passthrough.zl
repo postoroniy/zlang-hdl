@@ -1,0 +1,8 @@
+module RvPassthrough {
+  in rx: rv<u8>
+  out tx: rv<u8>
+
+  tx.payload = rx.payload
+  tx.valid = rx.valid
+  rx.ready = tx.ready
+}

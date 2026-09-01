@@ -1,0 +1,15 @@
+import std.bus.wishbone
+import std.bus.reg
+
+module WishboneCsrTop {
+    clock clk
+    reset rst
+    interface wb : Wishbone<32,32>.slave @clk
+    out done : bit
+
+    inst frontend : WishboneToRegBus<32,32>
+    inst csr : RegBusCSRTarget<32,32>
+    connect wb -> frontend.wb
+    connect frontend.regbus -> csr.regbus
+    done = csr.done
+}

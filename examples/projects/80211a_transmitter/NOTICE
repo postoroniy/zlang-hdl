@@ -1,0 +1,19 @@
+802.11a transmitter ZLang validation project
+================================================
+
+This validation project is a clean ZLang port informed by the structure and
+behavior of the Bluespec 802.11a transmitter originally authored by Nirav Dave.
+The reference source carries the MIT license reproduced in LICENSE.
+
+Reference repository:
+    https://github.com/freecores/bluespec-80211atransmitter
+
+Audited local reference commit:
+    d654bfd4c2ffabc61437c131770beff58dc55b04
+
+Original notice:
+    Copyright (c) 2006 Nirav Dave (ndave@csail.mit.edu)
+
+The ZLang project preserves attribution while deliberately separating source
+implementation from compatibility and independent-oracle tests. No PDF or
+other non-source artifact from the historical checkout is redistributed here.

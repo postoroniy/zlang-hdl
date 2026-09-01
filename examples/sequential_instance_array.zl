@@ -1,0 +1,34 @@
+module StateLane {
+    clock clk
+    reset rst
+
+    in enable : bit
+    in step   : u8
+    out value : u8
+
+    reg count : u8 = 0
+
+    when enable {
+        count <- truncate<8>(count + step)
+    }
+
+    value = count
+}
+
+module StateLaneArray {
+    clock clk
+    reset rst
+
+    in enables : vec<2,bit>
+    in steps   : vec<2,u8>
+    out values : vec<2,u8>
+
+    inst lane[2] : StateLane
+
+    generate(i in 0..2) {
+        lane[i].enable = enables[i]
+        lane[i].step = steps[i]
+    }
+
+    values = generate(i in 0..2) lane[i].value
+}

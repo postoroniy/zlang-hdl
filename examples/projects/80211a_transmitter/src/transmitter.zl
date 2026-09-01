@@ -1,0 +1,29 @@
+// Complete bounded IEEE-authoritative 802.11a transmitter validation chain.
+//
+// This top composes only ordinary ZLang modules:
+//   framer -> scrambler -> encoder -> interleaver -> mapper
+//          -> exact inverse DIF-SDF IFFT64 -> reorder -> cyclic prefix.
+// The public command rate and output metadata use raw bits; nominal WifiRate
+// remains an internal semantic type and is decoded/encoded explicitly.
+
+import wifi80211a_transmitter.ifft
+
+module Ieee80211aTransmitter {
+    clock clk reset rst
+
+    in command : rv<WifiTxCommand>
+    in psdu : rv<WifiPsduBeat>
+    out signal : rv<bits<24>>
+    out output : rv<WifiRawMappedSample>
+
+    packet_mapper : IeeePacketMapper64
+    transform : IeeeFramedIFFT64
+    output_boundary : IeeeIFFTFramedOutputBoundary
+
+    command -> packet_mapper.command
+    psdu -> packet_mapper.psdu
+    packet_mapper.signal -> signal
+    packet_mapper.output -> transform.input
+    transform.output -> output_boundary.input
+    output_boundary.output -> output
+}

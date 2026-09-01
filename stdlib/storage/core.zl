@@ -1,0 +1,153 @@
+// Source-authored storage wrappers over the existing semantic primitives.
+// `delay<N>` currently requires a literal N, so bounded common depths are
+// separate ordinary modules rather than a misleading generic wrapper.
+module StorageDelay1<type T> {
+    clock clk
+    reset rst
+    in input : T
+    out output : T
+
+    output = delay<1>(input)
+}
+
+module StorageDelay2<type T> {
+    clock clk
+    reset rst
+    in input : T
+    out output : T
+
+    output = delay<2>(input)
+}
+
+module StorageQueue<type T,D=2,CW=2> {
+    clock clk
+    reset rst
+    in push : bit
+    in pop : bit
+    in data : T
+    out front : T
+    out valid : bit
+    out ready : bit
+    out count : uint<CW>
+
+    fifo storage : fifo<T,D>
+    storage.data = data
+    storage.push = push
+    storage.pop = pop
+    front = storage.front
+    valid = storage.valid
+    ready = storage.ready
+    count = storage.count
+}
+
+// Immutable images are compile-time specialization arguments, never runtime
+// ports.  The concrete image is hashed into the child specialization and the
+// existing ROM companion artifact.
+module StorageRom<type T,N,IW,image:vec<N,T>>
+where N >= 2 && is_power_of_two(N) && IW == floor_log2(N) {
+    clock clk
+    reset rst
+    in address : uint<IW>
+    out data : T
+
+    rom table : rom<T,N> {
+        read_latency 1
+        init image
+    }
+    table.read_address = address
+    data = table.read_data
+}
+
+// A statically selected zero-argument producer is specialized and evaluated
+// during elaboration.  It is not a runtime function pointer or a backend
+// callback.
+module StorageGeneratedRom<type T,N,IW,producer:fn()->vec<N,T>>
+where N >= 2 && is_power_of_two(N) && IW == floor_log2(N) {
+    clock clk
+    reset rst
+    in address : uint<IW>
+    out data : T
+
+    rom table : rom<T,N> {
+        read_latency 1
+        init producer()
+    }
+    table.read_address = address
+    data = table.read_data
+}
+
+// A generic raw-bit reorder bank. The caller owns the permutation and
+// occupancy policy; this wrapper supplies deterministic range-checked indexed
+// storage with one write per cycle. A typed caller may use explicit bitcast at
+// this representation boundary.
+module StorageReorderBits<W=8,N=8>
+where N >= 2 && is_power_of_two(N) {
+    clock clk
+    reset rst
+    in write : bit
+    in write_index : uint<floor_log2(N)>
+    in write_data : bits<W>
+    in read_index : uint<floor_log2(N)>
+    out read_data : bits<W>
+
+    reg entries : vec<N,bits<W>> = generate(i in 0..N) 0
+    when write {
+        entries[write_index] <- write_data
+    }
+    read_data = entries[read_index]
+}
+
+// Two raw-bit banks permit one completed block to be read while the other is
+// filled. `commit` publishes the current write bank and changes banks;
+// `retire` releases the current read bank. The explicit valid bits prevent a
+// writer from overwriting an unconsumed block.
+struct StoragePingPongStatus<W=8> {
+    write_ready : bit
+    commit_ready : bit
+    read_valid : bit
+    read_data : bits<W>
+}
+
+module StoragePingPongBits<W=8,N=8>
+where N >= 2 && is_power_of_two(N) {
+    clock clk
+    reset rst
+    in write : bit
+    in write_index : uint<floor_log2(N)>
+    in write_data : bits<W>
+    in commit : bit
+    in retire : bit
+    in read_index : uint<floor_log2(N)>
+    out status : StoragePingPongStatus<W>
+
+    reg bank0 : vec<N,bits<W>> = generate(i in 0..N) 0
+    reg bank1 : vec<N,bits<W>> = generate(i in 0..N) 0
+    reg write_bank : bit = 0
+    reg valid0 : bit = 0
+    reg valid1 : bit = 0
+
+    write_open = write_bank ? ~valid1 : ~valid0
+    read_available = write_bank ? valid0 : valid1
+    commit_open = write_open & ((read_available == 0) | retire)
+    status = StoragePingPongStatus {
+        write_ready = write_open
+        commit_ready = commit_open
+        read_valid = read_available
+        read_data = write_bank ? bank0[read_index] : bank1[read_index]
+    }
+
+    when write & write_open & (write_bank == 0) {
+        bank0[write_index] <- write_data
+    }
+    when write & write_open & write_bank {
+        bank1[write_index] <- write_data
+    }
+
+    write_bank <- commit & commit_open ? ~write_bank : write_bank
+    valid0 <- retire & write_bank & valid0
+        ? 0
+        : (commit & commit_open & (write_bank == 0) ? 1 : valid0)
+    valid1 <- retire & (write_bank == 0) & valid1
+        ? 0
+        : (commit & commit_open & write_bank ? 1 : valid1)
+}

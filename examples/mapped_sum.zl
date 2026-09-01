@@ -1,0 +1,6 @@
+module MappedSum {
+    in  values : vec<4, u8>
+    out y      : u11
+
+    y = sum(map(i in 0..4) { values[i] + values[i] })
+}

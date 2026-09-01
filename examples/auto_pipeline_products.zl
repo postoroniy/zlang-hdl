@@ -1,0 +1,18 @@
+module AutoPipelineProducts {
+    clock clk
+    reset rst
+
+    in a : u8
+    in b : u8
+    in c : u8
+    in d : u8
+    in e : u8
+    in f : u8
+    in g : u8
+    in h : u8
+    out y : u19
+
+    y = pipeline(auto, latency<=3, throughput==1, dsp<=4, fmax>=400) {
+        a * b + c * d + e * f + g * h
+    }
+}

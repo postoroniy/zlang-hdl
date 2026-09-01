@@ -1,0 +1,8 @@
+module DotProduct {
+    in  a : vec<8, u8>
+    in  b : vec<8, u8>
+    out y : u19
+
+    y = sum(i in 0..8)
+        a[i] * b[i]
+}

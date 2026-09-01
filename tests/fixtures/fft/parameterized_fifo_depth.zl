@@ -1,0 +1,19 @@
+// Historical minimal reproducer for the complete-SDF-stage storage blocker.
+// It is now an acceptance fixture: D is resolved during specialization and
+// concrete semantic/back-end storage sees depth 4.  The full SDF stage remains
+// intentionally out of scope for this slice.
+module FFTStageDelay<D=4> {
+    clock clk
+    reset rst
+
+    in data : u8
+    in push : bit
+    in pop : bit
+    out front : u8
+
+    fifo samples : fifo<u8,D>
+    samples.data = data
+    samples.push = push
+    samples.pop = pop
+    front = samples.front
+}

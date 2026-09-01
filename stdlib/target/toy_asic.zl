@@ -1,0 +1,25 @@
+// Non-FPGA source fixture proving the target IR has no FPGA assumptions.
+resource ToyMAC {
+    port a input signed 16
+    port b input signed 16
+    port c input signed 32
+    port p output signed 32
+    operation multiply_accumulate
+    limit multiplier_a 16
+    limit multiplier_b 16
+    limit accumulator 32
+    register_site output 0 1
+    binding systemverilog unsupported
+}
+
+target ToyAsicFamily {
+    provides ToyMAC
+}
+
+device toy_asic : ToyAsicFamily {
+    part toy-asic
+    inventory ToyMAC 8
+}
+
+module ToyAsicTargetLibrary {
+}

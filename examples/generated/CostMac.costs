@@ -1,0 +1,6 @@
+module CostMac
+cost_model=zlang-initial-v1 cost_source=estimate measured=false
+choice output=y goal=minimize_lut constraints=[lut<=200,ff<=17,dsp<=1,bram<=0,latency<=1,ii<=1]
+  candidate kind=dsp_mac legal=true estimated lut=17 ff=17 dsp=1 bram=0 latency=1 ii=1 violations=[none]
+  candidate kind=mul_add legal=true estimated lut=81 ff=17 dsp=0 bram=0 latency=1 ii=1 violations=[none]
+  selected kind=dsp_mac reason=minimum_estimated_lut=17 tie_break=implementation_kind

@@ -1,0 +1,26 @@
+// Nominal tagged data with one frozen packed representation.
+union Message {
+    Idle
+    Data { value : s8 }
+    Gain { value : fixed<8,4> }
+}
+
+module TaggedUnionExample {
+    in kind : u2
+    in data : s8
+    in gain : fixed<8,4>
+    out raw : bits<8>
+
+    message : Message = switch kind {
+        0 => Message.Idle
+        1 => Message.Data { value = data }
+        else => Message.Gain { value = gain }
+    }
+
+    selected : s8 = match message {
+        Message.Idle => 0
+        Message.Data { value } => value
+        Message.Gain { value } => fixed_to_raw(value)
+    }
+    raw = bitcast<bits<8>>(selected)
+}

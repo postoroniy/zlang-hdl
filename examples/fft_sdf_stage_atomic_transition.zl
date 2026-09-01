@@ -1,0 +1,43 @@
+// Small reusable SDF-shaped state/storage acceptance fixture.  This validates
+// feedback delay, output holding, stalls, and atomic FIFO/register transitions;
+// it deliberately does not implement FFT arithmetic.
+module SDFStateStage<D=4> {
+    clock clk
+    reset rst
+
+    in input : rv<u8>
+    out output : rv<u8>
+    out phase_debug : bit
+    out count_debug : uint<3>
+
+    fifo feedback : fifo<u8,D>
+    reg phase : bit = 0
+    reg out_valid : bit = 0
+    reg out_data : u8 = 0
+
+    input.ready = out_valid == 0 ? 1 : output.ready
+    output.payload = out_data
+    output.valid = out_valid
+    phase_debug = phase
+    count_debug = extend(feedback.count)
+
+    rule seed when input.transfer & feedback.empty {
+        feedback.push(input.payload)
+        phase <- 1
+    }
+
+    rule advance when input.transfer & (feedback.empty == 0) {
+        feedback.pop()
+        feedback.push(input.payload)
+        phase <- phase ^ 1
+        out_data <- feedback.front
+        out_valid <- 1
+    }
+
+    rule retire when output.transfer {
+        out_valid <- 0
+    }
+
+    priority seed > advance > retire
+    priority seed > retire
+}

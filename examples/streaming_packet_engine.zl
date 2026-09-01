@@ -1,0 +1,42 @@
+import std.bus.reg
+import std.bus.axi_stream
+import std.bus.axi_lite
+
+module StreamingPacketCore<DW=32> {
+    clock clk
+    reset rst
+    in enable : bit
+    interface s_axis : AXIStream<DW>.sink @clk
+    interface m_axis : AXIStream<DW>.source @clk
+    out packet_count : uint<32>
+
+    reg packets : uint<32> = 0
+    completed : bit = s_axis.t.valid & enable & m_axis.t.ready & s_axis.t.payload.last
+
+    m_axis.t.valid = s_axis.t.valid & enable
+    m_axis.t.payload = s_axis.t.payload
+    s_axis.t.ready = mux(enable, m_axis.t.ready, 1)
+    packets <- mux(completed, truncate<32>(packets + 1), packets)
+    packet_count = packets
+}
+
+module StreamingPacketEngine<DW=32> {
+    clock clk
+    reset rst
+    interface s_axis : AXIStream<DW>.sink @clk
+    interface m_axis : AXIStream<DW>.source @clk
+    interface axi : AXI4Lite<32,32>.slave @clk
+    out packet_count : uint<32>
+
+    inst frontend : AXI4LiteToRegBus<32,32>
+    inst csr : RegBusCSRTarget<32,32>
+    inst engine : StreamingPacketCore<DW> {
+        enable = csr.rw_value
+    }
+
+    connect axi -> frontend.axi
+    connect frontend.regbus -> csr.regbus
+    connect s_axis -> engine.s_axis
+    connect m_axis -> engine.m_axis
+    packet_count = engine.packet_count
+}

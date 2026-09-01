@@ -1,0 +1,10 @@
+module MetadataDatapath {
+    clock clk
+    reset rst
+
+    in  samples      : vec<4, u8>
+    in  coefficients : vec<4, u8>
+    out y            : u18
+
+    y = delay<1>(dot(samples, coefficients))
+}

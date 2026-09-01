@@ -1,0 +1,11 @@
+module CdcPulse {
+    clock source_clock
+    reset source_reset @ source_clock
+    clock destination_clock
+    reset destination_reset @ destination_clock
+
+    in  pulse         : bit @ source_clock
+    out crossed_pulse : bit @ destination_clock
+
+    connect pulse -> crossed_pulse { crossing pulse_toggle }
+}

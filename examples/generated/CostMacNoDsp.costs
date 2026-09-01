@@ -1,0 +1,6 @@
+module CostMacNoDsp
+cost_model=zlang-initial-v1 cost_source=estimate measured=false
+choice output=y goal=minimize_lut constraints=[dsp<=0,latency<=1,ii<=1]
+  candidate kind=dsp_mac legal=false estimated lut=17 ff=17 dsp=1 bram=0 latency=1 ii=1 violations=[dsp=1 > 0]
+  candidate kind=mul_add legal=true estimated lut=81 ff=17 dsp=0 bram=0 latency=1 ii=1 violations=[none]
+  selected kind=mul_add reason=minimum_estimated_lut=81 tie_break=implementation_kind

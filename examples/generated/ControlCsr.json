@@ -1,0 +1,99 @@
+{
+  "module": "ControlCsr",
+  "data_width": 32,
+  "address_width": 32,
+  "blocks": [
+    {
+      "name": "control",
+      "base_address": 1073741824,
+      "registers": [
+        {
+          "name": "CONTROL",
+          "offset": 0,
+          "address": 1073741824,
+          "fields": [
+            {
+              "name": "enable",
+              "type": "bit",
+              "access": "rw",
+              "msb": 0,
+              "lsb": 0,
+              "width": 1,
+              "reset": 0
+            },
+            {
+              "name": "mode",
+              "type": "u3",
+              "access": "rw",
+              "msb": 3,
+              "lsb": 1,
+              "width": 3,
+              "reset": 0
+            },
+            {
+              "name": "start",
+              "type": "bit",
+              "access": "pulse",
+              "msb": 4,
+              "lsb": 4,
+              "width": 1,
+              "reset": 0
+            },
+            {
+              "name": "command",
+              "type": "u3",
+              "access": "wo",
+              "msb": 7,
+              "lsb": 5,
+              "width": 3,
+              "reset": 0
+            },
+            {
+              "name": "reserved0",
+              "type": "bits<24>",
+              "access": "reserved",
+              "msb": 31,
+              "lsb": 8,
+              "width": 24,
+              "reset": 0
+            }
+          ]
+        },
+        {
+          "name": "STATUS",
+          "offset": 4,
+          "address": 1073741828,
+          "fields": [
+            {
+              "name": "busy",
+              "type": "bit",
+              "access": "ro",
+              "msb": 0,
+              "lsb": 0,
+              "width": 1,
+              "reset": 1
+            },
+            {
+              "name": "error",
+              "type": "bit",
+              "access": "w1c",
+              "msb": 1,
+              "lsb": 1,
+              "width": 1,
+              "reset": 1
+            },
+            {
+              "name": "reserved1",
+              "type": "bits<30>",
+              "access": "reserved",
+              "msb": 31,
+              "lsb": 2,
+              "width": 30,
+              "reset": 0
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

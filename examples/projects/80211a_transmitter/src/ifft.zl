@@ -1,0 +1,266 @@
+// Functional IFFT64 hierarchy for the bounded 802.11a profile.
+//
+// The numerical chain is the exact-width six-stage inverse DIF-SDF reference.
+// It emits bit-reversed samples, so the following stateful block restores
+// natural order and emits the sixteen-sample cyclic prefix followed by all
+// sixty-four symbol samples.  This source intentionally contains no automatic
+// exploration or target-specific implementation choice.
+
+import wifi80211a_transmitter.ifft_library
+import wifi80211a_transmitter.cyclic_extender
+import wifi80211a_transmitter.mapper
+
+struct WifiIFFTFrameMeta {
+    rate : WifiRate
+    symbol_index : u12
+    first : bit
+    last : bit
+    emit : bit
+}
+
+struct WifiRawSampleMeta {
+    rate : bits<3>
+    symbol_index : u12
+    symbol_first : bit
+    symbol_last : bit
+}
+
+type WifiRawMappedSample = FrameBeat<Complex<IFFTStageInput>,WifiRawSampleMeta>
+
+enum IeeeIFFTStripPhase {
+    Data
+    Flush
+}
+
+module IeeeIFFTFramedInputBoundary {
+    in input : rv<WifiRawMappedSample>
+    out output : rv<WifiMappedSample>
+
+    decoded_rate : WifiRate = enum_decode<WifiRate>(
+        input.payload.meta.rate,
+        WifiRate.Continue
+    )
+    accepted_rate = enum_valid<WifiRate>(input.payload.meta.rate)
+        & (decoded_rate != WifiRate.Continue)
+    output.payload = FrameBeat {
+        data = input.payload.data
+        meta = WifiSampleMeta {
+            rate = decoded_rate
+            symbol_index = input.payload.meta.symbol_index
+            symbol_first = input.payload.meta.symbol_first
+            symbol_last = input.payload.meta.symbol_last
+        }
+        first = input.payload.first
+        last = input.payload.last
+    }
+    output.valid = input.valid & accepted_rate
+    input.ready = output.ready & accepted_rate
+}
+
+module IeeeIFFTFramedOutputBoundary {
+    in input : rv<WifiMappedSample>
+    out output : rv<WifiRawMappedSample>
+
+    output.payload = FrameBeat {
+        data = input.payload.data
+        meta = WifiRawSampleMeta {
+            rate = enum_encode(input.payload.meta.rate)
+            symbol_index = input.payload.meta.symbol_index
+            symbol_first = input.payload.meta.symbol_first
+            symbol_last = input.payload.meta.symbol_last
+        }
+        first = input.payload.first
+        last = input.payload.last
+    }
+    output.valid = input.valid
+    input.ready = output.ready
+}
+
+// Keep the numerical IFFT interface free of framing semantics.  This ordinary
+// ready/valid adapter strips the project FrameBeat envelope while preserving
+// the physical handshake.  `allow` lets the parent reserve one metadata FIFO
+// entry before accepting the final bin of a symbol.
+module IeeeIFFTInputStrip {
+    clock clk reset rst
+
+    in input : rv<WifiMappedSample>
+    in allow : bit
+    out output : rv<Complex<IFFTStageInput>>
+
+    // One all-zero frequency frame flushes the finite packet's final real
+    // symbol through the continuous SDF recurrence.  The matching output frame
+    // is marked as non-emitting by a parallel token in the parent.
+    reg flush_remaining : u7 = 0
+    flushing = phase == IeeeIFFTStripPhase.Flush
+
+    output.payload = flushing
+        ? Complex { re = 0 im = 0 }
+        : input.payload.data
+    output.valid = flushing | (input.valid & allow)
+    input.ready = (flushing == 0) & output.ready & allow
+
+    fsm phase : IeeeIFFTStripPhase = Data {
+        Data {
+            when input.transfer & input.payload.last -> Flush {
+                flush_remaining <- 64
+            }
+        }
+        Flush {
+            priority {
+                when output.transfer & (flush_remaining == 1) -> Data {
+                    flush_remaining <- 0
+                }
+                when output.transfer -> Flush {
+                    flush_remaining <- truncate(flush_remaining - 1)
+                }
+            }
+        }
+    }
+}
+
+// Reattach one symbol's metadata after reorder/CP.  The output ordinal is
+// explicit so the envelope identifies the CP boundary without changing the
+// numerical child ABI.
+module IeeeIFFTOutputAttach {
+    in input : rv<Complex<IFFTStageInput>>
+    in frame_meta : WifiIFFTFrameMeta
+    in output_ordinal : u7
+    in allow : bit
+    out output : rv<WifiMappedSample>
+    out consumed : bit
+
+    symbol_first = output_ordinal == 0
+    symbol_last = output_ordinal == 79
+    output.payload = FrameBeat {
+        data = input.payload
+        meta = WifiSampleMeta {
+            rate = frame_meta.rate
+            symbol_index = frame_meta.symbol_index
+            symbol_first
+            symbol_last
+        }
+        first = frame_meta.first & symbol_first
+        last = frame_meta.last & symbol_last
+    }
+    output.valid = input.valid & allow & frame_meta.emit
+    input.ready = allow & (frame_meta.emit ? output.ready : 1)
+    consumed = input.transfer
+}
+
+module IeeeIFFT64 {
+    clock clk reset rst
+
+    in input : rv<Complex<IFFTStageInput>>
+    out output : rv<Complex<IFFTStageInput>>
+
+    transform : IFFT64DIFExactChain
+    reorder_cp : IFFT64ReorderCP
+
+    input -> transform.input
+    transform.output -> reorder_cp.input
+    reorder_cp.output -> output
+}
+
+// Framed IEEE wrapper.  Numerical state remains entirely in the exact
+// IFFT/reorder hierarchy; the parent stores only one small record per accepted
+// OFDM symbol.  This keeps packet attribution aligned without injecting
+// metadata fields into the arithmetic or moving the quantization boundary.
+module IeeeFramedIFFT64 {
+    clock clk reset rst
+
+    in input : rv<WifiMappedSample>
+    out output : rv<WifiMappedSample>
+
+    fifo metadata : fifo<WifiIFFTFrameMeta,8>
+    reg output_ordinal : u7 = 0
+    reg pending_flush_token : bit = 0
+    reg pending_frame_first : bit = 0
+
+    // A packet-final symbol reserves two ordered tokens: one visible symbol
+    // and one discarded zero-flush frame.  Other symbol boundaries need one.
+    can_accept_input = (input.payload.meta.symbol_last == 0)
+        | (input.payload.last
+            ? (metadata.count < 7)
+            : metadata.ready)
+    selected_frame_first = input.payload.meta.symbol_first
+        ? input.payload.first
+        : pending_frame_first
+
+    strip : IeeeIFFTInputStrip {
+        allow = can_accept_input
+    }
+    transform : IFFT64DIFExactChain
+    reorder_cp : IFFT64ReorderCP
+    attach : IeeeIFFTOutputAttach {
+        frame_meta = metadata.front
+        output_ordinal
+        allow = metadata.valid
+    }
+
+    input -> strip.input
+    strip.output -> transform.input
+    transform.output -> reorder_cp.input
+    reorder_cp.output -> attach.input
+    attach.output -> output
+
+    output_last = output_ordinal == 79
+
+    remember_symbol: when input.transfer
+        & input.payload.meta.symbol_last {
+        metadata.push(WifiIFFTFrameMeta {
+            rate = input.payload.meta.rate
+            symbol_index = input.payload.meta.symbol_index
+            first = selected_frame_first
+            last = input.payload.last
+            emit = 1
+        })
+        pending_flush_token <- input.payload.last
+    }
+
+    remember_frame_start: when input.transfer
+        & input.payload.meta.symbol_first {
+        pending_frame_first <- input.payload.first
+    }
+
+    remember_flush: when pending_flush_token & metadata.ready {
+        metadata.push(WifiIFFTFrameMeta {
+            rate = WifiRate.Continue
+            symbol_index = 0
+            first = 0
+            last = 0
+            emit = 0
+        })
+        pending_flush_token <- 0
+    }
+
+    advance_output: when attach.consumed {
+        output_ordinal <- output_last
+            ? 0
+            : truncate(output_ordinal + 1)
+    }
+
+    retire_symbol: when attach.consumed & output_last {
+        metadata.pop()
+    }
+
+    priority remember_symbol > remember_flush
+}
+
+
+// Concrete public-boundary witness: nominal WifiRate remains internal while
+// every physical three-bit input pattern can be presented and validated.
+module IeeeFramedIFFT64Raw {
+    clock clk reset rst
+
+    in input : rv<WifiRawMappedSample>
+    out output : rv<WifiRawMappedSample>
+
+    decode : IeeeIFFTFramedInputBoundary
+    transform : IeeeFramedIFFT64
+    encode : IeeeIFFTFramedOutputBoundary
+
+    input -> decode.input
+    decode.output -> transform.input
+    transform.output -> encode.input
+    encode.output -> output
+}

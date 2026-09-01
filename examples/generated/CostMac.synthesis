@@ -1,0 +1,12 @@
+module CostMac
+feedback_source=measured tool=yosys version=[Yosys 0.64 (git sha1 6d2c445ae, g++ 13.3.0-6ubuntu2~24.04.1 -fPIC -O3)] clash_version=[Clash, version 1.11.0 (using clash-lib, version: 1.11.0)]
+target=generic-lut6 constraints=[flatten=true,lut_inputs=6,exclude_flip_flops_from_depth=true]
+candidate output=y kind=dsp_mac candidate_hash=05028f10a452b9a61e72efab13088154fec295842ac3f76d1d76ebacd61121f7 cache_key=926c155a54c5b5d74bed3e8950af8086fd6cefd7a0116e8e11ac5521bd45c02a cache_hit=false
+  estimate lut=17 ff=17 dsp=1 bram=0 latency=1 ii=1
+  measured target=generic-lut6 lut_cells=136 flip_flops=17 total_cells=153 logic_depth=8
+  legal=true violations=[none] objective=136 objective_source=measured_yosys_lut6
+candidate output=y kind=mul_add candidate_hash=f7e385bcedfd2fbd5138111a790a451a96750dd606dcae7cf72bc0b75b6bf1a1 cache_key=aa379722248b3ab3df930e3f92e2d4f41bed68f26732fa44ca496f260dc5cc5f cache_hit=false
+  estimate lut=81 ff=17 dsp=0 bram=0 latency=1 ii=1
+  measured target=generic-lut6 lut_cells=136 flip_flops=17 total_cells=153 logic_depth=8
+  legal=true violations=[none] objective=136 objective_source=measured_yosys_lut6
+selected output=y kind=dsp_mac goal=minimize_lut hard_constraints=[lut<=200(measured_yosys_lut6),ff<=17(measured_yosys),dsp<=1(estimate),bram<=0(estimate),latency<=1(estimate),ii<=1(estimate)] objective_source=measured_yosys_lut6 objective=136 measured_logic_depth_tie_break=8 final_tie_break=implementation_kind

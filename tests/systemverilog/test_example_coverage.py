@@ -1,0 +1,273 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from functools import cache
+from pathlib import Path
+import re
+import shutil
+import subprocess
+
+import pytest
+
+from zlang.backend.systemverilog import (
+    SystemVerilogEmissionError,
+    emit_artifact,
+    emit_experimental,
+)
+from zlang.compiler import compile_file
+from zlang.ir.interfaces import RequestResponseRole
+from zlang.opt import OptimizationStage, lower, restore
+from zlang.parser import parse
+from zlang.semantic import SemanticError
+
+
+ROOT = Path(__file__).resolve().parents[2]
+EXAMPLES = ROOT / "examples"
+INITIALIZED_INTERNAL_WIRE = re.compile(r"(?m)^[ \t]*wire\b[^;\n]*=")
+
+
+def _assert_explicit_internal_drivers(text: str, context: str) -> None:
+    match = INITIALIZED_INTERNAL_WIRE.search(text)
+    assert match is None, f"{context}: declaration assignment {match.group(0)!r}"
+
+
+@dataclass(frozen=True)
+class ChildExpectation:
+    diagnostic: str
+    witness_top: str
+    witness_relative: str | None = None
+
+
+CHILD_OR_TEMPLATE_ONLY = {
+    ("fft/sdf_stage_numeric.zl", "FFTSDFStageNumeric"): ChildExpectation(
+        "unknown type 'S'", "FFTSDFStageNumericD4"
+    ),
+    ("simple_dma_m40.zl", "TransferEngine"): ChildExpectation(
+        "request/response interfaces require a module clock and reset",
+        "SimpleDMA",
+    ),
+    (
+        "projects/80211a_transmitter/src/ifft_library.zl",
+        "IFFT64DIFStageExactDualBank",
+    ): ChildExpectation(
+        "unknown type, module, or protocol 'Complex'",
+        "IFFT64DIFStageExactD4",
+    ),
+    (
+        "projects/80211a_transmitter/src/conv_encoder.zl",
+        "IeeeConvolutionalEncoder24",
+    ): ChildExpectation(
+        "top-level input 'input' cannot expose enum type",
+        "IeeePacketEncoderInterleaver24",
+        "projects/80211a_transmitter/src/interleaver.zl",
+    ),
+    (
+        "projects/80211a_transmitter/src/interleaver.zl",
+        "IeeeInterleaver48",
+    ): ChildExpectation(
+        "top-level input 'input' cannot expose enum type",
+        "IeeePacketEncoderInterleaver24",
+    ),
+    (
+        "projects/80211a_transmitter/src/interleaver.zl",
+        "IeeeEncoderInterleaver24",
+    ): ChildExpectation(
+        "top-level input 'input' cannot expose enum type",
+        "IeeePacketEncoderInterleaver24",
+    ),
+    (
+        "projects/80211a_transmitter/src/scrambler.zl",
+        "IeeeDataScrambler24",
+    ): ChildExpectation(
+        "top-level input 'input' cannot expose enum type",
+        "IeeePacketFramerScrambler24",
+        "projects/80211a_transmitter/src/controller.zl",
+    ),
+    (
+        "projects/80211a_transmitter/src/ifft.zl",
+        "IeeeIFFTFramedOutputBoundary",
+    ): ChildExpectation(
+        "top-level input 'input' cannot expose enum type",
+        "IeeeFramedIFFT64Raw",
+    ),
+    (
+        "projects/80211a_transmitter/src/ifft.zl",
+        "IeeeIFFTInputStrip",
+    ): ChildExpectation(
+        "top-level input 'input' cannot expose enum type",
+        "IeeeFramedIFFT64Raw",
+    ),
+    (
+        "projects/80211a_transmitter/src/ifft.zl",
+        "IeeeIFFTOutputAttach",
+    ): ChildExpectation(
+        "top-level input 'frame_meta' cannot expose enum type",
+        "IeeeFramedIFFT64Raw",
+    ),
+    (
+        "projects/80211a_transmitter/src/ifft.zl",
+        "IeeeFramedIFFT64",
+    ): ChildExpectation(
+        "top-level input 'input' cannot expose enum type",
+        "IeeeFramedIFFT64Raw",
+    ),
+    (
+        "projects/80211a_transmitter/src/mapper.zl",
+        "IeeeMapper64",
+    ): ChildExpectation(
+        "top-level input 'input' cannot expose enum type",
+        "IeeePacketMapper64",
+    ),
+    (
+        "projects/80211a_transmitter/src/mapper.zl",
+        "IeeeMapperSerializer64",
+    ): ChildExpectation(
+        "top-level input 'input' cannot expose enum type",
+        "IeeePacketMapper64",
+    ),
+    (
+        "projects/80211a_transmitter/src/mapper.zl",
+        "IeeeMapperStream64",
+    ): ChildExpectation(
+        "top-level input 'input' cannot expose enum type",
+        "IeeePacketMapper64",
+    ),
+    (
+        "projects/80211a_transmitter/src/mapper.zl",
+        "IeeeMappedSampleToIFFT64",
+    ): ChildExpectation(
+        "top-level input 'input' cannot expose enum type",
+        "IeeePacketMapper64",
+    ),
+}
+
+
+DIRECT_UNSUPPORTED: dict[tuple[str, str], str] = {}
+
+
+def _roots():
+    for path in sorted(EXAMPLES.rglob("*.zl")):
+        source = path.read_text()
+        syntax = parse(source)
+        relative = path.relative_to(EXAMPLES).as_posix()
+        for module in (*syntax.submodules, syntax):
+            yield path, relative, source, module.name
+
+
+@cache
+def _direct_result(path: Path, top: str):
+    # File-backed compilation is part of this exhaustive corpus contract:
+    # project examples may import sibling modules through their zlang.toml
+    # namespace, which a detached source string deliberately cannot resolve.
+    return compile_file(path, top=top, include_clash=False)
+
+
+def test_every_example_module_root_has_an_explicit_direct_status() -> None:
+    roots = tuple(_roots())
+    assert len({path for path, *_ in roots}) == 80
+    assert len(roots) == 165
+
+    standalone = 0
+    child_only = 0
+    unsupported = 0
+    witnesses: set[tuple[str, str]] = set()
+    for path, relative, _, top in roots:
+        key = (relative, top)
+        if key in CHILD_OR_TEMPLATE_ONLY:
+            child_only += 1
+            expectation = CHILD_OR_TEMPLATE_ONLY[key]
+            with pytest.raises(
+                (SemanticError, SystemVerilogEmissionError),
+                match=expectation.diagnostic,
+            ):
+                emit_experimental(_direct_result(path, top).ir)
+            witness_relative = expectation.witness_relative or relative
+            witness = (witness_relative, expectation.witness_top)
+            if witness not in witnesses:
+                witness_path = EXAMPLES / witness_relative
+                witness_result = _direct_result(
+                    witness_path, expectation.witness_top
+                )
+                artifact = emit_artifact(witness_result.ir)
+                _assert_explicit_internal_drivers(
+                    artifact.text,
+                    f"{witness_relative}::{expectation.witness_top}",
+                )
+                assert artifact.to_json()
+                witnesses.add(witness)
+            continue
+        if key in DIRECT_UNSUPPORTED:
+            unsupported += 1
+            with pytest.raises(
+                SystemVerilogEmissionError,
+                match=DIRECT_UNSUPPORTED[key],
+            ):
+                emit_experimental(_direct_result(path, top).ir)
+            continue
+
+        standalone += 1
+        result = _direct_result(path, top)
+        assert result.clash == ""
+        artifact = emit_artifact(result.ir)
+        _assert_explicit_internal_drivers(artifact.text, f"{relative}::{top}")
+        assert artifact.to_json()
+
+    assert (standalone, child_only, unsupported) == (150, 15, 0)
+
+
+@pytest.mark.parametrize(
+    ("relative", "top"),
+    (
+        ("hierarchical_request_response_m40.zl", "Requester"),
+        ("hierarchical_request_response_m40.zl", "Responder"),
+        ("simple_dma_m40.zl", "MemoryModel"),
+        ("multichannel_dma.zl", "DMAMemoryModel"),
+    ),
+)
+def test_request_response_role_survives_canonical_round_trip(
+    relative: str,
+    top: str,
+) -> None:
+    result = _direct_result(EXAMPLES / relative, top)
+    restored = restore(lower(result.ir, stage=OptimizationStage.HIGH_LEVEL))
+    assert restored == result.ir
+    expected_role = (
+        RequestResponseRole.REQUESTER
+        if top == "Requester"
+        else RequestResponseRole.RESPONDER
+    )
+    assert result.ir.request_responses[0].role is expected_role
+    assert all(
+        assignment.target is result.ir.request_responses[0]
+        for assignment in result.ir.assignments
+        if assignment.target.name == result.ir.request_responses[0].name
+    )
+
+
+@pytest.mark.skipif(shutil.which("verilator") is None, reason="Verilator is required")
+@pytest.mark.toolchain_smoke
+@pytest.mark.exhaustive_toolchain
+def test_every_standalone_supported_example_root_passes_strict_lint(tmp_path: Path) -> None:
+    checked = 0
+    for path, relative, _, top in _roots():
+        key = (relative, top)
+        if key in CHILD_OR_TEMPLATE_ONLY or key in DIRECT_UNSUPPORTED:
+            continue
+        generated = emit_experimental(_direct_result(path, top).ir)
+        _assert_explicit_internal_drivers(generated, f"{relative}::{top}")
+        path = tmp_path / f"{checked:03d}_{top}.sv"
+        path.write_text(generated)
+        completed = subprocess.run(
+            (
+                "verilator", "--lint-only", "-Wno-DECLFILENAME",
+                "-Wno-UNUSED", "-Wno-UNDRIVEN", "--top-module", top,
+                str(path),
+            ),
+            capture_output=True,
+            text=True,
+        )
+        assert completed.returncode == 0, (
+            f"{relative}::{top}\n{completed.stderr}"
+        )
+        checked += 1
+    assert checked == 150

@@ -1,0 +1,12 @@
+import std.target.toy_asic
+
+architecture ToyMACArchitecture {
+    operation toy_mac
+    require_resource ToyMAC 1
+    latency 0
+    ii 1
+    register_site output 0
+}
+
+module ToyArchitectureLibrary {
+}

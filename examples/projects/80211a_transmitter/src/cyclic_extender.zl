@@ -1,0 +1,78 @@
+// IFFT64 bit-reversal reorder and cyclic-prefix reference.
+//
+// The inverse DIF-SDF chain emits bins in bit-reversed order.  This bounded
+// implementation stores each accepted value directly at its natural index,
+// then drains the last sixteen samples followed by all sixty-four samples.
+// It deliberately uses one vector-register bank: the next symbol is
+// backpressured throughout the 80-cycle drain.  This is a functional
+// architecture, not an overlap/throughput claim and not an automatic
+// BRAM/SRL-inference policy.
+import std.math.complex
+import std.coding.core
+
+type IFFTReorderSample = fixed<16,15>
+
+// Reverse the six-bit accepted-sample ordinal.  concat places its first
+// operand at the MSB; the explicit bitcast changes only the raw view.
+fn ifft64_bit_reverse(index : u6) -> u6 {
+    coding_reverse_bits<N=6>(bitcast<bits<6>>(index))
+}
+
+// The state-owning kernel is instantiated behind the public wrapper below.
+// This is the existing closed ready/valid component pattern: the child keeps
+// its state and the wrapper contributes only typed hierarchical connections.
+module IFFT64ReorderCPKernel {
+    clock clk reset rst
+
+    in input : rv<Complex<IFFTReorderSample>>
+    out output : rv<Complex<IFFTReorderSample>>
+
+    reg samples : vec<64,Complex<IFFTReorderSample>> =
+        repeat(Complex { re = 0 im = 0 })
+    reg fill_count : u6 = 0
+    reg emit_count : u7 = 0
+    reg emitting : bit = 0
+
+    // CP positions 48..63 occupy output ordinals 0..15.  The complete
+    // natural-order symbol follows at ordinals 16..79.
+    emit_index : u6 = emit_count < 16
+        ? truncate(emit_count + 48)
+        : truncate(emit_count - 16)
+
+    input.ready = emitting == 0
+    output.valid = emitting
+    output.payload = samples[emit_index]
+
+    // A DIF output accepted at ordinal n belongs at natural index reverse6(n).
+    // VectorUpdate reads the old vector and commits exactly one element at the
+    // edge; the final accepted input starts the drain on the following cycle.
+    collect: when input.transfer {
+        samples[ifft64_bit_reverse(fill_count)] <- input.payload
+        fill_count <- truncate(fill_count + 1)
+        emitting <- fill_count == 63
+    }
+
+    // The output ordinal advances only on transfer, so payload and valid stay
+    // stable for an arbitrarily long downstream stall.
+    drain: when output.transfer {
+        emit_count <- emit_count == 79
+            ? 0
+            : truncate(emit_count + 1)
+        emitting <- emit_count != 79
+    }
+
+    // The guards are physically disjoint through ready/valid, but make the
+    // whole-register write schedule explicit rather than relying on inference.
+    priority collect > drain
+}
+
+module IFFT64ReorderCP {
+    clock clk reset rst
+
+    in input : rv<Complex<IFFTReorderSample>>
+    out output : rv<Complex<IFFTReorderSample>>
+
+    kernel : IFFT64ReorderCPKernel
+    input -> kernel.input
+    kernel.output -> output
+}

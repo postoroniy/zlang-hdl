@@ -1,0 +1,42 @@
+name: Pinned EDA acceptance
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: eda-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  real-tools:
+    # Never run untrusted pull-request code on the privileged EDA host.
+    runs-on: [self-hosted, linux, x64, zlang-eda]
+    timeout-minutes: 180
+    steps:
+      - name: Check out public snapshot
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Validate immutable public checkout
+        run: python tools/public_tree.py check-export --source .
+      - name: Install ZLang test environment
+        run: python -m pip install --disable-pip-version-check -e '.[test]'
+      - name: Require the frozen EDA toolchain
+        run: |
+          python tools/release_status.py check --root . --check-tools
+      - name: Run the complete regression with no unexpected skips
+        run: |
+          mkdir -p build
+          python -m pytest -p tools.pytest_no_skips \
+            -n 8 --dist=loadscope -q --junitxml=build/eda.xml
+          python tools/release_status.py check --root . --junit build/eda.xml

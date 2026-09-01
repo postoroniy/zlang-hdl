@@ -1,0 +1,141 @@
+// Verification-only wrappers around the IEEE 802.11a real-design modules.
+//
+// The production sources remain unchanged.  Raw boundary records keep nominal
+// WifiRate values inside the hierarchy so both RTL backends can publish the
+// complete top-level ABI used by the formal harness.
+
+import wifi80211a_transmitter.mapper
+import wifi80211a_transmitter.ifft
+
+struct VerificationRawWordMeta {
+    rate : bits<3>
+    valid_bytes : u2
+    tail_mask : bits<24>
+    symbol_first : bit
+    symbol_last : bit
+}
+
+type VerificationRawInterleavedWord =
+    FrameBeat<bits<48>,VerificationRawWordMeta>
+
+module VerificationMapperInputBoundary {
+    in input : rv<VerificationRawInterleavedWord>
+    out output : rv<WifiInterleavedWord>
+
+    decoded_rate = enum_decode<WifiRate>(
+        input.payload.meta.rate,
+        WifiRate.Continue
+    )
+    accepted_rate = enum_valid<WifiRate>(input.payload.meta.rate)
+        & (decoded_rate != WifiRate.Continue)
+
+    output.payload = FrameBeat {
+        data = input.payload.data
+        meta = WifiWordMeta {
+            rate = decoded_rate
+            valid_bytes = input.payload.meta.valid_bytes
+            tail_mask = input.payload.meta.tail_mask
+            symbol_first = input.payload.meta.symbol_first
+            symbol_last = input.payload.meta.symbol_last
+        }
+        first = input.payload.first
+        last = input.payload.last
+    }
+    output.valid = input.valid & accepted_rate
+    input.ready = output.ready & accepted_rate
+}
+
+// Collapse one accepted whole-frame transaction to a single bit transaction.
+// The numerical frame payload stays inside the fixture hierarchy, avoiding an
+// unpacked array in the Yosys-facing formal top while retaining the mapper's
+// exact ready/valid acceptance event.
+module VerificationMapperFrameSink {
+    in input : rv<WifiMappedFrame>
+    out output : rv<bit>
+
+    output.payload = 1
+    output.valid = input.valid
+    input.ready = output.ready
+}
+
+// The contract deliberately states only a same-cycle handshake fact.  It does
+// not claim packet conservation, ordering, or eventual frame production.
+module IeeeMapper64Verification {
+    clock clk reset rst
+
+    in input : rv<VerificationRawInterleavedWord>
+    out output : rv<bit>
+
+    decode : VerificationMapperInputBoundary
+    mapper : IeeeMapper64
+    sink : VerificationMapperFrameSink
+
+    input -> decode.input
+    decode.output -> mapper.input
+    mapper.output -> sink.input
+    sink.output -> output
+
+    contract mapper_behavior @ clk {
+        assert accepted_transfer_legal {
+            input.transfer == (input.valid & input.ready)
+        }
+
+        cover emitted_frame {
+            output.transfer
+        }
+    }
+}
+
+// Bounded formal witness for the mapper's accepted-rate state.  This keeps the
+// real sparse WifiRate encoding and the same accept/validation rule used at the
+// IeeeMapper64 boundary, while deliberately omitting the 64-lane constellation
+// datapath so state-mutation diagnostics remain fast and deterministic.
+module IeeeMapperRateStateVerification {
+    clock clk reset rst
+
+    in raw_rate : bits<3>
+    in accept : bit
+    out current_rate_raw : bits<3>
+
+    reg current_rate : WifiRate = WifiRate.Continue
+
+    decoded_rate = enum_decode<WifiRate>(
+        raw_rate,
+        WifiRate.Continue
+    )
+    accepted_rate = enum_valid<WifiRate>(raw_rate)
+        & (decoded_rate != WifiRate.Continue)
+
+    current_rate_raw = enum_encode(current_rate)
+
+    update_rate: when accept & accepted_rate {
+        current_rate <- decoded_rate
+    }
+
+    contract mapper_rate_state @ clk {
+        ensure current_rate_legal {
+            enum_valid<WifiRate>(current_rate_raw)
+        }
+
+        cover accepts_supported_rate {
+            accept & accepted_rate
+        }
+    }
+}
+
+// IeeeIFFTFramedOutputBoundary itself is combinational.  This clocked raw
+// round-trip wrapper gives automatic M35 ready/valid assumptions/assertions an
+// unambiguous sampling domain without changing the production component.
+module IeeeIFFTBoundaryVerification {
+    clock clk reset rst
+
+    in input : rv<WifiRawMappedSample>
+    out output : rv<WifiRawMappedSample>
+
+    decode : IeeeIFFTFramedInputBoundary
+    boundary : IeeeIFFTFramedOutputBoundary
+
+    input -> decode.input
+    decode.output -> boundary.input
+    boundary.output -> output
+}

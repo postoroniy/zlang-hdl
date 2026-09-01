@@ -1,0 +1,66 @@
+// IEEE-facing transaction types for the authoritative transmitter path.
+
+import std.stream.core
+
+enum WifiRate : bits<3> {
+    Continue = 0
+    Bpsk6 = 1
+    Qpsk12 = 2
+    Qam16_24 = 4
+}
+
+struct WifiTxCommand {
+    // The public boundary stays raw so every physical pattern is representable.
+    // enum_valid/enum_decode establish nominal validity inside the design.
+    rate : bits<3>
+    length : u12
+}
+
+struct WifiWordMeta {
+    rate : WifiRate
+    valid_bytes : u2
+    tail_mask : bits<24>
+    symbol_first : bit
+    symbol_last : bit
+}
+
+struct WifiSampleMeta {
+    rate : WifiRate
+    symbol_index : u12
+    symbol_first : bit
+    symbol_last : bit
+}
+
+struct WifiRateBoundary {
+    valid : bit
+    decoded : bits<3>
+    encoded : bits<3>
+}
+
+// Exact raw constellation representation shared by numerical mapper helpers
+// and the historical whole-vector compatibility fixtures.
+struct ComplexRaw16 {
+    i : s16
+    q : s16
+}
+
+type WifiPsduBeat = FrameBeat<bits<24>,u2>
+type WifiFramedWord = FrameBeat<bits<24>,WifiWordMeta>
+type WifiEncodedWord = FrameBeat<bits<48>,WifiWordMeta>
+type WifiInterleavedWord = FrameBeat<bits<48>,WifiWordMeta>
+
+module WifiRateCodec {
+    in raw_rate : bits<3>
+    out result : WifiRateBoundary
+
+    rate : WifiRate = enum_decode<WifiRate>(
+        raw_rate,
+        WifiRate.Continue
+    )
+    encoded = enum_encode(rate)
+    result = WifiRateBoundary {
+        valid = enum_valid<WifiRate>(raw_rate)
+        decoded = encoded
+        encoded
+    }
+}

@@ -1,0 +1,15 @@
+module CostMacNoDsp {
+    clock clk
+    reset rst
+
+    in a : u8
+    in b : u8
+    in c : u16
+
+    out y : u17
+
+    y = choice(auto, minimize=lut, dsp<=0, latency<=1, ii<=1) {
+        mul_add => pipeline(1) { a * b + c }
+        dsp_mac => pipeline(1) { a * b + c }
+    }
+}

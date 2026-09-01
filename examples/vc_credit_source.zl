@@ -1,0 +1,13 @@
+module VcCreditSource {
+    clock clk
+    reset rst
+
+    in payload : u8
+    in channel : u1
+    in request : bit
+    out tx : vc_credit<u8, 2, 2>
+
+    tx.payload = payload
+    tx.vc = channel
+    tx.send = request
+}

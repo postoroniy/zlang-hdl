@@ -1,0 +1,15 @@
+module MacChoice {
+    clock clk
+    reset rst
+
+    in a : u8
+    in b : u8
+    in c : u16
+
+    out y : u17
+
+    y = choice(dsp_mac) {
+        mul_add => pipeline(1) { a * b + c }
+        dsp_mac => pipeline(1) { a * b + c }
+    }
+}

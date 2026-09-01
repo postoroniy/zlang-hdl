@@ -1,0 +1,52 @@
+// Wishbone B4 Classic single-beat source profile.
+import std.bus.reg
+
+protocol Wishbone<AW=32,DW=32> {
+    role master
+    role slave
+    member cyc   : bit master -> slave
+    member stb   : bit master -> slave
+    member we    : bit master -> slave
+    member adr   : uint<AW> master -> slave
+    member dat_w : uint<DW> master -> slave
+    member sel   : bits<DW/8> master -> slave
+    member ack   : bit slave -> master
+    member err   : bit slave -> master
+    member stall : bit slave -> master
+    member dat_r : uint<DW> slave -> master
+}
+
+module WishboneToRegBus<AW=32,DW=32> {
+    clock clk
+    reset rst
+    interface wb : Wishbone<AW,DW>.slave @clk
+    interface regbus : RegBus<AW,DW>.requester @clk
+
+    reg pending : bit = 0
+    reg waiting : bit = 0
+    reg address : uint<AW> = 0
+    reg write : bit = 0
+    reg write_data : uint<DW> = 0
+    reg select : bits<DW/8> = 0
+
+    idle : bit = mux(pending, 0, mux(waiting, 0, 1))
+    accept_wb : bit = wb.cyc & wb.stb & idle
+    accept_reg : bit = pending & regbus.request.ready
+    complete : bit = waiting & regbus.response.valid & wb.cyc
+
+    wb.stall = mux(idle, 0, 1)
+    wb.ack = mux(regbus.response.payload.error, 0, complete)
+    wb.err = complete & regbus.response.payload.error
+    wb.dat_r = regbus.response.payload.rdata
+
+    regbus.request.valid = pending
+    regbus.request.payload = RegRequest{addr=address write=write wdata=write_data wstrb=select}
+    regbus.response.ready = waiting & wb.cyc
+
+    pending <- mux(accept_wb, 1, mux(accept_reg, 0, pending))
+    waiting <- mux(accept_reg, 1, mux(complete, 0, waiting))
+    address <- mux(accept_wb, wb.adr, address)
+    write <- mux(accept_wb, wb.we, write)
+    write_data <- mux(accept_wb, wb.dat_w, write_data)
+    select <- mux(accept_wb, wb.sel, select)
+}

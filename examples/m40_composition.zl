@@ -1,0 +1,17 @@
+struct Packet { addr:u8 data:u8 }
+
+module Leaf {
+    in value:u8
+    out result:u8
+    result = value
+}
+
+module Composition {
+    in value:u8
+    in index:u2
+    in words:vec<4,u8>
+    out packet:Packet
+    local = value
+    selected_value = words[index]
+    packet = Packet { addr = local data = selected_value }
+}

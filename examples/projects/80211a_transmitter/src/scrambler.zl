@@ -1,0 +1,45 @@
+// IEEE-authoritative packet scrambler for the bounded transmitter profile.
+// Every packet restarts from the accepted FrameBeat.first epoch.  The LFSR
+// advances across all 24 positions, then the six encoder-tail positions are
+// forced to zero as required by the PHY DATA construction.
+
+import wifi80211a_transmitter.data_types
+
+module IeeeDataScrambler24 {
+    clock clk reset rst
+
+    in input : rv<WifiFramedWord>
+    out output : rv<WifiFramedWord>
+
+    reg lfsr_state : u7 = 0x4b
+    fifo words : fifo<WifiFramedWord,2>
+
+    s0 = input.payload.first ? 0x4b : lfsr_state
+    feedback_taps : vec<24,u7> = [
+        0x09, 0x12, 0x24, 0x48, 0x19, 0x32, 0x64, 0x41,
+        0x0b, 0x16, 0x2c, 0x58, 0x39, 0x72, 0x6d, 0x53,
+        0x2f, 0x5e, 0x35, 0x6a, 0x5d, 0x33, 0x66, 0x45
+    ]
+    // The generated sequence is transmitted MSB-first: f23 .. f0.
+    feedback = generate(i in 0..24)
+        parity(s0 & feedback_taps[23 - i])
+    feedback_mask : bits<24> = feedback
+    next_state : u7 = feedback_mask[23:17]
+    scrambled = input.payload.data ^ feedback_mask
+    tail_clear_mask = ~input.payload.meta.tail_mask
+    forced_data = scrambled & tail_clear_mask
+    result : WifiFramedWord = input.payload with { data = forced_data }
+
+    input.ready = words.ready
+    output.payload = words.front
+    output.valid = words.valid
+
+    accept: when input.transfer {
+        words.push(result)
+        lfsr_state <- next_state
+    }
+
+    retire: when output.transfer {
+        words.pop()
+    }
+}

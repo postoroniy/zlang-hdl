@@ -1,0 +1,38 @@
+module DotProduct
+stage selected_architecture
+nodes value=32 state=0 protocol=0 transaction=0 architecture=1
+expressions
+  %0 value.input type=vec<8,u8> width=64 signedness=aggregate latency=0 ii=1 domains=[none] purity=pure effects=[none] origins=[7:9-7:10:name a] name=a
+  %1 value.vector_index type=u8 width=8 signedness=unsigned latency=0 ii=1 domains=[none] purity=pure effects=[none] origins=[7:9-7:13:index [i]] %0 index=0
+  %2 value.input type=vec<8,u8> width=64 signedness=aggregate latency=0 ii=1 domains=[none] purity=pure effects=[none] origins=[7:16-7:17:name b] name=b
+  %3 value.vector_index type=u8 width=8 signedness=unsigned latency=0 ii=1 domains=[none] purity=pure effects=[none] origins=[7:16-7:20:index [i]] %2 index=0
+  %4 value.binary type=u16 width=16 signedness=unsigned latency=0 ii=1 domains=[none] purity=pure effects=[none] origins=[7:9-7:20:operator *] %1 %3 operator=* operand_type=u16
+  %5 value.vector_index type=u8 width=8 signedness=unsigned latency=0 ii=1 domains=[none] purity=pure effects=[none] origins=[7:9-7:13:index [i]] %0 index=1
+  %6 value.vector_index type=u8 width=8 signedness=unsigned latency=0 ii=1 domains=[none] purity=pure effects=[none] origins=[7:16-7:20:index [i]] %2 index=1
+  %7 value.binary type=u16 width=16 signedness=unsigned latency=0 ii=1 domains=[none] purity=pure effects=[none] origins=[7:9-7:20:operator *] %5 %6 operator=* operand_type=u16
+  %8 value.vector_index type=u8 width=8 signedness=unsigned latency=0 ii=1 domains=[none] purity=pure effects=[none] origins=[7:9-7:13:index [i]] %0 index=2
+  %9 value.vector_index type=u8 width=8 signedness=unsigned latency=0 ii=1 domains=[none] purity=pure effects=[none] origins=[7:16-7:20:index [i]] %2 index=2
+  %10 value.binary type=u16 width=16 signedness=unsigned latency=0 ii=1 domains=[none] purity=pure effects=[none] origins=[7:9-7:20:operator *] %8 %9 operator=* operand_type=u16
+  %11 value.vector_index type=u8 width=8 signedness=unsigned latency=0 ii=1 domains=[none] purity=pure effects=[none] origins=[7:9-7:13:index [i]] %0 index=3
+  %12 value.vector_index type=u8 width=8 signedness=unsigned latency=0 ii=1 domains=[none] purity=pure effects=[none] origins=[7:16-7:20:index [i]] %2 index=3
+  %13 value.binary type=u16 width=16 signedness=unsigned latency=0 ii=1 domains=[none] purity=pure effects=[none] origins=[7:9-7:20:operator *] %11 %12 operator=* operand_type=u16
+  %14 value.vector_index type=u8 width=8 signedness=unsigned latency=0 ii=1 domains=[none] purity=pure effects=[none] origins=[7:9-7:13:index [i]] %0 index=4
+  %15 value.vector_index type=u8 width=8 signedness=unsigned latency=0 ii=1 domains=[none] purity=pure effects=[none] origins=[7:16-7:20:index [i]] %2 index=4
+  %16 value.binary type=u16 width=16 signedness=unsigned latency=0 ii=1 domains=[none] purity=pure effects=[none] origins=[7:9-7:20:operator *] %14 %15 operator=* operand_type=u16
+  %17 value.vector_index type=u8 width=8 signedness=unsigned latency=0 ii=1 domains=[none] purity=pure effects=[none] origins=[7:9-7:13:index [i]] %0 index=5
+  %18 value.vector_index type=u8 width=8 signedness=unsigned latency=0 ii=1 domains=[none] purity=pure effects=[none] origins=[7:16-7:20:index [i]] %2 index=5
+  %19 value.binary type=u16 width=16 signedness=unsigned latency=0 ii=1 domains=[none] purity=pure effects=[none] origins=[7:9-7:20:operator *] %17 %18 operator=* operand_type=u16
+  %20 value.vector_index type=u8 width=8 signedness=unsigned latency=0 ii=1 domains=[none] purity=pure effects=[none] origins=[7:9-7:13:index [i]] %0 index=6
+  %21 value.vector_index type=u8 width=8 signedness=unsigned latency=0 ii=1 domains=[none] purity=pure effects=[none] origins=[7:16-7:20:index [i]] %2 index=6
+  %22 value.binary type=u16 width=16 signedness=unsigned latency=0 ii=1 domains=[none] purity=pure effects=[none] origins=[7:9-7:20:operator *] %20 %21 operator=* operand_type=u16
+  %23 value.vector_index type=u8 width=8 signedness=unsigned latency=0 ii=1 domains=[none] purity=pure effects=[none] origins=[7:9-7:13:index [i]] %0 index=7
+  %24 value.vector_index type=u8 width=8 signedness=unsigned latency=0 ii=1 domains=[none] purity=pure effects=[none] origins=[7:16-7:20:index [i]] %2 index=7
+  %25 value.binary type=u16 width=16 signedness=unsigned latency=0 ii=1 domains=[none] purity=pure effects=[none] origins=[7:9-7:20:operator *] %23 %24 operator=* operand_type=u16
+  %26 value.generate type=vec<8,u16> width=128 signedness=aggregate latency=0 ii=1 domains=[none] purity=pure effects=[none] origins=[6:9-7:20:sum(i in 0..8)] %4 %7 %10 %13 %16 %19 %22 %25 index=i start=0 stop=8
+  %27 value.reduce type=u19 width=19 signedness=unsigned latency=0 ii=1 domains=[none] purity=pure effects=[none] origins=[6:9-7:20:sum(i in 0..8)] %26 operator=+
+entities
+  architecture:module:DotProduct architecture.module name=DotProduct
+  value:port:a value.port name=a protocol=wire
+  value:port:b value.port name=b protocol=wire
+  value:port:y value.port name=y protocol=wire
+  value:assignment:y:value:0 value.assignment name=y.value %27

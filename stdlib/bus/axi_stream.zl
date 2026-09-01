@@ -1,0 +1,36 @@
+// AMBA AXI4-Stream source profile: byte lanes plus packet boundary.
+struct AXIStreamBeat<DW=32> {
+    data : uint<DW>
+    keep : bits<DW/8>
+    strb : bits<DW/8>
+    last : bit
+}
+
+protocol AXIStream<DW=32> {
+    role source
+    role sink
+    channel t : rv<AXIStreamBeat<DW>> source -> sink
+}
+
+// Typed-payload profile.  AXIStream<DW> above remains the byte-lane bus
+// profile and is kept source-compatible.  AXIStreamOf<T> is useful when a
+// library-level semantic payload (for example Complex<fixed<18,16>>) should
+// cross the same ready/valid boundary without teaching the compiler that
+// payload's meaning.  A later physical bus wrapper may serialize T to TDATA.
+protocol AXIStreamOf<type T> {
+    role source
+    role sink
+    channel t : rv<T> source -> sink
+}
+
+// A zero-latency, backpressure-preserving reusable library component.
+module AXIStreamPipe<DW=32> {
+    clock clk
+    reset rst
+    interface input : AXIStream<DW>.sink @clk
+    interface output : AXIStream<DW>.source @clk
+
+    output.t.valid = input.t.valid
+    output.t.payload = input.t.payload
+    input.t.ready = output.t.ready
+}

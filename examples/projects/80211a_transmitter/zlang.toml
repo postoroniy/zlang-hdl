@@ -1,0 +1,6 @@
+schema = 1
+
+[project]
+name = "wifi80211a_transmitter"
+version = "0.1.0"
+source-root = "src"

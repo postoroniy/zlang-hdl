@@ -1,0 +1,173 @@
+{
+  "schema": "zlang-target-qor-v1",
+  "records": [
+    {
+      "key": {
+        "target_identity": "std.target.xilinx.xc7z030.xc7z030ffg676_1",
+        "target_part": "xc7z030ffg676-1",
+        "architecture_template_identity": "std.arch.xilinx7_signed_product.Xilinx7SignedProductCascade",
+        "implementation_graph_identity": "51cd3fa563776605f476984548628315ae3df3ed2a47c73add1a00fc06dbe044",
+        "pipeline_configuration_identity": "std.target.xilinx.series7.DSP48E1.unregistered",
+        "backend": "direct_systemverilog",
+        "tool": "Vivado",
+        "tool_version": "2024.2",
+        "clock_period_ns": 10.0
+      },
+      "stage": "routed_measurement",
+      "lut": 227,
+      "ff": 18,
+      "dsp": 2,
+      "bram": 0,
+      "fmax_mhz": 80.03201280512204,
+      "wns_ns": -2.495,
+      "provenance": "signed FFT real scalar cascade, routed Vivado checkpoint"
+    },
+    {
+      "key": {
+        "target_identity": "std.target.xilinx.xc7z030.xc7z030ffg676_1",
+        "target_part": "xc7z030ffg676-1",
+        "architecture_template_identity": "std.arch.xilinx7_signed_product.Xilinx7SignedProductCascade",
+        "implementation_graph_identity": "92ecf9b052c6b87ff5f3eebfbb2ada3a550c131294c96e437c194cf90469354c",
+        "pipeline_configuration_identity": "std.target.xilinx.series7.DSP48E1.multiply_registered",
+        "backend": "direct_systemverilog",
+        "tool": "Vivado",
+        "tool_version": "2024.2",
+        "clock_period_ns": 10.0
+      },
+      "stage": "routed_measurement",
+      "lut": 227,
+      "ff": 18,
+      "dsp": 2,
+      "bram": 0,
+      "fmax_mhz": 105.58547143912998,
+      "wns_ns": 0.529,
+      "provenance": "signed FFT real scalar cascade, routed Vivado checkpoint"
+    },
+    {
+      "key": {
+        "target_identity": "std.target.xilinx.xc7z030.xc7z030ffg676_1",
+        "target_part": "xc7z030ffg676-1",
+        "architecture_template_identity": "std.arch.xilinx7_signed_product.Xilinx7SignedProductCascade",
+        "implementation_graph_identity": "71baed63708573ee274c21034232a35dc606a9626e8c8fd78c7852200fa9399e",
+        "pipeline_configuration_identity": "std.target.xilinx.series7.DSP48E1.multiply_output_registered",
+        "backend": "direct_systemverilog",
+        "tool": "Vivado",
+        "tool_version": "2024.2",
+        "clock_period_ns": 10.0
+      },
+      "stage": "routed_measurement",
+      "lut": 227,
+      "ff": 18,
+      "dsp": 2,
+      "bram": 0,
+      "fmax_mhz": 107.63104079216446,
+      "wns_ns": 0.709,
+      "provenance": "signed FFT real scalar cascade, routed Vivado checkpoint"
+    },
+    {
+      "key": {
+        "target_identity": "std.target.xilinx.xc7z030.xc7z030ffg676_1",
+        "target_part": "xc7z030ffg676-1",
+        "architecture_template_identity": "std.arch.xilinx7_signed_product.Xilinx7SignedProductCascade",
+        "implementation_graph_identity": "336eb40de3c37007583ce0b792b5d23bc7f64b4dbd1ada87a98d008c124407ee",
+        "pipeline_configuration_identity": "std.target.xilinx.series7.DSP48E1.fully_pipelined",
+        "backend": "direct_systemverilog",
+        "tool": "Vivado",
+        "tool_version": "2024.2",
+        "clock_period_ns": 10.0
+      },
+      "stage": "routed_measurement",
+      "lut": 227,
+      "ff": 18,
+      "dsp": 2,
+      "bram": 0,
+      "fmax_mhz": 107.63104079216446,
+      "wns_ns": 0.709,
+      "provenance": "signed FFT real scalar cascade, routed Vivado checkpoint"
+    },
+    {
+      "key": {
+        "target_identity": "std.target.xilinx.xc7z030.xc7z030ffg676_1",
+        "target_part": "xc7z030ffg676-1",
+        "architecture_template_identity": "std.arch.xilinx7_signed_product.Xilinx7SignedProductCascade",
+        "implementation_graph_identity": "b9eae2dcadcc1db7fbae1e44d216b89dd7b13665a222d55c771227eb70a20672",
+        "pipeline_configuration_identity": "std.target.xilinx.series7.DSP48E1.unregistered",
+        "backend": "direct_systemverilog",
+        "tool": "Vivado",
+        "tool_version": "2024.2",
+        "clock_period_ns": 10.0
+      },
+      "stage": "routed_measurement",
+      "lut": 227,
+      "ff": 18,
+      "dsp": 2,
+      "bram": 0,
+      "fmax_mhz": 85.91065292096219,
+      "wns_ns": -1.64,
+      "provenance": "signed FFT imag scalar cascade, routed Vivado checkpoint"
+    },
+    {
+      "key": {
+        "target_identity": "std.target.xilinx.xc7z030.xc7z030ffg676_1",
+        "target_part": "xc7z030ffg676-1",
+        "architecture_template_identity": "std.arch.xilinx7_signed_product.Xilinx7SignedProductCascade",
+        "implementation_graph_identity": "fb870f317aa6c045b07b8f032c541ae59c5d9e1f1c48489773119303b8e5bb5d",
+        "pipeline_configuration_identity": "std.target.xilinx.series7.DSP48E1.multiply_registered",
+        "backend": "direct_systemverilog",
+        "tool": "Vivado",
+        "tool_version": "2024.2",
+        "clock_period_ns": 10.0
+      },
+      "stage": "routed_measurement",
+      "lut": 227,
+      "ff": 18,
+      "dsp": 2,
+      "bram": 0,
+      "fmax_mhz": 105.58547143912998,
+      "wns_ns": 0.529,
+      "provenance": "signed FFT imag scalar cascade, routed Vivado checkpoint"
+    },
+    {
+      "key": {
+        "target_identity": "std.target.xilinx.xc7z030.xc7z030ffg676_1",
+        "target_part": "xc7z030ffg676-1",
+        "architecture_template_identity": "std.arch.xilinx7_signed_product.Xilinx7SignedProductCascade",
+        "implementation_graph_identity": "70731b9baf3cd8f96c373e2c5f42368e4395f3c086c10dd547f103ded230943c",
+        "pipeline_configuration_identity": "std.target.xilinx.series7.DSP48E1.multiply_output_registered",
+        "backend": "direct_systemverilog",
+        "tool": "Vivado",
+        "tool_version": "2024.2",
+        "clock_period_ns": 10.0
+      },
+      "stage": "routed_measurement",
+      "lut": 227,
+      "ff": 18,
+      "dsp": 2,
+      "bram": 0,
+      "fmax_mhz": 107.63104079216446,
+      "wns_ns": 0.709,
+      "provenance": "signed FFT imag scalar cascade, routed Vivado checkpoint"
+    },
+    {
+      "key": {
+        "target_identity": "std.target.xilinx.xc7z030.xc7z030ffg676_1",
+        "target_part": "xc7z030ffg676-1",
+        "architecture_template_identity": "std.arch.xilinx7_signed_product.Xilinx7SignedProductCascade",
+        "implementation_graph_identity": "f9c2046f1e5bc141932c57f876f990646209a77a87efa625c25fc4777bd588e8",
+        "pipeline_configuration_identity": "std.target.xilinx.series7.DSP48E1.fully_pipelined",
+        "backend": "direct_systemverilog",
+        "tool": "Vivado",
+        "tool_version": "2024.2",
+        "clock_period_ns": 10.0
+      },
+      "stage": "routed_measurement",
+      "lut": 227,
+      "ff": 18,
+      "dsp": 2,
+      "bram": 0,
+      "fmax_mhz": 107.63104079216446,
+      "wns_ns": 0.709,
+      "provenance": "signed FFT imag scalar cascade, routed Vivado checkpoint"
+    }
+  ]
+}

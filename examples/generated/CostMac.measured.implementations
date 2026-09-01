@@ -1,0 +1,7 @@
+module CostMac
+choice output=y selected=dsp_mac
+  proven_equivalence=mathematical,cycle_accurate
+  observable result=u17 latency=1 initiation_interval=1 protocol_events=none
+  alternative kind=mul_add operation=multiply_add multiply=u8*u8 addend=u16 result=u17 resource_hint=logic latency=1 initiation_interval=1 conditions=[integer_scalar_operands,full_precision_multiply,single_addend,initiation_interval_1] estimated_lut=81 estimated_ff=17 estimated_dsp=0 estimated_bram=0 measured_yosys_lut_cells=136 measured_yosys_flip_flops=17 measured_yosys_total_cells=153 measured_yosys_logic_depth=8
+  alternative kind=dsp_mac operation=multiply_add multiply=u8*u8 addend=u16 result=u17 resource_hint=dsp latency=1 initiation_interval=1 conditions=[integer_scalar_operands,full_precision_multiply,single_addend,initiation_interval_1] estimated_lut=17 estimated_ff=17 estimated_dsp=1 estimated_bram=0 measured_yosys_lut_cells=136 measured_yosys_flip_flops=17 measured_yosys_total_cells=153 measured_yosys_logic_depth=8
+  selection source_explicit=false selected=dsp_mac goal=minimize_lut constraints=[lut<=200,ff<=17,dsp<=1,bram<=0,latency<=1,ii<=1] feedback=optional_yosys cost_source=measured_yosys measured=true

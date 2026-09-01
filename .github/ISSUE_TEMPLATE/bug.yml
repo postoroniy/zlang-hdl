@@ -1,0 +1,42 @@
+name: Bug report
+description: Report a reproducible compiler, simulator, backend, or tooling defect.
+title: "[bug] "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Do not report security vulnerabilities here; use private vulnerability reporting.
+  - type: input
+    id: version
+    attributes:
+      label: ZLang version
+      placeholder: zlangc --version
+    validations:
+      required: true
+  - type: textarea
+    id: reproducer
+    attributes:
+      label: Minimal reproducer
+      description: Include the smallest `.zl` source and exact command.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior and diagnostic
+    validations:
+      required: true
+  - type: textarea
+    id: tools
+    attributes:
+      label: Environment and external tool versions
+      description: Include Python, OS, backend, Clash, Verilator, Yosys/SBY and Z3 when relevant.
+    validations:
+      required: true
+

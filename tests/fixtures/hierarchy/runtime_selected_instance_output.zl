@@ -1,0 +1,19 @@
+module RuntimeProjectionLane {
+    in value : u8
+    out result : u9
+
+    result = value + 1
+}
+
+module RuntimeSelectedInstanceOutputCapability {
+    in values : vec<4,u8>
+    in select : u2
+    out result : u9
+
+    inst lane[4] : RuntimeProjectionLane
+    generate(i in 0..4) {
+        lane[i].value = values[i]
+    }
+
+    result = lane[select].result
+}

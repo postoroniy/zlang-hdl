@@ -1,0 +1,33 @@
+import std.math.complex
+import std.bus.axi_stream
+
+type Sample = fixed<18,16>
+type Twiddle = fixed<16,14>
+type CSample = Complex<Sample>
+type CTwiddle = Complex<Twiddle>
+type ButterflyResult = Butterfly<Complex<fixed<19,16>>,Complex<fixed<19,16>>>
+
+// One executable radix-2 building block for the FFT512 validation.  The
+// twiddle multiply is quantized once to SF2.16, followed by a second explicit
+// quantization at each butterfly output.  A complete FFT must freeze this
+// per-stage policy; a final-only quantize is not type-correct after repeated
+// fixed-point multiplies because their fractional width grows.
+module ComplexFFTButterfly {
+    in a : CSample
+    in b : CSample
+    in twiddle : CTwiddle
+    out result : ButterflyResult
+
+    result = butterfly_quantized<Sample>(a, b, twiddle)
+}
+
+module ComplexStreamIdentity {
+    clock clk
+    reset rst
+    input : AXIStreamOf<CSample>.sink @clk
+    output : AXIStreamOf<CSample>.source @clk
+
+    output.t.valid = input.t.valid
+    output.t.payload = input.t.payload
+    input.t.ready = output.t.ready
+}

@@ -1,0 +1,62 @@
+// Generic ready/valid building blocks.  These are ordinary ZLang modules;
+// state, transfer, and backpressure use the language's existing FIFO model.
+struct FrameBeat<type T, type M> {
+    data : T
+    meta : M
+    first : bit
+    last : bit
+}
+
+// One-entry elastic register slice.  A FIFO supplies the generic payload's
+// reset value without inventing a compiler-level default(T) operation.
+module RvRegisterSlice<type T> {
+    clock clk
+    reset rst
+
+    in input : rv<T>
+    out output : rv<T>
+
+    fifo storage : fifo<T,1>
+    storage.data = input.payload
+    storage.push = input.transfer
+    storage.pop = output.transfer
+    // A full slot may be replaced on the same accepted output transfer.
+    input.ready = storage.ready | output.transfer
+    output.payload = storage.front
+    output.valid = storage.valid
+}
+
+// A two-entry elastic skid buffer.  The second entry absorbs one transfer
+// after downstream ready deasserts; ordering and payload stability are the
+// ordinary FIFO guarantees.
+module RvSkidBuffer<type T> {
+    clock clk
+    reset rst
+
+    in input : rv<T>
+    out output : rv<T>
+
+    fifo storage : fifo<T,2>
+    storage.data = input.payload
+    storage.push = input.transfer
+    storage.pop = output.transfer
+    input.ready = storage.ready | output.transfer
+    output.payload = storage.front
+    output.valid = storage.valid
+}
+
+module RvFifo<type T,D=2> {
+    clock clk
+    reset rst
+
+    in input : rv<T>
+    out output : rv<T>
+
+    fifo storage : fifo<T,D>
+    storage.data = input.payload
+    storage.push = input.transfer
+    storage.pop = output.transfer
+    input.ready = storage.ready | output.transfer
+    output.payload = storage.front
+    output.valid = storage.valid
+}

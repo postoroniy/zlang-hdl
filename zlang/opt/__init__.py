@@ -1,0 +1,81 @@
+"""Canonical optimization IR and lossless semantic-IR conversion."""
+
+from zlang.opt.ir import (
+    CanonicalElasticPipelineRegion,
+    CanonicalExternalModuleContract,
+    CanonicalModule,
+    EffectKind,
+    EquivalenceMode,
+    NodeCategory,
+    NodeMetadata,
+    Observation,
+    OptimizationStage,
+    Purity,
+    Signedness,
+    equivalence_definition,
+    pure_metadata,
+)
+from zlang.opt.lowering import CanonicalizationError, lower, restore
+from zlang.opt.egraph import (
+    EGraphAdapterError, EGraphNode, EGraphProgram, canonical_to_egraph,
+    deserialize_egraph, egraph_to_canonical, egraph_to_expression,
+    render_egraph, serialize_egraph,
+)
+from zlang.opt.render import render
+from zlang.opt.identity import (
+    CANONICAL_IR_IDENTITY_SCHEMA,
+    canonical_ir_identity,
+)
+from zlang.opt.saturation import (
+    EquivalenceClass,
+    RewriteRegistration,
+    RewriteRule,
+    SaturationError,
+    SaturationResult,
+    Term,
+    render_saturation,
+    render_term,
+    saturate,
+    term_to_expression,
+)
+
+__all__ = [
+    "CanonicalModule",
+    "CanonicalElasticPipelineRegion",
+    "CanonicalExternalModuleContract",
+    "CANONICAL_IR_IDENTITY_SCHEMA",
+    "EGraphAdapterError",
+    "EGraphNode",
+    "EGraphProgram",
+    "CanonicalizationError",
+    "EffectKind",
+    "EquivalenceMode",
+    "EquivalenceClass",
+    "NodeCategory",
+    "NodeMetadata",
+    "Observation",
+    "OptimizationStage",
+    "Purity",
+    "RewriteRegistration",
+    "RewriteRule",
+    "SaturationError",
+    "SaturationResult",
+    "Signedness",
+    "Term",
+    "equivalence_definition",
+    "lower",
+    "canonical_to_egraph",
+    "canonical_ir_identity",
+    "deserialize_egraph",
+    "egraph_to_canonical",
+    "egraph_to_expression",
+    "pure_metadata",
+    "render",
+    "render_saturation",
+    "render_egraph",
+    "render_term",
+    "restore",
+    "saturate",
+    "serialize_egraph",
+    "term_to_expression",
+]

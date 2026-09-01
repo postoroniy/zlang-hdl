@@ -1,0 +1,71 @@
+{
+  "editor.tokenColorCustomizations": {
+    "textMateRules": [
+      {
+        "name": "ZLang user functions",
+        "scope": [
+          "source.zlang entity.name.function.zlang",
+          "source.zlang entity.name.function.call.zlang"
+        ],
+        "settings": {
+          "fontStyle": ""
+        }
+      },
+      {
+        "name": "ZLang hardware and conversion built-ins",
+        "scope": [
+          "source.zlang support.function.builtin.hardware.zlang",
+          "source.zlang support.function.builtin.conversion.zlang"
+        ],
+        "settings": {
+          "fontStyle": "bold"
+        }
+      },
+      {
+        "name": "ZLang compile-time functions and guards",
+        "scope": [
+          "source.zlang support.function.builtin.compile-time.zlang",
+          "source.zlang support.function.guard.zlang"
+        ],
+        "settings": {
+          "fontStyle": "italic"
+        }
+      },
+      {
+        "name": "ZLang operators",
+        "scope": [
+          "source.zlang keyword.operator.equivalence.zlang",
+          "source.zlang keyword.operator.state.zlang",
+          "source.zlang keyword.operator.connection.zlang",
+          "source.zlang keyword.operator.choice.zlang",
+          "source.zlang keyword.operator.shift.zlang",
+          "source.zlang keyword.operator.comparison.zlang",
+          "source.zlang keyword.operator.logical.zlang",
+          "source.zlang keyword.operator.bitwise.zlang",
+          "source.zlang keyword.operator.assignment.zlang",
+          "source.zlang keyword.operator.arithmetic.zlang",
+          "source.zlang keyword.operator.conditional.zlang",
+          "source.zlang keyword.operator.range.zlang",
+          "source.zlang keyword.operator.annotation.zlang"
+        ],
+        "settings": {
+          "fontStyle": "bold",
+          "foreground": "#F44747"
+        }
+      },
+      {
+        "name": "ZLang signal and state symbols",
+        "scope": [
+          "source.zlang variable.parameter.port.zlang",
+          "source.zlang variable.other.definition.hardware.zlang",
+          "source.zlang variable.other.definition.zlang",
+          "source.zlang variable.other.readwrite.zlang"
+        ],
+        "settings": {
+          "fontStyle": "",
+          "foreground": "#E5C07B"
+        }
+      }
+    ]
+  }
+}

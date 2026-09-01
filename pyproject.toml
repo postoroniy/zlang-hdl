@@ -1,0 +1,76 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "zlang-hdl"
+dynamic = ["version"]
+description = "Experimental, typed hardware design language and compiler"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+authors = [
+    {name = "Viacheslav Vinogradov"},
+]
+keywords = [
+    "hardware",
+    "hdl",
+    "systemverilog",
+    "clash",
+    "formal-verification",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Electronic Design Automation (EDA)",
+]
+dependencies = [
+    "lark>=1.1,<2",
+    "egglog==13.2.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/postoroniy/zlang-hdl"
+Repository = "https://github.com/postoroniy/zlang-hdl.git"
+Issues = "https://github.com/postoroniy/zlang-hdl/issues"
+Documentation = "https://github.com/postoroniy/zlang-hdl/tree/main/docs"
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8,<9",
+    "pytest-xdist>=3.6,<4",
+    "setuptools>=77",
+]
+
+[project.scripts]
+zlangc = "zlang.cli:main"
+zlang-lock = "zlang.project_cli:main"
+zlang-compare-backends = "zlang.backend_comparison:main"
+zlang-verify = "zlang.verification_cli:main"
+
+[tool.setuptools.packages.find]
+include = ["zlang*"]
+
+[tool.setuptools.package-data]
+"zlang.parser" = ["grammar.lark"]
+"zlang" = ["data/*.json"]
+
+[tool.setuptools.dynamic]
+version = {attr = "zlang._version.__version__"}
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-ra"
+markers = [
+    "performance: bounded compiler time/RSS regression checks",
+    "conformance: broad positive parser/semantic/canonical language-surface gate",
+    "toolchain_smoke: representative real external-tool acceptance gate",
+    "exhaustive_toolchain: exhaustive real-tool corpus/release acceptance",
+]

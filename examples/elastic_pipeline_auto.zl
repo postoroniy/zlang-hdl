@@ -1,0 +1,27 @@
+struct ElasticProductsInput {
+    a : u8
+    b : u8
+    c : u8
+    d : u8
+    e : u8
+    f : u8
+    g : u8
+    h : u8
+}
+
+module ElasticPipelineAuto {
+    clock clk
+    reset rst
+
+    in input : rv<ElasticProductsInput>
+    out output : rv<u19>
+
+    input -> output {
+        transform pipeline(auto, latency<=3, ii==1, fmax>=100) {
+            input.payload.a * input.payload.b
+                + input.payload.c * input.payload.d
+                + input.payload.e * input.payload.f
+                + input.payload.g * input.payload.h
+        }
+    }
+}

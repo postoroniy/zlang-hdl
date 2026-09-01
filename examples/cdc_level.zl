@@ -1,0 +1,11 @@
+module CdcLevel {
+    clock source_clock
+    reset source_reset @ source_clock
+    clock destination_clock
+    reset destination_reset @ destination_clock
+
+    in  level  : bit @ source_clock
+    out synced : bit @ destination_clock
+
+    connect level -> synced { crossing sync_level }
+}

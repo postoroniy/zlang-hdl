@@ -1,0 +1,10 @@
+module DelayedMul {
+    clock clk
+    reset rst
+
+    in a  : u8
+    in b  : u8
+    out y : u16
+
+    y = delay<2>(a * b)
+}
