@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[2]
 class ImplementationChoiceClashTests(unittest.TestCase):
     def setUp(self) -> None:
         self.compilation = compile_source(
-            (ROOT / "examples/mac_choice.zl").read_text()
+            (ROOT / "examples/mac_choice.zhl").read_text()
         )
 
     def test_selected_dsp_mac_and_report_match_goldens(self) -> None:

@@ -11,12 +11,12 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class RuleSemanticTests(unittest.TestCase):
     def test_rules_guards_actions_and_priority_reach_typed_ir(self) -> None:
-        module = analyze(parse((ROOT / "examples/rule_counter.zl").read_text()))
+        module = analyze(parse((ROOT / "examples/rule_counter.zhl").read_text()))
         self.assertEqual(module.rules[0].guard.type, BitType())
         self.assertEqual(module.rules[0].actions[0].target.name, "count")
         self.assertEqual(module.rule_priorities[0].higher, "clear_count")
         interface_module = analyze(
-            parse((ROOT / "examples/rule_action.zl").read_text())
+            parse((ROOT / "examples/rule_action.zhl").read_text())
         )
         self.assertEqual(interface_module.rules[0].actions[1].target.name, "fired")
 

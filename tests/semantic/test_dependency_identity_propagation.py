@@ -14,7 +14,7 @@ from zlang.backend.manifest import (
 )
 from zlang.backend.systemverilog import emit_artifact
 from zlang.compiler import compile_file, compile_source
-from zlang.dependencies import DependencyClosure, DependencyModuleIdentity
+from zlang.dependencies import DependencyClosure, DependencyModuleIdentity, LOCK_SCHEMA
 from zlang.formal_exploration import FormalExplorationConfig, proof_cache_key
 from zlang.ir import expressions as expr
 from zlang.ir.module import (
@@ -53,7 +53,7 @@ def _identity_context(
         "c" * 64,
         "1" * 40,
     )
-    return root, DependencyClosure(1, "e" * 64, (dependency,))
+    return root, DependencyClosure(LOCK_SCHEMA, "e" * 64, (dependency,))
 
 
 def _module(
@@ -84,7 +84,7 @@ def test_dependency_identity_round_trips_canonical_and_renders_logically() -> No
 
     text = render(canonical, include_origins=False)
     assert "root-module logical_path=root.Pass" in text
-    assert "dependency-closure schema=1" in text
+    assert f"dependency-closure schema={LOCK_SCHEMA}" in text
     assert "dependency-module logical_path=math.Helper" in text
     assert "/home/" not in text
 
@@ -181,7 +181,7 @@ def test_dependency_context_changes_existing_formal_cache_identities() -> None:
 
 
 def test_dependency_context_changes_synthesis_candidate_identity() -> None:
-    module = compile_source((ROOT / "examples/cost_mac.zl").read_text()).ir
+    module = compile_source((ROOT / "examples/cost_mac.zhl").read_text()).ir
     first_root, first_closure = _identity_context("d" * 64)
     _, changed_closure = _identity_context("f" * 64)
     first = replace(
@@ -216,7 +216,7 @@ def test_project_root_source_digest_reaches_artifact_build_identity(
         'version = "0.1.0"\n'
         'source-root = "src"\n'
     )
-    source = source_root / "top.zl"
+    source = source_root / "top.zhl"
     source.write_text("module Top { in x:u8 out y:u8 y=x }\n")
     update_project_lock(manifest)
 

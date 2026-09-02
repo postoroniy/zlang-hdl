@@ -15,7 +15,7 @@ from zlang.toolchain import (
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SOURCE = (ROOT / "examples" / "indexed_instance_array.zl").read_text()
+SOURCE = (ROOT / "examples" / "indexed_instance_array.zhl").read_text()
 
 
 @pytest.mark.skipif(find_clash_executable() is None, reason="Clash unavailable")

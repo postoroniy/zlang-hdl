@@ -41,7 +41,7 @@ from zlang.toolchain import (
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE = (
     ROOT
-    / "examples/projects/80211a_transmitter/src/ifft_library.zl"
+    / "examples/projects/80211a_transmitter/src/ifft_library.zhl"
 )
 PI = Decimal(
     "3.14159265358979323846264338327950288419716939937510"

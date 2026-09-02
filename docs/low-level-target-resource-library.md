@@ -82,7 +82,7 @@ old measurements are never re-keyed onto a changed graph.
 
 ## RAMB36 validation
 
-`examples/target_bram_memory.zl` is an ordinary 1024x36, one-cycle,
+`examples/target_bram_memory.zhl` is an ordinary 1024x36, one-cycle,
 read-first synchronous memory with independent read/write addresses.  Generic
 direct-SV emits ordinary RAM RTL.  Manual `Xilinx7BRAM36SimpleDualPort`
 selection consumes one RAMB36 capability and emits the same semantic template

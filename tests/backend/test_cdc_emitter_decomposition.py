@@ -25,21 +25,21 @@ VERILATOR = shutil.which("verilator")
 # extraction.  These hashes make byte-for-byte rendering and artifact identity
 # part of the decomposition's regression contract.
 EXPECTED_HASHES = {
-    ("clash", "cdc_level.zl"):
+    ("clash", "cdc_level.zhl"):
         "16ec0bf3b71f74ce7c0c2f9ae6de692c974830f5482af78b6be8208057e46cd8",
-    ("clash", "cdc_pulse.zl"):
+    ("clash", "cdc_pulse.zhl"):
         "d6c2239f79808888a4284bb9adfffeae137e36b74a6b57787a26fa8e0ee0e1a5",
-    ("clash", "cdc_handshake.zl"):
+    ("clash", "cdc_handshake.zhl"):
         "29096c8b3788a0b8b36646492f8fa8fef56a84bbaf0544f4e991a73158da7673",
-    ("clash", "cdc_async_fifo.zl"):
+    ("clash", "cdc_async_fifo.zhl"):
         "0e43d909d0051bad9bbbf2d50bd65a58533401171b14b9b5502fa25ea8560010",
-    ("systemverilog", "cdc_level.zl"):
+    ("systemverilog", "cdc_level.zhl"):
         "ebee5e933701fa027d0a6966b149f765152eedb48c556ece422ca3e0c55f1067",
-    ("systemverilog", "cdc_pulse.zl"):
+    ("systemverilog", "cdc_pulse.zhl"):
         "460450861d8aca7600fa8653602b37bdec1dedee1608a450a0cfe483b316a16b",
-    ("systemverilog", "cdc_handshake.zl"):
+    ("systemverilog", "cdc_handshake.zhl"):
         "1f2fe7014f8f73a6a67232b3374b829cc877ea4897299894399baaa29485aa59",
-    ("systemverilog", "cdc_async_fifo.zl"):
+    ("systemverilog", "cdc_async_fifo.zhl"):
         "9706d65ec0a8ce629c6fc60a3309abb7e152f6241f719f3c3c1dd26fa21608a3",
 }
 
@@ -77,13 +77,13 @@ def test_cdc_extraction_preserves_source_and_artifact_bytes(
     ("example", "top", "push_expression", "pop_expression"),
     (
         (
-            "cdc_async_fifo.zl",
+            "cdc_async_fifo.zhl",
             "CdcAsyncFifo",
             "source_valid && source_ready",
             "destination_valid && destination_ready",
         ),
         (
-            "all_syntax.zl",
+            "all_syntax.zhl",
             "AggregateProtocolSyntax",
             "i__t_valid && i__t_ready",
             "o__t_valid && o__t_ready",
@@ -116,7 +116,7 @@ def test_async_fifo_handshake_signals_use_explicit_continuous_assignments(
 
 def test_handshake_transfer_signals_use_explicit_continuous_assignments() -> None:
     module = compile_source(
-        (ROOT / "examples" / "cdc_handshake.zl").read_text(),
+        (ROOT / "examples" / "cdc_handshake.zhl").read_text(),
         include_clash=False,
     ).ir
     text = emit_systemverilog(module)
@@ -142,7 +142,7 @@ def test_handshake_transfer_signals_use_explicit_continuous_assignments() -> Non
 @pytest.mark.skipif(VERILATOR is None, reason="Verilator is required")
 @pytest.mark.parametrize(
     "example",
-    ("cdc_level.zl", "cdc_pulse.zl", "cdc_handshake.zl", "cdc_async_fifo.zl"),
+    ("cdc_level.zhl", "cdc_pulse.zhl", "cdc_handshake.zhl", "cdc_async_fifo.zhl"),
 )
 def test_extracted_systemverilog_cdc_is_strict_lint_clean(
     example: str,

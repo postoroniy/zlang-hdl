@@ -65,7 +65,7 @@ from zlang.verification_bundle import (
 ORIGIN = SourceOrigin(
     SourceSpan(4, 3, 4, 12),
     "guarantee safe",
-    "examples/safe.zl",
+    "examples/safe.zhl",
     "a" * 64,
 )
 
@@ -80,7 +80,7 @@ M39_BOUND = {
     "selected_origin": SourceOrigin(
         SourceSpan(8, 3, 8, 12),
         "selected candidate",
-        "examples/safe.zl",
+        "examples/safe.zhl",
         "a" * 64,
     ),
 }
@@ -193,7 +193,7 @@ def test_typed_adapters_preserve_formal_equivalence_and_artifact_metadata() -> N
     moved = replace(
         _formal_result(),
         source_origin=SourceOrigin(
-            SourceSpan(40, 1, 40, 2), "moved guarantee", "other.zl", "9" * 64
+            SourceSpan(40, 1, 40, 2), "moved guarantee", "other.zhl", "9" * 64
         ),
     )
     assert evidence_from_formal_result(moved).evidence_id == (

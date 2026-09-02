@@ -24,7 +24,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class EGraphAdapterTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.compilation = compile_source((ROOT / "examples/add.zl").read_text())
+        self.compilation = compile_source((ROOT / "examples/add.zhl").read_text())
         self.root = self.compilation.optimization_ir.assignments[0].expression
 
     def test_pure_scalar_graph_round_trips_with_metadata_and_origin(self) -> None:
@@ -51,7 +51,7 @@ class EGraphAdapterTests(unittest.TestCase):
         qualified = SourceOrigin(
             source_origin.span,
             source_origin.construct,
-            "examples/add.zl",
+            "examples/add.zhl",
             "d" * 64,
         )
         nodes = list(program.nodes)
@@ -61,7 +61,7 @@ class EGraphAdapterTests(unittest.TestCase):
         encoded = serialize_egraph(qualified_program)
         restored = deserialize_egraph(encoded)
         self.assertEqual(restored.nodes[-1].origins, (qualified,))
-        self.assertIn('"source_unit": "examples/add.zl"', encoded)
+        self.assertIn('"source_unit": "examples/add.zhl"', encoded)
         self.assertIn(f'"digest": "{"d" * 64}"', encoded)
 
     def test_binary_operator_attributes_survive_serialization(self) -> None:
@@ -74,12 +74,12 @@ class EGraphAdapterTests(unittest.TestCase):
         self.assertEqual(egraph_to_expression(restored), compilation.ir.assignments[0].expression)
 
     def test_state_and_aggregate_roots_are_rejected(self) -> None:
-        delayed = compile_source((ROOT / "examples/delayed_mul.zl").read_text())
+        delayed = compile_source((ROOT / "examples/delayed_mul.zhl").read_text())
         delayed_root = delayed.optimization_ir.assignments[0].expression
         with self.assertRaises(EGraphAdapterError):
             canonical_to_egraph(delayed.optimization_ir, delayed_root)
 
-        aggregate = compile_source((ROOT / "examples/dot_product.zl").read_text())
+        aggregate = compile_source((ROOT / "examples/dot_product.zhl").read_text())
         aggregate_root = aggregate.optimization_ir.assignments[0].expression
         with self.assertRaises(EGraphAdapterError):
             canonical_to_egraph(aggregate.optimization_ir, aggregate_root)

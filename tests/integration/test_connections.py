@@ -27,7 +27,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class ConnectionIntegrationTests(unittest.TestCase):
     def test_direct_ready_valid_connection_preserves_backpressure(self) -> None:
-        module = compile_source((ROOT / "examples/rv_connect.zl").read_text()).ir
+        module = compile_source((ROOT / "examples/rv_connect.zhl").read_text()).ir
         results = simulate_protocol_cycles(
             module,
             [
@@ -47,7 +47,7 @@ class ConnectionIntegrationTests(unittest.TestCase):
         self.assertEqual(simulate(module, x=42), {"y": 42})
 
     def test_ready_valid_buffer_preserves_order_and_stall_stability(self) -> None:
-        module = compile_source((ROOT / "examples/rv_buffer.zl").read_text()).ir
+        module = compile_source((ROOT / "examples/rv_buffer.zhl").read_text()).ir
         results = simulate_connection_cycles(
             module,
             [
@@ -68,7 +68,7 @@ class ConnectionIntegrationTests(unittest.TestCase):
         self.assertEqual(results[4]["tx"]["payload"], 22)
 
     def test_ready_valid_buffer_full_pop_push_preserves_exact_order(self) -> None:
-        module = compile_source((ROOT / "examples/rv_buffer.zl").read_text()).ir
+        module = compile_source((ROOT / "examples/rv_buffer.zhl").read_text()).ir
         results = simulate_connection_cycles(
             module,
             [
@@ -91,7 +91,7 @@ class ConnectionIntegrationTests(unittest.TestCase):
         )
 
     def test_ready_valid_to_credit_stops_at_zero_credits(self) -> None:
-        module = compile_source((ROOT / "examples/rv_to_credit.zl").read_text()).ir
+        module = compile_source((ROOT / "examples/rv_to_credit.zhl").read_text()).ir
         results = simulate_connection_cycles(
             module,
             [
@@ -107,7 +107,7 @@ class ConnectionIntegrationTests(unittest.TestCase):
         self.assertEqual(results[4]["tx"]["payload"], 3)
 
     def test_credit_to_ready_valid_returns_credit_only_when_dequeued(self) -> None:
-        module = compile_source((ROOT / "examples/credit_to_rv.zl").read_text()).ir
+        module = compile_source((ROOT / "examples/credit_to_rv.zhl").read_text()).ir
         results = simulate_connection_cycles(
             module,
             [
@@ -133,7 +133,7 @@ class ConnectionIntegrationTests(unittest.TestCase):
             )
 
     def test_credit_to_ready_valid_full_pop_push_preserves_exact_order(self) -> None:
-        module = compile_source((ROOT / "examples/credit_to_rv.zl").read_text()).ir
+        module = compile_source((ROOT / "examples/credit_to_rv.zhl").read_text()).ir
         results = simulate_connection_cycles(
             module,
             [
@@ -222,7 +222,7 @@ def test_ready_valid_buffer_full_pop_push_dual_backend_trace(
     if backend == "clash" and clash is None:
         pytest.skip("real Clash is required")
     module = compile_source(
-        (ROOT / "examples/rv_buffer.zl").read_text(), include_clash=False,
+        (ROOT / "examples/rv_buffer.zhl").read_text(), include_clash=False,
     ).ir
     if backend == "systemverilog":
         source = tmp_path / "RvBuffer.sv"

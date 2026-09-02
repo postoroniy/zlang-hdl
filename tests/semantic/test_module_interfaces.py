@@ -294,7 +294,7 @@ module Top {}
 
 
 def test_imported_interface_keeps_logical_nominal_identity(tmp_path) -> None:
-    source = tmp_path / "interfaces.zl"
+    source = tmp_path / "interfaces.zhl"
     source.write_text(
         "interface VendorIfc { in x:u8 out y:u8 } module Library {}",
         encoding="utf-8",
@@ -331,7 +331,7 @@ module Pass : VendorIfc { in x:u8 out y:u8 y=x }
 def test_imported_interface_name_conflict_is_rejected(tmp_path) -> None:
     records = []
     for logical in ("vendor.one", "vendor.two"):
-        relative = logical.rsplit(".", 1)[1] + ".zl"
+        relative = logical.rsplit(".", 1)[1] + ".zhl"
         source = tmp_path / relative
         source.write_text(
             "interface SharedIfc { in x:u8 } module Library" + relative[0] + " {}",

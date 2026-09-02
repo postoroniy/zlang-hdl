@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class SequentialIntegrationTests(unittest.TestCase):
     def test_counter_cycle_and_reset_behavior(self) -> None:
-        module = compile_source((ROOT / "examples/counter.zl").read_text()).ir
+        module = compile_source((ROOT / "examples/counter.zhl").read_text()).ir
         outputs = simulate_cycles(
             module,
             [{}, {}, {}, {}, {}, {}],
@@ -22,7 +22,7 @@ class SequentialIntegrationTests(unittest.TestCase):
         self.assertEqual([item["y"] for item in outputs], [0, 0, 1, 2, 0, 0])
 
     def test_delay_has_exact_two_cycle_latency(self) -> None:
-        module = compile_source((ROOT / "examples/delayed_mul.zl").read_text()).ir
+        module = compile_source((ROOT / "examples/delayed_mul.zhl").read_text()).ir
         outputs = simulate_cycles(
             module,
             [
@@ -49,7 +49,7 @@ class SequentialIntegrationTests(unittest.TestCase):
         self.assertEqual([item["y"] for item in outputs], [1, 2, 1, 2])
 
     def test_combinational_simulator_rejects_sequential_module(self) -> None:
-        module = compile_source((ROOT / "examples/counter.zl").read_text()).ir
+        module = compile_source((ROOT / "examples/counter.zhl").read_text()).ir
         with self.assertRaisesRegex(SimulationError, "use simulate_cycles"):
             simulate(module)
 

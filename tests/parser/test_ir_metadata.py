@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class SourceMetadataParserTests(unittest.TestCase):
     def test_expression_spans_are_half_open_and_nested(self) -> None:
-        module = parse((ROOT / "examples/metadata_datapath.zl").read_text())
+        module = parse((ROOT / "examples/metadata_datapath.zhl").read_text())
         delay = module.assignments[0].expression
         self.assertIsInstance(delay, DelayExpr)
         self.assertEqual(delay.origin, SourceSpan(9, 9, 9, 45))

@@ -31,12 +31,15 @@ module ScalarRom<D=4> {
 # but not hardware, selected-IR, BackendArtifact, or production-RTL identity.
 # Session-owned provider and tool-resolver handles remain represented by their
 # stable role.  The values were independently compiled twice before being
-# locked here.
+# locked here.  File-backed cases were recaptured after the canonical source
+# suffix changed from ``.zl`` to ``.zhl``: source-unit and physical-input
+# provenance belong to this eager surface even though production RTL identity
+# is unchanged.
 EXPECTED = {
-    "add": "6b73127fc591f5c5f42c65d57aa69974351898183cf6eaa86c12efb486ecc047",
-    "stateful_protocol": "2bcd59ce611f7252938a585a437e0e86eab8858e82331a3cdfaf60bfc77d16e1",
+    "add": "073a2174877d3be3f02f36c5e98632514281b27b14c17ea93574b940e2f7dfe3",
+    "stateful_protocol": "88035c9db7b9d1e3bca36ef26bfa090531fa182c1791c4f6c0ed3033df721ef3",
     "fixed_dsp": "85f8ee55ac21fe1e9e5dfa485bcf6dbf6a6f4e3fd67eb89e328153d551fe6c7e",
-    "csr": "4d77d36c8f6f2edfddfda81f66ca5a01af5279b9ee6e47aba78e84207c385914",
+    "csr": "cce237a39c33776624e2fc5fcbd47d3e0467daaae758013a0f05423f2039d871",
     "hierarchy": "38daa8c7be62ef94997500865d5c89c62a5bdfe66ecbc65a37c3b5f7991f8638",
     # Companion filenames now use exact typed ROM contents/layout rather than
     # source provenance, so equivalent spellings retain one physical image.
@@ -45,32 +48,32 @@ EXPECTED = {
     # generation and struct update while retaining the public ABI and IEEE
     # behavior.  This source/dependency-sensitive eager-result snapshot was
     # independently compiled twice before being locked here.
-    "wifi": "964cd94a6e3208f9d07433ac5a708f23c9f77292b5e129389d1470f3cdebcc40",
+    "wifi": "fe13529a49d5de147d518a4788ca11d63f389bcfc7b158a256c2239cd470e5fb",
 }
 
 
 def _compile_case(name: str):
     if name == "add":
-        return compile_file(ROOT / "examples/add.zl")
+        return compile_file(ROOT / "examples/add.zhl")
     if name == "stateful_protocol":
-        return compile_file(ROOT / "examples/fifo_bridge.zl")
+        return compile_file(ROOT / "examples/fifo_bridge.zhl")
     if name == "fixed_dsp":
         return compile_source(
-            (ROOT / "examples/fixed_fir_architectures.zl").read_text(),
+            (ROOT / "examples/fixed_fir_architectures.zhl").read_text(),
             top="FixedFIRDspOriented",
         )
     if name == "csr":
-        return compile_file(ROOT / "examples/control_csr.zl")
+        return compile_file(ROOT / "examples/control_csr.zhl")
     if name == "hierarchy":
         return compile_source(
-            (ROOT / "examples/m40_composition.zl").read_text(),
+            (ROOT / "examples/m40_composition.zhl").read_text(),
             top="Composition",
         )
     if name == "rom":
         return compile_source(ROM_SOURCE)
     if name == "wifi":
         return compile_file(
-            ROOT / "examples/projects/80211a_transmitter/src/controller.zl",
+            ROOT / "examples/projects/80211a_transmitter/src/controller.zhl",
             include_clash=False,
         )
     raise AssertionError(name)

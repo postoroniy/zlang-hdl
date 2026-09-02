@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class ClashInterfaceTests(unittest.TestCase):
     def test_ready_valid_golden_matches_emitter(self) -> None:
-        result = compile_source((ROOT / "examples/rv_passthrough.zl").read_text())
+        result = compile_source((ROOT / "examples/rv_passthrough.zhl").read_text())
         expected = (ROOT / "examples/generated/RvPassthrough.hs").read_text()
         self.assertEqual(result.clash, expected)
 

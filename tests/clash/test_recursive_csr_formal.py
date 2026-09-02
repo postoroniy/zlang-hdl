@@ -120,7 +120,7 @@ def test_recursive_clash_and_direct_sv_publish_the_same_csr_identities():
 
 @pytest.mark.skipif(not TOOLS, reason="Clash and Verilator are required")
 def test_axi_and_apb_formal_tops_publish_all_recursive_csr_leaves():
-    for filename in ("axi_csr_top.zl", "apb_csr_top.zl"):
+    for filename in ("axi_csr_top.zhl", "apb_csr_top.zhl"):
         module = compile_source((ROOT / "examples" / filename).read_text()).ir
         design = build_recursive_formal_design(module)
         artifact = emit_formal_artifact(module, design)
@@ -139,7 +139,7 @@ def test_axi_and_apb_formal_tops_publish_all_recursive_csr_leaves():
 
 @pytest.mark.skipif(not FORMAL_TOOLS, reason="real Clash/SBY/Z3 unavailable")
 def test_real_apb_regbus_csr_rw_property_executes_through_full_hierarchy():
-    module = compile_source((ROOT / "examples/apb_csr_top.zl").read_text()).ir
+    module = compile_source((ROOT / "examples/apb_csr_top.zhl").read_text()).ir
     design = build_recursive_formal_design(module)
     artifact = emit_formal_artifact(module, design)
     rw = next(

@@ -30,7 +30,7 @@ class VerilatorIntegrationTests(unittest.TestCase):
             with redirect_stdout(io.StringIO()):
                 status = main(
                     [
-                        str(ROOT / "examples/add.zl"),
+                        str(ROOT / "examples/add.zhl"),
                         "-o",
                         str(output),
                         "--verilog-dir",
@@ -51,7 +51,7 @@ class VerilatorIntegrationTests(unittest.TestCase):
         "Clash and Verilator are required",
     )
     def test_generated_add_runs_in_verilator(self) -> None:
-        source = (ROOT / "examples/add.zl").read_text()
+        source = (ROOT / "examples/add.zhl").read_text()
         result = compile_source(source)
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -101,7 +101,7 @@ class VerilatorIntegrationTests(unittest.TestCase):
         "Clash and Verilator are required",
     )
     def test_buffered_ready_valid_runs_in_verilator(self) -> None:
-        result = compile_source((ROOT / "examples/rv_buffer.zl").read_text())
+        result = compile_source((ROOT / "examples/rv_buffer.zhl").read_text())
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             verilog_files = generate_verilog(
@@ -165,7 +165,7 @@ class VerilatorIntegrationTests(unittest.TestCase):
         "Clash and Verilator are required",
     )
     def test_csr_decode_and_access_policies_run_in_verilator(self) -> None:
-        result = compile_source((ROOT / "examples/control_csr.zl").read_text())
+        result = compile_source((ROOT / "examples/control_csr.zhl").read_text())
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             verilog_files = generate_verilog(
@@ -227,7 +227,7 @@ class VerilatorIntegrationTests(unittest.TestCase):
         "Clash and Verilator are required",
     )
     def test_hardware_connected_csr_runs_in_verilator(self) -> None:
-        result = compile_source((ROOT / "examples/engine_csr.zl").read_text())
+        result = compile_source((ROOT / "examples/engine_csr.zhl").read_text())
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             verilog_files = generate_verilog(
@@ -286,7 +286,7 @@ class VerilatorIntegrationTests(unittest.TestCase):
         "Clash and Verilator are required",
     )
     def test_prioritized_rules_run_in_verilator(self) -> None:
-        result = compile_source((ROOT / "examples/rule_counter.zl").read_text())
+        result = compile_source((ROOT / "examples/rule_counter.zhl").read_text())
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             verilog_files = generate_verilog(
@@ -331,7 +331,7 @@ class VerilatorIntegrationTests(unittest.TestCase):
         "Clash and Verilator are required",
     )
     def test_rule_output_action_runs_in_verilator(self) -> None:
-        result = compile_source((ROOT / "examples/rule_action.zl").read_text())
+        result = compile_source((ROOT / "examples/rule_action.zhl").read_text())
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             verilog_files = generate_verilog(
@@ -377,7 +377,7 @@ class VerilatorIntegrationTests(unittest.TestCase):
         "Clash and Verilator are required",
     )
     def test_declared_fifo_runs_in_verilator(self) -> None:
-        result = compile_source((ROOT / "examples/fifo_bridge.zl").read_text())
+        result = compile_source((ROOT / "examples/fifo_bridge.zhl").read_text())
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             verilog_files = generate_verilog(
@@ -427,7 +427,7 @@ class VerilatorIntegrationTests(unittest.TestCase):
         "Clash and Verilator are required",
     )
     def test_synchronous_memory_runs_in_verilator(self) -> None:
-        result = compile_source((ROOT / "examples/sync_memory.zl").read_text())
+        result = compile_source((ROOT / "examples/sync_memory.zhl").read_text())
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             verilog_files = generate_verilog(

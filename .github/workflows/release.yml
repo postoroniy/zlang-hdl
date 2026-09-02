@@ -46,7 +46,7 @@ jobs:
         run: |
           python tools/public_tree.py check-source --source .
           python tools/public_tree.py check-export --source .
-      - name: Install exact release tooling and ZLang
+      - name: Install exact release tooling and ZLang HDL
         run: >-
           python -m pip install --disable-pip-version-check
           -e '.[test]'
@@ -86,13 +86,13 @@ jobs:
           printf '%s\n' \
             'import std.math.complex' \
             'module PackageSmoke { in x:u8 out y:u8 y=x }' \
-            > "$smoke_dir/package-smoke.zl"
+            > "$smoke_dir/package-smoke.zhl"
           for environment in "$PWD/build/wheel-venv" "$PWD/build/sdist-venv"; do
-            test "$("$environment/bin/zlangc" --version)" = "zlangc ${GITHUB_REF_NAME#v}"
+            test "$("$environment/bin/zlang" --version)" = "zlang ${GITHUB_REF_NAME#v}"
             test "$("$environment/bin/zlang-lock" --version)" = "zlang-lock ${GITHUB_REF_NAME#v}"
             test "$("$environment/bin/zlang-compare-backends" --version)" = "zlang-compare-backends ${GITHUB_REF_NAME#v}"
             test "$("$environment/bin/zlang-verify" --version)" = "zlang-verify ${GITHUB_REF_NAME#v}"
-            (cd "$smoke_dir" && "$environment/bin/zlangc" package-smoke.zl --check)
+            (cd "$smoke_dir" && "$environment/bin/zlang" package-smoke.zhl --check)
           done
           printf 'zlang-hdl==%s\n' "${GITHUB_REF_NAME#v}" > dist/release-requirements.txt
           build/wheel-venv/bin/python -m pip freeze --all --exclude zlang-hdl \
@@ -165,4 +165,4 @@ jobs:
           --verify-tag
           --generate-notes
           --prerelease
-          --title "ZLang ${TAG}"
+          --title "ZLang HDL ${TAG}"

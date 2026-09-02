@@ -2,13 +2,13 @@
 
 These sources are deliberately split into two bounded validation designs:
 
-- `complex_multiply_pipeline_auto.zl` contains two independently selectable
+- `complex_multiply_pipeline_auto.zhl` contains two independently selectable
   pure scalar kernels, `FFTComplexMultiplyRealAuto` and
   `FFTComplexMultiplyImagAuto`. Each has one fixed-point quantization boundary,
   latency 1 for the generic fallback, and II=1. The target planner publishes
   the four DSP48E1 pipeline configurations; routed MREG evidence selects
   latency 2 at 100 MHz on `xc7z030ffg676-1`.
-- `sdf_stage_numeric.zl` contains the reusable numerical DIF-SDF stage and a
+- `sdf_stage_numeric.zhl` contains the reusable numerical DIF-SDF stage and a
   concrete `FFTSDFStageNumericD4` wrapper (`D=4`, sample `fixed<18,16>`,
   twiddle `fixed<16,14>`). Its ordinary generic `fft_twiddles` function
   initializes a one-cycle synchronous ROM; no external coefficient port or
@@ -27,10 +27,10 @@ These sources are deliberately split into two bounded validation designs:
 Generate generic Clash for the real and imaginary components:
 
 ```sh
-.venv/bin/zlangc examples/fft/complex_multiply_pipeline_auto.zl \
+.venv/bin/zlang examples/fft/complex_multiply_pipeline_auto.zhl \
   --top FFTComplexMultiplyRealAuto \
   -o build/FFTComplexMultiplyRealAuto.hs
-.venv/bin/zlangc examples/fft/complex_multiply_pipeline_auto.zl \
+.venv/bin/zlang examples/fft/complex_multiply_pipeline_auto.zhl \
   --top FFTComplexMultiplyImagAuto \
   -o build/FFTComplexMultiplyImagAuto.hs
 ```
@@ -38,11 +38,11 @@ Generate generic Clash for the real and imaginary components:
 Generate and Verilator-lint the generic Clash Verilog:
 
 ```sh
-.venv/bin/zlangc examples/fft/complex_multiply_pipeline_auto.zl \
+.venv/bin/zlang examples/fft/complex_multiply_pipeline_auto.zhl \
   --top FFTComplexMultiplyRealAuto \
   -o build/FFTComplexMultiplyRealAuto.hs \
   --verilog-dir build/fft-real-verilog --verilator-lint
-.venv/bin/zlangc examples/fft/complex_multiply_pipeline_auto.zl \
+.venv/bin/zlang examples/fft/complex_multiply_pipeline_auto.zhl \
   --top FFTComplexMultiplyImagAuto \
   -o build/FFTComplexMultiplyImagAuto.hs \
   --verilog-dir build/fft-imag-verilog --verilator-lint
@@ -51,11 +51,11 @@ Generate and Verilator-lint the generic Clash Verilog:
 Emit the supported direct-SystemVerilog path and target-planner report:
 
 ```sh
-.venv/bin/zlangc examples/fft/complex_multiply_pipeline_auto.zl \
+.venv/bin/zlang examples/fft/complex_multiply_pipeline_auto.zhl \
   --top FFTComplexMultiplyRealAuto --target xc7z030ffg676-1 \
   --systemverilog build/FFTComplexMultiplyRealAuto.sv \
   --pipeline-report build/FFTComplexMultiplyRealAuto.pipeline
-.venv/bin/zlangc examples/fft/complex_multiply_pipeline_auto.zl \
+.venv/bin/zlang examples/fft/complex_multiply_pipeline_auto.zhl \
   --top FFTComplexMultiplyImagAuto --target xc7z030ffg676-1 \
   --systemverilog build/FFTComplexMultiplyImagAuto.sv \
   --pipeline-report build/FFTComplexMultiplyImagAuto.pipeline
@@ -78,7 +78,7 @@ The generic module can be inspected semantically, and the concrete top name is
 `FFTSDFStageNumericD4`:
 
 ```sh
-.venv/bin/zlangc examples/fft/sdf_stage_numeric.zl \
+.venv/bin/zlang examples/fft/sdf_stage_numeric.zhl \
   --top FFTSDFStageNumericD4 -o build/FFTSDFStageNumericD4.hs
 ```
 
@@ -102,7 +102,7 @@ output; idle cycles alone do not flush pending samples.
 Generate the direct-SystemVerilog artifact with:
 
 ```sh
-.venv/bin/zlangc examples/fft/sdf_stage_numeric.zl \
+.venv/bin/zlang examples/fft/sdf_stage_numeric.zhl \
   --top FFT4SDFReference \
   --systemverilog build/FFT4SDFReference.sv
 ```
@@ -155,7 +155,7 @@ companions of exact depths 4, 2, and 1.
 Generate the direct-SystemVerilog artifact with:
 
 ```sh
-.venv/bin/zlangc examples/fft/sdf_stage_numeric.zl \
+.venv/bin/zlang examples/fft/sdf_stage_numeric.zhl \
   --top FFT8SDFReference \
   --systemverilog build/FFT8SDFReference.sv
 ```

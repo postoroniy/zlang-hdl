@@ -55,7 +55,7 @@ The complete suite remains required before accepting a compiler slice:
 It retains unique width/type failures, malformed canonical/artifact tests,
 reset/stall traces, formal mutations, proof-status classification, project and
 wheel resolution, independent backend ABI checks, and numerical boundary
-vectors. These cannot be represented honestly by one valid `all_syntax.zl`
+vectors. These cannot be represented honestly by one valid `all_syntax.zhl`
 program.
 
 Use the exhaustive external-tool marker when isolating the two corpus-wide
@@ -69,11 +69,11 @@ release gates:
 ## Shared language-tour catalog
 
 `tests/conformance/catalog.py` is the only test-owned list of the 27
-`examples/all_syntax.zl` tops. Editor tests remain lexical; positive compiler
+`examples/all_syntax.zhl` tops. Editor tests remain lexical; positive compiler
 conformance belongs to `tests/conformance/test_language_tour.py`. The real
 Clash gate consumes the same catalog.
 
-The direct-SV example registry discovers every `.zl` source and root
+The direct-SV example registry discovers every `.zhl` source and root
 recursively. Within that module, a source/top compilation result is immutable
 and cached for the duration of the test process, so artifact/status and strict
 lint checks do not compile the same root twice. The cache is discarded at

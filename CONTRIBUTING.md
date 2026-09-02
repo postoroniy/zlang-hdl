@@ -1,6 +1,6 @@
-# Contributing to ZLang
+# Contributing to ZLang HDL
 
-Thank you for helping improve ZLang. The project welcomes focused bug reports,
+Thank you for helping improve ZLang HDL. The project welcomes focused bug reports,
 documentation corrections, tests, and bounded compiler changes.
 
 ## Before opening a change

@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class CostPolicySemanticTests(unittest.TestCase):
     def test_auto_policy_is_typed_and_round_trips_before_extraction(self) -> None:
-        semantic = analyze(parse((ROOT / "examples/cost_mac.zl").read_text()))
+        semantic = analyze(parse((ROOT / "examples/cost_mac.zhl").read_text()))
         choice = semantic.assignments[0].expression
 
         self.assertIsInstance(choice, expr.ImplementationChoice)

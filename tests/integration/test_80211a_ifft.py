@@ -34,7 +34,7 @@ SOURCE = (
     / "projects"
     / "80211a_transmitter"
     / "src"
-    / "ifft.zl"
+    / "ifft.zhl"
 )
 PLAIN_TOP = "IeeeIFFT64"
 RAW_TOP = "IeeeFramedIFFT64Raw"

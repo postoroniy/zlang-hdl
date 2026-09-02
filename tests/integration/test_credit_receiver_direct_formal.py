@@ -33,7 +33,7 @@ from zlang.verification_publication import (
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SOURCE = (ROOT / "examples/credit_to_rv.zl").read_text()
+SOURCE = (ROOT / "examples/credit_to_rv.zhl").read_text()
 FORMAL_TOOLS = all(
     shutil.which(item) for item in ("yosys", "yosys-smtbmc", "sby", "z3")
 )

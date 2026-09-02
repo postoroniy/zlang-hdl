@@ -41,6 +41,7 @@ from zlang.project import (
     ProjectModelError,
     discover_project_manifest,
 )
+from zlang.source_identity import SOURCE_GLOB, SOURCE_SUFFIX
 
 
 class WorkspaceError(ValueError):
@@ -346,7 +347,7 @@ def _index_package(
     source_root = _safe_source_directory(manifest)
     discovered: dict[str, tuple[Path, Path]] = {}
     folded: dict[str, str] = {}
-    for candidate in sorted(source_root.rglob("*.zl")):
+    for candidate in sorted(source_root.rglob(SOURCE_GLOB)):
         state_root = manifest.project_root / ".zlang"
         try:
             candidate.relative_to(state_root)
@@ -373,7 +374,9 @@ def _index_package(
         folded[logical.casefold()] = logical
         discovered[logical] = (relative, resolved)
     if not discovered and expected is None:
-        raise WorkspaceError(f"package '{manifest.package}' contains no .zl modules")
+        raise WorkspaceError(
+            f"package '{manifest.package}' contains no {SOURCE_SUFFIX} modules"
+        )
 
     expected_by_name = (
         {module.logical_path: module for module in expected}
@@ -393,7 +396,9 @@ def _index_package(
             + "; ".join(details)
         )
     if not discovered:
-        raise WorkspaceError(f"package '{manifest.package}' contains no .zl modules")
+        raise WorkspaceError(
+            f"package '{manifest.package}' contains no {SOURCE_SUFFIX} modules"
+        )
 
     records: list[ResolvedModuleSource] = []
     locked: list[LockedModule] = []

@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[2]
 class ExplorationM34IntegrationTests(unittest.TestCase):
     def test_combined_example_is_bounded_and_emits_clash(self):
         result = compile_source(
-            (ROOT / "examples/explore_combined.zl").read_text()
+            (ROOT / "examples/explore_combined.zhl").read_text()
         )
         exploration = result.exploration_results[0]
         self.assertFalse(exploration.search_complete)
@@ -28,7 +28,7 @@ class ExplorationM34IntegrationTests(unittest.TestCase):
     )
     def test_combined_example_generates_and_lints_rtl(self):
         result = compile_source(
-            (ROOT / "examples/explore_combined.zl").read_text()
+            (ROOT / "examples/explore_combined.zhl").read_text()
         )
         with tempfile.TemporaryDirectory() as temporary:
             rtl = generate_verilog(

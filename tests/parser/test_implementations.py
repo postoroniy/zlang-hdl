@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class ImplementationChoiceParserTests(unittest.TestCase):
     def test_selected_kind_and_alternatives_are_explicit_in_syntax_ast(self) -> None:
-        module = parse((ROOT / "examples/mac_choice.zl").read_text())
+        module = parse((ROOT / "examples/mac_choice.zhl").read_text())
         choice = module.assignments[0].expression
 
         self.assertIsInstance(choice, ImplementationChoiceExpr)

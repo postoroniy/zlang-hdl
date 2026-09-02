@@ -44,7 +44,7 @@ SOURCE = (
     / "projects"
     / "80211a_transmitter"
     / "src"
-    / "transmitter.zl"
+    / "transmitter.zhl"
 )
 TOP = "Ieee80211aTransmitter"
 

@@ -22,6 +22,7 @@ from zlang.compilation_session import (
     SessionTopSelectionError,
     inline_locals as _inline_locals,
 )
+from zlang.source_identity import validate_source_path
 
 
 class TopSelectionError(ValueError):
@@ -138,7 +139,7 @@ def create_file_compilation_session(
 ) -> CompilationSession:
     """Read one source snapshot and return a lazy file-backed session."""
 
-    source_path = Path(source)
+    source_path = validate_source_path(source)
     payload = source_path.read_bytes()
     return create_file_compilation_session_snapshot(
         source_path,
@@ -163,7 +164,7 @@ def create_file_compilation_session_snapshot(
 
     if not isinstance(source_text, str):
         raise TypeError("source snapshot must be decoded UTF-8 text")
-    source_path = Path(source)
+    source_path = validate_source_path(source)
     snapshot_digest = hashlib.sha256(source_text.encode("utf-8")).hexdigest()
     if source_digest is not None:
         if source_digest != snapshot_digest:

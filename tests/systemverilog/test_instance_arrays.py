@@ -13,7 +13,7 @@ from zlang.compiler import compile_source
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SOURCE = (ROOT / "examples" / "indexed_instance_array.zl").read_text()
+SOURCE = (ROOT / "examples" / "indexed_instance_array.zhl").read_text()
 
 
 def test_direct_sv_reuses_specialization_and_emits_four_physical_instances() -> None:

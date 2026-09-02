@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class RequestResponseHierarchyM40Tests(unittest.TestCase):
     def source(self) -> str:
-        return (ROOT / "examples/hierarchical_request_response_m40.zl").read_text()
+        return (ROOT / "examples/hierarchical_request_response_m40.zhl").read_text()
 
     def test_requester_responder_channels_are_elaborated(self) -> None:
         module = analyze(parse(self.source()))

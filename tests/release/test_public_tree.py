@@ -30,9 +30,9 @@ def _write_fixture(root: Path) -> None:
         "docs/guide.md": "# Guide\n",
         "zlang/__init__.py": "from zlang.value import VALUE\n",
         "zlang/value.py": "VALUE = 1\n",
-        "tests/fixtures/sample.zl": "module Fixture { in x:u8 out y:u8 y=x }\n",
-        "examples/top.zl": "import std.core module Top { in x:u8 out y:u8 y=x }\n",
-        "stdlib/core.zl": "module StdCore { in x:u8 out y:u8 y=x }\n",
+        "tests/fixtures/sample.zhl": "module Fixture { in x:u8 out y:u8 y=x }\n",
+        "examples/top.zhl": "import std.core module Top { in x:u8 out y:u8 y=x }\n",
+        "stdlib/core.zhl": "module StdCore { in x:u8 out y:u8 y=x }\n",
         ".github/workflows/ci.yml": f"steps:\n  - uses: {PINNED_CHECKOUT}\n",
         "private.txt": "not public\n",
         "release/public-tree.toml": """
@@ -42,13 +42,13 @@ manifest = ".public-tree-manifest.json"
 repository = "https://github.com/postoroniy/zlang-hdl"
 include = ["README.md", "docs/**", "zlang/**", "tests/**", "examples/**", "stdlib/**", ".github/**", "release/**"]
 exclude = ["**/__pycache__/**"]
-required = ["README.md", "docs/guide.md", "tests/fixtures/sample.zl"]
+required = ["README.md", "docs/guide.md", "tests/fixtures/sample.zhl"]
 closure_roots = ["zlang", "tests/fixtures", "examples", "stdlib"]
 [content]
 scan_exempt = ["release/public-tree.toml"]
 forbidden_substrings = ["/home/private/"]
 forbidden_regex = ["ghp_[A-Za-z0-9]{30,}"]
-text_extensions = ["", ".md", ".py", ".toml", ".yml", ".zl"]
+text_extensions = ["", ".md", ".py", ".toml", ".yml", ".zhl"]
 """.strip()
         + "\n",
     }
@@ -178,11 +178,11 @@ def test_release_status_checks_version_corpus_and_junit(tmp_path: Path) -> None:
     (tmp_path / "pyproject.toml").write_text(
         '[project]\nname="fixture"\nversion="0.1.0a1"\n'
     )
-    (tmp_path / "examples/top.zl").write_text(
+    (tmp_path / "examples/top.zhl").write_text(
         "module Child { in x:u8 out y:u8 y=x } module Top { in x:u8 out y:u8 y=x }"
     )
     (tmp_path / "tests/systemverilog/test_example_coverage.py").write_text(
-        "CHILD_OR_TEMPLATE_ONLY = {('top.zl', 'Child'): object()}\n"
+        "CHILD_OR_TEMPLATE_ONLY = {('top.zhl', 'Child'): object()}\n"
         "DIRECT_UNSUPPORTED: dict = {}\n"
     )
     status = {
@@ -287,7 +287,7 @@ def test_release_workflows_preserve_checkout_and_security_contracts() -> None:
 
     release = workflows["release.yml"]
     assert "import std.math.complex" in release
-    assert '"$environment/bin/zlangc" package-smoke.zl --check' in release
+    assert '"$environment/bin/zlang" package-smoke.zhl --check' in release
 
     secret_scan = workflows["secret-scan.yml"]
     assert 'GITLEAKS_VERSION: "8.24.3"' in secret_scan
@@ -325,7 +325,7 @@ def test_repository_public_projection_is_closed_and_excludes_private_files() -> 
     assert not any(path.startswith("docs/milestone-") for path in selected)
     for root in (
         "docs/reproducers",
-        "editors/vscode/zlang-vscode",
+        "editors/vscode/zlang-hdl",
         "stdlib",
         "tests",
         "tools",

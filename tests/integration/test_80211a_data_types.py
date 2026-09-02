@@ -23,7 +23,7 @@ SOURCE = (
     / "projects"
     / "80211a_transmitter"
     / "src"
-    / "data_types.zl"
+    / "data_types.zhl"
 )
 
 

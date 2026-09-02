@@ -21,6 +21,7 @@ from typing import Iterable, Protocol, runtime_checkable
 
 from zlang.common.graph import DependencyCycle, dependency_postorder
 from zlang.parser import parse
+from zlang.source_identity import SOURCE_SUFFIX
 
 
 _COMPONENT = re.compile(r"[A-Za-z][A-Za-z0-9_]*\Z")
@@ -155,7 +156,7 @@ def load_indexed_module(
         relative.is_absolute()
         or not relative.parts
         or any(part in {"", ".", ".."} for part in relative.parts)
-        or relative.suffix != ".zl"
+        or relative.suffix != SOURCE_SUFFIX
     ):
         raise ModuleResolutionError(
             f"invalid source path for logical module '{logical_path}': {relative_path}"

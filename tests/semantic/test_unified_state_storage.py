@@ -229,7 +229,7 @@ def test_rule_local_memory_write_requires_address_and_data() -> None:
 
 
 def test_sdf_shaped_acceptance_fixture_simulates_stall_and_reset() -> None:
-    module = analyze(parse((ROOT / "examples/fft_sdf_stage_atomic_transition.zl").read_text()))
+    module = analyze(parse((ROOT / "examples/fft_sdf_stage_atomic_transition.zhl").read_text()))
     result = simulate_cycles(module, [
         {"input": {"payload": 10, "valid": 1}, "output": {"ready": 1}},
         {"input": {"payload": 20, "valid": 1}, "output": {"ready": 1}},

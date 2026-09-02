@@ -39,11 +39,11 @@ class CanonicalOptimizationSemanticTests(unittest.TestCase):
 
     def test_node_categories_are_explicit_across_completed_features(self) -> None:
         sources = (
-            ROOT / "examples/add.zl",
-            ROOT / "examples/counter.zl",
-            ROOT / "examples/rv_passthrough.zl",
-            ROOT / "examples/fifo_bridge.zl",
-            ROOT / "examples/request_client.zl",
+            ROOT / "examples/add.zhl",
+            ROOT / "examples/counter.zhl",
+            ROOT / "examples/rv_passthrough.zhl",
+            ROOT / "examples/fifo_bridge.zhl",
+            ROOT / "examples/request_client.zhl",
         )
         categories = {
             category

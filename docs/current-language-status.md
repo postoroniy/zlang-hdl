@@ -1,4 +1,4 @@
-# Current ZLang language and implementation status
+# Current ZLang HDL language and implementation status
 
 This is the current-facing status snapshot for the implemented language. It is
 maintained alongside the executable [syntax support matrix](syntax-support-matrix.md)
@@ -28,7 +28,7 @@ property/observation family, or new equivalence relation.
   complete eight-worker JUnit reports against that manifest. This includes
   compiler-owned formal closure, concise lowering, specialization-safe M39,
   exact physical reset applicability, and real external-tool integrations.
-- Exhaustive example registry: **80 `.zl` files / 165 module roots / 150
+- Exhaustive example registry: **80 `.zhl` files / 165 module roots / 150
   standalone roots / 15 child or template roots / 0 unsupported roots**.
 - Every standalone direct-SystemVerilog root emits a `BackendArtifact` and
   passes strict Verilator lint; child/template roots are exercised through a
@@ -89,7 +89,7 @@ The current language includes:
 
 The exact syntax, context, witness, and phase-specific limitations are in the
 [support matrix](syntax-support-matrix.md). The product-first entry point is the
-[language guide](language-guide.md); `examples/all_syntax.zl` is a representative
+[language guide](language-guide.md); `examples/all_syntax.zhl` is a representative
 tour, not an exhaustive language specification.
 
 ## Formal and optimization status
@@ -221,7 +221,7 @@ source under `stdlib/`. It currently includes fixed and Complex math, stream
 core/serialization helpers, FFT helpers, storage/ROM wrappers, coding helpers,
 RegBus, AXI4-Lite, APB, AXI-Stream, Wishbone B4 Classic, and generic/ASIC/Intel/
 Xilinx target and architecture descriptions. Bus behavior remains
-source-authoritative `.zl`; Python bus models are independent oracles.
+source-authoritative `.zhl`; Python bus models are independent oracles.
 
 Accepted real-design evidence includes SimpleDMA, source-authored bus-to-RegBus
 CSR tops, streaming packet/FIR/multi-channel DMA examples, fixed FIR and DSP48

@@ -12,8 +12,8 @@ from zlang.ir import expressions as expr
 
 
 ROOT = Path(__file__).resolve().parents[2]
-BASE = (ROOT / "examples/symmetric_fixed_fir.zl").read_text()
-REGISTERED = (ROOT / "examples/symmetric_fixed_fir_dsp_pipelines.zl").read_text()
+BASE = (ROOT / "examples/symmetric_fixed_fir.zhl").read_text()
+REGISTERED = (ROOT / "examples/symmetric_fixed_fir_dsp_pipelines.zhl").read_text()
 CONFIGURATIONS = (
     ("SymmetricFixedFIR", "Xilinx7SymmetricDSPCascade", 1, ()),
     ("SymmetricFixedFIRMREG", "Xilinx7SymmetricDSPCascadeMREG", 2, ("multiply",)),

@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 def test_exact_complex_real_pipeline_auto_keeps_generic_fallback_and_physical_candidates() -> None:
     source = (
-        ROOT / "examples" / "fft" / "complex_multiply_pipeline_auto.zl"
+        ROOT / "examples" / "fft" / "complex_multiply_pipeline_auto.zhl"
     ).read_text()
     result = compile_source(
         source, top="FFTComplexMultiplyRealAuto", target="xc7z030ffg676-1"
@@ -53,7 +53,7 @@ def test_exact_complex_real_pipeline_auto_keeps_generic_fallback_and_physical_ca
 def test_reusable_sdf_delay_depth_parameter_elaborates() -> None:
     source = (
         ROOT / "tests" / "fixtures" / "fft" /
-        "parameterized_fifo_depth.zl"
+        "parameterized_fifo_depth.zhl"
     ).read_text()
     module = analyze(parse(source))
     assert module.fifos[0].depth == 4
@@ -62,7 +62,7 @@ def test_reusable_sdf_delay_depth_parameter_elaborates() -> None:
 def test_sdf_delay_literal_and_parameter_have_identical_concrete_storage() -> None:
     source = (
         ROOT / "tests" / "fixtures" / "fft" /
-        "parameterized_fifo_depth.zl"
+        "parameterized_fifo_depth.zhl"
     ).read_text()
     literal_fixture = source.replace("fifo<u8,D>", "fifo<u8,4>")
     parameterized = analyze(parse(source))
@@ -73,7 +73,7 @@ def test_sdf_delay_literal_and_parameter_have_identical_concrete_storage() -> No
 def test_reusable_sdf_module_type_and_depth_parameters_elaborate() -> None:
     source = (
         ROOT / "tests" / "fixtures" / "fft" /
-        "module_type_specialization.zl"
+        "module_type_specialization.zhl"
     ).read_text()
     syntax = parse(source)
     assert syntax.instances[0].arguments[0].name == "Sample"
@@ -88,7 +88,7 @@ def test_reusable_sdf_module_type_and_depth_parameters_elaborate() -> None:
 def test_reusable_sdf_phase_state_and_fifo_use_unified_transition() -> None:
     source = (
         ROOT / "tests" / "fixtures" / "fft" /
-        "unified_state_storage.zl"
+        "unified_state_storage.zhl"
     ).read_text()
     syntax = parse(source)
     stage = syntax.submodules[0]
@@ -110,7 +110,7 @@ def test_reusable_sdf_phase_state_and_fifo_use_unified_transition() -> None:
 def test_reusable_sdf_value_parameter_expression_is_accepted() -> None:
     source = (
         ROOT / "tests" / "fixtures" / "fft" /
-        "value_parameter_expression.zl"
+        "value_parameter_expression.zhl"
     ).read_text()
     syntax = parse(source)
     assert tuple(parameter.name for parameter in syntax.parameters) == ("D", "STEP")
@@ -123,7 +123,7 @@ def test_reusable_sdf_value_parameter_expression_is_accepted() -> None:
 def test_numerical_sdf_stage_register_derived_twiddle_index_is_accepted() -> None:
     source = (
         ROOT / "tests" / "fixtures" / "fft" /
-        "runtime_twiddle_index.zl"
+        "runtime_twiddle_index.zhl"
     ).read_text()
     syntax = parse(source)
     stage = syntax.submodules[0]

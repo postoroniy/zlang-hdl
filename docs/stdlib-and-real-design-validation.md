@@ -6,7 +6,7 @@ architecture.
 
 The stable import namespace is `std`, while maintained source files live below
 `stdlib/`. The resolver maps names such as `std.math.fixed` and
-`std.bus.axi_stream` to ordinary `.zl` sources, resolves transitive imports in
+`std.bus.axi_stream` to ordinary `.zhl` sources, resolves transitive imports in
 dependency-first order, detects cycles, and includes dependency hashes in
 BackendArtifact manifests.
 

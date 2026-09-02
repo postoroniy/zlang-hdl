@@ -23,7 +23,7 @@ def analyze_body(body: str):
 
 class CdcSemanticTests(unittest.TestCase):
     def test_domains_and_crossings_are_explicit_in_typed_ir(self) -> None:
-        module = analyze(parse((ROOT / "examples/cdc_async_fifo.zl").read_text()))
+        module = analyze(parse((ROOT / "examples/cdc_async_fifo.zhl").read_text()))
 
         self.assertTrue(module.is_multi_clock)
         self.assertIsNone(module.clock)

@@ -20,7 +20,7 @@ class CostExtractionVerilatorTests(unittest.TestCase):
         "Clash and Verilator are required",
     )
     def test_estimate_selected_candidate_runs_at_declared_latency(self) -> None:
-        compilation = compile_source((ROOT / "examples/cost_mac.zl").read_text())
+        compilation = compile_source((ROOT / "examples/cost_mac.zhl").read_text())
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             files = generate_verilog(

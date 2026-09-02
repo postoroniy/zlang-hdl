@@ -18,6 +18,7 @@ from typing import Iterable, Iterator
 from zlang.common.graph import DependencyCycle, dependency_postorder
 from zlang.parser import parse
 from zlang.module_resolver import attach_source_identity
+from zlang.source_identity import SOURCE_GLOB, SOURCE_SUFFIX
 
 
 _COMPONENT = re.compile(r"[A-Za-z][A-Za-z0-9_]*\Z")
@@ -73,7 +74,7 @@ def _relative_source(path: str) -> Path:
     if any(not part or part.startswith("_") or not _COMPONENT.fullmatch(part)
            for part in parts[1:]):
         raise ValueError(f"invalid standard library module path '{path}'")
-    return Path(*parts[1:]).with_suffix(".zl")
+    return Path(*parts[1:]).with_suffix(SOURCE_SUFFIX)
 
 
 def _locate(path: str) -> Path:
@@ -123,7 +124,7 @@ def available_stdlib_modules() -> tuple[str, ...]:
     for root in _ROOTS:
         if not root.is_dir():
             continue
-        for source in root.rglob("*.zl"):
+        for source in root.rglob(SOURCE_GLOB):
             relative = source.relative_to(root).with_suffix("")
             if all(_COMPONENT.fullmatch(part) and not part.startswith("_")
                    for part in relative.parts):

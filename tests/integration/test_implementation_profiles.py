@@ -23,14 +23,14 @@ def _project(tmp_path: Path, source: str, profile: str = "") -> tuple[Path, Path
         'schema=1\n[project]\nname="profiles"\nversion="1"\n'
         'source-root="src"\n' + profile
     )
-    top = root / "src" / "top.zl"
+    top = root / "src" / "top.zhl"
     top.write_text(source)
     update_project_lock(manifest)
     return manifest, top
 
 
 def test_profile_requires_project_and_unknown_profile_is_structured(tmp_path: Path) -> None:
-    source = tmp_path / "plain.zl"
+    source = tmp_path / "plain.zhl"
     source.write_text("module Plain { out y:u8 y=1 }")
     with pytest.raises(ImplementationRequestError, match="requires a zlang.toml"):
         compile_file(source, profile="release", include_clash=False)

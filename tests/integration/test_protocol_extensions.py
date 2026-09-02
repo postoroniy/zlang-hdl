@@ -28,7 +28,7 @@ def vc_cycle(payload: int, channel: int, request: int, returned=0, return_vc=0):
 class ProtocolExtensionBehaviorTests(unittest.TestCase):
     def test_packet_grant_is_held_through_backpressure_and_until_last(self) -> None:
         module = compile_source(
-            (ROOT / "examples/packet_round_robin.zl").read_text()
+            (ROOT / "examples/packet_round_robin.zhl").read_text()
         ).ir
         results = simulate_cycles(
             module,
@@ -53,7 +53,7 @@ class ProtocolExtensionBehaviorTests(unittest.TestCase):
 
     def test_round_robin_is_fair_at_packet_boundaries(self) -> None:
         module = compile_source(
-            (ROOT / "examples/packet_round_robin.zl").read_text()
+            (ROOT / "examples/packet_round_robin.zhl").read_text()
         ).ir
         results = simulate_cycles(
             module,
@@ -71,7 +71,7 @@ class ProtocolExtensionBehaviorTests(unittest.TestCase):
 
     def test_fixed_priority_documents_expected_starvation_boundary(self) -> None:
         module = compile_source(
-            (ROOT / "examples/packet_fixed_arbiter.zl").read_text()
+            (ROOT / "examples/packet_fixed_arbiter.zhl").read_text()
         ).ir
         cycles = [
             {
@@ -92,7 +92,7 @@ class ProtocolExtensionBehaviorTests(unittest.TestCase):
 
     def test_packet_source_must_hold_payload_and_last_while_stalled(self) -> None:
         module = compile_source(
-            (ROOT / "examples/packet_round_robin.zl").read_text()
+            (ROOT / "examples/packet_round_robin.zhl").read_text()
         ).ir
         with self.assertRaisesRegex(ProtocolViolation, "changed while stalled"):
             simulate_cycles(
@@ -105,7 +105,7 @@ class ProtocolExtensionBehaviorTests(unittest.TestCase):
 
     def test_virtual_channel_credits_are_independent_and_bounded(self) -> None:
         module = compile_source(
-            (ROOT / "examples/vc_credit_source.zl").read_text()
+            (ROOT / "examples/vc_credit_source.zhl").read_text()
         ).ir
         results = simulate_cycles(
             module,
@@ -129,7 +129,7 @@ class ProtocolExtensionBehaviorTests(unittest.TestCase):
 
     def test_vc_reset_restores_each_counter_and_over_return_is_rejected(self) -> None:
         module = compile_source(
-            (ROOT / "examples/vc_credit_source.zl").read_text()
+            (ROOT / "examples/vc_credit_source.zhl").read_text()
         ).ir
         reset_results = simulate_cycles(
             module,

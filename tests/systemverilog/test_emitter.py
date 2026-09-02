@@ -21,13 +21,13 @@ CASES = (
     "RuleCounter",
 )
 SOURCES = {
-    "ALU": "alu.zl",
-    "PipelinedMAC": "pipelined_mac.zl",
-    "RvPassthrough": "rv_passthrough.zl",
-    "CreditSource": "credit_source.zl",
-    "ControlCsr": "control_csr.zl",
-    "RequestClient": "request_client.zl",
-    "RuleCounter": "rule_counter.zl",
+    "ALU": "alu.zhl",
+    "PipelinedMAC": "pipelined_mac.zhl",
+    "RvPassthrough": "rv_passthrough.zhl",
+    "CreditSource": "credit_source.zhl",
+    "ControlCsr": "control_csr.zhl",
+    "RequestClient": "request_client.zhl",
+    "RuleCounter": "rule_counter.zhl",
 }
 
 
@@ -48,7 +48,7 @@ class DirectSystemVerilogEmitterTests(unittest.TestCase):
                 )
 
     def test_backend_consumes_typed_ir_and_marks_the_boundary(self) -> None:
-        result = compile_source((ROOT / "examples/alu.zl").read_text())
+        result = compile_source((ROOT / "examples/alu.zhl").read_text())
         generated = emit_experimental(result.ir)
 
         self.assertIn("Generated from backend-independent typed ZLang IR", generated)
@@ -64,7 +64,7 @@ class DirectSystemVerilogEmitterTests(unittest.TestCase):
         self.assertIn("assign y = ((x) == (1'd0));", generated)
 
     def test_pure_typed_function_is_emitted_once_and_called(self) -> None:
-        result = compile_source((ROOT / "examples/fir2.zl").read_text())
+        result = compile_source((ROOT / "examples/fir2.zhl").read_text())
         generated = emit_experimental(result.ir)
         self.assertIn("module FIR2", generated)
         self.assertEqual(generated.count("function automatic logic [15:0] tap("), 1)

@@ -1,7 +1,7 @@
-# ZLang standard library index
+# ZLang HDL standard library index
 
 `std` is the compiler-shipped logical namespace. It maps to tracked ordinary
-ZLang sources under `stdlib/`; it is intentionally shorter than the physical
+ZLang HDL sources under `stdlib/`; it is intentionally shorter than the physical
 directory name and is not a Python or user-package import.
 
 | Import | Purpose |
@@ -169,7 +169,7 @@ ports are rejected by the current aggregate binding model. The kernel is fully
 backend-validated, but restoring that aggregate ABI requires a generic
 aggregate-member binding compiler slice rather than bus-specific stdlib code.
 
-Every shipped `.zl` file is discovered recursively by the `std.*` resolver.
+Every shipped `.zhl` file is discovered recursively by the `std.*` resolver.
 Clean-wheel tests compare the complete recursive source tree with wheel contents;
 adding a library file without packaging it therefore fails the build rather than
 creating a checkout-only import.

@@ -3,7 +3,11 @@ from __future__ import annotations
 from zlang.backend.companions import collect_rom_companions
 from zlang.backend.systemverilog import emit_artifact
 from zlang.compiler import compile_source
-from zlang.dependencies import DependencyClosure, DependencyModuleIdentity
+from zlang.dependencies import (
+    DependencyClosure,
+    DependencyModuleIdentity,
+    LOCK_SCHEMA,
+)
 
 
 _VERBOSE = """
@@ -32,7 +36,7 @@ _CONCISE = _VERBOSE.replace("extend<8>(x)", "extend(x)")
 
 def _compile(source: str, dependency_digest: str):
     closure = DependencyClosure(
-        1,
+        LOCK_SCHEMA,
         "e" * 64,
         (
             DependencyModuleIdentity(
@@ -45,7 +49,7 @@ def _compile(source: str, dependency_digest: str):
     )
     return compile_source(
         source,
-        source_unit="physical-identity.zl",
+        source_unit="physical-identity.zhl",
         dependency_closure=closure,
         include_clash=False,
     ).ir
@@ -76,4 +80,3 @@ def test_dependency_provenance_does_not_leak_into_direct_sv_or_rom_names() -> No
     assert verbose_image.logical_path == concise_image.logical_path
     assert verbose_image.text == concise_image.text
     assert verbose_image.file_hash == concise_image.file_hash
-

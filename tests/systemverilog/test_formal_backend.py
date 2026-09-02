@@ -128,11 +128,11 @@ class DirectSystemVerilogFormalTests(unittest.TestCase):
 
     def test_emitted_m35_safety_families_execute(self) -> None:
         targets = (
-            (emitted("rule_counter.zl"), RULE_HARNESS, "DirectRuleFormal", "direct.rules"),
-            (emitted("counter.zl"), COUNTER_HARNESS, "DirectStateFormal", "direct.state"),
-            (emitted("rv_buffer.zl"), FIFO_HARNESS, "DirectFifoFormal", "direct.fifo_ready_valid"),
-            (emitted("control_csr.zl"), CSR_HARNESS, "DirectCsrFormal", "direct.csr"),
-            (emitted("hierarchical_request_response_m40.zl", top="HierarchicalRequestResponse"),
+            (emitted("rule_counter.zhl"), RULE_HARNESS, "DirectRuleFormal", "direct.rules"),
+            (emitted("counter.zhl"), COUNTER_HARNESS, "DirectStateFormal", "direct.state"),
+            (emitted("rv_buffer.zhl"), FIFO_HARNESS, "DirectFifoFormal", "direct.fifo_ready_valid"),
+            (emitted("control_csr.zhl"), CSR_HARNESS, "DirectCsrFormal", "direct.csr"),
+            (emitted("hierarchical_request_response_m40.zhl", top="HierarchicalRequestResponse"),
              RR_HARNESS, "DirectRrFormal", "direct.request_response"),
         )
         for rtl, harness, top, property_id in targets:
@@ -143,11 +143,11 @@ class DirectSystemVerilogFormalTests(unittest.TestCase):
                 )
 
     def test_direct_rtl_mutations_fail_with_counterexamples(self) -> None:
-        rule = emitted("rule_counter.zl")
-        counter = emitted("counter.zl")
-        fifo = emitted("rv_buffer.zl")
-        csr = emitted("control_csr.zl")
-        rr = emitted("hierarchical_request_response_m40.zl", top="HierarchicalRequestResponse")
+        rule = emitted("rule_counter.zhl")
+        counter = emitted("counter.zhl")
+        fifo = emitted("rv_buffer.zhl")
+        csr = emitted("control_csr.zhl")
+        rr = emitted("hierarchical_request_response_m40.zhl", top="HierarchicalRequestResponse")
         mutations = (
             (rule.replace("count} + {{1{1'b0}}, 8'd1", "count} - {{1{1'b0}}, 8'd1"),
              RULE_HARNESS, "DirectRuleFormal", "arithmetic"),

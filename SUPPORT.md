@@ -1,6 +1,6 @@
 # Support
 
-ZLang is an experimental open-source alpha. Community support is best-effort;
+ZLang HDL is an experimental open-source alpha. Community support is best-effort;
 there is no response-time or compatibility SLA.
 
 ## Where to ask
@@ -17,7 +17,7 @@ Before reporting a compiler problem, include:
 
 - the ZLang version or exact commit;
 - operating system and Python version;
-- a minimal `.zl` reproducer;
+- a minimal `.zhl` reproducer;
 - the complete command and structured diagnostic;
 - external tool versions when Clash, Verilator, Yosys, SBY, or a solver is
   involved.

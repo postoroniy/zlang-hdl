@@ -1,20 +1,20 @@
 {
-  "name": "zlang-vscode",
-  "displayName": "ZLang",
-  "description": "Lexical syntax highlighting for the supported ZLang hardware language.",
+  "name": "zlang-hdl",
+  "displayName": "ZLang HDL",
+  "description": "Lexical syntax highlighting for the supported ZLang HDL hardware language.",
   "version": "0.0.9",
-  "publisher": "zlang",
+  "publisher": "postoroniy",
   "engines": { "vscode": "^1.85.0" },
   "categories": ["Programming Languages"],
   "contributes": {
     "languages": [{
-      "id": "zlang",
-      "aliases": ["ZLang", "zlang"],
-      "extensions": [".zl", ".zlang"],
+      "id": "zlang-hdl",
+      "aliases": ["ZLang HDL", "ZLang"],
+      "extensions": [".zhl"],
       "configuration": "./language-configuration.json"
     }],
     "grammars": [{
-      "language": "zlang",
+      "language": "zlang-hdl",
       "scopeName": "source.zlang",
       "path": "./syntaxes/zlang.tmLanguage.json"
     }]

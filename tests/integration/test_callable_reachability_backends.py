@@ -423,7 +423,7 @@ def test_reachable_child_helpers_generate_and_lint_in_both_backends(
 def test_ieee_framed_ifft_does_not_emit_unused_mapper_helpers() -> None:
     source = (
         ROOT
-        / "examples/projects/80211a_transmitter/src/ifft.zl"
+        / "examples/projects/80211a_transmitter/src/ifft.zhl"
     )
     if not source.exists():
         pytest.skip("production framed IFFT64 source is not present")

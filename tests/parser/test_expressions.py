@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class ExpressionParserTests(unittest.TestCase):
     def test_alu_switch_parses(self) -> None:
-        module = parse((ROOT / "examples/alu.zl").read_text())
+        module = parse((ROOT / "examples/alu.zhl").read_text())
         expression = module.assignments[0].expression
         self.assertIsInstance(expression, SwitchExpr)
         self.assertEqual([arm.key for arm in expression.arms], [0, 1, 2, 3])

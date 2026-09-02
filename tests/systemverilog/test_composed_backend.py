@@ -22,11 +22,11 @@ class ComposedDirectSystemVerilogTests(unittest.TestCase):
 
     def test_real_design_hierarchy_lints(self) -> None:
         cases = (
-            ("hierarchical_protocol_m40.zl", "ProtocolTop"),
-            ("hierarchical_request_response_m40.zl", "HierarchicalRequestResponse"),
-            ("simple_dma_m40.zl", "SimpleDMA"),
-            ("axi_csr_top.zl", "AxiCsrTop"),
-            ("apb_csr_top.zl", "ApbCsrTop"),
+            ("hierarchical_protocol_m40.zhl", "ProtocolTop"),
+            ("hierarchical_request_response_m40.zhl", "HierarchicalRequestResponse"),
+            ("simple_dma_m40.zhl", "SimpleDMA"),
+            ("axi_csr_top.zhl", "AxiCsrTop"),
+            ("apb_csr_top.zhl", "ApbCsrTop"),
         )
         for source, top in cases:
             with self.subTest(source=source), tempfile.TemporaryDirectory() as temporary:
@@ -40,7 +40,7 @@ class ComposedDirectSystemVerilogTests(unittest.TestCase):
                 self.assertEqual(completed.returncode, 0, completed.stderr)
 
     def test_nested_fft_examples_use_explicit_selected_tops(self) -> None:
-        source = (ROOT / "examples/fft/complex_multiply_pipeline_auto.zl").read_text()
+        source = (ROOT / "examples/fft/complex_multiply_pipeline_auto.zhl").read_text()
         for top in ("FFTComplexMultiplyRealAuto", "FFTComplexMultiplyImagAuto"):
             with self.subTest(top=top), tempfile.TemporaryDirectory() as temporary:
                 path = Path(temporary) / f"{top}.sv"
@@ -52,7 +52,7 @@ class ComposedDirectSystemVerilogTests(unittest.TestCase):
                 )
                 self.assertEqual(completed.returncode, 0, completed.stderr)
 
-        sdf = (ROOT / "examples/fft/sdf_stage_numeric.zl").read_text()
+        sdf = (ROOT / "examples/fft/sdf_stage_numeric.zhl").read_text()
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "FFTSDFStageNumericD4.sv"
             path.write_text(
@@ -72,7 +72,7 @@ class ComposedDirectSystemVerilogTests(unittest.TestCase):
 
     def test_recursive_manifest_uses_published_hierarchical_locators(self) -> None:
         module = compile_source(
-            (ROOT / "examples/simple_dma_m40.zl").read_text(), top="SimpleDMA"
+            (ROOT / "examples/simple_dma_m40.zhl").read_text(), top="SimpleDMA"
         ).ir
         design = build_recursive_formal_design(module)
         artifact = emit_artifact(module, recursive_design=design)
@@ -137,7 +137,7 @@ class ComposedDirectSystemVerilogTests(unittest.TestCase):
 
     def test_all_syntax_nested_state_staging_simulates(self) -> None:
         self._simulate_systemverilog(
-            "all_syntax.zl", "StateSyntax", r"""
+            "all_syntax.zhl", "StateSyntax", r"""
 module tb;
   logic clk=0,rst=1,enable=0; logic [7:0] value;
   StateSyntax dut(clk,rst,enable,value);
@@ -155,7 +155,7 @@ endmodule
 
     def test_direct_scalar_async_fifo_preserves_stalled_payload(self) -> None:
         self._simulate_systemverilog(
-            "cdc_async_fifo.zl", "CdcAsyncFifo", r"""
+            "cdc_async_fifo.zhl", "CdcAsyncFifo", r"""
 module tb;
   logic source_clock=0,source_reset=1,destination_clock=0,destination_reset=1;
   logic [7:0] source_payload=0,destination_payload;
@@ -187,7 +187,7 @@ endmodule
 
     def test_direct_aggregate_async_fifo_transfers_one_atomic_beat(self) -> None:
         self._simulate_systemverilog(
-            "all_syntax.zl", "AggregateProtocolSyntax", r"""
+            "all_syntax.zhl", "AggregateProtocolSyntax", r"""
 module tb;
   logic clkI=0,rstI=1,clkO=0,rstO=1;
   logic [31:0] i_t_payload_data=0,o_t_payload_data;
@@ -221,7 +221,7 @@ endmodule
 
     def test_direct_memory_reset_clears_cells_and_registered_output(self) -> None:
         self._simulate_systemverilog(
-            "all_syntax.zl", "MemorySyntax", r"""
+            "all_syntax.zhl", "MemorySyntax", r"""
 module tb;
   logic clk=0,rst=1,write_enable=0;
   logic [3:0] read_address=3,write_address=3;
@@ -245,7 +245,7 @@ endmodule
 
     def test_all_syntax_packet_arbiter_locks_until_last_transfer(self) -> None:
         self._simulate_systemverilog(
-            "all_syntax.zl", "ArbitrationSyntax", r"""
+            "all_syntax.zhl", "ArbitrationSyntax", r"""
 module tb;
   logic clk=0,rst=1;
   logic [7:0] high_payload=8'h11,low_payload=8'h22,tx_payload;
@@ -274,7 +274,7 @@ endmodule
 
     def test_round_robin_packet_arbiter_rotates_at_packet_boundaries(self) -> None:
         self._simulate(
-            "packet_round_robin.zl", "PacketRoundRobin",
+            "packet_round_robin.zhl", "PacketRoundRobin",
             r'''#include "VPacketRoundRobin.h"
 static void tick(VPacketRoundRobin& d) {
   d.clk = 0; d.eval(); d.clk = 1; d.eval(); d.clk = 0; d.eval();
@@ -300,7 +300,7 @@ int main() {
 
     def test_ready_valid_fifo_hierarchy_simulates(self) -> None:
         self._simulate(
-            "hierarchical_protocol_m40.zl", "ProtocolTop",
+            "hierarchical_protocol_m40.zhl", "ProtocolTop",
             '#include "VProtocolTop.h"\n'
             'static void tick(VProtocolTop& d){d.clk=0;d.eval();d.clk=1;d.eval();d.clk=0;d.eval();}\n'
             'int main(){VProtocolTop d{};d.rst=1;tick(d);tick(d);d.rst=0;for(int i=0;i<4;i++)tick(d);return d.seen==7?0:1;}\n',
@@ -308,7 +308,7 @@ int main() {
 
     def test_request_response_hierarchy_simulates(self) -> None:
         self._simulate(
-            "hierarchical_request_response_m40.zl", "HierarchicalRequestResponse",
+            "hierarchical_request_response_m40.zhl", "HierarchicalRequestResponse",
             '#include "VHierarchicalRequestResponse.h"\n'
             'static void tick(VHierarchicalRequestResponse& d){d.clk=0;d.eval();d.clk=1;d.eval();d.clk=0;d.eval();}\n'
             'int main(){VHierarchicalRequestResponse d{};d.rst=1;d.data=9;tick(d);tick(d);d.rst=0;d.accept_request=1;d.fire=1;d.eval();if(!d.response_seen)return 1;tick(d);d.fire=0;d.accept_request=0;tick(d);if(d.response_seen)return 2;d.accept_response=1;tick(d);return d.response_seen?3:0;}\n',
@@ -316,7 +316,7 @@ int main() {
 
     def test_simple_dma_buffers_and_completes(self) -> None:
         self._simulate(
-            "simple_dma_m40.zl", "SimpleDMA",
+            "simple_dma_m40.zhl", "SimpleDMA",
             '#include "VSimpleDMA.h"\n'
             'static void tick(VSimpleDMA& d){d.clk=0;d.eval();d.clk=1;d.eval();d.clk=0;d.eval();}\n'
             'int main(){VSimpleDMA d{};d.base=10;d.data=0x5a;d.start=0;d.accept=0;d.rst=1;tick(d);tick(d);d.rst=0;tick(d);if(d.busy)return 1;d.start=1;tick(d);if(!d.busy)return 2;tick(d);d.accept=1;tick(d);if(!d.busy)return 3;d.start=0;for(int i=0;i<4;i++)tick(d);return d.busy?4:0;}\n',
@@ -324,7 +324,7 @@ int main() {
 
     def test_source_authored_apb_and_axi_csr_transactions_simulate(self) -> None:
         self._simulate_systemverilog(
-            "apb_csr_top.zl", "ApbCsrTop", r"""
+            "apb_csr_top.zhl", "ApbCsrTop", r"""
 module tb;
   logic clk=0,rst=1,done,psel=0,penable=0,pwrite=0,pready,pslverr;
   logic [31:0] paddr=0,pwdata=0,prdata;
@@ -343,7 +343,7 @@ endmodule
 """,
         )
         self._simulate_systemverilog(
-            "axi_csr_top.zl", "AxiCsrTop", r"""
+            "axi_csr_top.zhl", "AxiCsrTop", r"""
 module tb;
   logic clk=0,rst=1,done;
   logic [31:0] aw_addr=0,ar_addr=0,w_data=1;

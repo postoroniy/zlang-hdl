@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from zlang.dependencies import DependencyClosure, DependencyModuleIdentity
+from zlang.dependencies import DependencyClosure, DependencyModuleIdentity, LOCK_SCHEMA
 from zlang.module_resolver import (
     IndexedModuleResolver,
     ModuleResolutionError,
@@ -24,7 +24,7 @@ def _write_module(
     *,
     package: str = "vendor",
 ):
-    relative = Path(*logical.split(".")[1:]).with_suffix(".zl")
+    relative = Path(*logical.split(".")[1:]).with_suffix(".zhl")
     path = root / relative
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(source, encoding="utf-8")
@@ -170,17 +170,17 @@ def test_source_paths_reject_traversal_symlink_escape_and_dirty_locked_content(
 ) -> None:
     root = tmp_path / "root"
     root.mkdir()
-    outside = tmp_path / "outside.zl"
+    outside = tmp_path / "outside.zhl"
     outside.write_text("module Outside {}", encoding="utf-8")
     with pytest.raises(ModuleResolutionError, match="invalid source path"):
         load_indexed_module(
-            "vendor.outside", source_root=root, relative_path="../outside.zl"
+            "vendor.outside", source_root=root, relative_path="../outside.zhl"
         )
 
-    (root / "escaped.zl").symlink_to(outside)
+    (root / "escaped.zhl").symlink_to(outside)
     with pytest.raises(ModuleResolutionError, match="escapes package root"):
         load_indexed_module(
-            "vendor.escaped", source_root=root, relative_path="escaped.zl"
+            "vendor.escaped", source_root=root, relative_path="escaped.zhl"
         )
 
     clean = _write_module(root, "vendor.clean", "module Clean {}")
@@ -197,19 +197,19 @@ def test_expected_digest_and_index_dependency_metadata_are_enforced(
 ) -> None:
     root = tmp_path / "root"
     root.mkdir()
-    source = root / "dep.zl"
+    source = root / "dep.zhl"
     source.write_text("module Dep {}", encoding="utf-8")
     wrong = hashlib.sha256(b"other").hexdigest()
     with pytest.raises(ModuleResolutionError, match="locked module.*dirty"):
         load_indexed_module(
             "vendor.dep",
             source_root=root,
-            relative_path="dep.zl",
+            relative_path="dep.zhl",
             expected_digest=wrong,
         )
 
     record = load_indexed_module(
-        "vendor.dep", source_root=root, relative_path="dep.zl"
+        "vendor.dep", source_root=root, relative_path="dep.zhl"
     )
     inconsistent = replace(record, dependencies=("vendor.hidden",))
     resolver = IndexedModuleResolver(
@@ -307,7 +307,7 @@ def test_project_identity_context_reaches_root_and_imported_child_ir(
         child.digest,
         package_identity,
     )
-    closure = DependencyClosure(1, "d" * 64, (child_identity,))
+    closure = DependencyClosure(LOCK_SCHEMA, "d" * 64, (child_identity,))
 
     module = analyze(
         parse(

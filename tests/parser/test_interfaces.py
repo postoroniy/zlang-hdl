@@ -38,7 +38,7 @@ class InterfaceParserTests(unittest.TestCase):
         )
 
     def test_ready_valid_example_parses(self) -> None:
-        module = parse((ROOT / "examples/rv_passthrough.zl").read_text())
+        module = parse((ROOT / "examples/rv_passthrough.zhl").read_text())
         self.assertEqual(module.name, "RvPassthrough")
         self.assertEqual(len(module.assignments), 3)
 

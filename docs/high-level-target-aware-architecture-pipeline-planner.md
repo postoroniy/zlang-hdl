@@ -23,7 +23,7 @@ exact observable sample latency.
 The target is build configuration, for example:
 
 ```bash
-zlangc examples/symmetric_fixed_fir_auto.zl \
+zlang examples/symmetric_fixed_fir_auto.zhl \
   --top SymmetricFixedFIRAuto \
   --target xc7z030ffg676-1 \
   --target-evidence-policy measured_required \

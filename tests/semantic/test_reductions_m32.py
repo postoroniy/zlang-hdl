@@ -21,8 +21,8 @@ class ReductionM32Tests(unittest.TestCase):
         return compile_source((ROOT / path).read_text()).ir.assignments[0].expression
 
     def test_dot_and_indexed_sum_normalize_to_same_semantics(self):
-        dot = self._expr("examples/dot_builtin.zl")
-        summed = self._expr("examples/dot_product.zl")
+        dot = self._expr("examples/dot_builtin.zhl")
+        summed = self._expr("examples/dot_product.zhl")
         dot_semantics, _ = recognize_reduction(dot)
         sum_semantics, _ = recognize_reduction(summed)
         self.assertEqual(dot_semantics, sum_semantics)
@@ -32,7 +32,7 @@ class ReductionM32Tests(unittest.TestCase):
         )
 
     def test_linear_balanced_and_lane_topologies_are_bounded(self):
-        candidates = expand_reduction(self._expr("examples/dot_builtin.zl"), ReductionSearch(max_lane_counts=4))
+        candidates = expand_reduction(self._expr("examples/dot_builtin.zhl"), ReductionSearch(max_lane_counts=4))
         self.assertIn(ReductionTopology.LINEAR, [item.topology for item in candidates])
         self.assertIn(ReductionTopology.BALANCED, [item.topology for item in candidates])
         self.assertIn(ReductionTopology.LANE_GROUPED, [item.topology for item in candidates])
@@ -47,7 +47,7 @@ class ReductionM32Tests(unittest.TestCase):
         self.assertEqual(candidates[0].semantics.count, 3)
 
     def test_m28_selection_and_dsp_bound(self):
-        candidates = expand_reduction(self._expr("examples/dot_builtin.zl"))
+        candidates = expand_reduction(self._expr("examples/dot_builtin.zhl"))
         selected = extract_best_reduction(candidates, CostMetric.LUT)
         self.assertTrue(selected.selected.legal)
         no_dsp = extract_best_reduction(

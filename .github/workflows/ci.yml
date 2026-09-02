@@ -30,7 +30,7 @@ jobs:
         run: |
           python tools/public_tree.py check-source --source .
           python tools/public_tree.py check-export --source .
-      - name: Install exact test tooling and ZLang
+      - name: Install exact test tooling and ZLang HDL
         run: >-
           python -m pip install --disable-pip-version-check
           -e '.[test]'

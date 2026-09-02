@@ -58,7 +58,7 @@ class ProtocolExtensionVerilatorTests(unittest.TestCase):
     )
     def test_fixed_priority_packet_lock_runs_in_verilator(self) -> None:
         self.run_rtl(
-            "packet_fixed_arbiter.zl",
+            "packet_fixed_arbiter.zhl",
             "PacketFixedArbiter",
             r'''#include "VPacketFixedArbiter.h"
 static void tick(VPacketFixedArbiter& d) {
@@ -92,7 +92,7 @@ int main() {
     )
     def test_round_robin_fairness_runs_in_verilator(self) -> None:
         self.run_rtl(
-            "packet_round_robin.zl",
+            "packet_round_robin.zhl",
             "PacketRoundRobin",
             r'''#include "VPacketRoundRobin.h"
 static void tick(VPacketRoundRobin& d) {
@@ -123,7 +123,7 @@ int main() {
     )
     def test_per_vc_credit_gating_runs_in_verilator(self) -> None:
         self.run_rtl(
-            "vc_credit_source.zl",
+            "vc_credit_source.zhl",
             "VcCreditSource",
             r'''#include "VVcCreditSource.h"
 static void tick(VVcCreditSource& d) {

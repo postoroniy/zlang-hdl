@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class PipelineParserTests(unittest.TestCase):
     def test_fixed_pipeline_parses(self) -> None:
-        module = parse((ROOT / "examples/pipelined_mac.zl").read_text())
+        module = parse((ROOT / "examples/pipelined_mac.zhl").read_text())
         expression = module.assignments[0].expression
         self.assertIsInstance(expression, PipelineExpr)
         self.assertEqual(expression.stages, 2)

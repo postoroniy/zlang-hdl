@@ -22,7 +22,7 @@ from zlang.compiler import compile_source
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SOURCE = ROOT / "examples" / "fft" / "sdf_stage_numeric.zl"
+SOURCE = ROOT / "examples" / "fft" / "sdf_stage_numeric.zhl"
 TOP = "FFT512SDFReference"
 
 SAMPLE_MIN = -(1 << 17)
@@ -254,7 +254,7 @@ from tests.integration.test_fft512_sdf_reference import _fixture
 from zlang.compiler import compile_source
 from zlang.simulate import simulate_cycles
 
-source = Path("examples/fft/sdf_stage_numeric.zl")
+source = Path("examples/fft/sdf_stage_numeric.zhl")
 module = compile_source(
     source.read_text(), top="FFT512SDFReference", include_clash=False
 ).ir

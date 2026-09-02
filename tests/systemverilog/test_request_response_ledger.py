@@ -7,11 +7,11 @@ from zlang.formal import build_recursive_formal_design
 
 
 ROOT = Path(__file__).resolve().parents[2]
-UNBUFFERED = (ROOT / "examples/hierarchical_request_response_m40.zl").read_text()
+UNBUFFERED = (ROOT / "examples/hierarchical_request_response_m40.zhl").read_text()
 
 
 def _module(maximum: int):
-    source = (ROOT / "examples/simple_dma_m40.zl").read_text().replace(
+    source = (ROOT / "examples/simple_dma_m40.zhl").read_text().replace(
         "max_outstanding 2", f"max_outstanding {maximum}"
     )
     return compile_source(source, top="SimpleDMA").ir

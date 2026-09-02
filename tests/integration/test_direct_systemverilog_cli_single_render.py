@@ -19,8 +19,8 @@ ROOT = Path(__file__).resolve().parents[2]
 @pytest.mark.parametrize(
     ("source", "top"),
     (
-        (ROOT / "examples" / "alu.zl", "ALU"),
-        (ROOT / "examples" / "hierarchical_protocol_m40.zl", "ProtocolTop"),
+        (ROOT / "examples" / "alu.zhl", "ALU"),
+        (ROOT / "examples" / "hierarchical_protocol_m40.zhl", "ProtocolTop"),
     ),
 )
 def test_generic_cli_renders_one_artifact_and_reuses_its_text_and_hash(
@@ -72,7 +72,7 @@ def test_target_cli_renders_selected_graph_once(
     manifest = tmp_path / "TargetBRAMMemory.artifact.json"
 
     assert main([
-        str(ROOT / "examples" / "target_bram_memory.zl"),
+        str(ROOT / "examples" / "target_bram_memory.zhl"),
         "--top", "TargetBRAMMemory",
         "--target", "xc7z030ffg676-1",
         "--target-architecture", "Xilinx7BRAM36SimpleDualPort",

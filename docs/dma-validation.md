@@ -18,7 +18,7 @@ This document records the first real-design validation of the completed M40
 subset. The target began with `AddressGen`, `RequestBuilder`, and the
 hierarchical `SimpleDMA` parent. It now includes a mixed scalar/protocol
 `TransferEngine` and a direct depth-two request FIFO connection in
-`examples/simple_dma_m40.zl`.
+`examples/simple_dma_m40.zhl`.
 
 ## Design slice
 
@@ -255,7 +255,7 @@ regression is green after these corrections (`539` tests passed).
 
 ### 10. Hierarchical request/response composition
 
-`hierarchical_request_response_m40.zl` uses the existing `request_response`
+`hierarchical_request_response_m40.zhl` uses the existing `request_response`
 declaration with `max_outstanding 1` and `ordering in_order`. Requester and
 responder ownership is inferred from existing channel assignments; no role or
 transport syntax was added. A logical connection lowers to two explicit
@@ -280,7 +280,7 @@ and `response_buffer N` are independent channel metadata, and generic `buffer N`
 is rejected as ambiguous on request/response connections. Manifests publish
 separate request/response FIFO state identities.
 
-`examples/simple_dma_m40.zl` now makes `TransferEngine` the requester of a
+`examples/simple_dma_m40.zhl` now makes `TransferEngine` the requester of a
 `request_response<MemRequest,MemResponse>` endpoint and connects it directly to
 the stateful `MemoryModel` responder. No ready/valid adapter is inserted. Real
 Clash 1.11 generation and Verilator lint/build/simulation pass for SimpleDMA<8>,
@@ -315,7 +315,7 @@ request, and decrements outstanding only when the requester consumes a
 response. The parent owns this single counter, so the closed bundled Clash
 child ABI remains unchanged and cannot diverge from buffered accounting.
 
-`TransferEngine<AW>` and `MemoryModel` in `simple_dma_m40.zl` now use
+`TransferEngine<AW>` and `MemoryModel` in `simple_dma_m40.zhl` now use
 `max_outstanding 2`, with `request_buffer 4` and `response_buffer 2` on the
 hierarchical connection. The stateful engine is emitted as a reusable bundled
 mealy component; its register/rule state remains in the child while protocol
@@ -372,8 +372,8 @@ failure-first formal mutation classification cover the supported safety subset.
 
 ### 14. Standard-bus source migration checkpoint
 
-The built-in resolver now loads and parses `stdlib/bus/reg.zl`,
-`stdlib/bus/axi_lite.zl`, and `stdlib/bus/apb.zl` as ordinary source modules,
+The built-in resolver now loads and parses `stdlib/bus/reg.zhl`,
+`stdlib/bus/axi_lite.zhl`, and `stdlib/bus/apb.zhl` as ordinary source modules,
 retaining a logical source identity and content hash in typed IR. The Python
 models remain independent verification oracles.
 
@@ -384,7 +384,7 @@ profile declarations/stubs; AXI/APB behavior is still supplied by the legacy
 backend emitter. No bus-specific backend path was removed prematurely. The
 next implementation must add the generic endpoint capability before moving
 AW/W joining, APB sequencing, CSR composition, manifests, or formal contracts
-into authoritative `.zl` source.
+into authoritative `.zhl` source.
 
 The generic capability is now implemented structurally: parameterized protocol
 members expand to typed hierarchical leaf connections, including forward and
@@ -424,7 +424,7 @@ deliberate implementation mutations fail with solver counterexamples.
 
 Transaction simulation also exposed a source-library response-lifetime bug:
 the CSR target's one-cycle RegBus response could precede frontend readiness.
-`stdlib/bus/reg.zl` now owns a one-entry response-hold register and retains the
+`stdlib/bus/reg.zhl` now owns a one-entry response-hold register and retains the
 response through transfer.  Real APB and AXI-Lite writes now complete through
 the same generic hierarchy in direct-SV simulation; no backend special case was
 added.

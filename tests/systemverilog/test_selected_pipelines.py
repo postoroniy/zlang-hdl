@@ -47,7 +47,7 @@ def _run(top: str, source_name: str, harness: str, tmp_path: Path) -> None:
 def test_auto_pipeline_nested_stage_dag_has_reported_latency(tmp_path: Path) -> None:
     _run(
         "AutoPipelineProducts",
-        "auto_pipeline_products.zl",
+        "auto_pipeline_products.zhl",
         r'''
 #include "VAutoPipelineProducts.h"
 static void tick(VAutoPipelineProducts& d) {
@@ -74,9 +74,9 @@ int main() {
 @pytest.mark.parametrize(
     ("source_name", "top"),
     (
-        ("cost_mac.zl", "CostMac"),
-        ("cost_mac_no_dsp.zl", "CostMacNoDsp"),
-        ("mac_choice.zl", "MacChoice"),
+        ("cost_mac.zhl", "CostMac"),
+        ("cost_mac_no_dsp.zhl", "CostMacNoDsp"),
+        ("mac_choice.zhl", "MacChoice"),
     ),
 )
 def test_selected_mac_pipeline_preserves_one_cycle_latency(

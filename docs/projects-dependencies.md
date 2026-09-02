@@ -1,7 +1,7 @@
 # Reproducible projects and dependencies
 
 ZLang source imports are logical names. Physical paths, Git URLs, and revisions
-belong to project metadata, never to `.zl` source:
+belong to project metadata, never to `.zhl` source:
 
 ```zlang
 import acme.dsp.filters
@@ -51,7 +51,7 @@ bus_models = {
 ```
 
 Package and module identities contain logical names and content digests, not
-absolute checkout or cache paths. A file `filters.zl` directly below package
+absolute checkout or cache paths. A file `filters.zhl` directly below package
 `acme`'s source root is imported as `acme.filters`; nested directories append
 dotted components.
 
@@ -78,7 +78,7 @@ Resolution rejects:
 - dependency cycles and conflicting package/module declarations;
 - source-root traversal or symlink escape;
 - a package whose declared identity does not match its dependency key;
-- missing, added, removed, or modified locked `.zl` modules;
+- missing, added, removed, or modified locked `.zhl` modules;
 - modified dependency-resolution fields in dependency manifests (profile-only
   edits are intentionally outside the resolution identity);
 - missing Git cache content or a revision mismatch.
@@ -99,11 +99,11 @@ Ordinary compilation never fetches dependencies and never updates project
 metadata:
 
 ```sh
-zlangc src/top.zl --project zlang.toml --check
-zlangc src/top.zl --project zlang.toml --systemverilog build/top.sv
+zlang src/top.zhl --project zlang.toml --check
+zlang src/top.zhl --project zlang.toml --systemverilog build/top.sv
 ```
 
-`--project` may name a manifest or its directory. Without it, `zlangc` searches
+`--project` may name a manifest or its directory. Without it, `zlang` searches
 the source file's parent directories for `zlang.toml`. If no project is found,
 single-file and compiler-shipped `std.*` compilation retain their existing
 behavior; arbitrary external imports remain an explicit error.

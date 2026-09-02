@@ -30,7 +30,7 @@ SOURCE = (
     / "projects"
     / "80211a_transmitter"
     / "src"
-    / "mapper.zl"
+    / "mapper.zhl"
 )
 KERNEL = "IeeeMapperBlock64"
 CLASH_KERNEL = "IeeeMapperFrame64"

@@ -6,7 +6,7 @@ makes ``zlang-compare-backends`` independent of a source checkout.
 """
 
 BACKEND_COMPARISON_SOURCES = {
-    "examples/alu.zl": """module ALU {
+    "examples/alu.zhl": """module ALU {
     in a  : u32
     in b  : u32
     in op : u3
@@ -22,7 +22,7 @@ BACKEND_COMPARISON_SOURCES = {
     }
 }
 """,
-    "examples/pipelined_mac.zl": """module PipelinedMAC {
+    "examples/pipelined_mac.zhl": """module PipelinedMAC {
     clock clk
     reset rst
 
@@ -36,7 +36,7 @@ BACKEND_COMPARISON_SOURCES = {
     }
 }
 """,
-    "examples/rv_passthrough.zl": """module RvPassthrough {
+    "examples/rv_passthrough.zhl": """module RvPassthrough {
   in rx: rv<u8>
   out tx: rv<u8>
 
@@ -45,7 +45,7 @@ BACKEND_COMPARISON_SOURCES = {
   rx.ready = tx.ready
 }
 """,
-    "examples/credit_source.zl": """module CreditSource {
+    "examples/credit_source.zhl": """module CreditSource {
   clock clk
   reset rst
 
@@ -57,7 +57,7 @@ BACKEND_COMPARISON_SOURCES = {
   tx.send = request
 }
 """,
-    "examples/control_csr.zl": """module ControlCsr {
+    "examples/control_csr.zhl": """module ControlCsr {
   clock clk
   reset rst
 
@@ -78,7 +78,7 @@ BACKEND_COMPARISON_SOURCES = {
   }
 }
 """,
-    "examples/request_client.zl": """struct Request {
+    "examples/request_client.zhl": """struct Request {
   id: u2
   data: u8
 }
@@ -109,7 +109,7 @@ module RequestClient {
   response_payload = mem.response.payload
 }
 """,
-    "examples/rule_counter.zl": """module RuleCounter {
+    "examples/rule_counter.zhl": """module RuleCounter {
   clock clk
   reset rst
 

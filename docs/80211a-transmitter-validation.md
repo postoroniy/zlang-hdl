@@ -27,9 +27,9 @@ behavior.
 The accepted executable project is consolidated into ten canonical units:
 
 ```text
-data_types.zl -> controller.zl -> scrambler.zl -> conv_encoder.zl
-              -> interleaver.zl -> mapper.zl -> ifft_library.zl
-              -> cyclic_extender.zl -> ifft.zl -> transmitter.zl
+data_types.zhl -> controller.zhl -> scrambler.zhl -> conv_encoder.zhl
+              -> interleaver.zhl -> mapper.zhl -> ifft_library.zhl
+              -> cyclic_extender.zhl -> ifft.zhl -> transmitter.zhl
 ```
 
 `Ieee80211aTransmitter` is the stable external top. Earlier compatibility
@@ -44,7 +44,7 @@ explicit ABI, enum/raw, fixed-point, quantization, and narrowing boundaries.
 
 ### Canonical source-consolidation acceptance
 
-The original consolidation acceptance contained exactly those ten `.zl` files
+The original consolidation acceptance contained exactly those ten `.zhl` files
 and 1,744 source lines. The later source-only audits described below reduced
 the accepted checkpoint to 1,673 lines. The current concise-lowering working
 tree contains **1,681 lines** after making generic FFT stage widths and
@@ -418,7 +418,7 @@ SBY/Yosys/Z3 run reaches the 120-second budget and returns structured
 
 The historical fixed 24-bit encoder path used four ordinary ZLang modules
 rather than a backend primitive. Its reusable numerical work informed the
-canonical implementation now housed in `src/conv_encoder.zl`:
+canonical implementation now housed in `src/conv_encoder.zhl`:
 
 | module | responsibility |
 |---|---|
@@ -642,7 +642,7 @@ The mapper contract is frozen separately in
 [`docs/80211a-mapper-contract.md`](80211a-mapper-contract.md). The historical
 compatibility source had a pure `MapperBlock48` kernel and a stateful
 `Mapper48` ready/valid wrapper. The canonical IEEE mapper now lives in
-`examples/projects/80211a_transmitter/src/mapper.zl`.
+`examples/projects/80211a_transmitter/src/mapper.zhl`.
 
 The mapper consumes complete 48-bit chunks tagged R1/R2/R4. A zero tag
 continues the retained rate, while a nonzero tag is accepted only at a symbol
@@ -847,7 +847,7 @@ Python `compileall` and staged/unstaged `git diff --check` pass.
 ## IEEE encoder/interleaver slice
 
 The IEEE-authoritative encoder and interleaver now live in the canonical
-`src/conv_encoder.zl` and `src/interleaver.zl` units. The retired compatibility
+`src/conv_encoder.zhl` and `src/interleaver.zhl` units. The retired compatibility
 implementation survives only as historical evidence in this report. Its K=7
 (133,171) boundary consumes DATA representation bit zero first by applying one
 explicit `reverse24` before the already validated pure convolutional kernel.

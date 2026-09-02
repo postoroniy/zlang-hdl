@@ -101,19 +101,19 @@ module Top {
 # identities used by its generic numerical helpers.
 CASES = {
     "protocol_top": (
-        ROOT / "examples" / "hierarchical_protocol_m40.zl",
+        ROOT / "examples" / "hierarchical_protocol_m40.zhl",
         None,
         "602d99a3baebe14ee7a7aec2e02e3ce06cba7da7c82d099c5bb0aad8f051e60d",
         "9029fbe69da27d10dfcd57300b693139223976920ad9d73f9e6f9a62fe5cd460",
     ),
     "simple_dma": (
-        ROOT / "examples" / "simple_dma_m40.zl",
+        ROOT / "examples" / "simple_dma_m40.zhl",
         "SimpleDMA",
         "a8b8069f0afe94f7ce898d20867784bfedde6087f6e7b09ae0ba456356c072bf",
         "b9b345a1382ad1fcef61d9d8854c3a2a859794c02036d9afc0058df72b8efc56",
     ),
     "fft_specializations": (
-        ROOT / "examples" / "fft" / "sdf_stage_numeric.zl",
+        ROOT / "examples" / "fft" / "sdf_stage_numeric.zhl",
         "FFT4SDFReference",
         # ROM companion names now derive from exact typed contents/layout,
         # rather than dependency/source provenance.  The generated logic is
@@ -123,7 +123,7 @@ CASES = {
         "b4132b156016135db66a97319b823f54f3700065f3be1498496d33d54427e8e6",
     ),
     "aggregate_csr": (
-        ROOT / "examples" / "axi_csr_top.zl",
+        ROOT / "examples" / "axi_csr_top.zhl",
         "AxiCsrTop",
         "f24baa0be06165ccb4bdf2d6038a2ade2f362423867889b84e25f8de823156c1",
         "706b0e2b994d50295da5eaa43e566776924d7c3004dd023070cd1d2275a2e9f7",

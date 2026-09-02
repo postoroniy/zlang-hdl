@@ -13,14 +13,14 @@ from zlang.simulate import (
 
 
 ROOT = Path(__file__).resolve().parents[2]
-FFT_SOURCE = ROOT / "examples" / "fft" / "sdf_stage_numeric.zl"
+FFT_SOURCE = ROOT / "examples" / "fft" / "sdf_stage_numeric.zhl"
 PRODUCTION_IFFT_SOURCE = (
     ROOT
     / "examples"
     / "projects"
     / "80211a_transmitter"
     / "src"
-    / "ifft.zl"
+    / "ifft.zhl"
 )
 
 

@@ -24,7 +24,7 @@ one explicit nearest-even, saturating conversion to `Sample` before the
 butterfly add/subtract. The outputs are
 `Complex<fixed<19,16>>`. No `_18_16` helper remains.
 
-The runnable `examples/complex_fft_butterfly.zl` exercises this contract through
+The runnable `examples/complex_fft_butterfly.zhl` exercises this contract through
 semantic/canonical IR, the simulator, Clash, direct SystemVerilog and Verilator.
 
 ## Concrete correctness bug fixed by the attempt
@@ -72,7 +72,7 @@ imaginary component is recognized independently as `(+,+)`. No inferred width
 is written into FFT source.
 
 The supported source is
-`examples/fft/complex_multiply_pipeline_auto.zl`. It contains explicit
+`examples/fft/complex_multiply_pipeline_auto.zhl`. It contains explicit
 `FFTComplexMultiplyRealAuto` and `FFTComplexMultiplyImagAuto` entry points;
 tests select those tops directly rather than manufacturing a second source by
 text replacement. Each generic fallback is still the unchanged expression with
@@ -148,7 +148,7 @@ resolved positive integer. Unresolved names, zero/negative results, inexact
 division, division by zero, and negative shifts fail before IR construction.
 
 The positive fixture at
-`tests/fixtures/fft/parameterized_fifo_depth.zl` now elaborates as
+`tests/fixtures/fft/parameterized_fifo_depth.zhl` now elaborates as
 depth 4. One reusable declaration was also specialized successfully to all FFT
 stage delays `256,128,64,32,16,8,4,2,1`, with distinct deterministic module
 specialization identities. No fixed-depth wrappers or backend evaluation logic
@@ -188,7 +188,7 @@ two maps are passed independently to the child resolver. `Sample=u8`,
 types, while `D` remains available to parameterized FIFO/memory expressions.
 
 The positive fixture at
-`tests/fixtures/fft/module_type_specialization.zl` contains both `Sample` and
+`tests/fixtures/fft/module_type_specialization.zhl` contains both `Sample` and
 `D`; its specialized child FIFO is
 concretely `fifo<u8,4>`. Named and positional forms converge on the same
 canonical identity. Type aliases do not affect identity, while changing either
@@ -208,7 +208,7 @@ not yet been reached and are not claimed as blockers.
 
 With generic module types and parameterized depth available, the reusable stage
 now reaches the intended state/storage boundary. The tracked minimal source is
-`tests/fixtures/fft/unified_state_storage.zl`. It contains:
+`tests/fixtures/fft/unified_state_storage.zhl`. It contains:
 
 ```zlang
 module FFTSDFStage<type Sample,type Twiddle,D=4> {
@@ -268,9 +268,9 @@ operations can now belong to an existing rule as `feedback.push(value)` and
 Full pop/push replacement is legal; empty pop/push suppresses the whole group;
 all uses of `front`, `count`, inputs, and registers see pre-edge state.
 
-`tests/fixtures/fft/unified_state_storage.zl` now elaborates and emits
+`tests/fixtures/fft/unified_state_storage.zhl` now elaborates and emits
 lint-clean real Clash and direct-SystemVerilog RTL. The smaller executable
-acceptance fixture is `examples/fft_sdf_stage_atomic_transition.zl`. It has a
+acceptance fixture is `examples/fft_sdf_stage_atomic_transition.zhl`. It has a
 parameterized delay FIFO, phase state, output holding state, ready/valid stall
 gating, and one pop/push/register transition. Python simulation and both RTL
 backends agree on directed fill, stall, full replacement, drain, and reset
@@ -302,7 +302,7 @@ types, storage depths, child specialization arguments, generic functions, and
 ordinary expressions. They are substituted and folded before concrete typed IR,
 so neither backend receives runtime parameter ports or unresolved parameter
 references. The tracked acceptance fixture is
-`tests/fixtures/fft/value_parameter_expression.zl`:
+`tests/fixtures/fft/value_parameter_expression.zhl`:
 
 ```zlang
 module FFTSDFStageValueParameterExpression<D=4,STEP=2> {
@@ -370,7 +370,7 @@ The generic expression audit removed the accidental direct-input/name
 restriction. `twiddle_slot` retains the concrete `truncate<IW>(phase_counter)`
 expression, its semantic identity, and the proven range `0..2^IW-1`. The same
 expression can now be written directly inside brackets. The minimized tracked
-fixture `tests/fixtures/fft/runtime_twiddle_index.zl` is now an accepted
+fixture `tests/fixtures/fft/runtime_twiddle_index.zhl` is now an accepted
 regression fixture.
 
 Specialization checks cover future stage delays `256, 128, 64, 32, 16, 8, 4,
@@ -387,7 +387,7 @@ DSP resources. Those remain subject to the next concrete real-design blocker.
 ## One numerical radix-2 DIF SDF stage: D=4 validation
 
 The first complete numerical stage is now source-authored in
-`examples/fft/sdf_stage_numeric.zl`. It remains one reusable
+`examples/fft/sdf_stage_numeric.zhl`. It remains one reusable
 parameterized module; the validation specializes `S=fixed<18,16>`,
 `W=fixed<16,14>`, `D=4`, `CW=3`, and `IW=2` before backend emission. No
 D-specific source or backend switch table is involved.
@@ -463,11 +463,11 @@ Clash normalization with a misleading `Bit` versus `Bit -> Bit` error.
 ## User-facing D=4 wrapper
 
 The source organization slice added the concrete `FFTSDFStageNumericD4` wrapper
-to `examples/fft/sdf_stage_numeric.zl` so the reusable stage has a normal CLI
+to `examples/fft/sdf_stage_numeric.zhl` so the reusable stage has a normal CLI
 entry point. The minimal command is:
 
 ```sh
-.venv/bin/zlangc examples/fft/sdf_stage_numeric.zl \
+.venv/bin/zlang examples/fft/sdf_stage_numeric.zhl \
   --top FFTSDFStageNumericD4 -o build/FFTSDFStageNumericD4.hs
 ```
 
@@ -512,7 +512,7 @@ slice. Fixed-point and quantization semantics were not changed.
 ## One-stage quantization cleanup and QoR characterization
 
 The accepted cleanup keeps one named typed conversion for each architectural
-complex result in `examples/fft/sdf_stage_numeric.zl`:
+complex result in `examples/fft/sdf_stage_numeric.zhl`:
 `low_quantized`, `high_sum`, and `high_diff`. Their `.re`/`.im` projections are
 performed only after the aggregate conversion. The semantic test traverses the
 typed locals and resolved transition, confirms six conversion nodes (two fields

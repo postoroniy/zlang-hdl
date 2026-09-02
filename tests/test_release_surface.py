@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 @pytest.mark.parametrize(
     ("entrypoint", "program"),
     (
-        (cli.main, "zlangc"),
+        (cli.main, "zlang"),
         (project_cli.main, "zlang-lock"),
         (backend_comparison.main, "zlang-compare-backends"),
         (verification_cli.main, "zlang-verify"),
@@ -42,9 +42,36 @@ def test_package_and_build_metadata_share_one_version_source() -> None:
     assert configuration["project"]["dynamic"] == ["version"]
     assert configuration["project"]["license"] == "Apache-2.0"
     assert configuration["project"]["requires-python"] == ">=3.12,<3.13"
+    assert configuration["project"]["name"] == "zlang-hdl"
+    assert configuration["project"]["scripts"]["zlang"] == "zlang.cli:main"
+    assert "zlangc" not in configuration["project"]["scripts"]
     assert configuration["tool"]["setuptools"]["dynamic"]["version"] == {
         "attr": "zlang._version.__version__"
     }
+
+
+def test_public_language_identity_is_unambiguous() -> None:
+    assert zlang.PUBLIC_LANGUAGE_NAME == "ZLang HDL"
+    assert zlang.DISTRIBUTION_NAME == "zlang-hdl"
+    assert zlang.SOURCE_SUFFIX == ".zhl"
+    assert zlang.CLI_NAME == "zlang"
+    assert zlang.VSCODE_LANGUAGE_ID == "zlang-hdl"
+    assert zlang.MIME_TYPE == "text/x-zlang-hdl"
+
+
+def test_every_owned_hardware_source_uses_the_canonical_suffix() -> None:
+    roots = (
+        ROOT / "stdlib",
+        ROOT / "examples",
+        ROOT / "tests" / "fixtures",
+        ROOT / "docs" / "reproducers",
+        ROOT / "editors" / "vscode" / "zlang-hdl" / "examples",
+    )
+    legacy = tuple(path for root in roots for path in root.rglob("*.zl"))
+    sources = tuple(path for root in roots for path in root.rglob("*.zhl"))
+
+    assert legacy == ()
+    assert len(sources) == 122
 
 
 def test_clash_discovery_has_no_machine_specific_fallback(monkeypatch) -> None:

@@ -19,7 +19,7 @@ coverage from one successful design.
 
 Both backends consume typed IR and publish BackendArtifact manifests with
 semantic bindings separate from physical RTL locators. Standard buses are
-ordinary `.zl` library modules, not AXI/APB-specific backend dispatch.
+ordinary `.zhl` library modules, not AXI/APB-specific backend dispatch.
 
 For one non-default physical domain, both backends consume the same typed
 [clock/reset contract](physical-clock-reset-contract.md). Concise `async reset`
@@ -65,7 +65,7 @@ resource graph is never attributed to Clash.
 ## Core CLI
 
 ```text
-zlangc SOURCE [options]
+zlang SOURCE [options]
 ```
 
 | Option | Action |
@@ -210,7 +210,7 @@ M35/source safety and cover jobs only; it does not execute or reconstruct the
 selected-candidate M36/M38 part of a joint compiler run. Engine, solver, depth,
 timeout, tool versions, logs, and results belong to execution and do not mutate
 the bundle. `zlang-verify` defaults its work directory to the sibling
-`build/verify.work`; `zlangc --verify` uses `--verification-work-dir` when
+`build/verify.work`; `zlang --verify` uses `--verification-work-dir` when
 provided. A work directory inside the bundle is rejected. A safety
 counterexample, or any actually executed joint M36/M38 counterexample, exits
 `1`. Unavailable, unknown, vacuous, or insufficient M35/source proof evidence
@@ -309,7 +309,7 @@ the fallback never reconstructs bindings from generated names.
 ## Standard library
 
 `import std.bus.reg` maps the stable logical module name to the compiler-shipped
-physical source `stdlib/bus/reg.zl`. Imports are transitive, dependency-ordered,
+physical source `stdlib/bus/reg.zhl`. Imports are transitive, dependency-ordered,
 and content-hashed. This is not an arbitrary filesystem or user-package import
 mechanism.
 
@@ -322,7 +322,7 @@ sources and the [hierarchy/protocol guide](hierarchy-protocols.md).
 
 External logical imports are available through versioned `zlang.toml` and
 `zlang.lock`. `zlang-lock update --project PATH` is the only operation that may
-fetch/populate dependencies. Ordinary `zlangc` project compilation is offline,
+fetch/populate dependencies. Ordinary `zlang` project compilation is offline,
 read-only, and rejects dirty or unavailable lock content. See
 [projects and dependencies](projects-dependencies.md) for the exact path/Git,
 identity, cache, and current deferral rules.
@@ -330,10 +330,10 @@ identity, cache, and current deferral rules.
 ## Editor support
 
 The repository-owned VS Code extension is
-[`editors/vscode/zlang-vscode`](../editors/vscode/zlang-vscode). It provides
+[`editors/vscode/zlang-hdl`](../editors/vscode/zlang-hdl). It provides
 lexical highlighting for implemented syntax classes. Highlighting cannot prove
 that a name, type, width, domain, protocol connection, or backend feature is
-valid; `zlangc --check` is the semantic validator.
+valid; `zlang --check` is the semantic validator.
 
 ## Testing and external tools
 
@@ -386,7 +386,7 @@ not.
 
 ## Current validation snapshot
 
-The exhaustive direct-SV corpus currently discovers **80 `.zl` files and 165
+The exhaustive direct-SV corpus currently discovers **80 `.zhl` files and 165
 module roots**: 150 standalone roots emit artifacts and pass strict Verilator
 lint, while 15 generic/hierarchical children are exercised through concrete
 parents. No discovered root is on an unsupported allow-list. This count is an

@@ -30,7 +30,7 @@ endmodule
 
 def _project(tmp_path: Path, *, ports: str = 'a="lhs"\nb="rhs"\ny="result"') -> tuple[Path, Path, Path]:
     root = tmp_path / "external-project"
-    source = root / "src" / "top.zl"
+    source = root / "src" / "top.zhl"
     rtl = root / "rtl" / "physical_add.sv"
     source.parent.mkdir(parents=True)
     rtl.parent.mkdir(parents=True)

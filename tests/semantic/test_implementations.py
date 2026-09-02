@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class ImplementationChoiceSemanticTests(unittest.TestCase):
     def test_applicability_timing_and_equivalence_are_typed_ir(self) -> None:
-        compilation = compile_source((ROOT / "examples/mac_choice.zl").read_text())
+        compilation = compile_source((ROOT / "examples/mac_choice.zhl").read_text())
         choice = compilation.ir.assignments[0].expression
 
         self.assertIsInstance(choice, expr.ImplementationChoice)
@@ -40,7 +40,7 @@ class ImplementationChoiceSemanticTests(unittest.TestCase):
             self.assertEqual(alternative.semantics.protocol_events, ())
 
     def test_choice_is_architectural_canonical_ir_and_round_trips_losslessly(self) -> None:
-        semantic = analyze(parse((ROOT / "examples/mac_choice.zl").read_text()))
+        semantic = analyze(parse((ROOT / "examples/mac_choice.zhl").read_text()))
         canonical = lower(semantic)
         root = canonical.assignments[0].expression
 

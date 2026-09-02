@@ -335,16 +335,16 @@ def _check_zlang_imports(
     projects = _project_import_roots(source, selected)
     errors: list[str] = []
     for relative, text in text_by_path.items():
-        if not relative.endswith(".zl"):
+        if not relative.endswith(".zhl"):
             continue
         for module in ZLANG_IMPORT.findall(text):
             parts = module.split(".")
             target: str | None = None
             if parts[0] == "std":
-                target = f"stdlib/{'/'.join(parts[1:])}.zl"
+                target = f"stdlib/{'/'.join(parts[1:])}.zhl"
             elif parts[0] in projects:
                 suffix = "/".join(parts[1:])
-                target = f"{projects[parts[0]]}/{suffix}.zl"
+                target = f"{projects[parts[0]]}/{suffix}.zhl"
             if target is not None and target not in selected:
                 errors.append(f"ZLang import is not in public tree: {relative} -> {target}")
     if errors:

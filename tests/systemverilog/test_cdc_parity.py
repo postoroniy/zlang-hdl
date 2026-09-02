@@ -53,7 +53,7 @@ def _simulate(example: str, top: str, body: str, tmp_path: Path) -> None:
 
 def test_handshake_manifest_preserves_typed_physical_directions() -> None:
     module = compile_source(
-        (ROOT / "examples" / "cdc_handshake.zl").read_text(),
+        (ROOT / "examples" / "cdc_handshake.zhl").read_text(),
         include_clash=False,
     ).ir
     artifact = emit_artifact(module)
@@ -81,7 +81,7 @@ def test_handshake_manifest_preserves_typed_physical_directions() -> None:
 @pytest.mark.skipif(VERILATOR is None, reason="Verilator is required")
 def test_sync_level_uses_two_destination_stages(tmp_path: Path) -> None:
     _simulate(
-        "cdc_level.zl",
+        "cdc_level.zhl",
         "CdcLevel",
         r'''
 static void sourceTick(VCdcLevel& d) {
@@ -108,7 +108,7 @@ int main() {
 @pytest.mark.skipif(VERILATOR is None, reason="Verilator is required")
 def test_pulse_toggle_emits_one_destination_cycle(tmp_path: Path) -> None:
     _simulate(
-        "cdc_pulse.zl",
+        "cdc_pulse.zhl",
         "CdcPulse",
         r'''
 static void sourceTick(VCdcPulse& d) {
@@ -135,7 +135,7 @@ int main() {
 @pytest.mark.skipif(VERILATOR is None, reason="Verilator is required")
 def test_handshake_holds_payload_until_destination_acceptance(tmp_path: Path) -> None:
     _simulate(
-        "cdc_handshake.zl",
+        "cdc_handshake.zhl",
         "CdcHandshake",
         r'''
 static void sourceTick(VCdcHandshake& d) {

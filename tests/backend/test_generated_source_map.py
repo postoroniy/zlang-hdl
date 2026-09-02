@@ -44,7 +44,7 @@ def _module():
     return compile_source(
         SOURCE,
         include_clash=False,
-        source_unit="tests/fixtures/generated_source_map.zl",
+        source_unit="tests/fixtures/generated_source_map.zhl",
     ).ir
 
 
@@ -73,7 +73,7 @@ def test_artifact_bundle_maps_only_the_exact_top_assignment(
     entry = source_map.entries[0]
     assert entry.semantic_identity == "port:y"
     assert entry.source_origin.construct == "operator +"
-    assert entry.source_origin.source_unit == "tests/fixtures/generated_source_map.zl"
+    assert entry.source_origin.source_unit == "tests/fixtures/generated_source_map.zhl"
     assert entry.source_origin.digest == hashlib.sha256(SOURCE.encode()).hexdigest()
     generated_line = artifact.text.splitlines()[entry.generated.start_line - 1]
     assert statement in generated_line
@@ -105,7 +105,7 @@ def test_source_map_preserves_extended_origin_fields_when_available():
     origin = SourceOrigin(
         span=SourceSpan(3, 5, 3, 10),
         construct="operator +",
-        source_unit="examples/mapped_add.zl",
+        source_unit="examples/mapped_add.zhl",
         digest="a" * 64,
     )
     source_map = GeneratedSourceMap(
@@ -195,7 +195,7 @@ def test_external_tool_diagnostic_uses_only_hash_verified_exact_mapping():
     module = compile_source(
         SOURCE,
         include_clash=False,
-        source_unit="examples/mapped_add.zl",
+        source_unit="examples/mapped_add.zhl",
     ).ir
     artifact, source_map = emit_sv_bundle(module)
     line = source_map.entries[0].generated.start_line
@@ -204,7 +204,7 @@ def test_external_tool_diagnostic_uses_only_hash_verified_exact_mapping():
     attributed = attribute_generated_diagnostic(
         detail, source_map, artifact.text
     )
-    assert "ZLang origin: examples/mapped_add.zl:" in attributed
+    assert "ZLang origin: examples/mapped_add.zhl:" in attributed
     assert "(operator +)" in attributed
     assert attribute_generated_diagnostic(
         detail, source_map, artifact.text + "// changed\n"
@@ -220,7 +220,7 @@ def test_combined_formal_source_attribution_applies_exact_line_offset():
     module = compile_source(
         SOURCE,
         include_clash=False,
-        source_unit="examples/mapped_add.zl",
+        source_unit="examples/mapped_add.zhl",
     ).ir
     artifact, source_map = emit_sv_bundle(module)
     local_line = source_map.entries[0].generated.start_line
@@ -230,7 +230,7 @@ def test_combined_formal_source_attribution_applies_exact_line_offset():
     detail = f"ERROR: formal.v:{local_line + offset}:9: deliberate failure"
 
     attributed = attribute_combined_generated_diagnostic(detail, (context,))
-    assert "ZLang origin: examples/mapped_add.zl:" in attributed
+    assert "ZLang origin: examples/mapped_add.zhl:" in attributed
     assert "(operator +)" in attributed
     assert attribute_combined_generated_diagnostic(
         f"ERROR: formal.v:{local_line}:9: wrong source slice",

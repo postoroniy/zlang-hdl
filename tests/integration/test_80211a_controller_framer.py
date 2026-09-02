@@ -24,7 +24,7 @@ from zlang.toolchain import generate_verilog, lint_with_verilator
 
 ROOT = Path(__file__).resolve().parents[2]
 PROJECT = ROOT / "examples" / "projects" / "80211a_transmitter"
-SOURCE = PROJECT / "src" / "controller.zl"
+SOURCE = PROJECT / "src" / "controller.zhl"
 HEADER = "IeeeSignalHeader24"
 TOP = "IeeeDataFramer24"
 SCRAMBLED_TOP = "IeeePacketFramerScrambler24"

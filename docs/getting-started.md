@@ -1,6 +1,6 @@
-# Getting started with ZLang
+# Getting started with ZLang HDL
 
-ZLang is a statically elaborated hardware language. Source is parsed and checked
+ZLang HDL is a statically elaborated hardware language. Source is parsed and checked
 into backend-independent typed IR before any RTL backend is selected. Clash is
 the primary/general backend; direct SystemVerilog is a supported, fail-closed
 secondary backend for the feature set documented in
@@ -10,10 +10,15 @@ tool versions, regression/corpus counts, real-design evidence, and explicit
 product boundaries.
 
 The representative executable language tour is
-[`examples/all_syntax.zl`](../examples/all_syntax.zl). It intentionally does
+[`examples/all_syntax.zhl`](../examples/all_syntax.zhl). It intentionally does
 not enumerate every legal composition or backend boundary. The
 [syntax support matrix](syntax-support-matrix.md) and compiler-owned capability
 registry distinguish supported, bounded, and deferred forms.
+
+Physical ZLang HDL source files use the canonical `.zhl` suffix and MIME type
+`text/x-zlang-hdl`. Logical imports remain extension-independent. The former
+`.zl` spelling is intentionally rejected so these sources cannot be confused
+with the unrelated language that already owns that extension.
 
 ## Install for development
 
@@ -27,7 +32,7 @@ python3 -m venv .venv
 Check a source file without creating backend artifacts:
 
 ```sh
-.venv/bin/zlangc examples/all_syntax.zl --check
+.venv/bin/zlang examples/all_syntax.zhl --check
 ```
 
 Without `--top`, `--check` validates every declared module. With `--top NAME`,
@@ -54,26 +59,26 @@ register's next value at its clock edge.
 Generate Clash source:
 
 ```sh
-.venv/bin/zlangc examples/extended_add.zl -o build/ExtendedAdd.hs
+.venv/bin/zlang examples/extended_add.zhl -o build/ExtendedAdd.hs
 ```
 
 Generate and lint Clash-produced Verilog:
 
 ```sh
-.venv/bin/zlangc examples/extended_add.zl \
+.venv/bin/zlang examples/extended_add.zhl \
   --verilog-dir build/extended-add-rtl --verilator-lint
 ```
 
 Generate direct SystemVerilog for a supported design:
 
 ```sh
-.venv/bin/zlangc examples/extended_add.zl \
+.venv/bin/zlang examples/extended_add.zhl \
   --systemverilog build/ExtendedAdd.sv
 verilator --lint-only --top-module ExtendedAdd build/ExtendedAdd.sv
 ```
 
 Explicit artifact paths suppress implicit Clash output on stdout. A bare
-`zlangc SOURCE` retains the legacy behavior of printing Clash source. Use
+`zlang SOURCE` retains the legacy behavior of printing Clash source. Use
 `--verbose` for success messages on stderr.
 
 ## Check named verification goals
@@ -88,7 +93,7 @@ cover reaches_full @ clk { count == DEPTH }
 Run the applicable existing M35 safety families plus source goals:
 
 ```sh
-.venv/bin/zlangc design.zl --top Top --verify \
+.venv/bin/zlang design.zhl --top Top --verify \
   --formal-jobs 4 \
   --verification-report build/verification.txt \
   --verification-work-dir build/verification-work
@@ -97,7 +102,7 @@ Run the applicable existing M35 safety families plus source goals:
 Or publish a hash-validated bundle and replay it without recompiling source:
 
 ```sh
-.venv/bin/zlangc design.zl --top Top \
+.venv/bin/zlang design.zhl --top Top \
   --verification-bundle build/verify
 .venv/bin/zlang-verify build/verify --mode bmc --depth 20 \
   --work-dir build/verify-work
@@ -172,7 +177,7 @@ module Example {
 Select a top explicitly when a file contains several modules:
 
 ```sh
-.venv/bin/zlangc design.zl --top Example --check
+.venv/bin/zlang design.zhl --top Example --check
 ```
 
 Names are case-sensitive. There are no semicolons. Line comments use `//`.

@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-ZLang is currently an experimental alpha. Security fixes are applied to the
+ZLang HDL is currently an experimental alpha. Security fixes are applied to the
 latest published alpha release and the current public `main` branch. Older
 alphas are not maintained unless a release note explicitly says otherwise.
 
@@ -25,7 +25,7 @@ request attribution.
 
 ## Security boundary
 
-ZLang source files, project manifests, verification bundles, generated HDL, and
+ZLang HDL source files, project manifests, verification bundles, generated HDL, and
 third-party dependencies should be treated as untrusted input unless their
 origin is known. The compiler invokes external tools such as Clash, Verilator,
 Yosys, SymbiYosys, and solvers; neither ZLang nor those tool invocations are a

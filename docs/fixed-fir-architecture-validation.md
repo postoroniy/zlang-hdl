@@ -6,7 +6,7 @@ numerical contract and are compared only after bit-exact backend validation.
 
 ## Numerical contract
 
-All variants in `examples/fixed_fir_architectures.zl` implement eight `SF2.10`
+All variants in `examples/fixed_fir_architectures.zhl` implement eight `SF2.10`
 products, retain the full-precision accumulation, and cross one numerical loss
 boundary:
 
@@ -115,7 +115,7 @@ it must not be “fixed” by moving or narrowing quantization.
 ## Source-described four-DSP48E1 implementation
 
 The bounded target-platform slice adds a separate manual implementation of the
-new, genuinely symmetric `examples/symmetric_fixed_fir.zl`. Its functional
+new, genuinely symmetric `examples/symmetric_fixed_fir.zhl`. Its functional
 interface contains four coefficient values which are semantically reused at
 mirrored taps. The same source compiles generically; no primitive or target
 token appears in it.
@@ -175,7 +175,7 @@ automatic exploration.
 ## High-level target-aware selection
 
 The bounded planner now consumes the same symmetric functional expression from
-`examples/symmetric_fixed_fir_auto.zl` with:
+`examples/symmetric_fixed_fir_auto.zhl` with:
 
 ```zlang
 pipeline(auto, latency<=8, ii==1, fmax>=100) { ... }

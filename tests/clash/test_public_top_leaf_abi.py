@@ -97,7 +97,7 @@ def test_nested_single_field_struct_uses_the_scalar_clash_physical_shape() -> No
 
 
 def test_request_response_struct_payload_annotation_is_recursive() -> None:
-    source = Path("examples/request_client.zl").read_text()
+    source = Path("examples/request_client.zhl").read_text()
     clash = compile_source(source).clash
     assert (
         'PortProduct "mem_response" [PortProduct "payload" '
@@ -160,7 +160,7 @@ def test_struct_annotation_leaves_survive_artifact_json_as_physical(
 
 
 def test_request_response_annotation_leaves_survive_artifact_json_as_physical() -> None:
-    compilation = compile_source(Path("examples/request_client.zl").read_text())
+    compilation = compile_source(Path("examples/request_client.zhl").read_text())
     artifact = BackendArtifact.from_json(emit_artifact(compilation.ir).to_json())
     bindings = {
         binding.semantic_signal_id: binding for binding in artifact.bindings

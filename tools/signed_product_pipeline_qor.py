@@ -27,7 +27,7 @@ from zlang.targets import (
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = ROOT / "examples" / "fft" / "complex_multiply_pipeline_auto.zl"
+SOURCE = ROOT / "examples" / "fft" / "complex_multiply_pipeline_auto.zhl"
 CONFIGURATIONS = (
     "unregistered", "multiply_registered", "multiply_output_registered",
     "fully_pipelined",

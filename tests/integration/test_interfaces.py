@@ -16,7 +16,7 @@ from zlang.simulate import (
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SOURCE = (ROOT / "examples/rv_passthrough.zl").read_text()
+SOURCE = (ROOT / "examples/rv_passthrough.zhl").read_text()
 
 
 class InterfaceIntegrationTests(unittest.TestCase):

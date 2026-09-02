@@ -1,12 +1,14 @@
-# ZLang user guide and language reference
+# ZLang HDL user guide and language reference
 
-This is the stable entry point for ZLang documentation. The guide is split by
+This is the stable entry point for ZLang HDL documentation. The guide is split by
 the questions a hardware designer asks while moving from source to verified RTL.
+The canonical public/source identities are recorded in
+[ZLang HDL source identity](source-identity-migration.md).
 The compiler's backend-independent typed IR, rather than Clash or SystemVerilog
 behavior, defines language semantics.
 
 For a representative executable tour, start with
-[`examples/all_syntax.zl`](../examples/all_syntax.zl). It is not an exhaustive
+[`examples/all_syntax.zhl`](../examples/all_syntax.zhl). It is not an exhaustive
 capability manifest. The [syntax support matrix](syntax-support-matrix.md) and
 compiler-owned capability registry record supported, bounded, and deferred
 forms; the VS Code grammar is lexical assistance, not semantic validation.
@@ -140,7 +142,7 @@ than being treated as a language guarantee here.
 ## Supported standard-library namespace
 
 `std` is a logical compiler-shipped namespace. For example,
-`import std.bus.reg` resolves to ordinary source at `stdlib/bus/reg.zl`.
+`import std.bus.reg` resolves to ordinary source at `stdlib/bus/reg.zhl`.
 Qualified logical imports such as `import std.math.complex as cx` provide
 source-local `cx.Complex`/`cx.function(...)`/`cx.Struct { ... }` references and
 normalize to the same declaration identities as the unqualified spelling; see
@@ -203,9 +205,9 @@ not silently change hardware behavior.
 ## Syntax and editor conformance
 
 The current executable language tour is
-[`examples/all_syntax.zl`](../examples/all_syntax.zl). Separate registry
+[`examples/all_syntax.zhl`](../examples/all_syntax.zhl). Separate registry
 witnesses cover implemented forms not represented in that one file. The repository-owned VS
 Code extension lives at
-[`editors/vscode/zlang-vscode`](../editors/vscode/zlang-vscode). It highlights
+[`editors/vscode/zlang-hdl`](../editors/vscode/zlang-hdl). It highlights
 keywords, declarations, built-ins, types, protocol properties, and operators
-lexically. Always use `zlangc --check` for parser and semantic validation.
+lexically. Always use `zlang --check` for parser and semantic validation.

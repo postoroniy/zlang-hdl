@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class CsrIntegrationTests(unittest.TestCase):
     def test_access_policies_and_address_decode(self) -> None:
-        module = compile_source((ROOT / "examples/control_csr.zl").read_text()).ir
+        module = compile_source((ROOT / "examples/control_csr.zhl").read_text()).ir
         results = simulate_csr_cycles(
             module,
             [
@@ -35,7 +35,7 @@ class CsrIntegrationTests(unittest.TestCase):
         self.assertEqual((results[5]["ready"], results[5]["rdata"]), (0, 0))
 
     def test_reset_and_pulse_duration_are_cycle_accurate(self) -> None:
-        module = compile_source((ROOT / "examples/control_csr.zl").read_text()).ir
+        module = compile_source((ROOT / "examples/control_csr.zhl").read_text()).ir
         results = simulate_csr_cycles(
             module,
             [
@@ -58,7 +58,7 @@ class CsrIntegrationTests(unittest.TestCase):
             with redirect_stdout(io.StringIO()):
                 status = main(
                     [
-                        str(ROOT / "examples/control_csr.zl"),
+                        str(ROOT / "examples/control_csr.zhl"),
                         "--csr-json",
                         str(json_path),
                         "--csr-markdown",

@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class CsrSemanticTests(unittest.TestCase):
     def test_csr_map_is_canonical_typed_ir(self) -> None:
-        module = analyze(parse((ROOT / "examples/control_csr.zl").read_text()))
+        module = analyze(parse((ROOT / "examples/control_csr.zhl").read_text()))
         control, status = module.csr_blocks[0].registers
         self.assertEqual(control.fields[1].width, 3)
         self.assertEqual(control.fields[2].access, CsrAccess.PULSE)

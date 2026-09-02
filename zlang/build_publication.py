@@ -28,6 +28,7 @@ from zlang.build_manifest import (
 from zlang.common import stable_digest
 from zlang.dependencies import DependencyClosure
 from zlang.implementation_plans import BackendImplementationPlan
+from zlang.source_identity import SOURCE_SUFFIX
 
 
 _SAFE_COMPONENT = re.compile(r"[^A-Za-z0-9_.-]+")
@@ -71,11 +72,11 @@ def source_publication(
 
     if compiled_bytes is None:
         return published_file_from_path(
-            "sources/root.zl", source_path, kind="zlang_source"
+            f"sources/root{SOURCE_SUFFIX}", source_path, kind="zlang_source"
         )
     return PhysicalPublication(
         PublishedFile.from_bytes(
-            "sources/root.zl", compiled_bytes, kind="zlang_source"
+            f"sources/root{SOURCE_SUFFIX}", compiled_bytes, kind="zlang_source"
         ),
         Path(source_path),
     )
@@ -100,7 +101,7 @@ def dependency_records(
 
     def add(logical_module: str, digest: str, *, kind: str) -> None:
         logical_path = (
-            "dependencies/" + logical_module.replace(".", "/") + ".zl"
+            "dependencies/" + logical_module.replace(".", "/") + SOURCE_SUFFIX
         )
         record = PublishedFile.from_content_identity(
             logical_path, digest, kind=kind,

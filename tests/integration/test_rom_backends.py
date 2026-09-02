@@ -105,7 +105,7 @@ def _verilate_and_run(
 
 
 def test_cli_publishes_identical_backend_companions(tmp_path: Path) -> None:
-    source = tmp_path / "rom.zl"
+    source = tmp_path / "rom.zhl"
     source.write_text(ROM_SOURCE)
     clash_path = tmp_path / "clash" / "RomTop.hs"
     sv_path = tmp_path / "sv" / "RomTop.sv"

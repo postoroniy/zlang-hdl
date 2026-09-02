@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class VerificationArtifactTests(unittest.TestCase):
     def test_clash_and_sva_goldens_match(self) -> None:
-        result = compile_source((ROOT / "examples/contracted_add.zl").read_text())
+        result = compile_source((ROOT / "examples/contracted_add.zhl").read_text())
 
         self.assertEqual(
             result.clash,
@@ -37,7 +37,7 @@ class VerificationArtifactTests(unittest.TestCase):
         self.assertIn(".rx_ready(rx_ready)", result.contracts_sva)
 
     def test_module_without_contracts_has_no_sva_artifact(self) -> None:
-        result = compile_source((ROOT / "examples/add.zl").read_text())
+        result = compile_source((ROOT / "examples/add.zhl").read_text())
         self.assertEqual(result.contracts_sva, "")
 
 

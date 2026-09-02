@@ -33,7 +33,7 @@ module Add {
 
 
 def _target_module():
-    source = (ROOT / "examples" / "symmetric_fixed_fir_auto.zl").read_text()
+    source = (ROOT / "examples" / "symmetric_fixed_fir_auto.zhl").read_text()
     return compile_source(
         source,
         top="SymmetricFixedFIRAuto",

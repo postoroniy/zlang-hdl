@@ -17,7 +17,7 @@ from zlang.ir import expressions as ir_expr
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = ROOT / "examples" / "dot_product_pipelined.zl"
+SOURCE = ROOT / "examples" / "dot_product_pipelined.zhl"
 VARIANTS = {
     "baseline_auto": (False, "auto", False),
     "forced_dsp": (True, "force", False),

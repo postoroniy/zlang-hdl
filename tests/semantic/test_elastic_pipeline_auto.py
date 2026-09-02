@@ -33,7 +33,7 @@ from zlang.semantic import SemanticError, analyze
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SOURCE = (ROOT / "examples" / "elastic_pipeline_auto.zl").read_text()
+SOURCE = (ROOT / "examples" / "elastic_pipeline_auto.zhl").read_text()
 
 
 def _module():

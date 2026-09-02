@@ -8,6 +8,7 @@ import sys
 from zlang.backend.manifest import BackendArtifact
 from zlang.backend.systemverilog import emit_artifact
 from zlang.compiler import compile_file
+from zlang.dependencies import LOCK_SCHEMA
 from zlang.opt import render, restore
 from zlang.workspace import update_project_lock
 
@@ -29,7 +30,7 @@ def _project(tmp_path: Path) -> tuple[Path, Path, Path]:
     (dependency / "zlang.toml").write_text(
         'schema=1\n[project]\nname="logic"\nversion="1"\nsource-root="src"\n'
     )
-    dep_source = dependency / "src" / "identity.zl"
+    dep_source = dependency / "src" / "identity.zhl"
     dep_source.write_text("module Identity { in x:u8 out y:u8 y=x }")
 
     project = tmp_path / "project"
@@ -39,7 +40,7 @@ def _project(tmp_path: Path) -> tuple[Path, Path, Path]:
         'schema=1\n[project]\nname="demo"\nversion="1"\nsource-root="src"\n'
         '[dependencies]\nlogic={path="../logic"}\n'
     )
-    top = project / "src" / "top.zl"
+    top = project / "src" / "top.zhl"
     top.write_text(
         "import logic.identity module Top { in x:u8 out y:u8 "
         "inst child:Identity child.x=x y=child.y }"
@@ -62,7 +63,7 @@ def test_project_compilation_round_trips_identity_and_backend_artifact(tmp_path:
     assert restore(result.optimization_ir) == result.ir
     rendered = render(result.optimization_ir)
     assert "root-module logical_path=demo.top" in rendered
-    assert "dependency-closure schema=1" in rendered
+    assert f"dependency-closure schema={LOCK_SCHEMA}" in rendered
 
     artifact = emit_artifact(result.ir)
     restored = BackendArtifact.from_json(artifact.to_json())
@@ -95,9 +96,9 @@ def test_root_package_import_participates_in_build_identity(tmp_path: Path) -> N
     manifest.write_text(
         'schema=1\n[project]\nname="demo"\nversion="1"\nsource-root="src"\n'
     )
-    helper = project / "src" / "helper.zl"
+    helper = project / "src" / "helper.zhl"
     helper.write_text("module Helper { in x:u8 out y:u8 y=x }")
-    top = project / "src" / "top.zl"
+    top = project / "src" / "top.zhl"
     top.write_text(
         "import demo.helper module Top { in x:u8 out y:u8 "
         "inst helper:Helper helper.x=x y=helper.y }"
@@ -202,7 +203,7 @@ def test_project_diagnostic_is_structured_and_never_fetches(tmp_path: Path) -> N
 
 
 def test_no_project_compile_file_keeps_legacy_std_only_behavior(tmp_path: Path) -> None:
-    source = tmp_path / "standalone.zl"
+    source = tmp_path / "standalone.zhl"
     source.write_text("module Standalone { out y:u8 y=1 }")
     result = compile_file(source, include_clash=False)
     assert result.ir.name == "Standalone"

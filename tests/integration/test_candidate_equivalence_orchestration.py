@@ -159,7 +159,7 @@ def test_immutable_candidate_bundle_replays_without_source_or_selection(
     assert cached[0].evidence_records == reports[0].evidence_records
 
     if relation is EquivalenceRelation.SAME_CYCLE_VALUE:
-        source_path = tmp_path / "deleted-source.zl"
+        source_path = tmp_path / "deleted-source.zhl"
         source_path.write_text(source, encoding="utf-8")
         source_path.unlink()
         assert verification_main((

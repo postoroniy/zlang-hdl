@@ -21,7 +21,7 @@ class ArchitectureVerilatorTests(unittest.TestCase):
     )
     def test_selected_folded_lane_topology_runs_in_verilator(self) -> None:
         compilation = compile_source(
-            (ROOT / "examples/fir_architecture.zl").read_text()
+            (ROOT / "examples/fir_architecture.zhl").read_text()
         )
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

@@ -24,7 +24,7 @@ ROOT = Path(__file__).resolve().parents[2]
 class EqualitySaturationSemanticTests(unittest.TestCase):
     def test_power_of_two_multiply_is_not_strength_reduced(self) -> None:
         compilation = compile_source(
-            (ROOT / "examples/shift_multiply.zl").read_text()
+            (ROOT / "examples/shift_multiply.zhl").read_text()
         )
         root = compilation.optimization_ir.assignments[0].expression
         result = saturate(compilation.optimization_ir, root)
@@ -298,10 +298,10 @@ class EqualitySaturationSemanticTests(unittest.TestCase):
     def test_state_protocol_and_architectural_dependencies_are_rejected(self) -> None:
         cases = []
         for filename, category in (
-            ("counter.zl", "state"),
-            ("rv_passthrough.zl", "protocol"),
-            ("request_client.zl", "transaction"),
-            ("mac_choice.zl", "architecture"),
+            ("counter.zhl", "state"),
+            ("rv_passthrough.zhl", "protocol"),
+            ("request_client.zhl", "transaction"),
+            ("mac_choice.zhl", "architecture"),
         ):
             compilation = compile_source((ROOT / "examples" / filename).read_text())
             node = next(

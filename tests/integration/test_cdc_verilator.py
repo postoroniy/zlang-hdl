@@ -58,7 +58,7 @@ class CdcVerilatorTests(unittest.TestCase):
     )
     def test_level_and_pulse_crossings_run_in_verilator(self) -> None:
         self.run_rtl(
-            "cdc_level.zl",
+            "cdc_level.zhl",
             "CdcLevel",
             r'''#include "VCdcLevel.h"
 static void sourceTick(VCdcLevel& d) {
@@ -81,7 +81,7 @@ int main() {
 ''',
         )
         self.run_rtl(
-            "cdc_pulse.zl",
+            "cdc_pulse.zhl",
             "CdcPulse",
             r'''#include "VCdcPulse.h"
 static void sourceTick(VCdcPulse& d) {
@@ -112,7 +112,7 @@ int main() {
     )
     def test_handshake_crossing_runs_in_verilator(self) -> None:
         self.run_rtl(
-            "cdc_handshake.zl",
+            "cdc_handshake.zhl",
             "CdcHandshake",
             r'''#include "VCdcHandshake.h"
 static void sourceTick(VCdcHandshake& d) {
@@ -154,7 +154,7 @@ int main() {
     )
     def test_async_fifo_crossing_runs_in_verilator(self) -> None:
         self.run_rtl(
-            "cdc_async_fifo.zl",
+            "cdc_async_fifo.zhl",
             "CdcAsyncFifo",
             r'''#include "VCdcAsyncFifo.h"
 static void sourceTick(VCdcAsyncFifo& d) {

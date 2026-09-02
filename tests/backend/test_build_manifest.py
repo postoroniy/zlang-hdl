@@ -33,7 +33,7 @@ def _origin(line: int, construct: str = "module") -> SourceOrigin:
     return SourceOrigin(
         SourceSpan(line, 1, line, 8),
         construct,
-        "src/top.zl",
+        "src/top.zhl",
         _hash("module Top {}\n"),
     )
 
@@ -43,9 +43,9 @@ def _file(path: str, text: str, kind: str, *, origin: SourceOrigin | None = None
 
 
 def _manifest(*, reverse: bool = False, origin_line: int = 1) -> WholeBuildManifest:
-    source = _file("src/top.zl", "module Top {}\n", "zlang_source", origin=_origin(origin_line))
-    dep_a = _file("deps/a.zl", "module A {}\n", "zlang_dependency")
-    dep_b = _file("deps/b.zl", "module B {}\n", "zlang_dependency")
+    source = _file("src/top.zhl", "module Top {}\n", "zlang_source", origin=_origin(origin_line))
+    dep_a = _file("deps/a.zhl", "module A {}\n", "zlang_dependency")
+    dep_b = _file("deps/b.zhl", "module B {}\n", "zlang_dependency")
     sv = _file("build/systemverilog/Top.sv", "module Top; endmodule\n", "rtl")
     source_map = _file("build/systemverilog/Top.source-map.json", "{}\n", "source_map")
     clash = _file("build/clash/Top.hs", "module Top where\n", "generated_source")
@@ -117,9 +117,9 @@ def _manifest(*, reverse: bool = False, origin_line: int = 1) -> WholeBuildManif
 
 def _publish(root: Path, manifest: WholeBuildManifest) -> None:
     contents = {
-        "src/top.zl": "module Top {}\n",
-        "deps/a.zl": "module A {}\n",
-        "deps/b.zl": "module B {}\n",
+        "src/top.zhl": "module Top {}\n",
+        "deps/a.zhl": "module A {}\n",
+        "deps/b.zhl": "module B {}\n",
         "build/systemverilog/Top.sv": "module Top; endmodule\n",
         "build/systemverilog/Top.source-map.json": "{}\n",
         "build/clash/Top.hs": "module Top where\n",
@@ -150,7 +150,7 @@ def test_source_attribution_is_serialized_but_not_build_identity() -> None:
     assert first.to_json() != moved.to_json()
     payload = json.loads(moved.to_json())
     assert payload["root_source"]["source_origin"]["span"]["start_line"] == 20
-    assert payload["evidence"][0]["source_origin"]["source_unit"] == "src/top.zl"
+    assert payload["evidence"][0]["source_origin"]["source_unit"] == "src/top.zhl"
 
 
 def test_manifest_identity_is_json_format_independent_and_detects_tampering() -> None:
@@ -192,28 +192,28 @@ def test_file_validation_is_relocatable_and_detects_tampering(tmp_path: Path) ->
 def test_content_identity_dependencies_validate_via_explicit_physical_map(
     tmp_path: Path,
 ) -> None:
-    source_path = tmp_path / "unrelated-checkout" / "top.zl"
-    dependency_path = tmp_path / "package-cache" / "dep.zl"
+    source_path = tmp_path / "unrelated-checkout" / "top.zhl"
+    dependency_path = tmp_path / "package-cache" / "dep.zhl"
     source_path.parent.mkdir()
     dependency_path.parent.mkdir()
     source_path.write_text("module Top {}\n")
     dependency_path.write_text("module Dep {}\n")
     source = PublishedFile.from_bytes(
-        "src/top.zl", source_path.read_bytes(), kind="zlang_source",
+        "src/top.zhl", source_path.read_bytes(), kind="zlang_source",
     )
     dependency = PublishedFile.from_content_identity(
-        "deps/dep.zl", _hash("module Dep {}\n"), kind="zlang_dependency",
+        "deps/dep.zhl", _hash("module Dep {}\n"), kind="zlang_dependency",
     )
     assert dependency.size is None
     validate_published_file_map(
         (source, dependency),
-        {"src/top.zl": source_path, "deps/dep.zl": dependency_path},
+        {"src/top.zhl": source_path, "deps/dep.zhl": dependency_path},
     )
     dependency_path.write_text("module Changed {}\n")
     with pytest.raises(BuildManifestError, match="hash/size mismatch"):
         validate_published_file_map(
             (source, dependency),
-            {"src/top.zl": source_path, "deps/dep.zl": dependency_path},
+            {"src/top.zhl": source_path, "deps/dep.zhl": dependency_path},
         )
 
 

@@ -38,7 +38,7 @@ def test_module_timing_metadata_lowers_restores_and_renders_losslessly() -> None
     origin = SourceOrigin(
         SourceSpan(5, 3, 8, 4),
         "module-timing:Timed",
-        "timed.zl",
+        "timed.zhl",
         "a" * 64,
     )
     contract = ModuleTimingContract(4, 1, "clk", "rst", origin)

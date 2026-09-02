@@ -21,7 +21,7 @@ from zlang.targets import (
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SOURCE = (ROOT / "examples/fft/complex_multiply_pipeline_auto.zl").read_text()
+SOURCE = (ROOT / "examples/fft/complex_multiply_pipeline_auto.zhl").read_text()
 TARGET = "xc7z030ffg676-1"
 CONFIGURATIONS = (
     ("unregistered", 1),

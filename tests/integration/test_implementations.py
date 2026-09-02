@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class ImplementationChoiceIntegrationTests(unittest.TestCase):
     def test_logic_and_dsp_choices_have_identical_fixed_latency_behavior(self) -> None:
-        compilation = compile_source((ROOT / "examples/mac_choice.zl").read_text())
+        compilation = compile_source((ROOT / "examples/mac_choice.zhl").read_text())
         logic = select_implementation(compilation.ir, "y", "mul_add")
         cycles = [
             {"a": 2, "b": 3, "c": 4},
@@ -35,7 +35,7 @@ class ImplementationChoiceIntegrationTests(unittest.TestCase):
             with redirect_stdout(io.StringIO()):
                 status = main(
                     [
-                        str(ROOT / "examples/mac_choice.zl"),
+                        str(ROOT / "examples/mac_choice.zhl"),
                         "--implementation-report",
                         str(report),
                     ]

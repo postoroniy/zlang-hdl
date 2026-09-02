@@ -23,15 +23,15 @@ from zlang.toolchain import find_clash_executable, generate_verilog, lint_with_v
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SIMPLE_DMA = (ROOT / "examples/simple_dma_m40.zl").read_text()
-SMALL_RR = (ROOT / "examples/hierarchical_request_response_m40.zl").read_text().replace(
+SIMPLE_DMA = (ROOT / "examples/simple_dma_m40.zhl").read_text()
+SMALL_RR = (ROOT / "examples/hierarchical_request_response_m40.zhl").read_text().replace(
     "max_outstanding 1", "max_outstanding 2"
 ).replace(
     "connect requester.bus -> responder.bus",
     "connect requester.bus -> responder.bus { request_buffer 1 response_buffer 1 }",
 )
 SMALL_RR_UNBUFFERED = (
-    ROOT / "examples/hierarchical_request_response_m40.zl"
+    ROOT / "examples/hierarchical_request_response_m40.zhl"
 ).read_text().replace("max_outstanding 1", "max_outstanding 2")
 TOP = (
     "module Top { clock clk reset rst in base:u8 in data:u8 in start:bit "

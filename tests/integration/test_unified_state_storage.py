@@ -158,7 +158,7 @@ def test_m35_combined_register_fifo_safety_executes() -> None:
 
 
 def test_sdf_stage_generates_both_backends_and_m35_families() -> None:
-    result = compile_source((ROOT / "examples/fft_sdf_stage_atomic_transition.zl").read_text())
+    result = compile_source((ROOT / "examples/fft_sdf_stage_atomic_transition.zhl").read_text())
     assert "module SDFStateStage" in result.clash
     assert "module SDFStateStage" in emit_experimental(result.ir)
     families = {

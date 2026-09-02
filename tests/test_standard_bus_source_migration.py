@@ -15,7 +15,7 @@ class StandardBusSourceMigrationTests(unittest.TestCase):
         self.assertEqual(
             digest,
             hashlib.sha256(
-                Path("stdlib/bus/reg.zl").read_bytes()
+                Path("stdlib/bus/reg.zhl").read_bytes()
             ).hexdigest(),
         )
         ir = analyze(parse(

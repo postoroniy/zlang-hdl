@@ -1,7 +1,7 @@
 """Source-authored standard-bus error propagation regressions.
 
 The Python models are independent transaction-level oracles.  The executable
-RTL witnesses below compile the ordinary ``stdlib/bus/*.zl`` modules through
+RTL witnesses below compile the ordinary ``stdlib/bus/*.zhl`` modules through
 the generic hierarchy/backend path; no bus behavior is supplied by a backend
 dispatcher.
 """

@@ -147,7 +147,7 @@ The first-class verification UX adds an immutable bundle boundary rather than
 changing that rule. `--verification-bundle` publishes hash-validated structured
 verification IR, implementation/source-map inputs, and separate safety/cover
 jobs. Exact ROM images are immutable `companion` inputs to every job that uses
-them. `zlang-verify` or `zlangc --verify` creates a run report only after real
+them. `zlang-verify` or `zlang --verify` creates a run report only after real
 execution. Solver, engine, depth, timeout, logs, tool versions, witnesses, and
 counterexamples are run data and are not folded into the bundle's source
 identity. A bounded cover miss is `bounded_unreached`, never proof of
@@ -216,7 +216,7 @@ Moving an unchanged locked project therefore does not change its build identity.
 The intended publication forms are:
 
 ```sh
-zlangc design.zl --systemverilog build/design.sv \
+zlang design.zhl --systemverilog build/design.sv \
   --evidence-report build/evidence.json \
   --evidence-format json \
   --build-manifest build/zlang-build.json

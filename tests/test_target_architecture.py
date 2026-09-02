@@ -23,7 +23,7 @@ from zlang.targets import (
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = (ROOT / "examples/symmetric_fixed_fir.zl").read_text()
+SOURCE = (ROOT / "examples/symmetric_fixed_fir.zhl").read_text()
 TARGET = "xc7z030ffg676-1"
 ARCHITECTURE = "Xilinx7SymmetricDSPCascade"
 

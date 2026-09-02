@@ -34,16 +34,16 @@ from zlang.workspace import load_project_workspace
 
 
 ROOT = Path(__file__).resolve().parents[2]
-FIXTURE = ROOT / "tests" / "fixtures" / "verification" / "wifi_verification.zl"
+FIXTURE = ROOT / "tests" / "fixtures" / "verification" / "wifi_verification.zhl"
 PROJECT_SOURCE = (
     ROOT
     / "examples"
     / "projects"
     / "80211a_transmitter"
     / "src"
-    / "mapper.zl"
+    / "mapper.zhl"
 )
-SOURCE_UNIT = "tests/fixtures/verification/wifi_verification.zl"
+SOURCE_UNIT = "tests/fixtures/verification/wifi_verification.zhl"
 IFFT_TOP = "IeeeIFFTBoundaryVerification"
 MAPPER_TOP = "IeeeMapper64Verification"
 MAPPER_STATE_TOP = "IeeeMapperRateStateVerification"

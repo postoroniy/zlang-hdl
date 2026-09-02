@@ -33,7 +33,7 @@ SOURCE = (
     / "projects"
     / "80211a_transmitter"
     / "src"
-    / "cyclic_extender.zl"
+    / "cyclic_extender.zhl"
 )
 TOP = "IFFT64ReorderCP"
 ZERO = {"re": 0, "im": 0}

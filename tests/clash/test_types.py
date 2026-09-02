@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class ClashTypeTests(unittest.TestCase):
     def test_extended_add_golden_file_matches_emitter(self) -> None:
-        generated = compile_source((ROOT / "examples/extended_add.zl").read_text()).clash
+        generated = compile_source((ROOT / "examples/extended_add.zhl").read_text()).clash
         expected = (ROOT / "examples/generated/ExtendedAdd.hs").read_text()
         self.assertEqual(generated, expected)
 

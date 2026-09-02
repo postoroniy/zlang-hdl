@@ -14,6 +14,13 @@ from pathlib import Path
 from typing import Sequence
 
 from zlang._version import __version__
+from zlang.source_identity import (
+    CLI_NAME,
+    PUBLIC_LANGUAGE_NAME,
+    SOURCE_SUFFIX,
+    SourceExtensionError,
+    validate_source_path,
+)
 from zlang.compiler import (
     TopSelectionError,
     check_file_snapshot,
@@ -435,6 +442,12 @@ def _preflight_companion_paths(
 def _fallback_diagnostic(error: BaseException) -> Diagnostic:
     """Attach stable codes to public exceptions not migrated at their source."""
 
+    if isinstance(error, SourceExtensionError):
+        return Diagnostic(
+            "ZL-SOURCE-EXTENSION",
+            str(error),
+            fixes=(f"rename the source file to use '{SOURCE_SUFFIX}'",),
+        )
     if isinstance(error, TopSelectionError):
         code = "ZL-TOP-001"
     elif isinstance(error, WorkspaceError):
@@ -467,7 +480,7 @@ def _print_cli_diagnostic(
         print(diagnostic.to_json(), file=sys.stderr)
     else:
         print(
-            f"zlangc: error: {legacy_message if legacy_message is not None else error}",
+            f"{CLI_NAME}: error: {legacy_message if legacy_message is not None else error}",
             file=sys.stderr,
         )
 
@@ -530,8 +543,8 @@ def _report_format(path: Path, *, fallback: str = "text") -> str:
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        prog="zlangc",
-        description="Compile ZLang and emit selected backend artifacts"
+        prog=CLI_NAME,
+        description=f"Compile {PUBLIC_LANGUAGE_NAME} and emit selected backend artifacts"
     )
     parser.add_argument(
         "--version",
@@ -554,7 +567,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         default="text",
         help="render compiler diagnostics as compatible text or stable JSON",
     )
-    parser.add_argument("source", type=Path, help="input .zl file")
+    parser.add_argument("source", type=Path, help=f"input {SOURCE_SUFFIX} file")
     parser.add_argument(
         "--check",
         action="store_true",
@@ -866,6 +879,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         # This is the sole root-source snapshot used by the CLI.  Decoding
         # bytes directly preserves CRLF and makes the compiled text, semantic
         # digest, and eventual whole-build publication describe the same input.
+        validate_source_path(arguments.source)
         source_bytes = arguments.source.read_bytes()
         source_text = source_bytes.decode("utf-8")
         source_digest = hashlib.sha256(source_bytes).hexdigest()
@@ -941,7 +955,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             ),
         )
         return 1
-    except (DiagnosticError, TopSelectionError, WorkspaceError) as error:
+    except (
+        DiagnosticError,
+        SourceExtensionError,
+        TopSelectionError,
+        WorkspaceError,
+    ) as error:
         # Keep the Python API typed, but make source failures concise and
         # artifact-safe at the CLI boundary.  argparse usage errors below
         # intentionally retain exit status 2.
@@ -968,7 +987,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             f"{'s' if len(checked_module_names) != 1 else ''}"
         )
         print(
-            f"zlangc: ok: {arguments.source} "
+            f"{CLI_NAME}: ok: {arguments.source} "
             f"({checked}; syntax and semantics valid)"
         )
         return 0
@@ -1274,7 +1293,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             VerificationBundleError,
             OSError,
         ) as error:
-            print(f"zlangc: verification unavailable: {error}", file=sys.stderr)
+            print(f"{CLI_NAME}: verification unavailable: {error}", file=sys.stderr)
             if verification_temporary is not None:
                 verification_temporary.cleanup()
             if candidate_plan_temporary is not None:
@@ -1996,7 +2015,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             else "; Clash emitted to stdout"
         )
         print(
-            f"zlangc: ok: {arguments.source} (top {result.ir.name}){detail}",
+            f"{CLI_NAME}: ok: {arguments.source} (top {result.ir.name}){detail}",
             file=sys.stderr,
         )
     return verification_exit_code

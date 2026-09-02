@@ -176,7 +176,7 @@ def test_inferred_ordinary_function_is_valid_static_callable() -> None:
 
 
 def test_qualified_import_preserves_inferred_return_signature(tmp_path: Path) -> None:
-    relative = Path("helpers.zl")
+    relative = Path("helpers.zhl")
     source_path = tmp_path / relative
     source_path.write_text("fn make_tag(x:bits<2>){concat(x,zeros<2>)}")
     record = load_indexed_module(

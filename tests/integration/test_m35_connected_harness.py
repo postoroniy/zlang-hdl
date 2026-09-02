@@ -52,7 +52,7 @@ module ConnectedReadyValid {
 """
 
 SIMPLE_DMA = (
-    Path(__file__).resolve().parents[2] / "examples/simple_dma_m40.zl"
+    Path(__file__).resolve().parents[2] / "examples/simple_dma_m40.zhl"
 ).read_text()
 
 
@@ -140,7 +140,7 @@ def test_real_connected_pass_and_reset_mutation_counterexample() -> None:
 
 
 def test_cli_sby_requires_and_references_connected_harness(tmp_path: Path) -> None:
-    source = tmp_path / "counter.zl"
+    source = tmp_path / "counter.zhl"
     source.write_text(COUNTER)
     rtl = tmp_path / "counter.sv"
     harness = tmp_path / "proof" / "counter_formal.sv"

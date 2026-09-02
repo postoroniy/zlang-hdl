@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class SequentialSemanticTests(unittest.TestCase):
     def test_counter_register_and_next_state_are_typed(self) -> None:
-        module = analyze(parse((ROOT / "examples/counter.zl").read_text()))
+        module = analyze(parse((ROOT / "examples/counter.zhl").read_text()))
         self.assertEqual(module.clock, "clk")
         self.assertEqual(module.reset, "rst")
         self.assertEqual(module.registers[0].type, UIntType(8))
@@ -20,7 +20,7 @@ class SequentialSemanticTests(unittest.TestCase):
         self.assertIsInstance(module.next_assignments[0].expression, Truncate)
 
     def test_delay_is_sequential_typed_ir(self) -> None:
-        module = analyze(parse((ROOT / "examples/delayed_mul.zl").read_text()))
+        module = analyze(parse((ROOT / "examples/delayed_mul.zhl").read_text()))
         expression = module.assignments[0].expression
         self.assertIsInstance(expression, Delay)
         self.assertEqual(expression.cycles, 2)

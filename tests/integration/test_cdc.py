@@ -24,7 +24,7 @@ def rv(payload: int = 0, valid: int = 0, ready: int = 0):
 class CdcBehaviorTests(unittest.TestCase):
     def test_level_changes_after_two_destination_edges(self) -> None:
         results = simulate_cdc_steps(
-            compile_example("cdc_level.zl"),
+            compile_example("cdc_level.zhl"),
             [{"level": value} for value in (0, 1, 1, 1, 1)],
             [
                 {SOURCE, DESTINATION},
@@ -39,7 +39,7 @@ class CdcBehaviorTests(unittest.TestCase):
 
     def test_toggle_crossing_emits_one_destination_pulse(self) -> None:
         results = simulate_cdc_steps(
-            compile_example("cdc_pulse.zl"),
+            compile_example("cdc_pulse.zhl"),
             [{"pulse": value} for value in (0, 1, 0, 0, 0, 0)],
             [
                 {SOURCE, DESTINATION},
@@ -59,14 +59,14 @@ class CdcBehaviorTests(unittest.TestCase):
     def test_toggle_rejects_a_second_event_before_the_first_crosses(self) -> None:
         with self.assertRaisesRegex(ProtocolViolation, "before the previous pulse"):
             simulate_cdc_steps(
-                compile_example("cdc_pulse.zl"),
+                compile_example("cdc_pulse.zhl"),
                 [{"pulse": 1}, {"pulse": 1}],
                 [{SOURCE}, {SOURCE}],
             )
 
     def test_handshake_holds_payload_under_destination_backpressure(self) -> None:
         results = simulate_cdc_steps(
-            compile_example("cdc_handshake.zl"),
+            compile_example("cdc_handshake.zhl"),
             [
                 rv(),
                 rv(42, 1),
@@ -100,7 +100,7 @@ class CdcBehaviorTests(unittest.TestCase):
 
     def test_async_fifo_preserves_order_and_delays_returned_capacity(self) -> None:
         results = simulate_cdc_steps(
-            compile_example("cdc_async_fifo.zl"),
+            compile_example("cdc_async_fifo.zhl"),
             [
                 rv(),
                 rv(1, 1),
@@ -148,7 +148,7 @@ class CdcBehaviorTests(unittest.TestCase):
     def test_endpoint_resets_must_be_coordinated(self) -> None:
         with self.assertRaisesRegex(ProtocolViolation, "asserted together"):
             simulate_cdc_steps(
-                compile_example("cdc_level.zl"),
+                compile_example("cdc_level.zhl"),
                 [{"level": 0}],
                 [{SOURCE}],
                 [{SOURCE}],

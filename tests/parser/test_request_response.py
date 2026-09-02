@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class RequestResponseParserTests(unittest.TestCase):
     def test_out_of_order_interface_options_and_nested_targets_parse(self) -> None:
-        module = parse((ROOT / "examples/request_client.zl").read_text())
+        module = parse((ROOT / "examples/request_client.zhl").read_text())
         interface = module.request_responses[0]
         self.assertEqual(interface.name, "mem")
         self.assertEqual(interface.request_type.text, "Request")

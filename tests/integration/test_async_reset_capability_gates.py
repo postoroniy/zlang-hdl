@@ -358,7 +358,7 @@ def test_selected_bram_emission_fails_before_physical_rtl_publication() -> None:
     source = (
         Path(__file__).resolve().parents[2]
         / "examples"
-        / "target_bram_memory.zl"
+        / "target_bram_memory.zhl"
     ).read_text().replace("reset rst", "async reset rst @clk")
     compilation = CompilationSession(
         source,
@@ -381,7 +381,7 @@ def test_selected_dsp48_emission_fails_before_physical_rtl_publication() -> None
     source = (
         Path(__file__).resolve().parents[2]
         / "examples"
-        / "symmetric_fixed_fir.zl"
+        / "symmetric_fixed_fir.zhl"
     ).read_text().replace("reset rst", "async reset rst @clk")
     compilation = CompilationSession(
         source,
@@ -404,7 +404,7 @@ def test_elastic_pipeline_rejects_safe_async_reset_before_planning() -> None:
     source = (
         Path(__file__).resolve().parents[2]
         / "examples"
-        / "elastic_pipeline_auto.zl"
+        / "elastic_pipeline_auto.zhl"
     ).read_text().replace("reset rst", "async reset rst @clk")
     session = CompilationSession(source, include_clash=False)
 
@@ -424,7 +424,7 @@ def test_multidomain_cdc_rejects_nondefault_reset_before_emission() -> None:
     source = (
         Path(__file__).resolve().parents[2]
         / "examples"
-        / "cdc_async_fifo.zl"
+        / "cdc_async_fifo.zhl"
     ).read_text().replace(
         "reset source_reset @ source_clock",
         "async reset source_reset @ source_clock",

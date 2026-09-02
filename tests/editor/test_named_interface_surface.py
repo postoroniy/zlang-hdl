@@ -7,7 +7,7 @@ from zlang.public_capabilities import CAPABILITY_REGISTRY
 
 
 ROOT = Path(__file__).resolve().parents[2]
-EXT = ROOT / "editors" / "vscode" / "zlang-vscode"
+EXT = ROOT / "editors" / "vscode" / "zlang-hdl"
 
 
 def test_named_module_interface_is_registry_owned_and_documented() -> None:

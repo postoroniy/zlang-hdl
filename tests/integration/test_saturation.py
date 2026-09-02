@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[2]
 class EqualitySaturationIntegrationTests(unittest.TestCase):
     def test_frozen_m26_excludes_strength_reduction(self) -> None:
         compilation = compile_source(
-            (ROOT / "examples/shift_multiply.zl").read_text()
+            (ROOT / "examples/shift_multiply.zhl").read_text()
         )
         root = compilation.optimization_ir.assignments[0].expression
         result = saturate(compilation.optimization_ir, root)
@@ -31,7 +31,7 @@ class EqualitySaturationIntegrationTests(unittest.TestCase):
             with redirect_stdout(io.StringIO()):
                 status = main(
                     [
-                        str(ROOT / "examples/shift_multiply.zl"),
+                        str(ROOT / "examples/shift_multiply.zhl"),
                         "--saturation-report",
                         str(report),
                         "--saturate-output",
@@ -60,7 +60,7 @@ class EqualitySaturationIntegrationTests(unittest.TestCase):
             with self.subTest(message=message):
                 with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()) as error:
                     with self.assertRaises(SystemExit):
-                        main([str(ROOT / "examples/shift_multiply.zl"), *arguments])
+                        main([str(ROOT / "examples/shift_multiply.zhl"), *arguments])
                 self.assertIn(message, error.getvalue())
 
 

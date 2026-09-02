@@ -184,7 +184,7 @@ class CompositionM40Tests(unittest.TestCase):
         self.assertEqual(endpoint.payload_type.width, 8)
 
     def test_protocol_example_emits_preserved_hierarchy(self):
-        source = Path("examples/hierarchical_protocol_m40.zl").read_text()
+        source = Path("examples/hierarchical_protocol_m40.zhl").read_text()
         module = analyze(parse(source))
         self.assertEqual(len(module.hierarchical_connections), 2)
         result = compile_source(source, top="ProtocolTop")
@@ -194,7 +194,7 @@ class CompositionM40Tests(unittest.TestCase):
         self.assertIn("fifo_tx_ready = consumer_rx_ready", result.clash)
 
     def test_protocol_manifest_publishes_physical_handshake_bindings(self):
-        source = Path("examples/hierarchical_protocol_m40.zl").read_text()
+        source = Path("examples/hierarchical_protocol_m40.zhl").read_text()
         module = analyze(parse(source))
         artifact = emit_artifact(module, selected_ir_identity="protocol-top-v1")
         ids = {item.semantic_signal_id for item in artifact.bindings}
@@ -244,7 +244,7 @@ class CompositionM40Tests(unittest.TestCase):
         self.assertNotIn("parent_", transition)
 
     def test_simple_dma_uses_closed_mixed_child_and_request_fifo(self):
-        source = Path("examples/simple_dma_m40.zl").read_text()
+        source = Path("examples/simple_dma_m40.zhl").read_text()
         result = compile_source(source, top="SimpleDMA")
         self.assertIn("protocol_transferEngine = mealy", result.clash)
         self.assertIn("engine_component_input = TransferEngineComponentInput", result.clash)
@@ -259,7 +259,7 @@ class CompositionM40Tests(unittest.TestCase):
     @unittest.skipUnless(find_clash_executable() and shutil.which("verilator"),
                          "Clash and Verilator are required")
     def test_protocol_hierarchy_runs_in_verilator(self):
-        source = Path("examples/hierarchical_protocol_m40.zl").read_text()
+        source = Path("examples/hierarchical_protocol_m40.zhl").read_text()
         result = compile_source(source, top="ProtocolTop")
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -284,7 +284,7 @@ class CompositionM40Tests(unittest.TestCase):
     @unittest.skipUnless(find_clash_executable() and shutil.which("verilator"),
                          "Clash and Verilator are required")
     def test_simple_dma_request_fifo_runs_in_verilator(self):
-        source = Path("examples/simple_dma_m40.zl").read_text()
+        source = Path("examples/simple_dma_m40.zhl").read_text()
         result = compile_source(source, top="SimpleDMA")
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

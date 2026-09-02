@@ -56,7 +56,7 @@ module ScheduledRules {
 
 ROOT = Path(__file__).resolve().parents[2]
 WIFI_CONTROLLER = (
-    ROOT / "examples" / "projects" / "80211a_transmitter" / "src" / "controller.zl"
+    ROOT / "examples" / "projects" / "80211a_transmitter" / "src" / "controller.zhl"
 )
 FORMAL_TOOLS = all(shutil.which(tool) for tool in ("yosys", "sby", "z3"))
 
@@ -66,7 +66,7 @@ def _compiled_rules():
         SCHEDULED_RULES,
         top="ScheduledRules",
         include_clash=False,
-        source_unit="tests/fixtures/rule-fire-scheduler.zl",
+        source_unit="tests/fixtures/rule-fire-scheduler.zhl",
     )
 
 
@@ -253,7 +253,7 @@ def test_wifi_controller_priority_rules_are_connected_to_physical_fire() -> None
         top="IeeeDataFramer24",
         include_clash=False,
         source_unit=(
-            "examples/projects/80211a_transmitter/src/controller.zl"
+            "examples/projects/80211a_transmitter/src/controller.zhl"
         ),
         module_resolver=workspace.resolver,
         dependency_closure=workspace.dependency_closure,

@@ -11,7 +11,7 @@ from zlang.simulate import simulate
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SOURCE = (ROOT / "examples/alu.zl").read_text()
+SOURCE = (ROOT / "examples/alu.zhl").read_text()
 
 
 class ExpressionIntegrationTests(unittest.TestCase):

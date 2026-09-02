@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class HardwareCsrSemanticTests(unittest.TestCase):
     def test_bindings_and_safe_default_priority_reach_typed_ir(self) -> None:
-        module = analyze(parse((ROOT / "examples/engine_csr.zl").read_text()))
+        module = analyze(parse((ROOT / "examples/engine_csr.zhl").read_text()))
         control, status = module.csr_blocks[0].registers
         self.assertEqual(control.fields[0].binding.kind, CsrBindingKind.COMMAND)
         self.assertEqual(control.fields[0].binding.signal, "engine_start")

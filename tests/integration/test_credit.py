@@ -15,7 +15,7 @@ from zlang.simulate import (
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SOURCE = (ROOT / "examples/credit_source.zl").read_text()
+SOURCE = (ROOT / "examples/credit_source.zhl").read_text()
 
 
 def source_cycle(

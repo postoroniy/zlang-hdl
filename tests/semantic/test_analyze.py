@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class SemanticTests(unittest.TestCase):
     def test_add_example_produces_typed_ir(self) -> None:
-        module = analyze(parse((ROOT / "examples/add.zl").read_text()))
+        module = analyze(parse((ROOT / "examples/add.zhl").read_text()))
 
         expression = module.assignments[0].expression
         self.assertEqual(expression.type, UIntType(9))

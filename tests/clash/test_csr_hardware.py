@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class HardwareCsrClashTests(unittest.TestCase):
     def test_engine_csr_golden_and_artifacts_match(self) -> None:
-        result = compile_source((ROOT / "examples/engine_csr.zl").read_text())
+        result = compile_source((ROOT / "examples/engine_csr.zhl").read_text())
         self.assertEqual(
             result.clash,
             (ROOT / "examples/generated/EngineCsr.hs").read_text(),

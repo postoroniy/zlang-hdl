@@ -20,7 +20,7 @@ class ImplementationChoiceVerilatorTests(unittest.TestCase):
         "Clash and Verilator are required",
     )
     def test_selected_dsp_mac_runs_with_declared_latency_in_verilator(self) -> None:
-        compilation = compile_source((ROOT / "examples/mac_choice.zl").read_text())
+        compilation = compile_source((ROOT / "examples/mac_choice.zhl").read_text())
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             files = generate_verilog(

@@ -22,10 +22,10 @@ from zlang.semantic import SemanticError, analyze
 
 ROOT = Path(__file__).resolve().parents[1]
 REAL_DESIGNS = (
-    ("streaming_packet_engine.zl", "StreamingPacketEngine"),
-    ("fixed_polyphase_fir.zl", "FixedPointPolyphaseFIR"),
-    ("multichannel_dma.zl", "MultiChannelDMA"),
-    ("wishbone_csr_top.zl", "WishboneCsrTop"),
+    ("streaming_packet_engine.zhl", "StreamingPacketEngine"),
+    ("fixed_polyphase_fir.zhl", "FixedPointPolyphaseFIR"),
+    ("multichannel_dma.zhl", "MultiChannelDMA"),
+    ("wishbone_csr_top.zhl", "WishboneCsrTop"),
 )
 
 
@@ -91,7 +91,7 @@ class StandardLibraryRealDesignTests(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which("verilator"), "Verilator is unavailable")
     def test_wishbone_csr_write_read_simulation(self):
-        self._run_sv_tb("wishbone_csr_top.zl", "WishboneCsrTop", r"""
+        self._run_sv_tb("wishbone_csr_top.zhl", "WishboneCsrTop", r"""
 module tb;
   logic clk=0, rst=1, cyc=0, stb=0, we=0;
   logic [31:0] adr=0, dat_w=0; logic [3:0] sel=4'hf;
@@ -118,7 +118,7 @@ endmodule
 
     @unittest.skipUnless(shutil.which("verilator"), "Verilator is unavailable")
     def test_fixed_fir_and_dma_reset_simulation(self):
-        self._run_sv_tb("fixed_polyphase_fir.zl", "FixedPointPolyphaseFIR", r"""
+        self._run_sv_tb("fixed_polyphase_fir.zhl", "FixedPointPolyphaseFIR", r"""
 module tb;
   logic clk=0, rst=1;
   logic signed [11:0] samples0 [0:7];
@@ -147,7 +147,7 @@ module tb;
   end
 endmodule
 """)
-        self._run_sv_tb("multichannel_dma.zl", "MultiChannelDMA", r"""
+        self._run_sv_tb("multichannel_dma.zhl", "MultiChannelDMA", r"""
 module tb;
   logic clk=0,rst=1,start0=0,start1=0,accept0=1,accept1=1,ready0=1,ready1=1;
   logic [15:0] base0=16'h10,base1=16'h80;

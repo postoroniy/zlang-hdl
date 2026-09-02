@@ -12,7 +12,7 @@ class ExplorationM34Tests(unittest.TestCase):
     def test_cli_writes_unified_report(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            source = root / "example.zl"
+            source = root / "example.zhl"
             output = root / "Example.hs"
             report = root / "Example.explore"
             source.write_text(

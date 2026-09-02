@@ -90,7 +90,7 @@ module VerificationHashStable {
 
 
 def test_compiler_bundle_is_independent_of_execution_depth(tmp_path: Path) -> None:
-    source = tmp_path / "counter.zl"
+    source = tmp_path / "counter.zhl"
     source.write_text(SOURCE)
     shallow = tmp_path / "shallow"
     deep = tmp_path / "deep"
@@ -207,7 +207,7 @@ module SelectedIrCrossLink {
 def test_verification_execution_options_require_verify(
     tmp_path: Path, option: tuple[str, str]
 ) -> None:
-    source = tmp_path / "counter.zl"
+    source = tmp_path / "counter.zhl"
     source.write_text(SOURCE)
     with pytest.raises(SystemExit) as raised:
         compiler_main((str(source), *option))
@@ -220,7 +220,7 @@ def test_legacy_formal_views_reject_multi_job_plans_with_bundle_guidance(
     capsys: pytest.CaptureFixture[str],
     request_sby: bool,
 ) -> None:
-    source = tmp_path / "legacy-mixed.zl"
+    source = tmp_path / "legacy-mixed.zhl"
     source.write_text(
         "module LegacyMixed { clock clk reset rst out y:bit y=0 "
         "assert stable @ clk { y == 0 } cover seen @ clk { y == 0 } }",
@@ -309,7 +309,7 @@ def test_verify_results_join_evidence_and_whole_build_manifest(
     failed: bool,
     expected_exit: int,
 ) -> None:
-    source = tmp_path / "evidence.zl"
+    source = tmp_path / "evidence.zhl"
     source.write_text("""
 module VerificationEvidence {
     clock clk
@@ -395,7 +395,7 @@ module JointFormalEvidence {
     assert follows @ clk { y == a }
 }
 """
-    source = tmp_path / "joint.zl"
+    source = tmp_path / "joint.zhl"
     source.write_text(source_text, encoding="utf-8")
 
     class Verifier:
@@ -494,7 +494,7 @@ module CandidateTrigger {
     assert follows @ clk { y == a }
 }
 """
-    source = tmp_path / "trigger.zl"
+    source = tmp_path / "trigger.zhl"
     source.write_text(source_text, encoding="utf-8")
 
     class Verifier:
@@ -605,7 +605,7 @@ module CandidateReportExit {
     assert follows @ clk { y == a }
 }
 """
-    source = tmp_path / "report-exit.zl"
+    source = tmp_path / "report-exit.zhl"
     source.write_text(source_text, encoding="utf-8")
 
     class Verifier:
@@ -701,7 +701,7 @@ module CandidateReportExit {
 def test_compiler_publishes_and_executes_safety_and_cover_bundle(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    source = tmp_path / "counter.zl"
+    source = tmp_path / "counter.zhl"
     source.write_text(SOURCE)
     bundle = tmp_path / "verify"
     report = tmp_path / "report.json"
@@ -742,7 +742,7 @@ def test_compiler_publishes_and_executes_safety_and_cover_bundle(
 def test_bundle_replays_after_source_is_unavailable(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    source = tmp_path / "counter.zl"
+    source = tmp_path / "counter.zhl"
     source.write_text(SOURCE)
     bundle = tmp_path / "verify"
     work = tmp_path / "replay-work"
@@ -767,7 +767,7 @@ def test_bundle_replays_after_source_is_unavailable(
 def test_source_assertion_mutation_exits_one_with_origin(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    source = tmp_path / "broken.zl"
+    source = tmp_path / "broken.zhl"
     source.write_text(SOURCE.replace("count <= 7", "count != 2"))
     status = compiler_main((
         str(source), "--verify", "--verification-format", "json",
@@ -776,7 +776,7 @@ def test_source_assertion_mutation_exits_one_with_origin(
     output = capsys.readouterr().out
     assert status == 1
     assert '"failed"' in output
-    assert '"source_unit": "broken.zl"' in output
+    assert '"source_unit": "broken.zhl"' in output
     failed = next(
         item for item in json.loads(output)["results"]
         if item["status"] == "failed"
@@ -798,7 +798,7 @@ def test_source_assertion_mutation_exits_one_with_origin(
 def test_safe_async_reset_executes_and_mutation_keeps_source_attribution(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    source = tmp_path / "async.zl"
+    source = tmp_path / "async.zhl"
     source.write_text("""
 module AsyncVerification {
     clock clk
@@ -846,7 +846,7 @@ module AsyncVerification {
         item for item in failed_report["results"]
         if item["status"] == "failed"
     )
-    assert failed["source_origin"]["source_unit"] == "async.zl"
+    assert failed["source_origin"]["source_unit"] == "async.zhl"
     assert failed["source_origin"]["construct"] == "assert known"
     assert failed["counterexample"] is not None
     assert failed["counterexample"]["reset_state"] == "0"
@@ -855,7 +855,7 @@ module AsyncVerification {
 def test_unsupported_quantized_predicate_is_a_source_error_not_traceback(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    source = tmp_path / "quantized.zl"
+    source = tmp_path / "quantized.zhl"
     source.write_text(
         "module BadFixedGoal { clock clk reset rst "
         "in a:fixed<16,8> out y:bit y=0 "
@@ -876,7 +876,7 @@ def test_unsupported_quantized_predicate_is_a_source_error_not_traceback(
 def test_proven_requirement_never_promotes_bmc_evidence(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    source = tmp_path / "identity.zl"
+    source = tmp_path / "identity.zhl"
     source.write_text("""
 module ProvenIdentity {
     clock clk
@@ -907,7 +907,7 @@ module ProvenIdentity {
 def test_dynamically_unreachable_requirement_is_reported_vacuous(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    source = tmp_path / "vacuous.zl"
+    source = tmp_path / "vacuous.zhl"
     source.write_text("""
 module VacuousScope {
     clock clk

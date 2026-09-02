@@ -200,12 +200,12 @@ def test_functional_binder_identity_is_source_relocation_insensitive() -> None:
     )
     first = compile_source(
         source,
-        source_unit="first/location.zl",
+        source_unit="first/location.zhl",
         include_clash=False,
     )
     second = compile_source(
         source,
-        source_unit="second/location.zl",
+        source_unit="second/location.zhl",
         include_clash=False,
     )
     reformatted = compile_source(
@@ -218,7 +218,7 @@ def test_functional_binder_identity_is_source_relocation_insensitive() -> None:
             y = generate(i in 0..32) x[i]
         }
         """,
-        source_unit="third/location.zl",
+        source_unit="third/location.zhl",
         include_clash=False,
     )
     identities = tuple(

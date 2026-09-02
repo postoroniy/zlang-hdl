@@ -43,13 +43,13 @@ class Benchmark:
 
 
 BENCHMARKS = (
-    Benchmark("ALU", "datapath", "examples/alu.zl", 5),
-    Benchmark("PipelinedMAC", "pipeline", "examples/pipelined_mac.zl", 3),
-    Benchmark("RvPassthrough", "ready_valid", "examples/rv_passthrough.zl", 3),
-    Benchmark("CreditSource", "credit", "examples/credit_source.zl", 6),
-    Benchmark("ControlCsr", "csr", "examples/control_csr.zl", 5),
-    Benchmark("RequestClient", "request_response", "examples/request_client.zl", 8),
-    Benchmark("RuleCounter", "rules", "examples/rule_counter.zl", 4),
+    Benchmark("ALU", "datapath", "examples/alu.zhl", 5),
+    Benchmark("PipelinedMAC", "pipeline", "examples/pipelined_mac.zhl", 3),
+    Benchmark("RvPassthrough", "ready_valid", "examples/rv_passthrough.zhl", 3),
+    Benchmark("CreditSource", "credit", "examples/credit_source.zhl", 6),
+    Benchmark("ControlCsr", "csr", "examples/control_csr.zhl", 5),
+    Benchmark("RequestClient", "request_response", "examples/request_client.zhl", 8),
+    Benchmark("RuleCounter", "rules", "examples/rule_counter.zhl", 4),
 )
 
 

@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[2]
 class ProtocolExtensionSemanticTests(unittest.TestCase):
     def test_packet_policy_and_grant_scope_are_typed_ir(self) -> None:
         module = analyze(
-            parse((ROOT / "examples/packet_round_robin.zl").read_text())
+            parse((ROOT / "examples/packet_round_robin.zhl").read_text())
         )
         arbiter = module.arbiters[0]
 

@@ -1,9 +1,12 @@
-# ZLang VS Code grammar
+# ZLang HDL VS Code grammar
 
 This repository-owned extension provides lexical highlighting for the supported
-ZLang surface. It is intentionally not an LSP, formatter, completion engine,
+ZLang HDL surface. It is intentionally not an LSP, formatter, completion engine,
 or semantic validator: a highlighted token is not proof that a program is
 well-typed.
+
+It registers canonical `.zhl` files with VS Code language id `zlang-hdl`.
+The TextMate scope remains `source.zlang` for theme compatibility.
 
 The grammar covers the current normalization-only concise forms as ordinary
 lexical syntax: grouped ports (`in a, b : u8`), inline value outputs
@@ -59,7 +62,7 @@ names retain property/scope name scopes, `@` remains an annotation operator,
 and clock names remain signal references. These words are contextual: outside
 the corresponding declaration header, same-spelled ports and immutable
 bindings are ordinary identifiers. Highlighting never claims that a predicate
-is bindable or proved; `zlangc --check` and `zlangc --verify` provide those
+is bindable or proved; `zlang --check` and `zlang --verify` provide those
 separate semantic and execution checks.
 
 Nominal tagged unions use `union`, qualified variants and exhaustive pure
@@ -71,7 +74,7 @@ Initialized storage declarations are covered as a distinct public surface:
 `rom table : rom<T,N> { read_latency 1 init expression }` highlights the ROM
 resource name, storage type, and `read_latency`/`init` directives separately.
 The grammar remains lexical; compile-time initializer legality and exact
-one-cycle behavior are enforced by `zlangc`.
+one-cycle behavior are enforced by `zlang`.
 
 Version 0.0.9 assigns separate TextMate scopes to declaration names, port and
 state declarations, rule labels, nominal/builtin/generic types, generic type
@@ -87,7 +90,7 @@ uses the ordinary parameter/type scopes, `operation : fn(A) -> B` gives the
 function-signature token its own scope, and `operation=fn widen` distinguishes
 the static function reference from a runtime/user call. The protocol-aware
 `transform` keyword uses the exploration/control scope; semantic eligibility is
-still decided by `zlangc`.
+still decided by `zlang`.
 
 Function calls use three intentionally restrained styles:
 
@@ -135,13 +138,13 @@ Top-level named module-interface declarations receive a distinct
 declarations keep their hardware-port scope; the lexical distinction comes from
 the `{` or generic-parameter list following a top-level interface name. As with
 all extension highlighting, exact interface conformance is checked only by
-`zlangc --check`.
+`zlang --check`.
 
 For local testing, install/update it with:
 
 ```sh
-mkdir -p ~/.vscode/extensions/zlang-vscode
-cp -r editors/vscode/zlang-vscode/. ~/.vscode/extensions/zlang-vscode/
+mkdir -p ~/.vscode/extensions/zlang-hdl
+cp -r editors/vscode/zlang-hdl/. ~/.vscode/extensions/zlang-hdl/
 ```
 
 Reload VS Code after updating the copy. The tracked files in this directory are

@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[2]
 class ArchitectureParserTests(unittest.TestCase):
     def test_auto_architecture_parses_bounded_dimensions(self) -> None:
         expression = parse(
-            (ROOT / "examples/fir_architecture.zl").read_text()
+            (ROOT / "examples/fir_architecture.zhl").read_text()
         ).assignments[0].expression
 
         self.assertIsInstance(expression, ArchitectureExpr)

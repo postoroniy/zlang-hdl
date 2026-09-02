@@ -24,7 +24,7 @@ ROOT = Path(__file__).resolve().parents[2]
 class CanonicalMetadataSemanticTests(unittest.TestCase):
     def test_type_timing_domain_effect_and_origin_metadata_are_derived(self) -> None:
         compilation = compile_source(
-            (ROOT / "examples/metadata_datapath.zl").read_text()
+            (ROOT / "examples/metadata_datapath.zhl").read_text()
         )
         canonical = compilation.optimization_ir
         dot = next(node for node in canonical.expressions if node.op is ExpressionOp.DOT)
@@ -52,11 +52,11 @@ class CanonicalMetadataSemanticTests(unittest.TestCase):
 
     def test_five_categories_cover_state_protocol_transaction_and_architecture(self) -> None:
         examples = (
-            "add.zl",
-            "counter.zl",
-            "rv_passthrough.zl",
-            "request_client.zl",
-            "mac_choice.zl",
+            "add.zhl",
+            "counter.zhl",
+            "rv_passthrough.zhl",
+            "request_client.zhl",
+            "mac_choice.zhl",
         )
         categories = {
             item.category
@@ -73,7 +73,7 @@ class CanonicalMetadataSemanticTests(unittest.TestCase):
         self.assertEqual(categories, set(NodeCategory))
 
     def test_high_level_and_selected_architecture_stages_are_distinct(self) -> None:
-        source = (ROOT / "examples/cost_mac.zl").read_text()
+        source = (ROOT / "examples/cost_mac.zhl").read_text()
         semantic = analyze(parse(source))
         compilation = compile_source(source)
         high = compilation.high_level_ir
@@ -104,8 +104,8 @@ class CanonicalMetadataSemanticTests(unittest.TestCase):
 
     def test_legacy_explorers_retain_the_high_level_source_root(self) -> None:
         for filename, construct, collection_name in (
-            ("auto_pipeline_products.zl", "pipeline(auto)", "pipeline_explorations"),
-            ("fir_architecture.zl", "architecture(auto)", "architecture_explorations"),
+            ("auto_pipeline_products.zhl", "pipeline(auto)", "pipeline_explorations"),
+            ("fir_architecture.zhl", "architecture(auto)", "architecture_explorations"),
         ):
             with self.subTest(filename=filename):
                 canonical = lower(

@@ -1,7 +1,7 @@
 # 802.11a interleaver conversion contract
 
 Status: historical compatibility evidence. The executable compatibility module
-has been retired; `src/interleaver.zl` implements the IEEE permutations.
+has been retired; `src/interleaver.zhl` implements the IEEE permutations.
 
 This note separates deterministic legacy numerical wiring from broken or
 undefined transaction behavior in the historical Bluespec interleaver. The

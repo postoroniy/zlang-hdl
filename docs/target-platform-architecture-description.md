@@ -11,7 +11,7 @@ explicit-selection witness rather than the complete current planner surface.
 
 ZLang keeps functional behavior, implementation architecture, and physical
 target data separate. The first bounded implementation maps the ordinary
-functional [symmetric FIR example](../examples/symmetric_fixed_fir.zl) to four
+functional [symmetric FIR example](../examples/symmetric_fixed_fir.zhl) to four
 DSP48E1 resources on `xc7z030ffg676-1`. Without an explicit selection, the same
 source continues through the unchanged generic Clash or direct-SV path.
 
@@ -49,7 +49,7 @@ positions; this is deliberately not a complete floorplan model.
 ## Manual selection
 
 ```bash
-.venv/bin/zlangc examples/symmetric_fixed_fir.zl \
+.venv/bin/zlang examples/symmetric_fixed_fir.zhl \
   --target xc7z030ffg676-1 \
   --target-architecture Xilinx7SymmetricDSPCascade \
   --target-architecture-mode required \

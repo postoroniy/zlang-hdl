@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class InterfaceSemanticTests(unittest.TestCase):
     def test_ready_valid_direction_and_signals_survive_in_typed_ir(self) -> None:
-        module = analyze(parse((ROOT / "examples/rv_passthrough.zl").read_text()))
+        module = analyze(parse((ROOT / "examples/rv_passthrough.zhl").read_text()))
 
         rx, tx = module.ports
         self.assertEqual(rx.direction, PortDirection.INPUT)

@@ -24,7 +24,7 @@ def _project(root: Path) -> tuple[Path, Path, Path, Path]:
         'schema=1\n[project]\nname="logic"\nversion="1"\nsource-root="src"\n',
         encoding="utf-8",
     )
-    dependency_source = dependency / "src" / "identity.zl"
+    dependency_source = dependency / "src" / "identity.zhl"
     dependency_source.write_text(
         "module Identity { in x:u8 out y:u8 y=x }\n",
         encoding="utf-8",
@@ -38,7 +38,7 @@ def _project(root: Path) -> tuple[Path, Path, Path, Path]:
         '[dependencies]\nlogic={path="../logic"}\n',
         encoding="utf-8",
     )
-    source = project / "src" / "top.zl"
+    source = project / "src" / "top.zhl"
     source.write_text(
         "import std.bus.reg import logic.identity "
         "module Top { in x:u8 out y:u8 "
@@ -85,7 +85,7 @@ def test_file_compilation_exposes_inputs_without_affecting_content_identity(
     assert first_source.resolve() in inputs.project_module_sources
     assert first_dep_manifest.resolve() in inputs.dependency_manifests
     assert first_dep_source.resolve() in inputs.dependency_module_sources
-    assert (ROOT / "stdlib" / "bus" / "reg.zl").resolve() in inputs.stdlib_sources
+    assert (ROOT / "stdlib" / "bus" / "reg.zhl").resolve() in inputs.stdlib_sources
     assert first.high_level_ir_identity == second.high_level_ir_identity
     assert first.selected_ir_identity == second.selected_ir_identity
     assert first.physical_inputs.all_paths != second.physical_inputs.all_paths
@@ -105,7 +105,7 @@ def test_cli_rejects_file_sink_aliasing_any_compilation_input(
         "project_lock": manifest.parent / "zlang.lock",
         "dependency_manifest": dependency_manifest,
         "dependency_source": dependency_source,
-        "stdlib": ROOT / "stdlib" / "bus" / "reg.zl",
+        "stdlib": ROOT / "stdlib" / "bus" / "reg.zhl",
     }
     protected = paths[input_name]
     original = protected.read_bytes()

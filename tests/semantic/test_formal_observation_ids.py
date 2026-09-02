@@ -32,7 +32,7 @@ def test_request_response_observation_appends_to_qualified_connection_once():
 
 def test_recursive_request_response_ids_match_the_connection_identity():
     module = analyze(parse(
-        (ROOT / "examples/hierarchical_request_response_m40.zl").read_text()
+        (ROOT / "examples/hierarchical_request_response_m40.zhl").read_text()
     ))
     connection = module.request_response_connections[0]
     design = build_recursive_formal_design(module)

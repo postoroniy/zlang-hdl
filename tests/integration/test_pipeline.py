@@ -11,7 +11,7 @@ from zlang.simulate import SimulationError, simulate
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SOURCE = (ROOT / "examples/add.zl").read_text()
+SOURCE = (ROOT / "examples/add.zhl").read_text()
 
 
 class PipelineTests(unittest.TestCase):

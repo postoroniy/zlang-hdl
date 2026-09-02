@@ -162,14 +162,14 @@ CAPABILITY_REGISTRY = PublicCapabilityRegistry(
         PublicCapability(
             "scalar-datapath", "pure value", "supported", "supported",
             "supported", "supported", "M36/M38 scalar relations",
-            CapabilityWitness("examples/all_syntax.zl", "ScalarSyntax"),
+            CapabilityWitness("examples/all_syntax.zhl", "ScalarSyntax"),
             ("runtime division and general Boolean &&/|| are not hardware operators",),
         ),
         PublicCapability(
             "exact-literals-and-packed-constants", "pure value", "supported",
             "supported", "supported", "supported",
             "M36/M38 scalar relations where eligible",
-            CapabilityWitness("examples/all_syntax.zl", "AllSyntax"),
+            CapabilityWitness("examples/all_syntax.zhl", "AllSyntax"),
             (
                 "compound expressions are never resized by context; zeros<N> "
                 "and ones<N> produce exact raw bits",
@@ -178,20 +178,20 @@ CAPABILITY_REGISTRY = PublicCapabilityRegistry(
         PublicCapability(
             "fixed-point", "pure value", "supported", "supported",
             "supported", "supported", "bounded M36/M38 relations",
-            CapabilityWitness("examples/all_syntax.zl", "FixedSyntax"),
+            CapabilityWitness("examples/all_syntax.zhl", "FixedSyntax"),
             ("rescale, rounding, and overflow remain explicit",),
         ),
         PublicCapability(
             "aggregates", "pure value", "supported", "supported",
             "supported", "supported", "value relations only where bindable",
-            CapabilityWitness("examples/all_syntax.zl", "StructSyntax"),
+            CapabilityWitness("examples/all_syntax.zhl", "StructSyntax"),
             ("runtime reshape and enum representation casts fail closed",),
         ),
         PublicCapability(
             "characters-strings-tuples", "pure value and aggregate storage",
             "bounded", "supported", "supported", "supported",
             "existing scalar/packed relations where eligible",
-            CapabilityWitness("examples/all_syntax.zl", "TextTupleSyntax"),
+            CapabilityWitness("examples/all_syntax.zhl", "TextTupleSyntax"),
             (
                 "fixed non-empty ASCII byte strings and structural tuple arity 2..8; "
                 "no Unicode, dynamic strings, runtime tuple indexing, or nested patterns",
@@ -200,27 +200,27 @@ CAPABILITY_REGISTRY = PublicCapabilityRegistry(
         PublicCapability(
             "tagged-unions", "pure value", "bounded", "supported",
             "supported", "supported", "no dedicated formal family",
-            CapabilityWitness("examples/tagged_union.zl", "TaggedUnionExample"),
+            CapabilityWitness("examples/tagged_union.zhl", "TaggedUnionExample"),
             ("flat scalar fields; no generic unions, top inputs, or raw decode",),
         ),
         PublicCapability(
             "functional-datapath", "pure value", "supported", "supported",
             "supported", "supported", "scalar/fixed relations where eligible",
-            CapabilityWitness("examples/all_syntax.zl", "FunctionalSyntax"),
+            CapabilityWitness("examples/all_syntax.zhl", "FunctionalSyntax"),
             ("compile-time bounded; no runtime loops or implicit reassociation",),
         ),
         PublicCapability(
             "compile-time-generation", "elaboration", "supported", "not applicable",
             "supported after specialization", "supported after specialization",
             "not applicable",
-            CapabilityWitness("examples/all_syntax.zl", "CompileTimeSyntax"),
+            CapabilityWitness("examples/all_syntax.zhl", "CompileTimeSyntax"),
             ("generated real values require explicit hardware quantization",),
         ),
         PublicCapability(
             "concise-exact-lowering", "elaboration and pure/sequential value syntax",
             "supported", "supported", "supported", "supported",
             "inherits the properties of the normalized typed IR",
-            CapabilityWitness("examples/all_syntax.zl", "ConciseLoweringSyntax"),
+            CapabilityWitness("examples/all_syntax.zhl", "ConciseLoweringSyntax"),
             (
                 "contextual resize still requires an explicit typed boundary; "
                 "static ranges and parameter defaults remain compile-time only",
@@ -231,7 +231,7 @@ CAPABILITY_REGISTRY = PublicCapabilityRegistry(
             "supported after specialization", "supported after specialization",
             "identity/cache participation; no new property family",
             CapabilityWitness(
-                "tests/fixtures/generic_table_parameters.zl",
+                "tests/fixtures/generic_table_parameters.zhl",
                 "GenericTableParametersCapability",
             ),
             (
@@ -243,7 +243,7 @@ CAPABILITY_REGISTRY = PublicCapabilityRegistry(
             "generic-rom-and-table-gather", "elaboration and storage", "bounded",
             "supported", "supported", "supported", "existing storage safety only",
             CapabilityWitness(
-                "tests/fixtures/generic_table_parameters.zl",
+                "tests/fixtures/generic_table_parameters.zhl",
                 "GenericTableParametersCapability",
             ),
             (
@@ -254,7 +254,7 @@ CAPABILITY_REGISTRY = PublicCapabilityRegistry(
         PublicCapability(
             "sequential-state", "single clock domain", "supported", "supported",
             "supported", "supported", "existing M35 register/rule families",
-            CapabilityWitness("examples/all_syntax.zl", "StateSyntax"),
+            CapabilityWitness("examples/all_syntax.zhl", "StateSyntax"),
             ("atomic rules, not procedural runtime control flow",),
         ),
         PublicCapability(
@@ -265,7 +265,7 @@ CAPABILITY_REGISTRY = PublicCapabilityRegistry(
                 "synchronous/raw-asynchronous, polarity, and synchronized-release "
                 "contracts when power_up is unspecified"
             ),
-            CapabilityWitness("examples/all_syntax.zl", "AsyncResetSyntax"),
+            CapabilityWitness("examples/all_syntax.zhl", "AsyncResetSyntax"),
             (
                 "default synchronous active-high, raw asynchronous compatibility, "
                 "or asynchronous assertion with fixed two-edge synchronized release; "
@@ -275,38 +275,38 @@ CAPABILITY_REGISTRY = PublicCapabilityRegistry(
         PublicCapability(
             "encoded-enums-and-fsm", "single clock domain", "supported", "supported",
             "supported", "supported", "no enum/FSM-specific property family",
-            CapabilityWitness("examples/all_syntax.zl", "FsmSyntax"),
+            CapabilityWitness("examples/all_syntax.zhl", "FsmSyntax"),
             ("FSM syntax lowers to enum state plus ordinary rules",),
         ),
         PublicCapability(
             "vector-state-update", "single clock domain", "bounded", "supported",
             "supported", "supported", "register safety where observable",
-            CapabilityWitness("examples/all_syntax.zl", "VectorStateUpdateSyntax"),
+            CapabilityWitness("examples/all_syntax.zhl", "VectorStateUpdateSyntax"),
             ("one range-proven element write; no nested paths or runtime-selected instances",),
         ),
         PublicCapability(
             "fifo-storage", "single clock domain", "supported", "supported",
             "supported", "supported", "existing M35 FIFO family",
-            CapabilityWitness("examples/all_syntax.zl", "FifoSyntax"),
+            CapabilityWitness("examples/all_syntax.zhl", "FifoSyntax"),
             ("bounded synchronous FIFO semantics",),
         ),
         PublicCapability(
             "synchronous-memory", "single clock domain", "bounded", "supported",
             "supported", "supported", "no memory-specific M35 family",
-            CapabilityWitness("examples/all_syntax.zl", "RuleLocalMemorySyntax"),
+            CapabilityWitness("examples/all_syntax.zhl", "RuleLocalMemorySyntax"),
             ("scalar, one-cycle, single scheduled memory; no initialized writable memory",),
         ),
         PublicCapability(
             "ready-valid", "protocol", "supported", "supported",
             "supported", "supported", "existing M35 ready/valid family",
-            CapabilityWitness("examples/all_syntax.zl", "ReadyValidSyntax"),
+            CapabilityWitness("examples/all_syntax.zhl", "ReadyValidSyntax"),
             ("no implicit buffering, adaptation, or CDC",),
         ),
         PublicCapability(
             "credit", "protocol", "supported", "supported",
             "supported", "supported",
             "existing M35 sender/receiver credit family when the exact counter is bound",
-            CapabilityWitness("examples/all_syntax.zl", "CreditSyntax"),
+            CapabilityWitness("examples/all_syntax.zhl", "CreditSyntax"),
             (
                 "sender credits and receiver adapter occupancy are explicit; "
                 "VC-credit has no M35 accounting family and protocol-level M38 "
@@ -317,7 +317,7 @@ CAPABILITY_REGISTRY = PublicCapabilityRegistry(
             "request-response", "protocol", "supported", "supported",
             "supported", "supported",
             "existing M35 ledger and directional-buffer safety family",
-            CapabilityWitness("examples/all_syntax.zl", "RequestResponseSyntax"),
+            CapabilityWitness("examples/all_syntax.zhl", "RequestResponseSyntax"),
             (
                 "parent outstanding and request/response buffer occupancies are "
                 "typed formal observations; bounded in-order/out-of-order profiles; "
@@ -327,7 +327,7 @@ CAPABILITY_REGISTRY = PublicCapabilityRegistry(
         PublicCapability(
             "aggregate-protocols", "protocol hierarchy", "bounded", "supported",
             "supported", "supported", "no general aggregate property family",
-            CapabilityWitness("examples/all_syntax.zl", "AggregateProtocolSyntax"),
+            CapabilityWitness("examples/all_syntax.zhl", "AggregateProtocolSyntax"),
             (
                 "typed leaves and explicit ownership; adapters/crossings remain "
                 "explicit; scalar M36/M38 entry points reject aggregate protocol "
@@ -337,13 +337,13 @@ CAPABILITY_REGISTRY = PublicCapabilityRegistry(
         PublicCapability(
             "cdc", "multiple clock domains", "bounded", "supported",
             "supported", "supported", "no CDC proof family",
-            CapabilityWitness("examples/all_syntax.zl", "CdcSyntax"),
+            CapabilityWitness("examples/all_syntax.zhl", "CdcSyntax"),
             ("only frozen sync_level, pulse_toggle, handshake, and async_fifo crossings",),
         ),
         PublicCapability(
             "csr", "single clock domain", "supported", "supported",
             "supported", "supported", "existing M35 CSR family",
-            CapabilityWitness("examples/all_syntax.zl", "CsrSyntax"),
+            CapabilityWitness("examples/all_syntax.zhl", "CsrSyntax"),
             ("source-authored bounded register-bank model",),
         ),
         PublicCapability(
@@ -351,7 +351,7 @@ CAPABILITY_REGISTRY = PublicCapabilityRegistry(
             "artifact generation", "artifact generation",
             "M35 safety and bounded cover execution when bound",
             CapabilityWitness(
-                "editors/vscode/zlang-vscode/examples/verification.zl",
+                "editors/vscode/zlang-hdl/examples/verification.zhl",
                 "VerificationUxSyntax",
             ),
             (
@@ -365,7 +365,7 @@ CAPABILITY_REGISTRY = PublicCapabilityRegistry(
             "exploration", "implementation selection", "bounded", "not applicable",
             "selected candidates", "selected candidates",
             "M39 `available` is advisory; required policies require connected M36",
-            CapabilityWitness("examples/all_syntax.zl", "ExplorationSyntax"),
+            CapabilityWitness("examples/all_syntax.zhl", "ExplorationSyntax"),
             (
                 "egglog, architecture enumeration, pipeline planning, cost "
                 "extraction, and proof gating are distinct stages; joint "
@@ -381,7 +381,7 @@ CAPABILITY_REGISTRY = PublicCapabilityRegistry(
             "supported",
             "existing M35 ready/valid stability only; M36/M38 unsupported",
             CapabilityWitness(
-                "examples/elastic_pipeline_auto.zl", "ElasticPipelineAuto"
+                "examples/elastic_pipeline_auto.zhl", "ElasticPipelineAuto"
             ),
             (
                 "one pure M31 product-reduction kernel, global stall, II=1 and "
@@ -393,7 +393,7 @@ CAPABILITY_REGISTRY = PublicCapabilityRegistry(
         PublicCapability(
             "combinational-instance-arrays", "compile-time hierarchy", "bounded",
             "supported", "supported", "supported", "no hierarchical M36/M38",
-            CapabilityWitness("examples/indexed_instance_array.zl", "IndexedInstanceArray"),
+            CapabilityWitness("examples/indexed_instance_array.zhl", "IndexedInstanceArray"),
             (
                 "one-dimensional and compile-time indexed; exact aggregate wire "
                 "outputs and output-only runtime projection are supported; no "
@@ -404,7 +404,7 @@ CAPABILITY_REGISTRY = PublicCapabilityRegistry(
             "runtime-instance-output-projection", "elaborated hierarchy", "bounded",
             "supported", "supported", "supported", "no hierarchical M36/M38",
             CapabilityWitness(
-                "tests/fixtures/hierarchy/runtime_selected_instance_output.zl",
+                "tests/fixtures/hierarchy/runtime_selected_instance_output.zhl",
                 "RuntimeSelectedInstanceOutputCapability",
             ),
             (
@@ -415,7 +415,7 @@ CAPABILITY_REGISTRY = PublicCapabilityRegistry(
         PublicCapability(
             "sequential-instance-arrays", "compile-time hierarchy", "bounded",
             "supported", "supported", "supported", "no new recursive observation family",
-            CapabilityWitness("examples/sequential_instance_array.zl", "StateLaneArray"),
+            CapabilityWitness("examples/sequential_instance_array.zhl", "StateLaneArray"),
             (
                 "one matching domain; bounded nested scalar hierarchy preserves "
                 "each physical child identity",
@@ -424,7 +424,7 @@ CAPABILITY_REGISTRY = PublicCapabilityRegistry(
         PublicCapability(
             "storage-instance-arrays", "compile-time hierarchy", "bounded",
             "supported", "supported", "supported", "no hidden-cell observations",
-            CapabilityWitness("examples/storage_instance_array.zl", "FifoLaneArray"),
+            CapabilityWitness("examples/storage_instance_array.zhl", "FifoLaneArray"),
             (
                 "one FIFO, memory, or ROM per child; scheduled FIFO actions may "
                 "share the existing transition with ordinary register/rule state, "
@@ -434,7 +434,7 @@ CAPABILITY_REGISTRY = PublicCapabilityRegistry(
         PublicCapability(
             "ready-valid-instance-arrays", "compile-time protocol hierarchy", "bounded",
             "supported", "supported", "supported", "existing applicable safety only",
-            CapabilityWitness("examples/rv_fifo_instance_array.zl", "RvBufferedLaneArray"),
+            CapabilityWitness("examples/rv_fifo_instance_array.zhl", "RvBufferedLaneArray"),
             (
                 "primitive ready/valid may coexist with scalar wire ports and one "
                 "FIFO; bounded direct same-domain nested ready/valid is supported; "
@@ -450,7 +450,7 @@ CAPABILITY_REGISTRY = PublicCapabilityRegistry(
             "supported",
             "existing applicable safety only",
             CapabilityWitness(
-                "tests/fixtures/hierarchy/request_response_instance_array.zl",
+                "tests/fixtures/hierarchy/request_response_instance_array.zhl",
                 "RequestResponseArrayTop",
             ),
             (

@@ -27,24 +27,24 @@ ROOT = Path(__file__).resolve().parents[2]
 SOURCES = ROOT / "examples/projects/80211a_transmitter/src"
 
 SOURCE_MODULES = {
-    "data_types.zl": ("WifiRateCodec",),
-    "controller.zl": (
+    "data_types.zhl": ("WifiRateCodec",),
+    "controller.zhl": (
         "IeeeSignalHeader24",
         "IeeeDataFramer24",
         "IeeePacketFramerScrambler24",
     ),
-    "scrambler.zl": ("IeeeDataScrambler24",),
-    "conv_encoder.zl": (
+    "scrambler.zhl": ("IeeeDataScrambler24",),
+    "conv_encoder.zhl": (
         "IeeeConvolutionalEncode24",
         "IeeeConvolutionalEncoder24",
     ),
-    "interleaver.zl": (
+    "interleaver.zhl": (
         "IeeeInterleaverBlock48",
         "IeeeInterleaver48",
         "IeeeEncoderInterleaver24",
         "IeeePacketEncoderInterleaver24",
     ),
-    "mapper.zl": (
+    "mapper.zhl": (
         "IeeeMapperBlock64",
         "IeeeMapperFrame64",
         "IeeeMapper64",
@@ -53,17 +53,17 @@ SOURCE_MODULES = {
         "IeeeMappedSampleToIFFT64",
         "IeeePacketMapper64",
     ),
-    "ifft_library.zl": (
+    "ifft_library.zhl": (
         "IFFT64DIFStageExactD4",
         "IFFT64DIFStageExactD8",
         "IFFT64FinalQuantize",
         "IFFT64DIFExactChain",
     ),
-    "cyclic_extender.zl": (
+    "cyclic_extender.zhl": (
         "IFFT64ReorderCPKernel",
         "IFFT64ReorderCP",
     ),
-    "ifft.zl": (
+    "ifft.zhl": (
         "IeeeIFFTFramedInputBoundary",
         "IeeeIFFTFramedOutputBoundary",
         "IeeeIFFTInputStrip",
@@ -72,7 +72,7 @@ SOURCE_MODULES = {
         "IeeeFramedIFFT64",
         "IeeeFramedIFFT64Raw",
     ),
-    "transmitter.zl": ("Ieee80211aTransmitter",),
+    "transmitter.zhl": ("Ieee80211aTransmitter",),
 }
 
 _RETIRED_SOURCE_MARKERS = (
@@ -92,32 +92,32 @@ class ModuleCase:
 
 _OWNERS = {
     "IeeeDataScrambler24": (
-        "controller.zl",
+        "controller.zhl",
         "IeeePacketFramerScrambler24",
     ),
     "IeeeConvolutionalEncoder24": (
-        "interleaver.zl",
+        "interleaver.zhl",
         "IeeePacketEncoderInterleaver24",
     ),
     "IeeeInterleaver48": (
-        "interleaver.zl",
+        "interleaver.zhl",
         "IeeePacketEncoderInterleaver24",
     ),
-    "IeeeMapper64": ("mapper.zl", "IeeePacketMapper64"),
-    "IeeeMapperSerializer64": ("mapper.zl", "IeeePacketMapper64"),
-    "IeeeIFFTFramedOutputBoundary": ("ifft.zl", "IeeeFramedIFFT64Raw"),
-    "IeeeIFFTInputStrip": ("ifft.zl", "IeeeFramedIFFT64Raw"),
-    "IeeeIFFTOutputAttach": ("ifft.zl", "IeeeFramedIFFT64Raw"),
-    "IeeeFramedIFFT64": ("ifft.zl", "IeeeFramedIFFT64Raw"),
+    "IeeeMapper64": ("mapper.zhl", "IeeePacketMapper64"),
+    "IeeeMapperSerializer64": ("mapper.zhl", "IeeePacketMapper64"),
+    "IeeeIFFTFramedOutputBoundary": ("ifft.zhl", "IeeeFramedIFFT64Raw"),
+    "IeeeIFFTInputStrip": ("ifft.zhl", "IeeeFramedIFFT64Raw"),
+    "IeeeIFFTOutputAttach": ("ifft.zhl", "IeeeFramedIFFT64Raw"),
+    "IeeeFramedIFFT64": ("ifft.zhl", "IeeeFramedIFFT64Raw"),
 }
 
 _UNINSTANTIATED_CHILDREN = {
     "IeeeEncoderInterleaver24": (
-        "interleaver.zl",
+        "interleaver.zhl",
         "IeeePacketEncoderInterleaver24",
     ),
-    "IeeeMapperStream64": ("mapper.zl", "IeeePacketMapper64"),
-    "IeeeMappedSampleToIFFT64": ("mapper.zl", "IeeePacketMapper64"),
+    "IeeeMapperStream64": ("mapper.zhl", "IeeePacketMapper64"),
+    "IeeeMappedSampleToIFFT64": ("mapper.zhl", "IeeePacketMapper64"),
 }
 
 MODULE_CASES = tuple(
@@ -169,7 +169,7 @@ def test_every_concrete_canonical_module_round_trips(case: ModuleCase) -> None:
     owner, module = _materialize(case)
     assert module.root_module_identity is not None
     assert module.root_module_identity.logical_path == (
-        f"wifi80211a_transmitter.{case.source.removesuffix('.zl')}"
+        f"wifi80211a_transmitter.{case.source.removesuffix('.zhl')}"
     )
     round_trip_root = owner if case.owner_source is not None else module
     assert (
@@ -193,7 +193,7 @@ def test_canonical_source_unit_has_one_ieee_authoritative_surface(
     text = path.read_text()
     syntax = parse(text)
     actual = tuple(module.name for module in (*syntax.submodules, syntax))
-    if source == "ifft_library.zl":
+    if source == "ifft_library.zhl":
         # The parameterized implementation is deliberately a child/template;
         # SOURCE_MODULES lists the four concrete public roots.
         assert actual == (
@@ -216,32 +216,32 @@ def test_canonical_source_unit_has_one_ieee_authoritative_surface(
     ("case", "required_families"),
     (
         (
-            ModuleCase("controller.zl", "IeeeDataFramer24"),
+            ModuleCase("controller.zhl", "IeeeDataFramer24"),
             {"register", "fifo", "ready_valid", "rules", "priority"},
         ),
         (
             ModuleCase(
-                "scrambler.zl",
+                "scrambler.zhl",
                 "IeeeDataScrambler24",
-                "controller.zl",
+                "controller.zhl",
                 "IeeePacketFramerScrambler24",
             ),
             {"register", "fifo", "ready_valid"},
         ),
         (
             ModuleCase(
-                "conv_encoder.zl",
+                "conv_encoder.zhl",
                 "IeeeConvolutionalEncoder24",
-                "interleaver.zl",
+                "interleaver.zhl",
                 "IeeePacketEncoderInterleaver24",
             ),
             {"register", "fifo", "ready_valid"},
         ),
         (
             ModuleCase(
-                "interleaver.zl",
+                "interleaver.zhl",
                 "IeeeInterleaver48",
-                "interleaver.zl",
+                "interleaver.zhl",
                 "IeeePacketEncoderInterleaver24",
             ),
             {"register", "fifo", "ready_valid"},
@@ -288,12 +288,12 @@ def test_canonical_stateful_modules_retain_existing_m35_families(
     ("source", "top", "expected_children"),
     (
         (
-            "interleaver.zl",
+            "interleaver.zhl",
             "IeeePacketEncoderInterleaver24",
             ("framer", "scrambler", "encoder", "interleaver"),
         ),
         (
-            "transmitter.zl",
+            "transmitter.zhl",
             "Ieee80211aTransmitter",
             ("packet_mapper", "transform", "output_boundary"),
         ),

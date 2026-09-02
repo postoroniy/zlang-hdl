@@ -10,7 +10,7 @@ from zlang.parser import parse
 
 
 ROOT = Path(__file__).resolve().parents[2]
-LANGUAGE_TOUR_PATH = ROOT / "examples" / "all_syntax.zl"
+LANGUAGE_TOUR_PATH = ROOT / "examples" / "all_syntax.zhl"
 
 EXPECTED_LANGUAGE_TOUR_TOPS = (
     "ScalarSyntax",

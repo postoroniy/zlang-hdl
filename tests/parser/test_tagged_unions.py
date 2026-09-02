@@ -58,7 +58,7 @@ def test_enum_references_and_switches_coexist_with_union_syntax() -> None:
 def test_real_wifi_enum_switch_regression_parses_without_arm_separators() -> None:
     source = (
         ROOT
-        / "examples/projects/80211a_transmitter/src/interleaver.zl"
+        / "examples/projects/80211a_transmitter/src/interleaver.zhl"
     )
     if source.exists():
         parse(source.read_text())
