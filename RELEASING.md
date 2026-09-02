@@ -18,8 +18,10 @@ GitHub alpha; publishing to PyPI or a container registry is a separate decision.
 - Enable GitHub Discussions, private vulnerability reporting, secret scanning,
   push protection, Dependency Graph, and Dependabot alerts before accepting
   public contributions. Keep default Actions token permissions read-only.
-- Install the DCO App and first merge a signed-off test pull request so its
-  status context exists before making that check required.
+- Install the DCO App for this repository, open a real signed-off pull request,
+  and require its successful DCO status before that pull request is merged. A
+  dummy merged pull request is neither necessary nor sufficient release
+  evidence.
 - Protect `main` and `v*` tags with linear history, no force pushes, CODEOWNER
   review, and the required CI/security/DCO checks.
 - Use a dedicated or disposable self-hosted EDA runner. It must not contain the

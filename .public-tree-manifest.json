@@ -129,7 +129,7 @@
     {
       "mode": "0644",
       "path": "RELEASING.md",
-      "sha256": "45818b8c7f980b2a6f369feb7e64d5791b1cdab465b1984efc820ce972f9fe34"
+      "sha256": "263072f3108fcfa35e1b7f50be61a9d82a66e271dc06766acd4ab9aecd8a0054"
     },
     {
       "mode": "0644",
@@ -1184,7 +1184,7 @@
     {
       "mode": "0644",
       "path": "release/PUBLICATION.md",
-      "sha256": "f1c58071e3037d0709e74c897a61f071875a17dcc8fc8be45cee8cb98f367bce"
+      "sha256": "0e7c1ff5f4c4d8214cfd8309386ff7391b8b2aff74ab46b358152d166c4da0f6"
     },
     {
       "mode": "0644",

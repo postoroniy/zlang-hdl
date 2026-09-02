@@ -34,7 +34,7 @@ test -z "$(git for-each-ref --format='%(refname)' refs/remotes/ | \
 Inspect `git fsck --no-reflogs --unreachable` before publishing; the fresh
 repository must contain no private-development object or ref.
 
-After the initial commit and before the first push, scan the complete new Git
+After the initial commit and before the one-time root push, scan the complete new Git
 history with the pinned Gitleaks 8.24.3 release. Verify the downloaded archive
 against the vendor checksum
 `9991e0b2903da4c8f6122b5c3186448b927a5da4deef1fe45271c3793f4ee29c`,
@@ -51,6 +51,11 @@ narrow fail-closed backstop, not a substitute for this history scan. Do not use
 Gitleaks 8.30.1: its detector regression can return a false clean result for a
 seeded GitHub-token fixture.
 
+The explicit `HEAD:refs/heads/main` push is permitted only for this initial
+root. Once that root is public, it is immutable history: never recreate the
+repository, replace the root, force-push `main`, or reset public history to fix
+a projection defect.
+
 ## Promote a reviewed development snapshot
 
 1. Run the complete release checks in the private development checkout.
@@ -63,17 +68,19 @@ seeded GitHub-token fixture.
    ```
 
 3. Review the manifest and the complete diff against the separate public
-   checkout. Replace that checkout's tracked snapshot and apply it as one normal
-   linear commit whose parent is the **current public `main` HEAD**. This
-   preserves every public contribution and its DCO audit trail; never reset or
-   rewrite public history to an older release commit.
+   checkout. Create a named review branch from the **current public `main`
+   HEAD**, replace that branch's tracked snapshot, and apply it as one normal
+   signed-off linear commit. This preserves every public contribution and its
+   DCO audit trail; never reset or rewrite public history to an older release
+   commit.
 4. Run `tools/public_tree.py check-export --source .` in that final public
    checkout after replacing the old snapshot and before committing. This rejects
    stale files left from an earlier release.
-5. Push only the explicit refspec `HEAD:refs/heads/main` from the separate public
-   repository. Never use `--all`,
-   `--mirror`, blanket tag pushes, merge, rebase, or cherry-pick from the private
-   repository.
+5. Push only the named review branch from the separate public repository, open
+   a pull request, and merge it only after the required hosted checks, DCO, and
+   review policy pass. Never push a later snapshot directly to `main`; never use
+   `--all`, `--mirror`, blanket tag pushes, merge, rebase, or cherry-pick from
+   the private repository.
 
 Contributions received on public `main` are first imported into private
 development as reviewed patches. A later full snapshot promotion publishes the
