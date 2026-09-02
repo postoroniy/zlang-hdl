@@ -44,7 +44,7 @@
     {
       "mode": "0644",
       "path": ".github/workflows/codeql.yml",
-      "sha256": "01ecb08b09ca7cab5d93b75e89baef68a012bc04be4af3d854e261bf4293cd13"
+      "sha256": "5839d1a1a305d5dd90ad98e57d2b684d417c487c324a97396afd8805b68a58a5"
     },
     {
       "mode": "0644",
@@ -1184,7 +1184,7 @@
     {
       "mode": "0644",
       "path": "pyproject.toml",
-      "sha256": "835129c1e1ffdede85e8d86712354452269b3ed83d063c30d4fff51636767baf"
+      "sha256": "3edecba62961f7b93c898109ab3dd22f82ec1232e3c421be1d2a7fa9bba695b6"
     },
     {
       "mode": "0644",
