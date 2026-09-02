@@ -1,6 +1,6 @@
 # Implementation profiles
 
-Implementation profiles keep physical policy outside portable `.zl` source.
+Implementation profiles keep physical policy outside portable `.zhl` source.
 They are named tables in `zlang.toml` and are selected explicitly:
 
 ```toml
@@ -23,10 +23,10 @@ fmax = { minimum = 100 }
 dsp = { maximum = 8 }
 ```
 
-Schematic use inside a project containing the shown `src/fir.zl` and profile:
+Schematic use inside a project containing the shown `src/fir.zhl` and profile:
 
 ```bash
-zlangc src/fir.zl --profile release --systemverilog build/Fir.sv
+zlang src/fir.zhl --profile release --systemverilog build/Fir.sv
 ```
 
 A profile may select pinned scalar external-module implementations with

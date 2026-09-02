@@ -1,6 +1,14 @@
-"""ZLang compiler prototype."""
+"""Public Python API for the ZLang HDL compiler prototype."""
 
 from zlang._version import __version__
+from zlang.source_identity import (
+    CLI_NAME,
+    DISTRIBUTION_NAME,
+    MIME_TYPE,
+    PUBLIC_LANGUAGE_NAME,
+    SOURCE_SUFFIX,
+    VSCODE_LANGUAGE_ID,
+)
 
 from zlang.compiler import (
     CompilationResult,
@@ -37,8 +45,10 @@ from zlang.root_equivalence import (
 
 __all__ = [
     "__version__",
+    "CLI_NAME",
     "CompilationResult",
     "CompilationSession",
+    "DISTRIBUTION_NAME",
     "CandidateRankRecord",
     "CandidateRewriteKind",
     "CandidateSiteKind",
@@ -47,13 +57,17 @@ __all__ = [
     "FormalArtifactNamespace",
     "FormalArtifactProvider",
     "FormalArtifactRecipe",
+    "MIME_TYPE",
     "PhysicalCompilationInputs",
+    "PUBLIC_LANGUAGE_NAME",
     "PreparedRootEquivalence",
     "RootEquivalenceError",
     "RootEquivalenceExecution",
     "RootEquivalencePlan",
     "RootEquivalenceUnavailable",
     "SemanticCheckResult",
+    "SOURCE_SUFFIX",
+    "VSCODE_LANGUAGE_ID",
     "check_file_snapshot",
     "compile_file",
     "compile_source",

@@ -34,7 +34,7 @@ def test_declaration_only_stdlib_unit_is_not_published_as_child() -> None:
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
         (root / "test").mkdir()
-        (root / "test" / "declarations.zl").write_text(
+        (root / "test" / "declarations.zhl").write_text(
             "struct Box<type T>{value:T} fn box<type T>(x:T){Box{value=x}}\n"
         )
         with patch("zlang.stdlib._ROOTS", (root,)):

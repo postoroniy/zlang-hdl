@@ -14,9 +14,10 @@ import re
 from typing import Mapping
 
 from zlang.common.serialization import stable_digest
+from zlang.source_identity import SOURCE_SUFFIX
 
 
-LOCK_SCHEMA = 1
+LOCK_SCHEMA = 2
 
 _COMPONENT = re.compile(r"[A-Za-z][A-Za-z0-9_]*\Z")
 _DIGEST = re.compile(r"[0-9a-f]{64}\Z")
@@ -159,8 +160,10 @@ class LockedModule:
     def __post_init__(self) -> None:
         validate_logical_path(self.logical_path, description="module path")
         relative = _portable_locator(self.relative_path, allow_parent=False)
-        if not relative.endswith(".zl"):
-            raise DependencyModelError("locked module relative path must end in '.zl'")
+        if not relative.endswith(SOURCE_SUFFIX):
+            raise DependencyModelError(
+                f"locked module relative path must end in '{SOURCE_SUFFIX}'"
+            )
         object.__setattr__(self, "relative_path", relative)
         validate_digest(self.digest, description="module digest")
         for item in self.imports:
@@ -205,7 +208,7 @@ class LockedPackage:
     """Portable, source-exact record for one resolved dependency package.
 
     ``manifest_digest`` is the manifest's dependency-resolution digest; profile
-    tables are deliberately excluded. Exact `.zl` bytes remain represented by
+    tables are deliberately excluded. Exact `.zhl` bytes remain represented by
     the locked module digests.
     """
 

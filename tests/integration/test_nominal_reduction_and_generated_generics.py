@@ -78,10 +78,10 @@ endmodule
 
 ROOT = Path(__file__).resolve().parents[2]
 IFFT_COMPLEX_REDUCTION_SOURCE = (
-    ROOT / "docs/reproducers/ifft_complex_reduce.zl"
+    ROOT / "docs/reproducers/ifft_complex_reduce.zhl"
 ).read_text()
 IFFT64_SCALABILITY_SOURCE = (
-    ROOT / "docs/reproducers/ifft64_whole_vector_elaboration.zl"
+    ROOT / "docs/reproducers/ifft64_whole_vector_elaboration.zhl"
 ).read_text()
 
 

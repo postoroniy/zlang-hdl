@@ -178,18 +178,18 @@ module Top {
     with pytest.raises(SemanticError) as captured:
         compile_source(
             source,
-            source_unit="generic-return.zl",
+            source_unit="generic-return.zhl",
             include_clash=False,
         )
 
     error = captured.value
     assert str(error) == "'bad' returns u9, expected u8"
     assert error.primary is not None
-    assert error.primary.source_unit == "generic-return.zl"
+    assert error.primary.source_unit == "generic-return.zhl"
     assert error.primary.construct == "call bad"
     assert error.primary.span.start_line == 5
     assert error.notes == (
-        "callable declared at generic-return.zl:"
+        "callable declared at generic-return.zhl:"
         "1:1-1:36:function bad declaration",
     )
 
@@ -207,7 +207,7 @@ module Top {
     with pytest.raises(SemanticError) as captured:
         compile_source(
             source,
-            source_unit="operator-inference.zl",
+            source_unit="operator-inference.zhl",
             include_clash=False,
         )
 
@@ -217,11 +217,11 @@ module Top {
         "candidates rejected: conflicting inference for type 'T': u8 and u16"
     )
     assert error.primary is not None
-    assert error.primary.source_unit == "operator-inference.zl"
+    assert error.primary.source_unit == "operator-inference.zhl"
     assert error.primary.construct == "operator +"
     assert error.primary.span.start_line == 7
     assert error.notes == (
-        "callable declared at operator-inference.zl:"
+        "callable declared at operator-inference.zhl:"
         "2:1-2:68:operator + declaration",
     )
 

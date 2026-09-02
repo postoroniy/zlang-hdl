@@ -14,8 +14,8 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class FunctionalDatapathIntegrationTests(unittest.TestCase):
     def test_indexed_sum_and_dot_are_behaviorally_identical(self) -> None:
-        indexed = compile_source((ROOT / "examples/dot_product.zl").read_text()).ir
-        builtin = compile_source((ROOT / "examples/dot_builtin.zl").read_text()).ir
+        indexed = compile_source((ROOT / "examples/dot_product.zhl").read_text()).ir
+        builtin = compile_source((ROOT / "examples/dot_builtin.zhl").read_text()).ir
         vectors = (
             ([0] * 8, [0] * 8, 0),
             ([1, 2, 3, 4, 5, 6, 7, 8], [8, 7, 6, 5, 4, 3, 2, 1], 120),
@@ -28,9 +28,9 @@ class FunctionalDatapathIntegrationTests(unittest.TestCase):
 
     def test_generate_map_and_general_reduce_behavior(self) -> None:
         generated = compile_source(
-            (ROOT / "examples/generated_reduce.zl").read_text()
+            (ROOT / "examples/generated_reduce.zhl").read_text()
         ).ir
-        mapped = compile_source((ROOT / "examples/mapped_sum.zl").read_text()).ir
+        mapped = compile_source((ROOT / "examples/mapped_sum.zhl").read_text()).ir
         self.assertEqual(
             simulate(generated, a=[1, 2, 3, 4], b=[5, 6, 7, 8]),
             {"y": 70},
@@ -43,10 +43,10 @@ class FunctionalDatapathIntegrationTests(unittest.TestCase):
     )
     def test_functional_examples_generate_and_lint_verilog(self) -> None:
         for source_name in (
-            "dot_product.zl",
-            "dot_builtin.zl",
-            "generated_reduce.zl",
-            "mapped_sum.zl",
+            "dot_product.zhl",
+            "dot_builtin.zhl",
+            "generated_reduce.zhl",
+            "mapped_sum.zhl",
         ):
             with self.subTest(source=source_name), tempfile.TemporaryDirectory() as temp:
                 result = compile_source((ROOT / "examples" / source_name).read_text())

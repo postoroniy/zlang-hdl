@@ -34,14 +34,14 @@ def test_timing_origin_and_canonical_ir_are_preserved_exactly() -> None:
 
     module = analyze(
         parse(source),
-        source_unit="project/pass.zl",
+        source_unit="project/pass.zhl",
         source_digest=digest,
     )
 
     expected_origin = SourceOrigin(
         SourceSpan(1, 36, 1, 61),
         "module timing contract Pass",
-        "project/pass.zl",
+        "project/pass.zhl",
         digest,
     )
     assert module.timing_contract is not None

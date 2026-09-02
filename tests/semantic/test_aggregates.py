@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class AggregateSemanticTests(unittest.TestCase):
     def test_struct_fields_are_canonical_and_access_is_typed(self) -> None:
-        module = analyze(parse((ROOT / "examples/packet_data.zl").read_text()))
+        module = analyze(parse((ROOT / "examples/packet_data.zhl").read_text()))
         packet_type = StructType(
             "Packet",
             (
@@ -33,7 +33,7 @@ class AggregateSemanticTests(unittest.TestCase):
         self.assertEqual(expression.type, UIntType(8))
 
     def test_function_body_and_call_are_typed(self) -> None:
-        module = analyze(parse((ROOT / "examples/fir2.zl").read_text()))
+        module = analyze(parse((ROOT / "examples/fir2.zhl").read_text()))
         function = module.functions[0]
         self.assertEqual(function.return_type, UIntType(16))
         self.assertIsInstance(function.body.left, ParameterRef)

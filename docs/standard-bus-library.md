@@ -19,17 +19,17 @@ mutually exclusive normal `ACK` and abnormal `ERR` termination; either one
 retires the single outstanding request.
 
 `std` is a logical namespace mapped to the physical `stdlib/` source tree. The
-resolver discovers `.zl` modules by convention, resolves a deterministic
+resolver discovers `.zhl` modules by convention, resolves a deterministic
 dependency closure, rejects cycles and unsafe paths, and records every logical
 identity/content hash in semantic, canonical, and backend artifacts.
 
 Full AXI4 bursts/IDs, AXI-Stream sideband ID/dest/user, Wishbone burst/retry,
 automatic adapters and CDC are deliberately not provided by these profiles.
 
-Runnable integrated examples are [AXI4-Lite CSR](../examples/axi_csr_top.zl),
-[APB CSR](../examples/apb_csr_top.zl),
-[Wishbone CSR](../examples/wishbone_csr_top.zl), and the
-[streaming packet engine](../examples/streaming_packet_engine.zl). Python models in
+Runnable integrated examples are [AXI4-Lite CSR](../examples/axi_csr_top.zhl),
+[APB CSR](../examples/apb_csr_top.zhl),
+[Wishbone CSR](../examples/wishbone_csr_top.zhl), and the
+[streaming packet engine](../examples/streaming_packet_engine.zhl). Python models in
 `zlang/standard_bus.py` remain independent test oracles only.
 
 ## Historical migration record
@@ -70,7 +70,7 @@ in this review.
 
 At that point the compiler shipped a narrow source resolver for `std.bus.reg`,
 `std.bus.axi_lite`, and `std.bus.apb`. The source files now live at
-`stdlib/bus/reg.zl`, `stdlib/bus/axi_lite.zl`, and `stdlib/bus/apb.zl`.
+`stdlib/bus/reg.zhl`, `stdlib/bus/axi_lite.zhl`, and `stdlib/bus/apb.zhl`.
 Source-level filesystem/revision syntax remained unsupported. Imported source
 modules received a stable logical identity and SHA-256 content hash; later
 work added the separate pinned path/Git project resolver.
@@ -98,7 +98,7 @@ compiler-special.
 
 The former hard-coded Clash component emitter has been removed. There is no
 AXI/APB production dispatch in the compiler or backend. Production authority
-is the `.zl` module elaborated through the generic semantic and Clash paths;
+is the `.zhl` module elaborated through the generic semantic and Clash paths;
 `zlang/standard_bus.py` remains only as an independent Python behavior oracle.
 
 Clash emitted a reusable `topEntity` wrapper for each component, and Verilator
@@ -111,8 +111,8 @@ module. The library formal attachment is ready for a source-level child
 hierarchy; runtime trace simulation remains covered by the backend-independent
 step models until the CSR target is connected through ZLang elaboration.
 
-Source-level examples remain in `examples/axi_csr_top.zl` and
-`examples/apb_csr_top.zl`. Their imports elaborate ordinary source modules and
+Source-level examples remain in `examples/axi_csr_top.zhl` and
+`examples/apb_csr_top.zhl`. Their imports elaborate ordinary source modules and
 both now compile through the generic Clash hierarchy to Verilog. Parameterized
 aggregate endpoint syntax and multi-channel stateful lowering are exercised by
 these examples without a bus-specific emitter branch.
@@ -122,9 +122,9 @@ oracles and are intentionally retained.
 
 The generic parameterized aggregate endpoint slice is now available for future
 stdlib refinement. It elaborates role-qualified members and exact parameter
-widths from ordinary `.zl` source; it does not add bus transaction behavior.
+widths from ordinary `.zhl` source; it does not add bus transaction behavior.
 
-Migration checkpoint: `reg.zl`, `axi_lite.zl`, and `apb.zl` contain the
+Migration checkpoint: `reg.zhl`, `axi_lite.zhl`, and `apb.zhl` contain the
 authoritative parameterized source protocols and state machines. The generic
 `TopAggregateABI` now projects explicitly declared top aggregates into flat
 external ports while retaining the closed bundled child ABI internally. Same-
@@ -134,7 +134,7 @@ special-cased in the compiler or Clash backend.
 
 Validation at this checkpoint: the focused source/aggregate suite passes,
 including the migrated AXI/APB hierarchy tests and ABI round-trip tests;
-`examples/axi_csr_top.zl` and `examples/apb_csr_top.zl` compile with real Clash
+`examples/axi_csr_top.zhl` and `examples/apb_csr_top.zhl` compile with real Clash
 1.11 and lint cleanly with Verilator 5.044. Top aggregate manifests use version
 3 with structured member paths and v2 manifests remain readable. Arrays,
 partial exposure, unsupported protocol kinds, and direct-SV top aggregate

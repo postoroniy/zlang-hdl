@@ -113,7 +113,7 @@ def test_user_struct_top_is_always_leaf_and_vectors_are_native_arrays() -> None:
 
 def test_axi_lite_top_exposes_struct_payload_fields_not_packed_payloads() -> None:
     module = compile_source(
-        (ROOT / "examples" / "axi_csr_top.zl").read_text(),
+        (ROOT / "examples" / "axi_csr_top.zhl").read_text(),
         top="AxiCsrTop",
         include_clash=False,
     ).ir

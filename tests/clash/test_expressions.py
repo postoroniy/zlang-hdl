@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class ClashExpressionTests(unittest.TestCase):
     def test_alu_golden_file_matches_emitter(self) -> None:
-        generated = compile_source((ROOT / "examples/alu.zl").read_text()).clash
+        generated = compile_source((ROOT / "examples/alu.zhl").read_text()).clash
         self.assertEqual(generated, (ROOT / "examples/generated/ALU.hs").read_text())
 
     def test_comparison_and_mux_lower_to_clash(self) -> None:

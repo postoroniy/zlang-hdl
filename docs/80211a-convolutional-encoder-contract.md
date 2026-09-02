@@ -1,7 +1,7 @@
 # 802.11a convolutional encoder contract
 
 Status: historical compatibility evidence. The reusable numerical findings are
-retained by the canonical `src/conv_encoder.zl` implementation.
+retained by the canonical `src/conv_encoder.zhl` implementation.
 
 This note freezes the behavior extracted from the historical
 `bluespec-80211atransmitter` encoder before implementing it as ordinary ZLang.

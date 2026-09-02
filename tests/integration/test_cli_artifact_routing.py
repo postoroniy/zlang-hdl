@@ -23,7 +23,7 @@ VERILATOR = shutil.which("verilator")
 
 
 class CliArtifactRoutingTests(unittest.TestCase):
-    source = str(ROOT / "examples/alu.zl")
+    source = str(ROOT / "examples/alu.zhl")
 
     def invoke(self, arguments: list[str]) -> tuple[int, str]:
         captured = io.StringIO()
@@ -91,7 +91,7 @@ class CliArtifactRoutingTests(unittest.TestCase):
             self.assertFalse(source_map.exists())
 
     def test_direct_only_top_is_not_blocked_by_unrelated_clash_emission(self) -> None:
-        source = ROOT / "examples/multichannel_dma.zl"
+        source = ROOT / "examples/multichannel_dma.zhl"
         with tempfile.TemporaryDirectory() as temporary:
             output = Path(temporary) / "DMAChannel.sv"
             stdout = io.StringIO()
@@ -111,7 +111,7 @@ class CliArtifactRoutingTests(unittest.TestCase):
     def test_check_reports_success_without_emitting_backend_text(self) -> None:
         status, stdout, stderr = self.invoke_with_stderr(["--check"])
         self.assertEqual(status, 0)
-        self.assertIn("zlangc: ok:", stdout)
+        self.assertIn("zlang: ok:", stdout)
         self.assertIn("syntax and semantics valid", stdout)
         self.assertIn("1 module", stdout)
         self.assertEqual(stderr, "")
@@ -122,7 +122,7 @@ class CliArtifactRoutingTests(unittest.TestCase):
             "module DefaultTop { in a:u8 out y:u8 y = a }"
         )
         with tempfile.TemporaryDirectory() as temporary:
-            path = Path(temporary) / "multi.zl"
+            path = Path(temporary) / "multi.zhl"
             path.write_text(source)
             stdout = io.StringIO()
             stderr = io.StringIO()
@@ -139,7 +139,7 @@ class CliArtifactRoutingTests(unittest.TestCase):
             "module DefaultTop { in a:u8 out y:u8 y = a }"
         )
         with tempfile.TemporaryDirectory() as temporary:
-            path = Path(temporary) / "multi.zl"
+            path = Path(temporary) / "multi.zhl"
             path.write_text(source)
             stdout = io.StringIO()
             with redirect_stdout(stdout):
@@ -155,7 +155,7 @@ class CliArtifactRoutingTests(unittest.TestCase):
             )
             self.assertEqual(status, 0)
             self.assertEqual(stdout, "")
-            self.assertIn("zlangc: ok:", stderr)
+            self.assertIn("zlang: ok:", stderr)
             self.assertIn("top ALU", stderr)
             self.assertIn(str(output), stderr)
             self.assertTrue(output.is_file())

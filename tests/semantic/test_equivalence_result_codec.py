@@ -37,13 +37,13 @@ from zlang.source import SourceOrigin, SourceSpan
 SOURCE = SourceOrigin(
     SourceSpan(3, 5, 7, 11),
     "explore",
-    "examples/codec.zl",
+    "examples/codec.zhl",
     "a" * 64,
 )
 SELECTED = SourceOrigin(
     SourceSpan(8, 2, 8, 17),
     "selected pipeline",
-    "examples/codec.zl",
+    "examples/codec.zhl",
     "a" * 64,
 )
 

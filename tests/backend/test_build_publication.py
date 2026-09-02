@@ -66,12 +66,12 @@ def _publication_manifest(
 def test_atomic_publication_removes_manifest_if_output_changes_after_validation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    source_path = tmp_path / "Top.zl"
+    source_path = tmp_path / "Top.zhl"
     rtl_path = tmp_path / "Top.sv"
     source_path.write_text("module Top {}\n")
     rtl_path.write_text("module Top; endmodule\n")
     source = PublishedFile.from_bytes(
-        "sources/root.zl", source_path.read_bytes(), kind="zlang_source",
+        "sources/root.zhl", source_path.read_bytes(), kind="zlang_source",
     )
     rtl = PublishedFile.from_bytes(
         "backends/systemverilog/Top.sv",
@@ -113,7 +113,7 @@ def test_dependency_records_include_project_and_stdlib_hashes() -> None:
     )
     assert records == (
         PublishedFile.from_content_identity(
-            "dependencies/std/math/complex.zl",
+            "dependencies/std/math/complex.zhl",
             _digest("complex"),
             kind="zlang_stdlib_dependency",
         ),

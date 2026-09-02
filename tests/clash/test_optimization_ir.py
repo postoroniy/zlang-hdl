@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class CanonicalOptimizationBackendTests(unittest.TestCase):
     def test_clash_backend_receives_losslessly_restored_ir(self) -> None:
-        source = (ROOT / "examples/alu.zl").read_text()
+        source = (ROOT / "examples/alu.zhl").read_text()
         semantic = analyze(parse(source))
         result = compile_source(source)
 
@@ -21,7 +21,7 @@ class CanonicalOptimizationBackendTests(unittest.TestCase):
         self.assertEqual(result.clash, emit(semantic))
 
     def test_human_readable_canonical_golden_is_stable(self) -> None:
-        result = compile_source((ROOT / "examples/add.zl").read_text())
+        result = compile_source((ROOT / "examples/add.zhl").read_text())
         self.assertEqual(
             render(result.optimization_ir),
             (ROOT / "examples/generated/Add.opt").read_text(),

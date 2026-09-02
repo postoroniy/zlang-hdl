@@ -9,15 +9,15 @@ body:
   - type: input
     id: version
     attributes:
-      label: ZLang version
-      placeholder: zlangc --version
+      label: ZLang HDL version
+      placeholder: zlang --version
     validations:
       required: true
   - type: textarea
     id: reproducer
     attributes:
       label: Minimal reproducer
-      description: Include the smallest `.zl` source and exact command.
+      description: Include the smallest `.zhl` source and exact command.
     validations:
       required: true
   - type: textarea
@@ -39,4 +39,3 @@ body:
       description: Include Python, OS, backend, Clash, Verilator, Yosys/SBY and Z3 when relevant.
     validations:
       required: true
-

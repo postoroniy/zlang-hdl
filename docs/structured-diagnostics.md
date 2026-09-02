@@ -5,18 +5,18 @@ carry a stable diagnostic code, one primary `SourceOrigin`, notes, and suggested
 fixes. A complete origin contains the logical source unit, the source SHA-256,
 the half-open source span, and the construct being diagnosed. Compiler-shipped
 declarations use logical units such as `std.math.complex`; ordinary CLI inputs
-use the path supplied to `zlangc`.
+use the path supplied to `zlang`.
 
 Text remains the default and is compatible with existing scripts:
 
 ```sh
-zlangc design.zl --check
+zlang design.zhl --check
 ```
 
 Machine consumers select one deterministic JSON object:
 
 ```sh
-zlangc design.zl --check --diagnostic-format json
+zlang design.zhl --check --diagnostic-format json
 ```
 
 The version-1 object has `schema`, `severity`, `code`, `message`, `primary`,

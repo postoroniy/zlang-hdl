@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class ArchitectureSemanticTests(unittest.TestCase):
     def _module(self):
-        return analyze(parse((ROOT / "examples/fir_architecture.zl").read_text()))
+        return analyze(parse((ROOT / "examples/fir_architecture.zhl").read_text()))
 
     def test_search_is_bounded_pruned_and_selects_folded_lanes(self) -> None:
         module = self._module()
@@ -120,7 +120,7 @@ class ArchitectureSemanticTests(unittest.TestCase):
             self.assertIn(node, rendered)
 
     def test_duplicate_bounds_are_rejected(self) -> None:
-        source = (ROOT / "examples/fir_architecture.zl").read_text()
+        source = (ROOT / "examples/fir_architecture.zhl").read_text()
         source = source.replace(
             "parallelism<=2", "parallelism<=2, parallelism<=3"
         )
@@ -128,19 +128,19 @@ class ArchitectureSemanticTests(unittest.TestCase):
             analyze(parse(source))
 
     def test_candidate_bound_keeps_all_three_families_explorable(self) -> None:
-        source = (ROOT / "examples/fir_architecture.zl").read_text()
+        source = (ROOT / "examples/fir_architecture.zhl").read_text()
         source = source.replace("candidates<=3", "candidates<=2")
         with self.assertRaisesRegex(SemanticError, "bound must be at least 3"):
             analyze(parse(source))
 
     def test_hard_candidate_cap_prevents_search_explosion(self) -> None:
-        source = (ROOT / "examples/fir_architecture.zl").read_text()
+        source = (ROOT / "examples/fir_architecture.zhl").read_text()
         source = source.replace("candidates<=3", "candidates<=33")
         with self.assertRaisesRegex(SemanticError, "hard maximum of 32"):
             analyze(parse(source))
 
     def test_impossible_constraints_explain_explored_candidates(self) -> None:
-        source = (ROOT / "examples/fir_architecture.zl").read_text()
+        source = (ROOT / "examples/fir_architecture.zhl").read_text()
         source = source.replace("parallelism<=2, depth<=2", "parallelism<=1, depth<=2")
         with self.assertRaisesRegex(
             SemanticError,
@@ -150,7 +150,7 @@ class ArchitectureSemanticTests(unittest.TestCase):
             analyze(parse(source))
 
     def test_non_fir_shape_is_rejected(self) -> None:
-        source = (ROOT / "examples/fir_architecture.zl").read_text()
+        source = (ROOT / "examples/fir_architecture.zhl").read_text()
         source = source.replace(
             "samples[3] * coefficients[3]",
             "samples[3]",
@@ -161,7 +161,7 @@ class ArchitectureSemanticTests(unittest.TestCase):
             analyze(parse(source))
 
     def test_architecture_must_be_a_complete_wire_output(self) -> None:
-        source = (ROOT / "examples/fir_architecture.zl").read_text()
+        source = (ROOT / "examples/fir_architecture.zhl").read_text()
         source = source.replace("y = architecture", "y = 0 + architecture")
         with self.assertRaisesRegex(
             SemanticError, "allowed only as a complete wire-output assignment"

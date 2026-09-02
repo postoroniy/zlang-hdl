@@ -22,7 +22,7 @@ from zlang.toolchain import generate_verilog, lint_with_verilator
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SOURCE = (ROOT / "examples" / "rv_fifo_instance_array.zl").read_text()
+SOURCE = (ROOT / "examples" / "rv_fifo_instance_array.zhl").read_text()
 
 
 def _module():

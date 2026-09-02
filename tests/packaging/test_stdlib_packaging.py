@@ -20,7 +20,7 @@ def _stdlib_members(root: Path) -> tuple[str, ...]:
     return tuple(
         sorted(
             source.relative_to(root).as_posix()
-            for source in root.glob("stdlib/**/*.zl")
+            for source in root.glob("stdlib/**/*.zhl")
         )
     )
 
@@ -71,7 +71,7 @@ def test_wheel_contains_and_resolves_every_shipped_stdlib_module(tmp_path: Path)
     # This directory is deliberately absent from repository packaging metadata.
     # Its presence in the wheel proves recursive discovery rather than a manually
     # maintained list of known stdlib families.
-    nested = source / "stdlib" / "autodiscovery" / "deep" / "nested.zl"
+    nested = source / "stdlib" / "autodiscovery" / "deep" / "nested.zhl"
     nested.parent.mkdir(parents=True)
     nested.write_text("module PackagingNested { in x:u8 out y:u8 y=x }\n")
     (source / "tests").mkdir()
@@ -117,19 +117,19 @@ def test_wheel_contains_and_resolves_every_shipped_stdlib_module(tmp_path: Path)
             sorted(
                 name.split(".data/data/", 1)[1]
                 for name in archive.namelist()
-                if ".data/data/stdlib/" in name and name.endswith(".zl")
+                if ".data/data/stdlib/" in name and name.endswith(".zhl")
             )
         )
     assert packaged == expected
-    assert "stdlib/math/complex.zl" in packaged
-    assert "stdlib/stream/core.zl" in packaged
-    assert "stdlib/stream/serialization.zl" in packaged
-    assert "stdlib/dsp/fft.zl" in packaged
-    assert "stdlib/storage/core.zl" in packaged
-    assert "stdlib/storage.zl" in packaged
-    assert "stdlib/coding/core.zl" in packaged
-    assert "stdlib/coding.zl" in packaged
-    assert "stdlib/autodiscovery/deep/nested.zl" in packaged
+    assert "stdlib/math/complex.zhl" in packaged
+    assert "stdlib/stream/core.zhl" in packaged
+    assert "stdlib/stream/serialization.zhl" in packaged
+    assert "stdlib/dsp/fft.zhl" in packaged
+    assert "stdlib/storage/core.zhl" in packaged
+    assert "stdlib/storage.zhl" in packaged
+    assert "stdlib/coding/core.zhl" in packaged
+    assert "stdlib/coding.zhl" in packaged
+    assert "stdlib/autodiscovery/deep/nested.zhl" in packaged
     assert "Requires-Python: <3.13,>=3.12\n" in metadata
     assert "Version: 0.1.0a1\n" in metadata
     assert "License-Expression: Apache-2.0\n" in metadata
@@ -166,7 +166,7 @@ def test_wheel_contains_and_resolves_every_shipped_stdlib_module(tmp_path: Path)
         sdist_members = tuple(archive.getnames())
     assert any(name.endswith("/LICENSE") for name in sdist_members)
     assert any(name.endswith("/NOTICE") for name in sdist_members)
-    assert any(name.endswith("/stdlib/math/complex.zl") for name in sdist_members)
+    assert any(name.endswith("/stdlib/math/complex.zhl") for name in sdist_members)
     assert not any("/tests/" in name for name in sdist_members)
 
     installed = tmp_path / "installed"
@@ -188,7 +188,10 @@ def test_wheel_contains_and_resolves_every_shipped_stdlib_module(tmp_path: Path)
     )
     assert install.returncode == 0, install.stdout + install.stderr
 
-    logical = tuple("std." + path[7:-3].replace("/", ".") for path in expected)
+    logical = tuple(
+        "std." + Path(path[7:]).with_suffix("").as_posix().replace("/", ".")
+        for path in expected
+    )
     probe = subprocess.run(
         [
             sys.executable,
@@ -243,14 +246,14 @@ def test_wheel_contains_and_resolves_every_shipped_stdlib_module(tmp_path: Path)
     (dependency / "zlang.toml").write_text(
         'schema=1\n[project]\nname="wheeldep"\nversion="1"\nsource-root="src"\n'
     )
-    (dependency / "src" / "id.zl").write_text(
+    (dependency / "src" / "id.zhl").write_text(
         "module WheelIdentity { in x:u8 out y:u8 y=x }"
     )
     (project / "zlang.toml").write_text(
         'schema=1\n[project]\nname="wheelapp"\nversion="1"\nsource-root="src"\n'
         '[dependencies]\nwheeldep={path="../wheel-dependency"}\n'
     )
-    top = project / "src" / "top.zl"
+    top = project / "src" / "top.zhl"
     top.write_text(
         "import wheeldep.id module WheelTop { in x:u8 out y:u8 "
         "inst child:WheelIdentity child.x=x y=child.y }"
@@ -260,7 +263,7 @@ def test_wheel_contains_and_resolves_every_shipped_stdlib_module(tmp_path: Path)
         "PYTHONPATH": str(installed),
     }
     for program in (
-        "zlangc",
+        "zlang",
         "zlang-lock",
         "zlang-compare-backends",
         "zlang-verify",
@@ -309,7 +312,7 @@ def test_wheel_contains_and_resolves_every_shipped_stdlib_module(tmp_path: Path)
     )
     if tools.missing:
         pytest.skip("Yosys/SBY/yosys-smtbmc/SMT solver unavailable")
-    verification_source = project / "src" / "verify.zl"
+    verification_source = project / "src" / "verify.zhl"
     verification_source.write_text(
         "module WheelVerify { clock clk reset rst in x:u8 out y:u8 y=x "
         "assert passthrough @ clk { y == x } "

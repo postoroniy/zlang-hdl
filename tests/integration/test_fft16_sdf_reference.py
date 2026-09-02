@@ -13,7 +13,7 @@ from zlang.simulate import simulate_cycles
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SOURCE = ROOT / "examples" / "fft" / "sdf_stage_numeric.zl"
+SOURCE = ROOT / "examples" / "fft" / "sdf_stage_numeric.zhl"
 SAMPLE_WIDTH = 18
 SAMPLE_MIN = -(1 << (SAMPLE_WIDTH - 1))
 SAMPLE_MAX = (1 << (SAMPLE_WIDTH - 1)) - 1

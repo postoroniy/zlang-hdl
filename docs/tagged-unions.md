@@ -54,6 +54,6 @@ generic/recursive union, nested aggregate payload, union operator overload,
 wildcard/nested pattern, guard, partial match, or protocol inference in this
 slice. No e-graph rewrite or new formal observation is added.
 
-The runnable source is [`examples/tagged_union.zl`](../examples/tagged_union.zl).
+The runnable source is [`examples/tagged_union.zhl`](../examples/tagged_union.zhl).
 The exact representation and current exclusions are documented above and in
 the [syntax support matrix](syntax-support-matrix.md).

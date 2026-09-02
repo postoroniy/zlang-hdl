@@ -22,7 +22,7 @@ class CanonicalMetadataIntegrationTests(unittest.TestCase):
             selected = directory / "CostMac.selected.opt"
             status = main(
                 [
-                    str(ROOT / "examples/cost_mac.zl"),
+                    str(ROOT / "examples/cost_mac.zhl"),
                     "-o",
                     str(directory / "CostMac.hs"),
                     "--high-level-ir",
@@ -39,7 +39,7 @@ class CanonicalMetadataIntegrationTests(unittest.TestCase):
 
     def test_metadata_report_and_cycle_behavior_match_goldens(self) -> None:
         compilation = compile_source(
-            (ROOT / "examples/metadata_datapath.zl").read_text()
+            (ROOT / "examples/metadata_datapath.zhl").read_text()
         )
         self.assertEqual(
             render(compilation.optimization_ir),
@@ -66,7 +66,7 @@ class CanonicalMetadataIntegrationTests(unittest.TestCase):
     )
     def test_metadata_example_generates_and_lints_verilog(self) -> None:
         compilation = compile_source(
-            (ROOT / "examples/metadata_datapath.zl").read_text()
+            (ROOT / "examples/metadata_datapath.zhl").read_text()
         )
         with tempfile.TemporaryDirectory() as temporary:
             verilog = generate_verilog(

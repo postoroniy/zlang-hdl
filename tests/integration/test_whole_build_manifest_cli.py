@@ -158,7 +158,7 @@ def _physical_file_map(
 
 
 def _write_source(root: Path, name: str, source: str) -> Path:
-    path = root / "src" / f"{name}.zl"
+    path = root / "src" / f"{name}.zhl"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(source, encoding="utf-8")
     return path
@@ -521,7 +521,7 @@ def test_cli_publishes_two_backends_truthful_evidence_and_manifest(
     tmp_path: Path,
 ) -> None:
     manifest, physical = _publish_timed_build(tmp_path)
-    compilation = compile_file(tmp_path / "src" / "timed.zl", include_clash=False)
+    compilation = compile_file(tmp_path / "src" / "timed.zhl", include_clash=False)
 
     assert manifest.selected_ir.identity == compilation.selected_ir_identity
     assert manifest.high_level_ir.identity == compilation.high_level_ir_identity
@@ -626,7 +626,7 @@ def test_validation_rejects_tampered_backend_output(tmp_path: Path) -> None:
 def test_crlf_root_source_is_compiled_and_published_as_exact_bytes(
     tmp_path: Path,
 ) -> None:
-    source = tmp_path / "src" / "crlf.zl"
+    source = tmp_path / "src" / "crlf.zhl"
     source.parent.mkdir(parents=True)
     source_bytes = (
         b"module CrLfTop {\r\n"
@@ -966,7 +966,7 @@ def _path_dependency_project(root: Path) -> tuple[Path, Path, Path]:
     (dependency / "zlang.toml").write_text(
         'schema=1\n[project]\nname="logic"\nversion="1"\nsource-root="src"\n'
     )
-    dependency_source = dependency / "src" / "identity.zl"
+    dependency_source = dependency / "src" / "identity.zhl"
     dependency_source.write_text(
         "module Identity { in x:u8 out y:u8 y=x }", encoding="utf-8"
     )
@@ -978,7 +978,7 @@ def _path_dependency_project(root: Path) -> tuple[Path, Path, Path]:
         'schema=1\n[project]\nname="demo"\nversion="1"\nsource-root="src"\n'
         '[dependencies]\nlogic={path="../logic"}\n'
     )
-    top = project / "src" / "top.zl"
+    top = project / "src" / "top.zhl"
     top.write_text(
         "import std.bus.reg import logic.identity "
         "module Top { in x:u8 out y:u8 "
@@ -1013,11 +1013,11 @@ def test_locked_path_dependency_closure_is_part_of_the_build_identity(
         item.logical_path: item.content_hash
         for item in manifest.dependency_closure
     }
-    assert dependencies["dependencies/logic/identity.zl"] == hashlib.sha256(
+    assert dependencies["dependencies/logic/identity.zhl"] == hashlib.sha256(
         dependency_source.read_bytes()
     ).hexdigest()
-    assert dependencies["dependencies/std/bus/reg.zl"] == hashlib.sha256(
-        (Path(__file__).parents[2] / "stdlib" / "bus" / "reg.zl").read_bytes()
+    assert dependencies["dependencies/std/bus/reg.zhl"] == hashlib.sha256(
+        (Path(__file__).parents[2] / "stdlib" / "bus" / "reg.zhl").read_bytes()
     ).hexdigest()
     serialized = manifest.to_json()
     assert compilation.ir.dependency_closure.identity in serialized

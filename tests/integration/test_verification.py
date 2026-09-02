@@ -19,7 +19,7 @@ class VerificationIntegrationTests(unittest.TestCase):
             with redirect_stdout(io.StringIO()):
                 status = main(
                     [
-                        str(ROOT / "examples/contracted_add.zl"),
+                        str(ROOT / "examples/contracted_add.zhl"),
                         "-o",
                         str(clash_path),
                         "--contracts-sva",

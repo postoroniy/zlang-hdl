@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 def bank():
     return compile_source(
-        (ROOT / "stdlib/bus/reg.zl").read_text(), top="RegBusCSRBank"
+        (ROOT / "stdlib/bus/reg.zhl").read_text(), top="RegBusCSRBank"
     ).ir
 
 
@@ -68,7 +68,7 @@ def test_lowering_helper_rename_does_not_change_csr_property_identity():
 
 def test_regbus_target_delegates_policy_to_semantic_bank():
     target = compile_source(
-        (ROOT / "stdlib/bus/reg.zl").read_text(), top="RegBusCSRTarget"
+        (ROOT / "stdlib/bus/reg.zhl").read_text(), top="RegBusCSRTarget"
     ).ir
     assert [item.name for item in target.registers] == [
         "response_pending", "response_addr"

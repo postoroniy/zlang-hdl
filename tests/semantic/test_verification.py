@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class VerificationSemanticTests(unittest.TestCase):
     def test_contracts_are_typed_and_tied_to_output_symbols(self) -> None:
-        module = analyze(parse((ROOT / "examples/contracted_add.zl").read_text()))
+        module = analyze(parse((ROOT / "examples/contracted_add.zhl").read_text()))
         assumption, guarantee = module.contracts
 
         self.assertEqual(assumption.kind, ContractKind.ASSUME)

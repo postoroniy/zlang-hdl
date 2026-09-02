@@ -31,7 +31,7 @@ from zlang.toolchain import generate_verilog, lint_with_verilator
 
 SOURCE = (
     Path(__file__).resolve().parents[2]
-    / "tests" / "fixtures" / "hierarchy" / "request_response_instance_array.zl"
+    / "tests" / "fixtures" / "hierarchy" / "request_response_instance_array.zhl"
 ).read_text()
 
 

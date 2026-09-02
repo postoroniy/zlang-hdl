@@ -483,7 +483,7 @@ def test_standalone_cli_forwards_cache_directory(tmp_path: Path, monkeypatch, ca
 def test_compiler_verify_reuses_formal_cache_option(
     tmp_path: Path, monkeypatch, capsys,
 ) -> None:
-    source = tmp_path / "cache_cli.zl"
+    source = tmp_path / "cache_cli.zhl"
     source.write_text("""
 module VerificationCacheCli {
     clock clk

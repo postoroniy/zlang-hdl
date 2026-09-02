@@ -21,7 +21,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class CanonicalOptimizationIntegrationTests(unittest.TestCase):
     def test_every_checked_in_example_round_trips_and_preserves_artifacts(self) -> None:
-        for path in sorted((ROOT / "examples").glob("*.zl")):
+        for path in sorted((ROOT / "examples").glob("*.zhl")):
             with self.subTest(example=path.name):
                 source = path.read_text()
                 semantic = analyze(parse(source))
@@ -42,7 +42,7 @@ class CanonicalOptimizationIntegrationTests(unittest.TestCase):
                     self.assertEqual(emit_csr_json(restored), emit_csr_json(semantic))
 
     def test_value_sequential_protocol_and_architecture_behavior_is_unchanged(self) -> None:
-        add_source = (ROOT / "examples/add.zl").read_text()
+        add_source = (ROOT / "examples/add.zhl").read_text()
         add_semantic = analyze(parse(add_source))
         add_restored = restore(lower(add_semantic))
         self.assertEqual(
@@ -50,7 +50,7 @@ class CanonicalOptimizationIntegrationTests(unittest.TestCase):
             simulate(add_semantic, a=255, b=255),
         )
 
-        counter_source = (ROOT / "examples/counter.zl").read_text()
+        counter_source = (ROOT / "examples/counter.zhl").read_text()
         counter_semantic = analyze(parse(counter_source))
         counter_restored = restore(lower(counter_semantic))
         cycles = [{}, {}, {}, {}]
@@ -60,7 +60,7 @@ class CanonicalOptimizationIntegrationTests(unittest.TestCase):
             simulate_cycles(counter_semantic, cycles, resets),
         )
 
-        protocol_source = (ROOT / "examples/rv_passthrough.zl").read_text()
+        protocol_source = (ROOT / "examples/rv_passthrough.zhl").read_text()
         protocol_semantic = analyze(parse(protocol_source))
         protocol_restored = restore(lower(protocol_semantic))
         protocol_inputs = {
@@ -72,7 +72,7 @@ class CanonicalOptimizationIntegrationTests(unittest.TestCase):
             simulate(protocol_semantic, **protocol_inputs),
         )
 
-        fifo_source = (ROOT / "examples/fifo_bridge.zl").read_text()
+        fifo_source = (ROOT / "examples/fifo_bridge.zhl").read_text()
         fifo_semantic = analyze(parse(fifo_source))
         fifo_restored = restore(lower(fifo_semantic))
         fifo_cycles = [
@@ -91,7 +91,7 @@ class CanonicalOptimizationIntegrationTests(unittest.TestCase):
             with redirect_stdout(io.StringIO()):
                 status = main(
                     [
-                        str(ROOT / "examples/add.zl"),
+                        str(ROOT / "examples/add.zhl"),
                         "--optimization-ir",
                         str(output),
                     ]

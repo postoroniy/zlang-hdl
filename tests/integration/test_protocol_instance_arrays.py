@@ -178,7 +178,7 @@ def test_canonical_reused_specialization_accepts_deepcopied_equivalent_child() -
     canonical = lower(_module())
     reconstructed = replace(
         deepcopy(canonical.children[0]),
-        source_identity="/relocated/StatefulRvLane.zl",
+        source_identity="/relocated/StatefulRvLane.zhl",
         source_hash="f" * 64,
     )
     restored = restore(replace(

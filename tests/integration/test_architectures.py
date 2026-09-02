@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[2]
 class ArchitectureIntegrationTests(unittest.TestCase):
     def test_report_canonical_ir_and_behavior_match_goldens(self) -> None:
         result = compile_source(
-            (ROOT / "examples/fir_architecture.zl").read_text()
+            (ROOT / "examples/fir_architecture.zhl").read_text()
         )
 
         self.assertEqual(
@@ -40,7 +40,7 @@ class ArchitectureIntegrationTests(unittest.TestCase):
             clash = Path(temporary) / "FirArchitecture.hs"
             status = main(
                 [
-                    str(ROOT / "examples/fir_architecture.zl"),
+                    str(ROOT / "examples/fir_architecture.zhl"),
                     "-o",
                     str(clash),
                     "--architecture-report",

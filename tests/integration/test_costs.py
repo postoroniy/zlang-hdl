@@ -14,8 +14,8 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class CostExtractionIntegrationTests(unittest.TestCase):
     def test_estimated_dsp_and_constrained_logic_are_behaviorally_equal(self) -> None:
-        dsp = compile_source((ROOT / "examples/cost_mac.zl").read_text())
-        logic = compile_source((ROOT / "examples/cost_mac_no_dsp.zl").read_text())
+        dsp = compile_source((ROOT / "examples/cost_mac.zhl").read_text())
+        logic = compile_source((ROOT / "examples/cost_mac_no_dsp.zhl").read_text())
         cycles = [
             {"a": 2, "b": 3, "c": 4},
             {"a": 5, "b": 6, "c": 7},
@@ -34,7 +34,7 @@ class CostExtractionIntegrationTests(unittest.TestCase):
             with redirect_stdout(io.StringIO()):
                 status = main(
                     [
-                        str(ROOT / "examples/cost_mac.zl"),
+                        str(ROOT / "examples/cost_mac.zhl"),
                         "--cost-report",
                         str(report),
                     ]

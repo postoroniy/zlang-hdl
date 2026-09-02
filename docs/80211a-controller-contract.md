@@ -1,7 +1,7 @@
 # 802.11a Controller24 contract freeze
 
 Status: historical compatibility evidence. The executable compatibility module
-has been retired; `src/controller.zl` is the canonical IEEE framing unit.
+has been retired; `src/controller.zhl` is the canonical IEEE framing unit.
 
 ## Scope and reference
 

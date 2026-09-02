@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class CostPolicyParserTests(unittest.TestCase):
     def test_auto_goal_and_every_constraint_are_syntax_ast(self) -> None:
-        module = parse((ROOT / "examples/cost_mac.zl").read_text())
+        module = parse((ROOT / "examples/cost_mac.zhl").read_text())
         choice = module.assignments[0].expression
 
         self.assertIsInstance(choice, ImplementationChoiceExpr)

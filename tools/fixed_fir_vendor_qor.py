@@ -18,7 +18,7 @@ from zlang.toolchain import generate_verilog
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = ROOT / "examples" / "fixed_fir_architectures.zl"
+SOURCE = ROOT / "examples" / "fixed_fir_architectures.zhl"
 VARIANTS = {
     "FixedFIRLinear": (1, 1),
     "FixedFIRBalanced": (1, 1),

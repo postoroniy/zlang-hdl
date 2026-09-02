@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class PipelineIntegrationTests(unittest.TestCase):
     def test_pipelined_mac_has_exact_latency(self) -> None:
-        module = compile_source((ROOT / "examples/pipelined_mac.zl").read_text()).ir
+        module = compile_source((ROOT / "examples/pipelined_mac.zhl").read_text()).ir
         outputs = simulate_cycles(
             module,
             [
@@ -44,7 +44,7 @@ class PipelineIntegrationTests(unittest.TestCase):
             )
 
     def test_auto_pipeline_report_golden_and_cycle_latency(self) -> None:
-        source = (ROOT / "examples/auto_pipeline_products.zl").read_text()
+        source = (ROOT / "examples/auto_pipeline_products.zhl").read_text()
         result = compile_source(source)
         self.assertEqual(
             result.pipeline_report,
@@ -79,7 +79,7 @@ class PipelineIntegrationTests(unittest.TestCase):
             clash = Path(temporary) / "AutoPipelineProducts.hs"
             status = main(
                 [
-                    str(ROOT / "examples/auto_pipeline_products.zl"),
+                    str(ROOT / "examples/auto_pipeline_products.zhl"),
                     "-o",
                     str(clash),
                     "--pipeline-report",

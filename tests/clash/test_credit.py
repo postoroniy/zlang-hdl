@@ -9,13 +9,13 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class ClashCreditTests(unittest.TestCase):
     def test_credit_source_golden_matches_emitter(self) -> None:
-        result = compile_source((ROOT / "examples/credit_source.zl").read_text())
+        result = compile_source((ROOT / "examples/credit_source.zhl").read_text())
         expected = (ROOT / "examples/generated/CreditSource.hs").read_text()
         self.assertEqual(result.clash, expected)
 
     def test_sender_counter_gating_and_assertions_are_emitted(self) -> None:
         clash = compile_source(
-            (ROOT / "examples/credit_source.zl").read_text()
+            (ROOT / "examples/credit_source.zhl").read_text()
         ).clash
         self.assertIn("tx_credits = register (2 :: Unsigned 2)", clash)
         self.assertIn("credits == 0 then low", clash)

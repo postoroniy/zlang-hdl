@@ -22,6 +22,7 @@ from zlang.compiler import (
     compile_file_snapshot,
     compile_source,
 )
+from zlang.source_identity import SourceExtensionError
 from zlang.semantic import SemanticError
 
 SOURCE = "module Add { in a:u8 in b:u8 out y:u9 y=a+b }"
@@ -144,7 +145,7 @@ def test_stdlib_physical_inputs_survive_semantic_failure() -> None:
     with pytest.raises(SemanticError, match="cannot assign u8 expression"):
         session.check()
     assert any(
-        path.name == "complex.zl" for path in session.physical_inputs.stdlib_sources
+        path.name == "complex.zhl" for path in session.physical_inputs.stdlib_sources
     )
 
 
@@ -170,7 +171,7 @@ def test_top_diagnostic_type_and_text_remain_compatible() -> None:
 
 
 def test_file_facades_preserve_top_diagnostic_type_and_text(tmp_path) -> None:
-    source = tmp_path / "add.zl"
+    source = tmp_path / "add.zhl"
     source.write_text(SOURCE)
     for compile_call in (
         lambda: compile_file(source, top="Missing"),
@@ -181,8 +182,23 @@ def test_file_facades_preserve_top_diagnostic_type_and_text(tmp_path) -> None:
         assert str(raised.value) == "top module 'Missing' was not found"
 
 
+def test_file_facades_reject_noncanonical_source_extensions(tmp_path) -> None:
+    for suffix in (".zl", ".zlang"):
+        legacy = tmp_path / f"add{suffix}"
+        legacy.write_text(SOURCE)
+        for compile_call in (
+            lambda legacy=legacy: compile_file(legacy),
+            lambda legacy=legacy: compile_file_snapshot(legacy, SOURCE),
+        ):
+            with pytest.raises(
+                SourceExtensionError,
+                match="rename the file to 'add.zhl'",
+            ):
+                compile_call()
+
+
 def test_cli_check_demands_only_semantics(tmp_path, monkeypatch, capsys) -> None:
-    source = tmp_path / "add.zl"
+    source = tmp_path / "add.zhl"
     source.write_text(SOURCE)
     for name in (
         "plan_backend_implementations",
@@ -216,7 +232,7 @@ def test_dependency_dag_is_complete_and_acyclic() -> None:
 
 
 def test_file_session_factories_are_public_and_lazy(tmp_path) -> None:
-    source = tmp_path / "add.zl"
+    source = tmp_path / "add.zhl"
     source.write_text(SOURCE)
     from_file = create_file_compilation_session(source)
     from_snapshot = create_file_compilation_session_snapshot(source, SOURCE)

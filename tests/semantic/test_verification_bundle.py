@@ -61,7 +61,7 @@ def _origin() -> SourceOrigin:
     return SourceOrigin(
         SourceSpan(7, 5, 7, 24),
         "assert count_within",
-        "examples/counter.zl",
+        "examples/counter.zhl",
         _digest("counter-source"),
     )
 
@@ -911,7 +911,7 @@ def test_failure_and_counterexample_metadata_are_preserved(tmp_path: Path, monke
     )
     restored = VerificationRunReport.from_data(report.to_data())
     assert restored.to_data() == report.to_data()
-    assert result["source_origin"]["source_unit"] == "examples/counter.zl"
+    assert result["source_origin"]["source_unit"] == "examples/counter.zhl"
 
     malformed = report.to_data()
     malformed["results"][0]["counterexample"]["sample_cycle"] = -1

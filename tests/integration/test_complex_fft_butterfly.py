@@ -14,9 +14,9 @@ from zlang.toolchain import find_clash_executable, generate_verilog
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SOURCE = (ROOT / "examples/complex_fft_butterfly.zl").read_text()
+SOURCE = (ROOT / "examples/complex_fft_butterfly.zhl").read_text()
 PIPELINE_SOURCE = (
-    ROOT / "examples/fft/complex_multiply_pipeline_auto.zl"
+    ROOT / "examples/fft/complex_multiply_pipeline_auto.zhl"
 ).read_text()
 
 

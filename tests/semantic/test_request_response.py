@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class RequestResponseSemanticTests(unittest.TestCase):
     def test_outstanding_and_match_model_survive_in_typed_ir(self) -> None:
-        module = analyze(parse((ROOT / "examples/request_client.zl").read_text()))
+        module = analyze(parse((ROOT / "examples/request_client.zhl").read_text()))
         interface = module.request_responses[0]
         self.assertEqual(interface.max_outstanding, 2)
         self.assertEqual(interface.ordering, RequestResponseOrdering.OUT_OF_ORDER)

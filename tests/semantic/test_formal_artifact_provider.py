@@ -590,7 +590,7 @@ def test_fresh_session_restores_complete_fallback_route_without_backend_rerun(
         ROM_FORMAL_SOURCE,
         include_clash=False,
         formal_cache=cache,
-        source_unit="tests/fixtures/cached_verification_rom.zl",
+        source_unit="tests/fixtures/cached_verification_rom.zhl",
     )
     fallback_artifact = emit_systemverilog_formal_artifact(
         first.ir,
@@ -634,7 +634,7 @@ def test_fresh_session_restores_complete_fallback_route_without_backend_rerun(
         ROM_FORMAL_SOURCE,
         include_clash=False,
         formal_cache=cache,
-        source_unit="tests/fixtures/cached_verification_rom.zl",
+        source_unit="tests/fixtures/cached_verification_rom.zhl",
     )
     second_manifest = publication_module.publish_compilation_verification_bundle(
         second,
@@ -676,7 +676,7 @@ def test_missing_scoped_assumption_is_never_silently_dropped(
     compilation = compile_source(
         SCOPED_ASSUMPTION_SOURCE,
         include_clash=False,
-        source_unit="tests/fixtures/missing_scoped_assumption.zl",
+        source_unit="tests/fixtures/missing_scoped_assumption.zhl",
     )
     assumptions = tuple(
         item for item in compilation.formal_design.properties

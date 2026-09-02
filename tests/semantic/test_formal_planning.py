@@ -32,7 +32,7 @@ def _origin() -> SourceOrigin:
     return SourceOrigin(
         SourceSpan(8, 5, 10, 6),
         "assert count_within",
-        "examples/counter.zl",
+        "examples/counter.zhl",
         "1" * 64,
     )
 
@@ -332,7 +332,7 @@ def test_plan_identity_excludes_source_origin_but_json_preserves_it() -> None:
         source_origin=SourceOrigin(
             SourceSpan(80, 2, 82, 3),
             "assert count_within",
-            "generated/counter.zl",
+            "generated/counter.zhl",
             "2" * 64,
         ),
     )

@@ -25,7 +25,7 @@ def test_contextual_parameterized_struct_constructor_is_exact() -> None:
 
 
 def test_complex_butterfly_and_typed_stream_compile_to_both_backends() -> None:
-    source = (ROOT / "examples/complex_fft_butterfly.zl").read_text()
+    source = (ROOT / "examples/complex_fft_butterfly.zhl").read_text()
     butterfly = compile_source(source, top="ComplexFFTButterfly")
     stream = compile_source(source, top="ComplexStreamIdentity")
     assert "complex_mul_18_16" not in butterfly.clash

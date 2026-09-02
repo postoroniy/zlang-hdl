@@ -39,7 +39,7 @@ class BackendComparisonIntegrationTests(unittest.TestCase):
             clash = Path(temporary) / "ALU.hs"
             status = main(
                 [
-                    str(ROOT / "examples/alu.zl"),
+                    str(ROOT / "examples/alu.zhl"),
                     "-o",
                     str(clash),
                     "--experimental-systemverilog",
@@ -56,7 +56,7 @@ class BackendComparisonIntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             stable = Path(temporary) / "stable.sv"
             compatibility = Path(temporary) / "compatibility.sv"
-            source = str(ROOT / "examples/alu.zl")
+            source = str(ROOT / "examples/alu.zhl")
             self.assertEqual(main([source, "--systemverilog", str(stable)]), 0)
             self.assertEqual(
                 main([source, "--experimental-systemverilog", str(compatibility)]), 0,

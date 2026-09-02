@@ -16,8 +16,8 @@ from zlang.compiler import compile_source
 
 
 ROOT = Path(__file__).resolve().parents[1]
-BASE = ROOT / "examples" / "symmetric_fixed_fir.zl"
-REGISTERED = ROOT / "examples" / "symmetric_fixed_fir_dsp_pipelines.zl"
+BASE = ROOT / "examples" / "symmetric_fixed_fir.zhl"
+REGISTERED = ROOT / "examples" / "symmetric_fixed_fir_dsp_pipelines.zhl"
 VARIANTS = (
     ("unregistered", BASE, "SymmetricFixedFIR", "Xilinx7SymmetricDSPCascade", 1),
     ("multiply_registered", REGISTERED, "SymmetricFixedFIRMREG",

@@ -226,8 +226,8 @@ to the legacy reset model.
 ### Execution and immutable bundles
 
 ```sh
-zlangc design.zl --verify
-zlangc design.zl --verification-bundle build/verify
+zlang design.zhl --verify
+zlang design.zhl --verification-bundle build/verify
 zlang-verify build/verify
 ```
 

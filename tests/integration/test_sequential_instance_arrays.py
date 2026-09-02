@@ -13,7 +13,7 @@ from zlang.toolchain import generate_verilog, lint_with_verilator
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SOURCE = (ROOT / "examples" / "sequential_instance_array.zl").read_text()
+SOURCE = (ROOT / "examples" / "sequential_instance_array.zhl").read_text()
 
 CONSTANT_SOURCE = """
 module ConstantLane {

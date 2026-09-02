@@ -15,8 +15,8 @@ from zlang.toolchain import find_clash_executable, generate_verilog
 
 ROOT = Path(__file__).resolve().parents[2]
 SOURCES = {
-    8: (ROOT / "examples/dot_product_pipelined.zl").read_text(),
-    12: (ROOT / "examples/dot_product_pipelined_12.zl").read_text(),
+    8: (ROOT / "examples/dot_product_pipelined.zhl").read_text(),
+    12: (ROOT / "examples/dot_product_pipelined_12.zhl").read_text(),
 }
 
 

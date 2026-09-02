@@ -420,7 +420,7 @@ module ExplorationSyntax {
     }
 }
 
-// Final/default top: bare `zlangc examples/all_syntax.zl` is deterministic.
+// Final/default top: bare `zlang examples/all_syntax.zhl` is deterministic.
 module AllSyntax {
     /* decimal, hexadecimal and binary spellings are lexical equivalents. */
     in a : u8

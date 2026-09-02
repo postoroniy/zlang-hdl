@@ -1,4 +1,4 @@
-# Releasing ZLang
+# Releasing ZLang HDL
 
 This document describes the public release gate. The first release target is a
 GitHub alpha; publishing to PyPI or a container registry is a separate decision.
@@ -54,7 +54,7 @@ SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)" \
 ```
 
 Install the wheel and source distribution into separate empty virtual
-environments and exercise `zlangc`, `zlang-lock`, `zlang-verify`, and
+environments and exercise `zlang`, `zlang-lock`, `zlang-verify`, and
 `zlang-compare-backends` outside the checkout.
 
 ## Publication

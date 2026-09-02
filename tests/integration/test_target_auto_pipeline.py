@@ -13,7 +13,7 @@ from zlang.toolchain import find_clash_executable, generate_verilog
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SOURCE = (ROOT / "examples/symmetric_fixed_fir_auto.zl").read_text()
+SOURCE = (ROOT / "examples/symmetric_fixed_fir_auto.zhl").read_text()
 TARGET = "xc7z030ffg676-1"
 
 

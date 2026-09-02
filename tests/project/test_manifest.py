@@ -84,7 +84,7 @@ def test_load_hashes_exact_raw_manifest_bytes(tmp_path: Path) -> None:
 
 def test_discovery_walks_source_parents_and_supports_explicit_override(tmp_path: Path) -> None:
     root = tmp_path / "project"
-    source = root / "src" / "nested" / "top.zl"
+    source = root / "src" / "nested" / "top.zhl"
     source.parent.mkdir(parents=True)
     source.write_text("module Top {}\n")
     (root / "zlang.toml").write_text(_manifest())

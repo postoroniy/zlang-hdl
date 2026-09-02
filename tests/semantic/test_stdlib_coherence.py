@@ -304,7 +304,7 @@ WITNESSES = {
 
 def test_complex_core_is_profile_and_transport_neutral() -> None:
     source = (
-        Path(__file__).resolve().parents[2] / "stdlib" / "math" / "complex.zl"
+        Path(__file__).resolve().parents[2] / "stdlib" / "math" / "complex.zhl"
     ).read_text()
     assert "fixed<18,16>" not in source
     assert "AXIStream" not in source
@@ -415,7 +415,7 @@ def test_stdlib_module_constraints_fail_at_specialization(
 def test_generic_storage_fails_but_range_proven_gather_succeeds() -> None:
     source = (
         Path(__file__).resolve().parents[2]
-        / "docs" / "reproducers" / "stdlib_generic_storage_blockers.zl"
+        / "docs" / "reproducers" / "stdlib_generic_storage_blockers.zhl"
     ).read_text()
     with pytest.raises(
         SemanticError,

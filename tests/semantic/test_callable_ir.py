@@ -30,7 +30,11 @@ from zlang.ir.module import (
 )
 from zlang.ir.types import UIntType, VecType
 from zlang.compiler import compile_source
-from zlang.dependencies import DependencyClosure, DependencyModuleIdentity
+from zlang.dependencies import (
+    DependencyClosure,
+    DependencyModuleIdentity,
+    LOCK_SCHEMA,
+)
 from zlang.opt.identity import CANONICAL_IR_IDENTITY_SCHEMA, canonical_ir_identity
 from zlang.opt.ir import ExpressionOp
 from zlang.opt.lowering import lower, restore
@@ -53,7 +57,7 @@ def _definition(
     metadata = CallableMetadata(
         CallableKind.OPERATOR,
         "operator+",
-        "stdlib/math/pair.zl:operator+",
+        "stdlib/math/pair.zhl:operator+",
         identity,
         (("A", "u8"), ("B", "u8")),
     )
@@ -137,10 +141,10 @@ def test_callable_diagnostic_source_relocation_does_not_change_identity() -> Non
         "module Top{in x:u8 out y:u8 y=identity(x)}"
     )
     first = compile_source(
-        source, source_unit="first/location.zl", include_clash=False
+        source, source_unit="first/location.zhl", include_clash=False
     )
     second = compile_source(
-        source, source_unit="second/location.zl", include_clash=False
+        source, source_unit="second/location.zhl", include_clash=False
     )
     assert (
         first.ir.callable_definitions[0].metadata.declaration_identity
@@ -161,12 +165,12 @@ def test_callable_functional_binder_identity_ignores_unrelated_function_order() 
     top = "module Top{in x:vec<32,u8> out y:vec<32,u8> y=target(x)}"
     first = compile_source(
         target + unrelated + top,
-        source_unit="callable-order.zl",
+        source_unit="callable-order.zhl",
         include_clash=False,
     )
     reordered = compile_source(
         unrelated + target + top,
-        source_unit="callable-order.zl",
+        source_unit="callable-order.zhl",
         include_clash=False,
     )
 
@@ -205,7 +209,7 @@ def test_specialization_identity_is_sensitive_to_dependency_closure() -> None:
 
     def closure(digest: str) -> DependencyClosure:
         return DependencyClosure(
-            1,
+            LOCK_SCHEMA,
             "e" * 64,
             (
                 DependencyModuleIdentity(
@@ -249,7 +253,7 @@ module Top {
     second = identity(value)
 }
 """,
-        source_unit="call-sites.zl",
+        source_unit="call-sites.zhl",
         include_clash=False,
     )
     assert len(result.ir.callable_definitions) == 1
@@ -429,7 +433,7 @@ module Top {
     result = wrapper(value)
 }
 """,
-        source_unit="ordinary-calls-generic.zl",
+        source_unit="ordinary-calls-generic.zhl",
         include_clash=False,
     )
 
@@ -454,6 +458,6 @@ module Bad {
     with pytest.raises(SemanticError, match="recursive function call"):
         compile_source(
             source,
-            source_unit="ordinary-generic-cycle.zl",
+            source_unit="ordinary-generic-cycle.zhl",
             include_clash=False,
         )

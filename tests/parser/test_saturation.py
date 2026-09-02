@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class SaturationParserBoundaryTests(unittest.TestCase):
     def test_constant_multiply_uses_existing_typed_expression_syntax(self) -> None:
-        module = parse((ROOT / "examples/shift_multiply.zl").read_text())
+        module = parse((ROOT / "examples/shift_multiply.zhl").read_text())
         assignment = next(
             item for item in module.assignments if isinstance(item, Assignment)
         )

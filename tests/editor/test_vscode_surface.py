@@ -13,9 +13,9 @@ from zlang.public_capabilities import CAPABILITY_REGISTRY
 
 
 ROOT = Path(__file__).resolve().parents[2]
-EXT = ROOT / "editors" / "vscode" / "zlang-vscode"
+EXT = ROOT / "editors" / "vscode" / "zlang-hdl"
 SOURCE_PATH = LANGUAGE_TOUR_PATH
-ELASTIC_SOURCE_PATH = ROOT / "examples" / "elastic_pipeline_auto.zl"
+ELASTIC_SOURCE_PATH = ROOT / "examples" / "elastic_pipeline_auto.zhl"
 RECOMMENDED_SETTINGS = EXT / "recommended-settings.json"
 
 def test_extension_json_and_registration_are_valid() -> None:
@@ -24,11 +24,18 @@ def test_extension_json_and_registration_are_valid() -> None:
     grammar = json.loads((EXT / "syntaxes" / "zlang.tmLanguage.json").read_text())
     surface = json.loads((EXT / "supported-surface.json").read_text())
     recommended_settings = json.loads(RECOMMENDED_SETTINGS.read_text())
-    assert package["contributes"]["languages"][0]["extensions"] == [".zl", ".zlang"]
+    language = package["contributes"]["languages"][0]
+    assert package["name"] == "zlang-hdl"
+    assert package["displayName"] == "ZLang HDL"
+    assert language["id"] == "zlang-hdl"
+    assert language["aliases"] == ["ZLang HDL", "ZLang"]
+    assert language["extensions"] == [".zhl"]
+    assert package["contributes"]["grammars"][0]["language"] == "zlang-hdl"
     assert package["contributes"]["grammars"][0]["path"].endswith("zlang.tmLanguage.json")
     assert configuration["comments"]["blockComment"] == ["/*", "*/"]
     assert ["<", ">"] not in configuration["brackets"]
     assert grammar["scopeName"] == "source.zlang"
+    assert grammar["name"] == "ZLang HDL"
     assert surface == CAPABILITY_REGISTRY.editor_surface()
     assert "editor.tokenColorCustomizations" in recommended_settings
 
@@ -265,7 +272,7 @@ def test_elastic_transform_keyword_is_highlighted_and_executable() -> None:
 def test_first_class_verification_words_are_contextually_highlighted() -> None:
     grammar = json.loads((EXT / "syntaxes" / "zlang.tmLanguage.json").read_text())
     repository = grammar["repository"]
-    source_path = EXT / "examples" / "verification.zl"
+    source_path = EXT / "examples" / "verification.zhl"
     source = source_path.read_text()
     result = compile_source(
         source,

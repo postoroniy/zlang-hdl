@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[2]
 class ClashArchitectureTests(unittest.TestCase):
     def test_selected_architecture_matches_golden_clash(self) -> None:
         result = compile_source(
-            (ROOT / "examples/fir_architecture.zl").read_text()
+            (ROOT / "examples/fir_architecture.zhl").read_text()
         )
         expected = (
             ROOT / "examples/generated/FirArchitecture.hs"

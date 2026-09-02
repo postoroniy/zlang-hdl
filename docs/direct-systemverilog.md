@@ -78,7 +78,7 @@ failed emission.
 Use the stable CLI option:
 
 ```sh
-.venv/bin/zlangc examples/simple_dma_m40.zl --top SimpleDMA \
+.venv/bin/zlang examples/simple_dma_m40.zhl --top SimpleDMA \
   --systemverilog build/SimpleDMA.sv
 verilator --lint-only --top-module SimpleDMA build/SimpleDMA.sv
 ```
@@ -87,7 +87,7 @@ verilator --lint-only --top-module SimpleDMA build/SimpleDMA.sv
 options are explicit artifact sinks: they write only the requested SV file and
 leave stdout empty unless `-o` is also supplied. With both `-o` and a
 SystemVerilog path, both requested artifacts are written and stdout remains
-empty. A bare `zlangc SOURCE` invocation retains the legacy behavior of
+empty. A bare `zlang SOURCE` invocation retains the legacy behavior of
 printing Clash source to stdout; `--verilog-dir` and all report, IR, contract,
 formal, CSR, synthesis, and manifest paths suppress that implicit Clash stream.
 Direct-only and `--check` invocations stop before Clash emission, so a feature
@@ -98,7 +98,7 @@ alone do not suppress the legacy default. Diagnostics remain on stderr.
 Use `--verbose` when an explicit success confirmation is useful:
 
 ```sh
-.venv/bin/zlangc design.zl --systemverilog design.sv --verbose
+.venv/bin/zlang design.zhl --systemverilog design.sv --verbose
 ```
 
 This keeps stdout artifact-safe and reports the selected top and written paths
@@ -106,7 +106,7 @@ on stderr. To validate parsing, top selection, and semantic analysis without
 publishing any backend artifact, use:
 
 ```sh
-.venv/bin/zlangc design.zl --check
+.venv/bin/zlang design.zhl --check
 ```
 
 `--check` prints a one-line success result and returns zero. Without `--top` it
@@ -141,7 +141,7 @@ backend-name reconstruction is used.
 Transaction-level RTL simulation found and fixed one source-library issue:
 `RegBusCSRTarget` previously asserted its response only in the request-transfer
 cycle, before the AXI-Lite/APB frontend entered its response phase.  The
-ordinary `.zl` target now stores response data and holds `response.valid` until
+ordinary `.zhl` target now stores response data and holds `response.valid` until
 `response.transfer`.  Both source-authored AXI-Lite and APB paths complete real
 Verilator write transactions through RegBus after this fix.
 
@@ -186,12 +186,12 @@ validated through their concrete parents.
 
 ## Exhaustive example matrix
 
-The direct-SV regression recursively discovers every `.zl` file and every
+The direct-SV regression recursively discovers every `.zhl` file and every
 declared module root under `examples/`. There are no emission-error skips. Each
 root is classified as standalone-supported, child/template-only, or explicitly
 unsupported; an unclassified new root is tested as standalone-supported.
 
-The accepted snapshot contains **80 `.zl` files / 165 module roots / 150
+The accepted snapshot contains **80 `.zhl` files / 165 module roots / 150
 standalone roots / 15 child or template roots / 0 unsupported roots**. The
 registry test remains authoritative when examples change; these numbers are an
 evidence snapshot rather than a hard-coded allow-list.
@@ -303,7 +303,7 @@ backend-independent replay is now a
 routine bounded test rather than an opt-in skip.
 Historical per-slice counts remain in their validation records; they are not
 the current baseline.
-The representative `examples/all_syntax.zl` language-tour backend audit checks
+The representative `examples/all_syntax.zhl` language-tour backend audit checks
 every declared top separately; exhaustive direct-SV root coverage remains the
 separate registry described above:
 

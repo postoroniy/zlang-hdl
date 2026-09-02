@@ -48,14 +48,14 @@ module FormalCreditReceiver {
 }
 """
 ROOT = Path(__file__).resolve().parents[2]
-CREDIT_TO_RV = ROOT / "examples" / "credit_to_rv.zl"
+CREDIT_TO_RV = ROOT / "examples" / "credit_to_rv.zhl"
 
 
 def _compilation():
     return compile_source(
         SOURCE,
         include_clash=False,
-        source_unit="tests/fixtures/formal_credit_receiver.zl",
+        source_unit="tests/fixtures/formal_credit_receiver.zhl",
     )
 
 

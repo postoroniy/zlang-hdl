@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[2]
 class EqualitySaturationClashTests(unittest.TestCase):
     def setUp(self) -> None:
         self.compilation = compile_source(
-            (ROOT / "examples/shift_multiply.zl").read_text()
+            (ROOT / "examples/shift_multiply.zhl").read_text()
         )
         root = self.compilation.optimization_ir.assignments[0].expression
         self.saturation = saturate(self.compilation.optimization_ir, root)

@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[2]
 def test_identity_ignores_source_origin_relocation_and_whitespace() -> None:
     compact = compile_source(
         "module Add { in a:u8 in b:u8 out y:u9 y=a+b }",
-        source_unit="first/location.zl",
+        source_unit="first/location.zhl",
         include_clash=False,
     )
     relocated = compile_source(
@@ -29,7 +29,7 @@ module Add {
     y = a + b
 }
 """,
-        source_unit="second/location.zl",
+        source_unit="second/location.zhl",
         include_clash=False,
     )
 
@@ -43,8 +43,8 @@ def test_moving_same_standalone_source_does_not_change_identity(tmp_path: Path) 
 interface PassIfc { in a:u8 out y:u8 }
 module Pass : PassIfc { in a:u8 out y:u8 y=a }
 """
-    first_path = tmp_path / "first" / "pass.zl"
-    second_path = tmp_path / "elsewhere" / "pass.zl"
+    first_path = tmp_path / "first" / "pass.zhl"
+    second_path = tmp_path / "elsewhere" / "pass.zhl"
     first_path.parent.mkdir()
     second_path.parent.mkdir()
     first_path.write_text(source)
@@ -61,7 +61,7 @@ module Pass : PassIfc { in a:u8 out y:u8 y=a }
     assert (
         first.ir.module_signature.declaration_identity
         == second.ir.module_signature.declaration_identity
-        == "pass.zl::interface::PassIfc"
+        == "pass.zhl::interface::PassIfc"
     )
     assert first.high_level_ir_identity == second.high_level_ir_identity
     assert first.selected_ir_identity == second.selected_ir_identity
@@ -83,7 +83,7 @@ def test_semantic_expression_change_alters_both_canonical_identities() -> None:
 
 def test_selected_extraction_is_part_of_selected_ir_identity() -> None:
     result = compile_source(
-        (ROOT / "examples/cost_mac.zl").read_text(),
+        (ROOT / "examples/cost_mac.zhl").read_text(),
         include_clash=False,
     )
     selected = result.optimization_ir

@@ -136,7 +136,7 @@ def test_stdlib_discovery_is_recursive_and_contains_all_target_families() -> Non
 
 
 def test_unsupported_intel_physical_binding_is_explicit() -> None:
-    source = Path("examples/symmetric_fixed_fir.zl").read_text(encoding="utf-8")
+    source = Path("examples/symmetric_fixed_fir.zhl").read_text(encoding="utf-8")
     selected = compile_source(
         source, target="xc7z030ffg676-1",
         architecture="Xilinx7SymmetricDSPCascade", architecture_mode="required",

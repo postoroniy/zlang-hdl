@@ -4,7 +4,7 @@
 *.cmd text eol=crlf
 *.ps1 text eol=crlf
 
-*.zl text diff
+*.zhl text diff
 *.sv text diff
 *.hs text diff
 *.lark text diff

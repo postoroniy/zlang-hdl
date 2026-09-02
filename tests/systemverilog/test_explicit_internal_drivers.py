@@ -77,7 +77,7 @@ def _assert_explicit_driver(text: str, signal: str) -> None:
     ("example", "top", "signals"),
     (
         (
-            "fifo_bridge.zl",
+            "fifo_bridge.zhl",
             None,
             (
                 "queue_front",
@@ -90,7 +90,7 @@ def _assert_explicit_driver(text: str, signal: str) -> None:
             ),
         ),
         (
-            "fft_sdf_stage_atomic_transition.zl",
+            "fft_sdf_stage_atomic_transition.zhl",
             "SDFStateStage",
             (
                 "feedback_front",
@@ -103,17 +103,17 @@ def _assert_explicit_driver(text: str, signal: str) -> None:
             ),
         ),
         (
-            "packet_round_robin.zl",
+            "packet_round_robin.zhl",
             None,
             ("zlang_transfer", "zlang_grant_complete"),
         ),
         (
-            "cdc_async_fifo.zl",
+            "cdc_async_fifo.zhl",
             None,
             ("zlang_push", "zlang_pop"),
         ),
         (
-            "cdc_handshake.zl",
+            "cdc_handshake.zhl",
             None,
             ("zlang_source_transfer", "zlang_destination_transfer"),
         ),

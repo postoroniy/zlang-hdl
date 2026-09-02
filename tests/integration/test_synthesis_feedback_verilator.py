@@ -23,7 +23,7 @@ class SynthesisFeedbackVerilatorTests(unittest.TestCase):
         "Clash, Yosys, and Verilator are required",
     )
     def test_measured_selection_runs_with_unchanged_cycle_behavior(self) -> None:
-        compilation = compile_source((ROOT / "examples/cost_mac.zl").read_text())
+        compilation = compile_source((ROOT / "examples/cost_mac.zhl").read_text())
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             feedback = characterize_with_yosys(

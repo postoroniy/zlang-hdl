@@ -90,7 +90,7 @@ Wi-Fi-specific compiler node.
 
 The same dual-bank stage is parameterized by exact input/output fixed types and
 instantiated as `D32 -> D16 -> D8 -> D4 -> D2 -> D1` by the canonical
-`src/ifft_library.zl` helpers. With Q2.22 unit twiddles, every complex butterfly
+`src/ifft_library.zhl` helpers. With Q2.22 unit twiddles, every complex butterfly
 specialization follows the explicit recurrence:
 
 ```text
@@ -130,10 +130,10 @@ Payload and metadata remain stable under backpressure.  Reset during fill,
 transform, reorder, or prefix discards all pre-reset partial data.
 
 The bounded reorder/prefix implementation is in
-`examples/projects/80211a_transmitter/src/cyclic_extender.zl`. Its public
+`examples/projects/80211a_transmitter/src/cyclic_extender.zhl`. Its public
 boundary is exactly `rv<Complex<fixed<16,15>>>`; packet metadata is deliberately
 not fabricated at this numerical boundary and is attached by the framed wrapper
-in `src/ifft.zl`. A stateful child owns the single vector-register
+in `src/ifft.zhl`. A stateful child owns the single vector-register
 bank and is connected through a typed ready/valid wrapper.  The child writes
 one natural-order slot per accepted DIF output with `VectorUpdate`, holds the
 selected sample while stalled, and does not accept a following symbol until

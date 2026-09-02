@@ -95,7 +95,7 @@ Out-of-order matching, an additional protocol on the same child, nested or
 transitive request/response arrays, and unindexed endpoint references fail
 closed. This profile is covered by compiler/backend tests and the executable
 capability-registry witness
-`tests/fixtures/hierarchy/request_response_instance_array.zl`.
+`tests/fixtures/hierarchy/request_response_instance_array.zhl`.
 
 Legacy globally controlled storage still cannot be combined with user
 registers/rules. Credit and other non-RV protocols, CSR or storage below a
@@ -229,7 +229,7 @@ out-of-order composition remains outside the current bounded subset.
 
 ## Aggregate protocols and the standard library
 
-The compiler-shipped `std` namespace maps to ordinary `.zl` files below
+The compiler-shipped `std` namespace maps to ordinary `.zhl` files below
 `stdlib/`. The compiler knows generic aggregate schemas, roles, ownership,
 hierarchy, and domains; it does not hard-code AXI/APB transactions.
 

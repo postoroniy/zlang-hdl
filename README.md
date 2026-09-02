@@ -1,6 +1,6 @@
-# ZLang
+# ZLang HDL
 
-ZLang is an experimental hardware description language and compiler focused on
+ZLang HDL is an experimental hardware description language and compiler focused on
 strong types, explicit cycle semantics, reusable protocols, deterministic
 artifacts, and verification-aware implementation selection.
 
@@ -28,14 +28,14 @@ python3.12 -m venv .venv
 Check a design without emitting RTL:
 
 ```bash
-.venv/bin/zlangc examples/add.zl --check --verbose
+.venv/bin/zlang examples/add.zhl --check --verbose
 ```
 
 Emit direct SystemVerilog:
 
 ```bash
 mkdir -p build
-.venv/bin/zlangc examples/add.zl --systemverilog build/Add.sv --verbose
+.venv/bin/zlang examples/add.zhl --systemverilog build/Add.sv --verbose
 ```
 
 With Verilator installed, a strict lint smoke is:
@@ -79,7 +79,7 @@ The validated language includes:
   M35 safety checks, M36 semantic-reference equivalence, M38 cross-backend
   evidence, M39 formal-aware selection, and source-level verification goals.
 
-The executable [language tour](examples/all_syntax.zl) is representative, not a
+The executable [language tour](examples/all_syntax.zhl) is representative, not a
 complete support contract. Use the
 [current language status](docs/current-language-status.md),
 [syntax support matrix](docs/syntax-support-matrix.md), and
@@ -109,8 +109,8 @@ combination is supported or that measured FPGA timing is guaranteed.
 Emit Clash and, when Clash is installed, retain generated Verilog:
 
 ```bash
-.venv/bin/zlangc examples/add.zl -o build/Add.hs
-.venv/bin/zlangc examples/add.zl \
+.venv/bin/zlang examples/add.zhl -o build/Add.hs
+.venv/bin/zlang examples/add.zhl \
   -o build/Add.hs \
   --verilog-dir build/clash-verilog \
   --verilator-lint
@@ -119,7 +119,7 @@ Emit Clash and, when Clash is installed, retain generated Verilog:
 Create and replay an immutable verification bundle:
 
 ```bash
-.venv/bin/zlangc examples/contracted_add.zl \
+.venv/bin/zlang examples/contracted_add.zhl \
   --top ContractedAdd \
   --verification-bundle build/verify
 

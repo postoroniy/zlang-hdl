@@ -46,7 +46,7 @@ def _simulate(source: str, top: str, body: str, tmp_path: Path) -> None:
 @pytest.mark.skipif(VERILATOR is None, reason="Verilator is required")
 def test_rv_to_credit_stops_and_resumes_at_exact_credit_limit(tmp_path: Path) -> None:
     _simulate(
-        "rv_to_credit.zl",
+        "rv_to_credit.zhl",
         "RvToCredit",
         r'''
 static void tick(VRvToCredit& d) {
@@ -70,7 +70,7 @@ int main() {
 @pytest.mark.skipif(VERILATOR is None, reason="Verilator is required")
 def test_credit_to_rv_buffers_stalls_and_returns_only_on_dequeue(tmp_path: Path) -> None:
     _simulate(
-        "credit_to_rv.zl",
+        "credit_to_rv.zhl",
         "CreditToRv",
         r'''
 static void tick(VCreditToRv& d) {
@@ -98,7 +98,7 @@ int main() {
 @pytest.mark.skipif(VERILATOR is None, reason="Verilator is required")
 def test_vc_credit_sender_tracks_each_channel_independently(tmp_path: Path) -> None:
     _simulate(
-        "vc_credit_source.zl",
+        "vc_credit_source.zhl",
         "VcCreditSource",
         r'''
 static void tick(VVcCreditSource& d) {

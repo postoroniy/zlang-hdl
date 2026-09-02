@@ -1,6 +1,6 @@
 {
   "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
-  "name": "ZLang",
+  "name": "ZLang HDL",
   "scopeName": "source.zlang",
   "patterns": [
     {"include": "#strings"},

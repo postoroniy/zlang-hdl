@@ -20,7 +20,7 @@ class M37BackendTests(unittest.TestCase):
         return compile_source((ROOT / "examples" / name).read_text())
 
     def test_both_backends_publish_versioned_artifact_manifests(self):
-        result = self.compile("alu.zl")
+        result = self.compile("alu.zhl")
         for artifact in (emit_clash_artifact(result.ir), emit_sv_artifact(result.ir)):
             self.assertEqual(artifact.manifest_version, 2)
             self.assertEqual(len(artifact.artifact_hash), 64)
@@ -31,14 +31,14 @@ class M37BackendTests(unittest.TestCase):
             self.assertEqual({item.backend for item in artifact.bindings}, {artifact.backend})
 
     def test_direct_reductions_are_lowered_from_typed_ir(self):
-        for name in ("dot_product.zl", "generated_reduce.zl", "mapped_sum.zl"):
+        for name in ("dot_product.zhl", "generated_reduce.zhl", "mapped_sum.zhl"):
             with self.subTest(name=name):
                 text = emit_experimental(self.compile(name).ir)
                 self.assertNotIn("unsupported direct SystemVerilog expression Reduce", text)
                 self.assertIn("assign y", text)
 
     def test_direct_fifo_is_emitted_and_lints_when_available(self):
-        text = emit_experimental(self.compile("fifo_bridge.zl").ir)
+        text = emit_experimental(self.compile("fifo_bridge.zhl").ir)
         self.assertIn("queue_storage", text)
         self.assertIn("queue_count", text)
         verilator = shutil.which("verilator")
@@ -204,7 +204,7 @@ class M37BackendTests(unittest.TestCase):
             self.assertEqual(completed.returncode, 0, completed.stderr)
 
     def test_direct_and_clash_artifacts_have_real_formal_smoke(self):
-        result = self.compile("alu.zl")
+        result = self.compile("alu.zhl")
         wrapper = """
 module M37Formal(input [31:0] a, input [31:0] b, input [2:0] op);
   wire [31:0] y;

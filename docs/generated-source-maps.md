@@ -14,8 +14,8 @@ artifact plus its sidecar model.  `write_sidecar` writes canonical, sorted JSON.
 The CLI exposes the same model for exactly one explicit backend output:
 
 ```bash
-zlangc design.zl -o Design.hs --source-map Design.hs.zmap.json
-zlangc design.zl --systemverilog Design.sv \
+zlang design.zhl -o Design.hs --source-map Design.hs.zmap.json
+zlang design.zhl --systemverilog Design.sv \
   --source-map Design.sv.zmap.json
 ```
 

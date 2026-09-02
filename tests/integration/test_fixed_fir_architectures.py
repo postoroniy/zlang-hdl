@@ -17,7 +17,7 @@ from zlang.toolchain import find_clash_executable, generate_verilog
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SOURCE = (ROOT / "examples/fixed_fir_architectures.zl").read_text()
+SOURCE = (ROOT / "examples/fixed_fir_architectures.zhl").read_text()
 LATENCY = {
     "FixedFIRLinear": 1,
     "FixedFIRBalanced": 1,

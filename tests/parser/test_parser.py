@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class ParserTests(unittest.TestCase):
     def test_add_example_builds_syntax_ast(self) -> None:
-        module = parse((ROOT / "examples/add.zl").read_text())
+        module = parse((ROOT / "examples/add.zhl").read_text())
 
         self.assertEqual(module.name, "Add")
         self.assertEqual(

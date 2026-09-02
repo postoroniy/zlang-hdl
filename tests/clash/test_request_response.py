@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class ClashRequestResponseTests(unittest.TestCase):
     def test_request_client_golden_matches_emitter(self) -> None:
-        result = compile_source((ROOT / "examples/request_client.zl").read_text())
+        result = compile_source((ROOT / "examples/request_client.zhl").read_text())
         expected = (ROOT / "examples/generated/RequestClient.hs").read_text()
         self.assertEqual(result.clash, expected)
 
@@ -25,7 +25,7 @@ class ClashRequestResponseTests(unittest.TestCase):
 
     def test_out_of_order_id_table_and_assertion_are_emitted(self) -> None:
         clash = compile_source(
-            (ROOT / "examples/request_client.zl").read_text()
+            (ROOT / "examples/request_client.zhl").read_text()
         ).clash
         self.assertIn("Vec 2 Bit", clash)
         self.assertIn("Vec 2 (Unsigned 2)", clash)

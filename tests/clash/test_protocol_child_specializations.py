@@ -25,7 +25,7 @@ from zlang.toolchain import (
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SOURCE = ROOT / "examples" / "fft" / "sdf_stage_numeric.zl"
+SOURCE = ROOT / "examples" / "fft" / "sdf_stage_numeric.zhl"
 TOOLS = bool(find_clash_executable() and shutil.which("verilator"))
 
 NESTED_READY_VALID_SOURCE = """

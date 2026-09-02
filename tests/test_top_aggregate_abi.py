@@ -169,7 +169,7 @@ class TopAggregateABITests(unittest.TestCase):
         self.assertEqual(lanes.packed_root_external_name, "bus__status")
 
     def test_request_response_payload_structs_are_split_for_both_roles(self):
-        source = (ROOT / "examples/hierarchical_request_response_m40.zl").read_text()
+        source = (ROOT / "examples/hierarchical_request_response_m40.zhl").read_text()
         requester = build_top_physical_abi(
             compile_source(source, top="Requester", include_clash=False).ir
         )

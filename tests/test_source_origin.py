@@ -28,7 +28,7 @@ def _origin() -> SourceOrigin:
     return SourceOrigin(
         SourceSpan(3, 5, 3, 17),
         "output y",
-        "examples/add.zl",
+        "examples/add.zhl",
         DIGEST,
     )
 
@@ -36,7 +36,7 @@ def _origin() -> SourceOrigin:
 def test_source_origin_old_constructor_and_render_remain_compatible() -> None:
     origin = SourceOrigin(SourceSpan(1, 2, 1, 8), "add")
     qualified = SourceOrigin(
-        SourceSpan(1, 2, 1, 8), "add", "examples/add.zl", DIGEST
+        SourceSpan(1, 2, 1, 8), "add", "examples/add.zhl", DIGEST
     )
 
     assert origin.source_unit is None
@@ -50,7 +50,7 @@ def test_source_origin_structured_data_is_deterministic_and_lossless() -> None:
     expected = {
         "construct": "output y",
         "digest": DIGEST,
-        "source_unit": "examples/add.zl",
+        "source_unit": "examples/add.zhl",
         "span": {
             "start_line": 3,
             "start_column": 5,
@@ -221,12 +221,12 @@ def test_compile_source_attaches_logical_unit_and_content_digest() -> None:
     result = compile_source(
         source,
         include_clash=False,
-        source_unit="examples/add.zl",
+        source_unit="examples/add.zhl",
     )
     origin = result.ir.assignments[0].expression.origin
 
     assert origin is not None
-    assert origin.source_unit == "examples/add.zl"
+    assert origin.source_unit == "examples/add.zhl"
     assert origin.digest == hashlib.sha256(source.encode()).hexdigest()
 
 
@@ -236,7 +236,7 @@ def test_source_unit_and_digest_do_not_change_hardware_or_artifact_identity() ->
     located = compile_source(
         source,
         include_clash=False,
-        source_unit="examples/add.zl",
+        source_unit="examples/add.zhl",
     )
     anonymous_artifact = emit_systemverilog_artifact(anonymous.ir)
     located_artifact = emit_systemverilog_artifact(located.ir)
@@ -263,12 +263,12 @@ def test_imported_generic_body_keeps_stdlib_unit_and_digest() -> None:
     result = compile_source(
         source,
         include_clash=False,
-        source_unit="examples/complex_add.zl",
+        source_unit="examples/complex_add.zhl",
     )
     call = result.ir.assignments[0].expression
     assert isinstance(call, Call)
     assert call.origin is not None
-    assert call.origin.source_unit == "examples/complex_add.zl"
+    assert call.origin.source_unit == "examples/complex_add.zhl"
     definition = next(
         item
         for item in result.ir.callable_definitions

@@ -274,10 +274,10 @@ def test_expression_local_generic_explore_is_retained_and_gated_after_typing() -
 @pytest.mark.parametrize(
     ("filename", "kind"),
     (
-        ("cost_mac.zl", CandidateSiteKind.CHOICE_AUTO),
-        ("fir_architecture.zl", CandidateSiteKind.ARCHITECTURE_AUTO),
-        ("auto_pipeline_products.zl", CandidateSiteKind.STANDALONE_PIPELINE),
-        ("elastic_pipeline_auto.zl", CandidateSiteKind.ELASTIC_PIPELINE),
+        ("cost_mac.zhl", CandidateSiteKind.CHOICE_AUTO),
+        ("fir_architecture.zhl", CandidateSiteKind.ARCHITECTURE_AUTO),
+        ("auto_pipeline_products.zhl", CandidateSiteKind.STANDALONE_PIPELINE),
+        ("elastic_pipeline_auto.zhl", CandidateSiteKind.ELASTIC_PIPELINE),
     ),
 )
 def test_frozen_source_entry_points_have_deterministic_typed_records(
@@ -358,8 +358,8 @@ def test_external_profile_is_generated_then_gated_in_selection_rank_order() -> N
 @pytest.mark.parametrize(
     ("filename", "kind"),
     (
-        ("cost_mac.zl", CandidateSiteKind.CHOICE_AUTO),
-        ("fir_architecture.zl", CandidateSiteKind.ARCHITECTURE_AUTO),
+        ("cost_mac.zhl", CandidateSiteKind.CHOICE_AUTO),
+        ("fir_architecture.zhl", CandidateSiteKind.ARCHITECTURE_AUTO),
     ),
 )
 def test_required_policy_gates_choice_and_architecture_in_exact_rank_order(

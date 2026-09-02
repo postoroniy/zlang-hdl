@@ -16,7 +16,7 @@ from zlang.targets import TargetArchitectureError
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = (ROOT / "examples/symmetric_fixed_fir_auto.zl").read_text()
+SOURCE = (ROOT / "examples/symmetric_fixed_fir_auto.zhl").read_text()
 TARGET = "xc7z030ffg676-1"
 
 

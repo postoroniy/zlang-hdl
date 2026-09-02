@@ -126,7 +126,7 @@ def test_emission_claims_require_every_entity_exactly_once() -> None:
 
 def _request_response_hierarchy():
     return compile_source(
-        (ROOT / "examples/hierarchical_request_response_m40.zl").read_text(),
+        (ROOT / "examples/hierarchical_request_response_m40.zhl").read_text(),
         include_clash=False,
     ).ir
 
@@ -153,7 +153,7 @@ def test_inventory_tracks_protocol_endpoints_and_request_response_ledger() -> No
 
 def test_inventory_tracks_aggregate_endpoint_and_each_member_endpoint() -> None:
     module = compile_source(
-        (ROOT / "examples/all_syntax.zl").read_text(),
+        (ROOT / "examples/all_syntax.zhl").read_text(),
         top="AggregateProtocolSyntax",
         include_clash=False,
     ).ir

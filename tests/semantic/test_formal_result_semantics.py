@@ -140,7 +140,7 @@ module MappedFormalError {
     module = compile_source(
         source,
         include_clash=False,
-        source_unit="examples/mapped_formal_error.zl",
+        source_unit="examples/mapped_formal_error.zhl",
     ).ir
     artifact, source_map = emit_artifact_with_source_map(module)
     mapped_line = source_map.entries[0].generated.start_line
@@ -179,7 +179,7 @@ module MappedFormalError {
 
     assert result.status is FormalStatus.UNKNOWN
     assert "ERROR status" in (result.reason or "")
-    assert "ZLang origin: examples/mapped_formal_error.zl:" in (
+    assert "ZLang origin: examples/mapped_formal_error.zhl:" in (
         result.reason or ""
     )
     assert "(operator +)" in (result.reason or "")

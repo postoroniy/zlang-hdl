@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class VerificationParserTests(unittest.TestCase):
     def test_assume_and_guarantee_preserve_clock_reset_and_expression(self) -> None:
-        module = parse((ROOT / "examples/contracted_add.zl").read_text())
+        module = parse((ROOT / "examples/contracted_add.zhl").read_text())
 
         self.assertEqual([item.kind for item in module.contracts], [
             ContractKind.ASSUME,

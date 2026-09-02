@@ -9,6 +9,7 @@ from zlang.dependencies import (
     DependencyModelError,
     DependencyModuleIdentity,
     DependencySourceKind,
+    LOCK_SCHEMA,
     LockedModule,
     LockedPackage,
     ResolvedModule,
@@ -32,7 +33,7 @@ def _packages() -> tuple[LockedPackage, ...]:
         None,
         D1,
         (),
-        (LockedModule("vendor.math.fixed", "fixed.zl", D2, ("std.math.fixed",)),),
+        (LockedModule("vendor.math.fixed", "fixed.zhl", D2, ("std.math.fixed",)),),
     )
     fft = LockedPackage(
         "vendor.fft",
@@ -43,15 +44,15 @@ def _packages() -> tuple[LockedPackage, ...]:
         D2,
         ("vendor.math",),
         (
-            LockedModule("vendor.fft.twiddle", "twiddle.zl", D3, ("vendor.math.fixed",)),
-            LockedModule("vendor.fft.core", "core.zl", D1, ("vendor.fft.twiddle",)),
+            LockedModule("vendor.fft.twiddle", "twiddle.zhl", D3, ("vendor.math.fixed",)),
+            LockedModule("vendor.fft.core", "core.zhl", D1, ("vendor.fft.twiddle",)),
         ),
     )
     return fft, leaf
 
 
 def test_lock_parse_render_round_trip_and_identity_are_deterministic() -> None:
-    lock = ProjectLock(1, D0, _packages())
+    lock = ProjectLock(LOCK_SCHEMA, D0, _packages())
     # Construction normalizes package and module order, independent of insertion.
     assert tuple(item.name for item in lock.packages) == ("vendor.fft", "vendor.math")
     assert tuple(item.logical_path for item in lock.package("vendor.fft").modules) == (
@@ -72,16 +73,16 @@ def test_lock_parse_render_round_trip_and_identity_are_deterministic() -> None:
 
 
 def test_lock_identity_changes_for_every_exact_record_family() -> None:
-    original = ProjectLock(1, D0, _packages())
-    changed_manifest = ProjectLock(1, D3, _packages())
+    original = ProjectLock(LOCK_SCHEMA, D0, _packages())
+    changed_manifest = ProjectLock(LOCK_SCHEMA, D3, _packages())
     changed_module = ProjectLock(
-        1,
+        LOCK_SCHEMA,
         D0,
         (
             _packages()[0],
             LockedPackage(
                 "vendor.math", "1.0.0", DependencySourceKind.PATH, "../math",
-                None, D1, (), (LockedModule("vendor.math.fixed", "fixed.zl", D3),),
+                None, D1, (), (LockedModule("vendor.math.fixed", "fixed.zhl", D3),),
             ),
         ),
     )
@@ -96,17 +97,17 @@ def test_lock_rejects_duplicate_or_case_colliding_packages(second_name: str) -> 
         second_name, "1", DependencySourceKind.PATH, "../other", None, D2,
     )
     with pytest.raises(ProjectModelError, match="duplicate locked package"):
-        ProjectLock(1, D0, (first, second))
+        ProjectLock(LOCK_SCHEMA, D0, (first, second))
 
 
 def test_lock_rejects_duplicate_module_index_across_packages() -> None:
     first = _packages()[1]
     duplicate = LockedPackage(
         "vendor", "1", DependencySourceKind.PATH, "../other", None, D2,
-        (), (LockedModule("vendor.math.fixed", "different.zl", D3),),
+        (), (LockedModule("vendor.math.fixed", "different.zhl", D3),),
     )
     with pytest.raises(ProjectModelError, match="duplicate locked module"):
-        ProjectLock(1, D0, (first, duplicate))
+        ProjectLock(LOCK_SCHEMA, D0, (first, duplicate))
 
 
 def test_locked_package_rejects_duplicate_relative_or_logical_modules() -> None:
@@ -114,16 +115,16 @@ def test_locked_package_rejects_duplicate_relative_or_logical_modules() -> None:
         LockedPackage(
             "vendor.math", "1", DependencySourceKind.PATH, "../math", None, D1, (),
             (
-                LockedModule("vendor.math.a", "same.zl", D2),
-                LockedModule("vendor.math.b", "same.zl", D3),
+                LockedModule("vendor.math.a", "same.zhl", D2),
+                LockedModule("vendor.math.b", "same.zhl", D3),
             ),
         )
     with pytest.raises(DependencyModelError, match="duplicate locked module"):
         LockedPackage(
             "vendor.math", "1", DependencySourceKind.PATH, "../math", None, D1, (),
             (
-                LockedModule("vendor.math.a", "a.zl", D2),
-                LockedModule("VENDOR.MATH.A", "b.zl", D3),
+                LockedModule("vendor.math.a", "a.zhl", D2),
+                LockedModule("VENDOR.MATH.A", "b.zhl", D3),
             ),
         )
 
@@ -132,7 +133,7 @@ def test_locked_package_rejects_module_outside_its_namespace() -> None:
     with pytest.raises(DependencyModelError, match="outside package"):
         LockedPackage(
             "vendor.math", "1", DependencySourceKind.PATH, "../math", None, D1,
-            (), (LockedModule("other.math", "math.zl", D2),),
+            (), (LockedModule("other.math", "math.zhl", D2),),
         )
 
 
@@ -142,7 +143,7 @@ def test_lock_rejects_missing_dependency_and_cycles() -> None:
         ("vendor.missing",), (),
     )
     with pytest.raises(ProjectModelError, match="unavailable package 'vendor.missing'"):
-        ProjectLock(1, D0, (missing,))
+        ProjectLock(LOCK_SCHEMA, D0, (missing,))
 
     a = LockedPackage(
         "vendor.a", "1", DependencySourceKind.PATH, "../a", None, D1,
@@ -153,24 +154,28 @@ def test_lock_rejects_missing_dependency_and_cycles() -> None:
         ("vendor.a",), (),
     )
     with pytest.raises(ProjectModelError, match=r"vendor\.a -> vendor\.b -> vendor\.a"):
-        ProjectLock(1, D0, (a, b))
+        ProjectLock(LOCK_SCHEMA, D0, (a, b))
 
 
 def test_lock_parser_rejects_unknown_keys_and_invalid_exact_fields() -> None:
-    rendered = ProjectLock(1, D0, _packages()).render()
+    rendered = ProjectLock(LOCK_SCHEMA, D0, _packages()).render()
     with pytest.raises(ProjectModelError, match="unknown locked package key 'mystery'"):
         ProjectLock.parse(rendered.replace('version = "2.0.0"', 'version = "2.0.0"\nmystery = 1'))
     with pytest.raises(ProjectModelError, match="complete lowercase"):
         ProjectLock.parse(rendered.replace(f'revision = "{REV}"', 'revision = "main"'))
     with pytest.raises(ProjectModelError, match="manifest resolution digest"):
         ProjectLock.parse(rendered.replace(D0, "bad", 1))
+    with pytest.raises(ProjectModelError, match="unsupported lock schema 1"):
+        ProjectLock.parse(rendered.replace("schema = 2", "schema = 1", 1))
 
 
 def test_lock_load_is_read_only_and_missing_is_explicit(tmp_path: Path) -> None:
     path = tmp_path / "zlang.lock"
-    path.write_text(ProjectLock(1, D0, _packages()).render())
+    path.write_text(ProjectLock(LOCK_SCHEMA, D0, _packages()).render())
     before = path.stat().st_mtime_ns
-    assert ProjectLock.load(path).identity == ProjectLock(1, D0, _packages()).identity
+    assert ProjectLock.load(path).identity == ProjectLock(
+        LOCK_SCHEMA, D0, _packages()
+    ).identity
     assert path.stat().st_mtime_ns == before
     with pytest.raises(ProjectModelError, match="lock is unavailable"):
         ProjectLock.load(tmp_path / "missing.lock")
@@ -181,7 +186,7 @@ def test_dependency_closure_and_module_identity_round_trip_stably() -> None:
         DependencyModuleIdentity("vendor.math.fixed", D2, D1),
         DependencyModuleIdentity("vendor.fft.core", D1, D2, REV),
     )
-    closure = DependencyClosure(1, D0, tuple(reversed(modules)))
+    closure = DependencyClosure(LOCK_SCHEMA, D0, tuple(reversed(modules)))
     assert tuple(item.logical_path for item in closure.modules) == (
         "vendor.fft.core",
         "vendor.math.fixed",
@@ -189,19 +194,19 @@ def test_dependency_closure_and_module_identity_round_trip_stably() -> None:
     restored = DependencyClosure.from_data(closure.to_data())
     assert restored == closure
     assert restored.identity == closure.identity
-    assert DependencyClosure(1, D0, modules).identity == closure.identity
+    assert DependencyClosure(LOCK_SCHEMA, D0, modules).identity == closure.identity
 
 
 def test_dependency_closure_rejects_duplicate_modules() -> None:
     module = DependencyModuleIdentity("vendor.math.fixed", D2, D1)
     with pytest.raises(DependencyModelError, match="duplicate closure module"):
-        DependencyClosure(1, D0, (module, module))
+        DependencyClosure(LOCK_SCHEMA, D0, (module, module))
 
 
 def test_resolved_module_matches_small_resolver_facing_shape() -> None:
     resolved = ResolvedModule(
         "vendor.math.fixed",
-        Path("/cache/vendor/math/fixed.zl"),
+        Path("/cache/vendor/math/fixed.zhl"),
         object(),
         D2,
         ("std.math.fixed",),

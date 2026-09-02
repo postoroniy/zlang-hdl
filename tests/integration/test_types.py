@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class HardwareTypeIntegrationTests(unittest.TestCase):
     def test_extended_add_example_behavior(self) -> None:
-        source = (ROOT / "examples/extended_add.zl").read_text()
+        source = (ROOT / "examples/extended_add.zhl").read_text()
         module = compile_source(source).ir
         self.assertEqual(simulate(module, a=255, b=255), {"y": 510})
 

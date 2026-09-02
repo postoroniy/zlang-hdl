@@ -52,7 +52,7 @@ class RecursiveFormalBindingTests(unittest.TestCase):
         self.assertEqual({item.physical_instance_path[-1] for item in children}, {"fifo0", "fifo1"})
 
     def test_manifest_v4_round_trip_and_observation_harness(self):
-        source = (ROOT / "examples/axi_csr_top.zl").read_text()
+        source = (ROOT / "examples/axi_csr_top.zhl").read_text()
         module = analyze(parse(source))
         design = build_recursive_formal_design(module)
         artifact = emit_formal_artifact(module, design)
@@ -69,7 +69,7 @@ class RecursiveFormalBindingTests(unittest.TestCase):
         self.assertIn("observation", harness)
 
     def test_deterministic_serialization_and_cache_identity(self):
-        source = (ROOT / "examples/hierarchical_request_response_m40.zl").read_text()
+        source = (ROOT / "examples/hierarchical_request_response_m40.zhl").read_text()
         module = analyze(parse(source))
         first = build_recursive_formal_design(module)
         second = build_recursive_formal_design(module)
@@ -77,7 +77,7 @@ class RecursiveFormalBindingTests(unittest.TestCase):
         self.assertEqual(first.required_observations, tuple(sorted(first.required_observations)))
 
     def test_unconnected_nested_observations_are_explicit_skips(self):
-        module = analyze(parse((ROOT / "examples/axi_csr_top.zl").read_text()))
+        module = analyze(parse((ROOT / "examples/axi_csr_top.zhl").read_text()))
         design = build_recursive_formal_design(module)
         results = run_recursive_formal(design)
         self.assertTrue(results)
@@ -86,7 +86,7 @@ class RecursiveFormalBindingTests(unittest.TestCase):
         self.assertIn("not connected", results[0].reason)
 
     def test_clash_formal_artifact_materializes_typed_rr_observations(self):
-        source = (ROOT / "examples/simple_dma_m40.zl").read_text()
+        source = (ROOT / "examples/simple_dma_m40.zhl").read_text()
         module = analyze(parse(source))
         design = build_recursive_formal_design(module)
         artifact = emit_formal_artifact(module, design)
@@ -121,7 +121,7 @@ class RecursiveFormalBindingTests(unittest.TestCase):
     @unittest.skipUnless(find_clash_executable() and shutil.which("verilator"),
                          "Clash and Verilator are unavailable")
     def test_clash_formal_artifact_generates_and_lints(self):
-        source = (ROOT / "examples/simple_dma_m40.zl").read_text()
+        source = (ROOT / "examples/simple_dma_m40.zhl").read_text()
         module = analyze(parse(source))
         artifact = emit_formal_artifact(module, build_recursive_formal_design(module))
         with tempfile.TemporaryDirectory() as directory:

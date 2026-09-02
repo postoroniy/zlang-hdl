@@ -10,11 +10,11 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class ClashEmitterTests(unittest.TestCase):
     def test_checked_in_example_matches_current_emitter(self) -> None:
-        generated = compile_source((ROOT / "examples/add.zl").read_text()).clash
+        generated = compile_source((ROOT / "examples/add.zhl").read_text()).clash
         self.assertEqual(generated, (ROOT / "examples/generated/Add.hs").read_text())
 
     def test_emitter_preserves_addition_carry(self) -> None:
-        generated = compile_source((ROOT / "examples/add.zl").read_text()).clash
+        generated = compile_source((ROOT / "examples/add.zhl").read_text()).clash
         self.assertIn("topEntity :: Unsigned 8 -> Unsigned 8 -> Unsigned 9", generated)
         self.assertIn("resize (a) :: Unsigned 9", generated)
         self.assertIn('t_output = PortName "y"', generated)

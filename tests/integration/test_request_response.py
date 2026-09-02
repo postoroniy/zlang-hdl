@@ -70,7 +70,7 @@ class RequestResponseIntegrationTests(unittest.TestCase):
 
     def test_out_of_order_matching_accepts_reversed_response_order(self) -> None:
         module = compile_source(
-            (ROOT / "examples/request_client.zl").read_text()
+            (ROOT / "examples/request_client.zhl").read_text()
         ).ir
         def cycle(
             request_id: int,
@@ -105,7 +105,7 @@ class RequestResponseIntegrationTests(unittest.TestCase):
 
     def test_duplicate_and_unknown_ids_are_protocol_violations(self) -> None:
         module = compile_source(
-            (ROOT / "examples/request_client.zl").read_text()
+            (ROOT / "examples/request_client.zhl").read_text()
         ).ir
         base = {
             "accept_response": 1,

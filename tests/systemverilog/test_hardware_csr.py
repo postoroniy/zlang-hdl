@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[2]
 @pytest.mark.skipif(shutil.which("verilator") is None, reason="Verilator is required")
 def test_hardware_connected_csr_matches_frozen_priority_and_pulse(tmp_path: Path) -> None:
     module = compile_source(
-        (ROOT / "examples" / "engine_csr.zl").read_text(), include_clash=False
+        (ROOT / "examples" / "engine_csr.zhl").read_text(), include_clash=False
     ).ir
     rtl = tmp_path / "EngineCsr.sv"
     harness = tmp_path / "test.cpp"

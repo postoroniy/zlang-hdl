@@ -18,7 +18,7 @@ def _rom() -> Rom:
     origin = SourceOrigin(
         SourceSpan(3, 3, 6, 4),
         "rom:table",
-        "fixture.zl",
+        "fixture.zhl",
         "a" * 64,
     )
     return Rom(

@@ -74,7 +74,7 @@ phase <- switch phase {
 
 The simulator, Clash, and direct SystemVerilog share the declaration-order
 ordinal encoding. The source-authored APB bridge in
-[`stdlib/bus/apb.zl`](../stdlib/bus/apb.zl) uses an enum for its internal phase
+[`stdlib/bus/apb.zhl`](../stdlib/bus/apb.zhl) uses an enum for its internal phase
 without exposing it through the external bus ABI.
 
 For control-oriented state, `fsm` is concise syntax for the same enum register

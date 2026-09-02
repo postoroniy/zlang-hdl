@@ -495,7 +495,7 @@ def test_text_tuple_artifacts_publish_only_real_public_top_bindings() -> None:
 def test_tuple_output_leaf_bindings_preserve_component_source_origins() -> None:
     module = compile_source(
         ORIGIN_SOURCE,
-        source_unit="tuple-origin.zl",
+        source_unit="tuple-origin.zhl",
     ).ir
     direct = emit_systemverilog_artifact(module)
     wrapper = ClashPublicTopWrapper.build(module)
@@ -511,7 +511,7 @@ def test_tuple_output_leaf_bindings_preserve_component_source_origins() -> None:
         first = bindings["port:q.item0"].source_origin
         second = bindings["port:q.item1"].source_origin
         assert first is not None and second is not None
-        assert first.source_unit == second.source_unit == "tuple-origin.zl"
+        assert first.source_unit == second.source_unit == "tuple-origin.zhl"
         assert first.span.start_line == 5
         assert second.span.start_line == 6
         assert first != second

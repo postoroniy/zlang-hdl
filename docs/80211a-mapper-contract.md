@@ -1,7 +1,7 @@
 # 802.11a Mapper contract
 
 Status: historical bounded-slice evidence. The executable project now uses the
-canonical `src/mapper.zl` hierarchy and `IeeeMapper64` naming.
+canonical `src/mapper.zhl` hierarchy and `IeeeMapper64` naming.
 
 This document freezes the bounded mapper slice for the standalone
 `80211a_transmitter` validation project. IEEE 802.11a is the behavioral source

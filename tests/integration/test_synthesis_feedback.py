@@ -18,7 +18,7 @@ YOSYS = shutil.which("yosys")
 class SynthesisFeedbackIntegrationTests(unittest.TestCase):
     @unittest.skipUnless(CLASH_EXECUTABLE and YOSYS, "Clash and Yosys are required")
     def test_identical_candidates_are_loaded_from_stable_cache(self) -> None:
-        compilation = compile_source((ROOT / "examples/cost_mac.zl").read_text())
+        compilation = compile_source((ROOT / "examples/cost_mac.zhl").read_text())
         with tempfile.TemporaryDirectory() as temporary:
             cache = Path(temporary) / "cache"
             first = characterize_with_yosys(
@@ -63,7 +63,7 @@ class SynthesisFeedbackIntegrationTests(unittest.TestCase):
                 with self.assertRaises(SystemExit):
                     main(
                         [
-                            str(ROOT / "examples/cost_mac.zl"),
+                            str(ROOT / "examples/cost_mac.zhl"),
                             "--synthesis-report",
                             str(Path(temporary) / "report.txt"),
                             "--synthesis-cache",

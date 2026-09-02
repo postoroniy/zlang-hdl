@@ -36,7 +36,7 @@ DEFAULT_SOURCE = (
     / "projects"
     / "80211a_transmitter"
     / "src"
-    / "transmitter.zl"
+    / "transmitter.zhl"
 )
 DEFAULT_TOP = "Ieee80211aTransmitter"
 DEFAULT_PART = "xc7z030ffg676-1"

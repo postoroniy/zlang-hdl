@@ -244,7 +244,7 @@ def test_graph_and_descriptor_identities_are_deterministic():
 
 
 def test_fft_real_and_imag_are_recognized_without_width_annotations():
-    source = (ROOT / "examples/fft/complex_multiply_pipeline_auto.zl").read_text()
+    source = (ROOT / "examples/fft/complex_multiply_pipeline_auto.zhl").read_text()
     real = compile_source(
         source, top="FFTComplexMultiplyRealAuto"
     ).ir.pipeline_explorations[0].source_expression

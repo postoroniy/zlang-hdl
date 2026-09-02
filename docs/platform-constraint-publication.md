@@ -28,14 +28,14 @@ period is physical build configuration: it is not semantic IR, is not inferred
 from `fmax`, and is not merged into `ImplementationRequest`.
 
 The CLI publishes a constraint only together with exactly one backend artifact.
-The following commands are schematic and assume a project-local `top.zl` plus
+The following commands are schematic and assume a project-local `top.zhl` plus
 the `release` profile shown above:
 
 ```text
-zlangc top.zl --profile release --systemverilog top.sv \
+zlang top.zhl --profile release --systemverilog top.sv \
   --constraints-xdc top.xdc
 
-zlangc top.zl --profile release -o Top.hs \
+zlang top.zhl --profile release -o Top.hs \
   --constraints-sdc top.sdc
 ```
 

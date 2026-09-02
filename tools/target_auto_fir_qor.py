@@ -15,7 +15,7 @@ from zlang.compiler import compile_source
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = ROOT / "examples" / "symmetric_fixed_fir_auto.zl"
+SOURCE = ROOT / "examples" / "symmetric_fixed_fir_auto.zhl"
 
 
 def _tcl(rtl: Path, xdc: Path, work: Path, top: str, part: str, period: float) -> str:

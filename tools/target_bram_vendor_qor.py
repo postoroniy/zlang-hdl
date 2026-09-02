@@ -14,7 +14,7 @@ from zlang.compiler import compile_source
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = ROOT / "examples" / "target_bram_memory.zl"
+SOURCE = ROOT / "examples" / "target_bram_memory.zhl"
 
 
 def _tcl(rtl: Path, xdc: Path, work: Path, part: str) -> str:

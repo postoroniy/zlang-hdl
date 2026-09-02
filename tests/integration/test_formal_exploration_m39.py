@@ -481,7 +481,7 @@ class M39FormalExplorationTests(unittest.TestCase):
             ),
             (
                 "pipeline_auto",
-                Path("examples/auto_pipeline_products.zl").read_text(),
+                Path("examples/auto_pipeline_products.zhl").read_text(),
                 lambda result: result.ir.pipeline_explorations[0].formal_records,
             ),
         )
@@ -1079,7 +1079,7 @@ class M39FormalExplorationTests(unittest.TestCase):
         "real Clash/Yosys/SymbiYosys/Z3 route is unavailable",
     )
     def test_standalone_pipeline_required_policy_executes(self):
-        source = Path("examples/auto_pipeline_products.zl").read_text()
+        source = Path("examples/auto_pipeline_products.zhl").read_text()
         result = compile_source(
             source,
             formal_policy=FormalPolicy.REQUIRED_BMC,
@@ -1108,7 +1108,7 @@ class M39FormalExplorationTests(unittest.TestCase):
             evidence_path = root / "evidence.json"
             manifest_path = root / "build.json"
             status = main([
-                "examples/auto_pipeline_products.zl",
+                "examples/auto_pipeline_products.zhl",
                 "-o", str(root / "AutoPipelineProducts.hs"),
                 "--formal-policy", "required_bmc",
                 "--formal-depth", "8",

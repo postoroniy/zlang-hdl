@@ -21,7 +21,7 @@ class AutomaticPipelineVerilatorTests(unittest.TestCase):
     )
     def test_selected_pipeline_runs_with_reported_latency_in_verilator(self) -> None:
         compilation = compile_source(
-            (ROOT / "examples/auto_pipeline_products.zl").read_text()
+            (ROOT / "examples/auto_pipeline_products.zhl").read_text()
         )
         self.assertEqual(
             compilation.ir.pipeline_explorations[0].selected_candidate.latency,

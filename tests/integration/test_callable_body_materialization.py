@@ -19,7 +19,7 @@ MAPPER = (
     / "projects"
     / "80211a_transmitter"
     / "src"
-    / "mapper.zl"
+    / "mapper.zhl"
 )
 
 

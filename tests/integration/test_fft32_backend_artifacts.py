@@ -22,7 +22,7 @@ from zlang.toolchain import find_clash_executable, generate_verilog
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SOURCE = ROOT / "examples" / "fft" / "sdf_stage_numeric.zl"
+SOURCE = ROOT / "examples" / "fft" / "sdf_stage_numeric.zhl"
 TOP = "FFT32SDFReference"
 STAGES = (
     ("stage_d16", 16, 5, 4),

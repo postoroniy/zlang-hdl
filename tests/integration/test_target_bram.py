@@ -11,7 +11,7 @@ from zlang.toolchain import find_clash_executable, generate_verilog
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SOURCE = (ROOT / "examples/target_bram_memory.zl").read_text()
+SOURCE = (ROOT / "examples/target_bram_memory.zhl").read_text()
 
 
 def _selected():

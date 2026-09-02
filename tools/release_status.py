@@ -58,7 +58,7 @@ def _example_counts(root: Path) -> dict[str, int]:
         from zlang.parser import parse
     except ImportError as exc:
         raise StatusError("ZLang must be importable to inspect the example corpus") from exc
-    sources = tuple(sorted((root / "examples").rglob("*.zl")))
+    sources = tuple(sorted((root / "examples").rglob("*.zhl")))
     roots = 0
     for path in sources:
         syntax = parse(path.read_text(encoding="utf-8"))

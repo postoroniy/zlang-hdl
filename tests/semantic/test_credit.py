@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class CreditSemanticTests(unittest.TestCase):
     def test_sender_capacity_and_fields_survive_in_typed_ir(self) -> None:
-        module = analyze(parse((ROOT / "examples/credit_source.zl").read_text()))
+        module = analyze(parse((ROOT / "examples/credit_source.zhl").read_text()))
         tx = module.ports[2]
         self.assertEqual(tx.protocol, InterfaceProtocol.CREDIT)
         self.assertEqual(tx.capacity, 2)

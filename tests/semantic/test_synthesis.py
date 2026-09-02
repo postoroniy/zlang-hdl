@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class SynthesisFeedbackSemanticTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.source = (ROOT / "examples/cost_mac.zl").read_text()
+        self.source = (ROOT / "examples/cost_mac.zhl").read_text()
         self.compilation = compile_source(self.source)
 
     def test_normalized_candidate_hash_ignores_source_formatting(self) -> None:

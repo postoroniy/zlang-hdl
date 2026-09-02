@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class PipelineSemanticTests(unittest.TestCase):
     def test_pipeline_is_typed_and_records_stage_count(self) -> None:
-        module = analyze(parse((ROOT / "examples/pipelined_mac.zl").read_text()))
+        module = analyze(parse((ROOT / "examples/pipelined_mac.zhl").read_text()))
         expression = module.assignments[0].expression
         self.assertIsInstance(expression, Pipeline)
         self.assertEqual(expression.stages, 2)
@@ -49,7 +49,7 @@ class PipelineSemanticTests(unittest.TestCase):
 
     def test_auto_pipeline_selects_a_legal_balanced_dsp_candidate(self) -> None:
         module = analyze(
-            parse((ROOT / "examples/auto_pipeline_products.zl").read_text())
+            parse((ROOT / "examples/auto_pipeline_products.zhl").read_text())
         )
         exploration = module.pipeline_explorations[0]
 
@@ -118,7 +118,7 @@ class PipelineSemanticTests(unittest.TestCase):
             self.assertIn(node, rendered)
 
     def test_resource_constraint_selects_the_legal_logic_pipeline(self) -> None:
-        source = (ROOT / "examples/auto_pipeline_products.zl").read_text()
+        source = (ROOT / "examples/auto_pipeline_products.zhl").read_text()
         source = source.replace("dsp<=4, fmax>=400", "dsp<=0, fmax>=250")
         exploration = analyze(parse(source)).pipeline_explorations[0]
 
@@ -126,7 +126,7 @@ class PipelineSemanticTests(unittest.TestCase):
         self.assertEqual(exploration.selected_candidate.estimate.dsp, 0)
 
     def test_signed_product_reassociation_preserves_the_exact_type(self) -> None:
-        source = (ROOT / "examples/auto_pipeline_products.zl").read_text()
+        source = (ROOT / "examples/auto_pipeline_products.zhl").read_text()
         source = source.replace("u8", "s8").replace("u19", "s19")
         module = analyze(parse(source))
         exploration = module.pipeline_explorations[0]
@@ -140,7 +140,7 @@ class PipelineSemanticTests(unittest.TestCase):
         )
 
     def test_impossible_constraints_explain_every_candidate(self) -> None:
-        source = (ROOT / "examples/auto_pipeline_products.zl").read_text()
+        source = (ROOT / "examples/auto_pipeline_products.zhl").read_text()
         source = source.replace("fmax>=400", "fmax>=900")
         with self.assertRaisesRegex(
             SemanticError,
@@ -150,7 +150,7 @@ class PipelineSemanticTests(unittest.TestCase):
             analyze(parse(source))
 
     def test_auto_pipeline_rejects_wrong_constraint_relation(self) -> None:
-        source = (ROOT / "examples/auto_pipeline_products.zl").read_text()
+        source = (ROOT / "examples/auto_pipeline_products.zhl").read_text()
         source = source.replace("fmax>=400", "fmax<=400")
         with self.assertRaisesRegex(
             SemanticError, "constraint 'fmax' requires '>='"
@@ -158,7 +158,7 @@ class PipelineSemanticTests(unittest.TestCase):
             analyze(parse(source))
 
     def test_auto_pipeline_rejects_duplicate_constraints(self) -> None:
-        source = (ROOT / "examples/auto_pipeline_products.zl").read_text()
+        source = (ROOT / "examples/auto_pipeline_products.zhl").read_text()
         source = source.replace("latency<=3", "latency<=3, latency<=4")
         with self.assertRaisesRegex(
             SemanticError, "repeats 'latency' constraint"
@@ -166,7 +166,7 @@ class PipelineSemanticTests(unittest.TestCase):
             analyze(parse(source))
 
     def test_auto_pipeline_rejects_non_unit_throughput(self) -> None:
-        source = (ROOT / "examples/auto_pipeline_products.zl").read_text()
+        source = (ROOT / "examples/auto_pipeline_products.zhl").read_text()
         source = source.replace("throughput==1", "throughput==2")
         with self.assertRaisesRegex(
             SemanticError, "no legal pipeline architecture.*throughput=1 not ==2"

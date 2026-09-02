@@ -74,7 +74,7 @@ def test_complete_pure_same_cycle_surface_uses_structured_predicates() -> None:
     compilation = compile_source(
         VERIFIED,
         include_clash=False,
-        source_unit="tests/fixtures/same_cycle_predicates.zl",
+        source_unit="tests/fixtures/same_cycle_predicates.zhl",
     )
     properties = _source_properties(compilation)
     assert tuple(item.generated_from for item in properties) == (
@@ -109,7 +109,7 @@ def test_complete_pure_same_cycle_surface_uses_structured_predicates() -> None:
         assert FormalPredicate.from_data(item.predicate.to_data()) == item.predicate
         assert item.source_origin is not None
         assert item.source_origin.source_unit == (
-            "tests/fixtures/same_cycle_predicates.zl"
+            "tests/fixtures/same_cycle_predicates.zhl"
         )
         assert item.source_origin.construct
 

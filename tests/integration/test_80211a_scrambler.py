@@ -12,7 +12,7 @@ from zlang.simulate import simulate_cycles
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SOURCE = ROOT / "examples/projects/80211a_transmitter/src/controller.zl"
+SOURCE = ROOT / "examples/projects/80211a_transmitter/src/controller.zhl"
 TOP = "IeeePacketFramerScrambler24"
 SEED = 0x4B
 

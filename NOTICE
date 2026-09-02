@@ -1,7 +1,7 @@
-ZLang
+ZLang HDL
 Copyright 2026 Viacheslav Vinogradov
 
-ZLang is licensed under the Apache License, Version 2.0. This NOTICE file is
+ZLang HDL is licensed under the Apache License, Version 2.0. This NOTICE file is
 informational and does not modify that license.
 
 Third-party attribution
@@ -14,7 +14,7 @@ originally authored by Nirav Dave:
     examples/projects/80211a_transmitter/
     docs/80211a-*.md
     docs/wifi-*.md
-    tests/fixtures/verification/wifi_verification.zl
+    tests/fixtures/verification/wifi_verification.zhl
     tests/fixtures/wifi/production_transmitter_tb.sv
     tests/integration/test_80211a_*.py
     tests/integration/test_wifi_verification_ux.py

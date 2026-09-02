@@ -1,6 +1,6 @@
 // Manual latency contracts for the three registered DSP48E1 configurations.
 // The mathematical expression and final quantization are identical to
-// symmetric_fixed_fir.zl; only the explicit output-delay budget differs.
+// symmetric_fixed_fir.zhl; only the explicit output-delay budget differs.
 module SymmetricFixedFIRMREG {
     clock clk
     reset rst

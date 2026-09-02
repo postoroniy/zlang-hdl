@@ -32,7 +32,7 @@ def _origin(line: int, construct: str) -> SourceOrigin:
     return SourceOrigin(
         SourceSpan(line, 3, line, 24),
         construct,
-        source_unit="monitor.zl",
+        source_unit="monitor.zhl",
     )
 
 
@@ -162,7 +162,7 @@ def test_safety_failure_is_source_attributed(
     assert (
         str(error)
         == f"verification {kind} 'fifo_behavior.{goal_name}' failed at cycle 6 "
-        f"at monitor.zl:{line}:3-{line}:24:verification {kind}"
+        f"at monitor.zhl:{line}:3-{line}:24:verification {kind}"
     )
 
 
@@ -173,7 +173,7 @@ def test_missing_sampled_value_reports_goal_and_source() -> None:
         monitor.sample({"legal": 1}, cycle=2)
 
     assert "goal 'fifo_behavior.count_within'" in str(caught.value)
-    assert "monitor.zl:8:3-8:24:verification assert" in str(caught.value)
+    assert "monitor.zhl:8:3-8:24:verification assert" in str(caught.value)
 
 
 def test_non_bit_sample_is_rejected_defensively() -> None:

@@ -32,9 +32,9 @@ SOURCE = (
     / "projects"
     / "80211a_transmitter"
     / "src"
-    / "interleaver.zl"
+    / "interleaver.zhl"
 )
-ENCODER_SOURCE = SOURCE.with_name("conv_encoder.zl")
+ENCODER_SOURCE = SOURCE.with_name("conv_encoder.zhl")
 ENCODE_KERNEL = "IeeeConvolutionalEncode24"
 INTERLEAVE_KERNEL = "IeeeInterleaverBlock48"
 TOP = "IeeePacketEncoderInterleaver24"

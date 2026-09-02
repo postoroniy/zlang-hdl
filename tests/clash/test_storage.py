@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[2]
 class ClashStorageTests(unittest.TestCase):
     def test_fifo_bridge_emits_explicit_count_slots_and_handshakes(self) -> None:
         generated = compile_source(
-            (ROOT / "examples/fifo_bridge.zl").read_text()
+            (ROOT / "examples/fifo_bridge.zhl").read_text()
         ).clash
 
         self.assertEqual(
@@ -25,7 +25,7 @@ class ClashStorageTests(unittest.TestCase):
 
     def test_memory_emits_explicit_one_cycle_read_register(self) -> None:
         generated = compile_source(
-            (ROOT / "examples/sync_memory.zl").read_text()
+            (ROOT / "examples/sync_memory.zhl").read_text()
         ).clash
 
         self.assertEqual(

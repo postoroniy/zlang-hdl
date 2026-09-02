@@ -45,13 +45,13 @@ def _source(root: Path, relative: str, text: str) -> Path:
 def _path_graph(tmp_path: Path) -> tuple[Path, Path, Path]:
     leaf = tmp_path / "leaf"
     _manifest(leaf, "leaf")
-    _source(leaf, "value.zl", "module LeafValue { in x:u8 out y:u8 y=x }")
+    _source(leaf, "value.zhl", "module LeafValue { in x:u8 out y:u8 y=x }")
 
     middle = tmp_path / "middle"
     _manifest(middle, "middle", 'leaf = { path = "../leaf" }\n')
     _source(
         middle,
-        "child.zl",
+        "child.zhl",
         "import leaf.value module Child { in x:u8 out y:u8 "
         "inst leaf:LeafValue leaf.x=x y=leaf.y }",
     )
@@ -60,7 +60,7 @@ def _path_graph(tmp_path: Path) -> tuple[Path, Path, Path]:
     manifest = _manifest(root, "demo", 'middle = { path = "../middle" }\n')
     top = _source(
         root,
-        "top.zl",
+        "top.zhl",
         "import middle.child module Top { in x:u8 out y:u8 "
         "inst child:Child child.x=x y=child.y }",
     )
@@ -129,7 +129,7 @@ def test_path_lock_identity_is_portable_after_tree_relocation(tmp_path: Path) ->
     first = update_project_lock(manifest)
     second_root = tmp_path / "second"
     shutil.copytree(first_root, second_root)
-    second_top = second_root / "root" / "src" / "top.zl"
+    second_top = second_root / "root" / "src" / "top.zhl"
     second = load_project_workspace(second_top)
     assert second is not None
     assert second.lock.identity == first.identity
@@ -143,11 +143,11 @@ def test_path_dependency_dirty_state_is_a_lock_mismatch(
 ) -> None:
     manifest, top, leaf = _path_graph(tmp_path)
     update_project_lock(manifest)
-    value = leaf / "src" / "value.zl"
+    value = leaf / "src" / "value.zhl"
     if mutation == "change":
         value.write_text("module LeafValue { in x:u8 out y:u8 y=x ^ 1 }")
     elif mutation == "add":
-        _source(leaf, "extra.zl", "module Extra {}")
+        _source(leaf, "extra.zhl", "module Extra {}")
     elif mutation == "delete":
         value.unlink()
     with pytest.raises(WorkspaceError, match="dirty"):
@@ -178,12 +178,12 @@ def test_lock_detects_dependency_cycle_before_publication(tmp_path: Path) -> Non
     left = tmp_path / "left"
     right = tmp_path / "right"
     _manifest(left, "left", 'right = { path = "../right" }\n')
-    _source(left, "value.zl", "module Left {}")
+    _source(left, "value.zhl", "module Left {}")
     _manifest(right, "right", 'left = { path = "../left" }\n')
-    _source(right, "value.zl", "module Right {}")
+    _source(right, "value.zhl", "module Right {}")
     root = tmp_path / "root"
     manifest = _manifest(root, "root", 'left = { path = "../left" }\n')
-    _source(root, "top.zl", "module Top {}")
+    _source(root, "top.zhl", "module Top {}")
     with pytest.raises(WorkspaceError, match="dependency cycle"):
         update_project_lock(manifest)
     assert not (root / "zlang.lock").exists()
@@ -194,7 +194,7 @@ def test_failed_update_preserves_previously_published_lock(tmp_path: Path) -> No
     update_project_lock(manifest)
     lock_path = manifest.parent / "zlang.lock"
     accepted = lock_path.read_bytes()
-    _source(leaf, "broken.zl", "import unknown.module module Broken {}")
+    _source(leaf, "broken.zhl", "import unknown.module module Broken {}")
     with pytest.raises(WorkspaceError, match="undeclared logical import"):
         update_project_lock(manifest)
     assert lock_path.read_bytes() == accepted
@@ -203,15 +203,15 @@ def test_failed_update_preserves_previously_published_lock(tmp_path: Path) -> No
 def test_unused_module_import_error_prevents_lock_publication(tmp_path: Path) -> None:
     dependency = tmp_path / "dependency"
     _manifest(dependency, "dependency")
-    _source(dependency, "used.zl", "module Used {}")
+    _source(dependency, "used.zhl", "module Used {}")
     _source(
         dependency,
-        "unused.zl",
+        "unused.zhl",
         "import missing.package module Unused {}",
     )
     root = tmp_path / "root"
     manifest = _manifest(root, "root", 'dependency = { path = "../dependency" }\n')
-    _source(root, "top.zl", "module Top {}")
+    _source(root, "top.zhl", "module Top {}")
     with pytest.raises(WorkspaceError, match="undeclared logical import"):
         update_project_lock(manifest)
     assert not (root / "zlang.lock").exists()
@@ -225,10 +225,10 @@ def test_overlapping_package_source_roots_are_rejected(tmp_path: Path) -> None:
         'schema=1\n[project]\nname="root"\nversion="1"\nsource-root="."\n'
         '[dependencies]\nnested={path="nested"}\n'
     )
-    (root / "top.zl").write_text("module Top {}")
+    (root / "top.zhl").write_text("module Top {}")
     nested = root / "nested"
     _manifest(nested, "nested")
-    _source(nested, "value.zl", "module Nested {}")
+    _source(nested, "value.zhl", "module Nested {}")
     with pytest.raises(WorkspaceError, match="source roots overlap"):
         update_project_lock(manifest)
 
@@ -239,7 +239,7 @@ def test_git_dependency_compiles_from_cache_after_origin_disappears(tmp_path: Pa
         pytest.skip("Git is unavailable")
     origin = tmp_path / "origin"
     _manifest(origin, "vendor")
-    _source(origin, "math.zl", "module VendorMath { in x:u8 out y:u8 y=x }")
+    _source(origin, "math.zhl", "module VendorMath { in x:u8 out y:u8 y=x }")
     subprocess.run((git, "init", "-q", str(origin)), check=True)
     subprocess.run((git, "-C", str(origin), "config", "user.name", "ZLang Test"), check=True)
     subprocess.run((git, "-C", str(origin), "config", "user.email", "zlang@example.invalid"), check=True)
@@ -266,7 +266,7 @@ def test_git_dependency_compiles_from_cache_after_origin_disappears(tmp_path: Pa
     )
     top = _source(
         root,
-        "top.zl",
+        "top.zhl",
         "import vendor.math module Top { in x:u8 out y:u8 "
         "inst m:VendorMath m.x=x y=m.y }",
     )
@@ -278,7 +278,7 @@ def test_git_dependency_compiles_from_cache_after_origin_disappears(tmp_path: Pa
     assert tuple(item.logical_path for item in workspace.dependency_closure.modules) == (
         "vendor.math",
     )
-    cached = tuple((root / ".zlang" / "dependencies").glob("*/src/math.zl"))
+    cached = tuple((root / ".zlang" / "dependencies").glob("*/src/math.zhl"))
     assert len(cached) == 1
     cache_entry = cached[0].parents[1]
     unavailable = cache_entry.with_name(cache_entry.name + "-missing")
@@ -286,7 +286,7 @@ def test_git_dependency_compiles_from_cache_after_origin_disappears(tmp_path: Pa
     with pytest.raises(WorkspaceError, match="unavailable or escapes"):
         load_project_workspace(top)
     unavailable.rename(cache_entry)
-    cached = (cache_entry / "src" / "math.zl",)
+    cached = (cache_entry / "src" / "math.zhl",)
     cached[0].write_text("module VendorMath { in x:u8 out y:u8 y=x ^ 1 }")
     with pytest.raises(WorkspaceError, match="dirty"):
         load_project_workspace(top)
@@ -298,10 +298,10 @@ def test_git_package_path_dependency_is_explicitly_deferred(tmp_path: Path) -> N
         pytest.skip("Git is unavailable")
     sibling = tmp_path / "sibling"
     _manifest(sibling, "sibling")
-    _source(sibling, "value.zl", "module Sibling {}")
+    _source(sibling, "value.zhl", "module Sibling {}")
     origin = tmp_path / "origin"
     _manifest(origin, "vendor", 'sibling = { path = "../sibling" }\n')
-    _source(origin, "math.zl", "module VendorMath {}")
+    _source(origin, "math.zhl", "module VendorMath {}")
     subprocess.run((git, "init", "-q", str(origin)), check=True)
     subprocess.run((git, "-C", str(origin), "config", "user.name", "ZLang Test"), check=True)
     subprocess.run((git, "-C", str(origin), "config", "user.email", "zlang@example.invalid"), check=True)
@@ -322,7 +322,7 @@ def test_git_package_path_dependency_is_explicitly_deferred(tmp_path: Path) -> N
         "root",
         f'vendor = {{ git = "{origin.as_posix()}", rev = "{revision}" }}\n',
     )
-    _source(root, "top.zl", "module Top {}")
+    _source(root, "top.zhl", "module Top {}")
     with pytest.raises(WorkspaceError, match="cannot use path dependency"):
         update_project_lock(manifest)
     assert not (root / "zlang.lock").exists()
@@ -333,7 +333,7 @@ def test_transitive_git_dependencies_load_offline_from_pinned_caches(tmp_path: P
         pytest.skip("Git is unavailable")
     leaf = tmp_path / "leaf-origin"
     _manifest(leaf, "leafgit")
-    _source(leaf, "value.zl", "module GitLeaf { in x:u8 out y:u8 y=x }")
+    _source(leaf, "value.zhl", "module GitLeaf { in x:u8 out y:u8 y=x }")
     leaf_revision = _commit_git(leaf)
 
     middle = tmp_path / "middle-origin"
@@ -344,7 +344,7 @@ def test_transitive_git_dependencies_load_offline_from_pinned_caches(tmp_path: P
     )
     _source(
         middle,
-        "value.zl",
+        "value.zhl",
         "import leafgit.value module GitMiddle { in x:u8 out y:u8 "
         "inst leaf:GitLeaf leaf.x=x y=leaf.y }",
     )
@@ -358,7 +358,7 @@ def test_transitive_git_dependencies_load_offline_from_pinned_caches(tmp_path: P
     )
     top = _source(
         root,
-        "top.zl",
+        "top.zhl",
         "import middlegit.value module Top { in x:u8 out y:u8 "
         "inst middle:GitMiddle middle.x=x y=middle.y }",
     )
@@ -377,7 +377,7 @@ def test_transitive_git_dependencies_load_offline_from_pinned_caches(tmp_path: P
 def test_project_state_symlink_is_rejected_before_update(tmp_path: Path) -> None:
     root = tmp_path / "root"
     manifest = _manifest(root, "root")
-    _source(root, "top.zl", "module Top {}")
+    _source(root, "top.zhl", "module Top {}")
     outside = tmp_path / "outside"
     outside.mkdir()
     try:
@@ -392,12 +392,12 @@ def test_project_state_symlink_is_rejected_before_update(tmp_path: Path) -> None
 def test_missing_lock_and_source_outside_project_fail_explicitly(tmp_path: Path) -> None:
     root = tmp_path / "root"
     manifest = _manifest(root, "demo")
-    top = _source(root, "top.zl", "module Top {}")
+    top = _source(root, "top.zhl", "module Top {}")
     with pytest.raises(WorkspaceError, match="lock is unavailable"):
         load_project_workspace(top)
 
     update_project_lock(manifest)
-    outside = tmp_path / "outside.zl"
+    outside = tmp_path / "outside.zhl"
     outside.write_text("module Outside {}")
     workspace = load_project_workspace(outside, project=manifest)
     assert workspace is not None

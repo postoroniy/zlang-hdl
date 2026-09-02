@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class ClashCsrTests(unittest.TestCase):
     def test_csr_golden_matches_emitter(self) -> None:
-        result = compile_source((ROOT / "examples/control_csr.zl").read_text())
+        result = compile_source((ROOT / "examples/control_csr.zhl").read_text())
         expected = (ROOT / "examples/generated/ControlCsr.hs").read_text()
         self.assertEqual(result.clash, expected)
         self.assertIn("csr_control_control_enable", result.clash)

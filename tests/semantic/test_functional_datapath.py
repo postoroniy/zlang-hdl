@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class FunctionalDatapathSemanticTests(unittest.TestCase):
     def test_indexed_sum_is_a_typed_generate_plus_reduction(self) -> None:
-        module = analyze(parse((ROOT / "examples/dot_product.zl").read_text()))
+        module = analyze(parse((ROOT / "examples/dot_product.zhl").read_text()))
         reduction = module.assignments[0].expression
         self.assertIsInstance(reduction, Reduce)
         self.assertEqual(reduction.operator, ReductionOperator.ADD)
@@ -28,7 +28,7 @@ class FunctionalDatapathSemanticTests(unittest.TestCase):
         )
 
     def test_dot_preserves_products_then_uses_the_same_reduction_model(self) -> None:
-        module = analyze(parse((ROOT / "examples/dot_builtin.zl").read_text()))
+        module = analyze(parse((ROOT / "examples/dot_builtin.zhl").read_text()))
         reduction = module.assignments[0].expression
         self.assertIsInstance(reduction, Reduce)
         self.assertEqual(reduction.operator, ReductionOperator.ADD)
@@ -38,8 +38,8 @@ class FunctionalDatapathSemanticTests(unittest.TestCase):
 
     def test_canonical_ir_preserves_functional_intent_losslessly(self) -> None:
         cases = (
-            ("dot_product.zl", "DotProduct.opt", ExpressionOp.GENERATE),
-            ("dot_builtin.zl", "DotBuiltin.opt", ExpressionOp.DOT),
+            ("dot_product.zhl", "DotProduct.opt", ExpressionOp.GENERATE),
+            ("dot_builtin.zhl", "DotBuiltin.opt", ExpressionOp.DOT),
         )
         for source_name, golden_name, producer_op in cases:
             with self.subTest(source=source_name):

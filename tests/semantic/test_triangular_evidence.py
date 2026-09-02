@@ -529,13 +529,13 @@ def test_evidence_identity_excludes_source_relocation() -> None:
     origin = SourceOrigin(
         SourceSpan(4, 2, 4, 20),
         "equivalence result",
-        "examples/first.zl",
+        "examples/first.zhl",
         "d" * 64,
     )
     relocated = SourceOrigin(
         SourceSpan(40, 3, 40, 21),
         "equivalence result",
-        "examples/relocated.zl",
+        "examples/relocated.zhl",
         "e" * 64,
     )
     first = replace(

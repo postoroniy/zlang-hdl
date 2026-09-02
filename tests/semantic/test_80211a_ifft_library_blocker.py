@@ -16,7 +16,7 @@ from zlang.ir.types import FixedType
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SOURCE = ROOT / "docs/reproducers/ifft_sdf_exact_feedback_type_growth.zl"
+SOURCE = ROOT / "docs/reproducers/ifft_sdf_exact_feedback_type_growth.zhl"
 
 
 def _compile(depth: int):

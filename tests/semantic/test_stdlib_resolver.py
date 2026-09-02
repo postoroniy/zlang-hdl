@@ -71,8 +71,8 @@ class StdlibResolverTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             (root / "test").mkdir()
-            (root / "test" / "a.zl").write_text("import std.test.b module A {}")
-            (root / "test" / "b.zl").write_text("import std.test.a module B {}")
+            (root / "test" / "a.zhl").write_text("import std.test.b module A {}")
+            (root / "test" / "b.zhl").write_text("import std.test.a module B {}")
             with patch("zlang.stdlib._ROOTS", (root,)):
                 with self.assertRaisesRegex(ValueError, r"std\.test\.a -> std\.test\.b -> std\.test\.a"):
                     resolve_stdlib(("std.test.a",))
@@ -85,17 +85,17 @@ class StdlibResolverTests(unittest.TestCase):
             (first / "test").mkdir(parents=True)
             (second / "test").mkdir(parents=True)
             source = "module Shared { in x:bit out y:bit y=x }\n"
-            (first / "test" / "shared.zl").write_text(source)
-            (second / "test" / "shared.zl").write_text(source)
+            (first / "test" / "shared.zhl").write_text(source)
+            (second / "test" / "shared.zhl").write_text(source)
             with patch("zlang.stdlib._ROOTS", (first, second)):
                 with track_resolved_stdlib_source_paths() as consulted:
                     item = load_stdlib_source("std.test.shared")
-                self.assertEqual(item.source_path, (first / "test" / "shared.zl").resolve())
+                self.assertEqual(item.source_path, (first / "test" / "shared.zhl").resolve())
                 self.assertEqual(
                     consulted,
                     {
-                        (first / "test" / "shared.zl").resolve(),
-                        (second / "test" / "shared.zl").resolve(),
+                        (first / "test" / "shared.zhl").resolve(),
+                        (second / "test" / "shared.zhl").resolve(),
                     },
                 )
                 self.assertEqual(available_stdlib_modules(), ("std.test.shared",))
@@ -107,8 +107,8 @@ class StdlibResolverTests(unittest.TestCase):
             second = base / "installed"
             (first / "test").mkdir(parents=True)
             (second / "test").mkdir(parents=True)
-            (first / "test" / "shared.zl").write_text("module Checkout {}\n")
-            (second / "test" / "shared.zl").write_text("module Installed {}\n")
+            (first / "test" / "shared.zhl").write_text("module Checkout {}\n")
+            (second / "test" / "shared.zhl").write_text("module Installed {}\n")
             with patch("zlang.stdlib._ROOTS", (first, second)):
                 with self.assertRaisesRegex(
                     ValueError,
@@ -122,10 +122,10 @@ class StdlibResolverTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             base = Path(temporary)
             root = base / "root"
-            outside = base / "outside.zl"
+            outside = base / "outside.zhl"
             (root / "test").mkdir(parents=True)
             outside.write_text("module Outside {}\n")
-            (root / "test" / "outside.zl").symlink_to(outside)
+            (root / "test" / "outside.zhl").symlink_to(outside)
             with patch("zlang.stdlib._ROOTS", (root,)):
                 with self.assertRaisesRegex(ValueError, "escapes root"):
                     load_stdlib_source("std.test.outside")

@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class RuleIntegrationTests(unittest.TestCase):
     def test_priority_firing_and_reset_are_cycle_accurate(self) -> None:
-        module = compile_source((ROOT / "examples/rule_counter.zl").read_text()).ir
+        module = compile_source((ROOT / "examples/rule_counter.zhl").read_text()).ir
         results = simulate_cycles(
             module,
             [
@@ -41,7 +41,7 @@ class RuleIntegrationTests(unittest.TestCase):
         self.assertEqual(results[1]["y"], 0)
 
     def test_state_and_output_action_fire_atomically(self) -> None:
-        module = compile_source((ROOT / "examples/rule_action.zl").read_text()).ir
+        module = compile_source((ROOT / "examples/rule_action.zhl").read_text()).ir
         results = simulate_cycles(
             module,
             [{"enable": 0}, {"enable": 1}, {"enable": 0}],
@@ -50,7 +50,7 @@ class RuleIntegrationTests(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which("verilator"), "Verilator unavailable")
     def test_concise_priority_counter_direct_sv_simulates(self) -> None:
-        module = compile_source((ROOT / "examples/rule_counter.zl").read_text()).ir
+        module = compile_source((ROOT / "examples/rule_counter.zhl").read_text()).ir
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             rtl = root / "RuleCounter.sv"

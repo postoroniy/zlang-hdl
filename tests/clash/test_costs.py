@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class EstimatedCostExtractionTests(unittest.TestCase):
     def test_minimum_lut_candidate_is_selected_and_matches_golden(self) -> None:
-        compilation = compile_source((ROOT / "examples/cost_mac.zl").read_text())
+        compilation = compile_source((ROOT / "examples/cost_mac.zhl").read_text())
         choice = compilation.ir.assignments[0].expression
 
         self.assertIsInstance(choice, expr.ImplementationChoice)
@@ -36,7 +36,7 @@ class EstimatedCostExtractionTests(unittest.TestCase):
 
     def test_no_dsp_constraint_selects_logic_and_matches_golden(self) -> None:
         compilation = compile_source(
-            (ROOT / "examples/cost_mac_no_dsp.zl").read_text()
+            (ROOT / "examples/cost_mac_no_dsp.zhl").read_text()
         )
         choice = compilation.ir.assignments[0].expression
 

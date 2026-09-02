@@ -370,7 +370,7 @@ def _project(tmp_path: Path) -> tuple[Path, Path]:
         'source-root="src"\n[profiles.release]\nbackend="systemverilog"\n'
         '[profiles.release.platform.clocks.clk]\nperiod-ns=10\n'
     )
-    source = source_dir / "top.zl"
+    source = source_dir / "top.zhl"
     source.write_text(SOURCE)
     update_project_lock(manifest)
     return manifest, source

@@ -34,7 +34,7 @@ def _walk(value: object):
 
 def test_fft_scheduling_parameters_become_contextual_concrete_constants() -> None:
     source = (ROOT / "tests" / "fixtures" / "fft" /
-              "value_parameter_expression.zl").read_text()
+              "value_parameter_expression.zhl").read_text()
     module = analyze(parse(source))
     constants = [item for item in _walk(module.assignments) if isinstance(item, Constant)]
     assert {(item.value, str(item.type)) for item in constants} >= {

@@ -20,7 +20,7 @@ class VerificationVerilatorTests(unittest.TestCase):
         "Clash and Verilator are required",
     )
     def test_assumption_reset_disable_and_guarantee_run_in_verilator(self) -> None:
-        result = compile_source((ROOT / "examples/contracted_add.zl").read_text())
+        result = compile_source((ROOT / "examples/contracted_add.zhl").read_text())
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             rtl_files = generate_verilog(

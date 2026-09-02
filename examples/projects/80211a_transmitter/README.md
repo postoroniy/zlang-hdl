@@ -27,16 +27,16 @@ SystemVerilog are generated from the same typed ZLang hierarchy.
 
 | Source | Responsibility |
 |---|---|
-| `src/data_types.zl` | rates, metadata, raw boundaries, and shared aliases |
-| `src/controller.zl` | SIGNAL construction and IEEE packet framing |
-| `src/scrambler.zl` | packet-epoch data scrambling |
-| `src/conv_encoder.zl` | K=7 convolutional helpers and streaming encoder |
-| `src/interleaver.zl` | IEEE 48/96/192-bit permutations and grouping |
-| `src/mapper.zl` | BPSK/QPSK/16-QAM, pilots, and bin serialization |
-| `src/ifft_library.zl` | exact widened DIF-SDF stages and final quantization |
-| `src/cyclic_extender.zl` | bit-reversal reorder and 80-sample cyclic prefix |
-| `src/ifft.zl` | framed IFFT composition and metadata alignment |
-| `src/transmitter.zl` | complete `Ieee80211aTransmitter` hierarchy |
+| `src/data_types.zhl` | rates, metadata, raw boundaries, and shared aliases |
+| `src/controller.zhl` | SIGNAL construction and IEEE packet framing |
+| `src/scrambler.zhl` | packet-epoch data scrambling |
+| `src/conv_encoder.zhl` | K=7 convolutional helpers and streaming encoder |
+| `src/interleaver.zhl` | IEEE 48/96/192-bit permutations and grouping |
+| `src/mapper.zhl` | BPSK/QPSK/16-QAM, pilots, and bin serialization |
+| `src/ifft_library.zhl` | exact widened DIF-SDF stages and final quantization |
+| `src/cyclic_extender.zhl` | bit-reversal reorder and 80-sample cyclic prefix |
+| `src/ifft.zhl` | framed IFFT composition and metadata alignment |
+| `src/transmitter.zhl` | complete `Ieee80211aTransmitter` hierarchy |
 
 The names follow the logical units of the audited Bluespec design, but the
 behavior follows IEEE 802.11 where the historical source is demonstrably
@@ -81,16 +81,16 @@ From this project directory:
 
 ```sh
 # Semantic check of the complete hierarchy
-../../../.venv/bin/zlangc src/transmitter.zl \
+../../../.venv/bin/zlang src/transmitter.zhl \
   --project zlang.toml --top Ieee80211aTransmitter --check
 
 # Direct SystemVerilog
-../../../.venv/bin/zlangc src/transmitter.zl \
+../../../.venv/bin/zlang src/transmitter.zhl \
   --project zlang.toml --top Ieee80211aTransmitter \
   --systemverilog build/Ieee80211aTransmitter.sv
 
 # Clash-generated Verilog plus Verilator lint
-../../../.venv/bin/zlangc src/transmitter.zl \
+../../../.venv/bin/zlang src/transmitter.zhl \
   --project zlang.toml --top Ieee80211aTransmitter \
   --verilog-dir build/Ieee80211aTransmitter-clash \
   --verilator-lint
@@ -99,16 +99,16 @@ From this project directory:
 Useful leaf checks:
 
 ```sh
-../../../.venv/bin/zlangc src/controller.zl \
+../../../.venv/bin/zlang src/controller.zhl \
   --project zlang.toml --top IeeeDataFramer24 --check
 
-../../../.venv/bin/zlangc src/interleaver.zl \
+../../../.venv/bin/zlang src/interleaver.zhl \
   --project zlang.toml --top IeeePacketEncoderInterleaver24 --check
 
-../../../.venv/bin/zlangc src/mapper.zl \
+../../../.venv/bin/zlang src/mapper.zhl \
   --project zlang.toml --top IeeePacketMapper64 --check
 
-../../../.venv/bin/zlangc src/ifft.zl \
+../../../.venv/bin/zlang src/ifft.zhl \
   --project zlang.toml --top IeeeFramedIFFT64Raw --check
 ```
 

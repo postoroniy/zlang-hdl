@@ -35,7 +35,7 @@
       },
       "frontend_ms": 5.674,
       "name": "ALU",
-      "zlang_source": "examples/alu.zl",
+      "zlang_source": "examples/alu.zhl",
       "zlang_source_loc": 13
     },
     {
@@ -73,7 +73,7 @@
       },
       "frontend_ms": 2.882,
       "name": "PipelinedMAC",
-      "zlang_source": "examples/pipelined_mac.zl",
+      "zlang_source": "examples/pipelined_mac.zhl",
       "zlang_source_loc": 11
     },
     {
@@ -111,7 +111,7 @@
       },
       "frontend_ms": 2.139,
       "name": "RvPassthrough",
-      "zlang_source": "examples/rv_passthrough.zl",
+      "zlang_source": "examples/rv_passthrough.zhl",
       "zlang_source_loc": 7
     },
     {
@@ -149,7 +149,7 @@
       },
       "frontend_ms": 0.723,
       "name": "CreditSource",
-      "zlang_source": "examples/credit_source.zl",
+      "zlang_source": "examples/credit_source.zhl",
       "zlang_source_loc": 9
     },
     {
@@ -187,7 +187,7 @@
       },
       "frontend_ms": 3.807,
       "name": "ControlCsr",
-      "zlang_source": "examples/control_csr.zl",
+      "zlang_source": "examples/control_csr.zhl",
       "zlang_source_loc": 18
     },
     {
@@ -225,7 +225,7 @@
       },
       "frontend_ms": 1.991,
       "name": "RequestClient",
-      "zlang_source": "examples/request_client.zl",
+      "zlang_source": "examples/request_client.zhl",
       "zlang_source_loc": 25
     },
     {
@@ -263,7 +263,7 @@
       },
       "frontend_ms": 1.478,
       "name": "RuleCounter",
-      "zlang_source": "examples/rule_counter.zl",
+      "zlang_source": "examples/rule_counter.zhl",
       "zlang_source_loc": 16
     }
   ],

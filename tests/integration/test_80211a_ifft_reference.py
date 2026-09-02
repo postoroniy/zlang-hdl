@@ -41,8 +41,8 @@ from zlang.toolchain import generate_verilog, lint_with_verilator
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SOURCE64 = ROOT / "docs/reproducers/ifft64_whole_vector_elaboration.zl"
-WITNESS_SOURCE = ROOT / "tests/fixtures/fft/ifft_whole_vector_witness.zl"
+SOURCE64 = ROOT / "docs/reproducers/ifft64_whole_vector_elaboration.zhl"
+WITNESS_SOURCE = ROOT / "tests/fixtures/fft/ifft_whole_vector_witness.zhl"
 TOP64 = "IFFT64WholeVectorElaboration"
 
 SAMPLE_MIN = -(1 << 15)

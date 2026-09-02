@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class AggregateParserTests(unittest.TestCase):
     def test_struct_and_field_access_parse(self) -> None:
-        module = parse((ROOT / "examples/packet_data.zl").read_text())
+        module = parse((ROOT / "examples/packet_data.zhl").read_text())
         self.assertEqual(module.structs[0].name, "Packet")
         self.assertEqual(
             [field.name for field in module.structs[0].fields],
@@ -29,7 +29,7 @@ class AggregateParserTests(unittest.TestCase):
         )
 
     def test_function_calls_and_vector_indexes_parse(self) -> None:
-        module = parse((ROOT / "examples/fir2.zl").read_text())
+        module = parse((ROOT / "examples/fir2.zhl").read_text())
         self.assertEqual(module.functions[0].name, "tap")
         self.assertEqual(
             module.ports[0].type_name,

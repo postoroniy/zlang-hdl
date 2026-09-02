@@ -23,7 +23,7 @@ def cycle(*, addr=0, write=0, wdata=0, read=0, busy=0, error=0):
 
 class HardwareCsrIntegrationTests(unittest.TestCase):
     def test_hardware_priority_is_exhaustive_for_set_and_clear(self) -> None:
-        module = compile_source((ROOT / "examples/engine_csr.zl").read_text()).ir
+        module = compile_source((ROOT / "examples/engine_csr.zhl").read_text()).ir
         for old in (0, 1):
             for hardware_set in (0, 1):
                 for software_clear in (0, 1):
@@ -48,7 +48,7 @@ class HardwareCsrIntegrationTests(unittest.TestCase):
                     )
 
     def test_status_pulse_readback_and_reset_are_cycle_accurate(self) -> None:
-        module = compile_source((ROOT / "examples/engine_csr.zl").read_text()).ir
+        module = compile_source((ROOT / "examples/engine_csr.zhl").read_text()).ir
         results = simulate_csr_cycles(
             module,
             [

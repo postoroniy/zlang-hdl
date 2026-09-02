@@ -396,7 +396,7 @@ def test_fresh_session_clash_route_cache_does_not_regenerate_rtl(
         PUBLIC_SOURCE,
         include_clash=False,
         formal_cache=cache,
-        source_unit="tests/fixtures/clash_route_cache.zl",
+        source_unit="tests/fixtures/clash_route_cache.zhl",
     )
     first_manifest = publish_compilation_verification_bundle(
         first,
@@ -412,7 +412,7 @@ def test_fresh_session_clash_route_cache_does_not_regenerate_rtl(
         PUBLIC_SOURCE,
         include_clash=False,
         formal_cache=cache,
-        source_unit="tests/fixtures/clash_route_cache.zl",
+        source_unit="tests/fixtures/clash_route_cache.zhl",
     )
     monkeypatch.setattr(
         "zlang.verification_publication._try_clash_formal_fallback",

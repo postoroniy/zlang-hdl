@@ -3,7 +3,7 @@
 The public exception classes in ZLang historically exposed only their message.
 ``DiagnosticError`` deliberately preserves that API: ``str(error)`` is exactly
 the message passed to the constructor, while structured consumers can inspect
-the attached :class:`Diagnostic` or request deterministic JSON from ``zlangc``.
+the attached :class:`Diagnostic` or request deterministic JSON from ``zlang``.
 """
 
 from __future__ import annotations

@@ -203,12 +203,12 @@ def test_common_evidence_json_rejects_missing_or_corrupted_plan_links(
     ("source", "top", "required_kind"),
     (
         (
-            Path("examples/cost_mac.zl").read_text(encoding="utf-8"),
+            Path("examples/cost_mac.zhl").read_text(encoding="utf-8"),
             None,
             CandidateSiteKind.CHOICE_AUTO,
         ),
         (
-            Path("examples/fir_architecture.zl").read_text(encoding="utf-8"),
+            Path("examples/fir_architecture.zhl").read_text(encoding="utf-8"),
             None,
             CandidateSiteKind.ARCHITECTURE_AUTO,
         ),

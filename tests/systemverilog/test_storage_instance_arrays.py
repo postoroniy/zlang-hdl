@@ -13,7 +13,7 @@ from zlang.compiler import compile_source
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SOURCE = (ROOT / "examples" / "storage_instance_array.zl").read_text()
+SOURCE = (ROOT / "examples" / "storage_instance_array.zhl").read_text()
 
 
 def _artifact() -> BackendArtifact:

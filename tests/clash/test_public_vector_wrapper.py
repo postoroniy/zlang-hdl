@@ -272,7 +272,7 @@ def test_cli_verilog_directory_always_publishes_public_wrapper(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    source = tmp_path / "public_vector.zl"
+    source = tmp_path / "public_vector.zhl"
     source.write_text(SOURCE)
     output = tmp_path / "rtl"
 
