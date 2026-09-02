@@ -1,0 +1,46 @@
+// Generic stdlib boundary witnesses.
+//
+// Selecting GenericRomTop fails because a ROM initializer must be immutable
+// compile-time data; a module input cannot serve as a generic initializer.
+// GenericPermutationTop is the resolved counterpart: range analysis retains
+// the conservative element-type proof through a vector-loaded runtime index.
+// It is a gather, not a proof that `order` is a bijective permutation.
+
+module GenericRom<type T,N=8> {
+    clock clk
+    reset rst
+    in image : vec<N,T>
+    in address : uint<floor_log2(N)>
+    out data : T
+    rom table : rom<T,N> {
+        read_latency 1
+        init image
+    }
+    table.read_address = address
+    data = table.read_data
+}
+
+module GenericRomTop {
+    clock clk
+    reset rst
+    in image : vec<8,u8>
+    in address : u3
+    out data : u8
+    inst table : GenericRom<T=u8,N=8>
+    table.image = image
+    table.address = address
+    data = table.data
+}
+
+fn generic_permute<type T,N,IW>(
+    values : vec<N,T>, order : vec<N,uint<IW>>
+) {
+    generate(i in 0..N) values[order[i]]
+}
+
+module GenericPermutationTop {
+    in values : vec<8,u8>
+    in order : vec<8,u3>
+    out result : vec<8,u8>
+    result = generic_permute<T=u8,N=8,IW=3>(values, order)
+}

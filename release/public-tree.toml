@@ -76,6 +76,7 @@ include = [
   "docs/testing.md",
   "docs/types-and-numerics.md",
   "docs/whole-build-manifests.md",
+  "docs/reproducers/**",
 ]
 
 exclude = [
@@ -154,6 +155,7 @@ required = [
 # Every public source/test fixture is intentionally retained.  This protects
 # against shrinking the release by silently dropping inconvenient tests.
 closure_roots = [
+  "docs/reproducers",
   "editors/vscode/zlang-vscode",
   "examples",
   "stdlib",

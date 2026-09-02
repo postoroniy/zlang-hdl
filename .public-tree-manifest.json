@@ -1,5 +1,5 @@
 {
-  "config_sha256": "531ce78b5d9a17098f3c03a52e5cbc2f96a66daf35096b77a893cf3fab2a766f",
+  "config_sha256": "12846306b880d2ca86639cec096e8318f22b6af053381ebaaa3d9aeaa6a82340",
   "files": [
     {
       "mode": "0644",
@@ -290,6 +290,31 @@
       "mode": "0644",
       "path": "docs/projects-dependencies.md",
       "sha256": "798e207b9d60cd7a615f7b3fdf2410d5cf6ab5b7551bc9e0a438b6dcdfacc2ff"
+    },
+    {
+      "mode": "0644",
+      "path": "docs/reproducers/ifft64_whole_vector_elaboration.zl",
+      "sha256": "912a6cb6867020205a2947ce6ebbb84dddbd0fd6ce0788655c741057e47d0698"
+    },
+    {
+      "mode": "0644",
+      "path": "docs/reproducers/ifft_complex_reduce.zl",
+      "sha256": "ce2a3b4b4beea5de88896c2f054b49d094d1929d01aa704abcf7e33665cc26d0"
+    },
+    {
+      "mode": "0644",
+      "path": "docs/reproducers/ifft_identifier.zl",
+      "sha256": "7e37f99ff38d01b804bfe5a80875896a584e6027fbfc385b5816e3b752e0c90d"
+    },
+    {
+      "mode": "0644",
+      "path": "docs/reproducers/ifft_sdf_exact_feedback_type_growth.zl",
+      "sha256": "3e227bee5e33b200d326dcd10793d440dfd89e01b4b4ad3b288d9f5a152731af"
+    },
+    {
+      "mode": "0644",
+      "path": "docs/reproducers/stdlib_generic_storage_blockers.zl",
+      "sha256": "74dd863dd8da0d8c721951468096a2126f040d646ffaf3af44700e5632d74a41"
     },
     {
       "mode": "0644",
@@ -1164,7 +1189,7 @@
     {
       "mode": "0644",
       "path": "release/public-tree.toml",
-      "sha256": "531ce78b5d9a17098f3c03a52e5cbc2f96a66daf35096b77a893cf3fab2a766f"
+      "sha256": "12846306b880d2ca86639cec096e8318f22b6af053381ebaaa3d9aeaa6a82340"
     },
     {
       "mode": "0644",
@@ -2649,7 +2674,7 @@
     {
       "mode": "0644",
       "path": "tests/release/test_public_tree.py",
-      "sha256": "7ecb1459d5c4c8844d0da9b86115f3b1525336a049a24db9b05c3acf770c35e5"
+      "sha256": "ca6caedbe2079f78cd160017b0542ecde24e194a51dfe4ae2f15c976ca762b59"
     },
     {
       "mode": "0644",

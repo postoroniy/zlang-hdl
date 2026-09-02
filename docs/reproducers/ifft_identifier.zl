@@ -1,0 +1,7 @@
+// Minimal current-language reproducer for the IFFT slice blocker.
+// `ifft_bin` is intended to be an ordinary function identifier.
+module IFFTIdentifierBlocker {
+    in x : u8
+    out y : u8
+    y = ifft_bin(x)
+}

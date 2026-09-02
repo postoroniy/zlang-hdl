@@ -1,0 +1,79 @@
+// IEEE 802.11a 64-point inverse-DFT numerical reference and compiler-scaling
+// reproducer. Semantic/canonical/simulator elaboration is now bounded through
+// FunctionalRegion plus ExactReductionPlan. It remains in docs/reproducers
+// as a numerical reference, not production streaming RTL.
+//
+// Contract:
+//   * mapper raw words are interpreted as signed Q1.15;
+//   * all 64 complex products and their balanced nominal sum stay exact;
+//   * exp(+j*theta)/64 is quantized once as a source-generated Q2.22 constant;
+//   * one nearest-even/saturating conversion produces signed Q1.15 output.
+
+import std.math.complex
+
+// Keep the scalability/numerical reproducer standalone. The production
+// project owns equivalent raw transaction types, but importing them would make
+// this compiler regression depend on an external project lock and source root.
+struct ComplexRaw16 {
+    i : s16
+    q : s16
+}
+
+struct ComplexRawMessage<N> {
+    new_message : bit
+    data : vec<N,ComplexRaw16>
+}
+
+type IFFTSample = fixed<16,15>
+type IFFTScaledTwiddle = fixed<24,22>
+
+fn ifft_input_sample(value : ComplexRaw16) -> Complex<IFFTSample> {
+    Complex {
+        re = fixed_raw(value.i)
+        im = fixed_raw(value.q)
+    }
+}
+
+fn ifft_scaled_twiddle<K,N>() -> Complex<IFFTScaledTwiddle> {
+    Complex {
+        re = quantize<IFFTScaledTwiddle>(cos((2 * pi() * K) / N) / N) {
+            round nearest_even
+            overflow saturate
+        }
+        im = quantize<IFFTScaledTwiddle>(sin((2 * pi() * K) / N) / N) {
+            round nearest_even
+            overflow saturate
+        }
+    }
+}
+
+fn ifft_bin<OUT,N>(
+    values : vec<N,Complex<IFFTSample>>
+) -> Complex<IFFTSample> {
+    complex_quantize_nearest_even_saturate<IFFTSample>(
+        sum(generate(k in 0..N)
+            values[k] * ifft_scaled_twiddle<K=OUT * k,N=N>())
+    )
+}
+
+fn ifft_output_sample(value : Complex<IFFTSample>) -> ComplexRaw16 {
+    ComplexRaw16 {
+        i = fixed_to_raw(value.re)
+        q = fixed_to_raw(value.im)
+    }
+}
+
+module IFFT64WholeVectorElaboration {
+    in input : ComplexRawMessage<64>
+    out output : ComplexRawMessage<64>
+
+    samples : vec<64,Complex<IFFTSample>> = generate(k in 0..64)
+        ifft_input_sample(input.data[k])
+    transformed : vec<64,Complex<IFFTSample>> = generate(n in 0..64)
+        ifft_bin<OUT=n,N=64>(samples)
+
+    output = ComplexRawMessage {
+        new_message = input.new_message
+        data = generate(n in 0..64) ifft_output_sample(transformed[n])
+    }
+}
