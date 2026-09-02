@@ -1,0 +1,26 @@
+// Bounded witness for the resolved nominal-reduction capability used by the
+// IEEE-authoritative IFFT work. A DFT bin retains one high-level Reduce plus
+// its exact overload-resolved Complex arithmetic expansion.
+import std.math.complex
+
+type Sample = fixed<18,16>
+type Twiddle = fixed<16,14>
+
+module IFFTComplexReductionBlocker {
+    in input : vec<8,Complex<Sample>>
+    out output : Complex<Sample>
+
+    output = complex_quantize_nearest_even_saturate<Sample>(
+        sum(i in 0..8)
+            input[i] * Complex {
+                re = quantize<Twiddle>(cos((2 * pi() * i) / 8)) {
+                    round nearest_even
+                    overflow saturate
+                }
+                im = quantize<Twiddle>(sin((2 * pi() * i) / 8)) {
+                    round nearest_even
+                    overflow saturate
+                }
+            }
+    )
+}

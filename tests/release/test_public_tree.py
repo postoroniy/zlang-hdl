@@ -323,7 +323,14 @@ def test_repository_public_projection_is_closed_and_excludes_private_files() -> 
     assert not any(path.startswith("examples/comparisons/") for path in selected)
     assert not any("design-freeze" in path for path in selected)
     assert not any(path.startswith("docs/milestone-") for path in selected)
-    for root in ("editors/vscode/zlang-vscode", "stdlib", "tests", "tools", "zlang"):
+    for root in (
+        "docs/reproducers",
+        "editors/vscode/zlang-vscode",
+        "stdlib",
+        "tests",
+        "tools",
+        "zlang",
+    ):
         expected = {
             path.relative_to(ROOT).as_posix()
             for path in (ROOT / root).rglob("*")
