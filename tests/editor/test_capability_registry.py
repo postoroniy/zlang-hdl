@@ -26,7 +26,7 @@ def _compile_witness(source_path: str, top: str):
 
 
 def test_registry_is_versioned_unique_and_deterministic() -> None:
-    assert CAPABILITY_REGISTRY.schema_version == 21
+    assert CAPABILITY_REGISTRY.schema_version == 23
     surface = CAPABILITY_REGISTRY.editor_surface()
     assert tuple(surface) == ("keywords", "types", "intrinsics", "modes", "operators")
     for category, spellings in surface.items():
@@ -215,6 +215,27 @@ def test_concise_exact_lowering_surface_is_registry_owned() -> None:
         capability.witness.top,
     )
     assert result.ir.parameters[-1] == ("IW", "value", 2)
+
+
+def test_recursive_atomic_action_surface_is_registry_owned_and_executable() -> None:
+    capability = next(
+        item for item in CAPABILITY_REGISTRY.capabilities
+        if item.name == "sequential-state"
+    )
+    assert "one Rule and ActionGroup" in capability.limitations[0]
+    assert "without readiness-selected fallback" in capability.limitations[1]
+    assert "output writes" in capability.limitations[1]
+
+    result = _compile_witness(
+        capability.witness.source_path,
+        capability.witness.top,
+    )
+    rule = next(item for item in result.ir.rules if item.name == "fault_update")
+    assert rule.actions
+    assert all(action.activation is not None for action in rule.actions)
+    assert result.ir.resolved_transition is not None
+    group = result.ir.resolved_transition.group("fault_update")
+    assert len(group.actions) == len(rule.actions)
 
 
 def test_exact_literal_and_packed_constant_surface_is_registry_owned() -> None:

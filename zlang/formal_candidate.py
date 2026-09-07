@@ -8,6 +8,7 @@ and result semantics.
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from dataclasses import dataclass, replace
 from pathlib import Path
 import json
@@ -22,6 +23,7 @@ from zlang.backend.systemverilog import (
     emit_artifact as emit_systemverilog_artifact,
 )
 from zlang.backend.manifest import MANIFEST_VERSION, BackendArtifact, publish_artifact
+from zlang.backend.naming import RTL_NAMING_SCHEMA
 from zlang.common import stable_digest
 from zlang.costs import CandidateCost, extract_best
 from zlang.equivalence import (
@@ -593,6 +595,7 @@ class M36ClashCandidateVerifier:
         )
         return {
             "schema": "zlang-m36-clash-proof-bundle-recipe-v1",
+            "rtl_naming": RTL_NAMING_SCHEMA,
             "candidate": self._key(candidate),
             "candidate_semantics": expression_semantic_identity(implementation),
             "reference_semantics": expression_semantic_identity(
@@ -640,6 +643,7 @@ class M36ClashCandidateVerifier:
                 "m36_bundle": "zlang-m36-clash-proof-bundle-recipe-v1",
                 "m36_reference_miter": 1,
                 "backend_manifest": MANIFEST_VERSION,
+                "rtl_naming": RTL_NAMING_SCHEMA,
             },
         }
 
@@ -726,6 +730,7 @@ class M36ClashCandidateVerifier:
             }
         recipe = {
             "schema": "zlang-m36-candidate-backend-preparation-v1",
+            "rtl_naming": RTL_NAMING_SCHEMA,
             "backend": backend,
             "candidate": self._key(candidate),
             "candidate_semantics": expression_semantic_identity(implementation),
@@ -1248,7 +1253,7 @@ class M36ClashCandidateVerifier:
         )
         manager = (
             use_formal_toolchain(context)
-            if context is not None else _null_context()
+            if context is not None else nullcontext()
         )
         work_directory = _m39_work_directory(
             candidate,
@@ -1339,16 +1344,6 @@ def _clash_version(executable: str) -> str:
         return f"unavailable:{type(error).__name__}"
     output = (completed.stdout or completed.stderr).strip()
     return f"exit={completed.returncode}:{output}"
-
-
-class _null_context:
-    """Tiny dependency-free context manager for compatibility callers."""
-
-    def __enter__(self):
-        return None
-
-    def __exit__(self, _kind, _value, _traceback) -> bool:
-        return False
 
 
 def gate_standalone_pipelines(

@@ -38,10 +38,22 @@ from zlang.ir.interfaces import (
     VirtualChannelCreditSignal,
 )
 from zlang.ir.arbitration import ArbitrationPolicy, GrantScope
-from zlang.ir.module import Function, Module, Port, Register, RequestResponseInterface
+from zlang.ir.module import (
+    Function,
+    Module,
+    NextAssignment,
+    Port,
+    Register,
+    RequestResponseInterface,
+    Rule,
+)
 from zlang.ir.module import PortDirection
 from zlang.ir.cdc import CrossingKind, ResetReleaseMode
-from zlang.ir.state import StateActionKind, select_action_groups
+from zlang.ir.state import (
+    StateActionKind,
+    conditional_actions,
+    select_action_groups,
+)
 from zlang.ir.verification import (
     VerificationGoal,
     VerificationGoalKind,
@@ -355,6 +367,31 @@ def _function_table(module: Module) -> dict[str, Function]:
     return result
 
 
+def _settle_local_values(
+    module: Module,
+    values: dict[str, object],
+    functions: dict[str, Function],
+) -> None:
+    """Evaluate immutable locals against one already-built cycle snapshot."""
+
+    pending = list(module.locals)
+    while pending:
+        deferred = []
+        for local in pending:
+            try:
+                value = _evaluate(local.expression, values, functions)
+            except KeyError:
+                deferred.append(local)
+                continue
+            values[local.name] = value
+        if len(deferred) == len(pending):
+            raise SimulationError(
+                "unresolved immutable local dependency: "
+                + ", ".join(local.name for local in deferred)
+            )
+        pending = deferred
+
+
 def _module_verification_monitor(module: Module) -> VerificationMonitor | None:
     """Build the one monitor owned by a physical module simulation."""
 
@@ -524,7 +561,10 @@ def simulate_cycles(
         port.protocol is InterfaceProtocol.VC_CREDIT for port in module.ports
     ):
         return simulate_vc_credit_cycles(module, input_cycles, reset)
-    if module.elaborated_instances and module.hierarchical_connections:
+    if module.elaborated_instances and (
+        module.hierarchical_connections
+        or module.aggregate_protocol_connections
+    ):
         return simulate_hierarchical_ready_valid_cycles(
             module, input_cycles, reset
         )
@@ -548,9 +588,29 @@ def simulate_cycles(
             raise SimulationError(
                 "use simulate_credit_cycles for a credit interface module"
             )
-        raise SimulationError(
-            "ready/valid interfaces on sequential modules are not implemented"
+        if module.request_responses:
+            raise SimulationError(
+                "use simulate_request_response_cycles for a request/response module"
+            )
+        unsupported = tuple(
+            port for port in module.ports
+            if port.protocol not in {
+                InterfaceProtocol.WIRE,
+                InterfaceProtocol.READY_VALID,
+            }
         )
+        if unsupported:
+            raise SimulationError(
+                "simulate_cycles supports only wire and ready/valid ports for "
+                "a generic sequential protocol module"
+            )
+        cycles = list(input_cycles)
+        resets = _effective_reset_cycles(module, reset, len(cycles))
+        state = _PersistentStorageSimulationState(module)
+        return [
+            state.step(inputs, reset_active)
+            for inputs, reset_active in zip(cycles, resets, strict=True)
+        ]
     cycles = list(input_cycles)
     resets = _effective_reset_cycles(module, reset, len(cycles))
     expected = {port.name: port for port in module.inputs}
@@ -560,9 +620,7 @@ def simulate_cycles(
         for register in module.registers
     }
     state = dict(initial_state)
-    delay_nodes: dict[int, expr.Delay | expr.Pipeline] = {}
-    for assignment in (*module.assignments, *module.next_assignments):
-        _collect_delays(assignment.expression, delay_nodes)
+    delay_nodes = _module_delay_nodes(module)
     delay_stages = {
         instance: [_zero_runtime(delay.type)] * _stage_count(delay)
         for instance, delay in delay_nodes.items()
@@ -603,17 +661,40 @@ def simulate_cycles(
                 for instance, stages in delay_stages.items()
             }
         )
-        fired_rules: list[object] = []
-        written_by_fired_rules: set[str] = set()
+        _settle_local_values(module, values, functions)
+        fired_rules: list[Rule] = []
         if not reset_active:
-            for rule in ordered_rules:
-                targets = {action.target.name for action in rule.actions}
-                if not bool(_evaluate(rule.guard, values, functions)):
-                    continue
-                if targets & written_by_fired_rules:
-                    continue
-                fired_rules.append(rule)
-                written_by_fired_rules.update(targets)
+            if module.resolved_transition is not None:
+                fired_rule_names = set(
+                    _select_storage_action_groups(
+                        module, values, {}, functions
+                    )
+                )
+                fired_rules = [
+                    rule for rule in ordered_rules
+                    if rule.name in fired_rule_names
+                ]
+            else:
+                # Compatibility path for hand-built legacy IR without the
+                # authoritative transition graph.  Parsed ZLang modules use
+                # ``ResolvedTransition`` and therefore get resource-aware
+                # active-effect scheduling above.
+                written_by_fired_rules: set[str] = set()
+                for rule in ordered_rules:
+                    active_actions = _active_rule_assignments(
+                        rule, values, functions
+                    )
+                    targets = {
+                        action.target.name for action in active_actions
+                    }
+                    if not bool(_evaluate(rule.guard, values, functions)):
+                        continue
+                    if rule.actions and not active_actions:
+                        continue
+                    if targets & written_by_fired_rules:
+                        continue
+                    fired_rules.append(rule)
+                    written_by_fired_rules.update(targets)
         cycle_outputs = {
             assignment.target.name: _evaluate(
                 assignment.expression, values, functions
@@ -628,7 +709,9 @@ def simulate_cycles(
                 action = next(
                     (
                         item
-                        for item in rule.actions
+                        for item in _active_rule_assignments(
+                            rule, values, functions
+                        )
                         if item.target.name == output.name
                     ),
                     None,
@@ -660,7 +743,9 @@ def simulate_cycles(
                     action.target.name: _evaluate(
                         action.expression, values, functions
                     )
-                    for action in rule.actions
+                    for action in _active_rule_assignments(
+                        rule, values, functions
+                    )
                     if isinstance(action.target, Register)
                 }
                 next_state.update(updates)
@@ -920,10 +1005,44 @@ def simulate_hierarchical_scalar_cycles(
                 not reset_active and count < fifo.depth
             )
         for memory in module.memories:
-            values[f"{memory.name}.read_data"] = (
-                _zero_runtime(memory.element_type)
-                if reset_active
-                else parent_state.memory_read_data[memory.name]
+            if memory.read_latency == 1:
+                values[f"{memory.name}.read_data"] = (
+                    _zero_runtime(memory.element_type)
+                    if (
+                        reset_active
+                        and memory.read_data_reset.value == "clear"
+                    )
+                    else parent_state.memory_read_data[memory.name]
+                )
+                continue
+            # This legacy scalar-hierarchy prepass only needs to expose parent
+            # storage to child input bindings.  Latency-zero global controls
+            # are ordinary typed expressions, so evaluate the same pre-edge
+            # view used by the persistent state engine.
+            for field, expression in (
+                ("read_address", memory.read_address),
+                ("write_enable", memory.write_enable),
+                ("write_address", memory.write_address),
+                ("write_data", memory.write_data),
+                ("write_mask", memory.write_mask),
+            ):
+                if expression is not None:
+                    values[f"${memory.name}.{field}"] = _evaluate(
+                        expression, values, parent_functions
+                    )
+            cells = (
+                [
+                    _zero_runtime(memory.element_type)
+                    for _ in range(memory.depth)
+                ]
+                if (
+                    reset_active
+                    and memory.contents_reset.value == "clear"
+                )
+                else parent_state.memory_cells[memory.name]
+            )
+            values[f"{memory.name}.read_data"] = _async_memory_read_value(
+                memory, cells, values, reset_active=reset_active
             )
         for rom in module.roms:
             values[f"{rom.name}.read_data"] = (
@@ -931,10 +1050,23 @@ def simulate_hierarchical_scalar_cycles(
                 if reset_active
                 else parent_state.rom_read_data[rom.name]
             )
+        pending_locals = list(module.locals)
         pending = dict(children)
         child_inputs_by_owner: dict[str, dict[str, object]] = {}
-        while pending:
+        while pending_locals or pending:
             progressed = False
+            deferred_locals = []
+            for local in pending_locals:
+                try:
+                    value = _evaluate(
+                        local.expression, values, parent_functions
+                    )
+                except KeyError:
+                    deferred_locals.append(local)
+                    continue
+                values[local.name] = value
+                progressed = True
+            pending_locals = deferred_locals
             for owner, child in tuple(pending.items()):
                 child_inputs: dict[str, object] = {}
                 try:
@@ -964,8 +1096,14 @@ def simulate_hierarchical_scalar_cycles(
                 progressed = True
             if not progressed:
                 raise SimulationError(
-                    "unresolved hierarchical scalar child dependency: "
-                    + ", ".join(sorted(pending))
+                    "unresolved immutable-local or hierarchical scalar "
+                    "dependency: "
+                    + ", ".join(
+                        [
+                            *(local.name for local in pending_locals),
+                            *sorted(pending),
+                        ]
+                    )
                 )
 
         cycle_result = parent_state.step(
@@ -1022,6 +1160,7 @@ def simulate_hierarchical_ready_valid_cycles(
         or module.memories
         or module.roms
         or module.instance_bindings
+        or module.aggregate_protocol_connections
         or any(
             port.protocol is InterfaceProtocol.WIRE
             for child in module.children
@@ -1382,7 +1521,10 @@ def _make_persistent_ready_valid_child_state(
 
     if not module.is_sequential:
         return _PersistentCombinationalSimulationState(module)
-    if module.elaborated_instances and module.hierarchical_connections:
+    if module.elaborated_instances and (
+        module.hierarchical_connections
+        or module.aggregate_protocol_connections
+    ):
         return _PersistentReadyValidHierarchySimulationState(module)
     return _PersistentStorageSimulationState(module)
 
@@ -1449,11 +1591,6 @@ class _PersistentReadyValidHierarchySimulationState:
                 "persistent ready/valid hierarchy does not support "
                 "request/response channels"
             )
-        if module.aggregate_protocol_connections:
-            raise SimulationError(
-                "persistent ready/valid hierarchy does not support aggregate "
-                "protocol connection descriptors"
-            )
         if len(module.children) != len(module.elaborated_instances):
             raise SimulationError(
                 "persistent ready/valid hierarchy requires one concrete child "
@@ -1467,18 +1604,28 @@ class _PersistentReadyValidHierarchySimulationState:
             for item in module.instance_bindings
         }
         self.top_ports = {port.name: port for port in module.ports}
-        if not self.top_ports or any(
-            port.protocol is not InterfaceProtocol.READY_VALID
-            for port in module.ports
-        ):
+        self.top_ready_valid_ports = {
+            name: port
+            for name, port in self.top_ports.items()
+            if port.protocol is InterfaceProtocol.READY_VALID
+        }
+        self.expected_top_inputs = {
+            name: port
+            for name, port in self.top_ports.items()
+            if port.direction is PortDirection.INPUT
+            or port.protocol is InterfaceProtocol.READY_VALID
+        }
+        if not self.top_ready_valid_ports:
             raise SimulationError(
-                "persistent ready/valid hierarchy supports ready/valid parent "
-                "ports only"
+                "persistent ready/valid hierarchy requires at least one "
+                "ready/valid parent port"
             )
 
         self.children: dict[str, Module] = {}
         self.endpoint_ports: dict[tuple[str, str], Port] = {
-            (module.name, port.name): port for port in module.ports
+            (module.name, port.name): port
+            for port in module.ports
+            if port.protocol is InterfaceProtocol.READY_VALID
         }
         for index, elaborated in enumerate(module.elaborated_instances):
             child = module.children[index]
@@ -1517,8 +1664,9 @@ class _PersistentReadyValidHierarchySimulationState:
                 if port.protocol is InterfaceProtocol.READY_VALID
             )
 
-        connected_forward: set[tuple[str, str]] = set()
-        connected_backward: set[tuple[str, str]] = set()
+        self.connections: list[
+            tuple[tuple[str, str], tuple[str, str]]
+        ] = []
         for connection in module.hierarchical_connections:
             if (
                 connection.buffer_depth
@@ -1531,21 +1679,29 @@ class _PersistentReadyValidHierarchySimulationState:
                     "persistent ready/valid hierarchy supports direct "
                     "connections only"
                 )
-            source_key = (connection.source.owner, connection.source.name)
-            destination_key = (
-                connection.destination.owner,
-                connection.destination.name,
+            self.connections.append(
+                (
+                    (connection.source.owner, connection.source.name),
+                    (
+                        connection.destination.owner,
+                        connection.destination.name,
+                    ),
+                )
             )
+        self.connections.extend(self._aggregate_delegation_connections())
+
+        connected_forward: set[tuple[str, str]] = set()
+        connected_backward: set[tuple[str, str]] = set()
+        for source_key, destination_key in self.connections:
             if source_key not in self.endpoint_ports:
                 raise SimulationError(
                     f"unknown hierarchical source "
-                    f"'{connection.source.owner}.{connection.source.name}'"
+                    f"'{source_key[0]}.{source_key[1]}'"
                 )
             if destination_key not in self.endpoint_ports:
                 raise SimulationError(
                     f"unknown hierarchical destination "
-                    f"'{connection.destination.owner}."
-                    f"{connection.destination.name}'"
+                    f"'{destination_key[0]}.{destination_key[1]}'"
                 )
             source_port = self.endpoint_ports[source_key]
             destination_port = self.endpoint_ports[destination_key]
@@ -1609,6 +1765,100 @@ class _PersistentReadyValidHierarchySimulationState:
             if port.protocol is InterfaceProtocol.WIRE
         }
 
+    def _aggregate_delegation_connections(
+        self,
+    ) -> list[tuple[tuple[str, str], tuple[str, str]]]:
+        """Expand typed aggregate delegation into physical member edges.
+
+        Child-to-child aggregate connections already have authoritative
+        member edges in ``hierarchical_connections``.  A top delegation keeps
+        only a typed aggregate descriptor, so use its schema and role ownership
+        to expose the same physical ready/valid edges to the simulator.
+        """
+
+        expanded: list[tuple[tuple[str, str], tuple[str, str]]] = []
+        top_endpoints = {
+            endpoint.name: endpoint
+            for endpoint in self.module.aggregate_protocol_endpoints
+        }
+        for descriptor in self.module.aggregate_protocol_connections:
+            if descriptor.crossing is not None:
+                raise SimulationError(
+                    "persistent aggregate hierarchy does not support crossings"
+                )
+            if not descriptor.delegation:
+                continue
+            destination_parts = descriptor.destination.split(".")
+            if len(destination_parts) != 2:
+                raise SimulationError(
+                    "aggregate delegation destination must name one child endpoint"
+                )
+            owner, endpoint_name = destination_parts
+            child = self.children.get(owner)
+            top_endpoint = top_endpoints.get(descriptor.source)
+            child_endpoint = (
+                next(
+                    (
+                        endpoint
+                        for endpoint in child.aggregate_protocol_endpoints
+                        if endpoint.name == endpoint_name
+                    ),
+                    None,
+                )
+                if child is not None
+                else None
+            )
+            if top_endpoint is None or child_endpoint is None:
+                raise SimulationError(
+                    "aggregate delegation references an unknown typed endpoint"
+                )
+            if (
+                top_endpoint.protocol != child_endpoint.protocol
+                or top_endpoint.role != child_endpoint.role
+                or top_endpoint.specialization_identity
+                != child_endpoint.specialization_identity
+            ):
+                raise SimulationError(
+                    "aggregate delegation endpoint metadata does not match"
+                )
+            child_members = {
+                member.name: member for member in child_endpoint.members
+            }
+            if {member.name for member in top_endpoint.members} != set(
+                child_members
+            ):
+                raise SimulationError(
+                    "aggregate delegation member sets do not match"
+                )
+            for member in top_endpoint.members:
+                other = child_members[member.name]
+                if (
+                    member.protocol is not InterfaceProtocol.READY_VALID
+                    or member.protocol is not other.protocol
+                    or member.payload_type != other.payload_type
+                    or member.source_role != other.source_role
+                    or member.sink_role != other.sink_role
+                ):
+                    raise SimulationError(
+                        f"aggregate delegation member '{member.name}' is "
+                        "outside the ready/valid simulation subset"
+                    )
+                top_key = (
+                    self.module.name,
+                    f"{top_endpoint.name}__{member.name}",
+                )
+                child_key = (owner, f"{child_endpoint.name}__{member.name}")
+                if top_endpoint.role == member.source_role:
+                    expanded.append((child_key, top_key))
+                elif top_endpoint.role == member.sink_role:
+                    expanded.append((top_key, child_key))
+                else:
+                    raise SimulationError(
+                        f"aggregate delegation role '{top_endpoint.role}' does "
+                        f"not own member '{member.name}'"
+                    )
+        return expanded
+
     def preview(
         self,
         inputs: dict[str, object],
@@ -1641,7 +1891,7 @@ class _PersistentReadyValidHierarchySimulationState:
         scalar_outputs: dict[str, object],
     ) -> dict[str, object]:
         values = dict(scalar_outputs)
-        for name, port in self.top_ports.items():
+        for name, port in self.top_ready_valid_ports.items():
             signal = signals[(self.module.name, name)]
             if port.direction is PortDirection.INPUT:
                 values[f"{name}.ready"] = int(signal["ready"])
@@ -1657,8 +1907,8 @@ class _PersistentReadyValidHierarchySimulationState:
         *,
         commit: bool,
     ) -> dict[str, object]:
-        missing = self.top_ports.keys() - inputs.keys()
-        extra = inputs.keys() - self.top_ports.keys()
+        missing = self.expected_top_inputs.keys() - inputs.keys()
+        extra = inputs.keys() - self.expected_top_inputs.keys()
         if missing:
             raise SimulationError(f"missing input '{sorted(missing)[0]}'")
         if extra:
@@ -1672,7 +1922,7 @@ class _PersistentReadyValidHierarchySimulationState:
             }
             for key, port in self.endpoint_ports.items()
         }
-        for name, port in self.top_ports.items():
+        for name, port in self.top_ready_valid_ports.items():
             value = inputs[name]
             if not isinstance(value, dict):
                 raise SimulationError(
@@ -1709,15 +1959,11 @@ class _PersistentReadyValidHierarchySimulationState:
         scalar_outputs = deepcopy(self.initial_scalar_outputs)
         final_child_inputs: dict[str, dict[str, object]] = {}
         final_parent_external_values: dict[str, object] = {}
+        final_parent_outputs: dict[str, object] = {}
         converged = False
         for _ in range(max(8, len(self.children) * 4 + 4)):
             previous = (deepcopy(signals), deepcopy(scalar_outputs))
-            for connection in self.module.hierarchical_connections:
-                source_key = (connection.source.owner, connection.source.name)
-                destination_key = (
-                    connection.destination.owner,
-                    connection.destination.name,
-                )
+            for source_key, destination_key in self.connections:
                 signals[destination_key]["payload"] = deepcopy(
                     signals[source_key]["payload"]
                 )
@@ -1732,7 +1978,7 @@ class _PersistentReadyValidHierarchySimulationState:
                 signals,
                 scalar_outputs,
             )
-            _, parent_values = self.local_state.preview_values(
+            parent_outputs, parent_values = self.local_state.preview_values(
                 inputs,
                 reset_active,
                 external_values=parent_external_values,
@@ -1787,13 +2033,9 @@ class _PersistentReadyValidHierarchySimulationState:
                         signal["valid"] = int(result["valid"])
             final_child_inputs = current_inputs
             scalar_outputs = current_scalar_outputs
+            final_parent_outputs = parent_outputs
 
-            for connection in self.module.hierarchical_connections:
-                source_key = (connection.source.owner, connection.source.name)
-                destination_key = (
-                    connection.destination.owner,
-                    connection.destination.name,
-                )
+            for source_key, destination_key in self.connections:
                 signals[destination_key]["payload"] = deepcopy(
                     signals[source_key]["payload"]
                 )
@@ -1819,6 +2061,10 @@ class _PersistentReadyValidHierarchySimulationState:
 
         cycle_result: dict[str, object] = {}
         for name, port in self.top_ports.items():
+            if port.protocol is InterfaceProtocol.WIRE:
+                if port.direction is PortDirection.OUTPUT:
+                    cycle_result[name] = deepcopy(final_parent_outputs[name])
+                continue
             signal = signals[(self.module.name, name)]
             transfer = int(bool(signal["valid"]) and bool(signal["ready"]))
             if port.direction is PortDirection.INPUT:
@@ -1893,6 +2139,7 @@ class _PersistentStorageSimulationState:
             register.name: _evaluate(register.initial, {}, self.functions)
             for register in module.registers
         }
+        self.delay_nodes = _module_delay_nodes(module)
         try:
             self.rom_contents: dict[str, tuple[object, ...]] = {
                 rom.name: tuple(
@@ -1944,6 +2191,10 @@ class _PersistentStorageSimulationState:
             self.rom_read_data,
             self.register_state,
         ) = self._fresh_state()
+        self.delay_stages = {
+            instance: [_zero_runtime(delay.type)] * _stage_count(delay)
+            for instance, delay in self.delay_nodes.items()
+        }
 
     def preview(
         self,
@@ -2019,19 +2270,50 @@ class _PersistentStorageSimulationState:
         if reset_active:
             (
                 fifo_contents,
-                memory_cells,
-                memory_read_data,
+                cleared_memory_cells,
+                cleared_memory_read_data,
                 rom_read_data,
                 register_state,
             ) = self._fresh_state()
+            # Writable-memory cells and their observable read result have
+            # independent runtime-reset policies.  Power-up construction is
+            # still deterministic zero; ``preserve`` only changes what a
+            # later reset edge does to already committed state.
+            memory_cells = {
+                memory.name: (
+                    self.memory_cells[memory.name]
+                    if memory.contents_reset.value == "preserve"
+                    else cleared_memory_cells[memory.name]
+                )
+                for memory in module.memories
+            }
+            memory_read_data = {
+                memory.name: (
+                    self.memory_read_data[memory.name]
+                    if memory.read_data_reset.value == "preserve"
+                    else cleared_memory_read_data[memory.name]
+                )
+                for memory in module.memories
+            }
+            delay_stages = {
+                instance: [_zero_runtime(delay.type)] * _stage_count(delay)
+                for instance, delay in self.delay_nodes.items()
+            }
         else:
             fifo_contents = self.fifo_contents
             memory_cells = self.memory_cells
             memory_read_data = self.memory_read_data
             rom_read_data = self.rom_read_data
             register_state = self.register_state
+            delay_stages = self.delay_stages
 
         values: dict[str, object] = dict(register_state)
+        values.update(
+            {
+                f"$delay_{instance}": stages[-1]
+                for instance, stages in delay_stages.items()
+            }
+        )
         if external_values is not None:
             values.update(external_values)
         for name, port in expected.items():
@@ -2086,49 +2368,69 @@ class _PersistentStorageSimulationState:
                 values[f"{fifo.name}.overflow"] = 0
                 values[f"{fifo.name}.underflow"] = 0
         for memory in module.memories:
-            values[f"{memory.name}.read_data"] = memory_read_data[memory.name]
+            if memory.read_latency == 1:
+                values[f"{memory.name}.read_data"] = memory_read_data[memory.name]
         for rom in module.roms:
             values[f"{rom.name}.read_data"] = rom_read_data[rom.name]
 
         scalar_child_inputs: dict[str, dict[str, object]] = {}
-        if external_values is None and self.scalar_children:
-            pending_children = dict(self.scalar_children)
-            while pending_children:
-                progressed = False
-                for owner, child in tuple(pending_children.items()):
-                    child_inputs: dict[str, object] = {}
-                    try:
-                        for port in child.inputs:
-                            binding = self.scalar_child_bindings.get(
-                                (owner, port.name)
-                            )
-                            if binding is None:
-                                raise SimulationError(
-                                    f"instance input '{owner}.{port.name}' is unbound"
-                                )
-                            child_inputs[port.name] = _evaluate(
-                                binding, values, self.functions
-                            )
-                    except KeyError:
-                        continue
-                    if child.is_sequential:
-                        child_result = self.scalar_child_states[owner].preview(
-                            child_inputs, reset_active
-                        )
-                    else:
-                        child_result = simulate(child, **child_inputs)
-                    for port in child.outputs:
-                        values[f"{owner}.{port.name}"] = deepcopy(
-                            child_result[port.name]
-                        )
-                    scalar_child_inputs[owner] = child_inputs
-                    del pending_children[owner]
-                    progressed = True
-                if not progressed:
-                    raise SimulationError(
-                        "unresolved hierarchical scalar child dependency: "
-                        + ", ".join(sorted(pending_children))
+        pending_locals = list(module.locals)
+        pending_children = (
+            dict(self.scalar_children) if external_values is None else {}
+        )
+        while pending_locals or pending_children:
+            progressed = False
+            deferred_locals = []
+            for local in pending_locals:
+                try:
+                    value = _evaluate(
+                        local.expression, values, self.functions
                     )
+                except KeyError:
+                    deferred_locals.append(local)
+                    continue
+                values[local.name] = value
+                progressed = True
+            pending_locals = deferred_locals
+
+            for owner, child in tuple(pending_children.items()):
+                child_inputs: dict[str, object] = {}
+                try:
+                    for port in child.inputs:
+                        binding = self.scalar_child_bindings.get(
+                            (owner, port.name)
+                        )
+                        if binding is None:
+                            raise SimulationError(
+                                f"instance input '{owner}.{port.name}' is unbound"
+                            )
+                        child_inputs[port.name] = _evaluate(
+                            binding, values, self.functions
+                        )
+                except KeyError:
+                    continue
+                if child.is_sequential:
+                    child_result = self.scalar_child_states[owner].preview(
+                        child_inputs, reset_active
+                    )
+                else:
+                    child_result = simulate(child, **child_inputs)
+                for port in child.outputs:
+                    values[f"{owner}.{port.name}"] = deepcopy(
+                        child_result[port.name]
+                    )
+                scalar_child_inputs[owner] = child_inputs
+                del pending_children[owner]
+                progressed = True
+            if not progressed:
+                unresolved = [
+                    *(local.name for local in pending_locals),
+                    *sorted(pending_children),
+                ]
+                raise SimulationError(
+                    "unresolved immutable-local or hierarchical scalar "
+                    "dependency: " + ", ".join(unresolved)
+                )
 
         pending_assignments = list(module.assignments)
         pending_controls: list[tuple[str, object, str, expr.Expression]] = []
@@ -2164,7 +2466,17 @@ class _PersistentStorageSimulationState:
         unresolved_fifo_status = {
             fifo.name for fifo in module.fifos if not fifo.scheduled
         }
-        while pending_assignments or pending_controls or unresolved_fifo_status:
+        unresolved_async_memory_reads = {
+            memory.name
+            for memory in module.memories
+            if memory.read_latency == 0
+        }
+        while (
+            pending_assignments
+            or pending_controls
+            or unresolved_fifo_status
+            or unresolved_async_memory_reads
+        ):
             progressed = False
             deferred_assignments = []
             for assignment in pending_assignments:
@@ -2230,6 +2542,23 @@ class _PersistentStorageSimulationState:
                     unresolved_fifo_status.remove(fifo.name)
                 progressed = True
 
+            for memory in module.memories:
+                if memory.name not in unresolved_async_memory_reads:
+                    continue
+                try:
+                    values[f"{memory.name}.read_data"] = (
+                        _async_memory_read_value(
+                            memory,
+                            memory_cells[memory.name],
+                            values,
+                            reset_active=reset_active,
+                        )
+                    )
+                except KeyError:
+                    continue
+                unresolved_async_memory_reads.remove(memory.name)
+                progressed = True
+
             if not progressed:
                 unresolved = [
                     *(
@@ -2241,6 +2570,10 @@ class _PersistentStorageSimulationState:
                         for name, _, field, _ in pending_controls
                     ),
                     *sorted(unresolved_fifo_status),
+                    *(
+                        f"{name}.read_data"
+                        for name in sorted(unresolved_async_memory_reads)
+                    ),
                 ]
                 raise SimulationError(
                     "unresolved combinational storage dependency: "
@@ -2251,7 +2584,7 @@ class _PersistentStorageSimulationState:
             _select_storage_action_groups(
                 module, values, fifo_contents, self.functions
             )
-            if module.rules
+            if module.rules and not reset_active
             else ()
         )
         fired_rules = tuple(
@@ -2268,7 +2601,9 @@ class _PersistentStorageSimulationState:
                             (
                                 action
                                 for rule in reversed(fired_rules)
-                                for action in rule.actions
+                                for action in _active_rule_assignments(
+                                    rule, values, self.functions
+                                )
                                 if action.target.name == port.name
                             ),
                             None,
@@ -2320,12 +2655,14 @@ class _PersistentStorageSimulationState:
                 self.memory_read_data,
                 self.rom_read_data,
                 self.register_state,
+                self.delay_stages,
             ) = (
                 fifo_contents,
                 memory_cells,
                 memory_read_data,
                 rom_read_data,
                 register_state,
+                delay_stages,
             )
             if external_values is None:
                 for owner, state in self.scalar_child_states.items():
@@ -2341,6 +2678,13 @@ class _PersistentStorageSimulationState:
         next_memory_read_data = dict(memory_read_data)
         next_rom_read_data = dict(rom_read_data)
         next_register_state = dict(register_state)
+        next_delay_stages = {
+            instance: [
+                _evaluate(delay.expression, values, self.functions),
+                *delay_stages[instance][:-1],
+            ]
+            for instance, delay in self.delay_nodes.items()
+        }
         memory_reads: dict[str, int] = {}
         memory_writes: dict[str, tuple[int, object]] = {}
 
@@ -2377,6 +2721,10 @@ class _PersistentStorageSimulationState:
                     )
             for rule_name in fired_rule_names:
                 for action in groups[rule_name].actions:
+                    if action.activation is not None and not bool(
+                        _evaluate(action.activation, values, self.functions)
+                    ):
+                        continue
                     resource = resources[action.resource_id]
                     if action.kind is StateActionKind.REGISTER_WRITE:
                         next_register_state[resource.name] = _evaluate(
@@ -2406,6 +2754,11 @@ class _PersistentStorageSimulationState:
                                 if len(action.operands) == 3 else None
                             ),
                         )
+                    elif action.kind is StateActionKind.OUTPUT_WRITE:
+                        # Scalar outputs are combinational scheduler effects;
+                        # the corresponding active Rule assignment was
+                        # evaluated above and there is nothing to commit.
+                        continue
 
         for memory in module.memories:
             if memory.scheduled:
@@ -2445,17 +2798,18 @@ class _PersistentStorageSimulationState:
                 )
                 if memory.write_mask is not None else write_data
             )
-            if (
-                write_enable
-                and read_address == write_address
-                and memory.collision.value == "write_first"
-            ):
-                next_read_data = merged_write
-            else:
-                next_read_data = cells[read_address]
+            if memory.read_latency == 1:
+                if (
+                    write_enable
+                    and read_address == write_address
+                    and memory.collision.value == "write_first"
+                ):
+                    next_read_data = merged_write
+                else:
+                    next_read_data = cells[read_address]
+                next_memory_read_data[memory.name] = next_read_data
             if write_enable:
                 next_memory_cells[memory.name][write_address] = merged_write
-            next_memory_read_data[memory.name] = next_read_data
         for rom in module.roms:
             read_address = int(values[f"${rom.name}.read_address"])
             if not 0 <= read_address < rom.depth:
@@ -2472,6 +2826,7 @@ class _PersistentStorageSimulationState:
         self.memory_read_data = next_memory_read_data
         self.rom_read_data = next_rom_read_data
         self.register_state = next_register_state
+        self.delay_stages = next_delay_stages
         if external_values is None:
             for owner, state in self.scalar_child_states.items():
                 state.step(scalar_child_inputs[owner], reset_active)
@@ -2516,11 +2871,41 @@ def _select_storage_action_groups(
         rule.name: bool(_evaluate(rule.guard, values, functions))
         for rule in module.rules
     }
+    activations = {
+        action.semantic_id: bool(
+            _evaluate(action.activation, values, functions)
+        )
+        for action in conditional_actions(transition)
+        if action.activation is not None
+    }
     counts = {name: len(contents) for name, contents in fifo_contents.items()}
     try:
-        return select_action_groups(transition, guards, counts)
+        return select_action_groups(
+            transition, guards, counts, activations
+        )
     except ValueError as error:
         raise SimulationError(str(error)) from error
+
+
+def _active_rule_assignments(
+    rule: Rule,
+    values: dict[str, object],
+    functions: dict[str, Function],
+) -> tuple[NextAssignment, ...]:
+    """Return effects selected by one rule's nested runtime control.
+
+    Activation predicates and effect operands are both evaluated from
+    ``values``, the immutable pre-edge snapshot.  Filtering here is deliberately
+    separate from scheduler selection: readiness may suppress the whole outer
+    action group, but can never make an ``else`` branch participate.
+    """
+
+    return tuple(
+        action
+        for action in rule.actions
+        if action.activation is None
+        or bool(_evaluate(action.activation, values, functions))
+    )
 
 
 def simulate_cdc_steps(
@@ -2815,10 +3200,10 @@ def simulate_cdc_steps(
     return results
 
 
-def _simulation_rule_schedule(module: Module) -> list[object]:
+def _simulation_rule_schedule(module: Module) -> list[Rule]:
     remaining = {rule.name: rule for rule in module.rules}
     edges = {(item.higher, item.lower) for item in module.rule_priorities}
-    ordered: list[object] = []
+    ordered: list[Rule] = []
     while remaining:
         ready = sorted(
             name
@@ -4943,6 +5328,48 @@ def _normalize(value: int, type_: HardwareType) -> int:
         raise SimulationError(str(error)) from error
 
 
+def _async_memory_read_value(
+    memory: object,
+    cells: list[object],
+    values: Mapping[str, object],
+    *,
+    reset_active: bool,
+) -> object:
+    """Evaluate one latency-zero global-memory read from the pre-edge view."""
+
+    name = str(getattr(memory, "name"))
+    element_type = getattr(memory, "element_type")
+    if reset_active and getattr(memory, "read_data_reset").value == "clear":
+        return _zero_runtime(element_type)
+
+    read_address = int(values[f"${name}.read_address"])
+    if not 0 <= read_address < len(cells):
+        raise SimulationError(
+            f"memory '{name}' read address {read_address} is outside "
+            f"0..{len(cells) - 1}"
+        )
+    old_value = cells[read_address]
+    # Reset suppresses writes regardless of whether the combinational result
+    # itself is preserved or masked.
+    if reset_active or getattr(memory, "collision").value != "write_first":
+        return old_value
+
+    write_enable = bool(values[f"${name}.write_enable"])
+    write_address = int(values[f"${name}.write_address"])
+    if not write_enable or read_address != write_address:
+        return old_value
+    new_value = values[f"${name}.write_data"]
+    write_mask = getattr(memory, "write_mask")
+    if write_mask is None:
+        return new_value
+    return _merge_memory_bytes(
+        old_value,
+        new_value,
+        int(values[f"${name}.write_mask"]),
+        element_type,
+    )
+
+
 def _merge_memory_bytes(
     old_value: object,
     new_value: object,
@@ -4954,7 +5381,7 @@ def _merge_memory_bytes(
     width = type_.width
     raw_limit = (1 << width) - 1
     expanded = 0
-    for lane in range(width // 8):
+    for lane in range((width + 7) // 8):
         if byte_mask & (1 << lane):
             expanded |= 0xFF << (lane * 8)
     if ir_packing.is_bit_packable(type_):
@@ -4997,6 +5424,43 @@ def _collect_delays(
     ):
         if isinstance(node, (expr.Delay, expr.Pipeline)):
             found.setdefault(node.instance, node)
+
+
+def _module_delay_nodes(
+    module: Module,
+) -> dict[int, expr.Delay | expr.Pipeline]:
+    """Collect every sequential expression owned by one module exactly once.
+
+    A delay in a rule guard or nested-effect activation is just as physical as
+    one used by an output or next-state expression.  Keep collection rooted in
+    the typed module instead of relying on whichever expressions an individual
+    simulator path happened to evaluate first.
+    """
+
+    found: dict[int, expr.Delay | expr.Pipeline] = {}
+    for local in module.locals:
+        _collect_delays(local.expression, found)
+    for assignment in module.assignments:
+        _collect_delays(assignment.expression, found)
+    for assignment in module.next_assignments:
+        _collect_delays(assignment.expression, found)
+        if assignment.activation is not None:
+            _collect_delays(assignment.activation, found)
+    for rule in module.rules:
+        _collect_delays(rule.guard, found)
+        for action in rule.actions:
+            _collect_delays(action.expression, found)
+            if action.activation is not None:
+                _collect_delays(action.activation, found)
+    if module.resolved_transition is not None:
+        for group in module.resolved_transition.action_groups:
+            _collect_delays(group.guard, found)
+            for action in group.actions:
+                for operand in action.operands:
+                    _collect_delays(operand, found)
+                if action.activation is not None:
+                    _collect_delays(action.activation, found)
+    return found
 
 
 def _stage_count(expression: expr.Delay | expr.Pipeline) -> int:

@@ -1,0 +1,116 @@
+// AMBA 3 AHB-Lite, single-manager/single-subordinate source profile.
+//
+// The bridge deliberately accepts only aligned, full-width transfers.  It
+// preserves AHB's pipelined address/data relationship: HADDR/HWRITE/HSIZE are
+// captured in the address phase and HWDATA is consumed in the following data
+// phase.  No compiler or backend contains AHB-specific lowering.
+import std.bus.reg
+
+protocol AHBLite<AW=32,DW=32> {
+    role master
+    role slave
+
+    member HSEL      : bit       master -> slave
+    member HADDR     : uint<AW>  master -> slave
+    member HWRITE    : bit       master -> slave
+    member HTRANS    : bits<2>   master -> slave
+    member HSIZE     : bits<3>   master -> slave
+    member HBURST    : bits<3>   master -> slave
+    member HPROT     : bits<4>   master -> slave
+    member HMASTLOCK : bit       master -> slave
+    member HWDATA    : uint<DW>  master -> slave
+    member HREADY    : bit       master -> slave
+
+    member HRDATA    : uint<DW>  slave -> master
+    member HREADYOUT : bit       slave -> master
+    member HRESP     : bit       slave -> master
+}
+
+enum AHBLiteBridgePhase {
+    Idle
+    Request
+    Response
+    ErrorFirst
+    ErrorSecond
+}
+
+module AHBLiteToRegBus<AW=32,DW=32>
+where AW >= 1 && AW >= floor_log2(DW / 8) &&
+      DW >= 8 && DW <= 1024 &&
+      is_power_of_two(DW) && is_power_of_two(DW / 8) {
+    clock hclk
+    async reset hresetn @hclk { polarity active_low }
+    interface ahb : AHBLite<AW,DW>.slave @hclk
+    interface regbus : RegBus<AW,DW>.requester @hclk
+
+    reg address : uint<AW> = 0
+    reg write : bit = 0
+
+    active_address : bit = ahb.HSEL & ahb.HREADY & ahb.HTRANS[1]
+    alignment_mask : uint<AW> = extend<AW>((DW / 8) - 1)
+    address_aligned : bit = (ahb.HADDR & alignment_mask) == 0
+    expected_size : bits<3> = floor_log2(DW / 8)
+    transfer_legal : bit = address_aligned & (ahb.HSIZE == expected_size)
+
+    request_phase : bit = phase == AHBLiteBridgePhase.Request
+    response_phase : bit = phase == AHBLiteBridgePhase.Response
+    local_error_first : bit = phase == AHBLiteBridgePhase.ErrorFirst
+    error_second : bit = phase == AHBLiteBridgePhase.ErrorSecond
+    response_present : bit = response_phase & regbus.response.valid
+    response_error : bit = response_present & regbus.response.payload.error
+    response_success : bit = response_present & !regbus.response.payload.error
+
+    // A successful response completes in one data-phase cycle.  ERROR uses
+    // the mandatory two-cycle response: low-ready/high-response followed by
+    // high-ready/high-response.
+    ahb.HREADYOUT = (phase == AHBLiteBridgePhase.Idle) |
+                    response_success | error_second
+    ahb.HRESP = local_error_first | error_second | response_error
+    ahb.HRDATA = mux(response_success, regbus.response.payload.rdata, 0)
+
+    regbus.request.valid = request_phase
+    regbus.request.payload = RegRequest {
+        addr = address
+        write = write
+        wdata = ahb.HWDATA
+        wstrb = ones<DW / 8>
+    }
+    regbus.response.ready = response_phase
+
+    fsm phase : AHBLiteBridgePhase = Idle {
+        Idle {
+            priority {
+                when active_address & transfer_legal -> Request {
+                    address <- ahb.HADDR
+                    write <- ahb.HWRITE
+                }
+                when active_address -> ErrorFirst {}
+            }
+        }
+        Request {
+            when regbus.request.transfer -> Response {}
+        }
+        Response {
+            priority {
+                when regbus.response.transfer & regbus.response.payload.error -> ErrorSecond {}
+                when regbus.response.transfer & active_address & transfer_legal -> Request {
+                    address <- ahb.HADDR
+                    write <- ahb.HWRITE
+                }
+                when regbus.response.transfer & active_address -> ErrorFirst {}
+                when regbus.response.transfer -> Idle {}
+            }
+        }
+        ErrorFirst { -> ErrorSecond {} }
+        ErrorSecond {
+            priority {
+                when active_address & transfer_legal -> Request {
+                    address <- ahb.HADDR
+                    write <- ahb.HWRITE
+                }
+                when active_address -> ErrorFirst {}
+                when 1 -> Idle {}
+            }
+        }
+    }
+}

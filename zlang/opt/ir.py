@@ -38,7 +38,7 @@ from zlang.ir.functional_regions import (
     ExactReductionPlan,
     FunctionalRegionKind,
 )
-from zlang.ir.storage import MemoryCollision
+from zlang.ir.storage import MemoryCollision, MemoryResetPolicy
 from zlang.ir.state import StateActionKind, StateResource
 from zlang.source import SourceOrigin
 from zlang.ir.pipelines import (
@@ -391,6 +391,7 @@ class CanonicalNextAssignment:
     target_kind: TargetKind
     target_name: str
     expression: NodeId
+    activation: NodeId | None = None
 
 
 @dataclass(frozen=True)
@@ -419,6 +420,7 @@ class CanonicalStateAction:
     operands: tuple[NodeId, ...]
     owner_group: str
     source_origin: SourceOrigin | None = None
+    activation: NodeId | None = None
 
 
 @dataclass(frozen=True)
@@ -455,6 +457,9 @@ class CanonicalMemory:
     source_origin: SourceOrigin | None = None
     write_mask_width: int | None = None
     write_mask: NodeId | None = None
+    # Appended to preserve the historical positional constructor ABI.
+    contents_reset: MemoryResetPolicy = MemoryResetPolicy.CLEAR
+    read_data_reset: MemoryResetPolicy = MemoryResetPolicy.CLEAR
 
 
 @dataclass(frozen=True)

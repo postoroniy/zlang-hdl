@@ -1,5 +1,5 @@
 `default_nettype none
-module RequestClient__zlang_core (
+module RequestClient_zlang_core (
   input logic clk,
   input logic rst,
   input wire logic [9:0] request_payload,
@@ -99,7 +99,7 @@ module RequestClient (
   logic [9:0] zlang_top_core_mem_request_payload;
   logic zlang_top_core_mem_request_valid;
   logic zlang_top_core_mem_response_ready;
-  RequestClient__zlang_core zlang_top_core (
+  RequestClient_zlang_core zlang_top_core (
     .clk(clk),
     .rst(rst),
     .request_payload({request_payload_id, request_payload_data}),

@@ -152,7 +152,7 @@ def test_hierarchical_child_keeps_one_physical_closed_component(tmp_path: Path) 
     child_modules = [
         line.split()[1]
         for line in direct.splitlines()
-        if line.startswith("module ElasticPipelineLeaf__")
+        if line.startswith("module ElasticPipelineLeaf_s")
     ]
     assert len(child_modules) == 1
     assert f"{child_modules[0]} pipe (" in direct

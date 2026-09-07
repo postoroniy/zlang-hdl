@@ -500,7 +500,8 @@ module Top {
             "inst helper:FixedAbs<16,8>{x} y=helper.y }"
         )
         self.assertEqual(result.ir.children[0].source_identity, "std.math.fixed")
-        self.assertIn("fixedAbs ::", result.clash)
+        suffix = result.ir.elaborated_instances[0].specialization_identity[:8]
+        self.assertIn(f"fixedAbs_s{suffix} ::", result.clash)
         self.assertIn("module FixedAbs", emit_experimental(result.ir))
 
     @unittest.skipUnless(shutil.which("verilator"), "Verilator is unavailable")

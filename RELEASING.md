@@ -5,16 +5,30 @@ GitHub alpha; publishing to PyPI or a container registry is a separate decision.
 
 ## Preconditions
 
+- Complete the [licensing/public release checklist](docs/licensing/PUBLIC_RELEASE_CHECKLIST.md)
+  against the exact candidate, including generated output and reference-IP provenance.
 - Release only from the reviewed public snapshot branch with a clean worktree.
 - The package version, CLI versions, changelog entry, and tag must agree.
+- Bind the [2026-09 Community Baseline](docs/licensing/COMMUNITY_BASELINE.md)
+  to the exact reviewed public commit, signed tag, projection manifest and
+  source/archive hashes in the release evidence. Until then it is a release
+  designation, not an already-published snapshot. Retain every baseline
+  capability and all accepted compiler fixes; no Enterprise extraction belongs
+  in this release. Include the approved [edition matrix](docs/editions.md).
 - Confirm that the GitHub source snapshot contains `LICENSE`, `NOTICE`, REUSE
-  metadata, public-tree policy, and every nested third-party notice. The runtime
+  metadata, `TRADEMARKS.md`, `docs/project-scope.md`, public-tree policy, and
+  every nested third-party notice. The runtime
   wheel and sdist must contain the root `LICENSE` and `NOTICE`; examples, tests,
   internal release policy, and their nested notices are intentionally not part
   of those runtime archives.
 - Confirm that no private development history, host-specific path, credential,
   scratch artifact, or internal coordination document is present.
+- Review the public repository description, topics, and detected license. Do not
+  publish a homepage or documentation domain until that domain is controlled by
+  the project maintainer.
 - Review third-party license inventory, generated SBOM, and secret scan results.
+- Confirm that release notes and documentation contain no link to a tag or
+  release that has not yet been published.
 - Enable GitHub Discussions, private vulnerability reporting, secret scanning,
   push protection, Dependency Graph, and Dependabot alerts before accepting
   public contributions. Keep default Actions token permissions read-only.
@@ -70,3 +84,8 @@ environments and exercise `zlang`, `zlang-lock`, `zlang-verify`, and
 
 Do not publish a tag or artifact from the private development branch, a dirty
 worktree, or an unreviewed generated snapshot.
+
+The Apache-2.0 project boundary is documented in
+[docs/project-scope.md](docs/project-scope.md), and use of the project name is
+described in [TRADEMARKS.md](TRADEMARKS.md). Neither document substitutes for
+the license review required by this release gate.

@@ -34,11 +34,13 @@ module ScalarRom<D=4> {
 # locked here.  File-backed cases were recaptured after the canonical source
 # suffix changed from ``.zl`` to ``.zhl``: source-unit and physical-input
 # provenance belong to this eager surface even though production RTL identity
-# is unchanged.
+# is unchanged.  Cases which publish selected/canonical value products were
+# recaptured again for canonical schema v13, which retains conditional action
+# activation predicates and scheduled scalar-output resources explicitly.
 EXPECTED = {
     "add": "073a2174877d3be3f02f36c5e98632514281b27b14c17ea93574b940e2f7dfe3",
     "stateful_protocol": "88035c9db7b9d1e3bca36ef26bfa090531fa182c1791c4f6c0ed3033df721ef3",
-    "fixed_dsp": "85f8ee55ac21fe1e9e5dfa485bcf6dbf6a6f4e3fd67eb89e328153d551fe6c7e",
+    "fixed_dsp": "25b20972f816b2fbc33a5cf8f58531996ec730f485caf1cf6f54a676843d10a9",
     "csr": "cce237a39c33776624e2fc5fcbd47d3e0467daaae758013a0f05423f2039d871",
     "hierarchy": "38daa8c7be62ef94997500865d5c89c62a5bdfe66ecbc65a37c3b5f7991f8638",
     # Companion filenames now use exact typed ROM contents/layout rather than
@@ -48,7 +50,7 @@ EXPECTED = {
     # generation and struct update while retaining the public ABI and IEEE
     # behavior.  This source/dependency-sensitive eager-result snapshot was
     # independently compiled twice before being locked here.
-    "wifi": "fe13529a49d5de147d518a4788ca11d63f389bcfc7b158a256c2239cd470e5fb",
+    "wifi": "28ed2da4b70263dd54370092fe5b0c15fda185b803a916671210776e50126a15",
 }
 
 

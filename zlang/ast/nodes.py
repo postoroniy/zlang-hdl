@@ -1178,17 +1178,36 @@ class ResourceAction:
 
 
 @dataclass(frozen=True)
+class ConditionalAction:
+    """Runtime action selection retained only until rule normalization.
+
+    Nested ``when`` statements do not introduce a second scheduling model or
+    split one source rule into leaf rules.  Semantic lowering keeps one atomic
+    rule and attaches the selected path predicate to each typed effect.
+    ``None`` distinguishes an omitted ``else`` from an explicit empty else
+    block for precise source diagnostics.
+    """
+
+    guard: Expression
+    when_true: tuple[NextAssignment | ResourceAction | "ConditionalAction", ...]
+    when_false: (
+        tuple[NextAssignment | ResourceAction | "ConditionalAction", ...] | None
+    ) = None
+    origin: SourceSpan | None = field(default=None, compare=False)
+
+
+@dataclass(frozen=True)
 class RuleDecl:
     name: str
     guard: Expression
-    actions: tuple[NextAssignment | ResourceAction, ...]
+    actions: tuple[NextAssignment | ResourceAction | ConditionalAction, ...]
     origin: SourceSpan | None = field(default=None, compare=False)
 
 
 @dataclass(frozen=True)
 class AnonymousRuleDecl:
     guard: Expression
-    actions: tuple[NextAssignment | ResourceAction, ...]
+    actions: tuple[NextAssignment | ResourceAction | ConditionalAction, ...]
     origin: SourceSpan | None = field(default=None, compare=False)
 
 
@@ -1198,7 +1217,7 @@ class PriorityRuleArm:
 
     label: str | None
     guard: Expression | None
-    actions: tuple[NextAssignment | ResourceAction, ...]
+    actions: tuple[NextAssignment | ResourceAction | ConditionalAction, ...]
     origin: SourceSpan | None = field(default=None, compare=False)
 
 
@@ -1215,7 +1234,7 @@ class FsmTransitionDecl:
     """One guarded or unconditional transition in concise FSM syntax."""
 
     target: str
-    actions: tuple[NextAssignment | ResourceAction, ...]
+    actions: tuple[NextAssignment | ResourceAction | ConditionalAction, ...]
     guard: Expression | None = None
     origin: SourceSpan | None = field(default=None, compare=False)
 
@@ -1271,6 +1290,13 @@ class MemoryCollision(str, Enum):
     WRITE_FIRST = "write_first"
 
 
+class MemoryResetPolicy(str, Enum):
+    """Source policy for one independently resettable memory state surface."""
+
+    CLEAR = "clear"
+    PRESERVE = "preserve"
+
+
 @dataclass(frozen=True)
 class MemoryDecl:
     name: str
@@ -1279,6 +1305,10 @@ class MemoryDecl:
     read_latency: int
     collision: MemoryCollision
     origin: SourceSpan | None = field(default=None, compare=False)
+    # Trailing defaults preserve the positional constructor used before reset
+    # policy became source-visible.
+    contents_reset: MemoryResetPolicy = MemoryResetPolicy.CLEAR
+    read_data_reset: MemoryResetPolicy = MemoryResetPolicy.CLEAR
 
 
 @dataclass(frozen=True)

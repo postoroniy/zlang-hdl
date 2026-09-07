@@ -598,6 +598,18 @@ def _map_synchronous_memory(module, target, family, resources, template, policy)
         raise TargetArchitectureError(
             "target memory mapping does not support rule-owned scheduled memory"
         )
+    if memory.read_latency != 1:
+        raise TargetArchitectureError(
+            "target memory mapping supports only one-cycle synchronous reads"
+        )
+    if (
+        memory.contents_reset.value != "clear"
+        or memory.read_data_reset.value != "clear"
+    ):
+        raise TargetArchitectureError(
+            "target memory mapping does not advertise reset-preserved contents "
+            "or read data"
+        )
     if memory.write_mask_width is not None:
         raise TargetArchitectureError(
             "target memory mapping does not support byte write masks"

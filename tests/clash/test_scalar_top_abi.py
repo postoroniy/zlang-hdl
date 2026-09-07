@@ -126,8 +126,10 @@ module HierarchyOutputs {
     b=child.y+1
 }
 """
-    clash = compile_source(source, top="HierarchyOutputs").clash
-    assert "child x = x" in clash
+    compilation = compile_source(source, top="HierarchyOutputs")
+    clash = compilation.clash
+    identity = compilation.ir.elaborated_instances[0].specialization_identity
+    assert f"child_s{identity[:8]} x = x" in clash
     assert "topEntity :: Unsigned 8 -> (Unsigned 8, Unsigned 9)" in clash
     assert "topEntity x = (child_y," in clash
     assert (

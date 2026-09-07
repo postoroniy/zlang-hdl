@@ -21,7 +21,10 @@ class ProtocolExtensionSemanticTests(unittest.TestCase):
 
         self.assertEqual(arbiter.policy, ArbitrationPolicy.ROUND_ROBIN)
         self.assertEqual(arbiter.grant_scope, GrantScope.PACKET)
-        self.assertEqual([source.name for source in arbiter.sources], ["source_a", "source_b"])
+        self.assertEqual(
+            [source.name for source in arbiter.sources],
+            ["source_a", "source_b", "source_c", "source_d"],
+        )
         self.assertEqual(arbiter.destination.name, "tx")
         self.assertTrue(
             all(port.protocol is InterfaceProtocol.PACKET for port in module.ports)

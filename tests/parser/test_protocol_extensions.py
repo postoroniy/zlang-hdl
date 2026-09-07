@@ -15,9 +15,11 @@ class ProtocolExtensionParserTests(unittest.TestCase):
 
         self.assertEqual(
             [port.type_name.kind for port in module.ports],
-            [InterfaceKind.PACKET, InterfaceKind.PACKET, InterfaceKind.PACKET],
+            [InterfaceKind.PACKET] * 5,
         )
-        self.assertEqual(arbiter.sources, ("source_a", "source_b"))
+        self.assertEqual(
+            arbiter.sources, ("source_a", "source_b", "source_c", "source_d")
+        )
         self.assertEqual(arbiter.destination, "tx")
         self.assertEqual(arbiter.policy, ArbitrationPolicy.ROUND_ROBIN)
         self.assertEqual(arbiter.grant_scope, GrantScope.PACKET)

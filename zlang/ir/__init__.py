@@ -109,6 +109,7 @@ from zlang.ir.storage import (
     FifoSignal,
     Memory,
     MemoryCollision,
+    MemoryResetPolicy,
     MemorySignal,
     Rom,
     RomSignal,
@@ -132,6 +133,7 @@ from zlang.ir.state import (
     StateActionKind,
     StateResource,
     StateResourceKind,
+    conditional_actions,
 )
 from zlang.ir.cdc import (
     ClockDomain,
@@ -395,6 +397,7 @@ __all__ = [
     "Mux",
     "Memory",
     "MemoryCollision",
+    "MemoryResetPolicy",
     "MemoryRef",
     "MemorySignal",
     "Rom",
@@ -450,6 +453,7 @@ __all__ = [
     "StateActionKind",
     "StateResource",
     "StateResourceKind",
+    "conditional_actions",
     "TemporalForm",
     "classify_equivalence",
     "signedness",

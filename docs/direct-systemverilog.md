@@ -10,6 +10,28 @@ RegBus module names: source-authored standard-bus components use the same
 aggregate endpoint, hierarchy, register, rule, and connection lowering as user
 modules.
 
+Ordinary scalar register/rule components share the standalone/composed dispatch
+and register contributor. Independent rules do not require global scheduler
+enumeration merely because a module is instantiated as a child. Hierarchy
+validation is cached only within one emission; protocol/storage effects and
+conflicting multi-effect rules keep their existing exact paths. ZL-017's composed
+AHB/queued Q16 witness now emits in about 16.4 seconds on the recorded host.
+Generated private names now use a shared hierarchy-local allocation plan:
+`cfg_ready`, `lane_0`, `lane_0_value`, `result_pipe_s1`, and short specialized
+definitions such as `Counter_s1a2b3c4d`. Source names win over generated helpers;
+actual collisions receive a deterministic suffix. Public top/port ABI and
+source register names are unchanged, including existing public aggregate-leaf
+separators. BackendArtifact records the naming schema and complete semantic
+identities separately from regenerated RTL/VPI locators. Clash consumes the
+same policy for its source helpers; final Clash-generated HDL internals remain
+controlled by Clash. Naming does not change circuit semantics or imply QoR gains.
+
+Formal-only `rule.fire` now uses the same effective reset and polarity as
+production state, including the two-edge synchronized release and conditioned
+child reset. Real RTL covers both polarities, both active edges and nested
+hierarchy. Its separate global-guard enumeration scalability limitation remains:
+large independent-rule formal projections still require a future bounded fix.
+
 Fixed-point ports and expressions use the canonical scaled-integer types behind
 `fixed`/`ufixed`, concise `SF`/`UF`, and `_Sat` formats. Same-scale target
 narrowing and explicit rescaling are both emitted from `FixedConvert`; the
@@ -75,6 +97,11 @@ Unresolved locals are eliminated before backend lowering.  Unsupported IR
 shapes raise `SystemVerilogEmissionError`; no artifact is published after a
 failed emission.
 
+Ordered comparisons preserve typed signedness explicitly: both operands of
+`<`, `<=`, `>`, and `>=` are rendered through `$signed` or `$unsigned` according
+to typed IR, independent of whether an operand is a port, local, projection, or
+register. Equality and inequality remain raw bit comparisons.
+
 Use the stable CLI option:
 
 ```sh
@@ -115,6 +142,37 @@ module from being hidden by default-top selection. With `--top`, it checks only
 that selected elaboration root. Syntax, semantic, and top-selection failures
 retain their normal nonzero status and diagnostic. As a check-only mode, it
 cannot be combined with artifact output options.
+
+## Simulation-only architectural state access
+
+A direct-SV build may publish a separate Verilator VPI companion without
+adding ports or changing the production RTL:
+
+```sh
+.venv/bin/zlang design.zhl \
+  --systemverilog build/design.sv \
+  --simulation-state-bundle build/state-access
+```
+
+The companion manifest covers the selected typed hierarchy and is bound to the
+exact emitted artifact hash, build identity, state shapes, and emitter-owned
+physical locators. Publication re-hashes the `.sv` file, so a stale or modified
+RTL file cannot receive an access manifest. The generated C++ header requires
+Verilator `--vpi --public-flat-rw` and validates its complete state allow-list
+before access.
+
+The bounded surface includes bit-packable user registers (including vector
+registers), writable-memory cells, and the persistent read-result latch of a
+one-cycle memory. Values up to 64 bits have convenience methods; arbitrary-
+width scalars and elements use exact 32-bit least-significant-word-first arrays.
+Vector element zero retains the canonical most-significant packed position.
+The persistent semantic simulator consumes the same catalog and keeps one state
+object per physical child instance.
+
+This first slice requires one exact clock/reset domain and generic direct-SV.
+Target-mapped state, FIFO/CSR/protocol internals, CDC, Clash state mutation,
+arbitrary force/release, and synthesizable preload logic remain unavailable.
+See the matching [backend-tooling CLI description](backends-tooling.md#core-cli).
 
 ## Formal boundary
 
@@ -165,13 +223,16 @@ children, aggregate scalar outputs, primitive ready/valid children with scalar
 wire peers, storage-only FIFO/memory/ROM children, primitive ready/valid
 children owning one FIFO, scheduled FIFO actions combined with ordinary
 register/rule state, and bounded nested same-domain scalar or direct-ready-valid
-hierarchy. A first-level request/response array may connect compile-time indexed
+hierarchy. The bounded scalar subset also includes the source-composed
+`ZtpuBankedMemory`: a scalar wrapper around two flat arrays of 1R1W leaves,
+with two scalar outputs returned by one coherent reusable child component. A
+first-level request/response array may connect compile-time indexed
 requester/responder elements when every child has one `ordering in_order`
 endpoint and scalar wire ports only.
 
 Legacy globally controlled storage combined with user state, out-of-order or
 nested request/response arrays, additional protocols on a request/response array
-child, nested storage/CSR/aggregate protocol hierarchy, CDC arrays, and
+child, arbitrary nested storage/CSR/aggregate protocol hierarchy, CDC arrays, and
 runtime-selected inputs, protocols, or actions remain fail-closed. The backend
 never silently emits only one element or reconstructs an indexed connection
 from an RTL name.
@@ -191,8 +252,8 @@ declared module root under `examples/`. There are no emission-error skips. Each
 root is classified as standalone-supported, child/template-only, or explicitly
 unsupported; an unclassified new root is tested as standalone-supported.
 
-The accepted snapshot contains **80 `.zhl` files / 165 module roots / 150
-standalone roots / 15 child or template roots / 0 unsupported roots**. The
+The accepted snapshot contains **84 `.zhl` files / 174 module roots / 157
+standalone roots / 17 child or template roots / 0 unsupported roots**. The
 registry test remains authoritative when examples change; these numbers are an
 evidence snapshot rather than a hard-coded allow-list.
 
@@ -219,6 +280,14 @@ Publication additionally requires the shared exact-once
 [backend tooling](backends-tooling.md#emitter-architecture-boundary); a renderer
 cannot silently omit or double-own a selected IR entity and still return an
 artifact.
+
+The two additional ZTPU templates require concrete type/value parameters and
+are therefore child/template-only. Their concrete `ZtpuBankedMemory` parent is
+standalone-supported, emits one reusable 1R1W leaf module with eight physical
+instances, publishes all recursive instance/storage paths, and passes strict
+Verilator lint and cycle simulation. Real Clash 1.11 emits the same typed
+component graph and behavior through its bundled multi-output scalar child ABI;
+this is not a post-normalization RTL-hierarchy claim.
 
 The additional streaming roots include the staged `FFT4SDFReference` through
 `FFT512SDFReference` hierarchy. Direct SV emits one distinct specialization per
@@ -269,8 +338,10 @@ Wi-Fi-specific backend behavior.
 Strict lint keeps only non-correctness waivers for declaration filenames and
 unused/undriven test-fixture signals. Width, latch, driver, and structural
 warnings remain fatal. In particular, all fixed-point conversion constants are
-emitted at the exact conversion work width, and synchronous memories clear both
-their registered read result and typed cell state on reset.
+emitted at the exact conversion work width. Writable memories lower their typed
+zero/one-cycle read, collision, byte-mask, cell-reset and read-result-reset
+profile directly; the omitted profile retains the legacy one-cycle clear/clear
+text.
 
 ## Internal combinational-driver style
 

@@ -11,6 +11,10 @@ from typing import Iterable
 from zlang.backend.identifiers import allocate_private_rtl_identifier
 from zlang.backend.systemverilog.syntax import sized_decimal
 from zlang.common.tool_inventory import discover_tool_inventory
+from zlang.common.systemverilog import (
+    render_ordered_comparison,
+    render_right_shift,
+)
 from zlang.formal_domain import (
     FormalDomainRendering,
     FormalDomainRenderingError,
@@ -127,12 +131,51 @@ def _expr(value: expr.Expression) -> str:
     if isinstance(value, expr.Add):
         return f"({_expr(value.left)} + {_expr(value.right)})"
     if isinstance(value, expr.Binary):
+        if value.operator is expr.BinaryOperator.SHIFT_RIGHT:
+            return render_right_shift(
+                _expr(value.left),
+                _expr(value.right),
+                signed=isinstance(value.operand_type, SIntType),
+            )
+        if value.operator in {
+            expr.BinaryOperator.LESS,
+            expr.BinaryOperator.LESS_EQUAL,
+            expr.BinaryOperator.GREATER,
+            expr.BinaryOperator.GREATER_EQUAL,
+        }:
+            return render_ordered_comparison(
+                _expr(value.left),
+                value.operator.value,
+                _expr(value.right),
+                signed=isinstance(value.operand_type, (SIntType, FixedType)),
+            )
         return f"({_expr(value.left)} {value.operator.value} {_expr(value.right)})"
-    if isinstance(value, (expr.Extend, expr.Truncate)):
+    if isinstance(value, expr.Extend):
         # Resize nodes are semantic bit-vector boundaries.  Relying on a later
         # assignment context is incorrect when the resized value feeds another
         # expression, such as a runtime vector selector.
-        return f"{value.type.width}'({_expr(value.expression)})"
+        rendered = _expr(value.expression)
+        source_is_signed = isinstance(
+            value.expression.type, (SIntType, FixedType)
+        )
+        # Keep the established context-sized rendering for unsigned values:
+        # it carries the declared width into composite expressions such as a
+        # carry-preserving Add. Signed projections need an explicit cast so a
+        # packed select cannot silently zero-extend them.
+        source = f"$signed({rendered})" if source_is_signed else rendered
+        resized = f"{value.type.width}'({source})"
+        return (
+            f"$signed({resized})"
+            if isinstance(value.type, (SIntType, FixedType))
+            else resized
+        )
+    if isinstance(value, expr.Truncate):
+        raw = f"{value.type.width}'($unsigned({_expr(value.expression)}))"
+        return (
+            f"$signed({raw})"
+            if isinstance(value.type, (SIntType, FixedType))
+            else raw
+        )
     if isinstance(value, expr.FixedConvert):
         return _fixed_convert_expr(value)
     if isinstance(value, expr.Mux):
@@ -206,9 +249,14 @@ def _expr(value: expr.Expression) -> str:
         for field in aggregate_type.fields:
             offset -= field.type.width
             if field.name == value.field:
-                return (
+                projected = (
                     f"{field.type.width}'(($unsigned({_expr(value.expression)})) "
                     f">> {offset})"
+                )
+                return (
+                    f"$signed({projected})"
+                    if isinstance(field.type, (SIntType, FixedType))
+                    else projected
                 )
         raise EquivalenceError(
             f"struct '{aggregate_type.name}' has no field '{value.field}'"
@@ -218,17 +266,27 @@ def _expr(value: expr.Expression) -> str:
         if not isinstance(vector, VecType):
             raise EquivalenceError("vector index base is not a vector")
         lsb = (vector.length - value.index - 1) * vector.element_type.width
-        return (
+        projected = (
             f"{value.type.width}'(($unsigned({_expr(value.expression)})) >> {lsb})"
+        )
+        return (
+            f"$signed({projected})"
+            if isinstance(value.type, (SIntType, FixedType))
+            else projected
         )
     if isinstance(value, expr.RuntimeIndex):
         if not isinstance(value.expression.type, VecType):
             raise EquivalenceError("runtime index base is not a vector")
         element_width = value.type.width
-        return (
+        projected = (
             f"{_expr(value.expression)}[((32'd{value.vector_length - 1} - "
             f"32'({_expr(value.index)})) * 32'd{element_width}) +: "
             f"{element_width}]"
+        )
+        return (
+            f"$signed({projected})"
+            if isinstance(value.type, (SIntType, FixedType))
+            else projected
         )
     if isinstance(value, (expr.Generate, expr.Map)):
         return "{" + ", ".join(

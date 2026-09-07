@@ -15,6 +15,7 @@ import hashlib
 from typing import Literal
 
 from zlang.backend.clash.syntax import apply_argument
+from zlang.backend.naming import build_component_name_plan
 from zlang.ir.hierarchy import (
     HierarchyEntry,
     HierarchyError,
@@ -24,9 +25,26 @@ from zlang.ir.hierarchy import (
 )
 from zlang.ir.interfaces import InterfaceProtocol
 from zlang.ir.module import Module, Port, PortDirection
+from zlang.ir.state import StateResourceKind
 
 
 ErrorFactory = Callable[[str], Exception]
+
+
+def _protocol_name_plan(module: Module, hierarchy: HierarchyIndex | None = None):
+    hierarchy = hierarchy or build_hierarchy_index(module)
+    # Lowering the initial letter merges legal source spellings Foo and foo.
+    # Allocate after this backend namespace projection, not before it.
+    reserved = {
+        item.name
+        for entry in hierarchy.entries
+        for item in (*entry.module.ports, *entry.module.locals, *entry.module.registers)
+    }
+    return build_component_name_plan(
+        hierarchy,
+        identifier=lambda name: f"protocol_{name[0].lower()}{name[1:]}",
+        reserved=reserved,
+    )
 
 __all__ = (
     "RecursiveProtocolComponent",
@@ -51,14 +69,14 @@ __all__ = (
 
 def protocol_child_name(
     child: Module, specialization_identity: str | None = None,
+    *, compact_suffix: str | None = None,
 ) -> str:
     base = f"protocol_{child.name[0].lower()}{child.name[1:]}"
     if specialization_identity is None:
         return base
-    # The complete semantic specialization identity avoids relying on a hash
-    # prefix being unique among siblings.  It is already a backend-safe hex
-    # token and does not encode the physical instance name.
-    return f"{base}_{specialization_identity}"
+    # Catalog callers allocate this token across the complete hierarchy.  The
+    # full semantic identity remains in the catalog, never inferred from it.
+    return f"{base}_{compact_suffix or ('s' + specialization_identity[:8])}"
 
 
 def specialized_protocol_children(
@@ -66,32 +84,29 @@ def specialized_protocol_children(
 ) -> tuple[tuple[Module, str], ...]:
     """Return one stable Clash component name per typed specialization.
 
-    Preserve the historical unsuffixed helper for a module with only one
-    specialization.  When sibling instances specialize the same source module
-    differently, disambiguate definitions by semantic specialization identity,
-    never by physical instance name.
+    Every non-top helper has a compact stable specialization suffix.  Prefix
+    collisions are extended by the common hierarchy name plan.
     """
     entries: list[tuple[Module, str]] = []
     seen: set[HierarchySpecializationKey] = set()
-    identities_by_module: dict[str, set[str]] = {}
     for index, child in enumerate(module.children):
         specialization = (
             module.elaborated_instances[index].specialization_identity
             if index < len(module.elaborated_instances)
             else child.source_hash or child.name
         ) or child.name
-        identities_by_module.setdefault(child.name, set()).add(specialization)
         key = (child.name, specialization)
         if key not in seen:
             seen.add(key)
             entries.append((child, specialization))
+    plan = _protocol_name_plan(module)
     return tuple(
         (
             child,
             protocol_child_name(
                 child,
-                specialization
-                if len(identities_by_module[child.name]) > 1 else None,
+                specialization,
+                compact_suffix=plan.suffix(child.name, specialization),
             ),
         )
         for child, specialization in entries
@@ -225,7 +240,6 @@ def recursive_protocol_components(
         tuple[HierarchySpecializationKey, Module, ProtocolComponentOwner]
     ] = []
     seen: set[HierarchySpecializationKey] = set()
-    identities_by_module: dict[str, set[str]] = {}
     instance_specializations: list[
         tuple[ProtocolApplicationKey, HierarchySpecializationKey]
     ] = []
@@ -273,9 +287,6 @@ def recursive_protocol_components(
             if previous is None:
                 application_targets[application] = key
                 instance_specializations.append((application, key))
-            identities_by_module.setdefault(child.name, set()).add(
-                specialization
-            )
             if key in seen:
                 continue
             seen.add(key)
@@ -285,12 +296,12 @@ def recursive_protocol_components(
                 visit(child_entry.physical_path, owner)
 
     visit(hierarchy.root_path, root_owner)
+    naming = _protocol_name_plan(module, hierarchy)
     names = {
         key: protocol_child_name(
             child,
-            key.specialization_identity
-            if len(identities_by_module[child.name]) > 1
-            else None,
+            key.specialization_identity,
+            compact_suffix=naming.suffix(child.name, key.specialization_identity),
         )
         for key, child, _owner in entries
     }
@@ -371,14 +382,11 @@ def protocol_instance_child_name(
     )
     if elaborated is None:
         return protocol_child_name(child)
-    identities = {
-        item.specialization_identity or child.name
-        for item in module.elaborated_instances
-        if item.child_module == child.name
-    }
+    naming = _protocol_name_plan(module)
     return protocol_child_name(
         child,
-        elaborated.specialization_identity if len(identities) > 1 else None,
+        elaborated.specialization_identity,
+        compact_suffix=naming.suffix(child.name, elaborated.specialization_identity),
     )
 
 
@@ -408,6 +416,28 @@ def uses_bundled_component_abi(child: Module) -> bool:
     """Stateful mixed children use a closed, single-Signal component ABI."""
     return bool(
         (child.registers or child.rules or child.next_assignments)
+        # Conditional actions require the exact resolved scheduler, including
+        # active-effect conflict and empty-transaction handling.  The legacy
+        # pure ``mealy`` ABI only evaluates raw rule guards, while the mixed
+        # Signal ABI consumes the shared transition scheduler.  Keep caller,
+        # projection and emitter selection on the same ABI decision.
+        and not any(
+            action.activation is not None
+            for rule in child.rules
+            for action in rule.actions
+        )
+        # Rule-driven scalar outputs are scheduler resources.  The legacy
+        # single-register mealy helper only returns assignment-driven outputs
+        # and would erase these effects even when they are not nested beneath
+        # a conditional action.  Route the complete transition through the
+        # mixed Signal ABI instead.
+        and not any(
+            resource.kind is StateResourceKind.OUTPUT
+            for resource in (
+                child.resolved_transition.resources
+                if child.resolved_transition is not None else ()
+            )
+        )
         and any(
             port.protocol is InterfaceProtocol.READY_VALID
             for port in child.ports

@@ -66,7 +66,9 @@ from zlang.backend.systemverilog import (
     emit_artifact as emit_systemverilog_artifact,
     emit_formal_artifact as emit_systemverilog_formal_artifact,
     emit_target_artifact,
+    build_systemverilog_simulation_state_bundle,
 )
+from zlang.simulation_state import SimulationStateError
 from zlang.backend.external import load_profile_external_mappings
 from zlang.implementations import render_implementation_report
 from zlang.opt import (
@@ -141,6 +143,7 @@ _ARTIFACT_SINK_ATTRIBUTES = (
     "output",
     "systemverilog",
     "experimental_systemverilog",
+    "simulation_state_bundle",
     "verilog_dir",
     "implementation_manifest",
     "csr_markdown",
@@ -171,6 +174,7 @@ _ARTIFACT_SINK_ATTRIBUTES = (
 _OWNED_OUTPUT_DIRECTORY_ATTRIBUTES = (
     "verilog_dir",
     "verification_bundle",
+    "simulation_state_bundle",
     "formal_cache",
     "synthesis_cache",
 )
@@ -591,6 +595,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="compatibility alias for --systemverilog",
     )
     parser.add_argument(
+        "--simulation-state-bundle",
+        type=Path,
+        help=(
+            "publish simulation-only Verilator VPI state bindings "
+            "(requires --systemverilog)"
+        ),
+    )
+    parser.add_argument(
         "--verilog-dir",
         type=Path,
         help="run Clash and retain generated Verilog in this directory",
@@ -820,6 +832,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.error("--formal-jobs must be positive")
     if arguments.verilator_lint and arguments.verilog_dir is None:
         parser.error("--verilator-lint requires --verilog-dir")
+    if arguments.simulation_state_bundle is not None and not (
+        arguments.systemverilog is not None
+        or arguments.experimental_systemverilog is not None
+    ):
+        parser.error("--simulation-state-bundle requires --systemverilog")
     if arguments.saturation_report is not None and arguments.saturate_output is None:
         parser.error("--saturation-report requires --saturate-output")
     if arguments.saturate_output is not None and arguments.saturation_report is None:
@@ -1074,6 +1091,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
     direct_systemverilog = ""
     direct_artifact = None
+    simulation_state_bundle = None
     external_mappings = ()
     direct_companion_paths: tuple[Path, ...] = ()
     clash_companion_paths: tuple[Path, ...] = ()
@@ -1108,10 +1126,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             # the same single renderer invocation above; never render the
             # module a second time merely to obtain the file payload.
             direct_systemverilog = direct_artifact.text
+            if arguments.simulation_state_bundle is not None:
+                simulation_state_bundle = build_systemverilog_simulation_state_bundle(
+                    result.ir, direct_artifact
+                )
         except (ExternalMappingError, SystemVerilogEmissionError) as error:
             if arguments.diagnostic_format == "json":
                 _print_cli_diagnostic(error, "json")
                 return 2
+            parser.error(str(error))
+        except SimulationStateError as error:
             parser.error(str(error))
     if arguments.formal_depth < 1:
         parser.error("--formal-depth must be positive")
@@ -1393,6 +1417,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         except CompanionArtifactError as error:
             parser.error(str(error))
         systemverilog_output.write_text(direct_systemverilog)
+    if arguments.simulation_state_bundle is not None:
+        assert simulation_state_bundle is not None
+        assert systemverilog_output is not None
+        try:
+            simulation_state_bundle.validate_rtl_file(systemverilog_output)
+            simulation_state_bundle.publish(arguments.simulation_state_bundle)
+        except (OSError, SimulationStateError) as error:
+            parser.error(str(error))
     for path, constraint_artifact in constraint_products:
         try:
             publish_constraint_artifact(constraint_artifact, path)

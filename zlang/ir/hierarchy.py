@@ -18,7 +18,15 @@ from zlang.ir.interfaces import (
     RequestResponseChannel,
     RequestResponseRole,
 )
-from zlang.ir.module import ElaboratedInstance, Module, PortDirection
+from zlang.ir.module import (
+    AggregateProtocolEndpoint,
+    ElaboratedInstance,
+    Module,
+    Port,
+    PortDirection,
+    ProtocolEndpoint,
+    ProtocolMember,
+)
 
 
 class HierarchyError(ValueError):
@@ -105,6 +113,15 @@ _SPECIALIZATION_APPLICATION_FIELDS = frozenset({
     "instance_output_timings",
 })
 
+_SPECIALIZATION_VISIBLE_CATALOG_FIELDS = frozenset({
+    # Semantic analysis gives each child the declarations visible in its
+    # current compilation context.  That catalog is a name-resolution input,
+    # not reusable component content: two parents may contribute unrelated
+    # helpers or discover the same helpers in a different order.  The exact
+    # executable closure is added explicitly by specialization_fingerprint().
+    "functions", "callable_definitions",
+})
+
 
 def _specialization_value(value: object) -> object:
     """Return source- and application-independent typed semantic content."""
@@ -118,6 +135,7 @@ def _specialization_value(value: object) -> object:
         excluded = set(_SPECIALIZATION_ORIGIN_FIELDS)
         if isinstance(value, Module):
             excluded.update(_SPECIALIZATION_APPLICATION_FIELDS)
+            excluded.update(_SPECIALIZATION_VISIBLE_CATALOG_FIELDS)
         # A ROM semantic ID historically contains its source-unit identity;
         # immutable contents, type, depth, address behavior, and content hash
         # below are the actual reusable specialization semantics.
@@ -177,9 +195,29 @@ def specialization_fingerprint(module: Module) -> str:
     ports, state, storage, rules, timing, or expressions.
     """
 
+    # Import locally to keep this low-level hierarchy module independent of
+    # callable implementation details at import time.  The reachability API
+    # validates identities, bodies, dependencies, and cycles while producing
+    # a deterministic dependency-first closure.
+    from zlang.ir.callables import (
+        CallableReachabilityError,
+        reachable_module_callables,
+    )
+
+    try:
+        reachable_callables = reachable_module_callables(
+            module,
+            include_hierarchy=False,
+        )
+    except CallableReachabilityError as error:
+        raise HierarchyError(
+            f"typed specialization callable graph is invalid: {error}"
+        ) from error
+
     return stable_digest({
-        "schema": "zlang-typed-module-specialization-v1",
+        "schema": "zlang-typed-module-specialization-v2",
         "content": _specialization_value(module),
+        "reachable_callables": _specialization_value(reachable_callables),
     })
 
 
@@ -530,6 +568,273 @@ def build_hierarchy_index(
     return result
 
 
+def validate_instance_port_bindings(
+    module: Module,
+    *,
+    cache: HierarchyTraversalCache | None = None,
+) -> None:
+    """Validate complete, single-driver scalar wiring throughout hierarchy.
+
+    ``InstancePortBinding`` is the authoritative scalar child-input relation.
+    Aggregate protocol schemas may instead publish an ordinary wire member as
+    a typed hierarchical connection.  Every child wire input must use exactly
+    one of those two representations; canonical restoration must not be able
+    to invent an owner/port, change its type, or silently omit it at any depth.
+    """
+
+    hierarchy = build_hierarchy_index(module, cache=cache)
+    validated_modules: set[int] = set()
+
+    def aggregate_member_port(
+        owner: Module,
+        endpoint: AggregateProtocolEndpoint,
+        member: ProtocolMember,
+    ) -> Port:
+        """Resolve one aggregate member to its exact typed physical port."""
+
+        expected_direction = (
+            PortDirection.OUTPUT
+            if endpoint.role == member.source_role
+            else PortDirection.INPUT
+            if endpoint.role == member.sink_role
+            else None
+        )
+        if expected_direction is None:
+            raise HierarchyError(
+                f"aggregate endpoint '{endpoint.name}' role '{endpoint.role}' "
+                f"does not own member '{member.name}'"
+            )
+        expected_name = f"{endpoint.name}__{member.name}"
+        port = next(
+            (item for item in owner.ports if item.name == expected_name),
+            None,
+        )
+        if port is None:
+            raise HierarchyError(
+                f"aggregate endpoint '{endpoint.name}' member '{member.name}' "
+                "has no exact physical port"
+            )
+        if (
+            port.direction is not expected_direction
+            or port.protocol is not member.protocol
+            or port.type != member.payload_type
+            or port.domain != member.domain
+        ):
+            raise HierarchyError(
+                f"aggregate endpoint '{endpoint.name}' member '{member.name}' "
+                "physical port metadata disagrees"
+            )
+        return port
+
+    for parent_entry in hierarchy.entries:
+        current = parent_entry.module
+        current_key = id(current)
+        if current_key in validated_modules:
+            continue
+        validated_modules.add(current_key)
+        child_owners = {
+            elaborated.instance.name: (elaborated, child)
+            for elaborated, child in zip(
+                current.elaborated_instances,
+                current.children,
+                strict=True,
+            )
+        }
+        children = {
+            owner: child
+            for owner, (_elaborated, child) in child_owners.items()
+        }
+
+        hierarchical_drivers = {
+            (connection.destination.owner, connection.destination.name)
+            for connection in current.hierarchical_connections
+            if (
+                connection.destination.owner in children
+                and connection.destination.channel is None
+                and connection.destination.protocol is InterfaceProtocol.WIRE
+            )
+        }
+        delegation_pairs: set[tuple[str, str]] = set()
+        delegation_destinations: dict[
+            tuple[ElaboratedInstance, AggregateProtocolEndpoint],
+            str,
+        ] = {}
+        delegation_sources: dict[AggregateProtocolEndpoint, str] = {}
+        for connection in current.aggregate_protocol_connections:
+            if not connection.delegation:
+                continue
+            source_parts = connection.source.split(".")
+            destination_parts = connection.destination.split(".")
+            if len(source_parts) != 1 or len(destination_parts) != 2:
+                raise HierarchyError(
+                    "aggregate protocol delegation must connect one top endpoint "
+                    "to one direct physical child endpoint"
+                )
+            top_endpoint = next(
+                (
+                    item
+                    for item in current.aggregate_protocol_endpoints
+                    if item.name == source_parts[0]
+                ),
+                None,
+            )
+            child_owner = child_owners.get(destination_parts[0])
+            child = child_owner[1] if child_owner is not None else None
+            child_endpoint = next(
+                (
+                    item
+                    for item in child.aggregate_protocol_endpoints
+                    if item.name == destination_parts[1]
+                ),
+                None,
+            ) if child is not None else None
+            if (
+                top_endpoint is None
+                or child_owner is None
+                or child_endpoint is None
+            ):
+                raise HierarchyError(
+                    f"aggregate protocol delegation '{connection.source} -> "
+                    f"{connection.destination}' does not resolve exact endpoints"
+                )
+            if connection.crossing is not None:
+                raise HierarchyError(
+                    f"aggregate protocol delegation '{connection.source} -> "
+                    f"{connection.destination}' cannot carry crossing metadata"
+                )
+            if (
+                top_endpoint.protocol != child_endpoint.protocol
+                or top_endpoint.protocol != connection.protocol
+                or top_endpoint.role != child_endpoint.role
+                or top_endpoint.specialization_identity
+                != child_endpoint.specialization_identity
+                or top_endpoint.specialization_identity
+                != connection.specialization_identity
+            ):
+                raise HierarchyError(
+                    f"aggregate protocol delegation '{connection.source} -> "
+                    f"{connection.destination}' metadata disagrees with its endpoints"
+                )
+            child_members = {item.name: item for item in child_endpoint.members}
+            if {
+                item.name: item for item in top_endpoint.members
+            } != child_members:
+                raise HierarchyError(
+                    f"aggregate protocol delegation '{connection.source} -> "
+                    f"{connection.destination}' member metadata disagrees"
+                )
+            pair = (connection.source, connection.destination)
+            if pair in delegation_pairs:
+                raise HierarchyError(
+                    f"duplicate aggregate protocol delegation "
+                    f"'{connection.source} -> {connection.destination}'"
+                )
+            destination_owner = (child_owner[0], child_endpoint)
+            previous_source = delegation_destinations.get(destination_owner)
+            if previous_source is not None:
+                raise HierarchyError(
+                    f"aggregate protocol destination '{connection.destination}' "
+                    "has multiple delegation drivers "
+                    f"('{previous_source}' and '{connection.source}')"
+                )
+            previous_destination = delegation_sources.get(top_endpoint)
+            if previous_destination is not None:
+                raise HierarchyError(
+                    f"aggregate protocol source '{connection.source}' has multiple "
+                    "delegation destinations "
+                    f"('{previous_destination}' and '{connection.destination}')"
+                )
+            delegation_pairs.add(pair)
+            delegation_destinations[destination_owner] = connection.source
+            delegation_sources[top_endpoint] = connection.destination
+
+            top_ports = {
+                aggregate_member_port(current, top_endpoint, member)
+                for member in top_endpoint.members
+            }
+            locally_driven = {
+                assignment.target for assignment in current.assignments
+            }
+            locally_driven.update(
+                assignment.target for assignment in current.next_assignments
+            )
+            locally_driven.update(
+                action.target
+                for rule in current.rules
+                for action in rule.actions
+            )
+            if top_ports & locally_driven:
+                raise HierarchyError(
+                    f"aggregate protocol source '{connection.source}' has both "
+                    "local output assignment and child delegation"
+                )
+
+            for member in child_members.values():
+                port = aggregate_member_port(child, child_endpoint, member)
+                if (
+                    member.protocol is InterfaceProtocol.WIRE
+                    and port.direction is PortDirection.INPUT
+                ):
+                    hierarchical_drivers.add(
+                        (destination_parts[0], port.name)
+                    )
+
+        scalar_drivers: set[tuple[str, str]] = set()
+        for binding in current.instance_bindings:
+            child = children.get(binding.instance)
+            if child is None:
+                raise HierarchyError(
+                    "scalar instance binding references unknown physical child "
+                    f"'{binding.instance}'"
+                )
+            port = next(
+                (item for item in child.ports if item.name == binding.port),
+                None,
+            )
+            if port is None:
+                raise HierarchyError(
+                    f"scalar instance binding '{binding.instance}.{binding.port}' "
+                    "does not name a child port"
+                )
+            if port.direction is not PortDirection.INPUT:
+                raise HierarchyError(
+                    f"scalar instance binding '{binding.instance}.{binding.port}' "
+                    "does not name a child input"
+                )
+            if port.protocol is not InterfaceProtocol.WIRE:
+                raise HierarchyError(
+                    f"scalar instance binding '{binding.instance}.{binding.port}' "
+                    "does not name a wire input"
+                )
+            if binding.expression.type != port.type:
+                raise HierarchyError(
+                    f"scalar instance binding '{binding.instance}.{binding.port}' "
+                    f"has type {binding.expression.type}, expected {port.type}"
+                )
+            key = (binding.instance, binding.port)
+            if key in scalar_drivers:
+                raise HierarchyError(
+                    f"scalar instance input '{binding.instance}.{binding.port}' "
+                    "has multiple bindings"
+                )
+            if key in hierarchical_drivers:
+                raise HierarchyError(
+                    f"child wire input '{binding.instance}.{binding.port}' has both "
+                    "a scalar binding and hierarchical connection"
+                )
+            scalar_drivers.add(key)
+
+        for owner, child in children.items():
+            for port in child.inputs:
+                if port.protocol is not InterfaceProtocol.WIRE:
+                    continue
+                key = (owner, port.name)
+                if key not in scalar_drivers and key not in hierarchical_drivers:
+                    raise HierarchyError(
+                        f"child wire input '{owner}.{port.name}' has no driver"
+                    )
+
+
 def validate_hierarchical_connections(
     module: Module,
     *,
@@ -539,170 +844,196 @@ def validate_hierarchical_connections(
 
     Semantic analysis and canonical restoration share this check so a restored
     graph cannot invent an indexed child, reinterpret a port, or introduce a
-    second physical driver/consumer.  Connections in the current bounded
-    hierarchy always select the top or one direct physical child; deeper
-    hierarchy is represented inside that child's own :class:`Module`.
+    second physical driver/consumer.  Each connection selects its owning
+    module or one direct physical child; validation repeats for every exact
+    child module retained by the typed hierarchy.
     """
 
     hierarchy = build_hierarchy_index(module, cache=cache)
-    root_path = hierarchy.root_path
+    validated_modules: set[int] = set()
 
-    def owner_module(owner: str) -> tuple[Module, bool]:
-        if owner == module.name:
-            return module, True
-        try:
-            return hierarchy.child(root_path, owner).module, False
-        except HierarchyError as error:
-            raise HierarchyError(
-                f"hierarchical connection references unknown physical owner '{owner}'"
-            ) from error
+    for parent_entry in hierarchy.entries:
+        current_module = parent_entry.module
+        current_key = id(current_module)
+        if current_key in validated_modules:
+            continue
+        validated_modules.add(current_key)
+        child_modules = {
+            elaborated.instance.name: child
+            for elaborated, child in zip(
+                current_module.elaborated_instances,
+                current_module.children,
+                strict=True,
+            )
+        }
 
-    def validate_endpoint(endpoint: object, *, source: bool) -> None:
-        current, top = owner_module(endpoint.owner)
-        expected_direction = (
-            PortDirection.INPUT if source and top
-            else PortDirection.OUTPUT if source
-            else PortDirection.OUTPUT if top
-            else PortDirection.INPUT
-        )
+        def owner_module(owner: str) -> tuple[Module, bool]:
+            if owner == current_module.name:
+                return current_module, True
+            child = child_modules.get(owner)
+            if child is None:
+                raise HierarchyError(
+                    "hierarchical connection references unknown physical owner "
+                    f"'{owner}'"
+                )
+            return child, False
 
-        if endpoint.channel is not None:
-            interface = next(
-                (
-                    item for item in current.request_responses
-                    if item.name == endpoint.name
-                ),
-                None,
+        def validate_endpoint(
+            endpoint: ProtocolEndpoint,
+            *,
+            source: bool,
+        ) -> None:
+            current, top = owner_module(endpoint.owner)
+            expected_direction = (
+                PortDirection.INPUT if source and top
+                else PortDirection.OUTPUT if source
+                else PortDirection.OUTPUT if top
+                else PortDirection.INPUT
             )
-            if interface is None:
-                raise HierarchyError(
-                    f"hierarchical endpoint '{endpoint.owner}.{endpoint.name}' "
-                    "does not name a request/response interface"
+
+            if endpoint.channel is not None:
+                interface = next(
+                    (
+                        item for item in current.request_responses
+                        if item.name == endpoint.name
+                    ),
+                    None,
                 )
-            requester = interface.role is RequestResponseRole.REQUESTER
-            transaction_output = (
-                requester
-                if endpoint.channel is RequestResponseChannel.REQUEST
-                else not requester
-            )
-            if transaction_output != source:
-                raise HierarchyError(
-                    f"hierarchical request/response endpoint "
-                    f"'{endpoint.owner}.{endpoint.name}' has wrong role for "
-                    f"{endpoint.channel.value} direction"
-                )
-            payload_type = (
-                interface.request_type
-                if endpoint.channel is RequestResponseChannel.REQUEST
-                else interface.response_type
-            )
-            protocol = InterfaceProtocol.READY_VALID
-            capacity = None
-            domain = current.clock
-        else:
-            port = next(
-                (item for item in current.ports if item.name == endpoint.name),
-                None,
-            )
-            if port is None:
-                raise HierarchyError(
-                    f"hierarchical endpoint '{endpoint.owner}.{endpoint.name}' "
-                    "does not name a protocol port"
-                )
-            if port.protocol is InterfaceProtocol.WIRE:
-                # Aggregate schemas may contain an ordinary scalar member in
-                # either direction (for example an interrupt).  Semantic
-                # elaboration publishes that leaf as an explicit typed wire
-                # edge alongside the ready/valid members.  Accept only such a
-                # schema-owned leaf here; arbitrary scalar child wiring still
-                # belongs to InstancePortBinding and cannot be forged as a
-                # hierarchical protocol connection during canonical restore.
-                aggregate_members = tuple(
-                    member
-                    for aggregate in current.aggregate_protocol_endpoints
-                    for member in aggregate.members
-                    if (
-                        member.protocol is InterfaceProtocol.WIRE
-                        and endpoint.name == f"{aggregate.name}__{member.name}"
-                    )
-                )
-                if len(aggregate_members) != 1:
+                if interface is None:
                     raise HierarchyError(
                         f"hierarchical endpoint '{endpoint.owner}."
-                        f"{endpoint.name}' does not name an aggregate scalar "
-                        "protocol member"
+                        f"{endpoint.name}' does not name a request/response "
+                        "interface"
                     )
-            if port.direction is not expected_direction:
+                requester = interface.role is RequestResponseRole.REQUESTER
+                transaction_output = (
+                    requester
+                    if endpoint.channel is RequestResponseChannel.REQUEST
+                    else not requester
+                )
+                if transaction_output != source:
+                    raise HierarchyError(
+                        "hierarchical request/response endpoint "
+                        f"'{endpoint.owner}.{endpoint.name}' has wrong role for "
+                        f"{endpoint.channel.value} direction"
+                    )
+                payload_type = (
+                    interface.request_type
+                    if endpoint.channel is RequestResponseChannel.REQUEST
+                    else interface.response_type
+                )
+                protocol = InterfaceProtocol.READY_VALID
+                capacity = None
+                domain = current.clock
+            else:
+                port = next(
+                    (item for item in current.ports if item.name == endpoint.name),
+                    None,
+                )
+                if port is None:
+                    raise HierarchyError(
+                        f"hierarchical endpoint '{endpoint.owner}."
+                        f"{endpoint.name}' does not name a protocol port"
+                    )
+                if port.protocol is InterfaceProtocol.WIRE:
+                    # Aggregate schemas may contain an ordinary scalar member
+                    # in either direction (for example an interrupt).  Only a
+                    # schema-owned typed leaf may occupy this relation.
+                    aggregate_members = tuple(
+                        member
+                        for aggregate in current.aggregate_protocol_endpoints
+                        for member in aggregate.members
+                        if (
+                            member.protocol is InterfaceProtocol.WIRE
+                            and endpoint.name
+                            == f"{aggregate.name}__{member.name}"
+                        )
+                    )
+                    if len(aggregate_members) != 1:
+                        raise HierarchyError(
+                            f"hierarchical endpoint '{endpoint.owner}."
+                            f"{endpoint.name}' does not name an aggregate "
+                            "scalar protocol member"
+                        )
+                if port.direction is not expected_direction:
+                    raise HierarchyError(
+                        f"hierarchical endpoint '{endpoint.owner}."
+                        f"{endpoint.name}' has wrong physical direction"
+                    )
+                payload_type = port.type
+                protocol = port.protocol
+                capacity = port.capacity
+                domain = port.domain if top else current.clock
+
+            if endpoint.direction is not expected_direction:
                 raise HierarchyError(
                     f"hierarchical endpoint '{endpoint.owner}.{endpoint.name}' "
-                    "has wrong physical direction"
+                    "direction metadata disagrees with its position"
                 )
-            payload_type = port.type
-            protocol = port.protocol
-            capacity = port.capacity
-            domain = port.domain if top else current.clock
+            if endpoint.protocol is not protocol:
+                raise HierarchyError(
+                    f"hierarchical endpoint '{endpoint.owner}.{endpoint.name}' "
+                    "protocol metadata disagrees with its declaration"
+                )
+            if endpoint.payload_type != payload_type:
+                raise HierarchyError(
+                    f"hierarchical endpoint '{endpoint.owner}.{endpoint.name}' "
+                    "payload type disagrees with its declaration"
+                )
+            if endpoint.capacity != capacity:
+                raise HierarchyError(
+                    f"hierarchical endpoint '{endpoint.owner}.{endpoint.name}' "
+                    "capacity metadata disagrees with its declaration"
+                )
+            if endpoint.domain != domain:
+                raise HierarchyError(
+                    f"hierarchical endpoint '{endpoint.owner}.{endpoint.name}' "
+                    "domain metadata disagrees with its declaration"
+                )
 
-        if endpoint.direction is not expected_direction:
-            raise HierarchyError(
-                f"hierarchical endpoint '{endpoint.owner}.{endpoint.name}' "
-                "direction metadata disagrees with its position"
+        sources: set[tuple[str, str, RequestResponseChannel | None]] = set()
+        destinations: set[tuple[str, str, RequestResponseChannel | None]] = set()
+        for connection in current_module.hierarchical_connections:
+            validate_endpoint(connection.source, source=True)
+            validate_endpoint(connection.destination, source=False)
+            if connection.source.protocol is not connection.destination.protocol:
+                raise HierarchyError(
+                    "hierarchical connection protocol types do not match"
+                )
+            if connection.source.payload_type != connection.destination.payload_type:
+                raise HierarchyError(
+                    "hierarchical connection payload types do not match"
+                )
+            if connection.source.domain != connection.destination.domain:
+                raise HierarchyError(
+                    "hierarchical connection domains do not match"
+                )
+            if connection.source.channel is not connection.destination.channel:
+                raise HierarchyError(
+                    "hierarchical connection channels do not match"
+                )
+            source_key = (
+                connection.source.owner,
+                connection.source.name,
+                connection.source.channel,
             )
-        if endpoint.protocol is not protocol:
-            raise HierarchyError(
-                f"hierarchical endpoint '{endpoint.owner}.{endpoint.name}' "
-                "protocol metadata disagrees with its declaration"
+            destination_key = (
+                connection.destination.owner,
+                connection.destination.name,
+                connection.destination.channel,
             )
-        if endpoint.payload_type != payload_type:
-            raise HierarchyError(
-                f"hierarchical endpoint '{endpoint.owner}.{endpoint.name}' "
-                "payload type disagrees with its declaration"
-            )
-        if endpoint.capacity != capacity:
-            raise HierarchyError(
-                f"hierarchical endpoint '{endpoint.owner}.{endpoint.name}' "
-                "capacity metadata disagrees with its declaration"
-            )
-        if endpoint.domain != domain:
-            raise HierarchyError(
-                f"hierarchical endpoint '{endpoint.owner}.{endpoint.name}' "
-                "domain metadata disagrees with its declaration"
-            )
-
-    sources: set[tuple[str, str, RequestResponseChannel | None]] = set()
-    destinations: set[tuple[str, str, RequestResponseChannel | None]] = set()
-    for connection in module.hierarchical_connections:
-        validate_endpoint(connection.source, source=True)
-        validate_endpoint(connection.destination, source=False)
-        if connection.source.protocol is not connection.destination.protocol:
-            raise HierarchyError("hierarchical connection protocol types do not match")
-        if connection.source.payload_type != connection.destination.payload_type:
-            raise HierarchyError("hierarchical connection payload types do not match")
-        if connection.source.domain != connection.destination.domain:
-            raise HierarchyError("hierarchical connection domains do not match")
-        if connection.source.channel is not connection.destination.channel:
-            raise HierarchyError("hierarchical connection channels do not match")
-        source_key = (
-            connection.source.owner,
-            connection.source.name,
-            connection.source.channel,
-        )
-        destination_key = (
-            connection.destination.owner,
-            connection.destination.name,
-            connection.destination.channel,
-        )
-        if source_key in sources:
-            raise HierarchyError(
-                f"hierarchical source '{connection.source.owner}."
-                f"{connection.source.name}' has multiple consumers"
-            )
-        if destination_key in destinations:
-            raise HierarchyError(
-                f"hierarchical destination '{connection.destination.owner}."
-                f"{connection.destination.name}' has multiple drivers"
-            )
-        sources.add(source_key)
-        destinations.add(destination_key)
+            if source_key in sources:
+                raise HierarchyError(
+                    f"hierarchical source '{connection.source.owner}."
+                    f"{connection.source.name}' has multiple consumers"
+                )
+            if destination_key in destinations:
+                raise HierarchyError(
+                    f"hierarchical destination '{connection.destination.owner}."
+                    f"{connection.destination.name}' has multiple drivers"
+                )
+            sources.add(source_key)
+            destinations.add(destination_key)
 
 
 __all__ = [
@@ -715,4 +1046,5 @@ __all__ = [
     "build_hierarchy_index",
     "candidate_specialization_identity",
     "validate_hierarchical_connections",
+    "validate_instance_port_bindings",
 ]

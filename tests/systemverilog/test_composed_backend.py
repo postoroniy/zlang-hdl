@@ -93,8 +93,8 @@ class ComposedDirectSystemVerilogTests(unittest.TestCase):
         )
         module = analyze(parse(source))
         text = emit_experimental(module)
-        self.assertIn("zlang_instance_c_0_", text)
-        self.assertIn("zlang_instance_c_1_", text)
+        self.assertIn(" c_0 (", text)
+        self.assertIn(" c_1 (", text)
 
     def _simulate(self, source: str, top: str, harness_text: str) -> None:
         with tempfile.TemporaryDirectory() as temporary:

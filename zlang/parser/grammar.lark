@@ -119,7 +119,7 @@ destructure_field_list: NAME (","? NAME)*
 instance_decl: _INST NAME [instance_array_length] ":" NAME [specialization_arguments] [instance_binding_block]
 generic_decl: generic_decl_name ":" generic_decl_body
             | GENERIC_ARRAY_DECL_NAME instance_array_length ":" generic_decl_body
-?generic_decl_body: _WHEN source_expr "{" rule_action* "}" -> concise_rule_body
+?generic_decl_body: _WHEN source_expr action_block [conditional_else] -> concise_rule_body
                   | type_name generic_decl_tail -> generic_type_body
 instance_array_length: "[" storage_depth "]"
 ?generic_decl_name: NAME | _CSR -> csr_declaration_name
@@ -143,8 +143,34 @@ generate_instances: _GENERATE "(" range_binder ")" "{" instance_generate_item+ "
 ?instance_generate_item: instance_input_binding | connect_decl
 compile_time_if_decl: _IF compile_time_condition "{" module_item+ "}" [compile_time_else_decl]
 compile_time_else_decl: _ELSE "{" module_item+ "}"
-?compile_time_condition: NOMINAL_TYPE_CONDITION -> type_condition_expr
-                       | expr
+?compile_time_condition: compile_time_logical_or
+// Compile-time conditions deliberately use the evaluator's bounded scalar
+// expression subset.  Keeping struct construction out of this grammar makes
+// the following module-body brace unambiguous when the final value parameter
+// has an uppercase name (for example ``ROWS * BANKS {``).
+?compile_time_logical_or: compile_time_logical_and ("||" compile_time_logical_and)* -> logical_or_expr
+?compile_time_logical_and: compile_time_comparison ("&&" compile_time_comparison)* -> logical_and_expr
+?compile_time_comparison: compile_time_bit_or (COMPARISON_OP compile_time_bit_or)? -> comparison_expr
+?compile_time_bit_or: compile_time_bit_xor ("|" compile_time_bit_xor)* -> bit_or_expr
+?compile_time_bit_xor: compile_time_bit_and ("^" compile_time_bit_and)* -> bit_xor_expr
+?compile_time_bit_and: compile_time_shift ("&" compile_time_shift)* -> bit_and_expr
+?compile_time_shift: compile_time_additive (SHIFT_OP compile_time_additive)* -> shift_expr
+?compile_time_additive: compile_time_product (ADD_OP compile_time_product)* -> sum_expr
+?compile_time_product: compile_time_unary (PRODUCT_OP compile_time_unary)* -> product_expr
+?compile_time_unary: "-" compile_time_unary -> unary_negate_expr
+                   | "!" compile_time_unary -> unary_not_expr
+                   | compile_time_atom
+?compile_time_atom: function_call
+                  | FIXED_SHORT_TYPE -> type_value_builtin
+                  | BUILTIN_TYPE -> type_value_builtin
+                  | FIXED_GENERIC_TYPE_VALUE -> type_value_generic
+                  | GENERIC_TYPE_VALUE -> type_value_generic
+                  | VEC_GENERIC_TYPE_VALUE -> type_value_vec
+                  | NAME -> name_expr
+                  | STRUCT_NAME -> name_expr
+                  | DECIMAL -> rational_expr
+                  | NUMBER -> number_expr
+                  | "(" compile_time_condition ")"
 instance_input_binding: hierarchical_target ["=" source_expr]
 instance_binding_block: "{" instance_input_binding+ "}"
 hierarchical_target: NAME hierarchical_target_tail*
@@ -196,8 +222,13 @@ async_reset_decl: _ASYNC _RESET NAME [_AT NAME] [async_reset_physical_block]
 async_reset_physical_block: "{" _POLARITY NAME "}"
 register_decl: _REG NAME ":" type_name "=" source_expr [_AT NAME]
 next_assignment: NAME _NEXT_ASSIGN source_expr
-rule_decl: _RULE NAME _WHEN source_expr "{" rule_action+ "}"
-anonymous_rule_decl: _WHEN source_expr "{" rule_action+ "}"
+rule_decl: _RULE NAME _WHEN source_expr action_block [conditional_else]
+anonymous_rule_decl: _WHEN source_expr action_block [conditional_else]
+action_block: "{" action_statement* "}"
+?action_statement: rule_action | conditional_action
+conditional_action: _WHEN source_expr action_block [conditional_else]
+?conditional_else: _ELSE action_block -> conditional_else_block
+                 | _ELSE conditional_action -> conditional_else_when
 ?rule_action: rule_assignment_target _NEXT_ASSIGN source_expr -> rule_assignment
             | NAME "." NAME "(" [source_expr ("," source_expr)*] ")" -> resource_action
             | QUALIFIED_CALL_HEAD "(" [source_expr ("," source_expr)*] ")" -> qualified_resource_action
@@ -205,8 +236,8 @@ anonymous_rule_decl: _WHEN source_expr "{" rule_action+ "}"
                        | NAME "[" source_expr "]"     -> indexed_rule_target
 rule_priority: _PRIORITY NAME ">" NAME (">" NAME)*
 priority_block: _PRIORITY "{" priority_arm+ "}"
-?priority_arm: NAME ":" _WHEN source_expr "{" rule_action* "}" -> labeled_priority_arm
-             | _WHEN source_expr "{" rule_action* "}" -> anonymous_priority_arm
+?priority_arm: NAME ":" _WHEN source_expr action_block [conditional_else] -> labeled_priority_arm
+             | _WHEN source_expr action_block [conditional_else] -> anonymous_priority_arm
              | priority_block -> nested_priority_arm
 fsm_decl: _FSM NAME ":" type_name "=" NAME "{" fsm_state+ "}" -> typed_fsm_decl
         | _FSM NAME "=" NAME "." NAME "{" fsm_state+ "}" -> inferred_fsm_decl
@@ -214,9 +245,10 @@ fsm_state: NAME "{" fsm_state_body "}"
 ?fsm_state_body: _HOLD -> fsm_hold
                | fsm_transition -> fsm_single_transition
                | _PRIORITY "{" fsm_transition+ "}" -> fsm_priority
-fsm_transition: [_WHEN source_expr] _ARROW NAME "{" rule_action* "}"
+fsm_transition: [_WHEN source_expr] _ARROW NAME action_block
 fifo_decl: _FIFO NAME ":" _FIFO "<" type_name "," storage_depth ">"
-memory_decl: _MEMORY NAME ":" _MEM "<" type_name "," storage_depth ">" "{" _READ_LATENCY WIDTH _COLLISION MEMORY_COLLISION "}"
+memory_decl: _MEMORY NAME ":" _MEM "<" type_name "," storage_depth ">" "{" _READ_LATENCY NUMBER _COLLISION MEMORY_COLLISION [memory_reset_policy] "}"
+memory_reset_policy: _RESET "{" _CONTENTS MEMORY_RESET_POLICY _READ_DATA MEMORY_RESET_POLICY "}"
 rom_decl: _ROM NAME ":" _ROM "<" type_name "," storage_depth ">" "{" _READ_LATENCY WIDTH _INIT source_expr "}"
 
 // Storage depths use the same compile-time integer expression vocabulary as
@@ -461,7 +493,9 @@ QUALIFIED_ARM_HEAD.14: /[A-Z][A-Za-z0-9_]*\.[A-Z][A-Za-z0-9_]*(?=\s*(?:\{[^{}]*\
 // switch body brace from being committed to a fieldless union constructor.
 QUALIFIED_SWITCH_SUBJECT.15: /[A-Z][A-Za-z0-9_]*\.[A-Z][A-Za-z0-9_]*(?=\s*\{)/
 QUALIFIED_MATCH_SUBJECT.15: /[A-Z][A-Za-z0-9_]*\.[A-Z][A-Za-z0-9_]*(?=\s*\{)/
-NOMINAL_TYPE_CONDITION.8: /[A-Z][A-Za-z0-9_]*[ \t]*(?:==|!=)[ \t]*[A-Z][A-Za-z0-9_]*(?:<[^{}\n]+>)?/
+// A nominal comparison immediately before a brace needs one token so the RHS
+// is not mistaken for a struct constructor.  Do not steal the prefix of an
+// ordinary value-parameter expression such as ``ROWS * BANKS``.
 WIDTH: /[1-9][0-9]*/
 PIPELINE_DEPTH.3: /auto(?![A-Za-z0-9_])/ | /[1-9][0-9]*/
 PIPELINE_METRIC.3: /latency(?![A-Za-z0-9_])/ | /throughput(?![A-Za-z0-9_])/ | /ii(?![A-Za-z0-9_])/ | /dsp(?![A-Za-z0-9_])/ | /fmax(?![A-Za-z0-9_])/
@@ -472,6 +506,7 @@ ADAPTER.3: /rv_to_credit(?![A-Za-z0-9_])/ | /credit_to_rv(?![A-Za-z0-9_])/
 CSR_ACCESS.3: /(?:rw|ro|wo|w1c|pulse|reserved)(?![A-Za-z0-9_])/
 CSR_PRIORITY.3: /hardware(?![A-Za-z0-9_])/ | /software(?![A-Za-z0-9_])/
 MEMORY_COLLISION.3: /read_first(?![A-Za-z0-9_])/ | /write_first(?![A-Za-z0-9_])/
+MEMORY_RESET_POLICY.3: /clear(?![A-Za-z0-9_])/ | /preserve(?![A-Za-z0-9_])/
 CDC_CROSSING.3: /sync_level(?![A-Za-z0-9_])/ | /pulse_toggle(?![A-Za-z0-9_])/ | /handshake(?![A-Za-z0-9_])/
 ARBITRATION_POLICY.3: /fixed_priority(?![A-Za-z0-9_])/ | /round_robin(?![A-Za-z0-9_])/
 GRANT_SCOPE.3: /beat(?![A-Za-z0-9_])/ | /packet(?![A-Za-z0-9_])/
@@ -605,6 +640,8 @@ _ROM.4: /rom(?![A-Za-z0-9_])/
 _READ_LATENCY.3: /read_latency(?![A-Za-z0-9_])/
 _INIT.3: /init(?![A-Za-z0-9_])/
 _COLLISION.3: /collision(?![A-Za-z0-9_])/
+_CONTENTS.3: /contents(?![A-Za-z0-9_])/
+_READ_DATA.3: /read_data(?![A-Za-z0-9_])/
 _CLOCK.3: /clock(?![A-Za-z0-9_])/
 _RESET.3: /reset(?![A-Za-z0-9_])/
 _ASYNC.3: /async(?![A-Za-z0-9_])/

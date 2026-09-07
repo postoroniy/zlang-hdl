@@ -427,16 +427,20 @@ def test_clash_recursive_stateful_wrapper_uses_closed_transition_abi() -> None:
     ).ir
     clash = emit_clash_artifact(module).text
 
-    assert clash.count("protocol_recursiveStatefulWrapper ::") == 1
+    wrapper_suffix = module.elaborated_instances[0].specialization_identity[:8]
+    leaf_suffix = module.children[0].elaborated_instances[0].specialization_identity[:8]
+    wrapper_name = f"protocol_recursiveStatefulWrapper_s{wrapper_suffix}"
+    leaf_name = f"protocol_recursiveLeaf_s{leaf_suffix}"
+    assert clash.count(f"{wrapper_name} ::") == 1
     assert "leaf_consumed" in clash
-    assert "RecursiveLeafComponentInput <$>" in clash
-    assert "recursiveLeafComponentConsumed <$> leaf_result" in clash
+    assert f"RecursiveLeafComponentInput_s{leaf_suffix} <$>" in clash
+    assert f"recursiveLeafComponentConsumed_s{leaf_suffix} <$> leaf_result" in clash
     assert "rule_capture_guard = leaf_consumed" in clash
     assert "captured_count = register" in clash
     assert "count = register" in clash
     wrapper = clash[
-        clash.index("protocol_recursiveStatefulWrapper ::"):
-        clash.index("protocol_recursiveLeaf ::")
+        clash.index(f"{wrapper_name} ::"):
+        clash.index(f"{leaf_name} ::")
     ]
     assert "parent_input" not in wrapper
 

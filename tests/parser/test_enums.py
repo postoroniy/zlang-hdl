@@ -62,5 +62,8 @@ def test_compile_time_numeric_and_bare_nominal_conditions_both_parse() -> None:
         "else { out y:u1 y=0 } }"
     )
     condition = nominal.compile_time_ifs[0].condition
-    assert isinstance(condition.left, TypeValueExpr)
-    assert isinstance(condition.right, TypeValueExpr)
+    # Uppercase identifiers stay syntactically neutral. Semantic resolution
+    # decides whether they denote types or compile-time values, which also
+    # permits nominal comparisons inside larger boolean conditions.
+    assert not isinstance(condition.left, TypeValueExpr)
+    assert not isinstance(condition.right, TypeValueExpr)

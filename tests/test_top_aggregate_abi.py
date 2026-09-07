@@ -1,14 +1,18 @@
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 from zlang import compile_source
 from zlang.backend.manifest import BackendArtifact, publish_artifact
 from zlang.ir import (
+    Crossing,
+    CrossingKind,
     PortDirection,
     build_top_aggregate_abi,
     build_top_physical_abi,
 )
 from zlang.ir.equivalence import BindingSide
+from zlang.opt import CanonicalizationError, lower, restore
 from zlang.semantic import SemanticError
 
 
@@ -74,6 +78,108 @@ class TopAggregateABITests(unittest.TestCase):
         self.assertEqual(len(module.aggregate_protocol_connections), 1)
         self.assertTrue(module.aggregate_protocol_connections[0].delegation)
         self.assertEqual(len(module.hierarchical_connections), 0)
+
+    def test_duplicate_delegation_is_rejected_before_backend_emission(self):
+        source = SOURCE.replace(
+            "  connect bus -> child.bus\n",
+            "  connect bus -> child.bus\n  connect bus -> child.bus\n",
+        )
+        with self.assertRaisesRegex(
+            SemanticError,
+            "duplicate aggregate protocol delegation 'bus -> child.bus'",
+        ):
+            compile_source(source, include_clash=False)
+
+    def test_delegation_source_has_one_child_destination(self):
+        source = SOURCE.replace(
+            "  inst child:Child\n",
+            "  inst child:Child\n  inst second:Child\n",
+        ).replace(
+            "  connect bus -> child.bus\n",
+            "  connect bus -> child.bus\n  connect bus -> second.bus\n",
+        )
+        with self.assertRaisesRegex(
+            SemanticError,
+            "aggregate protocol source 'bus' has multiple delegation destinations",
+        ):
+            compile_source(source, include_clash=False)
+
+    def test_delegation_rejects_local_top_output_drivers(self):
+        for assignment in ("bus.req.ready=1", "bus.irq=1"):
+            with self.subTest(assignment=assignment):
+                source = SOURCE.replace(
+                    "  inst child:Child\n",
+                    f"  {assignment}\n  inst child:Child\n",
+                )
+                with self.assertRaisesRegex(
+                    SemanticError,
+                    "aggregate protocol source 'bus' has both local output "
+                    "assignment and child delegation",
+                ):
+                    compile_source(source, include_clash=False)
+
+    def test_canonical_delegation_metadata_and_crossing_are_validated(self):
+        canonical = lower(compile_source(SOURCE, include_clash=False).ir)
+        delegation = canonical.aggregate_protocol_connections[0]
+
+        corruptions = (
+            (
+                replace(delegation, protocol="OtherBus"),
+                "metadata disagrees with its endpoints",
+            ),
+            (
+                replace(
+                    delegation,
+                    crossing=Crossing(CrossingKind.ASYNC_FIFO, 4),
+                ),
+                "cannot carry crossing metadata",
+            ),
+        )
+        for corrupted, diagnostic in corruptions:
+            with self.subTest(diagnostic=diagnostic):
+                with self.assertRaisesRegex(CanonicalizationError, diagnostic):
+                    restore(replace(
+                        canonical,
+                        aggregate_protocol_connections=(corrupted,),
+                    ))
+
+    def test_canonical_delegation_destination_has_one_driver(self):
+        source = SOURCE.replace(
+            "  interface bus:Bus.sink\n",
+            "  interface bus:Bus.sink\n  interface other:Bus.sink\n",
+        ).replace(
+            "  inst child:Child\n",
+            "  inst child:Child\n  inst second:Child\n",
+        ).replace(
+            "  connect bus -> child.bus\n",
+            "  connect bus -> child.bus\n  connect other -> second.bus\n",
+        )
+        canonical = lower(compile_source(source, include_clash=False).ir)
+        first, second = canonical.aggregate_protocol_connections
+        with self.assertRaisesRegex(
+            CanonicalizationError,
+            "aggregate protocol destination 'child.bus' has multiple "
+            "delegation drivers",
+        ):
+            restore(replace(
+                canonical,
+                aggregate_protocol_connections=(
+                    first,
+                    replace(second, destination=first.destination),
+                ),
+            ))
+
+    def test_canonical_exact_duplicate_delegation_is_rejected(self):
+        canonical = lower(compile_source(SOURCE, include_clash=False).ir)
+        delegation = canonical.aggregate_protocol_connections[0]
+        with self.assertRaisesRegex(
+            CanonicalizationError,
+            "duplicate aggregate protocol delegation 'bus -> child.bus'",
+        ):
+            restore(replace(
+                canonical,
+                aggregate_protocol_connections=(delegation, delegation),
+            ))
 
     def test_manifest_v3_round_trip(self):
         module = compile_source(SOURCE).ir

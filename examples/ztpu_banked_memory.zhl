@@ -1,0 +1,100 @@
+// One physical 1R1W copy used by a replicated-read banked memory.
+// Writes are synchronous; reads are combinational and observe preserved cells.
+module ZtpuMemoryReplica<type T,D,IW,MW>
+where D >= 2 && is_power_of_two(D) && IW == floor_log2(D) {
+    clock clk reset rst
+
+    in read_row     : uint<IW>
+    in write_enable : bit
+    in write_row    : uint<IW>
+    in write_data   : T
+    in write_mask   : bits<MW>
+    out read_data   : T
+
+    memory table : mem<T,D> {
+        read_latency 0
+        collision read_first
+        reset { contents preserve read_data preserve }
+    }
+
+    table.read_address  = read_row
+    table.write_enable  = write_enable
+    table.write_address = write_row
+    table.write_data    = write_data
+    table.write_mask    = write_mask
+    read_data           = table.read_data
+}
+
+// Generic two-read/one-write composition.  The two arrays are the physical
+// read replicas; one decoded write is bound identically into both arrays.
+module ReplicatedBanked2R1W<type T,BANKS,ROWS,BW,RW,AW,MW>
+where BANKS >= 2 && is_power_of_two(BANKS) && BW == floor_log2(BANKS) &&
+      ROWS >= 2 && is_power_of_two(ROWS) && RW == floor_log2(ROWS) &&
+      AW == BW + RW {
+    clock clk reset rst
+
+    in read0_address : uint<AW>
+    in read1_address : uint<AW>
+    in write_enable  : bit
+    in write_address : uint<AW>
+    in write_data    : T
+    in write_mask    : bits<MW>
+    out read0_data   : T
+    out read1_data   : T
+
+    read0_bank = truncate<BW>(read0_address)
+    read1_bank = truncate<BW>(read1_address)
+    write_bank = truncate<BW>(write_address)
+    read0_row  = truncate<RW>(read0_address >> BW)
+    read1_row  = truncate<RW>(read1_address >> BW)
+    write_row  = truncate<RW>(write_address >> BW)
+
+    read0[BANKS] : ZtpuMemoryReplica<T=T,D=ROWS,IW=RW,MW=MW>
+    read1[BANKS] : ZtpuMemoryReplica<T=T,D=ROWS,IW=RW,MW=MW>
+
+    generate(i in 0..BANKS) {
+        read0[i].read_row     = read0_row
+        read0[i].write_enable = write_enable & (write_bank == i)
+        read0[i].write_row    = write_row
+        read0[i].write_data   = write_data
+        read0[i].write_mask   = write_mask
+
+        read1[i].read_row     = read1_row
+        read1[i].write_enable = write_enable & (write_bank == i)
+        read1[i].write_row    = write_row
+        read1[i].write_data   = write_data
+        read1[i].write_mask   = write_mask
+    }
+
+    read0_data = read0[read0_bank].read_data
+    read1_data = read1[read1_bank].read_data
+}
+
+// Concrete ZTPU logical unified-buffer storage: 256 32-bit words arranged as
+// four banks of 64 rows.  Addresses here are word indices; byte-address
+// decoding belongs to the later unified-buffer interface wrapper.
+module ZtpuBankedMemory {
+    clock clk reset rst
+
+    in read0_address : u8
+    in read1_address : u8
+    in write_enable  : bit
+    in write_address : u8
+    in write_data    : u32
+    in write_mask    : bits<4>
+    out read0_data   : u32
+    out read1_data   : u32
+
+    storage : ReplicatedBanked2R1W<
+        T=u32,BANKS=4,ROWS=64,BW=2,RW=6,AW=8,MW=4
+    >
+    storage.read0_address = read0_address
+    storage.read1_address = read1_address
+    storage.write_enable  = write_enable
+    storage.write_address = write_address
+    storage.write_data    = write_data
+    storage.write_mask    = write_mask
+
+    read0_data = storage.read0_data
+    read1_data = storage.read1_data
+}

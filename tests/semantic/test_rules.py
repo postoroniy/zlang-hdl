@@ -4,12 +4,38 @@ import unittest
 from zlang.ir.types import BitType
 from zlang.parser import parse
 from zlang.semantic import SemanticError, analyze
+from zlang.semantic.analyze import _has_priority_cycle, _priority_orders
 
 
 ROOT = Path(__file__).resolve().parents[2]
 
 
 class RuleSemanticTests(unittest.TestCase):
+    def test_priority_helpers_match_exhaustive_three_node_graph_oracle(self) -> None:
+        nodes = ("a", "b", "c")
+        pairs = tuple((first, second) for first in nodes for second in nodes)
+        for mask in range(1 << len(pairs)):
+            edges = {edge for index, edge in enumerate(pairs) if mask & (1 << index)}
+            # Independent transitive closure starts with actual edges, not
+            # reflexive paths: a true diagonal therefore means a real cycle.
+            closure = {pair: pair in edges for pair in pairs}
+            for intermediate in nodes:
+                for first, second in pairs:
+                    closure[first, second] |= (
+                        closure[first, intermediate] and closure[intermediate, second]
+                    )
+            with self.subTest(graph=mask):
+                for first, second in pairs:
+                    self.assertEqual(
+                        _priority_orders(first, second, edges),
+                        first == second or closure[first, second] or closure[second, first],
+                    )
+                expected_cycle = any(closure[node, node] for node in nodes)
+                # The retained helper signature does not restrict traversal to
+                # `names`; the semantic caller separately validates all edges.
+                for names in (set(nodes), {"a"}, set()):
+                    self.assertEqual(_has_priority_cycle(names, edges), expected_cycle)
+
     def test_rules_guards_actions_and_priority_reach_typed_ir(self) -> None:
         module = analyze(parse((ROOT / "examples/rule_counter.zhl").read_text()))
         self.assertEqual(module.rules[0].guard.type, BitType())

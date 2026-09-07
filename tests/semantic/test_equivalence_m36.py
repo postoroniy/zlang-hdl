@@ -369,7 +369,7 @@ class EquivalenceM36Tests(unittest.TestCase):
         )
         self.assertRegex(
             emission.source,
-            r"reg \[1:0\] zlang_formal_reset_release__[0-9a-f]{8};",
+            r"reg \[1:0\] zlang_formal_reset_release_[0-9a-f]{8};",
         )
 
         proof = FormalResult(

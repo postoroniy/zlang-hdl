@@ -27,6 +27,24 @@ module VectorState {
 """
 
 
+STRUCT_INDEX_SOURCE = """
+struct Cursor { tag:u8 }
+
+module StructIndexedState {
+  clock clk reset rst
+  in fire:bit in next_tag:u8 in value:u16
+  out selected:u16
+  reg state:Cursor=Cursor { tag=0 }
+  reg counts:vec<256,u16>=generate(i in 0..256) 0
+  when fire {
+    counts[state.tag] <- value
+    state <- state with { tag=next_tag }
+  }
+  selected=counts[state.tag]
+}
+"""
+
+
 def _compile(source: str = SOURCE):
     return analyze(parse(source))
 
@@ -75,6 +93,70 @@ def test_indexed_write_reads_and_updates_the_same_pre_edge_snapshot() -> None:
         {"selected": 0, "previous": 11},
         {"selected": 17, "previous": 0},
     ]
+
+
+def test_registered_struct_field_retains_range_for_read_and_vector_update() -> None:
+    module = _compile(STRUCT_INDEX_SOURCE)
+    update = module.rules[0].actions[0].expression
+    selected = module.assignments[0].expression
+
+    assert isinstance(update, expr.VectorUpdate)
+    assert isinstance(update.index, expr.FieldAccess)
+    assert update.index_range == expr.ValueRange(0, 255, "static_type")
+    assert isinstance(selected, expr.RuntimeIndex)
+    assert isinstance(selected.index, expr.FieldAccess)
+    assert selected.index_range == expr.ValueRange(0, 255, "static_type")
+    assert restore(lower(module)) == module
+
+    outputs = simulate_cycles(
+        module,
+        (
+            {"fire": 0, "next_tag": 0, "value": 0},
+            {"fire": 1, "next_tag": 2, "value": 11},
+            {"fire": 0, "next_tag": 0, "value": 0},
+            {"fire": 1, "next_tag": 5, "value": 22},
+            {"fire": 0, "next_tag": 0, "value": 0},
+            {"fire": 1, "next_tag": 2, "value": 33},
+            {"fire": 0, "next_tag": 0, "value": 0},
+        ),
+        (True, False, False, False, False, False, False),
+    )
+    assert [item["selected"] for item in outputs] == [0, 0, 0, 0, 0, 0, 22]
+
+
+def test_struct_with_update_field_preserves_a_tighter_constant_range() -> None:
+    module = _compile(
+        "struct Cursor { tag:u8 } "
+        "module ConstantStructIndex { "
+        "in values:vec<4,u8> in cursor:Cursor out y:u8 "
+        "updated=cursor with { tag=2 } y=values[updated.tag] }"
+    )
+    selected = module.assignments[0].expression
+    assert isinstance(selected, expr.RuntimeIndex)
+    assert selected.index_range == expr.ValueRange(2, 2, "constant")
+
+
+def test_registered_struct_field_still_rejects_a_genuinely_too_wide_index() -> None:
+    write_source = STRUCT_INDEX_SOURCE.replace("tag:u8", "tag:u9").replace(
+        "next_tag:u8", "next_tag:u9"
+    )
+    with pytest.raises(
+        SemanticError,
+        match=r"index range 0\.\.511.*vector length 256",
+    ):
+        _compile(write_source)
+
+    read_source = (
+        "struct Cursor { tag:u9 } "
+        "module BadStructIndexRead { clock clk reset rst "
+        "in values:vec<256,u16> out y:u16 "
+        "reg state:Cursor=Cursor { tag=0 } y=values[state.tag] }"
+    )
+    with pytest.raises(
+        SemanticError,
+        match=r"runtime index range 0\.\.511.*vector length 256",
+    ):
+        _compile(read_source)
 
 
 @pytest.mark.parametrize(

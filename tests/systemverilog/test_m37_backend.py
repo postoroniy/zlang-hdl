@@ -180,7 +180,7 @@ class M37BackendTests(unittest.TestCase):
             include_clash=False,
         )
         text = emit_experimental(result.ir)
-        self.assertIn("Child__", text)
+        self.assertIn("Child_s", text)
         self.assertRegex(text, r"\bzlang_join \(")
         self.assertNotRegex(text, r"\n\s+join \(")
         verilator = shutil.which("verilator")

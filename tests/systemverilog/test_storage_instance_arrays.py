@@ -67,11 +67,11 @@ def test_fifo_instance_array_is_structural_deterministic_and_bound() -> None:
     assert first.text == second.text
     assert first.artifact_hash == second.artifact_hash
     assert first.to_json() == second.to_json()
-    assert first.text.count("module FifoLane__") == 1
-    assert first.text.count("FifoLane__") == 3
+    assert first.text.count("module FifoLane_s") == 1
+    assert first.text.count("FifoLane_s") == 3
     assert first.text.count("logic [1:0] queue_count;") == 1
-    assert first.text.count("zlang_instance_lane_0_") > 1
-    assert first.text.count("zlang_instance_lane_1_") > 1
+    assert " lane_0 (" in first.text
+    assert " lane_1 (" in first.text
     assert ".data(data[15:8])" in first.text
     assert ".data(data[7:0])" in first.text
 
@@ -220,8 +220,8 @@ def test_memory_and_rom_arrays_direct_sv_exact_behavior(
     tmp_path: Path, top: str, harness: str
 ) -> None:
     artifact = _artifact_for(top)
-    assert artifact.text.count(f"module {top.removesuffix('Array')}__") == 1
-    assert artifact.text.count(f"{top.removesuffix('Array')}__") == 3
+    assert artifact.text.count(f"module {top.removesuffix('Array')}_s") == 1
+    assert artifact.text.count(f"{top.removesuffix('Array')}_s") == 3
     assert artifact == _artifact_for(top)
     source = tmp_path / f"{top}.sv"
     source.write_text(artifact.text)

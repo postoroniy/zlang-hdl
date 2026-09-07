@@ -15,6 +15,11 @@ from zlang.backend.systemverilog.emitter import (
 )
 from zlang.backend.systemverilog.target import emit_target, emit_target_artifact
 from zlang.backend.external import ExternalMappingError, ExternalPhysicalMapping
+from zlang.backend.systemverilog.simulation_state import (
+    SystemVerilogSimulationStateBundle,
+    SystemVerilogStateLocator,
+    build_systemverilog_simulation_state_bundle,
+)
 
 __all__ = [
     "ContractEmissionError",
@@ -30,4 +35,7 @@ __all__ = [
     "emit_target_artifact",
     "ExternalMappingError",
     "ExternalPhysicalMapping",
+    "SystemVerilogSimulationStateBundle",
+    "SystemVerilogStateLocator",
+    "build_systemverilog_simulation_state_bundle",
 ]

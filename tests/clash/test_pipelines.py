@@ -17,9 +17,9 @@ class ClashPipelineTests(unittest.TestCase):
         generated = compile_source(
             (ROOT / "examples/pipelined_mac.zhl").read_text()
         ).clash
-        self.assertEqual(generated.count("pipeline_0_s1 = register"), 1)
-        self.assertEqual(generated.count("pipeline_0_s2 = register"), 1)
-        self.assertNotIn("pipeline_0_s3", generated)
+        self.assertEqual(generated.count("y_pipe_s1 = register"), 1)
+        self.assertEqual(generated.count("y_pipe_s2 = register"), 1)
+        self.assertNotIn("y_pipe_s3", generated)
 
     def test_auto_pipeline_golden_and_architecture_annotation_match(self) -> None:
         source = (ROOT / "examples/auto_pipeline_products.zhl").read_text()

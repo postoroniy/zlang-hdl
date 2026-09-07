@@ -10,6 +10,7 @@ from dataclasses import dataclass, fields, is_dataclass, replace
 from enum import Enum
 import hashlib
 import re
+from typing import Callable
 
 from zlang.ir import csr as ir_csr
 from zlang.ir import expressions as expr
@@ -38,10 +39,21 @@ from zlang.ir.module import (
     Rule,
     default_selected_ir_identity,
 )
-from zlang.ir.storage import FifoSignal, MemoryCollision, MemorySignal, RomSignal
+from zlang.ir.storage import (
+    FifoSignal,
+    MemoryCollision,
+    MemoryResetPolicy,
+    MemorySignal,
+    RomSignal,
+)
 from zlang.ir.state import (
     FifoOccupancy,
     StateActionKind,
+    StateResourceKind,
+    action_activation_predicate_index,
+    conditional_activation_predicates,
+    conditional_actions,
+    groups_conflict,
     ordered_groups as ordered_state_groups,
     selection_regions,
 )
@@ -71,8 +83,21 @@ from zlang.backend.expression_materialization import (
     walk_expression as _walk_expression,
 )
 from zlang.backend.identifiers import (
+    allocate_private_rtl_identifier,
     first_rtl_leaf_identifier_collision,
     rtl_identifier,
+    rtl_instance_identifier,
+    rtl_memory_cells_identifier,
+    rtl_memory_read_data_identifier,
+    rtl_register_state_identifier,
+)
+from zlang.backend.naming import (
+    ComponentNamePlan,
+    ModuleRtlNames,
+    RtlNamingError,
+    build_component_name_plan,
+    module_rtl_names,
+    rtl_hierarchy_instance_path,
 )
 from zlang.backend.manifest import BackendArtifact, publish_artifact
 from zlang.backend.module_features import (
@@ -93,23 +118,35 @@ from zlang.backend.systemverilog.composed import (
     ComposedRendering,
     FormalBufferCountProjection,
     SVPhysicalSyntax,
+    composed_component_identifier_claims,
     component_name as _composed_component_name,
     emit_composed_design as _emit_composed_subsystem,
     request_response_tracker_name as _composed_rr_tracker_name,
     rv_fifo_helper as _composed_rv_fifo_helper,
 )
 from zlang.backend.systemverilog.syntax import sized_decimal as _sized_decimal
+from zlang.common.systemverilog import (
+    render_ordered_comparison,
+    render_right_shift,
+)
 from zlang.backend.systemverilog.sequential import (
     PhysicalDomainError as _PhysicalDomainError,
     clock_event as _clock_event,
     effective_reset_signal as _effective_reset_signal,
     module_domain as _module_domain,
+    native_release_module as _native_release_module,
     reset_conditioner_lines as _reset_conditioner_lines,
     reset_asserted as _reset_asserted,
     reset_deasserted as _reset_deasserted,
 )
 from zlang.fixed_point import quantize_rational
-from zlang.ir.hierarchy import HierarchyError, HierarchyIndex, build_hierarchy_index
+from zlang.ir.cdc import ResetPolarity
+from zlang.ir.hierarchy import (
+    HierarchyError,
+    HierarchyIndex,
+    HierarchyTraversalCache,
+    build_hierarchy_index,
+)
 from zlang.ir.functional import (
     lower_reduction,
     materialize_exact_reduction,
@@ -356,6 +393,29 @@ def emit(
     _formal_buffer_counts: tuple[FormalBufferCountProjection, ...] = (),
     _formal_adapter_counts: tuple[FormalAdapterCountProjection, ...] = (),
 ) -> str:
+    """Emit one design, reporting impossible physical allocations structurally."""
+
+    try:
+        return _emit_named_design(
+            module,
+            external_mappings=external_mappings,
+            _formal_buffer_counts=_formal_buffer_counts,
+            _formal_adapter_counts=_formal_adapter_counts,
+        )
+    except RtlNamingError as error:
+        raise SystemVerilogEmissionError(
+            str(error), semantic_path=(module.name,),
+            code="ZL-BACKEND-SYSTEMVERILOG-NAMING",
+        ) from error
+
+
+def _emit_named_design(
+    module: Module,
+    *,
+    external_mappings: tuple[ExternalPhysicalMapping, ...] = (),
+    _formal_buffer_counts: tuple[FormalBufferCountProjection, ...] = (),
+    _formal_adapter_counts: tuple[FormalAdapterCountProjection, ...] = (),
+) -> str:
     """Emit one supported design with an always-leaf public top boundary.
 
     Component modules intentionally retain the compiler's compact packed ABI.
@@ -372,17 +432,157 @@ def emit(
     # byte-identical RTL.  Render from an ephemeral copy whose generic callable
     # names are derived from the exact typed body/signature instead.
     physical_module = _physicalize_generic_callables(module)
+    hierarchy_cache = HierarchyTraversalCache()
     public_abi = build_top_physical_abi(physical_module)
     _validate_public_leaf_identifiers(tuple(public_abi.leaves))
+    _validate_state_storage_rtl_namespace(
+        physical_module, hierarchy_cache=hierarchy_cache
+    )
     packed = _emit_packed(
         physical_module,
         external_mappings=external_mappings,
         formal_buffer_counts=_formal_buffer_counts,
         formal_adapter_counts=_formal_adapter_counts,
+        hierarchy_cache=hierarchy_cache,
     )
     return _emit_public_leaf_boundary(
         physical_module, packed, leaves=tuple(public_abi.leaves)
     )
+
+
+def _validate_state_storage_rtl_namespace(
+    module: Module,
+    *,
+    hierarchy_cache: HierarchyTraversalCache | None = None,
+) -> None:
+    """Reject colliding architectural-state tokens before rendering RTL.
+
+    Writable-memory storage uses two backend-owned suffixes.  A source register
+    such as ``foo_cells`` must therefore not alias the cells of memory ``foo``.
+    The access companion consumes the same identifier helpers, so accepting a
+    collision here would also give two semantic bindings one VPI locator.
+    """
+
+    selected_hierarchy_cache = hierarchy_cache or HierarchyTraversalCache()
+    _validated_hierarchy(module, cache=selected_hierarchy_cache)
+    tokens: dict[str, str] = {}
+    local_names = module_rtl_names(module)
+
+    def claim(token: str, owner: str) -> None:
+        previous = tokens.get(token)
+        if previous is not None and previous != owner:
+            raise SystemVerilogEmissionError(
+                "direct-SystemVerilog module identifier collision in module "
+                f"'{module.name}': {previous} and {owner} both map to "
+                f"'{token}'",
+                semantic_path=(module.name,),
+                code="ZL-BACKEND-SYSTEMVERILOG-STATE-NAME-COLLISION",
+            )
+        tokens[token] = owner
+
+    for leaf in build_top_physical_abi(module).leaves:
+        logical = leaf.packed_root_external_name or leaf.external_name
+        claim(rtl_identifier(logical), f"port '{logical}'")
+    for elaborated in module.elaborated_instances:
+        name = elaborated.instance.name
+        claim(local_names.instance(name), f"child instance '{name}'")
+    if (
+        module.elaborated_instances
+        or module.hierarchical_connections
+        or module.request_response_connections
+        or module.aggregate_protocol_connections
+    ):
+        for token, owner in composed_component_identifier_claims(
+            module,
+            _composed_rendering(hierarchy_cache=selected_hierarchy_cache),
+        ):
+            claim(token, owner)
+    for item in _materialization_plan(module):
+        claim(item.name, f"materialized expression '{item.name}'")
+    for root in _module_expression_roots(module):
+        for value in _walk_expression(root):
+            if isinstance(value, (expr.Delay, expr.Pipeline)):
+                count = value.cycles if isinstance(value, expr.Delay) else value.stages
+                kind = "delay" if isinstance(value, expr.Delay) else "pipeline"
+                for index in range(1, count + 1):
+                    claim(
+                        local_names.stage(kind, value.instance, index),
+                        f"{kind} stage {value.instance}:{index}",
+                    )
+    for register in module.registers:
+        claim(
+            rtl_register_state_identifier(register.name),
+            f"register '{register.name}'",
+        )
+    for fifo in module.fifos:
+        name = rtl_identifier(fifo.name)
+        if fifo.scheduled:
+            suffixes = (
+                "storage", "count", "rd", "wr", "push", "pop", "push_data",
+                "front", "empty", "full", "valid", "ready", "overflow",
+                "underflow",
+            )
+        else:
+            referenced = _referenced_fifo_signals(module, fifo)
+            suffixes = (
+                "storage", "count", "rd", "wr", "push_request", "pop_request",
+                "push", "pop",
+                *(
+                    signal.value
+                    for signal in (
+                        FifoSignal.FRONT,
+                        FifoSignal.EMPTY,
+                        FifoSignal.FULL,
+                        FifoSignal.VALID,
+                        FifoSignal.READY,
+                        FifoSignal.OVERFLOW,
+                        FifoSignal.UNDERFLOW,
+                    )
+                    if signal in referenced
+                ),
+            )
+        for suffix in suffixes:
+            claim(f"{name}_{suffix}", f"FIFO '{fifo.name}' {suffix}")
+    for memory in module.memories:
+        name = rtl_identifier(memory.name)
+        claim(rtl_memory_cells_identifier(memory.name), f"memory '{memory.name}' cells")
+        claim(
+            rtl_memory_read_data_identifier(memory.name),
+            f"memory '{memory.name}' read data",
+        )
+        if memory.scheduled:
+            for suffix in (
+                "read_fire", "write_fire", "read_address", "write_address",
+                "write_data", "reset_index",
+            ):
+                claim(f"{name}_{suffix}", f"memory '{memory.name}' {suffix}")
+        else:
+            claim("zlang_memory_reset_index", "memory reset iterator")
+        if memory.write_mask_width is not None:
+            for suffix in ("write_mask", "write_mask_expanded", "write_merged"):
+                claim(f"{name}_{suffix}", f"memory '{memory.name}' {suffix}")
+    for rom in module.roms:
+        name = rtl_identifier(rom.name)
+        claim(f"{name}_cells", f"ROM '{rom.name}' cells")
+        claim(f"{name}_read_data", f"ROM '{rom.name}' read data")
+    # The compact register path emits no guard/fire helpers. Claim only real
+    # objects, and allocate emitted helpers around source state names.
+    if _requires_unified_state(module):
+        for rule in module.rules:
+            claim(local_names.rule(rule.name, "guard"), f"rule '{rule.name}' guard")
+            claim(local_names.rule(rule.name, "fire"), f"rule '{rule.name}' fire")
+    if module.resolved_transition is not None:
+        for index, _activation in enumerate(
+            conditional_activation_predicates(module.resolved_transition)
+        ):
+            claim(
+                f"zlang_condition_{index}_active",
+                f"conditional-action predicate {index}",
+            )
+    for child in module.children:
+        _validate_state_storage_rtl_namespace(
+            child, hierarchy_cache=selected_hierarchy_cache
+        )
 
 
 _PHYSICAL_CALLABLE_SCHEMA = "zlang-systemverilog-physical-callable-v1"
@@ -586,12 +786,122 @@ def _physicalize_generic_callables(module: Module) -> Module:
     return rewritten
 
 
+def _uses_dedicated_legacy_storage(module: Module) -> bool:
+    """Return whether the frozen global-control storage emitter owns state."""
+
+    transition = module.resolved_transition
+    if (
+        transition is None
+        or transition.action_groups
+        or module.registers
+        or module.rules
+        or module.next_assignments
+        or module.elaborated_instances
+        or module.children
+        or module.connections
+        or module.hierarchical_connections
+        or module.request_response_connections
+        or module.aggregate_protocol_connections
+    ):
+        return False
+    resource_kinds = {resource.kind for resource in transition.resources}
+    if (
+        module.fifos
+        and all(not fifo.scheduled for fifo in module.fifos)
+        and not module.memories
+        and not module.roms
+    ):
+        return resource_kinds <= {StateResourceKind.FIFO}
+    if (
+        module.memories
+        and all(not memory.scheduled for memory in module.memories)
+        and not module.fifos
+        and not module.roms
+    ):
+        return resource_kinds <= {StateResourceKind.MEMORY}
+    return False
+
+
+def _requires_unified_state(module: Module) -> bool:
+    """Return whether typed state needs the exact unified scheduler.
+
+    The compact rule emitter is deliberately limited to scalar register writes
+    whose accepted effects are exactly representable by its per-register
+    conditional chains.  A conflict between two one-effect groups is safe on
+    that path; a conflict involving any multi-effect group is not, because it
+    could commit part of a lower-priority rule after that rule lost elsewhere.
+    Protocol state, storage legality, conditional action activation, output
+    effects, and those atomic multi-effect conflicts therefore stay on the
+    unified path.
+    """
+
+    transition = module.resolved_transition
+    if transition is None:
+        return False
+    if _uses_dedicated_legacy_storage(module):
+        return False
+    if not (
+        transition.resources
+        or transition.action_groups
+        or module.registers
+        or module.rules
+        or module.next_assignments
+        or any(fifo.scheduled for fifo in module.fifos)
+        or any(memory.scheduled for memory in module.memories)
+        or module.roms
+    ):
+        return False
+    # Closed zero-rule sequential state historically uses the unified body,
+    # including its begin/end reset spelling.  It has no rule dimensions to
+    # enumerate, so retaining that route is both byte-compatible and bounded.
+    if (
+        not module.rules
+        and not transition.action_groups
+        and (module.registers or module.next_assignments)
+    ):
+        return True
+    if (
+        any(fifo.scheduled for fifo in module.fifos)
+        or any(memory.scheduled for memory in module.memories)
+        or bool(module.roms)
+        or bool(module.request_responses)
+        or bool(module.aggregate_protocol_endpoints)
+        or any(
+            port.protocol is not InterfaceProtocol.WIRE
+            for port in module.ports
+        )
+        or any(
+            endpoint.protocol is not InterfaceProtocol.WIRE
+            for endpoint in module.protocol_endpoints
+        )
+        or any(
+            resource.kind is not StateResourceKind.REGISTER
+            for resource in transition.resources
+        )
+        or any(
+            action.kind is not StateActionKind.REGISTER_WRITE
+            or action.activation is not None
+            for group in transition.action_groups
+            for action in group.actions
+        )
+    ):
+        return True
+    groups = transition.action_groups
+    return any(
+        groups_conflict(left, right)
+        and (len(left.actions) != 1 or len(right.actions) != 1)
+        for index, left in enumerate(groups)
+        for right in groups[index + 1:]
+    )
+
+
 def _emit_packed(
     module: Module,
     *,
     external_mappings: tuple[ExternalPhysicalMapping, ...] = (),
     formal_buffer_counts: tuple[FormalBufferCountProjection, ...] = (),
     formal_adapter_counts: tuple[FormalAdapterCountProjection, ...] = (),
+    hierarchy_cache: HierarchyTraversalCache | None = None,
 ) -> str:
     """Emit one supported typed module as direct synthesizable SystemVerilog."""
 
@@ -671,7 +981,13 @@ def _emit_packed(
         and (
         module.elaborated_instances
         or (
-            module.registers and module.next_assignments and not module.rules
+            module.registers
+            and module.next_assignments
+            and not module.rules
+            and not any(
+                interface.ordering is RequestResponseOrdering.IN_ORDER
+                for interface in module.request_responses
+            )
         )
         or (
             module.is_sequential
@@ -689,6 +1005,7 @@ def _emit_packed(
         body = _emit_composed_design(
             module, mapping_index,
             formal_buffer_counts=formal_buffer_counts,
+            hierarchy_cache=hierarchy_cache,
         )
         return (
             "`default_nettype none\n"
@@ -710,11 +1027,24 @@ def _emit_packed(
             + body
             + "`default_nettype wire\n"
         )
-    if (
-        (module.fifos and any(fifo.scheduled for fifo in module.fifos))
-        or any(memory.scheduled for memory in module.memories)
-        or (module.roms and module.resolved_transition is not None)
-    ):
+    if module.csr_blocks:
+        _account_emission_plan(
+            module,
+            "csr_composed_state",
+            *_STATE_GROUPS,
+            ModuleFeatureGroup.CSR_BLOCKS,
+            ModuleFeatureGroup.PROTOCOL_PORTS,
+        )
+        body = _emit_csr(module)
+    elif module.request_responses:
+        _account_emission_plan(
+            module,
+            "request_response",
+            ModuleFeatureGroup.REQUEST_RESPONSE_INTERFACES,
+            *_STATE_GROUPS,
+        )
+        body = _emit_request_response(module)
+    elif _requires_unified_state(module):
         _account_emission_plan(
             module, "unified_state",
             *_STATE_GROUPS,
@@ -736,22 +1066,6 @@ def _emit_packed(
             ModuleFeatureGroup.PROTOCOL_PORTS,
         )
         body = _emit_fifo(module)
-    elif module.csr_blocks:
-        _account_emission_plan(
-            module,
-            "csr_composed_state",
-            *_STATE_GROUPS,
-            ModuleFeatureGroup.CSR_BLOCKS,
-            ModuleFeatureGroup.PROTOCOL_PORTS,
-        )
-        body = _emit_csr(module)
-    elif module.request_responses:
-        _account_emission_plan(
-            module,
-            "request_response",
-            ModuleFeatureGroup.REQUEST_RESPONSE_INTERFACES,
-        )
-        body = _emit_request_response(module)
     elif module.arbiters:
         _account_emission_plan(
             module,
@@ -826,15 +1140,21 @@ def _component_name(
     specialization: str | None,
     *,
     top: bool = False,
+    naming_plan: ComponentNamePlan | None = None,
 ) -> str:
     return _composed_component_name(
-        module, specialization, _composed_rendering(), top=top
+        module, specialization,
+        replace(_composed_rendering(), component_names=naming_plan), top=top
     )
 
 
-def _validated_hierarchy(module: Module) -> HierarchyIndex:
+def _validated_hierarchy(
+    module: Module,
+    *,
+    cache: HierarchyTraversalCache | None = None,
+) -> HierarchyIndex:
     try:
-        return build_hierarchy_index(module)
+        return build_hierarchy_index(module, cache=cache)
     except HierarchyError as error:
         raise SystemVerilogEmissionError(str(error)) from error
 
@@ -844,12 +1164,14 @@ def _emit_composed_design(
     external_mapping_index: dict[str, ExternalPhysicalMapping],
     *,
     formal_buffer_counts: tuple[FormalBufferCountProjection, ...] = (),
+    hierarchy_cache: HierarchyTraversalCache | None = None,
 ) -> str:
     return _emit_composed_subsystem(
         module,
         _composed_rendering(
             external_mapping_index,
             formal_buffer_counts=formal_buffer_counts,
+            hierarchy_cache=hierarchy_cache,
         ),
     )
 
@@ -1092,17 +1414,39 @@ def _allocate_public_wrapper_identifier(
 ) -> str:
     """Allocate one deterministic wrapper-private HDL identifier."""
 
-    if preferred not in used:
-        used.add(preferred)
-        return preferred
-    digest = hashlib.sha256(semantic_identity.encode()).hexdigest()[:8]
-    candidate = f"{preferred}__{digest}"
-    ordinal = 2
-    while candidate in used:
-        candidate = f"{preferred}__{digest}_{ordinal}"
-        ordinal += 1
-    used.add(candidate)
-    return candidate
+    return allocate_private_rtl_identifier(
+        preferred, semantic_identity=semantic_identity, used=used,
+    )
+
+
+def _public_core_instance_name(module: Module, leaves: tuple[object, ...]) -> str:
+    """Return the exact private core instance name used by the public wrapper."""
+
+    public_names = {_identifier(leaf.external_name) for leaf in leaves}
+    return _allocate_public_wrapper_identifier(
+        "zlang_top_core", f"instance:{module.name}", public_names
+    )
+
+
+def _public_core_module_name(module: Module) -> str:
+    """Name the packed implementation below a public leaf wrapper."""
+
+    return f"{_identifier(module.name)}_zlang_core"
+
+
+def physical_state_root_path(module: Module) -> tuple[str, ...]:
+    """Return the typed VPI root which owns selected-top architectural state.
+
+    This is a backend-published physical locator, not a reconstruction from
+    generated text.  The public leaf wrapper, when present, owns no ZLang
+    state; the private packed core below it does.
+    """
+
+    leaves = tuple(build_top_physical_abi(module).leaves)
+    top_name = _identifier(module.name)
+    if not _needs_public_leaf_boundary(module, leaves):
+        return ("TOP", top_name)
+    return ("TOP", top_name, _public_core_instance_name(module, leaves))
 
 
 def _emit_public_leaf_boundary(
@@ -1120,7 +1464,7 @@ def _emit_public_leaf_boundary(
         return packed_text
 
     top_name = _identifier(module.name)
-    core_name = f"{top_name}__zlang_core"
+    core_name = _public_core_module_name(module)
     definition = f"module {top_name} ("
     if packed_text.count(definition) != 1:
         raise SystemVerilogEmissionError(
@@ -1137,9 +1481,7 @@ def _emit_public_leaf_boundary(
         public_names.add(name)
         public_ports.append(_public_leaf_port_declaration(leaf))
     wrapper_identifiers = set(public_names)
-    instance_name = _allocate_public_wrapper_identifier(
-        "zlang_top_core", f"instance:{module.name}", wrapper_identifiers
-    )
+    instance_name = _public_core_instance_name(module, leaves)
 
     roots: dict[str, list[object]] = {}
     root_order: list[str] = []
@@ -1231,21 +1573,32 @@ def _emit_public_leaf_boundary(
     return packed_text[:position] + wrapper + packed_text[position:]
 
 
-def _request_response_tracker_name(descriptor: object) -> str:
-    return _composed_rr_tracker_name(descriptor, _composed_rendering())
+def _request_response_tracker_name(descriptor: object, module: Module) -> str:
+    return _composed_rr_tracker_name(descriptor, _composed_rendering(), module)
 
 
-def _instance_expression(module: Module, expression: expr.Expression) -> expr.Expression:
+def _instance_expression(
+    module: Module, expression: expr.Expression,
+    names: ModuleRtlNames | None = None,
+) -> expr.Expression:
     instance_names = {item.instance.name for item in module.elaborated_instances}
+    if not instance_names:
+        return expression
+    local_names = names or module_rtl_names(module)
 
     def walk(value):
+        if isinstance(value, expr.InstanceOutputRef):
+            return expr.InputRef(
+                local_names.child_signal(value.instance, value.port),
+                value.type, origin=value.origin,
+            )
         if (
             isinstance(value, expr.FieldAccess)
             and isinstance(value.expression, expr.InputRef)
             and value.expression.name in instance_names
         ):
             return expr.InputRef(
-                f"{value.expression.name}__{value.field}", value.type,
+                local_names.child_signal(value.expression.name, value.field), value.type,
                 origin=value.origin,
             )
         if isinstance(value, tuple):
@@ -1265,23 +1618,30 @@ def _instance_expression(module: Module, expression: expr.Expression) -> expr.Ex
     return walk(expression)
 
 
-def _module_expression_roots(module: Module) -> tuple[expr.Expression, ...]:
+def _module_expression_roots(
+    module: Module, names: ModuleRtlNames | None = None,
+) -> tuple[expr.Expression, ...]:
+    names = names or module_rtl_names(module)
     return _common_module_expression_roots(
         module,
-        normalize=lambda value: _instance_expression(module, value),
+        normalize=lambda value: _instance_expression(module, value, names),
     )
 
 
-def _materialization_plan(module: Module) -> tuple[_MaterializedExpression, ...]:
-    roots = _module_expression_roots(module)
+def _materialization_plan(
+    module: Module, names: ModuleRtlNames | None = None,
+) -> tuple[_MaterializedExpression, ...]:
+    names = names or module_rtl_names(module)
+    roots = _module_expression_roots(module, names)
     preferred = {
-        _instance_expression(module, local.expression): _identifier(local.name)
+        _instance_expression(module, local.expression, names): _identifier(local.name)
         for local in module.locals
         if not local.compile_time
     }
     reserved_names = {
         _identifier(item.name) for item in (*module.ports, *module.registers, *module.locals)
     }
+    reserved_names.update(item.physical_name for item in names.entries)
     return plan_materialization(
         roots,
         preferred_names=preferred,
@@ -1290,11 +1650,12 @@ def _materialization_plan(module: Module) -> tuple[_MaterializedExpression, ...]
 
 
 def _materialized_emission(module: Module):
-    materialized = _materialization_plan(module)
+    names = module_rtl_names(module)
+    materialized = _materialization_plan(module, names)
     aliases = {item.expression: item.name for item in materialized}
 
     def render(value: expr.Expression, *, keep: expr.Expression | None = None) -> str:
-        physical = _instance_expression(module, value)
+        physical = _instance_expression(module, value, names)
         return _expression(_replace_materialized(physical, aliases, keep=keep))
 
     declarations = []
@@ -1315,7 +1676,9 @@ def _composed_rendering(
     external_mapping_index: dict[str, ExternalPhysicalMapping] | None = None,
     *,
     formal_buffer_counts: tuple[FormalBufferCountProjection, ...] = (),
+    hierarchy_cache: HierarchyTraversalCache | None = None,
 ) -> ComposedRendering:
+    selected_hierarchy_cache = hierarchy_cache or HierarchyTraversalCache()
     return ComposedRendering(
         physical=SVPhysicalSyntax(
             error=SystemVerilogEmissionError,
@@ -1323,21 +1686,35 @@ def _composed_rendering(
             instance_identifier=_instance_identifier,
             packed_width=_width,
             packed_range=_range,
+            logic_declaration=_logic_declaration,
             physical_ports=_physical_port_declarations,
-            validate_hierarchy=_validated_hierarchy,
+            validate_hierarchy=lambda module: _validated_hierarchy(
+                module, cache=selected_hierarchy_cache
+            ),
         ),
         services=ComposedLeafServices(
             materialized_emission=_materialized_emission,
             staging_emission=_embedded_staging_emission,
             rom_logic=_emit_rom_logic,
             append_unified_state=_append_unified_state,
+            append_rule_state=lambda module, declarations, logic, render: (
+                _append_rule_state(
+                    module,
+                    declarations,
+                    logic,
+                    render,
+                    compact_reset=True,
+                )
+            ),
             emit_fifo=_emit_fifo,
             emit_memory=_emit_memory,
             emit_rom=_emit_rom_module,
             emit_unified_state=_emit_unified_state_module,
+            emit_rules=_emit_rules,
             emit_elastic_pipeline=_emit_elastic_pipeline,
             emit_csr_child=_emit_composed_csr_child,
             named_module=_emit_composed_named_module,
+            requires_unified_state=_requires_unified_state,
             ordered_rules=_ordered_rules,
             assignment_name=_assignment_name,
             emit_external=lambda module, name: _emit_external_wrapper(
@@ -1409,30 +1786,54 @@ def _named_module(
     return f"module {name} (\n{declarations}\n);\n  // Generated from backend-independent typed ZLang IR.\n{body}\nendmodule\n"
 
 
+def _memory_byte_mask_concatenation(
+    signal: str,
+    *,
+    element_width: int,
+    lane_count: int,
+) -> str:
+    """Render an exact-width byte mask, including one partial MSB lane."""
+
+    expected_lanes = (element_width + 7) // 8
+    if lane_count != expected_lanes:
+        raise SystemVerilogEmissionError(
+            "memory write-mask width does not match its element width"
+        )
+    high_lane_width = element_width - (lane_count - 1) * 8
+    return ", ".join(
+        f"{{{high_lane_width if lane == lane_count - 1 else 8}"
+        f"{{{signal}[{lane}]}}}}"
+        for lane in reversed(range(lane_count))
+    )
+
+
 def _emit_memory(module: Module, *, ram_style: str | None = None) -> str:
     if len(module.memories) != 1 or module.clock is None or module.reset is None:
         raise SystemVerilogEmissionError(
             "direct SystemVerilog memory emission requires one memory and clock/reset"
         )
     memory = module.memories[0]
-    if memory.read_latency != 1:
+    if memory.read_latency not in (0, 1):
         raise SystemVerilogEmissionError(
-            "direct SystemVerilog memory emission currently requires read_latency 1"
+            "direct SystemVerilog memory emission requires read_latency 0 or 1"
         )
     width = _width(memory.element_type)
     name = _identifier(memory.name)
+    cells_name = rtl_memory_cells_identifier(memory.name)
+    read_data_name = rtl_memory_read_data_identifier(memory.name)
     style = f'(* ram_style = "{ram_style}" *) ' if ram_style else ""
     declarations = [
-        f"  {style}logic [{width - 1}:0] {name}_cells [0:{memory.depth - 1}];",
-        f"  logic [{width - 1}:0] {name}_read_data;",
+        f"  {style}logic [{width - 1}:0] {cells_name} [0:{memory.depth - 1}];",
+        f"  logic [{width - 1}:0] {read_data_name};",
     ]
     combinational: list[str] = []
     if memory.write_mask is not None:
         lanes = memory.write_mask_width
         assert lanes is not None
-        expanded = ", ".join(
-            f"{{8{{{name}_write_mask[{lane}]}}}}"
-            for lane in reversed(range(lanes))
+        expanded = _memory_byte_mask_concatenation(
+            f"{name}_write_mask",
+            element_width=width,
+            lane_count=lanes,
         )
         declarations.extend((
             f"  logic [{lanes - 1}:0] {name}_write_mask;",
@@ -1447,22 +1848,82 @@ def _emit_memory(module: Module, *, ram_style: str | None = None) -> str:
             f"({_expression(memory.write_data)} & {name}_write_mask_expanded);",
         ))
     declarations.append("  integer zlang_memory_reset_index;")
+    if memory.read_latency == 0:
+        read_value = f"{name}_cells[{_expression(memory.read_address)}]"
+        if memory.collision is MemoryCollision.WRITE_FIRST:
+            write_value = (
+                name + "_write_merged"
+                if memory.write_mask is not None
+                else _expression(memory.write_data)
+            )
+            read_value = (
+                f"({_reset_deasserted(module, _identifier)} && "
+                f"{_expression(memory.write_enable)} && "
+                f"({_expression(memory.read_address)} == "
+                f"{_expression(memory.write_address)})) ? "
+                f"{write_value} : ({read_value})"
+            )
+        if memory.read_data_reset is MemoryResetPolicy.CLEAR:
+            read_value = (
+                f"{_reset_asserted(module, _identifier)} ? '0 : ({read_value})"
+            )
+        combinational.append(f"  assign {name}_read_data = {read_value};")
+
+    initialization: list[str] = []
+    if (
+        memory.contents_reset is MemoryResetPolicy.PRESERVE
+        or (
+            memory.read_latency == 1
+            and memory.read_data_reset is MemoryResetPolicy.PRESERVE
+        )
+    ):
+        initialization.append("  initial begin")
+        if (
+            memory.read_latency == 1
+            and memory.read_data_reset is MemoryResetPolicy.PRESERVE
+        ):
+            initialization.append(f"    {name}_read_data = '0;")
+        if memory.contents_reset is MemoryResetPolicy.PRESERVE:
+            initialization.extend((
+                f"    for (zlang_memory_reset_index = 0; "
+                f"zlang_memory_reset_index < {memory.depth}; "
+                "zlang_memory_reset_index = zlang_memory_reset_index + 1)",
+                f"      {name}_cells[zlang_memory_reset_index] = '0;",
+            ))
+        initialization.append("  end")
+
     lines = [
         *declarations,
         *combinational,
-        f"  always_ff @({_clock_event(module, _identifier)}) begin",
+        *initialization,
+        f"  {'always' if initialization else 'always_ff'} "
+        f"@({_clock_event(module, _identifier)}) begin",
         f"    if ({_reset_asserted(module, _identifier)}) begin",
-        f"      {name}_read_data <= '0;",
-        f"      for (zlang_memory_reset_index = 0; "
-        f"zlang_memory_reset_index < {memory.depth}; "
-        "zlang_memory_reset_index = zlang_memory_reset_index + 1) ",
-        f"        {name}_cells[zlang_memory_reset_index] <= '0;",
+    ]
+    if memory.read_latency == 1 and memory.read_data_reset is MemoryResetPolicy.CLEAR:
+        lines.append(f"      {name}_read_data <= '0;")
+    if memory.contents_reset is MemoryResetPolicy.CLEAR:
+        lines.append(
+            f"      for (zlang_memory_reset_index = 0; "
+            f"zlang_memory_reset_index < {memory.depth}; "
+            "zlang_memory_reset_index = zlang_memory_reset_index + 1) "
+        )
+        lines.append(f"        {name}_cells[zlang_memory_reset_index] <= '0;")
+    if (
+        memory.contents_reset is MemoryResetPolicy.PRESERVE
+        and (
+            memory.read_latency == 0
+            or memory.read_data_reset is MemoryResetPolicy.PRESERVE
+        )
+    ):
+        lines.append("      // Memory contents and read result hold across reset.")
+    lines.extend((
         "    end",
         "    else begin",
         f"      if ({_expression(memory.write_enable)}) {name}_cells[{_expression(memory.write_address)}] <= "
         f"{name + '_write_merged' if memory.write_mask is not None else _expression(memory.write_data)};",
-    ]
-    if memory.collision is MemoryCollision.WRITE_FIRST:
+    ))
+    if memory.read_latency == 1 and memory.collision is MemoryCollision.WRITE_FIRST:
         lines.append(
             f"      if ({_expression(memory.write_enable)} && "
             f"({_expression(memory.read_address)} == {_expression(memory.write_address)})) "
@@ -1472,7 +1933,7 @@ def _emit_memory(module: Module, *, ram_style: str | None = None) -> str:
         lines.append(
             f"      else {name}_read_data <= {name}_cells[{_expression(memory.read_address)}];"
         )
-    else:
+    elif memory.read_latency == 1:
         lines.append(
             f"      {name}_read_data <= {name}_cells[{_expression(memory.read_address)}];"
         )
@@ -1537,6 +1998,27 @@ def _emit_rom_module(module: Module) -> str:
     )
 
 
+def _referenced_fifo_signals(module: Module, fifo: object) -> set[FifoSignal]:
+    """Return the exact optional observations emitted by the legacy FIFO path."""
+
+    referenced = {
+        value.signal
+        for root in (
+            fifo.data,
+            fifo.push,
+            fifo.pop,
+            *(assignment.expression for assignment in module.assignments),
+        )
+        for value in _walk_expression(root)
+        if isinstance(value, expr.FifoRef) and value.fifo == fifo.name
+    }
+    if FifoSignal.OVERFLOW in referenced:
+        referenced.add(FifoSignal.FULL)
+    if FifoSignal.UNDERFLOW in referenced:
+        referenced.add(FifoSignal.EMPTY)
+    return referenced
+
+
 def _emit_fifo(module: Module) -> str:
     if len(module.fifos) != 1 or module.clock is None or module.reset is None:
         raise SystemVerilogEmissionError("direct FIFO emission requires one clock/reset FIFO")
@@ -1570,21 +2052,7 @@ def _emit_fifo(module: Module) -> str:
         raise SystemVerilogEmissionError(
             "legacy direct FIFO emission requires explicit data/push/pop controls"
         )
-    referenced_fifo_signals = {
-        value.signal
-        for root in (
-            fifo.data,
-            fifo.push,
-            fifo.pop,
-            *(assignment.expression for assignment in module.assignments),
-        )
-        for value in _walk_expression(root)
-        if isinstance(value, expr.FifoRef) and value.fifo == fifo.name
-    }
-    if FifoSignal.OVERFLOW in referenced_fifo_signals:
-        referenced_fifo_signals.add(FifoSignal.FULL)
-    if FifoSignal.UNDERFLOW in referenced_fifo_signals:
-        referenced_fifo_signals.add(FifoSignal.EMPTY)
+    referenced_fifo_signals = _referenced_fifo_signals(module, fifo)
     # The FIFO state is a typed storage resource, not an implicit ready/valid
     # pass-through.  Publish its semantic read-side signals once, then render
     # every source assignment from typed IR.  This matters when the output is
@@ -1675,6 +2143,8 @@ def _append_unified_state(
     declarations: list[str],
     logic: list[str],
     render,
+    *,
+    excluded_assignment_names: frozenset[str] = frozenset(),
 ) -> None:
     """Append one frozen register/rule/storage transition to a component.
 
@@ -1687,13 +2157,32 @@ def _append_unified_state(
     if any(not fifo.scheduled for fifo in module.fifos):
         raise SystemVerilogEmissionError("mixed legacy and scheduled FIFO resources are not implemented")
     transition = module.resolved_transition
+    local_names = module_rtl_names(module)
     resources = {item.semantic_id: item for item in transition.resources}
     groups = ordered_state_groups(transition)
     group_by_name = {item.rule_name: item for item in groups}
 
+    conditional = conditional_actions(transition)
+    activation_predicates = conditional_activation_predicates(transition)
+    activation_names = tuple(
+        f"zlang_condition_{index}_active"
+        for index in range(len(activation_predicates))
+    )
+
+    def action_enable(group, action) -> str:
+        fire = local_names.rule(group.rule_name, "fire")
+        if action.activation is None:
+            return fire
+        return (
+            f"({fire} && "
+            f"{activation_names[action_activation_predicate_index(transition, action)]})"
+        )
+
     for register in module.registers:
         declarations.append(
-            f"  logic {_range(_width(register.type))}{_identifier(register.name)};"
+            _logic_declaration(
+                rtl_register_state_identifier(register.name), register.type
+            )
         )
     for fifo in module.fifos:
         width = _width(fifo.element_type)
@@ -1725,12 +2214,18 @@ def _append_unified_state(
             raise SystemVerilogEmissionError(
                 "mixed legacy and scheduled memory resources are not implemented"
             )
+        if memory.read_latency != 1:
+            raise SystemVerilogEmissionError(
+                "scheduled memory emission requires read_latency 1"
+            )
         width = _width(memory.element_type)
         address_width = memory.address_width
         name = _identifier(memory.name)
+        cells_name = rtl_memory_cells_identifier(memory.name)
+        read_data_name = rtl_memory_read_data_identifier(memory.name)
         declarations.extend((
-            f"  logic {_range(width)}{name}_cells [0:{memory.depth - 1}];",
-            f"  logic {_range(width)}{name}_read_data;",
+            f"  logic {_range(width)}{cells_name} [0:{memory.depth - 1}];",
+            f"  logic {_range(width)}{read_data_name};",
             f"  logic {name}_read_fire, {name}_write_fire;",
             f"  logic [{address_width - 1}:0] {name}_read_address, {name}_write_address;",
             f"  logic {_range(width)}{name}_write_data;",
@@ -1745,12 +2240,16 @@ def _append_unified_state(
 
     for group in groups:
         declarations.extend((
-            f"  logic rule_{_identifier(group.rule_name)}_guard;",
-            f"  logic rule_{_identifier(group.rule_name)}_fire;",
+            f"  logic {local_names.rule(group.rule_name, 'guard')};",
+            f"  logic {local_names.rule(group.rule_name, 'fire')};",
         ))
         logic.append(
-            f"  assign rule_{_identifier(group.rule_name)}_guard = {render(group.guard)};"
+            f"  assign {local_names.rule(group.rule_name, 'guard')} = {render(group.guard)};"
         )
+    for index, activation in enumerate(activation_predicates):
+        name = activation_names[index]
+        declarations.append(f"  logic {name};")
+        logic.append(f"  assign {name} = {render(activation)};")
 
     fifo_names = [fifo.name for fifo in module.fifos]
     guard_names = [group.rule_name for group in groups]
@@ -1758,7 +2257,12 @@ def _append_unified_state(
         clauses: list[str] = []
         for region in selection_regions(transition, group.rule_name):
             count_values = region[:len(fifo_names)]
-            guard_values = region[len(fifo_names):]
+            guard_values = region[
+                len(fifo_names):len(fifo_names) + len(guard_names)
+            ]
+            activation_values = region[
+                len(fifo_names) + len(guard_names):
+            ]
             terms: list[str] = []
             for name, fifo, value in zip(
                 fifo_names, module.fifos, count_values, strict=True
@@ -1777,16 +2281,23 @@ def _append_unified_state(
                         f"{fifo.count_width}'d{fifo.depth})"
                     )
             terms.extend(
-                f"rule_{_identifier(name)}_guard == 1'b{1 if value else 0}"
+                f"{local_names.rule(name, 'guard')} == 1'b{1 if value else 0}"
                 for name, value in zip(
                     guard_names, guard_values, strict=True
+                )
+                if value is not None
+            )
+            terms.extend(
+                f"{activation_names[index]} == 1'b{1 if value else 0}"
+                for index, value in enumerate(
+                    activation_values
                 )
                 if value is not None
             )
             clauses.append("(" + " && ".join(terms) + ")")
         condition = " || ".join(clauses) if clauses else "1'b0"
         logic.append(
-            f"  assign rule_{_identifier(group.rule_name)}_fire = "
+            f"  assign {local_names.rule(group.rule_name, 'fire')} = "
             f"{_reset_deasserted(module, _identifier)} && ({condition});"
         )
 
@@ -1795,46 +2306,52 @@ def _append_unified_state(
             item.semantic_id for item in transition.resources
             if item.kind.value == "fifo" and item.name == fifo.name
         )
-        push_groups = [
-            group for group in groups
-            if any(action.resource_id == resource_id and action.kind is StateActionKind.FIFO_PUSH for action in group.actions)
+        push_actions = [
+            (group, action)
+            for group in groups
+            for action in group.actions
+            if action.resource_id == resource_id
+            and action.kind is StateActionKind.FIFO_PUSH
         ]
-        pop_groups = [
-            group for group in groups
-            if any(action.resource_id == resource_id and action.kind is StateActionKind.FIFO_POP for action in group.actions)
+        pop_actions = [
+            (group, action)
+            for group in groups
+            for action in group.actions
+            if action.resource_id == resource_id
+            and action.kind is StateActionKind.FIFO_POP
         ]
         name = _identifier(fifo.name)
-        push_terms = [f"rule_{_identifier(group.rule_name)}_fire" for group in push_groups]
-        pop_terms = [f"rule_{_identifier(group.rule_name)}_fire" for group in pop_groups]
+        push_terms = [action_enable(group, action) for group, action in push_actions]
+        pop_terms = [action_enable(group, action) for group, action in pop_actions]
         logic.append(f"  assign {name}_push = " + (" || ".join(push_terms) if push_terms else "1'b0") + ";")
         logic.append(f"  assign {name}_pop = " + (" || ".join(pop_terms) if pop_terms else "1'b0") + ";")
         data = f"{_width(fifo.element_type)}'d0"
-        for group in reversed(push_groups):
-            action = next(action for action in group.actions if action.resource_id == resource_id and action.kind is StateActionKind.FIFO_PUSH)
-            data = f"rule_{_identifier(group.rule_name)}_fire ? {render(action.operands[0])} : ({data})"
+        for group, action in reversed(push_actions):
+            data = (
+                f"{action_enable(group, action)} ? "
+                f"{render(action.operands[0])} : ({data})"
+            )
         logic.append(f"  assign {name}_push_data = {data};")
 
     for memory in module.memories:
         name = _identifier(memory.name)
         resource_id = memory.semantic_id
-        read_groups = [
-            group for group in groups
-            if any(
-                action.resource_id == resource_id
-                and action.kind is StateActionKind.MEMORY_READ_REQUEST
-                for action in group.actions
-            )
+        read_actions = [
+            (group, action)
+            for group in groups
+            for action in group.actions
+            if action.resource_id == resource_id
+            and action.kind is StateActionKind.MEMORY_READ_REQUEST
         ]
-        write_groups = [
-            group for group in groups
-            if any(
-                action.resource_id == resource_id
-                and action.kind is StateActionKind.MEMORY_WRITE
-                for action in group.actions
-            )
+        write_actions = [
+            (group, action)
+            for group in groups
+            for action in group.actions
+            if action.resource_id == resource_id
+            and action.kind is StateActionKind.MEMORY_WRITE
         ]
-        read_terms = [f"rule_{_identifier(group.rule_name)}_fire" for group in read_groups]
-        write_terms = [f"rule_{_identifier(group.rule_name)}_fire" for group in write_groups]
+        read_terms = [action_enable(group, action) for group, action in read_actions]
+        write_terms = [action_enable(group, action) for group, action in write_actions]
         logic.append(
             f"  assign {name}_read_fire = "
             + (" || ".join(read_terms) if read_terms else "1'b0") + ";"
@@ -1844,14 +2361,9 @@ def _append_unified_state(
             + (" || ".join(write_terms) if write_terms else "1'b0") + ";"
         )
         read_address = f"{memory.address_width}'d0"
-        for group in reversed(read_groups):
-            action = next(
-                item for item in group.actions
-                if item.resource_id == resource_id
-                and item.kind is StateActionKind.MEMORY_READ_REQUEST
-            )
+        for group, action in reversed(read_actions):
             read_address = (
-                f"rule_{_identifier(group.rule_name)}_fire ? "
+                f"{action_enable(group, action)} ? "
                 f"{render(action.operands[0])} : ({read_address})"
             )
         write_address = f"{memory.address_width}'d0"
@@ -1860,13 +2372,8 @@ def _append_unified_state(
             f"{memory.write_mask_width}'d0"
             if memory.write_mask_width is not None else None
         )
-        for group in reversed(write_groups):
-            action = next(
-                item for item in group.actions
-                if item.resource_id == resource_id
-                and item.kind is StateActionKind.MEMORY_WRITE
-            )
-            fire = f"rule_{_identifier(group.rule_name)}_fire"
+        for group, action in reversed(write_actions):
+            fire = action_enable(group, action)
             write_address = f"{fire} ? {render(action.operands[0])} : ({write_address})"
             write_data = f"{fire} ? {render(action.operands[1])} : ({write_data})"
             if write_mask is not None:
@@ -1876,9 +2383,10 @@ def _append_unified_state(
         logic.append(f"  assign {name}_write_data = {write_data};")
         if write_mask is not None:
             logic.append(f"  assign {name}_write_mask = {write_mask};")
-            expanded = ", ".join(
-                f"{{8{{{name}_write_mask[{lane}]}}}}"
-                for lane in reversed(range(memory.write_mask_width))
+            expanded = _memory_byte_mask_concatenation(
+                f"{name}_write_mask",
+                element_width=_width(memory.element_type),
+                lane_count=memory.write_mask_width,
             )
             logic.append(
                 f"  assign {name}_write_mask_expanded = {{{expanded}}};"
@@ -1889,7 +2397,33 @@ def _append_unified_state(
                 f"({name}_write_data & {name}_write_mask_expanded);"
             )
 
-    logic.append(f"  always_ff @({_clock_event(module, _identifier)}) begin")
+    scheduled_memory_initialization = False
+    for memory in module.memories:
+        initialize_contents = (
+            memory.contents_reset is MemoryResetPolicy.PRESERVE
+        )
+        initialize_read_data = (
+            memory.read_data_reset is MemoryResetPolicy.PRESERVE
+        )
+        if not (initialize_contents or initialize_read_data):
+            continue
+        scheduled_memory_initialization = True
+        name = _identifier(memory.name)
+        logic.append("  initial begin")
+        if initialize_read_data:
+            logic.append(f"    {name}_read_data = '0;")
+        if initialize_contents:
+            logic.extend((
+                f"    for ({name}_reset_index = 0; {name}_reset_index < "
+                f"{memory.depth}; {name}_reset_index = {name}_reset_index + 1)",
+                f"      {name}_cells[{name}_reset_index] = '0;",
+            ))
+        logic.append("  end")
+
+    logic.append(
+        f"  {'always' if scheduled_memory_initialization else 'always_ff'} "
+        f"@({_clock_event(module, _identifier)}) begin"
+    )
     logic.append(f"    if ({_reset_asserted(module, _identifier)}) begin")
     for register in module.registers:
         logic.append(f"      {_identifier(register.name)} <= {render(register.initial)};")
@@ -1898,12 +2432,21 @@ def _append_unified_state(
         logic.append(f"      {name}_count <= '0; {name}_rd <= '0; {name}_wr <= '0;")
     for memory in module.memories:
         name = _identifier(memory.name)
-        logic.append(f"      {name}_read_data <= '0;")
-        logic.append(
-            f"      for ({name}_reset_index = 0; {name}_reset_index < "
-            f"{memory.depth}; {name}_reset_index = {name}_reset_index + 1) "
-            f"{name}_cells[{name}_reset_index] <= '0;"
-        )
+        if memory.read_data_reset is MemoryResetPolicy.CLEAR:
+            logic.append(f"      {name}_read_data <= '0;")
+        if memory.contents_reset is MemoryResetPolicy.CLEAR:
+            logic.append(
+                f"      for ({name}_reset_index = 0; {name}_reset_index < "
+                f"{memory.depth}; {name}_reset_index = {name}_reset_index + 1) "
+                f"{name}_cells[{name}_reset_index] <= '0;"
+            )
+        if (
+            memory.read_data_reset is MemoryResetPolicy.PRESERVE
+            and memory.contents_reset is MemoryResetPolicy.PRESERVE
+        ):
+            logic.append(
+                f"      // {name} contents and read result hold across reset."
+            )
     logic.append("    end else begin")
     for register in module.registers:
         writers = []
@@ -1912,13 +2455,17 @@ def _append_unified_state(
             if item.kind.value == "register" and item.name == register.name
         )
         for group in groups:
-            action = next((item for item in group.actions if item.resource_id == resource_id), None)
-            if action is not None:
+            for action in group.actions:
+                if (
+                    action.resource_id != resource_id
+                    or action.kind is not StateActionKind.REGISTER_WRITE
+                ):
+                    continue
                 writers.append((group, action))
         for index, (group, action) in enumerate(writers):
             keyword = "if" if index == 0 else "else if"
             logic.append(
-                f"      {keyword} (rule_{_identifier(group.rule_name)}_fire) "
+                f"      {keyword} ({action_enable(group, action)}) "
                 f"{_identifier(register.name)} <= {render(action.operands[0])};"
             )
         default = next((item for item in module.next_assignments if item.target.name == register.name), None)
@@ -1978,15 +2525,23 @@ def _append_unified_state(
     for output in module.outputs:
         if output.protocol is not InterfaceProtocol.WIRE:
             continue
-        writers = [
-            (group, action)
-            for group in groups
-            for action in next(
-                rule.actions for rule in module.rules
-                if rule.name == group.rule_name
-            )
-            if action.target.name == output.name
-        ]
+        resource = next(
+            (
+                item for item in transition.resources
+                if item.kind.value == "output" and item.name == output.name
+            ),
+            None,
+        )
+        writers = (
+            [
+                (group, action)
+                for group in groups
+                for action in group.actions
+                if action.resource_id == resource.semantic_id
+                and action.kind is StateActionKind.OUTPUT_WRITE
+            ]
+            if resource is not None else []
+        )
         assignment = scalar_assignments.get(output.name)
         if assignment is None and not writers:
             continue
@@ -1997,14 +2552,14 @@ def _append_unified_state(
         )
         for group, action in reversed(writers):
             value = (
-                f"rule_{_identifier(group.rule_name)}_fire ? "
-                f"{render(action.expression)} : ({value})"
+                f"{action_enable(group, action)} ? "
+                f"{render(action.operands[0])} : ({value})"
             )
         logic.append(f"  assign {_identifier(output.name)} = {value};")
         emitted_scalar_outputs.add(output.name)
     for assignment in module.assignments:
         name = _assignment_name(assignment)
-        if name in emitted_scalar_outputs:
+        if name in emitted_scalar_outputs or name in excluded_assignment_names:
             continue
         logic.append(
             f"  assign {_identifier(name)} = {render(assignment.expression)};"
@@ -2020,11 +2575,22 @@ def _emit_unified_state_module(module: Module) -> str:
     # render transition expressions directly.  Keep one typed renderer for
     # guards, state actions, defaults, and outputs so aggregate runtime reads
     # and expensive fixed-point conversions are named once and then reused.
-    materialized_declarations, materialized_assignments, render = (
-        _materialized_emission(module)
+    stage_declarations, stage_logic, stage_render = (
+        _embedded_staging_emission(module)
     )
-    declarations.extend(materialized_declarations)
-    logic.extend(materialized_assignments)
+    if stage_declarations:
+        # Delay/Pipeline roots may live in an action activation rather than a
+        # conventional assignment.  The shared root traversal includes those
+        # predicates; retain their physical stage before scheduling effects.
+        declarations.extend(stage_declarations)
+        logic.extend(stage_logic)
+        render = stage_render
+    else:
+        materialized_declarations, materialized_assignments, render = (
+            _materialized_emission(module)
+        )
+        declarations.extend(materialized_declarations)
+        logic.extend(materialized_assignments)
     rom_declarations, rom_logic = _emit_rom_logic(module, render)
     declarations.extend(rom_declarations)
     logic.extend(rom_logic)
@@ -2045,31 +2611,50 @@ def emit_artifact(module: Module, *, selected_ir_identity: str | None = None,
     names = _top_physical_rtl_names(module)
     if recursive_design is not None:
         assert recursive_hierarchy is not None
-        hierarchy, nodes = recursive_hierarchy
+        hierarchy, _ = recursive_hierarchy
+        # Reserve the exact helper spellings used by emission. Semantic call
+        # names carry provenance, while physical helper names intentionally do
+        # not; a collision must resolve identically in RTL and its locators.
+        naming_hierarchy = _validated_hierarchy(_physicalize_generic_callables(module))
+        component_names = build_component_name_plan(naming_hierarchy)
+        local_plans = {
+            entry.physical_path: module_rtl_names(entry.module)
+            for entry in naming_hierarchy.entries
+        }
+        # The public leaf wrapper owns no packed signals or architectural
+        # state.  Production locators use the same state root as VPI, while
+        # retaining paths relative to the artifact's public top.  Formal-only
+        # observation ports have their own top-level publication route.
+        state_root = physical_state_root_path(naming_hierarchy.root.module)
+        core_path = state_root[2:]
+        root_rtl_module = (
+            _public_core_module_name(naming_hierarchy.root.module)
+            if core_path else _identifier(module.name)
+        )
         digest = hashlib.sha256(text.encode()).hexdigest()
         bound = []
         for item in recursive_design.bindings:
-            node = nodes[item.ref.instance_identity]
             hierarchy_entry = hierarchy.at(tuple(item.physical_instance_path))
-            observed_module = hierarchy_entry.module
+            observed_module = naming_hierarchy.at(tuple(item.physical_instance_path)).module
             token = _recursive_signal_token(
                 observed_module, item.ref.local_semantic_id
             )
             locator = None
             if token is not None:
                 rtl_module = (
-                    _identifier(module.name)
+                    root_rtl_module
                     if item.ref.instance_identity == recursive_design.root_instance_identity
                     else _component_name(
                         hierarchy_entry.module,
                         hierarchy_entry.specialization_identity,
+                        naming_plan=component_names,
                     )
                 )
                 locator = BackendPhysicalLocator(
                     "direct_systemverilog", digest, rtl_module,
-                    tuple(
-                        _instance_identifier(part)
-                        for part in item.physical_instance_path[1:]
+                    core_path + rtl_hierarchy_instance_path(
+                        naming_hierarchy, tuple(item.physical_instance_path),
+                        plans=local_plans,
                     ),
                     token, None,
                 )
@@ -2248,7 +2833,39 @@ def _formal_adapter_count_projection(
     return None
 
 
-def _formal_local_expression(module: Module, semantic_id: str) -> expr.Expression | None:
+def _formal_rule_fire_reset(
+    module: Module, accepted: expr.Expression,
+) -> expr.Expression:
+    """Gate the accepted schedule with the reset consumed by emitted state.
+
+    ``module`` is the final backend-local component: synchronized-release roots
+    consume their conditioner, while closed children consume the already
+    conditioned native-release reset supplied through their component ABI.
+    """
+
+    if module.reset is None:
+        return accepted
+    domain = _module_domain(module)
+    bit = BitType()
+    origin = getattr(accepted, "origin", None)
+    deasserted = expr.Binary(
+        expr.BinaryOperator.EQUAL,
+        expr.InputRef(_effective_reset_signal(module, _identifier), bit, origin=origin),
+        expr.Constant(
+            0 if domain.reset_polarity is ResetPolarity.ACTIVE_HIGH else 1,
+            bit, origin=origin,
+        ),
+        bit, bit, origin=origin,
+    )
+    return expr.Binary(
+        expr.BinaryOperator.BIT_AND, deasserted, accepted,
+        bit, bit, origin=origin,
+    )
+
+
+def _formal_local_expression(
+    module: Module, semantic_id: str, *, defer_rule_reset: bool = False,
+) -> expr.Expression | None:
     """Return the typed expression for one already-frozen M35 observation."""
 
     if module.resolved_transition is not None:
@@ -2292,6 +2909,9 @@ def _formal_local_expression(module: Module, semantic_id: str) -> expr.Expressio
                 if item.kind.value == "fifo"
             )
             groups = ordered_state_groups(module.resolved_transition)
+            activation_predicates = conditional_activation_predicates(
+                module.resolved_transition
+            )
             fifo_by_name = {item.name: item for item in module.fifos}
             regions: list[expr.Expression] = []
             for region in selection_regions(
@@ -2324,8 +2944,12 @@ def _formal_local_expression(module: Module, semantic_id: str) -> expr.Expressio
                             binary(expr.BinaryOperator.GREATER, count, zero, count_type),
                             binary(expr.BinaryOperator.LESS, count, depth, count_type),
                         ))
+                guard_values = region[
+                    len(fifos):len(fifos) + len(groups)
+                ]
+                activation_values = region[len(fifos) + len(groups):]
                 for candidate, enabled in zip(
-                    groups, region[len(fifos):], strict=True
+                    groups, guard_values, strict=True
                 ):
                     if enabled is None:
                         continue
@@ -2338,19 +2962,26 @@ def _formal_local_expression(module: Module, semantic_id: str) -> expr.Expressio
                             bit,
                         )
                     )
+                for activation, enabled in zip(
+                    activation_predicates, activation_values, strict=True
+                ):
+                    if enabled is None:
+                        continue
+                    terms.append(
+                        activation
+                        if enabled else binary(
+                            expr.BinaryOperator.EQUAL,
+                            activation,
+                            expr.Constant(0, bit),
+                            bit,
+                        )
+                    )
                 regions.append(conjunction(terms))
             accepted = disjunction(regions)
-            if module.reset is not None:
-                accepted = conjunction([
-                    binary(
-                        expr.BinaryOperator.EQUAL,
-                        expr.InputRef(module.reset, bit),
-                        expr.Constant(0, bit),
-                        bit,
-                    ),
-                    accepted,
-                ])
-            return accepted
+            return (
+                accepted if defer_rule_reset
+                else _formal_rule_fire_reset(module, accepted)
+            )
     if semantic_id.startswith("register:"):
         name = semantic_id.split(":", 1)[1]
         register = next((item for item in module.registers if item.name == name), None)
@@ -2441,7 +3072,7 @@ def _formal_local_expression(module: Module, semantic_id: str) -> expr.Expressio
                 origin=descriptor.source_origin,
             )
         for descriptor in module.request_response_connections:
-            tracker = _request_response_tracker_name(descriptor)
+            tracker = _request_response_tracker_name(descriptor, module)
             width = max(1, descriptor.max_outstanding.bit_length())
             observations = {
                 request_response_observation_id(
@@ -2507,6 +3138,11 @@ def _instrument_direct_formal_module(
     available: set[str] = set()
     formal_buffer_counts: set[FormalBufferCountProjection] = set()
     formal_adapter_counts: set[FormalAdapterCountProjection] = set()
+    namespace_hierarchy = _validated_hierarchy(_physicalize_generic_callables(module))
+    namespace_plans = {
+        entry.physical_path: module_rtl_names(entry.module)
+        for entry in namespace_hierarchy.entries
+    }
 
     def walk(current: Module, path: tuple[str, ...], *, top: bool) -> tuple[Module, dict[str, str]]:
         transformed_children: list[Module] = []
@@ -2528,16 +3164,36 @@ def _instrument_direct_formal_module(
         ports = list(current.ports)
         assignments = list(current.assignments)
         output_map: dict[str, str] = {}
-        existing_ports = {item.name for item in ports}
+        namespace = namespace_plans[path]
+        used_names = set(namespace.reserved) | {
+            item.physical_name for item in namespace.entries
+        }
+        deferred_rule_outputs: set[str] = set()
+        deferred_rr_outputs: dict[str, str] = {}
+        local_rule_ids = {
+            rule_fire_observation_id(group.rule_name)
+            for group in (
+                current.resolved_transition.action_groups
+                if current.resolved_transition is not None else ()
+            )
+        }
 
         def publish(binding: object, expression: expr.Expression,
                     relative: tuple[str, ...]) -> None:
             semantic_binding_id = binding.semantic_binding_id
-            name = (
+            preferred_name = (
                 top_tokens[semantic_binding_id]
                 if top else _formal_projection_name(relative, binding.ref.local_semantic_id)
             )
-            if name not in existing_ports:
+            name = output_map.get(semantic_binding_id)
+            if name is None:
+                name = allocate_private_rtl_identifier(
+                    preferred_name,
+                    semantic_identity=f"formal-observation:{relative}:{binding.ref.local_semantic_id}",
+                    used=used_names,
+                )
+                if top:
+                    top_tokens[semantic_binding_id] = name
                 # Formal observations have one stable packed physical token,
                 # even when the observed semantic value is an aggregate.  The
                 # production top ABI still exposes aggregate leaves; only this
@@ -2560,7 +3216,6 @@ def _instrument_direct_formal_module(
                 )
                 ports.append(output)
                 assignments.append(Assignment(output, physical_expression))
-                existing_ports.add(name)
             output_map[semantic_binding_id] = name
             available.add(semantic_binding_id)
 
@@ -2568,7 +3223,7 @@ def _instrument_direct_formal_module(
             by_path.get(path, ()), key=lambda item: item.semantic_binding_id
         ):
             expression = _formal_local_expression(
-                current, binding.ref.local_semantic_id
+                current, binding.ref.local_semantic_id, defer_rule_reset=True,
             )
             if expression is not None:
                 projection = _formal_buffer_count_projection(
@@ -2582,6 +3237,12 @@ def _instrument_direct_formal_module(
                 if adapter_projection is not None:
                     formal_adapter_counts.add(adapter_projection)
                 publish(binding, expression, ())
+                if binding.ref.local_semantic_id in local_rule_ids:
+                    deferred_rule_outputs.add(output_map[binding.semantic_binding_id])
+                if binding.ref.local_semantic_id.startswith("rr:"):
+                    deferred_rr_outputs[output_map[binding.semantic_binding_id]] = (
+                        binding.ref.local_semantic_id
+                    )
 
         bindings_by_id = {
             item.semantic_binding_id: item
@@ -2655,7 +3316,7 @@ def _instrument_direct_formal_module(
             )
             for item in current.elaborated_instances
         )
-        return replace(
+        transformed = replace(
             current,
             name=emitted_name,
             ports=tuple(ports), assignments=tuple(assignments),
@@ -2664,7 +3325,49 @@ def _instrument_direct_formal_module(
             protocol_endpoints=transformed_protocol_endpoints,
             hierarchical_connections=transformed_connections,
             request_response_connections=transformed_request_responses,
-        ), output_map
+        )
+        if deferred_rule_outputs:
+            # Resolve reset only after formal ports and the physical top name
+            # have been allocated.  The same reset helper and final component
+            # scope are used by production state emission; no raw-port or
+            # generated-name convention is substituted for that contract.
+            reset_component = transformed if top else _native_release_module(transformed)
+            transformed = replace(
+                transformed,
+                assignments=tuple(
+                    replace(
+                        assignment,
+                        expression=_formal_rule_fire_reset(reset_component, assignment.expression),
+                    )
+                    if assignment.target.name in deferred_rule_outputs else assignment
+                    for assignment in transformed.assignments
+                ),
+            )
+        if deferred_rr_outputs:
+            # Ledger spellings depend on the allocated physical owner. The
+            # formal top decoration and generic-helper physicalization can
+            # change a collision suffix, so resolve these typed projections
+            # only in the final emitted namespace, never the source namespace.
+            physical_component = _physicalize_generic_callables(transformed)
+            projected_assignments = []
+            for assignment in transformed.assignments:
+                semantic_id = deferred_rr_outputs.get(assignment.target.name)
+                if semantic_id is None:
+                    projected_assignments.append(assignment)
+                    continue
+                projection = _formal_local_expression(physical_component, semantic_id)
+                if projection is None:
+                    raise SystemVerilogEmissionError(
+                        "formal request/response projection lost its typed observation"
+                    )
+                if projection.type != assignment.target.type:
+                    projection = expr.Bitcast(
+                        projection, assignment.target.type,
+                        origin=getattr(projection, "origin", None),
+                    )
+                projected_assignments.append(replace(assignment, expression=projection))
+            transformed = replace(transformed, assignments=tuple(projected_assignments))
+        return transformed, output_map
 
     formal, _ = walk(module, (module.name,), top=True)
     return (
@@ -2832,7 +3535,7 @@ def _recursive_signal_token(module: Module, semantic_id: str) -> str | None:
         return csr_token
     if semantic_id.startswith("rr:"):
         for descriptor in module.request_response_connections:
-            tracker = _request_response_tracker_name(descriptor)
+            tracker = _request_response_tracker_name(descriptor, module)
             tokens = {
                 request_response_observation_id(
                     descriptor.semantic_id,
@@ -3598,6 +4301,7 @@ def _embedded_staging_emission(
     """Materialize nested Delay/Pipeline nodes without moving their boundary."""
 
     staged: list[expr.Delay | expr.Pipeline] = []
+    local_names = module_rtl_names(module)
     seen: set[tuple[type[expr.Expression], int]] = set()
 
     def collect(value: expr.Expression) -> None:
@@ -3609,7 +4313,7 @@ def _embedded_staging_emission(
                 seen.add(key)
                 staged.append(value)
 
-    for root in _module_expression_roots(module):
+    for root in _module_expression_roots(module, local_names):
         collect(root)
 
     if staged and (module.clock is None or module.reset is None):
@@ -3624,21 +4328,23 @@ def _embedded_staging_emission(
     for value in staged:
         count = value.cycles if isinstance(value, expr.Delay) else value.stages
         kind = "delay" if isinstance(value, expr.Delay) else "pipeline"
-        base = f"zlang_{kind}_{value.instance}"
         signed = " signed" if isinstance(value.type, (SIntType, FixedType)) else ""
         for index in range(1, count + 1):
-            name = f"{base}_s{index}"
+            name = local_names.stage(kind, value.instance, index)
             declarations.append(
                 f"  logic{signed} {_range(_width(value.type))}{name};"
             )
             resets.append(f"      {name} <= '0;")
         physical_input = _replace_materialized(value.expression, aliases)
-        updates.append(f"      {base}_s1 <= {_expression(physical_input)};")
+        updates.append(
+            f"      {local_names.stage(kind, value.instance, 1)} <= {_expression(physical_input)};"
+        )
         for index in range(2, count + 1):
             updates.append(
-                f"      {base}_s{index} <= {base}_s{index - 1};"
+                f"      {local_names.stage(kind, value.instance, index)} <= "
+                f"{local_names.stage(kind, value.instance, index - 1)};"
             )
-        aliases[value] = f"{base}_s{count}"
+        aliases[value] = local_names.stage(kind, value.instance, count)
 
     sequential: list[str] = []
     if staged:
@@ -3653,31 +4359,31 @@ def _embedded_staging_emission(
         ))
 
     def render(value: expr.Expression) -> str:
-        physical = _instance_expression(module, value)
+        physical = _instance_expression(module, value, local_names)
         return _expression(_replace_materialized(physical, aliases))
 
     return declarations, sequential, render
 
 
-def _emit_rules(module: Module) -> str:
-    if module.clock is None or module.reset is None:
+def _append_rule_state(
+    module: Module,
+    declarations: list[str],
+    logic: list[str],
+    render: Callable[[expr.Expression], str],
+    *,
+    compact_reset: bool = False,
+) -> None:
+    """Append classifier-approved scalar register/rule state to a module body."""
+
+    if module.registers and (module.clock is None or module.reset is None):
         raise SystemVerilogEmissionError("direct rule emission requires clock/reset")
-    ports = [
-        f"input logic {module.clock}",
-        f"input logic {module.reset}",
-        *(_port_declaration(port) for port in module.inputs),
-        *(_port_declaration(port) for port in module.outputs),
-    ]
     ordered_rules = _ordered_rules(module)
-    stage_declarations, stage_logic, render = _embedded_staging_emission(module)
-    lines = [
-        *stage_declarations,
-        *(
-            f"  logic {_range(_width(register.type))}{_identifier(register.name)};"
-            for register in module.registers
-        ),
-        *stage_logic,
-    ]
+    declarations.extend(
+        _logic_declaration(
+            rtl_register_state_identifier(register.name), register.type
+        )
+        for register in module.registers
+    )
     for register in module.registers:
         writers = tuple(
             (rule, action)
@@ -3693,37 +4399,55 @@ def _emit_rules(module: Module) -> str:
             ),
             None,
         )
-        lines.extend(
-            (
-                f"  always_ff @({_clock_event(module, _identifier)}) begin",
+        logic.append(f"  always_ff @({_clock_event(module, _identifier)}) begin")
+        if compact_reset:
+            logic.extend((
+                f"    if ({_reset_asserted(module, _identifier)}) "
+                f"{_identifier(register.name)} <= {render(register.initial)};",
+                "    else begin",
+            ))
+        else:
+            logic.extend((
                 f"    if ({_reset_asserted(module, _identifier)}) begin",
-                f"      {_identifier(register.name)} <= {_expression(register.initial)};",
+                f"      {_identifier(register.name)} <= {render(register.initial)};",
                 "    end else begin",
-            )
-        )
+            ))
         for index, (rule, action) in enumerate(writers):
             keyword = "if" if index == 0 else "else if"
-            lines.append(
-                f"      {keyword} ({_expression(rule.guard)}) "
+            logic.append(
+                f"      {keyword} ({render(rule.guard)}) "
                 f"{_identifier(register.name)} <= {render(action.expression)};"
             )
         if default is not None:
             prefix = "      else " if writers else "      "
-            lines.append(
-                f"{prefix}{_identifier(register.name)} <= {_expression(default)};"
+            logic.append(
+                f"{prefix}{_identifier(register.name)} <= {render(default)};"
             )
         elif writers:
-            lines.append(
+            logic.append(
                 f"      else {_identifier(register.name)} <= "
                 f"{_identifier(register.name)};"
             )
-        lines.extend(("    end", "  end"))
-    lines.extend(
+        logic.extend(("    end", "  end"))
+    logic.extend(
         f"  assign {_assignment_name(assignment)} = "
         f"{render(assignment.expression)};"
         for assignment in module.assignments
     )
-    return _module(module, ports, lines)
+
+
+def _emit_rules(module: Module) -> str:
+    if module.clock is None or module.reset is None:
+        raise SystemVerilogEmissionError("direct rule emission requires clock/reset")
+    ports = [
+        f"input logic {module.clock}",
+        f"input logic {module.reset}",
+        *(_port_declaration(port) for port in module.inputs),
+        *(_port_declaration(port) for port in module.outputs),
+    ]
+    declarations, logic, render = _embedded_staging_emission(module)
+    _append_rule_state(module, declarations, logic, render)
+    return _module(module, ports, [*declarations, *logic])
 
 
 def _emit_packet_arbiter(module: Module) -> str:
@@ -4091,6 +4815,17 @@ def _emit_request_response(module: Module) -> str:
     interface = module.request_responses[0]
     if interface.ordering is RequestResponseOrdering.IN_ORDER:
         return _emit_in_order_request_response(module, interface)
+    if module.registers or module.next_assignments or module.rules:
+        raise SystemVerilogEmissionError(
+            "standalone out-of-order request/response with ordinary user state "
+            "is not implemented by the direct-SystemVerilog endpoint emitter",
+            semantic_path=(module.name, interface.name),
+            code="ZL-BACKEND-SYSTEMVERILOG-REQUEST-RESPONSE-STATE",
+            notes=(
+                "emission stopped before publishing an artifact so the typed "
+                "state transition cannot be omitted",
+            ),
+        )
     if interface.role is RequestResponseRole.RESPONDER:
         raise SystemVerilogEmissionError(
             "standalone out-of-order responder emission is not implemented"
@@ -4236,11 +4971,6 @@ def _emit_in_order_request_response(
     matching the existing hierarchical in-order accounting semantics.
     """
 
-    if module.registers or module.next_assignments or module.rules:
-        raise SystemVerilogEmissionError(
-            "standalone request/response with ordinary user state is not yet "
-            "supported by the direct-SystemVerilog endpoint emitter"
-        )
     if any(port.protocol is not InterfaceProtocol.WIRE for port in module.ports):
         raise SystemVerilogEmissionError(
             "mixing request/response with other protocols is not implemented"
@@ -4250,13 +4980,40 @@ def _emit_in_order_request_response(
     requester = interface.role is RequestResponseRole.REQUESTER
     count_width = max(1, interface.max_outstanding.bit_length())
     maximum = interface.max_outstanding
-    declarations, materialized, render = _materialized_emission(module)
-    lines = [
-        *declarations,
-        *materialized,
+    has_user_transition = bool(
+        module.registers or module.next_assignments or module.rules
+    )
+    if has_user_transition:
+        if module.resolved_transition is None:
+            raise SystemVerilogEmissionError(
+                "stateful request/response emission requires resolved transition IR"
+            )
+        stage_declarations, stage_logic, stage_render = (
+            _embedded_staging_emission(module)
+        )
+        if stage_declarations:
+            declarations = list(stage_declarations)
+            materialized = list(stage_logic)
+            render = stage_render
+        else:
+            materialized_declarations, materialized_assignments, render = (
+                _materialized_emission(module)
+            )
+            declarations = list(materialized_declarations)
+            materialized = list(materialized_assignments)
+    else:
+        materialized_declarations, materialized_assignments, render = (
+            _materialized_emission(module)
+        )
+        declarations = list(materialized_declarations)
+        materialized = list(materialized_assignments)
+
+    rr_declarations = [
         f"  logic [{count_width - 1}:0] {name}_outstanding;",
         f"  logic {name}_request_transfer, {name}_response_transfer;",
     ]
+    rr_logic: list[str] = []
+    owned_assignment_names: set[str] = set()
 
     def owned(
         channel: RequestResponseChannel,
@@ -4265,6 +5022,7 @@ def _emit_in_order_request_response(
         assignment = _find_channel_assignment(
             module, interface.name, channel, signal
         )
+        owned_assignment_names.add(_assignment_name(assignment))
         return render(assignment.expression)
 
     if requester:
@@ -4277,7 +5035,7 @@ def _emit_in_order_request_response(
         response_ready = owned(
             RequestResponseChannel.RESPONSE, ReadyValidSignal.READY
         )
-        lines.extend((
+        rr_logic.extend((
             f"  assign {name}_request_payload = {request_payload};",
             f"  assign {name}_request_valid = "
             f"{_reset_deasserted(module, _identifier)} && "
@@ -4302,7 +5060,7 @@ def _emit_in_order_request_response(
         response_valid = owned(
             RequestResponseChannel.RESPONSE, ReadyValidSignal.VALID
         )
-        lines.extend((
+        rr_logic.extend((
             f"  assign {name}_request_ready = "
             f"{_reset_deasserted(module, _identifier)} && "
             f"({name}_outstanding < {count_width}'d{maximum}) && "
@@ -4318,7 +5076,7 @@ def _emit_in_order_request_response(
             f"{name}_response_valid && {name}_response_ready;",
         ))
 
-    lines.extend((
+    rr_logic.extend((
         f"  always_ff @({_clock_event(module, _identifier)}) begin",
         f"    if ({_reset_asserted(module, _identifier)}) "
         f"{name}_outstanding <= '0;",
@@ -4334,8 +5092,32 @@ def _emit_in_order_request_response(
         "    end",
         "  end",
     ))
-    for assignment in module.assignments:
-        if isinstance(assignment.target, Port):
+
+    if has_user_transition:
+        state_logic = list(materialized)
+        _append_unified_state(
+            module,
+            declarations,
+            state_logic,
+            render,
+            excluded_assignment_names=frozenset(owned_assignment_names),
+        )
+        lines = [
+            *declarations,
+            *rr_declarations,
+            *state_logic,
+            *rr_logic,
+        ]
+    else:
+        lines = [
+            *declarations,
+            *materialized,
+            *rr_declarations,
+            *rr_logic,
+        ]
+        for assignment in module.assignments:
+            if not isinstance(assignment.target, Port):
+                continue
             lines.append(
                 f"  assign {_identifier(assignment.target.name)} = "
                 f"{render(assignment.expression)};"
@@ -4347,9 +5129,11 @@ def _expression(expression: expr.Expression) -> str:
     if isinstance(expression, (expr.InputRef, expr.ParameterRef, expr.RegisterRef)):
         return _identifier(expression.name)
     if isinstance(expression, expr.InstanceOutputRef):
-        return (
-            f"{_instance_identifier(expression.instance)}__"
-            f"{_identifier(expression.port)}"
+        raise SystemVerilogEmissionError(
+            "instance output requires its containing module naming plan",
+            code="ZL-BACKEND-SYSTEMVERILOG-NAMING-CONTEXT",
+            semantic_path=(expression.instance, expression.port),
+            primary=expression.origin,
         )
     if isinstance(expression, expr.ReadyValidRef):
         prefix = _identifier(expression.interface)
@@ -4447,6 +5231,15 @@ def _expression(expression: expr.Expression) -> str:
             f"{_resize(expression.right, width)})"
         )
     if isinstance(expression, expr.Binary):
+        width = _width(expression.operand_type)
+        left = _resize(expression.left, width)
+        right = _resize(expression.right, width)
+        if expression.operator is expr.BinaryOperator.SHIFT_RIGHT:
+            return render_right_shift(
+                left,
+                right,
+                signed=isinstance(expression.operand_type, SIntType),
+            )
         operator = {
             expr.BinaryOperator.SUBTRACT: "-",
             expr.BinaryOperator.MULTIPLY: "*",
@@ -4454,7 +5247,6 @@ def _expression(expression: expr.Expression) -> str:
             expr.BinaryOperator.BIT_OR: "|",
             expr.BinaryOperator.BIT_XOR: "^",
             expr.BinaryOperator.SHIFT_LEFT: "<<",
-            expr.BinaryOperator.SHIFT_RIGHT: ">>",
             expr.BinaryOperator.EQUAL: "==",
             expr.BinaryOperator.NOT_EQUAL: "!=",
             expr.BinaryOperator.LESS: "<",
@@ -4462,11 +5254,19 @@ def _expression(expression: expr.Expression) -> str:
             expr.BinaryOperator.GREATER: ">",
             expr.BinaryOperator.GREATER_EQUAL: ">=",
         }[expression.operator]
-        width = _width(expression.operand_type)
-        return (
-            f"({_resize(expression.left, width)} {operator} "
-            f"{_resize(expression.right, width)})"
-        )
+        if expression.operator in {
+            expr.BinaryOperator.LESS,
+            expr.BinaryOperator.LESS_EQUAL,
+            expr.BinaryOperator.GREATER,
+            expr.BinaryOperator.GREATER_EQUAL,
+        }:
+            return render_ordered_comparison(
+                left,
+                operator,
+                right,
+                signed=isinstance(expression.operand_type, (SIntType, FixedType)),
+            )
+        return f"({left} {operator} {right})"
     if isinstance(expression, expr.Extend):
         return _resize(expression.expression, _width(expression.type))
     if isinstance(expression, expr.Truncate):
@@ -4769,7 +5569,13 @@ def _typed_functions(module: Module) -> tuple[object, ...]:
 
 def _function_definitions(module: Module) -> list[str]:
     definitions: list[str] = []
-    for function in _typed_functions(module):
+    functions = _typed_functions(module)
+    function_names = {_identifier(function.name) for function in functions}
+    outer_names = {
+        _identifier(item.name)
+        for item in (*module.ports, *module.registers, *module.locals)
+    }
+    for function in functions:
         name = _identifier(function.name)
         return_signed = (
             " signed"
@@ -4777,12 +5583,17 @@ def _function_definitions(module: Module) -> list[str]:
             else ""
         )
         parameters = []
-        parameter_names = {
-            parameter.name: _identifier(
-                f"zlang_arg_{name}_{parameter.name}"
+        # Preserve the source stem without repeating the enclosing helper.
+        # A short private prefix excludes ALL bare SV keywords (including ones
+        # not covered by the frozen public-port escaping policy).
+        used = function_names | outer_names
+        parameter_names = {}
+        for parameter in sorted(function.parameters, key=lambda item: item.name):
+            parameter_names[parameter.name] = allocate_private_rtl_identifier(
+                f"arg_{parameter.name}",
+                semantic_identity=f"{function.callee_identity}:parameter:{parameter.name}",
+                used=used,
             )
-            for parameter in function.parameters
-        }
         for parameter in function.parameters:
             signed = (
                 " signed"
@@ -4899,16 +5710,9 @@ def _identifier(name: str) -> str:
 
 
 def _instance_identifier(name: str) -> str:
-    """Map a typed physical instance path to one deterministic SV token."""
+    """Compatibility wrapper around the shared physical-name projection."""
 
-    match = re.fullmatch(r"([A-Za-z_][A-Za-z0-9_]*)\[([0-9]+)\]", name)
-    if match is None:
-        return _identifier(name)
-    digest = hashlib.sha256(name.encode()).hexdigest()[:8]
-    return (
-        f"zlang_instance_{_identifier(match.group(1))}_"
-        f"{match.group(2)}_{digest}"
-    )
+    return rtl_instance_identifier(name)
 
 
 def _port_declaration(port: Port) -> str:
@@ -4920,6 +5724,13 @@ def _logic_port(direction: str, name: str, type_: HardwareType) -> str:
     signed = " signed" if isinstance(type_, (SIntType, FixedType)) else ""
     net = " wire" if direction == "input" else ""
     return f"{direction}{net} logic{signed} {_range(_width(type_))}{name}"
+
+
+def _logic_declaration(name: str, type_: HardwareType) -> str:
+    """Declare one internal signal with its exact typed RTL signedness."""
+
+    signed = " signed" if isinstance(type_, (SIntType, FixedType)) else ""
+    return f"  logic{signed} {_range(_width(type_))}{name};"
 
 
 def _range(width: int) -> str:

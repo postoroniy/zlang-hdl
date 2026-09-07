@@ -93,8 +93,9 @@ int main(int argc, char **argv) {
   return dut.values == 0 ? 0 : 5;
 }
 ''')
-    assert "stateLane ((\\value_0 ->" in clash
-    assert "stateLane ((\\value_0 ->" in clash
+    module = compile_source(SOURCE, top="StateLaneArray", include_clash=False).ir
+    suffix = module.elaborated_instances[0].specialization_identity[:8]
+    assert clash.count(f"stateLane_s{suffix} ((\\value_0 ->") == 2
     assert "lane[" not in clash
 
 

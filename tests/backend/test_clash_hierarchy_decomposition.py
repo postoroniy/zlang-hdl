@@ -93,8 +93,9 @@ module Top {
 }
 """
 
-# Captured after the always-leaf public-top ABI and the compositional
-# CSR/request-response correctness repairs. JSON hashes lock the typed public
+# Captured after the always-leaf public-top ABI, compositional
+# CSR/request-response correctness repairs and shared hierarchy-local naming.
+# JSON hashes lock the typed public
 # leaf bindings and source origins in addition to generated source.  The
 # protocol fixture includes the legal full-buffer simultaneous pop/push ready
 # path.  The FFT fixture also locks the v2 exact callable-specialization
@@ -103,14 +104,14 @@ CASES = {
     "protocol_top": (
         ROOT / "examples" / "hierarchical_protocol_m40.zhl",
         None,
-        "602d99a3baebe14ee7a7aec2e02e3ce06cba7da7c82d099c5bb0aad8f051e60d",
-        "9029fbe69da27d10dfcd57300b693139223976920ad9d73f9e6f9a62fe5cd460",
+        "43f670ee87d730e3f685d4766440d960fd4e6b301280259246c466f2c9468e44",
+        "e13f746f7736161de76e6e2245a2f5b7cc86aa42163663b2daa2bec16633f742",
     ),
     "simple_dma": (
         ROOT / "examples" / "simple_dma_m40.zhl",
         "SimpleDMA",
-        "a8b8069f0afe94f7ce898d20867784bfedde6087f6e7b09ae0ba456356c072bf",
-        "b9b345a1382ad1fcef61d9d8854c3a2a859794c02036d9afc0058df72b8efc56",
+        "86120838b1d701ec048e1e4a64e244c3b3c2e8242e433ae510c76e3d7e2f6a70",
+        "95b8199ce1e69ecb8f41350947b017dadcf7d778f82b26ea1e8d074685ad3d19",
     ),
     "fft_specializations": (
         ROOT / "examples" / "fft" / "sdf_stage_numeric.zhl",
@@ -119,14 +120,17 @@ CASES = {
         # rather than dependency/source provenance.  The generated logic is
         # otherwise byte-identical and equivalent source spellings share this
         # physical filename and RTL hash.
-        "1667cef81edf2f19770d8927f78fc5f5b10fa2cc0be4acc083ae4f55096f3e26",
-        "b4132b156016135db66a97319b823f54f3700065f3be1498496d33d54427e8e6",
+        "ca52c20e0a278aa1246dd4dd3794057d7bd8505e53a0b4295330a93767f9e3c1",
+        "0f8acfac79956377b4d28c496eef75d943052f1003f2884971d68cb199630b05",
     ),
     "aggregate_csr": (
         ROOT / "examples" / "axi_csr_top.zhl",
         "AxiCsrTop",
-        "f24baa0be06165ccb4bdf2d6038a2ade2f362423867889b84e25f8de823156c1",
-        "706b0e2b994d50295da5eaa43e566776924d7c3004dd023070cd1d2275a2e9f7",
+        # Packed child ports no longer also reserve public leaf aliases.
+        # Seven ready nets lose phantom collision suffixes; public bindings,
+        # semantic identities and generated expressions remain unchanged.
+        "e345f6936eca8783275c7b3af6a25bc79c0b68b4a161921b6687127129a32349",
+        "c262030cdb048d7fd6aa286d4caf8013068d630c88e7854ae038b404e22dd288",
     ),
 }
 
@@ -176,12 +180,12 @@ def test_extraction_preserves_nested_source_and_artifact_bytes() -> None:
     artifact = emit_artifact(module)
 
     expected_source = (
-        "8231d730d2cc612908fed658465cad3ae1325c8bdd9743aa2e74e63901993aaf"
+        "35787fe022de1c933cadd0847f437a6c25ec2545b17d087ec12eb4f0f687e42a"
     )
     assert hashlib.sha256(text.encode()).hexdigest() == expected_source
     assert artifact.artifact_hash == expected_source
     assert hashlib.sha256(artifact.to_json().encode()).hexdigest() == (
-        "41732e57ff3326c6383d72677332214373418838d966646169aff7e0d8819ce0"
+        "7bd2cff5b543e96d5376276efcd351c6c4f55c43e0dfe1165ef005df26c4dc79"
     )
 
 
@@ -276,11 +280,14 @@ def test_repeated_parent_specialization_uses_parent_scoped_catalog_key() -> None
         "Wrapper",
         "Leaf",
     ]
-    assert text.count("protocol_wrapper ::") == 1
-    assert text.count("protocol_leaf ::") == 1
-    assert text.count("leaf_result = protocol_leaf input output_backward") == 1
-    assert "left_result = protocol_wrapper parent_a ao_backward" in text
-    assert "right_result = protocol_wrapper parent_b bo_backward" in text
+    wrapper_name, leaf_name = (
+        item.component_name for item in catalog.components
+    )
+    assert text.count(f"{wrapper_name} ::") == 1
+    assert text.count(f"{leaf_name} ::") == 1
+    assert text.count(f"leaf_result = {leaf_name} input output_backward") == 1
+    assert f"left_result = {wrapper_name} parent_a ao_backward" in text
+    assert f"right_result = {wrapper_name} parent_b bo_backward" in text
     root_applications = tuple(
         key for key, _name in catalog.applications
         if key.parent == catalog.root_owner
@@ -293,7 +300,7 @@ def test_repeated_parent_specialization_uses_parent_scoped_catalog_key() -> None
     assert len({item.instance_identity for item in root_applications}) == 2
     assert len(nested_applications) == 1
     assert hashlib.sha256(text.encode()).hexdigest() == (
-        "63732b7616fd3ee6e9268edc765e786fa77c7e1a7bd925b1c1ba1f44b2f6c800"
+        "2316711bb1de9853ab7dded743af9ca03a0017498511a6a04dadcab5562700db"
     )
 
 

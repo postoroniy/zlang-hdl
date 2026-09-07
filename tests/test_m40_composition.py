@@ -2,6 +2,7 @@ import unittest
 from dataclasses import replace
 from pathlib import Path
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -23,8 +24,9 @@ class CompositionM40Tests(unittest.TestCase):
             "generate(i in 0..2) { c[i].x=values[i] } y=c[1].y }"
         ))
         text = emit(module)
-        self.assertIn("zlang_instance_c_0_", text)
-        self.assertIn("zlang_instance_c_1_", text)
+        self.assertIn("c_0_y", text)
+        self.assertIn("c_1_y", text)
+        self.assertNotIn("zlang_instance_", text)
 
     def test_locals_are_ordered_and_typed(self):
         module = analyze(parse("module A { in a:u8 out y:u8 x:u8 = a y = x }"))
@@ -233,26 +235,29 @@ class CompositionM40Tests(unittest.TestCase):
         """
         result = compile_source(source, top="Top")
         self.assertIn("protocol_engine", result.clash)
-        self.assertIn("Signal ZLangSystem EngineComponentInput -> Signal ZLangSystem EngineComponentOutput", result.clash)
-        self.assertIn("protocol_engine = mealy protocol_engineTransition", result.clash)
-        self.assertIn("{-# NOINLINE protocol_engine #-}", result.clash)
-        self.assertIn("e_component_input = EngineComponentInput <$> parent_start", result.clash)
+        self.assertRegex(result.clash, r"Signal ZLangSystem EngineComponentInput_s([0-9a-f]{8}) -> Signal ZLangSystem EngineComponentOutput_s\1")
+        helper = re.search(r"(protocol_engine_s[0-9a-f]{8}) ::", result.clash).group(1)
+        suffix = helper.rsplit("_", 1)[1]
+        self.assertIn(f"{helper} = mealy {helper}Transition", result.clash)
+        self.assertIn(f"{{-# NOINLINE {helper} #-}}", result.clash)
+        self.assertIn(f"e_component_input = EngineComponentInput_{suffix} <$> parent_start", result.clash)
         self.assertNotIn("protocol_engine mixed_start", result.clash)
-        transition = result.clash.split("protocol_engineTransition ::", 1)[1].split(
-            "protocol_engine ::", 1
+        transition = result.clash.split(f"{helper}Transition ::", 1)[1].split(
+            f"{helper} ::", 1
         )[0]
         self.assertNotIn("parent_", transition)
 
     def test_simple_dma_uses_closed_mixed_child_and_request_fifo(self):
         source = Path("examples/simple_dma_m40.zhl").read_text()
         result = compile_source(source, top="SimpleDMA")
-        self.assertIn("protocol_transferEngine = mealy", result.clash)
+        self.assertRegex(result.clash, r"protocol_transferEngine_s[0-9a-f]{8} = mealy")
         self.assertIn("engine_component_input = TransferEngineComponentInput", result.clash)
         self.assertIn("engine_mem_request_memory_mem_request_buffer_count", result.clash)
         self.assertIn("engine_mem_request_ready_bit", result.clash)
         self.assertIn("memory_mem_request = ZLangReadyValidForward", result.clash)
-        transition = result.clash.split("protocol_transferEngineTransition ::", 1)[1].split(
-            "protocol_transferEngine ::", 1
+        helper = re.search(r"(protocol_transferEngine_s[0-9a-f]{8}) ::", result.clash).group(1)
+        transition = result.clash.split(f"{helper}Transition ::", 1)[1].split(
+            f"{helper} ::", 1
         )[0]
         self.assertNotIn("parent_", transition)
 

@@ -74,8 +74,8 @@ def test_clash_names_and_calls_each_fft_stage_specialization_exactly_once() -> N
     d2_identity = by_instance["stage_d2"].specialization_identity
     d1_identity = by_instance["stage_d1"].specialization_identity
     assert d2_identity and d1_identity and d2_identity != d1_identity
-    d2_helper = f"protocol_fFTSDFStageNumeric_{d2_identity}"
-    d1_helper = f"protocol_fFTSDFStageNumeric_{d1_identity}"
+    d2_helper = f"protocol_fFTSDFStageNumeric_s{d2_identity[:8]}"
+    d1_helper = f"protocol_fFTSDFStageNumeric_s{d1_identity[:8]}"
 
     clash = emit(module)
     assert clash.count(f"{d2_helper} ::") == 1
@@ -97,12 +97,12 @@ def test_clash_uses_exact_depth_one_rom_and_pow2_depth_two_rom() -> None:
         for elaborated in module.elaborated_instances
     }
     d2_helper = (
-        "protocol_fFTSDFStageNumeric_"
-        + by_instance["stage_d2"].specialization_identity
+        "protocol_fFTSDFStageNumeric_s"
+        + by_instance["stage_d2"].specialization_identity[:8]
     )
     d1_helper = (
-        "protocol_fFTSDFStageNumeric_"
-        + by_instance["stage_d1"].specialization_identity
+        "protocol_fFTSDFStageNumeric_s"
+        + by_instance["stage_d1"].specialization_identity[:8]
     )
     clash = emit(module)
 
@@ -158,14 +158,16 @@ def test_recursive_formal_keeps_specialized_phase_widths_and_physical_paths() ->
     )
 
 
-def test_single_specialization_keeps_legacy_unsuffixed_clash_helper() -> None:
-    clash = emit(_compile("FFTSDFStageNumericD4"))
-    assert clash.count("protocol_fFTSDFStageNumeric ::") == 1
+def test_single_specialization_gets_a_stable_compact_clash_helper() -> None:
+    module = _compile("FFTSDFStageNumericD4")
+    helper = f"protocol_fFTSDFStageNumeric_s{module.elaborated_instances[0].specialization_identity[:8]}"
+    clash = emit(module)
+    assert clash.count(f"{helper} ::") == 1
     assert (
-        "stage_result = protocol_fFTSDFStageNumeric parent_input output_backward"
+        f"stage_result = {helper} parent_input output_backward"
         in clash
     )
-    assert not re.search(r"protocol_fFTSDFStageNumeric_[0-9a-f]+ ::", clash)
+    assert not re.search(r"protocol_fFTSDFStageNumeric_[0-9a-f]{24} ::", clash)
 
 
 def test_storage_child_wrapper_uses_mangled_reserved_protocol_argument() -> None:
@@ -194,10 +196,12 @@ module QueueTop {
     connect queue.data -> data
 }
 """
-    clash = emit(compile_source(source, top="QueueTop").ir)
+    module = compile_source(source, top="QueueTop").ir
+    clash = emit(module)
+    helper = f"protocol_queueChild_s{module.elaborated_instances[0].specialization_identity[:8]}"
     assert (
-        "protocol_queueChild input data_zlang_backward = "
-        "protocol_queueChild_raw input data_zlang_backward"
+        f"{helper} input data_zlang_backward = "
+        f"{helper}_raw input data_zlang_backward"
         in clash
     )
 
@@ -219,17 +223,19 @@ def test_nested_protocol_child_emits_closed_recursive_component_abi() -> None:
     assert wrapper_instance.specialization_identity
     assert leaf_instance.instance_identity
     assert leaf_instance.specialization_identity
-    assert clash.count("protocol_wrapper ::") == 1
-    assert clash.count("protocol_leaf ::") == 1
+    wrapper_name = f"protocol_wrapper_s{wrapper_instance.specialization_identity[:8]}"
+    leaf_name = f"protocol_leaf_s{leaf_instance.specialization_identity[:8]}"
+    assert clash.count(f"{wrapper_name} ::") == 1
+    assert clash.count(f"{leaf_name} ::") == 1
     assert (
-        "protocol_wrapper input output_backward = "
+        f"{wrapper_name} input output_backward = "
         "(input_backward_result, output)"
         in clash
     )
-    assert "leaf_result = protocol_leaf input output_backward" in clash
-    assert "wrapper_result = protocol_wrapper parent_input output_backward" in clash
+    assert f"leaf_result = {leaf_name} input output_backward" in clash
+    assert f"wrapper_result = {wrapper_name} parent_input output_backward" in clash
     assert "parent_input" not in clash[
-        clash.index("protocol_wrapper ::") : clash.index("protocol_leaf ::")
+        clash.index(f"{wrapper_name} ::") : clash.index(f"{leaf_name} ::")
     ]
 
 
@@ -270,10 +276,10 @@ module Top {
         module.children, module.elaborated_instances, strict=True
     ):
         wrapper_helper = (
-            f"protocol_wrapper_{elaborated.specialization_identity}"
+            f"protocol_wrapper_s{elaborated.specialization_identity[:8]}"
         )
         leaf_identity = wrapper.elaborated_instances[0].specialization_identity
-        leaf_helper = f"protocol_leaf_{leaf_identity}"
+        leaf_helper = f"protocol_leaf_s{leaf_identity[:8]}"
         assert clash.count(f"{wrapper_helper} ::") == 1
         assert clash.count(f"{leaf_helper} ::") == 1
         assert f"leaf_result = {leaf_helper} input output_backward" in clash

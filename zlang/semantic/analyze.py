@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 import ast as pyast
 import hashlib
+from collections.abc import Iterable
 from dataclasses import dataclass, field, fields, is_dataclass, replace
 from fractions import Fraction
 
@@ -45,6 +46,7 @@ from zlang.ir.hierarchy import (
     build_hierarchy_index,
     candidate_specialization_identity,
     validate_hierarchical_connections,
+    validate_instance_port_bindings,
 )
 from zlang.ir.constants import ConstantExpressionError, constant_runtime_value
 from zlang.ir.callables import (
@@ -68,6 +70,7 @@ from zlang.ir.functional_regions import (
     build_exact_reduction_plan,
 )
 from zlang.common import stable_digest
+from zlang.common.graph import reachable
 from zlang.ir.signed_reductions import expression_semantic_identity
 from zlang.ir.traversal import (
     ExpressionTraversalPolicy,
@@ -109,7 +112,7 @@ from zlang.architectures import (
     ArchitectureExplorationError,
     explore_architecture,
 )
-from zlang.source import SourceOrigin
+from zlang.source import SourceOrigin, SourceSpan
 from .errors import SemanticError
 from .public_timing import analyze_public_module_timing
 from zlang.dependencies import DependencyClosure, DependencyModuleIdentity
@@ -2666,6 +2669,14 @@ class _ExpressionContext:
     # module's public scalar-wire output boundary.  Explicit Generate plus
     # RuntimeIndex remains the general value-level representation.
     allow_runtime_instance_projection: bool = False
+    # Keep write-only outputs out of the readable namespace while retaining
+    # enough declaration information for an actionable mistaken-read error.
+    write_only_outputs: dict[str, ir_module.Port] = field(default_factory=dict)
+    # Ordinary module outputs are write-only inside hardware expressions.  A
+    # verification overlay is the deliberate exception: contracts and goals
+    # observe the already-defined public boundary without feeding any value
+    # back into the implementation.
+    allow_output_reads: bool = False
     allow_implementation_choice: bool = False
     # Formal-aware exploration is compiler configuration, but expression
     # checking may happen inside functions/operators as well as directly in a
@@ -4580,6 +4591,100 @@ def _validate_tuple_destructure_assignment(
         )
 
 
+@dataclass(frozen=True)
+class _ConditionalActionLeaf:
+    """One source effect and its exact path inside one atomic action tree."""
+
+    action: ast.NextAssignment | ast.ResourceAction
+    activation: ast.Expression | None
+    branch_path: tuple[tuple[tuple[int, ...], bool], ...]
+    conditions: tuple[tuple[ast.Expression, bool], ...] = ()
+
+
+def _combine_action_activation(
+    left: ast.Expression | None,
+    right: ast.Expression,
+    origin: SourceSpan | None,
+) -> ast.Expression:
+    if left is None:
+        return right
+    return ast.BinaryExpr(
+        ast.BinaryOperator.BIT_AND,
+        left,
+        right,
+        origin=origin,
+    )
+
+
+def _conditional_action_leaves(
+    actions: tuple[
+        ast.NextAssignment | ast.ResourceAction | ast.ConditionalAction, ...
+    ],
+    *,
+    activation: ast.Expression | None = None,
+    branch_path: tuple[tuple[tuple[int, ...], bool], ...] = (),
+    conditions: tuple[tuple[ast.Expression, bool], ...] = (),
+    structural_path: tuple[int, ...] = (),
+) -> tuple[_ConditionalActionLeaf, ...]:
+    """Flatten effects, not rules, while preserving first-match branch paths.
+
+    A false arm is guarded by the exact negation of its own ``when``.  An
+    ``else when`` is represented recursively beneath that false arm, yielding
+    ``!first & second`` without changing either source guard.  These predicates
+    are evaluated from the same pre-edge snapshot as the owning rule guard.
+    """
+
+    leaves: list[_ConditionalActionLeaf] = []
+    for ordinal, action in enumerate(actions):
+        if not isinstance(action, ast.ConditionalAction):
+            leaves.append(_ConditionalActionLeaf(
+                action, activation, branch_path, conditions
+            ))
+            continue
+        decision = (*structural_path, ordinal)
+        true_activation = _combine_action_activation(
+            activation, action.guard, action.origin
+        )
+        leaves.extend(_conditional_action_leaves(
+            action.when_true,
+            activation=true_activation,
+            branch_path=(*branch_path, (decision, True)),
+            conditions=(*conditions, (action.guard, True)),
+            structural_path=(*decision, 0),
+        ))
+        if action.when_false is not None:
+            false_guard = ast.UnaryExpr(
+                ast.BinaryOperator.LOGIC_NOT,
+                action.guard,
+                origin=action.origin,
+            )
+            false_activation = _combine_action_activation(
+                activation, false_guard, action.origin
+            )
+            leaves.extend(_conditional_action_leaves(
+                action.when_false,
+                activation=false_activation,
+                branch_path=(*branch_path, (decision, False)),
+                conditions=(*conditions, (action.guard, False)),
+                structural_path=(*decision, 1),
+            ))
+    return tuple(leaves)
+
+
+def _action_paths_are_exclusive(
+    left: tuple[tuple[tuple[int, ...], bool], ...],
+    right: tuple[tuple[tuple[int, ...], bool], ...],
+) -> bool:
+    """Prove exclusivity only from opposite arms of one source conditional."""
+
+    left_decisions = dict(left)
+    right_decisions = dict(right)
+    return any(
+        left_decisions[key] is not right_decisions[key]
+        for key in left_decisions.keys() & right_decisions.keys()
+    )
+
+
 def _select_compile_time_module_items(
     module: ast.Module,
     parameter_values: dict[str, int],
@@ -4777,12 +4882,18 @@ def _select_compile_time_module_items(
         declaration: object,
     ) -> tuple[ast.NextAssignment | ast.ResourceAction, ...]:
         if isinstance(declaration, (ast.RuleDecl, ast.AnonymousRuleDecl)):
-            return declaration.actions
+            return tuple(
+                leaf.action
+                for leaf in _conditional_action_leaves(declaration.actions)
+            )
         if isinstance(declaration, ast.PriorityBlockDecl):
             actions: list[ast.NextAssignment | ast.ResourceAction] = []
             for arm in declaration.arms:
                 if isinstance(arm, ast.PriorityRuleArm):
-                    actions.extend(arm.actions)
+                    actions.extend(
+                        leaf.action
+                        for leaf in _conditional_action_leaves(arm.actions)
+                    )
                 elif isinstance(arm, ast.PriorityBlockDecl):
                     actions.extend(actions_in(arm))
             return tuple(actions)
@@ -4892,9 +5003,9 @@ def _select_compile_time_module_items(
                         f"FSM '{item.name}' priority transitions require explicit when guards"
                     )
                 if any(
-                    isinstance(action, ast.NextAssignment)
-                    and action.target == item.name
-                    for action in transition.actions
+                    isinstance(leaf.action, ast.NextAssignment)
+                    and leaf.action.target == item.name
+                    for leaf in _conditional_action_leaves(transition.actions)
                 ):
                     raise SemanticError(
                         f"FSM register '{item.name}' cannot be written explicitly inside a transition"
@@ -4971,7 +5082,7 @@ def _select_compile_time_module_items(
                 raise SemanticError("invalid priority block arm")
             if arm.guard is None:
                 raise SemanticError("priority block arm requires a when guard")
-            if not arm.actions:
+            if not _conditional_action_leaves(arm.actions):
                 raise SemanticError("priority block arm cannot be empty")
             if arm.label is None:
                 payload = f"{block_identity}|arm:{ordinal}"
@@ -7208,9 +7319,9 @@ def analyze(
                 f"memory '{declaration.name}' depth must be a power of two "
                 "and at least 2"
             )
-        if declaration.read_latency != 1:
+        if declaration.read_latency not in {0, 1}:
             raise SemanticError(
-                f"memory '{declaration.name}' currently requires read_latency 1"
+                f"memory '{declaration.name}' read_latency must be 0 or 1"
             )
         element_type = type_resolver.resolve(declaration.element_type)
         if not ir_packing.is_bit_packable(element_type):
@@ -7275,23 +7386,34 @@ def analyze(
             "request/response, or connection backends"
         )
     scheduled_memory_names = {
-        action.resource
+        leaf.action.resource
         for rule in module.rules
-        for action in rule.actions
-        if isinstance(action, ast.ResourceAction)
-        and action.resource in memory_declarations
+        for leaf in _conditional_action_leaves(rule.actions)
+        if isinstance(leaf.action, ast.ResourceAction)
+        and leaf.action.resource in memory_declarations
     }
     scheduled_masked_memory_names = {
-        action.resource
+        leaf.action.resource
         for rule in module.rules
-        for action in rule.actions
-        if isinstance(action, ast.ResourceAction)
-        and action.resource in memory_declarations
-        and action.operation == "write"
-        and len(action.operands) == 3
+        for leaf in _conditional_action_leaves(rule.actions)
+        if isinstance(leaf.action, ast.ResourceAction)
+        and leaf.action.resource in memory_declarations
+        and leaf.action.operation == "write"
+        and len(leaf.action.operands) == 3
     }
     if len(scheduled_memory_names) > 1:
         raise SemanticError("a module currently supports at most one rule-owned memory")
+    scheduled_zero_latency = tuple(
+        name
+        for name in sorted(scheduled_memory_names)
+        if memory_declarations[name].read_latency == 0
+    )
+    if scheduled_zero_latency:
+        name = scheduled_zero_latency[0]
+        raise SemanticError(
+            f"rule-owned memory '{name}' requires read_latency 1; "
+            "read_latency 0 is supported only for globally controlled memories"
+        )
     if scheduled_memory_names and len(memory_declarations) != 1:
         raise SemanticError(
             "global and rule-owned memory resources cannot be mixed in one module"
@@ -7395,6 +7517,7 @@ def analyze(
         next_functional_binder_ordinal=(
             pure_context.next_functional_binder_ordinal
         ),
+        write_only_outputs=outputs,
     )
     value_symbols: dict[str, _ValueSymbol] = {
         **inputs,
@@ -7743,11 +7866,11 @@ def analyze(
 
     fifos: list[ir_storage.Fifo] = []
     scheduled_fifo_names = {
-        action.resource
+        leaf.action.resource
         for rule in module.rules
-        for action in rule.actions
-        if isinstance(action, ast.ResourceAction)
-        and action.resource in fifo_declarations
+        for leaf in _conditional_action_leaves(rule.actions)
+        if isinstance(leaf.action, ast.ResourceAction)
+        and leaf.action.resource in fifo_declarations
     }
     identity_payload = f"{module.name}|{tuple((p.name, p.kind, p.default) for p in module.parameters)}"
     transition_prefix = hashlib.sha256(identity_payload.encode()).hexdigest()[:16]
@@ -7826,12 +7949,10 @@ def analyze(
             )
         address_type = UIntType(symbol.address_width)
         masked = "write_mask" in controls or name in scheduled_masked_memory_names
-        if masked and symbol.element_type.width % 8:
-            raise SemanticError(
-                f"memory '{name}' byte write mask requires an element width "
-                "divisible by 8"
-            )
-        write_mask_width = symbol.element_type.width // 8 if masked else None
+        write_mask_width = (
+            ir_storage.memory_byte_mask_width(symbol.element_type.width)
+            if masked else None
+        )
         read_address = write_enable = write_address = write_data = write_mask = None
         if controls:
             read_address = _check_expression(
@@ -7891,6 +8012,12 @@ def analyze(
                 origin,
                 write_mask_width=write_mask_width,
                 write_mask=write_mask,
+                contents_reset=ir_storage.MemoryResetPolicy(
+                    declaration.contents_reset.value
+                ),
+                read_data_reset=ir_storage.MemoryResetPolicy(
+                    declaration.read_data_reset.value
+                ),
             )
         )
 
@@ -8712,7 +8839,18 @@ def analyze(
         assigned_registers.add(target.name)
 
     rules: list[ir_module.Rule] = []
-    rule_resource_actions: dict[str, list[tuple[ir_state.StateActionKind, str, tuple[ir_expr.Expression, ...], SourceOrigin | None]]] = {}
+    rule_resource_actions: dict[
+        str,
+        list[
+            tuple[
+                ir_state.StateActionKind,
+                str,
+                tuple[ir_expr.Expression, ...],
+                SourceOrigin | None,
+                ir_expr.Expression | None,
+            ]
+        ],
+    ] = {}
     rule_names: set[str] = set()
     for declaration in module.rules:
         if not clock_domains:
@@ -8735,9 +8873,204 @@ def analyze(
             range_refinements=_guard_range_refinements(guard_analysis),
         )
         actions: list[ir_module.NextAssignment] = []
-        resource_actions: list[tuple[ir_state.StateActionKind, str, tuple[ir_expr.Expression, ...], SourceOrigin | None]] = []
-        action_targets: set[str] = set()
-        for action in declaration.actions:
+        resource_actions: list[
+            tuple[
+                ir_state.StateActionKind,
+                str,
+                tuple[ir_expr.Expression, ...],
+                SourceOrigin | None,
+                ir_expr.Expression | None,
+            ]
+        ] = []
+        action_targets: dict[
+            str,
+            list[tuple[tuple[tuple[tuple[int, ...], bool], ...], SourceOrigin | None]],
+        ] = {}
+        activation_cache: dict[
+            tuple[tuple[int, bool], ...],
+            tuple[ir_expr.Expression, _ExpressionContext],
+        ] = {}
+        # One source conditional is shared by its true and false branch paths.
+        # Type it once so a stateful guard expression (for example ``delay``)
+        # denotes one physical expression instance rather than being allocated
+        # independently for each effect below the branch.
+        typed_condition_cache: dict[int, ir_expr.Expression] = {}
+
+        def effect_origin(
+            action: ast.NextAssignment | ast.ResourceAction,
+        ) -> SourceOrigin | None:
+            if isinstance(action, ast.ResourceAction) and action.origin is not None:
+                return SourceOrigin(
+                    action.origin,
+                    f"state action {action.resource}.{action.operation}",
+                    effective_source_unit,
+                    effective_source_digest,
+                )
+            syntax_origin = (
+                action.target.origin
+                if (
+                    isinstance(action, ast.NextAssignment)
+                    and isinstance(action.target, ast.IndexedAssignmentTarget)
+                )
+                else action.expression.origin
+                if isinstance(action, ast.NextAssignment)
+                else None
+            )
+            return (
+                SourceOrigin(
+                    syntax_origin,
+                    "conditional rule action",
+                    effective_source_unit,
+                    effective_source_digest,
+                )
+                if syntax_origin is not None else None
+            )
+
+        def claim_effect_target(
+            key: str,
+            leaf: _ConditionalActionLeaf,
+            description: str,
+        ) -> None:
+            origin = effect_origin(leaf.action)
+            for previous_path, previous_origin in action_targets.get(key, ()):
+                if _action_paths_are_exclusive(previous_path, leaf.branch_path):
+                    continue
+                notes = (
+                    (
+                        "the previous potentially-overlapping effect is at "
+                        f"{previous_origin.span.render()}"
+                    ),
+                ) if previous_origin is not None else ()
+                raise SemanticError(
+                    f"rule '{declaration.name}' {description}; the effects are "
+                    "on overlapping conditional paths",
+                    code="ZL-SEMANTIC-CONDITIONAL-ACTION-CONFLICT",
+                    primary=origin,
+                    notes=notes,
+                    fixes=(
+                        "place the effects in opposite arms of one when/else, "
+                        "or use separate explicitly prioritized rules",
+                    ),
+                )
+            action_targets.setdefault(key, []).append((leaf.branch_path, origin))
+
+        def typed_activation_and_context(
+            conditions: tuple[tuple[ast.Expression, bool], ...],
+        ) -> tuple[ir_expr.Expression | None, _ExpressionContext]:
+            if not conditions:
+                return None, rule_context
+            cache_key = tuple((id(condition), truth) for condition, truth in conditions)
+            cached = activation_cache.get(cache_key)
+            if cached is not None:
+                return cached
+            typed_terms: list[ir_expr.Expression] = []
+            effect_context = rule_context
+            combined_analysis = guard_analysis
+            for condition, truth in conditions:
+                typed_condition = typed_condition_cache.get(id(condition))
+                if typed_condition is None:
+                    typed_condition = _check_expression(
+                        condition, value_symbols, BitType(), effect_context
+                    )
+                    typed_condition_cache[id(condition)] = typed_condition
+                    # ``replace(context, ...)`` copies the numerical allocator.
+                    # Propagate allocations made while checking this unique
+                    # condition so later source expressions cannot reuse them.
+                    rule_context.next_delay_instance = max(
+                        rule_context.next_delay_instance,
+                        effect_context.next_delay_instance,
+                    )
+                    module_context.next_delay_instance = max(
+                        module_context.next_delay_instance,
+                        effect_context.next_delay_instance,
+                    )
+                if typed_condition.type != BitType():
+                    raise SemanticError(
+                        f"nested when guard in rule '{declaration.name}' must be "
+                        f"bit, got {typed_condition.type}",
+                        code="ZL-SEMANTIC-CONDITIONAL-GUARD",
+                        primary=_semantic_origin(condition, module_context),
+                    )
+                term = (
+                    typed_condition
+                    if truth else replace(
+                        _build_binary(
+                            ir_expr.BinaryOperator.EQUAL,
+                            typed_condition,
+                            ir_expr.Constant(0, BitType()),
+                        ),
+                        origin=typed_condition.origin,
+                    )
+                )
+                typed_terms.append(term)
+                term_analysis = _expand_analysis_calls(
+                    _expand_immutable_locals(term, value_symbols),
+                    module_context,
+                    purpose=f"rule '{declaration.name}' conditional refinement",
+                )
+                combined_analysis = _build_binary(
+                    ir_expr.BinaryOperator.BIT_AND,
+                    combined_analysis,
+                    term_analysis,
+                )
+                effect_context = replace(
+                    effect_context,
+                    range_refinements=_guard_range_refinements(combined_analysis),
+                )
+            activation = typed_terms[0]
+            for term in typed_terms[1:]:
+                activation = replace(
+                    _build_binary(
+                        ir_expr.BinaryOperator.BIT_AND, activation, term
+                    ),
+                    origin=term.origin or activation.origin,
+                )
+            result = (activation, effect_context)
+            activation_cache[cache_key] = result
+            return result
+
+        def validate_conditional_guards(
+            source_actions: tuple[
+                ast.NextAssignment | ast.ResourceAction | ast.ConditionalAction,
+                ...,
+            ],
+            conditions: tuple[tuple[ast.Expression, bool], ...] = (),
+        ) -> None:
+            """Type every source guard, including branches with no effects.
+
+            Effect flattening intentionally omits empty branches.  Guard
+            validation therefore has to walk the source action tree itself;
+            otherwise an unknown or non-bit guard can disappear merely because
+            its branch currently performs no state action.
+            """
+
+            for source_action in source_actions:
+                if not isinstance(source_action, ast.ConditionalAction):
+                    continue
+                true_conditions = (*conditions, (source_action.guard, True))
+                typed_activation_and_context(true_conditions)
+                validate_conditional_guards(
+                    source_action.when_true,
+                    true_conditions,
+                )
+                if source_action.when_false is None:
+                    continue
+                false_conditions = (*conditions, (source_action.guard, False))
+                typed_activation_and_context(false_conditions)
+                validate_conditional_guards(
+                    source_action.when_false,
+                    false_conditions,
+                )
+
+        validate_conditional_guards(declaration.actions)
+        leaves = _conditional_action_leaves(declaration.actions)
+        if not leaves:
+            raise SemanticError(
+                f"rule '{declaration.name}' has no state or output effects"
+            )
+        for leaf in leaves:
+            action = leaf.action
+            activation, action_context = typed_activation_and_context(leaf.conditions)
             if isinstance(action, ast.ResourceAction):
                 resource = resource_symbols.get(action.resource)
                 if resource is None:
@@ -8764,7 +9097,7 @@ def analyze(
                             raise SemanticError("FIFO push requires exactly one payload")
                         operand = _check_typed_boundary(
                             action.operands[0], value_symbols, resource.element_type,
-                            rule_context,
+                            action_context,
                         )
                         if operand.type != resource.element_type:
                             raise SemanticError(
@@ -8794,7 +9127,7 @@ def analyze(
                             )
                         address = _check_expression(
                             action.operands[0], value_symbols, address_type,
-                            rule_context,
+                            action_context,
                         )
                         if address.type != address_type:
                             raise SemanticError(
@@ -8810,11 +9143,11 @@ def analyze(
                             )
                         address = _check_expression(
                             action.operands[0], value_symbols, address_type,
-                            rule_context,
+                            action_context,
                         )
                         data = _check_typed_boundary(
                             action.operands[1], value_symbols, resource.element_type,
-                            rule_context,
+                            action_context,
                         )
                         if address.type != address_type:
                             raise SemanticError(
@@ -8825,17 +9158,16 @@ def analyze(
                                 f"memory '{resource.name}' write data has type {data.type}, expected {resource.element_type}"
                             )
                         memory_masked = resource.name in scheduled_masked_memory_names
-                        if len(action.operands) == 3 and resource.element_type.width % 8:
-                            raise SemanticError(
-                                f"memory '{resource.name}' byte write mask requires an "
-                                "element width divisible by 8"
-                            )
                         if memory_masked:
-                            mask_type = BitsType(resource.element_type.width // 8)
+                            mask_type = BitsType(
+                                ir_storage.memory_byte_mask_width(
+                                    resource.element_type.width
+                                )
+                            )
                             if len(action.operands) == 3:
                                 mask = _check_expression(
                                     action.operands[2], value_symbols, mask_type,
-                                    rule_context,
+                                    action_context,
                                 )
                                 if mask.type != mask_type:
                                     raise SemanticError(
@@ -8857,12 +9189,14 @@ def analyze(
                         f"state resource '{resource.name}' does not support rule actions"
                     )
                 key = f"{resource.name}:{kind.value}"
-                if key in action_targets:
-                    raise SemanticError(
-                        f"rule '{declaration.name}' performs state action '{resource.name}.{action.operation}' twice"
-                    )
-                action_targets.add(key)
-                resource_actions.append((kind, resource.name, operands, origin))
+                claim_effect_target(
+                    key,
+                    leaf,
+                    f"performs state action '{resource.name}.{action.operation}' twice",
+                )
+                resource_actions.append(
+                    (kind, resource.name, operands, origin, activation)
+                )
                 continue
             if isinstance(action.target, ast.IndexedAssignmentTarget):
                 indexed = action.target
@@ -8878,22 +9212,17 @@ def analyze(
                         f"'{indexed.register}' must be a one-dimensional vector "
                         f"register, got {target.type}"
                     )
-                if target.name in action_targets:
-                    raise SemanticError(
-                        f"rule '{declaration.name}' writes register "
-                        f"'{target.name}' twice"
-                    )
                 if target.name in assigned_registers:
                     raise SemanticError(
                         f"register '{target.name}' has both a rule action and "
                         "next-state assignment"
                     )
                 index = _check_expression(
-                    indexed.index, value_symbols, None, rule_context
+                    indexed.index, value_symbols, None, action_context
                 )
                 index = _expand_immutable_locals(index, value_symbols)
                 index = _expand_analysis_calls(
-                    index, rule_context, purpose="vector-register update index"
+                    index, action_context, purpose="vector-register update index"
                 )
                 if not isinstance(index.type, (UIntType, BitsType)):
                     raise SemanticError(
@@ -8901,7 +9230,7 @@ def analyze(
                         f"integral expression; got {index.type}"
                     )
                 value_range = _static_value_range(
-                    index, rule_context.range_refinements
+                    index, action_context.range_refinements
                 )
                 if value_range is None:
                     raise SemanticError(
@@ -8922,7 +9251,7 @@ def analyze(
                     action.expression,
                     value_symbols,
                     target.type.element_type,
-                    rule_context,
+                    action_context,
                 )
                 if value.type != target.type.element_type:
                     raise SemanticError(
@@ -8952,8 +9281,14 @@ def analyze(
                     target.type,
                     origin=update_origin,
                 )
-                actions.append(ir_module.NextAssignment(target, update))
-                action_targets.add(target.name)
+                claim_effect_target(
+                    target.name,
+                    leaf,
+                    f"writes register '{target.name}' twice",
+                )
+                actions.append(ir_module.NextAssignment(
+                    target, update, activation
+                ))
                 continue
             target = register_symbols.get(action.target)
             if target is None:
@@ -8967,24 +9302,27 @@ def analyze(
                 target.type, (BitType, UIntType, SIntType, BitsType)
             ):
                 raise SemanticError("rule output actions require a scalar wire")
-            if target.name in action_targets:
-                raise SemanticError(
-                    f"rule '{declaration.name}' writes register '{target.name}' twice"
-                )
             if isinstance(target, ir_module.Register) and target.name in assigned_registers:
                 raise SemanticError(
                     f"register '{target.name}' has both a rule action and next-state assignment"
                 )
             expression = _check_typed_boundary(
-                action.expression, value_symbols, target.type, rule_context
+                action.expression, value_symbols, target.type, action_context
             )
             if expression.type != target.type:
                 raise SemanticError(
                     f"rule '{declaration.name}' writes {expression.type} to "
                     f"{target.type} target '{target.name}'"
                 )
-            actions.append(ir_module.NextAssignment(target, expression))
-            action_targets.add(target.name)
+            target_kind = "output" if isinstance(target, ir_module.Port) else "register"
+            claim_effect_target(
+                target.name,
+                leaf,
+                f"writes {target_kind} '{target.name}' twice",
+            )
+            actions.append(ir_module.NextAssignment(
+                target, expression, activation
+            ))
         rules.append(ir_module.Rule(declaration.name, guard, tuple(actions)))
         rule_resource_actions[declaration.name] = resource_actions
 
@@ -9002,6 +9340,12 @@ def analyze(
         priorities.append(ir_module.RulePriority(*edge))
     if _has_priority_cycle(rule_names, priority_edges):
         raise SemanticError("rule priority graph contains a cycle")
+    rule_output_targets = {
+        action.target.name
+        for rule in rules
+        for action in rule.actions
+        if isinstance(action.target, ir_module.Port)
+    }
     resources: list[ir_state.StateResource] = []
     resource_ids: dict[tuple[ir_state.StateResourceKind, str], str] = {}
     for register in registers:
@@ -9027,20 +9371,39 @@ def analyze(
             semantic_id, memory.name, ir_state.StateResourceKind.MEMORY,
             memory.element_type, clock, memory.source_origin, memory.depth,
         ))
+    for port in ports:
+        if port.name not in rule_output_targets:
+            continue
+        semantic_id = f"state:{transition_prefix}:output:{port.name}"
+        resource_ids[(ir_state.StateResourceKind.OUTPUT, port.name)] = semantic_id
+        resources.append(ir_state.StateResource(
+            semantic_id,
+            port.name,
+            ir_state.StateResourceKind.OUTPUT,
+            port.type,
+            port.domain or clock,
+        ))
     action_groups: list[ir_state.ActionGroup] = []
     for rule in rules:
         group_id = f"action-group:{transition_prefix}:{rule.name}"
         state_actions: list[ir_state.StateAction] = []
         for ordinal, action in enumerate(rule.actions):
-            if not isinstance(action.target, ir_module.Register):
-                continue
-            resource_id = resource_ids[(ir_state.StateResourceKind.REGISTER, action.target.name)]
+            if isinstance(action.target, ir_module.Register):
+                resource_kind = ir_state.StateResourceKind.REGISTER
+                action_kind = ir_state.StateActionKind.REGISTER_WRITE
+            else:
+                resource_kind = ir_state.StateResourceKind.OUTPUT
+                action_kind = ir_state.StateActionKind.OUTPUT_WRITE
+            resource_id = resource_ids[(resource_kind, action.target.name)]
             state_actions.append(ir_state.StateAction(
-                f"{group_id}:register_write:{action.target.name}:{ordinal}",
-                resource_id, ir_state.StateActionKind.REGISTER_WRITE,
+                f"{group_id}:{action_kind.value}:{action.target.name}:{ordinal}",
+                resource_id, action_kind,
                 (action.expression,), group_id, action.expression.origin,
+                activation=action.activation,
             ))
-        for ordinal, (kind, resource_name, operands, origin) in enumerate(rule_resource_actions[rule.name]):
+        for ordinal, (
+            kind, resource_name, operands, origin, activation
+        ) in enumerate(rule_resource_actions[rule.name]):
             resource_kind = (
                 ir_state.StateResourceKind.FIFO
                 if kind in {
@@ -9053,6 +9416,7 @@ def analyze(
             state_actions.append(ir_state.StateAction(
                 f"{group_id}:{kind.value}:{resource_name}:{ordinal}", resource_id,
                 kind, operands, group_id, origin,
+                activation=activation,
             ))
         action_groups.append(ir_state.ActionGroup(
             group_id, rule.name, rule.guard, tuple(state_actions), rule.guard.origin,
@@ -9069,11 +9433,12 @@ def analyze(
                 raise SemanticError(
                     f"rules '{first.rule_name}' and '{second.rule_name}' have conflicting state actions; add explicit priority"
                 )
-    writes: dict[str, list[ir_module.Rule]] = {}
+    writes: dict[str, dict[str, ir_module.Rule]] = {}
     for rule in rules:
         for action in rule.actions:
-            writes.setdefault(action.target.name, []).append(rule)
-    for target_name, writers in writes.items():
+            writes.setdefault(action.target.name, {})[rule.name] = rule
+    for target_name, writers_by_name in writes.items():
+        writers = tuple(writers_by_name.values())
         for index, first in enumerate(writers):
             for second in writers[index + 1:]:
                 if (
@@ -9103,6 +9468,10 @@ def analyze(
                         action.resource_id,
                         action.kind.value,
                         tuple(expression_semantic_identity(value) for value in action.operands),
+                        *(
+                            (expression_semantic_identity(action.activation),)
+                            if action.activation is not None else ()
+                        ),
                     )
                     for action in group.actions
                 ),
@@ -9128,12 +9497,8 @@ def analyze(
     ] = set()
     equivalences = _analyze_equivalences(module.equivalences)
 
-    rule_output_targets: set[str] = set()
-    for rule in rules:
-        for action in rule.actions:
-            if isinstance(action.target, ir_module.Port):
-                rule_output_targets.add(action.target.name)
-                assigned_outputs.add((action.target.name, None, None))
+    for target_name in rule_output_targets:
+        assigned_outputs.add((target_name, None, None))
 
     for block in csr_blocks:
         for register in block.registers:
@@ -10439,10 +10804,13 @@ def analyze(
                         "compile-time indexed binding"
                     )
 
+    _reject_memory_dependency_cycles(tuple(memories), tuple(locals_))
     _reject_instance_output_dependency_cycles(
         child_irs,
         tuple(instance_bindings),
         tuple(locals_),
+        memories=tuple(memories),
+        fifos=tuple(fifos),
     )
 
     for connection in connections:
@@ -10666,6 +11034,7 @@ def analyze(
     contract_context = _ExpressionContext(
         function_signatures,
         allow_delay=True,
+        allow_output_reads=True,
         generic_functions=generic_functions,
         compile_time_constants=pure_context.compile_time_constants,
         static_callables=pure_context.static_callables,
@@ -11088,10 +11457,15 @@ def analyze(
 
     for assignment in (*assignments, *next_assignments):
         _expression_latency(assignment.expression)
+        activation = getattr(assignment, "activation", None)
+        if activation is not None:
+            _expression_latency(activation)
     for rule in rules:
         _expression_latency(rule.guard)
         for action in rule.actions:
             _expression_latency(action.expression)
+            if action.activation is not None:
+                _expression_latency(action.activation)
     for fifo in fifos:
         for control in (fifo.data, fifo.push, fifo.pop):
             if control is None:
@@ -11101,6 +11475,8 @@ def analyze(
                 raise SemanticError("FIFO control expressions cannot be staged")
     for group in resolved_transition.action_groups:
         for action in group.actions:
+            if action.activation is not None:
+                _expression_latency(action.activation)
             for operand in action.operands:
                 latency = _expression_latency(operand)
                 if latency not in {None, 0}:
@@ -11369,6 +11745,7 @@ def analyze(
         result = replace(result, verification_scopes=tuple(finalized_scopes))
     try:
         validate_hierarchical_connections(result, cache=selected_hierarchy_cache)
+        validate_instance_port_bindings(result, cache=selected_hierarchy_cache)
     except HierarchyError as error:
         raise SemanticError(str(error)) from error
     return result
@@ -11899,6 +12276,28 @@ def _static_value_range(
         if refinements is not None and expression.name in refinements:
             return refinements[expression.name]
         return _unsigned_type_range(expression.type)
+    if isinstance(expression, ir_expr.FieldAccess):
+        aggregate_type = expression.expression.type
+        if not isinstance(aggregate_type, StructType):
+            return None
+        declared = aggregate_type.field(expression.field)
+        if declared is None or declared.type != expression.type:
+            return None
+        if isinstance(expression.expression, ir_expr.StructConstruct):
+            matching = tuple(
+                value
+                for name, value in expression.expression.fields
+                if name == expression.field
+            )
+            if len(matching) != 1:
+                return None
+            concrete = _static_value_range(matching[0], refinements)
+            if concrete is not None:
+                return concrete
+        # A stored aggregate may have any legal value of its declared field
+        # type.  That exact type interval remains a sound conservative proof
+        # even when the aggregate came from a register or child output.
+        return _unsigned_type_range(declared.type)
     if isinstance(expression, ir_expr.Truncate):
         return (
             ir_expr.ValueRange(0, (1 << expression.type.width) - 1, "truncate")
@@ -12042,9 +12441,10 @@ def _guard_range_refinements(
 ) -> dict[str, ir_expr.ValueRange]:
     """Extract sound unsigned intervals from a bounded rule guard.
 
-    Only conjunction and a comparison against an exact unsigned constant are
-    recognized.  Unsupported boolean structure contributes no fact; in
-    particular disjunction and negation are never approximated.
+    Conjunction and comparisons against exact unsigned constants are
+    recognized.  The explicit ``predicate == 0`` shape produced by logical
+    negation is inverted only where one interval remains exact.  Unsupported
+    boolean structure contributes no fact; disjunction is never approximated.
     """
 
     def reference_name(value: ir_expr.Expression) -> str | None:
@@ -12079,54 +12479,96 @@ def _guard_range_refinements(
                 )
         return result
 
-    if not isinstance(expression, ir_expr.Binary):
-        return {}
-    if expression.operator is ir_expr.BinaryOperator.BIT_AND:
-        return intersect(
-            _guard_range_refinements(expression.left),
-            _guard_range_refinements(expression.right),
-        )
+    def visit(
+        value: ir_expr.Expression,
+        truth: bool = True,
+    ) -> dict[str, ir_expr.ValueRange]:
+        if not isinstance(value, ir_expr.Binary):
+            return {}
+        if value.operator is ir_expr.BinaryOperator.BIT_AND:
+            if not truth:
+                # ``!(a & b)`` is a disjunction and has no single sound
+                # interval in the bounded refinement representation.
+                return {}
+            return intersect(visit(value.left), visit(value.right))
 
-    operator = expression.operator
-    name = reference_name(expression.left)
-    constant = exact_constant(expression.right)
-    if name is None or constant is None:
-        reverse = {
-            ir_expr.BinaryOperator.LESS: ir_expr.BinaryOperator.GREATER,
-            ir_expr.BinaryOperator.LESS_EQUAL: ir_expr.BinaryOperator.GREATER_EQUAL,
-            ir_expr.BinaryOperator.GREATER: ir_expr.BinaryOperator.LESS,
-            ir_expr.BinaryOperator.GREATER_EQUAL: ir_expr.BinaryOperator.LESS_EQUAL,
-            ir_expr.BinaryOperator.EQUAL: ir_expr.BinaryOperator.EQUAL,
-        }
-        name = reference_name(expression.right)
-        constant = exact_constant(expression.left)
-        operator = reverse.get(operator)
-    if name is None or constant is None or operator is None:
-        return {}
+        # Logical NOT is lowered to an exact comparison with a bit zero.
+        if value.operator is ir_expr.BinaryOperator.EQUAL:
+            if (
+                isinstance(value.right, ir_expr.Constant)
+                and isinstance(value.right.type, BitType)
+                and value.right.value in {0, 1}
+                and isinstance(value.left.type, BitType)
+            ):
+                return visit(value.left, truth == bool(value.right.value))
+            if (
+                isinstance(value.left, ir_expr.Constant)
+                and isinstance(value.left.type, BitType)
+                and value.left.value in {0, 1}
+                and isinstance(value.right.type, BitType)
+            ):
+                return visit(value.right, truth == bool(value.left.value))
 
-    referenced = (
-        expression.left if reference_name(expression.left) == name else expression.right
-    )
-    base = _unsigned_type_range(referenced.type)
-    if base is None:
-        return {}
-    minimum, maximum = base.minimum, base.maximum
-    if operator is ir_expr.BinaryOperator.LESS:
-        maximum = min(maximum, constant - 1)
-    elif operator is ir_expr.BinaryOperator.LESS_EQUAL:
-        maximum = min(maximum, constant)
-    elif operator is ir_expr.BinaryOperator.GREATER:
-        minimum = max(minimum, constant + 1)
-    elif operator is ir_expr.BinaryOperator.GREATER_EQUAL:
-        minimum = max(minimum, constant)
-    elif operator is ir_expr.BinaryOperator.EQUAL:
-        minimum = max(minimum, constant)
-        maximum = min(maximum, constant)
-    else:
-        return {}
-    if minimum > maximum:
-        return {}
-    return {name: ir_expr.ValueRange(minimum, maximum, "rule_guard")}
+        operator = value.operator
+        name = reference_name(value.left)
+        constant = exact_constant(value.right)
+        referenced = value.left
+        if name is None or constant is None:
+            reverse = {
+                ir_expr.BinaryOperator.LESS: ir_expr.BinaryOperator.GREATER,
+                ir_expr.BinaryOperator.LESS_EQUAL: ir_expr.BinaryOperator.GREATER_EQUAL,
+                ir_expr.BinaryOperator.GREATER: ir_expr.BinaryOperator.LESS,
+                ir_expr.BinaryOperator.GREATER_EQUAL: ir_expr.BinaryOperator.LESS_EQUAL,
+                ir_expr.BinaryOperator.EQUAL: ir_expr.BinaryOperator.EQUAL,
+                ir_expr.BinaryOperator.NOT_EQUAL: ir_expr.BinaryOperator.NOT_EQUAL,
+            }
+            name = reference_name(value.right)
+            constant = exact_constant(value.left)
+            referenced = value.right
+            operator = reverse.get(operator)
+        if name is None or constant is None or operator is None:
+            return {}
+        if not truth:
+            operator = {
+                ir_expr.BinaryOperator.LESS: ir_expr.BinaryOperator.GREATER_EQUAL,
+                ir_expr.BinaryOperator.LESS_EQUAL: ir_expr.BinaryOperator.GREATER,
+                ir_expr.BinaryOperator.GREATER: ir_expr.BinaryOperator.LESS_EQUAL,
+                ir_expr.BinaryOperator.GREATER_EQUAL: ir_expr.BinaryOperator.LESS,
+                ir_expr.BinaryOperator.EQUAL: ir_expr.BinaryOperator.NOT_EQUAL,
+                ir_expr.BinaryOperator.NOT_EQUAL: ir_expr.BinaryOperator.EQUAL,
+            }.get(operator)
+        if operator is None:
+            return {}
+
+        base = _unsigned_type_range(referenced.type)
+        if base is None:
+            return {}
+        minimum, maximum = base.minimum, base.maximum
+        if operator is ir_expr.BinaryOperator.LESS:
+            maximum = min(maximum, constant - 1)
+        elif operator is ir_expr.BinaryOperator.LESS_EQUAL:
+            maximum = min(maximum, constant)
+        elif operator is ir_expr.BinaryOperator.GREATER:
+            minimum = max(minimum, constant + 1)
+        elif operator is ir_expr.BinaryOperator.GREATER_EQUAL:
+            minimum = max(minimum, constant)
+        elif operator is ir_expr.BinaryOperator.EQUAL:
+            minimum = max(minimum, constant)
+            maximum = min(maximum, constant)
+        elif operator is ir_expr.BinaryOperator.NOT_EQUAL:
+            if constant == minimum:
+                minimum += 1
+            elif constant == maximum:
+                maximum -= 1
+            else:
+                return {}
+        else:
+            return {}
+        if minimum > maximum:
+            return {}
+        return {name: ir_expr.ValueRange(minimum, maximum, "rule_guard")}
+
+    return visit(expression)
 
 
 def _check_expression(
@@ -12562,7 +13004,35 @@ def _check_expression_untraced(
             return value
         symbol = inputs.get(expression.name)
         if symbol is None:
+            output = context.write_only_outputs.get(expression.name)
+            if output is not None and not context.allow_output_reads:
+                raise SemanticError(
+                    f"module output '{expression.name}' cannot be read internally; "
+                    "drive it from an immutable local and read that local instead",
+                    code="ZL-SEMANTIC-OUTPUT-READ",
+                    primary=_semantic_origin(expression, context),
+                    fixes=(
+                        "bind the driving expression to an immutable local and use "
+                        "that local both internally and for the output assignment",
+                    ),
+                )
             raise SemanticError(f"unknown input '{expression.name}'")
+        if (
+            isinstance(symbol, ir_module.Port)
+            and symbol.direction is ir_module.PortDirection.OUTPUT
+            and symbol.protocol is InterfaceProtocol.WIRE
+            and not context.allow_output_reads
+        ):
+            raise SemanticError(
+                f"module output '{expression.name}' cannot be read internally; "
+                "drive it from an immutable local and read that local instead",
+                code="ZL-SEMANTIC-OUTPUT-READ",
+                primary=_semantic_origin(expression, context),
+                fixes=(
+                    "bind the driving expression to an immutable local and use "
+                    "that local both internally and for the output assignment",
+                ),
+            )
         if isinstance(symbol, ir_expr.Expression):
             return symbol
         if isinstance(symbol, (_FifoSymbol, _MemorySymbol, _RomSymbol)):
@@ -15826,20 +16296,10 @@ def _priority_orders(
     second: str,
     edges: set[tuple[str, str]],
 ) -> bool:
-    def reaches(source: str, target: str) -> bool:
-        pending = [source]
-        visited: set[str] = set()
-        while pending:
-            current = pending.pop()
-            if current == target:
-                return True
-            if current in visited:
-                continue
-            visited.add(current)
-            pending.extend(lower for higher, lower in edges if higher == current)
-        return False
+    def successors(source: str) -> Iterable[str]:
+        return (lower for higher, lower in edges if higher == source)
 
-    return reaches(first, second) or reaches(second, first)
+    return reachable(first, second, successors) or reachable(second, first, successors)
 
 
 def _guards_are_provably_disjoint(
@@ -16812,21 +17272,13 @@ def _validate_assumption_ownership(
 def _has_priority_cycle(
     names: set[str], edges: set[tuple[str, str]]
 ) -> bool:
-    def reaches(source: str, target: str) -> bool:
-        pending = [source]
-        visited: set[str] = set()
-        while pending:
-            current = pending.pop()
-            if current == target:
-                return True
-            if current in visited:
-                continue
-            visited.add(current)
-            pending.extend(lower for higher, lower in edges if higher == current)
-        return False
+    def successors(source: str) -> Iterable[str]:
+        return (lower for higher, lower in edges if higher == source)
 
+    # Keep the historical edge-domain behavior; name membership is validated
+    # by the caller, not used to prune this cycle check.
     return any(
-        reaches(lower, higher) for higher, lower in edges
+        reachable(lower, higher, successors) for higher, lower in edges
     )
 
 
@@ -17599,28 +18051,67 @@ def _reject_instance_output_dependency_cycles(
     child_irs: dict[str, ir_module.Module],
     bindings: tuple[ir_module.InstancePortBinding, ...],
     locals_: tuple[ir_module.LocalValue, ...],
+    memories: tuple[ir_storage.Memory, ...] = (),
+    fifos: tuple[ir_storage.Fifo, ...] = (),
 ) -> None:
     """Reject current-cycle cycles across scalar child instance boundaries.
 
     An InstanceOutputRef is a read-only value, but a combinational child's
     output can still depend on one of its input bindings.  Model exactly that
-    typed dependency relation.  Registers, storage and explicit delay/pipeline
-    nodes terminate the current-cycle walk, so sequential feedback remains
-    legal and no cross-module scheduler is introduced.
+    typed dependency relation.  Registers, latency-one storage and explicit
+    delay/pipeline nodes terminate the current-cycle walk.  A latency-zero
+    memory instead exposes the exact controls that affect its current read,
+    so asynchronous-read hierarchy cannot hide a combinational loop.
     """
 
     local_values = {item.name: item.expression for item in locals_}
+    parent_memories = {item.name: item for item in memories}
+    parent_fifos = {item.name: item for item in fifos}
+
+    def fifo_observation_controls(
+        reference: ir_expr.FifoRef,
+        resources: dict[str, ir_storage.Fifo],
+    ) -> tuple[ir_expr.Expression, ...]:
+        """Return only current-cycle controls observed by a FIFO signal.
+
+        A scheduled FIFO publishes state-derived observations.  A legacy
+        globally controlled FIFO additionally exposes accepted-pop lookahead
+        through ``ready`` and request diagnostics through overflow/underflow.
+        Keep the state observations as cycle cuts while following exactly the
+        legacy control expressions used by the typed simulator and backends.
+        """
+
+        fifo = resources.get(reference.fifo)
+        if fifo is None or fifo.scheduled:
+            return ()
+        controls: tuple[ir_expr.Expression | None, ...]
+        if reference.signal is ir_storage.FifoSignal.READY:
+            controls = (fifo.pop,)
+        elif reference.signal is ir_storage.FifoSignal.OVERFLOW:
+            controls = (fifo.push, fifo.pop)
+        elif reference.signal is ir_storage.FifoSignal.UNDERFLOW:
+            controls = (fifo.pop,)
+        else:
+            controls = ()
+        return tuple(item for item in controls if item is not None)
 
     def references(
         expression: ir_expr.Expression,
         *,
         local_expressions: dict[str, ir_expr.Expression],
+        memory_resources: dict[str, ir_storage.Memory],
+        fifo_resources: dict[str, ir_storage.Fifo],
         active_locals: frozenset[str] = frozenset(),
     ) -> tuple[set[str], set[tuple[str, str]]]:
         input_names: set[str] = set()
         instance_outputs: set[tuple[str, str]] = set()
 
-        def visit(value: object, active: frozenset[str]) -> None:
+        def visit(
+            value: object,
+            active: frozenset[str],
+            active_memories: frozenset[str] = frozenset(),
+            active_fifos: frozenset[str] = frozenset(),
+        ) -> None:
             if isinstance(value, ir_expr.InputRef):
                 replacement = local_expressions.get(value.name)
                 if replacement is not None:
@@ -17629,19 +18120,56 @@ def _reject_instance_output_dependency_cycles(
                             f"cyclic immutable local '{value.name}' in child "
                             "dependency analysis"
                         )
-                    visit(replacement, active | {value.name})
+                    visit(
+                        replacement,
+                        active | {value.name},
+                        active_memories,
+                        active_fifos,
+                    )
                 else:
                     input_names.add(value.name)
                 return
             if isinstance(value, ir_expr.InstanceOutputRef):
                 instance_outputs.add((value.instance, value.port))
                 return
+            if isinstance(value, ir_expr.MemoryRef):
+                memory = memory_resources.get(value.memory)
+                if (
+                    value.signal is ir_storage.MemorySignal.READ_DATA
+                    and memory is not None
+                    and memory.read_latency == 0
+                    and memory.name not in active_memories
+                ):
+                    controls = [memory.read_address]
+                    if memory.collision is ir_storage.MemoryCollision.WRITE_FIRST:
+                        controls.extend((
+                            memory.write_enable,
+                            memory.write_address,
+                            memory.write_data,
+                            memory.write_mask,
+                        ))
+                    nested_active = active_memories | {memory.name}
+                    for control in controls:
+                        if control is not None:
+                            visit(control, active, nested_active, active_fifos)
+                return
+            if isinstance(value, ir_expr.FifoRef):
+                if value.fifo not in active_fifos:
+                    nested_active = active_fifos | {value.fifo}
+                    for control in fifo_observation_controls(
+                        value, fifo_resources
+                    ):
+                        visit(
+                            control,
+                            active,
+                            active_memories,
+                            nested_active,
+                        )
+                return
             if isinstance(
                 value,
                 (
                     ir_expr.RegisterRef,
-                    ir_expr.FifoRef,
-                    ir_expr.MemoryRef,
                     ir_expr.RomRef,
                     ir_expr.Delay,
                     ir_expr.Pipeline,
@@ -17654,17 +18182,296 @@ def _reject_instance_output_dependency_cycles(
                 return
             if isinstance(value, tuple):
                 for item in value:
-                    visit(item, active)
+                    visit(item, active, active_memories, active_fifos)
                 return
             if not is_dataclass(value):
                 return
             for description in fields(value):
                 if description.name in {"origin", "type"} or not description.init:
                     continue
-                visit(getattr(value, description.name), active)
+                visit(
+                    getattr(value, description.name),
+                    active,
+                    active_memories,
+                    active_fifos,
+                )
 
         visit(expression, active_locals)
         return input_names, instance_outputs
+
+    output_summary_cache: dict[int, dict[str, frozenset[str]]] = {}
+    active_summary_modules: set[int] = set()
+
+    def output_input_dependencies(
+        current: ir_module.Module,
+    ) -> dict[str, frozenset[str]]:
+        """Summarize each wire output in terms of this module's inputs.
+
+        A direct child output is not itself an input dependency.  Resolve it
+        through that child's already typed output summary and exact scalar
+        bindings.  This makes the summary transitive across an arbitrary
+        bounded hierarchy while registers and latency-one storage remain
+        explicit current-cycle cuts.
+        """
+
+        key = id(current)
+        cached = output_summary_cache.get(key)
+        if cached is not None:
+            return cached
+        if key in active_summary_modules:
+            raise SemanticError(
+                f"cyclic typed child hierarchy while summarizing '{current.name}'"
+            )
+        active_summary_modules.add(key)
+        try:
+            current_inputs = {item.name for item in current.inputs}
+            current_locals = {
+                item.name: item.expression for item in current.locals
+            }
+            current_memories = {
+                item.name: item for item in current.memories
+            }
+            current_fifos = {
+                item.name: item for item in current.fifos
+            }
+            current_children = {
+                elaborated.instance.name: child
+                for child, elaborated in zip(
+                    current.children,
+                    current.elaborated_instances,
+                    strict=True,
+                )
+            }
+            current_bindings = {
+                (item.instance, item.port): item.expression
+                for item in current.instance_bindings
+            }
+
+            def summarize_expression(
+                expression: ir_expr.Expression,
+                *,
+                active_locals: frozenset[str] = frozenset(),
+                active_memories: frozenset[str] = frozenset(),
+                active_fifos: frozenset[str] = frozenset(),
+            ) -> set[str]:
+                dependencies: set[str] = set()
+
+                def visit(
+                    value: object,
+                    local_stack: frozenset[str],
+                    memory_stack: frozenset[str],
+                    fifo_stack: frozenset[str],
+                ) -> None:
+                    if isinstance(value, ir_expr.InputRef):
+                        replacement = current_locals.get(value.name)
+                        if replacement is not None:
+                            if value.name in local_stack:
+                                raise SemanticError(
+                                    f"cyclic immutable local '{value.name}' in "
+                                    "child dependency analysis"
+                                )
+                            visit(
+                                replacement,
+                                local_stack | {value.name},
+                                memory_stack,
+                                fifo_stack,
+                            )
+                        elif value.name in current_inputs:
+                            dependencies.add(value.name)
+                        return
+                    if isinstance(value, ir_expr.InstanceOutputRef):
+                        nested = current_children.get(value.instance)
+                        if nested is None:
+                            return
+                        nested_summary = output_input_dependencies(nested)
+                        for nested_input in nested_summary.get(value.port, ()):
+                            binding = current_bindings.get(
+                                (value.instance, nested_input)
+                            )
+                            if binding is not None:
+                                visit(
+                                    binding,
+                                    local_stack,
+                                    memory_stack,
+                                    fifo_stack,
+                                )
+                        return
+                    if isinstance(value, ir_expr.MemoryRef):
+                        memory = current_memories.get(value.memory)
+                        if (
+                            value.signal is ir_storage.MemorySignal.READ_DATA
+                            and memory is not None
+                            and memory.read_latency == 0
+                            and memory.name not in memory_stack
+                        ):
+                            controls = [memory.read_address]
+                            if (
+                                memory.collision
+                                is ir_storage.MemoryCollision.WRITE_FIRST
+                            ):
+                                controls.extend((
+                                    memory.write_enable,
+                                    memory.write_address,
+                                    memory.write_data,
+                                    memory.write_mask,
+                                ))
+                            nested_stack = memory_stack | {memory.name}
+                            for control in controls:
+                                if control is not None:
+                                    visit(
+                                        control,
+                                        local_stack,
+                                        nested_stack,
+                                        fifo_stack,
+                                    )
+                        return
+                    if isinstance(value, ir_expr.FifoRef):
+                        if value.fifo not in fifo_stack:
+                            nested_stack = fifo_stack | {value.fifo}
+                            for control in fifo_observation_controls(
+                                value, current_fifos
+                            ):
+                                visit(
+                                    control,
+                                    local_stack,
+                                    memory_stack,
+                                    nested_stack,
+                                )
+                        return
+                    if isinstance(
+                        value,
+                        (
+                            ir_expr.RegisterRef,
+                            ir_expr.RomRef,
+                            ir_expr.Delay,
+                            ir_expr.Pipeline,
+                            ir_expr.Constant,
+                            ir_expr.ParameterRef,
+                            ir_expr.FunctionalCaptureRef,
+                            ir_expr.FunctionalTableLookup,
+                        ),
+                    ):
+                        return
+                    if isinstance(value, tuple):
+                        for item in value:
+                            visit(item, local_stack, memory_stack, fifo_stack)
+                        return
+                    if not is_dataclass(value):
+                        return
+                    for description in fields(value):
+                        if (
+                            description.name in {"origin", "type"}
+                            or not description.init
+                        ):
+                            continue
+                        visit(
+                            getattr(value, description.name),
+                            local_stack,
+                            memory_stack,
+                            fifo_stack,
+                        )
+
+                visit(
+                    expression,
+                    active_locals,
+                    active_memories,
+                    active_fifos,
+                )
+                return dependencies
+
+            scheduled_guard_cache: dict[
+                str, tuple[ir_expr.Expression, ...]
+            ] = {}
+
+            def scheduled_guard_dependencies(
+                rule_name: str,
+            ) -> tuple[ir_expr.Expression, ...]:
+                cached_guards = scheduled_guard_cache.get(rule_name)
+                if cached_guards is not None:
+                    return cached_guards
+                transition = current.resolved_transition
+                if transition is None:
+                    rule = next(
+                        item for item in current.rules
+                        if item.name == rule_name
+                    )
+                    result = (
+                        rule.guard,
+                        *(
+                            action.activation
+                            for action in rule.actions
+                            if action.activation is not None
+                        ),
+                    )
+                else:
+                    groups = ir_state.ordered_groups(transition)
+                    activation_predicates = (
+                        ir_state.conditional_activation_predicates(transition)
+                    )
+                    fifo_dimensions = sum(
+                        resource.kind is ir_state.StateResourceKind.FIFO
+                        for resource in transition.resources
+                    )
+                    regions = ir_state.selection_regions(
+                        transition, rule_name
+                    )
+                    guards = tuple(
+                        group.guard
+                        for index, group in enumerate(groups)
+                        if any(
+                            region[fifo_dimensions + index] is not None
+                            for region in regions
+                        )
+                    )
+                    activation_offset = fifo_dimensions + len(groups)
+                    activations = tuple(
+                        activation
+                        for index, activation in enumerate(activation_predicates)
+                        if any(
+                            region[activation_offset + index] is not None
+                            for region in regions
+                        )
+                    )
+                    result = (*guards, *activations)
+                scheduled_guard_cache[rule_name] = result
+                return result
+
+            summary: dict[str, frozenset[str]] = {}
+            for output in current.outputs:
+                if output.protocol is not InterfaceProtocol.WIRE:
+                    continue
+                dependencies: set[str] = set()
+                dependencies.update(*(
+                    summarize_expression(assignment.expression)
+                    for assignment in current.assignments
+                    if assignment.target.name == output.name
+                    and assignment.signal is None
+                    and assignment.channel is None
+                ))
+                for rule in current.rules:
+                    for action in rule.actions:
+                        if action.target.name != output.name:
+                            continue
+                        for guard in scheduled_guard_dependencies(rule.name):
+                            dependencies.update(summarize_expression(guard))
+                        # Scheduler selection may be independent of this exact
+                        # effect predicate when the same group also contains an
+                        # unconditional register/storage effect.  The output
+                        # value nevertheless still depends on its own branch
+                        # activation and must expose that dependency to the
+                        # hierarchical combinational-cycle check.
+                        if action.activation is not None:
+                            dependencies.update(
+                                summarize_expression(action.activation)
+                            )
+                        dependencies.update(
+                            summarize_expression(action.expression)
+                        )
+                summary[output.name] = frozenset(dependencies)
+            output_summary_cache[key] = summary
+            return summary
+        finally:
+            active_summary_modules.remove(key)
 
     binding_by_input = {
         (item.instance, item.port): item.expression for item in bindings
@@ -17675,36 +18482,22 @@ def _reject_instance_output_dependency_cycles(
         # child IR.  Only physical instances that own bindings participate.
         if not any(item.instance == instance for item in bindings):
             continue
-        child_locals = {item.name: item.expression for item in child.locals}
-        child_inputs = {item.name for item in child.inputs}
+        child_output_dependencies = output_input_dependencies(child)
         for output in child.outputs:
             if output.protocol is not InterfaceProtocol.WIRE:
                 continue
-            assignment = next(
-                (
-                    item
-                    for item in child.assignments
-                    if item.target.name == output.name
-                    and item.signal is None
-                    and item.channel is None
-                ),
-                None,
-            )
             dependencies: set[tuple[str, str]] = set()
-            if assignment is not None:
-                input_dependencies, _ = references(
-                    assignment.expression,
-                    local_expressions=child_locals,
+            for input_name in child_output_dependencies.get(output.name, ()):
+                bound = binding_by_input.get((instance, input_name))
+                if bound is None:
+                    continue
+                _, referenced_outputs = references(
+                    bound,
+                    local_expressions=local_values,
+                    memory_resources=parent_memories,
+                    fifo_resources=parent_fifos,
                 )
-                for input_name in input_dependencies & child_inputs:
-                    bound = binding_by_input.get((instance, input_name))
-                    if bound is None:
-                        continue
-                    _, referenced_outputs = references(
-                        bound,
-                        local_expressions=local_values,
-                    )
-                    dependencies.update(referenced_outputs)
+                dependencies.update(referenced_outputs)
             graph[(instance, output.name)] = dependencies
 
     visited: set[tuple[str, str]] = set()
@@ -17787,6 +18580,122 @@ def _reject_interface_dependency_cycles(
 
     for target in driven:
         visit(target)
+
+
+def _reject_memory_dependency_cycles(
+    memories: tuple[ir_storage.Memory, ...],
+    locals_: tuple[ir_module.LocalValue, ...],
+) -> None:
+    """Reject current-cycle feedback through combinational memory reads.
+
+    A latency-one memory terminates a combinational path.  A latency-zero
+    memory does not: its read address always affects ``read_data``, while a
+    ``write_first`` profile also observes the active write controls and the
+    fully merged write word.  Model those typed dependencies before either
+    backend can publish a combinational loop.  Read-first write-data feedback
+    remains legal because it only changes the cell state at the next edge.
+    """
+
+    combinational = {
+        memory.name: memory
+        for memory in memories
+        if memory.read_latency == 0
+    }
+    if not combinational:
+        return
+    local_values = {item.name: item.expression for item in locals_}
+
+    def referenced_memories(
+        expression: ir_expr.Expression,
+        *,
+        active_locals: frozenset[str] = frozenset(),
+    ) -> set[str]:
+        referenced: set[str] = set()
+
+        def visit(value: object, active: frozenset[str]) -> None:
+            if isinstance(value, ir_expr.InputRef):
+                replacement = local_values.get(value.name)
+                if replacement is None:
+                    return
+                if value.name in active:
+                    raise SemanticError(
+                        f"cyclic immutable local '{value.name}' in memory "
+                        "dependency analysis"
+                    )
+                visit(replacement, active | {value.name})
+                return
+            if isinstance(value, ir_expr.MemoryRef):
+                if value.signal is ir_storage.MemorySignal.READ_DATA:
+                    referenced.add(value.memory)
+                return
+            if isinstance(
+                value,
+                (
+                    ir_expr.RegisterRef,
+                    ir_expr.FifoRef,
+                    ir_expr.RomRef,
+                    ir_expr.Delay,
+                    ir_expr.Pipeline,
+                    ir_expr.Constant,
+                    ir_expr.ParameterRef,
+                    ir_expr.FunctionalCaptureRef,
+                    ir_expr.FunctionalTableLookup,
+                    ir_expr.InstanceOutputRef,
+                ),
+            ):
+                return
+            if isinstance(value, tuple):
+                for item in value:
+                    visit(item, active)
+                return
+            if not is_dataclass(value):
+                return
+            for description in fields(value):
+                if description.name in {"origin", "type"} or not description.init:
+                    continue
+                visit(getattr(value, description.name), active)
+
+        visit(expression, active_locals)
+        return referenced & combinational.keys()
+
+    graph: dict[str, set[str]] = {}
+    for name, memory in combinational.items():
+        controls = [memory.read_address]
+        if memory.collision is ir_storage.MemoryCollision.WRITE_FIRST:
+            controls.extend((
+                memory.write_enable,
+                memory.write_address,
+                memory.write_data,
+                memory.write_mask,
+            ))
+        graph[name] = set().union(*(
+            referenced_memories(control)
+            for control in controls
+            if control is not None
+        ))
+
+    visited: set[str] = set()
+    active: list[str] = []
+
+    def visit(name: str) -> None:
+        if name in active:
+            start = active.index(name)
+            cycle = " -> ".join(
+                f"{item}.read_data" for item in (*active[start:], name)
+            )
+            raise SemanticError(
+                f"combinational memory dependency cycle: {cycle}"
+            )
+        if name in visited:
+            return
+        active.append(name)
+        for dependency in sorted(graph[name]):
+            visit(dependency)
+        active.pop()
+        visited.add(name)
+
+    for name in sorted(graph):
+        visit(name)
 
 
 def _interface_dependencies(

@@ -4,9 +4,11 @@ module PacketRoundRobin {
 
     in  source_a : packet<u8>
     in  source_b : packet<u8>
+    in  source_c : packet<u8>
+    in  source_d : packet<u8>
     out tx       : packet<u8>
 
-    arbiter [source_a, source_b] -> tx {
+    arbiter [source_a, source_b, source_c, source_d] -> tx {
         policy round_robin
         grant packet
     }

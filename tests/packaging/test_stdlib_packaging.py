@@ -129,6 +129,7 @@ def test_wheel_contains_and_resolves_every_shipped_stdlib_module(tmp_path: Path)
     assert "stdlib/storage.zhl" in packaged
     assert "stdlib/coding/core.zhl" in packaged
     assert "stdlib/coding.zhl" in packaged
+    assert "stdlib/bus/ahb_lite.zhl" in packaged
     assert "stdlib/autodiscovery/deep/nested.zhl" in packaged
     assert "Requires-Python: <3.13,>=3.12\n" in metadata
     assert "Version: 0.1.0a1\n" in metadata

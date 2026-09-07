@@ -27,6 +27,13 @@ single-domain parent may supply an unambiguous child clock/reset implicitly;
 multi-domain hierarchy requires explicit compatible domains. Child protocol
 endpoints use `connect`, not scalar binding syntax.
 
+A reusable component fingerprint covers its typed hardware and the deterministic
+transitive closure of callables that hardware actually invokes. Functions that
+are merely visible through a parent/import context do not participate. Thus the
+same parameterless child reached through different parents is emitted once,
+while different value/type specializations or a different reachable helper body
+remain distinct and fail closed on an identity conflict.
+
 When every intermediate child conforms to one exact named interface with one
 protocol input and one protocol output, an option-free path can be written as:
 

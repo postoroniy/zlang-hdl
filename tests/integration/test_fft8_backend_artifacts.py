@@ -163,7 +163,7 @@ def test_fft8_clash_calls_each_specialization_and_uses_exact_rom_shapes() -> Non
     module = _compile().ir
     helpers = {
         item.instance.name: (
-            "protocol_fFTSDFStageNumeric_" + item.specialization_identity
+            "protocol_fFTSDFStageNumeric_s" + item.specialization_identity[:8]
         )
         for item in module.elaborated_instances
     }

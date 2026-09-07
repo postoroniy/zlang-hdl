@@ -1,13 +1,15 @@
 # Standard bus library
 
 The production bus profiles are ordinary ZLang sources. The compiler contains
-no AXI, APB, AXI-Stream, Wishbone, or RegBus transaction dispatcher.
+no AHB, AXI, APB, AXI-Stream, Wishbone, or RegBus transaction dispatcher.
 
 | Import | Source-owned declarations | Initial profile |
 | --- | --- | --- |
 | `std.bus.reg` | `RegBus`, CSR bank/target | In-order request/response CSR boundary |
 | `std.bus.axi_lite` | `AXI4Lite`, `AXI4LiteToRegBus` | 32/32-compatible, independent AW/W buffering |
+| `std.bus.axi_burst` | `AXI4BurstSubset`, read/write views and helpers | No-ID, single-outstanding, full-width incrementing bursts |
 | `std.bus.apb` | `APB`, `APBToRegBus` | APB setup/access sequencing |
+| `std.bus.ahb_lite` | `AHBLite`, `AHBLiteToRegBus` | Single-manager, full-width AHB-Lite to RegBus |
 | `std.bus.axi_stream` | `AXIStream`, `AXIStreamPipe` | Data/keep/strb/last ready/valid stream |
 | `std.bus.wishbone` | `Wishbone`, `WishboneToRegBus` | B4 Classic single-beat, ack/err/stall |
 
@@ -18,19 +20,80 @@ the held RegBus error through `PSLVERR` on the access completion. Wishbone uses
 mutually exclusive normal `ACK` and abnormal `ERR` termination; either one
 retires the single outstanding request.
 
+AHB-Lite preserves the protocol's pipelined address/data relationship. The
+bridge captures an accepted address/control phase, consumes write data in the
+following data phase, and holds `HREADYOUT` low while its one RegBus request is
+pending. Local size/alignment errors and RegBus failures both use the standard
+two-cycle ERROR response: low-ready/high-response followed by
+high-ready/high-response. The first profile accepts aligned, full-bus-width
+transfers for power-of-two byte-addressable data widths from 8 through 1024;
+subword transfer strobes are deliberately deferred.
+
+The bridge's public domain is active-low `hresetn` with asynchronous assertion
+and the language's two-edge synchronized release. The external reset pin keeps
+its AHB polarity, `HREADYOUT` is high during reset, and connected sequential
+RegBus logic must share that exact physical reset contract.
+
 `std` is a logical namespace mapped to the physical `stdlib/` source tree. The
 resolver discovers `.zhl` modules by convention, resolves a deterministic
 dependency closure, rejects cycles and unsafe paths, and records every logical
 identity/content hash in semantic, canonical, and backend artifacts.
 
-Full AXI4 bursts/IDs, AXI-Stream sideband ID/dest/user, Wishbone burst/retry,
-automatic adapters and CDC are deliberately not provided by these profiles.
+Full AXI4 with IDs, multiple outstanding transactions, general burst kinds and
+sidebands, AXI-Stream ID/dest/user, Wishbone burst/retry, automatic adapters and
+CDC are deliberately not provided by these profiles. The narrower ZTPU burst
+profile described below is supported without claiming that broader surface.
 
 Runnable integrated examples are [AXI4-Lite CSR](../examples/axi_csr_top.zhl),
 [APB CSR](../examples/apb_csr_top.zhl),
+[AHB-Lite CSR](../examples/ahb_csr_top.zhl),
 [Wishbone CSR](../examples/wishbone_csr_top.zhl), and the
-[streaming packet engine](../examples/streaming_packet_engine.zhl). Python models in
+[streaming packet engine](../examples/streaming_packet_engine.zhl). The bounded
+burst helpers are exposed by the
+[ZTPU AXI burst witness](../examples/ztpu_axi_burst.zhl). Python models in
 `zlang/standard_bus.py` remain independent test oracles only.
+
+The AHB-Lite contract follows the
+[Arm AMBA 3 AHB-Lite protocol](https://documentation-service.arm.com/static/5f914801f86e16515cdc2a27)
+rather than the
+older ZTPU model's simplified same-cycle "AHB-like" behavior. In particular,
+write address/control and `HWDATA` are not sampled in the same phase, and ERROR
+is not shortened to one cycle. The source profile and executable tests freeze
+that bounded contract; broader AHB features remain explicit exclusions below.
+
+## Bounded ZTPU AXI burst subset
+
+`std.bus.axi_burst` is ordinary source-authoritative ZLang HDL. It defines a
+combined `AXI4BurstSubset<AW,DW>` with independent AR/R and AW/W/B ready/valid
+channels, together with read-only and write-only protocol views for ZTPU's
+separate physical master ports. Address payloads carry byte address, eight-bit
+beats-minus-one `len`, and three-bit beat `size`; read and write data carry
+`last`, and R/B carry the exact two-bit response value.
+
+The reusable `AXI4BurstReader<AW,DW,LW>` and
+`AXI4BurstWriter<AW,DW,LW>` accept aligned 1–256-beat requests and permit one
+outstanding transaction each. AR and AW payloads are snapshotted and remain
+stable until accepted. Read consumer backpressure drives RREADY directly. The
+writer accepts AW before exposing W, while AW, W, and B remain independent
+handshakes; its ready/valid producer retains W data while stalled. Counted
+framing owns completion: the reader reports early or missing RLAST but drains
+the requested beat count, while the writer generates WLAST on its locally
+counted final beat. Any nonzero RRESP or BRESP sets a sticky boolean error for
+that transaction epoch.
+
+The concrete `AW=64,DW=32` reader/writer witness passes semantic and canonical
+round trips, deterministic artifact checks, bounded simulator traces,
+direct-SystemVerilog/Verilator, and real Clash 1.11/Verilator. Validation
+includes 1- and 256-beat requests, invalid 0
+and 257 lengths, misalignment, independent channel stalls, stable owned
+payloads, RLAST/RRESP/BRESP failures, reset in active phases, and ignored starts
+while busy. No compiler, simulator, or backend dispatches on AXI names.
+
+This profile deliberately omits IDs, WSTRB, burst-kind, lock, cache, protection,
+QoS, region and user fields, multiple outstanding transactions, UB-DMA burst
+chunking, command-descriptor decoding, fences, CDC, or implicit adaptation. Its
+accepted semantic boundary is recorded in the private ZTPU AXI burst design
+freeze; the public contract is the bounded profile stated above.
 
 ## Historical migration record
 

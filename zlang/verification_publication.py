@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from zlang.backend.naming import RTL_NAMING_SCHEMA
+
 from dataclasses import dataclass, replace
 import hashlib
 import json
@@ -332,7 +334,11 @@ def _prepared_route_recipe(
             "version": _compiler_version(),
             "canonical_ir": CANONICAL_IR_IDENTITY_SCHEMA,
             "formal_predicate": FORMAL_PREDICATE_SCHEMA,
-            "verification_publication": 6,
+            # v7 binds rule-fire projection to the exact effective reset.
+            # Older prepared artifacts can otherwise retain the raw active-high
+            # predicate even when the production reset contract is different.
+            "verification_publication": 7,
+            "rtl_naming": RTL_NAMING_SCHEMA,
         },
         "tool_route": tool_route,
     }

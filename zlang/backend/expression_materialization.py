@@ -69,6 +69,11 @@ def module_expression_roots(
     roots.extend(local.expression for local in module.locals)
     roots.extend(assignment.expression for assignment in module.assignments)
     roots.extend(assignment.expression for assignment in module.next_assignments)
+    roots.extend(
+        assignment.activation
+        for assignment in module.next_assignments
+        if assignment.activation is not None
+    )
     # A backend may render register reset values in a static/value context
     # instead of through its runtime expression renderer.  Such initializers
     # must not make an otherwise dead Signal temporary appear reusable.  The
@@ -104,7 +109,10 @@ def module_expression_roots(
         # spurious "shared" temporaries.
         for rule in module.rules:
             roots.append(rule.guard)
-            roots.extend(action.expression for action in rule.actions)
+            for action in rule.actions:
+                roots.append(action.expression)
+                if action.activation is not None:
+                    roots.append(action.activation)
     else:
         for group in module.resolved_transition.action_groups:
             roots.append(group.guard)
@@ -112,6 +120,11 @@ def module_expression_roots(
                 operand
                 for action in group.actions
                 for operand in action.operands
+            )
+            roots.extend(
+                action.activation
+                for action in group.actions
+                if action.activation is not None
             )
     if normalize is not None:
         return tuple(normalize(root) for root in roots)

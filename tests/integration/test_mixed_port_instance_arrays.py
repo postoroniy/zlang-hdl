@@ -70,11 +70,12 @@ def test_mixed_port_array_simulates_and_round_trips_artifacts() -> None:
     assert first.text == second.text
     assert first.artifact_hash == second.artifact_hash
     assert BackendArtifact.from_json(first.to_json()).to_json() == first.to_json()
-    assert first.text.count("module MixedLane__") == 1
-    assert first.text.count("MixedLane__") == 3
+    suffix = module.elaborated_instances[0].specialization_identity[:8]
+    assert first.text.count(f"module MixedLane_s{suffix}") == 1
+    assert first.text.count(f"MixedLane_s{suffix}") == 3
     clash = emit_clash(module)
     assert clash == emit_clash(module)
-    assert clash.count("protocol_mixedLane ::") == 1
+    assert clash.count(f"protocol_mixedLane_s{suffix} ::") == 1
 
 
 @pytest.mark.skipif(shutil.which("verilator") is None, reason="Verilator unavailable")

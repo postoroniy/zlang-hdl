@@ -14,6 +14,13 @@ Audited local reference commit:
 Original notice:
     Copyright (c) 2006 Nirav Dave (ndave@csail.mit.edu)
 
-The ZLang project preserves attribution while deliberately separating source
-implementation from compatibility and independent-oracle tests. No PDF or
-other non-source artifact from the historical checkout is redistributed here.
+ZLang port and modifications:
+    Copyright (c) 2026 Viacheslav Vinogradov
+
+The original material and the ZLang port and modifications in this subtree are
+distributed under the MIT License reproduced in LICENSE. Contributions to this
+subtree are accepted under that MIT license unless an individual file clearly
+states another compatible license. The ZLang project preserves attribution
+while deliberately separating source implementation from compatibility and
+independent-oracle tests. No PDF or other non-source artifact from the
+historical checkout is redistributed here.

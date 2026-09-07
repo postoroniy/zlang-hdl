@@ -1202,7 +1202,14 @@ def inline_locals(module: IrModule) -> IrModule:
             for item in module.assignments
         ),
         next_assignments=tuple(
-            replace(item, expression=walk(item.expression))
+            replace(
+                item,
+                expression=walk(item.expression),
+                activation=(
+                    walk(item.activation)
+                    if item.activation is not None else None
+                ),
+            )
             for item in module.next_assignments
         ),
         rules=tuple(
@@ -1210,7 +1217,14 @@ def inline_locals(module: IrModule) -> IrModule:
                 rule,
                 guard=walk(rule.guard),
                 actions=tuple(
-                    replace(action, expression=walk(action.expression))
+                    replace(
+                        action,
+                        expression=walk(action.expression),
+                        activation=(
+                            walk(action.activation)
+                            if action.activation is not None else None
+                        ),
+                    )
                     for action in rule.actions
                 ),
             )

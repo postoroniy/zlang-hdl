@@ -1,0 +1,27 @@
+// ZTPU-compatible inferred-memory witness: combinational read, synchronous
+// write, and runtime reset that preserves both cells and the visible read path.
+module ZtpuAsyncMemory {
+    clock clk reset rst
+    in read_address : u2
+    in write_enable : bit
+    in write_address : u2
+    in write_data : u16
+    in write_mask : bits<2>
+    out read_data : u16
+
+    memory table : mem<u16,4> {
+        read_latency 0
+        collision read_first
+        reset {
+            contents preserve
+            read_data preserve
+        }
+    }
+
+    table.read_address = read_address
+    table.write_enable = write_enable
+    table.write_address = write_address
+    table.write_data = write_data
+    table.write_mask = write_mask
+    read_data = table.read_data
+}

@@ -255,10 +255,10 @@ def test_private_tracker_names_are_collision_safe_and_deterministic() -> None:
     assert first.support_lines == second.support_lines
     assert first.release_tracker_name is not None
     assert first.release_tracker_name.startswith(
-        "zlang_formal_reset_release__"
+        "zlang_formal_reset_release_"
     )
     assert first.reset_active_name is not None
-    assert first.reset_active_name.startswith("zlang_formal_reset_active__")
+    assert first.reset_active_name.startswith("zlang_formal_reset_active_")
 
 
 def test_power_up_reset_and_invalid_physical_tokens_fail_closed() -> None:

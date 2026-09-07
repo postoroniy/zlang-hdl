@@ -7,6 +7,7 @@ from functools import cache
 from fractions import Fraction
 import re
 from importlib.resources import files
+from threading import Lock
 
 from lark import Lark, Transformer, UnexpectedInput, v_args
 from lark.exceptions import VisitError
@@ -44,6 +45,7 @@ from zlang.ast.nodes import (
     CostMetric,
     CostPolicy,
     CollectionSumExpr,
+    ConditionalAction,
     Crossing,
     CrossingKind,
     CsrAccess,
@@ -106,6 +108,7 @@ from zlang.ast.nodes import (
     MuxExpr,
     MemoryCollision,
     MemoryDecl,
+    MemoryResetPolicy,
     MapExpr,
     NameExpr,
     NumberExpr,
@@ -582,16 +585,49 @@ class _AstBuilder(Transformer):
             parsed.append(SpecializationArgument(name, value))
         return TypeName(base), tuple(parsed)
 
-    def concise_rule_body(self, items: list[object]) -> tuple[object, ...]:
-        actions = tuple(
-            item for item in items[1:]
-            if isinstance(item, (NextAssignment, ResourceAction))
+    def _root_action_chain(
+        self,
+        guard: object,
+        block: object,
+        remaining: list[object],
+        origin: SourceSpan | None,
+    ) -> tuple[object, tuple[object, ...]]:
+        """Return one rule guard/action list for a root ``when`` chain.
+
+        The compatibility shape is retained when no ``else`` follows.  A root
+        chain must be schedulable even when its first condition is false, so
+        it becomes one always-enabled rule containing one conditional action.
+        The comparison is an ordinary, constant-foldable bit expression; no
+        boolean literal or backend-only node is introduced.
+        """
+
+        actions = self._action_block(block)
+        alternative = next(
+            (item[1] for item in remaining if _tagged(item, "conditional_else")),
+            None,
+        )
+        if alternative is None:
+            return guard, actions
+        always = BinaryExpr(
+            BinaryOperator.EQUAL,
+            NumberExpr(0, origin=origin),
+            NumberExpr(0, origin=origin),
+            origin=origin,
+        )
+        return always, (ConditionalAction(guard, actions, alternative, origin),)
+
+    @v_args(meta=True)
+    def concise_rule_body(
+        self, meta: object, items: list[object]
+    ) -> tuple[object, ...]:
+        guard, actions = self._root_action_chain(
+            items[0], items[1], items[2:], self._span(meta)
         )
         if not actions:
             raise ParseError("concise atomic rule cannot be empty")
         return (
             "concise_rule",
-            items[0],
+            guard,
             actions,
         )
 
@@ -1320,6 +1356,42 @@ class _AstBuilder(Transformer):
     def rule_assignment(self, items: list[object]) -> NextAssignment:
         return NextAssignment(items[0], items[1])
 
+    @staticmethod
+    def _action_block(value: object) -> tuple[object, ...]:
+        if not _tagged(value, "action_block"):
+            raise ParseError("invalid atomic action block")
+        return value[1]
+
+    def action_block(self, items: list[object]) -> tuple[object, ...]:
+        return (
+            "action_block",
+            tuple(
+                item for item in items
+                if isinstance(item, (NextAssignment, ResourceAction, ConditionalAction))
+            ),
+        )
+
+    def conditional_else_block(self, items: list[object]) -> tuple[object, ...]:
+        return ("conditional_else", self._action_block(items[0]))
+
+    def conditional_else_when(self, items: list[object]) -> tuple[object, ...]:
+        return ("conditional_else", (items[0],))
+
+    @v_args(meta=True)
+    def conditional_action(
+        self, meta: object, items: list[object]
+    ) -> ConditionalAction:
+        when_false = next(
+            (item[1] for item in items[2:] if _tagged(item, "conditional_else")),
+            None,
+        )
+        return ConditionalAction(
+            items[0],
+            self._action_block(items[1]),
+            when_false,
+            self._span(meta),
+        )
+
     @v_args(meta=True)
     def resource_action(self, meta: object, items: list[object]) -> ResourceAction:
         return ResourceAction(
@@ -1342,14 +1414,17 @@ class _AstBuilder(Transformer):
 
     @v_args(meta=True)
     def rule_decl(self, meta: object, items: list[object]) -> RuleDecl:
+        origin = self._span(meta)
+        guard, actions = self._root_action_chain(
+            items[1], items[2], items[3:], origin
+        )
+        if not actions:
+            raise ParseError("atomic rule cannot be empty")
         return RuleDecl(
             str(items[0]),
-            items[1],
-            tuple(
-                item for item in items[2:]
-                if isinstance(item, (NextAssignment, ResourceAction))
-            ),
-            self._span(meta),
+            guard,
+            actions,
+            origin,
         )
 
     def concise_rule_decl(self, items: list[object]) -> RuleDecl:
@@ -1358,21 +1433,21 @@ class _AstBuilder(Transformer):
         return RuleDecl(
             str(items[0]),
             items[1],
-            tuple(
-                item for item in items[2:]
-                if isinstance(item, (NextAssignment, ResourceAction))
-            ),
+            self._action_block(items[2]),
         )
 
     @v_args(meta=True)
     def anonymous_rule_decl(self, meta: object, items: list[object]) -> AnonymousRuleDecl:
+        origin = self._span(meta)
+        guard, actions = self._root_action_chain(
+            items[0], items[1], items[2:], origin
+        )
+        if not actions:
+            raise ParseError("atomic rule cannot be empty")
         return AnonymousRuleDecl(
-            items[0],
-            tuple(
-                item for item in items[1:]
-                if isinstance(item, (NextAssignment, ResourceAction))
-            ),
-            self._span(meta),
+            guard,
+            actions,
+            origin,
         )
 
     def rule_priority(self, items: list[object]) -> RulePriority | RulePriorityChain:
@@ -1383,26 +1458,28 @@ class _AstBuilder(Transformer):
 
     @v_args(meta=True)
     def labeled_priority_arm(self, meta: object, items: list[object]) -> PriorityRuleArm:
+        origin = self._span(meta)
+        guard, actions = self._root_action_chain(
+            items[1], items[2], items[3:], origin
+        )
         return PriorityRuleArm(
             str(items[0]),
-            items[1],
-            tuple(
-                item for item in items[2:]
-                if isinstance(item, (NextAssignment, ResourceAction))
-            ),
-            self._span(meta),
+            guard,
+            actions,
+            origin,
         )
 
     @v_args(meta=True)
     def anonymous_priority_arm(self, meta: object, items: list[object]) -> PriorityRuleArm:
+        origin = self._span(meta)
+        guard, actions = self._root_action_chain(
+            items[0], items[1], items[2:], origin
+        )
         return PriorityRuleArm(
             None,
-            items[0],
-            tuple(
-                item for item in items[1:]
-                if isinstance(item, (NextAssignment, ResourceAction))
-            ),
-            self._span(meta),
+            guard,
+            actions,
+            origin,
         )
 
     def nested_priority_arm(self, items: list[object]) -> object:
@@ -1416,18 +1493,18 @@ class _AstBuilder(Transformer):
     def fsm_transition(
         self, meta: object, items: list[object]
     ) -> FsmTransitionDecl:
+        block = next(
+            item for item in items if _tagged(item, "action_block")
+        )
         guard = next(
             (
                 item for item in items
-                if not isinstance(item, (str, NextAssignment, ResourceAction))
+                if not isinstance(item, str) and item is not block
             ),
             None,
         )
         target = next(str(item) for item in items if isinstance(item, str))
-        actions = tuple(
-            item for item in items
-            if isinstance(item, (NextAssignment, ResourceAction))
-        )
+        actions = self._action_block(block)
         return FsmTransitionDecl(target, actions, guard, self._span(meta))
 
     def fsm_hold(self, _items: list[object]) -> tuple[str]:
@@ -1482,13 +1559,32 @@ class _AstBuilder(Transformer):
 
     @v_args(meta=True)
     def memory_decl(self, meta: object, items: list[object]) -> MemoryDecl:
+        reset_policy = next(
+            (item for item in items if _tagged(item, "memory_reset_policy")),
+            None,
+        )
         return MemoryDecl(
             str(items[0]),
             items[1],
             items[2],
-            int(str(items[3])),
+            self._parse_number(items[3]),
             MemoryCollision(str(items[4])),
             self._span(meta),
+            contents_reset=(
+                reset_policy[1]
+                if reset_policy is not None else MemoryResetPolicy.CLEAR
+            ),
+            read_data_reset=(
+                reset_policy[2]
+                if reset_policy is not None else MemoryResetPolicy.CLEAR
+            ),
+        )
+
+    def memory_reset_policy(self, items: list[object]) -> tuple[object, ...]:
+        return (
+            "memory_reset_policy",
+            MemoryResetPolicy(str(items[0])),
+            MemoryResetPolicy(str(items[1])),
         )
 
     @v_args(meta=True)
@@ -2563,11 +2659,22 @@ class _AstBuilder(Transformer):
 
 
 _GRAMMAR = files("zlang.parser").joinpath("grammar.lark").read_text()
-_PARSER = Lark(
-    _GRAMMAR,
-    parser="lalr",
-    propagate_positions=True,
-)
+_PARSER: Lark | None = None
+_PARSER_LOCK = Lock()
+
+
+def _get_parser() -> Lark:
+    """Construct the shared parser once; a failed construction can be retried."""
+
+    global _PARSER
+    with _PARSER_LOCK:
+        if _PARSER is None:
+            _PARSER = Lark(
+                _GRAMMAR,
+                parser="lalr",
+                propagate_positions=True,
+            )
+        return _PARSER
 
 
 @cache
@@ -2579,7 +2686,7 @@ def _ordinary_binding_name_is_valid(name: str) -> bool:
         "module __TupleBindingProbe{out y:u1 y=0}"
     )
     try:
-        _PARSER.parse(probe)
+        _get_parser().parse(probe)
     except UnexpectedInput:
         return False
     return True
@@ -2597,23 +2704,8 @@ def parse(source: str) -> Module:
     """Parse one ZLang module."""
 
     try:
-        tree = _PARSER.parse(source)
+        tree = _get_parser().parse(source)
     except UnexpectedInput as error:
-        # Diagnose the rejected ``else when`` spelling from lexer tokens, not
-        # the raw source text.  Raw matching made harmless line/block comments
-        # containing the phrase fail before Lark had a chance to discard them.
-        history = tuple(getattr(error, "token_history", ()) or ())
-        token = getattr(error, "token", None)
-        if (
-            token is not None
-            and str(token) == "when"
-            and history
-            and str(history[-1]) == "else"
-        ):
-            raise ParseError(
-                "else when is not an atomic rule form; use independent when rules "
-                "or priority { ... }"
-            ) from error
         context = error.get_context(source).strip()
         raise ParseError(
             f"syntax error at line {error.line}, column {error.column}: {context}"

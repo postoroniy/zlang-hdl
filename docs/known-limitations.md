@@ -25,6 +25,10 @@ intersection: it must not publish RTL after silently dropping an IR entity.
   combinations must produce a structured diagnostic rather than partial RTL.
 - The Python API is provisional.  The command-line interface and versioned
   artifact/lock/bundle schemas are the intended integration surfaces.
+- Simulation-only architectural state access is currently a generic direct-SV/
+  Verilator facility for one exact clock/reset domain. It does not expose
+  backend-created FIFO, CSR, protocol, CDC, target-mapped, or Clash state and
+  must not be confused with synthesizable memory initialization.
 
 ## Verification boundaries
 

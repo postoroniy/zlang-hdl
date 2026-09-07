@@ -243,7 +243,7 @@ def test_target_dsp_model_is_bit_exact_in_verilator(tmp_path: Path) -> None:
     )
     assert "input wire logic signed [11:0] samples [0:7]" in target_text
     assert "input wire logic signed [11:0] coefficients [0:3]" in target_text
-    assert "module SymmetricFixedFIR__zlang_core (" in target_text
+    assert "module SymmetricFixedFIR_zlang_core (" in target_text
     target_artifact = emit_target_artifact(
         result.ir, result.implementation_graph, simulation_model=True
     )

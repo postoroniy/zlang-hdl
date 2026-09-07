@@ -20,33 +20,34 @@ ROOT = Path(__file__).resolve().parents[2]
 VERILATOR = shutil.which("verilator")
 
 # Captured after the always-leaf public-top ABI, explicit internal-driver
-# normalization, and connection-owned request/response admission/accounting.
+# normalization, connection-owned request/response admission/accounting, and
+# hierarchy-local naming schema v1 (public ports remain unchanged).
 # They cover ready/valid hierarchy (including legal full-buffer simultaneous
 # pop/push), unbuffered request/response, directional request/response FIFOs
 # with a stateful mixed-port child, and source-authored aggregate bus/CSR
 # hierarchy.
 EXPECTED_ARTIFACTS = {
     ("hierarchical_protocol_m40.zhl", "ProtocolTop"): (
-        "4b6a498ba320ef15c8556a4cbf75c468d9bb88793446157b16d136c0251f881e",
-        "87d0e962cae3b885015fb30d0d16e6a64ad8abf230780b766ef0734d80cbe694",
+        "6e6c27cf50bd5126097daed621d04d1e07b3bd55824b2fb708d31982fdc54a80",
+        "68a892ca58919d9d4e9258b57de6d19c3e09e14d0b50949cd3de5df993d69c6d",
         19,
     ),
     ("hierarchical_request_response_m40.zhl", "HierarchicalRequestResponse"): (
-        "d3c85fd06fdcb7cb0d4dea986f3cf777e0a6a3bf134a9fe83015a56f239cbece",
-        "4d7c57c2d012860e27774d85ac19d519f583bd69614c463f06e48ab613a0b7cf",
+        "2fb5e7ce3a95471fded0bf9500c2c4314ee16edcf64e1ff53f37454317031706",
+        "d477f309a02b3d36b792ad96fa0fae71f90a8c7e0556248197a574f162e32076",
         27,
     ),
     ("simple_dma_m40.zhl", "SimpleDMA"): (
         # Request/response buffers retain their frozen conservative admission
         # rule and therefore use the explicitly distinct helper family after
         # ordinary ready/valid FIFOs gained full pop/push replacement.
-        "20b0fd12233bc6f7bf8519693f03a676c42af6d4e97542dc2accb6cb056d0975",
-        "8304bd9129a86214637d8604cc34ba7ae5eec655d15892c567e81871e426e477",
+        "51ba8bf730454115e500cc28af83b6981bdeedb221c04af274eaa9727d8344c9",
+        "5cb5513c8de5346b6032ae74d89a3d5a3f8ccf8c4086de8d9e2904c0c71ebe25",
         29,
     ),
     ("axi_csr_top.zhl", "AxiCsrTop"): (
-        "26593d3f28137342b3a75921cbb15dc921cff5b61b2c7a4dc25e610e9b197d28",
-        "0ba1d70d9295e16a07bf4659a41e3dc1944c181808de525ec092797c1e6c4b57",
+        "7354ad915d8933d98ea45d42ad4c75d148ac26d61a98869f69a5dee063875d3a",
+        "5a84aa7c578c358fd6b0358447f228eb23f0a6d0e87508dbc838f085f21559e8",
         77,
     ),
 }

@@ -139,8 +139,9 @@ def test_reserved_struct_root_uses_flattened_core_names_and_private_allocation()
     # the instance and output temporary are then renamed deterministically.
     assert "input wire [7:0] zlang_top_core" in wrapper.text
     assert "input wire [7:0] zlang_top_core_output_re" in wrapper.text
-    assert "zlang_core_ReservedStructRootTop zlang_top_core__" in wrapper.text
-    assert "wire [7:0] zlang_top_core_output_re__" in wrapper.text
+    assert "zlang_core_ReservedStructRootTop zlang_top_core_" in wrapper.text
+    assert "wire [7:0] zlang_top_core_output_re_" in wrapper.text
+    assert "zlang_top_core__" not in wrapper.text
     assert wrapper.text == ClashPublicTopWrapper.build(compilation.ir).text
 
 

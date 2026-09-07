@@ -77,11 +77,11 @@ def test_sequential_array_direct_sv_is_structural_and_deterministic() -> None:
     assert first.text == second.text
     assert first.artifact_hash == second.artifact_hash
     assert first.to_json() == second.to_json()
-    assert first.text.count("module StateLane__") == 1
-    assert first.text.count("StateLane__") == 3  # definition plus two instances
+    assert first.text.count("module StateLane_s") == 1
+    assert first.text.count("StateLane_s") == 3  # definition plus two instances
     assert first.text.count("always_ff @(posedge clk)") == 1
-    assert "assign values = {zlang_instance_lane_0_" in first.text
-    assert "zlang_instance_lane_1_" in first.text
+    assert "assign values = {lane_0_value, lane_1_value}" in first.text
+    assert " lane_0 (" in first.text and " lane_1 (" in first.text
     assert ".enable(enables[1])" in first.text
     assert ".enable(enables[0])" in first.text
 

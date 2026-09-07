@@ -12,14 +12,14 @@ createDomain vSystem{vName="ZLangSystem", vResetKind=Synchronous}
 circuit :: HiddenClockResetEnable ZLangSystem => Signal ZLangSystem (Unsigned 8) -> Signal ZLangSystem (Unsigned 8) -> Signal ZLangSystem (Unsigned 8) -> Signal ZLangSystem (Unsigned 8) -> Signal ZLangSystem (Unsigned 8) -> Signal ZLangSystem (Unsigned 8) -> Signal ZLangSystem (Unsigned 8) -> Signal ZLangSystem (Unsigned 8) -> Signal ZLangSystem (Unsigned 19)
 circuit a b c d e f g h = y
  where
-  pipeline_10_s1 = register (0 :: Unsigned 16) ((\value_0 value_1 -> (resize (value_0) :: Unsigned 16) * (resize (value_1) :: Unsigned 16)) <$> a <*> b)
-  pipeline_11_s1 = register (0 :: Unsigned 16) ((\value_0 value_1 -> (resize (value_0) :: Unsigned 16) * (resize (value_1) :: Unsigned 16)) <$> c <*> d)
-  pipeline_14_s1 = register (0 :: Unsigned 17) ((\value_0 value_1 -> (resize (value_0) :: Unsigned 17) + (resize (value_1) :: Unsigned 17)) <$> pipeline_10_s1 <*> pipeline_11_s1)
-  pipeline_12_s1 = register (0 :: Unsigned 16) ((\value_0 value_1 -> (resize (value_0) :: Unsigned 16) * (resize (value_1) :: Unsigned 16)) <$> e <*> f)
-  pipeline_13_s1 = register (0 :: Unsigned 16) ((\value_0 value_1 -> (resize (value_0) :: Unsigned 16) * (resize (value_1) :: Unsigned 16)) <$> g <*> h)
-  pipeline_15_s1 = register (0 :: Unsigned 17) ((\value_0 value_1 -> (resize (value_0) :: Unsigned 17) + (resize (value_1) :: Unsigned 17)) <$> pipeline_12_s1 <*> pipeline_13_s1)
-  pipeline_16_s1 = register (0 :: Unsigned 18) ((\value_0 value_1 -> (resize (value_0) :: Unsigned 18) + (resize (value_1) :: Unsigned 18)) <$> pipeline_14_s1 <*> pipeline_15_s1)
-  y = (\value_0 -> (resize (value_0) :: Unsigned 19)) <$> pipeline_16_s1
+  zlang_pipe_10_s1 = register (0 :: Unsigned 16) ((\value_0 value_1 -> (resize (value_0) :: Unsigned 16) * (resize (value_1) :: Unsigned 16)) <$> a <*> b)
+  zlang_pipe_11_s1 = register (0 :: Unsigned 16) ((\value_0 value_1 -> (resize (value_0) :: Unsigned 16) * (resize (value_1) :: Unsigned 16)) <$> c <*> d)
+  zlang_pipe_14_s1 = register (0 :: Unsigned 17) ((\value_0 value_1 -> (resize (value_0) :: Unsigned 17) + (resize (value_1) :: Unsigned 17)) <$> zlang_pipe_10_s1 <*> zlang_pipe_11_s1)
+  zlang_pipe_12_s1 = register (0 :: Unsigned 16) ((\value_0 value_1 -> (resize (value_0) :: Unsigned 16) * (resize (value_1) :: Unsigned 16)) <$> e <*> f)
+  zlang_pipe_13_s1 = register (0 :: Unsigned 16) ((\value_0 value_1 -> (resize (value_0) :: Unsigned 16) * (resize (value_1) :: Unsigned 16)) <$> g <*> h)
+  zlang_pipe_15_s1 = register (0 :: Unsigned 17) ((\value_0 value_1 -> (resize (value_0) :: Unsigned 17) + (resize (value_1) :: Unsigned 17)) <$> zlang_pipe_12_s1 <*> zlang_pipe_13_s1)
+  zlang_pipe_16_s1 = register (0 :: Unsigned 18) ((\value_0 value_1 -> (resize (value_0) :: Unsigned 18) + (resize (value_1) :: Unsigned 18)) <$> zlang_pipe_14_s1 <*> zlang_pipe_15_s1)
+  y = (\value_0 -> (resize (value_0) :: Unsigned 19)) <$> zlang_pipe_16_s1
 
 topEntity :: Clock ZLangSystem -> Reset ZLangSystem -> Signal ZLangSystem (Unsigned 8) -> Signal ZLangSystem (Unsigned 8) -> Signal ZLangSystem (Unsigned 8) -> Signal ZLangSystem (Unsigned 8) -> Signal ZLangSystem (Unsigned 8) -> Signal ZLangSystem (Unsigned 8) -> Signal ZLangSystem (Unsigned 8) -> Signal ZLangSystem (Unsigned 8) -> Signal ZLangSystem (Unsigned 19)
 topEntity clk rst a b c d e f g h = exposeClockResetEnable circuit clk rst enableGen a b c d e f g h

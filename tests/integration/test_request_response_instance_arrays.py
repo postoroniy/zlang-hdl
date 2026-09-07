@@ -213,10 +213,10 @@ def test_backend_artifacts_are_deterministic_and_bind_each_ledger() -> None:
     assert BackendArtifact.from_json(clash_first.to_json()).bindings == (
         clash_first.bindings
     )
-    assert first.text.count("module ArrayRequester__") == 1
-    assert first.text.count("module ArrayResponder__") == 1
-    assert first.text.count("ArrayRequester__") == 3
-    assert first.text.count("ArrayResponder__") == 3
+    assert first.text.count("module ArrayRequester_s") == 1
+    assert first.text.count("module ArrayResponder_s") == 1
+    assert first.text.count("ArrayRequester_s") == 3
+    assert first.text.count("ArrayResponder_s") == 3
     tracker_ids = {
         f"{item.semantic_id}:outstanding"
         for item in module.request_response_connections

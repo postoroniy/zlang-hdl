@@ -164,7 +164,7 @@ def test_fft16_clash_dispatches_exact_helpers_and_rom_shapes() -> None:
     module = _compile().ir
     helpers = {
         item.instance.name: (
-            "protocol_fFTSDFStageNumeric_" + item.specialization_identity
+            "protocol_fFTSDFStageNumeric_s" + item.specialization_identity[:8]
         )
         for item in module.elaborated_instances
     }

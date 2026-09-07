@@ -8,7 +8,7 @@ coordination logs are historical evidence: their original scope, tool results,
 and test counts remain valid for the recorded slice but are not the current
 repository baseline.
 
-Snapshot date: **2026-09-01**.
+Snapshot date: **2026-09-03**.
 
 The bounded formal-closure and concise-lowering follow-up is accepted in this
 snapshot. Its current public behavior is documented in
@@ -28,8 +28,8 @@ property/observation family, or new equivalence relation.
   complete eight-worker JUnit reports against that manifest. This includes
   compiler-owned formal closure, concise lowering, specialization-safe M39,
   exact physical reset applicability, and real external-tool integrations.
-- Exhaustive example registry: **80 `.zhl` files / 165 module roots / 150
-  standalone roots / 15 child or template roots / 0 unsupported roots**.
+- Exhaustive example registry: **84 `.zhl` files / 174 module roots / 157
+  standalone roots / 17 child or template roots / 0 unsupported roots**.
 - Every standalone direct-SystemVerilog root emits a `BackendArtifact` and
   passes strict Verilator lint; child/template roots are exercised through a
   concrete parent.
@@ -37,6 +37,9 @@ property/observation family, or new equivalence relation.
   SymbiYosys 0.68, `yosys-smtbmc`, and Z3 4.8.12.
 - The complete 1,033-cycle FFT512 persistent-hierarchy replay runs by default,
   accepts all 1,023 offered tokens, and produces the frozen 512-output digest.
+- Direct-SV simulation tooling can publish a separate semantic state catalog
+  and Verilator VPI header for exact register/vector/writable-memory preload
+  and inspection. It does not add RTL ports or change the production artifact.
 
 These counts describe the checked-in corpus and accepted regression, not a
 promise that every future combination of typed IR is supported. Backends and
@@ -70,13 +73,19 @@ The current language includes:
   constant/function parameters, compile-time constraints, deterministic
   generation and functional `map`/`reduce`/`sum`/`dot` regions;
 - registers, exact delays and fixed pipelines, concise enum FSMs, atomic guarded
-  rules with explicit priority, runtime-indexed one-dimensional vector-register
-  updates, FIFOs, synchronous memories with rule-local actions, and immutable
-  initialized synchronous ROMs;
+  rules with recursive runtime `when`/`else when`/`else`, one outer `Rule` and
+  `ActionGroup` identity, active-effect and output-conflict scheduling, and
+  explicit priority; runtime-indexed one-dimensional vector-register updates,
+  FIFOs,
+  1R1W writable memories with global zero/one-cycle reads,
+  independent cell/read-result reset policy and one-cycle rule-local actions,
+  source-composed replicated read ports through compile-time child arrays, and
+  immutable initialized synchronous ROMs;
 - parameterized hierarchy, named module interfaces, bounded external modules,
   scalar/mixed/protocol children, instance arrays, read-only runtime instance
   output projection, ready/valid, credit, request/response, packet/VC,
-  arbitration, CSR, aggregate protocols, and explicit CDC;
+  arbitration, CSR, aggregate protocols, the source-owned bounded ZTPU AXI
+  burst profile with single-outstanding read/write helpers, and explicit CDC;
 - default synchronous reset, raw asynchronous-reset compatibility, and concise
   asynchronous assertion with one root-owned two-edge synchronized release;
 - canonical optimization IR, bounded pure-value equality saturation, explicit
@@ -219,9 +228,19 @@ boundaries.
 The compiler-shipped `std` namespace is resolved recursively from ordinary
 source under `stdlib/`. It currently includes fixed and Complex math, stream
 core/serialization helpers, FFT helpers, storage/ROM wrappers, coding helpers,
-RegBus, AXI4-Lite, APB, AXI-Stream, Wishbone B4 Classic, and generic/ASIC/Intel/
-Xilinx target and architecture descriptions. Bus behavior remains
-source-authoritative `.zhl`; Python bus models are independent oracles.
+RegBus, AHB-Lite, AXI4-Lite, the bounded no-ID ZTPU AXI burst profile, APB, AXI-Stream,
+Wishbone B4 Classic, and generic/ASIC/Intel/Xilinx target and architecture
+descriptions. Bus behavior remains source-authoritative `.zhl`; Python bus
+models are independent oracles.
+
+The ZTPU profile publishes combined and separate read/write views over AR/R and
+AW/W/B, plus aligned single-outstanding reader/writer helpers. The 64/32 witness
+passes semantic/canonical restoration, deterministic backend artifacts,
+simulator traces, direct-SystemVerilog/Verilator, and real Clash
+1.11/Verilator. Focused acceptance covers
+1–256-beat counting, independently stalled channels, stable owned payloads,
+counted final-beat handling, deterministic R/B error latching, and reset. It is
+a bounded full-width incrementing subset, not a claim of full AXI4.
 
 Accepted real-design evidence includes SimpleDMA, source-authored bus-to-RegBus
 CSR tops, streaming packet/FIR/multi-channel DMA examples, fixed FIR and DSP48
@@ -232,11 +251,16 @@ instead of representation-only `vec<N,bit>` views.
 
 ## Explicit boundaries
 
-The current product does not claim general procedural HLS, mutable locals,
+The current product does not claim general procedural HLS or runtime
+procedural `if`/`else`. Recursive action `when` is supported as atomic effect
+selection, while compile-time `if` remains elaboration-only. The product also
+does not claim mutable locals,
 implicit numeric conversion, runtime polymorphism/traits, arbitrary runtime or
 nested state selection, runtime-selected instance inputs or protocol endpoints,
-asynchronous/multiport writable memories, automatic BRAM inference, implicit
-CDC/adapters, full AXI4 bursts/IDs, arbitrary temporal/SVA/SMT source syntax,
+native multiport writable memories, synthesizable writable-memory initialization,
+automatic BRAM inference, implicit
+CDC/adapters, full AXI4 IDs/multiple outstanding/general burst attributes,
+arbitrary temporal/SVA/SMT source syntax,
 true liveness/fairness, or general hierarchical M36/M38. Exact narrower forms
 listed in the support matrix remain supported.
 

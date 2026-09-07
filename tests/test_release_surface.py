@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 import tomllib
 
@@ -12,6 +13,15 @@ from zlang import toolchain
 
 
 ROOT = Path(__file__).resolve().parents[1]
+APACHE_2_0_CANONICAL_SHA256 = (
+    "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+)
+
+
+def test_root_license_is_unmodified_apache_2_0() -> None:
+    assert hashlib.sha256((ROOT / "LICENSE").read_bytes()).hexdigest() == (
+        APACHE_2_0_CANONICAL_SHA256
+    )
 
 
 @pytest.mark.parametrize(
@@ -71,7 +81,7 @@ def test_every_owned_hardware_source_uses_the_canonical_suffix() -> None:
     sources = tuple(path for root in roots for path in root.rglob("*.zhl"))
 
     assert legacy == ()
-    assert len(sources) == 122
+    assert len(sources) == 129
 
 
 def test_clash_discovery_has_no_machine_specific_fallback(monkeypatch) -> None:
