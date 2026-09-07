@@ -79,7 +79,7 @@
     {
       "mode": "0644",
       "path": "CHANGELOG.md",
-      "sha256": "1120c23c12b319a5d547e6c9a2c783db38c6fd8456dad1de0af44ea9445d0084"
+      "sha256": "618e0dd111ef91a3b5ba25093fb00e78ff66084bcedbe0a03a16a49431d6bc99"
     },
     {
       "mode": "0644",
@@ -194,7 +194,7 @@
     {
       "mode": "0644",
       "path": "docs/current-language-status.md",
-      "sha256": "64a6fa23f4efeb7323f354878f8e5e1d62a9e2f469f2cfdc9cc098364f8e4365"
+      "sha256": "98e28c77514be84b1a00689333fc1dd9b30c3286702ab8fa7e62907704a44cba"
     },
     {
       "mode": "0644",
