@@ -139,3 +139,9 @@ separate compiler-policy layer and do not change dependency resolution identity.
 Path dependencies declared by a Git package are also deferred in this bounded
 slice; use another pinned Git dependency instead of reaching outside a fetched
 checkout.
+
+A future optional resolver or package registry may populate the same lock
+model. It must not become an implicit compilation-time network dependency:
+ordinary compilation remains offline, and the resolved module contents and
+their recorded digests remain the authoritative dependency identity regardless
+of where the content was obtained.

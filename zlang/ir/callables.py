@@ -555,7 +555,12 @@ def reachable_callable_definitions(
     by_identity: dict[str, object] = {}
     for identity in sorted(grouped_definitions):
         candidates = grouped_definitions[identity]
-        representative = min(candidates, key=_callable_definition_order_key)
+        # A singleton needs no structural ordering key, but still needs the
+        # full validation below (including nested callee-name consistency).
+        representative = (
+            candidates[0] if len(candidates) == 1
+            else min(candidates, key=_callable_definition_order_key)
+        )
         for definition in candidates:
             if (
                 getattr(definition, "name", None)

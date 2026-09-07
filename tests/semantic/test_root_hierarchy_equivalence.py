@@ -13,7 +13,16 @@ from zlang.ir.hierarchical_values import (
     HierarchicalValueError,
     materialize_pure_hierarchical_output,
 )
-from zlang.ir.module import Assignment, Module
+from zlang.ir.expressions import Constant
+from zlang.ir.module import (
+    Assignment,
+    HierarchicalConnection,
+    Module,
+    ProtocolEndpoint,
+)
+from zlang.ir.types import UIntType
+from zlang.opt import CanonicalizationError, lower, restore
+from zlang.semantic import SemanticError
 from zlang.simulate import simulate
 
 
@@ -80,6 +89,87 @@ def test_materialization_rejects_incomplete_or_duplicate_typed_bindings() -> Non
     )
     with pytest.raises(HierarchicalValueError, match="duplicate input bindings"):
         materialize_pure_hierarchical_output(duplicate, "y")
+
+
+def test_semantic_and_canonical_hierarchy_require_exact_scalar_bindings() -> None:
+    with pytest.raises(SemanticError, match="child wire input 'child.b' has no driver"):
+        _module(PURE_SOURCE.replace("inst child : Child { a b }", "inst child : Child { a }"))
+
+    canonical = lower(_module())
+    first = canonical.instance_bindings[0]
+    malformed = (
+        (canonical.instance_bindings[:-1], "child wire input 'child.b' has no driver"),
+        ((*canonical.instance_bindings, first), "child.a.*multiple bindings"),
+        ((replace(first, instance="missing"), *canonical.instance_bindings[1:]), "unknown physical child 'missing'"),
+        ((replace(first, port="missing"), *canonical.instance_bindings[1:]), "does not name a child port"),
+        ((replace(first, port="sum"), *canonical.instance_bindings[1:]), "does not name a child input"),
+        (
+            (
+                replace(first, expression=Constant(0, UIntType(9))),
+                *canonical.instance_bindings[1:],
+            ),
+            "has type u9, expected u8",
+        ),
+    )
+    for bindings, message in malformed:
+        with pytest.raises(CanonicalizationError, match=message):
+            restore(replace(canonical, instance_bindings=bindings))
+
+
+def test_canonical_hierarchy_revalidates_nested_scalar_bindings() -> None:
+    module = _module("""
+        module Leaf { in x:u8 out y:u8 y=x }
+        module Branch {
+            in x:u8 out y:u8
+            inst leaf:Leaf { x }
+            y=leaf.y
+        }
+        module Top {
+            in x:u8 out y:u8
+            inst branch:Branch { x }
+            y=branch.y
+        }
+    """)
+    canonical = lower(module)
+    branch = canonical.children[0]
+    malformed_branch = replace(branch, instance_bindings=())
+
+    with pytest.raises(CanonicalizationError, match="leaf.x.*has no driver"):
+        restore(replace(canonical, children=(malformed_branch,)))
+
+    top_input = branch.inputs[0]
+    child_input = branch.children[0].inputs[0]
+    forged_connection = HierarchicalConnection(
+        ProtocolEndpoint(
+            branch.name,
+            top_input.name,
+            top_input.direction,
+            top_input.protocol,
+            top_input.type,
+            top_input.capacity,
+            top_input.domain,
+        ),
+        ProtocolEndpoint(
+            branch.elaborated_instances[0].instance.name,
+            child_input.name,
+            child_input.direction,
+            child_input.protocol,
+            child_input.type,
+            child_input.capacity,
+            branch.children[0].clock,
+        ),
+    )
+    with pytest.raises(
+        CanonicalizationError,
+        match="does not name an aggregate scalar protocol member",
+    ):
+        restore(replace(
+            canonical,
+            children=(replace(
+                malformed_branch,
+                hierarchical_connections=(forged_connection,),
+            ),),
+        ))
 
 
 @pytest.mark.parametrize(

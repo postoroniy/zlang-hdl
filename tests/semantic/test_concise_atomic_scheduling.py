@@ -5,7 +5,7 @@ import pytest
 from zlang.compiler import compile_source
 from zlang.ir.module import RulePriority
 from zlang.opt.lowering import lower, restore
-from zlang.parser import ParseError, parse
+from zlang.parser import parse
 from zlang.semantic import SemanticError, analyze
 from zlang.simulate import simulate_cycles
 
@@ -140,9 +140,14 @@ def test_priority_block_diagnostics(source: str, message: str) -> None:
         analyze(parse(source))
 
 
-def test_else_when_is_not_an_atomic_rule_form() -> None:
-    with pytest.raises(ParseError):
-        parse(
-            "module T { clock c reset r in go:bit reg x:u8=0 "
-            "when go { x <- 1 } else when go { x <- 2 } y=x }"
-        )
+def test_outer_else_when_remains_one_atomic_rule() -> None:
+    module = analyze(parse(
+        "module T { clock c reset r in first,second:bit reg x:u8=0 "
+        "when first { x <- 1 } else when second { x <- 2 } y=x }"
+    ))
+    assert len(module.rules) == 1
+    assert len(module.rules[0].actions) == 2
+    assert all(action.activation is not None for action in module.rules[0].actions)
+    transition = module.resolved_transition
+    assert transition is not None
+    assert len(transition.action_groups) == 1

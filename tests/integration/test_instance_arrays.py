@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import os
+import re
 import subprocess
 
 import pytest
@@ -22,9 +23,10 @@ SOURCE = (ROOT / "examples" / "indexed_instance_array.zhl").read_text()
 def test_clash_instance_array_generates_and_lints_real_rtl(tmp_path: Path) -> None:
     result = compile_source(SOURCE, top="IndexedInstanceArray")
     assert result.clash.count("lane ::") == 0
-    assert result.clash.count("arrayLane ::") == 1
+    assert len(re.findall(r"^arrayLane_s[0-9a-f]{8} ::", result.clash, re.M)) == 1
     for index in range(4):
-        assert f"zlang_instance_lane_{index}_" in result.clash
+        assert f"lane_{index}_y" in result.clash
+    assert "zlang_instance_" not in result.clash
     files = generate_verilog(
         result.clash,
         "IndexedInstanceArray",

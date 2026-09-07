@@ -17,7 +17,7 @@ class ClashRuleTests(unittest.TestCase):
 
     def test_rule_can_atomically_drive_state_and_output_wire(self) -> None:
         result = compile_source((ROOT / "examples/rule_action.zhl").read_text())
-        self.assertIn("rule___anonymous_rule_", result.clash)
+        self.assertIn("rule_when_00_fire", result.clash)
         self.assertIn("fired =", result.clash)
         self.assertIn("count_next", result.clash)
 

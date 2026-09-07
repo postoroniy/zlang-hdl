@@ -21,6 +21,14 @@ from zlang.compiler import (
     create_file_compilation_session_snapshot,
 )
 from zlang.compilation_session import CompilationSession
+from zlang.simulation_state import (
+    SimulationStateBinding,
+    SimulationStateCatalog,
+    SimulationStateError,
+    SimulationStateKind,
+    SimulationStateSession,
+    build_simulation_state_catalog,
+)
 from zlang.candidate_sites import (
     CandidateRankRecord,
     CandidateRewriteKind,
@@ -66,9 +74,15 @@ __all__ = [
     "RootEquivalencePlan",
     "RootEquivalenceUnavailable",
     "SemanticCheckResult",
+    "SimulationStateBinding",
+    "SimulationStateCatalog",
+    "SimulationStateError",
+    "SimulationStateKind",
+    "SimulationStateSession",
     "SOURCE_SUFFIX",
     "VSCODE_LANGUAGE_ID",
     "check_file_snapshot",
+    "build_simulation_state_catalog",
     "compile_file",
     "compile_source",
     "create_file_compilation_session",

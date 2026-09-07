@@ -498,7 +498,7 @@ def test_mapper_upstream_stall_mutation_fails_source_endpoint_guarantee() -> Non
     assert passed.status is FormalStatus.BOUNDED_PASS
 
     component_start = implementation.index(
-        "module VerificationMapperInputBoundary__"
+        "module VerificationMapperInputBoundary_s"
     )
     component_end = implementation.index("endmodule", component_start)
     component = implementation[component_start:component_end]
@@ -562,7 +562,7 @@ def test_real_ifft_boundary_safety_and_payload_stability_mutation() -> None:
     )
     assert passed.status is FormalStatus.BOUNDED_PASS
 
-    component_start = harness.index("module IeeeIFFTFramedOutputBoundary__")
+    component_start = harness.index("module IeeeIFFTFramedOutputBoundary_s")
     component_end = harness.index("endmodule", component_start)
     component = harness[component_start:component_end]
     assignment = next(

@@ -99,7 +99,7 @@ class PublicCapabilityRegistry:
 
 
 CAPABILITY_REGISTRY = PublicCapabilityRegistry(
-    schema_version=21,
+    schema_version=23,
     keywords=(
         "import", "module", "extern", "model", "struct", "enum", "union", "type", "fn", "operator", "equiv",
         "protocol", "role", "channel", "member", "resource", "target", "device",
@@ -116,7 +116,8 @@ CAPABILITY_REGISTRY = PublicCapabilityRegistry(
         "response_buffer", "adapter", "crossing", "async_fifo", "arbiter", "policy",
         "grant", "disable", "iff", "csr", "sticky", "rule", "when", "priority",
         "fsm", "hold",
-        "fifo", "memory", "mem", "rom", "read_latency", "init", "collision", "reg", "delay",
+        "fifo", "memory", "mem", "rom", "read_latency", "init", "collision",
+        "contents", "read_data", "reg", "delay",
         "timing",
         "pipeline", "choice", "auto", "explore", "allow", "avoid", "require",
         "minimize", "maximize", "generate", "map", "sum", "reduce", "dot", "quantize",
@@ -145,7 +146,7 @@ CAPABILITY_REGISTRY = PublicCapabilityRegistry(
         "rw", "ro", "wo", "w1c", "pulse", "reserved", "in_order", "out_of_order",
         "fixed_priority", "round_robin", "beat", "packet", "sync_level",
         "pulse_toggle", "handshake", "async_fifo", "rv_to_credit", "credit_to_rv",
-        "read_first", "write_first", "hardware", "software", "mul_add",
+        "read_first", "write_first", "clear", "preserve", "hardware", "software", "mul_add",
         "multiply_add", "dsp_mac", "optional_yosys", "reduction", "reassociate",
         "auto", "nearest_even", "toward_zero", "floor", "away_zero", "wrap",
         "saturate", "lut", "ff", "dsp", "bram", "latency", "throughput", "ii",
@@ -253,9 +254,17 @@ CAPABILITY_REGISTRY = PublicCapabilityRegistry(
         ),
         PublicCapability(
             "sequential-state", "single clock domain", "supported", "supported",
-            "supported", "supported", "existing M35 register/rule families",
-            CapabilityWitness("examples/all_syntax.zhl", "StateSyntax"),
-            ("atomic rules, not procedural runtime control flow",),
+            "supported", "supported",
+            "existing M35 register/rule families retain one outer rule-fire observation",
+            CapabilityWitness("examples/all_syntax.zhl", "VectorStateUpdateSyntax"),
+            (
+                "recursive when/else when/else retains one Rule and ActionGroup; "
+                "it is runtime atomic effect selection, not compile-time if or "
+                "procedural control flow",
+                "an illegal selected FIFO/memory action suppresses the complete "
+                "group without readiness-selected fallback; active output writes "
+                "participate in whole-rule conflict scheduling",
+            ),
         ),
         PublicCapability(
             "physical-clock-reset", "single physical domain", "bounded",
@@ -291,10 +300,18 @@ CAPABILITY_REGISTRY = PublicCapabilityRegistry(
             ("bounded synchronous FIFO semantics",),
         ),
         PublicCapability(
-            "synchronous-memory", "single clock domain", "bounded", "supported",
+            "writable-memory", "single clock domain", "bounded", "supported",
             "supported", "supported", "no memory-specific M35 family",
-            CapabilityWitness("examples/all_syntax.zhl", "RuleLocalMemorySyntax"),
-            ("scalar, one-cycle, single scheduled memory; no initialized writable memory",),
+            CapabilityWitness("examples/ztpu_async_memory.zhl", "ZtpuAsyncMemory"),
+            (
+                "arbitrary-width bit-packable 1R1W; global reads may be "
+                "combinational or one-cycle; byte masks use ceil(W/8) lanes "
+                "and clip the final high lane; "
+                "scheduled reads remain one-cycle; cell and read-result reset "
+                "policies are independent; no initialized or native multiport "
+                "writable memory; bounded replicated/banked ports are ordinary "
+                "source hierarchy",
+            ),
         ),
         PublicCapability(
             "ready-valid", "protocol", "supported", "supported",
@@ -332,6 +349,17 @@ CAPABILITY_REGISTRY = PublicCapabilityRegistry(
                 "typed leaves and explicit ownership; adapters/crossings remain "
                 "explicit; scalar M36/M38 entry points reject aggregate protocol "
                 "endpoints rather than comparing leaves out of context",
+            ),
+        ),
+        PublicCapability(
+            "ahb-lite-stdlib", "source-authored standard bus", "bounded",
+            "supported", "supported", "supported",
+            "existing register/state and ready-valid properties where bindable",
+            CapabilityWitness("examples/ahb_csr_top.zhl", "AhbCsrTop"),
+            (
+                "single-manager, one-outstanding, aligned full-width transfers for "
+                "power-of-two data widths 8..1024; no subword strobes, burst engine, "
+                "multi-manager arbitration, CDC, or AHB-specific formal family",
             ),
         ),
         PublicCapability(
@@ -428,7 +456,9 @@ CAPABILITY_REGISTRY = PublicCapabilityRegistry(
             (
                 "one FIFO, memory, or ROM per child; scheduled FIFO actions may "
                 "share the existing transition with ordinary register/rule state, "
-                "while legacy global storage plus user state fails closed",
+                "while legacy global storage plus user state fails closed; two flat "
+                "memory arrays may form replicated banked read ports without a "
+                "native multiport primitive",
             ),
         ),
         PublicCapability(
@@ -513,7 +543,26 @@ CAPABILITY_REGISTRY = PublicCapabilityRegistry(
         DocumentationRequirement(
             "state",
             "docs/syntax-support-matrix.md",
-            ("runtime-indexed `reg vec` element update", "`priority`", "`fsm state : Enum = Initial { ... }`"),
+            (
+                "runtime-indexed `reg vec` element update",
+                "`else when`",
+                "one `Rule` and one `ActionGroup`",
+                "does not fall back",
+                "`priority`",
+                "`fsm state : Enum = Initial { ... }`",
+            ),
+        ),
+        DocumentationRequirement(
+            "runtime-atomic-actions",
+            "docs/sequential-state-storage.md",
+            (
+                "Every guard and operand reads the same pre-edge snapshot",
+                "one outer `Rule`",
+                "one `ActionGroup`",
+                "not fall back to an `else` branch",
+                "Scalar output writes are scheduling resources",
+                "compile-time `if`",
+            ),
         ),
         DocumentationRequirement(
             "module-timing",
@@ -545,7 +594,9 @@ CAPABILITY_REGISTRY = PublicCapabilityRegistry(
             "docs/syntax-support-matrix.md",
             (
                 "`fifo`, `memory`, initialized `rom`",
-                "one-cycle synchronous read; optional exact byte write mask",
+                "global memory reads are zero- or one-cycle",
+                "optional `ceil(W/8)` byte write mask",
+                "cell and read-result reset are independently `clear`/`preserve`",
             ),
         ),
         DocumentationRequirement(
@@ -554,6 +605,11 @@ CAPABILITY_REGISTRY = PublicCapabilityRegistry(
             ("`StorageRom`", "`StorageGeneratedRom`", "`table_gather<T,N,IW>`"),
         ),
         DocumentationRequirement("protocols", "docs/syntax-support-matrix.md", ("ready/valid, credit, request/response",)),
+        DocumentationRequirement(
+            "ahb-lite-stdlib",
+            "docs/standard-bus-library.md",
+            ("`std.bus.ahb_lite`", "two-cycle ERROR", "aligned, full-bus-width"),
+        ),
         DocumentationRequirement(
             "composition",
             "docs/syntax-support-matrix.md",

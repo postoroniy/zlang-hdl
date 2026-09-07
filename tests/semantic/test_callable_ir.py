@@ -128,7 +128,7 @@ def test_callable_definition_and_call_round_trip_through_canonical_ir() -> None:
 
 
 def test_callable_metadata_participates_in_current_canonical_identity() -> None:
-    assert CANONICAL_IR_IDENTITY_SCHEMA == "zlang-canonical-ir-content-v11"
+    assert CANONICAL_IR_IDENTITY_SCHEMA == "zlang-canonical-ir-content-v13"
     original = lower(_module())
     definition = _definition("specialization:add-u8-v2")
     changed = lower(_module(definition))

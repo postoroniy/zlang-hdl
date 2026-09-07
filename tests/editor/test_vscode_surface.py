@@ -178,7 +178,7 @@ def test_editor_scopes_distinguish_neighboring_syntax_categories() -> None:
     storage_directives = json.dumps(repository["keywords"])
     declaration_details = json.dumps(repository["declaration-details"])
     assert "fifo|mem|rom" in storage_types
-    assert "read_latency|init|collision" in storage_directives
+    assert "read_latency|init|collision|contents|read_data" in storage_directives
     assert "fifo|memory|rom|interface" in declaration_details
     assert "with" in json.dumps(repository["keywords"])
     assert "repeat" in json.dumps(repository["intrinsics"])

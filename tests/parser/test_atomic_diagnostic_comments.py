@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from zlang.ast.nodes import ConditionalAction
 from zlang.parser import ParseError, parse
 
 
@@ -17,24 +18,29 @@ def test_else_when_text_inside_comments_is_not_source_syntax(comment: str) -> No
     assert syntax.name == "CommentOnly"
 
 
-def test_actual_else_when_retains_atomic_scheduling_diagnostic() -> None:
+def test_actual_nested_else_when_is_source_syntax() -> None:
     source = """
-    module InvalidElseWhen {
+    module NestedElseWhen {
         clock clk
         reset rst
-        in go : bit
+        in go, clear : bit
         reg value : u1 = 0
-        when go { value <- 1 }
-        else when go { value <- 0 }
+        when go {
+            when clear { value <- 0 }
+            else when value == 0 { value <- 1 }
+            else { value <- value }
+        }
         out y : u1
         y = value
     }
     """
-    with pytest.raises(
-        ParseError,
-        match=(
-            "else when is not an atomic rule form; use independent when rules "
-            r"or priority \{ \.\.\. \}"
-        ),
-    ):
-        parse(source)
+    module = parse(source)
+    branch = module.rules[0].actions[0]
+    assert isinstance(branch, ConditionalAction)
+    assert branch.when_false is not None
+    assert isinstance(branch.when_false[0], ConditionalAction)
+
+
+def test_orphan_else_remains_a_syntax_error() -> None:
+    with pytest.raises(ParseError, match="syntax error"):
+        parse("module Orphan { clock clk reset rst else { } }")

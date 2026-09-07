@@ -124,6 +124,9 @@ modules are resolved separately.
 The conversion was informed by the MIT-licensed
 `freecores/bluespec-80211atransmitter` source at audited commit
 `d654bfd4c2ffabc61437c131770beff58dc55b04`, originally copyright 2006
-Nirav Dave. See [NOTICE](NOTICE) and [LICENSE](LICENSE). Python and historical
-BSV models are independent verification oracles only; they are not executable
-parts of the ZLang design.
+Nirav Dave. The original material and the ZLang port and modifications in this
+project subtree are distributed under that MIT license; contributions to the
+subtree follow the same license unless a file states otherwise. See
+[NOTICE](NOTICE) and [LICENSE](LICENSE). Python and historical BSV models are
+independent verification oracles only; they are not executable parts of the
+ZLang design.

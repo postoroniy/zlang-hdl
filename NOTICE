@@ -13,7 +13,6 @@ originally authored by Nirav Dave:
 
     examples/projects/80211a_transmitter/
     docs/80211a-*.md
-    docs/wifi-*.md
     tests/fixtures/verification/wifi_verification.zhl
     tests/fixtures/wifi/production_transmitter_tb.sv
     tests/integration/test_80211a_*.py
@@ -39,6 +38,12 @@ project-specific attribution are retained in:
     examples/projects/80211a_transmitter/LICENSE
     examples/projects/80211a_transmitter/NOTICE
 
+The listed documentation, tests, fixtures, and tooling outside that project
+subtree are independently authored validation material and retain the license
+recorded for each file by REUSE metadata. They do not copy upstream expressive
+source text; any future derived or copied material must instead retain the
+applicable upstream license and attribution.
+
 The file CODE_OF_CONDUCT.md is adapted from Contributor Covenant version 2.1,
 authored by Coraline Ada Ehmke and stewarded by the Organization for Ethical
 Source. Contributor Covenant 2.1 is licensed under the Creative Commons
@@ -58,12 +63,11 @@ Generated output policy
 -----------------------
 
 As a project policy, compiling user-authored ZLang source does not by itself
-make the resulting HDL a copy of ZLang or impose the Apache-2.0 license on that
-HDL. Users remain responsible for the rights and license obligations of their
-inputs, copied standard-library material, third-party dependencies, and any
-other content included in generated output. Generated fixtures committed to
-this repository are part of the ZLang distribution and are licensed under
-Apache-2.0 unless an adjacent notice states otherwise.
+impose the Apache-2.0 license on the resulting HDL. Applicable obligations may
+still arise from input source, copied standard-library material, third-party
+dependencies, or other content included in an output. Generated fixtures
+committed to this repository are part of the ZLang distribution and are
+licensed under Apache-2.0 unless an adjacent notice states otherwise.
 
 Trademarks
 ----------
@@ -72,3 +76,6 @@ IEEE and IEEE 802.11, Arm and AMBA, AMD and Xilinx, Intel, and MATLAB and
 MathWorks are names or marks of their respective owners. Their use in this
 repository is solely descriptive. ZLang is not affiliated with, sponsored by,
 or endorsed by those owners.
+
+Use of the ZLang HDL project name and any project branding is described in
+TRADEMARKS.md. That policy does not assert registration of the name or a logo.

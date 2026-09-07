@@ -16,7 +16,8 @@ import re
 
 from zlang.backend.clash.emitter import (
     ClashEmissionError,
-    _clash_instance_name,
+    _clash_module_names,
+    _clash_child_leaf_names,
     _clash_recursive_token_overrides,
     _clash_name,
     _emit_child_application,
@@ -33,6 +34,7 @@ from zlang.backend.clash.emitter import (
     _emit_scheduled_fifo_bindings,
     _emit_signal_expression,
     _emit_type,
+    _emit_unified_register_bindings,
     _emit_unified_schedule_bindings,
     _rule_schedule,
     _ready_valid_declarations,
@@ -503,7 +505,7 @@ def emit_register_formal_source(module: Module, recursive_design: object) -> Reg
                 raise ClashEmissionError(
                     f"no typed Clash accepted rule-fire observation for '{local_id}'"
                 )
-            return f"rule_{group.rule_name}_fire"
+            return _clash_module_names(owner_module).rule(group.rule_name)
         if local_id.startswith("rr:"):
             owner = nodes[binding.ref.instance_identity]
             token = _clash_recursive_token_overrides(
@@ -524,6 +526,11 @@ def emit_register_formal_source(module: Module, recursive_design: object) -> Reg
     declarations: list[str] = []
 
     def emit_instance(current: Module, node: object) -> None:
+        private_names = _clash_module_names(current)
+        leaf_names = _clash_child_leaf_names(current, private_names)
+        def render(expression):
+            return _emit_signal_expression(expression, leaf_names)
+
         if node.instance_identity in emitted:
             return
         child_nodes_by_name = {
@@ -623,7 +630,7 @@ def emit_register_formal_source(module: Module, recursive_design: object) -> Reg
                     current, elaborated.instance.name, child,
                 )
                 component_output = _request_response_component_output_name(
-                    elaborated.instance.name
+                    elaborated.instance.name, current
                 )
                 for item in subtree_bindings(child_node):
                     if (
@@ -708,10 +715,10 @@ def emit_register_formal_source(module: Module, recursive_design: object) -> Reg
                     f"instance '{instance.name}' is missing bindings for {', '.join(missing)}"
                 )
             applications = [
-                _emit_signal_expression(port_bindings[port.name], {})
+                render(port_bindings[port.name])
                 for port in child.inputs
             ]
-            instance_name = _clash_instance_name(instance.name)
+            instance_name = private_names.instance(instance.name)
             result_name = f"zformalResult_{instance_name}"
             call = _emit_child_application(
                 function(child_node), applications, sequential_child=True,
@@ -719,7 +726,7 @@ def emit_register_formal_source(module: Module, recursive_design: object) -> Reg
             bindings.append(f"{result_name} = {call}")
             for output_port in child.outputs:
                 bindings.append(
-                    f"{instance_name}_{_clash_name(output_port.name)} = "
+                    f"{private_names.child_signal(instance.name, output_port.name)} = "
                     f"{functional_accessor(child_node)} <$> {result_name}"
                 )
             for child_binding in subtree_bindings(child_node):
@@ -736,12 +743,12 @@ def emit_register_formal_source(module: Module, recursive_design: object) -> Reg
             # every rule family. This is the same backend-independent
             # ResolvedTransition consumed by production Clash, including
             # explicit priority and resource acceptance.
-            bindings.extend(_emit_unified_schedule_bindings(current))
+            bindings.extend(_emit_unified_schedule_bindings(current, render))
         else:
             earlier_rules: list[object] = []
             for rule in ordered_rules:
-                fire_name = f"rule_{rule.name}_fire"
-                raw_guard = _emit_signal_expression(rule.guard, {})
+                fire_name = private_names.rule(rule.name)
+                raw_guard = render(rule.guard)
                 targets = {action.target.name for action in rule.actions}
                 blockers = [
                     earlier for earlier in earlier_rules
@@ -756,7 +763,7 @@ def emit_register_formal_source(module: Module, recursive_design: object) -> Reg
                         f"blocked{index} == low" for index in range(len(blockers))
                     )
                     applications = "".join(
-                        f" <*> rule_{blocker.name}_fire" for blocker in blockers
+                        f" <*> {private_names.rule(blocker.name)}" for blocker in blockers
                     )
                     bindings.append(
                         f"{fire_name} = (\\{parameters} -> if not resetActive && guard == high && {clear} "
@@ -769,44 +776,47 @@ def emit_register_formal_source(module: Module, recursive_design: object) -> Reg
                     )
                 earlier_rules.append(rule)
 
-        next_by_register = {
-            assignment.target.name: assignment.expression
-            for assignment in current.next_assignments
-        }
-        for register in current.registers:
-            bindings.append(
-                f"{register.name} = register {_emit_expression(register.initial)} "
-                f"({register.name}_next)"
-            )
-            scheduled = next_by_register.get(
-                register.name, expr.RegisterRef(register.name, register.type)
-            )
-            writers = [
-                (rule, action)
-                for rule in ordered_rules
-                for action in rule.actions
-                if action.target.name == register.name
-            ]
-            for rule, action in reversed(writers):
-                scheduled = expr.Mux(
-                    expr.InputRef(f"rule_{rule.name}_fire", BitType()),
-                    action.expression, scheduled, register.type,
+        if current.resolved_transition is not None:
+            bindings.extend(_emit_unified_register_bindings(current, render))
+        else:
+            next_by_register = {
+                assignment.target.name: assignment.expression
+                for assignment in current.next_assignments
+            }
+            for register in current.registers:
+                bindings.append(
+                    f"{register.name} = register {_emit_expression(register.initial)} "
+                    f"({register.name}_next)"
                 )
-            bindings.append(
-                f"{register.name}_next = {_emit_signal_expression(scheduled, {})}"
-            )
+                scheduled = next_by_register.get(
+                    register.name, expr.RegisterRef(register.name, register.type)
+                )
+                writers = [
+                    (rule, action)
+                    for rule in ordered_rules
+                    for action in rule.actions
+                    if action.target.name == register.name
+                ]
+                for rule, action in reversed(writers):
+                    scheduled = expr.Mux(
+                        expr.InputRef(private_names.rule(rule.name), BitType()),
+                        action.expression, scheduled, register.type,
+                    )
+                bindings.append(
+                    f"{register.name}_next = {render(scheduled)}"
+                )
         for fifo in current.fifos:
             if fifo.scheduled:
-                bindings.extend(_emit_scheduled_fifo_bindings(current, fifo))
+                bindings.extend(_emit_scheduled_fifo_bindings(current, fifo, render))
             else:
-                bindings.extend(_emit_declared_fifo_bindings(fifo))
+                bindings.extend(_emit_declared_fifo_bindings(fifo, render))
 
         output_expression = (
             current.assignments[0].expression
             if current.assignments else expr.Constant(0, current.outputs[0].type)
         )
         bindings.append(
-            f"zformalFunctionalSignal = {_emit_signal_expression(output_expression, {})}"
+            f"zformalFunctionalSignal = {render(output_expression)}"
         )
         values = ["zformalFunctionalSignal"]
         for item in observations:

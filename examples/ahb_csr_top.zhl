@@ -1,0 +1,80 @@
+import std.bus.reg
+import std.bus.ahb_lite
+
+// The example-local target repeats the small reference CSR shape with the
+// exact AHB physical reset contract.  RegBus itself is reset-policy neutral;
+// connected sequential modules must deliberately share one physical domain.
+module AhbRegBusCSRBank {
+    clock hclk
+    async reset hresetn @hclk { polarity active_low }
+
+    csr registers @ 0 {
+        RW @ 0 {
+            value bit @0 rw = 0
+            reserved0 bits<31> @31:1 reserved
+        }
+        W1C @ 4 {
+            value bit @0 w1c = 0
+            reserved1 bits<31> @31:1 reserved
+        }
+        PULSE @ 8 {
+            value bit @0 pulse
+            reserved2 bits<31> @31:1 reserved
+        }
+    }
+}
+
+module AhbRegBusCSRTarget {
+    clock hclk
+    async reset hresetn @hclk { polarity active_low }
+    interface regbus : RegBus<32,32>.responder @hclk
+    out done : bit
+    out rw_value : bit
+    out w1c_value : bit
+    out pulse : bit
+
+    reg response_pending : bit = 0
+    reg response_addr : u32 = 0
+
+    write_access = mux(regbus.request.transfer,
+                       regbus.request.payload.write, 0)
+    read_access = response_pending
+
+    bank : AhbRegBusCSRBank {
+        addr = mux(regbus.request.transfer,
+                   regbus.request.payload.addr, response_addr)
+        write = write_access
+        wdata = regbus.request.payload.wdata
+        read = read_access
+    }
+
+    response_pending <- mux(regbus.request.transfer, 1,
+                            mux(regbus.response.transfer, 0, response_pending))
+    response_addr <- mux(regbus.request.transfer,
+                         regbus.request.payload.addr, response_addr)
+
+    regbus.request.ready = mux(response_pending, 0, 1)
+    regbus.response.valid = response_pending
+    regbus.response.payload = RegResponse { rdata=bank.rdata error=0 }
+    rw_value = bank.csr_field_0_0_0_state
+    w1c_value = bank.csr_field_0_1_0_state
+    pulse = bank.csr_field_0_2_0_state
+    done = regbus.request.transfer
+}
+
+module AhbCsrTop {
+    clock hclk
+    async reset hresetn @hclk { polarity active_low }
+    interface ahb : AHBLite<32,32>.slave @hclk
+
+    frontend : AHBLiteToRegBus<32,32>
+    csr : AhbRegBusCSRTarget
+
+    ahb -> frontend.ahb
+    frontend.regbus -> csr.regbus
+
+    out done : bit = csr.done
+    out rw_value : bit = csr.rw_value
+    out w1c_value : bit = csr.w1c_value
+    out pulse : bit = csr.pulse
+}

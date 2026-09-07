@@ -71,8 +71,8 @@ def test_scheduled_storage_array_has_independent_state_reset_and_artifacts() -> 
     assert first.text == second.text
     assert first.artifact_hash == second.artifact_hash
     assert BackendArtifact.from_json(first.to_json()).to_json() == first.to_json()
-    assert first.text.count("module ScheduledLane__") == 1
-    assert first.text.count("ScheduledLane__") == 3
+    assert first.text.count("module ScheduledLane_s") == 1
+    assert first.text.count("ScheduledLane_s") == 3
     clash = emit_clash(module)
     assert clash == emit_clash(module)
 

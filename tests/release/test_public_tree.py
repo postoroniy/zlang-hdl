@@ -285,7 +285,16 @@ def test_release_workflows_preserve_checkout_and_security_contracts() -> None:
         text = workflows[name]
         assert text.index("check-export --source .") < text.index("pip install")
 
+    assert (
+        "if: github.repository == 'postoroniy/zlang-hdl' "
+        "&& github.ref == 'refs/heads/main'"
+    ) in workflows["eda.yml"]
+
     release = workflows["release.yml"]
+    assert (
+        "needs: validate\n"
+        "    runs-on: [self-hosted, linux, x64, zlang-eda]"
+    ) in release
     assert "import std.math.complex" in release
     assert '"$environment/bin/zlang" package-smoke.zhl --check' in release
 
@@ -318,6 +327,11 @@ def test_repository_public_projection_is_closed_and_excludes_private_files() -> 
         for path in module.validate_source(ROOT)
     }
     assert "docs/known-limitations.md" in selected
+    assert "docs/project-scope.md" in selected
+    assert "docs/editions.md" in selected
+    assert "docs/licensing/COMMUNITY_BASELINE.md" in selected
+    assert "docs/licensing/RELEASE_BOUNDARY_AUDIT.md" not in selected
+    assert "TRADEMARKS.md" in selected
     assert "LICENSES/Apache-2.0.txt" in selected
     assert "LICENSES/MIT.txt" in selected
     assert not any(path.startswith("examples/comparisons/") for path in selected)
@@ -337,6 +351,55 @@ def test_repository_public_projection_is_closed_and_excludes_private_files() -> 
             if path.is_file() and "__pycache__" not in path.parts
         }
         assert expected <= selected
+
+
+def test_public_policy_documents_are_discoverable() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    notice = (ROOT / "NOTICE").read_text(encoding="utf-8")
+    releasing = (ROOT / "RELEASING.md").read_text(encoding="utf-8")
+    contributing = (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
+    wifi_notice = (
+        ROOT / "examples/projects/80211a_transmitter/NOTICE"
+    ).read_text(encoding="utf-8")
+    trademarks = (ROOT / "TRADEMARKS.md").read_text(encoding="utf-8")
+    project_scope = (ROOT / "docs/project-scope.md").read_text(encoding="utf-8")
+    baseline = (ROOT / "docs/licensing/COMMUNITY_BASELINE.md").read_text(
+        encoding="utf-8"
+    )
+    editions = (ROOT / "docs/editions.md").read_text(encoding="utf-8")
+
+    assert "TRADEMARKS.md" in readme
+    assert "docs/project-scope.md" in readme
+    assert "docs/licensing/COMMUNITY_BASELINE.md" in readme
+    assert "docs/editions.md" in readme
+    assert "docs/licensing/COMMUNITY_BASELINE.md" in releasing
+    assert "Everything in this release remains Community." in baseline
+    assert "2026-09 public release" in baseline
+    assert "CSR C/C++ software helper generation" in baseline
+    assert "SystemVerilog UVM helper generation" in baseline
+    assert "not-yet-implemented generators" in baseline
+    assert "Verilator" in baseline and "state-access" in baseline
+    assert "MIT" in baseline and "CC-BY-4.0" in baseline
+    assert "Enterprise; classified, not implemented" in editions
+    assert "TRADEMARKS.md" in notice
+    assert "make the resulting HDL a copy" not in notice
+    assert "TRADEMARKS.md" in releasing
+    assert "does not require a Contributor License Agreement" in contributing
+    assert "Copyright (c) 2026 Viacheslav Vinogradov" in wifi_notice
+    assert "distributed under the MIT License" in wifi_notice
+    assert "does not state that the name or any logo is registered" in trademarks
+    assert "®" not in trademarks
+    assert "™" not in trademarks
+    for capability in (
+        "direct-SystemVerilog",
+        "local safety verification",
+        "cross-backend evidence",
+        "formal-aware candidate selection",
+        "`explore`",
+        "`architecture(auto)`",
+        "`pipeline(auto)`",
+    ):
+        assert capability in project_scope
 
 
 def test_no_skip_plugin_turns_skip_into_failure(tmp_path: Path) -> None:

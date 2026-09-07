@@ -249,7 +249,7 @@ def test_recursive_artifact_rejects_missing_path_and_specialization_mismatch() -
         emit_artifact(module, recursive_design=replace(design, instances=tuple(nodes)))
 
 
-def test_same_prefix_specializations_emit_distinct_full_component_names() -> None:
+def test_same_prefix_specializations_extend_their_component_names() -> None:
     module = compile_source(
         SPECIALIZED_HIERARCHY,
         top="SpecializedTop",
@@ -264,9 +264,9 @@ def test_same_prefix_specializations_emit_distinct_full_component_names() -> Non
         for item, identity in zip(module.elaborated_instances, identities, strict=True)
     )
     text = emit_experimental(replace(module, elaborated_instances=elaborated))
-    assert "module Child__aaaaaaaaaa11111111111111" in text
-    assert "module Child__aaaaaaaaaa22222222222222" in text
-    assert text.count("module Child__") == 2
+    assert "module Child_saaaaaaaaaa11 (" in text
+    assert "module Child_saaaaaaaaaa22 (" in text
+    assert text.count("module Child_s") == 2
 
 
 @pytest.mark.skipif(shutil.which("verilator") is None, reason="Verilator unavailable")

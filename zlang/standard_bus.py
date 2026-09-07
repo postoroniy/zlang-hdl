@@ -7,7 +7,7 @@ or compiler primitive.
 """
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import Callable, Generic, TypeVar
+from typing import Callable, TypeVar
 
 T = TypeVar("T")
 
@@ -215,6 +215,165 @@ class WishboneToRegBus:
                               response.error if complete else False,
                               self._pending is not None or self._response is not None,
                               response.rdata if complete else 0)
+
+
+@dataclass(frozen=True)
+class AhbLiteInput:
+    """Signals sampled by the independent AHB-Lite subordinate model."""
+
+    hsel: bool = False
+    haddr: int = 0
+    hwrite: bool = False
+    htrans: int = 0
+    # ``None`` means the full width of the oracle instance.  Tests that model
+    # an explicit bus value pass the encoded HSIZE directly.
+    hsize: int | None = None
+    hburst: int = 0
+    hprot: int = 0
+    hmastlock: bool = False
+    hwdata: int = 0
+    hready: bool = True
+    reset: bool = False
+
+
+@dataclass(frozen=True)
+class AhbLiteOutput:
+    hrdata: int
+    hreadyout: bool
+    hresp: bool
+    reg_request: RegRequest | None = None
+
+
+@dataclass(frozen=True)
+class _AhbLiteState:
+    phase: str = "IDLE"
+    address: int = 0
+    write: bool = False
+    response: RegResponse | None = None
+    response_wait: int = 0
+
+
+class AhbLiteToRegBus:
+    """Single-outstanding, full-width AHB-Lite-to-RegBus oracle.
+
+    Address/control are captured on an accepted AHB address phase.  Write data
+    is sampled only in the following request/data phase.  The callable models
+    one accepted RegBus transaction; ``response_latency`` inserts deterministic
+    response wait states without reissuing that transaction.
+    """
+
+    def __init__(
+        self,
+        reg_access: Callable[[RegRequest], RegResponse],
+        *,
+        address_width: int = 32,
+        data_width: int = 32,
+        response_latency: int = 0,
+    ):
+        if address_width <= 0:
+            raise ValueError("AHB-Lite address width must be positive")
+        if not 8 <= data_width <= 1024 or data_width & (data_width - 1):
+            raise ValueError("AHB-Lite data width must be a power of two from 8 through 1024")
+        if response_latency < 0:
+            raise ValueError("AHB-Lite response latency cannot be negative")
+        self._access = reg_access
+        self._address_mask = (1 << address_width) - 1
+        self._data_mask = (1 << data_width) - 1
+        self._byte_count = data_width // 8
+        self._size = self._byte_count.bit_length() - 1
+        self._response_latency = response_latency
+        self._state = _AhbLiteState()
+
+    @property
+    def state(self) -> _AhbLiteState:
+        return self._state
+
+    def outputs(self) -> AhbLiteOutput:
+        state = self._state
+        response = state.response
+        if state.phase == "IDLE":
+            return AhbLiteOutput(0, True, False)
+        if state.phase == "REQUEST":
+            return AhbLiteOutput(0, False, False)
+        if state.phase == "RESPONSE":
+            if response is None or state.response_wait:
+                return AhbLiteOutput(0, False, False)
+            if response.error:
+                return AhbLiteOutput(0, False, True)
+            return AhbLiteOutput(response.rdata & self._data_mask, True, False)
+        if state.phase == "ERROR_FIRST":
+            return AhbLiteOutput(0, False, True)
+        if state.phase == "ERROR_SECOND":
+            return AhbLiteOutput(0, True, True)
+        raise AssertionError(f"unknown AHB-Lite oracle phase {state.phase!r}")
+
+    def _address_phase(self, inputs: AhbLiteInput) -> tuple[bool, bool]:
+        accepted = bool(inputs.hsel and inputs.hready and (inputs.htrans & 0b10))
+        legal = bool(
+            (inputs.haddr & (self._byte_count - 1)) == 0
+            and (
+                self._size if inputs.hsize is None else inputs.hsize
+            ) == self._size
+        )
+        return accepted, legal
+
+    def step(self, inputs: AhbLiteInput) -> AhbLiteOutput:
+        if inputs.reset:
+            self._state = _AhbLiteState()
+            return self.outputs()
+
+        state = self._state
+        result = self.outputs()
+        accepted, legal = self._address_phase(inputs)
+        request: RegRequest | None = None
+
+        def begin_address() -> _AhbLiteState:
+            if not accepted:
+                return _AhbLiteState()
+            if not legal:
+                return _AhbLiteState("ERROR_FIRST")
+            return _AhbLiteState(
+                "REQUEST", inputs.haddr & self._address_mask, inputs.hwrite,
+            )
+
+        if state.phase == "IDLE":
+            next_state = begin_address()
+        elif state.phase == "REQUEST":
+            request = RegRequest(
+                state.address,
+                state.write,
+                inputs.hwdata & self._data_mask,
+                (1 << self._byte_count) - 1,
+            )
+            response = self._access(request)
+            next_state = _AhbLiteState(
+                "RESPONSE", state.address, state.write, response,
+                self._response_latency,
+            )
+        elif state.phase == "RESPONSE":
+            response = state.response
+            if state.response_wait:
+                next_state = _AhbLiteState(
+                    "RESPONSE", state.address, state.write, response,
+                    state.response_wait - 1,
+                )
+            elif response is None:
+                raise AssertionError("AHB-Lite response phase has no response")
+            elif response.error:
+                next_state = _AhbLiteState("ERROR_SECOND")
+            else:
+                next_state = begin_address()
+        elif state.phase == "ERROR_FIRST":
+            next_state = _AhbLiteState("ERROR_SECOND")
+        elif state.phase == "ERROR_SECOND":
+            next_state = begin_address()
+        else:
+            raise AssertionError(f"unknown AHB-Lite oracle phase {state.phase!r}")
+
+        self._state = next_state
+        return AhbLiteOutput(
+            result.hrdata, result.hreadyout, result.hresp, request,
+        )
 
 
 @dataclass(frozen=True)

@@ -3,6 +3,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 from zlang.backend.clash import emit
@@ -10,6 +11,10 @@ from zlang.backend.manifest import publish_artifact
 from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
 from zlang.backend.systemverilog import emit_experimental as emit_systemverilog
 from zlang.ir.equivalence import BindingSide
+from zlang.ir.expressions import InputRef
+from zlang.ir.module import InstancePortBinding
+from zlang.ir.types import BitType
+from zlang.opt import CanonicalizationError, lower, restore
 from zlang.parser import parse
 from zlang.semantic import SemanticError, analyze
 
@@ -63,7 +68,8 @@ class ParameterizedAggregateProtocolTests(unittest.TestCase):
         text = emit(analyze(parse(SOURCE)))
         self.assertIn("protocol_producer", text)
         self.assertIn("protocol_consumer", text)
-        self.assertIn("c_bus__irq =", text)
+        self.assertIn("c_bus_irq =", text)
+        self.assertNotIn("bus_irq_ready", text)
 
     def test_direct_systemverilog_wires_reverse_scalar_member(self):
         module = analyze(parse(SOURCE))
@@ -125,6 +131,20 @@ endmodule
         module = analyze(parse(SOURCE))
         artifact = publish_artifact(module.children[0], "tiny", backend="clash", selected_ir_identity="tiny-v1", side=BindingSide.IMPLEMENTATION)
         self.assertTrue(any(item.semantic_signal_id == "aggregate:Producer.bus" for item in artifact.bindings))
+
+    def test_canonical_reverse_scalar_member_rejects_a_second_binding(self):
+        canonical = lower(analyze(parse(SOURCE)))
+        collision = InstancePortBinding(
+            "p", "bus__irq", InputRef("alarm", BitType())
+        )
+        with self.assertRaisesRegex(
+            CanonicalizationError,
+            "p.bus__irq.*both a scalar binding and hierarchical connection",
+        ):
+            restore(replace(
+                canonical,
+                instance_bindings=(*canonical.instance_bindings, collision),
+            ))
 
     def test_aggregate_buffering_is_rejected(self):
         source = SOURCE.replace("connect p.bus -> c.bus", "connect p.bus -> c.bus { buffer 2 }")

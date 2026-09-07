@@ -11,13 +11,13 @@
     "architecture": "x86_64"
   },
   "validation": {
-    "minimum_tests_passed": 3501,
+    "minimum_tests_passed": 3815,
     "maximum_tests_skipped": 0,
     "example_corpus": {
-      "source_files": 80,
-      "module_roots": 165,
-      "standalone_supported": 150,
-      "child_or_template_only": 15,
+      "source_files": 84,
+      "module_roots": 174,
+      "standalone_supported": 157,
+      "child_or_template_only": 17,
       "direct_unsupported": 0
     }
   },

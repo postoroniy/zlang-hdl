@@ -7,7 +7,7 @@ from enum import Enum
 from itertools import product
 
 from zlang.ir.expressions import Expression
-from zlang.ir.types import HardwareType
+from zlang.ir.types import BitType, HardwareType
 from zlang.source import SourceOrigin
 
 
@@ -15,6 +15,11 @@ class StateResourceKind(str, Enum):
     REGISTER = "register"
     FIFO = "fifo"
     MEMORY = "memory"
+    # A scalar rule-driven output participates in conflict/priority scheduling
+    # even though it is not committed state.  Keeping it in the authoritative
+    # resource graph prevents a lower rule's otherwise-disjoint state effects
+    # from committing after it lost an output conflict.
+    OUTPUT = "output"
 
 
 class StateActionKind(str, Enum):
@@ -23,6 +28,7 @@ class StateActionKind(str, Enum):
     FIFO_POP = "fifo_pop"
     MEMORY_READ_REQUEST = "memory_read_request"
     MEMORY_WRITE = "memory_write"
+    OUTPUT_WRITE = "output_write"
 
 
 class FifoOccupancy(str, Enum):
@@ -57,6 +63,14 @@ class StateAction:
     operands: tuple[Expression, ...]
     owner_group: str
     source_origin: SourceOrigin | None = None
+    # ``None`` preserves the historical unconditional action representation.
+    # A present predicate is evaluated from the same pre-edge snapshot as the
+    # owning group's guard and operands.
+    activation: Expression | None = None
+
+    def __post_init__(self) -> None:
+        if self.activation is not None and self.activation.type != BitType():
+            raise ValueError("state-action activation must have type bit")
 
 
 @dataclass(frozen=True)
@@ -94,8 +108,119 @@ def actions_conflict(left: StateAction, right: StateAction) -> bool:
     return left.kind is right.kind
 
 
-def groups_conflict(left: ActionGroup, right: ActionGroup) -> bool:
-    return any(actions_conflict(a, b) for a in left.actions for b in right.actions)
+def conditional_actions(
+    transition: ResolvedTransition,
+) -> tuple[StateAction, ...]:
+    """Return conditional effects in deterministic scheduler-input order."""
+
+    return tuple(
+        action
+        for group in ordered_groups(transition)
+        for action in group.actions
+        if action.activation is not None
+    )
+
+
+def conditional_activation_predicates(
+    transition: ResolvedTransition,
+) -> tuple[Expression, ...]:
+    """Return unique activation predicates in deterministic first-use order.
+
+    Several effects in one source branch deliberately carry the same typed
+    activation.  They are separate effects, but they are *not* independent
+    scheduler inputs.  Keeping one dimension per predicate avoids an
+    exponential truth table over impossible combinations such as one effect
+    in a branch being active while its sibling is inactive.  Expression
+    equality is exact typed-IR structural equality; source origins are already
+    excluded from expression dataclass comparison.
+    """
+
+    result: list[Expression] = []
+    for action in conditional_actions(transition):
+        assert action.activation is not None
+        if action.activation not in result:
+            result.append(action.activation)
+    return tuple(result)
+
+
+def action_activation_predicate_index(
+    transition: ResolvedTransition,
+    action: StateAction,
+) -> int:
+    """Return the shared scheduler dimension for one conditional effect."""
+
+    if action.activation is None:
+        raise ValueError(
+            f"state action '{action.semantic_id}' has no activation predicate"
+        )
+    try:
+        return conditional_activation_predicates(transition).index(
+            action.activation
+        )
+    except ValueError as error:  # pragma: no cover - defensive malformed IR
+        raise ValueError(
+            f"state action '{action.semantic_id}' activation is not part of "
+            "its transition"
+        ) from error
+
+
+def _validated_activation_values(
+    transition: ResolvedTransition,
+    activation_values: dict[str, bool] | None,
+) -> dict[str, bool]:
+    conditional = conditional_actions(transition)
+    expected = {action.semantic_id for action in conditional}
+    provided = set(activation_values or ())
+    unknown = provided - expected
+    if unknown:
+        raise ValueError(
+            "state transition received unknown action activation "
+            f"'{sorted(unknown)[0]}'"
+        )
+    missing = expected - provided
+    if missing:
+        raise ValueError(
+            "state transition requires action activation "
+            f"'{sorted(missing)[0]}'"
+        )
+    return {
+        action.semantic_id: bool((activation_values or {})[action.semantic_id])
+        for action in conditional
+    }
+
+
+def _active_actions(
+    group: ActionGroup,
+    activation_values: dict[str, bool],
+) -> tuple[StateAction, ...]:
+    return tuple(
+        action
+        for action in group.actions
+        if action.activation is None or activation_values[action.semantic_id]
+    )
+
+
+def groups_conflict(
+    left: ActionGroup,
+    right: ActionGroup,
+    activation_values: dict[str, bool] | None = None,
+) -> bool:
+    """Return a potential, or for supplied predicates an active, conflict.
+
+    The two-argument compatibility form deliberately retains the historical
+    conservative relation used by semantic validation and existing M35 code.
+    Runtime scheduling passes exact activation values and ignores inactive
+    effects.
+    """
+
+    if activation_values is None:
+        left_actions, right_actions = left.actions, right.actions
+    else:
+        left_actions = _active_actions(left, activation_values)
+        right_actions = _active_actions(right, activation_values)
+    return any(
+        actions_conflict(a, b) for a in left_actions for b in right_actions
+    )
 
 
 def ordered_groups(transition: ResolvedTransition) -> tuple[ActionGroup, ...]:
@@ -120,11 +245,16 @@ def select_action_groups(
     transition: ResolvedTransition,
     guard_values: dict[str, bool],
     fifo_counts: dict[str, int],
+    activation_values: dict[str, bool] | None = None,
 ) -> tuple[str, ...]:
     """Return the priority-maximal legal atomic action-group set."""
+    active = _validated_activation_values(transition, activation_values)
     candidates = tuple(
         item for item in ordered_groups(transition)
-        if guard_values.get(item.rule_name, False)
+        if (
+            guard_values.get(item.rule_name, False)
+            and _active_actions(item, active)
+        )
     )
     if len(candidates) > 20:
         raise ValueError("state transition supports at most 20 enabled rules")
@@ -132,11 +262,14 @@ def select_action_groups(
 
     def legal(selected: tuple[ActionGroup, ...]) -> bool:
         for index, left in enumerate(selected):
-            if any(groups_conflict(left, right) for right in selected[index + 1:]):
+            if any(
+                groups_conflict(left, right, active)
+                for right in selected[index + 1:]
+            ):
                 return False
         fifo_actions: dict[str, set[StateActionKind]] = {}
         for group in selected:
-            for action in group.actions:
+            for action in _active_actions(group, active):
                 resource = resources[action.resource_id]
                 if resource.kind is StateResourceKind.FIFO:
                     fifo_actions.setdefault(resource.name, set()).add(action.kind)
@@ -176,9 +309,16 @@ def selection_cubes(
         if item.kind is StateResourceKind.FIFO
     )
     groups = ordered_groups(transition)
+    conditional = conditional_actions(transition)
+    activation_predicates = conditional_activation_predicates(transition)
+    activation_indices = {
+        action.semantic_id: activation_predicates.index(action.activation)
+        for action in conditional
+    }
     domains: tuple[tuple[int | bool, ...], ...] = (
         *(tuple(range((item.depth or 0) + 1)) for item in fifos),
         *((False, True) for _ in groups),
+        *((False, True) for _ in activation_predicates),
     )
     cubes: set[tuple[int | bool | None, ...]] = set()
     for values in product(*domains):
@@ -189,7 +329,17 @@ def selection_cubes(
             group.rule_name: bool(values[len(fifos) + index])
             for index, group in enumerate(groups)
         }
-        if rule_name in select_action_groups(transition, guards, counts):
+        activation_offset = len(fifos) + len(groups)
+        activations = {
+            action.semantic_id: bool(values[
+                activation_offset
+                + activation_indices[action.semantic_id]
+            ])
+            for action in conditional
+        }
+        if rule_name in select_action_groups(
+            transition, guards, counts, activations
+        ):
             cubes.add(tuple(values))
     changed = True
     while changed:
@@ -251,9 +401,16 @@ def selection_regions(
         )
         for item in fifos
     )
+    conditional = conditional_actions(transition)
+    activation_predicates = conditional_activation_predicates(transition)
+    activation_indices = {
+        action.semantic_id: activation_predicates.index(action.activation)
+        for action in conditional
+    }
     domains: tuple[tuple[FifoOccupancy | bool, ...], ...] = (
         *fifo_domains,
         *((False, True) for _ in groups),
+        *((False, True) for _ in activation_predicates),
     )
     regions: set[tuple[FifoOccupancy | bool | None, ...]] = set()
     for values in product(*domains):
@@ -273,7 +430,17 @@ def selection_regions(
             group.rule_name: bool(values[len(fifos) + index])
             for index, group in enumerate(groups)
         }
-        if rule_name in select_action_groups(transition, guards, counts):
+        activation_offset = len(fifos) + len(groups)
+        activations = {
+            action.semantic_id: bool(values[
+                activation_offset
+                + activation_indices[action.semantic_id]
+            ])
+            for action in conditional
+        }
+        if rule_name in select_action_groups(
+            transition, guards, counts, activations
+        ):
             regions.add(tuple(values))
 
     changed = True

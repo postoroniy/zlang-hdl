@@ -69,6 +69,10 @@ from zlang.ir.formal_predicates import (
     require_predicate,
 )
 from zlang.source import SourceOrigin
+from zlang.common.systemverilog import (
+    render_ordered_comparison,
+    render_right_shift,
+)
 from zlang.backend.identifiers import allocate_private_rtl_identifier
 from zlang.formal_domain import (
     FormalDomainRendering,
@@ -1665,40 +1669,124 @@ def generate_properties(module: Module) -> FormalDesign:
                         ),
                     ))
     if module.resolved_transition is not None:
-        from zlang.ir.state import groups_conflict
+        from zlang.ir.state import actions_conflict, groups_conflict
         groups = module.resolved_transition.action_groups
         by_name = {group.rule_name: group for group in groups}
+
+        def active_conflict_predicate(left, right):
+            """Return the exact same-cycle conflict selected by activations.
+
+            ``groups_conflict`` without runtime activation values is the
+            conservative semantic legality relation.  It is insufficient as
+            an executable property once nested ``when`` makes an individual
+            effect conditional: two outer groups may legally co-fire when the
+            potentially conflicting effects are inactive.  Build the claim
+            from the already-typed per-effect activation predicates instead;
+            no new observation family is required.
+            """
+
+            pairs = tuple(
+                (left_action, right_action)
+                for left_action in left.actions
+                for right_action in right.actions
+                if actions_conflict(left_action, right_action)
+            )
+            if not pairs:
+                return None, False, None
+            # One unconditional conflicting pair makes the group conflict
+            # unconditional and preserves the historical property spelling.
+            if any(
+                left_action.activation is None
+                and right_action.activation is None
+                for left_action, right_action in pairs
+            ):
+                return _bit(True), False, None
+            terms: list[FormalPredicate] = []
+            try:
+                for left_action, right_action in pairs:
+                    predicates = tuple(
+                        _semantic_predicate(action.activation)
+                        for action in (left_action, right_action)
+                        if action.activation is not None
+                    )
+                    term = predicates[0]
+                    for predicate in predicates[1:]:
+                        term = _and(term, predicate)
+                    terms.append(term)
+            except FormalError as error:
+                return None, True, str(error)
+            result = terms[0]
+            for term in terms[1:]:
+                result = _or(result, term)
+            return result, True, None
+
         conflicts = {
-            tuple(sorted((left.rule_name, right.rule_name)))
+            tuple(sorted((left.rule_name, right.rule_name))):
+                active_conflict_predicate(left, right)
             for index, left in enumerate(groups)
             for right in groups[index + 1:]
             if groups_conflict(left, right)
         }
-        for higher, lower in sorted(conflicts):
+        for (higher, lower), (
+            active_conflict, conditional, lowering_error,
+        ) in sorted(conflicts.items()):
             left = _bit_observation(rule_fire_observation_id(higher))
             right = _bit_observation(rule_fire_observation_id(lower))
+            simultaneous = _and(left, right)
+            predicate = (
+                _not(_and(simultaneous, active_conflict))
+                if conditional and active_conflict is not None
+                else _not(simultaneous)
+            )
             properties.append(_property(
                 "rules", f"{higher}.exclusive.{lower}",
-                f"!({higher}_fire && {lower}_fire)", module,
+                (
+                    f"!({higher}_fire && {lower}_fire && active_conflict)"
+                    if conditional else
+                    f"!({higher}_fire && {lower}_fire)"
+                ), module,
                 ownership=Ownership.SCHEDULER,
                 generated_from=f"rules:{higher},{lower}",
-                predicate=_not(_and(left, right)),
+                predicate=predicate,
                 origin=by_name[higher].source_origin,
+                non_executable_reason=(
+                    "conditional rule-conflict activation is outside the "
+                    f"structured formal predicate subset: {lowering_error}"
+                    if lowering_error is not None else None
+                ),
             ))
         for priority in module.resolved_transition.priorities:
             if tuple(sorted(priority)) not in conflicts:
                 continue
             higher, lower = priority
+            active_conflict, conditional, lowering_error = conflicts[
+                tuple(sorted(priority))
+            ]
+            higher_fire = _bit_observation(rule_fire_observation_id(higher))
+            antecedent = (
+                _and(higher_fire, active_conflict)
+                if conditional and active_conflict is not None
+                else higher_fire
+            )
             properties.append(_property(
                 "rules", f"{higher}.priority.{lower}",
-                f"{higher}_fire -> !{lower}_fire", module,
+                (
+                    f"({higher}_fire && active_conflict) -> !{lower}_fire"
+                    if conditional else
+                    f"{higher}_fire -> !{lower}_fire"
+                ), module,
                 ownership=Ownership.SCHEDULER,
                 generated_from=f"priority:{higher}>{lower}",
                 predicate=_implies(
-                    _bit_observation(rule_fire_observation_id(higher)),
+                    antecedent,
                     _not(_bit_observation(rule_fire_observation_id(lower))),
                 ),
                 origin=by_name[higher].source_origin,
+                non_executable_reason=(
+                    "conditional rule-conflict activation is outside the "
+                    f"structured formal predicate subset: {lowering_error}"
+                    if lowering_error is not None else None
+                ),
             ))
     if module.verification_scopes:
         legacy_contract_kinds = {
@@ -2814,6 +2902,17 @@ def _render_predicate(value: FormalPredicate, bindings: dict[str, SignalBinding]
                 FormalBinaryOperator.SHIFT_RIGHT,
             }:
                 right = _sv_cast(right, value.width, value.signedness)
+            if value.operator is FormalBinaryOperator.SHIFT_RIGHT:
+                shifted = render_right_shift(
+                    left,
+                    right,
+                    signed=value.signedness is FormalSignedness.SIGNED,
+                )
+                return _sv_cast(
+                    shifted,
+                    value.width,
+                    value.signedness,
+                )
             return _sv_cast(
                 f"(({left}) {symbol[value.operator]} ({right}))",
                 value.width,
@@ -2823,6 +2922,18 @@ def _render_predicate(value: FormalPredicate, bindings: dict[str, SignalBinding]
         operand_width = value.left.width
         left = _sv_cast(left, operand_width, operand_signedness)
         right = _sv_cast(right, operand_width, operand_signedness)
+        if value.operator in {
+            FormalBinaryOperator.LESS,
+            FormalBinaryOperator.LESS_EQUAL,
+            FormalBinaryOperator.GREATER,
+            FormalBinaryOperator.GREATER_EQUAL,
+        }:
+            return render_ordered_comparison(
+                left,
+                symbol[value.operator],
+                right,
+                signed=operand_signedness is FormalSignedness.SIGNED,
+            )
         return f"(({left}) {symbol[value.operator]} ({right}))"
     raise FormalError(f"unsupported structured predicate node: {type(value).__name__}")
 

@@ -28,7 +28,8 @@ guides relate to historical milestone and design-freeze evidence.
    — operators, selection, compile-time evaluation, functional datapaths,
    monomorphized generics, and nominal operator overloads.
 4. **[Sequential logic, rules, and storage](sequential-state-storage.md)** —
-   clocks/reset, registers, delays, pipelines, atomic rules, FIFOs, and memories.
+   clocks/reset, registers, delays, pipelines, recursive runtime atomic action
+   selection, priority scheduling, FIFOs, and memories.
 5. **[Hierarchy, protocols, and composition](hierarchy-protocols.md)** — module
    specialization, instance arrays, ready/valid, credit, request/response,
    aggregate standard buses, CSR, arbitration, and CDC.
@@ -68,9 +69,9 @@ Compiler and editor integrations should also use the versioned
 | Bit and collection layout | `x[MSB:LSB]`, LSB-zero `bits_value[i]`, exact `zeros<N>`/`ones<N>`, `concat`, `reshape`, `bitcast<T>`; low-level `pack`/`unpack<T>` | [Slicing and representation](types-and-numerics.md#slicing-concatenation-and-representation) |
 | Pure reuse | `fn` with explicit or inferred exact return, generic `type T`, declaration-ordered defaults such as `IW=index_width(N)`, exact constant parameters, static `operation=fn name`, operators | [Functions/generics](expressions-functions-generics.md) |
 | Functional datapath | `generate`, `map`, `reduce`, `sum`, `dot`, static `values[first..past_last]` | [Functional datapath](expressions-functions-generics.md#functional-datapath) |
-| State | `reg`, `<-`, `when`, `priority a > b > c`, typed or qualified-initial `fsm` | [Sequential logic](sequential-state-storage.md) |
+| State | `reg`, `<-`, atomic `when`/`else when`/`else`, `priority a > b > c`, typed or qualified-initial `fsm` | [Guarded atomic actions](sequential-state-storage.md#guarded-atomic-actions) |
 | Physical reset | `reset rst`; `async reset arst @clk` for two-edge synchronized release | [Clock/reset contract](physical-clock-reset-contract.md) |
-| Storage | `fifo`, global or rule-owned synchronous `memory` with optional byte write masks, initialized `rom` | [Sequential storage](sequential-state-storage.md) |
+| Storage | `fifo`, arbitrary-bitwidth bit-packable 1R1W `memory` with zero/one-cycle reads, byte masks (including a partial high lane) and explicit cell/read-result reset policy, initialized `rom`; replicated read ports through ordinary hierarchy | [Sequential storage](sequential-state-storage.md) |
 | Hierarchy | `inst`, compile-time `inst lane[N]`, concise declarations, `connect`, `module M : Ifc` | [Composition](hierarchy-protocols.md), [named interfaces](named-module-interfaces.md) |
 | Streaming | `rv<T>`, `credit<T,N>`, `request_response`; bounded `transform pipeline(auto)` | [Protocols](hierarchy-protocols.md#readyvalid), [elastic automatic pipelines](optimization-formal.md#automatic-pipelines) |
 | Standard buses | `import std.bus.*` | [Aggregate protocols](hierarchy-protocols.md#aggregate-protocols-and-the-standard-library) |
@@ -108,6 +109,10 @@ Compiler and editor integrations should also use the versioned
   Non-nested `/* ... */` comments are implemented alongside `//` comments.
 - Compile-time functions and `if` elaborate values/types and never become
   runtime real arithmetic or procedural control flow.
+- Runtime action `when`/`else when`/`else` selects active effects from the
+  pre-edge snapshot under one atomic outer rule. It is distinct from compile-
+  time `if` and pure value selection; an illegal selected FIFO or memory action
+  suppresses the group rather than choosing a ready fallback.
 - Protocol observations such as `.transfer`, FIFO status, and request/response
   channel events have typed, read-only meanings. They are not arbitrary fields.
 - Clash is the primary/general backend. Direct SystemVerilog is a stable,
@@ -129,7 +134,7 @@ adjacent protocol or architecture is implemented:
 | Design | What is validated | Deliberate boundary |
 | --- | --- | --- |
 | [SimpleDMA](dma-validation.md) | parameterized hierarchy, state, request/response, buffering, real Clash/direct-SV RTL and Verilator | no AXI, CDC, scatter-gather, or cross-module optimization |
-| [Standard-library real designs](stdlib-and-real-design-validation.md) | AXI4-Lite/APB/Wishbone to RegBus/CSR, AXI-Stream packet flow, fixed FIR, and multi-channel DMA | the original QoR table is technology-independent evidence, not an Fmax claim |
+| [Standard-library real designs](stdlib-and-real-design-validation.md) | AHB-Lite/AXI4-Lite/APB/Wishbone to RegBus/CSR, AXI-Stream packet flow, fixed FIR, and multi-channel DMA | the original QoR table is technology-independent evidence, not an Fmax claim |
 | [FFT512 SDF reference](../examples/fft/README.md#fft512-nine-stage-functional-reference) | nine numerical stages, initialized twiddle ROMs, II=1/latency 520, and routine backend-independent plus dual-backend RTL replay against one frozen oracle | no automatic DSP mapping, physical QoR, or Fmax claim |
 | [802.11a transmitter validation](80211a-transmitter-validation.md) | IEEE-authoritative bounded 6/12/24-Mbit/s framer through exact inverse DIF-SDF IFFT64, natural-order reorder, 80-sample CP, and complete direct-SV/Clash RTL packet replay | first functional dual-bank/single-buffered architecture misses the 10 ns physical constraint; no receiver, full rate set, or production certification claim |
 | [IFFT64 numerical reference](80211a-transmitter-validation.md#ifft64-numerical-reference-elaboration-boundary) | full N=64 semantic/canonical/simulator result using compact functional IR; N=8/N=16 combinational backend witnesses | the whole-vector reference remains distinct from the production streaming SDF validated by the 802.11a project |
@@ -148,7 +153,7 @@ source-local `cx.Complex`/`cx.function(...)`/`cx.Struct { ... }` references and
 normalize to the same declaration identities as the unqualified spelling; see
 [Projects and dependencies](projects-dependencies.md).
 Available areas include fixed/complex math, stream/storage/coding/DSP helpers,
-RegBus, AXI4-Lite, APB, AXI-Stream, Wishbone, and target/resource descriptions. The compiler core understands
+RegBus, AHB-Lite, AXI4-Lite, APB, AXI-Stream, Wishbone, and target/resource descriptions. The compiler core understands
 generic types, protocols, hierarchy, and ownership; it does not encode bus
 transaction names as privileged backend behavior.
 
@@ -179,14 +184,21 @@ The current executable language intentionally does not claim:
   runtime reshape, enum `bitcast`/`pack`/`unpack`,
   reloadable/asynchronous/multiport ROM, or external top enum inputs;
 - runtime procedural `if`/`else`, mutable software locals, or general HLS;
+  use recursive atomic `when` for runtime effect selection and compile-time
+  `if` only for elaboration;
 - traits, runtime polymorphism, generic methods, implicit numeric conversions, or
   recursive generic programming;
 - arbitrary or nested dynamic vector writes/ranges, runtime-selected instance
   inputs, and runtime-selected protocol endpoints; one range-proven element
   update to a one-dimensional `reg vec<N,T>` and read-only output projection
   such as `lane[select].value` are supported;
-- asynchronous/multiport memories, writable-memory initialization, or automatic
-  ROM/BRAM exploration;
+- native multiport memories, synthesizable writable-memory initialization, or
+  automatic ROM/BRAM exploration; the bounded global 1R1W memory supports an explicit
+  combinational-read profile and independent clear/preserve reset policies,
+  while fixed multi-read stores may be source-composed from replicated 1R1W
+  child arrays. Simulation tests may preload/inspect selected register, vector,
+  memory-cell, and registered-read state through the direct-SV
+  `--simulation-state-bundle` companion without changing hardware;
 - automatic protocol adaptation, implicit CDC, full AXI4 bursts/IDs, package
   registries, mutable dependency revisions, or unlocked external imports;
 - liveness/eventuality/fairness, arbitrary temporal or solver-specific source

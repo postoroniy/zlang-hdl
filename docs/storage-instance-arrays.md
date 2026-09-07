@@ -30,14 +30,22 @@ specialization identity. Both backends consume `ElaboratedInstance` bindings
 directly and emit one reusable component plus one application/instance per
 physical element.
 
-CSR, other protocol/storage mixtures, multiple storage resources, nested
-storage hierarchy, multiple clock domains, CDC, runtime-selected inputs or
-protocol endpoints, and formal observation extensions remain rejected.
+CSR, other protocol/storage mixtures, multiple storage resources, arbitrary
+nested storage hierarchy, multiple clock domains, CDC, runtime-selected inputs
+or protocol endpoints, and formal observation extensions remain rejected.
 Runtime selection of a bit-packable scalar-wire output is supported as a
 read-only projection: `lane[select].value` lowers to a typed runtime index over
 all statically elaborated `lane[i].value` references. Every child continues to
 execute and retain independent state; the selector is only an output mux and
 never gates a child or denotes a dynamic physical instance.
+
+One bounded source-composition witness builds a logical banked 2R1W store from
+two flat arrays of globally controlled 1R1W memory leaves. Each leaf still owns
+exactly one memory and has only scalar wire ports; the array parent owns no
+additional state. One scalar wrapper may instantiate that banked component, so
+the generic Clash sequential-child ABI now returns one or multiple scalar outputs
+as one coherent bundled result. This is not general nested storage support and
+does not permit a storage-owning leaf to contain another instance.
 
 The one bounded protocol/storage exception is a storage-only child whose
 external ports are exclusively primitive ready/valid and which owns exactly
@@ -90,3 +98,13 @@ uses the same single waiver, while a separate regression deliberately runs
 strict lint and confirms that this is the only required exception.  No warning
 is hidden in production source and the file-backed ROM architecture is
 unchanged.
+
+The [`ZtpuBankedMemory`](../examples/ztpu_banked_memory.zhl) witness elaborates
+two four-element arrays into eight independently identified physical memory
+children with one shared specialization. Runtime output projection selects the
+addressed bank separately for each read port; decoded writes are broadcast to
+the matching bank in both replicas. The semantic simulator and both RTL
+backends agree on masked writes, independent reads, `read_first` collisions,
+reset suppression/preservation, and post-reset contents. BackendArtifact v4
+records every leaf path and no fictitious dynamic instance. Hidden cells gain
+no new formal observation family.

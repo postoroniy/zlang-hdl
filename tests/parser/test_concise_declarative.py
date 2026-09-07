@@ -101,7 +101,9 @@ class ConciseDeclarativeSyntaxTests(unittest.TestCase):
         declarations = "struct Child { x:bit } module Child { in x:bit }"
         with self.assertRaisesRegex(SemanticError, "is ambiguous"):
             analyze(parse(declarations + " module Top { c:Child }"))
-        explicit = analyze(parse(declarations + " module Top { inst c:Child }"))
+        explicit = analyze(
+            parse(declarations + " module Top { inst c:Child { x=0 } }")
+        )
         self.assertEqual(explicit.instances[0].module, "Child")
 
     def test_axi_csr_concise_and_verbose_forms_have_identical_backend_identity(self) -> None:

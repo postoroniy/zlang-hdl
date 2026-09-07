@@ -87,6 +87,12 @@ Executable formal work now consumes this exact contract instead of assuming a
 rising, synchronous, active-high domain. With `power_up unspecified`, the
 supported matrix is:
 
+Formal-only accepted `rule.fire` projections use this same effective reset and
+polarity, not a raw active-high input assumption. The projection is resolved in
+the final formal component scope; descendants consume the conditioned native
+reset. The 2026-09-06 correction covers assertion/reassertion, the complete
+two-edge release hold, and restart on the third edge in 24 real-RTL profiles.
+
 | Active clock edge | Reset assertion | External polarity | Release | Existing formal routes |
 | --- | --- | --- | --- | --- |
 | rising or falling | synchronous | active-high or active-low | native | M35/source safety and cover; existing bindable recursive M35; same-cycle and fixed-latency II=1 M36; compatible M38; applicable M39 policies |

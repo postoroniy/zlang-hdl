@@ -20,7 +20,7 @@ from zlang.ir.interfaces import (
     RequestResponseOrdering,
     RequestResponseRole,
 )
-from zlang.ir.types import HardwareType
+from zlang.ir.types import BitType, HardwareType
 from zlang.ir.types import EnumType, StructType, TaggedUnionType
 from zlang.ir.csr import CsrAccessInterface, CsrBlock
 from zlang.ir.storage import Fifo, Memory, Rom
@@ -769,6 +769,14 @@ class Register:
 class NextAssignment:
     target: Register | Port
     expression: Expression
+    # ``None`` is the compatibility spelling for an unconditionally active
+    # effect.  Nested atomic control supplies an exact, already-typed bit
+    # predicate here; it does not turn the assignment into a second rule.
+    activation: Expression | None = None
+
+    def __post_init__(self) -> None:
+        if self.activation is not None and self.activation.type != BitType():
+            raise ValueError("rule-action activation must have type bit")
 
 
 @dataclass(frozen=True)

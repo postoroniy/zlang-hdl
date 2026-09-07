@@ -85,7 +85,8 @@ module Top { in x:u8 out y:u8 inst child:Child { x } y=child.y }
                 if line.startswith(by_source["twice"] + " ") and " = " in line
             ),
         )
-        self.assertIn("child x = zlang_spec_", generated)
+        specialization = module.elaborated_instances[0].specialization_identity
+        self.assertIn(f"child_s{specialization[:8]} x = zlang_spec_", generated)
 
 
 if __name__ == "__main__":

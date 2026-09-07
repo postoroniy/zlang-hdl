@@ -21,10 +21,10 @@ def test_direct_sv_reuses_specialization_and_emits_four_physical_instances() -> 
         compile_source(SOURCE, top="IndexedInstanceArray", include_clash=False).ir
     )
     text = artifact.text
-    assert text.count("module ArrayLane__") == 1
-    assert text.count("ArrayLane__") == 5  # definition plus four applications
+    assert text.count("module ArrayLane_s") == 1
+    assert text.count("ArrayLane_s") == 5  # definition plus four applications
     for index in range(4):
-        assert f"zlang_instance_lane_{index}_" in text
+        assert f" lane_{index} (" in text
     restored = BackendArtifact.from_json(artifact.to_json())
     assert restored.artifact_hash == artifact.artifact_hash
     assert restored.manifest_version == artifact.manifest_version

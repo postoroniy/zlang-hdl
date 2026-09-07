@@ -100,13 +100,12 @@ module NestedSwitchCall {
         self.assertEqual(
             generated.count("function automatic logic [7:0] choose_bump("), 1
         )
-        # Backend-private helper parameters must not shadow public module
-        # ports.  The helper keeps the source callable identity while its
-        # local ABI uses deterministic mangled argument names.
+        # Function arguments keep their source stem with a compact arg_ prefix
+        # so ordinary source names cannot become SystemVerilog keywords.
         self.assertIn(
-            "choose_bump = ((zlang_arg_choose_bump_select)", generated
+            "choose_bump = ((arg_select)", generated
         )
-        self.assertIn("bump(zlang_arg_choose_bump_x)", generated)
+        self.assertIn("bump(arg_x)", generated)
         self.assertIn("assign y = choose_bump(select, value);", generated)
         self.assertIn(" + ", generated)
         self.assertIn(" ? ", generated)

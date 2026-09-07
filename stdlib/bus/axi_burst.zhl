@@ -1,0 +1,233 @@
+// Source-owned five-channel burst profile used by the ZTPU migration.
+// This is intentionally smaller than full AXI4: no IDs, WSTRB, burst kind,
+// cache/protection/QoS, exclusives, or user sidebands.
+
+struct AxiBurstAddress<AW=32> {
+    addr : uint<AW>
+    len : u8
+    size : u3
+}
+
+struct AxiBurstReadData<DW=32> {
+    data : uint<DW>
+    last : bit
+    resp : bits<2>
+}
+
+struct AxiBurstWriteData<DW=32> {
+    data : uint<DW>
+    last : bit
+}
+
+struct AxiBurstWriteResponse {
+    resp : bits<2>
+}
+
+protocol AXI4BurstSubset<AW=32,DW=32> {
+    role master
+    role slave
+    channel ar : rv<AxiBurstAddress<AW>> master -> slave
+    channel r  : rv<AxiBurstReadData<DW>> slave -> master
+    channel aw : rv<AxiBurstAddress<AW>> master -> slave
+    channel w  : rv<AxiBurstWriteData<DW>> master -> slave
+    channel b  : rv<AxiBurstWriteResponse> slave -> master
+}
+
+// ZTPU exposes physically independent read and write masters.  These views use
+// the same payload types and ready/valid semantics as the combined profile.
+protocol AXI4BurstReadSubset<AW=32,DW=32> {
+    role master
+    role slave
+    channel ar : rv<AxiBurstAddress<AW>> master -> slave
+    channel r  : rv<AxiBurstReadData<DW>> slave -> master
+}
+
+protocol AXI4BurstWriteSubset<AW=32,DW=32> {
+    role master
+    role slave
+    channel aw : rv<AxiBurstAddress<AW>> master -> slave
+    channel w  : rv<AxiBurstWriteData<DW>> master -> slave
+    channel b  : rv<AxiBurstWriteResponse> slave -> master
+}
+
+enum AxiBurstReadPhase {
+    Idle
+    Address
+    Data
+    Done
+}
+
+// One outstanding, full-width incrementing read burst.  Error is sticky for an
+// epoch, but malformed RLAST or nonzero RRESP never prevents counted draining.
+module AXI4BurstReader<AW=32,DW=32,LW=16>
+where AW >= 1 && AW >= floor_log2(DW / 8) &&
+      LW >= 9 && DW >= 8 && DW <= 1024 &&
+      is_power_of_two(DW) && is_power_of_two(DW / 8) {
+    clock clk reset rst
+
+    in start : bit
+    in base_addr : uint<AW>
+    in length : uint<LW>
+    out busy : bit
+    out done : bit
+    out error : bit
+    out data : rv<uint<DW>>
+    interface axi : AXI4BurstReadSubset<AW,DW>.master @clk
+
+    reg address : uint<AW> = 0
+    reg burst_len : u8 = 0
+    reg remaining : uint<LW> = 0
+    reg failed : bit = 0
+
+    alignment_mask : uint<AW> = extend<AW>((DW / 8) - 1)
+    aligned : bit = (base_addr & alignment_mask) == 0
+    length_valid : bit = (length != 0) & (length <= extend<LW>(256))
+    request_valid : bit = aligned & length_valid
+    expected_last : bit = remaining == 1
+    response_failed : bit = axi.r.payload.resp != 0
+    framing_failed : bit = axi.r.payload.last != expected_last
+    beat_failed : bit = response_failed | framing_failed
+    size_code : u3 = floor_log2(DW / 8)
+
+    busy = (phase == AxiBurstReadPhase.Address) |
+           (phase == AxiBurstReadPhase.Data)
+    done = phase == AxiBurstReadPhase.Done
+    error = failed
+
+    axi.ar.valid = phase == AxiBurstReadPhase.Address
+    axi.ar.payload = AxiBurstAddress {
+        addr = address
+        len = burst_len
+        size = size_code
+    }
+
+    data.valid = (phase == AxiBurstReadPhase.Data) & axi.r.valid
+    data.payload = axi.r.payload.data
+    axi.r.ready = (phase == AxiBurstReadPhase.Data) & data.ready
+
+    fsm phase : AxiBurstReadPhase = Idle {
+        Idle {
+            priority {
+                when start & request_valid -> Address {
+                    address <- base_addr
+                    burst_len <- truncate<8>(length - 1)
+                    remaining <- length
+                    failed <- 0
+                }
+                when start -> Done {
+                    failed <- 1
+                }
+            }
+        }
+        Address {
+            when axi.ar.transfer -> Data {}
+        }
+        Data {
+            priority {
+                when axi.r.transfer & expected_last -> Done {
+                    remaining <- 0
+                    failed <- failed | beat_failed
+                }
+                when axi.r.transfer -> Data {
+                    remaining <- truncate<LW>(remaining - 1)
+                    failed <- failed | beat_failed
+                }
+            }
+        }
+        Done { -> Idle {} }
+    }
+}
+
+enum AxiBurstWritePhase {
+    Idle
+    Address
+    Data
+    Response
+    Done
+}
+
+// One outstanding write burst.  AW is accepted before data is exposed to the
+// bus; W and B retain independent backpressure and WLAST is locally counted.
+module AXI4BurstWriter<AW=32,DW=32,LW=16>
+where AW >= 1 && AW >= floor_log2(DW / 8) &&
+      LW >= 9 && DW >= 8 && DW <= 1024 &&
+      is_power_of_two(DW) && is_power_of_two(DW / 8) {
+    clock clk reset rst
+
+    in start : bit
+    in base_addr : uint<AW>
+    in length : uint<LW>
+    in data : rv<uint<DW>>
+    out busy : bit
+    out done : bit
+    out error : bit
+    interface axi : AXI4BurstWriteSubset<AW,DW>.master @clk
+
+    reg address : uint<AW> = 0
+    reg burst_len : u8 = 0
+    reg remaining : uint<LW> = 0
+    reg failed : bit = 0
+
+    alignment_mask : uint<AW> = extend<AW>((DW / 8) - 1)
+    aligned : bit = (base_addr & alignment_mask) == 0
+    length_valid : bit = (length != 0) & (length <= extend<LW>(256))
+    request_valid : bit = aligned & length_valid
+    final_beat : bit = remaining == 1
+    size_code : u3 = floor_log2(DW / 8)
+
+    busy = (phase == AxiBurstWritePhase.Address) |
+           (phase == AxiBurstWritePhase.Data) |
+           (phase == AxiBurstWritePhase.Response)
+    done = phase == AxiBurstWritePhase.Done
+    error = failed
+
+    axi.aw.valid = phase == AxiBurstWritePhase.Address
+    axi.aw.payload = AxiBurstAddress {
+        addr = address
+        len = burst_len
+        size = size_code
+    }
+
+    axi.w.valid = (phase == AxiBurstWritePhase.Data) & data.valid
+    axi.w.payload = AxiBurstWriteData {
+        data = data.payload
+        last = (phase == AxiBurstWritePhase.Data) & final_beat
+    }
+    data.ready = (phase == AxiBurstWritePhase.Data) & axi.w.ready
+    axi.b.ready = phase == AxiBurstWritePhase.Response
+
+    fsm phase : AxiBurstWritePhase = Idle {
+        Idle {
+            priority {
+                when start & request_valid -> Address {
+                    address <- base_addr
+                    burst_len <- truncate<8>(length - 1)
+                    remaining <- length
+                    failed <- 0
+                }
+                when start -> Done {
+                    failed <- 1
+                }
+            }
+        }
+        Address {
+            when axi.aw.transfer -> Data {}
+        }
+        Data {
+            priority {
+                when axi.w.transfer & final_beat -> Response {
+                    remaining <- 0
+                }
+                when axi.w.transfer -> Data {
+                    remaining <- truncate<LW>(remaining - 1)
+                }
+            }
+        }
+        Response {
+            when axi.b.transfer -> Done {
+                failed <- failed | (axi.b.payload.resp != 0)
+            }
+        }
+        Done { -> Idle {} }
+    }
+}

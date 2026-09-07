@@ -39,6 +39,14 @@ class ChildExpectation:
 
 
 CHILD_OR_TEMPLATE_ONLY = {
+    ("ztpu_banked_memory.zhl", "ZtpuMemoryReplica"): ChildExpectation(
+        "parameter constraint cannot be discharged.*runtime value 'D'",
+        "ZtpuBankedMemory",
+    ),
+    ("ztpu_banked_memory.zhl", "ReplicatedBanked2R1W"): ChildExpectation(
+        "parameter constraint cannot be discharged.*runtime value 'BANKS'",
+        "ZtpuBankedMemory",
+    ),
     ("fft/sdf_stage_numeric.zhl", "FFTSDFStageNumeric"): ChildExpectation(
         "unknown type 'S'", "FFTSDFStageNumericD4"
     ),
@@ -164,8 +172,8 @@ def _direct_result(path: Path, top: str):
 
 def test_every_example_module_root_has_an_explicit_direct_status() -> None:
     roots = tuple(_roots())
-    assert len({path for path, *_ in roots}) == 80
-    assert len(roots) == 165
+    assert len({path for path, *_ in roots}) == 84
+    assert len(roots) == 174
 
     standalone = 0
     child_only = 0
@@ -212,7 +220,7 @@ def test_every_example_module_root_has_an_explicit_direct_status() -> None:
         _assert_explicit_internal_drivers(artifact.text, f"{relative}::{top}")
         assert artifact.to_json()
 
-    assert (standalone, child_only, unsupported) == (150, 15, 0)
+    assert (standalone, child_only, unsupported) == (157, 17, 0)
 
 
 @pytest.mark.parametrize(
@@ -270,4 +278,4 @@ def test_every_standalone_supported_example_root_passes_strict_lint(tmp_path: Pa
             f"{relative}::{top}\n{completed.stderr}"
         )
         checked += 1
-    assert checked == 150
+    assert checked == 157

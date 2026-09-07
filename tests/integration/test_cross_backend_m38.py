@@ -628,7 +628,7 @@ class M38Tests(unittest.TestCase):
         self.assertNotEqual(metadata.comparison_valid, "comparison_valid")
         self.assertRegex(
             emission.source,
-            r"reg \[1:0\] zlang_formal_reset_release__[0-9a-f]{8};",
+            r"reg \[1:0\] zlang_formal_reset_release_[0-9a-f]{8};",
         )
         left_name, right_name = metadata.observable_names[0][1:]
         self.assertNotEqual(left_name, "left_0")

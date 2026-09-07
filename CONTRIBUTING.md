@@ -62,9 +62,15 @@ Git can add the line automatically:
 git commit --signoff
 ```
 
-By contributing, you agree that your contribution is submitted under the
-repository's [Apache License 2.0](LICENSE), unless a file clearly documents a
-compatible third-party license.
+By contributing original work, you certify its provenance through the DCO and
+agree that it is submitted under the repository's
+[Apache License 2.0](LICENSE), unless an existing subtree or file clearly
+documents another compatible license. In particular, contributions to
+`examples/projects/80211a_transmitter/` are submitted under that subtree's MIT
+license. Third-party material must retain its applicable copyright, license,
+and notice information; a DCO sign-off does not replace those obligations.
+
+The project does not require a Contributor License Agreement (CLA).
 
 ## Conduct and security
 

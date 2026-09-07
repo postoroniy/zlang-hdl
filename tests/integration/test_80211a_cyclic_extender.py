@@ -227,9 +227,9 @@ def test_reorder_cp_artifacts_are_deterministic_and_round_trip() -> None:
             assert bindings[f"port:{port}.payload.im"].physical_available
 
     direct = emit_sv_artifact(module).text
-    assert direct.count("module IFFT64ReorderCPKernel__") == 1
+    assert direct.count("module IFFT64ReorderCPKernel_s") == 1
     assert direct.count("2048'hffffffff <<") == 1
-    assert "IFFT64ReorderCPKernel__" in direct
+    assert "IFFT64ReorderCPKernel_s" in direct
 
 
 def _pack(sample: dict[str, int]) -> int:

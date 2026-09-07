@@ -1,4 +1,4 @@
-from dataclasses import FrozenInstanceError
+from dataclasses import FrozenInstanceError, replace
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -277,6 +277,31 @@ def test_m39_reuses_one_session_tool_snapshot_for_recipes_keys_and_execution(
         resolver.formal_context(engine="sby", solver="z3"),
         resolver.formal_context(engine="sby", solver="z3"),
     ]
+    assert calls == {"formal": 1, "clash": 1}
+
+    # Compatibility callers without a session resolver use the existing
+    # ambient context without inventing another tool snapshot.
+    assert _FORMAL_TOOLCHAIN_OVERRIDE.get() is None
+    no_resolver = replace(config, tool_resolver=None)
+    unscoped_result = verifier(candidate, no_resolver)
+    assert unscoped_result["status"] is FormalStatus.BOUNDED_PASS
+    assert execution_contexts[-1] is None
+    failure = RuntimeError("deliberate formal runner failure")
+
+    def fail_execution(*_args, **_keywords):
+        execution_contexts.append(_FORMAL_TOOLCHAIN_OVERRIDE.get())
+        raise failure
+
+    monkeypatch.setattr("zlang.formal_candidate.run_equivalence_formal", fail_execution)
+    for run_config, expected_context in (
+        (no_resolver, None),
+        (config, resolver.formal_context(engine="sby", solver="z3")),
+    ):
+        with pytest.raises(RuntimeError) as caught:
+            verifier(candidate, run_config)
+        assert caught.value is failure
+        assert execution_contexts[-1] is expected_context
+        assert _FORMAL_TOOLCHAIN_OVERRIDE.get() is None
     assert calls == {"formal": 1, "clash": 1}
 
 

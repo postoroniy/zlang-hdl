@@ -109,7 +109,7 @@ class StorageSemanticTests(unittest.TestCase):
                   memory m:mem<u8,3>{read_latency 1 collision read_first}
                   m.read_address=a m.write_enable=we m.write_address=a m.write_data=d }
             """,
-            "currently requires read_latency 1": """
+            "read_latency must be 0 or 1": """
                 module Bad { clock c reset r in a:u2 in we:bit in d:u8
                   memory m:mem<u8,4>{read_latency 2 collision read_first}
                   m.read_address=a m.write_enable=we m.write_address=a m.write_data=d }

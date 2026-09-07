@@ -17,7 +17,9 @@ directory name and is not a Python or user-package import.
 | `std.coding` / `std.coding.core` | Parity, bit reversal, checked polynomial-tap LFSR step, and exact convolution helpers |
 | `std.bus.reg` | RegBus and the source-authoritative CSR target |
 | `std.bus.axi_lite` | AXI4-Lite protocol and RegBus frontend |
+| `std.bus.axi_burst` | Bounded no-ID AXI burst profile, read/write views, and single-outstanding helpers |
 | `std.bus.apb` | APB protocol and RegBus frontend |
+| `std.bus.ahb_lite` | Standards-correct bounded AHB-Lite protocol and RegBus frontend |
 | `std.bus.axi_stream` | AXI4-Stream beat/profile and backpressure-preserving pipe |
 | `std.bus.wishbone` | Wishbone B4 Classic and RegBus frontend |
 | `std.target.generic` | Resource-free generic target identity |
@@ -36,6 +38,29 @@ External path/Git packages use the separate pinned `zlang.toml`/`zlang.lock`
 project resolver. Filesystem-relative source imports and implicit network lookup
 are not part of the compiler-shipped `std` resolver, and ordinary compilation
 never fetches dependencies.
+
+`std.bus.axi_burst` is the source-owned ZTPU interoperability profile, not a
+compiler-recognized bus. It publishes the combined five-channel
+`AXI4BurstSubset<AW,DW>` plus read-only and write-only views matching ZTPU's
+separate physical masters. `AXI4BurstReader` and `AXI4BurstWriter` implement one
+full-width incrementing transaction at a time, with 1–256-beat counting,
+independent channel backpressure, checked `RLAST`, counted `WLAST`, and
+deterministic boolean error latching for nonzero `RRESP`/`BRESP`. The validated
+`AW=64,DW=32` witness passes semantic/canonical restoration, deterministic
+backend emission, simulator traces, and direct-SystemVerilog/Verilator; the
+equivalent real Clash 1.11/Verilator check also passes. IDs, write strobes,
+burst-kind and other full-AXI sidebands, multiple outstanding transactions,
+UB-DMA chunking, and fences remain outside this bounded profile.
+
+`std.bus.ahb_lite` follows the AHB-Lite address/data pipeline and two-cycle
+ERROR response rather than the historical ZTPU model's same-cycle AHB-like
+shortcut. `AHBLiteToRegBus<AW,DW>` accepts one aligned full-width beat at a
+time for byte-addressable power-of-two `DW` from 8 through 1024, supplies an
+all-byte RegBus write mask, and holds the AHB data phase through RegBus
+request/response stalls. Subword transfers, arbitration, SPLIT/RETRY and
+compiler/backend AHB dispatch are not part of this profile. Its `hresetn`
+domain uses active-low asynchronous assertion and two-edge synchronized
+release; the example carries that exact contract through the CSR hierarchy.
 
 `std.math.complex` is ordinary source-authoritative ZLang. It has no bus or
 stream dependency and uses only generic structs/functions and nominal operator

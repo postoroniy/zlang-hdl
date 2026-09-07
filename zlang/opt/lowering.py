@@ -12,11 +12,18 @@ from zlang.ir.module import (
     Module,
     NextAssignment,
     Port,
+    PortDirection,
     Register,
     RequestResponseInterface,
     Rule,
 )
-from zlang.ir.storage import Fifo, Memory, Rom
+from zlang.ir.storage import (
+    Fifo,
+    Memory,
+    MemoryResetPolicy,
+    Rom,
+    memory_byte_mask_width,
+)
 from zlang.ir.external import ExternalModuleContract
 from zlang.ir.state import (
     ActionGroup,
@@ -24,6 +31,8 @@ from zlang.ir.state import (
     StateAction,
     StateActionKind,
     StateResourceKind,
+    actions_conflict,
+    ordered_groups,
 )
 from zlang.ir.verification import (
     Contract,
@@ -31,7 +40,7 @@ from zlang.ir.verification import (
     VerificationRequirement,
     VerificationScope,
 )
-from zlang.ir.pipelines import PipelineCandidate, PipelineExploration, PipelinePlan
+from zlang.ir.pipelines import PipelineCandidate, PipelineExploration
 from zlang.ir.elastic import ElasticPipelineRegion
 from zlang.ir.architectures import (
     ArchitectureCandidate,
@@ -75,7 +84,11 @@ from zlang.opt.ir import (
 )
 from zlang.ir.functional import FunctionalLoweringError, vector_leaf_shape
 from zlang.ir.functional_regions import FunctionalTable
-from zlang.ir.hierarchy import HierarchyError, validate_hierarchical_connections
+from zlang.ir.hierarchy import (
+    HierarchyError,
+    validate_hierarchical_connections,
+    validate_instance_port_bindings,
+)
 from zlang.ir.packing import PackingError, packed_width
 from zlang.ir.runtime_values import scalar_fits
 from zlang.ir.types import (
@@ -813,6 +826,10 @@ def lower(
             _target_kind(assignment.target),
             assignment.target.name,
             builder.lower(assignment.expression),
+            (
+                builder.lower(assignment.activation)
+                if assignment.activation is not None else None
+            ),
         )
         for assignment in module.next_assignments
     )
@@ -825,6 +842,10 @@ def lower(
                     _target_kind(action.target),
                     action.target.name,
                     builder.lower(action.expression),
+                    (
+                        builder.lower(action.activation)
+                        if action.activation is not None else None
+                    ),
                 )
                 for action in rule.actions
             ),
@@ -858,6 +879,13 @@ def lower(
                             action.semantic_id, action.resource_id, action.kind,
                             tuple(builder.lower(operand, f"action:{action.semantic_id}") for operand in action.operands),
                             action.owner_group, action.source_origin,
+                            (
+                                builder.lower(
+                                    action.activation,
+                                    f"action-activation:{action.semantic_id}",
+                                )
+                                if action.activation is not None else None
+                            ),
                         ) for action in group.actions
                     ),
                     group.source_origin,
@@ -885,6 +913,8 @@ def lower(
                 builder.lower(memory.write_mask)
                 if memory.write_mask is not None else None
             ),
+            contents_reset=memory.contents_reset,
+            read_data_reset=memory.read_data_reset,
         )
         for memory in module.memories
     )
@@ -1238,21 +1268,51 @@ def restore(module: CanonicalModule) -> Module:
         )
         for item in module.assignments
     )
+    def restore_activation(
+        node: NodeId | None,
+        label: str,
+    ) -> expr.Expression | None:
+        if node is None:
+            return None
+        activation = expressions.restore(node)
+        if activation.type != BitType():
+            raise CanonicalizationError(
+                f"canonical {label} activation must have type bit"
+            )
+        return activation
+
+    def restore_guard(node: NodeId, label: str) -> expr.Expression:
+        guard = expressions.restore(node)
+        if guard.type != BitType():
+            raise CanonicalizationError(
+                f"canonical {label} guard must have type bit"
+            )
+        return guard
+
     next_assignments = tuple(
         NextAssignment(
             target(item.target_kind, item.target_name),
             expressions.restore(item.expression),
+            restore_activation(item.activation, "next-state assignment"),
         )
         for item in module.next_assignments
     )
+    if any(item.activation is not None for item in next_assignments):
+        raise CanonicalizationError(
+            "canonical module-level next-state assignment cannot be conditional"
+        )
     rules = tuple(
         Rule(
             rule.name,
-            expressions.restore(rule.guard),
+            restore_guard(rule.guard, f"rule '{rule.name}'"),
             tuple(
                 NextAssignment(
                     target(action.target_kind, action.target_name),
                     expressions.restore(action.expression),
+                    restore_activation(
+                        action.activation,
+                        f"rule '{rule.name}' action",
+                    ),
                 )
                 for action in rule.actions
             ),
@@ -1275,11 +1335,9 @@ def restore(module: CanonicalModule) -> Module:
                 "canonical memory controls must be all present or all absent"
             )
         if memory.write_mask_width is not None:
-            if memory.element_type.width % 8:
-                raise CanonicalizationError(
-                    "canonical masked memory element width is not byte aligned"
-                )
-            if memory.write_mask_width != memory.element_type.width // 8:
+            if memory.write_mask_width != memory_byte_mask_width(
+                memory.element_type.width
+            ):
                 raise CanonicalizationError(
                     "canonical memory write-mask width is incorrect"
                 )
@@ -1298,6 +1356,22 @@ def restore(module: CanonicalModule) -> Module:
             raise CanonicalizationError(
                 "canonical global masked memory requires a write-mask expression"
             )
+        if memory.read_latency not in {0, 1}:
+            raise CanonicalizationError(
+                "canonical memory read latency must be zero or one"
+            )
+        if scheduled and memory.read_latency == 0:
+            raise CanonicalizationError(
+                "canonical scheduled memory requires read latency one"
+            )
+        for label, policy in (
+            ("contents", memory.contents_reset),
+            ("read data", memory.read_data_reset),
+        ):
+            if not isinstance(policy, MemoryResetPolicy):
+                raise CanonicalizationError(
+                    f"canonical memory {label} reset policy is invalid"
+                )
     memories = tuple(
         Memory(
             memory.name,
@@ -1316,6 +1390,8 @@ def restore(module: CanonicalModule) -> Module:
                 expressions.restore(memory.write_mask)
                 if memory.write_mask is not None else None
             ),
+            contents_reset=memory.contents_reset,
+            read_data_reset=memory.read_data_reset,
         )
         for memory in module.memories
     )
@@ -1328,12 +1404,19 @@ def restore(module: CanonicalModule) -> Module:
             tuple(
                 ActionGroup(
                     group.semantic_id, group.rule_name,
-                    expressions.restore(group.guard),
+                    restore_guard(
+                        group.guard,
+                        f"action group '{group.rule_name}'",
+                    ),
                     tuple(
                         StateAction(
                             action.semantic_id, action.resource_id, action.kind,
                             tuple(expressions.restore(item) for item in action.operands),
                             action.owner_group, action.source_origin,
+                            restore_activation(
+                                action.activation,
+                                f"state action '{action.semantic_id}'",
+                            ),
                         ) for action in group.actions
                     ),
                     group.source_origin,
@@ -1353,7 +1436,83 @@ def restore(module: CanonicalModule) -> Module:
             raise CanonicalizationError(
                 "canonical memory write-mask expression has incorrect type"
             )
+
+    def activation_requirements(
+        value: expr.Expression,
+    ) -> tuple[expr.Expression, ...]:
+        """Return predicates that must be true when ``value`` is true.
+
+        Semantic nested-action lowering builds activation paths from bitwise
+        conjunctions and exact ``predicate == 0`` false-arm terms.  Retaining
+        every conjunction subtree as well as its leaves lets restoration prove
+        the original opposite-arm relation even when a source guard itself was
+        a conjunction.  This is a sound structural proof, not general Boolean
+        simplification.
+        """
+
+        result = [value]
+        if (
+            isinstance(value, expr.Binary)
+            and value.operator is expr.BinaryOperator.BIT_AND
+            and value.type == BitType()
+        ):
+            result.extend(activation_requirements(value.left))
+            result.extend(activation_requirements(value.right))
+        return tuple(result)
+
+    def is_zero_test_of(
+        candidate: expr.Expression,
+        original: expr.Expression,
+    ) -> bool:
+        if not (
+            isinstance(candidate, expr.Binary)
+            and candidate.operator is expr.BinaryOperator.EQUAL
+            and candidate.type == BitType()
+        ):
+            return False
+        pairs = (
+            (candidate.left, candidate.right),
+            (candidate.right, candidate.left),
+        )
+        return any(
+            isinstance(zero, expr.Constant)
+            and zero.type == BitType()
+            and zero.value == 0
+            and operand == original
+            for zero, operand in pairs
+        )
+
+    def activations_are_structurally_exclusive(
+        left: expr.Expression | None,
+        right: expr.Expression | None,
+    ) -> bool:
+        if left is None or right is None:
+            return False
+        if (
+            isinstance(left, expr.Constant)
+            and left.type == BitType()
+            and left.value == 0
+        ) or (
+            isinstance(right, expr.Constant)
+            and right.type == BitType()
+            and right.value == 0
+        ):
+            return True
+        left_requirements = activation_requirements(left)
+        right_requirements = activation_requirements(right)
+        return any(
+            is_zero_test_of(first, second)
+            or is_zero_test_of(second, first)
+            for first in left_requirements
+            for second in right_requirements
+        )
+
     if resolved_transition is not None:
+        rules_by_name = {rule.name: rule for rule in rules}
+        if len(rules_by_name) != len(rules):
+            raise CanonicalizationError(
+                "canonical module has duplicate rule names"
+            )
         resource_by_id = {
             resource.semantic_id: resource
             for resource in resolved_transition.resources
@@ -1372,8 +1531,50 @@ def restore(module: CanonicalModule) -> Module:
             raise CanonicalizationError(
                 "canonical transition has duplicate action-group identity"
             )
+        if set(group_names) != set(rules_by_name):
+            raise CanonicalizationError(
+                "canonical transition action groups do not match typed rules"
+            )
+        declared_priorities = tuple(
+            (priority.higher, priority.lower)
+            for priority in module.rule_priorities
+        )
+        if len(declared_priorities) != len(set(declared_priorities)):
+            raise CanonicalizationError(
+                "canonical module has duplicate rule priority"
+            )
+        for higher, lower in declared_priorities:
+            if higher not in rules_by_name or lower not in rules_by_name:
+                raise CanonicalizationError(
+                    "canonical rule priority references an unknown rule"
+                )
+            if higher == lower:
+                raise CanonicalizationError(
+                    "canonical rule priority cannot reference itself"
+                )
+        if resolved_transition.priorities != tuple(sorted(declared_priorities)):
+            raise CanonicalizationError(
+                "canonical transition priorities do not match typed rule priorities"
+            )
+        try:
+            ordered_groups(resolved_transition)
+        except ValueError as error:
+            raise CanonicalizationError(
+                "canonical rule priority graph contains a cycle"
+            ) from error
         action_ids: set[str] = set()
         memory_action_resources: set[str] = set()
+        output_action_resources: set[str] = set()
+        output_ports = {
+            port.name: port for port in module.ports
+            if (
+                port.direction is PortDirection.OUTPUT
+                and port.protocol is InterfaceProtocol.WIRE
+                and isinstance(
+                    port.type, (BitType, UIntType, SIntType, BitsType)
+                )
+            )
+        }
         for group in resolved_transition.action_groups:
             for action in group.actions:
                 if action.semantic_id in action_ids:
@@ -1390,7 +1591,96 @@ def restore(module: CanonicalModule) -> Module:
                     raise CanonicalizationError(
                         f"canonical action '{action.semantic_id}' references missing resource"
                     )
-                if action.kind in {
+                if action.activation is not None and action.activation.type != BitType():
+                    raise CanonicalizationError(
+                        "canonical state-action activation must have type bit"
+                    )
+                if action.kind is StateActionKind.OUTPUT_WRITE:
+                    port = output_ports.get(resource.name)
+                    if resource.kind is not StateResourceKind.OUTPUT or port is None:
+                        raise CanonicalizationError(
+                            "canonical output action links to a non-output resource"
+                        )
+                    if (
+                        resource.type != port.type
+                        or resource.domain != (port.domain or resolved_transition.domain)
+                        or resource.depth is not None
+                    ):
+                        raise CanonicalizationError(
+                            f"scheduled output '{resource.name}' resource metadata disagrees"
+                        )
+                    if len(action.operands) != 1 or action.operands[0].type != resource.type:
+                        raise CanonicalizationError(
+                            "canonical output write has incorrect operands"
+                        )
+                    output_action_resources.add(resource.semantic_id)
+                elif resource.kind is StateResourceKind.OUTPUT:
+                    raise CanonicalizationError(
+                        "canonical output resource has a non-output action kind"
+                    )
+                elif action.kind is StateActionKind.REGISTER_WRITE:
+                    register = register_symbols.get(resource.name)
+                    if (
+                        resource.kind is not StateResourceKind.REGISTER
+                        or register is None
+                    ):
+                        raise CanonicalizationError(
+                            "canonical register action links to a non-register resource"
+                        )
+                    if (
+                        resource.type != register.type
+                        or resource.domain
+                        != (register.domain or resolved_transition.domain)
+                    ):
+                        raise CanonicalizationError(
+                            f"scheduled register '{resource.name}' resource metadata disagrees"
+                        )
+                    if (
+                        len(action.operands) != 1
+                        or action.operands[0].type != resource.type
+                    ):
+                        raise CanonicalizationError(
+                            "canonical register write has incorrect operands"
+                        )
+                elif resource.kind is StateResourceKind.REGISTER:
+                    raise CanonicalizationError(
+                        "canonical register resource has a non-register action kind"
+                    )
+                elif action.kind in {
+                    StateActionKind.FIFO_PUSH,
+                    StateActionKind.FIFO_POP,
+                }:
+                    fifo = next(
+                        (item for item in module.fifos if item.name == resource.name),
+                        None,
+                    )
+                    if resource.kind is not StateResourceKind.FIFO or fifo is None:
+                        raise CanonicalizationError(
+                            "canonical FIFO action links to a non-FIFO resource"
+                        )
+                    if (
+                        resource.type != fifo.element_type
+                        or resource.depth != fifo.depth
+                        or resource.domain != resolved_transition.domain
+                    ):
+                        raise CanonicalizationError(
+                            f"scheduled FIFO '{resource.name}' resource metadata disagrees"
+                        )
+                    expected_arity = (
+                        1 if action.kind is StateActionKind.FIFO_PUSH else 0
+                    )
+                    if len(action.operands) != expected_arity or (
+                        expected_arity == 1
+                        and action.operands[0].type != resource.type
+                    ):
+                        raise CanonicalizationError(
+                            "canonical FIFO action has incorrect operands"
+                        )
+                elif resource.kind is StateResourceKind.FIFO:
+                    raise CanonicalizationError(
+                        "canonical FIFO resource has a non-FIFO action kind"
+                    )
+                elif action.kind in {
                     StateActionKind.MEMORY_READ_REQUEST,
                     StateActionKind.MEMORY_WRITE,
                 }:
@@ -1434,6 +1724,66 @@ def restore(module: CanonicalModule) -> Module:
                     raise CanonicalizationError(
                         "canonical memory resource has a non-memory action kind"
                     )
+            for index, left in enumerate(group.actions):
+                for right in group.actions[index + 1:]:
+                    if not actions_conflict(left, right):
+                        continue
+                    if activations_are_structurally_exclusive(
+                        left.activation,
+                        right.activation,
+                    ):
+                        continue
+                    raise CanonicalizationError(
+                        f"canonical action group '{group.rule_name}' has "
+                        "overlapping conflicting effects"
+                    )
+        for group in resolved_transition.action_groups:
+            rule = rules_by_name[group.rule_name]
+            if group.guard != rule.guard:
+                raise CanonicalizationError(
+                    f"canonical action group '{group.rule_name}' guard does not "
+                    "match its typed rule"
+                )
+            expected_effects = tuple(
+                (
+                    StateActionKind.REGISTER_WRITE
+                    if isinstance(action.target, Register)
+                    else StateActionKind.OUTPUT_WRITE,
+                    action.target.name,
+                    action.expression,
+                    action.activation,
+                )
+                for action in rule.actions
+            )
+            actual_effects = tuple(
+                (
+                    action.kind,
+                    resource_by_id[action.resource_id].name,
+                    action.operands[0],
+                    action.activation,
+                )
+                for action in group.actions
+                if action.kind in {
+                    StateActionKind.REGISTER_WRITE,
+                    StateActionKind.OUTPUT_WRITE,
+                }
+            )
+            if actual_effects != expected_effects:
+                raise CanonicalizationError(
+                    f"canonical action group '{group.rule_name}' effects do not "
+                    "match its typed rule"
+                )
+        for resource in resolved_transition.resources:
+            if resource.kind is not StateResourceKind.OUTPUT:
+                continue
+            if resource.name not in output_ports:
+                raise CanonicalizationError(
+                    f"scheduled output resource '{resource.name}' has no scalar output port"
+                )
+            if resource.semantic_id not in output_action_resources:
+                raise CanonicalizationError(
+                    f"scheduled output '{resource.name}' has no linked action"
+                )
         for memory in memories:
             resource = resource_by_id.get(memory.semantic_id)
             if memory.scheduled:
@@ -1703,6 +2053,7 @@ def restore(module: CanonicalModule) -> Module:
     )
     try:
         validate_hierarchical_connections(result)
+        validate_instance_port_bindings(result)
     except HierarchyError as error:
         raise CanonicalizationError(str(error)) from error
     return result
@@ -2441,7 +2792,11 @@ def _build_entities(
                 NodeCategory.STATE,
                 "next_assignment",
                 assignment.target_name,
-                (assignment.expression,),
+                tuple(
+                    item for item in (
+                        assignment.activation, assignment.expression,
+                    ) if item is not None
+                ),
             )
         )
     for rule in rules:
@@ -2451,7 +2806,15 @@ def _build_entities(
                 NodeCategory.TRANSACTION,
                 "rule",
                 rule.name,
-                (rule.guard, *(action.expression for action in rule.actions)),
+                (
+                    rule.guard,
+                    *(
+                        item
+                        for action in rule.actions
+                        for item in (action.activation, action.expression)
+                        if item is not None
+                    ),
+                ),
             )
         )
     for priority in module.rule_priorities:

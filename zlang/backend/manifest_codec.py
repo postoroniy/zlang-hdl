@@ -12,6 +12,7 @@ import json
 import re
 from typing import Any
 
+from zlang.backend.naming import RTL_NAMING_SCHEMA
 from zlang.ir.equivalence import (
     BindingSide,
     EquivalenceBinding,
@@ -23,6 +24,7 @@ from zlang.source import SourceOrigin
 _ARTIFACT_FIELDS = frozenset(
     {
         "manifest_version",
+        "naming_schema",
         "backend",
         "module",
         "selected_ir_identity",
@@ -143,6 +145,7 @@ def decode_artifact_payload(
         if not isinstance(value, str) or not value:
             raise ValueError(f"backend manifest {field} must be a non-empty string")
     validate_sha256(data["artifact_hash"], "artifact_hash")
+    validate_naming_schema(data.get("naming_schema"))
     build_identity = data.get("build_identity")
     if build_identity is not None:
         validate_sha256(build_identity, "build_identity")
@@ -329,10 +332,18 @@ def binding_from_data(data: object, *, manifest_version: int) -> EquivalenceBind
     )
 
 
+def validate_naming_schema(value: object) -> None:
+    """Old/manual manifests have no naming claim; new claims are exact."""
+
+    if value is not None and value != RTL_NAMING_SCHEMA:
+        raise ValueError("unsupported backend naming_schema")
+
+
 def validate_artifact_links(artifact: Any) -> None:
     """Require every public binding to identify its exact containing artifact."""
 
     validate_sha256(artifact.artifact_hash, "artifact_hash")
+    validate_naming_schema(artifact.naming_schema)
     if artifact.formal_artifact_hash is not None:
         validate_sha256(artifact.formal_artifact_hash, "formal_artifact_hash")
     for binding in artifact.bindings:

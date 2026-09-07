@@ -25,8 +25,9 @@ def test_fifo_instance_array_clash_preserves_independent_state_and_reset(
     tmp_path: Path,
 ) -> None:
     compilation = compile_source(SOURCE, top="FifoLaneArray")
-    assert compilation.clash.count("fifoLane ::") == 1
-    assert compilation.clash.count("= fifoLane (") == 2
+    suffix = compilation.ir.elaborated_instances[0].specialization_identity[:8]
+    assert compilation.clash.count(f"fifoLane_s{suffix} ::") == 1
+    assert compilation.clash.count(f"= fifoLane_s{suffix} (") == 2
     assert "data_zlang" in compilation.clash
     rtl = generate_verilog(
         compilation.clash,
@@ -115,7 +116,9 @@ def test_memory_and_rom_arrays_real_clash_exact_behavior(
 ) -> None:
     compilation = compile_source(SOURCE, top=top)
     child = top.removesuffix("Array")
-    assert compilation.clash.count(f"{child[:1].lower() + child[1:]} ::") == 1
+    suffix = compilation.ir.elaborated_instances[0].specialization_identity[:8]
+    helper = f"{child[:1].lower() + child[1:]}_s{suffix}"
+    assert compilation.clash.count(f"{helper} ::") == 1
     artifact = emit_sv_artifact(
         compile_source(SOURCE, top=top, include_clash=False).ir
     )
@@ -191,8 +194,9 @@ def test_rom_array_real_clash_exact_behavior_with_frozen_rom_waiver(
     assert first.clash == second.clash
     assert first_artifact.companions == second_artifact.companions
     assert len(first_artifact.companions) == 1
-    assert first.clash.count("romLane ::") == 1
-    assert first.clash.count("= romLane (") == 2
+    suffix = first.ir.elaborated_instances[0].specialization_identity[:8]
+    assert first.clash.count(f"romLane_s{suffix} ::") == 1
+    assert first.clash.count(f"= romLane_s{suffix} (") == 2
 
     rtl = generate_verilog(
         first.clash,

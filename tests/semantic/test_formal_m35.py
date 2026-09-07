@@ -95,6 +95,64 @@ class FormalM35Tests(unittest.TestCase):
             for item in signal_bindings(module)
         ))
 
+    def test_conditional_rule_conflict_is_guarded_by_effect_activation(self):
+        module = compile_source("""
+            module ConditionalConflict {
+                clock clk reset rst
+                in go, choose, low: bit
+                out y: bit
+                out observed: bit
+                reg seen: bit = 0
+                priority {
+                    high: when go {
+                        seen <- 1
+                        when choose { y <- 1 }
+                    }
+                    lower: when low { y <- 0 }
+                }
+                observed = seen
+            }
+        """, include_clash=False).ir
+
+        transition = module.resolved_transition
+        self.assertIsNotNone(transition)
+        assert transition is not None
+        conditional = next(
+            action
+            for group in transition.action_groups
+            if group.rule_name == "high"
+            for action in group.actions
+            if action.activation is not None
+        )
+        from zlang.ir.state import select_action_groups
+        self.assertEqual(
+            set(select_action_groups(
+                transition,
+                {"high": True, "lower": True},
+                {},
+                {conditional.semantic_id: False},
+            )),
+            {"high", "lower"},
+        )
+
+        properties = {
+            item.generated_from: item
+            for item in build_formal_design(module).properties
+            if item.generated_from in {
+                "rules:high,lower",
+                "priority:high>lower",
+            }
+        }
+        self.assertEqual(
+            set(properties),
+            {"rules:high,lower", "priority:high>lower"},
+        )
+        for property_ in properties.values():
+            self.assertIsNone(property_.non_executable_reason)
+            self.assertIn("port:choose", property_.relevant_signals)
+            self.assertIn("active_conflict", property_.expression)
+            self.assertIsNotNone(property_.predicate)
+
     def test_fixed_register_uses_signed_raw_storage_bounds(self):
         fixed = FixedType(8, 4)
         module = Module(

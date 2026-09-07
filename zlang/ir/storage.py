@@ -46,6 +46,19 @@ class MemoryCollision(str, Enum):
     WRITE_FIRST = "write_first"
 
 
+class MemoryResetPolicy(str, Enum):
+    CLEAR = "clear"
+    PRESERVE = "preserve"
+
+
+def memory_byte_mask_width(element_width: int) -> int:
+    """Return the byte-lane mask width for one positive packed word width."""
+
+    if element_width < 1:
+        raise ValueError("a memory element width must be positive")
+    return (element_width + 7) // 8
+
+
 @dataclass(frozen=True)
 class Fifo:
     name: str
@@ -80,10 +93,21 @@ class Memory:
     source_origin: SourceOrigin | None = None
     write_mask_width: int | None = None
     write_mask: Expression | None = None
+    # Appended to preserve the historical positional constructor ABI.
+    contents_reset: MemoryResetPolicy = MemoryResetPolicy.CLEAR
+    read_data_reset: MemoryResetPolicy = MemoryResetPolicy.CLEAR
 
     def __post_init__(self) -> None:
         if not self.semantic_id:
             raise ValueError("memory semantic identity must not be empty")
+        if self.read_latency not in {0, 1}:
+            raise ValueError("memory read latency must be zero or one")
+        for label, policy in (
+            ("contents", self.contents_reset),
+            ("read data", self.read_data_reset),
+        ):
+            if not isinstance(policy, MemoryResetPolicy):
+                raise ValueError(f"memory {label} reset policy is invalid")
         controls = (
             self.read_address, self.write_enable,
             self.write_address, self.write_data,
@@ -93,14 +117,16 @@ class Memory:
         ):
             raise ValueError("memory controls must be all present or all absent")
         if self.write_mask_width is not None:
-            if self.element_type.width % 8:
-                raise ValueError("masked memory elements must have byte-aligned width")
-            if self.write_mask_width != self.element_type.width // 8:
+            if self.write_mask_width != memory_byte_mask_width(
+                self.element_type.width
+            ):
                 raise ValueError("memory write-mask width must match the byte-lane count")
         if self.write_mask is not None and self.write_mask_width is None:
             raise ValueError("memory write-mask expression requires mask metadata")
         if self.read_address is None and self.write_mask is not None:
             raise ValueError("scheduled memory masks belong to write actions")
+        if self.read_address is None and self.read_latency == 0:
+            raise ValueError("scheduled memory requires read latency one")
         if self.read_address is not None and (
             (self.write_mask_width is None) != (self.write_mask is None)
         ):

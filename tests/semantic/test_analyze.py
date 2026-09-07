@@ -33,6 +33,41 @@ class SemanticTests(unittest.TestCase):
         with self.assertRaisesRegex(SemanticError, "unknown input 'missing'"):
             analyze(parse(source))
 
+    def test_internal_output_read_recommends_an_immutable_local(self) -> None:
+        source = """module Bad {
+            clock clk reset rst
+            in ready:bit out valid:bit
+            reg pending:bit=0
+            valid=pending
+            when valid & ready { pending <- 0 }
+        }"""
+        with self.assertRaises(SemanticError) as caught:
+            analyze(parse(source))
+
+        error = caught.exception
+        self.assertEqual(error.code, "ZL-SEMANTIC-OUTPUT-READ")
+        self.assertEqual(
+            str(error),
+            "module output 'valid' cannot be read internally; drive it from "
+            "an immutable local and read that local instead",
+        )
+        self.assertEqual(error.primary.construct, "name valid")
+        self.assertEqual(
+            error.fixes,
+            (
+                "bind the driving expression to an immutable local and use "
+                "that local both internally and for the output assignment",
+            ),
+        )
+
+        remedy = source.replace(
+            "valid=pending\n            when valid & ready",
+            "driven_valid=pending\n            valid=driven_valid\n            "
+            "when driven_valid & ready",
+        )
+        module = analyze(parse(remedy))
+        self.assertIn("driven_valid", {item.name for item in module.locals})
+
     def test_duplicate_port_is_rejected(self) -> None:
         source = "module Bad { in a: u8 in a: u8 out y: u8 y = a }"
         with self.assertRaisesRegex(SemanticError, "duplicate port 'a'"):

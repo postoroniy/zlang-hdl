@@ -12,8 +12,14 @@ def packet(payload: int, valid: int = 1, last: int = 1):
     return {"payload": payload, "valid": valid, "last": last}
 
 
-def arbiter_cycle(a, b, ready: int = 1):
-    return {"source_a": a, "source_b": b, "tx": {"ready": ready}}
+def arbiter_cycle(a, b, ready: int = 1, *, c=None, d=None):
+    return {
+        "source_a": a,
+        "source_b": b,
+        "source_c": packet(0, valid=0) if c is None else c,
+        "source_d": packet(0, valid=0) if d is None else d,
+        "tx": {"ready": ready},
+    }
 
 
 def vc_cycle(payload: int, channel: int, request: int, returned=0, return_vc=0):
@@ -68,6 +74,38 @@ class ProtocolExtensionBehaviorTests(unittest.TestCase):
             [result["tx"]["grant"] for result in results],
             [0, 1, 0, 1],
         )
+
+        # Stable single-beat packets exercise every source and wraparound.
+        # Reset after source_b wins must restart priority at source_a.
+        all_active = simulate_cycles(
+            module,
+            [
+                arbiter_cycle(packet(1), packet(2), c=packet(3), d=packet(4))
+                for _ in range(15)
+            ],
+            reset=[False] * 6 + [True] + [False] * 8,
+        )
+        self.assertEqual(
+            [result["tx"]["grant"] for result in all_active[:6]],
+            [0, 1, 2, 3, 0, 1],
+        )
+        self.assertEqual(all_active[6]["tx"]["valid"], 0)
+        self.assertEqual(all_active[6]["tx"]["transfer"], 0)
+        self.assertTrue(
+            all(
+                all_active[6][name]["ready"] == 0
+                for name in ("source_a", "source_b", "source_c", "source_d")
+            )
+        )
+        self.assertEqual(
+            [result["tx"]["grant"] for result in all_active[7:]],
+            [0, 1, 2, 3] * 2,
+        )
+        self.assertEqual(
+            [result["tx"]["payload"] for result in all_active[7:]],
+            [1, 2, 3, 4] * 2,
+        )
+        self.assertTrue(all(result["tx"]["transfer"] for result in all_active[7:]))
 
     def test_fixed_priority_documents_expected_starvation_boundary(self) -> None:
         module = compile_source(

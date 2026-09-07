@@ -88,7 +88,7 @@ def test_user_struct_top_is_always_leaf_and_vectors_are_native_arrays() -> None:
     module = compile_source(USER_STRUCT, include_clash=False).ir
     artifact = emit_artifact(module)
 
-    assert "module UserStructTop__zlang_core (" in artifact.text
+    assert "module UserStructTop_zlang_core (" in artifact.text
     assert "module UserStructTop (" in artifact.text
     public = artifact.text.split("module UserStructTop (", 1)[1]
     assert "input wire logic [7:0] request_address" in public
@@ -162,9 +162,10 @@ def test_wrapper_temporary_is_allocated_away_from_public_leaf_names() -> None:
     temporary = next(
         line.strip().removeprefix("logic [7:0] ").removesuffix(";")
         for line in public.splitlines()
-        if line.strip().startswith("logic [7:0] zlang_top_core_y__")
+        if line.strip().startswith("logic [7:0] zlang_top_core_y_")
     )
     assert temporary != "zlang_top_core_y"
+    assert "__" not in temporary
     assert f".y({temporary})" in public
     assert f"assign y_value = {temporary}[7:0];" in public
     assert repeated.text == artifact.text
@@ -216,10 +217,11 @@ def test_wrapper_instance_is_allocated_away_from_public_leaf_names() -> None:
     instance_line = next(
         line.strip()
         for line in public.splitlines()
-        if line.strip().startswith("WrapperInstanceCollision__zlang_core ")
+        if line.strip().startswith("WrapperInstanceCollision_zlang_core ")
     )
     instance_name = instance_line.split()[1]
-    assert instance_name.startswith("zlang_top_core__")
+    assert instance_name.startswith("zlang_top_core_")
+    assert "__" not in instance_name
     assert instance_name != "zlang_top_core"
     assert repeated.text == artifact.text
     assert repeated.artifact_hash == artifact.artifact_hash

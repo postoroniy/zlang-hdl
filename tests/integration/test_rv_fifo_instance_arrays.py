@@ -105,11 +105,12 @@ def test_rv_fifo_array_artifacts_are_deterministic_and_structural() -> None:
     assert first.artifact_hash == second.artifact_hash
     assert first.to_json() == second.to_json()
     assert BackendArtifact.from_json(first.to_json()).to_json() == first.to_json()
-    assert first.text.count("module RvBufferedLane__") == 1
-    assert first.text.count("RvBufferedLane__") == 3
+    suffix = module.elaborated_instances[0].specialization_identity[:8]
+    assert first.text.count(f"module RvBufferedLane_s{suffix}") == 1
+    assert first.text.count(f"RvBufferedLane_s{suffix}") == 3
     assert first.text.count("logic [1:0] queue_count;") == 1
-    assert clash.count("protocol_rvBufferedLane ::") == 1
-    assert clash.count("result = protocol_rvBufferedLane") == 2
+    assert clash.count(f"protocol_rvBufferedLane_s{suffix} ::") == 1
+    assert clash.count(f"result = protocol_rvBufferedLane_s{suffix}") == 2
 
 
 def test_rv_fifo_array_rejects_multiple_fifo_resources() -> None:

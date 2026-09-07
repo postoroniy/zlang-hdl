@@ -167,8 +167,9 @@ def test_pure_hierarchical_child_materializes_shared_typed_expression() -> None:
     first = compilation.clash
     second = compile_source(PURE_CHILD_SOURCE, top="SharedPureParent").clash
     assert first == second
+    identity = compilation.ir.elaborated_instances[0].specialization_identity
     helper = first[
-        first.index("sharedPureChild ::") : first.index("\ntopEntity ::")
+        first.index(f"sharedPureChild_s{identity[:8]} ::") : first.index("\ntopEntity ::")
     ]
     assert helper.count("zlang_child_expr_0 :: BitVector 16") == 1
     assert helper.count("zlang_child_expr_0 =") == 1

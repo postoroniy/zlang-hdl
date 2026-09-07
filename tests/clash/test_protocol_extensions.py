@@ -26,8 +26,9 @@ class ClashProtocolExtensionTests(unittest.TestCase):
 
     def test_round_robin_emits_rotating_packet_boundary_priority(self) -> None:
         generated = self.generated("packet_round_robin.zhl")
-        self.assertIn("next_priority = register", generated)
-        self.assertIn("if selected == 1 then 0 else selected + 1", generated)
+        self.assertIn("grant_owner = register (0 :: Unsigned 2)", generated)
+        self.assertIn("next_priority = register (0 :: Unsigned 2)", generated)
+        self.assertIn("if selected == 3 then 0 else selected + 1", generated)
         self.assertIn("grant_complete", generated)
         self.assertIn("zlangPacketLast", generated)
 

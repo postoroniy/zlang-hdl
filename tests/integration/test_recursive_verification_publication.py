@@ -602,7 +602,7 @@ def test_internal_ready_valid_upstream_stall_mutation_fails_dependent_job(
     )
     assert passed.status is FormalStatus.BOUNDED_PASS
 
-    producer_start = implementation.index("module InternalProducer__")
+    producer_start = implementation.index("module InternalProducer_s")
     producer_end = implementation.index("endmodule", producer_start)
     producer = implementation[producer_start:producer_end]
     valid_assignment = next(

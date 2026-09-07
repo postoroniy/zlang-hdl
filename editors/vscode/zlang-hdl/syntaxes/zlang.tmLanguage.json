@@ -487,7 +487,7 @@
         {"name": "keyword.control.exploration.zlang", "match": "\\b(?:choice|explore|allow|avoid|minimize|maximize|transform)\\b"},
         {"name": "keyword.control.verification.zlang", "match": "\\b(?:assume|guarantee|disable|iff)\\b"},
         {"name": "keyword.other.directive.protocol.zlang", "match": "\\b(?:max_outstanding|ordering|match_by|buffer|request_buffer|response_buffer|adapter|crossing|policy|grant)\\b"},
-        {"name": "keyword.other.directive.storage.zlang", "match": "\\b(?:read_latency|init|collision)\\b"},
+        {"name": "keyword.other.directive.storage.zlang", "match": "\\b(?:read_latency|init|collision|contents|read_data)\\b"},
         {"name": "keyword.other.directive.clock-reset.zlang", "match": "\\b(?:edge|mode|polarity|power_up)\\b"},
         {"name": "keyword.other.directive.target.zlang", "match": "\\b(?:port|operation|class|capability|limit|register_site|pipeline_site|pipeline_config|dedicated|binding|physical_primitive|physical_site|physical_edge|provides|part|inventory|dedicated_capacity|require_resource|use_pipeline|require_dedicated)\\b"},
         {"name": "keyword.other.directive.quantization.zlang", "match": "\\b(?:round|overflow)\\b"}
@@ -540,6 +540,7 @@
       "patterns": [
         {"name": "constant.language.access.zlang", "match": "\\b(?:rw|ro|wo|w1c|pulse|reserved)\\b"},
         {"name": "constant.language.protocol.zlang", "match": "\\b(?:in_order|out_of_order|fixed_priority|round_robin|beat|packet|sync_level|pulse_toggle|handshake|async_fifo|rv_to_credit|credit_to_rv|read_first|write_first|hardware|software)\\b"},
+        {"name": "constant.language.storage.zlang", "match": "\\b(?:clear|preserve)\\b"},
         {"name": "constant.language.architecture.zlang", "match": "\\b(?:mul_add|multiply_add|dsp_mac|optional_yosys|reduction|reassociate|pipeline|adapter|auto)\\b"},
         {"name": "constant.language.quantization.zlang", "match": "\\b(?:nearest_even|toward_zero|floor|away_zero|wrap|saturate)\\b"},
         {"name": "constant.language.clock-reset.zlang", "match": "\\b(?:rising|falling|synchronous|asynchronous|active_high|active_low|unspecified)\\b"},

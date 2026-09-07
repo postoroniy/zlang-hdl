@@ -4,6 +4,11 @@ ZLang HDL is an experimental hardware description language and compiler focused 
 strong types, explicit cycle semantics, reusable protocols, deterministic
 artifacts, and verification-aware implementation selection.
 
+Typed intermediate representations, deterministic identities, structured
+diagnostics, manifests, and evidence reports also make compiler workflows
+suitable for reviewable automation and software-agent integration. This is an
+architectural capability, not a claim about productivity or performance.
+
 > **Alpha software:** the first public release is intended for evaluation and
 > real-design feedback. Source syntax, the provisional Python API, and
 > non-versioned tooling may change before 1.0. Unsupported combinations fail
@@ -71,8 +76,8 @@ The validated language includes:
   instance arrays;
 - ready/valid, credit, request/response, aggregate protocols, explicit buffering,
   arbitration, and named-domain CDC;
-- source-authored RegBus, AXI4-Lite, APB, Wishbone, AXI-Stream, CSR, math, stream,
-  storage, coding, and target-library components;
+- source-authored RegBus, AHB-Lite, AXI4-Lite, APB, Wishbone, AXI-Stream, CSR,
+  math, stream, storage, coding, and target-library components;
 - direct-SystemVerilog and Clash emission with source maps and versioned
   BackendArtifact manifests;
 - bounded equality saturation, implementation exploration, synthesis evidence,
@@ -88,7 +93,7 @@ complete support contract. Use the
 Representative real-design validations include:
 
 - hierarchical DMA and multi-outstanding request/response;
-- source-authored AXI4-Lite/APB/Wishbone to RegBus/CSR paths;
+- source-authored AHB-Lite/AXI4-Lite/APB/Wishbone to RegBus/CSR paths;
 - fixed-point FIR architectures and target-aware DSP mappings;
 - a nine-stage FFT512 SDF reference;
 - an attributed, bounded IEEE 802.11a-derived transmitter path covering framing,
@@ -147,6 +152,7 @@ explicit `unknown`/`skipped` results according to the requested policy.
 - [Optimization and formal verification](docs/optimization-formal.md)
 - [Backends and tooling](docs/backends-tooling.md)
 - [Projects and dependencies](docs/projects-dependencies.md)
+- [Open-source project scope](docs/project-scope.md)
 - [Test strategy](docs/testing.md)
 
 The compiler-owned capability registry and release CI are authoritative for
@@ -176,11 +182,25 @@ described in [SECURITY.md](SECURITY.md).
 
 ## License and attribution
 
-ZLang is licensed under the [Apache License 2.0](LICENSE).
+ZLang HDL is licensed under the [Apache License 2.0](LICENSE).
 Copyright 2026 Viacheslav Vinogradov.
 
+The [2026-09 Community Baseline](docs/licensing/COMMUNITY_BASELINE.md) retains
+every capability included in that release, including the language, compiler,
+backends, local verification and exploration. Future Enterprise additions start
+after the baseline: CSR C/C++ software helper generation and SystemVerilog UVM
+helper generation are classified Enterprise, but are not implemented yet.
+Existing CSR RTL/JSON/Markdown and Verilator C++ state access remain Community.
+See the [editions](docs/editions.md), [project scope](docs/project-scope.md) and
+[name and branding policy](TRADEMARKS.md).
+
+The [licensing guide](docs/licensing/README.md) distinguishes compiler licensing,
+reference-design provenance and obligations for included generated material.
+
 The 802.11a validation project preserves the MIT attribution for Nirav Dave's
-Bluespec reference implementation. See the root [NOTICE](NOTICE) and the nested
+Bluespec reference implementation. The original material and ZLang port and
+modifications in that project subtree are distributed under its MIT license.
+See the root [NOTICE](NOTICE) and the nested
 [Wi-Fi license](examples/projects/80211a_transmitter/LICENSE) and
 [notice](examples/projects/80211a_transmitter/NOTICE).
 

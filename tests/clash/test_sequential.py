@@ -28,8 +28,8 @@ class ClashSequentialTests(unittest.TestCase):
         generated = compile_source(
             (ROOT / "examples/delayed_mul.zhl").read_text()
         ).clash
-        self.assertEqual(generated.count("delay_0_s1 = register"), 1)
-        self.assertEqual(generated.count("delay_0_s2 = register"), 1)
+        self.assertEqual(generated.count("y_delay_s1 = register"), 1)
+        self.assertEqual(generated.count("y_delay_s2 = register"), 1)
 
 
 if __name__ == "__main__":

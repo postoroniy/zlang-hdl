@@ -141,11 +141,11 @@ class ClashRecursiveRegisterFormalTests(unittest.TestCase):
         self.assertNotIn("lane[", artifact.text)
         self.assertRegex(
             artifact.text,
-            r"zformalResult_zlang_instance_lane_0_[0-9a-f]{8}",
+            r"zformalResult_lane_0\b",
         )
         self.assertRegex(
             artifact.text,
-            r"zformalResult_zlang_instance_lane_1_[0-9a-f]{8}",
+            r"zformalResult_lane_1\b",
         )
         # Constant and indexed bindings remain complete Signal arguments.
         self.assertIn("(pure ((1 :: Unsigned 8)))", artifact.text)

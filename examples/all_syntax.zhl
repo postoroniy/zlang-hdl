@@ -249,11 +249,39 @@ module VectorStateUpdateSyntax {
     in index : u2
     in value : u8
     in write : bit
+    in fault, clear_valid, clear_overflow : bit
+    in fault_code : u8
     out values : vec<4,u8>
+    out fault_valid, fault_overflow : bit
+    out sticky_fault : u8
 
     reg samples : vec<4,u8> = generate(i in 0..4) 0
+    reg fault_valid_state : bit = 0
+    reg fault_overflow_state : bit = 0
+    reg sticky_fault_state : u8 = 0
     when write { samples[index] <- value }
+
+    // Runtime branches remain one atomic action. A new fault captures the
+    // first code; later faults set overflow without replacing that code.
+    fault_update: when fault {
+        when fault_valid_state {
+            fault_overflow_state <- 1
+        } else {
+            fault_valid_state <- 1
+            fault_overflow_state <- 0
+            sticky_fault_state <- fault_code
+        }
+    } else when clear_valid {
+        fault_valid_state <- 0
+        fault_overflow_state <- 0
+    } else when clear_overflow {
+        fault_overflow_state <- 0
+    }
+
     values = samples
+    fault_valid = fault_valid_state
+    fault_overflow = fault_overflow_state
+    sticky_fault = sticky_fault_state
 }
 
 module FifoSyntax {

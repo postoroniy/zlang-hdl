@@ -7,7 +7,7 @@ from zlang.opt.ir import CanonicalModule, OptimizationStage
 from zlang.opt.render import render_identity
 
 
-CANONICAL_IR_IDENTITY_SCHEMA = "zlang-canonical-ir-content-v11"
+CANONICAL_IR_IDENTITY_SCHEMA = "zlang-canonical-ir-content-v13"
 
 
 def canonical_ir_identity(module: CanonicalModule) -> str:

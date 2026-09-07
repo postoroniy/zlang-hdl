@@ -219,6 +219,67 @@ rule increment_count when increment {
 }
 ```
 
+Action blocks may select effects recursively with runtime `when`, `else when`,
+and `else`:
+
+```zlang
+fault_update: when fault {
+    when valid_state {
+        overflow_state <- 1
+    } else {
+        valid_state <- 1
+        overflow_state <- 0
+        sticky_state <- fault_code
+    }
+} else when clear_valid {
+    valid_state <- 0
+    overflow_state <- 0
+} else when clear_overflow {
+    overflow_state <- 0
+}
+```
+
+An `else` binds to the nearest unmatched `when`, and an `else when` chain
+selects its first true predicate. A false `when` without an `else` contributes
+no effects; later statements in the enclosing action block are still
+considered, so multiple sibling conditionals can contribute to the same
+transaction.
+
+Read this as two operations that never feed back into each other: predicates
+first choose the effects, then the scheduler either commits the complete
+chosen transaction or commits nothing. Storage readiness and rule conflicts
+belong only to the second operation; they can suppress a transaction but can
+never make an `else` branch run.
+
+Every guard and operand reads the same pre-edge snapshot. The complete tree
+retains one outer `Rule`, one rule-fire identity, and one `ActionGroup`; selected
+effects and unconditional surrounding effects commit together or not at all.
+If no effect is active, the rule does not fire. Source order creates neither
+state visibility nor implicit priority, and reset suppresses the complete
+group.
+
+Branch choice depends only on the predicates. If the selected branch contains
+an illegal FIFO or memory action, the whole action group is suppressed; it does
+not fall back to an `else` branch because another branch's storage action would
+be ready. The scheduler checks conflicts and storage legality using only active
+effects. Scalar output writes are scheduling resources too: a rule that loses
+a priority conflict on an output cannot commit its otherwise unrelated state
+effects.
+
+Each runtime action condition must have exact type `bit`. Opposite structured
+branches may write the same resource, but writes on potentially overlapping
+paths are rejected; the compiler does not attempt arbitrary Boolean theorem
+proving. An explicitly empty branch is a valid no-op, while an entire action
+tree with no possible effect is rejected.
+
+Runtime action selection is distinct from both other selection forms:
+
+- compile-time `if` chooses declarations or values during elaboration and is
+  not an action statement;
+- `condition ? a : b`, `mux`, and `switch` select pure combinational values;
+- runtime `when` selects effects that participate in one cycle-level atomic
+  transaction.
+
 Rules read beginning-of-cycle state. If the guard is true, all resource actions
 are legal, and scheduling permits the rule, its actions commit atomically. Reset
 suppresses all rules. Conflicting writers require explicit priority:
@@ -276,9 +337,10 @@ rule replace when rotate {
 Do not mix rule-owned actions with globally driven `.push`/`.pop` controls. An
 illegal resource action suppresses the whole rule.
 
-## Synchronous memories
+## Writable memories
 
-One-read/one-write synchronous memories may optionally expose a byte write mask:
+One-read/one-write memories may optionally expose a byte write mask. The
+existing one-cycle, reset-cleared form remains the default:
 
 ```zlang
 in write_mask : bits<4>
@@ -293,11 +355,15 @@ table.write_data = write_data
 table.write_mask = write_mask
 ```
 
-The element width must be divisible by eight and the mask type is exactly
-`bits<element_width / 8>`. `write_mask[0]` controls the least-significant byte.
-Disabled lanes retain their old bits. For a same-address `write_first` access,
-the registered read result is the post-mask merged word, not the unmasked input.
-Omitting `write_mask` preserves the existing full-word write behavior.
+The mask type is exactly `bits<ceil(element_width / 8)>`.
+`write_mask[0]` controls the least-significant byte. For a width that is not a
+multiple of eight, the final mask bit controls only the remaining live
+most-significant bits; padding bits are never stored. Disabled lanes retain
+their old bits. For a same-address `write_first` access, the registered read
+result is the post-mask merged word, not the unmasked input. Omitting
+`write_mask` preserves the existing full-word write behavior. Consequently,
+unmasked and masked memory elements may have any positive recursively
+bit-packable, non-enum width.
 
 Rule-owned memories accept the same operation as an optional third operand:
 
@@ -339,20 +405,78 @@ rule store when write_enable {
 fires. `write` commits at the selected edge. One selected read and one selected
 write may fire together; same-address behavior follows the declared collision
 mode. Their operands and all other rule effects observe the same pre-edge
-snapshot. Reset suppresses actions and clears both cells and `read_data`.
+snapshot. Reset suppresses actions. With the default profile it clears both
+cells and `read_data`.
 
 Global controls and rule actions cannot be mixed. The bounded scheduled form
 supports one memory per module, alongside registers and scheduled FIFOs; two
 reads or two writes conflict and require existing explicit rule priority.
 
-The executable memory forms have scalar elements, power-of-two depth of at least two, and
-exactly one cycle of read latency. `read_first` returns the old cell during a
-same-address read/write; `write_first` returns the newly written value. Reset
-clears cells and registered read data to zero under current ZLang memory
-semantics.
+The executable memory forms have scalar elements and power-of-two depth of at
+least two. A globally controlled memory accepts `read_latency 0` for a
+combinational read or `read_latency 1` for a registered result. Rule-owned
+memories remain exactly one-cycle because their read action is selected at an
+edge.
 
-Writable-memory initialization, asynchronous memory, and multiport memory are
-not part of the current executable surface.
+Cell and visible read-result reset behavior may be selected independently:
+
+```zlang
+memory table : mem<u32,256> {
+    read_latency 0
+    collision read_first
+    reset {
+        contents preserve
+        read_data preserve
+    }
+}
+```
+
+If the `reset` block is present, both directives are required. If it is absent,
+the exact default is `contents clear` and `read_data clear`. Reset always
+suppresses writes and scheduled actions. At latency zero, `read_data clear`
+masks the combinational result while reset is asserted; `read_data preserve`
+leaves the addressed preserved cell visible. At latency one, the corresponding
+policy clears or holds the result register. `read_first` observes the old cell
+before a coincident write edge; `write_first` observes the fully byte-mask-
+merged write word.
+
+The simulator and both generic RTL backends initialize executable preserved
+memory state deterministically to zero, but runtime reset does not recreate
+that initialization. Target-specific selection stays fail-closed: the current
+BRAM mapping advertises only the default one-cycle clear/clear profile.
+Synthesizable writable-memory initialization, multiport memory, and automatic
+target-memory selection are not part of this hardware surface. Simulation-only
+tests may instead publish a selected-IR-bound state catalog and Verilator VPI
+companion with `--simulation-state-bundle`; that tooling neither adds hardware
+ports nor changes memory reset semantics. The
+[writable-memory contract](#writable-memories) and public
+[simulation-state access](direct-systemverilog.md#simulation-only-architectural-state-access)
+sections define the two distinct boundaries.
+
+### Replicated read ports and banking
+
+The language does not invent a native multiport memory primitive. A logical
+two-read/one-write store can instead be expressed compositionally from the
+existing one-read/one-write memory and compile-time instance arrays. The
+validated [`ZtpuBankedMemory`](../examples/ztpu_banked_memory.zhl) uses four
+banks and two read replicas per bank: both replicas receive the same decoded,
+byte-masked synchronous write, while each read address selects its own replica
+and bank. This produces eight distinct physical 1R1W memories, one shared leaf
+specialization, two combinational read results, and one logical write port.
+
+The concrete witness contains 256 32-bit words, split into four banks of 64
+words. Its runtime reset suppresses writes and preserves both cells and
+combinational read data; executable simulation begins from deterministic zero
+contents. Simulator, direct SystemVerilog, and real Clash 1.11 agree on full
+and per-byte writes, independent reads, same-address `read_first` behavior,
+reset, and replica coherence. This is source composition, not a new memory
+semantic or backend name-based rewrite.
+
+Target-memory closure remains separate. In particular, the existing promoted
+OpenRAM/target macro contract does not yet match this zero-latency,
+preserve-on-reset profile, so the witness makes no BRAM/SRAM inference, QoR, or
+physical-macro claim. A byte-addressed external wrapper and target-specific
+latency/collision adaptation belong to later ZTPU integration work.
 
 ## Initialized synchronous ROMs
 

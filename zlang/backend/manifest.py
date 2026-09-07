@@ -9,6 +9,7 @@ import re
 from typing import Any
 
 from zlang.backend.companions import CompanionArtifact
+from zlang.backend.naming import RTL_NAMING_SCHEMA
 from zlang.backend.manifest_codec import (
     binding_from_data,
     binding_to_data,
@@ -532,6 +533,7 @@ class BackendArtifact:
     dependency_closure: DependencyClosure | None = None
     module_signature: ModuleSignatureManifest | None = None
     physical_domains: tuple[PhysicalDomainManifest, ...] = ()
+    naming_schema: str | None = None
 
     def binding_map(self) -> BindingMap:
         return BindingMap(self.bindings, self.manifest_version)
@@ -548,6 +550,8 @@ class BackendArtifact:
             "artifact_hash": self.artifact_hash,
         }
         dependency_identity = dependency_context_identity(self)
+        if self.naming_schema is not None:
+            payload["naming_schema"] = self.naming_schema
         if dependency_identity is not None:
             payload["dependency_identity"] = dependency_identity
         if self.module_signature is not None:
@@ -573,6 +577,8 @@ class BackendArtifact:
                            "build_identity": self.build_identity,
                            "library_dependencies": [list(item) for item in self.library_dependencies],
                            "bindings": entries}
+        if self.naming_schema is not None:
+            payload["naming_schema"] = self.naming_schema
         if self.root_module_identity is not None:
             payload["root_module_identity"] = self.root_module_identity.to_data()
         if self.dependency_closure is not None:
@@ -964,6 +970,7 @@ class BackendArtifact:
             dependency_closure=dependency_closure,
             module_signature=module_signature,
             physical_domains=physical_domains,
+            naming_schema=data.get("naming_schema"),
         )
         encoded_build_identity = data.get("build_identity")
         if (
@@ -1497,6 +1504,7 @@ def publish_artifact(module: Module, text: str, *, backend: str,
             if module.module_signature is not None else None
         ),
         physical_domains=physical_domains,
+        naming_schema=RTL_NAMING_SCHEMA,
     )
     artifact.binding_map().validate()
     validate_artifact_links(artifact)

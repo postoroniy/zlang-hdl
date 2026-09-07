@@ -173,8 +173,15 @@ def test_concrete_d4_backend_artifact_v4_preserves_hierarchy_and_bindings() -> N
             assert protocol_bases and all(
                 item.signal_token is None for item in protocol_bases
             )
-            assert all(item.rtl_module and item.rtl_path == ("stage",)
-                       and item.signal_token for item in stage_ports + child_state)
+            # The public Complex payload leaves wrap a packed private core.
+            # Production locators must name both physical instances, not only
+            # the source-level child beneath that core.
+            assert "FFTSDFStageNumericD4_zlang_core zlang_top_core (" in artifact.text
+            assert all(item.rtl_module
+                       and item.rtl_path == ("zlang_top_core", "stage")
+                       and item.signal_token
+                       and f"{item.rtl_module} stage (" in artifact.text
+                       for item in stage_ports + child_state)
             assert all(not item.physical_available for item in stage_ports + child_state)
         else:
             # Clash production emission does not fabricate formal observation

@@ -217,12 +217,13 @@ def test_nested_artifact_instances_and_direct_locators_are_deterministic() -> No
 
 
 @pytest.mark.parametrize(
-    ("leaf", "diagnostic"),
+    ("leaf", "leaf_bindings", "diagnostic"),
     (
         (
             "module Leaf { clock clk reset rst in data:u8 in push:bit in pop:bit "
             "out y:u8 fifo q:fifo<u8,2> q.data=data q.push=push q.pop=pop "
             "y=q.front }",
+            "leaf.data=0 leaf.push=0 leaf.pop=0",
             "transitive storage resources",
         ),
         (
@@ -230,17 +231,19 @@ def test_nested_artifact_instances_and_direct_locators_are_deterministic() -> No
             "request_response<u8,u8>{ max_outstanding 1 ordering in_order } "
             "mem.request.payload=0 mem.request.valid=0 "
             "mem.response.ready=0 }",
+            "",
             "request/response hierarchy",
         ),
     ),
 )
 def test_nested_arrays_fail_closed_for_unimplemented_state_families(
     leaf: str,
+    leaf_bindings: str,
     diagnostic: str,
 ) -> None:
-    source = leaf + r"""
-module Mid { clock clk reset rst out y:u8 inst leaf:Leaf y=0 }
-module Top { clock clk reset rst out y:u8 inst outer[2]:Mid y=0 }
+    source = leaf + f"""
+module Mid {{ clock clk reset rst out y:u8 inst leaf:Leaf {leaf_bindings} y=0 }}
+module Top {{ clock clk reset rst out y:u8 inst outer[2]:Mid y=0 }}
 """
     with pytest.raises(SemanticError, match=diagnostic):
         _compile(source, "Top")

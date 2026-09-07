@@ -1,0 +1,41 @@
+// Runnable ZTPU AXI-burst library witnesses.  The public aggregate endpoints
+// delegate to ordinary source-owned reader/writer children.
+import std.bus.axi_burst
+
+module ZtpuAxiBurstReader64x32 {
+    clock clk reset rst
+    in start : bit
+    in base_addr : u64
+    in length : u16
+    out busy : bit
+    out done : bit
+    out error : bit
+    out data : rv<u32>
+    interface axi : AXI4BurstReadSubset<64,32>.master @clk
+
+    reader : AXI4BurstReader<64,32,16> { start base_addr length }
+    reader.data -> data
+    axi -> reader.axi
+    busy = reader.busy
+    done = reader.done
+    error = reader.error
+}
+
+module ZtpuAxiBurstWriter64x32 {
+    clock clk reset rst
+    in start : bit
+    in base_addr : u64
+    in length : u16
+    in data : rv<u32>
+    out busy : bit
+    out done : bit
+    out error : bit
+    interface axi : AXI4BurstWriteSubset<64,32>.master @clk
+
+    writer : AXI4BurstWriter<64,32,16> { start base_addr length }
+    data -> writer.data
+    axi -> writer.axi
+    busy = writer.busy
+    done = writer.done
+    error = writer.error
+}

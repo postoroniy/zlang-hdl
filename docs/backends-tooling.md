@@ -80,6 +80,7 @@ zlang SOURCE [options]
 | `--verilator-lint` | Lint retained Clash Verilog; requires `--verilog-dir`. |
 | `--systemverilog PATH` | Write direct SystemVerilog for the supported subset. |
 | `--experimental-systemverilog PATH` | Compatibility alias. |
+| `--simulation-state-bundle DIR` | Beside an explicit direct-SV artifact, publish the separate typed Verilator VPI catalog/header for simulation-only register and writable-memory preload/inspection. |
 | `--target NAME` | Select a compiler-shipped target instance. |
 | `--target-architecture NAME` | Select one source-described architecture template explicitly. |
 | `--target-architecture-mode generic\|preferred\|required` | Choose generic-only, fallback, or fail-required physical selection. |
@@ -126,6 +127,15 @@ Target and M39 details are in the
 [target-aware planner](high-level-target-aware-architecture-pipeline-planner.md)
 and [optimization/formal guide](optimization-formal.md).
 
+`--simulation-state-bundle` requires `--systemverilog`. It never changes the
+production RTL or `BackendArtifact`: the separate manifest binds stable
+semantic state identities to exact artifact/build identities and emitter-owned
+VPI locators. Compile the consuming Verilator harness with `--vpi` and
+`--public-flat-rw`. The generated C++ API supports both 64-bit scalar access
+and arbitrary-width packed values as least-significant-word-first arrays of
+32-bit words. See the public
+[simulation-state contract](direct-systemverilog.md#simulation-only-architectural-state-access).
+
 `--verilog-dir` always publishes the selected ZLang top as a SystemVerilog
 public-boundary wrapper. Struct members are individual named ports and vectors
 are native unpacked arrays; a private `zlang_core_<Top>` component retains the
@@ -164,6 +174,7 @@ or non-regular destinations. See the complete
 | `--build-manifest` | Deterministic build join over sources, canonical identities, products, tools, reports, and evidence. |
 | `--verification-bundle` | Immutable manifest, verification IR, implementation/source map, and executable or explicitly skipped per-safety/per-cover jobs. |
 | `--verification-report` | Raw v7 safety/cover results, or the joint v1 compiler wrapper with separately typed candidate M36/M38 evidence. |
+| `--simulation-state-bundle` | Simulation-only typed state manifest and generated Verilator VPI C++ header, hash-bound to an unchanged direct-SV artifact. |
 
 Formal execution follows an exact trigger matrix:
 
@@ -386,9 +397,9 @@ not.
 
 ## Current validation snapshot
 
-The exhaustive direct-SV corpus currently discovers **80 `.zhl` files and 165
-module roots**: 150 standalone roots emit artifacts and pass strict Verilator
-lint, while 15 generic/hierarchical children are exercised through concrete
+The exhaustive direct-SV corpus currently discovers **84 `.zhl` files and 174
+module roots**: 157 standalone roots emit artifacts and pass strict Verilator
+lint, while 17 generic/hierarchical children are exercised through concrete
 parents. No discovered root is on an unsupported allow-list. This count is an
 acceptance snapshot, not a promise that an arbitrary future IR shape is covered;
 the emitter remains fail-closed. See the

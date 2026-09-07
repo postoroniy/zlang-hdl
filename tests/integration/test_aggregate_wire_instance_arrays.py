@@ -51,8 +51,8 @@ def test_simulator_and_artifacts_preserve_sequence_and_struct_members() -> None:
     assert first.text == second.text
     assert first.artifact_hash == second.artifact_hash
     assert BackendArtifact.from_json(first.to_json()).to_json() == first.to_json()
-    assert first.text.count("module PairLane__") == 1
-    assert first.text.count("PairLane__") == 3
+    assert first.text.count("module PairLane_s") == 1
+    assert first.text.count("PairLane_s") == 3
     assert "input wire logic [7:0] x [0:1]" in first.text
     assert "output logic [7:0] y_left [0:1]" in first.text
     assert emit_clash(module) == emit_clash(module)

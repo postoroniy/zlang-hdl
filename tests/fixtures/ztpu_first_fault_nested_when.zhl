@@ -1,0 +1,65 @@
+// SPDX-License-Identifier: Apache-2.0
+
+// Minimal ZTPU ZL-016 witness.  A runtime conditional nested in one atomic
+// action tree expresses fault-over-clear and first-record retention directly.
+module ZtpuFirstFaultNestedWhen {
+    clock clk reset rst
+
+    in fault, clear_valid, clear_overflow : bit
+    in code : u4
+
+    out valid, overflow : bit
+    out sticky : u4
+
+    reg valid_state : bit = 0
+    reg overflow_state : bit = 0
+    reg sticky_state : u4 = 0
+
+    when fault {
+        when valid_state {
+            overflow_state <- 1
+        } else {
+            valid_state <- 1
+            overflow_state <- 0
+            sticky_state <- code
+        }
+    } else when clear_valid {
+        valid_state <- 0
+        overflow_state <- 0
+    } else when clear_overflow {
+        overflow_state <- 0
+    }
+
+    valid = valid_state
+    overflow = overflow_state
+    sticky = sticky_state
+}
+
+// The accepted migration workaround, retained beside the witness solely as an
+// executable independent reference for this syntax slice.
+module ZtpuFirstFaultFlatReference {
+    clock clk reset rst
+
+    in fault, clear_valid, clear_overflow : bit
+    in code : u4
+
+    out valid, overflow : bit
+    out sticky : u4
+
+    reg valid_state : bit = 0
+    reg overflow_state : bit = 0
+    reg sticky_state : u4 = 0
+
+    capture = fault & (~valid_state)
+    valid_state <- mux(fault, 1, mux(clear_valid, 0, valid_state))
+    overflow_state <- mux(
+        fault,
+        valid_state,
+        mux(clear_valid | clear_overflow, 0, overflow_state)
+    )
+    sticky_state <- mux(capture, code, sticky_state)
+
+    valid = valid_state
+    overflow = overflow_state
+    sticky = sticky_state
+}
