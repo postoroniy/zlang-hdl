@@ -8,7 +8,7 @@ coordination logs are historical evidence: their original scope, tool results,
 and test counts remain valid for the recorded slice but are not the current
 repository baseline.
 
-Snapshot date: **2026-09-03**.
+Snapshot date: **2026-09-08**.
 
 The bounded formal-closure and concise-lowering follow-up is accepted in this
 snapshot. Its current public behavior is documented in

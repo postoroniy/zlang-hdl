@@ -9,9 +9,10 @@ change incompatibly when the release notes identify the change. Versioned IR,
 artifact, lock, manifest, and verification schemas continue to reject
 incompatible input explicitly.
 
-## [Unreleased]
+## 0.1.0a1 — 2026-09-08
 
-Planned first release: `0.1.0a1`. It has not yet been tagged or published.
+First Community alpha release cut. Publication requires the signed-tag,
+exact-commit validation and artifact gates in `RELEASING.md`.
 
 ### Added
 
@@ -25,6 +26,9 @@ Planned first release: `0.1.0a1`. It has not yet been tagged or published.
   bounded optimization and verification workflows.
 - Real-design validation including DMA, standard-bus CSR paths, fixed-point FIR,
   FFT512, and an attributed IEEE 802.11a transmitter project.
+- Four runnable formal examples and a tutorial covering invariant proofs,
+  a deliberately seeded rare-input counterexample, scoped assumptions,
+  bounded ready/valid safety, covers and immutable verification-bundle replay.
 - Source-authored bounded AXI burst reader/writer helpers, scalable replicated
   two-read/one-write banked storage composition, and simulation-only state
   preload/inspection by stable semantic identity (ZL-003, ZL-005, and ZL-006).
@@ -65,5 +69,3 @@ Planned first release: `0.1.0a1`. It has not yet been tagged or published.
   the dedicated self-hosted EDA runner.
 - Isolate CLI diagnostic test inputs from the source tree so parallel release
   checks cannot mistake temporary inputs for missing published files.
-
-[Unreleased]: https://github.com/postoroniy/zlang-hdl/commits/main
