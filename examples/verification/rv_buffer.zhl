@@ -1,0 +1,12 @@
+// The compiler derives ready/valid stall safety and its input assumption.
+// There is no user-authored same-cycle imitation of temporal stability.
+module VerifiedRvBuffer {
+    clock clk reset rst
+    in input : rv<u8>
+    out output : rv<u8>
+
+    input -> output { buffer 2 }
+
+    cover backpressured { output.valid & !output.ready }
+    cover transferred { output.transfer }
+}

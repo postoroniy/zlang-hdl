@@ -1,0 +1,21 @@
+// INTENTIONALLY BROKEN: a rare 64-bit input bypasses the capacity check.
+// Expected --verify exit: 1, with a source-attributed counterexample.
+module RareOverflowBug {
+    clock clk reset rst
+    in increment, clear : bit
+    in key : u64
+    out value : u4 = count
+
+    reg count : u4 = 0
+    priority {
+        clear_count: when clear { count <- 0 }
+        increment_count: when increment & (
+            (count < 9) | (key == 0xC0DE_F00D_1234_5678)
+        ) {
+            count <- truncate<4>(count + 1)
+        }
+    }
+
+    // Repair: remove the key-dependent bypass, as in bounded_counter.zhl.
+    assert capacity { count <= 9 }
+}

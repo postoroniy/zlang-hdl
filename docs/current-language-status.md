@@ -28,7 +28,8 @@ property/observation family, or new equivalence relation.
   complete eight-worker JUnit reports against that manifest. This includes
   compiler-owned formal closure, concise lowering, specialization-safe M39,
   exact physical reset applicability, and real external-tool integrations.
-- Exhaustive example registry: **84 `.zhl` files / 174 module roots / 157
+- Exhaustive example registry, updated with the verification tutorial on
+  2026-09-08: **88 `.zhl` files / 178 module roots / 161
   standalone roots / 17 child or template roots / 0 unsupported roots**.
 - Every standalone direct-SystemVerilog root emits a `BackendArtifact` and
   passes strict Verilator lint; child/template roots are exercised through a

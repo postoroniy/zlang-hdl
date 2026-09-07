@@ -18,6 +18,10 @@ The dated [current language and implementation status](current-language-status.m
 records the accepted regression/corpus/tool snapshot and explains how current
 guides relate to historical milestone and design-freeze evidence.
 
+For hands-on verification, use the
+[formal examples](../examples/verification/README.md): actual proofs,
+counterexamples, scoped assumptions, backpressure and immutable bundle replay.
+
 ## Product-first guide
 
 1. **[Getting started](getting-started.md)** — install, check, compile, choose a

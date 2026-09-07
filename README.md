@@ -138,6 +138,11 @@ Bounded model checking is reported as `bounded_pass`, never promoted to
 `proven`. Missing tools, bindings, reset semantics, or unsupported routes remain
 explicit `unknown`/`skipped` results according to the requested policy.
 
+Try the [runnable formal examples](examples/verification/README.md): prove a
+counter invariant, find a rare 64-bit-triggered overflow, check scoped contracts,
+and verify ready/valid stalls. The intentionally broken example passes shallow
+BMC but fails at a deeper bound, with a source-attributed counterexample.
+
 ## Documentation
 
 - [Getting started](docs/getting-started.md)

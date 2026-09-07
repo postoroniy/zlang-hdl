@@ -252,10 +252,14 @@ declared module root under `examples/`. There are no emission-error skips. Each
 root is classified as standalone-supported, child/template-only, or explicitly
 unsupported; an unclassified new root is tested as standalone-supported.
 
-The accepted snapshot contains **84 `.zhl` files / 174 module roots / 157
+The snapshot including the verification tutorial contains **88 `.zhl` files / 178 module roots / 161
 standalone roots / 17 child or template roots / 0 unsupported roots**. The
 registry test remains authoritative when examples change; these numbers are an
 evidence snapshot rather than a hard-coded allow-list.
+
+The intentionally incorrect `RareOverflowBug` is valid synthesizable hardware:
+it must emit/lint successfully, while its separate verification test requires
+a counterexample. Emission support is not a claim that user assertions hold.
 
 The executable registry reports the current source/root totals during test
 collection. Every discovered standalone-supported root emits a BackendArtifact
