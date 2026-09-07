@@ -1,0 +1,19 @@
+// A four-bit register can represent 15, but this design must never exceed 9.
+// Inputs are symbolic: the proof covers every clear/increment history.
+module BoundedCounter {
+    clock clk reset rst
+    in increment, clear : bit
+    out value : u4 = count
+
+    reg count : u4 = 0
+    priority {
+        clear_count: when clear { count <- 0 }
+        increment_count: when increment & (count < 9) {
+            count <- truncate<4>(count + 1)
+        }
+    }
+
+    assert capacity { count <= 9 }
+    cover reaches_capacity { count == 9 }
+    cover exceeds_capacity { count > 9 }
+}

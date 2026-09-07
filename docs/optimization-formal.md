@@ -225,6 +225,11 @@ to the legacy reset model.
 
 ### Execution and immutable bundles
 
+Start with the [runnable verification tutorial](../examples/verification/README.md)
+for a proved state invariant, an intentionally rare overflow counterexample,
+scoped assumptions and RV stall checking. It includes the important case where
+shallow BMC passes a broken design and deeper replay finds the defect.
+
 ```sh
 zlang design.zhl --verify
 zlang design.zhl --verification-bundle build/verify

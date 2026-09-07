@@ -1,0 +1,15 @@
+module ScopedSum {
+    clock clk reset rst
+    in a, b : u32
+    out total : u33 = a + b
+
+    // Outside the contract: no input restriction applies to these goals.
+    assert carry_preserved { total >= extend<33>(a) }
+    assert addition_commutes { total == b + a }
+
+    contract bounded_request {
+        require legal_operands { (a <= 100) & (b <= 100) }
+        ensure budget { total <= 200 }
+        cover exact_budget { total == 200 }
+    }
+}
