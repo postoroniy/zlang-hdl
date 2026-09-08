@@ -111,14 +111,79 @@ jobs:
             --requirements dist/release-requirements.txt \
             --project-version "${GITHUB_REF_NAME#v}" \
             --report build/release-inventory-audit.json
+      - name: Set up pinned Node.js for the lexical extension
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22.23.2"
+          cache: npm
+          cache-dependency-path: editors/vscode/zlang-hdl/package-lock.json
+      - name: Install locked editor tooling without lifecycle scripts
+        working-directory: editors/vscode/zlang-hdl
+        run: npm ci --ignore-scripts
+      - name: Require a fresh full locked editor advisory audit
+        working-directory: editors/vscode/zlang-hdl
+        shell: bash
+        run: |
+          report="$GITHUB_WORKSPACE/build/editor-npm-audit.json"
+          npm audit --package-lock-only --include=dev --include=optional --include=peer \
+            --audit-level=info --json > "$report"
+          python - "$report" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          report = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          if (not isinstance(report, dict) or report.get("auditReportVersion") != 2
+                  or "error" in report or report.get("vulnerabilities") != {}):
+              raise SystemExit("Editor advisory audit is incomplete or has findings")
+          metadata = report.get("metadata", {})
+          counts = metadata.get("vulnerabilities", {})
+          for severity in ("info", "low", "moderate", "high", "critical", "total"):
+              if type(counts.get(severity)) is not int or counts[severity] != 0:
+                  raise SystemExit("Editor advisory audit has findings or missing totals")
+          dependencies = metadata.get("dependencies", {})
+          for kind in ("dev", "total"):
+              if type(dependencies.get(kind)) is not int or dependencies[kind] <= 0:
+                  raise SystemExit("Editor advisory audit did not include build tooling")
+          lock = json.loads(Path("package-lock.json").read_text(encoding="utf-8"))
+          packages = lock.get("packages")
+          if lock.get("lockfileVersion") != 3 or not isinstance(packages, dict) or "" not in packages:
+              raise SystemExit("Editor lockfile inventory is incomplete")
+          if dependencies["total"] != len(packages) - 1:
+              raise SystemExit("Editor advisory audit does not cover the full lockfile")
+          print(f"Editor advisory audit: {dependencies['total']} locked dependencies, "
+                f"including {dependencies['dev']} dev dependencies; zero findings")
+          PY
+      - name: Exercise real TextMate and Oniguruma tokenization
+        working-directory: editors/vscode/zlang-hdl
+        run: npm test
+      - name: Build and audit the exact-tag static lexical VSIX
+        shell: bash
+        run: |
+          npm --prefix editors/vscode/zlang-hdl run package -- "$RUNNER_TEMP/zlang-hdl-0.1.0.vsix"
+          python tests/editor/test_vscode_package.py "$RUNNER_TEMP/zlang-hdl-0.1.0.vsix" \
+            > "$RUNNER_TEMP/zlang-hdl-0.1.0-vsix-audit.json"
+          cp -- "$RUNNER_TEMP/zlang-hdl-0.1.0.vsix" \
+            "$RUNNER_TEMP/zlang-hdl-0.1.0-vsix-audit.json" dist/
+      - name: Retain accepted dependency audit evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-${{ github.ref_name }}-dependency-audits
+          path: |
+            build/release-inventory-audit.json
+            build/editor-npm-audit.json
+          if-no-files-found: error
+          retention-days: 30
       - name: Build release SBOM and checksums after inventory acceptance
+        shell: bash
         run: |
           cyclonedx-py requirements dist/release-requirements.txt \
             --output-reproducible \
             --output-format JSON \
             --output-file "dist/zlang-hdl-${GITHUB_REF_NAME}.cdx.json"
           (cd dist && sha256sum zlang_hdl-*.whl zlang_hdl-*.tar.gz \
-            zlang-hdl-*.cdx.json release-requirements.txt | sort > SHA256SUMS)
+            zlang-hdl-*.cdx.json release-requirements.txt \
+            zlang-hdl-*.vsix zlang-hdl-*-vsix-audit.json | sort > SHA256SUMS)
           (cd dist && sha256sum -c SHA256SUMS)
       - name: Attest release checksums
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
