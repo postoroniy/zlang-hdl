@@ -56,10 +56,26 @@ release candidate must include:
 - deterministic generated artifacts, verification-bundle replay, and package
   contents.
 
+Pin `pip==26.2.1` in the release build environment. Create package-test venvs
+with `--without-pip` and install through that patched parent pip using
+`python -m pip --python <venv>/bin/python install pip==26.2.1 ...`.
+Do not silently use setup-python's bundled installer in the shipped inventory.
+
+Audit the exact `dist/release-requirements.txt` with
+`tools/release_inventory.py` before SBOM/checksum generation, attestation and
+artifact upload. This includes installer tooling as well as runtime packages.
+Require the complete wheel and sdist installation inventories to match before
+publishing the shared inventory and SBOM.
+Only the exact local ZLang distribution is excluded from remote vulnerability
+lookup, because it has not been published to PyPI. Every other pinned package
+must have a complete, version-matching, unskipped audit result and no findings.
+Project-only `pip-audit .` is an additional check, not a substitute for this gate.
+
 Install the release tools in the active Python 3.12 environment, then build from
 a clean checkout with a fixed `SOURCE_DATE_EPOCH`:
 
 ```bash
+.venv/bin/python -m pip install --upgrade pip==26.2.1
 .venv/bin/python -m pip install build==1.3.0 setuptools==84.0.0 \
   twine==6.2.0 wheel==0.46.3
 SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)" \

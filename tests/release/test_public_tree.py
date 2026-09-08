@@ -298,6 +298,31 @@ def test_release_workflows_preserve_checkout_and_security_contracts() -> None:
     assert "import std.math.complex" in release
     assert '"$environment/bin/zlang" package-smoke.zhl --check' in release
 
+    # Installer inventory is release evidence, not merely project dependencies.
+    assert release.count("--upgrade pip==26.2.1") == 2
+    assert (
+        "name: Build one sdist and a byte-reproducible wheel\n"
+        "        shell: bash\n"
+    ) in release  # GitHub's explicit bash enables pipefail for freeze | sort.
+    for kind in ("wheel", "sdist"):
+        assert f"python -m venv --without-pip build/{kind}-venv" in release
+        assert f"python -m pip --python build/{kind}-venv/bin/python install" in release
+    assert release.count("--disable-pip-version-check pip==26.2.1 dist/") == 2
+    ordered_gates = (
+        "-m pip freeze --all --exclude zlang-hdl",
+        "diff -u build/wheel-requirements.txt build/sdist-requirements.txt",
+        "cp build/wheel-requirements.txt dist/release-requirements.txt",
+        "python tools/release_inventory.py",
+        "cyclonedx-py requirements dist/release-requirements.txt",
+        "name: Attest release checksums",
+        "name: Upload reviewed release artifacts",
+    )
+    assert [release.index(gate) for gate in ordered_gates] == sorted(
+        release.index(gate) for gate in ordered_gates
+    )
+    assert '--project-version "${GITHUB_REF_NAME#v}"' in release
+    assert "--report build/release-inventory-audit.json" in release
+
     secret_scan = workflows["secret-scan.yml"]
     assert 'GITLEAKS_VERSION: "8.24.3"' in secret_scan
     assert (
