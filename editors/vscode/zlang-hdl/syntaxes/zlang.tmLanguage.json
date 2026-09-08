@@ -42,7 +42,7 @@
         {
           "name": "string.quoted.double.zlang",
           "begin": "\"",
-          "end": "\"",
+          "end": "\"|$",
           "patterns": [
             {"name": "constant.character.escape.zlang", "match": "\\\\(?:0|n|r|t|\\\\|'|\"|x[0-9A-Fa-f]{2})"},
             {"name": "invalid.illegal.escape.zlang", "match": "\\\\."},
@@ -214,6 +214,7 @@
           "end": "(:)",
           "endCaptures": {"1": {"name": "punctuation.separator.type.zlang"}},
           "patterns": [
+            {"include": "#comments"},
             {"name": "variable.parameter.port.zlang", "match": "\\b[A-Za-z_][A-Za-z0-9_]*\\b"},
             {"name": "punctuation.separator.sequence.zlang", "match": ","}
           ]
@@ -265,7 +266,7 @@
           "name": "meta.declaration.parameters.zlang",
           "begin": "\\b(module)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*(<)",
           "beginCaptures": {"1": {"name": "storage.type.module.zlang"}, "2": {"name": "entity.name.type.module.zlang"}, "3": {"name": "punctuation.definition.parameters.begin.zlang"}},
-          "end": "(>)(?=\\s*(?:\\(|\\{))",
+          "end": "(>)(?=\\s*(?:\\(|\\{|$))",
           "endCaptures": {"1": {"name": "punctuation.definition.parameters.end.zlang"}},
           "patterns": [{"include": "#generic-parameter-body"}]
         },
@@ -273,7 +274,7 @@
           "name": "meta.declaration.parameters.zlang",
           "begin": "\\b(fn)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*(<)",
           "beginCaptures": {"1": {"name": "storage.type.function.zlang"}, "2": {"name": "entity.name.function.zlang"}, "3": {"name": "punctuation.definition.parameters.begin.zlang"}},
-          "end": "(>)(?=\\s*\\()",
+          "end": "(>)(?=\\s*(?:\\(|$))",
           "endCaptures": {"1": {"name": "punctuation.definition.parameters.end.zlang"}},
           "patterns": [{"include": "#generic-parameter-body"}]
         },
@@ -281,7 +282,7 @@
           "name": "meta.declaration.parameters.zlang",
           "begin": "\\b(interface)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*(<)",
           "beginCaptures": {"1": {"name": "storage.type.interface.zlang"}, "2": {"name": "entity.name.type.interface.zlang"}, "3": {"name": "punctuation.definition.parameters.begin.zlang"}},
-          "end": "(>)(?=\\s*\\{)",
+          "end": "(>)(?=\\s*(?:\\{|$))",
           "endCaptures": {"1": {"name": "punctuation.definition.parameters.end.zlang"}},
           "patterns": [{"include": "#generic-parameter-body"}]
         },
@@ -289,7 +290,7 @@
           "name": "meta.declaration.parameters.zlang",
           "begin": "\\b(struct|protocol)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*(<)",
           "beginCaptures": {"1": {"name": "storage.type.zlang"}, "2": {"name": "entity.name.type.zlang"}, "3": {"name": "punctuation.definition.parameters.begin.zlang"}},
-          "end": "(>)(?=\\s*\\{)",
+          "end": "(>)(?=\\s*(?:\\{|$))",
           "endCaptures": {"1": {"name": "punctuation.definition.parameters.end.zlang"}},
           "patterns": [{"include": "#generic-parameter-body"}]
         },
@@ -297,7 +298,7 @@
           "name": "meta.declaration.parameters.zlang",
           "begin": "\\b(operator)\\s+([+*\\-])\\s*(<)",
           "beginCaptures": {"1": {"name": "storage.type.function.operator.zlang"}, "2": {"name": "keyword.operator.overload.zlang"}, "3": {"name": "punctuation.definition.parameters.begin.zlang"}},
-          "end": "(>)(?=\\s*\\()",
+          "end": "(>)(?=\\s*(?:\\(|$))",
           "endCaptures": {"1": {"name": "punctuation.definition.parameters.end.zlang"}},
           "patterns": [{"include": "#generic-parameter-body"}]
         }
@@ -312,9 +313,11 @@
         {"name": "punctuation.separator.type.zlang", "match": ":"},
         {"name": "punctuation.separator.sequence.zlang", "match": ","},
         {"name": "keyword.operator.assignment.zlang", "match": "="},
+        {"name": "variable.other.constant.parameter.zlang", "match": "\\b[A-Za-z_][A-Za-z0-9_]*(?=\\s*[:=])"},
+        {"include": "#intrinsics"},
+        {"include": "#types"},
         {"include": "#operators"},
-        {"name": "variable.other.constant.parameter.zlang", "match": "\\b[A-Za-z_][A-Za-z0-9_]*\\b"},
-        {"include": "#types"}
+        {"name": "variable.other.constant.parameter.zlang", "match": "\\b[A-Za-z_][A-Za-z0-9_]*\\b"}
       ]
     },
     "static-function-references": {
@@ -332,12 +335,13 @@
       "patterns": [
         {
           "name": "meta.function-call.specialized.zlang",
-          "begin": "\\b(repeat|delay|pipeline)(\\s*)(<)(?=[^<>\\n]*(?:<[^<>\\n]*>[^<>\\n]*)*>\\s*\\()",
+          "begin": "\\b(repeat|delay|pipeline)(\\s*)(<)(?=(?<type_arguments>[^<>\\n]*(?:<\\g<type_arguments>>[^<>\\n]*)*)>\\s*\\()",
           "beginCaptures": {"1": {"name": "support.function.builtin.hardware.zlang"}, "3": {"name": "punctuation.definition.type.begin.zlang"}},
           "end": "(>)(?=\\s*\\()",
           "endCaptures": {"1": {"name": "punctuation.definition.type.end.zlang"}},
           "patterns": [
             {"include": "#comments"},
+            {"include": "#intrinsics"},
             {"include": "#numbers"},
             {"include": "#types"},
             {"include": "#static-function-references"},
@@ -348,12 +352,13 @@
         },
         {
           "name": "meta.function-call.specialized.zlang",
-          "begin": "\\b(truncate|extend|quantize|unpack|bitcast|reshape)(\\s*)(<)(?=[^<>\\n]*(?:<[^<>\\n]*>[^<>\\n]*)*>\\s*\\()",
+          "begin": "\\b(truncate|extend|quantize|unpack|bitcast|reshape)(\\s*)(<)(?=(?<type_arguments>[^<>\\n]*(?:<\\g<type_arguments>>[^<>\\n]*)*)>\\s*\\()",
           "beginCaptures": {"1": {"name": "support.function.builtin.conversion.zlang"}, "3": {"name": "punctuation.definition.type.begin.zlang"}},
           "end": "(>)(?=\\s*\\()",
           "endCaptures": {"1": {"name": "punctuation.definition.type.end.zlang"}},
           "patterns": [
             {"include": "#comments"},
+            {"include": "#intrinsics"},
             {"include": "#numbers"},
             {"include": "#types"},
             {"include": "#static-function-references"},
@@ -364,12 +369,13 @@
         },
         {
           "name": "meta.function-call.specialized.zlang",
-          "begin": "\\b([a-z_][A-Za-z0-9_]*)(\\s*)(<)(?=[^<>\\n]*(?:<[^<>\\n]*>[^<>\\n]*)*>\\s*\\()",
+          "begin": "\\b([a-z_][A-Za-z0-9_]*)(\\s*)(<)(?=(?<type_arguments>[^<>\\n]*(?:<\\g<type_arguments>>[^<>\\n]*)*)>\\s*\\()",
           "beginCaptures": {"1": {"name": "entity.name.function.call.zlang"}, "3": {"name": "punctuation.definition.type.begin.zlang"}},
           "end": "(>)(?=\\s*\\()",
           "endCaptures": {"1": {"name": "punctuation.definition.type.end.zlang"}},
           "patterns": [
             {"include": "#comments"},
+            {"include": "#intrinsics"},
             {"include": "#numbers"},
             {"include": "#types"},
             {"include": "#static-function-references"},
@@ -390,6 +396,8 @@
           "end": "(>)",
           "endCaptures": {"1": {"name": "punctuation.definition.type.end.zlang"}},
           "patterns": [
+            {"include": "#comments"},
+            {"include": "#intrinsics"},
             {"include": "#numbers"},
             {"name": "punctuation.separator.sequence.zlang", "match": ","},
             {"name": "keyword.operator.arithmetic.zlang", "match": "<<|[+*\\-/]"},
@@ -403,6 +411,8 @@
           "end": "(>)",
           "endCaptures": {"1": {"name": "punctuation.definition.type.end.zlang"}},
           "patterns": [
+            {"include": "#comments"},
+            {"include": "#intrinsics"},
             {"include": "#numbers"},
             {"name": "keyword.operator.arithmetic.zlang", "match": "<<|[+*\\-/]"},
             {"name": "variable.other.constant.parameter.zlang", "match": "\\b[A-Za-z_][A-Za-z0-9_]*\\b"}
@@ -415,6 +425,8 @@
           "end": "(>)",
           "endCaptures": {"1": {"name": "punctuation.definition.type.end.zlang"}},
           "patterns": [
+            {"include": "#comments"},
+            {"include": "#intrinsics"},
             {"include": "#numbers"},
             {"include": "#types"},
             {"name": "punctuation.separator.sequence.zlang", "match": ","},
@@ -429,6 +441,8 @@
           "end": "(>)",
           "endCaptures": {"1": {"name": "punctuation.definition.type.end.zlang"}},
           "patterns": [
+            {"include": "#comments"},
+            {"include": "#intrinsics"},
             {"include": "#numbers"},
             {"name": "keyword.operator.arithmetic.zlang", "match": "<<|[+*\\-/]"},
             {"name": "variable.other.constant.parameter.zlang", "match": "\\b[A-Za-z_][A-Za-z0-9_]*\\b"}
@@ -441,6 +455,8 @@
           "end": "(>)",
           "endCaptures": {"1": {"name": "punctuation.definition.type.end.zlang"}},
           "patterns": [
+            {"include": "#comments"},
+            {"include": "#intrinsics"},
             {"include": "#numbers"},
             {"include": "#types"},
             {"name": "punctuation.separator.sequence.zlang", "match": ","},
@@ -454,6 +470,8 @@
           "end": "(>)",
           "endCaptures": {"1": {"name": "punctuation.definition.type.end.zlang"}},
           "patterns": [
+            {"include": "#comments"},
+            {"include": "#intrinsics"},
             {"include": "#numbers"},
             {"include": "#types"},
             {"name": "punctuation.separator.sequence.zlang", "match": ","},
@@ -467,6 +485,8 @@
           "end": "(>)",
           "endCaptures": {"1": {"name": "punctuation.definition.type.end.zlang"}},
           "patterns": [
+            {"include": "#comments"},
+            {"include": "#intrinsics"},
             {"include": "#numbers"},
             {"include": "#types"},
             {"name": "punctuation.separator.sequence.zlang", "match": ","},
@@ -515,6 +535,8 @@
           "end": "(>)",
           "endCaptures": {"1": {"name": "punctuation.definition.type.end.zlang"}},
           "patterns": [
+            {"include": "#comments"},
+            {"include": "#intrinsics"},
             {"include": "#numbers"},
             {"name": "keyword.operator.arithmetic.zlang", "match": "\\+|-|\\*|/"},
             {"name": "variable.other.constant.parameter.zlang", "match": "\\b[A-Za-z_][A-Za-z0-9_]*\\b"}

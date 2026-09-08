@@ -216,9 +216,12 @@ zlang-verify build/verify --mode bmc --depth 20 \
   --format json --report build/verification-report.json
 ```
 
-Replay validates every content hash before execution. It executes the bundled
-M35/source safety and cover jobs only; it does not execute or reconstruct the
-selected-candidate M36/M38 part of a joint compiler run. Engine, solver, depth,
+Replay validates every content hash before execution. It executes bundled
+M35/source safety and cover jobs, and the frozen selected-candidate M36/M38
+inputs when a joint compiler run published those companions. It does not
+recompile the source or rerun candidate selection to reconstruct absent legs.
+The [arithmetic exploration example](../examples/verification/math-exploration.md)
+publishes such a joint bundle. Engine, solver, depth,
 timeout, tool versions, logs, and results belong to execution and do not mutate
 the bundle. `zlang-verify` defaults its work directory to the sibling
 `build/verify.work`; `zlang --verify` uses `--verification-work-dir` when

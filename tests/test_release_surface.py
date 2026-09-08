@@ -81,7 +81,7 @@ def test_every_owned_hardware_source_uses_the_canonical_suffix() -> None:
     sources = tuple(path for root in roots for path in root.rglob("*.zhl"))
 
     assert legacy == ()
-    assert len(sources) == 133
+    assert len(sources) == 134
 
 
 def test_clash_discovery_has_no_machine_specific_fallback(monkeypatch) -> None:

@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+import tomllib
 
 import pytest
 
@@ -89,6 +90,100 @@ def test_public_tree_export_is_deterministic_and_verifiable(tmp_path: Path) -> N
     checked = _run(PUBLIC_TREE, "check-export", "--source", str(first))
     assert checked.returncode == 1
     assert "manifest does not match" in checked.stderr
+
+
+def test_public_tree_excludes_editor_scratch_but_retains_sources(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    _write_fixture(source)
+    repository_config = tomllib.loads(
+        (ROOT / "release/public-tree.toml").read_text(encoding="utf-8")
+    )
+    config_path = source / "release/public-tree.toml"
+    config_path.write_text(
+        config_path.read_text(encoding="utf-8")
+        .replace(
+            'exclude = ["**/__pycache__/**"]',
+            "exclude = " + json.dumps(repository_config["projection"]["exclude"]),
+        )
+        .replace('"README.md", "docs/**"', '"editors/**", "README.md", "docs/**"')
+        .replace('closure_roots = ["zlang"', 'closure_roots = ["editors", "zlang"')
+        .replace(
+            'text_extensions = ["", ".md", ".py", ".toml", ".yml", ".zhl"]',
+            "text_extensions = "
+            + json.dumps(repository_config["content"]["text_extensions"]),
+        ),
+        encoding="utf-8",
+    )
+    editor = "editors/vscode/zlang-hdl"
+    retained = {
+        f"{editor}/README.md": "# Lexical editor\n",
+        f"{editor}/package.json": '{"name":"zlang-hdl"}\n',
+        f"{editor}/package-lock.json": '{"lockfileVersion":3}\n',
+        f"{editor}/syntaxes/zlang.tmLanguage.json": '{"scopeName":"source.zlang"}\n',
+        f"{editor}/test/tokenize.test.cjs": "'use strict';\n",
+        f"{editor}/examples/verification.zhl": "module Fixture { in x:u8 out y:u8 y=x }\n",
+    }
+    excluded = (
+        "node_modules/dependency/index.js",
+        ".vscode-test/code/editor.bin",
+        "root.vsix",
+        ".npmrc",
+        f"{editor}/node_modules/dependency/index.js",
+        f"{editor}/node_modules/.bin/executable",
+        f"{editor}/.vscode-test/code/editor.bin",
+        f"{editor}/nested/.vscode-test/code/editor.bin",
+        f"{editor}/zlang-hdl-0.1.0.vsix",
+        f"{editor}/nested/artifact.vsix",
+        f"{editor}/.npmrc",
+        f"{editor}/nested/.npmrc",
+        f"{editor}/.tmp/session.bin",
+        f"{editor}/build/package.bin",
+        f"{editor}/dist/package.bin",
+        f"{editor}/out/extension.js",
+    )
+    for relative, content in retained.items():
+        path = source / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+    for relative in excluded:
+        path = source / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        # An ignored artifact must not even reach UTF-8/content validation.
+        path.write_bytes(b"\x00\xff private generated scratch\n")
+    # npm's executable links must be pruned with their excluded directory,
+    # before the projection's deliberate rejection of source symlinks.
+    (source / editor / "node_modules/.bin/tool").symlink_to("executable")
+
+    ignored = subprocess.run(
+        ["git", "check-ignore", "--no-index", "--stdin"],
+        input="\n".join((*excluded, *retained)) + "\n",
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+    )
+    assert ignored.returncode == 0, ignored.stderr
+    assert set(ignored.stdout.splitlines()) == set(excluded)
+
+    destination = tmp_path / "public"
+    completed = _run(
+        PUBLIC_TREE,
+        "export",
+        "--source",
+        str(source),
+        "--destination",
+        str(destination),
+    )
+    assert completed.returncode == 0, completed.stderr
+    checked = _run(PUBLIC_TREE, "check-export", "--source", str(destination))
+    assert checked.returncode == 0, checked.stderr
+    manifest = json.loads((destination / ".public-tree-manifest.json").read_text())
+    selected = {item["path"] for item in manifest["files"]}
+    assert retained.keys() <= selected
+    assert not selected.intersection(excluded)
+    for relative, content in retained.items():
+        assert (destination / relative).read_text(encoding="utf-8") == content
+    assert not any((destination / relative).exists() for relative in excluded)
 
 
 @pytest.mark.parametrize(
@@ -347,6 +442,8 @@ def test_repository_public_projection_is_closed_and_excludes_private_files() -> 
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
+    config = module._load_config(ROOT, Path("release/public-tree.toml"))
+    source_files = module._source_files(ROOT, config.manifest, config.exclude)
     selected = {
         path.relative_to(ROOT).as_posix()
         for path in module.validate_source(ROOT)
@@ -372,8 +469,8 @@ def test_repository_public_projection_is_closed_and_excludes_private_files() -> 
     ):
         expected = {
             path.relative_to(ROOT).as_posix()
-            for path in (ROOT / root).rglob("*")
-            if path.is_file() and "__pycache__" not in path.parts
+            for path in source_files
+            if path.is_relative_to(ROOT / root)
         }
         assert expected <= selected
 

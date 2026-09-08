@@ -1,11 +1,39 @@
 {
   "name": "zlang-hdl",
   "displayName": "ZLang HDL",
-  "description": "Lexical syntax highlighting for the supported ZLang HDL hardware language.",
-  "version": "0.0.9",
+  "description": "ZLang HDL .zhl syntax highlighting, snippets and editing support. No language server required.",
+  "version": "0.1.0",
   "publisher": "postoroniy",
+  "author": "Viacheslav Vinogradov",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/postoroniy/zlang-hdl.git",
+    "directory": "editors/vscode/zlang-hdl"
+  },
+  "bugs": { "url": "https://github.com/postoroniy/zlang-hdl/issues" },
+  "homepage": "https://github.com/postoroniy/zlang-hdl",
   "engines": { "vscode": "^1.85.0" },
   "categories": ["Programming Languages"],
+  "keywords": ["zlang", "zlang-hdl", "hdl", "fpga", "asic", "systemverilog", "rtl"],
+  "capabilities": {
+    "untrustedWorkspaces": { "supported": true },
+    "virtualWorkspaces": true
+  },
+  "files": [
+    "package.json", "README.md", "CHANGELOG.md", "LICENSE", "NOTICE",
+    "language-configuration.json", "recommended-settings.json",
+    "syntaxes/zlang.tmLanguage.json", "snippets/zlang-hdl.json"
+  ],
+  "scripts": {
+    "test": "node test/tokenize.test.cjs",
+    "package": "node test/package.cjs"
+  },
+  "devDependencies": {
+    "@vscode/vsce": "3.9.2",
+    "vscode-oniguruma": "2.0.1",
+    "vscode-textmate": "9.3.2"
+  },
   "contributes": {
     "languages": [{
       "id": "zlang-hdl",
@@ -13,6 +41,7 @@
       "extensions": [".zhl"],
       "configuration": "./language-configuration.json"
     }],
+    "snippets": [{ "language": "zlang-hdl", "path": "./snippets/zlang-hdl.json" }],
     "grammars": [{
       "language": "zlang-hdl",
       "scopeName": "source.zlang",

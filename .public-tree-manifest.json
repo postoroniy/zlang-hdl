@@ -1,5 +1,5 @@
 {
-  "config_sha256": "75d19801c7a85a14c9ca8f96dc8b477238a124e3a15652649014f409586386ef",
+  "config_sha256": "a364069d2ee38daa1981f71c2c157519220a4bd88e19c9b013e938aa6c6996f7",
   "files": [
     {
       "mode": "0644",
@@ -29,7 +29,7 @@
     {
       "mode": "0644",
       "path": ".github/dependabot.yml",
-      "sha256": "896370e603e1f55016fb9f17d594cad776cb60213e850f2c3cdc6503713d8e49"
+      "sha256": "9b2d3fca48f05c0cafd2151235d5a3231c25c91b8b539cd4779e5f1765d9853a"
     },
     {
       "mode": "0644",
@@ -39,7 +39,7 @@
     {
       "mode": "0644",
       "path": ".github/workflows/ci.yml",
-      "sha256": "1ef2af38795dc047d07c2231f1c497383cc671726916b8e6b5fcab42ee8c3382"
+      "sha256": "2f1f23b734e06b41be8d27dc71bad250bb748d2560eac94f619642ec32558273"
     },
     {
       "mode": "0644",
@@ -69,7 +69,7 @@
     {
       "mode": "0644",
       "path": ".gitignore",
-      "sha256": "26cfd17ef541ad477bfceaa06b8e4353a57de42406372751db7e6abd4d52e92b"
+      "sha256": "b26ccf96f4b3457290ac657338f83ecdbea504f5d640fcc6360901a793096e25"
     },
     {
       "mode": "0644",
@@ -184,7 +184,7 @@
     {
       "mode": "0644",
       "path": "docs/backends-tooling.md",
-      "sha256": "8828b529e866d0edb3589d9c87d2d3042e236e3ae9721353cb80317c2c8c419f"
+      "sha256": "084e7e323389cd1be8cbfdf2412a85ca07338657456747f99e4e4b21c0cb2329"
     },
     {
       "mode": "0644",
@@ -199,7 +199,7 @@
     {
       "mode": "0644",
       "path": "docs/direct-systemverilog.md",
-      "sha256": "a6894933cfd141e04b822db8ca539ea2943c0db95e407ef45ded73d30ff3f5d8"
+      "sha256": "6cb24f53d31159489efafea2d51836fc641df8e5933de4582d1c97f8f6c51f55"
     },
     {
       "mode": "0644",
@@ -304,7 +304,7 @@
     {
       "mode": "0644",
       "path": "docs/optimization-formal.md",
-      "sha256": "56924d5df4d50033d53c03ec7767bd4b8872d1a06b8183b813971e22d4067523"
+      "sha256": "64d37254f65999b53eef84a2b42ebf433acbbee96ebbd9bab2e529d82408c924"
     },
     {
       "mode": "0644",
@@ -423,8 +423,13 @@
     },
     {
       "mode": "0644",
+      "path": "editors/vscode/zlang-hdl/CHANGELOG.md",
+      "sha256": "6caa476c4bc084c5436c74bddb7beed2bd0b4d43bcb072de359fb6358cd76254"
+    },
+    {
+      "mode": "0644",
       "path": "editors/vscode/zlang-hdl/README.md",
-      "sha256": "b8d2e37793f46d0163c5ed1591829fced807342e62922909103999502a9ccc37"
+      "sha256": "ebb7c336e460b74e20dcb68d1398b484c4ca977695d9fa27189f373a2257ff8e"
     },
     {
       "mode": "0644",
@@ -434,17 +439,27 @@
     {
       "mode": "0644",
       "path": "editors/vscode/zlang-hdl/language-configuration.json",
-      "sha256": "39603ceceb0c3a8c168e993f477f48d5c66e6b78db14c730c3f18254c8075083"
+      "sha256": "8da32361b722d3a121e9b80957a0367409176fd319c00653da70176e6c7cfb1a"
+    },
+    {
+      "mode": "0644",
+      "path": "editors/vscode/zlang-hdl/package-lock.json",
+      "sha256": "5b2d958f49b872b101c69740f0b29d561b7431d6d8970f160748c8c3b63d1948"
     },
     {
       "mode": "0644",
       "path": "editors/vscode/zlang-hdl/package.json",
-      "sha256": "45236bca2b3429984345a2b06ed9a2ae7510cd2c385dee1fe9a470403b1411d0"
+      "sha256": "12981c62e5b73194c576392310648edd26727de6ef63be5614e04b5d0f0b58ca"
     },
     {
       "mode": "0644",
       "path": "editors/vscode/zlang-hdl/recommended-settings.json",
       "sha256": "6fa48cf40566e811ef690cd615ecfae72f70a191a74b050d942e7be147e49159"
+    },
+    {
+      "mode": "0644",
+      "path": "editors/vscode/zlang-hdl/snippets/zlang-hdl.json",
+      "sha256": "ed602e108c815825e0f5829d8bea224fea8ca9a792052e9583645266d8be7122"
     },
     {
       "mode": "0644",
@@ -454,7 +469,22 @@
     {
       "mode": "0644",
       "path": "editors/vscode/zlang-hdl/syntaxes/zlang.tmLanguage.json",
-      "sha256": "002ece3b4a0e226363ba66b61e30fb0738ac8cfd4c2a2386155fb5e8e03d8fea"
+      "sha256": "4552856a6768b93262d2b111a899f9c35f050e8acfe89467abaaa52168c8c91d"
+    },
+    {
+      "mode": "0644",
+      "path": "editors/vscode/zlang-hdl/test/host-smoke.cjs",
+      "sha256": "3ae3f11f2b0fe0a09fb710bc13d90aac55fd438d2fd239de39e2217ab8515d3a"
+    },
+    {
+      "mode": "0644",
+      "path": "editors/vscode/zlang-hdl/test/package.cjs",
+      "sha256": "850c21d6291f385cad04881b8d62acba3f5ee8e0cc1e4f79338c35f8d777ce9b"
+    },
+    {
+      "mode": "0644",
+      "path": "editors/vscode/zlang-hdl/test/tokenize.test.cjs",
+      "sha256": "e10bc67ce9ad816ee10dc4b33a71569a307a5fc86fa3870c061fc9ee976a6634"
     },
     {
       "mode": "0644",
@@ -1224,12 +1254,22 @@
     {
       "mode": "0644",
       "path": "examples/verification/README.md",
-      "sha256": "7b5c81b03f273ba4c928b655f9ab86f31ca9272675175e66beaf249b945b713e"
+      "sha256": "f04244162131653d5ed5ca363a80b72bbf6d49e16e80add2dc3b18da97f7323c"
     },
     {
       "mode": "0644",
       "path": "examples/verification/bounded_counter.zhl",
       "sha256": "fb7db074ced5ea24f56e1126e7c42880775ebd380a5adb2872e17bbd901e5f0e"
+    },
+    {
+      "mode": "0644",
+      "path": "examples/verification/math-exploration.md",
+      "sha256": "af00e475a89184cb20a63ede73a7fcd7c477327b2abb3ab52143cd1c5c1e7e8f"
+    },
+    {
+      "mode": "0644",
+      "path": "examples/verification/math_exploration.zhl",
+      "sha256": "db002f4b7aaa492e673d9210f55eb060c5355045f849ff1be613845261534c14"
     },
     {
       "mode": "0644",
@@ -1279,12 +1319,12 @@
     {
       "mode": "0644",
       "path": "release/public-tree.toml",
-      "sha256": "75d19801c7a85a14c9ca8f96dc8b477238a124e3a15652649014f409586386ef"
+      "sha256": "a364069d2ee38daa1981f71c2c157519220a4bd88e19c9b013e938aa6c6996f7"
     },
     {
       "mode": "0644",
       "path": "release/status.json",
-      "sha256": "741b2c9e9a548fe65a325081ad61e037df689523864cf54f266aadf2d23ea94d"
+      "sha256": "ad652d3b7f7bdb22204c52f4555ffc9c10f8b7122ff7549d65abc6798b794142"
     },
     {
       "mode": "0644",
@@ -1725,6 +1765,16 @@
       "mode": "0644",
       "path": "tests/editor/test_named_interface_surface.py",
       "sha256": "ada3513572ae0befbe2332ff7acc7e324ad14e3b8c0202e3710361bc4f1542e3"
+    },
+    {
+      "mode": "0644",
+      "path": "tests/editor/test_vscode_package.py",
+      "sha256": "7d5ca1cf9e3d8e00c4bc40ae17da31f60fa9896c5dfe77cbc13d8ad41ba9adcb"
+    },
+    {
+      "mode": "0644",
+      "path": "tests/editor/test_vscode_snippets.py",
+      "sha256": "a8acdfdf4daa35ea1360a6e5aafd8416efcdce33f724542d694b9d0259952404"
     },
     {
       "mode": "0644",
@@ -2220,6 +2270,16 @@
       "mode": "0644",
       "path": "tests/integration/test_masked_memory.py",
       "sha256": "408e8f54dec615be7e0a9bc3e45ab2e19e17f5f975748f33df897b3d70c57727"
+    },
+    {
+      "mode": "0644",
+      "path": "tests/integration/test_math_exploration_example.py",
+      "sha256": "ef64972026470066a931fadd02b039d6db8b6e82897aed4c4ae52fcc08c58400"
+    },
+    {
+      "mode": "0644",
+      "path": "tests/integration/test_math_exploration_formal.py",
+      "sha256": "684a2f02c7de9fb92c38013d695bdc461e7cdc286d998ba622fe4f9987f88022"
     },
     {
       "mode": "0644",
@@ -2864,7 +2924,7 @@
     {
       "mode": "0644",
       "path": "tests/release/test_public_tree.py",
-      "sha256": "aa88d5ba25716e637464f97e7cf4ee6dc32106455a87cd63659d9d271e4d32b9"
+      "sha256": "9ea07f65848fcdaff6814913d68bdb3de4ea420ce0ab84f46082420eea45b65b"
     },
     {
       "mode": "0644",
@@ -3293,6 +3353,11 @@
     },
     {
       "mode": "0644",
+      "path": "tests/semantic/test_math_exploration_formal_tool.py",
+      "sha256": "2309ce94856b595d17f5c26a37d2a7d8a13d3b4f31a8830239282349ea93cffb"
+    },
+    {
+      "mode": "0644",
       "path": "tests/semantic/test_memory_reset_policy.py",
       "sha256": "af61abf3e3d5df86767db878ee29d0318a33c816535560da96f4577482f40234"
     },
@@ -3604,7 +3669,7 @@
     {
       "mode": "0644",
       "path": "tests/systemverilog/test_example_coverage.py",
-      "sha256": "683781108410aa2ee63a2ad1f405aa45ead50dcd999ebafa403f1fd561288657"
+      "sha256": "c0727a7576dbe013e242e560ea55236622da7855d9d8f971450f8587452e5aec"
     },
     {
       "mode": "0644",
@@ -3723,6 +3788,11 @@
     },
     {
       "mode": "0644",
+      "path": "tests/test_math_exploration_qor.py",
+      "sha256": "e0801c6b5859c73825f9e5623339e1532399fa452894152e06237f3249377981"
+    },
+    {
+      "mode": "0644",
       "path": "tests/test_parameterized_aggregate_protocol.py",
       "sha256": "d7f3bccef1fea30d90a283f52137f5533d0ab805f4b6b62951d215cfc03cac7f"
     },
@@ -3734,7 +3804,7 @@
     {
       "mode": "0644",
       "path": "tests/test_release_surface.py",
-      "sha256": "eaa6c7d43e70a617838a045c8b6c6d0c0222ec6d6d725645994f6446a61a6fe9"
+      "sha256": "4b65736945200aac21a4562aa5394699102da1324a751807ea477e2a893e614f"
     },
     {
       "mode": "0644",
@@ -3845,6 +3915,16 @@
       "mode": "0644",
       "path": "tools/formal_execution_scalability.py",
       "sha256": "11f11477f71dcbfe4a3b38bfcf42a2a04c0b8e390fbd4c5c7ab6cedf0578f4eb"
+    },
+    {
+      "mode": "0644",
+      "path": "tools/math_exploration_formal.py",
+      "sha256": "9212ca7dd9e5f23b977ea6c2799ee902372dd466772223bda10b2aa4668c7426"
+    },
+    {
+      "mode": "0644",
+      "path": "tools/math_exploration_qor.py",
+      "sha256": "8d7b76d7924e2190b3d610be1c38dd7d5d6c0a6111fb4d43c2d89b9f3ca90d76"
     },
     {
       "mode": "0644",

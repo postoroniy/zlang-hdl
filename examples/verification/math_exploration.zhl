@@ -1,0 +1,51 @@
+// Exact eight-product correlator. Each multiplication returns u32; the
+// left-associated source sum widens to u39. No truncation or quantization.
+// All three kernels accept a fresh input sample every clock (II=1).
+// Timing measurements place identical launch/capture registers around each
+// kernel. The first two have no internal cuts: all arithmetic gets one cycle.
+// A requested/estimated frequency is NOT a measured FPGA timing guarantee.
+
+module MathOneCycle {
+    clock clk reset rst
+    in a0, b0, a1, b1, a2, b2, a3, b3 : u16
+    in a4, b4, a5, b5, a6, b6, a7, b7 : u16
+    out y : u39
+
+    y = a0*b0 + a1*b1 + a2*b2 + a3*b3
+            + a4*b4 + a5*b5 + a6*b6 + a7*b7
+    assert result_width @ clk { y < 34359738368 }
+}
+
+module MathArchitecture {
+    clock clk reset rst
+    in a0, b0, a1, b1, a2, b2, a3, b3 : u16
+    in a4, b4, a5, b5, a6, b6, a7, b7 : u16
+    out y : u39
+
+    // Topology exploration alone: no internal pipeline stages.
+    y = architecture(auto, parallelism<=8, depth<=3, candidates<=8) {
+        a0*b0 + a1*b1 + a2*b2 + a3*b3
+            + a4*b4 + a5*b5 + a6*b6 + a7*b7
+    }
+    assert result_width @ clk { y < 34359738368 }
+}
+
+module MathExplore {
+    clock clk reset rst
+    in a0, b0, a1, b1, a2, b2, a3, b3 : u16
+    in a4, b4, a5, b5, a6, b6, a7, b7 : u16
+    out y : u39
+
+    // Permit internal cuts; inspect the report, do not assume a chosen shape.
+    // Explicit latency budget keeps the experiment separate from measured fmax.
+    y = explore {
+        a0*b0 + a1*b1 + a2*b2 + a3*b3
+            + a4*b4 + a5*b5 + a6*b6 + a7*b7
+        allow { reduction dsp pipeline reassociate }
+        require { latency >= 4 ii == 1 dsp <= 8 }
+        minimize lut
+    }
+    // Eight unsigned u16 products fit in 35 bits; the public result remains
+    // u39 to preserve the exact type of the original left-associated tree.
+    assert result_width @ clk { y < 34359738368 }
+}
