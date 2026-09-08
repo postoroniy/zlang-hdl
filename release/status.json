@@ -3,7 +3,7 @@
   "release": {
     "channel": "alpha",
     "repository": "https://github.com/postoroniy/zlang-hdl",
-    "version": "0.1.0a2"
+    "version": "0.1.0a3"
   },
   "platform": {
     "operating_system": "Linux",
@@ -11,7 +11,7 @@
     "architecture": "x86_64"
   },
   "validation": {
-    "minimum_tests_passed": 3884,
+    "minimum_tests_passed": 3886,
     "maximum_tests_skipped": 0,
     "example_corpus": {
       "source_files": 89,

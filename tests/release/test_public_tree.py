@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
 from pathlib import Path
+import re
 import subprocess
 import sys
+import textwrap
 import tomllib
 
 import pytest
@@ -434,6 +437,168 @@ def test_release_workflows_preserve_checkout_and_security_contracts() -> None:
         "a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0"
         in dependency_review
     )
+
+
+def test_release_workflow_audits_editor_before_attestation_and_publication(
+    tmp_path: Path,
+) -> None:
+    release = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
+    assert (
+        "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0"
+        in release
+    )
+    assert 'node-version: "22.23.2"' in release
+    assert "cache-dependency-path: editors/vscode/zlang-hdl/package-lock.json" in release
+    gates = (
+        "name: Verify annotated tag and GitHub signature",
+        "check-export --source .",
+        "python tools/release_inventory.py",
+        "name: Set up pinned Node.js for the lexical extension",
+        "run: npm ci --ignore-scripts",
+        "name: Require a fresh full locked editor advisory audit",
+        "npm audit --package-lock-only --include=dev --include=optional --include=peer",
+        "run: npm test",
+        "name: Build and audit the exact-tag static lexical VSIX",
+        'npm --prefix editors/vscode/zlang-hdl run package -- "$RUNNER_TEMP/zlang-hdl-0.1.0.vsix"',
+        'python tests/editor/test_vscode_package.py "$RUNNER_TEMP/zlang-hdl-0.1.0.vsix"',
+        'cp -- "$RUNNER_TEMP/zlang-hdl-0.1.0.vsix"',
+        "name: Retain accepted dependency audit evidence",
+        "cyclonedx-py requirements dist/release-requirements.txt",
+        "name: Attest release checksums",
+        "name: Upload reviewed release artifacts",
+        'gh release create "$TAG" dist/*',
+    )
+    assert [release.index(gate) for gate in gates] == sorted(
+        release.index(gate) for gate in gates
+    )
+    advisory = release.split(
+        "      - name: Require a fresh full locked editor advisory audit\n", 1
+    )[1].split("      - name:", 1)[0]
+    assert "        shell: bash\n" in advisory
+    assert '--audit-level=info --json > "$report"' in advisory
+    assert 'report="$GITHUB_WORKSPACE/build/editor-npm-audit.json"' in advisory
+    assert not re.search(r"\|\||--omit|--production|continue-on-error|audit-level=none", advisory)
+    audit_script = textwrap.dedent(advisory.split("        run: |\n", 1)[1])
+    (tmp_path / "build").mkdir()
+    (tmp_path / "package-lock.json").write_text(json.dumps({
+        "lockfileVersion": 3,
+        "packages": {"": {}} | {
+            f"node_modules/fixture-{index}": {"version": "1.0.0", "dev": True}
+            for index in range(3)
+        },
+    }))
+    clean_report = {
+        "auditReportVersion": 2,
+        "vulnerabilities": {},
+        "metadata": {
+            "vulnerabilities": dict.fromkeys(
+                ("info", "low", "moderate", "high", "critical", "total"), 0,
+            ),
+            "dependencies": {"dev": 3, "total": 3},
+        },
+    }
+    # Exercise the literal workflow shell with controlled registry responses,
+    # including npm's nonzero exit even when its stdout looks clean.
+    cases = (
+        (json.dumps(clean_report), 0, True),
+        (json.dumps(clean_report), 1, False),
+        ("not JSON", 0, False),
+        (json.dumps(clean_report | {"error": {"code": "EAI_AGAIN"}}), 0, False),
+        (json.dumps(clean_report | {"vulnerabilities": {"fixture": {}}}), 0, False),
+        (json.dumps(clean_report | {"metadata": {}}), 0, False),
+        (json.dumps(clean_report | {
+            "metadata": clean_report["metadata"] | {"dependencies": {"total": 3}},
+        }), 0, False),
+        (json.dumps(clean_report | {
+            "metadata": clean_report["metadata"] | {"dependencies": {"dev": 2, "total": 2}},
+        }), 0, False),
+    )
+    stubs = (
+        'npm() { printf "%s\\n" "$NPM_AUDIT_FIXTURE"; return "$NPM_AUDIT_STATUS"; }\n'
+        'python() { "$PYTHON_TEST_EXECUTABLE" "$@"; }\n'
+    )
+    for report, status, accepted in cases:
+        result = subprocess.run(
+            ["bash", "-e", "-o", "pipefail", "-c", stubs + audit_script],
+            cwd=tmp_path, capture_output=True, text=True,
+            env={
+                "GITHUB_WORKSPACE": str(tmp_path),
+                "NPM_AUDIT_FIXTURE": report,
+                "NPM_AUDIT_STATUS": str(status),
+                "PYTHON_TEST_EXECUTABLE": sys.executable,
+            },
+        )
+        assert (result.returncode == 0) is accepted, result.stderr
+        assert (tmp_path / "build/editor-npm-audit.json").read_text() == report + "\n"
+    packaging = release.split(
+        "      - name: Build and audit the exact-tag static lexical VSIX\n", 1
+    )[1].split("      - name:", 1)[0]
+    assert "        shell: bash\n" in packaging
+    assert "||" not in packaging
+    assert '> "$RUNNER_TEMP/zlang-hdl-0.1.0-vsix-audit.json"' in packaging
+    assert '"$RUNNER_TEMP/zlang-hdl-0.1.0-vsix-audit.json" dist/' in packaging
+    evidence = release.split(
+        "      - name: Retain accepted dependency audit evidence\n", 1
+    )[1].split("      - name:", 1)[0]
+    assert "name: release-${{ github.ref_name }}-dependency-audits" in evidence
+    assert "build/release-inventory-audit.json" in evidence
+    assert "build/editor-npm-audit.json" in evidence
+    assert "if-no-files-found: error" in evidence
+    assert "retention-days: 30" in evidence
+    assert "subject-checksums: dist/SHA256SUMS" in release
+    assert "needs: [validate, eda]" in release
+    assert release.count("--junitxml=build/release-") == 2
+    assert not re.search(r"(?:vsce|ovsx|npm)\s+publish\b|VSCE_PAT|OVSX_PAT|NODE_AUTH_TOKEN", release)
+
+
+def test_release_checksums_cover_editor_payloads_and_fail_if_either_is_missing(
+    tmp_path: Path,
+) -> None:
+    release = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
+    step = release.split(
+        "      - name: Build release SBOM and checksums after inventory acceptance\n", 1
+    )[1].split("      - name:", 1)[0]
+    assert "        shell: bash\n" in step  # Explicit bash enables pipeline failure.
+    body = textwrap.dedent(step.split("        run: |\n", 1)[1])
+    checksum_script = "(cd dist && sha256sum" + body.split("(cd dist && sha256sum", 1)[1]
+    payloads = (
+        "zlang_hdl-0.1.0a3-py3-none-any.whl",
+        "zlang_hdl-0.1.0a3.tar.gz",
+        "zlang-hdl-v0.1.0a3.cdx.json",
+        "release-requirements.txt",
+        "zlang-hdl-0.1.0.vsix",
+        "zlang-hdl-0.1.0-vsix-audit.json",
+    )
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    expected = {}
+    for name in payloads:
+        content = f"checksum fixture: {name}\n".encode()
+        (dist / name).write_bytes(content)
+        expected[name] = hashlib.sha256(content).hexdigest()
+    completed = subprocess.run(
+        ["bash", "-e", "-o", "pipefail", "-c", checksum_script],
+        cwd=tmp_path, capture_output=True, text=True,
+    )
+    assert completed.returncode == 0, completed.stderr
+    recorded = {
+        name: digest
+        for digest, name in (
+            line.split("  ", 1)
+            for line in (dist / "SHA256SUMS").read_text(encoding="utf-8").splitlines()
+        )
+    }
+    assert recorded == expected
+    for name in payloads[-2:]:
+        path = dist / name
+        content = path.read_bytes()
+        path.unlink()
+        failed = subprocess.run(
+            ["bash", "-e", "-o", "pipefail", "-c", checksum_script],
+            cwd=tmp_path, capture_output=True, text=True,
+        )
+        assert failed.returncode != 0, f"Missing editor payload was accepted: {name}"
+        path.write_bytes(content)
 
 
 def test_repository_public_projection_is_closed_and_excludes_private_files() -> None:

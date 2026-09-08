@@ -71,6 +71,35 @@ lookup, because it has not been published to PyPI. Every other pinned package
 must have a complete, version-matching, unskipped audit result and no findings.
 Project-only `pip-audit .` is an additional check, not a substitute for this gate.
 
+The release also carries the independently versioned lexical editor VSIX and
+its JSON audit report. Build them from the same verified tag with pinned Node
+22.23.2 and locked `npm ci --ignore-scripts`. Before tokenization and packaging,
+rerun a fresh `npm audit --package-lock-only --include=dev --include=optional
+--include=peer --audit-level=info --json` over the complete exact-tag lockfile,
+including all build tooling. Require zero findings at every severity and a
+dependency total matching every lockfile package except the root project; an
+unavailable, malformed or incomplete audit fails the release. Retain
+`build/editor-npm-audit.json` and the exact Python inventory audit in the
+30-day Actions `release-<tag>-dependency-audits` artifact; archive them with the
+maintainer's durable release evidence. They are not added to the runtime/VSIX
+download payload. The install-time audit warning
+and pull-request dependency review do not replace this full release-time gate.
+Require passing real TextMate/Oniguruma tests, then audit the actual VSIX against
+the tagged source, including the exact
+static inventory and authoritative LICENSE/NOTICE bytes, before copying either
+file into the release payload. Both files belong in `SHA256SUMS` and artifact
+attestation coverage. Rerun the VSIX audit from the verified exact tag and verify
+the GitHub attestation against that source commit, tag and release workflow: the
+standalone audit JSON establishes payload/source byte agreement, not commit
+provenance. The Python SBOM describes the Python inventory; npm
+tooling is build-only, and no runtime dependency or LSP is shipped in the VSIX.
+The editor version remains independent of the compiler alpha version. Attaching
+the VSIX to this GitHub release does not publish it to Marketplace or Open VSX.
+
+Validate the immutable public checkout before installing build dependencies.
+Installed npm tooling and generated package environments are not public source;
+validate a fresh clean export when rechecking the publication manifest.
+
 Install the release tools in the active Python 3.12 environment, then build from
 a clean checkout with a fixed `SOURCE_DATE_EPOCH`:
 
@@ -94,8 +123,11 @@ environments and exercise `zlang`, `zlang-lock`, `zlang-verify`, and
 3. Rebuild from that tag and require the wheel to be byte-identical to the
    candidate wheel. The current setuptools sdist contains generated timestamps,
    so it is rebuilt and content-validated but is not claimed byte-reproducible.
-4. Publish a GitHub release containing wheel, source distribution,
-   `SHA256SUMS`, SBOM, provenance attestation, and release notes.
+4. Publish a GitHub release containing wheel, source distribution, the lexical
+   editor VSIX and its audit JSON, `SHA256SUMS`, SBOM, provenance attestation,
+   and release notes. VSIX ZIP bytes are not claimed reproducible: verify the
+   actual hosted artifact's hash, exact-tag audit rerun and GitHub source-bound
+   attestation before publication.
 5. Verify the published artifacts in a fresh environment.
 
 Do not publish a tag or artifact from the private development branch, a dirty

@@ -9,6 +9,36 @@ change incompatibly when the release notes identify the change. Versioned IR,
 artifact, lock, manifest, and verification schemas continue to reject
 incompatible input explicitly.
 
+## 0.1.0a3 — 2026-09-08
+
+Community alpha with mathematical/formal examples and a downloadable lexical
+editor package. Compiler semantics, license terms and the Community Baseline
+remain unchanged; publication is subject to `RELEASING.md`.
+
+### Added
+
+- A reproducible eight-product datapath tutorial comparing one-cycle, balanced
+  architecture and four-stage `explore` implementations. Recorded Vivado
+  out-of-context timing uses the same device and 10 ns constraint; it is not a
+  board-level timing guarantee.
+- Independent M36 semantic-reference and M38 cross-backend bounded checks for
+  the pipelined example, plus deliberate arithmetic and latency mutations.
+  BMC remains bounded evidence; the separately timed-out M39 architecture route
+  remains explicitly `unknown`.
+- A static VS Code extension for `.zhl`, independently versioned 0.1.0, with
+  compiler-checked snippets, real TextMate/Oniguruma tests and three optional
+  highlighting styles. No LSP, compiler runtime or telemetry is included.
+- Audited VSIX and audit JSON assets in GitHub releases, covered by checksums
+  and exact-tag workflow attestation. Marketplace/Open VSX publication is not
+  part of this release.
+
+### Fixed
+
+- Refresh the immutable public-tree manifest for the pinned `setup-node` v7
+  Dependabot update, preserving the selected Node.js 22.23.2 toolchain.
+- Gate editor release packaging on a fresh advisory audit of all locked npm
+  build dependencies as well as static package/license validation.
+
 ## 0.1.0a2 — 2026-09-08
 
 Corrective Community alpha release cut; publication remains subject to every
