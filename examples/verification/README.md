@@ -1,5 +1,10 @@
 # Formal verification you can run
 
+For arithmetic optimization rather than state safety, see
+[From a long expression to a checked pipeline](math-exploration.md): exact
+eight-product math, `architecture`/`explore`, latency-aware Z3 equivalence,
+deliberate RTL mutations, and a separate routed 100 MHz experiment.
+
 These four small designs demonstrate the existing ZLang HDL verification flow.
 The counterexample example is **deliberately broken**; it is not a known bug in
 the compiler, Wi-Fi transmitter, or other example.

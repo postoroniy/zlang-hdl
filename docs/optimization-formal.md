@@ -35,6 +35,12 @@ typed value IR
 M30 supplies validated latency/II relations for eligible candidates. That
 metadata validation is not, by itself, a formal proof.
 
+The [arithmetic exploration tutorial](../examples/verification/math-exploration.md)
+demonstrates an exact eight-product expression, topology-only selection versus
+an internally registered pipeline, real latency-aware equivalence/mutations,
+and independent FPGA timing measurement. Solver success and estimated frequency
+must not be reported as routed 100 MHz timing closure.
+
 The compatibility forms below remain accepted and normalize through the same
 typed implementation-policy/extraction infrastructure:
 

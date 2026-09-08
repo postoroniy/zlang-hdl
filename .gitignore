@@ -26,6 +26,13 @@ __pycache__/
 *~
 .DS_Store
 
+# Node/editor dependencies, test installations, package outputs, and credentials.
+node_modules/
+.vscode-test/
+*.vsix
+.npmrc
+/editors/vscode/zlang-hdl/out/
+
 # External EDA tools and generated workspaces.  Reviewed examples/generated
 # goldens remain tracked deliberately.
 *.fst

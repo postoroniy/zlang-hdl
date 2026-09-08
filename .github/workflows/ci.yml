@@ -69,3 +69,50 @@ jobs:
           public_dir="$(mktemp -d)"
           python tools/public_tree.py export --source . --destination "$public_dir"
           python "$public_dir/tools/public_tree.py" check-export --source "$public_dir"
+
+  lexical-editor:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out public snapshot
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Validate immutable public checkout before editor tooling
+        run: |
+          python tools/public_tree.py check-source --source .
+          python tools/public_tree.py check-export --source .
+      - name: Set up pinned Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "22.23.2"
+          cache: npm
+          cache-dependency-path: editors/vscode/zlang-hdl/package-lock.json
+      - name: Install locked editor tooling without lifecycle scripts
+        working-directory: editors/vscode/zlang-hdl
+        run: npm ci --ignore-scripts
+      - name: Exercise real TextMate and Oniguruma tokenization
+        working-directory: editors/vscode/zlang-hdl
+        run: npm test
+      - name: Build the static lexical VSIX in temporary storage
+        working-directory: editors/vscode/zlang-hdl
+        run: npm run package -- "$RUNNER_TEMP/zlang-hdl-0.1.0.vsix"
+      - name: Audit actual VSIX contents, licensing and package identity
+        run: >-
+          python tests/editor/test_vscode_package.py "$RUNNER_TEMP/zlang-hdl-0.1.0.vsix"
+          > "$RUNNER_TEMP/zlang-hdl-0.1.0-audit.json"
+      - name: Verify editor tooling remains outside the public projection
+        run: python tools/public_tree.py check-source --source .
+      - name: Retain the successfully audited lexical VSIX
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: zlang-hdl-0.1.0-vsix
+          path: |
+            ${{ runner.temp }}/zlang-hdl-0.1.0.vsix
+            ${{ runner.temp }}/zlang-hdl-0.1.0-audit.json
+          if-no-files-found: error
+          retention-days: 14
