@@ -9,10 +9,26 @@ change incompatibly when the release notes identify the change. Versioned IR,
 artifact, lock, manifest, and verification schemas continue to reject
 incompatible input explicitly.
 
-## 0.1.0a1 — 2026-09-08
+## 0.1.0a2 — 2026-09-08
 
-First Community alpha release cut. Publication requires the signed-tag,
-exact-commit validation and artifact gates in `RELEASING.md`.
+Corrective Community alpha release cut; publication remains subject to every
+gate in `RELEASING.md`. All compiler capabilities and fixes below are retained.
+
+### Fixed
+
+- Pin the patched installer used by release builds and fresh package installs.
+- Audit the exact published dependency inventory, including installer tooling,
+  before generating attestations or uploading release artifacts. Findings,
+  skipped dependencies and incomplete/malformed reports fail the release gate.
+- The preceding signed `v0.1.0a1` attempt was cancelled before GitHub Release
+  publication because its inventory included vulnerable installer tooling.
+  Its signed tag is retained unchanged; no compiler/runtime vulnerability was
+  found by that audit.
+
+## 0.1.0a1 — 2026-09-08 (release attempt cancelled)
+
+First Community alpha release cut. The signed tag exists, but the GitHub
+Release was not published; the installer inventory gate is corrected in a2.
 
 ### Added
 

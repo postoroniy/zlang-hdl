@@ -1,6 +1,6 @@
 # Known limitations
 
-ZLang `0.1.0a1` is an experimental alpha release.  The compiler deliberately
+ZLang `0.1.0a2` is an experimental alpha release.  The compiler deliberately
 fails closed when a design falls outside a validated language/backend
 intersection: it must not publish RTL after silently dropping an IR entity.
 
