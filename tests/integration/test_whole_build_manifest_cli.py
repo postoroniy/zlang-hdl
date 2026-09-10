@@ -781,6 +781,8 @@ def test_validation_rejects_missing_generated_external_rtl(
         return (rtl,)
 
     monkeypatch.setattr("zlang.cli.generate_verilog", fake_generate_verilog)
+    monkeypatch.setattr("zlang.cli.find_clash_executable", lambda: "/tool/clash")
+    monkeypatch.setattr("zlang.cli._query_tool_version", lambda *_args: "Clash 1.11")
     source = _write_source(tmp_path, "packing", PACKING_SOURCE)
     clash = tmp_path / "build" / "PacketPacking.hs"
     rtl_dir = tmp_path / "build" / "rtl"
@@ -829,6 +831,7 @@ def test_verilog_directory_only_manifest_publishes_exact_clash_source(
         return (rtl,)
 
     monkeypatch.setattr("zlang.cli.generate_verilog", fake_generate_verilog)
+    monkeypatch.setattr("zlang.cli.find_clash_executable", lambda: "/tool/clash")
     monkeypatch.setattr("zlang.cli._query_tool_version", lambda *_args: "Clash 1.11")
     source = _write_source(tmp_path, "packing", PACKING_SOURCE)
     rtl_dir = tmp_path / "build" / "rtl"

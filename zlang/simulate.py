@@ -622,7 +622,7 @@ def simulate_cycles(
     state = dict(initial_state)
     delay_nodes = _module_delay_nodes(module)
     delay_stages = {
-        instance: [_zero_runtime(delay.type)] * _stage_count(delay)
+        instance: [_zero_runtime(delay.type)] * expr.sequential_stage_count(delay)
         for instance, delay in delay_nodes.items()
     }
     next_by_register = {
@@ -651,7 +651,7 @@ def simulate_cycles(
         if reset_active:
             state = dict(initial_state)
             delay_stages = {
-                instance: [_zero_runtime(delay.type)] * _stage_count(delay)
+                instance: [_zero_runtime(delay.type)] * expr.sequential_stage_count(delay)
                 for instance, delay in delay_nodes.items()
             }
         values = {**inputs, **state}
@@ -2192,7 +2192,7 @@ class _PersistentStorageSimulationState:
             self.register_state,
         ) = self._fresh_state()
         self.delay_stages = {
-            instance: [_zero_runtime(delay.type)] * _stage_count(delay)
+            instance: [_zero_runtime(delay.type)] * expr.sequential_stage_count(delay)
             for instance, delay in self.delay_nodes.items()
         }
 
@@ -2296,7 +2296,7 @@ class _PersistentStorageSimulationState:
                 for memory in module.memories
             }
             delay_stages = {
-                instance: [_zero_runtime(delay.type)] * _stage_count(delay)
+                instance: [_zero_runtime(delay.type)] * expr.sequential_stage_count(delay)
                 for instance, delay in self.delay_nodes.items()
             }
         else:
@@ -5461,7 +5461,3 @@ def _module_delay_nodes(
                 if action.activation is not None:
                     _collect_delays(action.activation, found)
     return found
-
-
-def _stage_count(expression: expr.Delay | expr.Pipeline) -> int:
-    return expression.cycles if isinstance(expression, expr.Delay) else expression.stages

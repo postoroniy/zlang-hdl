@@ -1,5 +1,13 @@
 # ZLang HDL syntax support matrix
 
+Canonical implementation-selection markers: `implement`, `choice`.
+
+Implementation selection uses the canonical `implement` form for compiler-
+discovered candidates and `choice` for user-supplied alternatives. The retired
+scalar `pipeline(auto)`, `architecture(auto)`, and `explore` spellings are
+migration diagnostics; only protocol `transform pipeline(auto, ...)` remains
+source syntax.
+
 This matrix is the executable-language companion to the parser and the
 repository-owned VS Code grammar. Highlighting is lexical only; it does not
 prove that a name, type, width, domain, or connection is semantically valid.
@@ -48,7 +56,7 @@ tour, not a substitute for that phase-specific capability record.
 | CSR access (`rw`, `ro`, `wo`, `w1c`, `pulse`, `reserved`) | supported | typed CSR register/field model | `CsrSyntax` | CSR artifacts and RTL |
 | named `assert`/`cover`; scoped `contract` with `require`/`assert`/`ensure`/`cover`; legacy `assume`/`guarantee` | supported bounded verification UX | verification-only `VerificationScope`/goal/requirement overlay; safety lowers to existing M35 `FormalProperty`, reachability to separate `CoverProperty`; legacy forms normalize into the module-global scope without changing hardware identity | editor verification witness; parser/semantic/monitor/bundle, exact physical-domain routing, and real SBY/Z3 tests | same-cycle clocked predicates only; `ensure` observes a public implementation output, `require` is environment-owned, covers report `witnessed` or `bounded_unreached`; each plan/job/result retains its exact `ClockDomain` and compatible BackendArtifact physical identity. Raw `physical_reset` and effective `trace:reset` remain distinct; no cross-domain temporal relation is inferred, and missing/incompatible bindings or unsupported domain contracts fail/skip explicitly |
 | `equiv` with frozen M27 guards | supported | bounded typed rewrite declaration | top-level `or_zero` | e-graph only for accepted rules |
-| `choice`, `architecture`, `explore`, target/resource declarations | supported | deterministic implementation/exploration IR | `ExplorationSyntax` | reports and applicable backend |
+| `implement { ... intent { ... } }` plus `choice`; target/resource declarations | supported | one normalized `ImplementationRequest`/implementation-site IR; explicit `pipeline(N)` remains timed semantics | `ExplorationSyntax` and implementation-intent tests | reports and applicable backend; retired scalar forms produce migration diagnostics |
 | logical imports from pinned path/Git projects | supported | `zlang.toml` plus `zlang.lock` fixes module index, transitive hashes, and full Git revision for offline compilation | project/dependency fixtures and 802.11 project | fetching occurs only through explicit lock update; compile is read-only and rejects dirty/mismatched content |
 | `namespace`, source-level import revisions/wildcards/re-export, registry/semver resolution | deferred | broader user package language/resolver | none | use exact logical imports, optional local qualifiers, or locked project dependencies |
 | named `zlang.toml` implementation profiles and `--profile` | supported tooling | source/CLI/profile policy normalizes to one `ImplementationRequest` per semantic region | profile tests | no implicit backend substitution; conflicting normalized policies fail closed |

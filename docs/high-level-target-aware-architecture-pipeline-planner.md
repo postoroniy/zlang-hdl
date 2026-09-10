@@ -8,11 +8,12 @@ existing M29/M32/M31/M30/M28/M34 path; it is not a second exploration engine.
 ## User contract
 
 ```zlang
-result = pipeline(auto, latency<=8, ii==1, fmax>=100) {
+result = implement {
     quantize<fixed<16,14>>(acc) {
         round nearest_even
         overflow saturate
     }
+    intent { latency <= 8 ii == 1 fmax >= 100 }
 }
 ```
 

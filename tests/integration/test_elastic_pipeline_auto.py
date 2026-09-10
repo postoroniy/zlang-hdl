@@ -24,7 +24,7 @@ from zlang.formal import (
 )
 from zlang.ir.formal import FormalStatus
 from zlang.simulate import simulate_cycles
-from zlang.toolchain import generate_verilog, lint_with_verilator
+from zlang.toolchain import find_clash_executable, generate_verilog, lint_with_verilator
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -142,6 +142,7 @@ module ElasticPipelineParent {
 
 
 @pytest.mark.skipif(shutil.which("verilator") is None, reason="Verilator unavailable")
+@pytest.mark.skipif(find_clash_executable() is None, reason="Clash unavailable")
 def test_hierarchical_child_keeps_one_physical_closed_component(tmp_path: Path) -> None:
     module = compile_source(
         HIERARCHY_SOURCE,
@@ -342,6 +343,7 @@ def test_existing_m35_ready_valid_stability_executes_on_direct_artifact() -> Non
 
 
 @pytest.mark.skipif(shutil.which("verilator") is None, reason="Verilator unavailable")
+@pytest.mark.skipif(find_clash_executable() is None, reason="Clash unavailable")
 def test_real_clash_closed_component_is_cycle_exact(tmp_path: Path) -> None:
     module = _module()
     generated = generate_verilog(emit_clash(module), module.name, tmp_path / "clash")

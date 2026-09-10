@@ -13,10 +13,17 @@ module SymmetricFixedFIRAuto {
           + ((samples[2] * coefficients[2] + samples[5] * coefficients[2])
           + (samples[3] * coefficients[3] + samples[4] * coefficients[3])))
 
-    result = pipeline(auto, latency<=8, ii==1, fmax>=100) {
+    result = implement {
         quantize<fixed<16,14>>(acc) {
             round nearest_even
             overflow saturate
+        }
+
+        intent {
+            latency <= 8
+            ii == 1
+            fmax >= 100
+            maximize fmax
         }
     }
 }
@@ -33,10 +40,17 @@ module SymmetricFixedFIRAutoExact8 {
           + ((samples[2] * coefficients[2] + samples[5] * coefficients[2])
           + (samples[3] * coefficients[3] + samples[4] * coefficients[3])))
 
-    result = pipeline(auto, latency==8, ii==1, fmax>=100) {
+    result = implement {
         quantize<fixed<16,14>>(acc) {
             round nearest_even
             overflow saturate
+        }
+
+        intent {
+            latency == 8
+            ii == 1
+            fmax >= 100
+            maximize fmax
         }
     }
 }

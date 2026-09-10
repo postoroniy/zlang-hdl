@@ -22,18 +22,44 @@ class ClashPipelineTests(unittest.TestCase):
         self.assertNotIn("y_pipe_s3", generated)
 
     def test_auto_pipeline_golden_and_architecture_annotation_match(self) -> None:
-        source = (ROOT / "examples/auto_pipeline_products.zhl").read_text()
+        source = (ROOT / "examples/implementation_intent.zhl").read_text()
         result = compile_source(source)
         expected = (
             ROOT / "examples/generated/AutoPipelineProducts.hs"
         ).read_text()
 
         self.assertEqual(result.clash, expected)
+        # The unified implementation selected the zero-cycle expression;
+        # retained pipeline metadata is catalog-only and must not claim that
+        # the emitted Clash circuit contains a one-cycle register.
+        self.assertNotIn("ZLang implement pipeline candidate", result.clash)
+        self.assertEqual(result.clash.count(" = register "), 0)
+
+    def test_auto_pipeline_comment_is_emitted_only_for_selected_pipeline(self) -> None:
+        source = """
+        module TimedImplement {
+          clock clk
+          reset rst
+          in a:u2
+          in b:u2
+          in c:u2
+          in d:u2
+          in e:u2
+          in f:u2
+          in g:u2
+          in h:u2
+          out y:u7
+          y = implement {
+            a*b+c*d+e*f+g*h
+            intent { latency >= 1 ii == 1 dsp <= 4 fmax >= 100 minimize lut }
+          }
+        }
+        """
+        result = compile_source(source)
         self.assertIn(
-            "selected=balanced_levels_dsp tree=balanced ",
+            "ZLang implement pipeline candidate: output=y selected=linear_output_logic",
             result.clash,
         )
-        self.assertEqual(result.clash.count(" = register "), 7)
 
 
 if __name__ == "__main__":

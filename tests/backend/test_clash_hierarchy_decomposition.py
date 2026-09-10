@@ -21,7 +21,7 @@ from zlang.backend.clash.hierarchy import (
     protocol_child_name,
     recursive_protocol_components,
 )
-from zlang.backend.clash.syntax import apply_argument
+from zlang.backend.clash.syntax import apply_argument, or_signal_expressions
 from zlang.compiler import compile_source
 from zlang.toolchain import (
     find_clash_executable,
@@ -32,6 +32,14 @@ from zlang.toolchain import (
 
 ROOT = Path(__file__).resolve().parents[2]
 TOOLS = bool(find_clash_executable() and shutil.which("verilator"))
+
+
+def test_shared_signal_or_renderer_preserves_applicative_grouping() -> None:
+    assert or_signal_expressions([]) == "pure low"
+    assert or_signal_expressions(["a"]) == "a"
+    assert or_signal_expressions(["a", "b", "c"]) == (
+        "((.|.) <$> (((.|.) <$> (a) <*> b)) <*> c)"
+    )
 
 NESTED_READY_VALID_SOURCE = """
 module Leaf {

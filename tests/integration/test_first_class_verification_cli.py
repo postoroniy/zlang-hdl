@@ -391,7 +391,7 @@ module JointFormalEvidence {
     clock clk reset rst
     in a : u8
     out y : u8
-    y = explore { a ^ 0 minimize lut }
+    y = implement { a ^ 0 intent { minimize lut } }
     assert follows @ clk { y == a }
 }
 """
@@ -490,7 +490,7 @@ module CandidateTrigger {
     clock clk reset rst
     in a : u8
     out y : u8
-    y = explore { a ^ 0 minimize lut }
+    y = implement { a ^ 0 intent { minimize lut } }
     assert follows @ clk { y == a }
 }
 """
@@ -601,7 +601,7 @@ module CandidateReportExit {
     clock clk reset rst
     in a : u8
     out y : u8
-    y = explore { a ^ 0 minimize lut }
+    y = implement { a ^ 0 intent { minimize lut } }
     assert follows @ clk { y == a }
 }
 """

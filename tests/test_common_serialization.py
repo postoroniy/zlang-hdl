@@ -1,6 +1,6 @@
 """Shared representation helpers keep cache/artifact identities consistent."""
 
-from zlang.common import stable_digest, stable_json
+from zlang.common import stable_digest, stable_json, subprocess_text
 
 
 def test_stable_json_is_order_independent() -> None:
@@ -12,3 +12,9 @@ def test_stable_digest_preserves_text_identity_and_structured_identity() -> None
     assert stable_digest("candidate") == stable_digest("candidate")
     assert stable_digest({"a": 1, "b": 2}) == stable_digest({"b": 2, "a": 1})
     assert stable_digest("candidate") != stable_digest({"value": "candidate"})
+
+
+def test_subprocess_text_normalizes_timeout_stream_variants() -> None:
+    assert subprocess_text(None) == ""
+    assert subprocess_text("already text") == "already text"
+    assert subprocess_text(b"partial\xff") == "partial\ufffd"

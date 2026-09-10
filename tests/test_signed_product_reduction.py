@@ -113,11 +113,12 @@ module SignedProductAuto {{
     in a:{family}<4,2> in b:{family}<4,2>
     in c:{family}<4,2> in d:{family}<4,2>
     out y:{family}<6,2>
-    y = pipeline(auto, ii==1) {{
+    y = implement {{
         quantize<{family}<6,2>>(a*b {operator} c*d) {{
             round nearest_even
             overflow saturate
         }}
+        intent {{ latency <= 1 ii==1 }}
     }}
 }}
 """

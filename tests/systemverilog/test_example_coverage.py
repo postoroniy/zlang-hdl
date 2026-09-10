@@ -172,7 +172,7 @@ def _direct_result(path: Path, top: str):
 
 def test_every_example_module_root_has_an_explicit_direct_status() -> None:
     roots = tuple(_roots())
-    assert len({path for path, *_ in roots}) == 89
+    assert len({path for path, *_ in roots}) == 87
     assert len(roots) == 181
 
     standalone = 0

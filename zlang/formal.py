@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Mapping
 
 from zlang.common.tool_inventory import ToolInventory, discover_tool_inventory
+from zlang.common.subprocess import subprocess_text
 from zlang.formal_trace import TraceBinding, decode_vcd_trace
 from zlang.ir.comparison_window import ComparisonWindow
 from zlang.ir.formal import (
@@ -422,12 +423,7 @@ def run_verilog_formal(source: str, *, top: str, property_id: str,
             # when subprocess.run was requested with text=True.  Normalize
             # each stream before concatenation so a real solver timeout is a
             # structured UNKNOWN result, never a secondary TypeError.
-            def timeout_text(value: str | bytes | None) -> str:
-                if value is None:
-                    return ""
-                return value.decode(errors="replace") if isinstance(value, bytes) else value
-
-            partial = timeout_text(error.stdout) + timeout_text(error.stderr)
+            partial = subprocess_text(error.stdout) + subprocess_text(error.stderr)
             if work_directory is not None:
                 (root / "solver.timeout.log").write_text(partial)
             return FormalResult(
@@ -588,12 +584,7 @@ def run_verilog_cover(
                 timeout=timeout_seconds,
             )
         except subprocess.TimeoutExpired as error:
-            def timeout_text(value: str | bytes | None) -> str:
-                if value is None:
-                    return ""
-                return value.decode(errors="replace") if isinstance(value, bytes) else value
-
-            partial = timeout_text(error.stdout) + timeout_text(error.stderr)
+            partial = subprocess_text(error.stdout) + subprocess_text(error.stderr)
             if work_directory is not None:
                 (root / "solver.timeout.log").write_text(partial)
             return CoverResult(

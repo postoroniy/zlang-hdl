@@ -1,9 +1,8 @@
-"""Normalize legacy source policy and external implementation profiles.
+"""Normalize canonical implementation intent and external profiles.
 
-This is an orchestration adapter, not a new explorer.  Existing source forms
-continue to select candidates in their frozen implementations; this module
-gives those forms and external policy one deterministic representation and
-detects incompatible attempts to control the same semantic output region.
+This is an orchestration adapter, not a new explorer.  It gives canonical
+source intent and external policy one deterministic representation and detects
+incompatible attempts to control the same semantic output region.
 """
 
 from __future__ import annotations
@@ -37,8 +36,6 @@ from zlang.implementation_request import (
     merge_implementation_contributions,
 )
 from zlang.ir import expressions as ir_expr
-from zlang.ir import architectures as ir_architectures
-from zlang.ir import pipelines as ir_pipelines
 from zlang.ir.module import Module
 from zlang.ir.signed_reductions import expression_semantic_identity
 from zlang.candidate_sites import module_candidate_owner_identity
@@ -177,9 +174,9 @@ def apply_external_region_exploration(
 ) -> tuple[Module, tuple[ExplorationResult, ...]]:
     """Execute profile/API M34 policy only for plain selected wire regions.
 
-    Legacy source forms have already executed in semantic analysis.  They are
-    represented and conflict-checked by :func:`normalize_implementation_policy`
-    and are never silently run a second time.
+    Canonical source regions have already executed in semantic analysis. Their
+    retained candidate tables are not run a second time; this path is only for
+    plain regions selected by an external profile/API contribution.
     """
 
     contributions = tuple(external_contributions)
@@ -313,35 +310,6 @@ def _source_contributions(
                 ),
             )
 
-    for item in module.pipeline_explorations:
-        constraints = tuple(_pipeline_constraint(value) for value in item.constraints)
-        result[item.output] = (
-            "pipeline(auto)",
-            ImplementationContribution(
-                PolicyOrigin("source pipeline(auto)", item.source_expression.origin),
-                transforms=TransformPolicy((TransformFamily.PIPELINE,)),
-                constraints=constraints,
-                objective=ImplementationObjective(
-                    ObjectiveDirection.MAXIMIZE, ir_expr.CostMetric.FMAX_EST
-                ),
-            ),
-        )
-
-    for item in module.architecture_explorations:
-        # Legacy architecture bounds use compatibility-only parallelism/depth
-        # metrics which are not external profile metrics.  The common request
-        # records the legal reduction family and leaves those frozen bounds in
-        # the existing ArchitectureExploration record.
-        result[item.output] = (
-            "architecture(auto)",
-            ImplementationContribution(
-                PolicyOrigin(
-                    "source architecture(auto)", item.source_expression.origin
-                ),
-                transforms=TransformPolicy((TransformFamily.REDUCTION,)),
-            ),
-        )
-
     for exploration in exploration_results:
         selected_identity = expression_semantic_identity(
             exploration.selected_candidate.expression
@@ -363,16 +331,28 @@ def _source_contributions(
             else ObjectiveDirection.MINIMIZE
         )
         formal_policy = getattr(request.formal_config, "policy", None)
+        # All scalar compiler-discovered regions now use the canonical source
+        # form.  Protocol transforms have their own typed IR and never enter
+        # this scalar policy contribution path.
+        source_form = "implement"
         result[matching[0]] = (
-            "explore",
+            source_form,
             ImplementationContribution(
-                PolicyOrigin("source explore", request.source_origin),
+                PolicyOrigin(f"source {source_form}", request.source_origin),
                 transforms=TransformPolicy(request.allowed, request.avoided),
                 constraints=tuple(
                     _unified_constraint(item) for item in request.constraints
                 ),
                 objective=ImplementationObjective(direction, request.objective),
-                evidence_policy=request.source_policy,
+                # ``implement`` has no source spelling for measured/estimate
+                # evidence.  Do not turn the ExplorationRequest default
+                # (estimate_only) into a policy contribution: a selected
+                # profile may legitimately choose measured evidence.
+                evidence_policy=(
+                    None
+                    if source_form == "implement"
+                    else request.source_policy
+                ),
                 formal_policy=formal_policy,
             ),
         )
@@ -396,23 +376,6 @@ def _next_delay_instance(value: object) -> int:
 
     visit(value)
     return maximum + 1
-
-
-def _pipeline_constraint(
-    item: ir_pipelines.PipelineConstraint,
-) -> ImplementationConstraint:
-    metric = {
-        ir_pipelines.PipelineMetric.LATENCY: ir_expr.CostMetric.LATENCY,
-        ir_pipelines.PipelineMetric.THROUGHPUT: ir_expr.CostMetric.INITIATION_INTERVAL,
-        ir_pipelines.PipelineMetric.DSP: ir_expr.CostMetric.DSP,
-        ir_pipelines.PipelineMetric.FMAX: ir_expr.CostMetric.FMAX_EST,
-    }[item.metric]
-    relation = {
-        ir_pipelines.PipelineRelation.MAXIMUM: ConstraintRelation.MAXIMUM,
-        ir_pipelines.PipelineRelation.MINIMUM: ConstraintRelation.MINIMUM,
-        ir_pipelines.PipelineRelation.EXACT: ConstraintRelation.EXACT,
-    }[item.relation]
-    return ImplementationConstraint(metric, relation, item.value)
 
 
 def _unified_constraint(item) -> ImplementationConstraint:

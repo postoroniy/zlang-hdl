@@ -12,16 +12,21 @@ from zlang.candidate_sites import (
     CandidateSiteError,
     CandidateSiteKind,
     CandidateSiteLedger,
+    build_candidate_site_ledger,
     candidate_formal_records,
+    pipeline_site_key,
 )
 from zlang.compilation_session import (
     CompilationSession,
     _restore_selection_formal_records,
 )
 from zlang.compiler import compile_source
+from zlang.parser import ParseError
 from zlang.costs import CostExtractionError
 from zlang.exploration import TransformFamily
 from zlang.formal_exploration import FormalPolicy
+from zlang.formal_exploration import FormalExplorationConfig
+from zlang.formal_candidate import gate_standalone_pipelines
 from zlang.implementation_request import (
     ImplementationContribution,
     ImplementationObjective,
@@ -85,7 +90,7 @@ _SPECIALIZED_CHILD_EXPLORE = """
 module Child<P=1> {
     in a : u8
     out y : u8
-    y = explore { a ^ P minimize lut }
+    y = implement { a ^ P intent { minimize lut } }
 }
 
 module Top {
@@ -143,8 +148,9 @@ def test_selection_record_restore_keys_sibling_children_by_specialization() -> N
         clock clk reset rst
         in a,b,c,d,e,f,g,h : u8
         out y : u19
-        y = pipeline(auto, latency<=3, throughput==1, dsp<=4, fmax>=400) {
+        y = implement {
             a*b + c*d + e*f + g*h
+            intent { latency<=3 ii==1 dsp<=4 fmax>=100 }
         }
     }
     module Top {
@@ -222,7 +228,7 @@ def test_semantic_catalog_never_calls_verifier_and_selection_uses_exact_rank() -
 
     session = CompilationSession(
         "module Ranked { in a:u8 out y:u8 "
-        "y=explore { a ^ 0 minimize lut } }",
+        "y=implement { a ^ 0 intent { minimize lut } } }",
         formal_policy=FormalPolicy.REQUIRED_BMC,
         formal_verifier=_BoundVerifier(verify),
         include_clash=False,
@@ -242,41 +248,20 @@ def test_semantic_catalog_never_calls_verifier_and_selection_uses_exact_rank() -
     assert [item.rank for item in selected.candidates] == [1, 2]
 
 
-def test_expression_local_generic_explore_is_retained_and_gated_after_typing() -> None:
-    calls: list[str] = []
-    session = CompilationSession(
-        "fn select<type T>(x:T) { explore { x ^ 0 } } "
-        "module Nested { in x:u8 out y:u8 y=select(x) }",
-        formal_policy=FormalPolicy.AVAILABLE,
-        formal_verifier=_BoundVerifier(
-            lambda candidate, _config: calls.append(
-                candidate.implementation_identity
-            ) or {"status": FormalStatus.BOUNDED_PASS}
-        ),
-        include_clash=False,
-    )
-    static = session.semantic_candidate_site_ledger
-    assert calls == []
-    assert [item.kind for item in static.sites] == [
-        CandidateSiteKind.EXPRESSION_EXPLORE
-    ]
-    assert static.sites[0].output is None
-
-    selected = session.selected_ir
-    # The retained callable site is gated first.  The normalized implementation
-    # policy may then expose its ordinary external/profile region, which is a
-    # separate selection-owned site and is gated independently.
-    assert calls[0] == static.sites[0].candidates[0].candidate_identity
-    assert len(calls) == 2
-    assert simulate(selected, x=91) == {"y": 91}
+def test_scalar_explore_is_not_a_callable_expression() -> None:
+    with pytest.raises(ParseError, match="scalar explore was removed"):
+        CompilationSession(
+            "fn select<type T>(x:T) { explore { x ^ 0 } } "
+            "module Nested { in x:u8 out y:u8 y=select(x) }",
+            include_clash=False,
+        ).semantic_ir
 
 
 @pytest.mark.parametrize(
     ("filename", "kind"),
     (
         ("cost_mac.zhl", CandidateSiteKind.CHOICE_AUTO),
-        ("fir_architecture.zhl", CandidateSiteKind.ARCHITECTURE_AUTO),
-        ("auto_pipeline_products.zhl", CandidateSiteKind.STANDALONE_PIPELINE),
+        ("implementation_intent.zhl", CandidateSiteKind.IMPLEMENT),
         ("elastic_pipeline_auto.zhl", CandidateSiteKind.ELASTIC_PIPELINE),
     ),
 )
@@ -356,14 +341,15 @@ def test_external_profile_is_generated_then_gated_in_selection_rank_order() -> N
 
 
 @pytest.mark.parametrize(
-    ("filename", "kind"),
+    ("filename", "top", "kind"),
     (
-        ("cost_mac.zhl", CandidateSiteKind.CHOICE_AUTO),
-        ("fir_architecture.zhl", CandidateSiteKind.ARCHITECTURE_AUTO),
+        ("cost_mac.zhl", None, CandidateSiteKind.CHOICE_AUTO),
+        ("implementation_intent.zhl", "FirArchitecture", CandidateSiteKind.IMPLEMENT),
     ),
 )
 def test_required_policy_gates_choice_and_architecture_in_exact_rank_order(
     filename: str,
+    top: str | None,
     kind: CandidateSiteKind,
 ) -> None:
     calls: list[str] = []
@@ -380,6 +366,7 @@ def test_required_policy_gates_choice_and_architecture_in_exact_rank_order(
 
     session = CompilationSession(
         (Path("examples") / filename).read_text(encoding="utf-8"),
+        top=top,
         include_clash=False,
         formal_policy=FormalPolicy.REQUIRED_BMC,
         formal_verifier=_BoundVerifier(verify),
@@ -389,7 +376,12 @@ def test_required_policy_gates_choice_and_architecture_in_exact_rank_order(
         if item.kind is kind
     )
     expected = tuple(item.candidate_identity for item in static.candidates)
-    expected_attempts = expected[:2] if len(expected) > 1 else expected
+    # Formal-aware selection is lazy: a passing first-ranked implement
+    # candidate stops the search.  The explicit choice test below retains its
+    # two-candidate mutation exercise.
+    expected_attempts = (
+        expected[:2] if kind is CandidateSiteKind.CHOICE_AUTO else expected[:1]
+    )
     assert calls == []
     selected = session.selected_ir
     assert tuple(calls) == expected_attempts
@@ -405,9 +397,7 @@ def test_required_policy_gates_choice_and_architecture_in_exact_rank_order(
         )
         assert len(choice.formal_records) == len(expected_attempts)
     else:
-        assert len(
-            selected.architecture_explorations[0].formal_records
-        ) == len(expected_attempts)
+        assert len(candidate_formal_records(selected, session._selection.exploration_results)) >= len(expected_attempts)
     assert len(
         candidate_formal_records(selected, session._selection.exploration_results)
     ) >= len(expected_attempts)
@@ -415,7 +405,7 @@ def test_required_policy_gates_choice_and_architecture_in_exact_rank_order(
 
 def test_candidate_ledger_rejects_corrupted_identity_and_rank() -> None:
     result = compile_source(
-        "module E { in a:u8 out y:u8 y=explore { a ^ 0 minimize lut } }",
+        "module E { in a:u8 out y:u8 y=implement { a ^ 0 intent { minimize lut } } }",
         include_clash=False,
     )
     ledger = result.candidate_site_ledger
@@ -429,7 +419,7 @@ def test_candidate_ledger_rejects_corrupted_identity_and_rank() -> None:
 def test_candidate_ledger_identity_is_origin_insensitive() -> None:
     source = (
         "module OriginStable { in a:u8 out y:u8 "
-        "y=explore { a ^ 0 minimize lut } }"
+        "y=implement { a ^ 0 intent { minimize lut } } }"
     )
     left = compile_source(source, include_clash=False).candidate_site_ledger
     right = compile_source("\n" + source, include_clash=False).candidate_site_ledger
@@ -437,3 +427,72 @@ def test_candidate_ledger_identity_is_origin_insensitive() -> None:
     assert left.identity == right.identity
     assert left.sites[0].source_origin != right.sites[0].source_origin
     assert CandidateSiteLedger.from_json(left.to_json()) == left
+
+
+def test_m39_origin_stripping_preserves_execution_and_evidence_identity() -> None:
+    source = (
+        "module OriginFormal { in a:u8 out y:u8 "
+        "y=implement { a ^ 0 intent { minimize lut } } }"
+    )
+
+    def run(text: str):
+        calls: list[str] = []
+
+        def verify(candidate, _config):
+            calls.append(candidate.implementation_identity)
+            return {"status": FormalStatus.BOUNDED_PASS}
+
+        result = CompilationSession(
+            text,
+            include_clash=False,
+            formal_policy=FormalPolicy.REQUIRED_BMC,
+            formal_verifier=_BoundVerifier(verify),
+        )
+        _ = result.selected_ir
+        record = result._selection.exploration_results[0].formal_records[0]
+        return tuple(calls), record.candidate_identity, result.candidate_site_ledger.identity
+
+    left = run(source)
+    right = run("\n" + source)
+    assert left == right
+
+
+def test_pipeline_catalog_classification_ignores_source_origin() -> None:
+    """A restored planner record joins its unified site by typed identity."""
+
+    source = Path("examples/implementation_intent.zhl").read_text()
+    result = compile_source(source, include_clash=False)
+    pipeline = result.ir.pipeline_explorations[0]
+    stripped = replace(
+        pipeline,
+        source_expression=replace(pipeline.source_expression, origin=None),
+    )
+    restored = replace(result.ir, pipeline_explorations=(stripped,))
+    ledger = build_candidate_site_ledger(restored, result.exploration_results)
+    assert [site.kind for site in ledger.sites].count(CandidateSiteKind.IMPLEMENT) == 1
+
+
+def test_mixed_pipeline_catalog_preserves_legacy_tuple_order() -> None:
+    source = """
+    module MixedCatalog {
+      clock clk
+      reset rst
+      in a,b,c,d,e,f,g,h:u2
+      out y1:u7
+      out y2:u7
+      y1 = implement { a*b+c*d+e*f+g*h intent { latency >= 1 ii == 1 } }
+      y2 = implement { a*b+c*d+e*f+g*h intent { latency >= 1 ii == 1 } }
+    }
+    """
+    base = compile_source(source, include_clash=False).ir
+    assert tuple(item.output for item in base.pipeline_explorations) == ("y1", "y2")
+    canonical = {pipeline_site_key(base, base.pipeline_explorations[0])}
+    updated = gate_standalone_pipelines(
+        base,
+        FormalExplorationConfig(FormalPolicy.AVAILABLE),
+        _BoundVerifier(lambda _candidate, _config: {"status": FormalStatus.BOUNDED_PASS}),
+        canonical_site_keys=canonical,
+    )
+    assert tuple(item.output for item in updated.pipeline_explorations) == ("y1", "y2")
+    assert updated.pipeline_explorations[0].formal_records == ()
+    assert updated.pipeline_explorations[1].formal_records

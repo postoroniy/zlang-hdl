@@ -82,6 +82,16 @@ _DEFAULT_RELATION = {
     CostMetric.INITIATION_INTERVAL: ConstraintRelation.EXACT,
     CostMetric.FMAX_EST: ConstraintRelation.MINIMUM,
 }
+MINIMIZABLE_METRICS = frozenset(
+    {
+        CostMetric.LUT,
+        CostMetric.FF,
+        CostMetric.DSP,
+        CostMetric.BRAM,
+        CostMetric.LATENCY,
+    }
+)
+MAXIMIZABLE_METRICS = frozenset({CostMetric.FMAX_EST})
 
 
 @dataclass(frozen=True)
@@ -191,9 +201,17 @@ class ImplementationObjective:
         object.__setattr__(self, "metric", CostMetric(self.metric))
         if (
             self.direction is ObjectiveDirection.MAXIMIZE
-            and self.metric is not CostMetric.FMAX_EST
+            and self.metric not in MAXIMIZABLE_METRICS
         ):
             raise ValueError("the bounded implementation profile only maximizes Fmax")
+        if (
+            self.direction is ObjectiveDirection.MINIMIZE
+            and self.metric not in MINIMIZABLE_METRICS
+        ):
+            raise ValueError(
+                "the bounded implementation profile minimizes only LUT, FF, "
+                "DSP, BRAM, or latency"
+            )
 
     def to_data(self) -> dict[str, str]:
         return {"direction": self.direction.value, "metric": _metric_name(self.metric)}
@@ -801,6 +819,8 @@ __all__ = [
     "ImplementationObjective",
     "ImplementationRequest",
     "ImplementationRequestError",
+    "MAXIMIZABLE_METRICS",
+    "MINIMIZABLE_METRICS",
     "ObjectiveDirection",
     "PolicyOrigin",
     "RequirementMode",

@@ -64,8 +64,8 @@ module DoubleSite {
     in a : u8
     out y : u8
     out z : u8
-    y = explore { a ^ 0 minimize lut }
-    z = explore { a ^ 0 minimize lut }
+    y = implement { a ^ 0 intent { minimize lut } }
+    z = implement { a ^ 0 intent { minimize lut } }
     assert same @ clk { y == z }
 }
 """
@@ -208,20 +208,20 @@ def test_common_evidence_json_rejects_missing_or_corrupted_plan_links(
             CandidateSiteKind.CHOICE_AUTO,
         ),
         (
-            Path("examples/fir_architecture.zhl").read_text(encoding="utf-8"),
-            None,
-            CandidateSiteKind.ARCHITECTURE_AUTO,
+            Path("examples/implementation_intent.zhl").read_text(encoding="utf-8"),
+            "FirArchitecture",
+            CandidateSiteKind.IMPLEMENT,
         ),
         (
             "module Child { in a:u8 out y:u8 "
-            "y=explore { a ^ 0 minimize lut } } "
+            "y=implement { a ^ 0 intent { minimize lut } } } "
             "module Parent { in a:u8 out y:u8 child:Child { a=a } y=child.y }",
             "Parent",
-            CandidateSiteKind.SOURCE_EXPLORE,
+            CandidateSiteKind.IMPLEMENT,
         ),
     ),
 )
-def test_common_m39_collection_covers_choice_architecture_and_nested_sites(
+def test_common_m39_collection_covers_choice_implement_and_nested_sites(
     source: str,
     top: str | None,
     required_kind: CandidateSiteKind,

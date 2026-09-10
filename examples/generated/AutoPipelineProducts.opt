@@ -1,50 +1,30 @@
 module AutoPipelineProducts
 stage selected_architecture
-nodes value=36 state=17 protocol=0 transaction=0 architecture=3
+nodes value=32 state=1 protocol=0 transaction=0 architecture=3
 expressions
-  %0 value.input type=u8 width=8 signedness=unsigned latency=0 ii=1 domains=[clk] purity=pure effects=[none] origins=[16:9-16:10:name a] name=a
-  %1 value.input type=u8 width=8 signedness=unsigned latency=0 ii=1 domains=[clk] purity=pure effects=[none] origins=[16:13-16:14:name b] name=b
-  %2 value.binary type=u16 width=16 signedness=unsigned latency=0 ii=1 domains=[clk] purity=pure effects=[none] origins=[16:9-16:14:operator *] %0 %1 operator=* operand_type=u16
-  %3 state.pipeline type=u16 width=16 signedness=unsigned latency=1 ii=1 domains=[clk] purity=observational effects=[time_shift] origins=[none] %2 stages=1 instance=10
-  %4 value.input type=u8 width=8 signedness=unsigned latency=0 ii=1 domains=[clk] purity=pure effects=[none] origins=[16:17-16:18:name c] name=c
-  %5 value.input type=u8 width=8 signedness=unsigned latency=0 ii=1 domains=[clk] purity=pure effects=[none] origins=[16:21-16:22:name d] name=d
-  %6 value.binary type=u16 width=16 signedness=unsigned latency=0 ii=1 domains=[clk] purity=pure effects=[none] origins=[16:17-16:22:operator *] %4 %5 operator=* operand_type=u16
-  %7 state.pipeline type=u16 width=16 signedness=unsigned latency=1 ii=1 domains=[clk] purity=observational effects=[time_shift] origins=[none] %6 stages=1 instance=11
-  %8 value.add type=u17 width=17 signedness=unsigned latency=1 ii=1 domains=[clk] purity=observational effects=[time_shift] origins=[none] %3 %7
-  %9 state.pipeline type=u17 width=17 signedness=unsigned latency=2 ii=1 domains=[clk] purity=observational effects=[time_shift] origins=[none] %8 stages=1 instance=14
-  %10 value.input type=u8 width=8 signedness=unsigned latency=0 ii=1 domains=[clk] purity=pure effects=[none] origins=[16:25-16:26:name e] name=e
-  %11 value.input type=u8 width=8 signedness=unsigned latency=0 ii=1 domains=[clk] purity=pure effects=[none] origins=[16:29-16:30:name f] name=f
-  %12 value.binary type=u16 width=16 signedness=unsigned latency=0 ii=1 domains=[clk] purity=pure effects=[none] origins=[16:25-16:30:operator *] %10 %11 operator=* operand_type=u16
-  %13 state.pipeline type=u16 width=16 signedness=unsigned latency=1 ii=1 domains=[clk] purity=observational effects=[time_shift] origins=[none] %12 stages=1 instance=12
-  %14 value.input type=u8 width=8 signedness=unsigned latency=0 ii=1 domains=[clk] purity=pure effects=[none] origins=[16:33-16:34:name g] name=g
-  %15 value.input type=u8 width=8 signedness=unsigned latency=0 ii=1 domains=[clk] purity=pure effects=[none] origins=[16:37-16:38:name h] name=h
-  %16 value.binary type=u16 width=16 signedness=unsigned latency=0 ii=1 domains=[clk] purity=pure effects=[none] origins=[16:33-16:38:operator *] %14 %15 operator=* operand_type=u16
-  %17 state.pipeline type=u16 width=16 signedness=unsigned latency=1 ii=1 domains=[clk] purity=observational effects=[time_shift] origins=[none] %16 stages=1 instance=13
-  %18 value.add type=u17 width=17 signedness=unsigned latency=1 ii=1 domains=[clk] purity=observational effects=[time_shift] origins=[none] %13 %17
-  %19 state.pipeline type=u17 width=17 signedness=unsigned latency=2 ii=1 domains=[clk] purity=observational effects=[time_shift] origins=[none] %18 stages=1 instance=15
-  %20 value.add type=u18 width=18 signedness=unsigned latency=2 ii=1 domains=[clk] purity=observational effects=[time_shift] origins=[none] %9 %19
-  %21 state.pipeline type=u18 width=18 signedness=unsigned latency=3 ii=1 domains=[clk] purity=observational effects=[time_shift] origins=[none] %20 stages=1 instance=16
-  %22 value.extend type=u19 width=19 signedness=unsigned latency=3 ii=1 domains=[clk] purity=observational effects=[time_shift] origins=[15:9-17:6:pipeline(auto)] %21
-  %23 value.add type=u17 width=17 signedness=unsigned latency=0 ii=1 domains=[clk] purity=pure effects=[none] origins=[16:9-16:38:operator +] %2 %6
-  %24 value.add type=u18 width=18 signedness=unsigned latency=0 ii=1 domains=[clk] purity=pure effects=[none] origins=[16:9-16:38:operator +] %23 %12
-  %25 value.add type=u19 width=19 signedness=unsigned latency=0 ii=1 domains=[clk] purity=pure effects=[none] origins=[15:9-17:6:pipeline(auto)] %24 %16
-  %26 state.pipeline type=u19 width=19 signedness=unsigned latency=1 ii=1 domains=[clk] purity=observational effects=[time_shift] origins=[15:9-17:6:pipeline(auto)] %25 stages=1 instance=0
-  %27 value.add type=u17 width=17 signedness=unsigned latency=0 ii=1 domains=[clk] purity=pure effects=[none] origins=[none] %12 %16
-  %28 value.add type=u18 width=18 signedness=unsigned latency=0 ii=1 domains=[clk] purity=pure effects=[none] origins=[none] %23 %27
-  %29 value.extend type=u19 width=19 signedness=unsigned latency=0 ii=1 domains=[clk] purity=pure effects=[none] origins=[none] %28
-  %30 state.pipeline type=u19 width=19 signedness=unsigned latency=1 ii=1 domains=[clk] purity=observational effects=[time_shift] origins=[15:9-17:6:pipeline(auto)] %29 stages=1 instance=1
-  %31 state.pipeline type=u16 width=16 signedness=unsigned latency=1 ii=1 domains=[clk] purity=observational effects=[time_shift] origins=[none] %2 stages=1 instance=2
-  %32 state.pipeline type=u16 width=16 signedness=unsigned latency=1 ii=1 domains=[clk] purity=observational effects=[time_shift] origins=[none] %6 stages=1 instance=3
-  %33 value.add type=u17 width=17 signedness=unsigned latency=1 ii=1 domains=[clk] purity=observational effects=[time_shift] origins=[none] %31 %32
-  %34 state.pipeline type=u17 width=17 signedness=unsigned latency=2 ii=1 domains=[clk] purity=observational effects=[time_shift] origins=[none] %33 stages=1 instance=6
-  %35 state.pipeline type=u16 width=16 signedness=unsigned latency=1 ii=1 domains=[clk] purity=observational effects=[time_shift] origins=[none] %12 stages=1 instance=4
-  %36 state.pipeline type=u16 width=16 signedness=unsigned latency=1 ii=1 domains=[clk] purity=observational effects=[time_shift] origins=[none] %16 stages=1 instance=5
-  %37 value.add type=u17 width=17 signedness=unsigned latency=1 ii=1 domains=[clk] purity=observational effects=[time_shift] origins=[none] %35 %36
-  %38 state.pipeline type=u17 width=17 signedness=unsigned latency=2 ii=1 domains=[clk] purity=observational effects=[time_shift] origins=[none] %37 stages=1 instance=7
-  %39 value.add type=u18 width=18 signedness=unsigned latency=2 ii=1 domains=[clk] purity=observational effects=[time_shift] origins=[none] %34 %38
-  %40 state.pipeline type=u18 width=18 signedness=unsigned latency=3 ii=1 domains=[clk] purity=observational effects=[time_shift] origins=[none] %39 stages=1 instance=8
-  %41 value.extend type=u19 width=19 signedness=unsigned latency=3 ii=1 domains=[clk] purity=observational effects=[time_shift] origins=[15:9-17:6:pipeline(auto)] %40
-  %42 state.pipeline type=u19 width=19 signedness=unsigned latency=1 ii=1 domains=[clk] purity=observational effects=[time_shift] origins=[15:9-17:6:pipeline(auto)] %29 stages=1 instance=9
+  %0 value.input type=u8 width=8 signedness=unsigned latency=0 ii=1 domains=[clk] purity=pure effects=[none] origins=[52:9-52:10:name a] name=a
+  %1 value.input type=u8 width=8 signedness=unsigned latency=0 ii=1 domains=[clk] purity=pure effects=[none] origins=[52:13-52:14:name b] name=b
+  %2 value.binary type=u16 width=16 signedness=unsigned latency=0 ii=1 domains=[clk] purity=pure effects=[none] origins=[52:9-52:14:operator *] %0 %1 operator=* operand_type=u16
+  %3 value.extend type=u19 width=19 signedness=unsigned latency=0 ii=1 domains=[clk] purity=pure effects=[none] origins=[none] %2
+  %4 value.input type=u8 width=8 signedness=unsigned latency=0 ii=1 domains=[clk] purity=pure effects=[none] origins=[52:17-52:18:name c] name=c
+  %5 value.input type=u8 width=8 signedness=unsigned latency=0 ii=1 domains=[clk] purity=pure effects=[none] origins=[52:21-52:22:name d] name=d
+  %6 value.binary type=u16 width=16 signedness=unsigned latency=0 ii=1 domains=[clk] purity=pure effects=[none] origins=[52:17-52:22:operator *] %4 %5 operator=* operand_type=u16
+  %7 value.extend type=u19 width=19 signedness=unsigned latency=0 ii=1 domains=[clk] purity=pure effects=[none] origins=[none] %6
+  %8 value.add type=u19 width=19 signedness=unsigned latency=0 ii=1 domains=[clk] purity=pure effects=[none] origins=[none] %3 %7
+  %9 value.input type=u8 width=8 signedness=unsigned latency=0 ii=1 domains=[clk] purity=pure effects=[none] origins=[52:25-52:26:name e] name=e
+  %10 value.input type=u8 width=8 signedness=unsigned latency=0 ii=1 domains=[clk] purity=pure effects=[none] origins=[52:29-52:30:name f] name=f
+  %11 value.binary type=u16 width=16 signedness=unsigned latency=0 ii=1 domains=[clk] purity=pure effects=[none] origins=[52:25-52:30:operator *] %9 %10 operator=* operand_type=u16
+  %12 value.extend type=u19 width=19 signedness=unsigned latency=0 ii=1 domains=[clk] purity=pure effects=[none] origins=[none] %11
+  %13 value.input type=u8 width=8 signedness=unsigned latency=0 ii=1 domains=[clk] purity=pure effects=[none] origins=[52:33-52:34:name g] name=g
+  %14 value.input type=u8 width=8 signedness=unsigned latency=0 ii=1 domains=[clk] purity=pure effects=[none] origins=[52:37-52:38:name h] name=h
+  %15 value.binary type=u16 width=16 signedness=unsigned latency=0 ii=1 domains=[clk] purity=pure effects=[none] origins=[52:33-52:38:operator *] %13 %14 operator=* operand_type=u16
+  %16 value.extend type=u19 width=19 signedness=unsigned latency=0 ii=1 domains=[clk] purity=pure effects=[none] origins=[none] %15
+  %17 value.add type=u19 width=19 signedness=unsigned latency=0 ii=1 domains=[clk] purity=pure effects=[none] origins=[none] %12 %16
+  %18 value.add type=u19 width=19 signedness=unsigned latency=0 ii=1 domains=[clk] purity=pure effects=[none] origins=[51:9-59:6:implement] %8 %17
+  %19 value.add type=u17 width=17 signedness=unsigned latency=0 ii=1 domains=[clk] purity=pure effects=[none] origins=[52:9-52:38:operator +] %2 %6
+  %20 value.add type=u18 width=18 signedness=unsigned latency=0 ii=1 domains=[clk] purity=pure effects=[none] origins=[52:9-52:38:operator +] %19 %11
+  %21 value.add type=u19 width=19 signedness=unsigned latency=0 ii=1 domains=[clk] purity=pure effects=[none] origins=[51:9-59:6:implement] %20 %15
+  %22 state.pipeline type=u19 width=19 signedness=unsigned latency=1 ii=1 domains=[clk] purity=observational effects=[time_shift] origins=[none] %21 stages=1 instance=255
 entities
   architecture:module:AutoPipelineProducts architecture.module name=AutoPipelineProducts
   architecture:clock_domain:clk architecture.clock_domain name=clk reset=rst
@@ -57,5 +37,5 @@ entities
   value:port:g value.port name=g protocol=wire
   value:port:h value.port name=h protocol=wire
   value:port:y value.port name=y protocol=wire
-  value:assignment:y:value:0 value.assignment name=y.value %22
-  architecture:pipeline_exploration:y architecture.pipeline_exploration name=y %25 %26 %30 %41 %42 %22 selected=balanced_levels_dsp search_bound=5 constraints=latency<=3,throughput==1,dsp<=4,fmax>=400
+  value:assignment:y:value:0 value.assignment name=y.value %18
+  architecture:pipeline_exploration:y architecture.pipeline_exploration name=y %21 %22 selected=linear_output_logic search_bound=1 constraints=latency<=3,throughput==1,dsp<=4,fmax>=100

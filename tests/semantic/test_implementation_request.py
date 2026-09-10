@@ -69,6 +69,13 @@ dsp = 8
 '''
 
 
+def test_objective_capability_sets_are_shared_by_source_and_profiles() -> None:
+    with pytest.raises(ValueError, match="minimizes only"):
+        ImplementationObjective(ObjectiveDirection.MINIMIZE, CostMetric.FMAX_EST)
+    with pytest.raises(ValueError, match="only maximizes Fmax"):
+        ImplementationObjective(ObjectiveDirection.MAXIMIZE, CostMetric.LUT)
+
+
 def test_selected_profile_parses_every_frozen_policy_field() -> None:
     contribution = parse_selected_profile(_manifest(_full_profile()), "release")
     assert contribution.backend == BackendRequest(

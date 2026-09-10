@@ -41,22 +41,45 @@ an internally registered pipeline, real latency-aware equivalence/mutations,
 and independent FPGA timing measurement. Solver success and estimated frequency
 must not be reported as routed 100 MHz timing closure.
 
-The compatibility forms below remain accepted and normalize through the same
-typed implementation-policy/extraction infrastructure:
-
-- `choice(...)` for explicit equivalent arms and bounded cost selection;
-- `architecture(auto)` for bounded reduction topology alternatives;
-- `pipeline(auto)` for bounded fixed-latency II=1 candidates;
-- `explore` for one staged request over allowed transform families.
-
-Example:
+The canonical source form is `implement`; all compiler-selected forms normalize
+through the same typed implementation-policy/extraction infrastructure:
 
 ```zlang
-y = explore {
+y = implement {
     dot(a, b)
-    allow { reduction dsp pipeline reassociate }
-    require { latency <= 4 ii == 1 dsp <= 8 }
-    minimize lut
+    intent {
+        latency <= 4
+        ii == 1
+        dsp <= 8
+        minimize lut
+    }
+}
+```
+
+`implement` selects applicable exact value, reduction/DSP, and (when a legal
+clock/reset context exists) fixed-latency pipeline candidates. It does not
+enable unsafe reassociation, CDC, protocol adaptation, variable-II sharing, or
+general retiming implicitly. Those remain compatibility/profile-controlled
+features with their existing legality checks.
+
+The remaining source forms are:
+
+- `choice(...)` for explicit equivalent arms and bounded cost selection;
+- protocol `transform pipeline(auto, ...)` for the existing globally-stalled
+  ready/valid transform.
+
+The scalar spellings `architecture(auto)`, `pipeline(auto)`, and `explore` are
+retired and fail with migration diagnostics. Use:
+
+```zlang
+y = implement {
+    dot(a, b)
+    intent {
+        latency <= 4
+        ii == 1
+        dsp <= 8
+        minimize lut
+    }
 }
 ```
 
@@ -75,13 +98,19 @@ y = choice(auto, minimize=lut, dsp<=1, latency<=1, ii<=1) {
 
 `dsp_mac` is mapping intent, not evidence that a physical DSP was used.
 
-### Automatic pipelines
+### Exact and selected timing
 
 ```zlang
-y = pipeline(auto, latency<=3, ii==1, dsp<=4, fmax>=400) {
+y = implement {
     a * b + c * d + e * f + g * h
+    intent { latency <= 3 ii == 1 dsp <= 4 fmax >= 100 }
 }
 ```
+
+`implement` considers pipeline candidates only in a legal clock/reset region
+when the intent explicitly permits positive latency. `pipeline(3) { expr }`
+remains exact three-cycle hardware semantics and is never lowered to an
+implementation preference.
 
 Only frozen expression shapes are accepted. Candidate timing is checked and
 the result is a concrete fixed-latency expression. Target-aware fixed-FIR
@@ -323,10 +352,9 @@ triangular-evidence rules, is documented in this guide.
   `available`, `required_bmc`, or `required_proven`. The compiler-owned route
   materializes the frozen M36 canonical reference, compiles the selected typed
   candidate through Clash, validates explicit bindings, emits the latency-aware
-  miter, and executes SBY/yosys-smtbmc. This applies to unified `explore` and
-  standalone `pipeline(auto)` candidates in the existing M36 subset. Both
-  candidate forms publish the same structured M39 records into CLI evidence and
-  whole-build manifests.
+  miter, and executes SBY/yosys-smtbmc. This applies to canonical `implement`
+  regions in the existing M36 subset. Each region publishes the same structured
+  M39 records into CLI evidence and whole-build manifests.
 
 Variable-latency elastic ready/valid transforms are deliberately outside the
 M36/M38 fixed-latency relation. They never enter that route by treating their

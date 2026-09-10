@@ -252,7 +252,7 @@ declared module root under `examples/`. There are no emission-error skips. Each
 root is classified as standalone-supported, child/template-only, or explicitly
 unsupported; an unclassified new root is tested as standalone-supported.
 
-The local snapshot including the arithmetic/exploration tutorial contains **89 `.zhl` files / 181 module roots / 164
+The local snapshot including the arithmetic/exploration tutorial contains **87 `.zhl` files / 181 module roots / 164
 standalone roots / 17 child or template roots / 0 unsupported roots**. The
 registry test remains authoritative when examples change; these numbers are an
 evidence snapshot rather than a hard-coded allow-list.

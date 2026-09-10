@@ -202,7 +202,8 @@ tour, not an exhaustive language specification.
   formal-only artifacts. Production hierarchy is not flattened, and state,
   storage, protocols, arrays, aggregates, and nested hierarchy remain rejected.
 - Egglog is limited to exact pure scalar value rewrites. It does not schedule
-  state, protocols, or pipeline placement. `pipeline(auto)` uses the separate
+  state, protocols, or pipeline placement. Protocol-only `transform
+  pipeline(auto)` uses the separate
   candidate/planner path; the bounded elastic transform has explicit
   ready/valid stall semantics and no M36/M38 claim.
 

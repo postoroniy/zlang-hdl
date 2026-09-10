@@ -192,7 +192,7 @@ endpoint_index: "[" (NUMBER|NAME) "]"
                   | _RESPONSE_BUFFER WIDTH -> connection_response_buffer
                   | _ADAPTER ADAPTER -> connection_adapter
                   | _CROSSING crossing_spec -> connection_crossing
-                  | _TRANSFORM pipeline_expr -> connection_transform
+                  | _TRANSFORM protocol_transform_expr -> connection_transform
 ?crossing_spec: CDC_CROSSING -> basic_crossing
               | _ASYNC_FIFO "(" WIDTH ")" -> async_fifo_crossing
 arbiter_decl: _ARBITER "[" arbiter_sources "]" _ARROW NAME "{" _POLICY ARBITRATION_POLICY _GRANT GRANT_SCOPE "}"
@@ -340,9 +340,11 @@ width_expression: width_atom WIDTH_OP width_atom (WIDTH_OP width_atom)*
      | switch_expr
      | delay_expr
      | pipeline_expr
-     | architecture_expr
+     | removed_pipeline_auto_expr
+     | removed_architecture_expr
      | implementation_choice_expr
-     | explore_expr
+     | removed_explore_expr
+     | implement_expr
      | struct_construct_expr
      | tagged_union_construct_expr
      | tagged_union_match_expr
@@ -399,8 +401,10 @@ resize_expr: RESIZE_OP "<" (WIDTH|NAME) _angle_call_close "(" expr ")" -> explic
 delay_expr: _DELAY "<" WIDTH _angle_call_close "(" expr ")"
 _angle_call_close: ">" | _CALL_RANGLE
 pipeline_expr: _PIPELINE "(" PIPELINE_DEPTH ("," pipeline_constraint)* ")" "{" expr "}"
+protocol_transform_expr: _PIPELINE "(" _AUTO ("," pipeline_constraint)* ")" "{" expr "}"
 pipeline_constraint: PIPELINE_METRIC PIPELINE_RELATION NUMBER
-architecture_expr: _ARCHITECTURE "(" _AUTO ("," architecture_constraint)* ")" "{" expr "}"
+removed_pipeline_auto_expr: _PIPELINE "(" _AUTO ("," pipeline_constraint)* ")" "{" expr "}"
+removed_architecture_expr: _ARCHITECTURE "(" _AUTO ("," architecture_constraint)* ")" "{" expr "}"
 architecture_constraint: ARCHITECTURE_METRIC "<=" NUMBER
 implementation_choice_expr: _CHOICE "(" implementation_selection ")" "{" implementation_arm implementation_arm+ "}"
 ?implementation_selection: IMPLEMENTATION_KIND -> explicit_implementation_selection
@@ -408,7 +412,7 @@ implementation_choice_expr: _CHOICE "(" implementation_selection ")" "{" impleme
 feedback_policy: _FEEDBACK "=" SYNTHESIS_FEEDBACK
 cost_constraint: COST_METRIC "<=" NUMBER
 implementation_arm: IMPLEMENTATION_KIND "=>" expr
-explore_expr: _EXPLORE "{" expr explore_clause* "}"
+removed_explore_expr: _EXPLORE "{" expr explore_clause* "}"
 ?explore_clause: _ALLOW EXPLORATION_FAMILY -> explore_allow
                | _AVOID EXPLORATION_FAMILY -> explore_avoid
                | _ALLOW "{" [EXPLORATION_FAMILY (","? EXPLORATION_FAMILY)*] "}" -> explore_allow_group
@@ -417,6 +421,11 @@ explore_expr: _EXPLORE "{" expr explore_clause* "}"
                | _REQUIRE "{" [COST_METRIC EXPLORE_RELATION NUMBER (","? COST_METRIC EXPLORE_RELATION NUMBER)*] "}" -> explore_require_group
                | _MINIMIZE COST_METRIC -> explore_minimize
                | _MAXIMIZE COST_METRIC -> explore_maximize
+implement_expr: _IMPLEMENT "{" expr implement_intent "}"
+implement_intent: _INTENT "{" implement_intent_clause* "}"
+?implement_intent_clause: COST_METRIC EXPLORE_RELATION NUMBER -> implement_constraint
+                        | _MINIMIZE COST_METRIC -> implement_minimize
+                        | _MAXIMIZE COST_METRIC -> implement_maximize
 mux_expr: _MUX "(" expr "," expr "," expr ")"
 switch_expr: _SWITCH expr "{" switch_arm+ [else_arm] "}"
            | _SWITCH QUALIFIED_SWITCH_SUBJECT "{" switch_arm+ [else_arm] "}" -> qualified_switch_expr
@@ -497,7 +506,7 @@ QUALIFIED_MATCH_SUBJECT.15: /[A-Z][A-Za-z0-9_]*\.[A-Z][A-Za-z0-9_]*(?=\s*\{)/
 // is not mistaken for a struct constructor.  Do not steal the prefix of an
 // ordinary value-parameter expression such as ``ROWS * BANKS``.
 WIDTH: /[1-9][0-9]*/
-PIPELINE_DEPTH.3: /auto(?![A-Za-z0-9_])/ | /[1-9][0-9]*/
+PIPELINE_DEPTH.3: /[1-9][0-9]*/
 PIPELINE_METRIC.3: /latency(?![A-Za-z0-9_])/ | /throughput(?![A-Za-z0-9_])/ | /ii(?![A-Za-z0-9_])/ | /dsp(?![A-Za-z0-9_])/ | /fmax(?![A-Za-z0-9_])/
 PIPELINE_RELATION.3: "<=" | "==" | ">="
 ARCHITECTURE_METRIC.3: /parallelism(?![A-Za-z0-9_])/ | /depth(?![A-Za-z0-9_])/ | /candidates(?![A-Za-z0-9_])/
@@ -541,6 +550,8 @@ RESOURCE_SIGNEDNESS.3: /signed(?![A-Za-z0-9_])/ | /unsigned(?![A-Za-z0-9_])/
 DEVICE_PART: /[A-Za-z0-9][A-Za-z0-9_.-]*/
 NAME: /[A-Za-z_][A-Za-z0-9_]*/
 _EXPLORE.4: /explore(?![A-Za-z0-9_])/
+_IMPLEMENT.4: /implement(?![A-Za-z0-9_])/
+_INTENT.4: /intent(?![A-Za-z0-9_])/
 _OPERATOR.4: /operator(?![A-Za-z0-9_])/
 _ALLOW.4: /allow(?![A-Za-z0-9_])/
 _AVOID.4: /avoid(?![A-Za-z0-9_])/

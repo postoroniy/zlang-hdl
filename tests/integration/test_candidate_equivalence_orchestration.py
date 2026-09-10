@@ -33,7 +33,7 @@ module CandidateTriangle {
     clock clk reset rst
     in a : u8
     out y : u8
-    y = explore { a ^ 0 minimize lut }
+    y = implement { a ^ 0 intent { minimize lut } }
     assert follows @ clk { y == a }
 }
 """
@@ -43,8 +43,9 @@ module CandidatePipelineReplay {
     clock clk reset rst
     in a, b, c, d, e, f, g, h : u8
     out y : u19
-    y = pipeline(auto, latency<=3, throughput==1, dsp<=4, fmax>=400) {
+    y = implement {
         a * b + c * d + e * f + g * h
+        intent { latency<=3 ii==1 dsp<=4 fmax>=100 }
     }
     assert input_ok @ clk { a == a }
 }
@@ -56,7 +57,10 @@ module CandidatePipelineReplay {
     ("source", "relation", "depth"),
     (
         (SOURCE, EquivalenceRelation.SAME_CYCLE_VALUE, 4),
-        (FIXED_LATENCY_SOURCE, EquivalenceRelation.FIXED_LATENCY_VALUE, 8),
+        # ``implement`` is one unified site.  This source currently selects
+        # the legal same-cycle M29 realization; the retained M31 pipeline
+        # table is planner metadata, not a second equivalence site.
+        (FIXED_LATENCY_SOURCE, EquivalenceRelation.SAME_CYCLE_VALUE, 8),
     ),
 )
 def test_immutable_candidate_bundle_replays_without_source_or_selection(

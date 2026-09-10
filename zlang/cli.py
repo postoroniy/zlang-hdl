@@ -1019,13 +1019,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     if arguments.cost_report is not None and not result.cost_report:
         parser.error("--cost-report requires an automatic implementation choice")
     if arguments.pipeline_report is not None and not result.pipeline_report:
-        parser.error("--pipeline-report requires a pipeline(auto) expression")
+        parser.error("--pipeline-report requires an implementation region")
     if arguments.architecture_report is not None and not result.architecture_report:
         parser.error(
-            "--architecture-report requires an architecture(auto) expression"
+            "--architecture-report requires an implementation region"
         )
     if arguments.exploration_report is not None and not result.exploration_report:
-        parser.error("--exploration-report requires an explore expression")
+        parser.error(
+            "--exploration-report requires an implementation-selection expression"
+        )
     synthesis_report = ""
     synthesis_feedback = None
     if arguments.synthesis_report is not None:

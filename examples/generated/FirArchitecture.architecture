@@ -1,7 +1,27 @@
-module FirArchitecture
-architecture_model=zlang-fir-architecture-v1 equivalence=mathematical temporal_folding=false
-exploration output=y result=u18 constraints=[parallelism<=2,depth<=2,candidates<=3] theoretical_candidates=4 search_bound=3 explored=3 budget_pruned=1 constraint_pruned=2
-  candidate name=direct kind=direct legal=false parallelism=4 add_depth=2 multipliers=4 adders=3 equivalence=mathematical transformations=[preserve_product_order,balanced_direct_reduction] violations=[parallelism=4 not <=2]
-  candidate name=transposed kind=transposed legal=false parallelism=1 add_depth=3 multipliers=4 adders=3 equivalence=mathematical transformations=[preserve_product_order,transposed_accumulator_chain] violations=[depth=3 not <=2]
-  candidate name=folded_p2 kind=folded legal=true parallelism=2 add_depth=2 multipliers=4 adders=3 equivalence=mathematical transformations=[preserve_product_order,partition_2_accumulator_lanes,balanced_lane_reduction] violations=[none]
-  selected name=folded_p2 kind=folded reason=m28_maximize_estimated_frequency_with_deterministic_tie_break parallelism=2 add_depth=2 equivalence=mathematical
+Implementation selection: result
+allowed: dsp,reduction; avoided: none
+objective: minimize lut
+search: source=1 value=1 architecture=3 reduction=16 legal=16 rejected=1
+search complete: no; search truncated at reduction expansion
+selected: source/dsp_mac identity=3fe143d16e30a6e7b3268da35d9ffbf48e48737b508bdd20f24f98c32bb4899a
+semantics: value=M29 exact typed value semantics; timing=same-cycle; protocol=not applicable
+architecture intent: backend-independent metadata; physical DSP mapping is not claimed
+cost source: estimate_only; metrics retain per-field provenance
+formal: policy=off records=16
+formal candidate: rank=1 candidate=3fe143d16e30a6e7b3268da35d9ffbf48e48737b508bdd20f24f98c32bb4899a route=none policy=off mode=none depth=none status=not_requested engine=none solver=none cache=not-run counterexample=no eligible=yes reason=formal verification disabled proof_reason=none
+formal candidate: rank=2 candidate=07ef66117763a23e454c782ea2d028adfb245f1b8ab15be76c6b6f1c1da9e588 route=none policy=off mode=none depth=none status=not_requested engine=none solver=none cache=not-run counterexample=no eligible=yes reason=formal verification disabled proof_reason=none
+formal candidate: rank=3 candidate=1ce55fbc37d9c4712ec6c67c7e4cc16737926bc8bb4e2c678309abf52241b02b route=none policy=off mode=none depth=none status=not_requested engine=none solver=none cache=not-run counterexample=no eligible=yes reason=formal verification disabled proof_reason=none
+formal candidate: rank=4 candidate=330e23a3a9d29b684d2dbc858d209bba144e910adc458c88cd45c25c009cec5f route=none policy=off mode=none depth=none status=not_requested engine=none solver=none cache=not-run counterexample=no eligible=yes reason=formal verification disabled proof_reason=none
+formal candidate: rank=5 candidate=162f205e8122870f428879bd08d0bf35676ae84cb67214bed02f55db70fa136e route=none policy=off mode=none depth=none status=not_requested engine=none solver=none cache=not-run counterexample=no eligible=yes reason=formal verification disabled proof_reason=none
+formal candidate: rank=6 candidate=286d0cdaa0a4d36e0134963cabe60b045b61aa3d03cba2d513fde2bf4ed09bc2 route=none policy=off mode=none depth=none status=not_requested engine=none solver=none cache=not-run counterexample=no eligible=yes reason=formal verification disabled proof_reason=none
+formal candidate: rank=7 candidate=23420f2461154dfad7ec8e73dd0790485b501de203aa23bf33aea1b3855f708a route=none policy=off mode=none depth=none status=not_requested engine=none solver=none cache=not-run counterexample=no eligible=yes reason=formal verification disabled proof_reason=none
+formal candidate: rank=8 candidate=901032587324d399bd1b1d88c7ab941c1df5d24fc33faebdc6f183e7a713e805 route=none policy=off mode=none depth=none status=not_requested engine=none solver=none cache=not-run counterexample=no eligible=yes reason=formal verification disabled proof_reason=none
+formal candidate: rank=9 candidate=ed183c423d79cff048cbf3e16050ce1f3653f4cf8f14f88990c902505a813250 route=none policy=off mode=none depth=none status=not_requested engine=none solver=none cache=not-run counterexample=no eligible=yes reason=formal verification disabled proof_reason=none
+formal candidate: rank=10 candidate=fb3d42b8e9b3ab06301c2c7564030dc1d05f10c5b53a41b70b048f5c13d9c33d route=none policy=off mode=none depth=none status=not_requested engine=none solver=none cache=not-run counterexample=no eligible=yes reason=formal verification disabled proof_reason=none
+formal candidate: rank=11 candidate=4befc304c659386d44ae8669f3ae570525e6d71bf513eb4de41715187d507191 route=none policy=off mode=none depth=none status=not_requested engine=none solver=none cache=not-run counterexample=no eligible=yes reason=formal verification disabled proof_reason=none
+formal candidate: rank=12 candidate=756ff347508f31d0614a30c8be6db611715ab99a8b5bd9844b79d0c6f0b1279c route=none policy=off mode=none depth=none status=not_requested engine=none solver=none cache=not-run counterexample=no eligible=yes reason=formal verification disabled proof_reason=none
+formal candidate: rank=13 candidate=b6725f3ac0a0c76743146267000393c056ade581921a833043181d7bab4367ae route=none policy=off mode=none depth=none status=not_requested engine=none solver=none cache=not-run counterexample=no eligible=yes reason=formal verification disabled proof_reason=none
+formal candidate: rank=14 candidate=c4dddbdcc932fba511553e9cd2ba279495218edc9ff30b8a579ebe8db9d87ec0 route=none policy=off mode=none depth=none status=not_requested engine=none solver=none cache=not-run counterexample=no eligible=yes reason=formal verification disabled proof_reason=none
+formal candidate: rank=15 candidate=da537d7b956ffd0418738619e1830884454618e85a06bf625f93b1d91ea604fc route=none policy=off mode=none depth=none status=not_requested engine=none solver=none cache=not-run counterexample=no eligible=yes reason=formal verification disabled proof_reason=none
+formal candidate: rank=16 candidate=c47b770d4b681b012141748aa02e1d2d5c1a19437ba2d58060b4999c3975fb64 route=none policy=off mode=none depth=none status=not_requested engine=none solver=none cache=not-run counterexample=no eligible=yes reason=formal verification disabled proof_reason=none
+reason: selected by minimize lut with deterministic tie-break; best candidate in explored bounded search space

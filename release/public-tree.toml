@@ -58,6 +58,7 @@ include = [
   "docs/high-level-target-aware-architecture-pipeline-planner.md",
   "docs/implementation-profiles.md",
   "docs/language-guide.md",
+  "docs/language-quick-reference.md",
   "docs/licensing/COMMUNITY_BASELINE.md",
   "docs/licensing/GENERATED_OUTPUT_POLICY.md",
   "docs/licensing/IP_CLASSIFICATION.md",
