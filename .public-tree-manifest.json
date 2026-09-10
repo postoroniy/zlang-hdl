@@ -79,7 +79,7 @@
     {
       "mode": "0644",
       "path": "CHANGELOG.md",
-      "sha256": "2dade7327798d3f86fda4cbd2eb8d7c81154c3165fad36811ee629c2900f4737"
+      "sha256": "0c93abe9d6e35a321a3d4a563cb4d469fc235a03736387ed3df703b96fabb0c6"
     },
     {
       "mode": "0644",
@@ -259,7 +259,7 @@
     {
       "mode": "0644",
       "path": "docs/known-limitations.md",
-      "sha256": "7b06c6bc28d9019c91c61c705d5ac2656970594264f68489d40ac66dee0cfa23"
+      "sha256": "472988ab3819c204c85eab3d545d525ad615f9d6e34cac38af2e69d5cdf0fcd7"
     },
     {
       "mode": "0644",
@@ -1319,7 +1319,7 @@
     {
       "mode": "0644",
       "path": "release/status.json",
-      "sha256": "6f852a5c40c6495fd2c64339d102e99c4aac356a76bd5013189fa3d9d87a51f6"
+      "sha256": "11373c53212726cecd80abb744b43cdf14d2f39993ce2b9b8f6cd27ec7886a4c"
     },
     {
       "mode": "0644",
@@ -2649,7 +2649,7 @@
     {
       "mode": "0644",
       "path": "tests/packaging/test_stdlib_packaging.py",
-      "sha256": "261a6ee22a11a2128cbe449c00b1b9d0dc47d49ef9f083cba0a2317311b00ca0"
+      "sha256": "229c737b1b0eaa46cc9f69f45ac94b10e21fab2ccba99dbc93f0a3e8b97364b6"
     },
     {
       "mode": "0644",
@@ -2919,7 +2919,7 @@
     {
       "mode": "0644",
       "path": "tests/release/test_public_tree.py",
-      "sha256": "45fcb012e7bfefd03276a0c787bd369304d69000ee17b810af343f7b014001d2"
+      "sha256": "bcd53f8a38a7831257b6b0533f13a503e801dde3e4cc376928161bfeea520906"
     },
     {
       "mode": "0644",
@@ -3804,7 +3804,7 @@
     {
       "mode": "0644",
       "path": "tests/test_release_surface.py",
-      "sha256": "338714fa6124c89f1ba3603f454f90981ed5d53e631b7d2ea38c05819c5ffd5e"
+      "sha256": "14e86345dc1986289f6df6761e184d62fd2ffdb49529eef8c806f26b1a28011c"
     },
     {
       "mode": "0644",
@@ -3974,7 +3974,7 @@
     {
       "mode": "0644",
       "path": "zlang/_version.py",
-      "sha256": "47407f3106abc2b3a0fa859a7e7482be12ec73ea3fae8398e6cae3057756712a"
+      "sha256": "2f31b66eacaf31ea6d0b7455d5540cfbdb15103ded94670521c5478827c1ef1c"
     },
     {
       "mode": "0644",
