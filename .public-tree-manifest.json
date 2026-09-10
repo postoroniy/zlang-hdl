@@ -199,7 +199,7 @@
     {
       "mode": "0644",
       "path": "docs/direct-systemverilog.md",
-      "sha256": "6cb24f53d31159489efafea2d51836fc641df8e5933de4582d1c97f8f6c51f55"
+      "sha256": "2876f3cfac2e6edc68d6cba8510d340b2c0fb0d5a5122b8230c1cefa61804ce7"
     },
     {
       "mode": "0644",
@@ -1319,7 +1319,7 @@
     {
       "mode": "0644",
       "path": "release/status.json",
-      "sha256": "32d35fdefca6b484f44879e71f6e9b5427c58bc4536f4830f75c37f0b53b80f6"
+      "sha256": "6f852a5c40c6495fd2c64339d102e99c4aac356a76bd5013189fa3d9d87a51f6"
     },
     {
       "mode": "0644",
