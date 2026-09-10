@@ -700,14 +700,14 @@ def map_auto_symmetric_configuration(
     )
     if len(explorations) != 1:
         raise TargetArchitectureError(
-            f"architecture '{template.identity}' requires one typed fixed pipeline(auto) region"
+            f"architecture '{template.identity}' requires one typed fixed implementation region"
         )
     exploration = explorations[0]
     conversion = exploration.source_expression
     output = next((item for item in module.outputs if item.name == exploration.output), None)
     if output is None:
         raise TargetArchitectureError(
-            f"pipeline(auto) output '{exploration.output}' is unavailable"
+            f"implementation output '{exploration.output}' is unavailable"
         )
     useful_latency = 1 + configuration.latency
     registers = tuple(Register(
@@ -780,7 +780,7 @@ def map_auto_signed_product_configuration(
     )
     if len(explorations) != 1:
         raise TargetArchitectureError(
-            f"architecture '{template.identity}' requires one typed fixed pipeline(auto) region"
+            f"architecture '{template.identity}' requires one typed fixed implementation region"
         )
     exploration = explorations[0]
     conversion = exploration.source_expression

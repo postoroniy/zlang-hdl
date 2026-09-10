@@ -112,6 +112,76 @@ class ExplorationCandidate:
         return self.stages[-1] if self.stages else "source"
 
 
+class ExplorationSelectionError(ValueError):
+    """Bounded, source-facing failure for an impossible implementation policy.
+
+    ``CostExtractionError`` historically included ``repr(candidate)`` in its
+    message.  Candidates contain complete typed expression trees, which made
+    one impossible policy capable of producing an enormous and unstable
+    diagnostic.  Keep the original error as the cause while exposing a small,
+    deterministic summary for semantic diagnostics and CLI users.
+    """
+
+    def __init__(
+        self,
+        constraints: tuple[UnifiedConstraint, ...],
+        candidates: Iterable[ExplorationCandidate],
+        cause: CostExtractionError,
+    ) -> None:
+        self.constraints = constraints
+        self.candidate_summaries = tuple(
+            _candidate_summary(candidate) for candidate in candidates
+        )
+        constraint_text = ", ".join(_constraint_summary(item) for item in constraints)
+        candidates_text = "; ".join(self.candidate_summaries[:16])
+        if len(self.candidate_summaries) > 16:
+            candidates_text += f"; ... +{len(self.candidate_summaries) - 16} candidates"
+        message = (
+            "no implementation satisfies constraints"
+            f" [{constraint_text or 'none'}]"
+        )
+        if candidates_text:
+            message += f"; candidates: {candidates_text}"
+        super().__init__(message)
+        self.__cause__ = cause
+
+
+def _constraint_summary(constraint: UnifiedConstraint) -> str:
+    metric = constraint.metric.value
+    if (
+        constraint.minimum is not None
+        and constraint.maximum is not None
+        and constraint.minimum == constraint.maximum
+    ):
+        return f"{metric} == {constraint.minimum}"
+    if constraint.maximum is not None:
+        return f"{metric} <= {constraint.maximum}"
+    if constraint.minimum is not None:
+        return f"{metric} >= {constraint.minimum}"
+    return metric
+
+
+def _metric_value(value: object, metric: str) -> str:
+    cost = getattr(value, metric)
+    raw = getattr(cost, "value", None)
+    return "unknown" if raw is None else str(raw)
+
+
+def _candidate_summary(candidate: ExplorationCandidate) -> str:
+    cost = candidate.cost
+    stages = "/".join(candidate.stages) or "source"
+    return (
+        f"{stages}"
+        f"[lut={_metric_value(cost, 'lut')}"
+        f",ff={_metric_value(cost, 'ff')}"
+        f",dsp={_metric_value(cost, 'dsp')}"
+        f",bram={_metric_value(cost, 'bram')}"
+        f",latency={_metric_value(cost, 'latency')}"
+        f",ii={_metric_value(cost, 'ii')}"
+        f",fmax={_metric_value(cost, 'fmax_est')}]"
+    )
+
+
 @dataclass(frozen=True)
 class RejectedCandidate:
     candidate: ExplorationCandidate | None
@@ -259,16 +329,28 @@ def explore(
         assert context is not None
         if timing_info(request.root).latency != 0:
             raise ValueError("explore pipeline source must be combinational")
+        # Project the generic implementation policy through one shared,
+        # fail-closed conversion boundary.  The pipeline model intentionally
+        # covers only timing/throughput/DSP/frequency; M28 retains ownership of
+        # LUT/FF/BRAM and lower-only latency constraints.
+        from zlang.pipelines import (
+            PipelineExplorationError,
+            explore_pipeline,
+            pipeline_constraints_from_unified,
+        )
+
+        pipeline_constraints = pipeline_constraints_from_unified(
+            request.constraints
+        )
         expanded = list(candidates)
         from zlang.ir.pipelines import MultiplierMapping
-        from zlang.pipelines import PipelineExplorationError, explore_pipeline
         for parent in candidates:
             try:
                 generated = explore_pipeline(
                     context.output,
                     parent.expression,
                     context.result_type,
-                    (),
+                    pipeline_constraints,
                     context.allocate_instance,
                 )
             except PipelineExplorationError as error:
@@ -331,7 +413,11 @@ def explore(
             cost_fn=lambda item: item.cost,
         )
     except CostExtractionError as error:
-        raise ValueError(str(error)) from error
+        raise ExplorationSelectionError(
+            request.constraints,
+            candidates,
+            error,
+        ) from error
     formal_records: tuple[object, ...] = ()
     if request.formal_config is not None:
         from zlang.formal_exploration import gate_candidates
@@ -452,7 +538,9 @@ def render_result(result: ExplorationResult) -> str:
     selected = result.selected_candidate
     return "\n".join(
         (
-            "Exploration: result",
+            "Implementation selection: result"
+            if result.site_kind == "implement"
+            else "Exploration: result",
             f"allowed: {allowed}; avoided: {avoided}",
             f"objective: {'maximize' if request.objective is ir_expr.CostMetric.FMAX_EST else 'minimize'} {request.objective.value}",
             f"search: {counts} legal={sum(item.legal for item in result.extraction.evaluations)} rejected={rejected}",

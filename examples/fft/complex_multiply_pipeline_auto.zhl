@@ -17,10 +17,16 @@ module FFTComplexMultiplyRealAuto {
 
     exact = sample * twiddle
 
-    result = pipeline(auto, ii==1, fmax>=100) {
+    result = implement {
         quantize<Sample>(exact.re) {
             round nearest_even
             overflow saturate
+        }
+        intent {
+            latency <= 4
+            ii == 1
+            fmax >= 100
+            maximize fmax
         }
     }
 }
@@ -34,10 +40,16 @@ module FFTComplexMultiplyImagAuto {
 
     exact = sample * twiddle
 
-    result = pipeline(auto, ii==1, fmax>=100) {
+    result = implement {
         quantize<Sample>(exact.im) {
             round nearest_even
             overflow saturate
+        }
+        intent {
+            latency <= 4
+            ii == 1
+            fmax >= 100
+            maximize fmax
         }
     }
 }

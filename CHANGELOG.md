@@ -9,6 +9,36 @@ change incompatibly when the release notes identify the change. Versioned IR,
 artifact, lock, manifest, and verification schemas continue to reject
 incompatible input explicitly.
 
+## Unreleased
+
+### Added
+
+- A concise language quick reference for coding agents and experienced users,
+  linked from the full guide and checked against the current compiler surface.
+- Shared compiler utilities for deterministic subprocess execution, backend
+  binding identities, pipeline constraints and generated Clash signal logic.
+
+### Changed
+
+- `implement { ... intent { ... } }` is now the single scalar automatic
+  implementation-policy form. Exact `pipeline(N)`, explicit `choice`, and the
+  ready/valid `transform pipeline(auto)` form remain supported.
+- Retired scalar `pipeline(auto)`, `architecture(auto)`, and `explore` spellings
+  now produce deterministic migration diagnostics instead of maintaining
+  parallel policy paths.
+- Consolidated the former pipeline, architecture, and combined-exploration
+  examples into one runnable implementation-intent source while preserving
+  their distinct typed designs and candidate sets.
+
+### Fixed
+
+- Candidate discovery and formal evidence now follow the exact selected
+  implementation identity, including bounded diagnostics for impossible
+  resource policies and source-independent evidence identities.
+- Clash catalog-only alternatives can no longer leak into selected generated
+  RTL, and explicit positive latency intent consistently gates pipeline
+  candidate generation.
+
 ## 0.1.0a3 — 2026-09-08
 
 Community alpha with mathematical/formal examples and a downloadable lexical

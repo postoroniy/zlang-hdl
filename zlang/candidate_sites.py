@@ -47,8 +47,9 @@ def candidate_owner_formal_domain(
 
     Candidate execution is intentionally delayed until after semantic analysis,
     so a verifier must recover its domain from the typed module tree rather than
-    fabricate the historical ``clock/reset`` pair.  A callable-owned explore is
-    associated with the module that publishes that monomorphic definition.
+    fabricate the historical ``clock/reset`` pair.  A callable-owned
+    implementation region is associated with the module that publishes that
+    monomorphic definition.
 
     Zero-domain combinational candidates retain the existing same-cycle route.
     Multi-domain owners are outside the frozen M36/M39 subset and therefore fail
@@ -115,6 +116,7 @@ def candidate_owner_clock_domain(
 
 
 class CandidateSiteKind(str, Enum):
+    IMPLEMENT = "implement"
     SOURCE_EXPLORE = "source_explore"
     EXPRESSION_EXPLORE = "expression_explore"
     CHOICE_AUTO = "choice_auto"
@@ -545,7 +547,7 @@ def _pipeline_site(
     return CandidateSiteRecord(
         (
             CandidateSiteKind.ELASTIC_PIPELINE
-            if elastic else CandidateSiteKind.STANDALONE_PIPELINE
+            if elastic else CandidateSiteKind.IMPLEMENT
         ),
         owner_identity or module_candidate_owner_identity(module),
         (
@@ -566,6 +568,73 @@ def _pipeline_site(
         getattr(pipeline, "source_origin", None)
         or getattr(pipeline.source_expression, "origin", None),
     )
+
+
+def candidate_site_key(
+    owner_identity: str | None,
+    output: str | None,
+    source_identity: str,
+) -> tuple[str, str | None, str]:
+    """Return the shared typed key used to join one implementation region.
+
+    Site classification is semantic bookkeeping, not source provenance.  The
+    key intentionally contains only the monomorphic owner, output boundary,
+    and origin-insensitive typed source identity.
+    """
+
+    return (owner_identity or "<anonymous-module>", output, source_identity)
+
+
+def exploration_site_key(result: ExplorationResult) -> tuple[str, str | None, str]:
+    """Key a unified exploration result without consulting source origin."""
+
+    return candidate_site_key(
+        result.site_owner,
+        result.site_output,
+        expression_semantic_identity(result.request.root),
+    )
+
+
+def pipeline_site_key(
+    module: Module,
+    pipeline: object,
+) -> tuple[str, str | None, str]:
+    """Key retained pipeline metadata using the same typed site contract."""
+
+    return candidate_site_key(
+        module_candidate_owner_identity(module),
+        getattr(pipeline, "output", None),
+        expression_semantic_identity(pipeline.source_expression),
+    )
+
+
+def unified_implementation_site_keys(
+    results: Iterable[ExplorationResult],
+) -> set[tuple[str, str | None, str]]:
+    """Collect canonical implementation owners from retained results."""
+
+    return {
+        exploration_site_key(result)
+        for result in results
+        if result.site_kind == CandidateSiteKind.IMPLEMENT.value
+    }
+
+
+def _pipeline_is_canonical_implement(
+    module: Module,
+    pipeline: object,
+    unified_site_keys: set[tuple[str, str | None, str]],
+) -> bool:
+    """Return whether a pipeline record is derived metadata for ``implement``.
+
+    Canonical implementation regions retain a typed ``PipelineExploration`` so
+    target planning and reports can inspect pipeline candidates.  The unified
+    M34 exploration result is nevertheless the one public M39/M36 candidate
+    site.  Older persisted modules may contain a standalone pipeline record;
+    those remain formal sites when no matching unified result exists.
+    """
+
+    return pipeline_site_key(module, pipeline) in unified_site_keys
 
 
 def _architecture_site(
@@ -722,7 +791,9 @@ def build_candidate_site_ledger(
 ) -> CandidateSiteLedger:
     """Catalog every retained frozen candidate entry point exactly once."""
 
-    sites = [_exploration_site(item) for item in exploration_results]
+    retained_results = tuple(exploration_results)
+    sites = [_exploration_site(item) for item in retained_results]
+    unified_site_keys = unified_implementation_site_keys(retained_results)
 
     def visit(current: Module) -> None:
         owner_identity = module_candidate_owner_identity(current)
@@ -743,6 +814,9 @@ def build_candidate_site_ledger(
         sites.extend(
             _pipeline_site(current, item, owner_identity=owner_identity)
             for item in current.pipeline_explorations
+            if not _pipeline_is_canonical_implement(
+                current, item, unified_site_keys
+            )
         )
         sites.extend(
             _pipeline_site(
@@ -778,6 +852,7 @@ def selected_candidate_sites(
     """
 
     selected: list[SelectedCandidateSite] = []
+    unified_site_keys: set[tuple[str, str | None, str]] = set()
 
     for exploration in exploration_results:
         from zlang.formal_candidate import candidate_equivalence_class
@@ -790,6 +865,8 @@ def selected_candidate_sites(
             exploration.request.root,
             candidate_equivalence_class(candidate),
         ))
+        if site.kind is CandidateSiteKind.IMPLEMENT:
+            unified_site_keys.add(exploration_site_key(exploration))
 
     def chosen(
         site: CandidateSiteRecord,
@@ -832,6 +909,10 @@ def selected_candidate_sites(
             wrapped, _ = _architecture_candidate_space(architecture)
             chosen(site, wrapped, architecture.source_expression, "m32")
         for pipeline in current.pipeline_explorations:
+            if _pipeline_is_canonical_implement(
+                current, pipeline, unified_site_keys
+            ):
+                continue
             from zlang.formal_candidate import standalone_pipeline_candidate_space
 
             site = _pipeline_site(
@@ -1082,12 +1163,12 @@ def gate_structured_candidate_sites(
     config: object,
     verifier: object | None = None,
 ) -> Module:
-    """Gate retained ``choice(auto)`` and ``architecture(auto)`` sites.
+    """Gate retained choice/architecture candidate records.
 
-    These source forms predate :class:`ExplorationResult`, but retain an exact
-    typed candidate table and output boundary.  Adapt them to the same frozen
-    M39 rank gate during selection and keep the evidence outside canonical RTL
-    identity.
+    ``choice`` remains a source construct, while architecture records can be
+    restored from older semantic/evidence products. Both retain an exact typed
+    candidate table and output boundary; adapt them to the same frozen M39 rank
+    gate and keep evidence outside canonical RTL identity.
     """
 
     from zlang.formal_candidate import M36ClashCandidateVerifier
@@ -1221,9 +1302,11 @@ def candidate_formal_records(
     """Enumerate all retained M39 evidence in deterministic source order."""
 
     records: list[object] = []
+    retained = tuple(exploration_results)
+    unified_site_keys = unified_implementation_site_keys(retained)
     records.extend(
         record
-        for exploration in exploration_results
+        for exploration in retained
         for record in exploration.formal_records
     )
 
@@ -1236,11 +1319,12 @@ def candidate_formal_records(
             and isinstance(assignment.expression, expr.ImplementationChoice)
             for record in assignment.expression.formal_records
         )
-        records.extend(
-            record
-            for exploration in current.pipeline_explorations
-            for record in exploration.formal_records
-        )
+        for exploration in current.pipeline_explorations:
+            if _pipeline_is_canonical_implement(
+                current, exploration, unified_site_keys
+            ):
+                continue
+            records.extend(exploration.formal_records)
         records.extend(
             record
             for region in current.elastic_pipeline_regions
@@ -1271,7 +1355,9 @@ def candidate_formal_record_sites(
     """
 
     result: list[tuple[CandidateSiteRecord, object]] = []
-    for exploration in exploration_results:
+    retained = tuple(exploration_results)
+    unified_site_keys = unified_implementation_site_keys(retained)
+    for exploration in retained:
         site = _exploration_site(exploration)
         result.extend((site, record) for record in exploration.formal_records)
 
@@ -1289,6 +1375,13 @@ def candidate_formal_record_sites(
                     for record in assignment.expression.formal_records
                 )
         for exploration in current.pipeline_explorations:
+            if _pipeline_is_canonical_implement(
+                current, exploration, unified_site_keys
+            ):
+                # Formal records for canonical implementation regions are
+                # already attached to their unified ExplorationResult.  The
+                # planner-only pipeline table must not publish a second site.
+                continue
             site = _pipeline_site(current, exploration)
             result.extend((site, record) for record in exploration.formal_records)
         for region in current.elastic_pipeline_regions:
@@ -1314,12 +1407,16 @@ __all__ = [
     "CandidateSiteRecord",
     "SelectedCandidateSite",
     "build_candidate_site_ledger",
+    "candidate_site_key",
     "candidate_formal_records",
     "candidate_formal_record_sites",
     "candidate_owner_clock_domain",
     "candidate_owner_formal_domain",
+    "exploration_site_key",
     "gate_retained_explorations",
     "gate_structured_candidate_sites",
     "module_candidate_owner_identity",
+    "pipeline_site_key",
     "selected_candidate_sites",
+    "unified_implementation_site_keys",
 ]

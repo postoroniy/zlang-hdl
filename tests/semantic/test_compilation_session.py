@@ -64,7 +64,7 @@ def test_semantic_demand_has_an_explicit_bounded_dependency_frontier(
         raise AssertionError("check-only demand executed formal verification")
 
     session = CompilationSession(
-        "module E { in a:u8 out y:u8 y=explore { a minimize lut } }",
+        "module E { in a:u8 out y:u8 y=implement { a intent { minimize lut } } }",
         formal_policy="required_bmc",
         formal_verifier=verifier,
     )

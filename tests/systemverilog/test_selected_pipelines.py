@@ -43,11 +43,34 @@ def _run(top: str, source_name: str, harness: str, tmp_path: Path) -> None:
     assert run.returncode == 0, run.stderr or run.stdout
 
 
+def test_implement_intent_uses_composed_direct_sv_lowering() -> None:
+    module = compile_source(
+        """
+        module ImplementSV {
+          clock clk
+          reset rst
+          in a : vec<4,u3>
+          in b : vec<4,u3>
+          out y : u8
+          y = implement {
+            dot(a, b)
+            intent { latency <= 4 ii == 1 dsp <= 4 minimize lut }
+          }
+        }
+        """,
+        include_clash=False,
+    ).ir
+    rtl = emit_experimental(module)
+    assert "module ImplementSV" in rtl
+    assert "input wire logic clk" in rtl
+    assert "output logic" in rtl
+
+
 @pytest.mark.skipif(VERILATOR is None, reason="Verilator is required")
 def test_auto_pipeline_nested_stage_dag_has_reported_latency(tmp_path: Path) -> None:
     _run(
         "AutoPipelineProducts",
-        "auto_pipeline_products.zhl",
+        "implementation_intent.zhl",
         r'''
 #include "VAutoPipelineProducts.h"
 static void tick(VAutoPipelineProducts& d) {
@@ -59,11 +82,11 @@ static void drive(VAutoPipelineProducts& d, int n) {
 }
 int main() {
   VAutoPipelineProducts d; d.rst=1; drive(d,0); tick(d);
-  if (d.y != 0) return 1;
-  d.rst=0; drive(d,0); tick(d); if (d.y != 0) return 2;
-  drive(d,1); tick(d); if (d.y != 0) return 3;
-  drive(d,2); tick(d); if (d.y != 40) return 4;
-  drive(d,3); tick(d); return d.y == 54 ? 0 : 5;
+  if (d.y != 40) return 1;
+  d.rst=0; drive(d,0); d.eval(); if (d.y != 40) return 2;
+  drive(d,1); d.eval(); if (d.y != 54) return 3;
+  drive(d,2); d.eval(); if (d.y != 68) return 4;
+  drive(d,3); d.eval(); return d.y == 82 ? 0 : 5;
 }
 ''',
         tmp_path,

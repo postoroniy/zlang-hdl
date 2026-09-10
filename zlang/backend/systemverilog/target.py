@@ -299,7 +299,7 @@ def _emit_signed_product_dsp48e1_graph(module, graph, definitions, simulation_mo
         )
         if exploration is None:
             raise SystemVerilogEmissionError(
-                "selected signed-product cascade has neither a registered boundary nor a typed pipeline(auto) region"
+                "selected signed-product cascade has neither a registered boundary nor a typed implementation pipeline region"
             )
         compensation = sum(
             item.cycles for item in (
@@ -431,7 +431,7 @@ def _emit_dsp48e1_graph(module, graph, definitions, simulation_model):
         )
         if exploration is None:
             raise SystemVerilogEmissionError(
-                "selected DSP cascade has neither a registered boundary nor a typed pipeline(auto) region"
+                "selected DSP cascade has neither a registered boundary nor a typed implementation pipeline region"
             )
         compensation = sum(
             item.cycles for item in (

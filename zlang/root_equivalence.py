@@ -11,7 +11,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 import hashlib
-import json
 from pathlib import Path
 import re
 import shutil
@@ -20,7 +19,10 @@ import tempfile
 from typing import Mapping
 
 from zlang.backend.clash import emit_artifact as emit_clash_artifact
-from zlang.backend.manifest import BackendArtifact, publish_artifact
+from zlang.backend.manifest import (
+    BackendArtifact,
+    publish_artifact,
+)
 from zlang.backend.systemverilog import emit_artifact as emit_systemverilog_artifact
 from zlang.common import stable_digest
 from zlang.cross_backend import run_cross_backend_formal
@@ -41,6 +43,7 @@ from zlang.formal_artifact_provider import (
     FormalArtifactNamespace,
     FormalArtifactProvider,
     decisive_formal_cacheable,
+    formal_backend_artifact_ref,
 )
 from zlang.formal_candidate import PreparedCandidateEquivalence
 from zlang.ir.callables import reachable_module_callables
@@ -59,7 +62,6 @@ from zlang.ir.equivalence import (
     EquivalenceStatus,
 )
 from zlang.ir.formal_planning import (
-    FormalBackendArtifactRef,
     FormalExecutableRoute,
     FormalGoalPlan,
     FormalPlanGoalKind,
@@ -99,25 +101,6 @@ def _nonempty(value: object, description: str) -> str:
     if not isinstance(value, str) or not value:
         raise RootEquivalenceError(f"{description} must be a non-empty string")
     return value
-
-
-def _binding_identity(artifact: BackendArtifact) -> str:
-    manifest = json.loads(artifact.to_json())
-    return "bindings:" + stable_digest(
-        {
-            "manifest_version": artifact.manifest_version,
-            "artifact_hash": artifact.artifact_hash,
-            "bindings": manifest["bindings"],
-        }
-    )
-
-
-def _artifact_ref(artifact: BackendArtifact) -> FormalBackendArtifactRef:
-    return FormalBackendArtifactRef(
-        artifact.backend,
-        artifact.artifact_hash,
-        _binding_identity(artifact),
-    )
 
 
 @dataclass(frozen=True)
@@ -570,7 +553,7 @@ def _m36_goal(
         property_.comparison_window.minimum_bmc_depth,
         route=FormalExecutableRoute(
             FormalRouteKind.SEMANTIC_EQUIVALENCE,
-            (_artifact_ref(prepared.implementation_artifact),),
+            (formal_backend_artifact_ref(prepared.implementation_artifact),),
             reference_identity=prepared.reference_artifact_hash,
         ),
         source_origin=property_.source_origin,
@@ -726,7 +709,7 @@ def prepare_root_equivalence(
         m38_property.comparison_window.minimum_bmc_depth,
         route=FormalExecutableRoute(
             FormalRouteKind.CROSS_BACKEND_EQUIVALENCE,
-            (_artifact_ref(clash_artifact), _artifact_ref(direct_artifact)),
+            (formal_backend_artifact_ref(clash_artifact), formal_backend_artifact_ref(direct_artifact)),
         ),
         source_origin=materialized.expression.origin,
     )

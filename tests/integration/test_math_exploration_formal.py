@@ -25,14 +25,18 @@ def test_math_exploration_bounded_triangle_and_real_mutations(tmp_path: Path) ->
     assert summary["accepted"]
     assert summary["candidate_statuses"] == ["bounded_pass"] * 3
     checks = summary["checks"]
-    assert checks["shallow_window"]["depth"] == 7
+    assert checks["shallow_window"]["depth"] == (
+        checks["shallow_window"]["minimum_bmc_depth"] - 1
+    )
     assert "comparison_window_unreached" in checks["shallow_window"]["reason"]
     for name in ("output_bit_flip", "missing_final_stage"):
         result = equivalence_result_from_data(json.loads((output / name / "result.json").read_text()))
         assert result.status.value == "failed"
         assert result.counterexample is not None
         assert result.counterexample.values
-        assert result.counterexample.failure_cycle >= 6
+        assert result.counterexample.failure_cycle >= (
+            checks["shallow_window"]["minimum_bmc_depth"]
+        )
         assert result.reference_hash == checks["shallow_window"]["reference_hash"]
         assert result.implementation_hash != checks["shallow_window"]["implementation_hash"]
         assert tuple((output / name / "work").rglob("*.vcd"))

@@ -32,7 +32,9 @@ def test_math_timing_shells_share_the_same_register_contract() -> None:
         assert "launch_b7 <= b7;" in shell
         assert "if (rst) begin" in shell
     assert shells[0] == shells[1] == shells[2]
-    assert latencies == [0, 0, 4]
+    # ``implement`` permits the smallest legal positive-latency candidate;
+    # it does not promise the upper bound as an exact latency.
+    assert latencies == [0, 0, 1]
 
 
 def test_timing_flow_has_identical_constraints_and_no_data_exceptions() -> None:

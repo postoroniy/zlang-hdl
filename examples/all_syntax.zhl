@@ -440,11 +440,13 @@ module ExplorationSyntax {
     in a : vec<4,u3>
     in b : vec<4,u3>
     out y : u8
-    y = explore {
+    y = implement {
         dot(a,b)
-        allow { reduction dsp pipeline reassociate }
-        require { latency >= 1 dsp <= 4 }
-        minimize lut
+        intent {
+            latency >= 1
+            dsp <= 4
+            minimize lut
+        }
     }
 }
 

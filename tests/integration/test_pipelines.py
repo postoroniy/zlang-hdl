@@ -44,7 +44,7 @@ class PipelineIntegrationTests(unittest.TestCase):
             )
 
     def test_auto_pipeline_report_golden_and_cycle_latency(self) -> None:
-        source = (ROOT / "examples/auto_pipeline_products.zhl").read_text()
+        source = (ROOT / "examples/implementation_intent.zhl").read_text()
         result = compile_source(source)
         self.assertEqual(
             result.pipeline_report,
@@ -70,7 +70,7 @@ class PipelineIntegrationTests(unittest.TestCase):
         outputs = simulate_cycles(result.ir, cycles)
         self.assertEqual(
             [item["y"] for item in outputs],
-            [0, 0, 0, 40, 54, 68],
+            [40, 54, 68, 82, 96, 110],
         )
 
     def test_cli_writes_the_pipeline_report(self) -> None:
@@ -79,7 +79,7 @@ class PipelineIntegrationTests(unittest.TestCase):
             clash = Path(temporary) / "AutoPipelineProducts.hs"
             status = main(
                 [
-                    str(ROOT / "examples/auto_pipeline_products.zhl"),
+                    str(ROOT / "examples/implementation_intent.zhl"),
                     "-o",
                     str(clash),
                     "--pipeline-report",

@@ -102,26 +102,23 @@ class CanonicalMetadataSemanticTests(unittest.TestCase):
         self.assertTrue(all(item.estimate is not None for item in selected_evidence))
         self.assertTrue(all(item.measurement is None for item in selected_evidence))
 
-    def test_legacy_explorers_retain_the_high_level_source_root(self) -> None:
-        for filename, construct, collection_name in (
-            ("auto_pipeline_products.zhl", "pipeline(auto)", "pipeline_explorations"),
-            ("fir_architecture.zhl", "architecture(auto)", "architecture_explorations"),
-        ):
-            with self.subTest(filename=filename):
-                canonical = lower(
-                    analyze(parse((ROOT / "examples" / filename).read_text()))
-                )
-                exploration = getattr(canonical, collection_name)[0]
-                source = canonical.expressions[exploration.source_expression]
-                self.assertIn(construct, {origin.construct for origin in source.origins})
-                self.assertNotEqual(
-                    exploration.source_expression,
-                    next(
-                        candidate.expression
-                        for candidate in exploration.candidates
-                        if candidate.name == exploration.selected
-                    ),
-                )
+    def test_implement_retains_the_high_level_source_root(self) -> None:
+        source_text = """
+        module Implemented {
+          clock clk
+          reset rst
+          in a, b : u8
+          out y : u19
+          y = implement {
+            a * b + a * b + a * b + a * b
+            intent { latency<=1 }
+          }
+        }
+        """
+        canonical = lower(analyze(parse(source_text)))
+        exploration = canonical.pipeline_explorations[0]
+        source = canonical.expressions[exploration.source_expression]
+        self.assertIn("implement", {origin.construct for origin in source.origins})
 
     def test_interning_retains_every_source_origin(self) -> None:
         canonical = lower(

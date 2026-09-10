@@ -107,10 +107,10 @@ from zlang.ir.types import (
     UIntType,
     VecType,
 )
-from zlang.pipelines import PipelineExplorationError, explore_pipeline
-from zlang.architectures import (
-    ArchitectureExplorationError,
-    explore_architecture,
+from zlang.pipelines import (
+    PipelineExplorationError,
+    explore_pipeline,
+    pipeline_constraints_from_unified,
 )
 from zlang.source import SourceOrigin, SourceSpan
 from .errors import SemanticError
@@ -126,9 +126,14 @@ from zlang.generics import GenericArgument, SpecializationIdentity
 from zlang.exploration import (
     ExplorationContext,
     ExplorationRequest,
+    ExplorationSelectionError,
     TransformFamily,
     constraints_from_syntax,
     explore,
+)
+from zlang.implementation_request import (
+    MAXIMIZABLE_METRICS,
+    MINIMIZABLE_METRICS,
 )
 
 
@@ -142,6 +147,75 @@ _COMPILE_TIME_CALL_LIMIT = 64
 _COMPILE_TIME_OPERATION_LIMIT = 1_000_000
 _COMPILE_TIME_EVALUATOR_SCHEMA = "zlang-ct-v1"
 _REAL_INTRINSICS = {"pi", "sin", "cos", "log2", "log"}
+_IMPLEMENT_DEFAULT_TRANSFORMS = (
+    TransformFamily.DSP,
+    TransformFamily.REDUCTION,
+)
+
+
+def _exploration_objective_metric(
+    objective: ast.ExplorationObjective | None,
+) -> ir_expr.CostMetric:
+    if objective is None:
+        return ir_expr.CostMetric.LUT
+    return (
+        ir_expr.CostMetric.FMAX_EST
+        if objective.metric.value == "fmax_est"
+        else ir_expr.CostMetric(objective.metric.value)
+    )
+
+
+def _validate_exploration_objective(
+    objective: ast.ExplorationObjective | None,
+) -> None:
+    metric = _exploration_objective_metric(objective)
+    if objective is None:
+        return
+    if objective.direction == "maximize":
+        if metric not in MAXIMIZABLE_METRICS:
+            raise SemanticError(
+                "maximize currently supports only fmax (fmax_est)"
+            )
+        return
+    if objective.direction != "minimize":
+        raise SemanticError(
+            "implementation objective direction must be 'minimize' or 'maximize'"
+        )
+    if metric not in MINIMIZABLE_METRICS:
+        raise SemanticError(
+            "minimize currently supports only lut, ff, dsp, bram, or latency"
+        )
+
+
+def _implement_permits_nonzero_latency(
+    constraints: Iterable[ast.ExplorationConstraint],
+) -> bool:
+    for constraint in constraints:
+        if constraint.metric is not ast.CostMetric.LATENCY:
+            continue
+        if constraint.relation in {
+            ast.ExplorationRelation.MAXIMUM,
+            ast.ExplorationRelation.EXACT,
+            ast.ExplorationRelation.MINIMUM,
+        } and constraint.value > 0:
+            return True
+    return False
+
+
+def _default_implement_transforms(
+    expression: ast.ImplementExpr,
+    context: "_ExpressionContext",
+) -> tuple[TransformFamily, ...]:
+    transforms = list(_IMPLEMENT_DEFAULT_TRANSFORMS)
+    permits_latency = _implement_permits_nonzero_latency(expression.constraints)
+    if permits_latency and context.allow_delay:
+        transforms.append(TransformFamily.PIPELINE)
+    elif permits_latency:
+        raise SemanticError(
+            "implement requires a module clock and reset before a "
+            "positive-latency implementation can be selected"
+        )
+    return tuple(transforms)
 
 
 def _canonical_rom_runtime_values(
@@ -10597,35 +10671,35 @@ def analyze(
             and channel is None
             else module_context
         )
-        if isinstance(assignment.expression, ast.ExploreExpr):
+        if isinstance(assignment.expression, ast.ImplementExpr):
             if _contains_explore(assignment.expression.expression):
-                raise SemanticError("nested explore is not supported")
+                raise SemanticError("nested implementation selection is not supported")
             if signal is not None or channel is not None:
-                raise SemanticError("explore currently requires a wire output")
+                raise SemanticError("implement currently requires a wire output")
             operand = _check_expression(
                 assignment.expression.expression,
                 value_symbols,
                 target_type,
                 module_context,
             )
+            # Keep implementation regions self-contained for candidate
+            # discovery.  Named immutable locals are semantic aliases, not
+            # backend boundaries; inlining here lets reduction/pipeline
+            # matchers inspect the typed expression while preserving the
+            # original local's source origin in the surrounding IR.
+            operand = _inline_semantic_locals(operand, tuple(locals_))
             operand = _expand_exploration_calls(
                 operand, functions, module_context
             )
             objective = assignment.expression.objective
-            objective_metric: ir_expr.CostMetric = (
-                ir_expr.CostMetric.FMAX_EST
-                if objective is not None and objective.metric.value == "fmax_est"
-                else ir_expr.CostMetric(objective.metric.value)
-                if objective is not None
-                else ir_expr.CostMetric.LUT
+            _validate_exploration_objective(objective)
+            objective_metric = _exploration_objective_metric(objective)
+            allowed = _default_implement_transforms(
+                assignment.expression,
+                module_context,
             )
-            if objective is not None and objective.direction == "maximize" and (
-                objective_metric is not ir_expr.CostMetric.FMAX_EST
-            ):
-                raise SemanticError("maximize currently supports only fmax_est")
-            allowed = tuple(
-                TransformFamily(item.value) for item in assignment.expression.allowed
-            )
+            avoided: tuple[TransformFamily, ...] = ()
+            site_kind = "implement"
             if TransformFamily.PIPELINE in allowed and not module_context.allow_delay:
                 raise SemanticError("allow pipeline requires a module clock and reset")
             try:
@@ -10633,10 +10707,7 @@ def analyze(
                     ExplorationRequest(
                         operand,
                         allowed,
-                        tuple(
-                            TransformFamily(item.value)
-                            for item in assignment.expression.avoided
-                        ),
+                        avoided,
                         constraints_from_syntax(assignment.expression.constraints),
                         objective_metric,
                         source_origin=assignment.expression.origin,
@@ -10650,14 +10721,98 @@ def analyze(
                         target_type,
                         module_context.allocate_delay,
                         candidate_site_owner,
-                        "source_explore",
+                        site_kind,
                     ),
                 )
+            except ExplorationSelectionError as error:
+                raise SemanticError(
+                    str(error),
+                    code="ZL-IMPLEMENT-CONSTRAINTS",
+                    primary=_semantic_origin(
+                        assignment.expression, module_context
+                    ),
+                    notes=(
+                        "candidate summaries are structural and omit typed "
+                        "expression trees",
+                        "hard implementation constraints were not relaxed",
+                    ),
+                ) from error
             except ValueError as error:
                 raise SemanticError(str(error)) from error
             expression = result.selected.expression
             if exploration_results is not None:
                 exploration_results.append(result)
+            # Keep the established pipeline-planner/report surface in sync
+            # with the canonical implementation region. The unified explorer
+            # owns selection, while downstream target planning consumes the
+            # typed PipelineExploration record (never the source AST).
+            if site_kind == "implement":
+                pipeline_by_name = {
+                    candidate.architecture.name: candidate.architecture
+                    for candidate in result.candidates
+                    if isinstance(
+                        candidate.architecture,
+                        ir_pipelines.PipelineCandidate,
+                    )
+                }
+                pipeline_candidates = tuple(
+                    pipeline_by_name[name]
+                    for name in sorted(pipeline_by_name)
+                )
+                if pipeline_candidates:
+                    selected_pipeline = next(
+                        (
+                            candidate.architecture
+                            for candidate in result.candidates
+                            if candidate.implementation_identity
+                            == result.selected.implementation_identity
+                        ),
+                        None,
+                    )
+                    if pipeline_candidates:
+                        # The target planner consumes the typed pipeline
+                        # candidate set even when the generic M34 extractor
+                        # selected the source/value candidate.  `implement`
+                        # is one unified policy region, so target-aware
+                        # planning must not disappear merely because its
+                        # first backend-independent pass preferred the
+                        # generic realization.
+                        selected_name = (
+                            selected_pipeline.name
+                            if isinstance(selected_pipeline, ir_pipelines.PipelineCandidate)
+                            else pipeline_candidates[0].name
+                        )
+                        pipeline_constraints = pipeline_constraints_from_unified(
+                            constraints_from_syntax(
+                                assignment.expression.constraints
+                            )
+                        )
+                        # This retained pipeline candidate is an internal
+                        # implementation region.  Its source spelling is
+                        # ``implement``; do not masquerade as a retired
+                        # canonical implement source for evidence identity.
+                        pipeline_operand = operand
+                        if assignment.expression.origin is not None:
+                            pipeline_origin = SourceOrigin(
+                                assignment.expression.origin,
+                                "implement",
+                                module_context.source_unit,
+                                module_context.source_digest,
+                            )
+                            pipeline_operand = replace(
+                                pipeline_operand, origin=pipeline_origin
+                            )
+                        pipeline_explorations.append(
+                            ir_pipelines.PipelineExploration(
+                                target.name,
+                                target_type,
+                                pipeline_operand,
+                                pipeline_constraints,
+                                pipeline_candidates,
+                                selected_name,
+                                len(pipeline_candidates),
+                            )
+                        )
             exploration_origin = _semantic_origin(
                 assignment.expression, module_context
             )
@@ -10672,98 +10827,13 @@ def analyze(
                 module_context,
                 allow_implementation_choice=True,
             )
-        if isinstance(assignment.expression, ast.ArchitectureExpr):
-            if signal is not None or channel is not None:
-                raise SemanticError(
-                    "architecture(auto) currently requires a wire output"
-                )
-            operand = _check_expression(
-                assignment.expression.expression,
+            expression = _check_expression(
+                assignment.expression,
                 value_symbols,
                 target_type,
-                module_context,
+                expression_context,
             )
-            operand = _inline_semantic_locals(operand, tuple(locals_))
-            operand = _expand_exploration_calls(
-                operand, functions, module_context
-            )
-            exploration_origin = _semantic_origin(
-                assignment.expression, module_context
-            )
-            if exploration_origin is not None:
-                operand = replace(operand, origin=exploration_origin)
-            constraints = tuple(
-                ir_architectures.ArchitectureConstraint(
-                    ir_architectures.ArchitectureMetric(constraint.metric.value),
-                    constraint.maximum,
-                )
-                for constraint in assignment.expression.constraints
-            )
-            try:
-                architecture = explore_architecture(
-                    target.name,
-                    operand,
-                    target_type,
-                    constraints,
-                )
-            except ArchitectureExplorationError as error:
-                raise SemanticError(str(error)) from error
-            architecture_explorations.append(architecture)
-            expression = architecture.selected_candidate.expression
-            if exploration_origin is not None:
-                expression = replace(expression, origin=exploration_origin)
-        elif (
-            isinstance(assignment.expression, ast.PipelineExpr)
-            and assignment.expression.stages is None
-        ):
-            if signal is not None or channel is not None:
-                raise SemanticError(
-                    "pipeline(auto) currently requires a wire output"
-                )
-            if not module_context.allow_delay:
-                raise SemanticError("pipeline requires a module clock and reset")
-            operand = _check_expression(
-                assignment.expression.expression,
-                value_symbols,
-                target_type,
-                module_context,
-            )
-            operand = _inline_semantic_locals(operand, tuple(locals_))
-            operand = _expand_exploration_calls(
-                operand, functions, module_context
-            )
-            exploration_origin = _semantic_origin(
-                assignment.expression, module_context
-            )
-            if exploration_origin is not None:
-                operand = replace(operand, origin=exploration_origin)
-            constraints = tuple(
-                ir_pipelines.PipelineConstraint(
-                    ir_pipelines.PipelineMetric(
-                        "throughput"
-                        if constraint.metric is ast.PipelineMetric.INITIATION_INTERVAL
-                        else constraint.metric.value
-                    ),
-                    ir_pipelines.PipelineRelation(constraint.relation.value),
-                    constraint.value,
-                )
-                for constraint in assignment.expression.constraints
-            )
-            try:
-                exploration = explore_pipeline(
-                    target.name,
-                    operand,
-                    target_type,
-                    constraints,
-                    module_context.allocate_delay,
-                )
-            except PipelineExplorationError as error:
-                raise SemanticError(str(error)) from error
-            pipeline_explorations.append(exploration)
-            expression = exploration.selected_candidate.expression
-            if exploration_origin is not None:
-                expression = replace(expression, origin=exploration_origin)
-        elif not isinstance(assignment.expression, ast.ExploreExpr):
+        elif not isinstance(assignment.expression, ast.ImplementExpr):
             expression = _check_expression(
                 assignment.expression,
                 value_symbols,
@@ -13632,55 +13702,12 @@ def _check_expression_untraced(
             operand.type,
         )
 
-    if isinstance(expression, ast.ExploreExpr):
-        if _contains_explore(expression.expression):
-            raise SemanticError("nested explore is not supported")
-        if any(
-            item.value in {"pipeline", "dsp", "reduction", "adapter"}
-            for item in expression.allowed
-        ):
-            raise SemanticError(
-                "architecture-changing explore is allowed only as a complete "
-                "wire-output assignment"
-            )
-        operand = _check_expression(expression.expression, inputs, expected, context)
-        objective = expression.objective
-        metric = (
-            ir_expr.CostMetric.FMAX_EST
-            if objective is not None and objective.metric.value == "fmax_est"
-            else ir_expr.CostMetric(objective.metric.value)
-            if objective is not None
-            else ir_expr.CostMetric.LUT
+    if isinstance(expression, ast.ImplementExpr):
+        raise SemanticError(
+            "implement is allowed only as a complete wire-output assignment"
         )
-        if objective is not None and objective.direction == "maximize" and (
-            metric is not ir_expr.CostMetric.FMAX_EST
-        ):
-            raise SemanticError("maximize currently supports only fmax_est")
-        try:
-            result = explore(ExplorationRequest(
-                operand,
-                tuple(TransformFamily(item.value) for item in expression.allowed),
-                tuple(TransformFamily(item.value) for item in expression.avoided),
-                constraints_from_syntax(expression.constraints),
-                metric,
-                formal_config=context.formal_config,
-                formal_verifier=context.formal_verifier,
-            ))
-        except ValueError as error:
-            raise SemanticError(str(error)) from error
-        if context.exploration_results is not None:
-            context.exploration_results.append(replace(
-                result,
-                site_owner=context.candidate_site_owner,
-                site_kind="expression_explore",
-            ))
-        return result.selected.expression
 
     if isinstance(expression, ast.PipelineExpr):
-        if expression.stages is None:
-            raise SemanticError(
-                "pipeline(auto) is allowed only as a complete wire-output assignment"
-            )
         if expression.constraints:
             raise SemanticError(
                 "fixed pipeline stages do not accept automatic constraints"
@@ -13708,11 +13735,6 @@ def _check_expression_untraced(
             operand,
             context.allocate_delay(),
             operand.type,
-        )
-
-    if isinstance(expression, ast.ArchitectureExpr):
-        raise SemanticError(
-            "architecture(auto) is allowed only as a complete wire-output assignment"
         )
 
     if isinstance(expression, ast.ImplementationChoiceExpr):
@@ -15749,14 +15771,13 @@ def _semantic_origin(
     elif isinstance(expression, ast.DelayExpr):
         construct = f"delay<{expression.cycles}>"
     elif isinstance(expression, ast.PipelineExpr):
-        depth = "auto" if expression.stages is None else expression.stages
-        construct = f"pipeline({depth})"
-    elif isinstance(expression, ast.ArchitectureExpr):
-        construct = "architecture(auto)"
+        construct = f"pipeline({expression.stages})"
+    elif isinstance(expression, ast.ProtocolTransformExpr):
+        construct = "transform pipeline(auto)"
     elif isinstance(expression, ast.ImplementationChoiceExpr):
         construct = "choice"
-    elif isinstance(expression, ast.ExploreExpr):
-        construct = "explore"
+    elif isinstance(expression, ast.ImplementExpr):
+        construct = "implement"
     else:  # pragma: no cover - the expression union is exhaustively handled.
         construct = type(expression).__name__
     return SourceOrigin(
@@ -15768,7 +15789,7 @@ def _semantic_origin(
 
 
 def _contains_explore(value: object) -> bool:
-    if isinstance(value, ast.ExploreExpr):
+    if isinstance(value, ast.ImplementExpr):
         return True
     if is_dataclass(value):
         return any(

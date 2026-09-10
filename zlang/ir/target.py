@@ -252,9 +252,41 @@ class TimingDAG:
 
     @property
     def identity(self) -> str:
+        # Source provenance is diagnostic metadata, not implementation
+        # semantics.  In particular, migrating a region from a compatibility
+        # spelling to ``implement`` must not invalidate otherwise identical
+        # QoR evidence.  Build the identity from the typed/timing shape and
+        # intentionally omit source_origin fields.
+        node_identity = tuple(
+            (
+                item.identity,
+                item.kind,
+                item.implementation_node_identity,
+                item.semantic_identity,
+                item.resource_instance_identity,
+                item.pipeline_site_identity,
+                item.latency,
+                item.estimated_delay_ps,
+                item.target_identity,
+            )
+            for item in self.nodes
+        )
+        delay_identity = tuple(
+            (
+                item.identity,
+                item.kind,
+                item.source_node,
+                item.destination_node,
+                item.cycles,
+                item.width,
+                item.ff_cost,
+                item.semantic_identity,
+            )
+            for item in (*self.alignment_delays, *self.compensation_delays)
+        )
         return sha256(repr((
-            self.nodes, self.edges, self.cuts, self.alignment_delays,
-            self.compensation_delays, self.output_latency,
+            node_identity, self.edges, self.cuts, delay_identity,
+            self.output_latency,
             self.estimated_critical_delay_ps,
         )).encode()).hexdigest()
 
@@ -303,7 +335,7 @@ class ImplementationGraph:
             self.target_part,
             self.pipeline_configuration_identity, self.active_pipeline_sites,
             self.physical_binding_identities,
-            self.timing_dag,
+            self.timing_dag.identity if self.timing_dag is not None else None,
         ))
         return sha256(payload.encode()).hexdigest()
 

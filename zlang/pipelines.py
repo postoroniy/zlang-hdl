@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from math import log2
-from typing import Callable
+from typing import Callable, Iterable
 
 from zlang.ir import expressions as expr
 from zlang.ir.interfaces import ReadyValidSignal
@@ -32,6 +32,10 @@ from zlang.ir.product_reductions import (
 )
 from zlang.ir.types import FixedType, HardwareType, SIntType, UFixedType, UIntType
 from zlang.ir.signed_reductions import recognize_signed_product_reduction
+from zlang.ir.signed_reductions import (
+    expression_semantic_identity,
+    selection_expression_semantic_identity,
+)
 from zlang.costs import CandidateCost, UnifiedConstraint, extract_best
 from zlang.timing import validate_timed_candidate
 
@@ -42,6 +46,80 @@ _FREQUENCY_NUMERATOR_MHZ = 800
 
 class PipelineExplorationError(ValueError):
     """An automatic pipeline region or its constraints are unsupported."""
+
+
+def pipeline_constraints_from_unified(
+    constraints: Iterable[UnifiedConstraint],
+) -> tuple[PipelineConstraint, ...]:
+    """Project generic implementation constraints into the pipeline model.
+
+    ``PipelineConstraint`` is deliberately narrower than M28's generic cost
+    constraint set.  In particular, LUT/FF/BRAM bounds and lower-only latency
+    bounds remain constraints on the outer candidate extraction.  They must not
+    be indexed into the pipeline enum (which used to turn a perfectly valid
+    source policy into an internal ``KeyError``).
+
+    A projection is made only when the relation has an exact representation in
+    the pipeline generator.  The original unified constraints are still passed
+    to M28, so omitting a projection never relaxes a hard constraint.
+    """
+
+    projected: list[PipelineConstraint] = []
+    for constraint in constraints:
+        metric = constraint.metric
+        if metric is expr.CostMetric.LATENCY:
+            # The generator accepts an upper bound or exact latency.  A
+            # lower-only bound is intentionally enforced by outer extraction.
+            if constraint.maximum is None:
+                continue
+            relation = (
+                PipelineRelation.EXACT
+                if constraint.minimum is not None
+                and constraint.minimum == constraint.maximum
+                else PipelineRelation.MAXIMUM
+            )
+            projected.append(
+                PipelineConstraint(PipelineMetric.LATENCY, relation, constraint.maximum)
+            )
+        elif metric is expr.CostMetric.INITIATION_INTERVAL:
+            # Pipeline throughput is exact by contract.  A non-exact generic
+            # relation remains an outer constraint.
+            if (
+                constraint.minimum is None
+                or constraint.maximum is None
+                or constraint.minimum != constraint.maximum
+            ):
+                continue
+            projected.append(
+                PipelineConstraint(
+                    PipelineMetric.THROUGHPUT,
+                    PipelineRelation.EXACT,
+                    constraint.minimum,
+                )
+            )
+        elif metric is expr.CostMetric.DSP:
+            if constraint.maximum is None:
+                continue
+            projected.append(
+                PipelineConstraint(
+                    PipelineMetric.DSP,
+                    PipelineRelation.MAXIMUM,
+                    constraint.maximum,
+                )
+            )
+        elif metric is expr.CostMetric.FMAX_EST:
+            if constraint.minimum is None:
+                continue
+            projected.append(
+                PipelineConstraint(
+                    PipelineMetric.FMAX,
+                    PipelineRelation.MINIMUM,
+                    constraint.minimum,
+                )
+            )
+        # LUT, FF, BRAM and all unsupported relations intentionally do not
+        # enter this narrower model.  M28 still evaluates them below.
+    return tuple(projected)
 
 
 def explore_pipeline(
@@ -223,7 +301,7 @@ def explore_pipeline(
             raise PipelineExplorationError(
                 f"candidate '{candidate.name}' failed timed-equivalence validation: {relation.proof}"
             )
-    unified_constraints = tuple(_unified_constraint(item) for item in constraints)
+    unified_constraints = pipeline_constraints_to_unified(constraints)
     try:
         extraction = extract_best(
             candidates,
@@ -259,16 +337,36 @@ def explore_pipeline(
     )
 
 
-def _unified_constraint(constraint: PipelineConstraint) -> UnifiedConstraint:
+def pipeline_constraint_to_unified(
+    constraint: PipelineConstraint,
+) -> UnifiedConstraint:
+    """Convert one narrow pipeline constraint without losing its relation."""
+
     from zlang.ir.expressions import CostMetric
-    if constraint.metric is PipelineMetric.LATENCY:
-        return UnifiedConstraint(CostMetric.LATENCY, maximum=constraint.value)
-    if constraint.metric is PipelineMetric.THROUGHPUT:
-        return UnifiedConstraint(CostMetric.INITIATION_INTERVAL, maximum=constraint.value,
-                                 minimum=constraint.value)
-    if constraint.metric is PipelineMetric.DSP:
-        return UnifiedConstraint(CostMetric.DSP, maximum=constraint.value)
-    return UnifiedConstraint(CostMetric.FMAX_EST, minimum=constraint.value)
+
+    metric = {
+        PipelineMetric.LATENCY: CostMetric.LATENCY,
+        PipelineMetric.THROUGHPUT: CostMetric.INITIATION_INTERVAL,
+        PipelineMetric.DSP: CostMetric.DSP,
+        PipelineMetric.FMAX: CostMetric.FMAX_EST,
+    }[constraint.metric]
+    if constraint.relation is PipelineRelation.MAXIMUM:
+        return UnifiedConstraint(metric, maximum=constraint.value)
+    if constraint.relation is PipelineRelation.MINIMUM:
+        return UnifiedConstraint(metric, minimum=constraint.value)
+    return UnifiedConstraint(
+        metric,
+        minimum=constraint.value,
+        maximum=constraint.value,
+    )
+
+
+def pipeline_constraints_to_unified(
+    constraints: Iterable[PipelineConstraint],
+) -> tuple[UnifiedConstraint, ...]:
+    """Convert a pipeline constraint sequence in stable source order."""
+
+    return tuple(pipeline_constraint_to_unified(item) for item in constraints)
 
 
 def render_pipeline_report(module: Module) -> str:
@@ -307,15 +405,62 @@ def render_pipeline_report(module: Module) -> str:
                 f"violations=[{violations}]"
             )
         selected = exploration.selected_candidate
+        emitted = any(
+            assignment.target.name == exploration.output
+            and assignment.signal is None
+            and assignment.channel is None
+            and selection_expression_semantic_identity(assignment.expression)
+            == selection_expression_semantic_identity(selected.expression)
+            for assignment in module.assignments
+        )
+        selection_reason = (
+            "emitted_selected_candidate"
+            if emitted
+            else "catalog_only_not_selected_for_emission"
+        )
+        formal_candidate_ids = tuple(
+            getattr(record, "candidate_identity", None)
+            for record in exploration.formal_records
+        )
+        if exploration.formal_records and not emitted:
+            raise PipelineExplorationError(
+                "pipeline formal records are attached to a catalog-only "
+                "candidate"
+            )
+        if any(
+            not isinstance(identity, str) or not identity
+            for identity in formal_candidate_ids
+        ):
+            raise PipelineExplorationError(
+                "pipeline formal records are missing candidate identity"
+            )
+        if len(set(formal_candidate_ids)) > 1:
+            raise PipelineExplorationError(
+                "pipeline formal records contain multiple candidate identities"
+            )
+        formal_candidate_identity = (
+            formal_candidate_ids[0] if formal_candidate_ids else None
+        )
+        candidate_identity_text = (
+            f"candidate_identity={formal_candidate_identity} "
+            if formal_candidate_identity is not None else ""
+        )
         lines.append(
             f"  selected name={selected.name} reason="
+            f"{selection_reason} "
             "best_candidate_in_explored_bounded_search maximize_fmax_est_then_latency "
+            f"emitted={str(emitted).lower()} "
+            f"{candidate_identity_text}"
             f"latency={selected.latency} "
             f"initiation_interval={selected.initiation_interval} "
             f"cost_source={selected.cost_source.value} timed_equivalence=verified "
             f"pipeline_plan_registers={selected.pipeline_plan.inserted_registers}"
         )
-        if exploration.formal_records:
+        if not emitted:
+            lines.append(
+                "  formal records=0 reason=catalog_only_no_proof_attached"
+            )
+        elif exploration.formal_records:
             lines.append(
                 f"  formal records={len(exploration.formal_records)}"
             )

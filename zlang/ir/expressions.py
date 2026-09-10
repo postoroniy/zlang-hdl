@@ -817,6 +817,12 @@ class Pipeline(TracedExpression):
     type: HardwareType
 
 
+def sequential_stage_count(expression: Delay | Pipeline) -> int:
+    """Return the exact number of stored stages in a delay-like expression."""
+
+    return expression.cycles if isinstance(expression, Delay) else expression.stages
+
+
 class ImplementationKind(str, Enum):
     MUL_ADD = "mul_add"
     DSP_MAC = "dsp_mac"

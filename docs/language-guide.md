@@ -22,6 +22,13 @@ For hands-on verification, use the
 [formal examples](../examples/verification/README.md): actual proofs,
 counterexamples, scoped assumptions, backpressure and immutable bundle replay.
 
+For short-context coding assistants (including Qwen), start with the
+[concise source-authoring reference](language-quick-reference.md). It contains
+only current executable spellings, exact semantic rules, common failure modes,
+and validation commands. Read the topic guides below only when the task needs
+their additional detail; historical milestone documents are not language
+instructions.
+
 ## Product-first guide
 
 1. **[Getting started](getting-started.md)** — install, check, compile, choose a
@@ -76,12 +83,12 @@ Compiler and editor integrations should also use the versioned
 | State | `reg`, `<-`, atomic `when`/`else when`/`else`, `priority a > b > c`, typed or qualified-initial `fsm` | [Guarded atomic actions](sequential-state-storage.md#guarded-atomic-actions) |
 | Physical reset | `reset rst`; `async reset arst @clk` for two-edge synchronized release | [Clock/reset contract](physical-clock-reset-contract.md) |
 | Storage | `fifo`, arbitrary-bitwidth bit-packable 1R1W `memory` with zero/one-cycle reads, byte masks (including a partial high lane) and explicit cell/read-result reset policy, initialized `rom`; replicated read ports through ordinary hierarchy | [Sequential storage](sequential-state-storage.md) |
-| Hierarchy | `inst`, compile-time `inst lane[N]`, concise declarations, `connect`, `module M : Ifc` | [Composition](hierarchy-protocols.md), [named interfaces](named-module-interfaces.md) |
+| Hierarchy | concise `child : Module`, compatible `inst child : Module`, compile-time child arrays, `connect`, `module M : Ifc` | [Composition](hierarchy-protocols.md), [named interfaces](named-module-interfaces.md) |
 | Streaming | `rv<T>`, `credit<T,N>`, `request_response`; bounded `transform pipeline(auto)` | [Protocols](hierarchy-protocols.md#readyvalid), [elastic automatic pipelines](optimization-formal.md#automatic-pipelines) |
 | Standard buses | `import std.bus.*` | [Aggregate protocols](hierarchy-protocols.md#aggregate-protocols-and-the-standard-library) |
 | CDC | `sync_level`, `pulse_toggle`, `handshake`, `async_fifo` | [CDC](hierarchy-protocols.md#clock-domain-crossings) |
 | Verification | named `assert`, `cover`, scoped `contract`/`require`/`ensure`; legacy `assume`/`guarantee` | [Verification UX](optimization-formal.md#first-class-verification-goals-and-contracts) |
-| Implementation policy | `choice`, `pipeline(auto)`, `architecture(auto)`, `explore` | [Optimization](optimization-formal.md#one-implementation-policy-path) |
+| Implementation policy | `implement { ... intent { ... } }`; explicit `pipeline(N)`; `choice` | [Optimization](optimization-formal.md#one-implementation-policy-path) |
 
 ## Essential semantic rules
 
@@ -217,6 +224,38 @@ implementation.
 
 Unsupported forms must produce diagnostics or explicit backend skips; they must
 not silently change hardware behavior.
+
+### Implementation intent
+
+Use `implement` when the expression's value is fixed but the compiler may
+choose a legal implementation:
+
+```zlang
+y = implement {
+    dot(samples, coefficients)
+    intent {
+        latency <= 4
+        ii == 1
+        dsp <= 8
+        fmax >= 300
+        minimize lut
+    }
+}
+```
+
+The expression is the hardware meaning. The `intent` block carries hard metric
+constraints and one supported objective. It does not name an optimizer pass.
+`pipeline(3) { x }` remains exact timed hardware semantics (three cycles),
+whereas `implement { x intent { latency <= 3 } }` permits any legal
+implementation no slower than three cycles. `choice` remains the spelling for
+user-supplied alternatives; `implement` asks the compiler to discover them.
+
+The scalar `explore`, `architecture(auto)`, and `pipeline(auto)` spellings are
+retired and produce deterministic migration diagnostics. Use `implement` for
+compiler-selected implementation, or numeric `pipeline(N)` for exact timing.
+The protocol-only `transform pipeline(auto, ...)` form remains supported because
+its globally-stalled ready/valid wall-clock semantics are distinct. Physical
+target and backend policy belongs in profiles.
 
 ## Syntax and editor conformance
 

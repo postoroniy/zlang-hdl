@@ -8,6 +8,7 @@ import unittest
 from tests.toolchain import CLASH_EXECUTABLE
 from zlang.compiler import compile_source
 from zlang.toolchain import generate_verilog
+from zlang.timing import timing_info
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -21,12 +22,22 @@ class AutomaticPipelineVerilatorTests(unittest.TestCase):
     )
     def test_selected_pipeline_runs_with_reported_latency_in_verilator(self) -> None:
         compilation = compile_source(
-            (ROOT / "examples/auto_pipeline_products.zhl").read_text()
+            (ROOT / "examples/implementation_intent.zhl").read_text()
         )
-        self.assertEqual(
-            compilation.ir.pipeline_explorations[0].selected_candidate.latency,
-            3,
-        )
+        pipeline = compilation.ir.pipeline_explorations[0].selected_candidate
+        self.assertGreaterEqual(pipeline.latency, 0)
+        self.assertLessEqual(pipeline.latency, 3)
+        self.assertEqual(pipeline.initiation_interval, 1)
+        self.assertLessEqual(pipeline.estimate.dsp, 4)
+        self.assertGreaterEqual(pipeline.estimate.fmax_mhz, 100)
+        # The unified ``implement`` result is the emitted implementation.  A
+        # pipeline candidate is retained for planner/report purposes even when
+        # the deterministic extractor selects an exact zero-cycle candidate.
+        selected = compilation.exploration_results[0].selected_candidate
+        selected_latency = timing_info(selected.expression).latency
+        self.assertGreaterEqual(selected_latency, 0)
+        self.assertLessEqual(selected_latency, 3)
+        latency = selected_latency
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             files = generate_verilog(
@@ -41,17 +52,24 @@ class AutomaticPipelineVerilatorTests(unittest.TestCase):
                 "static void tick(VAutoPipelineProducts& d) {\n"
                 "  d.clk = 0; d.eval(); d.clk = 1; d.eval(); d.clk = 0; d.eval();\n"
                 "}\n"
+                "static int value(int n) {\n"
+                "  return 2*(n+1) + 3*(n+2) + 4*(n+3) + 5*(n+4);\n"
+                "}\n"
                 "static void drive(VAutoPipelineProducts& d, int n) {\n"
                 "  d.a=n+1; d.b=2; d.c=n+2; d.d=3;\n"
                 "  d.e=n+3; d.f=4; d.g=n+4; d.h=5;\n"
                 "}\n"
-                "int main() {\n"
+                f"int main() {{\n"
+                f"  const int latency = {latency};\n"
                 "  VAutoPipelineProducts d; d.clk=0; d.rst=1; drive(d,0); tick(d);\n"
-                "  if (d.y != 0) return 1;\n"
-                "  d.rst=0; drive(d,0); tick(d); if (d.y != 0) return 2;\n"
-                "  drive(d,1); tick(d); if (d.y != 0) return 3;\n"
-                "  drive(d,2); tick(d); if (d.y != 40) return 4;\n"
-                "  drive(d,3); tick(d); return d.y == 54 ? 0 : 5;\n"
+                "  if (d.y != (latency == 0 ? value(0) : 0)) return 1;\n"
+                "  d.rst=0;\n"
+                "  for (int n = 0; n < 6; ++n) {\n"
+                "    drive(d,n); tick(d);\n"
+                "    int expected = n >= latency ? value(n-latency) : 0;\n"
+                "    if (d.y != expected) return 2 + n;\n"
+                "  }\n"
+                "  return 0;\n"
                 "}\n"
             )
             object_directory = root / "obj"

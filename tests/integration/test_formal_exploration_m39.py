@@ -16,9 +16,11 @@ from zlang.formal_exploration import (
 from zlang.formal import run_verilog_formal
 from zlang.equivalence import formal_tools_available
 from zlang.formal_candidate import M36ClashCandidateVerifier
+from zlang.candidate_sites import candidate_formal_record_sites
 from zlang.toolchain import find_clash_executable
 from zlang.ir.equivalence import EquivalenceCounterexample
 from zlang.ir.formal import FormalStatus, ProofMode
+from zlang.ir.cdc import ClockDomain
 from zlang.compiler import compile_source
 
 
@@ -140,7 +142,7 @@ class M39FormalExplorationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "invalid formal verifier"):
             compile_source(
                 "module UnsafeInjection { in a:u8 out y:u8 "
-                "y=explore { a ^ 0 minimize lut } }",
+                "y=implement { a ^ 0 intent { minimize lut } } }",
                 formal_policy=FormalPolicy.REQUIRED_BMC,
                 formal_verifier=lambda *_: {
                     "status": FormalStatus.BOUNDED_PASS,
@@ -471,21 +473,23 @@ class M39FormalExplorationTests(unittest.TestCase):
             )
             self.assertEqual(len(_m39_result_entries(directory)), 2)
 
-    def test_required_proven_staging_is_shared_by_explore_and_pipeline_auto(self):
+    def test_required_proven_staging_is_shared_by_implement_regions(self):
         cases = (
             (
-                "explore",
+                "implement",
                 "module E { in a:u8 out y:u8 "
-                "y=explore { a ^ 0 minimize lut } }",
+                "y=implement { a ^ 0 intent { minimize lut } } }",
                 lambda result: result.exploration_results[0].formal_records,
+                2,
             ),
             (
-                "pipeline_auto",
-                Path("examples/auto_pipeline_products.zhl").read_text(),
-                lambda result: result.ir.pipeline_explorations[0].formal_records,
+                "implement_with_pipeline_catalog",
+                Path("examples/implementation_intent.zhl").read_text(),
+                lambda result: result.exploration_results[0].formal_records,
+                2,
             ),
         )
-        for label, source, records_of in cases:
+        for label, source, records_of, expected_call_count in cases:
             with self.subTest(entry_point=label):
                 calls = []
 
@@ -508,10 +512,13 @@ class M39FormalExplorationTests(unittest.TestCase):
                     include_clash=False,
                 )
                 records = records_of(result)
-                self.assertEqual(calls, [
-                    FormalPolicy.REQUIRED_BMC,
-                    FormalPolicy.REQUIRED_PROVEN,
-                ])
+                self.assertEqual(
+                    calls,
+                    [
+                        FormalPolicy.REQUIRED_BMC,
+                        FormalPolicy.REQUIRED_PROVEN,
+                    ] * (expected_call_count // 2),
+                )
                 self.assertEqual(
                     [(item.mode, item.status) for item in records],
                     [
@@ -874,8 +881,7 @@ class M39FormalExplorationTests(unittest.TestCase):
 
     def test_combined_space_is_lazy_and_does_not_need_direct_sv(self):
         source = ("module E { clock clk reset rst in a:vec<4,u3> in b:vec<4,u3> out y:u8 "
-                  "y=explore { dot(a,b) allow { reduction dsp pipeline reassociate } "
-                  "require { latency >= 1 dsp <= 4 } minimize lut } }")
+                  "y=implement { dot(a,b) intent { latency >= 1 dsp <= 4 minimize lut } } }")
         calls = []
         def verify_selected(candidate, config):
             calls.append(candidate.implementation_identity)
@@ -885,6 +891,8 @@ class M39FormalExplorationTests(unittest.TestCase):
                                 formal_verifier=bound(verify_selected))
         exploration = result.exploration_results[0]
         self.assertGreaterEqual(len(exploration.generated_candidates), 4)
+        # ``implement`` owns one unified M39 site.  Planner pipeline metadata
+        # is mirrored from that proof and must not trigger a second route.
         self.assertEqual(len(calls), 1)
         self.assertEqual(exploration.formal_records[0].cache_state, "executed")
         self.assertIn("formal candidate", result.exploration_report)
@@ -984,13 +992,13 @@ class M39FormalExplorationTests(unittest.TestCase):
             (
                 "m27",
                 "module ValueRewrite { in a:u8 out y:u8 "
-                "y=explore { a ^ 0 minimize lut } }",
+                "y=implement { a ^ 0 intent { minimize lut } } }",
                 lambda candidate: candidate.stages == ("value",),
             ),
             (
                 "m29",
                 "module MacAlternative { in a:u4 in b:u4 in c:u8 out y:u9 "
-                "y=explore { a*b+c allow dsp require dsp <= 1 minimize lut } }",
+                "y=implement { a*b+c intent { dsp <= 1 minimize lut } } }",
                 lambda candidate: any(
                     stage == "dsp_mac" for stage in candidate.stages
                 ),
@@ -1024,7 +1032,7 @@ class M39FormalExplorationTests(unittest.TestCase):
     def test_compiler_route_covers_m32_exact_reduction(self):
         compiled = compile_source(
             "module Reduction { in a:vec<4,u3> in b:vec<4,u3> out y:u8 "
-            "y=explore { dot(a,b) allow reduction minimize lut } }",
+            "y=implement { dot(a,b) intent { minimize lut } } }",
             include_clash=False,
         )
         exploration = compiled.exploration_results[0]
@@ -1056,7 +1064,7 @@ class M39FormalExplorationTests(unittest.TestCase):
     def test_compiler_owned_route_required_proven_is_unbounded(self):
         result = compile_source(
             "module Proven { in a:u8 out y:u8 "
-            "y=explore { a ^ 0 minimize lut } }",
+            "y=implement { a ^ 0 intent { minimize lut } } }",
             formal_policy=FormalPolicy.REQUIRED_PROVEN,
             formal_depth=2,
             include_clash=False,
@@ -1078,8 +1086,8 @@ class M39FormalExplorationTests(unittest.TestCase):
         and shutil.which("z3"),
         "real Clash/Yosys/SymbiYosys/Z3 route is unavailable",
     )
-    def test_standalone_pipeline_required_policy_executes(self):
-        source = Path("examples/auto_pipeline_products.zhl").read_text()
+    def test_implement_pipeline_catalog_does_not_duplicate_formal_site(self):
+        source = Path("examples/implementation_intent.zhl").read_text()
         result = compile_source(
             source,
             formal_policy=FormalPolicy.REQUIRED_BMC,
@@ -1087,12 +1095,150 @@ class M39FormalExplorationTests(unittest.TestCase):
             formal_max_candidates=2,
             include_clash=False,
         )
-        exploration = result.ir.pipeline_explorations[0]
+        exploration = result.exploration_results[0]
         self.assertEqual(len(exploration.formal_records), 1)
         record = exploration.formal_records[0]
         self.assertEqual(record.status, FormalStatus.BOUNDED_PASS)
         self.assertEqual(record.backend, "clash")
-        self.assertIn("formal records=1", result.pipeline_report)
+        self.assertEqual(len(result.ir.pipeline_explorations[0].formal_records), 0)
+        self.assertIn("catalog_only_no_proof_attached", result.pipeline_report)
+
+    def test_selected_second_pipeline_record_is_the_only_catalog_evidence(self):
+        source = """
+        module RankedTimedImplement {
+          clock clk
+          reset rst
+          in a:u2
+          in b:u2
+          in c:u2
+          in d:u2
+          in e:u2
+          in f:u2
+          in g:u2
+          in h:u2
+          out y:u7
+          y = implement {
+            a*b+c*d+e*f+g*h
+            intent { latency >= 1 ii == 1 dsp <= 4 fmax >= 100 minimize lut }
+          }
+        }
+        """
+        calls = []
+
+        def fail_first(candidate, _config):
+            calls.append(candidate.implementation_identity)
+            return {
+                "status": (
+                    FormalStatus.FAILED
+                    if len(calls) == 1 else FormalStatus.BOUNDED_PASS
+                )
+            }
+
+        result = compile_source(
+            source,
+            formal_policy=FormalPolicy.REQUIRED_BMC,
+            formal_max_candidates=4,
+            formal_verifier=bound(fail_first),
+            include_clash=False,
+        )
+        exploration = result.exploration_results[0]
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(
+            [(item.rank, item.candidate_identity, item.status)
+             for item in exploration.formal_records],
+            [
+                (1, calls[0], FormalStatus.FAILED),
+                (2, calls[1], FormalStatus.BOUNDED_PASS),
+            ],
+        )
+        catalog_records = result.ir.pipeline_explorations[0].formal_records
+        self.assertEqual(len(catalog_records), 1)
+        self.assertEqual(catalog_records[0].candidate_identity, calls[1])
+        self.assertNotIn(calls[0], result.pipeline_report)
+        self.assertIn(f"candidate_identity={calls[1]}", result.pipeline_report)
+
+    @unittest.skipUnless(
+        find_clash_executable()
+        and len(formal_tools_available()) == 3
+        and shutil.which("z3"),
+        "real Clash/Yosys/SymbiYosys/Z3 route is unavailable",
+    )
+    def test_positive_latency_implement_uses_one_timed_clash_m36_site(self):
+        source = """
+        module TimedImplement {
+          clock clk
+          reset rst
+          in a:u2
+          in b:u2
+          in c:u2
+          in d:u2
+          in e:u2
+          in f:u2
+          in g:u2
+          in h:u2
+          out y:u7
+          y = implement {
+            a*b+c*d+e*f+g*h
+            intent { latency >= 1 ii == 1 dsp <= 4 fmax >= 100 minimize lut }
+          }
+        }
+        """
+        result = compile_source(
+            source,
+            formal_policy=FormalPolicy.REQUIRED_BMC,
+            formal_depth=8,
+            formal_max_candidates=1,
+            include_clash=False,
+        )
+        exploration = result.exploration_results[0]
+        selected = exploration.selected_candidate
+        self.assertEqual(exploration.site_kind, "implement")
+        self.assertEqual(len(exploration.formal_records), 1)
+        record = exploration.formal_records[0]
+        self.assertEqual(record.status, FormalStatus.BOUNDED_PASS)
+        self.assertEqual(record.mode, ProofMode.BMC)
+        self.assertEqual(record.depth, 8)
+        self.assertEqual(record.candidate_identity, selected.implementation_identity)
+        self.assertGreater(selected.cost.latency.value or 0, 0)
+        self.assertEqual(len(result.ir.pipeline_explorations), 1)
+        self.assertEqual(len(result.ir.pipeline_explorations[0].formal_records), 1)
+        self.assertIn("emitted=true", result.pipeline_report)
+        self.assertIn(
+            f"candidate={selected.implementation_identity}",
+            result.pipeline_report,
+        )
+        sites = candidate_formal_record_sites(
+            result.ir, result.exploration_results
+        )
+        self.assertEqual(len(sites), 1)
+        self.assertEqual(sites[0][1].candidate_identity, selected.implementation_identity)
+
+        config = FormalExplorationConfig(
+            FormalPolicy.REQUIRED_BMC,
+            max_formal_candidates=1,
+            bmc_depth=8,
+        )
+        verifier = M36ClashCandidateVerifier(
+            exploration.request.root,
+            candidate_class="m31",
+            clock_domain_contract=ClockDomain("clk", "rst"),
+        )
+        prepared = verifier.prepare(selected, config)
+        self.assertEqual(prepared.property.candidate_class, "m31")
+        self.assertEqual(prepared.property.clock_domain_contract.clock, "clk")
+        self.assertEqual(prepared.property.clock_domain_contract.reset, "rst")
+        self.assertGreaterEqual(
+            prepared.property.comparison_window.minimum_bmc_depth, 1
+        )
+        self.assertLessEqual(
+            prepared.property.comparison_window.minimum_bmc_depth, 8
+        )
+        bindings = {
+            item.role.value: item
+            for item in prepared.implementation_artifact.bindings
+        }
+        self.assertEqual(bindings["clock"].rtl_path, "clk")
+        self.assertEqual(bindings["reset"].rtl_path, "rst")
 
     @unittest.skipUnless(
         find_clash_executable()
@@ -1108,7 +1254,7 @@ class M39FormalExplorationTests(unittest.TestCase):
             evidence_path = root / "evidence.json"
             manifest_path = root / "build.json"
             status = main([
-                "examples/auto_pipeline_products.zhl",
+                "examples/implementation_intent.zhl",
                 "-o", str(root / "AutoPipelineProducts.hs"),
                 "--formal-policy", "required_bmc",
                 "--formal-depth", "8",

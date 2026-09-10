@@ -4,12 +4,12 @@
       "bram": 0,
       "dsp": 4,
       "ff": 16,
-      "fmax_mhz": 72.10,
+      "fmax_mhz": 72.1,
       "key": {
         "architecture_template_identity": "std.arch.xilinx7_fir.Xilinx7SymmetricDSPCascade",
         "backend": "direct_systemverilog",
         "clock_period_ns": 10.0,
-        "implementation_graph_identity": "de214b02a797c01234cff09c04f881bf03161f597c3fc15c616188958e21dbf5",
+        "implementation_graph_identity": "048d46cae275035a7ce0232361439021575e4be02108cf854a54013d7c3f415f",
         "pipeline_configuration_identity": "std.target.xilinx.series7.DSP48E1.unregistered",
         "target_identity": "std.target.xilinx.xc7z030.xc7z030ffg676_1",
         "target_part": "xc7z030ffg676-1",
@@ -25,12 +25,12 @@
       "bram": 0,
       "dsp": 4,
       "ff": 16,
-      "fmax_mhz": 80.20,
+      "fmax_mhz": 80.2,
       "key": {
         "architecture_template_identity": "std.arch.xilinx7_fir.Xilinx7SymmetricDSPCascade",
         "backend": "direct_systemverilog",
         "clock_period_ns": 10.0,
-        "implementation_graph_identity": "5119d49ce7fa53fd26414c27158dcd3458d56123399348ceac47ca0ca975b385",
+        "implementation_graph_identity": "0912a3261ccb9ce57962c20a261a93a5841b0b36d0999f94fe5b0272e61d36b0",
         "pipeline_configuration_identity": "std.target.xilinx.series7.DSP48E1.multiply_registered",
         "target_identity": "std.target.xilinx.xc7z030.xc7z030ffg676_1",
         "target_part": "xc7z030ffg676-1",
@@ -51,7 +51,7 @@
         "architecture_template_identity": "std.arch.xilinx7_fir.Xilinx7SymmetricDSPCascade",
         "backend": "direct_systemverilog",
         "clock_period_ns": 10.0,
-        "implementation_graph_identity": "460411b76e653826fa9d4747149fd6deefc2e00bcdad106262b1c9b1076c43f1",
+        "implementation_graph_identity": "0ae4282ee3e6063d6dd5889dbba69a5196f85adf7aa90114501f3f05667ec17a",
         "pipeline_configuration_identity": "std.target.xilinx.series7.DSP48E1.multiply_output_registered",
         "target_identity": "std.target.xilinx.xc7z030.xc7z030ffg676_1",
         "target_part": "xc7z030ffg676-1",
@@ -72,7 +72,7 @@
         "architecture_template_identity": "std.arch.xilinx7_fir.Xilinx7SymmetricDSPCascade",
         "backend": "direct_systemverilog",
         "clock_period_ns": 10.0,
-        "implementation_graph_identity": "1023b5feac9a3ace438c7cb19c912bc261d458d477b69538a2af214c742e5985",
+        "implementation_graph_identity": "30323acfcbc4217c0841a604c01b2f57ea19f1ef1c506dea2e475e2c0be6b168",
         "pipeline_configuration_identity": "std.target.xilinx.series7.DSP48E1.fully_pipelined",
         "target_identity": "std.target.xilinx.xc7z030.xc7z030ffg676_1",
         "target_part": "xc7z030ffg676-1",
@@ -93,7 +93,7 @@
         "architecture_template_identity": "std.arch.xilinx7_fir.Xilinx7SymmetricDSPCascade",
         "backend": "direct_systemverilog",
         "clock_period_ns": 10.0,
-        "implementation_graph_identity": "e7462e6dbd4e83c405d5812eb9351119fc75d9e3319f6441cddb743edccab4ec",
+        "implementation_graph_identity": "49cd09f22feaf4407fc4bae0fce3e32cb35b3aa3200c3366d9e93467cd17cea1",
         "pipeline_configuration_identity": "std.target.xilinx.series7.DSP48E1.multiply_output_registered",
         "target_identity": "std.target.xilinx.xc7z030.xc7z030ffg676_1",
         "target_part": "xc7z030ffg676-1",
@@ -106,5 +106,5 @@
       "wns_ns": 0.577
     }
   ],
-  "schema": "zlang-target-qor-v1"
+  "schema": "zlang-target-qor-v2"
 }

@@ -15,9 +15,6 @@ from lark.exceptions import VisitError
 from zlang.ast.nodes import (
     AddExpr,
     AggregateInterfaceDecl,
-    ArchitectureConstraint,
-    ArchitectureExpr,
-    ArchitectureMetric,
     ArbiterDecl,
     ArbitrationPolicy,
     Assignment,
@@ -62,9 +59,7 @@ from zlang.ast.nodes import (
     EnumMemberRef,
     FixedOverflowMode,
     FixedRoundingMode,
-    ExploreExpr,
     ExplorationConstraint,
-    ExplorationFamily,
     ExplorationObjective,
     ExplorationRelation,
     FieldExpr,
@@ -84,6 +79,7 @@ from zlang.ast.nodes import (
     IndexExpr,
     IndexedAssignmentTarget,
     IndexedSumExpr,
+    ImplementExpr,
     ImplementationArm,
     ImplementationChoiceExpr,
     ImplementationKind,
@@ -120,6 +116,7 @@ from zlang.ast.nodes import (
     NextAssignment,
     Parameter,
     PipelineExpr,
+    ProtocolTransformExpr,
     PipelineConstraint,
     PipelineMetric,
     PipelineRelation,
@@ -400,13 +397,18 @@ class _AstBuilder(Transformer):
     def target_role_name(self, items: list[object]) -> str:
         return "target"
 
-    def protocol_channel(self, items: list[object]) -> tuple[str, ProtocolChannelDecl]:
+    @staticmethod
+    def _protocol_channel_item(
+        items: list[object],
+    ) -> tuple[str, ProtocolChannelDecl]:
         domain = str(items[4]) if len(items) > 4 and items[4] is not None else None
         return ("channel", ProtocolChannelDecl(str(items[0]), items[1], str(items[2]), str(items[3]), domain))
 
+    def protocol_channel(self, items: list[object]) -> tuple[str, ProtocolChannelDecl]:
+        return self._protocol_channel_item(items)
+
     def protocol_member(self, items: list[object]) -> tuple[str, ProtocolChannelDecl]:
-        domain = str(items[4]) if len(items) > 4 and items[4] is not None else None
-        return ("channel", ProtocolChannelDecl(str(items[0]), items[1], str(items[2]), str(items[3]), domain))
+        return self._protocol_channel_item(items)
 
     def protocol_decl(self, items: list[object]) -> ProtocolDecl:
         name = str(items[0])
@@ -2375,7 +2377,7 @@ class _AstBuilder(Transformer):
     def pipeline_expr(self, meta: object, items: list[object]) -> PipelineExpr:
         depth = str(items[0])
         return PipelineExpr(
-            None if depth == "auto" else int(depth),
+            int(depth),
             items[-1],
             tuple(
                 item for item in items[1:-1]
@@ -2384,25 +2386,39 @@ class _AstBuilder(Transformer):
             origin=self._span(meta),
         )
 
-    def architecture_constraint(
-        self, items: list[object]
-    ) -> ArchitectureConstraint:
-        return ArchitectureConstraint(
-            ArchitectureMetric(str(items[0])),
-            self._parse_number(items[1]),
+    @v_args(meta=True)
+    def removed_pipeline_auto_expr(
+        self, meta: object, items: list[object]
+    ) -> object:
+        raise ParseError(
+            "scalar pipeline(auto) was removed; use implement { expression "
+            "intent { ... } } for compiler-selected implementation, or "
+            "pipeline(N) for exact latency"
         )
 
     @v_args(meta=True)
-    def architecture_expr(
+    def protocol_transform_expr(
         self, meta: object, items: list[object]
-    ) -> ArchitectureExpr:
-        return ArchitectureExpr(
+    ) -> ProtocolTransformExpr:
+        return ProtocolTransformExpr(
             items[-1],
             tuple(
                 item for item in items[:-1]
-                if isinstance(item, ArchitectureConstraint)
+                if isinstance(item, PipelineConstraint)
             ),
             origin=self._span(meta),
+        )
+
+    def architecture_constraint(self, items: list[object]) -> tuple[str, int]:
+        return (str(items[0]), self._parse_number(items[1]))
+
+    @v_args(meta=True)
+    def removed_architecture_expr(
+        self, meta: object, items: list[object]
+    ) -> object:
+        raise ParseError(
+            "scalar architecture(auto) was removed; use implement { expression "
+            "intent { ... } } for compiler-selected implementation"
         )
 
     def implementation_arm(self, items: list[object]) -> ImplementationArm:
@@ -2455,68 +2471,87 @@ class _AstBuilder(Transformer):
             origin=self._span(meta),
         )
 
-    def explore_allow(self, items: list[object]) -> tuple[str, tuple[ExplorationFamily, ...]]:
-        return ("allow", (ExplorationFamily(str(items[0])),))
+    def explore_allow(self, items: list[object]) -> tuple[str, tuple[str, ...]]:
+        return ("allow", (str(items[0]),))
 
-    def explore_avoid(self, items: list[object]) -> tuple[str, tuple[ExplorationFamily, ...]]:
-        return ("avoid", (ExplorationFamily(str(items[0])),))
+    def explore_avoid(self, items: list[object]) -> tuple[str, tuple[str, ...]]:
+        return ("avoid", (str(items[0]),))
 
-    def explore_allow_group(self, items: list[object]) -> tuple[str, tuple[ExplorationFamily, ...]]:
-        return ("allow", tuple(ExplorationFamily(str(item)) for item in items))
+    def explore_allow_group(self, items: list[object]) -> tuple[str, tuple[str, ...]]:
+        return ("allow", tuple(str(item) for item in items))
 
-    def explore_avoid_group(self, items: list[object]) -> tuple[str, tuple[ExplorationFamily, ...]]:
-        return ("avoid", tuple(ExplorationFamily(str(item)) for item in items))
+    def explore_avoid_group(self, items: list[object]) -> tuple[str, tuple[str, ...]]:
+        return ("avoid", tuple(str(item) for item in items))
 
-    def explore_require(self, items: list[object]) -> ExplorationConstraint:
+    def explore_require(self, items: list[object]) -> tuple[str, str, int]:
+        return (
+            str(items[0]),
+            str(items[1]),
+            self._parse_number(items[2]),
+        )
+
+    def explore_require_group(self, items: list[object]) -> tuple[tuple[str, str, int], ...]:
+        return tuple(
+            (str(items[index]), str(items[index + 1]), self._parse_number(items[index + 2]))
+            for index in range(0, len(items), 3)
+        )
+
+    def explore_minimize(self, items: list[object]) -> tuple[str, str]:
+        return ("minimize", str(items[0]))
+
+    def explore_maximize(self, items: list[object]) -> tuple[str, str]:
+        return ("maximize", str(items[0]))
+
+    @v_args(meta=True)
+    def removed_explore_expr(self, meta: object, items: list[object]) -> object:
+        raise ParseError(
+            "scalar explore was removed; use implement { expression intent "
+            "{ ... } } for compiler-selected implementation"
+        )
+
+    def implement_constraint(self, items: list[object]) -> ExplorationConstraint:
         return ExplorationConstraint(
             _cost_metric(str(items[0])),
             ExplorationRelation(str(items[1])),
             self._parse_number(items[2]),
         )
 
-    def explore_require_group(self, items: list[object]) -> tuple[ExplorationConstraint, ...]:
-        return tuple(
-            ExplorationConstraint(
-                _cost_metric(str(items[index])),
-                ExplorationRelation(str(items[index + 1])),
-                self._parse_number(items[index + 2]),
-            )
-            for index in range(0, len(items), 3)
-        )
-
-    def explore_minimize(self, items: list[object]) -> ExplorationObjective:
+    def implement_minimize(self, items: list[object]) -> ExplorationObjective:
         return ExplorationObjective("minimize", _cost_metric(str(items[0])))
 
-    def explore_maximize(self, items: list[object]) -> ExplorationObjective:
+    def implement_maximize(self, items: list[object]) -> ExplorationObjective:
         return ExplorationObjective("maximize", _cost_metric(str(items[0])))
 
-    @v_args(meta=True)
-    def explore_expr(self, meta: object, items: list[object]) -> ExploreExpr:
-        allowed: list[ExplorationFamily] = []
-        avoided: list[ExplorationFamily] = []
+    def implement_intent(
+        self, items: list[object]
+    ) -> tuple[tuple[ExplorationConstraint, ...], ExplorationObjective | None]:
         constraints: list[ExplorationConstraint] = []
         objective = None
-        for item in items[1:]:
-            if isinstance(item, tuple) and item and isinstance(item[0], ExplorationConstraint):
-                constraints.extend(item)
-            elif isinstance(item, tuple):
-                kind, families = item
-                (allowed if kind == "allow" else avoided).extend(families)
-            elif isinstance(item, ExplorationConstraint):
+        for item in items:
+            if isinstance(item, ExplorationConstraint):
                 constraints.append(item)
             elif isinstance(item, ExplorationObjective):
                 if objective is not None:
-                    raise ParseError("explore accepts exactly one objective")
+                    raise ParseError("implement intent accepts exactly one objective")
                 objective = item
+        if not constraints and objective is None:
+            raise ParseError("implement intent must contain a constraint or objective")
         metrics = [item.metric for item in constraints]
         if len(metrics) != len(set(metrics)):
             duplicate = next(item for item in metrics if metrics.count(item) > 1)
             raise ParseError(
-                f"explore repeats '{duplicate.value}' constraint"
+                f"implement intent repeats '{duplicate.value}' constraint"
             )
-        return ExploreExpr(
-            items[0], tuple(dict.fromkeys(allowed)), tuple(dict.fromkeys(avoided)),
-            tuple(constraints), objective, origin=self._span(meta)
+        return (tuple(constraints), objective)
+
+    @v_args(meta=True)
+    def implement_expr(self, meta: object, items: list[object]) -> ImplementExpr:
+        constraints, objective = items[1]
+        return ImplementExpr(
+            items[0],
+            constraints,
+            objective,
+            origin=self._span(meta),
         )
 
     @v_args(meta=True)

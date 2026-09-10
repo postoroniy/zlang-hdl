@@ -682,12 +682,10 @@ def test_public_policy_documents_are_discoverable() -> None:
         "local safety verification",
         "cross-backend evidence",
         "formal-aware candidate selection",
-        "`explore`",
-        "`architecture(auto)`",
-        "`pipeline(auto)`",
+        "`implement`",
+        "`choice`",
     ):
         assert capability in project_scope
-
 
 def test_no_skip_plugin_turns_skip_into_failure(tmp_path: Path) -> None:
     test_file = tmp_path / "test_skipped.py"

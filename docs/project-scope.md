@@ -22,8 +22,8 @@ open-source project. That scope includes:
 - local safety verification (M35), semantic-reference equivalence (M36),
   cross-backend evidence (M38), formal-aware candidate selection (M39), and
   immutable verification bundles;
-- local implementation exploration, including `choice`, `explore`,
-  `architecture(auto)`, `pipeline(auto)`, cost extraction, and local synthesis
+- local implementation selection, including `implement`, `choice`, cost
+  extraction, and local synthesis
   evidence; and
 - reproducible projects, logical imports, dependency locking, implementation
   profiles, and artifact identities.

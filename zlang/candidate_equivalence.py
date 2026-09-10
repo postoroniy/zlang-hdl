@@ -11,11 +11,13 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
-import json
 from pathlib import Path
 from threading import Lock
 
-from zlang.backend.manifest import BackendArtifact, MANIFEST_VERSION
+from zlang.backend.manifest import (
+    BackendArtifact,
+    MANIFEST_VERSION,
+)
 from zlang.candidate_sites import (
     CandidateSiteError,
     SelectedCandidateSite,
@@ -38,6 +40,7 @@ from zlang.formal_artifact_provider import (
     FormalArtifactProvider,
     FormalArtifactRecipe,
     decisive_formal_cacheable,
+    formal_backend_artifact_ref,
 )
 from zlang.formal_candidate import (
     FormalCandidateUnavailable,
@@ -75,7 +78,6 @@ from zlang.ir.equivalence import (
 )
 from zlang.ir.formal import FormalStatus, ProofMode
 from zlang.ir.formal_planning import (
-    FormalBackendArtifactRef,
     FormalExecutableRoute,
     FormalGoalPlan,
     FormalPlanGoalKind,
@@ -296,7 +298,7 @@ class FrozenCandidateEquivalenceSite:
                     "frozen M38 route is missing one prepared backend leg"
                 )
             actual = tuple(
-                _artifact_ref(item.implementation_artifact)
+                formal_backend_artifact_ref(item.implementation_artifact)
                 for item in (self.clash, self.direct_systemverilog)
             )
             if self.plan.m38.route.artifacts != actual:
@@ -347,7 +349,7 @@ class FrozenCandidateEquivalenceSite:
             raise FormalOrchestrationError(
                 f"frozen {backend} M36 reference hash differs from its plan"
             )
-        if plan.route.artifacts != (_artifact_ref(prepared.implementation_artifact),):
+        if plan.route.artifacts != (formal_backend_artifact_ref(prepared.implementation_artifact),):
             raise FormalOrchestrationError(
                 f"frozen {backend} M36 artifact/binding hashes differ from its plan"
             )
@@ -431,23 +433,6 @@ class FrozenCandidateEquivalenceSite:
         return restored
 
 
-def _binding_identity(artifact: BackendArtifact) -> str:
-    manifest = json.loads(artifact.to_json())
-    return "bindings:" + stable_digest({
-        "manifest_version": artifact.manifest_version,
-        "artifact_hash": artifact.artifact_hash,
-        "bindings": manifest["bindings"],
-    })
-
-
-def _artifact_ref(artifact: BackendArtifact) -> FormalBackendArtifactRef:
-    return FormalBackendArtifactRef(
-        artifact.backend,
-        artifact.artifact_hash,
-        _binding_identity(artifact),
-    )
-
-
 def _m36_plan(
     site: SelectedCandidateSite,
     property_: EquivalenceProperty,
@@ -472,7 +457,7 @@ def _m36_plan(
             )
         route = FormalExecutableRoute(
             FormalRouteKind.SEMANTIC_EQUIVALENCE,
-            (_artifact_ref(prepared.implementation_artifact),),
+            (formal_backend_artifact_ref(prepared.implementation_artifact),),
             reference_identity=prepared.reference_artifact_hash,
         )
     observations = tuple(dict.fromkeys((
@@ -549,8 +534,8 @@ def _m38_plan(
         route = FormalExecutableRoute(
             FormalRouteKind.CROSS_BACKEND_EQUIVALENCE,
             (
-                _artifact_ref(clash.implementation_artifact),
-                _artifact_ref(direct.implementation_artifact),
+                formal_backend_artifact_ref(clash.implementation_artifact),
+                formal_backend_artifact_ref(direct.implementation_artifact),
             ),
         )
     else:

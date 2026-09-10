@@ -32,6 +32,8 @@ from zlang.candidate_sites import (
     gate_retained_explorations,
     gate_structured_candidate_sites,
     module_candidate_owner_identity,
+    exploration_site_key,
+    pipeline_site_key,
 )
 from zlang.compilation_inputs import PhysicalCompilationInputs
 from zlang.compilation_products import CompilationResult
@@ -74,6 +76,10 @@ from zlang.implementations import render_implementation_report
 from zlang.ir import expressions as ir_expr
 from zlang.ir.formal import FormalDesign, FormalStatus, ProofMode
 from zlang.ir.module import Module as IrModule, dependency_context_identity
+from zlang.ir.signed_reductions import (
+    expression_semantic_identity,
+    selection_expression_semantic_identity,
+)
 from zlang.opt import CanonicalModule, OptimizationStage, lower, restore
 from zlang.parser import parse
 from zlang.pipelines import render_pipeline_report
@@ -137,13 +143,87 @@ def _gate_all_standalone_pipelines(
     module: IrModule,
     config: FormalExplorationConfig,
     verifier: object | None,
+    canonical_site_keys: Iterable[tuple[str, str | None, str]] = (),
 ) -> IrModule:
     from zlang.formal_candidate import gate_standalone_pipelines
 
+    keys = frozenset(canonical_site_keys)
     return _map_modules(
         module,
-        lambda item: gate_standalone_pipelines(item, config, verifier),
+        lambda item: gate_standalone_pipelines(
+            item, config, verifier, canonical_site_keys=keys
+        ),
     )
+
+
+def _attach_unified_pipeline_formal_records(
+    module: IrModule,
+    results: Iterable[ExplorationResult],
+) -> IrModule:
+    """Mirror one unified M39 record into planner-only pipeline metadata.
+
+    ``implement`` owns the formal candidate site.  Its retained pipeline
+    table is still useful to reports and target planning, but must not trigger
+    another proof route.  Copying the already-produced records keeps those
+    reports informative without changing the candidate/cache identity.
+    """
+
+    retained = tuple(results)
+
+    def transform(current: IrModule) -> IrModule:
+        pipelines = []
+        changed = False
+        for pipeline in current.pipeline_explorations:
+            key = pipeline_site_key(current, pipeline)
+            matches = tuple(
+                result for result in retained if exploration_site_key(result) == key
+            )
+            if not matches:
+                pipelines.append(pipeline)
+                continue
+            if len(matches) == 1:
+                result = matches[0]
+                # A planner catalog is allowed to carry evidence only when
+                # its exact selected expression is the one emitted by the
+                # unified implementation result.  Matching only the region
+                # would attach proof for a different (often zero-cycle)
+                # candidate to a positive-latency catalog entry.
+                selected_matches = (
+                    selection_expression_semantic_identity(
+                        result.selected_candidate.expression
+                    )
+                    == selection_expression_semantic_identity(
+                        pipeline.selected_candidate.expression
+                    )
+                )
+                emitted_identity = result.selected_candidate.implementation_identity
+                records = (
+                    tuple(
+                        record
+                        for record in result.formal_records
+                        if getattr(record, "candidate_identity", None)
+                        == emitted_identity
+                    )
+                    if selected_matches else ()
+                )
+                updated = replace(pipeline, formal_records=records)
+                pipelines.append(updated)
+                # Pipeline formal metadata is intentionally compare=False, so
+                # dataclass equality cannot detect this report-only update.
+                changed = changed or (
+                    pipeline.formal_records != records
+                )
+            else:
+                # A duplicate typed site is malformed; leave metadata empty so
+                # a report cannot claim evidence whose owner is ambiguous.
+                pipelines.append(replace(pipeline, formal_records=()))
+                changed = changed or bool(pipeline.formal_records)
+        return replace(
+            current,
+            pipeline_explorations=tuple(pipelines),
+        ) if changed else current
+
+    return _map_modules(module, transform)
 
 
 def _with_elastic_formal_records(
@@ -889,10 +969,19 @@ class CompilationSession:
                     configured_formal,
                     self.formal_verifier,
                 )
+                semantic_ir = _attach_unified_pipeline_formal_records(
+                    semantic_ir,
+                    exploration_results,
+                )
                 semantic_ir = _gate_all_standalone_pipelines(
                     semantic_ir,
                     configured_formal,
                     self.formal_verifier,
+                    canonical_site_keys=(
+                        exploration_site_key(item)
+                        for item in exploration_results
+                        if item.site_kind == "implement"
+                    ),
                 )
                 semantic_ir = gate_structured_candidate_sites(
                     semantic_ir,
@@ -1092,8 +1181,22 @@ class CompilationSession:
     def _build_reports(self) -> _ReportProduct:
         selection = self._selection
         planning = self.planning
+        implementation_report = render_implementation_report(selection.module)
+        if not implementation_report and selection.exploration_results:
+            implementation_report = render_exploration_report(
+                selection.exploration_results
+            )
+        architecture_report = render_architecture_report(selection.module)
+        if not architecture_report and selection.exploration_results:
+            # ``--architecture-report`` remains a compatibility output alias,
+            # but canonical ``implement`` regions no longer manufacture a
+            # source-level ArchitectureExploration node.  Expose the same
+            # unified candidate report instead of returning an empty artifact.
+            architecture_report = render_exploration_report(
+                selection.exploration_results
+            )
         return _ReportProduct(
-            render_implementation_report(selection.module),
+            implementation_report,
             render_cost_report(selection.extraction),
             render_pipeline_report(selection.module)
             + (
@@ -1101,7 +1204,7 @@ class CompilationSession:
                 if planning.target_planning_result
                 else ""
             ),
-            render_architecture_report(selection.module),
+            architecture_report,
             render_exploration_report(selection.exploration_results),
         )
 

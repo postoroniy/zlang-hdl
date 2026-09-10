@@ -412,10 +412,9 @@ class ConnectionDecl:
     adapter: ConnectionAdapter | None = None
     crossing: Crossing | None = None
     # A bounded ready/valid transform owns the connection rather than adding a
-    # second ordinary protocol edge.  The parser retains the existing
-    # ``PipelineExpr`` surface; semantic analysis turns it into the dedicated
-    # backend-independent elastic region/plan IR.
-    transform: "PipelineExpr | None" = None
+    # second ordinary protocol edge.  It has a dedicated AST node so the
+    # scalar exact ``PipelineExpr`` cannot be confused with protocol timing.
+    transform: "ProtocolTransformExpr | None" = None
 
 
 @dataclass(frozen=True)
@@ -893,27 +892,25 @@ class PipelineConstraint:
 
 @dataclass(frozen=True)
 class PipelineExpr(LocatedExpression):
-    stages: int | None
+    """Exact timed pipeline; ``stages`` is always a positive integer."""
+
+    stages: int
     expression: Expression
     constraints: tuple[PipelineConstraint, ...] = ()
 
 
-class ArchitectureMetric(str, Enum):
-    PARALLELISM = "parallelism"
-    DEPTH = "depth"
-    CANDIDATES = "candidates"
-
-
 @dataclass(frozen=True)
-class ArchitectureConstraint:
-    metric: ArchitectureMetric
-    maximum: int
+class ProtocolTransformExpr(LocatedExpression):
+    """Globally-stalled ready/valid implementation transform.
 
+    This is deliberately distinct from :class:`PipelineExpr`: protocol
+    transforms have backpressure-dependent wall-clock latency, while
+    ``pipeline(N)`` is exact source timing and ``implement`` is scalar
+    implementation intent.
+    """
 
-@dataclass(frozen=True)
-class ArchitectureExpr(LocatedExpression):
     expression: Expression
-    constraints: tuple[ArchitectureConstraint, ...] = ()
+    constraints: tuple[PipelineConstraint, ...] = ()
 
 
 class ImplementationKind(str, Enum):
@@ -948,14 +945,6 @@ class CostPolicy:
     feedback: SynthesisFeedback | None = None
 
 
-class ExplorationFamily(str, Enum):
-    PIPELINE = "pipeline"
-    DSP = "dsp"
-    REDUCTION = "reduction"
-    REASSOCIATE = "reassociate"
-    ADAPTER = "adapter"
-
-
 class ExplorationRelation(str, Enum):
     MAXIMUM = "<="
     MINIMUM = ">="
@@ -976,10 +965,8 @@ class ExplorationObjective:
 
 
 @dataclass(frozen=True)
-class ExploreExpr(LocatedExpression):
+class ImplementExpr(LocatedExpression):
     expression: Expression
-    allowed: tuple[ExplorationFamily, ...] = ()
-    avoided: tuple[ExplorationFamily, ...] = ()
     constraints: tuple[ExplorationConstraint, ...] = ()
     objective: ExplorationObjective | None = None
 
@@ -1029,9 +1016,8 @@ Expression = (
     | DotExpr
     | DelayExpr
     | PipelineExpr
-    | ArchitectureExpr
     | ImplementationChoiceExpr
-    | ExploreExpr
+    | ImplementExpr
     | StructConstructExpr
     | TaggedUnionConstructExpr
     | TaggedUnionMatchExpr

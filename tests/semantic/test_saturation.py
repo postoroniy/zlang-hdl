@@ -122,9 +122,9 @@ class EqualitySaturationSemanticTests(unittest.TestCase):
 
         explored = compile_source(
             "module Nested { in x:u8 out y:u8 "
-            "y=explore { (x|0)^0 } }"
+            "y=implement { (x|0)^0 intent { minimize lut } } }"
         )
-        self.assertIn("source=1 value=4 legal=4 rejected=0", explored.exploration_report)
+        self.assertIn("source=1 value=4 architecture=4 reduction=4 legal=4 rejected=0", explored.exploration_report)
 
     def test_source_equiv_is_bidirectional_from_the_plain_value_root(self) -> None:
         compilation = compile_source(
@@ -171,9 +171,9 @@ class EqualitySaturationSemanticTests(unittest.TestCase):
     def test_comparison_roots_are_total_through_unified_explore(self) -> None:
         sources = (
             "module Compare { in x:u8 out y:bit "
-            "y=explore { x==0 } }",
+        "y=implement { x==0 intent { minimize lut } } }",
             "module Nested { in c:bit in x:u8 out y:bit "
-            "y=explore { mux(c,x==0,x==1) } }",
+        "y=implement { mux(c,x==0,x==1) intent { minimize lut } } }",
         )
         for source in sources:
             with self.subTest(source=source):

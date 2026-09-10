@@ -7,7 +7,11 @@ import json
 import pytest
 
 from zlang.backend.clash import emit_artifact as emit_clash_artifact
-from zlang.backend.manifest import BackendArtifact, MANIFEST_VERSION
+from zlang.backend.manifest import (
+    BackendArtifact,
+    MANIFEST_VERSION,
+    backend_binding_identity,
+)
 from zlang.backend.systemverilog import emit_artifact as emit_systemverilog_artifact
 from zlang.compiler import compile_source
 
@@ -32,6 +36,7 @@ def test_backend_artifact_round_trip_is_byte_identical(index: int) -> None:
     assert tuple(item.source_origin for item in restored.bindings) == tuple(
         item.source_origin for item in artifact.bindings
     )
+    assert backend_binding_identity(restored) == backend_binding_identity(artifact)
 
 
 @pytest.mark.parametrize(

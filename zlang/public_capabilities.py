@@ -642,7 +642,7 @@ CAPABILITY_REGISTRY = PublicCapabilityRegistry(
             ),
         ),
         DocumentationRequirement("rewrites", "docs/syntax-support-matrix.md", ("`equiv`",)),
-        DocumentationRequirement("exploration", "docs/syntax-support-matrix.md", ("`choice`, `architecture`, `explore`",)),
+        DocumentationRequirement("exploration", "docs/syntax-support-matrix.md", ("`implement`, `choice`",)),
         DocumentationRequirement("compile-time-math", "docs/syntax-support-matrix.md", ("`pi`, `sin`, `cos`",)),
     ),
 )

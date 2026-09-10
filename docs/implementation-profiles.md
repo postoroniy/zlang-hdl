@@ -57,17 +57,19 @@ only and scalar-only; recursive/profile-selected protocol regions are deferred.
 
 ## Normalization and conflicts
 
-`choice(auto)`, `architecture(auto)`, `pipeline(auto)`, and `explore` remain
-accepted. Their frozen source policy is represented through the same
-`ImplementationRequest` model as the selected profile and explicit compiler
-options. Equal normalized contributions are harmless. Different values for
+`choice(auto)` remains accepted for user-supplied alternatives. Scalar
+`architecture(auto)`, `pipeline(auto)`, and `explore` are retired and produce
+migration diagnostics. Canonical `implement` source policy is represented
+through the same `ImplementationRequest` model as the selected profile and
+explicit compiler options. Equal normalized contributions are harmless. Different values for
 the same target, transform set, objective, constraint, evidence policy, formal
 policy, or architecture are rejected with both origins in the diagnostic.
 
 For an ordinary typed scalar output, profile transforms/constraints/objectives
-run through the existing bounded M34 explorer. A legacy source auto/explore
-region has already run during semantic analysis, so it is compared but never
-run a second time. No new transform or equivalence rule is introduced.
+run through the existing bounded M34 explorer. Canonical `implement` regions
+have already run during semantic analysis, so their retained candidate table is
+compared but never run a second time. Retained legacy records are handled the
+same way for replay only; no new transform or equivalence rule is introduced.
 
 An exact module `timing` block is immutable public behavior. Profile bounds may
 equal or contain that exact latency/II, but cannot weaken or contradict it.

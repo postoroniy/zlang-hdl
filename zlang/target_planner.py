@@ -15,7 +15,6 @@ from zlang.costs import (
     MetricSource,
     MetricValue,
     SourcePolicy,
-    UnifiedConstraint,
     extract_best,
 )
 from zlang.ir import expressions as expr
@@ -23,6 +22,7 @@ from zlang.ir.module import Module
 from zlang.ir.pipelines import PipelineMetric, PipelineRelation
 from zlang.ir.target import ImplementationGraph
 from zlang.ir.signed_reductions import recognize_signed_product_reduction
+from zlang.pipelines import pipeline_constraints_to_unified
 from zlang.target_timing import build_signed_product_timing_dag, delay_ff_cost
 from zlang.targets import (
     TargetArchitectureError,
@@ -34,7 +34,10 @@ from zlang.targets import (
 )
 
 
-EVIDENCE_SCHEMA = "zlang-target-qor-v1"
+# v2 removes source-provenance spelling from the implementation-graph
+# identity.  v1 records are intentionally rejected rather than interpreted as
+# evidence for a canonical ``implement`` region.
+EVIDENCE_SCHEMA = "zlang-target-qor-v2"
 DEFAULT_EVIDENCE = Path(__file__).with_name("data") / "xc7z030_dsp_pipeline_qor.json"
 
 
@@ -93,6 +96,17 @@ class TargetCandidate:
 
     @property
     def implementation_identity(self) -> str:
+        # Keep extraction deterministic across source spellings and evidence
+        # migrations.  Physical configurations with equal measured cost are
+        # ordered by the number of active pipeline sites before their stable
+        # configuration identity; the graph hash remains the immutable
+        # artifact identity exposed by ``identity``.
+        if self.graph.pipeline_configuration_identity is not None:
+            return (
+                f"{len(self.graph.active_pipeline_sites):04d}:"
+                f"{self.graph.pipeline_configuration_identity}:"
+                f"{self.graph.identity}"
+            )
         return self.graph.identity
 
     @property
@@ -129,7 +143,8 @@ def _requirements(module: Module):
         return None, (), None, None
     if len(fixed) != 1:
         raise TargetArchitectureError(
-            "first target-aware slice accepts exactly one fixed pipeline(auto) region"
+            "target-aware implementation selection accepts exactly one fixed "
+            "implementation region"
         )
     exploration = fixed[0]
     exact = next((item.value for item in exploration.constraints
@@ -144,24 +159,6 @@ def _requirements(module: Module):
         for item in exploration.constraints
     )
     return exploration, normalized, exact, maximum
-
-
-def _constraints(exploration) -> tuple[UnifiedConstraint, ...]:
-    result = []
-    for item in exploration.constraints:
-        metric = {
-            PipelineMetric.LATENCY: expr.CostMetric.LATENCY,
-            PipelineMetric.THROUGHPUT: expr.CostMetric.INITIATION_INTERVAL,
-            PipelineMetric.DSP: expr.CostMetric.DSP,
-            PipelineMetric.FMAX: expr.CostMetric.FMAX_EST,
-        }[item.metric]
-        if item.relation is PipelineRelation.MAXIMUM:
-            result.append(UnifiedConstraint(metric, maximum=item.value))
-        elif item.relation is PipelineRelation.MINIMUM:
-            result.append(UnifiedConstraint(metric, minimum=item.value))
-        else:
-            result.append(UnifiedConstraint(metric, minimum=item.value, maximum=item.value))
-    return tuple(result)
 
 
 def _generic_candidate(module: Module, target, exploration, requirements) -> TargetCandidate:
@@ -233,6 +230,14 @@ def _compatible_evidence(
     records: Iterable[QoREvidence], graph: ImplementationGraph,
     *, backend: str, tool: str, tool_version: str, clock_period_ns: float,
 ) -> QoREvidence | None:
+    """Return evidence only for the exact immutable candidate identity.
+
+    Source spelling is intentionally absent from ``MeasurementKey``.  That is
+    safe because the key's implementation graph identity is the canonical
+    typed/physical contract.  No target/template-only fallback is permitted:
+    an ``implement`` candidate must never borrow a measurement for a different
+    semantic graph merely because its physical configuration happens to match.
+    """
     matches = tuple(item for item in records if (
         item.key.target_identity == graph.target_identity
         and item.key.target_part == graph.target_part
@@ -350,24 +355,50 @@ def plan_target_pipeline(
                                 "arithmetic but its physical backend binding does not publish "
                                 "signed_product_reduction emission"
                             )
-                        graph = map_auto_signed_product_configuration(
-                            module, selected_target, family, resources, template,
-                            configuration, exact_latency=exact_latency,
-                        )
+                        try:
+                            graph = map_auto_signed_product_configuration(
+                                module, selected_target, family, resources, template,
+                                configuration, exact_latency=exact_latency,
+                            )
+                        except ValueError as error:
+                            # A physically realized configuration can still be
+                            # reported when it cannot meet an exact latency
+                            # contract.  Build its natural-latency graph so the
+                            # unified extractor can classify it (and expose a
+                            # useful rejection reason) instead of dropping it
+                            # during target mapping.
+                            if exact_latency is None or "exceeds exact latency" not in str(error):
+                                raise
+                            graph = map_auto_signed_product_configuration(
+                                module, selected_target, family, resources, template,
+                                configuration, exact_latency=None,
+                            )
                     else:
-                        graph = map_auto_symmetric_configuration(
-                            module, selected_target, family, resources, template,
-                            configuration, exact_latency=exact_latency,
-                        )
+                        try:
+                            graph = map_auto_symmetric_configuration(
+                                module, selected_target, family, resources, template,
+                                configuration, exact_latency=exact_latency,
+                            )
+                        except ValueError as error:
+                            if exact_latency is None or "exceeds exact latency" not in str(error):
+                                raise
+                            graph = map_auto_symmetric_configuration(
+                                module, selected_target, family, resources, template,
+                                configuration, exact_latency=None,
+                            )
                     if graph.realization_backend != backend:
                         raise TargetArchitectureError(
                             f"architecture '{graph.architecture_template_identity}' "
                             f"is realized by {graph.realization_backend}, not {backend}"
                         )
-                    if maximum_latency is not None and graph.latency > maximum_latency:
-                        raise TargetArchitectureError(
-                            f"latency {graph.latency} > {maximum_latency}"
-                        )
+                        # Keep every successfully realized candidate in the
+                        # generated set.  Constraint legality (including
+                        # maximum/exact latency) is evaluated centrally by
+                        # the unified extractor below.  Rejecting a graph
+                        # here made the report depend on whether a source
+                        # policy came from one spelling rather than another,
+                        # and hid otherwise valid
+                        # target configurations from diagnostics.
                     route = _compatible_evidence(
                         evidence_records, graph, backend=backend, tool=tool,
                         tool_version=tool_version, clock_period_ns=clock_period_ns,
@@ -393,7 +424,7 @@ def plan_target_pipeline(
         extraction = extract_best(
             eligible,
             objective=expr.CostMetric.LUT,
-            constraints=_constraints(exploration),
+            constraints=pipeline_constraints_to_unified(exploration.constraints),
             source_policy=policy,
             cost_fn=lambda item: item.cost,
         )

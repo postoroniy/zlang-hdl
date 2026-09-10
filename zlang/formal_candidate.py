@@ -15,7 +15,7 @@ import json
 import shutil
 import subprocess
 import tempfile
-from typing import Any
+from typing import Any, Iterable
 
 from zlang.backend.clash import emit_artifact as emit_clash_artifact
 from zlang.backend.systemverilog import (
@@ -805,18 +805,30 @@ class M36ClashCandidateVerifier:
                 "M36 candidate/reference input bindings differ"
             )
 
-        implementation_latency = timing_info(implementation).latency
-        timed = implementation_latency != timing_info(reference).latency
-        clock = (
-            self.clock_domain_contract.clock
-            if timed and self.clock_domain_contract is not None
-            else "clock" if timed else None
+        timing_relation = validate_timed_candidate(
+            reference,
+            implementation,
+            value_equivalent=True,
         )
-        reset = (
-            self.clock_domain_contract.reset
-            if timed and self.clock_domain_contract is not None
-            else "reset" if timed else None
-        )
+        if not timing_relation.equivalent:
+            raise FormalCandidateUnavailable(
+                "M36 candidate timing relation is not valid: "
+                f"{timing_relation.proof}"
+            )
+        timed = bool(timing_relation.delta)
+        if timed:
+            domain = self.clock_domain_contract
+            if domain is None:
+                raise FormalCandidateUnavailable(
+                    "M36 timed candidate requires an explicit clock/reset domain"
+                )
+            domain.validate()
+            clock = domain.clock
+            reset = domain.reset
+        else:
+            domain = None
+            clock = None
+            reset = None
         output_name = "result"
         occupied = set(inputs)
         while output_name in occupied:
@@ -838,10 +850,7 @@ class M36ClashCandidateVerifier:
             (Assignment(output, implementation),),
             clock=clock,
             reset=reset,
-            clock_domains=(
-                ((self.clock_domain_contract or ClockDomain(clock, reset)),)
-                if clock is not None and reset is not None else ()
-            ),
+            clock_domains=(domain,) if domain is not None else (),
         )
         try:
             selected_identity = self._key(candidate)
@@ -1350,13 +1359,15 @@ def gate_standalone_pipelines(
     module: Module,
     config: FormalExplorationConfig,
     verifier: object | None = None,
+    *,
+    canonical_site_keys: Iterable[tuple[str, str | None, str]] = (),
 ) -> Module:
-    """Apply the frozen M39 gate to ordinary ``pipeline(auto)`` regions.
+    """Apply the frozen M39 gate to ordinary implementation regions.
 
-    Source ``explore`` regions are gated while their M28 candidate set is
-    available.  Standalone pipeline syntax historically bypassed M39, so this
-    post-analysis adapter recreates the same M28 ranking from the retained
-    ``PipelineExploration`` and rewires only the selected output assignment.
+    Canonical ``implement`` regions are gated while their M28 candidate set is
+    available.  The retained ``PipelineExploration`` records are an internal
+    candidate table, so this adapter recreates the same M28 ranking and
+    rewires only the selected output assignment.
     """
 
     if config.policy is FormalPolicy.OFF or not module.pipeline_explorations:
@@ -1366,11 +1377,27 @@ def gate_standalone_pipelines(
     from zlang.candidate_sites import (
         candidate_owner_formal_domain,
         module_candidate_owner_identity,
+        pipeline_site_key,
     )
 
     assignments = list(module.assignments)
-    updated_explorations = []
-    for exploration in module.pipeline_explorations:
+    # A canonical ``implement`` region publishes one unified ExplorationResult.
+    # Its PipelineExploration entries are planner/report metadata only and must
+    # not be sent through the standalone M39 route a second time.  Persisted
+    # standalone pipeline records (which predate ``implement``) retain the
+    # legacy route and are gated below.
+    canonical_keys = frozenset(canonical_site_keys)
+    standalone = tuple(
+        (index, exploration)
+        for index, exploration in enumerate(module.pipeline_explorations)
+        if pipeline_site_key(module, exploration) not in canonical_keys
+    )
+    if not standalone:
+        return module
+    # Keep the retained catalog order stable.  Canonical planner entries are
+    # skipped by site key; only true standalone entries are replaced in place.
+    updated_explorations = list(module.pipeline_explorations)
+    for pipeline_index, exploration in standalone:
         wrapped, constraints, extraction = standalone_pipeline_candidate_space(
             exploration
         )
@@ -1401,11 +1428,11 @@ def gate_standalone_pipelines(
             cost_fn=lambda item: item.cost,
         )
         selected = gated.selected.pipeline_candidate
-        updated_explorations.append(replace(
+        updated_explorations[pipeline_index] = replace(
             exploration,
             selected=selected.name,
             formal_records=gate.records,
-        ))
+        )
         matches = [
             index for index, assignment in enumerate(assignments)
             if assignment.target.name == exploration.output
@@ -1434,7 +1461,7 @@ def standalone_pipeline_candidate_space(exploration: object):
     """
 
     from zlang.ir.expressions import CostMetric
-    from zlang.pipelines import _unified_constraint
+    from zlang.pipelines import pipeline_constraint_to_unified
 
     wrapped = tuple(
         _PipelineFormalCandidate(
@@ -1470,7 +1497,7 @@ def standalone_pipeline_candidate_space(exploration: object):
         for candidate in exploration.candidates
     )
     constraints = tuple(
-        _unified_constraint(item) for item in exploration.constraints
+        pipeline_constraint_to_unified(item) for item in exploration.constraints
     )
     extraction = extract_best(
         wrapped,

@@ -69,11 +69,9 @@ module AsyncExplore {
     in a : vec<4,u3>
     in b : vec<4,u3>
     out y : u8
-    y = explore {
+    y = implement {
         dot(a,b)
-        allow { reduction dsp pipeline reassociate }
-        require { latency >= 1 dsp <= 4 }
-        minimize lut
+        intent { latency >= 1 dsp <= 4 minimize lut }
     }
 }
 """
@@ -288,6 +286,8 @@ def test_m39_available_and_required_modes_use_the_async_m36_route() -> None:
     assert records[0].cache_state == "executed"
     assert records[0].formal_route == "M36_clash"
     assert all(item.status is None for item in records[1:])
+    # One canonical ``implement`` region has one M39 site; planner metadata
+    # is not re-proved as standalone pipeline sites.
     assert verifier.calls == [FormalPolicy.AVAILABLE]
 
     required_bmc = _BoundAsyncVerifier()

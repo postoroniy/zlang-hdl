@@ -99,7 +99,10 @@ from zlang.backend.clash.hierarchy import (
     specialized_protocol_children as _specialized_protocol_children,
     uses_bundled_component_abi as _uses_bundled_component_abi,
 )
-from zlang.backend.clash.syntax import apply_argument as _clash_apply_arg
+from zlang.backend.clash.syntax import (
+    apply_argument as _clash_apply_arg,
+    or_signal_expressions as _clash_or_signals,
+)
 from zlang.backend.clash.ports import (
     forward_port_annotation as _top_forward_port_annotation,
     value_port_annotation as _top_value_port_annotation,
@@ -118,6 +121,7 @@ from zlang.backend.naming import build_component_name_plan, module_rtl_names
 from zlang.backend.source_map import GeneratedSourceMap, build_generated_source_map
 from zlang.fixed_point import quantize_rational
 from zlang.ir.recursive_formal import BackendPhysicalLocator
+from zlang.ir.signed_reductions import selection_expression_semantic_identity
 from zlang.diagnostics import DiagnosticError
 
 
@@ -2667,17 +2671,6 @@ def _emit_scheduled_fifo_bindings(module: Module, fifo: object, render=None) -> 
         and action.kind is StateActionKind.FIFO_POP
     ]
 
-    def or_signals(items: list[str]) -> str:
-        if not items:
-            return "pure low"
-        value = items[0]
-        for item in items[1:]:
-            # Parenthesize the accumulated applicative expression.  Without
-            # this, three or more rule fires parse as a partially applied
-            # ``(.|.)`` and Clash reports a misleading Bit/Bit->Bit error.
-            value = f"((.|.) <$> ({value}) <*> {item})"
-        return value
-
     payload = f"pure (deepErrorX \"no FIFO push payload for {fifo.name}\")"
     for group, action in reversed(push_actions):
         enable = _unified_action_enable(transition, group, action, private_names)
@@ -2692,8 +2685,8 @@ def _emit_scheduled_fifo_bindings(module: Module, fifo: object, render=None) -> 
     payload_type = _emit_type(fifo.element_type)
     return (
         f"{name}_data_request = {payload}",
-        f"{name}_enqueue = {or_signals([_unified_action_enable(transition, group, action, private_names) for group, action in push_actions])}",
-        f"{name}_dequeue = {or_signals([_unified_action_enable(transition, group, action, private_names) for group, action in pop_actions])}",
+        f"{name}_enqueue = {_clash_or_signals([_unified_action_enable(transition, group, action, private_names) for group, action in push_actions])}",
+        f"{name}_dequeue = {_clash_or_signals([_unified_action_enable(transition, group, action, private_names) for group, action in pop_actions])}",
         f"{name}_push = {name}_enqueue",
         f"{name}_pop = {name}_dequeue",
         f"{name}_count = register (0 :: {count_type}) {name}_count_next",
@@ -3006,14 +2999,6 @@ def _emit_scheduled_memory_bindings(module: Module, memory: object, render=None)
         and action.kind is StateActionKind.MEMORY_WRITE
     ]
 
-    def or_signals(items: list[str]) -> str:
-        if not items:
-            return "pure low"
-        value = items[0]
-        for item in items[1:]:
-            value = f"((.|.) <$> ({value}) <*> {item})"
-        return value
-
     address_type = f"Unsigned {memory.address_width}"
     read_address = f"pure (0 :: {address_type})"
     for group, action in reversed(read_actions):
@@ -3098,8 +3083,8 @@ def _emit_scheduled_memory_bindings(module: Module, memory: object, render=None)
         f"<*> {name}_write_address <*> {effective_write_data}"
     )
     bindings = [
-        f"{name}_read_fire = {or_signals([_unified_action_enable(transition, group, action, private_names) for group, action in read_actions])}",
-        f"{name}_write_fire = {or_signals([_unified_action_enable(transition, group, action, private_names) for group, action in write_actions])}",
+        f"{name}_read_fire = {_clash_or_signals([_unified_action_enable(transition, group, action, private_names) for group, action in read_actions])}",
+        f"{name}_write_fire = {_clash_or_signals([_unified_action_enable(transition, group, action, private_names) for group, action in write_actions])}",
         f"{name}_read_address = {read_address}",
         f"{name}_write_address = {write_address}",
         f"{name}_write_data = {write_data}",
@@ -3241,7 +3226,7 @@ def _emit_connection_module(
                 _collect_delays(action.activation, delay_nodes)
     delay_names = {
         _leaf_key(value): (
-            private_names.stage(_stage_prefix(value), value.instance, _stage_count(value))
+            private_names.stage(_stage_prefix(value), value.instance, expr.sequential_stage_count(value))
         )
         for value in delay_nodes.values()
     }
@@ -3386,7 +3371,7 @@ def _emit_connection_module(
         ))
     for value in delay_nodes.values():
         previous = render_state(value.expression)
-        for stage in range(1, _stage_count(value) + 1):
+        for stage in range(1, expr.sequential_stage_count(value) + 1):
             name = private_names.stage(_stage_prefix(value), value.instance, stage)
             bindings.append(
                 f"{name} = register {_zero_value(value.type)} ({previous})"
@@ -4291,7 +4276,7 @@ def _emit_csr_child_function(
                 _collect_delays(action.activation, delay_nodes)
     delay_names = {
         _leaf_key(value): (
-            private_names.stage(_stage_prefix(value), value.instance, _stage_count(value))
+            private_names.stage(_stage_prefix(value), value.instance, expr.sequential_stage_count(value))
         )
         for value in delay_nodes.values()
     }
@@ -4344,7 +4329,7 @@ def _emit_csr_child_function(
             )
     for value in delay_nodes.values():
         previous = render_state(value.expression)
-        for stage in range(1, _stage_count(value) + 1):
+        for stage in range(1, expr.sequential_stage_count(value) + 1):
             name = private_names.stage(_stage_prefix(value), value.instance, stage)
             bindings.append(
                 f"{name} = register {_zero_value(value.type)} ({previous})"
@@ -4507,7 +4492,7 @@ def _emit_mixed_protocol_child_function(
             if action.activation is not None:
                 _collect_delays(action.activation, delay_nodes)
     delay_names = {
-        _leaf_key(d): private_names.stage(_stage_prefix(d), d.instance, _stage_count(d))
+        _leaf_key(d): private_names.stage(_stage_prefix(d), d.instance, expr.sequential_stage_count(d))
         for d in delay_nodes.values()
     }
     ordered_rules = _rule_schedule(child)
@@ -4562,7 +4547,7 @@ def _emit_mixed_protocol_child_function(
             bindings.append(f"{register.name}_next = {render_state(scheduled)}")
     for delay in delay_nodes.values():
         previous = _emit_signal_expression(delay.expression, {**signal_names, **delay_names})
-        for stage in range(1, _stage_count(delay) + 1):
+        for stage in range(1, expr.sequential_stage_count(delay) + 1):
             name = private_names.stage(_stage_prefix(delay), delay.instance, stage)
             bindings.append(f"{name} = register {_zero_value(delay.type)} ({previous})")
             previous = name
@@ -4905,7 +4890,7 @@ def _emit_conditional_request_response_child_function(
     }
     value_names.update({
         _leaf_key(value): (
-            private_names.stage(_stage_prefix(value), value.instance, _stage_count(value))
+            private_names.stage(_stage_prefix(value), value.instance, expr.sequential_stage_count(value))
         )
         for value in delay_nodes.values()
     })
@@ -5009,7 +4994,7 @@ def _emit_conditional_request_response_child_function(
     ))
     for value in delay_nodes.values():
         previous = render_state(value.expression)
-        for stage in range(1, _stage_count(value) + 1):
+        for stage in range(1, expr.sequential_stage_count(value) + 1):
             stage_name = (
                 private_names.stage(_stage_prefix(value), value.instance, stage)
             )
@@ -5662,7 +5647,7 @@ def _emit_hierarchical_ordinary_protocol_module(module: Module) -> str:
         **parent_signal_names,
         **{
             _leaf_key(value): (
-                private_names.stage(_stage_prefix(value), value.instance, _stage_count(value))
+                private_names.stage(_stage_prefix(value), value.instance, expr.sequential_stage_count(value))
             )
             for value in delay_nodes.values()
         },
@@ -5928,7 +5913,7 @@ def _emit_hierarchical_ordinary_protocol_module(module: Module) -> str:
     if unified_state or has_local_storage:
         for value in delay_nodes.values():
             previous = render_state(value.expression)
-            for stage in range(1, _stage_count(value) + 1):
+            for stage in range(1, expr.sequential_stage_count(value) + 1):
                 name = private_names.stage(_stage_prefix(value), value.instance, stage)
                 bindings.append(
                     f"{name} = register {_zero_value(value.type)} ({previous})"
@@ -6122,7 +6107,7 @@ def _emit_hierarchical_protocol_module(module: Module) -> str:
                 _collect_delays(action.activation, delay_nodes)
     delay_names = {
         _leaf_key(value): (
-            private_names.stage(_stage_prefix(value), value.instance, _stage_count(value))
+            private_names.stage(_stage_prefix(value), value.instance, expr.sequential_stage_count(value))
         )
         for value in delay_nodes.values()
     }
@@ -6228,7 +6213,7 @@ def _emit_hierarchical_protocol_module(module: Module) -> str:
         ))
     for value in delay_nodes.values():
         previous = render_state(value.expression)
-        for stage in range(1, _stage_count(value) + 1):
+        for stage in range(1, expr.sequential_stage_count(value) + 1):
             name = private_names.stage(_stage_prefix(value), value.instance, stage)
             bindings.append(
                 f"{name} = register {_zero_value(value.type)} ({previous})"
@@ -7625,7 +7610,7 @@ def _emit_request_response_module(module: Module) -> str:
     }
     value_names.update({
         _leaf_key(value): (
-            private_names.stage(_stage_prefix(value), value.instance, _stage_count(value))
+            private_names.stage(_stage_prefix(value), value.instance, expr.sequential_stage_count(value))
         )
         for value in staged.values()
     })
@@ -7777,7 +7762,7 @@ def _emit_request_response_module(module: Module) -> str:
         ))
     for value in staged.values():
         previous = render_state(value.expression)
-        for stage in range(1, _stage_count(value) + 1):
+        for stage in range(1, expr.sequential_stage_count(value) + 1):
             name = private_names.stage(_stage_prefix(value), value.instance, stage)
             bindings.append(
                 f"{name} = register {_zero_value(value.type)} ({previous})"
@@ -8098,7 +8083,7 @@ def _emit_scalar_wire_module(module: Module) -> str:
     )
     extensions, imports, declarations = _emit_prelude(module)
     architecture_notes = "".join(
-        "-- ZLang architecture(auto): "
+        "-- ZLang implement architecture candidate: "
         f"output={exploration.output} selected={exploration.selected} "
         f"kind={exploration.selected_candidate.kind.value} "
         f"parallelism={exploration.selected_candidate.parallelism} "
@@ -8121,6 +8106,35 @@ topEntity {arguments} = {output_value}
     , t_output = {_top_scalar_output_annotation(outputs)}
     }}) #-}}
 '''
+
+
+def _pipeline_catalog_is_emitted(module: Module, exploration: object) -> bool:
+    """Return whether a retained pipeline candidate is the emitted value.
+
+    ``PipelineExploration`` is also retained for target-planner/report
+    consumers when the unified ``implement`` selector chose a different
+    candidate.  Its selected entry must never be described as RTL latency or
+    registers unless the exact expression is present on the output
+    assignment.  Pipeline allocation IDs are intentionally ignored by the
+    selection identity helper; they are physical bookkeeping only.
+    """
+
+    output = getattr(exploration, "output", None)
+    selected = getattr(exploration, "selected_candidate", None)
+    selected_expression = getattr(selected, "expression", None)
+    if output is None or selected_expression is None:
+        return False
+    selected_identity = selection_expression_semantic_identity(
+        selected_expression
+    )
+    return any(
+        assignment.target.name == output
+        and assignment.signal is None
+        and assignment.channel is None
+        and selection_expression_semantic_identity(assignment.expression)
+        == selected_identity
+        for assignment in module.assignments
+    )
 
 
 def _assignment_name(assignment: object) -> str:
@@ -8496,7 +8510,7 @@ def _scalar_component_bound_names(module: Module) -> frozenset[str]:
     for value in delay_nodes.values():
         names.update(
             private_names.stage(_stage_prefix(value), value.instance, stage)
-            for stage in range(1, _stage_count(value) + 1)
+            for stage in range(1, expr.sequential_stage_count(value) + 1)
         )
 
     # Storage helpers already centralize the exact generated bindings for each
@@ -9052,7 +9066,7 @@ def _emit_child_sequential(
                 _collect_delays(action.activation, delay_nodes)
     delay_names = {
         _leaf_key(value): (
-            private_names.stage(_stage_prefix(value), value.instance, _stage_count(value))
+            private_names.stage(_stage_prefix(value), value.instance, expr.sequential_stage_count(value))
         )
         for value in delay_nodes.values()
     }
@@ -9142,7 +9156,7 @@ def _emit_child_sequential(
             )
     for value in delay_nodes.values():
         previous = _emit_signal_expression(value.expression, delay_names)
-        for stage in range(1, _stage_count(value) + 1):
+        for stage in range(1, expr.sequential_stage_count(value) + 1):
             stage_name = private_names.stage(_stage_prefix(value), value.instance, stage)
             bindings.append(
                 f"{stage_name} = register {_zero_value(value.type)} ({previous})"
@@ -9295,7 +9309,7 @@ def _emit_sequential_module(module: Module) -> str:
     )
     domain = "ZLangSystem"
     pipeline_notes = "".join(
-        "-- ZLang pipeline(auto): "
+        "-- ZLang implement pipeline candidate: "
         f"output={exploration.output} selected={exploration.selected} "
         f"tree={exploration.selected_candidate.tree.value} "
         f"registers={exploration.selected_candidate.register_placement.value} "
@@ -9303,6 +9317,7 @@ def _emit_sequential_module(module: Module) -> str:
         f"latency={exploration.selected_candidate.latency} "
         f"ii={exploration.selected_candidate.initiation_interval}\n"
         for exploration in module.pipeline_explorations
+        if _pipeline_catalog_is_emitted(module, exploration)
     )
 
     signal_inputs = [
@@ -9343,7 +9358,7 @@ def _emit_sequential_module(module: Module) -> str:
                 _collect_delays(action.activation, delay_nodes)
     delay_names = {
         _leaf_key(delay): (
-            private_names.stage(_stage_prefix(delay), delay.instance, _stage_count(delay))
+            private_names.stage(_stage_prefix(delay), delay.instance, expr.sequential_stage_count(delay))
         )
         for delay in delay_nodes.values()
     }
@@ -9469,7 +9484,7 @@ def _emit_sequential_module(module: Module) -> str:
     for delay in delay_nodes.values():
         source = _emit_signal_expression(delay.expression, delay_names)
         previous = source
-        for stage in range(1, _stage_count(delay) + 1):
+        for stage in range(1, expr.sequential_stage_count(delay) + 1):
             stage_name = private_names.stage(_stage_prefix(delay), delay.instance, stage)
             reset_value = _zero_value(delay.type)
             bindings.append(
@@ -9937,10 +9952,6 @@ def _zero_value(type_: HardwareType) -> str:
     if isinstance(type_, TupleType):
         return "(" + ", ".join(_zero_value(item) for item in type_.elements) + ")"
     raise ClashEmissionError(f"no reset value for delayed {type_}")
-
-
-def _stage_count(expression: expr.Delay | expr.Pipeline) -> int:
-    return expression.cycles if isinstance(expression, expr.Delay) else expression.stages
 
 
 def _stage_prefix(expression: expr.Delay | expr.Pipeline) -> str:

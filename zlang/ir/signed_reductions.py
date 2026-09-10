@@ -7,7 +7,7 @@ rewrites.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, fields, is_dataclass
+from dataclasses import dataclass, field, fields, is_dataclass, replace
 from enum import Enum
 from hashlib import sha256
 
@@ -84,6 +84,36 @@ def expression_semantic_identity(value: expr.Expression) -> str:
     """Stable identity for typed value semantics, excluding source provenance."""
 
     return sha256(_semantic_payload(value).encode()).hexdigest()
+
+
+def selection_expression_semantic_identity(value: expr.Expression) -> str:
+    """Identity used to join equivalent pipeline catalog expressions.
+
+    Delay/pipeline allocation IDs are physical bookkeeping, not value
+    semantics.  The semantic site key and candidate identity remain separate;
+    this helper only makes the exact selected pipeline expression comparable to
+    a planner catalog regenerated with a fresh allocator.
+    """
+
+    if isinstance(value, expr.Pipeline):
+        value = replace(
+            value,
+            instance=0,
+            expression=selection_expression(value.expression),
+        )
+    return expression_semantic_identity(value)
+
+
+def selection_expression(value: expr.Expression) -> expr.Expression:
+    """Normalize allocation-only pipeline IDs recursively."""
+
+    if isinstance(value, expr.Pipeline):
+        return replace(
+            value,
+            instance=0,
+            expression=selection_expression(value.expression),
+        )
+    return value
 
 
 def recognize_signed_product_reduction(
@@ -238,5 +268,6 @@ __all__ = [
     "ProductTermSign", "SIGNED_PRODUCT_REDUCTION_SCHEMA",
     "SignedProductJoin", "SignedProductJoinOperator", "SignedProductReduction",
     "SignedProductTerm", "expression_semantic_identity",
+    "selection_expression", "selection_expression_semantic_identity",
     "recognize_signed_product_reduction",
 ]

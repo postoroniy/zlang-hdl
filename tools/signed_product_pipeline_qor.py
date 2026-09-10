@@ -238,7 +238,7 @@ def main() -> int:
         "--evidence-output",
         type=Path,
         help=(
-            "write deterministic zlang-target-qor-v1 evidence for the routed "
+            "write deterministic zlang-target-qor-v2 evidence for the routed "
             "implementation graphs"
         ),
     )

@@ -22,12 +22,26 @@ from pathlib import Path
 from threading import Event, RLock
 from typing import Callable, Generic, Mapping, TypeVar
 
+from zlang.backend.manifest import BackendArtifact, backend_binding_identity
 from zlang.common import stable_digest, stable_json
 from zlang.common.content_cache import load_json_object, publish_json_atomically
+from zlang.ir.formal_planning import FormalBackendArtifactRef
 
 
 FORMAL_ARTIFACT_RECIPE_SCHEMA = "zlang-formal-artifact-recipe-v1"
 FORMAL_ARTIFACT_CACHE_SCHEMA = "zlang-formal-artifact-cache-v1"
+
+
+def formal_backend_artifact_ref(
+    artifact: BackendArtifact,
+) -> FormalBackendArtifactRef:
+    """Describe one backend artifact using the shared formal binding identity."""
+
+    return FormalBackendArtifactRef(
+        artifact.backend,
+        artifact.artifact_hash,
+        backend_binding_identity(artifact),
+    )
 
 
 class FormalArtifactNamespace(str, Enum):
@@ -544,4 +558,5 @@ __all__ = [
     "FormalArtifactProviderStats",
     "FormalArtifactRecipe",
     "decisive_formal_cacheable",
+    "formal_backend_artifact_ref",
 ]

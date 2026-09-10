@@ -91,7 +91,7 @@ def test_region_selector_is_exact_and_profile_constraint_executes_m34(
         compile_file(top, profile="small", include_clash=False)
 
 
-def test_profile_and_legacy_pipeline_auto_share_one_compatible_request(
+def test_profile_and_implement_share_one_compatible_request(
     tmp_path: Path,
 ) -> None:
     _, top = _project(
@@ -103,15 +103,15 @@ module Timed {
   in a:u8 in b:u8 in c:u8 in d:u8
   in e:u8 in f:u8 in g:u8 in h:u8
   out y : u19
-  y = pipeline(auto, latency<=4, ii==1, fmax>=100) {
+  y = implement {
     a*b + c*d + e*f + g*h
+    intent { latency<=4 ii==1 fmax>=100 }
   }
 }
 """,
         """
 [profiles.compatible]
-allowed-transforms = ["pipeline"]
-objective = "maximize fmax"
+objective = "minimize lut"
 [profiles.compatible.constraints]
 latency = 4
 ii = 1
@@ -120,8 +120,8 @@ fmax = 100
     )
     result = compile_file(top, profile="compatible", include_clash=False)
     policy = next(item for item in result.implementation_policy.regions if item.source_form)
-    assert policy.source_form == "pipeline(auto)"
-    assert policy.request.transforms.allowed[0].value == "pipeline"
+    assert policy.source_form == "implement"
+    assert "pipeline" in {item.value for item in policy.request.transforms.allowed}
     # The legacy selector executes once; profile normalization never reruns it.
     assert len(result.ir.pipeline_explorations) == 1
 
@@ -134,8 +134,9 @@ module Timed {
   clock clk reset rst
   in a:u8 in b:u8 in c:u8 in d:u8
   in e:u8 in f:u8 in g:u8 in h:u8 out y:u19
-  y = pipeline(auto, latency<=4, ii==1, fmax>=100) {
+  y = implement {
     a*b + c*d + e*f + g*h
+    intent { latency<=4 ii==1 fmax>=100 }
   }
 }
 """,
@@ -147,8 +148,8 @@ objective = "minimize lut"
     )
     with pytest.raises(ImplementationRequestError) as caught:
         compile_file(top, profile="conflict", include_clash=False)
-    assert "conflicting implementation policy for 'objective'" in str(caught.value)
-    assert "source pipeline(auto)" in caught.value.notes[0]
+    assert "conflicting implementation policy for 'transforms'" in str(caught.value)
+    assert "source implement" in caught.value.notes[0]
     assert "profile 'conflict'" in caught.value.notes[1]
 
 

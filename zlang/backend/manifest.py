@@ -57,6 +57,19 @@ MODULE_SIGNATURE_MANIFEST_VERSION = 9
 PHYSICAL_DOMAIN_MANIFEST_VERSION = 10
 
 
+def backend_binding_identity(artifact: "BackendArtifact") -> str:
+    """Hash one artifact's exact published binding surface."""
+
+    manifest = json.loads(artifact.to_json())
+    return "bindings:" + stable_digest(
+        {
+            "manifest_version": artifact.manifest_version,
+            "artifact_hash": artifact.artifact_hash,
+            "bindings": manifest["bindings"],
+        }
+    )
+
+
 @dataclass(frozen=True)
 class PhysicalDomainManifest:
     """One exact typed clock/reset contract bound to public RTL ports.
@@ -1511,7 +1524,8 @@ def publish_artifact(module: Module, text: str, *, backend: str,
     return artifact
 
 __all__ = [
-    "BackendArtifact", "ComponentManifest", "FormalObservationManifest",
+    "BackendArtifact", "backend_binding_identity", "ComponentManifest",
+    "FormalObservationManifest",
     "ImplementationEdgeManifest", "ImplementationManifest",
     "ImplementationResourceManifest", "IMPLEMENTATION_MANIFEST_VERSION",
     "COMPANION_MANIFEST_VERSION", "TIMING_MANIFEST_VERSION",

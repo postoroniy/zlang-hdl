@@ -135,6 +135,7 @@ def run(output: Path, *, source: Path = DEFAULT_SOURCE, depth: int = 10, timeout
         checks[name] = {
             "status": result.status.value, "expected": expected,
             "depth": check_depth, "reason": result.reason,
+            "minimum_bmc_depth": prepared.property.comparison_window.minimum_bmc_depth,
             "counterexample": result.counterexample is not None,
             "reference_hash": prepared.reference_artifact_hash,
             "implementation_hash": artifact_hash(implementation),
