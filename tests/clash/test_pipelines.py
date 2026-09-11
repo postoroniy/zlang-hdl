@@ -13,13 +13,16 @@ class ClashPipelineTests(unittest.TestCase):
         expected = (ROOT / "examples/generated/PipelinedMAC.hs").read_text()
         self.assertEqual(compile_source(source).clash, expected)
 
-    def test_fixed_pipeline_emits_exact_stage_count(self) -> None:
+    def test_retired_clash_compatibility_keeps_exact_visible_latency(self) -> None:
         generated = compile_source(
             (ROOT / "examples/pipelined_mac.zhl").read_text()
         ).clash
         self.assertEqual(generated.count("y_pipe_s1 = register"), 1)
         self.assertEqual(generated.count("y_pipe_s2 = register"), 1)
         self.assertNotIn("y_pipe_s3", generated)
+        self.assertIn("register (0 :: Unsigned 17)", generated)
+        self.assertIn("<$> a <*> b <*> c", generated)
+        self.assertNotIn("zlang_pipe_", generated)
 
     def test_auto_pipeline_golden_and_architecture_annotation_match(self) -> None:
         source = (ROOT / "examples/implementation_intent.zhl").read_text()

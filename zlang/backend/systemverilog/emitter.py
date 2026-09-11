@@ -128,6 +128,7 @@ from zlang.backend.systemverilog.syntax import sized_decimal as _sized_decimal
 from zlang.common.systemverilog import (
     render_ordered_comparison,
     render_right_shift,
+    render_typed_resize,
 )
 from zlang.backend.systemverilog.sequential import (
     PhysicalDomainError as _PhysicalDomainError,
@@ -3597,16 +3598,33 @@ def _emit_combinational(module: Module) -> str:
 
 
 def _emit_pipeline(module: Module) -> str:
+    assigned_names = {
+        assignment.target.name
+        for assignment in module.assignments
+        if assignment.signal is None and assignment.channel is None
+    }
     if (
         module.clock is None
         or module.reset is None
-        or len(module.assignments) != 1
-        or len(module.outputs) != 1
+        or len(module.assignments) != len(module.outputs)
+        or assigned_names != {port.name for port in module.outputs}
     ):
         raise SystemVerilogEmissionError(
-            "direct pipeline emission requires one clocked assigned output"
+            "direct pipeline emission requires every output to have one assignment"
         )
-    assignment = module.assignments[0]
+    staged_assignments: list[Assignment] = []
+    for candidate in module.assignments:
+        candidate_staging: dict[int, expr.Delay | expr.Pipeline] = {}
+        _collect_staged_expressions(
+            _instance_expression(module, candidate.expression), candidate_staging
+        )
+        if candidate_staging:
+            staged_assignments.append(candidate)
+    if len(staged_assignments) != 1:
+        raise SystemVerilogEmissionError(
+            "direct pipeline emission requires exactly one staged output assignment"
+        )
+    assignment = staged_assignments[0]
     root = _instance_expression(module, assignment.expression)
     staged: dict[int, expr.Delay | expr.Pipeline] = {}
     _collect_staged_expressions(root, staged)
@@ -3618,9 +3636,29 @@ def _emit_pipeline(module: Module) -> str:
         node: _staged_signal_name(node, _staged_count(node))
         for node in staged.values()
     }
+    physical_roots = tuple(
+        _replace_staged_expressions(node.expression, aliases)
+        for node in staged.values()
+    )
+    stage_materialized = plan_materialization(
+        physical_roots,
+        reserved_names=(
+            *(_identifier(port.name) for port in module.ports),
+            *aliases.values(),
+        ),
+        generated_prefix="zlang_stage_expr_",
+        # Pipeline-stage roots are already explicit DAG fragments.  A shared
+        # multiply has only three expression nodes but must still remain one
+        # physical combinational value rather than being copied into siblings.
+        minimum_shared_size=2,
+    )
+    materialized_aliases = {
+        item.expression: item.name for item in stage_materialized
+    }
 
     def render(value: expr.Expression) -> str:
-        return _expression(_replace_staged_expressions(value, aliases))
+        physical = _replace_staged_expressions(value, aliases)
+        return _expression(_replace_materialized(physical, materialized_aliases))
 
     registers: list[str] = []
     resets: list[str] = []
@@ -3650,7 +3688,20 @@ def _emit_pipeline(module: Module) -> str:
         *(_port_declaration(port) for port in module.inputs),
         *(_port_declaration(port) for port in module.outputs),
     ]
+    materialized_declarations = [
+        "  logic"
+        + (" signed" if isinstance(item.expression.type, (SIntType, FixedType)) else "")
+        + f" {_range(_width(item.expression.type))}{item.name};"
+        for item in stage_materialized
+    ]
+    materialized_assignments = [
+        f"  assign {item.name} = "
+        f"{_expression(_replace_materialized(item.expression, materialized_aliases, keep=item.expression))};"
+        for item in dependency_ordered_materialization(stage_materialized)
+    ]
     lines = [
+        *materialized_declarations,
+        *materialized_assignments,
         *registers,
         f"  always_ff @({_clock_event(module, _identifier)}) begin",
         f"    if ({_reset_asserted(module, _identifier)}) begin",
@@ -3660,6 +3711,12 @@ def _emit_pipeline(module: Module) -> str:
         "    end",
         "  end",
         f"  assign {_identifier(assignment.target.name)} = {render(root)};",
+        *(
+            f"  assign {_identifier(item.target.name)} = "
+            f"{render(_instance_expression(module, item.expression))};"
+            for item in module.assignments
+            if item is not assignment
+        ),
     ]
     return _module(module, ports, lines)
 
@@ -3785,6 +3842,16 @@ def _staged_count(value: expr.Delay | expr.Pipeline) -> int:
 
 def _staged_signal_name(value: expr.Delay | expr.Pipeline, stage: int) -> str:
     prefix = "delay" if isinstance(value, expr.Delay) else "pipeline"
+    # Trivial fixed pipelines retain one enclosing N-cycle node for the public
+    # IR shape.  Expose each physical register with the historical per-stage
+    # instance spelling so hierarchy-local naming and emitted RTL remain
+    # compatible (pipeline_0_s1, pipeline_1_s1, ...).
+    if (
+        isinstance(value, expr.Pipeline)
+        and value.pipeline_plan is None
+        and value.stages > 1
+    ):
+        return f"{prefix}_{value.instance + stage - 1}_s1"
     return f"{prefix}_{value.instance}_s{stage}"
 
 
@@ -5545,17 +5612,12 @@ def _balanced_expression(elements: tuple[expr.Expression, ...]) -> str:
 
 
 def _resize(expression: expr.Expression, width: int) -> str:
-    rendered = _expression(expression)
-    source_width = _width(expression.type)
-    if source_width >= width:
-        return f"({rendered})"
-    if isinstance(expression.type, (SIntType, FixedType)):
-        # A sized cast sign-extends arbitrary expressions.  Selecting the sign
-        # bit from a parenthesized expression is not legal SystemVerilog.
-        return f"{width}'($signed({rendered}))"
-    extension = width - source_width
-    fill = "1'b0"
-    return f"{{{{{extension}{{{fill}}}}}, {rendered}}}"
+    return render_typed_resize(
+        _expression(expression),
+        source_width=_width(expression.type),
+        target_width=width,
+        signed=isinstance(expression.type, (SIntType, FixedType)),
+    )
 
 
 def _typed_functions(module: Module) -> tuple[object, ...]:

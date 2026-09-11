@@ -1,4 +1,4 @@
-"""Real compiler-owned M39/M36/M38 joint-route smoke coverage."""
+"""Real compiler-owned M39/M36 direct-production smoke coverage."""
 
 from __future__ import annotations
 
@@ -8,12 +8,10 @@ import shutil
 import pytest
 
 import zlang.candidate_equivalence as orchestration
-import zlang.formal_candidate as candidate_backend
 from zlang.compiler import compile_source
 from zlang.formal_exploration import FormalExplorationConfig, FormalPolicy
 from zlang.formal_orchestration import CompilerFormalExecutionPlan
 from zlang.ir.equivalence import EquivalenceRelation
-from zlang.toolchain import find_clash_executable
 from zlang.verification_bundle import (
     VerificationBundleError,
     load_candidate_equivalence_replay,
@@ -23,9 +21,8 @@ from zlang.verification_cli import main as verification_main
 from zlang.verification_publication import publish_compilation_verification_bundle
 
 
-REAL_TOOLS = bool(
-    find_clash_executable()
-    and all(shutil.which(name) for name in ("sby", "yosys", "yosys-smtbmc", "z3"))
+REAL_TOOLS = all(
+    shutil.which(name) for name in ("sby", "yosys", "yosys-smtbmc", "z3")
 )
 
 SOURCE = """
@@ -52,7 +49,7 @@ module CandidatePipelineReplay {
 """
 
 
-@pytest.mark.skipif(not REAL_TOOLS, reason="real Clash/SBY/Yosys/Z3 required")
+@pytest.mark.skipif(not REAL_TOOLS, reason="real SBY/Yosys/Z3 required")
 @pytest.mark.parametrize(
     ("source", "relation", "depth"),
     (
@@ -182,18 +179,18 @@ def test_immutable_candidate_bundle_replays_without_source_or_selection(
         load_verification_bundle(bundle_path)
 
 
-@pytest.mark.skipif(not REAL_TOOLS, reason="real Clash/SBY/Yosys/Z3 required")
+@pytest.mark.skipif(not REAL_TOOLS, reason="real SBY/Yosys/Z3 required")
 @pytest.mark.parametrize(
     ("policy", "expected_modes"),
     (
-        (FormalPolicy.AVAILABLE, ("bmc", "bmc", "bmc")),
+        (FormalPolicy.AVAILABLE, ("bmc",)),
         (
             FormalPolicy.REQUIRED_PROVEN,
-            ("bmc", "bmc", "bmc", "prove", "prove", "prove"),
+            ("bmc", "prove"),
         ),
     ),
 )
-def test_real_joint_candidate_triangle_reuses_m39_clash_stage(
+def test_real_direct_candidate_evidence_reuses_m39_stage(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     policy: FormalPolicy,
@@ -222,16 +219,6 @@ def test_real_joint_candidate_triangle_reuses_m39_clash_stage(
         work_directory=tmp_path / "work",
     )
 
-    # M39 already prepared the selected Clash candidate.  The production
-    # prepare API must hit that exact provider recipe; any second backend build
-    # is a correctness/performance regression, not merely a slower test.
-    monkeypatch.setattr(
-        candidate_backend,
-        "generate_verilog",
-        lambda *_args, **_kwargs: pytest.fail(
-            "joint candidate preparation rebuilt the M39 Clash artifact"
-        ),
-    )
     enriched, prepared = orchestration.prepare_selected_candidate_equivalence(
         compilation, plan, config
     )
@@ -240,9 +227,7 @@ def test_real_joint_candidate_triangle_reuses_m39_clash_stage(
 
     def execute_m36(item, config, mode, provider, toolchain):
         executed_backends.append((item.backend, mode.value))
-        assert item.backend == "direct_systemverilog", (
-            "the compatible M39 Clash result must be reused, not rerun"
-        )
+        assert item.backend == "direct_systemverilog"
         return original_execute_m36(item, config, mode, provider, toolchain)
 
     monkeypatch.setattr(orchestration, "_execute_m36", execute_m36)
@@ -253,34 +238,15 @@ def test_real_joint_candidate_triangle_reuses_m39_clash_stage(
     assert len(reports) == 1
     assert tuple(item.mode for item in reports[0].evidence_records) == expected_modes
     assert all(item.status in {"bounded_pass", "proven"} for item in reports[0].evidence_records)
-    assert executed_backends == [
-        ("direct_systemverilog", mode)
-        for mode in (("bmc", "prove") if policy is FormalPolicy.REQUIRED_PROVEN else ("bmc",))
-    ]
+    assert executed_backends == []
     if policy is FormalPolicy.REQUIRED_PROVEN:
         assert reports[0].bounded_prerequisite is not None
     assert not reports[0].verification_failure
-    assert {name for name, _ in reports[0].tool_versions} == {
-        "sby", "yosys", "yosys-smtbmc", "z3",
-    }
-    expected_work_routes = {
-        "m36:clash:bmc",
-        "m36:direct_systemverilog:bmc",
-        "m38:bmc",
-    }
+    # Complete M39 reuse performs no second tool discovery or execution.
+    assert reports[0].tool_versions == ()
+    expected_work_routes = {"m36:direct_systemverilog:bmc"}
     if policy is FormalPolicy.REQUIRED_PROVEN:
-        expected_work_routes |= {
-            "m36:clash:prove",
-            "m36:direct_systemverilog:prove",
-            "m38:prove",
-        }
-    assert {route for route, _ in reports[0].work_directories} == (
-        expected_work_routes
-    )
-    for _, path in reports[0].work_directories:
-        work = Path(path)
-        assert work.is_dir()
-        assert (work / "solver.stdout.log").is_file()
-        assert (work / "solver.stderr.log").is_file()
-        assert tuple(work.glob("*.sby"))
+        expected_work_routes.add("m36:direct_systemverilog:prove")
+    assert {name for name, _ in reports[0].work_directories} == expected_work_routes
+    assert all(Path(path).is_dir() for _, path in reports[0].work_directories)
     assert type(reports[0]).from_json(reports[0].to_json()) == reports[0]

@@ -1,10 +1,9 @@
 # Getting started with ZLang HDL
 
 ZLang HDL is a statically elaborated hardware language. Source is parsed and checked
-into backend-independent typed IR before any RTL backend is selected. Clash is
-the primary/general backend; direct SystemVerilog is a supported, fail-closed
-secondary backend for the feature set documented in
-[Direct SystemVerilog](direct-systemverilog.md).
+into backend-independent typed IR before RTL is emitted. Direct SystemVerilog is
+the sole production backend and remains fail-closed for unsupported IR. Historical
+Clash support is an internal compatibility path, not a public or release backend.
 The [current status snapshot](current-language-status.md) records the accepted
 tool versions, regression/corpus counts, real-design evidence, and explicit
 product boundaries.
@@ -37,8 +36,8 @@ Check a source file without creating backend artifacts:
 
 Without `--top`, `--check` validates every declared module. With `--top NAME`,
 it validates only that elaboration root. This is a semantic-only demand: it
-does not run implementation planning, formal execution, report rendering, or a
-Clash/SystemVerilog backend.
+does not run implementation planning, formal execution, report rendering, or the
+SystemVerilog backend.
 
 ## A first module
 
@@ -56,20 +55,7 @@ Hardware assignments are concurrent. Source order does not turn `=` into
 software-style sequencing. `=` drives a combinational value; `<-` schedules a
 register's next value at its clock edge.
 
-Generate Clash source:
-
-```sh
-.venv/bin/zlang examples/extended_add.zhl -o build/ExtendedAdd.hs
-```
-
-Generate and lint Clash-produced Verilog:
-
-```sh
-.venv/bin/zlang examples/extended_add.zhl \
-  --verilog-dir build/extended-add-rtl --verilator-lint
-```
-
-Generate direct SystemVerilog for a supported design:
+Generate direct SystemVerilog and lint it:
 
 ```sh
 .venv/bin/zlang examples/extended_add.zhl \
@@ -77,9 +63,9 @@ Generate direct SystemVerilog for a supported design:
 verilator --lint-only --top-module ExtendedAdd build/ExtendedAdd.sv
 ```
 
-Explicit artifact paths suppress implicit Clash output on stdout. A bare
-`zlang SOURCE` retains the legacy behavior of printing Clash source. Use
-`--verbose` for success messages on stderr.
+An explicit artifact path keeps stdout empty. Use `--verbose` for success
+messages on stderr. A bare invocation emits the production direct SystemVerilog
+artifact to stdout; use `--check` for semantic validation without emission.
 
 ## Check named verification goals
 
@@ -118,9 +104,9 @@ are retained in the external work directory; the immutable bundle is not
 modified. `--formal-jobs` parallelizes independent bundled safety/cover jobs
 and independent selected-candidate sites. Stages inside one candidate site
 remain ordered; plans, evidence, and report order remain deterministic.
-In a joint run, candidate M36/M38 jobs use deterministic subdirectories of that
-same external root; an exact in-session M39 reuse reports its retained root when
-one exists. Persistent proof-cache hits do not fabricate old workspace paths.
+Candidate M36 jobs use deterministic subdirectories of that same external root;
+an exact in-session M39 reuse reports its retained root when one exists.
+Persistent proof-cache hits do not fabricate old workspace paths.
 
 Each verification goal is routed against its own declared clock/reset pair.
 Goals in two supported synchronous domains can execute independently; an
@@ -133,21 +119,22 @@ The formal triggers are deliberately distinct:
   selection-time M36 gate;
 - `--verify` with policy `off` runs M35/source safety and covers;
 - `--verification-bundle` publishes the base safety/cover bundle and linking
-  plan but does not prepare or execute selected-candidate M36/M38;
-- `--verify` with a non-`off` policy additionally executes compatible selected-
-  candidate Clash M36, direct-SV M36, and advisory M38 evidence.
+  plan but does not prepare or execute selected-candidate M36;
+- `--verify` with a non-`off` policy additionally executes the compatible
+  selected-candidate direct-SV M36 route.
 
-When a joint compiler run has prepared selected-candidate M36/M38 inputs, bundle
+When a joint compiler run has prepared selected-candidate M36 inputs, bundle
 publication stores exact hash-validated replay companions. `zlang-verify`
 executes those frozen routes without recompiling source or rerunning M39
 selection. A base bundle continues to replay only its M35/source safety and
 cover jobs. A raw safety/cover run uses
 `zlang-verification-run-report-v7`; a run that produces candidate reports uses
 `zlang-compiler-verification-report-v1`, which wraps that raw report and keeps
-M36/M38 results separately typed. A safety or executed M36/M38 counterexample
-exits `1`; unavailable/unknown/vacuous safety evidence exits `2`. An unavailable
-advisory candidate route and an ordinary bounded cover miss do not themselves
-fail the command. See
+M36 results separately typed. A safety or M36 counterexample exits `1`;
+unavailable/unknown/vacuous safety evidence exits `2`. An unavailable advisory
+candidate route and an ordinary bounded cover miss do not themselves fail the
+command. Historical M38 records remain readable but are never executed by the
+production compiler. See
 [First-class verification goals and contracts](optimization-formal.md#first-class-verification-goals-and-contracts).
 
 ## Source files

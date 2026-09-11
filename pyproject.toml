@@ -17,7 +17,6 @@ keywords = [
     "hardware",
     "hdl",
     "systemverilog",
-    "clash",
     "formal-verification",
 ]
 classifiers = [
@@ -51,7 +50,6 @@ test = [
 [project.scripts]
 zlang = "zlang.cli:main"
 zlang-lock = "zlang.project_cli:main"
-zlang-compare-backends = "zlang.backend_comparison:main"
 zlang-verify = "zlang.verification_cli:main"
 
 [tool.setuptools.packages.find]

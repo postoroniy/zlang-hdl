@@ -163,7 +163,6 @@ def test_target_simulation_helper_has_explicit_drivers_and_keeps_wire_ports() ->
         "preadd",
         "product_comb",
         "product",
-        "product_extended",
         "result_value",
     ):
         _assert_explicit_driver(text, signal)

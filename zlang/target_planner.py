@@ -19,7 +19,17 @@ from zlang.costs import (
 )
 from zlang.ir import expressions as expr
 from zlang.ir.module import Module
-from zlang.ir.pipelines import PipelineMetric, PipelineRelation
+from zlang.ir.pipelines import (
+    MultiplierMapping,
+    PipelineCandidate,
+    PipelineConstraint,
+    PipelineEstimate,
+    PipelineExploration,
+    PipelineMetric,
+    PipelineRelation,
+    PipelineTree,
+    RegisterPlacement,
+)
 from zlang.ir.target import ImplementationGraph
 from zlang.ir.signed_reductions import recognize_signed_product_reduction
 from zlang.pipelines import pipeline_constraints_to_unified
@@ -29,16 +39,19 @@ from zlang.targets import (
     generic_implementation_graph,
     load_architecture_templates,
     load_target,
+    map_auto_multiply_add_configuration,
     map_auto_signed_product_configuration,
     map_auto_symmetric_configuration,
 )
+from zlang.pipeline_scheduling import erase_pipeline_timing
 
 
 # v2 removes source-provenance spelling from the implementation-graph
 # identity.  v1 records are intentionally rejected rather than interpreted as
 # evidence for a canonical ``implement`` region.
 EVIDENCE_SCHEMA = "zlang-target-qor-v2"
-DEFAULT_EVIDENCE = Path(__file__).with_name("data") / "xc7z030_dsp_pipeline_qor.json"
+EVIDENCE_CATALOG_SCHEMA = "zlang-target-qor-catalog-v1"
+DEFAULT_EVIDENCE_CATALOG = Path(__file__).with_name("data") / "target_qor_catalog.json"
 
 
 @dataclass(frozen=True)
@@ -124,6 +137,9 @@ class TargetPlanningResult:
     selected_candidate: TargetCandidate
     extraction: ExtractionResult | None
     search_bound: int = 5
+    # M39 evidence for complete value+schedule+resource candidates. This is
+    # orchestration metadata, not hardware identity.
+    formal_records: tuple[object, ...] = ()
 
     @property
     def selected_graph(self) -> ImplementationGraph:
@@ -140,7 +156,78 @@ def _requirements(module: Module):
         if isinstance(item.source_expression, expr.FixedConvert)
     )
     if not fixed:
-        return None, (), None, None
+        exact_regions = tuple(
+            (assignment.target.name, assignment.expression)
+            for assignment in module.assignments
+            if hasattr(assignment.target, "name")
+            and isinstance(assignment.expression, expr.Pipeline)
+            and assignment.expression.pipeline_plan is not None
+        )
+        if not exact_regions:
+            return None, (), None, None
+        if len(exact_regions) != 1:
+            # Each exact region is already independently scheduled and
+            # emitted by the generic direct-SV path.  Bounded resource
+            # covering currently selects one scalar region at a time; do not
+            # make an otherwise valid multi-output module fail merely because
+            # no single target candidate can represent all regions yet.
+            return None, (), None, None
+        output, scheduled = exact_regions[0]
+        source = erase_pipeline_timing(scheduled)
+        plan = scheduled.pipeline_plan
+        assert plan is not None
+        requested_latency = plan.requested_latency
+        assert requested_latency is not None
+        critical = plan.timing_dag.estimated_critical_delay_ps or 0
+        estimate = PipelineEstimate(
+            sum(item.cost.lut for item in plan.operations),
+            plan.inserted_registers * source.type.width,
+            sum(item.cost.dsp for item in plan.operations),
+            0 if critical == 0 else 1_000_000 // critical,
+        )
+        candidate = PipelineCandidate(
+            "exact_dag_partition",
+            scheduled,
+            PipelineTree.DAG,
+            RegisterPlacement.SCHEDULED_DAG,
+            MultiplierMapping.LOGIC,
+            (
+                "preserve_exact_typed_dag",
+                "partition_by_estimated_delay",
+                "balance_reconvergent_paths",
+            ),
+            requested_latency,
+            1,
+            estimate,
+            plan.cost_source,
+            pipeline_plan=plan,
+        )
+        constraints = (
+            PipelineConstraint(
+                PipelineMetric.LATENCY,
+                PipelineRelation.EXACT,
+                requested_latency,
+            ),
+            PipelineConstraint(
+                PipelineMetric.THROUGHPUT,
+                PipelineRelation.EXACT,
+                1,
+            ),
+        )
+        exploration = PipelineExploration(
+            output,
+            source.type,
+            source,
+            constraints,
+            (candidate,),
+            candidate.name,
+            1,
+        )
+        normalized = (
+            ("latency", "==", requested_latency),
+            ("ii", "==", 1),
+        )
+        return exploration, normalized, requested_latency, None
     if len(fixed) != 1:
         raise TargetArchitectureError(
             "target-aware implementation selection accepts exactly one fixed "
@@ -162,8 +249,13 @@ def _requirements(module: Module):
 
 
 def _generic_candidate(module: Module, target, exploration, requirements) -> TargetCandidate:
-    graph = generic_implementation_graph(module, target)
     selected = exploration.selected_candidate
+    graph = generic_implementation_graph(module, target)
+    if selected.pipeline_plan.scheduled_value_graph is not None:
+        graph = replace(
+            graph,
+            scheduled_value_graph=selected.pipeline_plan.scheduled_value_graph,
+        )
     graph = replace(
         graph,
         latency=selected.latency,
@@ -171,9 +263,13 @@ def _generic_candidate(module: Module, target, exploration, requirements) -> Tar
         policy_requirements=requirements,
     )
     conversion = exploration.source_expression
+    arithmetic = (
+        conversion.expression
+        if isinstance(conversion, expr.FixedConvert)
+        else conversion
+    )
     reduction = (
-        recognize_signed_product_reduction(conversion.expression)
-        if isinstance(conversion, expr.FixedConvert) else None
+        recognize_signed_product_reduction(arithmetic)
     )
     if reduction is not None:
         graph = replace(
@@ -187,13 +283,23 @@ def _generic_candidate(module: Module, target, exploration, requirements) -> Tar
                 target_identity=target.identity if target else None,
             ),
         )
+    # The compatibility fixed-output candidate used ``100 MHz`` as a
+    # placeholder before a real stage schedule existed.  That value is not a
+    # timing estimate and must never satisfy a target Fmax constraint.  A
+    # scheduled DAG carries a computed critical path; legacy output-delay
+    # candidates honestly report unknown frequency.
+    fmax_est = (
+        selected.estimate.fmax_mhz
+        if selected.pipeline_plan.scheduler != "legacy"
+        else None
+    )
     cost = CandidateCost.estimate(
         lut=selected.estimate.lut,
         ff=selected.estimate.ff,
         dsp=selected.estimate.dsp,
         latency=selected.latency,
         ii=selected.initiation_interval,
-        fmax_est=selected.estimate.fmax_mhz,
+        fmax_est=fmax_est,
         structural_cost=len(selected.transformations),
     )
     return TargetCandidate("generic", graph, cost)
@@ -256,10 +362,9 @@ def _compatible_evidence(
     ))
 
 
-def load_qor_evidence(path: Path | None = None) -> tuple[QoREvidence, ...]:
-    selected = path or DEFAULT_EVIDENCE
-    if not selected.exists():
-        return ()
+def _load_qor_evidence_file(selected: Path) -> tuple[QoREvidence, ...]:
+    """Load one immutable QoR evidence file after schema validation."""
+
     payload = json.loads(selected.read_text())
     if payload.get("schema") != EVIDENCE_SCHEMA:
         raise ValueError(f"unsupported target QoR evidence schema in '{selected}'")
@@ -279,6 +384,47 @@ def load_qor_evidence(path: Path | None = None) -> tuple[QoREvidence, ...]:
             float(item["wns_ns"]) if item.get("wns_ns") is not None else None,
             item.get("provenance", ""),
         ))
+    return tuple(records)
+
+
+def load_qor_evidence(path: Path | None = None) -> tuple[QoREvidence, ...]:
+    """Load explicit evidence or the hash-pinned packaged evidence catalog.
+
+    An explicit path remains a complete override.  The default path is a
+    deterministic catalog rather than one arbitrarily privileged workload;
+    every packaged byte is checked before it can affect target selection.
+    """
+
+    if path is not None:
+        return _load_qor_evidence_file(path) if path.exists() else ()
+    if not DEFAULT_EVIDENCE_CATALOG.exists():
+        return ()
+    catalog = json.loads(DEFAULT_EVIDENCE_CATALOG.read_text())
+    if catalog.get("schema") != EVIDENCE_CATALOG_SCHEMA:
+        raise ValueError("unsupported packaged target QoR catalog schema")
+    records: list[QoREvidence] = []
+    seen_keys: set[str] = set()
+    for entry in catalog.get("entries", ()):
+        relative = entry.get("path")
+        expected_hash = entry.get("sha256")
+        if not isinstance(relative, str) or Path(relative).name != relative:
+            raise ValueError("packaged target QoR catalog contains an unsafe path")
+        selected = DEFAULT_EVIDENCE_CATALOG.parent / relative
+        if not selected.is_file():
+            raise ValueError(f"packaged target QoR evidence '{relative}' is missing")
+        actual_hash = sha256(selected.read_bytes()).hexdigest()
+        if actual_hash != expected_hash:
+            raise ValueError(
+                f"packaged target QoR evidence hash mismatch for '{relative}'"
+            )
+        for record in _load_qor_evidence_file(selected):
+            if record.key.identity in seen_keys:
+                raise ValueError(
+                    "packaged target QoR catalog repeats measurement key "
+                    f"'{record.key.identity}'"
+                )
+            seen_keys.add(record.key.identity)
+            records.append(record)
     return tuple(records)
 
 
@@ -312,6 +458,7 @@ def plan_target_pipeline(
         templates = (
             *load_architecture_templates(operation="symmetric_fir_cascade"),
             *load_architecture_templates(operation="signed_product_reduction"),
+            *load_architecture_templates(operation="multiply_add"),
         )
         if architecture is not None:
             templates = tuple(item for item in templates if architecture in {
@@ -359,6 +506,7 @@ def plan_target_pipeline(
                             graph = map_auto_signed_product_configuration(
                                 module, selected_target, family, resources, template,
                                 configuration, exact_latency=exact_latency,
+                                source_expression=exploration.source_expression,
                             )
                         except ValueError as error:
                             # A physically realized configuration can still be
@@ -372,6 +520,32 @@ def plan_target_pipeline(
                             graph = map_auto_signed_product_configuration(
                                 module, selected_target, family, resources, template,
                                 configuration, exact_latency=None,
+                                source_expression=exploration.source_expression,
+                            )
+                    elif template.operation == "multiply_add":
+                        if not any(
+                            item.backend == "systemverilog"
+                            and item.emitter == "dsp48e1_explicit"
+                            and item.primitive == "DSP48E1"
+                            for item in resource.physical_bindings
+                        ):
+                            raise TargetArchitectureError(
+                                f"resource '{resource.identity}' has no explicit "
+                                "DSP48E1 physical binding for multiply_add"
+                            )
+                        try:
+                            graph = map_auto_multiply_add_configuration(
+                                module, selected_target, family, resources, template,
+                                configuration, exact_latency=exact_latency,
+                                source_expression=exploration.source_expression,
+                            )
+                        except ValueError as error:
+                            if exact_latency is None or "exceeds exact latency" not in str(error):
+                                raise
+                            graph = map_auto_multiply_add_configuration(
+                                module, selected_target, family, resources, template,
+                                configuration, exact_latency=None,
+                                source_expression=exploration.source_expression,
                             )
                     else:
                         try:
@@ -468,7 +642,7 @@ def _cost_items(cost: CandidateCost) -> tuple[tuple[str, int | float | None, str
 
 def render_target_planner_report(result: TargetPlanningResult) -> str:
     lines = [
-        "Target-aware pipeline planner: bounded exact fixed-product slice",
+        "Target-aware pipeline planner: scheduled scalar value graph",
         f"target: {result.target or 'none'}",
         "requirements: " + ", ".join(
             f"{metric} {relation} {value}" for metric, relation, value in result.requirements
@@ -501,6 +675,7 @@ def render_target_planner_report(result: TargetPlanningResult) -> str:
             )
     selected = result.selected_candidate
     graph = selected.graph
+    scheduled = graph.scheduled_value_graph
     lines.extend((
         f"selected: {selected.name}",
         f"architecture: {graph.architecture_template_identity}",
@@ -512,12 +687,63 @@ def render_target_planner_report(result: TargetPlanningResult) -> str:
         f"alignment delays: {len(graph.timing_dag.alignment_delays) if graph.timing_dag else 0}",
         f"compensation cycles: {sum(item.cycles for item in graph.timing_dag.compensation_delays) if graph.timing_dag else 0}",
         "physical bindings: " + (", ".join(graph.physical_binding_identities) or "generic"),
+        f"scheduled value graph: {scheduled.identity if scheduled is not None else 'legacy/unavailable'}",
+        "rewrite certificate: " + (
+            ", ".join(scheduled.rewrite_certificate)
+            if scheduled is not None and scheduled.rewrite_certificate
+            else "source_exact"
+        ),
         "reason: " + (result.extraction.reason if result.extraction else "generic fallback"),
     ))
+    if scheduled is not None:
+        semantic = dict(scheduled.operation_semantic_identities)
+        resources = {
+            item.operation_identity: item for item in scheduled.resource_bindings
+        }
+        for stage in range(scheduled.exact_latency):
+            lines.append(
+                f"physical stage {stage}: delay={scheduled.stage_delays_ps[stage]}ps"
+            )
+            for operation, assigned in scheduled.stage_assignment:
+                if assigned != stage:
+                    continue
+                binding = resources.get(operation)
+                lines.append(
+                    f"  operation {operation[:12]} semantic={semantic[operation][:12]} "
+                    + (
+                        f"resource={binding.resource_definition_identity}/"
+                        f"{binding.resource_instance_identity}"
+                        if binding is not None else "resource=generic_logic"
+                    )
+                )
+        lines.append(
+            "resource-local cuts: "
+            + (", ".join(scheduled.cut_identities) or "none")
+        )
+        lines.append(
+            "fabric alignment delays: "
+            + (", ".join(scheduled.alignment_delay_identities) or "none")
+        )
+        lines.append(
+            "fabric compensation delays: "
+            + (", ".join(scheduled.compensation_delay_identities) or "none")
+        )
+    if result.formal_records:
+        lines.append("physical candidate formal evidence:")
+        for record in result.formal_records:
+            status = getattr(record.status, "value", record.status)
+            lines.append(
+                "  "
+                f"rank={record.rank} candidate={record.candidate_identity} "
+                f"status={status or 'not-run'} "
+                f"eligible={str(record.eligible).lower()} "
+                f"route={record.formal_route}"
+            )
     return "\n".join(lines) + "\n"
 
 
 __all__ = [
+    "DEFAULT_EVIDENCE_CATALOG", "EVIDENCE_CATALOG_SCHEMA",
     "MeasurementKey", "QoREvidence", "TargetCandidate", "TargetPlanningResult",
     "load_qor_evidence", "plan_target_pipeline", "render_target_planner_report",
 ]

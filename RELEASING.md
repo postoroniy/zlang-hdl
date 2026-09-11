@@ -47,12 +47,13 @@ GitHub alpha; publishing to PyPI or a container registry is a separate decision.
 Run the repository's fast and pinned-tool CI on the exact release commit. The
 release candidate must include:
 
-- two complete parallel pytest runs with no unexpected skips;
+- two complete parallel pytest runs with no unexpected skips; only explicitly
+  identified retired-Clash compatibility tests may skip when Clash is absent;
 - `compileall`, Ruff correctness checks, documentation links, and diff checks;
 - clean source and wheel installations with all installed CLI entry points;
 - strict direct-SystemVerilog/Verilator coverage;
-- real Clash generation and the pinned Yosys/SBY/Z3 verification and mutation
-  smoke tests;
+- pinned Yosys/SBY/Z3 verification and mutation smoke tests against the
+  production direct-SystemVerilog route;
 - deterministic generated artifacts, verification-bundle replay, and package
   contents.
 
@@ -113,8 +114,8 @@ SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)" \
 ```
 
 Install the wheel and source distribution into separate empty virtual
-environments and exercise `zlang`, `zlang-lock`, `zlang-verify`, and
-`zlang-compare-backends` outside the checkout.
+environments and exercise `zlang`, `zlang-lock`, and `zlang-verify` outside
+the checkout.
 
 ## Publication
 

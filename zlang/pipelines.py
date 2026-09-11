@@ -38,6 +38,11 @@ from zlang.ir.signed_reductions import (
 )
 from zlang.costs import CandidateCost, UnifiedConstraint, extract_best
 from zlang.timing import validate_timed_candidate
+from zlang.pipeline_scheduling import (
+    PipelineSchedulingError,
+    schedule_fixed_pipeline,
+)
+from zlang.ir.traversal import ExpressionTraversalPolicy, walk_expression
 
 
 PIPELINE_COST_MODEL = "zlang-pipeline-estimate-v1"
@@ -337,6 +342,161 @@ def explore_pipeline(
     )
 
 
+def explore_general_pipeline(
+    output: str,
+    expression: expr.Expression,
+    result_type: HardwareType,
+    constraints: tuple[PipelineConstraint, ...],
+    latencies: tuple[int, ...],
+    allocate_instance: Callable[[], int],
+) -> PipelineExploration:
+    """Generate exact-latency candidates for one supported scalar typed DAG.
+
+    The established product-reduction explorer remains the preferred
+    specialized architecture generator.  This bounded fallback is used only
+    when that shape does not apply, so it does not remove DSP/reduction
+    candidates or reinterpret their cost model.
+    """
+
+    _validate_constraints(constraints)
+    if not isinstance(
+        result_type,
+        (UIntType, SIntType, FixedType, UFixedType),
+    ):
+        raise PipelineExplorationError(
+            "general pipeline scheduling requires an integer or fixed scalar result"
+        )
+    if not latencies or any(item < 1 for item in latencies):
+        raise PipelineExplorationError(
+            "general pipeline scheduling requires a bounded positive latency set"
+        )
+    generated: list[PipelineCandidate] = []
+    failures: list[str] = []
+    for latency in latencies:
+        try:
+            scheduled = schedule_fixed_pipeline(
+                expression,
+                latency,
+                allocate_instance,
+            )
+        except PipelineSchedulingError as error:
+            failures.append(f"latency {latency}: {error}")
+            continue
+        assert scheduled.pipeline_plan is not None
+        plan = scheduled.pipeline_plan
+        critical_ps = plan.timing_dag.estimated_critical_delay_ps or 0
+        fmax_mhz = 0 if critical_ps == 0 else 1_000_000 // critical_ps
+        pipeline_nodes = tuple(
+            node
+            for node in walk_expression(
+                scheduled,
+                policy=ExpressionTraversalPolicy.SELECTED_IMPLEMENTATION,
+            )
+            if isinstance(node, expr.Pipeline)
+        )
+        estimate = PipelineEstimate(
+            lut=sum(item.cost.lut for item in plan.operations),
+            ff=sum(item.type.width * item.stages for item in pipeline_nodes),
+            dsp=sum(item.cost.dsp for item in plan.operations),
+            fmax_mhz=fmax_mhz,
+        )
+        candidate = PipelineCandidate(
+            name=f"dag_partition_{latency}",
+            expression=scheduled,
+            tree=PipelineTree.DAG,
+            register_placement=RegisterPlacement.SCHEDULED_DAG,
+            multiplier_mapping=MultiplierMapping.LOGIC,
+            transformations=(
+                "preserve_exact_typed_dag",
+                "partition_by_estimated_delay",
+                "balance_reconvergent_paths",
+            ),
+            latency=latency,
+            initiation_interval=1,
+            estimate=estimate,
+            cost_source=plan.cost_source,
+            pipeline_plan=plan,
+        )
+        candidate = replace(candidate, violations=_violations(candidate, constraints))
+        generated.append(candidate)
+    if not generated:
+        raise PipelineExplorationError(
+            "general pipeline scheduler produced no candidate"
+            + (": " + "; ".join(failures) if failures else "")
+        )
+    unified_constraints = tuple(
+        pipeline_constraint_to_unified(item) for item in constraints
+    )
+    try:
+        extraction = extract_best(
+            generated,
+            objective="fmax_est",
+            constraints=unified_constraints,
+            cost_fn=lambda candidate: CandidateCost.estimate(
+                lut=candidate.estimate.lut,
+                ff=candidate.estimate.ff,
+                dsp=candidate.estimate.dsp,
+                latency=candidate.latency,
+                ii=candidate.initiation_interval,
+                fmax_est=candidate.estimate.fmax_mhz,
+                structural_cost=len(candidate.pipeline_plan.operations),
+            ),
+        )
+    except ValueError as error:
+        best = max(
+            generated,
+            key=lambda candidate: (
+                candidate.estimate.fmax_mhz,
+                -candidate.latency,
+                candidate.name,
+            ),
+        )
+        plan = best.pipeline_plan
+        assert plan.timing_dag is not None
+        critical = max(
+            plan.stages,
+            key=lambda stage: (stage.estimated_delay_ps, -stage.index),
+        )
+        by_identity = {item.identity: item for item in plan.operations}
+        path = " -> ".join(
+            f"{by_identity[identity].operation}({by_identity[identity].result_type})"
+            for identity in critical.operation_identities
+        ) or "output compensation only"
+        requested_fmax = next(
+            (
+                item.value
+                for item in constraints
+                if item.metric is PipelineMetric.FMAX
+            ),
+            None,
+        )
+        timing_detail = (
+            f"; expression critical stage: {path}; best {best.latency}-stage "
+            f"structural estimated critical delay "
+            f"{critical.estimated_delay_ps / 1000:.3f} ns; estimated Fmax "
+            f"{best.estimate.fmax_mhz} MHz"
+        )
+        if requested_fmax is not None:
+            timing_detail += f"; requested Fmax {requested_fmax} MHz"
+        timing_detail += (
+            "; target timing is unavailable; structural_estimate is not a "
+            "synthesis or routed measurement"
+        )
+        raise PipelineExplorationError(
+            "no general DAG pipeline candidate satisfies the implementation constraints"
+            + timing_detail
+        ) from error
+    return PipelineExploration(
+        output,
+        result_type,
+        expression,
+        constraints,
+        tuple(generated),
+        extraction.selected.name,
+        len(generated),
+    )
+
+
 def pipeline_constraint_to_unified(
     constraint: PipelineConstraint,
 ) -> UnifiedConstraint:
@@ -372,12 +532,30 @@ def pipeline_constraints_to_unified(
 def render_pipeline_report(module: Module) -> str:
     """Explain bounded candidates, legality, transforms, and selection."""
 
-    if not module.pipeline_explorations and not module.elastic_pipeline_regions:
+    fixed_plans = tuple(
+        (assignment.target.name, assignment.expression.pipeline_plan)
+        for assignment in module.assignments
+        if isinstance(assignment.expression, expr.Pipeline)
+        and assignment.expression.pipeline_plan is not None
+        and assignment.expression.pipeline_plan.scheduler != "legacy"
+    )
+    if (
+        not fixed_plans
+        and not module.pipeline_explorations
+        and not module.elastic_pipeline_regions
+    ):
         return ""
     lines = [
         f"module {module.name}",
         f"pipeline_model={PIPELINE_COST_MODEL}+m31-unified cost_source=structural_estimate measured=false",
     ]
+    if fixed_plans:
+        from zlang.pipeline_scheduling import render_fixed_pipeline_plan
+
+        for output, plan in fixed_plans:
+            rendered = render_fixed_pipeline_plan(output, plan).rstrip("\n")
+            if rendered:
+                lines.extend(rendered.splitlines())
     for exploration in module.pipeline_explorations:
         constraints = ",".join(
             constraint.render() for constraint in exploration.constraints
@@ -405,12 +583,29 @@ def render_pipeline_report(module: Module) -> str:
                 f"violations=[{violations}]"
             )
         selected = exploration.selected_candidate
+
+        def _selection_value(expression):
+            # Unified implement candidates describe the value DAG while the
+            # assignment carries the enclosing visible-latency Pipeline node.
+            # Compare the selected value under that wrapper; this keeps
+            # catalog-only evidence fail-closed while recognizing the actual
+            # emitted implementation.
+            return (
+                expression.expression
+                if isinstance(expression, expr.Pipeline)
+                else expression
+            )
+
         emitted = any(
             assignment.target.name == exploration.output
             and assignment.signal is None
             and assignment.channel is None
-            and selection_expression_semantic_identity(assignment.expression)
-            == selection_expression_semantic_identity(selected.expression)
+            and selection_expression_semantic_identity(
+                _selection_value(assignment.expression)
+            )
+            == selection_expression_semantic_identity(
+                _selection_value(selected.expression)
+            )
             for assignment in module.assignments
         )
         selection_reason = (
@@ -595,49 +790,37 @@ def _explore_fixed_output(
     exact = next((item.value for item in constraints
                   if item.metric is PipelineMetric.LATENCY
                   and item.relation is PipelineRelation.EXACT), None)
-    latency = exact or 1
-    candidate_expression = expr.Pipeline(
-        latency, expression, allocate_instance(), result_type,
-    )
-    # This is deliberately only structural evidence.  Target planning may
-    # replace it with synthesis/routed evidence but must not promote it.
-    lut = sum(item.left.type.width * item.right.type.width for item in products)
-    lut += expression.expression.type.width * max(0, len(products) - 1)
+    maximum = next((item.value for item in constraints
+                    if item.metric is PipelineMetric.LATENCY
+                    and item.relation is PipelineRelation.MAXIMUM), None)
     preservation = (
         "preserve_exact_signed_product_reduction"
         if reduction is not None and reduction.has_subtraction
         else "preserve_exact_fixed_reduction"
     )
-    candidate = _candidate(
-        "fixed_output_generic",
-        candidate_expression,
-        PipelineTree.LINEAR,
-        RegisterPlacement.OUTPUT,
-        MultiplierMapping.LOGIC,
-        (preservation, "preserve_original_join_tree", "register_output_boundary"),
-        latency,
-        lut,
-        result_type.width * latency,
-        0,
-        100,
-        constraints,
+    # The old compatibility candidate assigned an arbitrary 100 MHz to the
+    # whole expression followed by output delay registers.  Use the same
+    # general DAG scheduler as every other pure scalar region instead.  This
+    # produces an honest structural critical path when no target is selected,
+    # while target planning may still replace it with resource-local cuts and
+    # measured evidence.
+    latencies = (
+        (exact,)
+        if exact is not None
+        else tuple(range(1, min(maximum or 1, 32) + 1))
     )
-    relation = validate_timed_candidate(
-        expression, candidate.expression, value_equivalent=True,
+    scheduled = explore_general_pipeline(
+        output, expression, result_type, constraints, latencies,
+        allocate_instance,
     )
-    if not relation.equivalent:
-        raise PipelineExplorationError(
-            f"fixed generic candidate failed timed validation: {relation.proof}"
+    candidates = tuple(
+        replace(
+            candidate,
+            transformations=(preservation, *candidate.transformations),
         )
-    if candidate.violations:
-        raise PipelineExplorationError(
-            "no legal generic fixed pipeline candidate: "
-            + ", ".join(candidate.violations)
-        )
-    return PipelineExploration(
-        output, result_type, expression, constraints, (candidate,),
-        candidate.name, 1,
+        for candidate in scheduled.candidates
     )
+    return replace(scheduled, candidates=candidates)
 
 
 def _legacy_positive_fixed_products(value: expr.Expression) -> tuple[expr.Binary, ...]:

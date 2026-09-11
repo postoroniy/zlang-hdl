@@ -40,7 +40,7 @@ from zlang.ir.verification import (
     VerificationRequirement,
     VerificationScope,
 )
-from zlang.ir.pipelines import PipelineCandidate, PipelineExploration
+from zlang.ir.pipelines import PipelineCandidate, PipelineExploration, PipelinePlan
 from zlang.ir.elastic import ElasticPipelineRegion
 from zlang.ir.architectures import (
     ArchitectureCandidate,
@@ -573,13 +573,18 @@ class _ExpressionBuilder:
                 instance=expression.instance,
             )
         if isinstance(expression, expr.Pipeline):
+            attributes: dict[str, object] = {
+                "stages": expression.stages,
+                "instance": expression.instance,
+            }
+            if expression.pipeline_plan is not None:
+                attributes["pipeline_plan"] = expression.pipeline_plan
             return self._compound(
                 ExpressionOp.PIPELINE,
                 (expression.expression,),
                 scope,
                 category=NodeCategory.STATE,
-                stages=expression.stages,
-                instance=expression.instance,
+                **attributes,
             )
         if isinstance(expression, expr.ImplementationChoice):
             return self._compound(
@@ -2597,12 +2602,61 @@ class _ExpressionRestorer:
                 node.type,
             )
         elif op is ExpressionOp.PIPELINE:
+            pipeline_plan = dict(node.attributes).get("pipeline_plan")
+            if pipeline_plan is not None and not isinstance(
+                pipeline_plan, PipelinePlan
+            ):
+                raise CanonicalizationError(
+                    f"canonical pipeline %{node_id} has invalid schedule metadata"
+                )
             restored = expr.Pipeline(
                 attribute("stages"),
                 operands[0],
                 attribute("instance"),
                 node.type,
+                pipeline_plan=pipeline_plan,
             )
+            if pipeline_plan is not None and pipeline_plan.scheduler != "legacy":
+                from zlang.ir.signed_reductions import expression_semantic_identity
+                from zlang.pipeline_scheduling import erase_pipeline_timing
+                from zlang.timing import timing_info
+
+                physical = replace(restored, pipeline_plan=None)
+                if (
+                    pipeline_plan.scheduled_expression_identity
+                    != expression_semantic_identity(physical)
+                ):
+                    raise CanonicalizationError(
+                        f"canonical pipeline %{node_id} schedule identity disagrees "
+                        "with its physical expression"
+                    )
+                source = erase_pipeline_timing(physical)
+                semantic_source = (
+                    pipeline_plan.source_expression
+                    if pipeline_plan.source_expression is not None
+                    else source
+                )
+                if (
+                    pipeline_plan.source_expression_identity
+                    != expression_semantic_identity(semantic_source)
+                ):
+                    raise CanonicalizationError(
+                        f"canonical pipeline %{node_id} source identity disagrees "
+                        "with its value expression"
+                    )
+                if (
+                    pipeline_plan.selected_value_identity
+                    != expression_semantic_identity(source)
+                ):
+                    raise CanonicalizationError(
+                        f"canonical pipeline %{node_id} selected value identity "
+                        "disagrees with its physical value expression"
+                    )
+                if timing_info(restored).latency != pipeline_plan.requested_latency:
+                    raise CanonicalizationError(
+                        f"canonical pipeline %{node_id} schedule latency disagrees "
+                        "with its physical expression"
+                    )
         elif op is ExpressionOp.IMPLEMENTATION_CHOICE:
             kinds = attribute("kinds")
             applicability = attribute("applicability")

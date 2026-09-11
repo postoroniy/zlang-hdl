@@ -194,7 +194,6 @@ families, or source-level M36/M38 controls. Use the existing
 ```sh
 zlang source.zhl --check
 zlang source.zhl --top Top --systemverilog build/Top.sv
-zlang source.zhl --top Top -o build/Top.hs
 zlang source.zhl --top Top --verify
 ```
 
@@ -202,8 +201,7 @@ Before calling a source change complete:
 
 1. compile the exact top with `--check`;
 2. run focused parser/semantic/canonical/simulator tests;
-3. exercise direct-SV with strict Verilator and real Clash when the feature
-   reaches those backends;
+3. exercise production direct-SV with strict Verilator;
 4. run applicable existing formal tests without inventing new claims;
 5. run the repository regression and `git diff --check` required by the active
    task.

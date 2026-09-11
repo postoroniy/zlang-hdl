@@ -14,8 +14,8 @@ ZLang keeps two different kinds of evidence:
    forms in one invocation.
 
 The number printed by pytest is not the main runtime cost. Collection of the
-complete suite takes only a few seconds; repeated Clash, Verilator, Yosys/SBY,
-and source/top compilation dominate wall time. Tests therefore share immutable
+complete suite takes only a few seconds; repeated Verilator, Yosys/SBY, and
+source/top compilation dominate wall time. Tests therefore share immutable
 results only inside one module-scoped run and never use a persistent cache that
 could hide source, dependency, tool-version, or mutation changes.
 
@@ -33,16 +33,15 @@ It is a positive surface check, not a replacement for negative diagnostics or
 cycle behavior.
 
 Run the broad positive gate together with exhaustive strict direct-SV lint of
-all supported example roots and real Clash/Verilator for every language-tour
-top:
+all supported example roots:
 
 ```sh
 .venv/bin/python -m pytest -n 2 --dist=loadscope -q \
   -m 'conformance or toolchain_smoke'
 ```
 
-This is three broad pytest items and completed in 75.46 s on the acceptance
-host. Genuine tool absence remains an explicit skip.
+This is the production toolchain smoke gate. Genuine absence of a required
+production tool remains an explicit skip and fails release acceptance.
 
 ## Complete acceptance
 
@@ -70,8 +69,7 @@ release gates:
 
 `tests/conformance/catalog.py` is the only test-owned list of the 27
 `examples/all_syntax.zhl` tops. Editor tests remain lexical; positive compiler
-conformance belongs to `tests/conformance/test_language_tour.py`. The real
-Clash gate consumes the same catalog.
+conformance belongs to `tests/conformance/test_language_tour.py`.
 
 The direct-SV example registry discovers every `.zhl` source and root
 recursively. Within that module, a source/top compilation result is immutable

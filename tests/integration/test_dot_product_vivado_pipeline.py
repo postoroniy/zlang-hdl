@@ -10,6 +10,7 @@ from zlang.backend.systemverilog import emit_experimental
 from zlang.compiler import compile_source
 from zlang.ir import expressions as expr
 from zlang.simulate import simulate_cycles
+from zlang.timing import timing_info
 from zlang.toolchain import find_clash_executable, generate_verilog
 
 
@@ -35,7 +36,10 @@ def test_dot_pipeline_is_explicit_fixed_latency_and_full_width(latency: int) -> 
     result = compile_source(SOURCES[latency])
     assignment = next(item for item in result.ir.assignments if item.target.name == "y")
     assert isinstance(assignment.expression, expr.Pipeline)
-    assert assignment.expression.stages == latency
+    assert timing_info(assignment.expression).latency == latency
+    assert assignment.expression.pipeline_plan is not None
+    assert assignment.expression.pipeline_plan.requested_latency == latency
+    assert assignment.expression.pipeline_plan.scheduler == "dag_partition_v1"
     assert assignment.expression.type.width == 19
     assert result.implementation_graph.is_generic
 

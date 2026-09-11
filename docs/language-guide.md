@@ -4,8 +4,9 @@ This is the stable entry point for ZLang HDL documentation. The guide is split b
 the questions a hardware designer asks while moving from source to verified RTL.
 The canonical public/source identities are recorded in
 [ZLang HDL source identity](source-identity-migration.md).
-The compiler's backend-independent typed IR, rather than Clash or SystemVerilog
-behavior, defines language semantics.
+The compiler's backend-independent typed IR, rather than any emitter, defines
+language semantics. Direct SystemVerilog is the sole production backend;
+historical Clash emission is retained only for compatibility fixtures.
 
 For a representative executable tour, start with
 [`examples/all_syntax.zhl`](../examples/all_syntax.zhl). It is not an exhaustive
@@ -47,7 +48,7 @@ instructions.
 6. **[Optimization and formal verification](optimization-formal.md)** — canonical
    versus selected IR, choices, pipeline/architecture exploration, contracts,
    M35/M36/M38/M39 boundaries, and proof status meanings.
-7. **[Backends, CLI, and tooling](backends-tooling.md)** — Clash/direct-SV policy,
+7. **[Backends, CLI, and tooling](backends-tooling.md)** — direct-SV production policy,
    output options, reports, stdlib resolution, editor support, and test tooling.
 8. **[Standard library](stdlib.md)** — the compiler-shipped `std` namespace,
    source-authored buses/math, targets, and architecture descriptions.
@@ -126,13 +127,13 @@ Compiler and editor integrations should also use the versioned
   suppresses the group rather than choosing a ready fallback.
 - Protocol observations such as `.transfer`, FIFO status, and request/response
   channel events have typed, read-only meanings. They are not arbitrary fields.
-- Clash is the primary/general backend. Direct SystemVerilog is a stable,
-  fail-closed supported secondary backend; see its exact
-  [coverage matrix](direct-systemverilog.md).
-- Both backends publish the same mandatory integration boundary: top-level
-  struct fields and tuple `itemN` components are recursively named leaf ports,
-  while `vec<N,T>` values are native unpacked arrays (one array per terminal
-  field/component for vectors of structs or tuples).
+- Direct SystemVerilog is the sole production backend; see its exact
+  [coverage matrix](direct-systemverilog.md). Clash is retired from the
+  production path and retained only for historical compatibility fixtures.
+- The production backend publishes one mandatory integration boundary:
+  top-level struct fields and tuple `itemN` components are recursively named
+  leaf ports, while `vec<N,T>` values are native unpacked arrays (one array per
+  terminal field/component for vectors of structs or tuples).
   Packed aggregate values are private core/component details, never an
   alternate public ABI; see
   [backend tooling](backends-tooling.md#public-rtl-boundary).
@@ -144,10 +145,10 @@ adjacent protocol or architecture is implemented:
 
 | Design | What is validated | Deliberate boundary |
 | --- | --- | --- |
-| [SimpleDMA](dma-validation.md) | parameterized hierarchy, state, request/response, buffering, real Clash/direct-SV RTL and Verilator | no AXI, CDC, scatter-gather, or cross-module optimization |
+| [SimpleDMA](dma-validation.md) | parameterized hierarchy, state, request/response, buffering, direct-SV RTL and Verilator | no AXI, CDC, scatter-gather, or cross-module optimization |
 | [Standard-library real designs](stdlib-and-real-design-validation.md) | AHB-Lite/AXI4-Lite/APB/Wishbone to RegBus/CSR, AXI-Stream packet flow, fixed FIR, and multi-channel DMA | the original QoR table is technology-independent evidence, not an Fmax claim |
-| [FFT512 SDF reference](../examples/fft/README.md#fft512-nine-stage-functional-reference) | nine numerical stages, initialized twiddle ROMs, II=1/latency 520, and routine backend-independent plus dual-backend RTL replay against one frozen oracle | no automatic DSP mapping, physical QoR, or Fmax claim |
-| [802.11a transmitter validation](80211a-transmitter-validation.md) | IEEE-authoritative bounded 6/12/24-Mbit/s framer through exact inverse DIF-SDF IFFT64, natural-order reorder, 80-sample CP, and complete direct-SV/Clash RTL packet replay | first functional dual-bank/single-buffered architecture misses the 10 ns physical constraint; no receiver, full rate set, or production certification claim |
+| [FFT512 SDF reference](../examples/fft/README.md#fft512-nine-stage-functional-reference) | nine numerical stages, initialized twiddle ROMs, II=1/latency 520, and routine backend-independent plus production direct-SV replay against one frozen oracle | no automatic DSP mapping, physical QoR, or Fmax claim |
+| [802.11a transmitter validation](80211a-transmitter-validation.md) | IEEE-authoritative bounded 6/12/24-Mbit/s framer through exact inverse DIF-SDF IFFT64, natural-order reorder, 80-sample CP, and complete direct-SV RTL packet replay | first functional dual-bank/single-buffered architecture misses the 10 ns physical constraint; no receiver, full rate set, or production certification claim |
 | [IFFT64 numerical reference](80211a-transmitter-validation.md#ifft64-numerical-reference-elaboration-boundary) | full N=64 semantic/canonical/simulator result using compact functional IR; N=8/N=16 combinational backend witnesses | the whole-vector reference remains distinct from the production streaming SDF validated by the 802.11a project |
 
 The exact current direct-SystemVerilog example count and tool versions live in

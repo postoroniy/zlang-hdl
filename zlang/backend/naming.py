@@ -192,7 +192,17 @@ class ModuleRtlNames:
         return self._name("rule", rule_name, role)
 
     def stage(self, kind: str, instance: int, index: int) -> str:
-        return self._name("stage", kind, str(instance), str(index))
+        try:
+            return self._name("stage", kind, str(instance), str(index))
+        except RtlNamingError:
+            # A trivial fixed pipeline is represented as one public N-cycle
+            # node but is emitted with one physical stage per historical
+            # instance.  Resolve that compatibility spelling on demand.
+            if kind == "pipeline" and index > 1:
+                return self._name(
+                    "stage", kind, str(instance + index - 1), "1"
+                )
+            raise
 
 
 @dataclass(frozen=True)
@@ -326,8 +336,22 @@ def _stage_requests(module: Module) -> tuple[_Request, ...]:
             short_kind = "pipe" if kind == "pipeline" else kind
             base = hints.get((kind, value.instance))
             for index in range(1, count + 1):
-                key = (kind, value.instance, index)
-                preferred = f"{base}_{short_kind}_s{index}" if base is not None else f"zlang_{short_kind}_{value.instance}_s{index}"
+                physical_instance = (
+                    value.instance + index - 1
+                    if (
+                        kind == "pipeline"
+                        and value.pipeline_plan is None
+                        and count > 1
+                    )
+                    else value.instance
+                )
+                physical_index = 1 if physical_instance != value.instance else index
+                key = (kind, physical_instance, physical_index)
+                preferred = (
+                    f"{base}_{short_kind}_s{index}"
+                    if base is not None
+                    else f"zlang_{short_kind}_{physical_instance}_s{physical_index}"
+                )
                 requests[key] = _Request("stage", tuple(map(str, key)), f"{owner_identity}:stage:{key}", _private_base(preferred))
         pending.extend(reversed(expression_children(value, policy=ExpressionTraversalPolicy.STRUCTURAL)))
     return tuple(requests.values())

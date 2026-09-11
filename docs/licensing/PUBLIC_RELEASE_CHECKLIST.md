@@ -41,7 +41,7 @@ hashes in the release record after the corresponding checks complete.
 - Run two full eight-worker no-skip regressions on the unchanged release
   candidate, retaining JUnit summaries and tool versions. Do not reuse historical
   test counts as evidence for different source.
-- Run real Clash/direct-SV/Verilator and the existing Yosys/SBY/Z3 checks,
+- Run direct-SV/Verilator and the existing Yosys/SBY/Z3 checks,
   compileall, static correctness, package validation and diff checks.
 - Verify hosted checks, DCO and the trusted main/tag-only EDA runner. Never
   execute untrusted pull-request source on the dedicated runner.

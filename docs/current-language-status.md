@@ -34,8 +34,8 @@ property/observation family, or new equivalence relation.
 - Every standalone direct-SystemVerilog root emits a `BackendArtifact` and
   passes strict Verilator lint; child/template roots are exercised through a
   concrete parent.
-- The accepted tool host has Clash 1.11.0, Verilator 5.044, Yosys and
-  SymbiYosys 0.68, `yosys-smtbmc`, and Z3 4.8.12.
+- The accepted tool host has Verilator 5.044, Yosys and SymbiYosys 0.68,
+  `yosys-smtbmc`, and Z3 4.8.12. Clash/GHC are not required.
 - The complete 1,033-cycle FFT512 persistent-hierarchy replay runs by default,
   accepts all 1,023 offered tokens, and produces the frozen 512-output digest.
 - Direct-SV simulation tooling can publish a separate semantic state catalog
@@ -48,18 +48,21 @@ verification routes remain fail-closed.
 
 ## Backend policy
 
-Clash is the primary/general backend and an independent implementation oracle.
-Direct SystemVerilog is a stable, supported secondary backend for its validated
+Direct SystemVerilog is the sole production backend. Historical Clash support
+is retired from the public toolchain; compatibility emission is retained only
+for dated internal fixtures and is never a release or feature-completeness
+requirement.
+Direct SystemVerilog is the sole supported production backend for its validated
 subset; `--systemverilog` is the public option and
-`--experimental-systemverilog` is a compatibility alias. Neither backend
-defines ZLang semantics: both consume backend-independent typed IR, share the
-public `TopPhysicalABI`, and publish versioned `BackendArtifact` bindings.
+`--experimental-systemverilog` is a compatibility alias. The backend does not
+define ZLang semantics: it consumes backend-independent typed IR, shares the
+public `TopPhysicalABI`, and publishes versioned `BackendArtifact` bindings.
 
 Top-level struct fields, tuple `itemN` components, and protocol aggregates are
-exposed as semantic leaves in both backends. Vectors remain native public
-arrays. Internal Clash and direct-SV component ABIs are deliberately
-backend-specific and closed over all child dependencies. Unsupported
-combinations cannot publish partial RTL.
+exposed as semantic leaves in direct SystemVerilog. Vectors remain native public
+arrays. Direct-SV component ABIs are closed over all child dependencies;
+unsupported combinations cannot publish partial RTL. Historical Clash
+component details are not part of the production ABI.
 
 ## Implemented language surface
 
@@ -89,8 +92,10 @@ The current language includes:
   burst profile with single-outstanding read/write helpers, and explicit CDC;
 - default synchronous reset, raw asynchronous-reset compatibility, and concise
   asynchronous assertion with one root-owned two-edge synchronized release;
-- canonical optimization IR, bounded pure-value equality saturation, explicit
-  and automatic architecture/pipeline exploration, target/resource descriptions,
+- canonical optimization IR, bounded exact scalar arithmetic equality
+  saturation, exact-N pure-DAG scheduling with reconvergence balancing,
+  Xilinx 7-Series DSP48E1 covering, explicit and automatic
+  architecture/pipeline exploration, target/resource descriptions,
   implementation profiles, reproducible projects, source maps, evidence reports,
   and whole-build manifests;
 - named same-cycle `assert`/`ensure`, scoped `require`, bounded `cover`, legacy
@@ -108,20 +113,19 @@ tour, not an exhaustive language specification.
   FIFO, ready/valid, credit, CSR, request/response, and rule observations.
 - **M36** provides authoritative canonical-reference equivalence for the frozen
   scalar and fixed-latency II=1 candidate classes.
-- **M38** provides Clash-to-direct-SV equivalence for the validated common
-  scalar/fixed-latency intersection. It is called triangular evidence only with
-  both compatible decisive M36 semantic-reference legs and decisive M38
-  evidence.
+- **M38** cross-backend equivalence is retired with Clash. Historical M38
+  records remain dated evidence only; current verification uses M35 safety and
+  M36 semantic-reference equivalence.
 - **M39** gates supported exploration candidates using `off`, `available`,
   `required_bmc`, or `required_proven`, deterministic rank order, and a
   content-addressed proof cache.
 - Compiler-owned formal orchestration plans each M35 goal independently with
-  its exact assumptions/domain/observations, uses direct-SV-first and lazy
-  Clash fallback without mixed bindings, retains explicit comparison windows
-  for M36/M38, memoizes prepared artifacts in one compilation session, and can
+  its exact assumptions/domain/observations, uses the direct-SV route and the
+  backend-independent semantic reference, retains explicit comparison windows
+  for M36, memoizes prepared artifacts in one compilation session, and can
   reuse exact hash-validated prepared/result records from `--formal-cache`.
   `--formal-jobs` parallelizes bundled safety/cover jobs and independent
-  selected-candidate sites. Within one site, M36 legs, optional M38, and
+  selected-candidate sites. Within one site, the direct-SV M36 leg and
   BMC-before-prove dependencies remain ordered.
 - Goal routing is clock/reset-domain local. Multiple supported synchronous
   domains can contribute independent jobs. In a single-domain module, existing
@@ -143,22 +147,21 @@ tour, not an exhaustive language specification.
 - The execution triggers are distinct. A non-`off` formal policy alone runs the
   M39 selection-time M36 route. `--verify` with policy `off` runs M35/source
   safety and covers. Bundle-only publication does not prepare or execute
-  selected-candidate M36/M38. Joint `--verify` plus a non-`off` policy also runs
-  compatible Clash M36, direct-SV M36, and M38 evidence. When publication has
+  selected-candidate M36. Joint `--verify` plus a non-`off` policy also runs
+  compatible direct-SV M36 evidence. When publication has
   prepared those exact selected-candidate routes, the immutable bundle carries
   strict path-free replay companions and `zlang-verify` can execute them later
   without source compilation or M39 reselection. A base safety/cover bundle
   still contains no candidate route.
 - Raw safety/cover execution uses `zlang-verification-run-report-v7`; joint
   candidate execution uses `zlang-compiler-verification-report-v1` as a wrapper
-  that preserves the distinct M35, M36, and M38 result types. Proof always
+  that preserves the distinct M35 and M36 result types. Proof always
   follows a clean safety BMC stage; covers run once and are not rerun.
 - Joint candidate reports retain deterministic per-route work roots and the
   tool snapshot when execution discovers tools. Exact in-session M39 reuse
   carries its recorded root; persistent cache data excludes physical paths.
-- Raw M38 is advisory; the report calls it triangular validation only when both
-  compatible M36 semantic-reference legs are present. M38 never gates M39.
-- An executed M36/M38 counterexample fails joint verification. Unavailable
+- Historical M38 records are advisory and retired; M38 never gates M39.
+- An executed M36 counterexample fails joint verification. Unavailable
   advisory candidate evidence does not change M39 eligibility or make an
   otherwise complete run fail. Missing/unknown/vacuous M35/source evidence
   remains explicitly incomplete.
@@ -179,7 +182,7 @@ tour, not an exhaustive language specification.
   explicitly incomplete. An assumption is never dropped to make a goal
   executable.
 - Existing rule exclusivity and priority properties use formal-only accepted-
-  fire observations in direct-SV and Clash. They are derived from the one typed
+  fire observations in direct-SV. They are derived from the one typed
   resolved schedule and do not alter production RTL text, ABI, or hashes. This
   closes the concrete existing rule family; it does not open a new observation
   family or source temporal semantics.
@@ -187,8 +190,7 @@ tour, not an exhaustive language specification.
   ledger and independent request/response buffer occupancies through typed
   formal-only component ports in both backends. Existing receiver-credit
   accounting likewise binds the real adapter occupancy, send, and returned
-  credit; direct-SV is the preferred route and the per-goal router retains a
-  real Clash fallback. Every non-empty automatic root assumption set receives
+  credit; direct-SV is the production route. Every non-empty automatic root assumption set receives
   an unassumed feasibility query, so an otherwise clean safety BMC cannot pass
   only because the environment contract was impossible.
 - Same-cycle source properties may use a runtime vector read only after the
@@ -197,20 +199,20 @@ tour, not an exhaustive language specification.
   an assertion never supplies the range proof.
 - One deliberately bounded whole-root equivalence helper covers exactly one
   combinational scalar child. It materializes the semantic value from typed
-  hierarchy and instance bindings, then obtains decisive Clash M36,
-  direct-SV M36, and triangular M38 evidence from separately namespaced
+  hierarchy and instance bindings, then obtains decisive direct-SV M36
+  evidence from separately namespaced
   formal-only artifacts. Production hierarchy is not flattened, and state,
   storage, protocols, arrays, aggregates, and nested hierarchy remain rejected.
 - Egglog is limited to exact pure scalar value rewrites. It does not schedule
   state, protocols, or pipeline placement. Protocol-only `transform
   pipeline(auto)` uses the separate
   candidate/planner path; the bounded elastic transform has explicit
-  ready/valid stall semantics and no M36/M38 claim.
+  ready/valid stall semantics and no M36 claim.
 
 The formal-infrastructure freeze remains active. The bounded one-child value
-helper above reuses the existing same-cycle M36/M38 relation and is not a
+helper above reuses the existing same-cycle M36 relation and is not a
 general hierarchical refinement system. VC-credit accounting, executable M33
-buffered/variable-latency protocol equivalence, elastic M36/M38, stateful or
+buffered/variable-latency protocol equivalence, elastic M36, stateful or
 nested hierarchy, CDC refinement, liveness/fairness, hidden memory cells, and
 additional rule-fire families require a separate real-design freeze.
 
@@ -237,9 +239,8 @@ models are independent oracles.
 
 The ZTPU profile publishes combined and separate read/write views over AR/R and
 AW/W/B, plus aligned single-outstanding reader/writer helpers. The 64/32 witness
-passes semantic/canonical restoration, deterministic backend artifacts,
-simulator traces, direct-SystemVerilog/Verilator, and real Clash
-1.11/Verilator. Focused acceptance covers
+passes semantic/canonical restoration, deterministic direct-SystemVerilog
+artifacts, simulator traces, and Verilator. Focused acceptance covers
 1–256-beat counting, independently stalled channels, stable owned payloads,
 counted final-beat handling, deterministic R/B error latching, and reset. It is
 a bounded full-width incrementing subset, not a claim of full AXI4.

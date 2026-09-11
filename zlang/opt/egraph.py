@@ -11,7 +11,16 @@ from enum import Enum
 import json
 from typing import Any
 
-from zlang.ir.types import BitType, BitsType, HardwareType, SIntType, UIntType
+from zlang.ir.types import (
+    BitType,
+    BitsType,
+    FixedOverflowPolicy,
+    FixedType,
+    HardwareType,
+    SIntType,
+    UFixedType,
+    UIntType,
+)
 from zlang.ir.expressions import BinaryOperator, ReductionOperator
 from zlang.opt.ir import (
     CanonicalExpression, CanonicalModule, EffectKind, ExpressionOp, NodeCategory,
@@ -194,20 +203,28 @@ def _require_scalar_pure_nodes(
         node = expressions[node_id]
         if node.category is not NodeCategory.VALUE or node.metadata.purity is not Purity.PURE:
             raise EGraphAdapterError(f"dependency %{node_id} is outside the pure value e-graph boundary")
-        if node.op in {
+        if not isinstance(
+            node.type,
+            (BitType, UIntType, SIntType, BitsType, FixedType, UFixedType),
+        ):
+            raise EGraphAdapterError("e-graph currently supports scalar hardware types only")
+        if node.op not in {
+            ExpressionOp.INPUT,
+            ExpressionOp.PARAMETER,
+            ExpressionOp.CONSTANT,
+            ExpressionOp.ADD,
+            ExpressionOp.BINARY,
+            ExpressionOp.EXTEND,
+            ExpressionOp.TRUNCATE,
+            ExpressionOp.FIXED_CONVERT,
+            ExpressionOp.MUX,
             ExpressionOp.SLICE,
             ExpressionOp.CONCAT,
             ExpressionOp.BITCAST,
-            ExpressionOp.VECTOR_CONCAT,
-            ExpressionOp.RESHAPE,
-            ExpressionOp.PACK,
-            ExpressionOp.UNPACK,
         }:
             raise EGraphAdapterError(
-                f"{node.op.value} is outside the frozen scalar e-graph operation set"
+                f"{node.op.value} is outside the exact scalar e-graph operation set"
             )
-        if not isinstance(node.type, (BitType, UIntType, SIntType, BitsType)):
-            raise EGraphAdapterError("e-graph currently supports scalar hardware types only")
         for operand in node.operands:
             visit(operand)
 
@@ -219,6 +236,16 @@ def _encode_type(type_: HardwareType) -> dict[str, Any]:
     if isinstance(type_, UIntType): return {"kind": "uint", "width": type_.width}
     if isinstance(type_, SIntType): return {"kind": "sint", "width": type_.width}
     if isinstance(type_, BitsType): return {"kind": "bits", "width": type_.width}
+    if isinstance(type_, FixedType):
+        return {
+            "kind": "fixed", "width": type_.width, "fraction": type_.fraction,
+            "overflow": type_.overflow.value,
+        }
+    if isinstance(type_, UFixedType):
+        return {
+            "kind": "ufixed", "width": type_.width, "fraction": type_.fraction,
+            "overflow": type_.overflow.value,
+        }
     raise EGraphAdapterError("only scalar hardware types can cross the e-graph boundary")
 
 
@@ -228,6 +255,16 @@ def _decode_type(payload: dict[str, Any]) -> HardwareType:
     if kind == "uint": return UIntType(payload["width"])
     if kind == "sint": return SIntType(payload["width"])
     if kind == "bits": return BitsType(payload["width"])
+    if kind == "fixed":
+        return FixedType(
+            payload["width"], payload["fraction"],
+            FixedOverflowPolicy(payload["overflow"]),
+        )
+    if kind == "ufixed":
+        return UFixedType(
+            payload["width"], payload["fraction"],
+            FixedOverflowPolicy(payload["overflow"]),
+        )
     raise EGraphAdapterError(f"unknown scalar type '{kind}'")
 
 
@@ -254,7 +291,11 @@ def _decode_origin(payload: dict[str, Any]) -> SourceOrigin:
 
 def _encode_value(value: object) -> object:
     if isinstance(value, Enum): return {"enum": value.__class__.__name__, "value": value.value}
-    if isinstance(value, (BitType, UIntType, SIntType, BitsType)): return {"type": _encode_type(value)}
+    if isinstance(
+        value,
+        (BitType, UIntType, SIntType, BitsType, FixedType, UFixedType),
+    ):
+        return {"type": _encode_type(value)}
     if isinstance(value, tuple): return {"tuple": [_encode_value(item) for item in value]}
     if isinstance(value, (str, int, bool)) or value is None: return value
     raise EGraphAdapterError(f"unsupported e-graph attribute value {value!r}")

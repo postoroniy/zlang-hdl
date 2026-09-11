@@ -1,7 +1,6 @@
-// Manual fixed-latency dot-product experiment.  The requested end-to-end
-// contract is one cycle per coefficient, so the source
-// exposes eight pipeline stages for Series-7 synthesis retiming.  No automatic
-// exploration is used.
+// Exact fixed-latency dot-product experiment.  The compiler partitions the
+// typed reduction DAG and uses any remaining visible latency as exact output
+// compensation.  No compiler-selected implementation intent is used.
 module DotProductPipelined {
     clock clk
     reset rst

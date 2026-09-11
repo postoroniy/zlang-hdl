@@ -7,6 +7,7 @@ import unittest
 from zlang.cli import main
 from zlang.compiler import compile_source
 from zlang.opt import saturate
+from zlang.opt import RewriteRule
 from zlang.simulate import simulate
 
 
@@ -14,13 +15,14 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class EqualitySaturationIntegrationTests(unittest.TestCase):
-    def test_frozen_m26_excludes_strength_reduction(self) -> None:
+    def test_exact_power_of_two_strength_reduction_is_available(self) -> None:
         compilation = compile_source(
             (ROOT / "examples/shift_multiply.zhl").read_text()
         )
         root = compilation.optimization_ir.assignments[0].expression
         result = saturate(compilation.optimization_ir, root)
-        self.assertEqual(result.alternatives, ())
+        self.assertGreaterEqual(len(result.alternatives), 1)
+        self.assertIn(RewriteRule.MULTIPLY_POWER_OF_TWO, result.rules)
         for x in range(256):
             with self.subTest(x=x):
                 self.assertEqual(simulate(compilation.ir, x=x), {"y": x * 8})

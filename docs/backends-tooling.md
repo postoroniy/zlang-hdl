@@ -6,10 +6,11 @@ semantics.
 
 ## Backend policy
 
-Clash is the current primary/general backend and independent implementation
-oracle. Direct SystemVerilog is a stable supported secondary backend for a
-validated, fail-closed subset. `--experimental-systemverilog` remains a
-compatibility alias for `--systemverilog`.
+Direct SystemVerilog is the sole production backend for the validated,
+fail-closed subset. `--experimental-systemverilog` remains a compatibility
+alias for `--systemverilog`. Historical Clash emission is retired from the
+production toolchain; the Python compatibility API and hidden legacy CLI
+options remain only for dated fixtures and are not release requirements.
 
 Every supported direct-SV example root emits deterministic RTL and passes strict
 Verilator lint. Unsupported IR raises a structured backend error and does not
@@ -17,21 +18,20 @@ publish an artifact. The exact current matrix is maintained in
 [Direct SystemVerilog](direct-systemverilog.md); do not infer full language
 coverage from one successful design.
 
-Both backends consume typed IR and publish BackendArtifact manifests with
-semantic bindings separate from physical RTL locators. Standard buses are
+The production backend consumes typed IR and publishes BackendArtifact
+manifests with semantic bindings separate from physical RTL locators. Standard buses are
 ordinary `.zhl` library modules, not AXI/APB-specific backend dispatch.
 
-For one non-default physical domain, both backends consume the same typed
+For one non-default physical domain, direct SystemVerilog consumes the typed
 [clock/reset contract](physical-clock-reset-contract.md). Concise `async reset`
 creates one root-owned asynchronous-assert/two-edge-synchronous-release
-conditioner: direct SV emits the two `ASYNC_REG` stages, while Clash uses one
-top-wrapper `resetSynchronizer`. Child components receive the conditioned reset.
-BackendArtifact version 10 binds the external clock/reset ports to that exact
-contract; legacy synchronous artifacts retain their prior version and text.
+conditioner and emits the two `ASYNC_REG` stages. BackendArtifact version 10
+binds the external clock/reset ports to that exact contract; legacy synchronous
+artifacts retain their prior version and text.
 
 ## Public RTL boundary
 
-The selected ZLang top has one physical ABI in both backends. `TopPhysicalABI`
+The selected ZLang top has one physical direct-SV ABI. `TopPhysicalABI`
 recursively exposes struct fields and tuple components as named leaves and
 preserves vectors as native unpacked SystemVerilog arrays. Tuple components use
 deterministic `itemN` path segments. There is no packed/leaf mode and no
@@ -40,12 +40,9 @@ packing slices, clock/reset domains, and manifest identities all come from the
 same typed projection.
 
 Direct SystemVerilog emits a private packed `<Top>__zlang_core` only when a
-boundary conversion is needed. Clash 1.11 always packs `Vec` in generated
-Verilog, including its SystemVerilog mode, so `--verilog-dir` invokes Clash with
-an explicit component prefix and publishes two files: public `<Top>.sv` and
-packed `zlang_core_<Top>.v`. The wrapper uses typed packing metadata; it does
-not parse or rename generated RTL. In both paths `v[0]` occupies the
-most-significant packed region. Internal child/component ABIs are unchanged.
+boundary conversion is needed. Historical Clash wrappers packed `Vec` values;
+that compatibility flow is no longer a production artifact. Direct-SV uses the
+typed packing metadata and does not parse or rename generated RTL.
 
 The versioned [whole-build manifest](whole-build-manifests.md) joins locked
 sources, high-level/selected IR identities, independently planned backend
@@ -58,9 +55,9 @@ known latency from timeless or unknown behavior; an integer zero is never used
 as proof that unknown stateful behavior is same-cycle.
 
 Named project [implementation profiles](implementation-profiles.md) normalize
-external target/backend policy with legacy source exploration forms. Clash and
-direct-SystemVerilog plans are reported independently, so a physical direct-SV
-resource graph is never attributed to Clash.
+external target/backend policy with legacy source exploration forms. Only the
+direct-SystemVerilog production plan is published; historical cross-backend
+records are not current resource evidence.
 
 ## Core CLI
 
@@ -74,10 +71,10 @@ zlang SOURCE [options]
 | `--top NAME` | Select an elaboration root. |
 | `--project PATH` | Select a locked `zlang.toml` project instead of parent discovery. |
 | `--profile NAME` | Select one strict implementation profile from the project. |
-| `-o`, `--output PATH` | Write Clash source. |
-| `--verilog-dir DIR` | Run Clash and retain generated Verilog. |
+| `-o`, `--output PATH` | Legacy Clash source output (hidden compatibility path; not a production artifact). |
+| `--verilog-dir DIR` | Legacy Clash-to-Verilog output (hidden compatibility path; not a production flow). |
 | `--constraints-xdc PATH`, `--constraints-sdc PATH` | Publish one typed single-domain clock constraint beside the selected physical ABI. |
-| `--verilator-lint` | Lint retained Clash Verilog; requires `--verilog-dir`. |
+| `--verilator-lint` | Lint emitted direct SystemVerilog; requires `--systemverilog`. |
 | `--systemverilog PATH` | Write direct SystemVerilog for the supported subset. |
 | `--experimental-systemverilog PATH` | Compatibility alias. |
 | `--simulation-state-bundle DIR` | Beside an explicit direct-SV artifact, publish the separate typed Verilator VPI catalog/header for simulation-only register and writable-memory preload/inspection. |
@@ -91,37 +88,35 @@ zlang SOURCE [options]
 | `--evidence-report PATH` | Write deterministic typed semantic/timing/formal evidence. |
 | `--evidence-format text\|json` | Select the evidence report representation. |
 | `--build-manifest PATH` | Write the validated whole-build manifest after backend publication. |
-| `--verify` | Publish a per-goal routed verification bundle and execute its executable safety and bounded-cover jobs. With a non-`off` formal policy, also execute selected-candidate M36/M38 evidence. |
-| `--verification-bundle DIR` | Publish the immutable, hash-validated bundle for later replay. A base publication contains safety/cover jobs; a joint prepared plan may also include exact selected-candidate M36/M38 companions. Publication itself executes neither route. |
-| `--verification-report PATH` | Write the raw safety/cover run report, or the joint compiler wrapper when candidate M36/M38 also ran. |
+| `--verify` | Publish a per-goal routed verification bundle and execute its executable safety and bounded-cover jobs. With a non-`off` formal policy, also execute selected-candidate M36 evidence when supported. |
+| `--verification-bundle DIR` | Publish the immutable, hash-validated bundle for later replay. A base publication contains safety/cover jobs; a joint prepared plan may also include exact selected-candidate M36 companions. Publication itself executes neither route. |
+| `--verification-report PATH` | Write the raw safety/cover run report, or the joint compiler wrapper when candidate M36 also ran. |
 | `--verification-work-dir DIR` | Retain generated SBY inputs, solver logs, and traces for `--verify` outside the immutable bundle. |
 | `--verification-format text\|json` | Select verification report rendering. |
 | `--verify-require checked\|proven` | Require bounded safety checking or a complete proof; bounded evidence never satisfies `proven`. |
 | `--implementation-policy-report PATH` | Write normalized source/profile policy and semantic regions. |
-| `--backend-implementation-report PATH` | Write independent Clash/direct-SV plan statuses. |
+| `--backend-implementation-report PATH` | Write the direct-SV implementation plan status. |
 | `--formal-harness PATH`, `--formal-sby PATH` | Generate the existing M35 checker/SymbiYosys inputs; generation alone is not proof execution. |
-| `--formal-depth N` | Set bounded depth for M35/M39 and for joint candidate M36/M38 execution. |
+| `--formal-depth N` | Set bounded depth for M35/M39 and for joint candidate M36 execution. |
 | `--formal-policy off\|available\|required_bmc\|required_proven` | Select the frozen M39 candidate eligibility policy. |
 | `--formal-max-candidates N` | Bound selection-phase M39 execution. |
-| `--formal-timeout SECONDS`, `--formal-cache DIR` | Set the formal timeout and the shared namespaced prepared/M35/M36/M38/M39 cache. |
+| `--formal-timeout SECONDS`, `--formal-cache DIR` | Set the formal timeout and the shared namespaced prepared/M35/M36/M39 cache. |
 | `--formal-jobs N` | Execute independent verification-bundle safety/cover jobs and independent selected-candidate sites concurrently. Stages within one candidate site remain ordered; report order remains deterministic. |
 | `--synthesis-report PATH`, `--synthesis-cache DIR` | Publish/cache optional measured Yosys candidate evidence. |
 | `--synthesis-target generic-lut6` | Select the current bounded Yosys characterization target. |
-| `--clash PATH` | Select the Clash executable. |
+| `--clash PATH` | Select Clash for a hidden legacy compatibility invocation. |
 | `--verilator PATH` | Select the Verilator executable. |
 | `--yosys PATH` | Select the Yosys executable. |
 | `--verbose` | Print success/artifact notices on stderr. |
 
-Clash discovery is deterministic. An explicit `--clash PATH` applies to that
-command. Otherwise the compiler checks `ZLANG_CLASH`, then `clash` on `PATH`,
-then searches the checkout named by `ZLANG_CLASH_ROOT`. An explicitly selected
-but invalid executable is an error; the compiler does not silently choose a
-different installation. Verilator, Yosys/SBY, solver, and Icarus tools are
-resolved from `PATH` by the commands that require them.
+The hidden Clash compatibility option is deterministic when an old fixture
+explicitly selects it, but normal direct-SV compilation never discovers or
+requires Clash. Verilator, Yosys/SBY, and solver tools are resolved from
+`PATH` by the commands that require them.
 
-Artifact/report sinks suppress implicit Clash stdout. Selection flags such as
-`--top` alone do not. Diagnostics always use stderr and a nonzero exit status on
-failure. See [structured diagnostics](structured-diagnostics.md) and
+Artifact/report sinks suppress implicit backend stdout. With no explicit sink,
+the CLI emits direct SystemVerilog to stdout. Diagnostics always use stderr and
+a nonzero exit status on failure. See [structured diagnostics](structured-diagnostics.md) and
 [generated source maps](generated-source-maps.md).
 Target and M39 details are in the
 [target-aware planner](high-level-target-aware-architecture-pipeline-planner.md)
@@ -136,16 +131,9 @@ and arbitrary-width packed values as least-significant-word-first arrays of
 32-bit words. See the public
 [simulation-state contract](direct-systemverilog.md#simulation-only-architectural-state-access).
 
-`--verilog-dir` always publishes the selected ZLang top as a SystemVerilog
-public-boundary wrapper. Struct members are individual named ports and vectors
-are native unpacked arrays; a private `zlang_core_<Top>` component retains the
-packed `Vec` ABI generated by Clash 1.11. The wrapper is derived from
-`TopPhysicalABI` and Clash's explicit component-prefix option, never by parsing
-or renaming generated RTL. BackendArtifact locators name the public wrapper
-ports. Its artifact hash continues to identify the generated Clash source;
-the whole-build manifest independently hashes both final wrapper and core RTL
-files. This separation avoids treating a final-RTL wrapper as a ROM companion
-or changing semantic/backend identity.
+The hidden legacy `--verilog-dir` option may still publish a compatibility
+wrapper for old fixtures. Production publication uses `--systemverilog` and
+the direct-SV artifact directly; no generated Haskell/Clash core is involved.
 
 All explicit output files and compiler-owned output/cache directories must be
 pairwise disjoint and outside every resolved source, project, lock, dependency,
@@ -173,25 +161,23 @@ or non-regular destinations. See the complete
 | `--evidence-report` | Typed evidence with exact `typed_legal`, timing, bounded, proof, failure, skip, and not-run status. |
 | `--build-manifest` | Deterministic build join over sources, canonical identities, products, tools, reports, and evidence. |
 | `--verification-bundle` | Immutable manifest, verification IR, implementation/source map, and executable or explicitly skipped per-safety/per-cover jobs. |
-| `--verification-report` | Raw v7 safety/cover results, or the joint v1 compiler wrapper with separately typed candidate M36/M38 evidence. |
+| `--verification-report` | Raw v7 safety/cover results, or the joint v1 compiler wrapper with separately typed candidate M36 evidence. |
 | `--simulation-state-bundle` | Simulation-only typed state manifest and generated Verilator VPI C++ header, hash-bound to an unchanged direct-SV artifact. |
 
 Formal execution follows an exact trigger matrix:
 
 - with none of `--verify`, `--verification-bundle`, or a non-`off` formal
   policy, compiler orchestration schedules no formal work;
-- a non-`off` policy alone runs only the existing selection-time M39-to-M36
-  route; it does not prepare direct-SV M36 or M38 evidence;
+- a non-`off` policy alone runs the selection-time M39-to-direct-SV-M36 route;
+  it does not prepare a second candidate-equivalence job;
 - `--verify` with policy `off` runs only executable M35/source safety and cover
   jobs;
 - `--verification-bundle` publishes immutable safety/cover inputs and the base
   compiler linking plan, but does not execute or prepare selected-candidate
-  M36/M38, even if a non-`off` policy is also supplied. Publication may still
-  invoke Clash to prepare a lazy M35 fallback route, but it does not run a
-  solver;
+  M36, even if a non-`off` policy is also supplied. Publication does not invoke
+  the retired Clash backend or run a solver;
 - `--verify` with a non-`off` policy enriches that plan and executes M35/source
-  jobs plus the compatible selected-candidate Clash M36, direct-SV M36, and M38
-  routes.
+  jobs plus the compatible selected-candidate direct-SV M36 route.
 
 The linking plan references exact M35/source jobs and M39 candidate records by
 semantic site and rank while retaining their separate result vocabularies.
@@ -217,8 +203,8 @@ zlang-verify build/verify --mode bmc --depth 20 \
 ```
 
 Replay validates every content hash before execution. It executes bundled
-M35/source safety and cover jobs, and the frozen selected-candidate M36/M38
-inputs when a joint compiler run published those companions. It does not
+M35/source safety and cover jobs, and the frozen selected-candidate M36 inputs
+when a joint compiler run published those companions. It does not
 recompile the source or rerun candidate selection to reconstruct absent legs.
 The [arithmetic exploration example](../examples/verification/math-exploration.md)
 publishes such a joint bundle. Engine, solver, depth,
@@ -226,7 +212,7 @@ timeout, tool versions, logs, and results belong to execution and do not mutate
 the bundle. `zlang-verify` defaults its work directory to the sibling
 `build/verify.work`; `zlang --verify` uses `--verification-work-dir` when
 provided. A work directory inside the bundle is rejected. A safety
-counterexample, or any actually executed joint M36/M38 counterexample, exits
+counterexample, or any actually executed joint M36 counterexample, exits
 `1`. Unavailable, unknown, vacuous, or insufficient M35/source proof evidence
 exits `2`; unavailable advisory candidate evidence does not by itself make a
 joint report incomplete. A normal `bounded_unreached` cover result does not fail
@@ -251,8 +237,8 @@ raw log text do not participate in the run identity.
 
 When joint selected-candidate evidence executes, the public JSON result is
 `zlang-compiler-verification-report-v1`. It wraps the raw v7 safety/cover report,
-the exact compiler linking plan, and separately typed M36/M38 candidate reports.
-Candidate reports retain deterministic per-route M36/M38 work directories and
+the exact compiler linking plan, and the separately typed M36 candidate report.
+Candidate reports retain deterministic per-route M36 work directories and
 the discovered tool snapshot when those routes execute. Exact in-session reuse
 of an M39 result also retains its recorded work root. Persistent M39 cache
 payloads deliberately exclude physical paths, so a cache hit does not claim
@@ -262,11 +248,11 @@ semantic, evidence, run, and proof-cache identities.
 The bundle's typed `FormalExecutionPlan` schema 2 routes each goal independently.
 It records the complete assumption set, exact `ClockDomain`, observations,
 comparison window, selected/artifact identities, the physical-domain identity
-when a compatible BackendArtifact exists, and a complete direct-SV or lazy
-Clash route. Bundle v4 jobs and run-report v7 results repeat that identity;
+when a compatible BackendArtifact exists, and a complete direct-SV route.
+Bundle v4 jobs and run-report v7 results repeat that identity;
 strict restoration rejects a corrupt digest or plan/job/result disagreement. A
 harness never combines backend signal sets. Prepared routes,
-M35 jobs, M36/M38 products, and M39 records use separate content-addressed
+M35 jobs, M36 products, and M39 records use separate content-addressed
 cache namespaces; only decisive results are reusable. The current orchestration
 and caching rules are documented in
 [Optimization and formal verification](optimization-formal.md).
@@ -289,9 +275,9 @@ asserted for the two active release edges after the physical pin deasserts.
 A prepared-route cache hit avoids rebuilding that backend route; a decisive
 result-cache hit avoids rerunning its solver. Avoiding both operations therefore
 requires both exact recipe hits. One compilation session shares a lazy tool
-resolver across bundle and candidate execution. It probes only requested
-engine/solver and Clash contexts, and an all-skipped bundle run performs no
-formal-tool discovery.
+resolver across bundle and candidate execution. It probes only the requested
+engine/solver context, and an all-skipped bundle run performs no formal-tool
+discovery.
 
 Recursive register/FIFO/request-response/CSR goals execute only when every
 published observation and assumption can be connected. Typed hierarchy
@@ -314,9 +300,8 @@ stage was requested.
 ROM-backed direct-SV formal artifacts publish exact companion images under
 `implementation/companions/`, and each executable job lists those companions
 as hash-validated inputs. If direct-SV formal emission is unavailable, the
-bounded structured Clash route may finalize real generated Verilog, validate
-public and recursive observation ports, and republish one deterministic
-immutable artifact/hash for scalar/public and register-observation cases.
+goal is explicitly skipped; the retired Clash compatibility backend is never
+substituted in production.
 Unsupported aggregate/protocol/hidden shapes remain explicitly non-executable;
 the fallback never reconstructs bindings from generated names.
 
@@ -366,25 +351,24 @@ example source/top once per test-module run. They supplement rather than replace
 the unique negative, behavioral, mutation, and formal assertions in the full
 suite. See [the test strategy](testing.md).
 
-The real integration suites discover Clash, Verilator, Yosys/SymbiYosys, and Z3.
+The real integration suites discover Verilator, Yosys/SymbiYosys, and Z3.
 Genuine tool absence is an explicit skip, never a pass. Generated RTL, formal
 workspaces, and tool outputs use isolated temporary directories in parallel runs.
 
-`zlang-compare-backends` runs the repository's bounded Clash/direct-SV evidence
-suite. QoR claims require the same target, constraints, and numerical semantics;
+Historical cross-backend comparison code is not installed as a public CLI.
+QoR claims require the same target, constraints, and numerical semantics;
 estimated cost is not physical evidence.
 
 ### Emitter architecture boundary
 
-Both renderers consume the same typed hierarchy, endpoint/connection,
-`TopPhysicalABI`, and physical-type facts, but their component ABIs deliberately
-remain independent. Clash closed-component specialization and bundled
-application/projection live in `zlang/backend/clash/hierarchy.py`; direct-SV composed
+The production direct-SV renderer consumes the typed hierarchy,
+endpoint/connection, `TopPhysicalABI`, and physical-type facts. Its composed
 recursion, named-port routing, request/response ledgers, and FIFO helpers live in
-`zlang/backend/systemverilog/composed.py`. Neither backend-local module imports the
-other renderer or its parent emitter.
+`zlang/backend/systemverilog/composed.py`. The historical Clash implementation
+is isolated compatibility code and is not part of the production emission or
+release contract.
 
-Before either renderer may publish a `BackendArtifact`, the shared
+Before the production renderer may publish a `BackendArtifact`, the shared
 `ModuleFeatureInventory` enumerates every concrete assignment, local, state and
 storage entity, CSR block, protocol/aggregate endpoint and member, connection,
 request/response ledger, and child instance. Backend contributors must claim
@@ -392,30 +376,28 @@ each entity exactly once. A missing, duplicate, or unknown claim aborts emission
 instead of publishing partial RTL. This is exact coverage accounting for the
 selected module, not a claim that arbitrary future combinations compose.
 
-This is intentional rather than missing deduplication. Haskell `Signal`
-application/record projection and SystemVerilog module/named-port wiring have
-different ordering, reset, and normalization constraints. Shared facts belong
-in backend-independent IR; generated-language spelling and component policy do
-not.
+Shared facts belong in backend-independent IR; generated-language spelling and
+component policy remain in the direct-SV backend.
 
 ## Current validation snapshot
 
-The exhaustive direct-SV corpus currently discovers **84 `.zhl` files and 174
-module roots**: 157 standalone roots emit artifacts and pass strict Verilator
+The exhaustive direct-SV corpus currently discovers **88 `.zhl` files and 182
+module roots**: 165 standalone roots emit artifacts and pass strict Verilator
 lint, while 17 generic/hierarchical children are exercised through concrete
 parents. No discovered root is on an unsupported allow-list. This count is an
 acceptance snapshot, not a promise that an arbitrary future IR shape is covered;
 the emitter remains fail-closed. See the
 [root-by-root contract](direct-systemverilog.md#exhaustive-example-matrix).
 
-The machine-readable release minimum and zero-skip policy live in
+The machine-readable release minimum and skip budget live in
 [`release/status.json`](../release/status.json) and are checked against two
-complete CI JUnit reports. The
+complete CI JUnit reports. Only retired-Clash compatibility tests may skip;
+the release plugin rejects every other skipped test. The
 FFT512 persistent-hierarchy replay is a routine default-suite test: its
 1,033-cycle scenario completes in about 11 seconds with roughly 84 MiB RSS and
-matches the same frozen oracle as direct-SV and real Clash RTL. The ordinary
-real Clash, direct-SV, Verilator, Yosys/SBY, and Z3 integration paths also run
-in the default suite. Exact numerical and architecture evidence is
+matches the same frozen oracle as direct-SV. Direct-SV, Verilator, Yosys/SBY,
+and Z3 integration paths run in the default suite; legacy Clash checks run only
+when that optional tool is present. Exact numerical and architecture evidence is
 recorded in the [FFT guide](../examples/fft/README.md) and
 [802.11a report](80211a-transmitter-validation.md).
 The repository-wide dated summary is maintained in

@@ -14,8 +14,8 @@ These sources are deliberately split into two bounded validation designs:
   initializes a one-cycle synchronous ROM; no external coefficient port or
   hand-written memory file is required. The reusable stage derives `CW`/`IW`
   from earlier `D` with `index_width(...)`; wrappers use concise child
-  declarations and bare typed ready/valid connections, and emit through both real
-  Clash and direct-SystemVerilog backends. The same file also contains
+  declarations and bare typed ready/valid connections, and emit through the
+  production direct-SystemVerilog backend. The same file also contains
   `FFT4SDFReference`, which composes `D=2` and `D=1` specializations into the
   first complete two-stage streaming reference, and `FFT8SDFReference`, which
   composes the same reusable stage at `D=4`, `D=2`, and `D=1`. The bounded
@@ -24,28 +24,26 @@ These sources are deliberately split into two bounded validation designs:
 
 ## Pure complex multiply
 
-Generate generic Clash for the real and imaginary components:
+Generate generic direct SystemVerilog for the real and imaginary components:
 
 ```sh
 .venv/bin/zlang examples/fft/complex_multiply_pipeline_auto.zhl \
   --top FFTComplexMultiplyRealAuto \
-  -o build/FFTComplexMultiplyRealAuto.hs
+  --systemverilog build/FFTComplexMultiplyRealAuto.sv
 .venv/bin/zlang examples/fft/complex_multiply_pipeline_auto.zhl \
   --top FFTComplexMultiplyImagAuto \
-  -o build/FFTComplexMultiplyImagAuto.hs
+  --systemverilog build/FFTComplexMultiplyImagAuto.sv
 ```
 
-Generate and Verilator-lint the generic Clash Verilog:
+Generate and Verilator-lint the same direct-SystemVerilog artifacts:
 
 ```sh
 .venv/bin/zlang examples/fft/complex_multiply_pipeline_auto.zhl \
   --top FFTComplexMultiplyRealAuto \
-  -o build/FFTComplexMultiplyRealAuto.hs \
-  --verilog-dir build/fft-real-verilog --verilator-lint
+  --systemverilog build/FFTComplexMultiplyRealAuto.sv --verilator-lint
 .venv/bin/zlang examples/fft/complex_multiply_pipeline_auto.zhl \
   --top FFTComplexMultiplyImagAuto \
-  -o build/FFTComplexMultiplyImagAuto.hs \
-  --verilog-dir build/fft-imag-verilog --verilator-lint
+  --systemverilog build/FFTComplexMultiplyImagAuto.sv --verilator-lint
 ```
 
 Emit the supported direct-SystemVerilog path and target-planner report:
@@ -79,16 +77,16 @@ The generic module can be inspected semantically, and the concrete top name is
 
 ```sh
 .venv/bin/zlang examples/fft/sdf_stage_numeric.zhl \
-  --top FFTSDFStageNumericD4 -o build/FFTSDFStageNumericD4.hs
+  --top FFTSDFStageNumericD4 \
+  --systemverilog build/FFTSDFStageNumericD4.sv
 ```
 
 The wrapper's backward input `ready` is driven by the child connection, while
 the child's forward `payload`/`valid` drive the top output. The exact-
-`Fraction` oracle compares simulator, direct-SV + Verilator, and Clash 1.11 +
-Verilator traces under input gaps, output stalls, FIFO replacement, and reset
-epochs. The CLI publishes the deterministic `.mem` companion beside the
-selected output; direct SV consumes it with `$readmemb`, while Clash consumes
-the byte-identical image with `romFile`.
+`Fraction` oracle compares the semantic simulator with direct-SV + Verilator
+under input gaps, output stalls, FIFO replacement, and reset epochs. The CLI
+publishes the deterministic `.mem` companion beside the selected output;
+direct SV consumes it with `$readmemb`.
 
 ## FFT4 two-stage reference
 
@@ -108,10 +106,7 @@ Generate the direct-SystemVerilog artifact with:
 ```
 
 The artifact has two separate initialized-ROM companions, of exact depths 2
-and 1. Direct SV passes Verilator lint. Clash 1.11 also generates the design;
-its generated `romFile` RTL requires the repository's established
-`-Wno-WIDTHTRUNC` Verilator waiver for Clash's widened ROM index. This is a
-known generated-RTL warning, not a ZLang width or numerical-semantics change.
+and 1, and passes strict direct-SV Verilator lint.
 This FFT4 reference makes no target-planner, DSP-binding, or QoR claim; the
 later complete FFT512 functional hierarchy is documented below.
 
@@ -327,14 +322,13 @@ II=1. A finite 512-token fixture needs 511 subsequently accepted ordinary
 sentinel tokens, followed by nine idle drain cycles. The sentinel tokens are
 part of the following continuous frame; they are not a flush command.
 
-Current direct SystemVerilog emission produces 202,856 bytes and 1,275 lines of RTL and
-passes strict Verilator lint. The real Clash 1.11 structural generation/lint
-gate also passes, taking approximately 198 seconds and 1.28 GiB peak memory on
-the validation host. A complete dual-backend Verilator test matches all 512
-outputs against the independent oracle. It also resets a partial stream and
-holds the first clean-epoch output stable through five cycles of backpressure;
-the complete post-reset stream remains lossless and ordered. This combined
-build/simulation takes about 355 seconds and peaks at roughly 4.61 GiB RSS.
+Current direct SystemVerilog emission produces 202,856 bytes and 1,275 lines of
+RTL and passes strict Verilator lint. The production Verilator test matches all
+512 outputs against the independent oracle. It also resets a partial stream
+and holds the first clean-epoch output stable through five cycles of
+backpressure; the complete post-reset stream remains lossless and ordered.
+The retired Clash 1.11 compatibility run previously agreed with this oracle;
+it is historical evidence rather than a current feature or release gate.
 
 The persistent backend-independent hierarchy simulator now completes the same
 1,033-cycle continuous replay routinely. On the validation host it takes about
@@ -344,7 +338,7 @@ produces exactly 512 outputs, and matches the frozen digest and latency window
 above. It runs in the default regression with a 60-second hard timeout rather
 than behind an opt-in gate.
 
-The backend-independent simulator, direct-SystemVerilog/Verilator, and real
-Clash 1.11/Verilator paths therefore agree with the same independent frozen
-oracle. This closes the former simulator-scalability limitation without adding
-an FFT-specific compiler path or changing the functional schedule.
+The backend-independent simulator and direct-SystemVerilog/Verilator agree
+with the same independent frozen oracle. This closes the former
+simulator-scalability limitation without adding an FFT-specific compiler path
+or changing the functional schedule.

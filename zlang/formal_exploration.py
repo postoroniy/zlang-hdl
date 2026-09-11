@@ -83,11 +83,19 @@ class FormalExplorationConfig:
         compare=False,
         repr=False,
     )
+    # The production route is direct SystemVerilog.  ``clash`` remains an
+    # explicit hidden compatibility choice for legacy callers only; keeping
+    # the route in the config prevents proof/preparation cache collisions.
+    backend: str = "clash"
 
     def __post_init__(self) -> None:
         if self.max_formal_candidates < 1 or self.bmc_depth < 1 or self.timeout_seconds < 1:
             raise ValueError("formal exploration bounds must be positive")
         object.__setattr__(self, "policy", FormalPolicy(self.policy))
+        if self.backend not in {"clash", "direct_systemverilog"}:
+            raise ValueError(
+                "formal backend must be 'direct_systemverilog' or 'clash'"
+            )
         if (
             self.dependency_identity is not None
             and re.fullmatch(r"[0-9a-f]{64}", self.dependency_identity) is None
@@ -195,6 +203,7 @@ def proof_cache_key(candidate: Any, *, property_identity: str,
         "timeout_seconds": config.timeout_seconds,
         "engine": config.engine,
         "solver": config.solver,
+        "backend": config.backend,
         # Only the tools on this exact route can affect its evidence.  Merely
         # installing another solver must not invalidate a Z3 proof cache key.
         "tool_versions": _formal_tool_versions(config, requested_tools),
@@ -530,9 +539,9 @@ class _CachedProof:
             FormalStatus.PROVEN,
             FormalStatus.FAILED,
         }:
-            if self.backend != "clash":
+            if self.backend not in {"clash", "direct_systemverilog"}:
                 raise FormalExplorationError(
-                    "decisive M39 proof evidence requires the authoritative Clash backend"
+                    "decisive M39 proof evidence requires a supported M36 RTL backend"
                 )
             for label, value in (
                 ("property identity", self.property_identity),
@@ -919,9 +928,9 @@ def _proof_from_verifier(
                 "decisive M39 verifier result has no bound cache identity for: "
                 + ", ".join(missing_identity)
             )
-        if route != "M36_clash":
+        if route not in {"M36_clash", "M36_direct_systemverilog"}:
             raise FormalExplorationError(
-                "decisive M39 proof evidence requires the M36_clash route"
+                "decisive M39 proof evidence requires a supported M36 RTL route"
             )
         if depth != config.bmc_depth:
             raise FormalExplorationError(

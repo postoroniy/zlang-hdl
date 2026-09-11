@@ -12,6 +12,7 @@ from zlang.ir import (
     BinaryOperator,
     FixedConvert,
     FixedType,
+    UFixedType,
     ProductTermSign,
     SignedProductJoinOperator,
     recognize_signed_product_reduction,
@@ -144,7 +145,7 @@ def test_generic_candidate_preserves_convert_and_has_ordered_timing_dag():
     # target-aware planner now also publishes physical signed-product graphs.
     result = compile_source(_pipeline_source())
     exploration = result.ir.pipeline_explorations[0]
-    assert exploration.selected == "fixed_output_generic"
+    assert exploration.selected.startswith("dag_partition_")
     assert "preserve_exact_signed_product_reduction" in (
         exploration.selected_candidate.transformations
     )
@@ -214,20 +215,30 @@ def test_add_only_reduction_needs_only_add_capability():
     )
 
 
-def test_unsigned_subtraction_keeps_generic_and_is_physically_ineligible():
+def test_unsigned_subtraction_is_zero_extended_into_physical_dsp_cascade():
     result = compile_source(_pipeline_source(unsigned=True), target=TARGET)
-    assert result.implementation_graph.is_generic
+    assert not result.implementation_graph.is_generic
+    assert len(result.implementation_graph.resources) == 2
     target, family, resources = load_target(TARGET)
     template = next(
         item for item in load_architecture_templates(operation="signed_product_reduction")
         if item.name == "Xilinx7SignedProductCascade"
     )
     resource = next(item for item in resources if item.name == template.resource_name)
-    with pytest.raises(TargetArchitectureError, match="signed FixedType only"):
-        map_auto_signed_product_configuration(
-            result.ir, target, family, resources, template,
-            resource.pipeline_configuration("unregistered"),
-        )
+    graph = map_auto_signed_product_configuration(
+        result.ir, target, family, resources, template,
+        resource.pipeline_configuration("unregistered"),
+    )
+    assert tuple(
+        dict(item.configuration)["accumulator_mode"] for item in graph.resources
+    ) == ("accumulator_plus_product", "accumulator_minus_product")
+    assert all(
+        mapping.expression is None
+        or isinstance(mapping.expression.type, UFixedType)
+        for item in graph.resources
+        for mapping in item.semantic_mappings
+        if mapping.resource_port in {"a", "b"}
+    )
 
 
 def test_graph_and_descriptor_identities_are_deterministic():

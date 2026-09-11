@@ -114,6 +114,11 @@ from zlang.ir.storage import (
     Rom,
     RomSignal,
 )
+from zlang.ir.scheduled import (
+    SCHEDULED_VALUE_GRAPH_SCHEMA,
+    ScheduledValueGraph,
+    ScheduledValueResourceBinding,
+)
 from zlang.ir.packing import (
     PackingError,
     bit_mask,
@@ -250,9 +255,13 @@ from zlang.ir.pipelines import (
     PipelineEstimate,
     PipelineExploration,
     PipelineMetric,
+    PipelinePlan,
     PipelineRelation,
     PipelineTree,
     RegisterPlacement,
+    ScheduledOperationCost,
+    ScheduledPipelineOperation,
+    ScheduledPipelineStage,
 )
 from zlang.ir.elastic import (
     ElasticPipelinePlan,
@@ -411,6 +420,7 @@ __all__ = [
     "PipelineEstimate",
     "PipelineExploration",
     "PipelineMetric",
+    "PipelinePlan",
     "PipelineRelation",
     "PipelineTree",
     "Pipeline",
@@ -424,6 +434,9 @@ __all__ = [
     "Register",
     "ResolvedTransition",
     "RegisterPlacement",
+    "ScheduledOperationCost",
+    "ScheduledPipelineOperation",
+    "ScheduledPipelineStage",
     "MultiplierMapping",
     "NextAssignment",
     "Ownership",

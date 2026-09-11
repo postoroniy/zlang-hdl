@@ -60,6 +60,10 @@ class PublicCapabilityRegistry:
     operators: tuple[str, ...]
     capabilities: tuple[PublicCapability, ...]
     documentation: tuple[DocumentationRequirement, ...]
+    # Direct SystemVerilog is the sole production RTL backend.  The Clash
+    # field retained in individual capability records is a compatibility
+    # metadata slot for historical reports and is rendered as ``retired``.
+    production_backend: str = "direct_systemverilog"
 
     def editor_surface(self) -> dict[str, list[str]]:
         """Return the JSON-compatible surface consumed by lexical editors."""
@@ -85,7 +89,7 @@ class PublicCapabilityRegistry:
                 "context": item.context,
                 "status": item.status,
                 "simulator": item.simulator,
-                "clash": item.clash,
+                "clash": "retired",
                 "direct_systemverilog": item.direct_systemverilog,
                 "formal": item.formal,
                 "witness": {
@@ -99,7 +103,7 @@ class PublicCapabilityRegistry:
 
 
 CAPABILITY_REGISTRY = PublicCapabilityRegistry(
-    schema_version=23,
+    schema_version=24,
     keywords=(
         "import", "module", "extern", "model", "struct", "enum", "union", "type", "fn", "operator", "equiv",
         "protocol", "role", "channel", "member", "resource", "target", "device",
@@ -162,14 +166,14 @@ CAPABILITY_REGISTRY = PublicCapabilityRegistry(
     capabilities=(
         PublicCapability(
             "scalar-datapath", "pure value", "supported", "supported",
-            "supported", "supported", "M36/M38 scalar relations",
+            "supported", "supported", "M36 semantic-reference relations",
             CapabilityWitness("examples/all_syntax.zhl", "ScalarSyntax"),
             ("runtime division and general Boolean &&/|| are not hardware operators",),
         ),
         PublicCapability(
             "exact-literals-and-packed-constants", "pure value", "supported",
             "supported", "supported", "supported",
-            "M36/M38 scalar relations where eligible",
+            "M36 semantic-reference relations where eligible",
             CapabilityWitness("examples/all_syntax.zhl", "AllSyntax"),
             (
                 "compound expressions are never resized by context; zeros<N> "
@@ -178,7 +182,7 @@ CAPABILITY_REGISTRY = PublicCapabilityRegistry(
         ),
         PublicCapability(
             "fixed-point", "pure value", "supported", "supported",
-            "supported", "supported", "bounded M36/M38 relations",
+            "supported", "supported", "bounded M36 relations",
             CapabilityWitness("examples/all_syntax.zhl", "FixedSyntax"),
             ("rescale, rounding, and overflow remain explicit",),
         ),
@@ -347,7 +351,7 @@ CAPABILITY_REGISTRY = PublicCapabilityRegistry(
             CapabilityWitness("examples/all_syntax.zhl", "AggregateProtocolSyntax"),
             (
                 "typed leaves and explicit ownership; adapters/crossings remain "
-                "explicit; scalar M36/M38 entry points reject aggregate protocol "
+                "explicit; scalar M36 entry points reject aggregate protocol "
                 "endpoints rather than comparing leaves out of context",
             ),
         ),
@@ -397,7 +401,8 @@ CAPABILITY_REGISTRY = PublicCapabilityRegistry(
             (
                 "egglog, architecture enumeration, pipeline planning, cost "
                 "extraction, and proof gating are distinct stages; joint "
-                "--verify may add direct M36/M38 evidence, but M38 never gates M39",
+                "--verify may add direct-SV M36 evidence; M38 never gates M39 "
+                "and is retired from production",
             ),
         ),
         PublicCapability(
@@ -407,7 +412,7 @@ CAPABILITY_REGISTRY = PublicCapabilityRegistry(
             "supported",
             "supported",
             "supported",
-            "existing M35 ready/valid stability only; M36/M38 unsupported",
+            "existing M35 ready/valid stability only; M36 unsupported",
             CapabilityWitness(
                 "examples/elastic_pipeline_auto.zhl", "ElasticPipelineAuto"
             ),
@@ -420,7 +425,7 @@ CAPABILITY_REGISTRY = PublicCapabilityRegistry(
         ),
         PublicCapability(
             "combinational-instance-arrays", "compile-time hierarchy", "bounded",
-            "supported", "supported", "supported", "no hierarchical M36/M38",
+            "supported", "supported", "supported", "no hierarchical M36",
             CapabilityWitness("examples/indexed_instance_array.zhl", "IndexedInstanceArray"),
             (
                 "one-dimensional and compile-time indexed; exact aggregate wire "
@@ -430,7 +435,7 @@ CAPABILITY_REGISTRY = PublicCapabilityRegistry(
         ),
         PublicCapability(
             "runtime-instance-output-projection", "elaborated hierarchy", "bounded",
-            "supported", "supported", "supported", "no hierarchical M36/M38",
+            "supported", "supported", "supported", "no hierarchical M36",
             CapabilityWitness(
                 "tests/fixtures/hierarchy/runtime_selected_instance_output.zhl",
                 "RuntimeSelectedInstanceOutputCapability",

@@ -10,7 +10,8 @@ release snapshot/tag is still subject to release acceptance and publication.
 
 | Capability | Edition / status |
 |---|---|
-| Baseline language, stdlib, simulator, Clash and direct-SystemVerilog | Community; existing capabilities retained |
+| Baseline language, stdlib, simulator and direct-SystemVerilog | Community; production capabilities retained |
+| Retired historical Clash implementation | Community source; compatibility only, not a supported backend |
 | Local formal verification, equivalence, caches, bundles and exploration | Community; existing capabilities retained |
 | CSR hardware behavior, RTL, JSON and Markdown | Community; existing capabilities retained |
 | Verilator state-access C++ header and simulation tooling | Community; existing capabilities retained |

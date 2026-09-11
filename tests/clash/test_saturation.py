@@ -2,7 +2,7 @@ from pathlib import Path
 import unittest
 
 from zlang.compiler import compile_source
-from zlang.opt import render_saturation, saturate
+from zlang.opt import RewriteRule, render_saturation, saturate
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -26,8 +26,9 @@ class EqualitySaturationClashTests(unittest.TestCase):
             (ROOT / "examples/generated/ShiftMultiply.saturation").read_text(),
         )
 
-    def test_strength_reduction_is_excluded_from_the_m26_report(self) -> None:
-        self.assertEqual(self.saturation.alternatives, ())
+    def test_exact_strength_reduction_is_reported_independently_of_clash(self) -> None:
+        self.assertGreaterEqual(len(self.saturation.alternatives), 1)
+        self.assertIn(RewriteRule.MULTIPLY_POWER_OF_TWO, self.saturation.rules)
 
 
 if __name__ == "__main__":

@@ -10,6 +10,7 @@ from zlang.backend.clash.public_wrapper import ClashPublicTopWrapper
 from zlang.backend.systemverilog import emit_experimental
 from zlang.compiler import compile_source
 from zlang.simulate import simulate
+from zlang.timing import timing_info
 from zlang.toolchain import find_clash_executable, generate_verilog
 
 
@@ -115,8 +116,9 @@ def test_signed_complex_real_pipeline_clash_rtl_is_lint_clean() -> None:
         )
 
 
-def _signed_pipeline_bench() -> str:
-    return r"""
+def _signed_pipeline_bench(latency: int) -> str:
+    wait = "tick; " * latency
+    return rf"""
 module tb;
   logic clk=0, rst=1;
   logic signed [17:0] sample_re=0, sample_im=0;
@@ -130,19 +132,19 @@ module tb;
     tick; rst=0;
     sample_re=18'h10000; sample_im=18'h00000;
     twiddle_re=16'h4000; twiddle_im=16'h0000;
-    tick; if ($signed(result) !== 18'sd65536) $fatal(1,"unit twiddle");
+    {wait}if ($signed(result) !== 18'sd65536) $fatal(1,"unit twiddle");
     sample_re=18'h08000; sample_im=18'h04000;
     twiddle_re=16'h2000; twiddle_im=16'h1000;
-    tick; if ($signed(result) !== 18'sd12288) $fatal(1,"signed products");
+    {wait}if ($signed(result) !== 18'sd12288) $fatal(1,"signed products");
     $finish;
   end
 endmodule
 """
 
 
-def _simulate_rtl(files: list[Path], root: Path) -> None:
+def _simulate_rtl(files: list[Path], root: Path, *, latency: int) -> None:
     bench = root / "tb.sv"
-    bench.write_text(_signed_pipeline_bench())
+    bench.write_text(_signed_pipeline_bench(latency))
     environment = os.environ.copy()
     environment["CCACHE_DISABLE"] = "1"
     subprocess.run(
@@ -165,7 +167,8 @@ def test_signed_complex_real_pipeline_direct_sv_simulates_bit_exact() -> None:
         root = Path(temporary)
         rtl = root / "direct.sv"
         rtl.write_text(emit_experimental(module))
-        _simulate_rtl([rtl], root)
+        assignment = next(item for item in module.assignments if item.target.name == "result")
+        _simulate_rtl([rtl], root, latency=timing_info(assignment.expression).latency)
 
 
 @pytest.mark.skipif(
@@ -184,4 +187,7 @@ def test_signed_complex_real_pipeline_clash_simulates_bit_exact() -> None:
             root / "clash",
             public_wrapper=ClashPublicTopWrapper.build(result.ir),
         )
-        _simulate_rtl(list(files), root)
+        assignment = next(item for item in result.ir.assignments if item.target.name == "result")
+        _simulate_rtl(
+            list(files), root, latency=timing_info(assignment.expression).latency
+        )

@@ -1,7 +1,10 @@
-# Direct SystemVerilog supported-secondary backend
+# Direct SystemVerilog production backend
 
-Clash remains ZLang's primary backend.  Direct SystemVerilog is a supported
-secondary backend for the validated subset below; acceptance is fail-closed.
+Direct SystemVerilog is ZLang's sole supported production RTL backend.  The
+backend consumes typed semantic/scheduled IR and acceptance is fail-closed.
+Clash is retained only as a hidden compatibility emitter for dated fixtures;
+it is not required for feature completeness, release acceptance, or formal
+eligibility.
 Every source accepted by the direct emitter in the example regression is
 required to pass real Verilator lint.
 
@@ -68,7 +71,7 @@ backend never infers wrap, saturation, or rounding from source spelling.
   cross as one packed atomic value;
 - vendor-neutral scalar `sync_level`, `pulse_toggle`, and one-entry
   ready/valid `handshake` crossings, using the same coordinated-reset and
-  latency semantics as the simulator and Clash;
+  latency semantics as the simulator;
 - synchronous memories with the currently typed collision/read-latency model;
 - fixed-priority and round-robin packet arbiters with beat- or packet-scoped
   grants;
@@ -112,15 +115,10 @@ verilator --lint-only --top-module SimpleDMA build/SimpleDMA.sv
 
 `--experimental-systemverilog` remains an exact compatibility alias. Both
 options are explicit artifact sinks: they write only the requested SV file and
-leave stdout empty unless `-o` is also supplied. With both `-o` and a
-SystemVerilog path, both requested artifacts are written and stdout remains
-empty. A bare `zlang SOURCE` invocation retains the legacy behavior of
-printing Clash source to stdout; `--verilog-dir` and all report, IR, contract,
-formal, CSR, synthesis, and manifest paths suppress that implicit Clash stream.
-Direct-only and `--check` invocations stop before Clash emission, so a feature
-supported by direct SV is not rejected by an unrelated Clash limitation.
-Selection/configuration flags such as `--top`, `--target`, and formal policy
-alone do not suppress the legacy default. Diagnostics remain on stderr.
+leave stdout empty. A bare `zlang SOURCE` invocation emits the production direct
+SystemVerilog artifact to stdout. Hidden legacy Clash options exist only for
+internal compatibility tests and are not a supported product interface.
+Diagnostics remain on stderr.
 
 Use `--verbose` when an explicit success confirmation is useful:
 

@@ -1,0 +1,13 @@
+{
+  "schema": "zlang-target-qor-catalog-v1",
+  "entries": [
+    {
+      "path": "xc7z030_dsp_pipeline_qor.json",
+      "sha256": "4fefb64a5f26eaf424866844d5e87b8c8224c7067bc6ef6e560bb3b1ea2e4594"
+    },
+    {
+      "path": "xc7z030_signed_product_qor.json",
+      "sha256": "41936d6702ed5900592d75768bd659462bfd75feb37891417b4ec07c182459e3"
+    }
+  ]
+}

@@ -36,21 +36,25 @@ module ScalarRom<D=4> {
 # provenance belong to this eager surface even though production RTL identity
 # is unchanged.  Cases which publish selected/canonical value products were
 # recaptured again for canonical schema v13, which retains conditional action
-# activation predicates and scheduled scalar-output resources explicitly.
+# activation predicates and scheduled scalar-output resources explicitly.  The
+# present values also include the direct-production backend policy and the
+# planning-owned scheduled-value/resource products; semantic typing no longer
+# prematurely chooses pipeline placement before a target is known.  Each value
+# below was independently compiled twice before being locked.
 EXPECTED = {
-    "add": "073a2174877d3be3f02f36c5e98632514281b27b14c17ea93574b940e2f7dfe3",
-    "stateful_protocol": "88035c9db7b9d1e3bca36ef26bfa090531fa182c1791c4f6c0ed3033df721ef3",
-    "fixed_dsp": "25b20972f816b2fbc33a5cf8f58531996ec730f485caf1cf6f54a676843d10a9",
-    "csr": "cce237a39c33776624e2fc5fcbd47d3e0467daaae758013a0f05423f2039d871",
-    "hierarchy": "38daa8c7be62ef94997500865d5c89c62a5bdfe66ecbc65a37c3b5f7991f8638",
+    "add": "d37928b429d25aaa37a1d84a5c50faa548868a23ae69c97441d60a299907cd1a",
+    "stateful_protocol": "4561ff131d5f10a0e9af172159a2ddb7aea0fc4abf1ddac7dc6360a78440a9a5",
+    "fixed_dsp": "0c4386cd3f5f68ec88c39af512b6749c2210838c07ca2f560ef0688a3a44fdf9",
+    "csr": "93de423ee0228861961d0de7e2e326f376afb97fae336773c3a9f9c6c745c2d3",
+    "hierarchy": "faa57a0cba72bc45d5cad412c3a934bc29d78018e8ad4d384c729866d3f4f7f3",
     # Companion filenames now use exact typed ROM contents/layout rather than
     # source provenance, so equivalent spellings retain one physical image.
-    "rom": "2ec23068c834f2f1b9252b731cbd9c48ccce29ce21e73348b12555a5028cbe54",
+    "rom": "edd9b76f4b46b51a0a3ea27b6558b45589c7437b4217b245017ab886cadf114c",
     # The concise Wi-Fi source refactor uses slices, shared raw views, vector
     # generation and struct update while retaining the public ABI and IEEE
     # behavior.  This source/dependency-sensitive eager-result snapshot was
     # independently compiled twice before being locked here.
-    "wifi": "28ed2da4b70263dd54370092fe5b0c15fda185b803a916671210776e50126a15",
+    "wifi": "876a1df92d1f549e3e09086b32aa81aa9a1219da4c4bcb0c23f7b46b1ad014b6",
 }
 
 

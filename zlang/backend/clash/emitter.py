@@ -108,6 +108,7 @@ from zlang.backend.clash.ports import (
     value_port_annotation as _top_value_port_annotation,
 )
 from zlang.backend.expression_materialization import (
+    dependency_ordered_materialization,
     module_expression_roots,
     plan_materialization,
     replace_materialized,
@@ -9005,6 +9006,55 @@ def _emit_child_function(
     return nested_declarations + definition
 
 
+def _clash_stage_materialization(
+    staged: tuple[expr.Delay | expr.Pipeline, ...],
+    delay_names: dict[tuple[object, ...], str],
+    *,
+    reserved_names: tuple[str, ...],
+):
+    """Share exact combinational DAG fragments across staged Signal roots.
+
+    Register placement is already fixed in backend-independent Pipeline nodes.
+    This helper only preserves DAG sharing when several register inputs consume
+    the same typed fragment; it neither creates nor moves a clock boundary.
+    """
+
+    stage_aliases = {
+        value: delay_names[_leaf_key(value)] for value in staged
+    }
+    physical_roots = tuple(
+        replace_materialized(value.expression, stage_aliases)
+        for value in staged
+    )
+    materialized = plan_materialization(
+        physical_roots,
+        reserved_names=reserved_names,
+        generated_prefix="zlang_stage_expr_",
+        minimum_shared_size=2,
+    )
+    aliases = {item.expression: item.name for item in materialized}
+
+    def render(value: expr.Expression) -> str:
+        physical = replace_materialized(value, stage_aliases)
+        return _emit_signal_expression(
+            replace_materialized(physical, aliases), delay_names
+        )
+
+    bindings = tuple(
+        f"{item.name} = "
+        + _emit_signal_expression(
+            replace_materialized(
+                item.expression,
+                aliases,
+                keep=item.expression,
+            ),
+            delay_names,
+        )
+        for item in dependency_ordered_materialization(materialized)
+    )
+    return bindings, render
+
+
 def _emit_child_sequential(
     module: Module,
     component_name: str | None = None,
@@ -9071,6 +9121,15 @@ def _emit_child_sequential(
         for value in delay_nodes.values()
     }
     delay_names.update(_clash_child_leaf_names(module, private_names))
+    stage_materialized_bindings, render_staged = _clash_stage_materialization(
+        tuple(delay_nodes.values()),
+        delay_names,
+        reserved_names=(
+            *(_clash_name(port.name) for port in module.ports),
+            *delay_names.values(),
+        ),
+    )
+    bindings.extend(stage_materialized_bindings)
     if module.roms:
         bindings.append("zlang_rom_reset_hold = register True (pure False)")
     for rom in module.roms:
@@ -9155,7 +9214,7 @@ def _emit_child_sequential(
                 f"{_emit_signal_expression(scheduled, delay_names)}"
             )
     for value in delay_nodes.values():
-        previous = _emit_signal_expression(value.expression, delay_names)
+        previous = render_staged(value.expression)
         for stage in range(1, expr.sequential_stage_count(value) + 1):
             stage_name = private_names.stage(_stage_prefix(value), value.instance, stage)
             bindings.append(
@@ -9372,6 +9431,15 @@ def _emit_sequential_module(module: Module) -> str:
     bindings: list[str] = (
         ["reset_active = unsafeToActiveHigh hasReset"] if module.rules else []
     )
+    stage_materialized_bindings, render_staged = _clash_stage_materialization(
+        tuple(delay_nodes.values()),
+        delay_names,
+        reserved_names=(
+            *(_clash_name(port.name) for port in module.ports),
+            *delay_names.values(),
+        ),
+    )
+    bindings.extend(stage_materialized_bindings)
     if module.roms:
         if not bindings:
             bindings.append("reset_active = unsafeToActiveHigh hasReset")
@@ -9482,7 +9550,7 @@ def _emit_sequential_module(module: Module) -> str:
             )
 
     for delay in delay_nodes.values():
-        source = _emit_signal_expression(delay.expression, delay_names)
+        source = render_staged(delay.expression)
         previous = source
         for stage in range(1, expr.sequential_stage_count(delay) + 1):
             stage_name = private_names.stage(_stage_prefix(delay), delay.instance, stage)

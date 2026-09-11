@@ -10747,28 +10747,42 @@ def analyze(
             # owns selection, while downstream target planning consumes the
             # typed PipelineExploration record (never the source AST).
             if site_kind == "implement":
-                pipeline_by_name = {
-                    candidate.architecture.name: candidate.architecture
-                    for candidate in result.candidates
+                selected_pipeline = next(
+                    (
+                        candidate.architecture
+                        for candidate in result.candidates
+                        if candidate.implementation_identity
+                        == result.selected.implementation_identity
+                        and isinstance(
+                            candidate.architecture,
+                            ir_pipelines.PipelineCandidate,
+                        )
+                    ),
+                    None,
+                )
+                pipeline_by_name: dict[str, ir_pipelines.PipelineCandidate] = {}
+                for candidate in result.candidates:
                     if isinstance(
                         candidate.architecture,
                         ir_pipelines.PipelineCandidate,
-                    )
-                }
+                    ):
+                        # A value/architecture parent may generate the same
+                        # readable pipeline spelling.  Retain one deterministic
+                        # representative rather than allowing the final parent
+                        # to overwrite it accidentally.
+                        pipeline_by_name.setdefault(
+                            candidate.architecture.name,
+                            candidate.architecture,
+                        )
+                if isinstance(selected_pipeline, ir_pipelines.PipelineCandidate):
+                    # The public selected name must always resolve to the exact
+                    # expression emitted by the unified implementation choice.
+                    pipeline_by_name[selected_pipeline.name] = selected_pipeline
                 pipeline_candidates = tuple(
                     pipeline_by_name[name]
                     for name in sorted(pipeline_by_name)
                 )
                 if pipeline_candidates:
-                    selected_pipeline = next(
-                        (
-                            candidate.architecture
-                            for candidate in result.candidates
-                            if candidate.implementation_identity
-                            == result.selected.implementation_identity
-                        ),
-                        None,
-                    )
                     if pipeline_candidates:
                         # The target planner consumes the typed pipeline
                         # candidate set even when the generic M34 extractor
@@ -13730,11 +13744,22 @@ def _check_expression_untraced(
             raise SemanticError(
                 f"pipeline reset value is not defined for {operand.type}"
             )
+        # Fixed pipelines are exact semantic timing contracts.  Expand only
+        # immutable aliases and pure callable bodies here; physical partition
+        # and register placement belongs to implementation planning, after
+        # target/profile/evidence inputs are known.
+        scheduling_operand = _expand_immutable_locals(operand, inputs)
+        scheduling_operand = _expand_analysis_calls(
+            scheduling_operand,
+            context,
+            purpose=f"pipeline({expression.stages}) expression",
+        )
         return ir_expr.Pipeline(
             expression.stages,
-            operand,
+            scheduling_operand,
             context.allocate_delay(),
-            operand.type,
+            scheduling_operand.type,
+            origin=_semantic_origin(expression, context),
         )
 
     if isinstance(expression, ast.ImplementationChoiceExpr):

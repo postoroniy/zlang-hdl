@@ -1,10 +1,10 @@
-"""Compiler-owned execution of the existing candidate M36/M38 routes.
+"""Compiler-owned execution of selected-candidate M36 evidence.
 
 This module is intentionally a thin orchestration layer.  It does not define
 new equivalence semantics, participate in M39 eligibility, or widen the frozen
-M36/M38 feature subset.  It prepares the final candidate selected at an exact
-``CandidateSiteLedger`` site, reuses compatible M39 Clash evidence, executes
-the missing semantic-reference leg, and only then attempts advisory M38.
+M36 subset.  Production orchestration prepares the direct-SystemVerilog M36
+leg only. Historical Clash/M38 fields remain explicit unavailable compatibility
+records and are never executed by the production compiler path.
 """
 
 from __future__ import annotations
@@ -45,6 +45,7 @@ from zlang.formal_artifact_provider import (
 from zlang.formal_candidate import (
     FormalCandidateUnavailable,
     M36ClashCandidateVerifier,
+    M36DirectSystemVerilogCandidateVerifier,
     PreparedCandidateEquivalence,
     prepared_candidate_equivalence_from_data,
     prepared_candidate_equivalence_to_data,
@@ -570,11 +571,17 @@ def _selected_m39_record(
     site: SelectedCandidateSite,
     mode: EquivalenceMode,
 ) -> FormalExplorationRecord | None:
+    module = getattr(compilation, "ir", None)
+    if module is None:
+        # Unit/integration callers may execute an already-prepared M36 recipe
+        # without carrying the original CompilationResult.  In that case no
+        # in-session M39 record can exist and normal provider execution applies.
+        return None
     expected_mode = ProofMode.BMC if mode is EquivalenceMode.BMC else ProofMode.PROVE
     matches = tuple(
         record
         for derived_site, record in candidate_formal_record_sites(
-            getattr(compilation, "ir"),
+            module,
             getattr(compilation, "exploration_results", ()),
         )
         if derived_site.identity == site.site.identity
@@ -607,15 +614,16 @@ def _m39_recipe_matches(
     expected_proof_mode = (
         ProofMode.BMC if mode is EquivalenceMode.BMC else ProofMode.PROVE
     )
+    expected_route = "M36_" + prepared.backend
     connected_identity = (
-        record.formal_route == "M36_clash"
+        record.formal_route == expected_route
         and record.candidate_identity == prepared.property.implementation_root
         and record.policy is config.policy
         and record.mode is expected_proof_mode
         and record.depth == config.bmc_depth
         and record.engine == config.engine
         and record.solver == config.solver
-        and record.backend == "clash"
+        and record.backend == prepared.backend
         and record.property_identity == prepared.property_identity
         and record.reference_artifact_hash == prepared.reference_artifact_hash
         and record.implementation_artifact_hash == prepared.implementation_artifact_hash
@@ -633,7 +641,12 @@ def _m39_recipe_matches(
     ):
         stage_policy = FormalPolicy.REQUIRED_BMC
     stage_config = replace(config, policy=stage_policy)
-    verifier = M36ClashCandidateVerifier(
+    verifier_type = (
+        M36DirectSystemVerilogCandidateVerifier
+        if prepared.backend == "direct_systemverilog"
+        else M36ClashCandidateVerifier
+    )
+    verifier = verifier_type(
         selected.reference_expression,
         candidate_class=selected.candidate_class,
         artifact_provider=provider,
@@ -699,7 +712,7 @@ def _equivalence_from_m39(
         record.depth,
         prepared.property.relation_kind,
         prepared.property.latency_delta,
-        "clash",
+        record.backend or prepared.backend,
         prepared.reference_artifact_hash,
         prepared.implementation_artifact_hash,
         MANIFEST_VERSION,
@@ -844,6 +857,7 @@ def _provider_and_config(
         config,
         artifact_provider=provider,
         tool_resolver=resolver,
+        backend="direct_systemverilog",
     )
 
 
@@ -917,7 +931,7 @@ def prepare_selected_candidate_equivalence(
         domain, domain_limitation = candidate_owner_formal_domain(
             getattr(compilation, "ir"), selected.site.owner_identity
         )
-        verifier = M36ClashCandidateVerifier(
+        verifier = M36DirectSystemVerilogCandidateVerifier(
             selected.reference_expression,
             candidate_class=selected.candidate_class,
             artifact_provider=provider,
@@ -928,19 +942,18 @@ def prepare_selected_candidate_equivalence(
             "clash": None,
             "direct_systemverilog": None,
         }
-        reasons: dict[str, str] = {}
-        # Direct SV supplies the typed semantic property even when the
-        # external Clash compiler is unavailable.
-        for backend in ("direct_systemverilog", "clash"):
-            try:
-                prepared[backend] = verifier.prepare(
-                    selected.candidate,
-                    config,
-                    backend=backend,
-                )
-            except FormalCandidateUnavailable as error:
-                reasons[backend] = str(error)
-        common = prepared["clash"] or prepared["direct_systemverilog"]
+        reasons: dict[str, str] = {
+            "clash": "Clash/M38 production orchestration is retired",
+        }
+        try:
+            prepared["direct_systemverilog"] = verifier.prepare(
+                selected.candidate,
+                config,
+                backend="direct_systemverilog",
+            )
+        except FormalCandidateUnavailable as error:
+            reasons["direct_systemverilog"] = str(error)
+        common = prepared["direct_systemverilog"]
         if common is None:
             # The candidate lies outside the existing frozen M36 subset.  No
             # executable property may be fabricated from backend names.
@@ -1155,7 +1168,7 @@ def _execute_candidate_equivalence(
                 selected,
                 EquivalenceMode.BMC,
                 site_work_directories,
-                allow_m39_reuse=False,
+                allow_m39_reuse=True,
             )
         )
         m38_bmc = None
@@ -1208,7 +1221,7 @@ def _execute_candidate_equivalence(
                 selected,
                 EquivalenceMode.PROVE,
                 site_work_directories,
-                allow_m39_reuse=False,
+                allow_m39_reuse=True,
             )
         if clash_prove is None and direct_prove is None:
             return CandidateEquivalenceExecutionReport(

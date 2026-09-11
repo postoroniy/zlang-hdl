@@ -12,11 +12,13 @@ architecture representation. Metadata includes canonical type, width,
 signedness, latency, initiation interval, domain, purity/effects, source origin,
 and separate estimated/measured cost evidence.
 
-The pure e-graph layer uses the pinned `egglog==13.2.0` engine for the frozen
-type-safe scalar rewrite subset. State, timing, protocols, storage, rules, and
-CDC are excluded from equality saturation. Source `equiv` declarations register
-only accepted exact same-cycle value rules; they are not assertions or temporal
-equivalence.
+The pure e-graph layer uses the pinned `egglog==13.2.0` engine for a bounded,
+type-safe scalar rewrite subset. It covers exact integer/fixed arithmetic,
+bitwise/shift, compare/mux, resize and wiring nodes. Fixed conversion is an
+opaque quantization boundary. Reassociation of ordinary carry-growing adds,
+movement across rounding/rescale, state, timing, protocols, storage, rules, and
+CDC are excluded. Source `equiv` declarations register only accepted exact
+same-cycle value rules; they are not assertions or temporal equivalence.
 
 ## One implementation-policy path
 
@@ -26,11 +28,16 @@ the pipeline or architecture search engine:
 ```text
 typed value IR
     -> optional egglog pure-value alternatives
-    -> M29/M32 bounded architecture candidates
-    -> M31 fixed-latency II=1 pipeline candidates
+    -> typed computation DAG
+    -> bounded generic/resource covering
+    -> target-aware exact-N fixed-latency scheduling
     -> M28 deterministic cost extraction
-    -> optional M39 authoritative M36-to-Clash proof gate
+    -> optional M39 authoritative M36 semantic-reference proof gate
 ```
+
+> **Current backend policy (2026-09):** Direct SystemVerilog is the only
+> production RTL backend. Clash/M38 material below is historical compatibility
+> evidence and is not executed by the current release path.
 
 M30 supplies validated latency/II relations for eligible candidates. That
 metadata validation is not, by itself, a formal proof.
@@ -112,6 +119,15 @@ when the intent explicitly permits positive latency. `pipeline(3) { expr }`
 remains exact three-cycle hardware semantics and is never lowered to an
 implementation preference.
 
+For supported pure scalar DAGs the physical record is one
+`ScheduledValueGraph`: operations, exact stage assignment, generic or resource
+bindings, resource-local/fabric cuts, balancing delays, latency, II and cost
+provenance. Egglog never places these cuts. On Xilinx 7-Series the target
+planner can cover standalone multiply, MAC/add-sub, preadd-multiply and ordered
+signed-product cascades with DSP48E1; uncovered operations remain fabric.
+Unknown target timing cannot satisfy an Fmax constraint, and structural cost is
+never reported as a measurement.
+
 Only frozen expression shapes are accepted. Candidate timing is checked and
 the result is a concrete fixed-latency expression. Target-aware fixed-FIR
 planning is similarly bounded and keeps final fixed-point quantization outside
@@ -139,12 +155,13 @@ variable wall-clock latency under backpressure. It is not an M30 fixed-latency
 relation. User registers, rules, storage, protocol-control captures, adapters,
 crossings, and independently elastic stages are rejected in this first slice.
 
-Generic direct-SV and closed-component Clash lowering are supported. A
-preferred physical-resource request may report a generic fallback; a required
-physical route fails until every selected resource site explicitly advertises
-a compatible common clock-enable/stall input. Existing M35 ready/valid
-stability remains applicable. M36/M38 are unsupported, while M39 `available`
-records an explicit skipped route and required proof policies fail closed.
+Direct SystemVerilog lowering is the production route. A preferred physical-
+resource request may report a generic fallback; a required physical route fails
+until every selected resource site explicitly advertises a compatible common
+clock-enable/stall input. Existing M35 ready/valid stability remains
+applicable. M36 is supported where direct-SV bindings exist; M38 is retired.
+M39 `available` records an explicit skipped route and required proof policies
+fail closed.
 
 Target and resource descriptions under `std.target.*` and `std.arch.*` are
 compiler-shipped source. Functional modules do not name vendor registers or
@@ -314,14 +331,17 @@ not a failure, and unavailable advisory candidate evidence does not alter M39
 eligibility.
 
 Verification-bundle construction uses a typed compiler-owned execution plan.
+Current production execution is direct-SystemVerilog plus the independent
+semantic reference. Clash/M38 routes described in older records are retained
+only as historical compatibility evidence.
 Every goal records its exact `ClockDomain`, BackendArtifact physical-domain
 identity when an artifact exists, complete scoped assumptions, required
 semantic observations, comparison window, and either one complete route or one
 structured skip reason. Formal plan schema 2 includes both domain fields in
 `plan_identity`; bundle v4 jobs and run-report v7 results repeat them and reject
-contract/manifest disagreement. Direct-SV is attempted first per goal;
-Clash is prepared lazily only for a goal whose complete direct route cannot be
-connected. Signals from different backends are never mixed in one harness.
+contract/manifest disagreement. Direct-SV is the only production route per
+goal; an unavailable route is an explicit skip. Signals from different
+backends are never mixed in one harness.
 Goals in distinct supported synchronous domains become distinct jobs with
 domain-local bindings. A supported asynchronous contract executes only in a
 single-domain module. An unsupported domain skips only goals that name it; no
@@ -345,13 +365,12 @@ triangular-evidence rules, is documented in this guide.
   IR and execute only when required observations have explicit backend bindings.
 - **M36** compares supported same-cycle or fixed-latency II=1 selected
   implementations against an independent semantic reference.
-- **M38** compares aligned Clash and direct-SV artifacts for the supported
-  scalar/fixed-latency intersection. It is called triangular evidence only when
-  both compatible M36 semantic-reference legs are also present.
+- **M38** cross-backend comparison is retired with Clash. Historical reports are
+  preserved for audit but are not current evidence.
 - **M39** can gate deterministic candidate selection with policy `off`,
   `available`, `required_bmc`, or `required_proven`. The compiler-owned route
   materializes the frozen M36 canonical reference, compiles the selected typed
-  candidate through Clash, validates explicit bindings, emits the latency-aware
+  candidate through direct SystemVerilog, validates explicit bindings, emits the latency-aware
   miter, and executes SBY/yosys-smtbmc. This applies to canonical `implement`
   regions in the existing M36 subset. Each region publishes the same structured
   M39 records into CLI evidence and whole-build manifests.
@@ -370,7 +389,7 @@ optional and never participates in M39 eligibility.
 
 Decisive M39 results are route-bound data, not trusted callback booleans. The
 property, harness, assumptions, backend route, semantic-reference artifact,
-Clash implementation artifact, engine, mode, and depth must all match the
+implementation artifact, engine, mode, and depth must all match the
 cache identity before a candidate can become eligible. Exact reuse additionally
 matches stage policy, timeout, tool snapshot, dependencies, and compiler schema.
 Failed results require typed counterexample metadata; non-failed results reject

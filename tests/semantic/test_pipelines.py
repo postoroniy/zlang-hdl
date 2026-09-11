@@ -15,6 +15,7 @@ from zlang.ir.types import UIntType
 from zlang.parser import parse
 from zlang.semantic import SemanticError, analyze
 from zlang.pipelines import pipeline_constraint_to_unified
+from zlang.timing import timing_info
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -36,8 +37,12 @@ class PipelineSemanticTests(unittest.TestCase):
         module = analyze(parse((ROOT / "examples/pipelined_mac.zhl").read_text()))
         expression = module.assignments[0].expression
         self.assertIsInstance(expression, Pipeline)
+        # Semantic typing preserves the exact contract but deliberately does
+        # not place physical registers before target/profile selection.
         self.assertEqual(sequential_stage_count(expression), expression.stages)
         self.assertEqual(expression.stages, 2)
+        self.assertEqual(timing_info(expression).latency, 2)
+        self.assertIsNone(expression.pipeline_plan)
         self.assertEqual(expression.type, UIntType(17))
 
     def test_pipeline_requires_clock_and_reset(self) -> None:

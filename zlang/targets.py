@@ -27,13 +27,19 @@ from zlang.ir.target import (
     TargetFamilyDefinition,
     TargetInstance,
 )
-from zlang.ir.types import FixedType, VecType
+from zlang.ir.types import FixedType, SIntType, UFixedType, UIntType, VecType
 from zlang.ir.timing import TimingKnowledge
 from zlang.ir.signed_reductions import (
     ProductTermSign,
     SignedProductReduction,
+    expression_semantic_identity,
     recognize_signed_product_reduction,
 )
+from zlang.ir.scheduled import (
+    ScheduledValueGraph,
+    ScheduledValueResourceBinding,
+)
+from zlang.ir.traversal import walk_expression
 from zlang.stdlib import available_stdlib_modules, resolve_stdlib
 
 
@@ -45,6 +51,37 @@ class ArchitectureSelectionMode(str, Enum):
 
 class TargetArchitectureError(ValueError):
     """A source-defined target or manually requested architecture is illegal."""
+
+
+_DSP_NUMERIC_TYPES = (FixedType, UFixedType, SIntType, UIntType)
+
+
+def _dsp_signed_width(type_) -> int:
+    """Physical signed width needed to preserve one exact numeric value."""
+
+    return type_.width + int(isinstance(type_, (UIntType, UFixedType)))
+
+
+def _dsp_value_expression(
+    source_expression: expr.Expression,
+) -> tuple[expr.Expression, expr.Expression, str]:
+    """Return arithmetic value, public boundary, and boundary description."""
+
+    if isinstance(source_expression, expr.FixedConvert):
+        return (
+            source_expression.expression,
+            source_expression,
+            "one final FixedConvert remains outside the resource cascade",
+        )
+    if isinstance(source_expression.type, _DSP_NUMERIC_TYPES):
+        return (
+            source_expression,
+            source_expression,
+            "exact numeric projection remains outside the resource cascade",
+        )
+    raise TargetArchitectureError(
+        "DSP arithmetic covering requires a signed/unsigned integer or fixed-point result"
+    )
 
 
 def validate_pipeline_configuration(
@@ -767,6 +804,7 @@ def map_auto_signed_product_configuration(
     configuration: PipelineConfiguration,
     *,
     exact_latency: int | None = None,
+    source_expression: expr.Expression | None = None,
 ) -> ImplementationGraph:
     """Map an ordered exact signed-product reduction without changing its tree."""
 
@@ -774,26 +812,30 @@ def map_auto_signed_product_configuration(
         raise TargetArchitectureError(
             f"architecture '{template.identity}' is not a signed-product reduction"
         )
-    explorations = tuple(
-        item for item in module.pipeline_explorations
-        if isinstance(item.source_expression, expr.FixedConvert)
-    )
-    if len(explorations) != 1:
-        raise TargetArchitectureError(
-            f"architecture '{template.identity}' requires one typed fixed implementation region"
+    if source_expression is None:
+        explorations = tuple(
+            item for item in module.pipeline_explorations
+            if isinstance(item.source_expression, expr.FixedConvert)
         )
-    exploration = explorations[0]
-    conversion = exploration.source_expression
-    reduction = recognize_signed_product_reduction(conversion.expression)
+        if len(explorations) != 1:
+            raise TargetArchitectureError(
+                f"architecture '{template.identity}' requires one typed fixed implementation region"
+            )
+        conversion = explorations[0].source_expression
+    else:
+        conversion = source_expression
+    arithmetic, boundary, boundary_evidence = _dsp_value_expression(conversion)
+    reduction = recognize_signed_product_reduction(arithmetic)
     if reduction is None:
         raise TargetArchitectureError(
             f"architecture '{template.identity}' requires one exact signed-product reduction"
         )
-    if not isinstance(reduction.result_type, FixedType) or any(
-        not isinstance(term.product_type, FixedType) for term in reduction.terms
+    if not isinstance(reduction.result_type, _DSP_NUMERIC_TYPES) or any(
+        not isinstance(term.product_type, _DSP_NUMERIC_TYPES)
+        for term in reduction.terms
     ):
         raise TargetArchitectureError(
-            f"architecture '{template.identity}' physical mapping supports signed FixedType only"
+            f"architecture '{template.identity}' requires exact integer/fixed product arithmetic"
         )
     if template.resource_count != len(reduction.terms):
         raise TargetArchitectureError(
@@ -856,9 +898,11 @@ def map_auto_signed_product_configuration(
     for index, term in enumerate(reduction.terms):
         product = term.product_expression
         left, right = product.left, product.right
-        if left.type.width <= multiplier_a and right.type.width <= multiplier_b:
+        left_width = _dsp_signed_width(left.type)
+        right_width = _dsp_signed_width(right.type)
+        if left_width <= multiplier_a and right_width <= multiplier_b:
             a_value, b_value = left, right
-        elif right.type.width <= multiplier_a and left.type.width <= multiplier_b:
+        elif right_width <= multiplier_a and left_width <= multiplier_b:
             a_value, b_value = right, left
         else:
             raise TargetArchitectureError(
@@ -866,18 +910,20 @@ def map_auto_signed_product_configuration(
                 f"{left.type.width}x{right.type.width} exceed multiplier ports "
                 f"{multiplier_a}x{multiplier_b}"
             )
-        if product.type.width > product_limit:
+        product_width = _dsp_signed_width(product.type)
+        if product_width > product_limit:
             raise TargetArchitectureError(
                 f"architecture '{template.identity}' product {index} width exceeded: "
-                f"semantic required width {product.type.width}, resource supports {product_limit}"
+                f"physical signed width {product_width}, resource supports {product_limit}"
             )
         stage_type = (
             product.type if index == 0 else reduction.joins[index - 1].result_type
         )
-        if stage_type.width > accumulator_limit:
+        stage_width = _dsp_signed_width(stage_type)
+        if stage_width > accumulator_limit:
             raise TargetArchitectureError(
                 f"architecture '{template.identity}' accumulator width exceeded at stage {index}: "
-                f"semantic required width {stage_type.width}, resource supports {accumulator_limit}"
+                f"physical signed width {stage_width}, resource supports {accumulator_limit}"
             )
         mode = (
             "accumulator_minus_product"
@@ -910,8 +956,8 @@ def map_auto_signed_product_configuration(
         ))
         previous = stage_semantic_identity
         evidence.append(
-            f"stage {index}: {mode}, product {product.type.width}<={product_limit}, "
-            f"accumulator {stage_type.width}<={accumulator_limit}"
+            f"stage {index}: {mode}, product {product_width}<={product_limit}, "
+            f"accumulator {stage_width}<={accumulator_limit}"
         )
 
     edges = tuple(DedicatedPhysicalEdge(
@@ -930,8 +976,8 @@ def map_auto_signed_product_configuration(
         latency=useful_latency, initiation_interval=configuration.initiation_interval,
         realization_backend="direct_systemverilog",
         latency_knowledge=TimingKnowledge.KNOWN.value,
-        quantization=conversion, source_origin=reduction.source_origin,
-        legality_evidence=(*evidence, "one final FixedConvert remains outside the resource cascade"),
+        quantization=boundary, source_origin=reduction.source_origin,
+        legality_evidence=(*evidence, boundary_evidence),
         architecture_template_hash=template.source_hash,
         target_family_identity=family.identity,
         target_dependency_hashes=target.dependency_hashes,
@@ -947,9 +993,444 @@ def map_auto_signed_product_configuration(
     from zlang.target_timing import build_dsp_cascade_timing_dag
     timing_dag = build_dsp_cascade_timing_dag(
         graph, resource, configuration, structural_latency=1,
-        output_width=conversion.type.width, exact_latency=exact_latency,
+        output_width=boundary.type.width, exact_latency=exact_latency,
     )
-    return replace(graph, latency=timing_dag.output_latency, timing_dag=timing_dag)
+    graph = replace(graph, latency=timing_dag.output_latency, timing_dag=timing_dag)
+    return _attach_scheduled_value_graph(
+        module,
+        graph,
+        source_expression if source_expression is not None else boundary,
+    )
+
+
+def map_auto_multiply_add_configuration(
+    module: Module,
+    target: TargetInstance,
+    family: TargetFamilyDefinition,
+    resources: tuple[ResourceDefinition, ...],
+    template: ArchitectureTemplate,
+    configuration: PipelineConfiguration,
+    *,
+    exact_latency: int | None = None,
+    source_expression: expr.Expression | None = None,
+) -> ImplementationGraph:
+    """Cover one exact MAC or preadd-product with one DSP resource."""
+
+    if template.operation != "multiply_add":
+        raise TargetArchitectureError(
+            f"architecture '{template.identity}' is not multiply_add"
+        )
+    value, boundary, boundary_evidence = _dsp_value_expression(source_expression)
+    product: expr.Binary | None = None
+    addend: expr.Expression | None = None
+    preadd: expr.Add | None = None
+    multiplier: expr.Expression | None = None
+    mode = "accumulator_plus_product"
+    if (
+        isinstance(value, expr.Binary)
+        and value.operator is expr.BinaryOperator.MULTIPLY
+    ):
+        product = value
+        for possible_preadd, possible_multiplier in (
+            (value.left, value.right),
+            (value.right, value.left),
+        ):
+            if isinstance(possible_preadd, expr.Add):
+                preadd = possible_preadd
+                multiplier = possible_multiplier
+                break
+    elif isinstance(value, expr.Add):
+        for possible_product, possible_addend in (
+            (value.left, value.right), (value.right, value.left)
+        ):
+            if (
+                isinstance(possible_product, expr.Binary)
+                and possible_product.operator is expr.BinaryOperator.MULTIPLY
+            ):
+                product = possible_product
+                addend = possible_addend
+                break
+    elif (
+        isinstance(value, expr.Binary)
+        and value.operator is expr.BinaryOperator.SUBTRACT
+    ):
+        if (
+            isinstance(value.right, expr.Binary)
+            and value.right.operator is expr.BinaryOperator.MULTIPLY
+        ):
+            # DSP48E1 ALUMODE=0011 implements Z - X exactly.
+            product = value.right
+            addend = value.left
+            mode = "accumulator_minus_product"
+        elif (
+            isinstance(value.left, expr.Binary)
+            and value.left.operator is expr.BinaryOperator.MULTIPLY
+        ):
+            # With X=M, Z=PCIN, ALUMODE=0001 and direct CARRYIN=1,
+            # -Z + X + CIN - 1 is exactly X - Z (UG479 table 2-10).
+            product = value.left
+            addend = value.right
+            mode = "product_minus_accumulator"
+    if product is None:
+        raise TargetArchitectureError(
+            f"architecture '{template.identity}' requires multiply, addend +/- product, "
+            "or preadd * value"
+        )
+    if (
+        isinstance(addend, expr.Binary)
+        and addend.operator is expr.BinaryOperator.MULTIPLY
+    ):
+        raise TargetArchitectureError(
+            f"architecture '{template.identity}' leaves a second product in fabric; "
+            "use the signed-product cascade cover instead"
+        )
+    if addend is not None:
+        typed_values = (product.left, product.right, product, addend, value)
+    elif preadd is not None:
+        typed_values = (
+            preadd.left, preadd.right, preadd, multiplier, product, value,
+        )
+    else:
+        typed_values = (product.left, product.right, product, value)
+    if not all(
+        isinstance(item.type, _DSP_NUMERIC_TYPES)
+        for item in typed_values
+    ):
+        raise TargetArchitectureError(
+            f"architecture '{template.identity}' requires exact integer/fixed operands"
+        )
+    if addend is not None:
+        if type(product.type) is not type(addend.type) or type(value.type) is not type(
+            product.type
+        ):
+            raise TargetArchitectureError(
+                f"architecture '{template.identity}' requires explicit mixed-signedness conversion"
+            )
+        product_fraction = getattr(product.type, "fraction", 0)
+        addend_fraction = getattr(addend.type, "fraction", 0)
+        if product_fraction != addend_fraction:
+            raise TargetArchitectureError(
+                f"architecture '{template.identity}' requires product/addend scale alignment"
+            )
+    matches = tuple(item for item in resources if item.name == template.resource_name)
+    if len(matches) != 1:
+        raise TargetArchitectureError(
+            f"architecture '{template.identity}' requires unavailable resource '{template.resource_name}'"
+        )
+    resource = matches[0]
+    supported_modes = set(dict(resource.capabilities).get("accumulator_modes", "").split("."))
+    product_minus_is_bound = mode == "product_minus_accumulator" and any(
+        item.backend == "systemverilog"
+        and item.emitter == "dsp48e1_explicit"
+        and item.primitive == "DSP48E1"
+        for item in resource.physical_bindings
+    )
+    if mode not in supported_modes and not product_minus_is_bound:
+        raise TargetArchitectureError(
+            f"resource '{resource.identity}' does not support accumulator mode '{mode}'"
+        )
+    validate_inventory(target, ((resource.identity, 1),))
+    configuration = validate_pipeline_configuration(resource, configuration.name)
+    a_limit = resource.limit("multiplier_a")
+    b_limit = resource.limit("multiplier_b")
+    d_value: expr.Expression | None = None
+    if preadd is not None:
+        assert multiplier is not None
+        a_value, d_value, b_value = preadd.left, preadd.right, multiplier
+        if (
+            _dsp_signed_width(a_value.type) > a_limit
+            or _dsp_signed_width(d_value.type) > a_limit
+            or _dsp_signed_width(preadd.type) > a_limit
+            or _dsp_signed_width(b_value.type) > b_limit
+        ):
+            raise TargetArchitectureError(
+                f"architecture '{template.identity}' preadd/multiply widths exceed "
+                f"{a_limit}-bit preadd and {b_limit}-bit multiplier input"
+            )
+    else:
+        left, right = product.left, product.right
+        left_width = _dsp_signed_width(left.type)
+        right_width = _dsp_signed_width(right.type)
+        if left_width <= a_limit and right_width <= b_limit:
+            a_value, b_value = left, right
+        elif right_width <= a_limit and left_width <= b_limit:
+            a_value, b_value = right, left
+        else:
+            raise TargetArchitectureError(
+                f"architecture '{template.identity}' product operands "
+                f"{left.type.width}x{right.type.width} exceed multiplier ports "
+                f"{a_limit}x{b_limit}"
+            )
+    product_width = _dsp_signed_width(product.type)
+    if product_width > resource.limit("product"):
+        raise TargetArchitectureError(
+            f"architecture '{template.identity}' physical product width {product_width} "
+            f"exceeds {resource.limit('product')}"
+        )
+    addend_width = _dsp_signed_width(addend.type) if addend is not None else 1
+    value_width = _dsp_signed_width(value.type)
+    if (
+        addend_width > resource.limit("accumulator")
+        or value_width > resource.limit("accumulator")
+    ):
+        raise TargetArchitectureError(
+            f"architecture '{template.identity}' accumulator width exceeds "
+            f"{resource.limit('accumulator')}"
+        )
+    semantic = _expression_identity(value)
+    node = ResourceInstance(
+        "multiply_add0",
+        resource.identity,
+        resource.operation,
+        tuple((
+            *configuration.physical_settings,
+            ("pipeline_configuration", configuration.name),
+            ("accumulator_mode", mode),
+            ("preadd_physical_width", (
+                _dsp_signed_width(preadd.type)
+                if preadd is not None
+                else _dsp_signed_width(a_value.type)
+            )),
+            ("term_ordinal", 0),
+        )),
+        tuple((
+            SemanticPortMapping("a", _semantic_mapping_identity(a_value), a_value),
+            *(
+                (SemanticPortMapping(
+                    "d", _semantic_mapping_identity(d_value), d_value
+                ),)
+                if d_value is not None
+                else ()
+            ),
+            SemanticPortMapping("b", _semantic_mapping_identity(b_value), b_value),
+            *(
+                (SemanticPortMapping(
+                    "pcin", _semantic_mapping_identity(addend), addend
+                ),)
+                if addend is not None
+                else ()
+            ),
+            SemanticPortMapping("p", semantic, value),
+            SemanticPortMapping("pcout", semantic, value),
+        )),
+    )
+    graph = ImplementationGraph(
+        semantic_region_identity=semantic,
+        architecture_template_identity=template.identity,
+        target_identity=target.identity,
+        target_hash=target.source_hash,
+        resource_definition_hashes=((resource.identity, resource.source_hash),),
+        resources=(node,),
+        dedicated_edges=(),
+        latency=1 + configuration.latency,
+        initiation_interval=configuration.initiation_interval,
+        realization_backend="direct_systemverilog",
+        latency_knowledge=TimingKnowledge.KNOWN.value,
+        quantization=boundary,
+        source_origin=value.origin,
+        legality_evidence=(
+            f"{mode}; product {product_width}<={resource.limit('product')}",
+            (
+                f"preadd {_dsp_signed_width(preadd.type)}<={a_limit}"
+                if preadd is not None
+                else f"addend {addend_width}<={resource.limit('accumulator')}"
+            ),
+            boundary_evidence,
+        ),
+        architecture_template_hash=template.source_hash,
+        target_family_identity=family.identity,
+        target_dependency_hashes=target.dependency_hashes,
+        architecture_dependency_hashes=template.dependency_hashes,
+        selection_policy="auto",
+        target_part=target.part,
+        pipeline_configuration_identity=f"{resource.identity}.{configuration.name}",
+        active_pipeline_sites=configuration.sites,
+        physical_binding_identities=tuple(
+            f"{resource.identity}:{item.backend}:{item.emitter}"
+            for item in resource.physical_bindings
+        ),
+    )
+    from zlang.target_timing import build_dsp_cascade_timing_dag
+
+    timing = build_dsp_cascade_timing_dag(
+        graph,
+        resource,
+        configuration,
+        structural_latency=1,
+        output_width=boundary.type.width,
+        exact_latency=exact_latency,
+    )
+    graph = replace(graph, latency=timing.output_latency, timing_dag=timing)
+    return _attach_scheduled_value_graph(module, graph, source_expression)
+
+
+def _attach_scheduled_value_graph(
+    module: Module,
+    graph: ImplementationGraph,
+    source_expression: expr.Expression,
+) -> ImplementationGraph:
+    """Bind a target cover to the same exact-N scheduled operation graph.
+
+    Exact source pipelines and positive-latency ``implement`` candidates both
+    own scheduler graphs.  A target cover must join the graph for its exact
+    latency; borrowing another candidate's stage assignment would make the
+    physical identity and report untruthful.
+    """
+
+    from zlang.pipeline_scheduling import erase_pipeline_timing
+
+    plans = tuple(
+        candidate.pipeline_plan
+        for exploration in module.pipeline_explorations
+        if exploration.source_expression == source_expression
+        for candidate in exploration.candidates
+        if candidate.latency == graph.latency
+        and candidate.pipeline_plan is not None
+        and candidate.pipeline_plan.scheduled_value_graph is not None
+    )
+    if not plans:
+        plans = tuple(
+            assignment.expression.pipeline_plan
+            for assignment in (*module.assignments, *module.next_assignments)
+            if isinstance(assignment.expression, expr.Pipeline)
+            and assignment.expression.pipeline_plan is not None
+            and erase_pipeline_timing(assignment.expression) == source_expression
+        )
+    if not plans:
+        return graph
+    if len(plans) != 1:
+        raise TargetArchitectureError(
+            "physical resource cover matches more than one scheduled value graph"
+        )
+    scheduled = plans[0].scheduled_value_graph
+    if scheduled is None:
+        return graph
+    # A natural resource configuration which exceeds an exact source latency
+    # is retained only so the target report can explain its rejection.  It is
+    # not a complete/publishable schedule and must not borrow the source
+    # contract's shorter graph.
+    if scheduled.exact_latency != graph.latency:
+        return graph
+    by_semantic = {
+        semantic: operation
+        for operation, semantic in scheduled.operation_semantic_identities
+    }
+    bindings: list[ScheduledValueResourceBinding] = []
+    bound_operations: set[str] = set()
+    for resource in graph.resources:
+        outputs = tuple(
+            item
+            for item in resource.semantic_mappings
+            if item.resource_port == "p" and item.expression is not None
+        )
+        if len(outputs) != 1:
+            raise TargetArchitectureError(
+                f"resource '{resource.identity}' has no unique typed result mapping"
+            )
+        covered_semantics = _dsp_resource_covered_semantics(resource, outputs[0].expression)
+        covered_operations = tuple(
+            by_semantic[semantic]
+            for semantic in covered_semantics
+            if semantic in by_semantic
+        )
+        if not covered_operations:
+            raise TargetArchitectureError(
+                f"resource '{resource.identity}' result does not cover a scheduled operation"
+            )
+        for operation in covered_operations:
+            if operation in bound_operations:
+                raise TargetArchitectureError(
+                    f"scheduled operation '{operation}' is covered by more than one resource"
+                )
+            bound_operations.add(operation)
+            bindings.append(ScheduledValueResourceBinding(
+                operation,
+                resource.identity,
+                resource.resource_definition_identity,
+                graph.pipeline_configuration_identity,
+            ))
+    timing = graph.timing_dag
+    physical = ScheduledValueGraph(
+        source_expression_identity=scheduled.source_expression_identity,
+        selected_value_identity=scheduled.selected_value_identity,
+        operation_identities=scheduled.operation_identities,
+        operation_semantic_identities=scheduled.operation_semantic_identities,
+        dependencies=scheduled.dependencies,
+        stage_assignment=scheduled.stage_assignment,
+        stage_delays_ps=scheduled.stage_delays_ps,
+        exact_latency=graph.latency,
+        initiation_interval=graph.initiation_interval,
+        # Resource pipeline sites currently publish no non-zero segment timing
+        # for this target.  Preserve the scheduler's honest structural label;
+        # routed/synthesis evidence remains separate TargetCandidate metadata.
+        cost_source=scheduled.cost_source,
+        resource_bindings=tuple(bindings),
+        cut_identities=tuple(item.identity for item in timing.cuts) if timing else (),
+        alignment_delay_identities=tuple(
+            item.identity for item in timing.alignment_delays
+        ) if timing else (),
+        compensation_delay_identities=tuple(
+            item.identity for item in timing.compensation_delays
+        ) if timing else (),
+        rewrite_certificate=scheduled.rewrite_certificate,
+    )
+    return replace(graph, scheduled_value_graph=physical)
+
+
+def _dsp_resource_covered_semantics(
+    resource: ResourceInstance,
+    output: expr.Expression,
+) -> tuple[str, ...]:
+    """Return exact typed DAG operations spatially implemented by one DSP.
+
+    Resource mapping already owns arithmetic legality.  This helper only joins
+    that mapping to the shared scheduled graph: the published P expression,
+    its mapped multiply, and (when present) the mapped preadder.  It never
+    claims unrelated ancestors from an accumulator cascade.
+    """
+
+    mappings = {
+        item.resource_port: item.expression
+        for item in resource.semantic_mappings
+        if item.expression is not None
+    }
+    a_value = mappings.get("a")
+    b_value = mappings.get("b")
+    d_value = mappings.get("d")
+    if a_value is None or b_value is None:
+        return (expression_semantic_identity(output),)
+    a_identity = expression_semantic_identity(a_value)
+    b_identity = expression_semantic_identity(b_value)
+    d_identity = (
+        None if d_value is None else expression_semantic_identity(d_value)
+    )
+    result = [expression_semantic_identity(output)]
+    for value in walk_expression(output):
+        if isinstance(value, expr.Binary) and value.operator is expr.BinaryOperator.MULTIPLY:
+            left_identity = expression_semantic_identity(value.left)
+            right_identity = expression_semantic_identity(value.right)
+            direct = {left_identity, right_identity} == {a_identity, b_identity}
+            preadd_value = None
+            multiplier_value = None
+            if isinstance(value.left, expr.Add):
+                preadd_value, multiplier_value = value.left, value.right
+            elif isinstance(value.right, expr.Add):
+                preadd_value, multiplier_value = value.right, value.left
+            preadd_match = False
+            if preadd_value is not None and d_identity is not None:
+                preadd_operands = {
+                    expression_semantic_identity(preadd_value.left),
+                    expression_semantic_identity(preadd_value.right),
+                }
+                preadd_match = (
+                    preadd_operands == {a_identity, d_identity}
+                    and expression_semantic_identity(multiplier_value) == b_identity
+                )
+            if direct or preadd_match:
+                result.append(expression_semantic_identity(value))
+                if preadd_match:
+                    result.append(expression_semantic_identity(preadd_value))
+    return tuple(dict.fromkeys(result))
 
 
 def _recognize_symmetric_fir(module: Module, template: ArchitectureTemplate):
@@ -1135,7 +1616,7 @@ def _semantic_payload(value) -> str:
 __all__ = [
     "ArchitectureSelectionMode", "TargetArchitectureError",
     "generic_implementation_graph", "load_architecture", "load_architecture_templates", "load_target",
-    "map_auto_signed_product_configuration", "map_auto_symmetric_configuration",
+    "map_auto_multiply_add_configuration", "map_auto_signed_product_configuration", "map_auto_symmetric_configuration",
     "map_manual_architecture", "select_implementation_graph",
     "validate_clock_requirement", "validate_inventory",
     "validate_memory_configuration", "validate_pipeline_configuration",
