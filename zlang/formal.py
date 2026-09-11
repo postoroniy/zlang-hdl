@@ -215,7 +215,7 @@ _FORMAL_TOOLCHAIN_OVERRIDE: ContextVar[FormalToolchainContext | None] = (
 def use_formal_toolchain(context: FormalToolchainContext):
     """Reuse one compiler-owned discovery snapshot through legacy runners.
 
-    M36 and M38 deliberately retain their existing public APIs.  This scoped
+    M36 deliberately retains its existing public API. This scoped
     adapter lets compiler orchestration call those APIs without causing their
     eventual :func:`run_verilog_formal` invocation to rediscover tools.
     """
@@ -341,8 +341,7 @@ def _execution_error_reason(
 
     if not output or not diagnostic_sources:
         return reason
-    # Import lazily: ``zlang.toolchain`` owns Clash orchestration and imports
-    # the Clash formal emitter, which in turn consumes this runner.  Source-map
+    # Import lazily to keep the external runner separate from source-map
     # attribution is an execution-error convenience and must not create a
     # module-initialization dependency in the formal core.
     from zlang.toolchain import attribute_combined_generated_diagnostic

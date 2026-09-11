@@ -37,7 +37,7 @@ module ConstantStateLaneArray {
 
 
 def _emit(source: str = SOURCE, top: str = "StateLaneArray") -> BackendArtifact:
-    return emit_artifact(compile_source(source, top=top, include_clash=False).ir)
+    return emit_artifact(compile_source(source, top=top).ir)
 
 
 def _run_verilator(

@@ -4,7 +4,6 @@ from pathlib import Path
 
 import pytest
 
-from zlang.backend.clash import emit as emit_clash
 from zlang.backend.systemverilog import emit_experimental
 from zlang.compiler import compile_source
 from zlang.ir import expressions as expr
@@ -15,7 +14,7 @@ from zlang.simulate import simulate
 
 
 def _compile(source: str):
-    return compile_source(source, include_clash=False).ir
+    return compile_source(source).ir
 
 
 def test_ordinary_function_infers_exact_concat_return_without_caller_context() -> None:
@@ -153,16 +152,6 @@ def test_provisional_generic_literal_binding_preserves_call_diagnostic() -> None
     assert caught.value.notes and "callable declared at" in caught.value.notes[0]
 
 
-def test_inferred_ordinary_function_emits_typed_backend_helpers() -> None:
-    module = _compile(
-        "fn twice(x:u8){x+x} module Top{in x:u8 out y:u9 y=twice(x)}"
-    )
-    systemverilog = emit_experimental(module)
-    clash = emit_clash(module)
-    assert "function automatic logic [8:0] twice(" in systemverilog
-    assert "assign y = twice(x);" in systemverilog
-    assert "twice :: Unsigned 8 -> Unsigned 9" in clash
-    assert "topEntity x = twice (x)" in clash
 
 
 def test_inferred_ordinary_function_is_valid_static_callable() -> None:
@@ -193,7 +182,6 @@ def test_qualified_import_preserves_inferred_return_signature(tmp_path: Path) ->
     result = compile_source(
         "import vendor.helpers as h "
         "module Top{in x:bits<2> out y:bits<4> y=h.make_tag(x)}",
-        include_clash=False,
         module_resolver=resolver,
         source_unit="app.top",
     )

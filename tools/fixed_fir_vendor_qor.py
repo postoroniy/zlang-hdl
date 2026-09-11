@@ -14,7 +14,6 @@ import time
 
 from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
 from zlang.compiler import compile_source
-from zlang.toolchain import generate_verilog
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -164,14 +163,7 @@ def main() -> int:
         direct.write_text(
             emit_sv_artifact(compilation.ir, selected_ir_identity=architecture).text
         )
-        clash_files = generate_verilog(
-            compilation.clash, architecture,
-            args.output / "rtl" / architecture / "clash",
-        )
-        jobs.extend((
-            (architecture, "direct_sv", [direct]),
-            (architecture, "clash", list(clash_files)),
-        ))
+        jobs.append((architecture, "direct_systemverilog", [direct]))
 
     with ThreadPoolExecutor(max_workers=max(1, args.jobs)) as executor:
         futures = [

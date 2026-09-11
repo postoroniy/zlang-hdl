@@ -3,10 +3,9 @@ import shutil
 import tempfile
 import unittest
 
-from tests.toolchain import CLASH_EXECUTABLE
 from zlang.compiler import compile_source
 from zlang.simulate import simulate
-from zlang.toolchain import generate_verilog, lint_with_verilator
+from zlang.toolchain import lint_with_verilator
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -37,27 +36,6 @@ class FunctionalDatapathIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(simulate(mapped, values=[1, 2, 3, 4]), {"y": 20})
 
-    @unittest.skipUnless(
-        CLASH_EXECUTABLE and shutil.which("verilator"),
-        "Clash and Verilator are required",
-    )
-    def test_functional_examples_generate_and_lint_verilog(self) -> None:
-        for source_name in (
-            "dot_product.zhl",
-            "dot_builtin.zhl",
-            "generated_reduce.zhl",
-            "mapped_sum.zhl",
-        ):
-            with self.subTest(source=source_name), tempfile.TemporaryDirectory() as temp:
-                result = compile_source((ROOT / "examples" / source_name).read_text())
-                output = Path(temp)
-                verilog = generate_verilog(
-                    result.clash,
-                    result.ir.name,
-                    output,
-                    CLASH_EXECUTABLE,
-                )
-                lint_with_verilator(verilog, result.ir.name)
 
 
 if __name__ == "__main__":

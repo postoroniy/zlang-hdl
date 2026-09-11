@@ -14,7 +14,7 @@ from zlang.simulate import simulate, simulate_cycles
 
 
 def _compile(source: str):
-    return compile_source(source, include_clash=False).ir
+    return compile_source(source).ir
 
 
 def test_tuple_context_inference_projection_equality_and_msb_packing() -> None:
@@ -336,7 +336,7 @@ def test_tuple_operator_declarations_are_never_overloadable(operator: str) -> No
 def test_m26_scalar_egraph_rejects_tuple_roots_and_scalar_projections(
     source: str,
 ) -> None:
-    result = compile_source(source, include_clash=False)
+    result = compile_source(source)
     root = result.optimization_ir.assignments[0].expression
     with pytest.raises(
         EGraphAdapterError,
@@ -366,7 +366,6 @@ def test_tuple_construct_and_projection_origins_survive_canonical_round_trip() -
         "  out pair : (bit,u8)\n"
         "  pair = (p[1],p[0])\n"
         "}",
-        include_clash=False,
     )
     expression = result.ir.assignments[0].expression
     assert isinstance(expression, expr.TupleConstruct)

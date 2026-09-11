@@ -44,7 +44,7 @@ class ConstraintFormat(str, Enum):
 
 
 _SAFE_TCL_IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_$]*\Z")
-_SUPPORTED_BACKENDS = frozenset({"clash", "direct_systemverilog"})
+_SUPPORTED_BACKENDS = frozenset({"direct_systemverilog"})
 
 
 @dataclass(frozen=True)

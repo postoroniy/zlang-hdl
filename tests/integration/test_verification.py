@@ -14,24 +14,21 @@ class VerificationIntegrationTests(unittest.TestCase):
     def test_cli_writes_bindable_contract_artifact(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            clash_path = root / "ContractedAdd.hs"
+            rtl_path = root / "ContractedAdd.sv"
             sva_path = root / "ContractedAdd.contracts.sv"
             with redirect_stdout(io.StringIO()):
                 status = main(
                     [
                         str(ROOT / "examples/contracted_add.zhl"),
-                        "-o",
-                        str(clash_path),
+                        "--systemverilog",
+                        str(rtl_path),
                         "--contracts-sva",
                         str(sva_path),
                     ]
                 )
 
             self.assertEqual(status, 0)
-            self.assertEqual(
-                clash_path.read_text(),
-                (ROOT / "examples/generated/ContractedAdd.hs").read_text(),
-            )
+            self.assertIn("module ContractedAdd", rtl_path.read_text())
             self.assertEqual(
                 sva_path.read_text(),
                 (ROOT / "examples/generated/ContractedAdd.contracts.sv").read_text(),

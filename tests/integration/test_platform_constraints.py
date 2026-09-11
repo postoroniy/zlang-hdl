@@ -12,7 +12,6 @@ import subprocess
 import pytest
 
 from zlang.backend.systemverilog import emit_artifact
-from zlang.backend.clash import emit_artifact as emit_clash_artifact
 from zlang.common import stable_digest
 from zlang.cli import main
 from zlang.compiler import compile_source
@@ -82,7 +81,7 @@ def test_profile_clock_is_strict_and_does_not_enter_implementation_request() -> 
 
 
 def test_backend_bound_xdc_and_sdc_retain_physical_reset_contract() -> None:
-    result = compile_source(SOURCE, include_clash=False)
+    result = compile_source(SOURCE)
     backend = emit_artifact(result.ir, selected_ir_identity=result.selected_ir_identity)
     profile = parse_platform_profile(
         _manifest("[profiles.release.platform.clocks.clk]\nperiod-ns=10.000\n"),
@@ -136,7 +135,7 @@ def test_backend_bound_xdc_and_sdc_retain_physical_reset_contract() -> None:
 def test_constraint_json_rejects_rehashed_invalid_physical_metadata(
     field: str, value: str, message: str,
 ) -> None:
-    result = compile_source(SOURCE, include_clash=False)
+    result = compile_source(SOURCE)
     backend = emit_artifact(
         result.ir, selected_ir_identity=result.selected_ir_identity
     )
@@ -159,7 +158,7 @@ def test_constraint_json_rejects_rehashed_invalid_physical_metadata(
 
 
 def test_constraint_json_rejects_invalid_reset_release_contract() -> None:
-    result = compile_source(SOURCE, include_clash=False)
+    result = compile_source(SOURCE)
     backend = emit_artifact(
         result.ir, selected_ir_identity=result.selected_ir_identity
     )
@@ -192,7 +191,7 @@ def test_synchronized_release_is_published_and_bound_to_manifest() -> None:
         "    power_up unspecified\n  }",
         "clock clk\n  async reset rst @clk",
     )
-    result = compile_source(source, include_clash=False)
+    result = compile_source(source)
     backend = emit_artifact(
         result.ir, selected_ir_identity=result.selected_ir_identity
     )
@@ -226,7 +225,7 @@ def test_synchronized_release_is_published_and_bound_to_manifest() -> None:
 
 
 def test_constraint_binding_validation_fails_closed() -> None:
-    result = compile_source(SOURCE, include_clash=False)
+    result = compile_source(SOURCE)
     backend = emit_artifact(result.ir, selected_ir_identity=result.selected_ir_identity)
     constraint = parse_platform_profile(
         _manifest("[profiles.release.platform.clocks.clk]\nperiod-ns=8\n"),
@@ -269,7 +268,7 @@ def test_constraint_requires_exact_physical_domain_binding_paths() -> None:
         "    power_up unspecified\n  }",
         "clock clk\n  async reset rst @clk",
     )
-    result = compile_source(source, include_clash=False)
+    result = compile_source(source)
     backend = emit_artifact(
         result.ir, selected_ir_identity=result.selected_ir_identity
     )
@@ -293,7 +292,7 @@ def test_constraint_requires_exact_physical_domain_binding_paths() -> None:
 
 
 def test_constraint_publication_is_atomic_and_rejects_symlink(tmp_path: Path) -> None:
-    result = compile_source(SOURCE, include_clash=False)
+    result = compile_source(SOURCE)
     backend = emit_artifact(result.ir, selected_ir_identity=result.selected_ir_identity)
     constraint = parse_platform_profile(
         _manifest("[profiles.release.platform.clocks.clk]\nperiod-ns=10\n"),
@@ -314,30 +313,13 @@ def test_constraint_publication_is_atomic_and_rejects_symlink(tmp_path: Path) ->
     assert target.read_text() == "untouched"
 
 
-def test_default_clash_artifact_uses_the_same_typed_constraint_path() -> None:
-    result = compile_source(
-        "module Timed { clock clk reset rst in x:u8 out y:u8 "
-        "reg value:u8=0 rule capture when 1 { value <- x } y=value }"
-    )
-    backend = emit_clash_artifact(
-        result.ir, selected_ir_identity=result.selected_ir_identity
-    )
-    constraint = parse_platform_profile(
-        _manifest("[profiles.release.platform.clocks.clk]\nperiod-ns=12.5\n"),
-        "release",
-    ).clocks[0]
-    artifact = build_constraint_artifact(
-        result.ir, backend, constraint, ConstraintFormat.SDC
-    )
-    assert artifact.backend == "clash"
-    assert artifact.text == "create_clock -name clk -period 12.5 [get_ports {clk}]\n"
 
 
 def test_generated_constraint_is_valid_tcl(tmp_path: Path) -> None:
     tclsh = shutil.which("tclsh")
     if tclsh is None:
         pytest.skip("tclsh is unavailable")
-    result = compile_source(SOURCE, include_clash=False)
+    result = compile_source(SOURCE)
     backend = emit_artifact(result.ir, selected_ir_identity=result.selected_ir_identity)
     constraint = parse_platform_profile(
         _manifest("[profiles.release.platform.clocks.clk]\nperiod-ns=10\n"),

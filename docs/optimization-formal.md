@@ -1,7 +1,7 @@
 # Optimization and formal verification
 
 ZLang keeps value equivalence, timed equivalence, architecture alternatives,
-protocol observational equivalence, backend equivalence, cost evidence, and
+protocol observational equivalence, historical backend-equivalence evidence, cost evidence, and
 formal eligibility separate. Optimization never changes source semantics merely
 because a backend happens to synthesize two expressions similarly.
 
@@ -36,8 +36,8 @@ typed value IR
 ```
 
 > **Current backend policy (2026-09):** Direct SystemVerilog is the only
-> production RTL backend. Clash/M38 material below is historical compatibility
-> evidence and is not executed by the current release path.
+> production RTL backend. Clash/M38 material below is dated historical evidence
+> and is not executable by the current compiler.
 
 M30 supplies validated latency/II relations for eligible candidates. That
 metadata validation is not, by itself, a formal proof.

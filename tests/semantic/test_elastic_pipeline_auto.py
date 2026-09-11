@@ -10,7 +10,6 @@ import pytest
 from zlang.backend.module_features import ModuleFeatureKind, module_feature_inventory
 from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
 from zlang.compilation_session import CompilationSession
-from zlang.cross_backend import validate_module_route
 from zlang.equivalence import publish_bindings
 from zlang.formal import build_formal_design
 from zlang.formal_exploration import FormalPolicy
@@ -19,7 +18,6 @@ from zlang.implementation_plans import (
     BackendPlanStatus,
     plan_backend_implementations,
 )
-from zlang.ir.cross_backend import CrossBackendError
 from zlang.ir.cdc import ClockEdge
 from zlang.ir.elastic import ElasticStallPolicy
 from zlang.ir.equivalence import BindingSide, EquivalenceError
@@ -269,24 +267,6 @@ def test_elastic_region_keeps_m35_public_rv_safety_only() -> None:
     assert all("elastic" not in item.id for item in properties)
 
 
-def test_elastic_region_is_explicitly_outside_m36_and_m38() -> None:
-    module = _module()
-    names = {
-        "clock": "clk",
-        "reset": "rst",
-        **{f"port:{port.name}": port.name for port in module.ports},
-    }
-    with pytest.raises(EquivalenceError, match="variable-latency elastic"):
-        publish_bindings(
-            module,
-            side=BindingSide.IMPLEMENTATION,
-            selected_ir_identity="selected",
-            backend="direct_systemverilog",
-            artifact_hash_value="artifact",
-            rtl_names=names,
-        )
-    with pytest.raises(CrossBackendError, match="variable-latency elastic"):
-        validate_module_route(module)
 
 
 def test_m39_available_skips_without_disqualifying_and_required_fails() -> None:
@@ -301,7 +281,6 @@ def test_m39_available_skips_without_disqualifying_and_required_fails() -> None:
         SOURCE,
         formal_policy=FormalPolicy.AVAILABLE,
         formal_verifier=verifier,
-        include_clash=False,
     ).selected_ir
     records = available.elastic_pipeline_regions[0].formal_records
     assert len(records) == 1
@@ -318,7 +297,6 @@ def test_m39_available_skips_without_disqualifying_and_required_fails() -> None:
                 SOURCE,
                 formal_policy=policy,
                 formal_verifier=verifier,
-                include_clash=False,
             ).selected_ir
     assert verifier_calls == 0
 

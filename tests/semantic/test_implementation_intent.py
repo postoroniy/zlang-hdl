@@ -10,7 +10,7 @@ from zlang.semantic.analyze import SemanticError
 
 
 def _compile(source: str):
-    return compile_source(source, include_clash=False)
+    return compile_source(source)
 
 
 def test_implement_parser_accepts_intent_constraints_and_objective() -> None:

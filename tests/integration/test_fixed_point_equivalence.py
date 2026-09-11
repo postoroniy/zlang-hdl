@@ -7,7 +7,6 @@ import pytest
 from zlang.backend.manifest import publish_artifact
 from zlang.backend.systemverilog import emit_artifact
 from zlang.compiler import compile_source
-from zlang.cross_backend import run_cross_backend_formal
 from zlang.equivalence import (
     artifact_hash,
     emit_miter,
@@ -17,19 +16,12 @@ from zlang.equivalence import (
     publish_bindings,
     run_equivalence_formal,
 )
-from zlang.ir.cross_backend import (
-    CrossBackendMode,
-    CrossBackendProperty,
-    CrossBackendRelation,
-    CrossBackendStatus,
-)
 from zlang.ir.equivalence import (
     BindingMap,
     BindingSide,
     EquivalenceMode,
     EquivalenceStatus,
 )
-from zlang.toolchain import find_clash_executable, generate_verilog
 
 
 SOURCE = (
@@ -181,78 +173,3 @@ def test_real_m36_fixed_mutation_matrix_fails(source: str, bad_rtl: str) -> None
     )
     assert result.status is EquivalenceStatus.FAILED
     assert result.counterexample is not None
-
-
-@pytest.mark.skipif(
-    not find_clash_executable() or len(formal_tools_available()) != 3,
-    reason="Clash or formal tools are unavailable",
-)
-def test_real_fixed_m36_triangle_and_m38_cross_backend_pass() -> None:
-    result = compile_source(SOURCE)
-    module = result.ir
-    identity = "selected:fixed-cross-backend"
-    with tempfile.TemporaryDirectory() as temporary:
-        files = generate_verilog(
-            result.clash, module.name, Path(temporary) / "clash-rtl"
-        )
-        clash_rtl = "\n".join(path.read_text() for path in files)
-
-    sv_module = replace(module, name="FixedCrossSv")
-    sv_artifact = emit_artifact(sv_module, selected_ir_identity=identity)
-    clash_artifact = publish_artifact(
-        module,
-        clash_rtl,
-        backend="clash",
-        selected_ir_identity=identity,
-    )
-
-    for typed_module, rtl, top, backend in (
-        (module, clash_rtl, module.name, "clash"),
-        (sv_module, sv_artifact.text, sv_module.name, "direct_systemverilog"),
-    ):
-        property_, source, miter_top = _m36(
-            typed_module, rtl, top, backend, identity
-        )
-        triangle = run_equivalence_formal(
-            property_, source, top=miter_top, mode=EquivalenceMode.PROVE, depth=4
-        )
-        assert triangle.status is EquivalenceStatus.PROVEN
-
-    property_ = CrossBackendProperty(
-        "m38.fixed.real",
-        CrossBackendRelation.SAME_CYCLE_VALUE,
-        identity,
-        ("port:y",),
-        None,
-        None,
-        0,
-        0,
-    )
-    cross = run_cross_backend_formal(
-        property_,
-        clash_artifact,
-        sv_artifact,
-        inputs=("port:a",),
-        mode=CrossBackendMode.BMC,
-        depth=4,
-    )
-    assert cross.status is CrossBackendStatus.BOUNDED_PASS
-
-    mutated_text = sv_artifact.text.replace(" + 9'd1 + ", " + 9'd0 + ")
-    assert mutated_text != sv_artifact.text
-    mutated_artifact = publish_artifact(
-        sv_module,
-        mutated_text,
-        backend="direct_systemverilog",
-        selected_ir_identity=identity,
-    )
-    failed = run_cross_backend_formal(
-        property_,
-        clash_artifact,
-        mutated_artifact,
-        inputs=("port:a",),
-        mode=CrossBackendMode.BMC,
-        depth=4,
-    )
-    assert failed.status is CrossBackendStatus.FAILED
-    assert failed.counterexample is not None

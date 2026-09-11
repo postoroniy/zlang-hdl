@@ -433,9 +433,9 @@ Aggregate layout is deterministic and backend-independent:
 
 The initialized `rom<T,N>` image format uses this same layout for each word.
 Images contain one exact-width binary word per line with address zero first;
-they do not inherit host byte order. Consequently simulator values, direct-SV
-`$readmemb`, and Clash `romFile` agree on nested aggregate and fixed-point ROM
-contents. See [Initialized synchronous ROMs](sequential-state-storage.md#initialized-synchronous-roms).
+they do not inherit host byte order. Consequently simulator values and
+direct-SV `$readmemb` agree on nested aggregate and fixed-point ROM contents.
+See [Initialized synchronous ROMs](sequential-state-storage.md#initialized-synchronous-roms).
 
 Scalar numeric/raw types and recursively bit-packable structs, vectors, and
 structural tuples are accepted. Nominal enums, including an aggregate containing

@@ -7,10 +7,9 @@ import subprocess
 
 import pytest
 
-from zlang.backend.clash import emit_artifact as emit_clash_artifact
 from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
 from zlang.compiler import compile_source
-from zlang.toolchain import find_clash_executable, generate_verilog, lint_with_verilator
+from zlang.toolchain import lint_with_verilator
 
 
 DIRECT = """
@@ -111,9 +110,7 @@ int main(int argc, char** argv) {
 """
 
 
-def _simulate_rtl(
-    rtl: tuple[Path, ...], root: Path, *, clash_index_waiver: bool = False
-) -> None:
+def _simulate_rtl(rtl: tuple[Path, ...], root: Path) -> None:
     harness = root / "generic_rom_test.cpp"
     harness.write_text(HARNESS)
     object_dir = root / "obj"
@@ -123,8 +120,6 @@ def _simulate_rtl(
         "verilator", "--cc", "--exe", "--build", "--top-module", "Top",
         "--Mdir", str(object_dir), "-o", "rom_sim",
     ]
-    if clash_index_waiver:
-        command.append("-Wno-WIDTHTRUNC")
     completed = subprocess.run(
         (*command, *(str(path) for path in rtl), str(harness)),
         cwd=root,
@@ -176,7 +171,7 @@ def _simulate_forwarded_callable(
 def test_generic_rom_wrappers_emit_strict_direct_sv(
     source: str, tmp_path: Path
 ) -> None:
-    module = compile_source(source, include_clash=False).ir
+    module = compile_source(source).ir
     artifact = emit_sv_artifact(module)
     rtl = tmp_path / "Top.sv"
     rtl.write_text(artifact.text)
@@ -187,45 +182,6 @@ def test_generic_rom_wrappers_emit_strict_direct_sv(
     _simulate_rtl((rtl,), tmp_path)
 
 
-@pytest.mark.parametrize("source", (DIRECT, GENERATED))
-@pytest.mark.skipif(
-    find_clash_executable() is None or shutil.which("verilator") is None,
-    reason="Clash and Verilator are required",
-)
-def test_generic_rom_wrappers_compile_with_real_clash_1_11(
-    source: str, tmp_path: Path
-) -> None:
-    module = compile_source(source).ir
-    artifact = emit_clash_artifact(module)
-    rtl = generate_verilog(
-        artifact.text,
-        "Top",
-        tmp_path / "rtl",
-        companions=artifact.companions,
-    )
-    assert len(artifact.companions) == 1
-    assert (tmp_path / "rtl" / artifact.companions[0].logical_path).is_file()
-    # Clash 1.11's upstream romFile selector uses a host-width Enum index.
-    # Its sole WIDTHTRUNC warning is already documented by the base ROM slice;
-    # use the same narrow waiver and keep every other warning fatal.
-    verilator = shutil.which("verilator")
-    assert verilator is not None
-    completed = subprocess.run(
-        (
-            verilator,
-            "--lint-only",
-            "-Wno-WIDTHTRUNC",
-            "--top-module",
-            "Top",
-            *(str(path) for path in rtl),
-        ),
-        text=True,
-        capture_output=True,
-    )
-    assert completed.returncode == 0, completed.stderr or completed.stdout
-    for companion in artifact.companions:
-        (tmp_path / companion.logical_path).write_text(companion.text)
-    _simulate_rtl(rtl, tmp_path, clash_index_waiver=True)
 
 
 @pytest.mark.skipif(shutil.which("verilator") is None, reason="Verilator unavailable")
@@ -233,7 +189,7 @@ def test_forwarded_callable_parameter_is_behavioral_in_direct_sv(
     tmp_path: Path,
 ) -> None:
     module = compile_source(
-        FORWARDED_CALLABLE, top="Top", include_clash=False
+        FORWARDED_CALLABLE, top="Top"
     ).ir
     first = emit_sv_artifact(module)
     second = emit_sv_artifact(module)
@@ -243,17 +199,3 @@ def test_forwarded_callable_parameter_is_behavioral_in_direct_sv(
     rtl.write_text(first.text)
     lint_with_verilator((rtl,), "Top")
     _simulate_forwarded_callable((rtl,), tmp_path, tag="direct")
-
-
-@pytest.mark.skipif(
-    find_clash_executable() is None or shutil.which("verilator") is None,
-    reason="Clash and Verilator are required",
-)
-def test_forwarded_callable_parameter_is_behavioral_in_real_clash(
-    tmp_path: Path,
-) -> None:
-    module = compile_source(FORWARDED_CALLABLE, top="Top").ir
-    artifact = emit_clash_artifact(module)
-    rtl = generate_verilog(artifact.text, "Top", tmp_path / "clash")
-    lint_with_verilator(rtl, "Top")
-    _simulate_forwarded_callable(rtl, tmp_path, tag="clash")

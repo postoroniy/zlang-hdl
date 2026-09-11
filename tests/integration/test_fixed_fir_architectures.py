@@ -6,14 +6,12 @@ from pathlib import Path
 
 import pytest
 
-from zlang.backend.clash.public_wrapper import ClashPublicTopWrapper
 from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
 from zlang.backend.systemverilog import emit_experimental
 from zlang.compiler import compile_source
 from zlang.fixed_point import quantize_rational
 from zlang.ir import expressions as expr
 from zlang.simulate import simulate_cycles
-from zlang.toolchain import find_clash_executable, generate_verilog
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -203,35 +201,3 @@ def test_direct_sv_variants_are_bit_exact_in_verilator(top: str) -> None:
         rtl = root / f"{top}.sv"
         rtl.write_text(emit_sv_artifact(module, selected_ir_identity=top).text)
         _run_verilator(top, [rtl], _bench(top, LATENCY[top]), root)
-
-
-@pytest.mark.skipif(find_clash_executable() is None, reason="Clash unavailable")
-def test_all_variants_generate_real_clash_rtl() -> None:
-    with tempfile.TemporaryDirectory() as temporary:
-        for top in LATENCY:
-            result = compile_source(SOURCE, top=top)
-            files = generate_verilog(
-                result.clash,
-                top,
-                Path(temporary) / top,
-                public_wrapper=ClashPublicTopWrapper.build(result.ir),
-            )
-            assert files
-
-
-@pytest.mark.skipif(
-    find_clash_executable() is None or shutil.which("verilator") is None,
-    reason="Clash or Verilator unavailable",
-)
-@pytest.mark.parametrize("top", tuple(LATENCY))
-def test_clash_variants_are_bit_exact_in_verilator(top: str) -> None:
-    with tempfile.TemporaryDirectory() as temporary:
-        root = Path(temporary)
-        result = compile_source(SOURCE, top=top)
-        files = generate_verilog(
-            result.clash,
-            top,
-            root / "rtl",
-            public_wrapper=ClashPublicTopWrapper.build(result.ir),
-        )
-        _run_verilator(top, list(files), _bench(top, LATENCY[top]), root)

@@ -82,7 +82,7 @@ def _m36_goal() -> FormalGoalPlan:
         minimum_bmc_depth=window.minimum_bmc_depth,
         route=FormalExecutableRoute(
             FormalRouteKind.SEMANTIC_EQUIVALENCE,
-            (_artifact("clash", "clash"),),
+            (_artifact("direct_systemverilog", "sv"),),
             reference_identity="reference:canonical",
         ),
     )
@@ -131,7 +131,7 @@ def test_execution_plan_derives_deterministic_applicability_summary() -> None:
         "skipped": 1,
         "goal_kinds": {"m36_equivalence": 1, "safety": 1},
         "routes": {"semantic_equivalence": 1},
-        "backends": {"clash": 1},
+        "backends": {"direct_systemverilog": 1},
         "skip_reasons": {"observation_unavailable": 1},
     }
     assert FormalExecutionPlan.from_json(plan.to_json()).applicability_summary() == (
@@ -193,38 +193,6 @@ def test_goal_plan_retains_exact_physical_domain_and_separates_identity() -> Non
         replace(async_goal, reset_domain="other")
 
 
-def test_m38_route_requires_two_distinct_backend_artifacts() -> None:
-    route = FormalExecutableRoute(
-        FormalRouteKind.CROSS_BACKEND_EQUIVALENCE,
-        (_artifact(), _artifact("clash", "clash")),
-    )
-    goal = FormalGoalPlan(
-        "goal:m38",
-        "m38.equiv.example",
-        FormalPlanGoalKind.M38_EQUIVALENCE,
-        "clk",
-        "rst",
-        (),
-        ("input:a", "output:y"),
-        "selected:example",
-        ComparisonWindow.same_cycle(),
-        1,
-        route=route,
-    )
-    assert goal.backend_artifact_identities == (
-        "artifact:sv", "artifact:clash"
-    )
-
-    with pytest.raises(FormalPlanningError, match="exactly two"):
-        FormalExecutableRoute(
-            FormalRouteKind.CROSS_BACKEND_EQUIVALENCE,
-            (_artifact(),),
-        )
-    with pytest.raises(FormalPlanningError, match="distinct backends"):
-        FormalExecutableRoute(
-            FormalRouteKind.CROSS_BACKEND_EQUIVALENCE,
-            (_artifact(), FormalBackendArtifactRef("systemverilog", "other", "b")),
-        )
 
 
 @pytest.mark.parametrize(
@@ -304,7 +272,7 @@ def test_execution_plan_rejects_duplicate_goal_but_allows_shared_property() -> N
         FormalExecutionPlan("selected:counter", "verification:x", (first, duplicate_goal))
 
     # One typed property may legitimately have separately routed execution
-    # goals (for example, the Clash and direct-SV M36 legs of an M38 triangle).
+    # goals (for example, bounded and proof-oriented direct-SV M36 jobs).
     shared_property = replace(
         _m36_goal(), property_identity=first.property_identity
     )

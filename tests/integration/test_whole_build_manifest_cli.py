@@ -1,7 +1,7 @@
 """End-to-end publication tests for evidence and whole-build manifests.
 
 These tests deliberately exercise the public CLI boundary while keeping the
-suite independent of optional external tools.  Real Clash, Verilator, and
+suite independent of optional external tools.  Real Verilator and
 formal execution remain separate acceptance tests; generating a harness here
 must therefore be recorded as ``not_run``, never as proof evidence.
 """
@@ -177,7 +177,6 @@ def _assert_cli_usage_error(source: Path, arguments: list[str], message: str) ->
 
 def _publish_timed_build(root: Path) -> tuple[WholeBuildManifest, dict[str, Path]]:
     source = _write_source(root, "timed", TIMED_NAMED_SOURCE)
-    clash = root / "build" / "clash" / "TimedTop.hs"
     direct = root / "build" / "systemverilog" / "TimedTop.sv"
     evidence = root / "reports" / "evidence.json"
     harness = root / "formal" / "TimedTop.formal.sv"
@@ -186,7 +185,6 @@ def _publish_timed_build(root: Path) -> tuple[WholeBuildManifest, dict[str, Path
     status, stdout, stderr = _invoke(
         source,
         [
-            "-o", str(clash),
             "--systemverilog", str(direct),
             "--evidence-report", str(evidence),
             "--evidence-format", "json",
@@ -207,34 +205,20 @@ def _publish_timed_build(root: Path) -> tuple[WholeBuildManifest, dict[str, Path
     return manifest, physical
 
 
-@pytest.mark.parametrize("sink_option", ("-o", "--systemverilog"))
 def test_explicit_backend_sink_cannot_alias_the_root_source(
-    tmp_path: Path, sink_option: str,
+    tmp_path: Path,
 ) -> None:
     source = _write_source(tmp_path, "packing", PACKING_SOURCE)
     original = source.read_bytes()
 
     _assert_cli_usage_error(
         source,
-        [sink_option, str(source)],
+        ["--systemverilog", str(source)],
         "collides with the source file",
     )
     assert source.read_bytes() == original
 
 
-def test_clash_and_direct_systemverilog_sinks_must_be_distinct(
-    tmp_path: Path,
-) -> None:
-    source = _write_source(tmp_path, "packing", PACKING_SOURCE)
-    output = tmp_path / "published" / "shared-output"
-
-    _assert_cli_usage_error(
-        source,
-        ["-o", str(output), "--systemverilog", str(output)],
-        "explicit sinks --output and --systemverilog resolve to the same path",
-    )
-    assert not output.exists()
-    assert not output.parent.exists()
 
 
 def test_two_report_sinks_must_be_distinct_before_any_write(
@@ -271,19 +255,6 @@ def test_identical_direct_systemverilog_compatibility_aliases_share_one_sink(
     assert output.read_text(encoding="utf-8").startswith("`default_nettype none")
 
 
-def test_source_cannot_be_inside_an_owned_output_directory(
-    tmp_path: Path,
-) -> None:
-    output_directory = tmp_path / "project"
-    source = _write_source(output_directory, "packing", PACKING_SOURCE)
-    original = source.read_bytes()
-
-    _assert_cli_usage_error(
-        source,
-        ["--verilog-dir", str(output_directory)],
-        "source file collides with explicit output directory --verilog-dir",
-    )
-    assert source.read_bytes() == original
 
 
 def test_file_sink_cannot_be_inside_an_owned_cache_directory(
@@ -305,29 +276,13 @@ def test_file_sink_cannot_be_inside_an_owned_cache_directory(
     assert not cache.exists()
 
 
-def test_independently_owned_output_directories_cannot_overlap(
-    tmp_path: Path,
-) -> None:
-    source = _write_source(tmp_path, "packing", PACKING_SOURCE)
-    rtl_directory = tmp_path / "generated"
-    formal_cache = rtl_directory / "formal-cache"
-
-    _assert_cli_usage_error(
-        source,
-        [
-            "--verilog-dir", str(rtl_directory),
-            "--formal-cache", str(formal_cache),
-        ],
-        "explicit output directories --verilog-dir and --formal-cache overlap",
-    )
-    assert not rtl_directory.exists()
 
 
 def test_deterministic_companion_cannot_alias_an_explicit_file_sink(
     tmp_path: Path,
 ) -> None:
     source = _write_source(tmp_path, "rom", ROM_SOURCE)
-    compilation = compile_file(source, include_clash=False)
+    compilation = compile_file(source)
     companion = collect_rom_companions(compilation.ir)[0]
     collision = tmp_path / "published" / companion.logical_path
 
@@ -340,25 +295,6 @@ def test_deterministic_companion_cannot_alias_an_explicit_file_sink(
     assert not collision.parent.exists()
 
 
-def test_identical_clash_and_direct_companions_may_share_a_destination(
-    tmp_path: Path,
-) -> None:
-    source = _write_source(tmp_path, "rom", ROM_SOURCE)
-    compilation = compile_file(source, include_clash=False)
-    companion = collect_rom_companions(compilation.ir)[0]
-    output_directory = tmp_path / "published"
-    clash = output_directory / "InitializedRom.hs"
-    direct = output_directory / "InitializedRom.sv"
-
-    status, stdout, stderr = _invoke(
-        source,
-        ["-o", str(clash), "--systemverilog", str(direct)],
-    )
-    assert status == 0, stderr
-    assert stdout == ""
-    assert stderr == ""
-    image = output_directory / companion.logical_path
-    assert image.read_text(encoding="ascii") == companion.text
 
 
 def test_deterministic_companion_cannot_resolve_to_a_compilation_input(
@@ -366,7 +302,7 @@ def test_deterministic_companion_cannot_resolve_to_a_compilation_input(
 ) -> None:
     source = _write_source(tmp_path, "rom", ROM_SOURCE)
     original = source.read_bytes()
-    compilation = compile_file(source, include_clash=False)
+    compilation = compile_file(source)
     companion = collect_rom_companions(compilation.ir)[0]
     output_directory = tmp_path / "published"
     output_directory.mkdir()
@@ -445,8 +381,7 @@ def test_build_manifest_preflight_rejects_resolved_explicit_file_sink_alias(
 @pytest.mark.parametrize(
     ("directory_option", "extra"),
     (
-        ("--verilog-dir", ()),
-        ("--formal-cache", ("--systemverilog", "safe/PacketPacking.sv")),
+            ("--formal-cache", ("--systemverilog", "safe/PacketPacking.sv")),
         (
             "--synthesis-cache",
             (
@@ -477,31 +412,13 @@ def test_build_manifest_preflight_rejects_owned_output_directory(
     assert not directory.exists()
 
 
-def test_build_manifest_preflight_resolves_symlinked_output_directory(
-    tmp_path: Path,
-) -> None:
-    source = _write_source(tmp_path, "packing", PACKING_SOURCE)
-    real_directory = tmp_path / "real-rtl"
-    real_directory.mkdir()
-    alias = tmp_path / "rtl-link"
-    alias.symlink_to(real_directory, target_is_directory=True)
-    manifest = real_directory / "PacketPacking.topEntity" / "PacketPacking.v"
-    _assert_cli_usage_error(
-        source,
-        [
-            "--verilog-dir", str(alias),
-            "--build-manifest", str(manifest),
-        ],
-        "--build-manifest output is inside explicit output directory --verilog-dir",
-    )
-    assert tuple(real_directory.iterdir()) == ()
 
 
 def test_build_manifest_preflight_rejects_deterministic_rom_companion(
     tmp_path: Path,
 ) -> None:
     source = _write_source(tmp_path, "rom", ROM_SOURCE)
-    compilation = compile_file(source, include_clash=False)
+    compilation = compile_file(source)
     companion = collect_rom_companions(compilation.ir)[0]
     rtl = tmp_path / "published" / "InitializedRom.sv"
     manifest = rtl.parent / companion.logical_path
@@ -517,25 +434,19 @@ def test_build_manifest_preflight_rejects_deterministic_rom_companion(
     assert not rtl.parent.exists()
 
 
-def test_cli_publishes_two_backends_truthful_evidence_and_manifest(
+def test_cli_publishes_direct_backend_truthful_evidence_and_manifest(
     tmp_path: Path,
 ) -> None:
     manifest, physical = _publish_timed_build(tmp_path)
-    compilation = compile_file(tmp_path / "src" / "timed.zhl", include_clash=False)
+    compilation = compile_file(tmp_path / "src" / "timed.zhl")
 
     assert manifest.selected_ir.identity == compilation.selected_ir_identity
     assert manifest.high_level_ir.identity == compilation.high_level_ir_identity
     assert manifest.to_json() == (tmp_path / "build.json").read_text(encoding="utf-8")
-    assert len(manifest.backend_builds) == 2
-    by_backend = {item.backend: item for item in manifest.backend_builds}
-    assert set(by_backend) == {"clash", "direct_systemverilog"}
-    clash = by_backend["clash"]
-    direct = by_backend["direct_systemverilog"]
-    assert clash.selected_ir_identity == direct.selected_ir_identity
-    assert clash.selected_ir_identity == compilation.selected_ir_identity
-    assert clash.build_identity != direct.build_identity
-    assert clash.artifact_hash != direct.artifact_hash
-    assert clash.backend != direct.backend
+    assert len(manifest.backend_builds) == 1
+    direct = manifest.backend_builds[0]
+    assert direct.backend == "direct_systemverilog"
+    assert direct.selected_ir_identity == compilation.selected_ir_identity
 
     statuses = {item.status for item in manifest.evidence}
     assert {"typed_legal", "timing_validated", "not_run"} <= statuses
@@ -761,171 +672,10 @@ def test_validation_rejects_missing_rom_companion(tmp_path: Path) -> None:
         validate_manifest_file_map(manifest, physical)
 
 
-def test_validation_rejects_missing_generated_external_rtl(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    def fake_generate_verilog(
-        _clash: str,
-        module_name: str,
-        output_directory: Path,
-        _executable: str | None = None,
-        *,
-        companions=(),
-        source_map=None,
-        public_wrapper=None,
-    ) -> tuple[Path, ...]:
-        del companions, source_map, public_wrapper
-        rtl = Path(output_directory) / f"{module_name}.topEntity" / f"{module_name}.v"
-        rtl.parent.mkdir(parents=True, exist_ok=True)
-        rtl.write_text(f"module {module_name}; endmodule\n", encoding="utf-8")
-        return (rtl,)
-
-    monkeypatch.setattr("zlang.cli.generate_verilog", fake_generate_verilog)
-    monkeypatch.setattr("zlang.cli.find_clash_executable", lambda: "/tool/clash")
-    monkeypatch.setattr("zlang.cli._query_tool_version", lambda *_args: "Clash 1.11")
-    source = _write_source(tmp_path, "packing", PACKING_SOURCE)
-    clash = tmp_path / "build" / "PacketPacking.hs"
-    rtl_dir = tmp_path / "build" / "rtl"
-    manifest_path = tmp_path / "build.json"
-    status, stdout, stderr = _invoke(
-        source,
-        [
-            "-o", str(clash),
-            "--verilog-dir", str(rtl_dir),
-            "--build-manifest", str(manifest_path),
-        ],
-    )
-    assert status == 0, stderr
-    assert stdout == "" and stderr == ""
-    manifest = WholeBuildManifest.from_json(manifest_path.read_text())
-    generated = next(
-        item for item in manifest.backend_builds[0].files
-        if item.logical_path.endswith(".v")
-    )
-    physical = _physical_file_map(
-        manifest,
-        tuple(path for path in tmp_path.rglob("*") if path != manifest_path),
-    )
-    physical[generated.logical_path].unlink()
-    with pytest.raises(BuildManifestError, match="missing"):
-        validate_manifest_file_map(manifest, physical)
 
 
-def test_verilog_directory_only_manifest_publishes_exact_clash_source(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    def fake_generate_verilog(
-        _clash: str,
-        module_name: str,
-        output_directory: Path,
-        _executable: str | None = None,
-        *,
-        companions=(),
-        source_map=None,
-        public_wrapper=None,
-    ) -> tuple[Path, ...]:
-        del companions, source_map, public_wrapper
-        rtl = Path(output_directory) / f"{module_name}.topEntity" / f"{module_name}.v"
-        rtl.parent.mkdir(parents=True, exist_ok=True)
-        rtl.write_text(f"module {module_name}; endmodule\n", encoding="utf-8")
-        return (rtl,)
-
-    monkeypatch.setattr("zlang.cli.generate_verilog", fake_generate_verilog)
-    monkeypatch.setattr("zlang.cli.find_clash_executable", lambda: "/tool/clash")
-    monkeypatch.setattr("zlang.cli._query_tool_version", lambda *_args: "Clash 1.11")
-    source = _write_source(tmp_path, "packing", PACKING_SOURCE)
-    rtl_dir = tmp_path / "build" / "rtl"
-    rtl_dir.mkdir(parents=True)
-    stale = rtl_dir / "stale.v"
-    stale.write_text("module Stale; endmodule\n", encoding="utf-8")
-    manifest_path = tmp_path / "build" / "PacketPacking.build.json"
-
-    status, stdout, stderr = _invoke(
-        source,
-        [
-            "--verilog-dir", str(rtl_dir),
-            "--clash", "/tool/clash",
-            "--build-manifest", str(manifest_path),
-        ],
-    )
-    assert status == 0, stderr
-    assert stdout == "" and stderr == ""
-
-    manifest = WholeBuildManifest.from_json(manifest_path.read_text())
-    assert len(manifest.backend_builds) == 1
-    backend = manifest.backend_builds[0]
-    clash_source = next(item for item in backend.files if item.kind == "clash_source")
-    generated = next(item for item in backend.files if item.kind == "generated_verilog")
-    assert clash_source.content_hash == backend.artifact_hash
-    assert all(item.content_hash != hashlib.sha256(stale.read_bytes()).hexdigest()
-               for item in backend.files)
-    assert tuple(manifest.tool_executions[0].outputs) == (generated.logical_path,)
-
-    retained_source = rtl_dir / ".zlang" / "generated" / "PacketPacking.hs"
-    generated_rtl = rtl_dir / "PacketPacking.topEntity" / "PacketPacking.v"
-    validate_manifest_file_map(
-        manifest,
-        {
-            manifest.root_source.logical_path: source,
-            clash_source.logical_path: retained_source,
-            generated.logical_path: generated_rtl,
-        },
-    )
 
 
-def test_verilog_dir_manifest_records_root_and_module_local_rom_companions(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    def fake_generate_verilog(
-        _clash: str,
-        module_name: str,
-        output_directory: Path,
-        _executable: str | None = None,
-        *,
-        companions=(),
-        source_map=None,
-        public_wrapper=None,
-    ) -> tuple[Path, ...]:
-        del source_map, public_wrapper
-        output_directory = Path(output_directory)
-        rtl = output_directory / f"{module_name}.topEntity" / f"{module_name}.v"
-        rtl.parent.mkdir(parents=True, exist_ok=True)
-        rtl.write_text(f"module {module_name}; endmodule\n", encoding="utf-8")
-        publish_companion_bundle(companions, output_directory)
-        publish_companion_bundle(companions, rtl.parent)
-        return (rtl,)
-
-    monkeypatch.setattr("zlang.cli.generate_verilog", fake_generate_verilog)
-    monkeypatch.setattr("zlang.cli._query_tool_version", lambda *_args: "Clash 1.11")
-    source = _write_source(tmp_path, "rom", ROM_SOURCE)
-    rtl_dir = tmp_path / "build" / "rtl"
-    manifest_path = tmp_path / "build" / "InitializedRom.build.json"
-
-    status, stdout, stderr = _invoke(
-        source,
-        [
-            "--verilog-dir", str(rtl_dir),
-            "--clash", "/tool/clash",
-            "--build-manifest", str(manifest_path),
-        ],
-    )
-    assert status == 0, stderr
-    assert stdout == "" and stderr == ""
-
-    manifest = WholeBuildManifest.from_json(manifest_path.read_text())
-    companions = manifest.backend_builds[0].companions
-    assert len(companions) == 2
-    assert len({item.logical_path for item in companions}) == 2
-    expected_hash = collect_rom_companions(
-        compile_file(source, include_clash=False).ir
-    )[0].file_hash
-    assert {item.content_hash for item in companions} == {expected_hash}
-    prefix = "backends/clash/companions/rtl/"
-    for companion in companions:
-        assert companion.logical_path.startswith(prefix)
-        physical = rtl_dir / companion.logical_path.removeprefix(prefix)
-        assert physical.is_file()
-        assert hashlib.sha256(physical.read_bytes()).hexdigest() == expected_hash
 
 
 @pytest.mark.parametrize(
@@ -953,7 +703,7 @@ def test_representative_language_surfaces_publish_whole_manifests(
     assert status == 0, stderr
     assert stdout == "" and stderr == ""
     manifest = WholeBuildManifest.from_json(manifest_path.read_text())
-    compilation = compile_file(source_path, include_clash=False)
+    compilation = compile_file(source_path)
     assert manifest.selected_ir.identity == compilation.selected_ir_identity
     assert manifest.high_level_ir.identity == compilation.high_level_ir_identity
     assert manifest.backend_builds[0].artifact_hash == hashlib.sha256(
@@ -1009,7 +759,7 @@ def test_locked_path_dependency_closure_is_part_of_the_build_identity(
     assert status == 0, stderr
     assert stdout == "" and stderr == ""
     manifest = WholeBuildManifest.from_json(manifest_path.read_text())
-    compilation = compile_file(source, include_clash=False, project=project)
+    compilation = compile_file(source, project=project)
     assert compilation.ir.dependency_closure is not None
     assert manifest.dependency_closure
     dependencies = {
@@ -1042,7 +792,6 @@ def test_project_snapshot_preserves_workspace_resolution_and_rejects_root_change
         snapshot_text,
         source_digest=snapshot_digest,
         project=project,
-        include_clash=False,
     )
     assert unchanged.ir.name == "Top"
     assert unchanged.ir.dependency_closure is not None
@@ -1058,5 +807,4 @@ def test_project_snapshot_preserves_workspace_resolution_and_rejects_root_change
             snapshot_text,
             source_digest=snapshot_digest,
             project=project,
-            include_clash=False,
         )

@@ -7,12 +7,11 @@ import subprocess
 
 import pytest
 
-from tests.toolchain import CLASH_EXECUTABLE
 from zlang.backend.manifest import BackendArtifact
 from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
 from zlang.compiler import compile_source
 from zlang.simulate import simulate
-from zlang.toolchain import generate_verilog, lint_with_verilator
+from zlang.toolchain import lint_with_verilator
 
 
 SOURCE = """
@@ -84,7 +83,7 @@ def _run_verilator(tmp_path: Path, rtl: tuple[Path, ...], suffix: str) -> None:
 
 @pytest.fixture(scope="module")
 def direct_compilation():
-    return compile_source(SOURCE, include_clash=False)
+    return compile_source(SOURCE)
 
 
 def test_exact_literals_constants_and_inferred_return_semantics_and_artifact(
@@ -131,23 +130,3 @@ def test_exact_literals_constants_and_inferred_return_direct_systemverilog(
     direct.write_text(artifact.text)
     lint_with_verilator((direct,), compilation.ir.name)
     _run_verilator(tmp_path, (direct,), "direct")
-
-
-@pytest.mark.skipif(
-    CLASH_EXECUTABLE is None or shutil.which("verilator") is None,
-    reason="real Clash 1.11 and Verilator are required",
-)
-def test_exact_literals_constants_and_inferred_return_clash(
-    tmp_path: Path,
-) -> None:
-    compilation = compile_source(SOURCE)
-    clash_rtl = tuple(
-        generate_verilog(
-            compilation.clash,
-            compilation.ir.name,
-            tmp_path / "clash",
-            CLASH_EXECUTABLE,
-        )
-    )
-    lint_with_verilator(clash_rtl, compilation.ir.name)
-    _run_verilator(tmp_path, clash_rtl, "clash")

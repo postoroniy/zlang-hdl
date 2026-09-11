@@ -13,7 +13,7 @@ from zlang.simulate import simulate
 
 
 def _compile(source: str):
-    return compile_source(source, include_clash=False).ir
+    return compile_source(source).ir
 
 
 def test_char_and_string_aliases_erase_to_existing_exact_ir() -> None:

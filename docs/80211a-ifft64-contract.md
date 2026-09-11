@@ -109,9 +109,8 @@ lossy numerical boundary.
 An independent integer oracle implements the six radix stages, Decimal-derived
 Q2.22 constants, signed raw scale alignment, and final conversion.  The
 persistent simulator agrees for a continuous prefix longer than ten complete
-symbols. Direct-SV and Clash 1.11 Verilator traces agree cycle-for-cycle with
-the oracle. Both emitted RTL forms lint successfully; on the validation host,
-Clash generated the complete chain RTL in roughly 13 seconds.
+symbols. Direct-SV Verilator traces agree cycle-for-cycle with the oracle, and
+the emitted RTL lints successfully.
 
 The scheduler emitter now classifies FIFO occupancy as `empty`, `middle`, or
 `full` instead of enumerating every numerical count. This preserves the exact
@@ -178,8 +177,7 @@ IeeePacketMapper64
 Focused IFFT validation covers semantic/canonical hierarchy, persistent nested
 simulation, a finite
 packet with the flush token, stalls and mid-stream reset, deterministic direct
-SV with strict Verilator lint, and bounded real Clash 1.11 generation plus
-Verilator lint.  The complete 6/12/24-Mbit/s packet oracle and direct-SV top
+SV with strict Verilator lint and simulation. The complete 6/12/24-Mbit/s packet oracle and direct-SV top
 evidence are recorded in `docs/80211a-transmitter-validation.md`.
 
 This is functional evidence, not a throughput or QoR claim. The vector reorder

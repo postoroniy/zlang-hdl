@@ -11,7 +11,7 @@ from tests.parser.test_external_modules import SOURCE
 
 
 def _compile(source: str = SOURCE):
-    return compile_source(source, include_clash=False).ir
+    return compile_source(source).ir
 
 
 def test_external_contract_and_model_are_typed_and_simulatable() -> None:

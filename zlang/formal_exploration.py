@@ -17,7 +17,6 @@ from zlang.formal_artifact_provider import (
     FormalArtifactProviderError,
     FormalArtifactRecipe,
 )
-from zlang.ir.cross_backend import CrossBackendCounterexample
 from zlang.ir.equivalence import EquivalenceCounterexample
 from zlang.ir.formal import Counterexample, FormalStatus, ProofMode
 from zlang.ir.module import dependency_context_identity
@@ -83,19 +82,14 @@ class FormalExplorationConfig:
         compare=False,
         repr=False,
     )
-    # The production route is direct SystemVerilog.  ``clash`` remains an
-    # explicit hidden compatibility choice for legacy callers only; keeping
-    # the route in the config prevents proof/preparation cache collisions.
-    backend: str = "clash"
+    backend: str = "direct_systemverilog"
 
     def __post_init__(self) -> None:
         if self.max_formal_candidates < 1 or self.bmc_depth < 1 or self.timeout_seconds < 1:
             raise ValueError("formal exploration bounds must be positive")
         object.__setattr__(self, "policy", FormalPolicy(self.policy))
-        if self.backend not in {"clash", "direct_systemverilog"}:
-            raise ValueError(
-                "formal backend must be 'direct_systemverilog' or 'clash'"
-            )
+        if self.backend != "direct_systemverilog":
+            raise ValueError("formal backend must be 'direct_systemverilog'")
         if (
             self.dependency_identity is not None
             and re.fullmatch(r"[0-9a-f]{64}", self.dependency_identity) is None
@@ -498,7 +492,7 @@ class _CachedProof:
     backend: str | None
     artifact_hash: str | None
     reason: str
-    counterexample: Counterexample | EquivalenceCounterexample | CrossBackendCounterexample | None
+    counterexample: Counterexample | EquivalenceCounterexample | None
     property_identity: str | None = None
     harness_hash: str | None = None
     assumptions_identity: str | None = None
@@ -514,10 +508,10 @@ class _CachedProof:
             raise FormalExplorationError("cached proof depth must be positive")
         if self.counterexample is not None and not isinstance(
             self.counterexample,
-            (Counterexample, EquivalenceCounterexample, CrossBackendCounterexample),
+            (Counterexample, EquivalenceCounterexample),
         ):
             raise FormalExplorationError(
-                "formal proof cache requires a typed M35, M36, or M38 counterexample"
+                "formal proof cache requires a typed M35 or M36 counterexample"
             )
         if (self.counterexample is not None) != (
             self.status is FormalStatus.FAILED
@@ -539,7 +533,7 @@ class _CachedProof:
             FormalStatus.PROVEN,
             FormalStatus.FAILED,
         }:
-            if self.backend not in {"clash", "direct_systemverilog"}:
+            if self.backend != "direct_systemverilog":
                 raise FormalExplorationError(
                     "decisive M39 proof evidence requires a supported M36 RTL backend"
                 )
@@ -682,7 +676,7 @@ def _value_pairs(value: object) -> tuple[tuple[str, str], ...]:
 
 
 def _counterexample_to_data(
-    value: Counterexample | EquivalenceCounterexample | CrossBackendCounterexample | None,
+    value: Counterexample | EquivalenceCounterexample | None,
 ) -> dict[str, object] | None:
     if value is None:
         return None
@@ -703,27 +697,8 @@ def _counterexample_to_data(
             "values": [list(item) for item in value.values],
             "raw_trace": value.raw_trace,
         }
-    if isinstance(value, CrossBackendCounterexample):
-        return {
-            "kind": "m38",
-            "property_id": value.property_id,
-            "semantic_signal_id": value.semantic_signal_id,
-            "cycle": value.cycle,
-            "sample_cycle": value.sample_cycle,
-            "left_backend": value.left_backend,
-            "right_backend": value.right_backend,
-            "left_artifact_hash": value.left_artifact_hash,
-            "right_artifact_hash": value.right_artifact_hash,
-            "left_rtl_path": value.left_rtl_path,
-            "right_rtl_path": value.right_rtl_path,
-            "values": [list(item) for item in value.values],
-            "raw_trace": value.raw_trace,
-            "source_origin": (
-                None if value.source_origin is None else value.source_origin.to_data()
-            ),
-        }
     raise FormalExplorationError(
-        "formal proof cache requires typed M35, M36, or M38 counterexample metadata"
+        "formal proof cache requires typed M35 or M36 counterexample metadata"
     )
 
 
@@ -761,46 +736,6 @@ def _counterexample_from_data(value: object):
             _integer_or_none(value.get("sample_cycle"), "sample_cycle"),
             values,
             raw_trace,
-        )
-    if kind == "m38":
-        expected = {
-            "kind", "property_id", "semantic_signal_id", "cycle", "sample_cycle",
-            "left_backend", "right_backend", "left_artifact_hash",
-            "right_artifact_hash", "left_rtl_path", "right_rtl_path", "values",
-            "raw_trace", "source_origin",
-        }
-        if set(value) != expected:
-            raise FormalExplorationError("cached M38 counterexample fields are invalid")
-        origin_data = value.get("source_origin")
-        try:
-            if origin_data is not None and (
-                not isinstance(origin_data, Mapping)
-                or set(origin_data) != {"construct", "digest", "source_unit", "span"}
-                or not isinstance(origin_data.get("span"), Mapping)
-                or set(origin_data["span"]) != {
-                    "start_line", "start_column", "end_line", "end_column"
-                }
-            ):
-                raise ValueError("source origin fields are invalid")
-            origin = None if origin_data is None else SourceOrigin.from_data(origin_data)
-        except (TypeError, ValueError) as error:
-            raise FormalExplorationError(
-                f"cached M38 counterexample source origin is invalid: {error}"
-            ) from error
-        return CrossBackendCounterexample(
-            property_id,
-            _optional_string(value.get("semantic_signal_id"), "semantic_signal_id"),
-            _integer_or_none(value.get("cycle"), "cycle"),
-            _integer_or_none(value.get("sample_cycle"), "sample_cycle"),
-            _required_string(value.get("left_backend"), "left_backend"),
-            _required_string(value.get("right_backend"), "right_backend"),
-            _required_string(value.get("left_artifact_hash"), "left_artifact_hash"),
-            _required_string(value.get("right_artifact_hash"), "right_artifact_hash"),
-            _optional_string(value.get("left_rtl_path"), "left_rtl_path"),
-            _optional_string(value.get("right_rtl_path"), "right_rtl_path"),
-            values,
-            raw_trace,
-            origin,
         )
     raise FormalExplorationError(f"unsupported cached counterexample kind: {kind}")
 
@@ -928,7 +863,7 @@ def _proof_from_verifier(
                 "decisive M39 verifier result has no bound cache identity for: "
                 + ", ".join(missing_identity)
             )
-        if route not in {"M36_clash", "M36_direct_systemverilog"}:
+        if route != "M36_direct_systemverilog":
             raise FormalExplorationError(
                 "decisive M39 proof evidence requires a supported M36 RTL route"
             )
@@ -1186,7 +1121,7 @@ def _execute_stage(
                 "depth": config.bmc_depth,
                 "engine": config.engine,
                 "solver": config.solver,
-                "backend": "clash" if unavailable_reason else None,
+                "backend": "direct_systemverilog" if unavailable_reason else None,
                 "reason": (
                     unavailable_reason
                     or "M36 semantic-reference proof route is not bound"
@@ -1308,7 +1243,7 @@ def _inconclusive(status: FormalStatus) -> bool:
 def gate_candidates(candidates: tuple[Any, ...], evaluations: tuple[Any, ...],
                     config: FormalExplorationConfig,
                     verifier: Callable[[Any, FormalExplorationConfig], Any] | None = None,
-                    *, route: str = "M36_clash") -> FormalGateResult:
+                    *, route: str = "M36_direct_systemverilog") -> FormalGateResult:
     """Verify candidates in exact M28 rank order; never schedule all eagerly."""
     ranked = sorted((item for item in evaluations if item.legal), key=lambda item: item.objective_key)
     route = str(getattr(verifier, "formal_route", route))

@@ -5,7 +5,6 @@ import tempfile
 import textwrap
 import unittest
 
-from tests.toolchain import CLASH_ENVIRONMENT, CLASH_EXECUTABLE
 from zlang.compiler import compile_source
 from zlang.simulate import simulate
 
@@ -47,63 +46,6 @@ class ExpressionIntegrationTests(unittest.TestCase):
         self.assertEqual(simulate(left_shift, a=0x81, n=1), {"y": 2})
         self.assertEqual(simulate(right_shift, a=-8, n=2), {"y": -2})
 
-    @unittest.skipUnless(
-        CLASH_EXECUTABLE and shutil.which("iverilog") and shutil.which("vvp"),
-        "Clash and Icarus Verilog are required",
-    )
-    def test_generated_alu_rtl_behavior(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            output_directory = Path(temporary_directory)
-            subprocess.run(
-                [
-                    CLASH_EXECUTABLE,
-                    "--verilog",
-                    str(ROOT / "examples/generated/ALU.hs"),
-                    "-outputdir",
-                    str(output_directory),
-                ],
-                check=True,
-                cwd=ROOT,
-                env=CLASH_ENVIRONMENT,
-            )
-            testbench = output_directory / "tb.v"
-            testbench.write_text(
-                textwrap.dedent(
-                    """
-                    module tb;
-                      reg [31:0] a, b;
-                      reg [2:0] op;
-                      wire [31:0] y;
-                      ALU dut(.a(a), .b(b), .op(op), .y(y));
-                      task check;
-                        input [31:0] av, bv;
-                        input [2:0] opv;
-                        input [31:0] expected;
-                        begin
-                          a=av; b=bv; op=opv; #1;
-                          if (y !== expected) $fatal(1, "unexpected ALU result");
-                        end
-                      endtask
-                      initial begin
-                        check(7, 5, 0, 12);
-                        check(32'hffffffff, 1, 0, 0);
-                        check(3, 5, 1, 32'hfffffffe);
-                        check(12, 10, 2, 8);
-                        check(12, 10, 3, 14);
-                        check(1, 2, 7, 0);
-                        $finish;
-                      end
-                    endmodule
-                    """
-                )
-            )
-            executable = output_directory / "simulation"
-            verilog_files = [str(path) for path in output_directory.rglob("*.v")]
-            subprocess.run(
-                ["iverilog", "-g2012", "-s", "tb", "-o", str(executable), *verilog_files],
-                check=True,
-            )
-            subprocess.run(["vvp", str(executable)], check=True)
 
 
 if __name__ == "__main__":

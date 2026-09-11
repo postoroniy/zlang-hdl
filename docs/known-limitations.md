@@ -10,8 +10,8 @@ intersection: it must not publish RTL after silently dropping an IR entity.
 - Direct SystemVerilog is the sole stable supported production backend for the
   repository's validated corpus.  Passing that corpus is not a claim that every
   future combination of otherwise supported features is accepted.
-- Clash 1.11 is a hidden legacy compatibility emitter only; it is not required
-  to install, compile, verify, or release normal designs.
+- The retired Clash backend is not part of the compiler, Python package, CLI,
+  test suite, CI, or release acceptance.
 - Verilator, Yosys, SymbiYosys, yosys-smtbmc, Z3, and vendor synthesis tools are
   external programs and are not installed by the Python package.
 
@@ -22,14 +22,13 @@ intersection: it must not publish RTL after silently dropping an IR entity.
 - Runtime-selected instance inputs/protocols, general cross-module atomic
   scheduling, full AXI4, automatic CDC insertion, and arbitrary stateful
   elastic pipelines are outside the alpha contract.
-- The direct-SV production intersection is authoritative.  Hidden legacy Clash
-  compatibility may support a different bounded intersection, but unsupported
+- The direct-SV production intersection is authoritative. Unsupported
   combinations must produce a structured diagnostic rather than partial RTL.
 - The Python API is provisional.  The command-line interface and versioned
   artifact/lock/bundle schemas are the intended integration surfaces.
 - Simulation-only architectural state access is currently a generic direct-SV/
   Verilator facility for one exact clock/reset domain. It does not expose
-  backend-created FIFO, CSR, protocol, CDC, target-mapped, or Clash state and
+  backend-created FIFO, CSR, protocol, CDC, or target-mapped state and
   must not be confused with synthesizable memory initialization.
 
 ## Verification boundaries

@@ -9653,7 +9653,7 @@ def analyze(
         physical_domain = clock_domains[0]
         if not physical_domain.is_legacy_default:
             raise SemanticError(
-                "elastic pipeline requires the common Clash/direct-SV clock/reset "
+                "elastic pipeline requires a supported direct-SV clock/reset "
                 "contract: rising-edge clock, synchronous active-high reset, "
                 "and unspecified power-up"
             )

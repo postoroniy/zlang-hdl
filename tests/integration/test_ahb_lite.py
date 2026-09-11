@@ -17,12 +17,7 @@ from zlang.standard_bus import (
     RegRequest,
     RegResponse,
 )
-from zlang.toolchain import (
-    clash_subprocess_environment,
-    find_clash_executable,
-    generate_verilog,
-    lint_with_verilator,
-)
+from zlang.toolchain import lint_with_verilator
 
 
 HARNESS = """
@@ -99,7 +94,6 @@ def _bridge_ir():
     top = compile_source(
         (Path(__file__).resolve().parents[2] / "examples" / "ahb_csr_top.zhl").read_text(),
         top="AhbCsrTop",
-        include_clash=False,
     ).ir
     return top.children[0]
 
@@ -286,23 +280,12 @@ def test_non_default_ahb_widths_emit_strict_direct_sv(
     data_width: int, tmp_path: Path,
 ) -> None:
     top, source = _width_harness(data_width)
-    module = compile_source(source, top=top, include_clash=False).ir
+    module = compile_source(source, top=top).ir
     rtl = tmp_path / f"{top}.sv"
     rtl.write_text(emit_artifact(module).text)
     lint_with_verilator((rtl,), top)
 
 
-@pytest.mark.skipif(
-    find_clash_executable() is None or shutil.which("verilator") is None,
-    reason="Clash or Verilator unavailable",
-)
-def test_non_default_ahb_width_emits_real_clash(tmp_path: Path) -> None:
-    top, source = _width_harness(64)
-    result = compile_source(source, top=top)
-    executable = find_clash_executable()
-    assert executable is not None
-    files = generate_verilog(result.clash, top, tmp_path / "clash", executable)
-    lint_with_verilator(files, top)
 
 
 def test_independent_ahb_oracle_preserves_phasing_waits_and_errors() -> None:
@@ -351,7 +334,7 @@ def test_independent_ahb_oracle_preserves_phasing_waits_and_errors() -> None:
 
 @pytest.mark.skipif(shutil.which("verilator") is None, reason="Verilator unavailable")
 def test_source_ahb_bridge_rtl_address_data_phasing_stalls_and_error() -> None:
-    module = compile_source(HARNESS, top="AhbLiteHarness", include_clash=False).ir
+    module = compile_source(HARNESS, top="AhbLiteHarness").ir
     artifact = emit_artifact(module, selected_ir_identity="ahb-lite-rtl")
     assert artifact.text.count('(* ASYNC_REG = "TRUE" *)') == 1
     testbench = r"""
@@ -454,48 +437,3 @@ endmodule
             text=True,
         )
         assert run.returncode == 0, run.stderr or run.stdout
-
-
-@pytest.mark.skipif(
-    find_clash_executable() is None or shutil.which("verilator") is None,
-    reason="Clash or Verilator unavailable",
-)
-def test_ahb_source_runs_cycle_identically_in_both_rtl_backends() -> None:
-    result = compile_source(HARNESS, top="AhbLiteHarness")
-    executable = find_clash_executable()
-    assert executable is not None
-    with tempfile.TemporaryDirectory() as temporary:
-        root = Path(temporary)
-        direct_root = root / "direct"
-        direct_root.mkdir()
-        direct_rtl = direct_root / "AhbLiteHarness.sv"
-        direct_rtl.write_text(
-            emit_artifact(
-                result.ir, selected_ir_identity="ahb-lite-parity",
-            ).text
-        )
-        _run_backend_parity_tb((direct_rtl,), direct_root)
-
-        clash_root = root / "clash"
-        clash_root.mkdir()
-        source_path = clash_root / "AhbLiteHarness.hs"
-        output = root / "verilog"
-        output.mkdir()
-        source_path.write_text(result.clash)
-        completed = subprocess.run(
-            (
-                executable,
-                "--verilog",
-                str(source_path),
-                "-outputdir",
-                str(output),
-            ),
-            env=clash_subprocess_environment(executable),
-            capture_output=True,
-            text=True,
-        )
-        assert completed.returncode == 0, completed.stderr or completed.stdout
-        files = tuple(output.rglob("*.v"))
-        assert files
-        lint_with_verilator(files, "AhbLiteHarness")
-        _run_backend_parity_tb(files, clash_root)

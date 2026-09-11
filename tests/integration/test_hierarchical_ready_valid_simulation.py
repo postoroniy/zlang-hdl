@@ -106,7 +106,6 @@ def _fft4():
     return compile_source(
         FFT_SOURCE.read_text(),
         top="FFT4SDFReference",
-        include_clash=False,
     ).ir
 
 
@@ -307,7 +306,6 @@ def test_nested_ready_valid_hierarchy_commits_leaf_state_once_per_cycle() -> Non
     module = compile_source(
         NESTED_FIFO_SOURCE,
         top="NestedTop",
-        include_clash=False,
     ).ir
     cycles = [
         {"input": {"payload": 0, "valid": 0}, "output": {"ready": 1}},
@@ -342,7 +340,6 @@ def test_nested_ready_valid_hierarchy_scales_linearly_with_cycles() -> None:
     module = compile_source(
         NESTED_FIFO_SOURCE,
         top="NestedTop",
-        include_clash=False,
     ).ir
 
     def elapsed(count: int) -> float:
@@ -372,12 +369,10 @@ def test_nested_hierarchy_parent_state_and_mixed_child_commit_atomically() -> No
     nested = compile_source(
         STATEFUL_NESTED_SOURCE,
         top="StatefulNestedTop",
-        include_clash=False,
     ).ir
     direct = compile_source(
         STATEFUL_NESTED_SOURCE,
         top="StatefulMiddle",
-        include_clash=False,
     ).ir
     stimulus = (
         (0, 0, 1),
@@ -430,7 +425,6 @@ def test_ieee_ifft_nested_hierarchy_simulates_and_emits_one_cp_symbol() -> None:
     module = compile_file(
         PRODUCTION_IFFT_SOURCE,
         top="IeeeIFFT64",
-        include_clash=False,
     ).ir
     zero = {"re": 0, "im": 0}
     cycles = [

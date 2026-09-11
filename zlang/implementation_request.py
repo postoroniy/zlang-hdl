@@ -39,7 +39,6 @@ class ImplementationRequestError(DiagnosticError):
 
 
 class BackendKind(str, Enum):
-    CLASH = "clash"
     SYSTEMVERILOG = "systemverilog"
 
 

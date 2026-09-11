@@ -16,7 +16,6 @@ from typing import Callable, Iterable, Mapping
 
 from zlang.architectures import render_architecture_report
 from zlang.ast.nodes import Module as AstModule
-from zlang.backend.clash import emit as emit_clash
 from zlang.backend.systemverilog import emit_contracts
 from zlang.costs import (
     CostExtractionError,
@@ -98,7 +97,7 @@ class SessionTopSelectionError(ValueError):
 
 
 _UNSUPPORTED_RESET_FORMAL_REASON = (
-    "M39 authoritative M36/Clash route requires one physical domain with "
+    "M39 authoritative M36 route requires one physical domain with "
     "power_up unspecified"
 )
 
@@ -145,7 +144,7 @@ def _gate_all_standalone_pipelines(
     verifier: object | None,
     canonical_site_keys: Iterable[tuple[str, str | None, str]] = (),
     *,
-    backend: str = "clash",
+    backend: str = "direct_systemverilog",
 ) -> IrModule:
     from zlang.formal_candidate import gate_standalone_pipelines
 
@@ -344,7 +343,7 @@ def _with_elastic_formal_records(
                         cache_state=CACHE_STATE_NOT_RUN,
                         eligible=True,
                         reason=(
-                            "M36/M38 fixed-latency equivalence does not apply "
+                            "M36 fixed-latency equivalence does not apply "
                             "to a stalled elastic relation"
                         ),
                         source_origin=region.source_origin,
@@ -573,7 +572,6 @@ class CompilationSessionOptions:
     target_tool: str
     target_tool_version: str
     target_clock_period_ns: float
-    include_clash: bool
     source_unit: str | None
     module_resolver: object | None
     root_module_identity: object | None
@@ -809,7 +807,6 @@ COMPILATION_PRODUCT_DEPENDENCIES: Mapping[str, tuple[str, ...]] = {
     "formal": ("selection",),
     "planning": ("selection",),
     "target_instance": ("selection",),
-    "clash": ("selection",),
     "documents": ("selection",),
     "reports": ("selection", "planning"),
     "materialized": (
@@ -818,7 +815,6 @@ COMPILATION_PRODUCT_DEPENDENCIES: Mapping[str, tuple[str, ...]] = {
         "formal",
         "planning",
         "target_instance",
-        "clash",
         "documents",
         "reports",
     ),
@@ -855,7 +851,6 @@ class CompilationSession:
         target_tool: str = "Vivado",
         target_tool_version: str = "2024.2",
         target_clock_period_ns: float = 10.0,
-        include_clash: bool = True,
         source_unit: str | None = None,
         module_resolver=None,
         root_module_identity=None,
@@ -894,7 +889,6 @@ class CompilationSession:
             target_tool=target_tool,
             target_tool_version=target_tool_version,
             target_clock_period_ns=target_clock_period_ns,
-            include_clash=include_clash,
             source_unit=source_unit,
             module_resolver=module_resolver,
             root_module_identity=root_module_identity,
@@ -1087,9 +1081,7 @@ class CompilationSession:
             dependency_identity=dependency_identity,
             artifact_provider=self.formal_artifact_provider,
             tool_resolver=self.formal_tool_resolver,
-            backend=(
-                "clash" if self.include_clash else "direct_systemverilog"
-            ),
+            backend="direct_systemverilog",
         )
 
     def _analyze(self, *, check_only: bool) -> _AnalysisProduct:
@@ -1501,13 +1493,6 @@ class CompilationSession:
         return load_target(request.target)[0]
 
     @property
-    def clash(self) -> str:
-        return self._demand(
-            "clash",
-            lambda: emit_clash(self.selected_ir) if self.include_clash else "",
-        )
-
-    @property
     def documents(self) -> _DocumentProduct:
         return self._demand("documents", self._build_documents)
 
@@ -1564,14 +1549,12 @@ class CompilationSession:
         formal = self.formal_products
         planning = self.planning
         target_instance = self.target_instance
-        clash = self.clash
         documents = self.documents
         reports = self.reports
         return CompilationResult(
             ast=self.syntax,
             ir=planning.module,
             optimization_ir=selection.optimization_ir,
-            clash=clash,
             csr_markdown=documents.csr_markdown,
             csr_json=documents.csr_json,
             contracts_sva=documents.contracts_sva,

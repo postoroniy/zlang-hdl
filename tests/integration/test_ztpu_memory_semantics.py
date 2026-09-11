@@ -11,11 +11,9 @@ from zlang.backend.systemverilog import emit_experimental
 from zlang.compiler import compile_source
 from zlang.opt import lower, restore
 from zlang.simulate import simulate_cycles
-from zlang.toolchain import find_clash_executable, generate_verilog
 
 
 VERILATOR = shutil.which("verilator")
-CLASH = find_clash_executable()
 
 
 def _source(collision: str) -> str:
@@ -66,7 +64,7 @@ def test_ztpu_async_memory_semantic_trace_and_canonical_round_trip() -> None:
         "write_first": [0, 0x1234, 0x1234, 0x12CD, 0x12CD, 0x12CD, 0x12CD],
     }
     for collision, trace in expected.items():
-        module = compile_source(_source(collision), include_clash=False).ir
+        module = compile_source(_source(collision)).ir
         restored = restore(lower(module))
         assert restored.memories == module.memories
         assert [
@@ -134,7 +132,7 @@ def _run_verilator(files: tuple[Path, ...], root: Path, collision: str) -> None:
 def test_ztpu_async_memory_direct_sv_lints_and_simulates(
     tmp_path: Path, collision: str,
 ) -> None:
-    module = compile_source(_source(collision), include_clash=False).ir
+    module = compile_source(_source(collision)).ir
     text = emit_experimental(module)
     assert emit_experimental(module) == text
     assert "initial begin" in text
@@ -148,19 +146,6 @@ def test_ztpu_async_memory_direct_sv_lints_and_simulates(
     _run_verilator((rtl,), tmp_path, collision)
 
 
-@pytest.mark.skipif(
-    CLASH is None or VERILATOR is None,
-    reason="Clash or Verilator unavailable",
-)
-@pytest.mark.parametrize("collision", ("read_first", "write_first"))
-def test_ztpu_async_memory_real_clash_is_cycle_identical(
-    tmp_path: Path, collision: str,
-) -> None:
-    result = compile_source(_source(collision))
-    files = generate_verilog(
-        result.clash, "ZtpuAsyncMemory", tmp_path / "rtl", CLASH
-    )
-    _run_verilator(tuple(files), tmp_path, collision)
 
 
 _RESET_PROFILE_MATRIX = (
@@ -262,7 +247,6 @@ def _semantic_reset_profile_traces() -> dict[str, tuple[int, ...]]:
             _reset_profile_source(
                 name, latency, contents, read_data, scheduled
             ),
-            include_clash=False,
         ).ir
         trace = tuple(
             int(item["q"])
@@ -414,32 +398,10 @@ def test_reset_profile_matrix_direct_sv_matches_simulator(tmp_path: Path) -> Non
             _reset_profile_source(
                 name, latency, contents, read_data, scheduled
             ),
-            include_clash=False,
         ).ir
         rtl = tmp_path / f"{name}.sv"
         rtl.write_text(emit_experimental(module))
         rtl_files.append(rtl)
     assert _run_reset_profile_matrix(
         tuple(rtl_files), tmp_path, strict_lint=True
-    ) == expected
-
-
-@pytest.mark.skipif(
-    CLASH is None or VERILATOR is None,
-    reason="Clash or Verilator unavailable",
-)
-def test_reset_profile_matrix_clash_matches_simulator(tmp_path: Path) -> None:
-    expected = _semantic_reset_profile_traces()
-    rtl_files: list[Path] = []
-    for name, latency, contents, read_data, scheduled in _RESET_PROFILE_MATRIX:
-        result = compile_source(
-            _reset_profile_source(
-                name, latency, contents, read_data, scheduled
-            )
-        )
-        rtl_files.extend(generate_verilog(
-            result.clash, name, tmp_path / f"clash_{name}", CLASH
-        ))
-    assert _run_reset_profile_matrix(
-        tuple(rtl_files), tmp_path, strict_lint=False
     ) == expected

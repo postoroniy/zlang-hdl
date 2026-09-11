@@ -8,47 +8,10 @@ import subprocess
 import pytest
 
 from tests.semantic.test_stdlib_coherence import WITNESSES
-from zlang.backend.clash.public_wrapper import ClashPublicTopWrapper
 from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
 from zlang.compiler import compile_source
-from zlang.toolchain import find_clash_executable, generate_verilog
 
 
-@pytest.mark.skipif(
-    find_clash_executable() is None or shutil.which("verilator") is None,
-    reason="Clash or Verilator unavailable",
-)
-@pytest.mark.parametrize(
-    "witness",
-    (
-        "fft_butterfly",
-        "fixed_helpers",
-        "stream_core",
-        "serializer",
-        "storage_queue",
-        "storage_ping_pong",
-    ),
-)
-def test_stdlib_family_witness_reaches_real_clash_and_verilator(
-    witness: str,
-    tmp_path: Path,
-) -> None:
-    result = compile_source(WITNESSES[witness], top="Top")
-    files = generate_verilog(
-        result.clash,
-        "Top",
-        tmp_path / witness,
-        public_wrapper=ClashPublicTopWrapper.build(result.ir),
-    )
-    completed = subprocess.run(
-        ("verilator", "--lint-only", "-Wall", "-Wno-fatal", *map(str, files)),
-        capture_output=True,
-        text=True,
-    )
-    assert completed.returncode == 0, (
-        completed.stdout,
-        completed.stderr,
-    )
 
 
 @pytest.mark.skipif(shutil.which("verilator") is None, reason="Verilator unavailable")
@@ -58,7 +21,6 @@ def test_rv_register_slice_stalls_and_replaces_on_simultaneous_transfer(
     result = compile_source(
         WITNESSES["stream_register_slice"],
         top="Top",
-        include_clash=False,
     )
     rtl = tmp_path / "Top.sv"
     rtl.write_text(
@@ -128,7 +90,6 @@ def test_ping_pong_blocks_reordering_and_allows_atomic_retire_commit(
     result = compile_source(
         WITNESSES["storage_ping_pong"],
         top="Top",
-        include_clash=False,
     )
     rtl = tmp_path / "Top.sv"
     rtl.write_text(

@@ -26,7 +26,6 @@ class CompilationResult:
     ast: AstModule
     ir: IrModule
     optimization_ir: CanonicalModule
-    clash: str
     csr_markdown: str
     csr_json: str
     contracts_sva: str

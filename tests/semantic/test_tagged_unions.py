@@ -76,7 +76,7 @@ module UnionState {
 
 
 def _compile(source: str = SOURCE, top: str | None = None):
-    return compile_source(source, top=top, include_clash=False).ir
+    return compile_source(source, top=top).ir
 
 
 def test_nominal_layout_match_lowering_and_runtime_values_are_exact() -> None:

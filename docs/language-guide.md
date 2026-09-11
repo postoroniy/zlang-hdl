@@ -6,7 +6,7 @@ The canonical public/source identities are recorded in
 [ZLang HDL source identity](source-identity-migration.md).
 The compiler's backend-independent typed IR, rather than any emitter, defines
 language semantics. Direct SystemVerilog is the sole production backend;
-historical Clash emission is retained only for compatibility fixtures.
+the retired Clash backend is absent from the compiler and test suite.
 
 For a representative executable tour, start with
 [`examples/all_syntax.zhl`](../examples/all_syntax.zhl). It is not an exhaustive
@@ -47,7 +47,7 @@ instructions.
    aggregate standard buses, CSR, arbitration, and CDC.
 6. **[Optimization and formal verification](optimization-formal.md)** — canonical
    versus selected IR, choices, pipeline/architecture exploration, contracts,
-   M35/M36/M38/M39 boundaries, and proof status meanings.
+   M35/M36/M39 boundaries, retired historical M38 records, and proof status meanings.
 7. **[Backends, CLI, and tooling](backends-tooling.md)** — direct-SV production policy,
    output options, reports, stdlib resolution, editor support, and test tooling.
 8. **[Standard library](stdlib.md)** — the compiler-shipped `std` namespace,
@@ -128,8 +128,8 @@ Compiler and editor integrations should also use the versioned
 - Protocol observations such as `.transfer`, FIFO status, and request/response
   channel events have typed, read-only meanings. They are not arbitrary fields.
 - Direct SystemVerilog is the sole production backend; see its exact
-  [coverage matrix](direct-systemverilog.md). Clash is retired from the
-  production path and retained only for historical compatibility fixtures.
+  [coverage matrix](direct-systemverilog.md). The retired Clash emitter is not
+  part of the compiler, package, CLI, tests, CI, or release gate.
 - The production backend publishes one mandatory integration boundary:
   top-level struct fields and tuple `itemN` components are recursively named
   leaf ports, while `vec<N,T>` values are native unpacked arrays (one array per

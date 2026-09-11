@@ -5,7 +5,6 @@ import tempfile
 import textwrap
 import unittest
 
-from tests.toolchain import CLASH_ENVIRONMENT, CLASH_EXECUTABLE
 from zlang.compiler import compile_source
 from zlang.simulate import (
     ProtocolViolation,
@@ -86,69 +85,6 @@ class InterfaceIntegrationTests(unittest.TestCase):
         with self.assertRaisesRegex(SimulationError, "rx.payload.*does not fit u8"):
             simulate(module, rx={"payload": 256, "valid": 1}, tx={"ready": 1})
 
-    @unittest.skipUnless(
-        CLASH_EXECUTABLE and shutil.which("iverilog") and shutil.which("vvp"),
-        "Clash and Icarus Verilog are required",
-    )
-    def test_generated_ready_valid_rtl_backpressure(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            output_directory = Path(temporary_directory)
-            subprocess.run(
-                [
-                    CLASH_EXECUTABLE,
-                    "--verilog",
-                    str(ROOT / "examples/generated/RvPassthrough.hs"),
-                    "-outputdir",
-                    str(output_directory),
-                ],
-                check=True,
-                cwd=ROOT,
-                env=CLASH_ENVIRONMENT,
-            )
-            testbench = output_directory / "tb.v"
-            testbench.write_text(
-                textwrap.dedent(
-                    """
-                    module tb;
-                      reg [7:0] rx_payload;
-                      reg rx_valid;
-                      reg tx_ready;
-                      wire rx_ready;
-                      wire [7:0] tx_payload;
-                      wire tx_valid;
-                      RvPassthrough dut(
-                        .rx_payload(rx_payload), .rx_valid(rx_valid),
-                        .tx_ready(tx_ready), .rx_ready(rx_ready),
-                        .tx_payload(tx_payload), .tx_valid(tx_valid)
-                      );
-                      initial begin
-                        rx_payload=8'h2a; rx_valid=1; tx_ready=0; #1;
-                        if (rx_ready !== 0 || tx_payload !== 8'h2a || tx_valid !== 1)
-                          $fatal(1, "stall propagation failed");
-                        tx_ready=1; #1;
-                        if (rx_ready !== 1 || tx_payload !== 8'h2a || tx_valid !== 1)
-                          $fatal(1, "transfer propagation failed");
-                        $finish;
-                      end
-                    endmodule
-                    """
-                )
-            )
-            executable = output_directory / "simulation"
-            verilog_files = [str(path) for path in output_directory.rglob("*.v")]
-            subprocess.run(
-                [
-                    "iverilog",
-                    "-g2012",
-                    "-s",
-                    "tb",
-                    "-o",
-                    str(executable),
-                    *verilog_files,
-                ],
-                check=True,
-            )
-            subprocess.run(["vvp", str(executable)], check=True)
 
 
 if __name__ == "__main__":

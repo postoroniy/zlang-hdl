@@ -20,7 +20,6 @@ def test_qualified_fsm_initializer_lowers_to_existing_rule_state_ir() -> None:
         "enum Phase { Idle Run } module M { clock clk reset rst "
         "fsm phase = Phase.Idle { Idle { -> Run {} } Run { hold } } "
         "out y:bit=0 }",
-        include_clash=False,
     )
     assert len(result.ir.registers) == 1
     assert isinstance(result.ir.registers[0].type, EnumType)
@@ -33,13 +32,11 @@ def test_named_transform_connection_chain_is_exact_pairwise_connection_sugar() -
         CHAIN_HEADER
         + "module Top { clock clk reset rst in input:rv<u8> out output:rv<u8> "
         "a:Stage b:Stage input -> a -> b -> output }",
-        include_clash=False,
     ).ir
     explicit = compile_source(
         CHAIN_HEADER
         + "module Top { clock clk reset rst in input:rv<u8> out output:rv<u8> "
         "a:Stage b:Stage input -> a.rx a.tx -> b.rx b.tx -> output }",
-        include_clash=False,
     ).ir
     assert concise.hierarchical_connections == explicit.hierarchical_connections
     assert tuple(
@@ -76,5 +73,4 @@ def test_connection_chain_rejects_noncanonical_intermediate_interfaces(
             stage
             + " module Top { in input:rv<u8> out output:rv<u8> "
             "s:Stage input -> s -> output }",
-            include_clash=False,
         )

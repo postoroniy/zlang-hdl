@@ -49,7 +49,6 @@ def test_unbuffered_directional_occupancy_is_a_typed_zero_projection():
     module = compile_source(
         UNBUFFERED.replace("max_outstanding 1", "max_outstanding 2"),
         top="HierarchicalRequestResponse",
-        include_clash=False,
     ).ir
     recursive = build_recursive_formal_design(module)
     production_before = emit_artifact(module, recursive_design=recursive)
@@ -148,7 +147,6 @@ def test_request_and_response_count_projections_are_directionally_independent():
         module = compile_source(
             source,
             top="HierarchicalRequestResponse",
-            include_clash=False,
         ).ir
         formal = emit_formal_artifact(
             module, build_recursive_formal_design(module)

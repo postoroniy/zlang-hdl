@@ -5,20 +5,10 @@ from unittest.mock import patch
 
 import pytest
 
-from zlang.backend.clash.formal_registers import (
-    emit_register_formal_source,
-    supports_register_formal,
-)
 from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact, emit_target
 from zlang.backend.systemverilog import emit_formal_artifact as emit_sv_formal_artifact
-from zlang.backend.clash import emit_artifact as emit_clash_artifact
 from zlang.backend.systemverilog.emitter import SystemVerilogEmissionError
 from zlang.compilation_session import CompilationSession
-from zlang.cross_backend import (
-    emit_cross_backend_miter,
-    validate_artifacts,
-    validate_module_route,
-)
 from zlang.equivalence import publish_bindings
 from zlang.formal import (
     build_formal_design,
@@ -33,11 +23,6 @@ from zlang.implementation_request import (
     ImplementationContribution,
     PolicyOrigin,
     TransformPolicy,
-)
-from zlang.ir.cross_backend import (
-    CrossBackendError,
-    CrossBackendProperty,
-    CrossBackendRelation,
 )
 from zlang.ir.equivalence import BindingSide
 from zlang.ir.formal import (
@@ -89,7 +74,7 @@ module AsyncPlainValue {
 
 
 def _counter():
-    return CompilationSession(ASYNC_COUNTER, include_clash=False).selected_ir
+    return CompilationSession(ASYNC_COUNTER).selected_ir
 
 
 def _formal_artifact(module):
@@ -131,7 +116,6 @@ def test_m35_harness_uses_the_exact_safe_async_reset_contract() -> None:
 def test_low_level_m35_connector_rejects_an_exact_reset_contract_mismatch() -> None:
     legacy_module = CompilationSession(
         ASYNC_COUNTER.replace("async reset arst @clk", "reset arst"),
-        include_clash=False,
     ).selected_ir
     executable = generate_properties(legacy_module)
     assert executable.non_executable_reason is None
@@ -164,77 +148,14 @@ def test_low_level_m35_connector_rejects_an_exact_reset_contract_mismatch() -> N
     )
 
 
-def test_recursive_clash_formal_emits_one_conditioned_safe_async_root() -> None:
-    module = _counter()
-    recursive = build_recursive_formal_design(module)
-    assert recursive.properties
-    assert supports_register_formal(module, recursive)
-    source = emit_register_formal_source(module, recursive)
-    assert "vResetKind=Asynchronous" in source.text
-    assert "vResetPolarity=ActiveHigh" in source.text
-    assert source.text.count("resetSynchronizer clk arst") == 1
-    assert "topEntity clk arst" in source.text
 
 
-def test_m36_accepts_async_bindings_while_m38_keeps_the_stateful_boundary() -> None:
-    module = _counter()
-    names = {
-        "clock": "clk",
-        "reset": "arst",
-        **{f"port:{port.name}": port.name for port in module.ports},
-    }
-    bindings = publish_bindings(
-        module,
-        side=BindingSide.IMPLEMENTATION,
-        selected_ir_identity="selected",
-        backend="direct_systemverilog",
-        artifact_hash_value="artifact",
-        rtl_names=names,
-    )
-    assert {item.semantic_signal_id for item in bindings} >= {
-        "clock", "reset", "port:x", "port:y",
-    }
-    assert all(
-        (item.clock_domain, item.reset_domain) == ("clk", "arst")
-        for item in bindings
-    )
-    with pytest.raises(CrossBackendError, match="arbitrary stateful"):
-        validate_module_route(module)
 
 
-def test_m38_artifacts_validate_the_exact_safe_async_reset_contract() -> None:
-    module = CompilationSession(
-        ASYNC_PLAIN_VALUE,
-        include_clash=False,
-    ).selected_ir
-    validate_module_route(module)
-    left = emit_clash_artifact(module)
-    right = emit_sv_artifact(module)
-    assert left.manifest_version == right.manifest_version == 10
-    property_ = CrossBackendProperty(
-        "m38.async.counter",
-        CrossBackendRelation.SAME_CYCLE_VALUE,
-        left.selected_ir_identity,
-        ("port:y",),
-        None,
-        None,
-        0,
-        0,
-        clock_domain_contract=module.clock_domains[0],
-    )
-    validate_artifacts(left, right, property_)
-    miter = emit_cross_backend_miter(
-        property_,
-        left,
-        right,
-        inputs=("port:a", "port:b", "port:c"),
-    )
-    assert ".clk(clock), .arst(reset)" in miter
-    assert "assert(left_0 == right_0);" in miter
 
 
 class _BoundAsyncVerifier:
-    formal_route = "M36_clash"
+    formal_route = "M36_direct_systemverilog"
 
     def __init__(self) -> None:
         self.calls: list[FormalPolicy] = []
@@ -263,7 +184,7 @@ class _BoundAsyncVerifier:
             "status": FormalStatus.PROVEN if prove else FormalStatus.BOUNDED_PASS,
             "mode": ProofMode.PROVE if prove else ProofMode.BMC,
             "depth": getattr(config, "bmc_depth"),
-            "backend": "clash",
+            "backend": "direct_systemverilog",
             "engine": "sby",
             "solver": "z3",
             **self._identity(candidate),
@@ -277,14 +198,13 @@ def test_m39_available_and_required_modes_use_the_async_m36_route() -> None:
         ASYNC_EXPLORE,
         formal_policy=FormalPolicy.AVAILABLE,
         formal_verifier=verifier,
-        include_clash=False,
     )
     records = available.materialize().exploration_results[0].formal_records
     assert len(records) > 1
     assert records[0].status is FormalStatus.BOUNDED_PASS
     assert records[0].eligible
     assert records[0].cache_state == "executed"
-    assert records[0].formal_route == "M36_clash"
+    assert records[0].formal_route == "M36_direct_systemverilog"
     assert all(item.status is None for item in records[1:])
     # One canonical ``implement`` region has one M39 site; planner metadata
     # is not re-proved as standalone pipeline sites.
@@ -295,7 +215,6 @@ def test_m39_available_and_required_modes_use_the_async_m36_route() -> None:
         ASYNC_EXPLORE,
         formal_policy=FormalPolicy.REQUIRED_BMC,
         formal_verifier=required_bmc,
-        include_clash=False,
     ).materialize()
     assert result.exploration_results[0].formal_records[0].eligible
     assert required_bmc.calls == [FormalPolicy.REQUIRED_BMC]
@@ -305,7 +224,6 @@ def test_m39_available_and_required_modes_use_the_async_m36_route() -> None:
         ASYNC_EXPLORE,
         formal_policy=FormalPolicy.REQUIRED_PROVEN,
         formal_verifier=required_proven,
-        include_clash=False,
     ).materialize()
     required_records = result.exploration_results[0].formal_records
     assert [item.status for item in required_records] == [
@@ -333,7 +251,6 @@ def test_m39_external_regions_use_the_async_m36_route() -> None:
         ASYNC_PLAIN_VALUE,
         implementation_contributions=(contribution(FormalPolicy.AVAILABLE),),
         formal_verifier=verifier,
-        include_clash=False,
     ).materialize()
     assert len(available.exploration_results) == 1
     records = available.exploration_results[0].formal_records
@@ -341,7 +258,7 @@ def test_m39_external_regions_use_the_async_m36_route() -> None:
     assert records[0].status is FormalStatus.BOUNDED_PASS
     assert records[0].eligible
     assert records[0].cache_state == "executed"
-    assert records[0].formal_route == "M36_clash"
+    assert records[0].formal_route == "M36_direct_systemverilog"
     assert verifier.calls == [FormalPolicy.AVAILABLE]
 
     required = _BoundAsyncVerifier()
@@ -349,7 +266,6 @@ def test_m39_external_regions_use_the_async_m36_route() -> None:
         ASYNC_PLAIN_VALUE,
         implementation_contributions=(contribution(FormalPolicy.REQUIRED_BMC),),
         formal_verifier=required,
-        include_clash=False,
     ).materialize()
     assert result.exploration_results[0].formal_records[0].eligible
     assert required.calls == [FormalPolicy.REQUIRED_BMC]
@@ -365,7 +281,6 @@ def test_selected_bram_emission_fails_before_physical_rtl_publication() -> None:
         target="xc7z030ffg676-1",
         architecture="Xilinx7BRAM36SimpleDualPort",
         architecture_mode="required",
-        include_clash=False,
     )
     with pytest.raises(
         SystemVerilogEmissionError,
@@ -388,7 +303,6 @@ def test_selected_dsp48_emission_fails_before_physical_rtl_publication() -> None
         target="xc7z030ffg676-1",
         architecture="Xilinx7SymmetricDSPCascade",
         architecture_mode="required",
-        include_clash=False,
     )
     graph = compilation.planning.implementation_graph
     assert not graph.is_generic
@@ -406,7 +320,7 @@ def test_elastic_pipeline_rejects_safe_async_reset_before_planning() -> None:
         / "examples"
         / "elastic_pipeline_auto.zhl"
     ).read_text().replace("reset rst", "async reset rst @clk")
-    session = CompilationSession(source, include_clash=False)
+    session = CompilationSession(source)
 
     with patch(
         "zlang.compilation_session.plan_backend_implementations",
@@ -414,7 +328,7 @@ def test_elastic_pipeline_rejects_safe_async_reset_before_planning() -> None:
     ) as planner:
         with pytest.raises(
             SemanticError,
-            match="elastic pipeline requires the common Clash/direct-SV clock/reset",
+            match="elastic pipeline requires a supported direct-SV clock/reset",
         ):
             session.materialize()
     planner.assert_not_called()
@@ -433,4 +347,4 @@ def test_multidomain_cdc_rejects_nondefault_reset_before_emission() -> None:
         SemanticError,
         match="multi-domain asynchronous reset is not supported",
     ):
-        CompilationSession(source, include_clash=False).selected_ir
+        CompilationSession(source).selected_ir

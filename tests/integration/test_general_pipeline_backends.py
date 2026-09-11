@@ -79,7 +79,7 @@ def _build_and_run(rtl: tuple[Path, ...], tmp_path: Path) -> None:
 
 
 def test_direct_sv_contains_real_internal_boundaries() -> None:
-    result = compile_source(SOURCE, include_clash=False)
+    result = compile_source(SOURCE)
     direct = emit_experimental(result.ir)
 
     # Stage zero registers the two products and the short f bypass is delayed
@@ -96,7 +96,7 @@ def test_direct_sv_contains_real_internal_boundaries() -> None:
     assert "timed_equivalence=verified" in result.pipeline_report
 
     first_artifact = emit_artifact(result.ir)
-    second_artifact = emit_artifact(compile_source(SOURCE, include_clash=False).ir)
+    second_artifact = emit_artifact(compile_source(SOURCE).ir)
     assert first_artifact.text == second_artifact.text
     assert first_artifact.artifact_hash == second_artifact.artifact_hash
 
@@ -106,7 +106,7 @@ def test_shared_dag_node_is_materialized_once_in_direct_sv() -> None:
         "module Shared { clock clk reset rst in a,b,c,d:u8 out y:u34 "
         "t=a*b y=pipeline(3){(t+c)*(t+d)} }"
     )
-    result = compile_source(source, include_clash=False)
+    result = compile_source(source)
     direct = emit_experimental(result.ir)
     assert direct.count("assign zlang_stage_expr_0 = ") == 1
     assert direct.count("zlang_stage_expr_0}") == 2
@@ -119,7 +119,7 @@ def test_scheduled_pipeline_reduces_measured_logic_depth(tmp_path: Path) -> None
     from zlang.ir import expressions as expression_ir
     from zlang.pipeline_scheduling import erase_pipeline_timing
 
-    result = compile_source(SOURCE, include_clash=False)
+    result = compile_source(SOURCE)
     assignment = next(item for item in result.ir.assignments if item.target.name == "y")
     base = erase_pipeline_timing(assignment.expression)
     legacy = replace(
@@ -155,6 +155,6 @@ def test_scheduled_pipeline_reduces_measured_logic_depth(tmp_path: Path) -> None
 @pytest.mark.skipif(shutil.which("verilator") is None, reason="Verilator required")
 def test_direct_sv_staged_pipeline_is_cycle_exact(tmp_path: Path) -> None:
     rtl = tmp_path / "GeneralExpressionPipeline.sv"
-    rtl.write_text(emit_experimental(compile_source(SOURCE, include_clash=False).ir))
+    rtl.write_text(emit_experimental(compile_source(SOURCE).ir))
     lint_with_verilator((rtl,), "GeneralExpressionPipeline")
     _build_and_run((rtl,), tmp_path)

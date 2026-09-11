@@ -9,8 +9,6 @@ import subprocess
 
 import pytest
 
-from tests.toolchain import CLASH_EXECUTABLE
-from zlang.backend.clash import emit as emit_clash
 from zlang.backend.manifest import BackendArtifact
 from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
 from zlang.compiler import compile_source
@@ -21,7 +19,7 @@ from zlang.ir.module import PortDirection
 from zlang.ir.types import UIntType
 from zlang.semantic import SemanticError
 from zlang.simulate import simulate_cycles
-from zlang.toolchain import generate_verilog, lint_with_verilator
+from zlang.toolchain import lint_with_verilator
 
 
 SOURCE = """
@@ -77,7 +75,7 @@ module GeneratedRvArrays {
 
 
 def _module():
-    return compile_source(SOURCE, include_clash=False).ir
+    return compile_source(SOURCE).ir
 
 
 def _cycles() -> list[dict[str, object]]:
@@ -192,7 +190,7 @@ def test_canonical_reused_specialization_accepts_deepcopied_equivalent_child() -
 
 
 def test_generated_ready_valid_array_connections_resolve_binder_physically() -> None:
-    module = compile_source(GENERATED_SOURCE, include_clash=False).ir
+    module = compile_source(GENERATED_SOURCE).ir
     assert [
         (edge.source.owner, edge.destination.owner)
         for edge in module.hierarchical_connections
@@ -212,23 +210,6 @@ def test_ready_valid_array_simulation_preserves_independent_state_stall_and_rese
     assert result[2]["output1"]["transfer"] == 1
 
 
-def test_direct_sv_and_clash_use_one_specialization_and_distinct_applications() -> None:
-    module = _module()
-    first = emit_sv_artifact(module)
-    second = emit_sv_artifact(module)
-    clash = emit_clash(module)
-
-    assert first.text == second.text
-    assert first.artifact_hash == second.artifact_hash
-    restored = BackendArtifact.from_json(first.to_json())
-    assert restored.to_json() == first.to_json()
-    suffix = module.elaborated_instances[0].specialization_identity[:8]
-    assert first.text.count(f"module StatefulRvLane_s{suffix}") == 1
-    assert first.text.count(f"StatefulRvLane_s{suffix}") == 3
-    assert "lane[0]" not in first.text
-    assert clash.count(f"protocol_statefulRvLane_s{suffix} ::") == 1
-    assert clash.count(f"result = protocol_statefulRvLane_s{suffix}") == 2
-    assert "lane[0]" not in clash
 
 
 @pytest.mark.parametrize(
@@ -248,7 +229,7 @@ def test_invalid_ready_valid_array_selector_is_precise(
             "in input0 : rv<u8>", "in input0 : rv<u8>\n    in select : u1"
         )
     with pytest.raises(SemanticError, match=diagnostic):
-        compile_source(source, include_clash=False)
+        compile_source(source)
 
 
 @pytest.mark.parametrize(
@@ -274,7 +255,7 @@ def test_ready_valid_array_scope_boundaries_are_explicit(
     source: str, diagnostic: str,
 ) -> None:
     with pytest.raises(SemanticError, match=diagnostic):
-        compile_source(source, include_clash=False)
+        compile_source(source)
 
 
 @pytest.mark.parametrize("storage", ("memory", "rom"))
@@ -303,7 +284,7 @@ module Top {
 }
 """.replace("STORAGE", declaration)
     with pytest.raises(SemanticError, match="not synchronous memory or initialized ROM"):
-        compile_source(source, include_clash=False)
+        compile_source(source)
 
 
 def test_canonical_ready_valid_array_rejects_malformed_physical_endpoints() -> None:
@@ -446,18 +427,3 @@ def test_direct_sv_ready_valid_array_passes_real_verilator(tmp_path: Path) -> No
     rtl = tmp_path / "StatefulRvArray.sv"
     rtl.write_text(emit_sv_artifact(_module()).text)
     _verilate(tmp_path, (rtl,))
-
-
-@pytest.mark.skipif(
-    CLASH_EXECUTABLE is None or shutil.which("verilator") is None,
-    reason="real Clash 1.11 and Verilator are required",
-)
-def test_clash_ready_valid_array_passes_real_clash_and_verilator(
-    tmp_path: Path,
-) -> None:
-    module = _module()
-    rtl = generate_verilog(
-        emit_clash(module), module.name, tmp_path / "rtl", CLASH_EXECUTABLE
-    )
-    lint_with_verilator(rtl, module.name)
-    _verilate(tmp_path, tuple(rtl))

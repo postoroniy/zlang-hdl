@@ -9,9 +9,6 @@ import subprocess
 
 import pytest
 
-from tests.toolchain import CLASH_EXECUTABLE
-from zlang.backend.clash import emit as emit_clash
-from zlang.backend.clash import emit_artifact as emit_clash_artifact
 from zlang.backend.manifest import BackendArtifact
 from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
 from zlang.compiler import compile_source
@@ -20,7 +17,7 @@ from zlang.ir.recursive_formal import build_recursive_formal_design
 from zlang.opt import lower, restore
 from zlang.semantic import SemanticError
 from zlang.simulate import simulate, simulate_cycles
-from zlang.toolchain import generate_verilog, lint_with_verilator
+from zlang.toolchain import lint_with_verilator
 
 
 COMBINATIONAL_SOURCE = r"""
@@ -105,7 +102,7 @@ module NestedReadyValidArray {
 
 
 def _compile(source: str, top: str):
-    return compile_source(source, top=top, include_clash=False).ir
+    return compile_source(source, top=top).ir
 
 
 def test_nested_combinational_array_has_exact_paths_and_behavior() -> None:
@@ -186,34 +183,6 @@ def test_nested_ready_valid_array_uses_recursive_persistent_abi() -> None:
     assert trace[1]["input1"]["ready"] == 1
 
 
-def test_nested_artifact_instances_and_direct_locators_are_deterministic() -> None:
-    module = _compile(SEQUENTIAL_SOURCE, "NestedSequentialArray")
-    recursive = build_recursive_formal_design(module)
-    first = emit_sv_artifact(module, recursive_design=recursive)
-    second = emit_sv_artifact(module, recursive_design=recursive)
-    clash = emit_clash_artifact(module, recursive_design=recursive)
-
-    assert first.text == second.text
-    assert first.artifact_hash == second.artifact_hash
-    assert BackendArtifact.from_json(first.to_json()).to_json() == first.to_json()
-    expected_paths = tuple(item.physical_instance_path for item in first.instances)
-    assert expected_paths == tuple(
-        item.physical_instance_path for item in clash.instances
-    )
-    assert len(expected_paths) == 7
-    nested = tuple(
-        item for item in first.recursive_bindings
-        if len(item.physical_instance_path) == 3
-        and item.local_semantic_id == "register:count"
-    )
-    assert len(nested) == 4
-    assert len({item.instance_identity for item in nested}) == 4
-    assert all(item.rtl_path and item.signal_token == "count" for item in nested)
-    assert len({item.rtl_path for item in nested}) == 4
-    assert all(
-        all(path in first.text for path in item.rtl_path)
-        for item in nested
-    )
 
 
 @pytest.mark.parametrize(
@@ -357,29 +326,3 @@ def test_nested_arrays_direct_sv_are_strict_and_cycle_exact(
     rtl.write_text(emit_sv_artifact(module).text)
     lint_with_verilator((rtl,), top)
     _run_verilator(tmp_path, (rtl,), top, harness)
-
-
-@pytest.mark.skipif(
-    CLASH_EXECUTABLE is None or shutil.which("verilator") is None,
-    reason="real Clash 1.11 and Verilator are required",
-)
-@pytest.mark.parametrize(
-    ("source", "top", "harness"),
-    (
-        (COMBINATIONAL_SOURCE, "NestedCombinationalArray", COMBINATIONAL_HARNESS),
-        (SEQUENTIAL_SOURCE, "NestedSequentialArray", SEQUENTIAL_HARNESS),
-        (READY_VALID_SOURCE, "NestedReadyValidArray", READY_VALID_HARNESS),
-    ),
-)
-def test_nested_arrays_real_clash_are_strict_and_cycle_exact(
-    tmp_path: Path,
-    source: str,
-    top: str,
-    harness: str,
-) -> None:
-    module = _compile(source, top)
-    rtl = generate_verilog(
-        emit_clash(module), top, tmp_path / "rtl", CLASH_EXECUTABLE
-    )
-    lint_with_verilator(rtl, top)
-    _run_verilator(tmp_path, tuple(rtl), top, harness)

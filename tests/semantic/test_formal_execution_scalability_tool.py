@@ -36,7 +36,6 @@ def _bundle(directory: Path):
     compilation = compile_source(
         SOURCE,
         top="FormalBenchmarkFixture",
-        include_clash=False,
     )
     publish_compilation_verification_bundle(compilation, directory)
     return load_verification_bundle(directory)

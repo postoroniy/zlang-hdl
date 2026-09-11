@@ -134,9 +134,9 @@ fields retain validated compatibility defaults.
 Automatic target planning is intentionally limited to the symmetric-FIR and
 signed-product direct-SV regions above. BRAM, PLL/MMCM, Intel physical planning,
 arbitrary graph covering, II-changing sharing, and automatic fixed
-transformations are not enabled. Clash remains the generic/reference backend.
-Existing formal infrastructure is unchanged and no primitive-level proof claim
-is made.
+transformations are not enabled. Generic direct SystemVerilog remains the
+fallback implementation. Existing formal infrastructure is unchanged and no
+primitive-level proof claim is made.
 
 Reproduce physical validation with:
 

@@ -5583,7 +5583,7 @@ def _expression(expression: expr.Expression) -> str:
             # Generate/map are semantically unrolled vectors by this stage;
             # preserve their packed element structure instead of treating the
             # vector as a reduction.  The element order matches the canonical
-            # Vec layout used by VectorIndex and the Clash emitter.
+            # Canonical Vec layout used by VectorIndex.
             return "{" + ", ".join(
                 _expression(element) for element in expression.elements
             ) + "}"

@@ -13,14 +13,14 @@ class ExplorationM34Tests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             source = root / "example.zhl"
-            output = root / "Example.hs"
+            output = root / "Example.sv"
             report = root / "Example.explore"
             source.write_text(
                 "module Example { in a:u8 out y:u8 "
                 "y=implement { a intent { minimize lut } } }"
             )
             self.assertEqual(
-                main([str(source), "-o", str(output), "--exploration-report", str(report)]),
+                main([str(source), "--systemverilog", str(output), "--exploration-report", str(report)]),
                 0,
             )
             self.assertIn("Implementation selection", report.read_text())
@@ -98,7 +98,6 @@ class ExplorationM34Tests(unittest.TestCase):
             "in a:u8 in b:u8 in c:u8 in d:u8 in e:u8 in f:u25 out y:u26 "
             "y=implement { (a*b+c*d)*e+f intent { "
             "latency == 3 ii == 1 maximize fmax } } }",
-            include_clash=False,
         )
         selected = result.exploration_results[0].selected_candidate
         self.assertIn("pipeline:dag_partition_3", selected.stages)
@@ -116,7 +115,6 @@ class ExplorationM34Tests(unittest.TestCase):
             "in a:u8 in b:u8 in c:u8 out y:u17 "
             "y=implement { (a+b)*c intent { "
             "latency >= 2 ii == 1 minimize ff } } }",
-            include_clash=False,
         )
         latencies = {
             item.architecture.latency
@@ -133,7 +131,7 @@ class ExplorationM34Tests(unittest.TestCase):
             "latency <= 2 ii == 1 fmax >= 5000 maximize fmax } } }"
         )
         with self.assertRaises(SemanticError) as raised:
-            compile_source(source, include_clash=False)
+            compile_source(source)
         message = str(raised.exception)
         self.assertIn("expression critical stage", message)
         self.assertIn("requested Fmax 5000 MHz", message)

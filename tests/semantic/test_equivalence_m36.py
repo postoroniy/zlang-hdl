@@ -27,7 +27,7 @@ class EquivalenceM36Tests(unittest.TestCase):
         entries = []
         for side, backend, module, path, artifact in (
             (BindingSide.REFERENCE, "zlang-reference", "Ref", "y", ref_hash),
-            (BindingSide.IMPLEMENTATION, "clash", "Impl", "y", impl_hash),
+            (BindingSide.IMPLEMENTATION, "direct_systemverilog", "Impl", "y", impl_hash),
         ):
             entries.append(EquivalenceBinding(2, side, "x", selected, module, "x", 8, "unsigned", SignalRole.INPUT, "clk", "rst", backend, artifact))
             entries.append(EquivalenceBinding(2, side, "y", selected, module, path, 8, "unsigned", SignalRole.OUTPUT, "clk", "rst", backend, artifact))
@@ -63,7 +63,7 @@ class EquivalenceM36Tests(unittest.TestCase):
                 out y : u8
                 y = identity(x)
             }
-        """, include_clash=False)
+        """)
         module = compilation.ir
         assignment = module.assignments[0]
 
@@ -89,7 +89,7 @@ class EquivalenceM36Tests(unittest.TestCase):
                 out y : u13
                 y = sum(generate(i in 0..32) x[i])
             }
-        """, include_clash=False)
+        """)
         module = compilation.ir
         assignment = module.assignments[0]
 
@@ -324,7 +324,7 @@ class EquivalenceM36Tests(unittest.TestCase):
         entries = []
         for side, backend, module, artifact in (
             (BindingSide.REFERENCE, "zlang-reference", "Ref", "ref"),
-            (BindingSide.IMPLEMENTATION, "clash", "Impl", "impl"),
+            (BindingSide.IMPLEMENTATION, "direct_systemverilog", "Impl", "impl"),
         ):
             input_paths = (
                 "zlang_formal_reset_active",
@@ -444,7 +444,6 @@ class EquivalenceM36Tests(unittest.TestCase):
                 y = x
             }
             """,
-            include_clash=False,
         ).ir
         names = {"port:x": "x", "port:y": "y", "clock": "clk", "reset": "arst_n"}
         published = publish_bindings(
@@ -471,7 +470,6 @@ class EquivalenceM36Tests(unittest.TestCase):
                 rx.ready = tx.ready
             }
             """,
-            include_clash=False,
         ).ir
         names = {
             "port:rx": "rx",
@@ -510,7 +508,6 @@ class EquivalenceM36Tests(unittest.TestCase):
                 y = bus.value
             }
             """,
-            include_clash=False,
         ).ir
         self.assertTrue(module.aggregate_protocol_endpoints)
         self.assertTrue(all(port.protocol.value == "wire" for port in module.ports))
@@ -586,7 +583,7 @@ class EquivalenceM36Tests(unittest.TestCase):
     def test_binding_width_signedness_artifact_duplicate_and_missing_diagnostics(self):
         with self.assertRaisesRegex(EquivalenceError, "type/role mismatch"):
             bad = list(self.bindings().entries)
-            bad[next(index for index, item in enumerate(bad) if item.side is BindingSide.IMPLEMENTATION and item.semantic_signal_id == "y")] = EquivalenceBinding(2, BindingSide.IMPLEMENTATION, "y", "source", "Impl", "y", 7, "unsigned", SignalRole.OUTPUT, "clk", "rst", "clash", "impl")
+            bad[next(index for index, item in enumerate(bad) if item.side is BindingSide.IMPLEMENTATION and item.semantic_signal_id == "y")] = EquivalenceBinding(2, BindingSide.IMPLEMENTATION, "y", "source", "Impl", "y", 7, "unsigned", SignalRole.OUTPUT, "clk", "rst", "direct_systemverilog", "impl")
             BindingMap(tuple(bad)).validate()
         with self.assertRaisesRegex(EquivalenceError, "type"):
             from zlang.ir.types import SIntType
@@ -600,12 +597,12 @@ class EquivalenceM36Tests(unittest.TestCase):
 
     def test_result_statuses_and_missing_solver(self):
         prop = make_equivalence_property(self.x, self.x, candidate_class="m27", reference_root="r", implementation_root="i")
-        result = unavailable_result(prop, backend="clash", reason="solver unavailable", mode=EquivalenceMode.BMC, depth=10)
+        result = unavailable_result(prop, backend="direct_systemverilog", reason="solver unavailable", mode=EquivalenceMode.BMC, depth=10)
         self.assertEqual(result.status, EquivalenceStatus.SKIPPED)
         from zlang.ir.equivalence import classify_equivalence
-        bounded = classify_equivalence(property_id="p", mode=EquivalenceMode.BMC, outcome="pass", relation_kind=EquivalenceRelation.SAME_CYCLE_VALUE, latency_delta=0, backend="clash", reference_hash="r", implementation_hash="i", binding_map_version=2, candidate_identity="i", depth=8)
+        bounded = classify_equivalence(property_id="p", mode=EquivalenceMode.BMC, outcome="pass", relation_kind=EquivalenceRelation.SAME_CYCLE_VALUE, latency_delta=0, backend="direct_systemverilog", reference_hash="r", implementation_hash="i", binding_map_version=2, candidate_identity="i", depth=8)
         self.assertEqual(bounded.status, EquivalenceStatus.BOUNDED_PASS)
-        proven = classify_equivalence(property_id="p", mode=EquivalenceMode.PROVE, outcome="pass", relation_kind=EquivalenceRelation.SAME_CYCLE_VALUE, latency_delta=0, backend="clash", reference_hash="r", implementation_hash="i", binding_map_version=2, candidate_identity="i", depth=8)
+        proven = classify_equivalence(property_id="p", mode=EquivalenceMode.PROVE, outcome="pass", relation_kind=EquivalenceRelation.SAME_CYCLE_VALUE, latency_delta=0, backend="direct_systemverilog", reference_hash="r", implementation_hash="i", binding_map_version=2, candidate_identity="i", depth=8)
         self.assertEqual(proven.status, EquivalenceStatus.PROVEN)
 
 

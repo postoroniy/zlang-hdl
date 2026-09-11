@@ -7,17 +7,11 @@ import subprocess
 
 import pytest
 
-from tests.toolchain import CLASH_EXECUTABLE
-from zlang.backend.clash import emit_artifact as emit_clash_artifact
-from zlang.backend.clash.public_wrapper import (
-    ClashPublicTopWrapper,
-    bind_artifact_to_public_wrapper,
-)
 from zlang.backend.systemverilog import emit_artifact
 from zlang.compiler import compile_source
 from zlang.parser import parse
 from zlang.simulate import simulate
-from zlang.toolchain import generate_verilog, lint_with_verilator
+from zlang.toolchain import lint_with_verilator
 
 
 COMPLEX_SUM_SOURCE = """
@@ -121,7 +115,7 @@ def _verilate_and_run(
 
 
 def test_small_complex_nominal_sum_is_bit_exact_in_semantic_simulation() -> None:
-    module = compile_source(COMPLEX_SUM_SOURCE, include_clash=False).ir
+    module = compile_source(COMPLEX_SUM_SOURCE).ir
     result = simulate(
         module,
         x=(
@@ -162,7 +156,7 @@ def test_direct_sv_nominal_sum_and_generated_generic_are_strict_and_bit_exact(
     bench: str,
     suffix: str,
 ) -> None:
-    artifact = emit_artifact(compile_source(source, include_clash=False).ir)
+    artifact = emit_artifact(compile_source(source).ir)
     rtl = tmp_path / f"{top}.sv"
     rtl.write_text(artifact.text)
     lint_with_verilator((rtl,), top)
@@ -174,7 +168,7 @@ def test_direct_sv_ifft_complex_reduction_handles_negative_twiddles_and_reserved
     tmp_path: Path,
 ) -> None:
     module = compile_source(
-        IFFT_COMPLEX_REDUCTION_SOURCE, include_clash=False
+        IFFT_COMPLEX_REDUCTION_SOURCE
     ).ir
     artifact = emit_artifact(module)
     assert "16'sd-" not in artifact.text
@@ -191,74 +185,3 @@ def test_direct_sv_ifft_complex_reduction_handles_negative_twiddles_and_reserved
     rtl = tmp_path / "IFFTComplexReductionBlocker.sv"
     rtl.write_text(artifact.text)
     lint_with_verilator((rtl,), "IFFTComplexReductionBlocker")
-
-
-@pytest.mark.skipif(
-    CLASH_EXECUTABLE is None or shutil.which("verilator") is None,
-    reason="real Clash 1.11 and Verilator are required",
-)
-@pytest.mark.parametrize(
-    ("source", "top", "bench", "suffix"),
-    (
-        (
-            COMPLEX_SUM_SOURCE,
-            "ComplexSumRTL",
-            COMPLEX_SUM_BENCH,
-            "complex_sum_clash",
-        ),
-        (
-            GENERATED_GENERIC_SOURCE,
-            "GeneratedGenericRTL",
-            GENERATED_GENERIC_BENCH,
-            "generated_generic_clash",
-        ),
-    ),
-)
-def test_real_clash_nominal_sum_and_generated_generic_are_strict_and_bit_exact(
-    tmp_path: Path,
-    source: str,
-    top: str,
-    bench: str,
-    suffix: str,
-) -> None:
-    compilation = compile_source(source)
-    rtl = generate_verilog(
-        compilation.clash,
-        top,
-        tmp_path / f"{suffix}_rtl",
-        CLASH_EXECUTABLE,
-        public_wrapper=ClashPublicTopWrapper.build(compilation.ir),
-    )
-    lint_with_verilator(rtl, top)
-    _verilate_and_run(tmp_path, tuple(rtl), bench, suffix)
-
-
-@pytest.mark.skipif(
-    CLASH_EXECUTABLE is None or shutil.which("verilator") is None,
-    reason="real Clash 1.11 and Verilator are required",
-)
-def test_real_clash_ifft_complex_reduction_mangles_reserved_rtl_ports(
-    tmp_path: Path,
-) -> None:
-    compilation = compile_source(IFFT_COMPLEX_REDUCTION_SOURCE)
-    wrapper = ClashPublicTopWrapper.build(compilation.ir)
-    artifact = bind_artifact_to_public_wrapper(
-        emit_clash_artifact(compilation.ir), wrapper
-    )
-    bindings = {
-        item.semantic_signal_id: item.rtl_path for item in artifact.bindings
-    }
-    assert bindings["port:input"] == ""
-    assert bindings["port:output"] == ""
-    assert bindings["port:input.re"] == "input_re"
-    assert bindings["port:input.im"] == "input_im"
-    assert bindings["port:output.re"] == "output_re"
-    assert bindings["port:output.im"] == "output_im"
-    rtl = generate_verilog(
-        compilation.clash,
-        "IFFTComplexReductionBlocker",
-        tmp_path / "ifft_complex_reduction_clash_rtl",
-        CLASH_EXECUTABLE,
-        public_wrapper=wrapper,
-    )
-    lint_with_verilator(rtl, "IFFTComplexReductionBlocker")

@@ -20,11 +20,11 @@ the tool that produced it.
 
 | Material | Current implementation | Distribution consideration |
 |---|---|---|
-| User design translated from typed IR | Direct-SV or Clash source emission | The compiler's license does not automatically license the user's design |
+| User design translated from typed IR | Direct-SystemVerilog emission | The compiler's license does not automatically license the user's design |
 | Source-authored standard-library components | `stdlib/**/*.zhl`, elaborated into the design | Preserve the applicable input/library notices; translation is not evidence that all obligations disappear |
 | Reusable compiler helper bodies | FIFO, reset, protocol, wrapper and simulation helper rendering | Distinguish generated design structure from implementation material carried into the output |
 | ROM companion images | Exact bits computed from typed constants | Retain the provenance of the initializer, coefficients and imported data |
-| External-tool-generated HDL or models | Clash-generated Verilog; separately supplied vendor models | Review the applicable tool component, template and model terms |
+| External-tool-generated HDL or models | Separately supplied vendor models or synthesis products | Review the applicable tool component, template and model terms |
 | Committed generated examples and test fixtures | Files distributed in this repository | Follow their recorded repository or adjacent license, rather than treating them as arbitrary user output |
 
 Where a distribution includes Apache-licensed material or derivative material
@@ -33,40 +33,6 @@ the license copy, applicable notices and modification notices. This is a
 conditional statement about included material, not a declaration that every
 generated HDL file is a derivative of the compiler. See
 [Apache-2.0, sections 1 and 4](https://www.apache.org/licenses/LICENSE-2.0).
-
-## Clash-generated files
-
-The [Clash project](https://clash-lang.org/) identifies its license as BSD2.
-The inspected Clash 1.11 source checkout contains two-condition redistribution
-licenses at `LICENSE` and `clash-lib/LICENSE`; their copyright-year lists are
-not identical. Retain the exact license for the component and version used,
-rather than replacing it with ZLang's Apache license.
-
-The inspected `clash-lib` includes actual HDL templates, for example:
-
-```text
-clash-lib/prims/verilog/Clash_Explicit_ROM_File.primitives.yaml
-clash-lib/prims/verilog/Clash_Explicit_BlockRam.primitives.yaml
-```
-
-Those templates contain ROM and block-RAM declarations, initialization and
-clocked read/write logic. This is a concrete template-output review surface,
-not merely the name of an external executable.
-
-When redistributing Clash source or template material covered by its inspected
-license, retain the copyright notice, conditions and disclaimer. For binary
-redistribution of that material, reproduce them in accompanying documentation
-or other distribution materials. Determine whether and how these requirements
-apply to the particular generated/template-derived material being shipped;
-no general generated-HDL exemption was found in the license and template paths
-reviewed. This document does not conclude that all Clash-generated designs
-have one blanket license or require disclosure of the user's design source.
-
-ZLang's [Clash invocation](../../zlang/toolchain.py) publishes the fresh generated
-Verilog files byte-for-byte, with the ZLang public wrapper and ROM companions.
-It does not automatically collect upstream license companions. Distributors
-must therefore review the resulting bundle and retain applicable notices
-themselves; a successful compiler or simulation run is not an attribution check.
 
 ## Helpers and physical resources
 

@@ -10,11 +10,9 @@ import pytest
 from zlang.backend.manifest import BackendArtifact
 from zlang.backend.systemverilog import emit_artifact, emit_experimental
 from zlang.compiler import compile_source
-from zlang.toolchain import find_clash_executable, generate_verilog
 
 
 VERILATOR = shutil.which("verilator")
-CLASH = find_clash_executable()
 
 SOURCE = """
 module RuleMemory {
@@ -87,11 +85,3 @@ def test_rule_local_memory_direct_sv_lints_and_simulates(tmp_path: Path) -> None
         check=True, capture_output=True, text=True,
     )
     _simulate([rtl], tmp_path)
-
-
-@pytest.mark.skipif(CLASH is None or VERILATOR is None, reason="Clash or Verilator unavailable")
-def test_rule_local_memory_clash_lints_and_simulates(tmp_path: Path) -> None:
-    result = compile_source(SOURCE)
-    assert "table_read_data_next" in result.clash
-    files = generate_verilog(result.clash, "RuleMemory", tmp_path / "rtl", CLASH)
-    _simulate(files, tmp_path)

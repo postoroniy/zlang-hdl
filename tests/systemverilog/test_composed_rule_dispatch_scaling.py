@@ -392,12 +392,10 @@ def test_27_independent_register_rules_use_bounded_child_dispatch(
     standalone = compile_source(
         INDEPENDENT_RULE_SOURCE,
         top="IndependentRuleChild",
-        include_clash=False,
     ).ir
     wrapper = compile_source(
         INDEPENDENT_RULE_SOURCE,
         top="IndependentRuleWrapper",
-        include_clash=False,
     ).ir
     transition = wrapper.children[0].resolved_transition
     assert transition is not None
@@ -485,12 +483,10 @@ def test_conflicting_priority_group_keeps_losing_side_effect_atomic() -> None:
     standalone = compile_source(
         PRIORITY_ATOMIC_SOURCE,
         top="PriorityAtomicChild",
-        include_clash=False,
     ).ir
     wrapper = compile_source(
         PRIORITY_ATOMIC_SOURCE,
         top="PriorityAtomicWrapper",
-        include_clash=False,
     ).ir
     transition = wrapper.children[0].resolved_transition
     assert transition is not None
@@ -716,28 +712,24 @@ def test_standalone_and_composed_rule_dispatch_match_in_verilator(
             compile_source(
                 INDEPENDENT_RULE_SOURCE,
                 top="IndependentRuleChild",
-                include_clash=False,
             ).ir
         ),
         emit_artifact(
             compile_source(
                 INDEPENDENT_RULE_SOURCE,
                 top="IndependentRuleWrapper",
-                include_clash=False,
             ).ir
         ),
         emit_artifact(
             compile_source(
                 PRIORITY_ATOMIC_SOURCE,
                 top="PriorityAtomicChild",
-                include_clash=False,
             ).ir
         ),
         emit_artifact(
             compile_source(
                 PRIORITY_ATOMIC_SOURCE,
                 top="PriorityAtomicWrapper",
-                include_clash=False,
             ).ir
         ),
     )
@@ -850,7 +842,7 @@ def test_standalone_dedicated_dispatch_does_not_fall_into_unified_state(
         forbidden_unified_state,
     )
     text = emit_artifact(
-        compile_source(source, top=top, include_clash=False).ir
+        compile_source(source, top=top).ir
     ).text
     for marker in markers:
         assert marker in text
@@ -886,7 +878,7 @@ def test_scheduled_storage_remains_on_the_unified_transition_path(
 
     monkeypatch.setattr(sv_emitter, "_emit_unified_state_module", counted)
     text = emit_artifact(
-        compile_source(source, top=top, include_clash=False).ir
+        compile_source(source, top=top).ir
     ).text
 
     assert calls == [top]
@@ -908,7 +900,6 @@ def test_mixed_global_fifo_and_user_rules_still_fail_closed(
     module = compile_source(
         MIXED_GLOBAL_FIFO_SOURCE,
         top="MixedGlobalFifoState",
-        include_clash=False,
     ).ir
     with pytest.raises(
         SystemVerilogEmissionError,
@@ -924,7 +915,7 @@ def test_one_emission_fingerprints_each_exact_module_object_at_most_once(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     module = compile_source(
-        CACHE_SOURCE, top="CacheTop", include_clash=False
+        CACHE_SOURCE, top="CacheTop"
     ).ir
     copied = deepcopy(module)
     unrelated = compile_source(
@@ -932,7 +923,6 @@ def test_one_emission_fingerprints_each_exact_module_object_at_most_once(
         "module OtherTop { in x:u8 out y:u8 inst child:OtherLeaf { x } "
         "y=child.y }",
         top="OtherTop",
-        include_clash=False,
     ).ir
     original_fingerprint = ir_hierarchy.specialization_fingerprint
     calls: dict[str, list[object]] = {
@@ -976,7 +966,6 @@ def test_emission_cache_does_not_hide_malformed_shared_specialization() -> None:
     module = compile_source(
         MALFORMED_SPECIALIZATION_SOURCE,
         top="WidthTop",
-        include_clash=False,
     ).ir
     first, second = module.elaborated_instances
     malformed = replace(

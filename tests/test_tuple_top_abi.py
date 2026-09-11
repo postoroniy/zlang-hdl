@@ -15,7 +15,7 @@ module TupleLeafABI {
 
 def test_nested_tuple_public_leaves_have_positional_names_and_exact_slices() -> None:
     abi = build_top_physical_abi(
-        compile_source(SOURCE, include_clash=False).ir
+        compile_source(SOURCE).ir
     )
     leaves = {leaf.leaf_semantic_id: leaf for leaf in abi.leaves}
 
@@ -65,7 +65,7 @@ def test_vector_of_tuples_preserves_public_arrays_and_msb_first_aos_slices() -> 
     }
     """
     abi = build_top_physical_abi(
-        compile_source(source, include_clash=False).ir
+        compile_source(source).ir
     )
     leaves = {leaf.leaf_semantic_id: leaf for leaf in abi.leaves}
 

@@ -11,9 +11,9 @@
     "architecture": "x86_64"
   },
   "validation": {
-    "minimum_tests_passed": 3500,
-    "minimum_tests_collected": 3900,
-    "maximum_tests_skipped": 400,
+    "minimum_tests_passed": 3200,
+    "minimum_tests_collected": 3200,
+    "maximum_tests_skipped": 0,
     "example_corpus": {
       "source_files": 88,
       "module_roots": 182,

@@ -3,12 +3,11 @@ import shutil
 import tempfile
 import unittest
 
-from tests.toolchain import CLASH_EXECUTABLE
 from zlang.cli import main
 from zlang.compiler import compile_source
 from zlang.opt import render, restore
 from zlang.simulate import simulate_cycles
-from zlang.toolchain import generate_verilog, lint_with_verilator
+from zlang.toolchain import lint_with_verilator
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -23,8 +22,8 @@ class CanonicalMetadataIntegrationTests(unittest.TestCase):
             status = main(
                 [
                     str(ROOT / "examples/cost_mac.zhl"),
-                    "-o",
-                    str(directory / "CostMac.hs"),
+                    "--systemverilog",
+                    str(directory / "CostMac.sv"),
                     "--high-level-ir",
                     str(high),
                     "--optimization-ir",
@@ -60,22 +59,6 @@ class CanonicalMetadataIntegrationTests(unittest.TestCase):
             [{"y": 0}, {"y": 0}, {"y": 8}],
         )
 
-    @unittest.skipUnless(
-        CLASH_EXECUTABLE and shutil.which("verilator"),
-        "Clash and Verilator are required",
-    )
-    def test_metadata_example_generates_and_lints_verilog(self) -> None:
-        compilation = compile_source(
-            (ROOT / "examples/metadata_datapath.zhl").read_text()
-        )
-        with tempfile.TemporaryDirectory() as temporary:
-            verilog = generate_verilog(
-                compilation.clash,
-                compilation.ir.name,
-                Path(temporary),
-                CLASH_EXECUTABLE,
-            )
-            lint_with_verilator(verilog, compilation.ir.name)
 
 
 if __name__ == "__main__":

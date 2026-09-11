@@ -23,12 +23,6 @@ import sys
 
 import pytest
 
-from tests.toolchain import CLASH_EXECUTABLE
-from zlang.backend.clash import emit_artifact as emit_clash_artifact
-from zlang.backend.clash.public_wrapper import (
-    ClashPublicTopWrapper,
-    bind_artifact_to_public_wrapper,
-)
 from zlang.backend.manifest import BackendArtifact
 from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
 from zlang.compiler import compile_file
@@ -37,7 +31,7 @@ from zlang.ir.functional_regions import evaluate_compile_time
 from zlang.ir.types import FixedType, StructType, VecType
 from zlang.opt import OptimizationStage, lower, restore
 from zlang.simulate import simulate
-from zlang.toolchain import generate_verilog, lint_with_verilator
+from zlang.toolchain import lint_with_verilator
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -291,7 +285,7 @@ def _region_twiddle_row(
 
 @pytest.fixture(scope="module")
 def ifft64_compilation():
-    return compile_file(SOURCE64, top=TOP64, include_clash=False)
+    return compile_file(SOURCE64, top=TOP64)
 
 
 def test_independent_inverse_twiddle_and_reference_images_are_frozen() -> None:
@@ -451,13 +445,13 @@ from time import perf_counter
 from zlang.compiler import compile_file
 from zlang.opt import OptimizationStage, lower, restore
 started = perf_counter()
-result = compile_file(sys.argv[1], top="IFFT64WholeVectorElaboration", include_clash=False)
+result = compile_file(sys.argv[1], top="IFFT64WholeVectorElaboration")
 semantic_elapsed = perf_counter() - started
 semantic_rss_kib = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
 canonical = lower(result.ir, stage=OptimizationStage.HIGH_LEVEL)
 assert restore(canonical) == result.ir
 first_rss_kib = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-second = compile_file(sys.argv[1], top="IFFT64WholeVectorElaboration", include_clash=False)
+second = compile_file(sys.argv[1], top="IFFT64WholeVectorElaboration")
 second_canonical = lower(second.ir, stage=OptimizationStage.HIGH_LEVEL)
 assert restore(second_canonical) == second.ir
 assert tuple(item.callee_identity for item in result.ir.callable_definitions) == tuple(
@@ -558,7 +552,7 @@ endmodule
 @pytest.mark.parametrize("size", (8, 16))
 def test_bounded_ifft_witness_semantic_simulator_is_bit_exact(size: int) -> None:
     top = f"IFFT{size}WholeVectorWitness"
-    module = compile_file(WITNESS_SOURCE, top=top, include_clash=False).ir
+    module = compile_file(WITNESS_SOURCE, top=top).ir
     for marker, samples in ((0, _fixture(size)), (1, tuple(reversed(_fixture(size))))):
         actual = simulate(module, input=_message(samples, marker))["output"]
         assert actual["new_message"] == marker
@@ -600,7 +594,7 @@ def test_direct_sv_bounded_ifft_witness_is_bit_exact(
     tmp_path: Path, size: int
 ) -> None:
     top = f"IFFT{size}WholeVectorWitness"
-    module = compile_file(WITNESS_SOURCE, top=top, include_clash=False).ir
+    module = compile_file(WITNESS_SOURCE, top=top).ir
     artifact = emit_sv_artifact(module)
     repeated = emit_sv_artifact(module)
     assert artifact.text == repeated.text
@@ -623,50 +617,3 @@ def test_direct_sv_bounded_ifft_witness_is_bit_exact(
     rtl.write_text(artifact.text)
     lint_with_verilator((rtl,), top)
     _verilate_and_run(tmp_path, (rtl,), _bench(size), f"sv_{size}")
-
-
-@pytest.mark.skipif(
-    CLASH_EXECUTABLE is None or shutil.which("verilator") is None,
-    reason="real Clash 1.11 and Verilator are required",
-)
-@pytest.mark.parametrize("size", (8, 16))
-def test_real_clash_bounded_ifft_witness_is_bit_exact(
-    tmp_path: Path, size: int
-) -> None:
-    top = f"IFFT{size}WholeVectorWitness"
-    compilation = compile_file(WITNESS_SOURCE, top=top)
-    wrapper = ClashPublicTopWrapper.build(compilation.ir)
-    artifact = bind_artifact_to_public_wrapper(
-        emit_clash_artifact(compilation.ir), wrapper
-    )
-    repeated = bind_artifact_to_public_wrapper(
-        emit_clash_artifact(compilation.ir), wrapper
-    )
-    assert artifact.text == repeated.text == compilation.clash
-    assert artifact.artifact_hash == repeated.artifact_hash
-    restored = BackendArtifact.from_json(artifact.to_json())
-    assert restored.artifact_hash == artifact.artifact_hash
-    assert restored.bindings == artifact.bindings
-    bindings = {
-        item.semantic_signal_id: item.rtl_path for item in artifact.bindings
-    }
-    assert bindings["port:input"] == ""
-    assert bindings["port:output"] == ""
-    assert bindings["port:input.new_message"] == "input_new_message"
-    assert bindings["port:input.data.i"] == "input_data_i"
-    assert bindings["port:input.data.q"] == "input_data_q"
-    assert bindings["port:output.new_message"] == "output_new_message"
-    assert bindings["port:output.data.i"] == "output_data_i"
-    assert bindings["port:output.data.q"] == "output_data_q"
-    rtl = generate_verilog(
-        artifact.text,
-        top,
-        tmp_path / f"clash_{size}_rtl",
-        CLASH_EXECUTABLE,
-        companions=artifact.companions,
-        public_wrapper=wrapper,
-    )
-    lint_with_verilator(rtl, top)
-    _verilate_and_run(
-        tmp_path, tuple(rtl), _bench(size), f"clash_{size}"
-    )

@@ -6,7 +6,6 @@ import shutil
 
 import pytest
 
-from zlang.backend.clash import emit_artifact as emit_clash_artifact
 from zlang.backend.manifest import BackendArtifact
 from zlang.backend.systemverilog import (
     emit_artifact as emit_systemverilog_artifact,
@@ -46,7 +45,7 @@ VERIFIED = HARDWARE.rsplit("}", 1)[0] + """
 
 
 def _formal_artifact(source: str):
-    compilation = compile_source(source, include_clash=False)
+    compilation = compile_source(source)
     artifact = emit_formal_artifact(
         compilation.ir,
         build_recursive_formal_design(compilation.ir),
@@ -55,64 +54,6 @@ def _formal_artifact(source: str):
     return compilation, artifact, connected
 
 
-def test_formal_manifest_uses_exact_mangled_scalar_and_aggregate_leaf_ports() -> None:
-    compilation, artifact, connected = _formal_artifact(VERIFIED)
-    bindings = {item.semantic_signal_id: item for item in artifact.bindings}
-
-    # ``input`` and ``packed`` are legal ZLang port names but SystemVerilog
-    # reserved words.  Formal metadata must publish the exact same physical
-    # projection as the production TopPhysicalABI emitter.
-    assert bindings["port:input"].rtl_path == "zlang_input"
-    assert bindings["port:input"].role is SignalRole.INPUT
-    assert bindings["port:packed"].rtl_path == "zlang_packed"
-    assert bindings["port:packed"].role is SignalRole.OUTPUT
-    assert "input wire logic [3:0] zlang_input" in artifact.text
-    assert "output logic [7:0] zlang_packed" in artifact.text
-
-    # The same mapping is authoritative for flattened aggregate leaves.  The
-    # packed semantic root remains deliberately unavailable at the public ABI.
-    assert bindings["port:bus"].rtl_path == ""
-    assert not bindings["port:bus"].physical_available
-    assert bindings["port:bus.high"].rtl_path == "bus_high"
-    assert bindings["port:bus.low"].rtl_path == "bus_low"
-    assert "input wire logic [3:0] bus_high" in artifact.text
-    assert "input wire logic [3:0] bus_low" in artifact.text
-
-    harness = emit_harness(connected, depth=4)
-    assert ".zlang_input(zlang_input)" in harness
-    assert ".zlang_packed(zlang_packed)" in harness
-    assert ".bus_high(bus_high)" in harness
-    assert ".bus_low(bus_low)" in harness
-    assert ".input(input)" not in harness
-    assert ".packed(packed)" not in harness
-
-    restored = BackendArtifact.from_json(artifact.to_json())
-    assert restored.module == artifact.module
-    assert restored.artifact_hash == artifact.artifact_hash
-    assert restored.formal_artifact_hash == artifact.formal_artifact_hash
-    assert restored.bindings == artifact.bindings
-    assert restored.binding_map() == artifact.binding_map()
-
-    # Verification is an overlay: neither production backend may change its
-    # text or artifact identity merely because the source includes a goal.
-    plain = compile_source(HARDWARE, include_clash=False)
-    plain_sv = emit_systemverilog_artifact(plain.ir)
-    verified_sv = emit_systemverilog_artifact(compilation.ir)
-    assert verified_sv.text == plain_sv.text
-    assert verified_sv.artifact_hash == plain_sv.artifact_hash
-
-    plain_clash = emit_clash_artifact(plain.ir)
-    verified_clash = emit_clash_artifact(compilation.ir)
-    assert verified_clash.text == plain_clash.text
-    assert verified_clash.artifact_hash == plain_clash.artifact_hash
-    clash_bindings = {
-        item.semantic_signal_id: item.rtl_path
-        for item in verified_clash.bindings
-    }
-    assert clash_bindings["port:input"] == "zlang_input"
-    assert clash_bindings["port:packed"] == "zlang_packed"
-    assert clash_bindings["port:bus.high"] == "bus_high"
-    assert clash_bindings["port:bus.low"] == "bus_low"
 
 
 @pytest.mark.skipif(

@@ -49,7 +49,7 @@ module Packing {
 
 
 def _compile(source: str):
-    return compile_source(source, include_clash=False).ir
+    return compile_source(source).ir
 
 
 def test_packing_types_nodes_origins_and_runtime_layout_are_exact() -> None:

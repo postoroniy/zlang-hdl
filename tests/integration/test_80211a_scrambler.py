@@ -31,7 +31,7 @@ def _scramble_word(data: int, state: int) -> tuple[int, int]:
 
 
 def _scrambler_module():
-    owner = compile_file(SOURCE, top=TOP, include_clash=False).ir
+    owner = compile_file(SOURCE, top=TOP).ir
     pending = [owner]
     while pending:
         module = pending.pop()

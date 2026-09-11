@@ -28,7 +28,7 @@ from zlang.verification_publication import (
 
 
 class _BoundVerifier:
-    formal_route = "M36_clash"
+    formal_route = "M36_direct_systemverilog"
 
     @staticmethod
     def _identity(candidate) -> dict[str, str]:
@@ -51,7 +51,7 @@ class _BoundVerifier:
             "status": FormalStatus.BOUNDED_PASS,
             "mode": ProofMode.BMC,
             "depth": config.bmc_depth,
-            "backend": "clash",
+            "backend": "direct_systemverilog",
             "engine": "sby",
             "solver": "z3",
             **self._identity(candidate),
@@ -90,7 +90,7 @@ def test_required_proven_counterexample_is_a_valid_m39_attempt() -> None:
         ProofMode.PROVE.value,
         8,
         "m36.test",
-        "M36_clash",
+        "M36_direct_systemverilog",
     )
 
     assert M39AttemptReference.from_data(attempt.to_data()) == attempt
@@ -101,7 +101,6 @@ def test_duplicate_candidate_implementations_are_linked_by_exact_site(
 ) -> None:
     compilation = compile_source(
         DOUBLE_SITE_SOURCE,
-        include_clash=False,
         formal_policy=FormalPolicy.AVAILABLE,
         formal_verifier=_BoundVerifier(),
     )
@@ -146,7 +145,6 @@ def test_formal_policy_off_retains_ledger_but_has_no_m39_attempts(
 ) -> None:
     compilation = compile_source(
         DOUBLE_SITE_SOURCE,
-        include_clash=False,
         formal_policy=FormalPolicy.OFF,
     )
     assert compilation.candidate_site_ledger is not None
@@ -168,7 +166,6 @@ def test_common_evidence_json_rejects_missing_or_corrupted_plan_links(
 ) -> None:
     compilation = compile_source(
         DOUBLE_SITE_SOURCE,
-        include_clash=False,
         formal_policy=FormalPolicy.AVAILABLE,
         formal_verifier=_BoundVerifier(),
     )
@@ -229,7 +226,6 @@ def test_common_m39_collection_covers_choice_implement_and_nested_sites(
     compilation = compile_source(
         source,
         top=top,
-        include_clash=False,
         formal_policy=FormalPolicy.AVAILABLE,
         formal_verifier=_BoundVerifier(),
     )

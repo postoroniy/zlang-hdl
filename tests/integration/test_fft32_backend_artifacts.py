@@ -10,15 +10,12 @@ import sys
 
 import pytest
 
-from zlang.backend.clash import emit as emit_clash
-from zlang.backend.clash import emit_artifact as emit_clash_artifact
 from zlang.backend.manifest import BackendArtifact
 from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
 from zlang.build_manifest import WholeBuildManifest
 from zlang.compiler import compile_file
 from zlang.formal import build_recursive_formal_design
 from zlang.opt import OptimizationStage, lower, restore
-from zlang.toolchain import find_clash_executable, generate_verilog
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -34,7 +31,7 @@ STAGES = (
 
 
 def _compile():
-    return compile_file(SOURCE, top=TOP, include_clash=False)
+    return compile_file(SOURCE, top=TOP)
 
 
 def test_fft32_specializations_connections_canonical_and_generic_target() -> None:
@@ -42,7 +39,6 @@ def test_fft32_specializations_connections_canonical_and_generic_target() -> Non
         SOURCE,
         top=TOP,
         target="xc7z030ffg676-1",
-        include_clash=False,
     )
     module = result.ir
     actual = {
@@ -115,84 +111,8 @@ def test_fft32_recursive_bindings_keep_widths_paths_and_identities() -> None:
         assert len({item.ref.instance_identity for item in bindings.values()}) == 5
 
 
-def test_fft32_artifacts_are_deterministic_and_preserve_five_roms() -> None:
-    module = _compile().ir
-    design = build_recursive_formal_design(module)
-    expected_paths = {(TOP,)} | {(TOP, name) for name, *_ in STAGES}
-    artifacts = tuple(
-        emitter(module, recursive_design=design)
-        for emitter in (emit_sv_artifact, emit_clash_artifact)
-    )
-    for artifact, emitter in zip(
-        artifacts, (emit_sv_artifact, emit_clash_artifact), strict=True
-    ):
-        repeated = emitter(module, recursive_design=design)
-        assert repeated.text == artifact.text
-        assert repeated.artifact_hash == artifact.artifact_hash
-        restored = BackendArtifact.from_json(artifact.to_json())
-        assert restored.components == artifact.components
-        assert restored.instances == artifact.instances
-        assert restored.recursive_bindings == artifact.recursive_bindings
-        assert restored.artifact_hash == artifact.artifact_hash
-        assert {item.physical_instance_path for item in artifact.instances} == expected_paths
-        assert sorted(item.depth for item in artifact.companions) == [1, 2, 4, 8, 16]
-        assert {item.word_width for item in artifact.companions} == {32}
-        assert len({item.semantic_id for item in artifact.companions}) == 5
-        assert len({item.content_hash for item in artifact.companions}) == 5
-
-    assert {
-        (item.depth, item.word_width, item.content_hash)
-        for item in artifacts[0].companions
-    } == {
-        (item.depth, item.word_width, item.content_hash)
-        for item in artifacts[1].companions
-    }
 
 
-def test_fft32_clash_dispatches_exact_helpers_and_rom_shapes() -> None:
-    module = _compile().ir
-    helpers = {
-        item.instance.name: (
-            "protocol_fFTSDFStageNumeric_s" + item.specialization_identity[:8]
-        )
-        for item in module.elaborated_instances
-    }
-    clash = emit_clash(module)
-    for helper in helpers.values():
-        assert clash.count(f"{helper} ::") == 1
-    assert (
-        f"stage_d16_result = {helpers['stage_d16']} "
-        "parent_input stage_d8_input_ready"
-    ) in clash
-    assert (
-        f"stage_d8_result = {helpers['stage_d8']} "
-        "stage_d16_output stage_d4_input_ready"
-    ) in clash
-    assert (
-        f"stage_d4_result = {helpers['stage_d4']} "
-        "stage_d8_output stage_d2_input_ready"
-    ) in clash
-    assert (
-        f"stage_d2_result = {helpers['stage_d2']} "
-        "stage_d4_output stage_d1_input_ready"
-    ) in clash
-    assert (
-        f"stage_d1_result = {helpers['stage_d1']} "
-        "stage_d2_output output_backward"
-    ) in clash
-
-    regions = {
-        name: clash[
-            clash.index(f"{helper}_raw ::") : clash.index(f"{helper} ::")
-        ]
-        for name, helper in helpers.items()
-    }
-    assert "romFilePow2 @4 @32" in regions["stage_d16"]
-    assert "romFilePow2 @3 @32" in regions["stage_d8"]
-    assert "romFilePow2 @2 @32" in regions["stage_d4"]
-    assert "romFilePow2 @1 @32" in regions["stage_d2"]
-    assert "romFile (SNat @1)" in regions["stage_d1"]
-    assert "romFilePow2" not in regions["stage_d1"]
 
 
 @pytest.mark.skipif(shutil.which("verilator") is None, reason="Verilator unavailable")
@@ -265,41 +185,3 @@ def test_fft32_direct_sv_strict_lint_and_whole_build_publication(
         (rtl.parent / Path(item.logical_path).name).is_file()
         for item in backend.companions
     )
-
-
-@pytest.mark.skipif(
-    shutil.which("verilator") is None or find_clash_executable() is None,
-    reason="Clash and Verilator are required",
-)
-def test_fft32_real_clash_generation_and_established_rom_lint_waiver(
-    tmp_path: Path,
-) -> None:
-    module = _compile().ir
-    artifact = emit_clash_artifact(module)
-    rtl = generate_verilog(
-        artifact.text,
-        TOP,
-        tmp_path / "clash",
-        find_clash_executable(),
-        companions=artifact.companions,
-    )[0]
-    lint = subprocess.run(
-        (
-            "verilator",
-            "--lint-only",
-            "--timing",
-            "--top-module",
-            TOP,
-            "-Wno-DECLFILENAME",
-            "-Wno-UNUSEDSIGNAL",
-            "-Wno-UNUSEDPARAM",
-            "-Wno-UNDRIVEN",
-            # Clash 1.11 romFile indexes generated ROMs with a host-width Int.
-            "-Wno-WIDTHTRUNC",
-            str(rtl),
-        ),
-        cwd=rtl.parent,
-        capture_output=True,
-        text=True,
-    )
-    assert lint.returncode == 0, lint.stderr

@@ -2,11 +2,14 @@
 
 Direct SystemVerilog is ZLang's sole supported production RTL backend.  The
 backend consumes typed semantic/scheduled IR and acceptance is fail-closed.
-Clash is retained only as a hidden compatibility emitter for dated fixtures;
-it is not required for feature completeness, release acceptance, or formal
-eligibility.
+The retired Clash backend has been removed from the compiler, package, CLI,
+tests, CI, and release acceptance.
 Every source accepted by the direct emitter in the example regression is
 required to pass real Verilator lint.
+
+> Dated comparison and validation sections below preserve historical evidence.
+> Their Clash references describe old recorded runs, not executable current
+> compiler support.
 
 The backend consumes typed semantic IR.  It never dispatches on AXI, APB, or
 RegBus module names: source-authored standard-bus components use the same
@@ -25,9 +28,8 @@ definitions such as `Counter_s1a2b3c4d`. Source names win over generated helpers
 actual collisions receive a deterministic suffix. Public top/port ABI and
 source register names are unchanged, including existing public aggregate-leaf
 separators. BackendArtifact records the naming schema and complete semantic
-identities separately from regenerated RTL/VPI locators. Clash consumes the
-same policy for its source helpers; final Clash-generated HDL internals remain
-controlled by Clash. Naming does not change circuit semantics or imply QoR gains.
+identities separately from regenerated RTL/VPI locators. Naming does not change
+circuit semantics or imply QoR gains.
 
 Formal-only `rule.fire` now uses the same effective reset and polarity as
 production state, including the two-edge synchronized release and conditioned
@@ -116,9 +118,7 @@ verilator --lint-only --top-module SimpleDMA build/SimpleDMA.sv
 `--experimental-systemverilog` remains an exact compatibility alias. Both
 options are explicit artifact sinks: they write only the requested SV file and
 leave stdout empty. A bare `zlang SOURCE` invocation emits the production direct
-SystemVerilog artifact to stdout. Hidden legacy Clash options exist only for
-internal compatibility tests and are not a supported product interface.
-Diagnostics remain on stderr.
+SystemVerilog artifact to stdout. Diagnostics remain on stderr.
 
 Use `--verbose` when an explicit success confirmation is useful:
 
@@ -187,12 +187,10 @@ job that consumes them. Generated solver configuration, logs, and VCDs are
 retained outside the immutable bundle; run-report v7 maps sampled physical VCD
 signals back to semantic binding IDs for witnesses and counterexamples.
 
-Direct SV remains the first executable bundle route. If its formal emission
-fails, the bounded structured Clash route finalizes real generated Verilog,
-validates public and recursive observation ports, and republishes one common
-artifact hash for scalar/public and register-observation cases. Unsupported
-aggregate/protocol shapes still report an explicit non-executable reason; no
-backend-name reconstruction is used.
+Direct SV is the executable bundle route. If its formal emission cannot bind a
+required observation, the goal is explicitly skipped or rejected according to
+policy. Unsupported aggregate/protocol shapes report a non-executable reason;
+no generated-name reconstruction or alternate backend substitution is used.
 
 Transaction-level RTL simulation found and fixed one source-library issue:
 `RegBusCSRTarget` previously asserted its response only in the request-transfer

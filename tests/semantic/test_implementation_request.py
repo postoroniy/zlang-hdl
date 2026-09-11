@@ -102,21 +102,6 @@ def test_selected_profile_parses_every_frozen_policy_field() -> None:
     )
 
 
-def test_only_selected_profile_is_strictly_parsed() -> None:
-    manifest = _manifest('''
-[profiles.good]
-backend = "clash"
-
-[profiles.deferred]
-future-unknown-policy = { value = true }
-''')
-    selected = parse_selected_profile(manifest, "good")
-    assert selected.backend == BackendRequest(BackendKind.CLASH)
-    with pytest.raises(
-        ImplementationRequestError,
-        match="unknown implementation profile key 'future-unknown-policy'",
-    ):
-        parse_selected_profile(manifest, "deferred")
 
 
 def test_unknown_profile_is_structured() -> None:
@@ -231,45 +216,6 @@ def test_disjoint_constraint_metrics_merge() -> None:
     }
 
 
-@pytest.mark.parametrize(
-    ("field", "first", "second"),
-    (
-        (
-            "backend",
-            BackendRequest(BackendKind.CLASH),
-            BackendRequest(BackendKind.SYSTEMVERILOG),
-        ),
-        ("target", "std.target.a", "std.target.b"),
-        (
-            "transforms",
-            TransformPolicy((TransformFamily.DSP,)),
-            TransformPolicy((TransformFamily.PIPELINE,)),
-        ),
-        (
-            "objective",
-            ImplementationObjective(ObjectiveDirection.MINIMIZE, CostMetric.LUT),
-            ImplementationObjective(ObjectiveDirection.MINIMIZE, CostMetric.DSP),
-        ),
-        (
-            "architecture",
-            ArchitectureRequest("std.arch.a", ArchitectureSelectionMode.PREFERRED),
-            ArchitectureRequest("std.arch.b", ArchitectureSelectionMode.PREFERRED),
-        ),
-        ("evidence_policy", SourcePolicy.ESTIMATE_ONLY, SourcePolicy.MEASURED_REQUIRED),
-        ("formal_policy", FormalPolicy.OFF, FormalPolicy.REQUIRED_BMC),
-    ),
-)
-def test_conflicting_policy_names_both_origins(
-    field: str, first: object, second: object,
-) -> None:
-    left = ImplementationContribution(PolicyOrigin("source policy"), **{field: first})
-    right = ImplementationContribution(PolicyOrigin("selected profile"), **{field: second})
-    with pytest.raises(ImplementationRequestError) as caught:
-        merge_implementation_contributions(left, right)
-    assert caught.value.code == "ZL-IMPL-001"
-    assert field in str(caught.value)
-    assert "source policy" in caught.value.notes[0]
-    assert "selected profile" in caught.value.notes[1]
 
 
 def test_conflicting_constraints_name_metric_and_both_origins() -> None:

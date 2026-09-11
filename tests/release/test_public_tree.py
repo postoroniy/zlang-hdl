@@ -710,38 +710,3 @@ def test_no_skip_plugin_turns_skip_into_failure(tmp_path: Path) -> None:
     )
     assert completed.returncode == 1
     assert "1 skipped" in completed.stdout
-
-
-@pytest.mark.parametrize(
-    "reason",
-    (
-        "real Clash 1.11 is unavailable",
-        "root hierarchy equivalence requires Clash",
-    ),
-)
-def test_no_skip_plugin_allows_only_retired_clash_skip(
-    tmp_path: Path,
-    reason: str,
-) -> None:
-    test_file = tmp_path / "test_legacy_clash.py"
-    test_file.write_text(
-        "import pytest\n\ndef test_legacy_backend():\n"
-        f"    pytest.skip({reason!r})\n",
-        encoding="utf-8",
-    )
-    completed = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "pytest",
-            "-q",
-            "-p",
-            "tools.pytest_no_skips",
-            str(test_file),
-        ],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-    )
-    assert completed.returncode == 0
-    assert "1 skipped" in completed.stdout

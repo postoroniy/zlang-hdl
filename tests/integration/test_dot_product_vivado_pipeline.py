@@ -5,13 +5,11 @@ import subprocess
 
 import pytest
 
-from zlang.backend.clash.public_wrapper import ClashPublicTopWrapper
 from zlang.backend.systemverilog import emit_experimental
 from zlang.compiler import compile_source
 from zlang.ir import expressions as expr
 from zlang.simulate import simulate_cycles
 from zlang.timing import timing_info
-from zlang.toolchain import find_clash_executable, generate_verilog
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -88,26 +86,3 @@ def test_direct_sv_dot_pipeline_is_bit_exact(tmp_path: Path, latency: int) -> No
         check=True, capture_output=True, text=True, env=environment,
     )
     subprocess.run((str(obj / "Vtb"),), check=True, capture_output=True, text=True)
-
-
-@pytest.mark.skipif(
-    find_clash_executable() is None or shutil.which("verilator") is None,
-    reason="Clash or Verilator unavailable",
-)
-@pytest.mark.parametrize("latency", (8, 12))
-def test_clash_dot_pipeline_generates_lint_clean_verilog(
-    tmp_path: Path, latency: int,
-) -> None:
-    top = "DotProductPipelined" if latency == 8 else "DotProductPipelined12"
-    compilation = compile_source(SOURCES[latency])
-    files = generate_verilog(
-        compilation.clash,
-        top,
-        tmp_path / "rtl",
-        public_wrapper=ClashPublicTopWrapper.build(compilation.ir),
-    )
-    subprocess.run(
-        ("verilator", "--lint-only", "-Wno-fatal", "--top-module", top,
-         *(str(path) for path in files)),
-        check=True, capture_output=True, text=True,
-    )

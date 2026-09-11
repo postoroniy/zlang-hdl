@@ -1,9 +1,8 @@
-"""Strict, lossless JSON codecs for the existing M36 and M38 results.
+"""Strict, lossless JSON codecs for M36 semantic-reference results.
 
 The equivalence result IR deliberately remains owned by :mod:`zlang.ir`.  This
 module only supplies a versioned persistence boundary for compiler-owned proof
-caches and reports.  In particular, it does not merge M36 and M38 status or
-counterexample models.
+caches and reports.
 """
 
 from __future__ import annotations
@@ -12,13 +11,6 @@ import json
 from typing import Mapping
 
 from zlang.common import stable_json
-from zlang.ir.cross_backend import (
-    CrossBackendCounterexample,
-    CrossBackendMode,
-    CrossBackendRelation,
-    CrossBackendResult,
-    CrossBackendStatus,
-)
 from zlang.ir.equivalence import (
     EquivalenceCounterexample,
     EquivalenceMode,
@@ -33,7 +25,7 @@ EQUIVALENCE_RESULT_CODEC_SCHEMA = 1
 
 
 class EquivalenceResultCodecError(ValueError):
-    """A serialized M36/M38 result is malformed or internally inconsistent."""
+    """A serialized M36 result is malformed or internally inconsistent."""
 
 
 def _mapping(value: object, description: str) -> Mapping[str, object]:
@@ -298,222 +290,11 @@ def equivalence_result_from_json(text: str) -> EquivalenceResult:
     return equivalence_result_from_data(value)
 
 
-def _cross_backend_counterexample_to_data(
-    value: CrossBackendCounterexample | None,
-) -> dict[str, object] | None:
-    if value is None:
-        return None
-    return {
-        "property_id": value.property_id,
-        "semantic_signal_id": value.semantic_signal_id,
-        "cycle": value.cycle,
-        "sample_cycle": value.sample_cycle,
-        "left_backend": value.left_backend,
-        "right_backend": value.right_backend,
-        "left_artifact_hash": value.left_artifact_hash,
-        "right_artifact_hash": value.right_artifact_hash,
-        "left_rtl_path": value.left_rtl_path,
-        "right_rtl_path": value.right_rtl_path,
-        "values": _values_to_data(value.values),
-        "raw_trace": value.raw_trace,
-        "source_origin": _origin_to_data(value.source_origin),
-    }
-
-
-def _cross_backend_counterexample_from_data(
-    value: object,
-    *,
-    property_id: str,
-    left_backend: str,
-    right_backend: str,
-    left_artifact_hash: str,
-    right_artifact_hash: str,
-) -> CrossBackendCounterexample | None:
-    if value is None:
-        return None
-    data = _mapping(value, "M38 counterexample")
-    _exact_keys(
-        data,
-        {
-            "property_id", "semantic_signal_id", "cycle", "sample_cycle",
-            "left_backend", "right_backend", "left_artifact_hash",
-            "right_artifact_hash", "left_rtl_path", "right_rtl_path", "values",
-            "raw_trace", "source_origin",
-        },
-        "M38 counterexample",
-    )
-    result = CrossBackendCounterexample(
-        _string(data["property_id"], "M38 counterexample property identity", nonempty=True),
-        _optional_string(data["semantic_signal_id"], "M38 counterexample semantic signal"),
-        _optional_integer(data["cycle"], "M38 counterexample cycle"),
-        _optional_integer(data["sample_cycle"], "M38 counterexample sample cycle"),
-        _string(data["left_backend"], "M38 counterexample left backend", nonempty=True),
-        _string(data["right_backend"], "M38 counterexample right backend", nonempty=True),
-        _string(data["left_artifact_hash"], "M38 counterexample left artifact hash"),
-        _string(data["right_artifact_hash"], "M38 counterexample right artifact hash"),
-        _optional_string(data["left_rtl_path"], "M38 counterexample left RTL path"),
-        _optional_string(data["right_rtl_path"], "M38 counterexample right RTL path"),
-        _values_from_data(data["values"], "M38 counterexample values"),
-        _optional_string(data["raw_trace"], "M38 counterexample raw trace"),
-        _origin_from_data(data["source_origin"], "M38 counterexample source origin"),
-    )
-    expected = (
-        property_id,
-        left_backend,
-        right_backend,
-        left_artifact_hash,
-        right_artifact_hash,
-    )
-    actual = (
-        result.property_id,
-        result.left_backend,
-        result.right_backend,
-        result.left_artifact_hash,
-        result.right_artifact_hash,
-    )
-    if actual != expected:
-        raise EquivalenceResultCodecError(
-            "M38 counterexample property/backend/artifact metadata differs from its result"
-        )
-    return result
-
-
-_M38_FIELDS = {
-    "schema_version",
-    "kind",
-    "property_id",
-    "status",
-    "mode",
-    "engine",
-    "solver",
-    "depth",
-    "relation",
-    "latency_delta",
-    "selected_ir_identity",
-    "left_backend",
-    "right_backend",
-    "left_artifact_hash",
-    "right_artifact_hash",
-    "manifest_version",
-    "observable_signal_id",
-    "source_origin",
-    "counterexample",
-    "reason",
-}
-
-
-def cross_backend_result_to_data(result: CrossBackendResult) -> dict[str, object]:
-    """Encode one typed M38 result into the strict version-1 data schema."""
-
-    if not isinstance(result, CrossBackendResult):
-        raise TypeError("M38 result codec requires CrossBackendResult")
-    return {
-        "schema_version": EQUIVALENCE_RESULT_CODEC_SCHEMA,
-        "kind": "m38_cross_backend_result",
-        "property_id": result.property_id,
-        "status": result.status.value,
-        "mode": result.mode.value,
-        "engine": result.engine,
-        "solver": result.solver,
-        "depth": result.depth,
-        "relation": result.relation.value,
-        "latency_delta": result.latency_delta,
-        "selected_ir_identity": result.selected_ir_identity,
-        "left_backend": result.left_backend,
-        "right_backend": result.right_backend,
-        "left_artifact_hash": result.left_artifact_hash,
-        "right_artifact_hash": result.right_artifact_hash,
-        "manifest_version": result.manifest_version,
-        "observable_signal_id": result.observable_signal_id,
-        "source_origin": _origin_to_data(result.source_origin),
-        "counterexample": _cross_backend_counterexample_to_data(result.counterexample),
-        "reason": result.reason,
-    }
-
-
-def cross_backend_result_from_data(value: object) -> CrossBackendResult:
-    """Decode and validate one strict version-1 M38 result mapping."""
-
-    data = _mapping(value, "M38 result")
-    _exact_keys(data, _M38_FIELDS, "M38 result")
-    schema = _integer(data["schema_version"], "M38 result schema version")
-    if schema != EQUIVALENCE_RESULT_CODEC_SCHEMA:
-        raise EquivalenceResultCodecError(
-            f"unsupported M38 result codec schema {schema}"
-        )
-    if data["kind"] != "m38_cross_backend_result":
-        raise EquivalenceResultCodecError("M38 result has the wrong kind")
-    property_id = _string(data["property_id"], "M38 property identity", nonempty=True)
-    left_backend = _string(data["left_backend"], "M38 left backend", nonempty=True)
-    right_backend = _string(data["right_backend"], "M38 right backend", nonempty=True)
-    left_hash = _string(data["left_artifact_hash"], "M38 left artifact hash")
-    right_hash = _string(data["right_artifact_hash"], "M38 right artifact hash")
-    counterexample = _cross_backend_counterexample_from_data(
-        data["counterexample"],
-        property_id=property_id,
-        left_backend=left_backend,
-        right_backend=right_backend,
-        left_artifact_hash=left_hash,
-        right_artifact_hash=right_hash,
-    )
-    observable = _optional_string(
-        data["observable_signal_id"], "M38 observable signal identity"
-    )
-    if (
-        counterexample is not None
-        and observable is not None
-        and counterexample.semantic_signal_id is not None
-        and counterexample.semantic_signal_id != observable
-    ):
-        raise EquivalenceResultCodecError(
-            "M38 counterexample observable differs from its result"
-        )
-    try:
-        return CrossBackendResult(
-            property_id,
-            _enum(CrossBackendStatus, data["status"], "M38 status"),
-            _enum(CrossBackendMode, data["mode"], "M38 mode"),
-            _optional_string(data["engine"], "M38 engine"),
-            _optional_string(data["solver"], "M38 solver"),
-            _optional_integer(data["depth"], "M38 depth"),
-            _enum(CrossBackendRelation, data["relation"], "M38 relation"),
-            _integer(data["latency_delta"], "M38 latency delta"),
-            _string(data["selected_ir_identity"], "M38 selected-IR identity", nonempty=True),
-            left_backend,
-            right_backend,
-            left_hash,
-            right_hash,
-            _integer(data["manifest_version"], "M38 manifest version"),
-            observable,
-            _origin_from_data(data["source_origin"], "M38 source origin"),
-            counterexample,
-            _optional_string(data["reason"], "M38 reason"),
-        )
-    except ValueError as error:
-        if isinstance(error, EquivalenceResultCodecError):
-            raise
-        raise EquivalenceResultCodecError(str(error)) from error
-
-
-def cross_backend_result_to_json(result: CrossBackendResult) -> str:
-    return stable_json(cross_backend_result_to_data(result), indent=2) + "\n"
-
-
-def cross_backend_result_from_json(text: str) -> CrossBackendResult:
-    try:
-        value = json.loads(text)
-    except (TypeError, json.JSONDecodeError) as error:
-        raise EquivalenceResultCodecError("M38 result is not valid JSON") from error
-    return cross_backend_result_from_data(value)
 
 
 __all__ = [
     "EQUIVALENCE_RESULT_CODEC_SCHEMA",
     "EquivalenceResultCodecError",
-    "cross_backend_result_from_data",
-    "cross_backend_result_from_json",
-    "cross_backend_result_to_data",
-    "cross_backend_result_to_json",
     "equivalence_result_from_data",
     "equivalence_result_from_json",
     "equivalence_result_to_data",

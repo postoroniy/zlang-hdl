@@ -66,7 +66,7 @@ def test_many_effects_in_one_branch_emit_one_activation_signal() -> None:
         f"when go {{ when select {{ {writes} }} }} "
         f"y=concat({packed}) }}"
     )
-    module = compile_source(source, include_clash=False).ir
+    module = compile_source(source).ir
     generated = emit_artifact(module).text
 
     assert generated.count("logic zlang_condition_0_active;") == 1
@@ -80,7 +80,6 @@ def test_conditional_activation_private_name_collision_fails_closed() -> None:
         "out zlang_condition_0_active:bit reg x:bit=0 "
         "when go { when select { x <- 1 } } "
         "zlang_condition_0_active=x }",
-        include_clash=False,
     ).ir
 
     with pytest.raises(
@@ -95,7 +94,7 @@ def test_unnested_output_conflict_suppresses_the_losing_rule_atomically(
     tmp_path: Path,
 ) -> None:
     module = compile_source(
-        SOURCE, top="OutputPriorityOnly", include_clash=False
+        SOURCE, top="OutputPriorityOnly"
     ).ir
     artifact = emit_artifact(module)
 

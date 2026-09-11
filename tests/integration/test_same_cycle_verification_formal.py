@@ -40,7 +40,6 @@ module RuntimePredicate {
 def _connected(source: str):
     compilation = compile_source(
         source,
-        include_clash=False,
         source_unit="tests/fixtures/same_cycle_predicates.zhl",
     )
     artifact = emit_formal_artifact(

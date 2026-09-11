@@ -10,22 +10,16 @@ import shutil
 import subprocess
 import tempfile
 
-from zlang.backend.clash import emit
+from zlang.backend.systemverilog import emit_artifact as emit_systemverilog_artifact
 from zlang.implementations import select_implementation
 from zlang.ir import expressions as expr
 from zlang.ir.module import Assignment, Module
 from zlang.ir.module import dependency_context_identity
 from zlang.opt import lower, render
 from zlang.common import stable_digest
-from zlang.toolchain import (
-    ToolchainError,
-    clash_subprocess_environment,
-    find_clash_executable,
-    generate_verilog,
-)
 
 
-CACHE_SCHEMA = "zlang-yosys-feedback-v1"
+CACHE_SCHEMA = "zlang-yosys-feedback-v2"
 
 
 class SynthesisFeedbackError(RuntimeError):
@@ -81,7 +75,7 @@ class SynthesisFeedbackResult:
     module: Module
     target: YosysTarget
     yosys_version: str
-    clash_version: str
+    frontend_version: str
     candidates: tuple[SynthesisCandidateResult, ...]
     decisions: tuple[SynthesisDecision, ...]
 
@@ -155,7 +149,6 @@ def characterize_with_yosys(
     module: Module,
     cache_directory: Path,
     *,
-    clash_executable: str | None = None,
     yosys_executable: str | None = None,
     target: YosysTarget = YosysTarget(),
 ) -> SynthesisFeedbackResult:
@@ -173,20 +166,12 @@ def characterize_with_yosys(
         raise SynthesisFeedbackError(
             "synthesis feedback requires choice(auto,...,feedback=optional_yosys)"
         )
-    clash = clash_executable or find_clash_executable()
-    if clash is None or not _is_executable(clash):
-        raise SynthesisFeedbackError(
-            "Clash executable was not found for synthesis feedback"
-        )
     yosys = yosys_executable or shutil.which("yosys")
     if yosys is None or not _is_executable(yosys):
         raise SynthesisFeedbackError(
             "Yosys executable was not found; install Yosys or omit synthesis feedback"
         )
-    clash_version = _tool_version(
-        (clash, "--version"),
-        environment=clash_subprocess_environment(clash),
-    )
+    frontend_version = "zlang-direct-systemverilog-v1"
     yosys_version = _tool_version((yosys, "-V"))
     cache_directory.mkdir(parents=True, exist_ok=True)
 
@@ -212,8 +197,7 @@ def characterize_with_yosys(
                 alternative.kind,
                 candidate_hash,
                 cache_directory,
-                clash,
-                clash_version,
+                frontend_version,
                 yosys,
                 yosys_version,
                 target,
@@ -293,7 +277,7 @@ def characterize_with_yosys(
         measured_module,
         target,
         yosys_version,
-        clash_version,
+        frontend_version,
         tuple(results),
         tuple(decisions),
     )
@@ -308,7 +292,7 @@ def render_synthesis_report(result: SynthesisFeedbackResult) -> str:
     lines = [
         f"module {result.module.name}",
         "feedback_source=measured tool=yosys "
-        f"version=[{result.yosys_version}] clash_version=[{result.clash_version}]",
+        f"version=[{result.yosys_version}] frontend=[{result.frontend_version}]",
         f"target={result.target.name} constraints=[{constraints}]",
     ]
     decisions = {decision.output: decision for decision in result.decisions}
@@ -368,8 +352,7 @@ def _load_or_measure(
     kind: expr.ImplementationKind,
     candidate_hash: str,
     cache_directory: Path,
-    clash_executable: str,
-    clash_version: str,
+    frontend_version: str,
     yosys_executable: str,
     yosys_version: str,
     target: YosysTarget,
@@ -377,7 +360,7 @@ def _load_or_measure(
     key_payload = {
         "schema": CACHE_SCHEMA,
         "candidate_hash": candidate_hash,
-        "clash_version": clash_version,
+        "frontend_version": frontend_version,
         "yosys_version": yosys_version,
         "target": target.name,
         "constraints": target.constraints,
@@ -408,7 +391,7 @@ def _load_or_measure(
         expected = (
             measurement.candidate_hash == candidate_hash
             and measurement.yosys_version == yosys_version
-            and measurement.clash_version == clash_version
+            and measurement.frontend_version == frontend_version
             and measurement.target == target.name
             and measurement.constraints == target.constraints
         )
@@ -424,8 +407,7 @@ def _load_or_measure(
         kind,
         candidate_hash,
         cache_key,
-        clash_executable,
-        clash_version,
+        frontend_version,
         yosys_executable,
         yosys_version,
         target,
@@ -438,7 +420,7 @@ def _load_or_measure(
                     "candidate_hash": measurement.candidate_hash,
                     "cache_key": measurement.cache_key,
                     "yosys_version": measurement.yosys_version,
-                    "clash_version": measurement.clash_version,
+                    "frontend_version": measurement.frontend_version,
                     "target": measurement.target,
                     "constraints": measurement.constraints,
                     "lut_cells": measurement.lut_cells,
@@ -461,8 +443,7 @@ def _measure_candidate(
     kind: expr.ImplementationKind,
     candidate_hash: str,
     cache_key: str,
-    clash_executable: str,
-    clash_version: str,
+    frontend_version: str,
     yosys_executable: str,
     yosys_version: str,
     target: YosysTarget,
@@ -471,20 +452,16 @@ def _measure_candidate(
     with tempfile.TemporaryDirectory(prefix="zlang-yosys-") as temporary:
         root = Path(temporary)
         try:
-            verilog_files = generate_verilog(
-                emit(candidate_module),
-                candidate_module.name,
-                root / "rtl",
-                clash_executable,
-            )
-        except ToolchainError as error:
+            artifact = emit_systemverilog_artifact(candidate_module)
+        except ValueError as error:
             raise SynthesisFeedbackError(str(error)) from error
+        rtl_path = root / f"{candidate_module.name}.sv"
+        rtl_path.write_text(artifact.text)
         stats_path = root / "stats.json"
         depth_path = root / "depth.txt"
-        read_files = " ".join(_yosys_quote(path) for path in verilog_files)
         script = "; ".join(
             (
-                f"read_verilog {read_files}",
+                f"read_verilog -sv {_yosys_quote(rtl_path)}",
                 f"hierarchy -check -top {candidate_module.name}",
                 f"synth -top {candidate_module.name} -flatten",
                 f"abc -lut {target.lut_inputs}",
@@ -522,7 +499,7 @@ def _measure_candidate(
         candidate_hash=candidate_hash,
         cache_key=cache_key,
         yosys_version=yosys_version,
-        clash_version=clash_version,
+        frontend_version=frontend_version,
         target=target.name,
         constraints=target.constraints,
         lut_cells=int(cell_types.get("$lut", 0)),

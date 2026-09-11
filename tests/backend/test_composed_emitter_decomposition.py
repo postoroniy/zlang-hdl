@@ -57,7 +57,6 @@ def _artifact(example: str, top: str) -> BackendArtifact:
     module = compile_source(
         (ROOT / "examples" / example).read_text(),
         top=top,
-        include_clash=False,
     ).ir
     return emit_artifact(module)
 
@@ -86,7 +85,6 @@ def test_composed_boundary_rejects_misaligned_child_elaboration() -> None:
     module = compile_source(
         (ROOT / "examples" / "hierarchical_protocol_m40.zhl").read_text(),
         top="ProtocolTop",
-        include_clash=False,
     ).ir
     malformed = replace(module, children=module.children[:-1])
 

@@ -10,15 +10,10 @@ import pytest
 from zlang.backend.manifest import BackendArtifact
 from zlang.backend.systemverilog import emit_artifact, emit_experimental
 from zlang.compiler import compile_source
-from zlang.toolchain import (
-    find_clash_executable,
-    generate_verilog,
-    lint_with_verilator,
-)
+from zlang.toolchain import lint_with_verilator
 
 
 VERILATOR = shutil.which("verilator")
-CLASH = find_clash_executable()
 
 SOURCE = """
 module MaskedScheduledMemory {
@@ -216,19 +211,6 @@ def test_masked_memory_direct_sv_is_deterministic_and_simulates(
     _simulate((rtl,), tmp_path)
 
 
-def test_byte_aligned_mask_expansion_keeps_its_existing_backend_shape() -> None:
-    result = compile_source(SOURCE)
-    direct = emit_experimental(result.ir)
-    assert (
-        "assign zlang_table_write_mask_expanded = "
-        "{{8{zlang_table_write_mask[1]}}, {8{zlang_table_write_mask[0]}}};"
-    ) in direct
-    assert (
-        "effectiveMask = (pack (concatMap "
-        "(\\lane -> repeat lane :: Vec 8 Bit) "
-        "(unpack mask :: Vec 2 Bit)) :: BitVector 16)"
-    ) in result.clash
-    assert "effectiveMask = (resize" not in result.clash
 
 
 @pytest.mark.skipif(VERILATOR is None, reason="Verilator unavailable")
@@ -238,126 +220,7 @@ def test_all_partial_byte_width_classes_are_strict_direct_sv(tmp_path: Path) -> 
             top = ("Scheduled" if scheduled else "Global") + f"Width{width}"
             module = compile_source(
                 partial_lane_source(scheduled=scheduled, width=width),
-                include_clash=False,
             ).ir
             rtl = tmp_path / f"{top}.sv"
             rtl.write_text(emit_experimental(module))
             lint_with_verilator((rtl,), top, VERILATOR)
-
-
-@pytest.mark.skipif(
-    CLASH is None or VERILATOR is None,
-    reason="Clash or Verilator unavailable",
-)
-def test_masked_memory_real_clash_is_cycle_identical(tmp_path: Path) -> None:
-    result = compile_source(SOURCE)
-    assert "table_write_merged" in result.clash
-    files = generate_verilog(
-        result.clash, "MaskedScheduledMemory", tmp_path / "rtl", CLASH
-    )
-    _simulate(files, tmp_path)
-
-
-@pytest.mark.skipif(
-    CLASH is None or VERILATOR is None,
-    reason="Clash or Verilator unavailable",
-)
-def test_global_masked_memory_direct_sv_and_clash_are_cycle_identical(
-    tmp_path: Path,
-) -> None:
-    result = compile_source(GLOBAL_SOURCE)
-    direct = tmp_path / "direct"
-    direct.mkdir()
-    direct_rtl = direct / "MaskedGlobalMemory.sv"
-    direct_rtl.write_text(emit_experimental(result.ir))
-    _simulate(
-        (direct_rtl,), direct, top="MaskedGlobalMemory",
-        harness_text=GLOBAL_HARNESS,
-    )
-
-    clash = tmp_path / "clash"
-    clash.mkdir()
-    files = generate_verilog(
-        result.clash, "MaskedGlobalMemory", clash / "rtl", CLASH
-    )
-    _simulate(
-        files, clash, top="MaskedGlobalMemory", harness_text=GLOBAL_HARNESS,
-    )
-
-
-@pytest.mark.skipif(
-    CLASH is None or VERILATOR is None,
-    reason="Clash or Verilator unavailable",
-)
-def test_partial_byte_lane_direct_sv_and_clash_are_cycle_identical(
-    tmp_path: Path,
-) -> None:
-    for scheduled in (False, True):
-        top = "ScheduledWidth13" if scheduled else "GlobalWidth13"
-        result = compile_source(partial_lane_source(scheduled=scheduled))
-        direct = tmp_path / f"direct_{top}"
-        direct.mkdir()
-        direct_rtl = direct / f"{top}.sv"
-        direct_text = emit_experimental(result.ir)
-        direct_rtl.write_text(direct_text)
-        assert (
-            "{5{zlang_table_write_mask[1]}}, "
-            "{8{zlang_table_write_mask[0]}}"
-        ) in direct_text
-        _simulate(
-            (direct_rtl,), direct, top=top,
-            harness_text=partial_lane_harness(top),
-        )
-
-        clash = tmp_path / f"clash_{top}"
-        clash.mkdir()
-        assert "resize" in result.clash
-        assert "BitVector 13" in result.clash
-        files = generate_verilog(result.clash, top, clash / "rtl", CLASH)
-        _simulate(
-            files, clash, top=top,
-            harness_text=partial_lane_harness(top),
-        )
-
-
-@pytest.mark.skipif(
-    CLASH is None or VERILATOR is None,
-    reason="Clash or Verilator unavailable",
-)
-def test_thirteen_bit_struct_memory_is_bitpack_closed_in_both_backends(
-    tmp_path: Path,
-) -> None:
-    for scheduled in (False, True):
-        top = "ScheduledAggregate13" if scheduled else "GlobalAggregate13"
-        result = compile_source(
-            partial_lane_source(scheduled=scheduled, aggregate=True)
-        )
-        module = result.ir
-
-        direct_text = emit_experimental(module)
-        direct_dir = tmp_path / f"direct_{top}"
-        direct_dir.mkdir()
-        direct_rtl = direct_dir / f"{top}.sv"
-        direct_rtl.write_text(direct_text)
-        lint_with_verilator((direct_rtl,), top, VERILATOR)
-        _simulate(
-            (direct_rtl,),
-            direct_dir,
-            top=top,
-            harness_text=aggregate_partial_lane_harness(top),
-        )
-
-        clash_source = result.clash
-        assert "deriving (Generic, NFDataX, Show, Eq, BitPack)" in clash_source
-        clash_dir = tmp_path / f"clash_{top}"
-        clash_dir.mkdir()
-        clash_files = generate_verilog(
-            clash_source, top, clash_dir / "rtl", CLASH
-        )
-        lint_with_verilator(clash_files, top, VERILATOR)
-        _simulate(
-            clash_files,
-            clash_dir,
-            top=top,
-            harness_text=aggregate_partial_lane_harness(top),
-        )

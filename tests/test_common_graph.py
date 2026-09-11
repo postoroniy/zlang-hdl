@@ -31,4 +31,3 @@ def test_reachable_terminates_on_cycles() -> None:
     graph = {"a": ("b",), "b": ("a", "c"), "c": ()}
     assert reachable("a", "c", graph.__getitem__)
     assert not reachable("c", "a", graph.__getitem__)
-

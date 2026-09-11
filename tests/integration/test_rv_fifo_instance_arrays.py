@@ -8,8 +8,6 @@ import subprocess
 
 import pytest
 
-from tests.toolchain import CLASH_EXECUTABLE
-from zlang.backend.clash import emit as emit_clash
 from zlang.backend.manifest import BackendArtifact
 from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
 from zlang.compiler import compile_source
@@ -18,7 +16,7 @@ from zlang.opt import lower, restore
 from zlang.opt.lowering import CanonicalizationError
 from zlang.semantic import SemanticError
 from zlang.simulate import simulate_cycles
-from zlang.toolchain import generate_verilog, lint_with_verilator
+from zlang.toolchain import lint_with_verilator
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -27,7 +25,7 @@ SOURCE = (ROOT / "examples" / "rv_fifo_instance_array.zhl").read_text()
 
 def _module():
     return compile_source(
-        SOURCE, top="RvBufferedLaneArray", include_clash=False
+        SOURCE, top="RvBufferedLaneArray"
     ).ir
 
 
@@ -95,22 +93,6 @@ def test_rv_fifo_array_simulator_has_exact_independent_trace() -> None:
     assert trace[4]["input0"]["transfer"] == 1  # full FIFO pop+push
 
 
-def test_rv_fifo_array_artifacts_are_deterministic_and_structural() -> None:
-    module = _module()
-    first = emit_sv_artifact(module)
-    second = emit_sv_artifact(module)
-    clash = emit_clash(module)
-
-    assert first.text == second.text
-    assert first.artifact_hash == second.artifact_hash
-    assert first.to_json() == second.to_json()
-    assert BackendArtifact.from_json(first.to_json()).to_json() == first.to_json()
-    suffix = module.elaborated_instances[0].specialization_identity[:8]
-    assert first.text.count(f"module RvBufferedLane_s{suffix}") == 1
-    assert first.text.count(f"RvBufferedLane_s{suffix}") == 3
-    assert first.text.count("logic [1:0] queue_count;") == 1
-    assert clash.count(f"protocol_rvBufferedLane_s{suffix} ::") == 1
-    assert clash.count(f"result = protocol_rvBufferedLane_s{suffix}") == 2
 
 
 def test_rv_fifo_array_rejects_multiple_fifo_resources() -> None:
@@ -120,7 +102,7 @@ def test_rv_fifo_array_rejects_multiple_fifo_resources() -> None:
         "    extra.data=input.payload extra.push=0 extra.pop=0",
     )
     with pytest.raises(SemanticError, match="supports at most one FIFO resource"):
-        compile_source(source, top="RvBufferedLaneArray", include_clash=False)
+        compile_source(source, top="RvBufferedLaneArray")
 
 
 HARNESS = r'''
@@ -187,16 +169,3 @@ def test_rv_fifo_array_direct_sv_strict_verilator_cycle_trace(tmp_path: Path) ->
     source.write_text(emit_sv_artifact(_module()).text)
     lint_with_verilator((source,), "RvBufferedLaneArray")
     _run_verilator(tmp_path, (source,))
-
-
-@pytest.mark.skipif(
-    CLASH_EXECUTABLE is None or shutil.which("verilator") is None,
-    reason="real Clash 1.11 and Verilator are required",
-)
-def test_rv_fifo_array_real_clash_strict_verilator_cycle_trace(tmp_path: Path) -> None:
-    module = _module()
-    rtl = generate_verilog(
-        emit_clash(module), module.name, tmp_path / "rtl", CLASH_EXECUTABLE
-    )
-    lint_with_verilator(rtl, module.name)
-    _run_verilator(tmp_path, tuple(rtl))

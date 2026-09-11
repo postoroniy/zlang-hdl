@@ -1,7 +1,7 @@
 """Backend-local direct-SystemVerilog lowering for composed hierarchy.
 
 The subsystem consumes already-typed hierarchy, endpoint, connection, and state
-IR.  It deliberately knows nothing about source syntax or Clash.  Small renderer
+IR. It deliberately knows nothing about source syntax. Small renderer
 callbacks keep shared low-level SV spelling and the existing state/storage
 emitters authoritative without introducing an emitter import cycle.
 """

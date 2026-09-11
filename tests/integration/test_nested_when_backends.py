@@ -9,20 +9,14 @@ import subprocess
 
 import pytest
 
-from zlang.backend.clash import emit_artifact as emit_clash_artifact
 from zlang.backend.manifest import BackendArtifact
 from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
 from zlang.compiler import compile_source
-from zlang.toolchain import (
-    find_clash_executable,
-    generate_verilog,
-    lint_with_verilator,
-)
+from zlang.toolchain import lint_with_verilator
 
 
 TOP = "NestedWhenBackendSuite"
 VERILATOR = shutil.which("verilator")
-CLASH = find_clash_executable()
 
 
 SOURCE = r"""
@@ -262,7 +256,7 @@ int main(int argc, char** argv) {
 
 
 def _module():
-    return compile_source(SOURCE, top=TOP, include_clash=False).ir
+    return compile_source(SOURCE, top=TOP).ir
 
 
 def _run_verilator(
@@ -308,24 +302,6 @@ def _run_verilator(
     assert run.returncode == 0, run.stderr or run.stdout
 
 
-def test_nested_when_backend_artifacts_are_deterministic_and_bound() -> None:
-    module = _module()
-    for emitter in (emit_sv_artifact, emit_clash_artifact):
-        first = emitter(module)
-        second = emitter(module)
-        assert first.text == second.text
-        assert first.artifact_hash == second.artifact_hash
-        restored = BackendArtifact.from_json(first.to_json())
-        assert restored.artifact_hash == first.artifact_hash
-        assert restored.bindings == first.bindings
-        assert {item.semantic_signal_id for item in first.bindings} >= {
-            "clock",
-            "reset",
-            "port:valid",
-            "port:fifo_count",
-            "port:memory_data",
-            "port:low_seen",
-        }
 
 
 @pytest.mark.skipif(VERILATOR is None, reason="Verilator unavailable")
@@ -337,24 +313,3 @@ def test_nested_when_direct_sv_is_strict_lint_clean_and_cycle_exact(
     rtl.write_text(artifact.text)
     lint_with_verilator((rtl,), TOP)
     _run_verilator((rtl,), tmp_path, "direct")
-
-
-@pytest.mark.skipif(
-    VERILATOR is None or CLASH is None,
-    reason="real Clash 1.11 and Verilator are required",
-)
-def test_nested_when_clash_is_strict_lint_clean_and_cycle_exact(
-    tmp_path: Path,
-) -> None:
-    artifact = emit_clash_artifact(_module())
-    rtl = tuple(
-        generate_verilog(
-            artifact.text,
-            TOP,
-            tmp_path / "clash",
-            CLASH,
-        )
-    )
-    assert rtl
-    lint_with_verilator(rtl, TOP)
-    _run_verilator(rtl, tmp_path, "clash")

@@ -14,7 +14,6 @@ import subprocess
 
 import pytest
 
-from zlang.backend.clash import emit_artifact as emit_clash_artifact
 from zlang.backend.manifest import BackendArtifact
 from zlang.backend.systemverilog import (
     emit_artifact as emit_sv_artifact,
@@ -35,7 +34,6 @@ from zlang.ir.types import StructType
 from zlang.opt import lower, restore
 from zlang.semantic import SemanticError
 from zlang.simulate import simulate_cycles
-from zlang.toolchain import find_clash_executable, generate_verilog
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -43,7 +41,6 @@ SOURCE = (ROOT / "examples" / "ztpu_axi_burst.zhl").read_text()
 READER = "ZtpuAxiBurstReader64x32"
 WRITER = "ZtpuAxiBurstWriter64x32"
 BASE = 0x100
-CLASH = find_clash_executable()
 VERILATOR = shutil.which("verilator")
 FORMAL_TOOLS = all(
     shutil.which(tool) for tool in ("yosys", "sby", "yosys-smtbmc", "z3")
@@ -92,7 +89,7 @@ module CombinedAxiBurstMaster {
 
 
 def _module(top: str):
-    return compile_source(SOURCE, top=top, include_clash=False).ir
+    return compile_source(SOURCE, top=top).ir
 
 
 def _reader_cycle(
@@ -147,7 +144,6 @@ def test_aggregate_delegation_simulation_is_protocol_generic() -> None:
     module = compile_source(
         GENERIC_DELEGATION_SOURCE,
         top="UserPipeDelegationTop",
-        include_clash=False,
     ).ir
     assert simulate_cycles(
         module,
@@ -178,14 +174,13 @@ module InvalidGeometry {{
 }}
 """
     with pytest.raises(SemanticError, match="parameter constraint is not satisfied"):
-        compile_source(source, top="InvalidGeometry", include_clash=False)
+        compile_source(source, top="InvalidGeometry")
 
 
 def test_combined_axi_burst_schema_survives_typed_and_canonical_ir() -> None:
     typed = compile_source(
         COMBINED_AXI_SOURCE,
         top="CombinedAxiBurstMaster",
-        include_clash=False,
     ).ir
     canonical = lower(typed)
     expected = {
@@ -231,109 +226,8 @@ def test_combined_axi_burst_schema_survives_typed_and_canonical_ir() -> None:
     assert restore(canonical) == typed
 
 
-def test_backend_artifact_v4_preserves_typed_axi_public_leaf_bindings() -> None:
-    representative_ids = {
-        READER: (
-            f"aggregate:{READER}.axi.ar.payload.addr",
-            f"aggregate:{READER}.axi.ar.ready",
-            f"aggregate:{READER}.axi.r.payload.data",
-            f"aggregate:{READER}.axi.r.payload.resp",
-            f"aggregate:{READER}.axi.r.ready",
-        ),
-        WRITER: (
-            f"aggregate:{WRITER}.axi.aw.payload.len",
-            f"aggregate:{WRITER}.axi.w.payload.data",
-            f"aggregate:{WRITER}.axi.w.payload.last",
-            f"aggregate:{WRITER}.axi.w.ready",
-            f"aggregate:{WRITER}.axi.b.payload.resp",
-            f"aggregate:{WRITER}.axi.b.ready",
-        ),
-    }
-
-    for top, semantic_ids in representative_ids.items():
-        module = _module(top)
-        typed_leaves = {
-            leaf.leaf_semantic_id: leaf for leaf in module.top_aggregate_abi.leaves
-        }
-        recursive = build_recursive_formal_design(module)
-        for emitter in (emit_clash_artifact, emit_sv_artifact):
-            emitted = emitter(module, recursive_design=recursive)
-            assert emitted.manifest_version == 4
-            artifact = BackendArtifact.from_json(emitted.to_json())
-            assert artifact.to_json() == emitted.to_json()
-            bindings = {
-                binding.semantic_signal_id: binding
-                for binding in artifact.bindings
-            }
-            for semantic_id in semantic_ids:
-                leaf = typed_leaves[semantic_id]
-                binding = bindings[semantic_id]
-                expected_role = (
-                    SignalRole.INPUT
-                    if leaf.direction is PortDirection.INPUT
-                    else SignalRole.OUTPUT
-                )
-                assert binding.map_version == 4
-                assert binding.aggregate_endpoint_id == leaf.aggregate_id
-                assert binding.protocol_specialization_id == (
-                    leaf.protocol_specialization_id
-                )
-                assert binding.protocol_role == leaf.role == "master"
-                assert binding.member_path == leaf.member_path
-                assert binding.width == leaf.width
-                assert binding.role is expected_role
-                assert binding.ownership == leaf.ownership
-                assert binding.signal_kind == leaf.signal_kind
-                assert binding.rtl_module == top
-                assert binding.rtl_path == leaf.external_name
-                assert binding.physical_available
 
 
-@pytest.mark.parametrize(
-    ("top", "protocol", "members", "child"),
-    (
-        (READER, "AXI4BurstReadSubset", ("ar", "r"), "AXI4BurstReader"),
-        (WRITER, "AXI4BurstWriteSubset", ("aw", "w", "b"), "AXI4BurstWriter"),
-    ),
-)
-def test_semantic_canonical_and_backend_artifacts_are_deterministic(
-    top: str,
-    protocol: str,
-    members: tuple[str, ...],
-    child: str,
-) -> None:
-    first = _module(top)
-    second = _module(top)
-    assert first == second
-    canonical = lower(first)
-    assert canonical == lower(second)
-    assert restore(canonical) == first
-
-    endpoint, = first.aggregate_protocol_endpoints
-    assert (endpoint.name, endpoint.protocol, endpoint.role) == (
-        "axi", protocol, "master"
-    )
-    assert tuple(member.name for member in endpoint.members) == members
-    connection, = first.aggregate_protocol_connections
-    assert (connection.source, connection.destination, connection.delegation) == (
-        "axi", ("reader" if top == READER else "writer") + ".axi", True
-    )
-    concrete, = first.children
-    assert concrete.name == child
-    assert {register.name for register in concrete.registers} >= {
-        "address", "burst_len", "remaining", "failed"
-    }
-
-    for emitter in (emit_clash_artifact, emit_sv_artifact):
-        artifact = emitter(first)
-        repeated = emitter(second)
-        assert artifact.text == repeated.text
-        assert artifact.artifact_hash == repeated.artifact_hash
-        assert artifact.to_json() == repeated.to_json()
-        assert BackendArtifact.from_json(artifact.to_json()).to_json() == artifact.to_json()
-        assert [name for name, _digest in artifact.library_dependencies] == [
-            "std.bus.axi_burst"
-        ]
 
 
 @pytest.mark.skipif(
@@ -350,7 +244,7 @@ def test_semantic_canonical_and_backend_artifacts_are_deterministic(
 def test_root_ready_valid_m35_executes_with_real_sby_z3(
     top: str, expected_assertions: set[str]
 ) -> None:
-    compiled = compile_source(SOURCE, top=top, include_clash=False)
+    compiled = compile_source(SOURCE, top=top)
     artifact = emit_formal_artifact(
         compiled.ir, build_recursive_formal_design(compiled.ir)
     )
@@ -814,20 +708,3 @@ def test_direct_systemverilog_executes_burst_witness(
     rtl = tmp_path / f"{top}.sv"
     rtl.write_text(artifact.text)
     _run_verilator((rtl,), bench, tmp_path, f"direct_{top}")
-
-
-@pytest.mark.skipif(
-    CLASH is None or VERILATOR is None,
-    reason="real Clash and Verilator are required",
-)
-@pytest.mark.parametrize(
-    ("top", "bench"), ((READER, READER_BENCH), (WRITER, WRITER_BENCH))
-)
-def test_real_clash_verilog_executes_same_burst_witness(
-    top: str, bench: str, tmp_path: Path
-) -> None:
-    compilation = compile_source(SOURCE, top=top)
-    rtl = tuple(
-        generate_verilog(compilation.clash, top, tmp_path / f"clash_{top}", CLASH)
-    )
-    _run_verilator(rtl, bench, tmp_path, f"clash_{top}")

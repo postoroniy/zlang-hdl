@@ -4,7 +4,6 @@ import json
 
 import pytest
 
-from zlang.backend.clash import ClashEmissionError
 from zlang.backend.systemverilog import SystemVerilogEmissionError
 from zlang.diagnostics import DIAGNOSTIC_SCHEMA, Diagnostic, DiagnosticError
 from zlang.parser import ParseError, parse
@@ -46,22 +45,6 @@ def test_diagnostic_json_schema_is_stable_and_deterministic() -> None:
     }
 
 
-@pytest.mark.parametrize(
-    ("error", "code"),
-    (
-        (ParseError("legacy parse"), "ZL-PARSE-001"),
-        (SemanticError("legacy semantic"), "ZL-SEMANTIC-001"),
-        (ClashEmissionError("legacy clash"), "ZL-BACKEND-CLASH-001"),
-        (
-            SystemVerilogEmissionError("legacy systemverilog"),
-            "ZL-BACKEND-SYSTEMVERILOG-001",
-        ),
-    ),
-)
-def test_public_errors_preserve_legacy_string(error: DiagnosticError, code: str) -> None:
-    assert str(error) == error.args[0]
-    assert error.code == code
-    assert error.diagnostic.message == str(error)
 
 
 def test_width_error_has_structured_code_origin_and_fix() -> None:

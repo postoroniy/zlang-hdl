@@ -17,7 +17,7 @@ VERILATOR = shutil.which("verilator")
 
 def _simulate(example: str, top: str, body: str, tmp_path: Path) -> None:
     module = compile_source(
-        (ROOT / "examples" / example).read_text(), include_clash=False
+        (ROOT / "examples" / example).read_text()
     ).ir
     rtl = tmp_path / f"{top}.sv"
     harness = tmp_path / "test.cpp"
@@ -54,7 +54,6 @@ def _simulate(example: str, top: str, body: str, tmp_path: Path) -> None:
 def test_handshake_manifest_preserves_typed_physical_directions() -> None:
     module = compile_source(
         (ROOT / "examples" / "cdc_handshake.zhl").read_text(),
-        include_clash=False,
     ).ir
     artifact = emit_artifact(module)
     restored = type(artifact).from_json(artifact.to_json())

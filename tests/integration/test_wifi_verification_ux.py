@@ -82,7 +82,6 @@ def _compile(top: str, source: str | None = None):
     return compile_source(
         FIXTURE.read_text() if source is None else source,
         top=top,
-        include_clash=False,
         source_unit=SOURCE_UNIT,
         module_resolver=workspace.resolver,
         dependency_closure=workspace.dependency_closure,
@@ -101,7 +100,6 @@ def _minimal_connected():
     compilation = compile_source(
         MINIMAL_HIERARCHICAL_RV,
         top="RvHierarchy",
-        include_clash=False,
     )
     artifact = emit_formal_artifact(
         compilation.ir,

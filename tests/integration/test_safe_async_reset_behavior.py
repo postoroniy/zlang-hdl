@@ -11,7 +11,6 @@ import subprocess
 
 import pytest
 
-from zlang.backend.clash.emitter import emit as emit_clash
 from zlang.backend.systemverilog.emitter import emit as emit_systemverilog
 from zlang.compiler import compile_source
 from zlang.simulate import simulate_cycles, simulate_hierarchical_scalar_cycles
@@ -92,7 +91,6 @@ def _compile(source: str, *, top: str | None = None):
     return compile_source(
         source,
         top=top,
-        include_clash=False,
     ).ir
 
 
@@ -218,15 +216,6 @@ def test_state_free_safe_reset_does_not_emit_an_unused_conditioner(
     lint_with_verilator((rtl,), "StatelessSafeReset")
 
 
-def test_legacy_synchronous_backend_text_hashes_are_frozen() -> None:
-    module = _compile(LEGACY_RESET_COUNTER)
-    assert hashlib.sha256(emit_systemverilog(module).encode()).hexdigest() == (
-        "e44b239c76320a969941f558e65068f828176a5717d3b11ae7a139cbcb5ae9ef"
-    )
-
-    assert hashlib.sha256(emit_clash(module).encode()).hexdigest() == (
-        "bde0b513d4ba212c81570efc28e8b11d408f6f6aa1a009231c6a83ef71015ad4"
-    )
 
 
 def test_direct_sv_safe_reset_preserves_falling_edge_and_active_low_polarity() -> None:

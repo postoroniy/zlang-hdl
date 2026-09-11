@@ -52,7 +52,7 @@ class SynthesisFeedbackSemanticTests(unittest.TestCase):
                     candidate_hash,
                     "cache-" + kind.value,
                     "Yosys test",
-                    "Clash test",
+                    "direct-SV test",
                     "generic-lut6",
                     (
                         ("flatten", "true"),
@@ -72,14 +72,13 @@ class SynthesisFeedbackSemanticTests(unittest.TestCase):
                 patch("zlang.synthesis._is_executable", return_value=True),
                 patch(
                     "zlang.synthesis._tool_version",
-                    side_effect=("Clash test", "Yosys test"),
+                    return_value="Yosys test",
                 ),
                 patch("zlang.synthesis._load_or_measure", side_effect=fake_measure),
             ):
                 feedback = characterize_with_yosys(
                     self.compilation.ir,
                     Path(temporary),
-                    clash_executable="/fake/clash",
                     yosys_executable="/fake/yosys",
                 )
 
@@ -105,7 +104,7 @@ class SynthesisFeedbackSemanticTests(unittest.TestCase):
                     candidate_hash,
                     "cache-" + kind.value,
                     "Yosys test",
-                    "Clash test",
+                    "direct-SV test",
                     "generic-lut6",
                     (
                         ("flatten", "true"),
@@ -125,7 +124,7 @@ class SynthesisFeedbackSemanticTests(unittest.TestCase):
                 patch("zlang.synthesis._is_executable", return_value=True),
                 patch(
                     "zlang.synthesis._tool_version",
-                    side_effect=("Clash test", "Yosys test"),
+                    return_value="Yosys test",
                 ),
                 patch("zlang.synthesis._load_or_measure", side_effect=illegal_measure),
             ):
@@ -136,7 +135,6 @@ class SynthesisFeedbackSemanticTests(unittest.TestCase):
                     characterize_with_yosys(
                         compilation.ir,
                         Path(temporary),
-                        clash_executable="/fake/clash",
                         yosys_executable="/fake/yosys",
                     )
 

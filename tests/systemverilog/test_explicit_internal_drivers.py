@@ -47,7 +47,6 @@ def _emit_example(example: str, *, top: str | None = None) -> str:
     module = compile_source(
         (ROOT / "examples" / example).read_text(),
         top=top,
-        include_clash=False,
     ).ir
     return emit_experimental(module)
 
@@ -132,7 +131,7 @@ def test_production_internal_combinational_signals_have_explicit_drivers(
 
 
 def test_global_memory_mask_helpers_have_explicit_drivers() -> None:
-    module = compile_source(GLOBAL_MASKED_MEMORY, include_clash=False).ir
+    module = compile_source(GLOBAL_MASKED_MEMORY).ir
     text = emit_experimental(module)
 
     _assert_no_initialized_wires(text)

@@ -1,5 +1,9 @@
 # FFT512 streaming validation
 
+> **Historical evidence:** Clash and M38 references below document earlier
+> accepted comparisons. Current FFT compilation, validation, and release
+> acceptance use direct SystemVerilog and compiler-owned semantic/M36 evidence.
+
 ## Scope and current result
 
 This validation deliberately uses the existing language and planner. It adds no

@@ -18,7 +18,7 @@ SOURCE = (ROOT / "examples" / "indexed_instance_array.zhl").read_text()
 
 def test_direct_sv_reuses_specialization_and_emits_four_physical_instances() -> None:
     artifact = emit_artifact(
-        compile_source(SOURCE, top="IndexedInstanceArray", include_clash=False).ir
+        compile_source(SOURCE, top="IndexedInstanceArray").ir
     )
     text = artifact.text
     assert text.count("module ArrayLane_s") == 1
@@ -36,7 +36,7 @@ def test_direct_sv_reuses_specialization_and_emits_four_physical_instances() -> 
 @pytest.mark.skipif(shutil.which("verilator") is None, reason="Verilator unavailable")
 def test_direct_sv_indexed_array_behaves_under_verilator(tmp_path: Path) -> None:
     artifact = emit_artifact(
-        compile_source(SOURCE, top="IndexedInstanceArray", include_clash=False).ir
+        compile_source(SOURCE, top="IndexedInstanceArray").ir
     )
     rtl = tmp_path / "IndexedInstanceArray.sv"
     harness = tmp_path / "test.cpp"

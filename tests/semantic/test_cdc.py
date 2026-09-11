@@ -135,7 +135,6 @@ class CdcSemanticTests(unittest.TestCase):
             "clock a reset ar @a clock b reset br @b "
             "i:AXIStream<32>.sink @a o:AXIStream<32>.source @b "
             "i -> o { crossing async_fifo(4) } }",
-            include_clash=False,
         ).ir
         self.assertEqual(len(accepted.connections), 1)
         self.assertEqual(
@@ -155,7 +154,6 @@ class CdcSemanticTests(unittest.TestCase):
                 "clock a reset ar @a clock b reset br @b "
                 "i:AXIStream<32>.sink @a o:AXIStream<32>.source @b "
                 "i -> o { crossing handshake } }",
-                include_clash=False,
             )
 
 

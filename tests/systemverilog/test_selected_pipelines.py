@@ -17,7 +17,7 @@ VERILATOR = shutil.which("verilator")
 
 def _run(top: str, source_name: str, harness: str, tmp_path: Path) -> None:
     module = compile_source(
-        (ROOT / "examples" / source_name).read_text(), include_clash=False
+        (ROOT / "examples" / source_name).read_text()
     ).ir
     rtl = tmp_path / f"{top}.sv"
     cpp = tmp_path / "test.cpp"
@@ -58,7 +58,6 @@ def test_implement_intent_uses_composed_direct_sv_lowering() -> None:
           }
         }
         """,
-        include_clash=False,
     ).ir
     rtl = emit_experimental(module)
     assert "module ImplementSV" in rtl

@@ -5,7 +5,6 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from zlang.backend.clash import emit_artifact as emit_clash_artifact
 from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
 from zlang.compiler import compile_source
 from zlang.standard_bus import (
@@ -15,7 +14,6 @@ from zlang.standard_bus import (
     WishboneToRegBus,
     axi_stream_transfer,
 )
-from zlang.toolchain import find_clash_executable, generate_verilog
 from zlang.parser import parse
 from zlang.semantic import SemanticError, analyze
 
@@ -46,15 +44,6 @@ class StandardLibraryRealDesignTests(unittest.TestCase):
             subprocess.run((str(root / "obj" / "Vtb"),), check=True,
                            capture_output=True, text=True)
 
-    def test_all_real_designs_reach_both_artifact_backends(self):
-        for filename, top in REAL_DESIGNS:
-            with self.subTest(top=top):
-                result = compile_source((ROOT / "examples" / filename).read_text(), top=top)
-                clash = emit_clash_artifact(result.ir, selected_ir_identity=f"test:{top}")
-                direct = emit_sv_artifact(result.ir, selected_ir_identity=f"test:{top}")
-                self.assertTrue(clash.text)
-                self.assertTrue(direct.text)
-                self.assertEqual(direct.library_dependencies, result.ir.library_dependencies)
 
     def test_wishbone_oracle_distinguishes_buffering_from_completion(self):
         seen = []
@@ -165,15 +154,6 @@ module tb;
 endmodule
 """)
 
-    @unittest.skipUnless(find_clash_executable(), "Clash is unavailable")
-    def test_real_designs_compile_with_real_clash_when_available(self):
-        # generate_verilog performs the repository's standard tool probe and
-        # reports an explicit tool error on genuinely unavailable installs.
-        with tempfile.TemporaryDirectory() as temporary:
-            for filename, top in REAL_DESIGNS:
-                result = compile_source((ROOT / "examples" / filename).read_text(), top=top)
-                files = generate_verilog(result.clash, top, Path(temporary) / top)
-                self.assertTrue(files)
 
 
 if __name__ == "__main__":

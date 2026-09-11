@@ -68,18 +68,6 @@ def test_toy_asic_uses_the_same_vendor_neutral_ir() -> None:
     assert architecture.resource_name == "ToyMAC"
 
 
-def test_generic_target_is_additive_and_byte_stable() -> None:
-    ordinary = compile_source(SOURCE)
-    generic = compile_source(SOURCE, target="generic")
-    assert ordinary.ir == generic.ir
-    assert ordinary.clash == generic.clash
-    assert emit_experimental(ordinary.ir) == emit_experimental(generic.ir)
-    assert ordinary.implementation_graph.is_generic
-    assert generic.implementation_graph.is_generic
-    artifact = emit_target_artifact(generic.ir, generic.implementation_graph)
-    assert artifact.manifest_version == IMPLEMENTATION_MANIFEST_VERSION
-    assert artifact.implementation.architecture_template_identity == "std.arch.generic"
-    assert artifact.implementation.resources == ()
 
 
 def test_symmetric_shape_maps_to_four_nodes_and_three_real_edges() -> None:

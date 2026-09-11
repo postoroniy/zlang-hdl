@@ -22,8 +22,8 @@ resource declarations; resolving project packages is deliberately deferred.
 
 The generic library contains ordinary-RTL descriptions for logic, registers,
 multiplier/add/MAC, FIFO storage, RAM/ROM, clock/control abstractions, and carry.
-Selecting `generic`, or compiling without a target, leaves typed semantic IR,
-Clash, and direct-SV unchanged.
+Selecting `generic`, or compiling without a target, leaves typed semantic IR
+and direct-SV semantics unchanged.
 
 ## DSP48E1 manual pipeline validation
 

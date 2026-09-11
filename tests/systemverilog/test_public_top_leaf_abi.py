@@ -85,7 +85,7 @@ def _strict_lint(text: str, top: str) -> None:
 
 
 def test_user_struct_top_is_always_leaf_and_vectors_are_native_arrays() -> None:
-    module = compile_source(USER_STRUCT, include_clash=False).ir
+    module = compile_source(USER_STRUCT).ir
     artifact = emit_artifact(module)
 
     assert "module UserStructTop_zlang_core (" in artifact.text
@@ -115,7 +115,6 @@ def test_axi_lite_top_exposes_struct_payload_fields_not_packed_payloads() -> Non
     module = compile_source(
         (ROOT / "examples" / "axi_csr_top.zhl").read_text(),
         top="AxiCsrTop",
-        include_clash=False,
     ).ir
     artifact = emit_artifact(module)
     public = artifact.text.split("module AxiCsrTop (", 1)[1]
@@ -139,7 +138,7 @@ def test_axi_lite_top_exposes_struct_payload_fields_not_packed_payloads() -> Non
 
 
 def test_public_names_colliding_after_sv_mangling_are_rejected() -> None:
-    module = compile_source(MANGLED_NAME_COLLISION, include_clash=False).ir
+    module = compile_source(MANGLED_NAME_COLLISION).ir
 
     with pytest.raises(
         SystemVerilogEmissionError,
@@ -152,7 +151,7 @@ def test_public_names_colliding_after_sv_mangling_are_rejected() -> None:
 
 
 def test_wrapper_temporary_is_allocated_away_from_public_leaf_names() -> None:
-    module = compile_source(WRAPPER_TEMPORARY_COLLISION, include_clash=False).ir
+    module = compile_source(WRAPPER_TEMPORARY_COLLISION).ir
     artifact = emit_artifact(module)
     repeated = emit_artifact(module)
     public = artifact.text.split("module WrapperTemporaryCollision (", 1)[1]
@@ -174,7 +173,7 @@ def test_wrapper_temporary_is_allocated_away_from_public_leaf_names() -> None:
 
 
 def test_reserved_rv_roots_use_unmangled_public_flattened_names() -> None:
-    module = compile_source(RESERVED_READY_VALID_ROOTS, include_clash=False).ir
+    module = compile_source(RESERVED_READY_VALID_ROOTS).ir
     artifact = emit_artifact(module)
     public = artifact.text.split("module ReservedReadyValidRoots (", 1)[1]
 
@@ -208,7 +207,7 @@ def test_reserved_rv_roots_use_unmangled_public_flattened_names() -> None:
 
 
 def test_wrapper_instance_is_allocated_away_from_public_leaf_names() -> None:
-    module = compile_source(WRAPPER_INSTANCE_COLLISION, include_clash=False).ir
+    module = compile_source(WRAPPER_INSTANCE_COLLISION).ir
     artifact = emit_artifact(module)
     repeated = emit_artifact(module)
     public = artifact.text.split("module WrapperInstanceCollision (", 1)[1]

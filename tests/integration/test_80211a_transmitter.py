@@ -21,8 +21,6 @@ from tests.integration.test_80211a_interleaver_packet import (
 )
 from tests.integration.test_80211a_controller_framer import _signal_header
 from tests.integration.test_80211a_mapper_packet import _expected_packet
-from zlang.backend.clash import emit_artifact as emit_clash_artifact
-from zlang.backend.clash.public_wrapper import ClashPublicTopWrapper
 from zlang.backend.companions import publish_companion_bundle
 from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
 import zlang.backend.systemverilog.emitter as direct_sv_emitter
@@ -30,11 +28,7 @@ import zlang.cli as cli_module
 from zlang.compiler import compile_file
 from zlang.opt import OptimizationStage, lower, restore
 from zlang.simulate import simulate_cycles
-from zlang.toolchain import (
-    find_clash_executable,
-    generate_verilog,
-    lint_with_verilator,
-)
+from zlang.toolchain import lint_with_verilator
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -113,7 +107,7 @@ def _expected_time_packet(rate: int, payload: bytes) -> list[dict[str, object]]:
 
 
 def _run_packet(rate: int, payload: bytes) -> tuple[list[int], list[dict[str, object]]]:
-    module = compile_file(SOURCE, top=TOP, include_clash=False).ir
+    module = compile_file(SOURCE, top=TOP).ir
     cycles = [_cycle(), _cycle(command_valid=1, rate=rate, length=len(payload))]
     cycles.extend(
         _cycle(psdu_valid=1, psdu=beat) for beat in _psdu_beats(payload)
@@ -152,7 +146,7 @@ def test_full_ieee_chain_matches_packet_oracle(
 def test_full_ieee_chain_canonical_and_direct_sv(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    compilation = compile_file(SOURCE, top=TOP, include_clash=False)
+    compilation = compile_file(SOURCE, top=TOP)
     module = compilation.ir
     assert [child.name for child in module.children] == [
         "IeeePacketMapper64",
@@ -387,7 +381,7 @@ def test_full_ieee_chain_direct_sv_cycle_trace() -> None:
         pytest.skip("Verilator is unavailable")
     rate = 1
     payload = b"\x55"
-    module = compile_file(SOURCE, top=TOP, include_clash=False).ir
+    module = compile_file(SOURCE, top=TOP).ir
     artifact = emit_sv_artifact(module)
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
@@ -406,42 +400,5 @@ def test_full_ieee_chain_direct_sv_cycle_trace() -> None:
             rate=rate,
             payload=payload,
         )
-    assert signals == [_signal_header(rate, len(payload))]
-    assert outputs == _expected_time_packet(rate, payload)
-
-
-@pytest.mark.skipif(
-    shutil.which("verilator") is None or find_clash_executable() is None,
-    reason="Clash and Verilator are required for full transmitter RTL replay",
-)
-def test_full_ieee_chain_clash_cycle_trace() -> None:
-    rate = 1
-    payload = b"\x55"
-    module = compile_file(SOURCE, top=TOP, include_clash=False).ir
-    artifact = emit_clash_artifact(module)
-    assert len(artifact.companions) == 6
-
-    with tempfile.TemporaryDirectory() as temporary:
-        root = Path(temporary)
-        rtl = generate_verilog(
-            artifact.text,
-            TOP,
-            root / "rtl",
-            find_clash_executable(),
-            companions=artifact.companions,
-            public_wrapper=ClashPublicTopWrapper.build(module),
-        )
-        assert len(rtl) > 1
-        companion_names = {Path(item.logical_path).name for item in artifact.companions}
-        for directory in {item.parent for item in rtl}:
-            assert companion_names <= {item.name for item in directory.iterdir()}
-        signals, outputs = _run_full_rtl_cycle_trace(
-            rtl,
-            direct=False,
-            work=root / "run",
-            rate=rate,
-            payload=payload,
-        )
-
     assert signals == [_signal_header(rate, len(payload))]
     assert outputs == _expected_time_packet(rate, payload)

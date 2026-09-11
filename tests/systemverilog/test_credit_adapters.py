@@ -17,7 +17,7 @@ VERILATOR = shutil.which("verilator")
 
 def _simulate(source: str, top: str, body: str, tmp_path: Path) -> None:
     module = compile_source(
-        (ROOT / "examples" / source).read_text(), include_clash=False
+        (ROOT / "examples" / source).read_text()
     ).ir
     rtl = tmp_path / f"{top}.sv"
     harness = tmp_path / "test.cpp"

@@ -53,7 +53,7 @@ module Top {
 
 
 def _module():
-    return compile_source(SOURCE, top="Top", include_clash=False).ir
+    return compile_source(SOURCE, top="Top").ir
 
 
 def test_hierarchy_index_exposes_root_and_depth_first_physical_paths() -> None:
@@ -188,7 +188,6 @@ def test_stage_local_cache_reuses_exact_fingerprint_and_immutable_index(
         "module Top { in x:u8 out y:u8 inst child:Child "
         "child.x=x y=child.y }",
         top="Top",
-        include_clash=False,
     ).ir
     original = ir_hierarchy.specialization_fingerprint
     calls: list[object] = []
@@ -223,10 +222,10 @@ def test_hierarchy_caches_are_independent_and_never_process_global(
 
     monkeypatch.setattr(ir_hierarchy, "specialization_fingerprint", counted)
     first_module = CompilationSession(
-        source, top="Top", include_clash=False
+        source, top="Top"
     ).check()
     second_module = CompilationSession(
-        source, top="Top", include_clash=False
+        source, top="Top"
     ).check()
     first = build_hierarchy_index(first_module)
     second = build_hierarchy_index(second_module)
@@ -351,7 +350,6 @@ module Top {
 }
 """,
         top="Top",
-        include_clash=False,
     ).ir
     first, second = module.elaborated_instances
     shared_identity = first.specialization_identity

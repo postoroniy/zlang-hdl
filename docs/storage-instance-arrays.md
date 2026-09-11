@@ -1,5 +1,9 @@
 # Storage-owning scalar instance arrays
 
+> **Historical evidence:** references to Clash below record the original slice
+> acceptance. The current compiler and release gate use direct SystemVerilog
+> only.
+
 This bounded composition slice extends one-dimensional compile-time instance
 arrays to same-domain scalar-wire children that own one storage resource.  It
 does not add source syntax: the existing `inst lane[N]`, indexed bindings, and

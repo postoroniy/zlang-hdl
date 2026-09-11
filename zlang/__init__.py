@@ -41,15 +41,6 @@ from zlang.formal_artifact_provider import (
     FormalArtifactProvider,
     FormalArtifactRecipe,
 )
-from zlang.root_equivalence import (
-    PreparedRootEquivalence,
-    RootEquivalenceError,
-    RootEquivalenceExecution,
-    RootEquivalencePlan,
-    RootEquivalenceUnavailable,
-    execute_root_equivalence,
-    prepare_root_equivalence,
-)
 
 __all__ = [
     "__version__",
@@ -68,11 +59,6 @@ __all__ = [
     "MIME_TYPE",
     "PhysicalCompilationInputs",
     "PUBLIC_LANGUAGE_NAME",
-    "PreparedRootEquivalence",
-    "RootEquivalenceError",
-    "RootEquivalenceExecution",
-    "RootEquivalencePlan",
-    "RootEquivalenceUnavailable",
     "SemanticCheckResult",
     "SimulationStateBinding",
     "SimulationStateCatalog",
@@ -87,6 +73,4 @@ __all__ = [
     "compile_source",
     "create_file_compilation_session",
     "create_file_compilation_session_snapshot",
-    "execute_root_equivalence",
-    "prepare_root_equivalence",
 ]

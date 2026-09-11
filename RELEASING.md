@@ -47,8 +47,7 @@ GitHub alpha; publishing to PyPI or a container registry is a separate decision.
 Run the repository's fast and pinned-tool CI on the exact release commit. The
 release candidate must include:
 
-- two complete parallel pytest runs with no unexpected skips; only explicitly
-  identified retired-Clash compatibility tests may skip when Clash is absent;
+- two complete parallel pytest runs with zero skips;
 - `compileall`, Ruff correctness checks, documentation links, and diff checks;
 - clean source and wheel installations with all installed CLI entry points;
 - strict direct-SystemVerilog/Verilator coverage;

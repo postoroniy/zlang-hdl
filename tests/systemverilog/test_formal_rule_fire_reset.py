@@ -64,7 +64,7 @@ def artifacts():
     for ordinal, (profile, nested) in enumerate(product(PROFILES, (False, True))):
         name = f"RuleReset{ordinal}"
         module = compile_source(
-            _source(name, *profile, nested), top=name, include_clash=False,
+            _source(name, *profile, nested), top=name,
             source_unit=f"rule-reset-{ordinal}.zhl",
         ).ir
         production = emit_artifact(module)
@@ -99,8 +99,7 @@ def test_formal_rule_reset_is_typed_deterministic_and_conditioned_once(artifacts
 
 def test_prepared_formal_cache_cannot_reuse_raw_rule_reset_recipe():
     result = compile_source(
-        _source("ResetCache", "safe", True, False, False),
-        include_clash=False, source_unit="rule-reset-cache.zhl",
+        _source("ResetCache", "safe", True, False, False), source_unit="rule-reset-cache.zhl",
     )
     current = _prepared_route_recipe(result, "direct_systemverilog")
     assert current["compiler"]["verification_publication"] == 7

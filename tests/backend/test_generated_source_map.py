@@ -6,10 +6,6 @@ import json
 
 import pytest
 
-from zlang.backend.clash import (
-    emit_artifact as emit_clash_artifact,
-    emit_artifact_with_source_map as emit_clash_bundle,
-)
 from zlang.backend.source_map import (
     GENERATED_SOURCE_MAP_VERSION,
     GeneratedLineRange,
@@ -43,42 +39,10 @@ module MappedAdd {
 def _module():
     return compile_source(
         SOURCE,
-        include_clash=False,
         source_unit="tests/fixtures/generated_source_map.zhl",
     ).ir
 
 
-@pytest.mark.parametrize(
-    ("emit_plain", "emit_bundle", "statement"),
-    (
-        (emit_sv_artifact, emit_sv_bundle, "assign y ="),
-        (emit_clash_artifact, emit_clash_bundle, "topEntity a b ="),
-    ),
-)
-def test_artifact_bundle_maps_only_the_exact_top_assignment(
-    emit_plain, emit_bundle, statement
-):
-    module = _module()
-    plain = emit_plain(module, selected_ir_identity="selected:test:mapped-add")
-    artifact, source_map = emit_bundle(
-        module, selected_ir_identity="selected:test:mapped-add"
-    )
-
-    # Publishing a sidecar must not alter generated hardware text or identity.
-    assert artifact.text == plain.text
-    assert artifact.artifact_hash == plain.artifact_hash
-    assert source_map.artifact_hash == artifact.artifact_hash
-    assert source_map.selected_ir_identity == artifact.selected_ir_identity
-    assert len(source_map.entries) == 1
-    entry = source_map.entries[0]
-    assert entry.semantic_identity == "port:y"
-    assert entry.source_origin.construct == "operator +"
-    assert entry.source_origin.source_unit == "tests/fixtures/generated_source_map.zhl"
-    assert entry.source_origin.digest == hashlib.sha256(SOURCE.encode()).hexdigest()
-    generated_line = artifact.text.splitlines()[entry.generated.start_line - 1]
-    assert statement in generated_line
-    assert source_map.entries_for_line(entry.generated.start_line) == (entry,)
-    assert source_map.entries_for_line(1) == ()
 
 
 def test_source_map_is_deterministic_round_trippable_and_writable(tmp_path):
@@ -142,29 +106,6 @@ def test_ambiguous_or_unbound_generated_statement_is_not_guessed():
     assert build_generated_source_map(module, unbound).entries == ()
 
 
-def test_clash_sequential_wrapper_line_is_not_misattributed():
-    module = compile_source(
-        """
-        module Counter {
-            clock clk
-            reset rst
-            in enable : bit
-            out value : u8
-            reg count : u8 = 0
-            when enable { count <- truncate<8>(count + 1) }
-            value = count
-        }
-        """,
-        include_clash=False,
-    ).ir
-    clash = emit_clash_artifact(module)
-    assert build_generated_source_map(module, clash).entries == ()
-
-    # Direct SV has an explicit, unique assignment for this output and can map
-    # it without attributing an enclosing state-machine wrapper.
-    direct = emit_sv_artifact(module)
-    direct_map = build_generated_source_map(module, direct)
-    assert tuple(item.semantic_identity for item in direct_map.entries) == ("port:value",)
 
 
 def test_source_map_rejects_mismatched_artifact_text_and_module():
@@ -181,20 +122,19 @@ def test_source_map_rejects_invalid_schema_data():
         GeneratedLineRange(0, 1)
     with pytest.raises(ValueError, match="unsupported.*version"):
         GeneratedSourceMap(
-            "clash", "M", "selected:M", "a" * 64, (), version=99
+            "direct_systemverilog", "M", "selected:M", "a" * 64, (), version=99
         )
     with pytest.raises(ValueError, match="SHA-256"):
-        GeneratedSourceMap("clash", "M", "selected:M", "not-a-hash")
+        GeneratedSourceMap("direct_systemverilog", "M", "selected:M", "not-a-hash")
     with pytest.raises(ValueError, match="positive"):
         GeneratedSourceMap(
-            "clash", "M", "selected:M", "a" * 64
+            "direct_systemverilog", "M", "selected:M", "a" * 64
         ).entries_for_line(0)
 
 
 def test_external_tool_diagnostic_uses_only_hash_verified_exact_mapping():
     module = compile_source(
         SOURCE,
-        include_clash=False,
         source_unit="examples/mapped_add.zhl",
     ).ir
     artifact, source_map = emit_sv_bundle(module)
@@ -219,7 +159,6 @@ def test_external_tool_diagnostic_uses_only_hash_verified_exact_mapping():
 def test_combined_formal_source_attribution_applies_exact_line_offset():
     module = compile_source(
         SOURCE,
-        include_clash=False,
         source_unit="examples/mapped_add.zhl",
     ).ir
     artifact, source_map = emit_sv_bundle(module)

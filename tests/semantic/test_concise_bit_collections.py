@@ -16,7 +16,7 @@ from zlang.simulate import simulate
 
 
 def _compile(source: str):
-    return compile_source(source, include_clash=False).ir
+    return compile_source(source).ir
 
 
 def _assignments(module):

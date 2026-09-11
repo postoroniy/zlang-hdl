@@ -40,7 +40,6 @@ def test_semantic_demand_has_an_explicit_bounded_dependency_frontier(
 ) -> None:
     for name in (
         "plan_backend_implementations",
-        "emit_clash",
         "build_formal_design",
         "build_recursive_formal_design",
         "emit_harness",
@@ -75,7 +74,7 @@ def test_semantic_demand_has_an_explicit_bounded_dependency_frontier(
 
 
 def test_products_and_failures_are_memoized_once_per_session(monkeypatch) -> None:
-    counts = {"parse": 0, "analyze": 0, "planning": 0, "clash": 0}
+    counts = {"parse": 0, "analyze": 0, "planning": 0}
 
     def counted(name, original):
         def call(*args, **kwargs):
@@ -93,14 +92,10 @@ def test_products_and_failures_are_memoized_once_per_session(monkeypatch) -> Non
         "plan_backend_implementations",
         counted("planning", session_module.plan_backend_implementations),
     )
-    monkeypatch.setattr(
-        session_module, "emit_clash", counted("clash", session_module.emit_clash)
-    )
-
     session = CompilationSession(SOURCE)
     assert session.semantic_ir is session.semantic_ir
     assert session.materialize() is session.materialize()
-    assert counts == {"parse": 1, "analyze": 1, "planning": 1, "clash": 1}
+    assert counts == {"parse": 1, "analyze": 1, "planning": 1}
 
     broken_calls = 0
 
@@ -149,19 +144,6 @@ def test_stdlib_physical_inputs_survive_semantic_failure() -> None:
     )
 
 
-def test_materialized_session_is_the_unchanged_compilation_result() -> None:
-    session_result = CompilationSession(SOURCE).materialize()
-    facade_result = compile_source(SOURCE)
-    assert isinstance(session_result, CompilationResult)
-    assert tuple(item.name for item in fields(session_result)) == tuple(
-        item.name for item in fields(facade_result)
-    )
-    assert session_result == facade_result
-    assert session_result.clash == facade_result.clash
-    assert session_result.formal_harness == facade_result.formal_harness
-    assert session_result.backend_implementation_report == (
-        facade_result.backend_implementation_report
-    )
 
 
 def test_top_diagnostic_type_and_text_remain_compatible() -> None:
@@ -202,7 +184,6 @@ def test_cli_check_demands_only_semantics(tmp_path, monkeypatch, capsys) -> None
     source.write_text(SOURCE)
     for name in (
         "plan_backend_implementations",
-        "emit_clash",
         "build_formal_design",
         "render_implementation_report",
     ):
@@ -244,7 +225,7 @@ def test_file_session_factories_are_public_and_lazy(tmp_path) -> None:
 
 
 def test_public_policy_and_plan_properties_demand_declared_nodes_only() -> None:
-    policy_session = CompilationSession(SOURCE, include_clash=False)
+    policy_session = CompilationSession(SOURCE)
     assert policy_session.implementation_policy.request == (
         policy_session.implementation_request
     )

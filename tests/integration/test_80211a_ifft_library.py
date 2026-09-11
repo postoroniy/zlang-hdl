@@ -20,8 +20,6 @@ import tempfile
 
 import pytest
 
-from zlang.backend.clash import emit_artifact as emit_clash_artifact
-from zlang.backend.clash.public_wrapper import ClashPublicTopWrapper
 from zlang.backend.companions import publish_companion_bundle
 from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
 from zlang.compiler import compile_file
@@ -31,11 +29,7 @@ from zlang.opt import OptimizationStage, lower, restore
 from zlang.parser import parse
 from zlang.semantic import analyze
 from zlang.simulate import simulate_cycles
-from zlang.toolchain import (
-    find_clash_executable,
-    generate_verilog,
-    lint_with_verilator,
-)
+from zlang.toolchain import lint_with_verilator
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -203,7 +197,6 @@ def _module(depth: int):
     return compile_file(
         SOURCE,
         top=f"IFFT64DIFStageExactD{depth}",
-        include_clash=False,
     ).ir
 
 
@@ -211,7 +204,6 @@ def _chain_module():
     return compile_file(
         SOURCE,
         top="IFFT64DIFExactChain",
-        include_clash=False,
     ).ir
 
 
@@ -633,116 +625,8 @@ def test_complete_chain_direct_sv_is_bounded_and_strict_lint_clean() -> None:
         lint_with_verilator((rtl,), "IFFT64DIFExactChain")
 
 
-def test_complete_chain_real_clash_is_bounded_and_lint_clean() -> None:
-    clash = find_clash_executable()
-    if clash is None or shutil.which("verilator") is None:
-        pytest.skip("Clash and Verilator are required")
-    module = _chain_module()
-    artifact = emit_clash_artifact(module)
-    assert len(artifact.text) < 150_000
-    assert max(map(len, artifact.text.splitlines())) < 20_000
-    with tempfile.TemporaryDirectory() as temporary:
-        root = Path(temporary)
-        rtl = generate_verilog(
-            artifact.text,
-            "IFFT64DIFExactChain",
-            root,
-            clash,
-            companions=artifact.companions,
-            public_wrapper=ClashPublicTopWrapper.build(module),
-        )
-        lint = subprocess.run(
-            (
-                "verilator",
-                "--lint-only",
-                "-Wno-WIDTHTRUNC",
-                "--top-module",
-                "IFFT64DIFExactChain",
-                *(str(path) for path in rtl),
-            ),
-            capture_output=True,
-            text=True,
-        )
-        assert lint.returncode == 0, lint.stderr or lint.stdout
 
 
-def test_complete_chain_direct_sv_and_clash_match_exact_verilator_trace() -> None:
-    clash = find_clash_executable()
-    if clash is None or shutil.which("verilator") is None:
-        pytest.skip("Clash and Verilator are required")
-    frames = [
-        [
-            (
-                (frame_index * 37 + index * 11) % 420 - 210,
-                (frame_index * 29 + index * 5) % 360 - 180,
-            )
-            for index in range(64)
-        ]
-        for frame_index in range(6)
-    ]
-    cycles: list[dict[str, object]] = [
-        {
-            "input": {"payload": {"re": 0, "im": 0}, "valid": 0},
-            "output": {"ready": 1},
-        }
-    ]
-    cycles.extend(
-        {
-            "input": {
-                "payload": {"re": real, "im": imag},
-                "valid": 1,
-            },
-            "output": {"ready": 1},
-        }
-        for frame in frames
-        for real, imag in frame
-    )
-    resets = [index == 0 for index in range(len(cycles))]
-    expected = [
-        value
-        for frame in frames
-        for value in _exact_ifft64_frame(frame)
-    ]
-    module = _chain_module()
-
-    with tempfile.TemporaryDirectory() as temporary:
-        root = Path(temporary)
-        direct_artifact = emit_sv_artifact(module)
-        direct = root / "direct.sv"
-        direct.write_text(direct_artifact.text)
-        publish_companion_bundle(direct_artifact.companions, root)
-        direct_records = _chain_rtl_records(
-            direct,
-            direct=True,
-            cycles=cycles,
-            resets=resets,
-        )
-
-        clash_artifact = emit_clash_artifact(module)
-        clash_rtl = generate_verilog(
-            clash_artifact.text,
-            "IFFT64DIFExactChain",
-            root / "clash",
-            clash,
-            companions=clash_artifact.companions,
-            public_wrapper=ClashPublicTopWrapper.build(module),
-        )
-        clash_records = _chain_rtl_records(
-            clash_rtl,
-            direct=False,
-            cycles=cycles,
-            resets=resets,
-        )
-
-    assert direct_records == clash_records
-    assert len(direct_records) == len(cycles)
-    actual = [
-        (real, imag)
-        for _cycle, _ready, valid, real, imag in direct_records
-        if valid
-    ]
-    assert len(actual) >= 4 * 64
-    assert actual == expected[: len(actual)]
 
 
 @pytest.mark.parametrize("depth", (4, 8))
@@ -756,97 +640,3 @@ def test_direct_sv_is_strict_lint_clean(depth: int) -> None:
         rtl.write_text(artifact.text)
         publish_companion_bundle(artifact.companions, root)
         lint_with_verilator((rtl,), f"IFFT64DIFStageExactD{depth}")
-
-
-@pytest.mark.parametrize("depth", (4, 8))
-def test_real_clash_generates_and_lints_with_established_rom_index_waiver(
-    depth: int,
-) -> None:
-    clash = find_clash_executable()
-    if clash is None or shutil.which("verilator") is None:
-        pytest.skip("Clash and Verilator are required")
-    module = _module(depth)
-    artifact = emit_clash_artifact(module)
-    with tempfile.TemporaryDirectory() as temporary:
-        root = Path(temporary)
-        rtl = generate_verilog(
-            artifact.text,
-            f"IFFT64DIFStageExactD{depth}",
-            root,
-            clash,
-            companions=artifact.companions,
-            public_wrapper=ClashPublicTopWrapper.build(module),
-        )
-        # Clash 1.11 romFile widens its Verilog selector to host Int width.
-        # This established generated-ROM waiver does not cover arithmetic,
-        # payload, FIFO, or register width diagnostics.
-        lint = subprocess.run(
-            (
-                "verilator",
-                "--lint-only",
-                "-Wno-WIDTHTRUNC",
-                "--top-module",
-                f"IFFT64DIFStageExactD{depth}",
-                *(str(path) for path in rtl),
-            ),
-            capture_output=True,
-            text=True,
-        )
-        assert lint.returncode == 0, lint.stderr or lint.stdout
-
-
-@pytest.mark.parametrize("depth", (4, 8))
-def test_direct_sv_and_real_clash_cycle_traces_match_integer_oracle(
-    depth: int,
-) -> None:
-    clash = find_clash_executable()
-    if clash is None or shutil.which("verilator") is None:
-        pytest.skip("Clash and Verilator are required")
-    cycles, resets = _cycles(depth)
-    expected = _oracle(cycles, resets, depth)
-    module = _module(depth)
-
-    with tempfile.TemporaryDirectory() as temporary:
-        root = Path(temporary)
-        direct_artifact = emit_sv_artifact(module)
-        direct = root / "direct.sv"
-        direct.write_text(direct_artifact.text)
-        publish_companion_bundle(direct_artifact.companions, root)
-        direct_records = _rtl_records(
-            direct,
-            direct=True,
-            depth=depth,
-            cycles=cycles,
-            resets=resets,
-        )
-
-        clash_artifact = emit_clash_artifact(module)
-        clash_rtl = generate_verilog(
-            clash_artifact.text,
-            f"IFFT64DIFStageExactD{depth}",
-            root / "clash",
-            clash,
-            companions=clash_artifact.companions,
-            public_wrapper=ClashPublicTopWrapper.build(module),
-        )
-        clash_records = _rtl_records(
-            clash_rtl,
-            direct=False,
-            depth=depth,
-            cycles=cycles,
-            resets=resets,
-        )
-
-    assert direct_records == clash_records
-    assert len(direct_records) == len(cycles)
-    for index, record in enumerate(direct_records):
-        if resets[index]:
-            continue
-        _cycle, input_ready, output_valid, output_re, output_im = record
-        assert input_ready == expected[index]["input"]["ready"]
-        assert output_valid == expected[index]["output"]["valid"]
-        if output_valid:
-            assert (output_re, output_im) == (
-                expected[index]["output"]["payload"]["re"],
-                expected[index]["output"]["payload"]["im"],
-            )

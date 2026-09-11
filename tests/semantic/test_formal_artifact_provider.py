@@ -80,23 +80,23 @@ def test_recipe_identity_is_deterministic_and_namespaced() -> None:
     first = FormalArtifactRecipe(
         FormalArtifactNamespace.M36,
         "reference-miter-v1",
-        {"candidate": "c", "route": {"backend": "clash", "depth": 8}},
+        {"candidate": "c", "route": {"backend": "direct_systemverilog", "depth": 8}},
     )
     reordered = FormalArtifactRecipe(
         "M36",
         "reference-miter-v1",
-        {"route": {"depth": 8, "backend": "clash"}, "candidate": "c"},
+        {"route": {"depth": 8, "backend": "direct_systemverilog"}, "candidate": "c"},
     )
     other_namespace = FormalArtifactRecipe(
-        "M38",
+        "M39",
         "reference-miter-v1",
-        {"candidate": "c", "route": {"backend": "clash", "depth": 8}},
+        {"candidate": "c", "route": {"backend": "direct_systemverilog", "depth": 8}},
     )
 
     assert first.identity == reordered.identity
     assert first.identity != other_namespace.identity
     assert FORMAL_ARTIFACT_NAMESPACES == {
-        "prepared", "M35", "M36", "M38", "M39"
+        "prepared", "M35", "M36", "M39"
     }
     detached = first.inputs
     detached["candidate"] = "mutated"
@@ -203,151 +203,8 @@ def test_codec_backed_entry_is_atomic_and_hash_corruption_is_a_miss(
     assert repaired_envelope["value"]["generation"] == 2
 
 
-def test_shared_provider_reuses_m36_reference_miter_bundle(
-    monkeypatch,
-) -> None:
-    provider = FormalArtifactProvider()
-    reference = SimpleNamespace(identity="reference")
-    implementation = SimpleNamespace(identity="implementation")
-    candidate = SimpleNamespace(
-        expression=implementation,
-        implementation_identity="candidate",
-        stages=(),
-    )
-    config = candidate_module.FormalExplorationConfig()
-    calls = 0
-    property_ = EquivalenceProperty(
-        "property",
-        EquivalenceRelation.SAME_CYCLE_VALUE,
-        "reference",
-        "candidate",
-        BitType(),
-        (),
-        "port:result",
-        "port:result",
-        0,
-        0,
-        1,
-        1,
-        None,
-        None,
-        None,
-        None,
-        0,
-        ComparisonWindow.same_cycle(),
-    )
-    bundle = candidate_module._ProofBundle(
-        property_,
-        "module proof_bundle; endmodule\n",
-        "proof_bundle",
-        "a" * 64,
-        "b" * 64,
-        "c" * 64,
-        "property",
-        "assumptions",
-        "backend",
-    )
-
-    monkeypatch.setattr(
-        candidate_module,
-        "expression_semantic_identity",
-        lambda value: value.identity,
-    )
-    monkeypatch.setattr(
-        candidate_module,
-        "_proof_bundle_tool_route",
-        lambda _config: {"clash": "test", "formal_versions": []},
-    )
-
-    def build(_self, _candidate, _config):
-        nonlocal calls
-        calls += 1
-        return bundle
-
-    monkeypatch.setattr(
-        candidate_module.M36ClashCandidateVerifier,
-        "_build_bundle",
-        build,
-    )
-    first = candidate_module.M36ClashCandidateVerifier(
-        reference,
-        artifact_provider=provider,
-    )
-    second = candidate_module.M36ClashCandidateVerifier(
-        reference,
-        artifact_provider=provider,
-    )
-
-    assert first._bundle(candidate, config) is bundle
-    assert second._bundle(candidate, config) is bundle
-    assert calls == 1
 
 
-def test_m39_preparation_recipe_separates_exact_physical_domains(
-    monkeypatch,
-) -> None:
-    reference = SimpleNamespace(identity="reference")
-    implementation = SimpleNamespace(identity="implementation")
-    candidate = SimpleNamespace(
-        expression=implementation,
-        implementation_identity="candidate",
-        stages=(),
-    )
-    config = candidate_module.FormalExplorationConfig()
-    monkeypatch.setattr(
-        candidate_module,
-        "expression_semantic_identity",
-        lambda value: value.identity,
-    )
-    monkeypatch.setattr(
-        candidate_module,
-        "_proof_bundle_tool_route",
-        lambda _config: {
-            "clash": "/test/clash",
-            "clash_version": "Clash test",
-            "formal_versions": [],
-        },
-    )
-    domains = (
-        ClockDomain("clk", "rst"),
-        ClockDomain("clk", "rst", edge=ClockEdge.FALLING),
-        ClockDomain(
-            "clk", "rst", reset_polarity=ResetPolarity.ACTIVE_LOW
-        ),
-        ClockDomain(
-            "clk",
-            "rst",
-            reset_mode=ResetMode.ASYNCHRONOUS,
-            reset_release_mode=ResetReleaseMode.SYNCHRONIZED,
-            reset_release_cycles=2,
-        ),
-    )
-    recipes = tuple(
-        candidate_module.M36ClashCandidateVerifier(
-            reference,
-            clock_domain_contract=domain,
-        ).preparation_cache_recipe(candidate, config)
-        for domain in domains
-    )
-    assert all(recipe is not None for recipe in recipes)
-    rendered = tuple(
-        json.dumps(recipe, sort_keys=True, separators=(",", ":"))
-        for recipe in recipes
-    )
-    assert len(set(rendered)) == len(domains)
-    assert [recipe["bundle"]["clock_domain_contract"] for recipe in recipes] == [
-        {
-            "clock": domain.clock,
-            "reset": domain.reset,
-            "edge": domain.edge.value,
-            "reset_mode": domain.reset_mode.value,
-            "reset_polarity": domain.reset_polarity.value,
-            "power_up": domain.power_up.value,
-            "reset_release_mode": domain.reset_release_mode.value,
-            "reset_release_cycles": domain.reset_release_cycles,
-        }
-        for domain in domains
-    ]
 
 
 def test_retained_m39_workspace_is_unique_to_exact_property_recipe(
@@ -436,7 +293,7 @@ def test_unknown_timeout_and_environment_skip_are_not_memoized(
 
     def skipped() -> dict[str, object]:
         calls["skip"] += 1
-        return {"status": "skipped", "reason": "Clash executable is unavailable"}
+        return {"status": "skipped", "reason": "formal backend is unavailable"}
 
     for _ in range(2):
         assert provider.get_or_prepare(
@@ -448,7 +305,7 @@ def test_unknown_timeout_and_environment_skip_are_not_memoized(
             decode=_mapping,
         )["status"] == "unknown"
         assert provider.get_or_prepare(
-            "M38",
+            "M39",
             "environment-result-v1",
             {"goal": "g"},
             skipped,
@@ -483,7 +340,6 @@ def test_compilation_session_owns_provider_and_explicit_cache_root(
 ) -> None:
     session = CompilationSession(
         SOURCE,
-        include_clash=False,
         formal_cache=tmp_path / "formal-cache",
     )
     result = session.materialize()
@@ -498,7 +354,7 @@ def test_repeated_publication_reuses_direct_route_and_exact_m35_checker(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    compilation = compile_source(FORMAL_SOURCE, include_clash=False)
+    compilation = compile_source(FORMAL_SOURCE)
     artifact = emit_systemverilog_formal_artifact(
         compilation.ir,
         compilation.recursive_formal_design,
@@ -534,139 +390,8 @@ def test_repeated_publication_reuses_direct_route_and_exact_m35_checker(
     assert first.to_json() == second.to_json()
 
 
-def test_repeated_fallback_publication_does_not_rerun_clash_preparation(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    compilation = compile_source(FORMAL_SOURCE, include_clash=False)
-    fallback_artifact = emit_systemverilog_formal_artifact(
-        compilation.ir,
-        compilation.recursive_formal_design,
-        selected_ir_identity=compilation.selected_ir_identity,
-    )
-    fallback_calls = 0
-
-    def unsupported(*_args: object, **_kwargs: object):
-        raise SystemVerilogEmissionError("forced direct route outage")
-
-    def prepare_fallback(*_args: object, **_kwargs: object):
-        nonlocal fallback_calls
-        fallback_calls += 1
-        return fallback_artifact, None
-
-    monkeypatch.setattr(publication_module, "emit_formal_artifact", unsupported)
-    monkeypatch.setattr(
-        publication_module,
-        "_clash_recipe_context",
-        lambda *_args: (
-            {"executable": "test-clash", "version": "test"},
-            "test-clash",
-        ),
-    )
-    monkeypatch.setattr(
-        publication_module,
-        "_try_clash_formal_fallback",
-        prepare_fallback,
-    )
-
-    publication_module.publish_compilation_verification_bundle(
-        compilation,
-        tmp_path / "first-fallback",
-    )
-    publication_module.publish_compilation_verification_bundle(
-        compilation,
-        tmp_path / "second-fallback",
-    )
-
-    assert fallback_calls == 1
 
 
-def test_fresh_session_restores_complete_fallback_route_without_backend_rerun(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    cache = tmp_path / "formal-cache"
-    first = compile_source(
-        ROM_FORMAL_SOURCE,
-        include_clash=False,
-        formal_cache=cache,
-        source_unit="tests/fixtures/cached_verification_rom.zhl",
-    )
-    fallback_artifact = emit_systemverilog_formal_artifact(
-        first.ir,
-        first.recursive_formal_design,
-        selected_ir_identity=first.selected_ir_identity,
-    )
-    assert fallback_artifact.companions
-    fallback_calls = 0
-
-    def unsupported(*_args: object, **_kwargs: object):
-        raise SystemVerilogEmissionError("forced direct route outage")
-
-    def prepare_fallback(*_args: object, **_kwargs: object):
-        nonlocal fallback_calls
-        fallback_calls += 1
-        return fallback_artifact, None
-
-    monkeypatch.setattr(publication_module, "emit_formal_artifact", unsupported)
-    monkeypatch.setattr(
-        publication_module,
-        "_clash_recipe_context",
-        lambda *_args: (
-            {"executable": "test-clash", "version": "test"},
-            "test-clash",
-        ),
-    )
-    monkeypatch.setattr(
-        publication_module,
-        "_try_clash_formal_fallback",
-        prepare_fallback,
-    )
-    first_manifest = publication_module.publish_compilation_verification_bundle(
-        first,
-        tmp_path / "first-session",
-    )
-    assert fallback_calls == 1
-
-    # A fresh compilation owns a fresh in-memory provider.  Only the strict
-    # disk codec can avoid invoking the backend callback here.
-    second = compile_source(
-        ROM_FORMAL_SOURCE,
-        include_clash=False,
-        formal_cache=cache,
-        source_unit="tests/fixtures/cached_verification_rom.zhl",
-    )
-    second_manifest = publication_module.publish_compilation_verification_bundle(
-        second,
-        tmp_path / "second-session",
-    )
-    assert fallback_calls == 1
-    assert second.formal_artifact_provider is not None
-    assert second.formal_artifact_provider.stats.disk_hits >= 1
-    assert first_manifest.to_json() == second_manifest.to_json()
-    assert {
-        item.logical_path: (
-            tmp_path / "first-session" / item.logical_path
-        ).read_bytes()
-        for item in first_manifest.files
-    } == {
-        item.logical_path: (
-            tmp_path / "second-session" / item.logical_path
-        ).read_bytes()
-        for item in second_manifest.files
-    }
-    first_companion = next(
-        item for item in first_manifest.files if item.kind == "companion"
-    )
-    second_companion = next(
-        item for item in second_manifest.files if item.kind == "companion"
-    )
-    assert first_companion == second_companion
-    assert (
-        tmp_path / "first-session" / first_companion.logical_path
-    ).read_bytes() == (
-        tmp_path / "second-session" / second_companion.logical_path
-    ).read_bytes()
 
 
 def test_missing_scoped_assumption_is_never_silently_dropped(
@@ -675,7 +400,6 @@ def test_missing_scoped_assumption_is_never_silently_dropped(
 ) -> None:
     compilation = compile_source(
         SCOPED_ASSUMPTION_SOURCE,
-        include_clash=False,
         source_unit="tests/fixtures/missing_scoped_assumption.zhl",
     )
     assumptions = tuple(
@@ -693,14 +417,6 @@ def test_missing_scoped_assumption_is_never_silently_dropped(
             ),
         ),
     )
-    monkeypatch.setattr(
-        publication_module,
-        "_try_clash_formal_fallback",
-        lambda *_args, **_kwargs: pytest.fail(
-            "missing semantic assumption needlessly probed Clash"
-        ),
-    )
-
     manifest = publication_module.publish_compilation_verification_bundle(
         corrupted,
         tmp_path / "bundle",
@@ -717,198 +433,3 @@ def test_missing_scoped_assumption_is_never_silently_dropped(
         tuple(item.assumption_ids) == (assumptions[0].id,)
         for item in manifest.jobs
     )
-
-
-def test_fresh_m39_verifier_uses_preparation_index_before_clash_or_solver(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    cache = tmp_path / "formal-cache"
-    reference = SimpleNamespace(identity="reference")
-    implementation = SimpleNamespace(identity="implementation")
-    candidate = SimpleNamespace(
-        expression=implementation,
-        implementation_identity="candidate",
-        semantic_identity="semantic",
-        timing_relation=None,
-        stages=(),
-    )
-    builds = 0
-    solver_calls = 0
-    allow_build = True
-    property_ = EquivalenceProperty(
-        "property",
-        EquivalenceRelation.SAME_CYCLE_VALUE,
-        "reference",
-        "candidate",
-        BitType(),
-        (),
-        "port:result",
-        "port:result",
-        0,
-        0,
-        1,
-        1,
-        None,
-        None,
-        None,
-        None,
-        0,
-        ComparisonWindow.same_cycle(),
-    )
-    bundle = candidate_module._ProofBundle(
-        property_,
-        "module indexed_bundle; endmodule\n",
-        "indexed_bundle",
-        "a" * 64,
-        "b" * 64,
-        "c" * 64,
-        "property",
-        "d" * 64,
-        "e" * 64,
-    )
-
-    monkeypatch.setattr(
-        candidate_module,
-        "expression_semantic_identity",
-        lambda value: value.identity,
-    )
-    monkeypatch.setattr(
-        candidate_module,
-        "_proof_bundle_tool_route",
-        lambda _config: {
-            "clash": "/test/clash",
-            "clash_version": "Clash test",
-            "formal_versions": [["sby", "test"], ["z3", "test"]],
-        },
-    )
-    monkeypatch.setattr(
-        exploration_module,
-        "tool_versions",
-        lambda _requested=None: (("sby", "test"), ("z3", "test")),
-    )
-    monkeypatch.setattr(
-        candidate_module,
-        "generate_verilog",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            AssertionError("preparation-index hit reran Clash")
-        ),
-    )
-
-    class IndexedVerifier(candidate_module.M36ClashCandidateVerifier):
-        def _build_bundle(self, _candidate, _config):
-            nonlocal builds
-            if not allow_build:
-                raise AssertionError("preparation-index hit rebuilt the M36 bundle")
-            builds += 1
-            return bundle
-
-        def __call__(self, value, config):
-            nonlocal solver_calls
-            prepared = self._bundle(value, config)
-            solver_calls += 1
-            return {
-                "status": candidate_module.FormalStatus.BOUNDED_PASS,
-                "mode": candidate_module.ProofMode.BMC,
-                "depth": config.bmc_depth,
-                "engine": config.engine,
-                "solver": config.solver,
-                "backend": "clash",
-                "artifact_hash": prepared.implementation_artifact_hash,
-                "reference_artifact_hash": prepared.reference_artifact_hash,
-                "implementation_artifact_hash": (
-                    prepared.implementation_artifact_hash
-                ),
-                "property_identity": prepared.property_identity,
-                "harness_hash": prepared.harness_hash,
-                "assumptions_identity": prepared.assumptions_identity,
-                "backend_identity": prepared.backend_identity,
-            }
-
-    first_provider = FormalArtifactProvider(cache / "artifacts")
-    first_config = exploration_module.FormalExplorationConfig(
-        exploration_module.FormalPolicy.REQUIRED_BMC,
-        bmc_depth=7,
-        cache_directory=cache,
-        artifact_provider=first_provider,
-    )
-    first_verifier = IndexedVerifier(
-        reference,
-        artifact_provider=first_provider,
-    )
-    first, first_state, invalid, first_recipe = exploration_module._execute_stage(
-        candidate,
-        first_config,
-        first_verifier,
-        route="M36_clash",
-    )
-    assert first.status is candidate_module.FormalStatus.BOUNDED_PASS
-    assert first_recipe.startswith("m39-execution:")
-    assert first_state == "executed"
-    assert not invalid
-    assert builds == solver_calls == 1
-    index_files = tuple(
-        (cache / "artifacts" / "M39" / "preparation-index").glob("*.json")
-    )
-    assert len(index_files) == 1
-    index = json.loads(index_files[0].read_text(encoding="utf-8"))
-    assert index["schema"] == "zlang-m39-preparation-index-v1"
-    assert index["index_hash"]
-
-    allow_build = False
-    second_provider = FormalArtifactProvider(cache / "artifacts")
-    second_config = exploration_module.FormalExplorationConfig(
-        exploration_module.FormalPolicy.REQUIRED_BMC,
-        bmc_depth=7,
-        cache_directory=cache,
-        artifact_provider=second_provider,
-    )
-    second_verifier = IndexedVerifier(
-        reference,
-        artifact_provider=second_provider,
-    )
-    second, second_state, invalid, second_recipe = exploration_module._execute_stage(
-        candidate,
-        second_config,
-        second_verifier,
-        route="M36_clash",
-    )
-
-    assert second.status is candidate_module.FormalStatus.BOUNDED_PASS
-    assert second_recipe == first_recipe
-    assert second_state == "hit"
-    assert not invalid
-    assert builds == solver_calls == 1
-
-    # The index is advisory only after strict validation.  Corrupting its hash
-    # forces a provider lookup, while the independently validated prepared
-    # artifact and proof entries avoid both a second Clash build and a second
-    # solver execution before repairing the index.
-    index["index_hash"] = "0" * 64
-    index_files[0].write_text(json.dumps(index), encoding="utf-8")
-    allow_build = True
-    third_provider = FormalArtifactProvider(cache / "artifacts")
-    third_config = exploration_module.FormalExplorationConfig(
-        exploration_module.FormalPolicy.REQUIRED_BMC,
-        bmc_depth=7,
-        cache_directory=cache,
-        artifact_provider=third_provider,
-    )
-    third_verifier = IndexedVerifier(
-        reference,
-        artifact_provider=third_provider,
-    )
-    third, third_state, invalid, third_recipe = exploration_module._execute_stage(
-        candidate,
-        third_config,
-        third_verifier,
-        route="M36_clash",
-    )
-    assert third.status is candidate_module.FormalStatus.BOUNDED_PASS
-    assert third_recipe == first_recipe
-    assert third_state == "hit"
-    assert not invalid
-    assert builds == 1
-    assert solver_calls == 1
-    repaired_index = json.loads(index_files[0].read_text(encoding="utf-8"))
-    assert repaired_index["index_hash"] != "0" * 64

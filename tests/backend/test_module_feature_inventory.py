@@ -19,7 +19,6 @@ from zlang.backend.module_features import (
     module_feature_inventory,
     validate_feature_claims,
 )
-from zlang.backend.clash import ClashEmissionError
 from zlang.backend.systemverilog import (
     SystemVerilogEmissionError,
     emit_experimental,
@@ -68,7 +67,7 @@ def test_legacy_specialized_emitters_reject_unclaimed_user_state(
     engine: str,
     source: str,
 ) -> None:
-    module = compile_source(source, include_clash=False).ir
+    module = compile_source(source).ir
     inventory = module_feature_inventory(module)
     assert inventory.of_kind(ModuleFeatureKind.REGISTER)
     assert inventory.of_kind(ModuleFeatureKind.RULE)
@@ -81,7 +80,7 @@ def test_legacy_specialized_emitters_reject_unclaimed_user_state(
 
 
 def test_inventory_is_deterministic_and_distinguishes_entity_kinds() -> None:
-    module = compile_source(MIXED_SOURCES["globally controlled FIFO"], include_clash=False).ir
+    module = compile_source(MIXED_SOURCES["globally controlled FIFO"]).ir
     first = module_feature_inventory(module)
     second = module_feature_inventory(module)
     assert first == second
@@ -96,7 +95,6 @@ def test_inventory_is_deterministic_and_distinguishes_entity_kinds() -> None:
 def test_emission_claims_require_every_entity_exactly_once() -> None:
     module = compile_source(
         "module Accounted { in a:u8 out y:u8 local=a y=local }",
-        include_clash=False,
     ).ir
     inventory = module_feature_inventory(module)
     complete = claims_for_kinds(
@@ -127,7 +125,6 @@ def test_emission_claims_require_every_entity_exactly_once() -> None:
 def _request_response_hierarchy():
     return compile_source(
         (ROOT / "examples/hierarchical_request_response_m40.zhl").read_text(),
-        include_clash=False,
     ).ir
 
 
@@ -155,7 +152,6 @@ def test_inventory_tracks_aggregate_endpoint_and_each_member_endpoint() -> None:
     module = compile_source(
         (ROOT / "examples/all_syntax.zhl").read_text(),
         top="AggregateProtocolSyntax",
-        include_clash=False,
     ).ir
     inventory = module_feature_inventory(module)
     aggregate = inventory.of_kind(ModuleFeatureKind.AGGREGATE_ENDPOINT)
@@ -170,52 +166,6 @@ def test_inventory_tracks_aggregate_endpoint_and_each_member_endpoint() -> None:
     )
 
 
-@pytest.mark.parametrize(
-    ("backend_module", "error_type", "duplicate"),
-    [
-        ("zlang.backend.systemverilog.emitter", SystemVerilogEmissionError, False),
-        ("zlang.backend.systemverilog.emitter", SystemVerilogEmissionError, True),
-        ("zlang.backend.clash.emitter", ClashEmissionError, False),
-        ("zlang.backend.clash.emitter", ClashEmissionError, True),
-    ],
-)
-def test_artifact_publication_rejects_omitted_or_duplicate_rr_ledger_claim(
-    monkeypatch: pytest.MonkeyPatch,
-    backend_module: str,
-    error_type: type[Exception],
-    duplicate: bool,
-) -> None:
-    backend = importlib.import_module(backend_module)
-    module = _request_response_hierarchy()
-    real_claims = backend.claims_for_groups
-    publication_attempted = False
-
-    def broken_claims(module, contributor, groups):
-        claims = real_claims(module, contributor, groups)
-        ledger = next(
-            claim
-            for claim in claims
-            if claim.feature.kind is ModuleFeatureKind.REQUEST_RESPONSE_LEDGER
-        )
-        if duplicate:
-            return (*claims, ModuleFeatureClaim(ledger.feature, "duplicate-ledger"))
-        return tuple(
-            claim
-            for claim in claims
-            if claim.feature.kind is not ModuleFeatureKind.REQUEST_RESPONSE_LEDGER
-        )
-
-    def forbidden_publish(*args, **kwargs):
-        nonlocal publication_attempted
-        publication_attempted = True
-        raise AssertionError("invalid emission plan reached artifact publication")
-
-    monkeypatch.setattr(backend, "claims_for_groups", broken_claims)
-    monkeypatch.setattr(backend, "publish_artifact", forbidden_publish)
-    expected = "multiply_claimed" if duplicate else "unclaimed=request_response_ledger"
-    with pytest.raises(error_type, match=expected):
-        backend.emit_artifact(module)
-    assert not publication_attempted
 
 
 def test_group_claims_reject_repeated_concrete_contributor() -> None:

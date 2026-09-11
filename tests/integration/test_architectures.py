@@ -38,14 +38,14 @@ class ArchitectureIntegrationTests(unittest.TestCase):
     def test_cli_writes_architecture_report(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             report = Path(temporary) / "FirArchitecture.architecture"
-            clash = Path(temporary) / "FirArchitecture.hs"
+            rtl = Path(temporary) / "FirArchitecture.sv"
             status = main(
                 [
                     str(ROOT / "examples/implementation_intent.zhl"),
                     "--top",
                     "FirArchitecture",
-                    "-o",
-                    str(clash),
+                    "--systemverilog",
+                    str(rtl),
                     "--architecture-report",
                     str(report),
                 ]

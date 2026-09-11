@@ -6,11 +6,9 @@ import subprocess
 
 import pytest
 
-from zlang.backend.clash.public_wrapper import ClashPublicTopWrapper
 from zlang.backend.manifest import BackendArtifact, MANIFEST_VERSION
 from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
 from zlang.compiler import compile_source
-from zlang.cross_backend import run_cross_backend_formal
 from zlang.equivalence import (
     artifact_hash,
     emit_miter,
@@ -23,20 +21,12 @@ from zlang.equivalence import (
 from zlang.ir import (
     BindingMap,
     BindingSide,
-    CrossBackendMode,
-    CrossBackendProperty,
-    CrossBackendRelation,
-    CrossBackendStatus,
     EquivalenceBinding,
     EquivalenceMode,
     EquivalenceStatus,
     SignalRole,
 )
-from zlang.toolchain import (
-    find_clash_executable,
-    generate_verilog,
-    lint_with_verilator,
-)
+from zlang.toolchain import lint_with_verilator
 
 
 SOURCE = """
@@ -97,51 +87,8 @@ def test_direct_sv_runtime_expression_index_simulates(tmp_path: Path) -> None:
     _run_verilator([rtl], tmp_path, "sv")
 
 
-@pytest.mark.skipif(
-    find_clash_executable() is None or shutil.which("verilator") is None,
-    reason="Clash or Verilator unavailable",
-)
-def test_clash_runtime_expression_index_simulates(tmp_path: Path) -> None:
-    result = compile_source(SOURCE)
-    assert "fromIntegral" not in result.clash
-    assert "zlangRuntimeVector" in result.clash
-    files = list(generate_verilog(
-        result.clash,
-        result.ir.name,
-        tmp_path / "clash",
-        public_wrapper=ClashPublicTopWrapper.build(result.ir),
-    ))
-    assert files
-    lint_with_verilator(tuple(files), result.ir.name)
-    _run_verilator(files, tmp_path, "clash")
 
 
-@pytest.mark.skipif(
-    find_clash_executable() is None or shutil.which("verilator") is None,
-    reason="Clash or Verilator unavailable",
-)
-def test_clash_runtime_index_64_has_exact_physical_selector_width(
-    tmp_path: Path,
-) -> None:
-    source = """
-module RuntimeSelect64 {
-    in values : vec<64,u8>
-    in index : u6
-    out y : u8
-    y = values[index]
-}
-"""
-    result = compile_source(source)
-    files = tuple(
-        generate_verilog(
-            result.clash,
-            result.ir.name,
-            tmp_path / "clash64",
-            public_wrapper=ClashPublicTopWrapper.build(result.ir),
-        )
-    )
-    assert files
-    lint_with_verilator(files, result.ir.name)
 
 
 def _m36_source(implementation: str):
@@ -219,24 +166,3 @@ def _cross_artifact(backend: str, module: str, body: str) -> BackendArtifact:
         EquivalenceBinding(MANIFEST_VERSION, BindingSide.IMPLEMENTATION, "port:y", identity, module, "y", 8, "unsigned", SignalRole.OUTPUT, None, None, backend, digest),
     )
     return BackendArtifact(backend, module, identity, digest, body, bindings)
-
-
-@pytest.mark.skipif(
-    len(formal_tools_available()) != 3,
-    reason="Yosys/SymbiYosys formal tools are unavailable",
-)
-def test_m38_runtime_select_raw_bits_cross_backend_smoke() -> None:
-    left_text = EXPLICIT_SWITCH.replace("RuntimeSelect", "ClashRuntimeSelect", 1)
-    right_text = EXPLICIT_SWITCH.replace("RuntimeSelect", "SvRuntimeSelect", 1)
-    left = _cross_artifact("clash", "ClashRuntimeSelect", left_text)
-    right = _cross_artifact("direct_systemverilog", "SvRuntimeSelect", right_text)
-    property_ = CrossBackendProperty(
-        "m38.runtime_index", CrossBackendRelation.SAME_CYCLE_VALUE,
-        "selected:runtime-index", ("port:y",), None, None, 0, 0,
-    )
-    result = run_cross_backend_formal(
-        property_, left, right,
-        inputs=("port:values", "port:raw_index"),
-        mode=CrossBackendMode.BMC, depth=4,
-    )
-    assert result.status is CrossBackendStatus.BOUNDED_PASS

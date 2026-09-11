@@ -28,7 +28,7 @@ module Top {
 
 
 def _compile():
-    return compile_source(SOURCE, include_clash=False)
+    return compile_source(SOURCE)
 
 
 def test_reserved_instance_name_is_mangled_without_changing_semantic_identity() -> None:

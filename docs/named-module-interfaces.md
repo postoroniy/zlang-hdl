@@ -119,7 +119,7 @@ runtime dispatch.
 
 The applied `ModuleSignature` is backend-independent semantic/build metadata.
 It survives canonical round trips, while the implementation body continues
-through the existing Clash and direct-SystemVerilog paths. Merely adding an
+through the production direct-SystemVerilog path. Merely adding an
 equivalent interface declaration does not authorize a backend to change RTL or
 timing.
 

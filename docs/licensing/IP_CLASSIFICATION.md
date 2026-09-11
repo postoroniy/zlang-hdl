@@ -15,7 +15,7 @@ Community membership does not turn every file into Apache-2.0 material.
 | `examples/projects/80211a_transmitter` | Bounded Wi-Fi reference implementation | MIT, with its own LICENSE and NOTICE |
 | Wi-Fi tests, oracles, validation documents and tooling outside that project | Independent validation material according to root NOTICE | Existing REUSE metadata; copied expressive material must instead retain its applicable upstream terms |
 | ZTPU-related memory, AXI and first-fault witnesses | Minimal compiler/composition regression designs | Apache-2.0 through repository REUSE metadata; no license claim over the external ZTPU project |
-| Committed generated HDL/Clash examples | Reproducible output examples and regression evidence | Existing repository/adjacent metadata; generation alone does not remove attribution obligations |
+| Committed generated SystemVerilog examples | Reproducible output examples and regression evidence | Existing repository/adjacent metadata; generation alone does not remove attribution obligations |
 | External vendor models and complete external projects | Not supplied by the Python compiler distribution | Separate source and redistribution review before inclusion |
 
 The [license index](README.md), [REUSE.toml](../../REUSE.toml) and adjacent
@@ -71,8 +71,7 @@ Target descriptions identify hardware capabilities and primitive interfaces.
 They are not a bundle of vendor IP libraries. In particular, a primitive
 instantiation and the optional repository-provided behavioral simulation model
 are different artifacts. See the
-[generated-output policy](GENERATED_OUTPUT_POLICY.md) for the DSP48E1 model and
-Clash template-output review boundaries.
+[generated-output policy](GENERATED_OUTPUT_POLICY.md) for the DSP48E1 model.
 
 Names such as IEEE 802.11, Arm AMBA, AMD/Xilinx and Intel are used descriptively.
 The project does not claim affiliation, certification or rights over those

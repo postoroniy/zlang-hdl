@@ -10,14 +10,6 @@ import json
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path, PurePosixPath
 import re
-import subprocess
-from tempfile import TemporaryDirectory
-
-from zlang.backend.clash import (
-    ClashEmissionError,
-    emit_formal_artifact as emit_clash_formal_artifact,
-    finalize_formal_verilog_artifact,
-)
 from zlang.backend.companions import CompanionArtifactError
 from zlang.backend.manifest import BackendArtifact
 from zlang.backend.source_map import GeneratedSourceMap, build_generated_source_map
@@ -85,12 +77,6 @@ from zlang.ir.module import dependency_context_identity
 from zlang.ir.types import StructType, TupleType, VecType
 from zlang.ir.verification import verification_identity as overlay_verification_identity
 from zlang.opt.identity import CANONICAL_IR_IDENTITY_SCHEMA
-from zlang.toolchain import (
-    ToolchainError,
-    clash_subprocess_environment,
-    find_clash_executable,
-    generate_verilog,
-)
 from zlang.verification_bundle import (
     VerificationBundleInput,
     VerificationBundleManifest,
@@ -167,10 +153,6 @@ class _RecursiveScopePublication:
     requirements: dict[str, dict[str, object]]
     goals: dict[str, dict[str, object]]
     source_origin: object | None
-
-
-class _FormalRouteUnavailable(RuntimeError):
-    """An environment-dependent route preparation failed without caching."""
 
 
 def _binding_payload(binding: object) -> dict[str, object]:
@@ -1002,116 +984,6 @@ def _recursive_scope_payload(result: CompilationResult) -> list[dict[str, object
     return scopes
 
 
-def _clash_version_for_recipe(executable: str) -> str:
-    """Freeze only the Clash tool evidence relevant to route preparation."""
-
-    try:
-        completed = subprocess.run(
-            (executable, "--version"),
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=15,
-            env=clash_subprocess_environment(executable),
-        )
-    except (OSError, subprocess.SubprocessError) as error:
-        return f"unavailable:{type(error).__name__}"
-    output = (completed.stdout or completed.stderr).strip()
-    return f"exit={completed.returncode}:{output}"
-
-
-def _clash_recipe_context(
-    result: CompilationResult,
-) -> tuple[dict[str, object], str | None]:
-    resolver = result.formal_tool_resolver
-    resolve = getattr(resolver, "clash_context", None)
-    if callable(resolve):
-        context = resolve()
-        return context.recipe_data, context.executable
-    executable = find_clash_executable()
-    return (
-        {
-            "executable": (
-                None if executable is None else str(Path(executable).resolve())
-            ),
-            "version": (
-                None
-                if executable is None
-                else _clash_version_for_recipe(executable)
-            ),
-        },
-        executable,
-    )
-
-
-_DISCOVER_CLASH_EXECUTABLE = object()
-
-
-def _try_clash_formal_fallback(
-    result: CompilationResult,
-    *,
-    direct_reason: str,
-    executable: str | None | object = _DISCOVER_CLASH_EXECUTABLE,
-) -> tuple[object | None, str | None]:
-    """Return an immutable validated Clash formal artifact or an exact reason.
-
-    A verification bundle may publish only an immutable *Verilog* artifact
-    whose public ports and formal observations have all been validated against
-    that exact text/hash.  The structured Clash route is deliberately two
-    phase: Haskell first, followed by real RTL generation and exact port
-    validation.  ``finalize_formal_verilog_artifact`` republishes only that
-    validated bounded subset; unsupported Clash shapes remain fail-closed.
-    """
-
-    if executable is _DISCOVER_CLASH_EXECUTABLE:
-        executable = find_clash_executable()
-    if executable is None:
-        return None, (
-            f"{direct_reason}; Clash formal fallback is unavailable because "
-            "the Clash executable was not found; set ZLANG_CLASH or "
-            "ZLANG_CLASH_ROOT"
-        )
-    assert isinstance(executable, str)
-    try:
-        candidate = emit_clash_formal_artifact(
-            result.ir,
-            result.recursive_formal_design,
-            selected_ir_identity=result.selected_ir_identity,
-        )
-        with TemporaryDirectory(prefix="zlang-verification-clash-") as temporary:
-            files = generate_verilog(
-                candidate.text,
-                result.ir.name,
-                Path(temporary),
-                executable,
-                companions=candidate.companions,
-            )
-            finalized = finalize_formal_verilog_artifact(candidate, files)
-    except (ClashEmissionError, ToolchainError, OSError, ValueError) as error:
-        return None, (
-            f"{direct_reason}; Clash formal fallback generated no fully "
-            f"validated common artifact: {error}"
-        )
-    return finalized, None
-
-
-def _clash_fallback_unavailable_reason(
-    result: CompilationResult,
-    *,
-    direct_reason: str,
-) -> str:
-    """Compatibility helper returning only the fail-closed reason."""
-
-    artifact, reason = _try_clash_formal_fallback(
-        result,
-        direct_reason=direct_reason,
-    )
-    return reason or (
-        f"{direct_reason}; Clash formal fallback is available as a validated "
-        f"{getattr(artifact, 'backend', 'Clash')} artifact"
-    )
-
-
 def _goal_scope_metadata(
     result: CompilationResult,
 ) -> tuple[
@@ -1628,10 +1500,8 @@ def publish_compilation_verification_bundle(
 ) -> VerificationBundleManifest:
     """Plan every current M35/source goal and publish immutable routes.
 
-    A goal is connected to direct SystemVerilog first.  Clash is prepared
-    lazily for only the goals whose complete observation/assumption set is not
-    available in the direct artifact.  Each harness contains one implementation
-    and one exact binding set; backend signals are never mixed.
+    Each goal is connected to one direct-SystemVerilog artifact. Missing
+    observations or assumptions produce an explicit non-executable plan.
     """
 
     source_design = result.formal_design
@@ -2231,93 +2101,6 @@ def publish_compilation_verification_bundle(
     except (SystemVerilogEmissionError, FormalError, ValueError) as error:
         direct_failure = f"direct-SystemVerilog formal route is unavailable: {error}"
 
-    def direct_unresolved(prop: object, *, cover: bool) -> bool:
-        _, _, assumptions, missing = resolved_scoped_assumptions(prop)
-        # No backend can repair a missing semantic assumption.  ``add_goal``
-        # publishes the exact fail-closed skip without needlessly probing
-        # Clash for this goal.
-        if missing:
-            return False
-        if direct_route is None:
-            return True
-        return _route_goal_reason(
-            direct_route,
-            prop,
-            assumptions,
-            cover=cover,
-        )[0] is not None
-
-    needs_clash = any(
-        direct_unresolved(item, cover=False) for item in source_safety
-    ) or any(
-        direct_unresolved(item, cover=True) for item in source_covers
-    )
-    if direct_route is None:
-        needs_clash = needs_clash or bool(recursive_safety)
-    else:
-        for item in recursive_safety:
-            closure = recursive_requirement_closure(item.instance_identity)
-            if closure.blockers:
-                continue
-            supporting = recursive_supporting_assertions(closure)
-            immediate = tuple(
-                requirement
-                for requirement, _ in recursive_discharged_by_instance.get(
-                    item.instance_identity, ()
-                )
-            )
-            if _recursive_goal_design(
-                result,
-                direct_route,
-                item,
-                closure.external,
-                supporting_assertions=supporting,
-                target_requirements=immediate,
-            )[0] is None:
-                needs_clash = True
-                break
-    clash_route: _PreparedFormalRoute | None = None
-    clash_failure: str | None = None
-    if needs_clash:
-        fallback_reason = direct_failure or (
-            "direct-SystemVerilog formal route lacks one or more required "
-            "goal/assumption observations"
-        )
-        clash_tool_route, clash_executable = _clash_recipe_context(result)
-
-        def prepare_clash_route() -> _PreparedFormalRoute:
-            artifact, reason = _try_clash_formal_fallback(
-                result,
-                direct_reason=fallback_reason,
-                executable=clash_executable,
-            )
-            if artifact is None:
-                raise _FormalRouteUnavailable(
-                    reason or f"{fallback_reason}; Clash formal route is unavailable"
-                )
-            return _prepare_route(result, artifact)
-
-        try:
-            clash_route = provider.get_or_prepare(
-                FormalArtifactNamespace.PREPARED,
-                "clash-formal-route-v1",
-                _prepared_route_recipe(
-                    result,
-                    "clash",
-                    tool_route=clash_tool_route,
-                ),
-                prepare_clash_route,
-                encode=_encode_prepared_route,
-                decode=lambda value: _decode_prepared_route(result, value),
-                fingerprint=_prepared_route_fingerprint,
-            )
-        except _FormalRouteUnavailable as error:
-            clash_failure = str(error)
-        except (FormalError, ValueError) as error:
-            clash_failure = (
-                f"{fallback_reason}; Clash formal route is unavailable: {error}"
-            )
-
     jobs: list[VerificationJob] = []
     goal_plans: list[FormalGoalPlan] = []
     input_by_path: dict[str, VerificationBundleInput] = {}
@@ -2344,9 +2127,7 @@ def publish_compilation_verification_bundle(
         clock_domain_contract = _exact_clock_domain_contract(
             result, clock_domain, reset_domain
         )
-        candidate_routes = tuple(
-            item for item in (direct_route, clash_route) if item is not None
-        )
+        candidate_routes = () if direct_route is None else (direct_route,)
         available_physical_domain_identity = (
             _available_physical_domain_identity(
                 candidate_routes, clock_domain_contract
@@ -2442,9 +2223,9 @@ def publish_compilation_verification_bundle(
                 backend = "+".join(item[3] for item in failures)
             else:
                 code = FormalSkipCode.BACKEND_UNAVAILABLE
-                message = "; ".join(
-                    item for item in (direct_failure, clash_failure) if item
-                ) or "no backend can publish a connected formal artifact"
+                message = direct_failure or (
+                    "direct-SystemVerilog cannot publish a connected formal artifact"
+                )
                 related = ()
                 backend = None
             skip = FormalSkipReason(code, message, related, backend)
@@ -2715,9 +2496,7 @@ def publish_compilation_verification_bundle(
         clock_domain_contract = _exact_clock_domain_contract(
             result, clock_domain, reset_domain
         )
-        candidate_routes = tuple(
-            item for item in (direct_route, clash_route) if item is not None
-        )
+        candidate_routes = () if direct_route is None else (direct_route,)
         available_physical_domain_identity = (
             _available_physical_domain_identity(
                 candidate_routes, clock_domain_contract
@@ -2840,9 +2619,10 @@ def publish_compilation_verification_bundle(
                 backend = "+".join(item[2] for item in failures)
             else:
                 code = FormalSkipCode.BACKEND_UNAVAILABLE
-                message = "; ".join(
-                    item for item in (direct_failure, clash_failure) if item
-                ) or "no backend can publish a connected recursive formal artifact"
+                message = direct_failure or (
+                    "direct-SystemVerilog cannot publish a connected recursive "
+                    "formal artifact"
+                )
                 backend = None
             skip = FormalSkipReason(
                 code,
@@ -3210,7 +2990,7 @@ def publish_compilation_verification_bundle(
     if len(used_artifacts) == 1:
         only_key = next(iter(used_artifacts))
         only_route = next(
-            item for item in (direct_route, clash_route)
+            item for item in (direct_route,)
             if item is not None
             and (item.backend, item.artifact_hash) == only_key
         )

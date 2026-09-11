@@ -87,10 +87,10 @@ def test_module_where_constraint_is_discharged_at_specialization() -> None:
         "module Top { in x:u8 out y:u8 "
         "inst f:FifoLike<T=u8,D=4>{x} y=f.y }"
     )
-    assert compile_source(source, include_clash=False).ir.name == "Top"
+    assert compile_source(source).ir.name == "Top"
 
     with pytest.raises(SemanticError) as captured:
-        compile_source(source.replace("D=4>{x}", "D=3>{x}"), include_clash=False)
+        compile_source(source.replace("D=4>{x}", "D=3>{x}"))
     assert captured.value.code == "ZL-SEMANTIC-PARAMETER-CONSTRAINT"
     assert "not satisfied" in str(captured.value)
 
@@ -101,11 +101,10 @@ def test_module_where_final_uppercase_arithmetic_is_not_a_type_condition() -> No
         "where DEPTH == ROWS * BANKS { in x:u8 out y:u8 y=x } "
         "module Top { in x:u8 out y:u8 s:Shape<DEPTH=8,ROWS=2,BANKS=4>{x} y=s.y }"
     )
-    assert compile_source(source, include_clash=False).ir.name == "Top"
+    assert compile_source(source).ir.name == "Top"
     with pytest.raises(SemanticError, match="constraint is not satisfied"):
         compile_source(
             source.replace("DEPTH=8,ROWS=2,BANKS=4>{x}", "DEPTH=7,ROWS=2,BANKS=4>{x}"),
-            include_clash=False,
         )
 
 
@@ -117,12 +116,11 @@ def test_nominal_type_condition_composes_with_value_conjunction() -> None:
         "module Top { in x:u8 out y:u8 "
         "child:Child<T=Box<u8>,N=1>{x=x} y=child.y }"
     )
-    assert compile_source(source, top="Top", include_clash=False).ir.name == "Top"
+    assert compile_source(source, top="Top").ir.name == "Top"
     with pytest.raises(SemanticError, match="constraint is not satisfied"):
         compile_source(
             source.replace("T=Box<u8>,N=1", "T=Box<u8>,N=2"),
             top="Top",
-            include_clash=False,
         )
 
 
@@ -130,7 +128,6 @@ def test_module_where_does_not_become_runtime_hardware() -> None:
     result = compile_source(
         "module Child<N=8> where N == 8 { in x:u8 out y:u8 y=x } "
         "module Top{in x:u8 out y:u8 inst c:Child<8>{x} y=c.y}",
-        include_clash=False,
     )
     child = result.ir.children[0]
     assert not hasattr(child, "parameter_constraint")

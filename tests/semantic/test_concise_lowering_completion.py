@@ -11,7 +11,7 @@ from zlang.semantic import SemanticError, analyze
 
 
 def _ir(source: str):
-    return compile_source(source, include_clash=False).ir
+    return compile_source(source).ir
 
 
 def test_priority_chain_is_exact_adjacent_pair_sugar() -> None:

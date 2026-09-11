@@ -7,12 +7,10 @@ import subprocess
 
 import pytest
 
-from tests.toolchain import CLASH_EXECUTABLE
-from zlang.backend.clash import emit as emit_clash
 from zlang.backend.manifest import BackendArtifact
 from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
 from zlang.compiler import compile_source
-from zlang.toolchain import generate_verilog, lint_with_verilator
+from zlang.toolchain import lint_with_verilator
 
 
 SOURCE = """
@@ -124,7 +122,7 @@ def _run(tmp_path: Path, rtl: tuple[Path, ...], suffix: str) -> None:
 
 
 def test_direct_sv_union_artifact_is_deterministic_and_bound() -> None:
-    module = compile_source(SOURCE, top="UnionState", include_clash=False).ir
+    module = compile_source(SOURCE, top="UnionState").ir
     first = emit_sv_artifact(module)
     second = emit_sv_artifact(module)
     assert first.text == second.text
@@ -135,7 +133,7 @@ def test_direct_sv_union_artifact_is_deterministic_and_bound() -> None:
     assert raw.canonical_type == "bits<8>"
     union_artifact = emit_sv_artifact(
         compile_source(
-            UNION_OUTPUT_SOURCE, top="UnionOutput", include_clash=False
+            UNION_OUTPUT_SOURCE, top="UnionOutput"
         ).ir
     )
     current = next(
@@ -147,34 +145,12 @@ def test_direct_sv_union_artifact_is_deterministic_and_bound() -> None:
     assert "logic [9:0] message" in first.text
 
 
-def test_internal_child_scalar_union_flow_emits_both_backends() -> None:
-    module = compile_source(
-        HIERARCHY_SOURCE, top="UnionHierarchy", include_clash=False
-    ).ir
-    direct = emit_sv_artifact(module).text
-    clash = emit_clash(module)
-    assert "module UnionChild" in direct
-    assert "input wire logic [8:0] message" in direct
-    assert "unionChild" in clash
 
 
 @pytest.mark.skipif(shutil.which("verilator") is None, reason="Verilator required")
 def test_direct_sv_union_state_lints_and_runs(tmp_path: Path) -> None:
-    module = compile_source(SOURCE, top="UnionState", include_clash=False).ir
+    module = compile_source(SOURCE, top="UnionState").ir
     rtl = tmp_path / "UnionState.sv"
     rtl.write_text(emit_sv_artifact(module).text)
     lint_with_verilator((rtl,), "UnionState")
     _run(tmp_path, (rtl,), "sv")
-
-
-@pytest.mark.skipif(
-    CLASH_EXECUTABLE is None or shutil.which("verilator") is None,
-    reason="real Clash 1.11 and Verilator required",
-)
-def test_real_clash_union_state_generates_lints_and_runs(tmp_path: Path) -> None:
-    module = compile_source(SOURCE, top="UnionState", include_clash=False).ir
-    rtl = generate_verilog(
-        emit_clash(module), "UnionState", tmp_path / "clash", CLASH_EXECUTABLE
-    )
-    lint_with_verilator(rtl, "UnionState")
-    _run(tmp_path, rtl, "clash")

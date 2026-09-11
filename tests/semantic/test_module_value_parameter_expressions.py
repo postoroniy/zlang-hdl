@@ -6,7 +6,6 @@ import tempfile
 
 import pytest
 
-from zlang.backend.clash import emit as emit_clash
 from zlang.backend.systemverilog import emit_experimental
 from zlang.equivalence import make_equivalence_property
 from zlang.ir import Constant, ParameterRef
@@ -16,7 +15,6 @@ from zlang.ir.signed_reductions import expression_semantic_identity
 from zlang.opt import lower, restore
 from zlang.parser import parse
 from zlang.semantic import SemanticError, analyze
-from zlang.toolchain import find_clash_executable, generate_verilog
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -177,43 +175,3 @@ def test_canonical_round_trip_and_literal_form_have_same_expression_identity() -
 def test_value_parameter_expression_diagnostics(source: str, message: str) -> None:
     with pytest.raises(SemanticError, match=message):
         analyze(parse(source))
-
-
-def test_both_backends_only_receive_concrete_parameter_operands() -> None:
-    cases = (
-        ("ParamCompare", "in x:u8 out y:bit y=x>=D"),
-        ("ParamArithmetic", "in x:u8 out y:u16 y=x*D"),
-        ("ParamTernary", "in x:u8 out y:u8 y=x>=D ? D : 0"),
-        ("ParamShift", "in x:u8 out y:u8 y=x<<D"),
-    )
-    direct_sources: list[tuple[str, str]] = []
-    clash_sources: list[tuple[str, str]] = []
-    for name, body in cases:
-        module = analyze(parse(f"module {name}<D=4>{{{body}}}"))
-        direct = emit_experimental(module)
-        clash = emit_clash(module)
-        assert "parameter" not in direct.lower()
-        direct_sources.append((name, direct))
-        clash_sources.append((name, clash))
-
-    verilator = shutil.which("verilator")
-    if verilator is not None:
-        with tempfile.TemporaryDirectory() as directory:
-            for name, direct in direct_sources:
-                path = Path(directory) / f"{name}.sv"
-                path.write_text(direct)
-                result = subprocess.run(
-                    (verilator, "--lint-only", "-Wall", "--top-module", name, str(path)),
-                    text=True, capture_output=True,
-                )
-                assert result.returncode == 0, result.stderr
-
-    clash_executable = find_clash_executable()
-    if clash_executable is not None:
-        with tempfile.TemporaryDirectory() as directory:
-            name, clash = clash_sources[2]
-            files = generate_verilog(
-                clash, name,
-                Path(directory), clash_executable,
-            )
-            assert files

@@ -15,11 +15,9 @@ from zlang.compiler import compile_source
 from zlang.opt import lower, restore
 from zlang.semantic import SemanticError
 from zlang.simulate import simulate_csr_cycles
-from zlang.toolchain import find_clash_executable, generate_verilog
 
 
 VERILATOR = shutil.which("verilator")
-CLASH = find_clash_executable()
 
 
 SOURCE = """
@@ -109,7 +107,7 @@ def _simulate(files: tuple[Path, ...] | list[Path], root: Path) -> None:
 
 
 def test_csr_and_user_state_round_trip_and_simulate_from_one_snapshot() -> None:
-    module = compile_source(SOURCE, include_clash=False).ir
+    module = compile_source(SOURCE).ir
     assert restore(lower(module)) == module
     assert module.resolved_transition is not None
     assert [item.name for item in module.resolved_transition.resources] == [
@@ -133,7 +131,7 @@ def test_csr_and_user_state_round_trip_and_simulate_from_one_snapshot() -> None:
 
 
 def test_csr_composed_direct_artifact_is_deterministic_and_complete() -> None:
-    module = compile_source(SOURCE, include_clash=False).ir
+    module = compile_source(SOURCE).ir
     text = emit_experimental(module)
     assert emit_experimental(module) == text
     assert "logic [7:0] counter;" in text
@@ -163,14 +161,14 @@ def test_csr_command_and_rule_cannot_drive_the_same_output() -> None:
         SemanticError,
         match="driven by both a CSR command binding and a rule action",
     ):
-        compile_source(source, include_clash=False)
+        compile_source(source)
 
 
 @pytest.mark.skipif(VERILATOR is None, reason="Verilator unavailable")
 def test_csr_composed_direct_sv_lints_and_simulates(tmp_path: Path) -> None:
     rtl = tmp_path / "CsrCounter.sv"
     rtl.write_text(
-        emit_experimental(compile_source(SOURCE, include_clash=False).ir)
+        emit_experimental(compile_source(SOURCE).ir)
     )
     subprocess.run(
         (
@@ -183,27 +181,3 @@ def test_csr_composed_direct_sv_lints_and_simulates(tmp_path: Path) -> None:
         text=True,
     )
     _simulate([rtl], tmp_path)
-
-
-@pytest.mark.skipif(
-    CLASH is None or VERILATOR is None,
-    reason="Clash or Verilator unavailable",
-)
-def test_csr_composed_clash_lints_and_simulates(tmp_path: Path) -> None:
-    result = compile_source(SOURCE)
-    assert "rule_increment_fire" in result.clash
-    assert "csr_control_control_start" in result.clash
-    files = generate_verilog(
-        result.clash, "CsrCounter", tmp_path / "rtl", CLASH
-    )
-    subprocess.run(
-        (
-            "verilator", "--lint-only", "-Wall", "-Wno-DECLFILENAME",
-            "-Wno-UNUSEDSIGNAL", "-Wno-PROCASSINIT",
-            *map(str, files),
-        ),
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    _simulate(files, tmp_path)

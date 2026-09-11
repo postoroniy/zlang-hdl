@@ -97,4 +97,3 @@ def test_routed_rows_generate_deterministic_planner_evidence(tmp_path) -> None:
     assert len(restored) == 2
     assert restored[0].key.implementation_graph_identity == "real-current-graph"
     assert restored[1].key.implementation_graph_identity == "imag-current-graph"
-

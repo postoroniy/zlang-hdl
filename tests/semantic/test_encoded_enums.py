@@ -46,7 +46,7 @@ module EncodedEnum {
 
 
 def _compile(source: str):
-    return compile_source(source, include_clash=False).ir
+    return compile_source(source).ir
 
 
 def test_sparse_enum_has_exact_codes_and_safe_intrinsic_ir() -> None:

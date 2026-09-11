@@ -7,10 +7,9 @@ import subprocess
 
 import pytest
 
-from tests.toolchain import CLASH_EXECUTABLE
 from zlang.backend.systemverilog import emit_artifact
 from zlang.compiler import compile_source
-from zlang.toolchain import generate_verilog, lint_with_verilator
+from zlang.toolchain import lint_with_verilator
 
 
 VERILATOR = shutil.which("verilator")
@@ -102,7 +101,7 @@ def _build_and_run(root: Path, rtl: tuple[Path, ...], tag: str) -> None:
 def test_concise_fsm_direct_sv_is_deterministic_and_cycle_exact(
     tmp_path: Path,
 ) -> None:
-    module = compile_source(SOURCE, include_clash=False).ir
+    module = compile_source(SOURCE).ir
     first = emit_artifact(module)
     second = emit_artifact(module)
     assert first.text == second.text
@@ -111,19 +110,3 @@ def test_concise_fsm_direct_sv_is_deterministic_and_cycle_exact(
     rtl.write_text(first.text)
     lint_with_verilator((rtl,), "Controller")
     _build_and_run(tmp_path, (rtl,), "sv")
-
-
-@pytest.mark.skipif(
-    CLASH_EXECUTABLE is None or VERILATOR is None,
-    reason="real Clash 1.11 and Verilator are required",
-)
-def test_concise_fsm_real_clash_is_cycle_exact(tmp_path: Path) -> None:
-    compilation = compile_source(SOURCE, top="Controller")
-    rtl = generate_verilog(
-        compilation.clash,
-        "Controller",
-        tmp_path / "clash_rtl",
-        CLASH_EXECUTABLE,
-    )
-    lint_with_verilator(rtl, "Controller")
-    _build_and_run(tmp_path, tuple(rtl), "clash")

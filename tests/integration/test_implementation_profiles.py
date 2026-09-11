@@ -33,14 +33,18 @@ def test_profile_requires_project_and_unknown_profile_is_structured(tmp_path: Pa
     source = tmp_path / "plain.zhl"
     source.write_text("module Plain { out y:u8 y=1 }")
     with pytest.raises(ImplementationRequestError, match="requires a zlang.toml"):
-        compile_file(source, profile="release", include_clash=False)
+        compile_file(source, profile="release")
 
-    _, top = _project(tmp_path, source.read_text(), "[profiles.debug]\nbackend='clash'\n")
+    _, top = _project(
+        tmp_path,
+        source.read_text(),
+        "[profiles.debug]\nbackend='systemverilog'\n",
+    )
     with pytest.raises(ImplementationRequestError, match="unknown implementation profile"):
-        compile_file(top, profile="missing", include_clash=False)
+        compile_file(top, profile="missing")
 
 
-def test_profile_normalizes_backend_target_policy_and_reports_both_routes(
+def test_profile_normalizes_backend_target_policy_and_reports_production_route(
     tmp_path: Path,
 ) -> None:
     _, top = _project(
@@ -54,12 +58,11 @@ formal-policy = "off"
 evidence-policy = "estimate_only"
 """,
     )
-    first = compile_file(top, profile="release", include_clash=False)
-    second = compile_file(top, profile="release", include_clash=False)
+    first = compile_file(top, profile="release")
+    second = compile_file(top, profile="release")
     assert first.implementation_request.identity == second.implementation_request.identity
     assert first.implementation_policy.identity == second.implementation_policy.identity
     assert first.backend_implementation_plans.identity == second.backend_implementation_plans.identity
-    assert first.backend_implementation_plans.plan_for("clash").status.value == "not_requested"
     assert first.backend_implementation_plans.plan_for("systemverilog").status.value == "selected"
     assert first.implementation_graph.realization_backend == "backend_independent"
     assert "backend systemverilog: selected" in first.backend_implementation_report
@@ -72,7 +75,7 @@ def test_region_selector_is_exact_and_profile_constraint_executes_m34(
         tmp_path,
         "module Add { in a:u8 in b:u8 out y:u9 y=a+b }",
     )
-    discovery = compile_file(top, include_clash=False)
+    discovery = compile_file(top)
     region = discovery.implementation_regions[0]
     with manifest.open("a") as output:
         output.write(
@@ -81,14 +84,14 @@ def test_region_selector_is_exact_and_profile_constraint_executes_m34(
             'objective="minimize lut"\n'
             "[profiles.small.constraints]\nlatency=0\nii=1\n"
         )
-    selected = compile_file(top, profile="small", include_clash=False)
+    selected = compile_file(top, profile="small")
     assert selected.implementation_request.regions == (region.identity,)
     assert len(selected.exploration_results) == 1
     assert selected.exploration_results[0].selected_candidate.stages == ("value",)
 
     manifest.write_text(manifest.read_text().replace(region.identity, "0" * 64))
     with pytest.raises(Exception, match="unknown or stale implementation region"):
-        compile_file(top, profile="small", include_clash=False)
+        compile_file(top, profile="small")
 
 
 def test_profile_and_implement_share_one_compatible_request(
@@ -118,7 +121,7 @@ ii = 1
 fmax = 100
 """,
     )
-    result = compile_file(top, profile="compatible", include_clash=False)
+    result = compile_file(top, profile="compatible")
     policy = next(item for item in result.implementation_policy.regions if item.source_form)
     assert policy.source_form == "implement"
     assert "pipeline" in {item.value for item in policy.request.transforms.allowed}
@@ -147,7 +150,7 @@ objective = "minimize lut"
 """,
     )
     with pytest.raises(ImplementationRequestError) as caught:
-        compile_file(top, profile="conflict", include_clash=False)
+        compile_file(top, profile="conflict")
     assert "conflicting implementation policy for 'transforms'" in str(caught.value)
     assert "source implement" in caught.value.notes[0]
     assert "profile 'conflict'" in caught.value.notes[1]
@@ -169,7 +172,7 @@ latency = 3
 """,
     )
     with pytest.raises(ImplementationRequestError, match="conflicts with exact module timing"):
-        compile_file(top, profile="bad", include_clash=False)
+        compile_file(top, profile="bad")
 
 
 def test_cli_profile_reports_are_deterministic_and_json_error_is_structured(
@@ -193,7 +196,7 @@ def test_cli_profile_reports_are_deterministic_and_json_error_is_structured(
     assert completed.returncode == 0, completed.stderr
     assert completed.stdout == ""
     assert "policy identity:" in policy.read_text()
-    assert "backend clash: not_requested" in backends.read_text()
+    assert "backend systemverilog: selected" in backends.read_text()
 
     failed = subprocess.run(
         (

@@ -3,7 +3,6 @@ import subprocess
 import tempfile
 import unittest
 
-from tests.toolchain import CLASH_ENVIRONMENT, CLASH_EXECUTABLE
 from zlang.compiler import compile_source
 from zlang.cli import main
 from zlang.simulate import simulate_cycles
@@ -27,21 +26,6 @@ class PipelineIntegrationTests(unittest.TestCase):
         )
         self.assertEqual([item["y"] for item in outputs], [0, 0, 10, 37])
 
-    @unittest.skipUnless(CLASH_EXECUTABLE, "Clash executable is not available")
-    def test_pipelined_mac_compiles_to_verilog(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            subprocess.run(
-                [
-                    CLASH_EXECUTABLE,
-                    "--verilog",
-                    str(ROOT / "examples/generated/PipelinedMAC.hs"),
-                    "-outputdir",
-                    temporary,
-                ],
-                check=True,
-                cwd=ROOT,
-                env=CLASH_ENVIRONMENT,
-            )
 
     def test_auto_pipeline_report_golden_and_cycle_latency(self) -> None:
         source = (ROOT / "examples/implementation_intent.zhl").read_text()
@@ -76,12 +60,12 @@ class PipelineIntegrationTests(unittest.TestCase):
     def test_cli_writes_the_pipeline_report(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             report = Path(temporary) / "AutoPipelineProducts.pipeline"
-            clash = Path(temporary) / "AutoPipelineProducts.hs"
+            rtl = Path(temporary) / "AutoPipelineProducts.sv"
             status = main(
                 [
                     str(ROOT / "examples/implementation_intent.zhl"),
-                    "-o",
-                    str(clash),
+                    "--systemverilog",
+                    str(rtl),
                     "--pipeline-report",
                     str(report),
                 ]

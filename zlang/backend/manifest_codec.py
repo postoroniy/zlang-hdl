@@ -1,6 +1,6 @@
 """Strict, backend-neutral JSON primitives for :mod:`zlang.backend.manifest`.
 
-The Clash and direct-SystemVerilog emitters publish the same ``BackendArtifact``
+The direct-SystemVerilog emitter publishes the ``BackendArtifact``
 schema.  This module owns only that schema's lexical JSON boundary and binding
 records; backend-specific naming and RTL/source rendering deliberately remain in
 their emitters.

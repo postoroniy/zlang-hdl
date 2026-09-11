@@ -38,7 +38,6 @@ def test_nested_enum_conversions_publish_and_advance_all_delays() -> None:
             valid = enum_valid<E>(delay<1>(raw))
         }
         """,
-        include_clash=False,
     ).ir
 
     delay_instances = {
@@ -67,7 +66,6 @@ module ExecutableTraversal {
     y = generate(i in 0..2) { a[i] + a[i] }
 }
 """,
-        include_clash=False,
     ).ir.assignments[0].expression
     children = expression_children(
         expression,

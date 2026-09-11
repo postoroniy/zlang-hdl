@@ -3,7 +3,6 @@ import subprocess
 import tempfile
 import unittest
 
-from tests.toolchain import CLASH_ENVIRONMENT, CLASH_EXECUTABLE
 from zlang.compiler import compile_source
 from zlang.simulate import SimulationError, simulate
 
@@ -37,22 +36,6 @@ class AggregateIntegrationTests(unittest.TestCase):
         with self.assertRaisesRegex(SimulationError, "does not fit vec<2,u8>"):
             simulate(module, samples=[1], coefficients=[2, 3])
 
-    @unittest.skipUnless(CLASH_EXECUTABLE, "Clash executable is not available")
-    def test_milestone_three_examples_compile_to_verilog(self) -> None:
-        for source_name in ("FIR2.hs", "PacketData.hs"):
-            with self.subTest(source=source_name), tempfile.TemporaryDirectory() as temporary:
-                subprocess.run(
-                    [
-                        CLASH_EXECUTABLE,
-                        "--verilog",
-                        str(ROOT / "examples/generated" / source_name),
-                        "-outputdir",
-                        temporary,
-                    ],
-                    check=True,
-                    cwd=ROOT,
-                    env=CLASH_ENVIRONMENT,
-                )
 
 
 if __name__ == "__main__":

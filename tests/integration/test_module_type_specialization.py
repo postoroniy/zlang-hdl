@@ -7,14 +7,10 @@ import tempfile
 import pytest
 
 from zlang.backend.systemverilog import emit_experimental
-from zlang.backend.clash import emit as emit_clash
-from zlang.backend.clash.public_wrapper import ClashPublicTopWrapper
 from zlang.compiler import compile_source
-from zlang.toolchain import find_clash_executable, generate_verilog
 
 
 VERILATOR = shutil.which("verilator")
-CLASH = find_clash_executable()
 
 
 def source(type_name: str) -> str:
@@ -90,23 +86,3 @@ def test_module_type_specialization_direct_sv_simulates(
         rtl = root / "generic.sv"
         rtl.write_text(emit_experimental(module))
         simulate([rtl], root, "GenericTop", value, type_name)
-
-
-@pytest.mark.parametrize(("type_name", "value"), CASES)
-@pytest.mark.skipif(
-    CLASH is None or VERILATOR is None,
-    reason="Clash or Verilator unavailable",
-)
-def test_module_type_specialization_clash_simulates(
-    type_name: str, value: int
-) -> None:
-    compilation = compile_source(source(type_name), top="GenericTop")
-    specialized_child = compilation.ir.children[0]
-    with tempfile.TemporaryDirectory() as temporary:
-        root = Path(temporary)
-        files = list(generate_verilog(
-            emit_clash(specialized_child), specialized_child.name,
-            root / "rtl", CLASH,
-            public_wrapper=ClashPublicTopWrapper.build(specialized_child),
-        ))
-        simulate(files, root, specialized_child.name, value, type_name)

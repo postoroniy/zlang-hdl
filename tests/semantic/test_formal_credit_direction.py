@@ -8,7 +8,7 @@ from zlang.ir import Ownership, PropertyKind, TemporalForm
 class FormalCreditDirectionTests(unittest.TestCase):
     def _credit_properties(self, source: str):
         design = build_formal_design(
-            compile_source(source, include_clash=False).ir
+            compile_source(source).ir
         )
         properties = tuple(
             item
@@ -121,7 +121,6 @@ class FormalCreditDirectionTests(unittest.TestCase):
             "module Receiver { clock clk reset rst in release:bit "
             "in rx:credit<u8,2> out observed:u8 "
             "rx.return=release observed=rx.payload }",
-            include_clash=False,
         ).ir
         design = build_recursive_formal_design(module)
         occupancy = next(

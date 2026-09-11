@@ -35,7 +35,7 @@ module RomTop {
 
 
 def test_exact_width_address_order_and_artifact_round_trip() -> None:
-    module = compile_source(ROM_SOURCE, include_clash=False).ir
+    module = compile_source(ROM_SOURCE).ir
     companions = collect_rom_companions(module)
     assert len(companions) == 1
     image = companions[0]
@@ -65,7 +65,7 @@ def test_exact_width_address_order_and_artifact_round_trip() -> None:
 
 def test_publication_is_complete_and_collision_safe(tmp_path: Path) -> None:
     image = collect_rom_companions(
-        compile_source(ROM_SOURCE, include_clash=False).ir
+        compile_source(ROM_SOURCE).ir
     )[0]
     paths = publish_companion_bundle((image,), tmp_path)
     assert paths == (tmp_path / image.logical_path,)
@@ -89,7 +89,7 @@ def test_publication_rejects_symlink_leaf_without_touching_matching_target(
     tmp_path: Path,
 ) -> None:
     image = collect_rom_companions(
-        compile_source(ROM_SOURCE, include_clash=False).ir
+        compile_source(ROM_SOURCE).ir
     )[0]
     directory = tmp_path / "published"
     directory.mkdir()
@@ -109,7 +109,7 @@ def test_publication_rejects_symlinked_parent_without_writing_outside(
     tmp_path: Path,
 ) -> None:
     image = collect_rom_companions(
-        compile_source(ROM_SOURCE, include_clash=False).ir
+        compile_source(ROM_SOURCE).ir
     )[0]
     outside = tmp_path / "outside"
     outside.mkdir()

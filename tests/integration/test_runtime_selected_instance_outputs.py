@@ -9,15 +9,12 @@ import subprocess
 
 import pytest
 
-from tests.toolchain import CLASH_EXECUTABLE
-from zlang.backend.clash import emit_artifact as emit_clash_artifact
-from zlang.backend.clash.public_wrapper import ClashPublicTopWrapper
 from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
 from zlang.compiler import compile_source
 from zlang.ir import RuntimeIndex
 from zlang.ir.recursive_formal import build_recursive_formal_design
 from zlang.simulate import simulate, simulate_cycles
-from zlang.toolchain import generate_verilog, lint_with_verilator
+from zlang.toolchain import lint_with_verilator
 
 
 SOURCE = """
@@ -201,7 +198,7 @@ def _run_stateful(files: tuple[Path, ...], root: Path, tag: str) -> None:
 
 def test_runtime_selected_output_has_no_dynamic_instance_identity() -> None:
     module = compile_source(
-        SOURCE, top="RuntimeSelectedLanes", include_clash=False
+        SOURCE, top="RuntimeSelectedLanes"
     ).ir
     output = module.assignments[0].expression
     assert isinstance(output, RuntimeIndex)
@@ -226,7 +223,7 @@ def test_runtime_selected_fixed_vector_and_struct_outputs_publish_direct_artifac
     expected_output_bindings: frozenset[str],
     tmp_path: Path,
 ) -> None:
-    module = compile_source(source, top="Top", include_clash=False).ir
+    module = compile_source(source, top="Top").ir
     assert simulate(module, values=[12, 34], select=1) == {"y": expected}
     recursive = build_recursive_formal_design(module)
     first = emit_sv_artifact(module, recursive_design=recursive)
@@ -248,46 +245,6 @@ def test_runtime_selected_fixed_vector_and_struct_outputs_publish_direct_artifac
     lint_with_verilator((rtl,), "Top")
 
 
-@pytest.mark.parametrize(
-    ("case", "source", "_expected", "expected_output_bindings"),
-    BIT_PACKABLE_OUTPUT_CASES,
-)
-@pytest.mark.skipif(
-    CLASH_EXECUTABLE is None or shutil.which("verilator") is None,
-    reason="real Clash 1.11 and Verilator are required",
-)
-def test_runtime_selected_fixed_vector_and_struct_outputs_reach_real_clash(
-    case: str,
-    source: str,
-    _expected: object,
-    expected_output_bindings: frozenset[str],
-    tmp_path: Path,
-) -> None:
-    compilation = compile_source(source, top="Top")
-    artifact = emit_clash_artifact(
-        compilation.ir,
-        recursive_design=build_recursive_formal_design(compilation.ir),
-    )
-    assert type(artifact).from_json(artifact.to_json()).to_json() == artifact.to_json()
-    assert expected_output_bindings <= {
-        binding.semantic_signal_id for binding in artifact.bindings
-    }
-    assert [item.physical_instance_path for item in artifact.instances] == [
-        ("Top",),
-        ("Top", "lane[0]"),
-        ("Top", "lane[1]"),
-    ]
-    files = tuple(
-        generate_verilog(
-            compilation.clash,
-            "Top",
-            tmp_path / f"clash_{case}",
-            CLASH_EXECUTABLE,
-            public_wrapper=ClashPublicTopWrapper.build(compilation.ir),
-        )
-    )
-    assert files
-    lint_with_verilator(files, "Top")
 
 
 @pytest.mark.skipif(shutil.which("verilator") is None, reason="Verilator unavailable")
@@ -295,7 +252,7 @@ def test_runtime_selected_output_direct_sv_is_deterministic_and_simulates(
     tmp_path: Path,
 ) -> None:
     module = compile_source(
-        SOURCE, top="RuntimeSelectedLanes", include_clash=False
+        SOURCE, top="RuntimeSelectedLanes"
     ).ir
     recursive = build_recursive_formal_design(module)
     first = emit_sv_artifact(module, recursive_design=recursive)
@@ -316,31 +273,11 @@ def test_runtime_selected_output_direct_sv_is_deterministic_and_simulates(
     _run((rtl,), tmp_path, "direct")
 
 
-@pytest.mark.skipif(
-    CLASH_EXECUTABLE is None or shutil.which("verilator") is None,
-    reason="real Clash 1.11 and Verilator are required",
-)
-def test_runtime_selected_output_clash_generates_and_simulates(
-    tmp_path: Path,
-) -> None:
-    compilation = compile_source(SOURCE, top="RuntimeSelectedLanes")
-    files = tuple(
-        generate_verilog(
-            compilation.clash,
-            compilation.ir.name,
-            tmp_path / "clash",
-            CLASH_EXECUTABLE,
-            public_wrapper=ClashPublicTopWrapper.build(compilation.ir),
-        )
-    )
-    assert files
-    lint_with_verilator(files, compilation.ir.name)
-    _run(files, tmp_path, "clash")
 
 
 def test_stateful_runtime_selection_preserves_independent_child_state() -> None:
     module = compile_source(
-        STATEFUL_SOURCE, top="RuntimeSelectedCounters", include_clash=False
+        STATEFUL_SOURCE, top="RuntimeSelectedCounters"
     ).ir
     trace = simulate_cycles(
         module,
@@ -363,32 +300,10 @@ def test_stateful_runtime_selection_direct_sv_simulates_reset_and_selector_chang
     tmp_path: Path,
 ) -> None:
     module = compile_source(
-        STATEFUL_SOURCE, top="RuntimeSelectedCounters", include_clash=False
+        STATEFUL_SOURCE, top="RuntimeSelectedCounters"
     ).ir
     artifact = emit_sv_artifact(module)
     rtl = tmp_path / "RuntimeSelectedCounters.sv"
     rtl.write_text(artifact.text)
     lint_with_verilator((rtl,), "RuntimeSelectedCounters")
     _run_stateful((rtl,), tmp_path, "direct")
-
-
-@pytest.mark.skipif(
-    CLASH_EXECUTABLE is None or shutil.which("verilator") is None,
-    reason="real Clash 1.11 and Verilator are required",
-)
-def test_stateful_runtime_selection_clash_simulates_reset_and_selector_changes(
-    tmp_path: Path,
-) -> None:
-    compilation = compile_source(STATEFUL_SOURCE, top="RuntimeSelectedCounters")
-    files = tuple(
-        generate_verilog(
-            compilation.clash,
-            compilation.ir.name,
-            tmp_path / "stateful_clash",
-            CLASH_EXECUTABLE,
-            public_wrapper=ClashPublicTopWrapper.build(compilation.ir),
-        )
-    )
-    assert files
-    lint_with_verilator(files, compilation.ir.name)
-    _run_stateful(files, tmp_path, "clash")

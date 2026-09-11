@@ -1,4 +1,4 @@
-"""Complete direct-SV/Clash RTL behavior check for the FFT512 reference."""
+"""Complete direct-SystemVerilog RTL behavior check for the FFT512 reference."""
 
 from __future__ import annotations
 
@@ -18,12 +18,9 @@ from tests.integration.test_fft512_sdf_reference import (
     _fixture,
     _staged_oracle,
 )
-from zlang.backend.clash import emit_artifact as emit_clash_artifact
-from zlang.backend.clash.public_wrapper import ClashPublicTopWrapper
 from zlang.backend.companions import publish_companion_bundle
 from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
 from zlang.compiler import compile_file
-from zlang.toolchain import find_clash_executable, generate_verilog
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -33,7 +30,7 @@ TOP = "FFT512SDFReference"
 
 @lru_cache(maxsize=1)
 def _module():
-    return compile_file(SOURCE, top=TOP, include_clash=False).ir
+    return compile_file(SOURCE, top=TOP).ir
 
 
 def _bench(*, direct: bool) -> str:
@@ -224,54 +221,3 @@ def _run_rtl(
             if (match := stall_pattern.fullmatch(line)) is not None
         ),
     )
-
-
-@pytest.mark.skipif(
-    shutil.which("verilator") is None or find_clash_executable() is None,
-    reason="Clash and Verilator are required for complete FFT512 RTL parity",
-)
-def test_fft512_complete_stream_direct_sv_and_clash_match_integer_oracle(
-    tmp_path: Path,
-) -> None:
-    expected = _staged_oracle()
-    assert len(expected) == 512
-    assert _canonical_digest(expected) == OUTPUT_DIGEST
-
-    module = _module()
-    direct_artifact = emit_sv_artifact(module)
-    direct = tmp_path / "direct" / f"{TOP}.sv"
-    direct.parent.mkdir()
-    direct.write_text(direct_artifact.text)
-    publish_companion_bundle(direct_artifact.companions, direct.parent)
-    direct_records, direct_stalls = _run_rtl(
-        direct,
-        direct=True,
-        work=tmp_path / "direct-run",
-    )
-
-    clash_artifact = emit_clash_artifact(module)
-    clash = generate_verilog(
-        clash_artifact.text,
-        TOP,
-        tmp_path / "clash",
-        find_clash_executable(),
-        companions=clash_artifact.companions,
-        public_wrapper=ClashPublicTopWrapper.build(module),
-    )
-    clash_records, clash_stalls = _run_rtl(
-        clash,
-        direct=False,
-        work=tmp_path / "clash-run",
-        # Established Clash 1.11 romFile host-index warning only.
-        lint_waivers=("-Wno-WIDTHTRUNC",),
-    )
-
-    assert direct_records == clash_records
-    assert direct_stalls == clash_stalls
-    assert len(direct_records) == 512
-    assert tuple(item[0] for item in direct_records) == tuple(range(531, 1043))
-    actual = tuple((item[1], item[2]) for item in direct_records)
-    assert actual == expected
-    assert _canonical_digest(actual) == OUTPUT_DIGEST
-    assert tuple(item[0] for item in direct_stalls) == tuple(range(526, 531))
-    assert tuple((item[1], item[2]) for item in direct_stalls) == (expected[0],) * 5

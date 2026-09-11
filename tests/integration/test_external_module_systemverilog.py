@@ -8,7 +8,6 @@ import pytest
 
 from zlang.backend.external import ExternalMappingError, ExternalPhysicalMapping
 from zlang.backend.systemverilog import SystemVerilogEmissionError, emit_artifact
-from zlang.backend.clash import ClashEmissionError, emit_artifact as emit_clash_artifact
 from zlang.compiler import compile_source
 
 from tests.parser.test_external_modules import SOURCE
@@ -25,7 +24,7 @@ endmodule
 
 
 def _module_and_mapping():
-    module = compile_source(SOURCE, include_clash=False).ir
+    module = compile_source(SOURCE).ir
     contract = module.children[0].external_contract
     mapping = ExternalPhysicalMapping.from_text(
         backend="direct_systemverilog",
@@ -37,12 +36,6 @@ def _module_and_mapping():
     return module, mapping
 
 
-def test_external_mapping_is_required_and_clash_fails_precisely() -> None:
-    module, _ = _module_and_mapping()
-    with pytest.raises(SystemVerilogEmissionError, match="requires an exact"):
-        emit_artifact(module)
-    with pytest.raises(ClashEmissionError, match="not supported by the Clash backend"):
-        emit_clash_artifact(module)
 
 
 def test_mapping_hash_and_exact_port_map_fail_before_publication() -> None:

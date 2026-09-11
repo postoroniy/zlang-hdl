@@ -2,7 +2,7 @@ import shutil
 import unittest
 
 from zlang import compile_source
-from zlang.backend.clash import emit
+from zlang.backend.systemverilog.emitter import emit
 from zlang.formal import run_verilog_formal
 from zlang.ir.formal import FormalStatus, ProofMode, generate_properties
 from zlang.simulate import simulate_csr_cycles
@@ -56,9 +56,9 @@ class SourceAuthoritativeCsrTests(unittest.TestCase):
                     ["rw", "w1c", "pulse"],
                 )
                 generated = emit(result.ir)
-                self.assertIn("csr_registers_w1c_value_next", generated)
-                self.assertIn("csr_registers_pulse_value_next", generated)
-                self.assertIn(frontend[0].lower() + frontend[1:], generated)
+                self.assertIn("csr_registers_w1c_value <=", generated)
+                self.assertIn("csr_registers_pulse_value <=", generated)
+                self.assertIn(f"module {frontend}_s", generated)
 
     def test_child_formal_design_retains_state_and_handshake_bindings(self):
         result = compile_source(AXI_TOP)

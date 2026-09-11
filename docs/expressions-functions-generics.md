@@ -327,7 +327,7 @@ retains its own source origin.
 The accepted whole-vector IFFT64 reference exercises an outer 64-lane
 `generate`, 64 exact products per lane, nominal complex reduction, and one final
 quantization. N=64 is validated through semantic analysis, canonical round-trip,
-and the simulator; N=8/N=16 exercise Clash, direct SystemVerilog, and Verilator.
+and the simulator; N=8/N=16 exercise direct SystemVerilog and Verilator.
 This evidence does not claim full 4096-multiplier N=64 RTL or a production
 streaming architecture. See the
 [802.11a validation report](80211a-transmitter-validation.md#ifft64-numerical-reference-elaboration-boundary)
@@ -426,9 +426,9 @@ are retained once as deterministic monomorphic callable definitions. Each use
 site is a typed `Call` carrying the exact callee identity, signature, result
 type, and its own source origin. Analyses that require concrete arithmetic use
 the shared bounded call-expansion service; nominal reductions remain opaque to
-M32 and the frozen e-graph rewrite set. Clash emits one monomorphic helper per
-specialization, and direct SystemVerilog emits one `function automatic` rather
-than cloning the body at every call site.
+M32 and the frozen e-graph rewrite set. Direct SystemVerilog emits one
+`function automatic` per specialization rather than cloning the body at every
+call site.
 
 `std.math.complex` is ordinary ZLang source defining `Complex<T>`, arithmetic
 operators, `Butterfly<S,D>`, and explicit component quantization. For example:

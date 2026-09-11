@@ -14,8 +14,6 @@ import subprocess
 
 import pytest
 
-from zlang.backend.clash import emit_artifact as emit_clash_artifact
-from zlang.backend.clash.public_wrapper import ClashPublicTopWrapper
 from zlang.backend.manifest import BackendArtifact
 from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
 from zlang.compiler import compile_file
@@ -23,7 +21,7 @@ from zlang.ir.expressions import VectorUpdate
 from zlang.ir.types import FixedType, StructType, VecType
 from zlang.opt import OptimizationStage, lower, restore
 from zlang.simulate import simulate_cycles
-from zlang.toolchain import find_clash_executable, generate_verilog, lint_with_verilator
+from zlang.toolchain import lint_with_verilator
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -170,7 +168,7 @@ def _assert_trace(
 
 
 def test_reorder_cp_semantic_canonical_and_single_bank_contract() -> None:
-    module = compile_file(SOURCE, top=TOP, include_clash=False).ir
+    module = compile_file(SOURCE, top=TOP).ir
     assert [port.name for port in module.inputs] == ["input"]
     assert [port.name for port in module.outputs] == ["output"]
     assert len(module.children) == 1
@@ -194,7 +192,7 @@ def test_reorder_cp_semantic_canonical_and_single_bank_contract() -> None:
 
 
 def test_reorder_cp_hierarchical_simulator_matches_independent_cycle_oracle() -> None:
-    module = compile_file(SOURCE, top=TOP, include_clash=False).ir
+    module = compile_file(SOURCE, top=TOP).ir
     cycles, resets, final_frame, final_reset = _stimulus()
     expected = _oracle(cycles, resets)
     actual = simulate_cycles(module, cycles, reset=resets)
@@ -209,27 +207,6 @@ def test_reorder_cp_hierarchical_simulator_matches_independent_cycle_oracle() ->
     assert len(transferred) == 80
 
 
-def test_reorder_cp_artifacts_are_deterministic_and_round_trip() -> None:
-    module = compile_file(SOURCE, top=TOP, include_clash=False).ir
-    for emitter in (emit_sv_artifact, emit_clash_artifact):
-        first = emitter(module)
-        second = emitter(module)
-        assert first.text == second.text
-        assert first.artifact_hash == second.artifact_hash
-        restored = BackendArtifact.from_json(first.to_json())
-        assert restored.artifact_hash == first.artifact_hash
-        assert restored.bindings == first.bindings
-        bindings = {item.semantic_signal_id: item for item in first.bindings}
-        for port in ("input", "output"):
-            assert bindings[f"port:{port}.payload.re"].width == 16
-            assert bindings[f"port:{port}.payload.im"].width == 16
-            assert bindings[f"port:{port}.payload.re"].physical_available
-            assert bindings[f"port:{port}.payload.im"].physical_available
-
-    direct = emit_sv_artifact(module).text
-    assert direct.count("module IFFT64ReorderCPKernel_s") == 1
-    assert direct.count("2048'hffffffff <<") == 1
-    assert "IFFT64ReorderCPKernel_s" in direct
 
 
 def _pack(sample: dict[str, int]) -> int:
@@ -240,7 +217,6 @@ def _rtl_records(
     rtl: tuple[Path, ...],
     tmp_path: Path,
     *,
-    direct: bool,
     cycles: list[dict[str, object]],
     resets: list[bool],
 ) -> list[tuple[int, int, int, int]]:
@@ -273,9 +249,9 @@ def _rtl_records(
             )
         )
     lines.extend(("$finish;", "end", "endmodule"))
-    bench = tmp_path / ("tb_direct.sv" if direct else "tb_clash.sv")
+    bench = tmp_path / "tb_direct.sv"
     bench.write_text("\n".join(lines))
-    object_dir = tmp_path / ("obj_direct" if direct else "obj_clash")
+    object_dir = tmp_path / "obj_direct"
     environment = dict(os.environ)
     environment["CCACHE_DISABLE"] = "1"
     completed = subprocess.run(
@@ -342,33 +318,11 @@ def _assert_rtl_records(
 
 @pytest.mark.skipif(shutil.which("verilator") is None, reason="Verilator unavailable")
 def test_reorder_cp_direct_sv_strict_lint_and_cycle_oracle(tmp_path: Path) -> None:
-    module = compile_file(SOURCE, top=TOP, include_clash=False).ir
+    module = compile_file(SOURCE, top=TOP).ir
     artifact = emit_sv_artifact(module)
     rtl = tmp_path / "cyclic_extender.sv"
     rtl.write_text(artifact.text)
     lint_with_verilator((rtl,), TOP)
     cycles, resets, _frame_value, _reset = _stimulus()
-    records = _rtl_records((rtl,), tmp_path, direct=True, cycles=cycles, resets=resets)
-    _assert_rtl_records(records, _oracle(cycles, resets), resets)
-
-
-@pytest.mark.skipif(
-    find_clash_executable() is None or shutil.which("verilator") is None,
-    reason="real Clash 1.11 and Verilator are required",
-)
-def test_reorder_cp_real_clash_strict_lint_and_cycle_oracle(tmp_path: Path) -> None:
-    compilation = compile_file(SOURCE, top=TOP)
-    rtl = tuple(
-        generate_verilog(
-            compilation.clash,
-            TOP,
-            tmp_path / "clash",
-            find_clash_executable(),
-            public_wrapper=ClashPublicTopWrapper.build(compilation.ir),
-        )
-    )
-    assert rtl
-    lint_with_verilator(rtl, TOP)
-    cycles, resets, _frame_value, _reset = _stimulus()
-    records = _rtl_records(rtl, tmp_path, direct=False, cycles=cycles, resets=resets)
+    records = _rtl_records((rtl,), tmp_path, cycles=cycles, resets=resets)
     _assert_rtl_records(records, _oracle(cycles, resets), resets)

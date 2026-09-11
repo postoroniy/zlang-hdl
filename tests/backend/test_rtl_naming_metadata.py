@@ -14,7 +14,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from zlang.backend.clash import emit_artifact as emit_clash_artifact
 from zlang.backend.manifest import BackendArtifact
 from zlang.backend.naming import RTL_NAMING_SCHEMA, module_rtl_names
 from zlang.backend.systemverilog import emit_artifact, emit_formal_artifact
@@ -67,27 +66,10 @@ module NamingAccess {
 """
 
 
-def test_naming_metadata_round_trip_does_not_promote_manifest_or_semantics():
-    compilation = compile_source(SIMPLE, include_clash=False)
-    for emit in (emit_artifact, emit_clash_artifact):
-        artifact = emit(compilation.ir)
-        assert artifact.naming_schema == RTL_NAMING_SCHEMA
-        assert artifact.manifest_version == 2
-        assert not artifact.physical_domains
-        restored = BackendArtifact.from_json(artifact.to_json())
-        assert restored.naming_schema == RTL_NAMING_SCHEMA
-        assert restored.build_identity == artifact.build_identity
-        legacy = replace(artifact, naming_schema=None)
-        assert legacy.text == artifact.text
-        assert legacy.selected_ir_identity == artifact.selected_ir_identity
-        assert legacy.artifact_hash == artifact.artifact_hash
-        assert legacy.build_identity != artifact.build_identity
-        assert "naming_schema" not in json.loads(legacy.to_json())
-        assert BackendArtifact.from_json(legacy.to_json()).naming_schema is None
 
 
 def test_naming_metadata_rejects_corruption_and_stale_build_identity():
-    artifact = emit_artifact(compile_source(SIMPLE, include_clash=False).ir)
+    artifact = emit_artifact(compile_source(SIMPLE).ir)
     payload = json.loads(artifact.to_json())
     for invalid in ("", "future-v900", 1, True, [], {}):
         corrupt = {**payload, "naming_schema": invalid}
@@ -100,7 +82,7 @@ def test_naming_metadata_rejects_corruption_and_stale_build_identity():
 
 
 def test_formal_preparation_recipes_bind_naming_version(monkeypatch):
-    result = compile_source(SIMPLE, include_clash=False)
+    result = compile_source(SIMPLE)
     current = _prepared_route_recipe(result, "direct_systemverilog")
     assert current["compiler"]["rtl_naming"] == RTL_NAMING_SCHEMA
     previous = deepcopy(current)
@@ -108,15 +90,16 @@ def test_formal_preparation_recipes_bind_naming_version(monkeypatch):
     assert FormalArtifactRecipe("prepared", "route", previous).identity != FormalArtifactRecipe("prepared", "route", current).identity
     expression = result.ir.assignments[0].expression
     candidate = SimpleNamespace(expression=expression, implementation_identity="candidate", stages=())
-    monkeypatch.setattr(candidate_module, "_proof_bundle_tool_route", lambda _: {"clash": "test"})
-    verifier = candidate_module.M36ClashCandidateVerifier(expression, candidate_class="M27")
+    verifier = candidate_module.M36DirectSystemVerilogCandidateVerifier(
+        expression, candidate_class="M27"
+    )
     recipe = verifier.preparation_cache_recipe(candidate, candidate_module.FormalExplorationConfig())
-    assert recipe["compiler_schema"]["rtl_naming"] == RTL_NAMING_SCHEMA
-    assert recipe["bundle"]["rtl_naming"] == RTL_NAMING_SCHEMA
+    assert recipe["rtl_naming"] == RTL_NAMING_SCHEMA
+    assert recipe["backend"] == "direct_systemverilog"
 
 
 def _array_bundle():
-    compilation = compile_source(ARRAY, include_clash=False)
+    compilation = compile_source(ARRAY)
     artifact = emit_artifact(compilation.ir, selected_ir_identity=compilation.selected_ir_identity)
     return compilation, artifact, build_systemverilog_simulation_state_bundle(compilation.ir, artifact)
 
@@ -155,10 +138,10 @@ def test_vpi_scope_uses_physicalized_generic_helper_reservations():
         e=identity(step) slot:GenericChild { step } y=slot.y
     }
     """
-    probe = compile_source(source, include_clash=False)
+    probe = compile_source(source)
     physical = _physicalize_generic_callables(probe.ir)
     helper = next(f.name for f in physical.callable_definitions if f.name.startswith("zlang_spec_"))
-    result = compile_source(source.replace("slot", helper), include_clash=False)
+    result = compile_source(source.replace("slot", helper))
     artifact = emit_artifact(result.ir, selected_ir_identity=result.selected_ir_identity)
     bundle = build_systemverilog_simulation_state_bundle(result.ir, artifact)
     expected = module_rtl_names(_physicalize_generic_callables(result.ir)).instance(helper)
@@ -178,11 +161,11 @@ def test_rr_observations_resolve_final_formal_and_generic_scopes(tmp_path: Path)
         "module HierarchicalRequestResponse {",
         "module HierarchicalRequestResponse { out echo:bit = identity(fire)",
     )
-    probe = _physicalize_generic_callables(compile_source(generic, include_clash=False).ir)
+    probe = _physicalize_generic_callables(compile_source(generic).ir)
     helper = next(f.name for f in probe.callable_definitions if f.name.startswith("zlang_spec_"))
     generic_collision = generic.replace("requester", helper)
     for index, variant in enumerate((reserved_collision, generic_collision)):
-        result = compile_source(variant, include_clash=False)
+        result = compile_source(variant)
         design = build_recursive_formal_design(result.ir)
         production = emit_artifact(result.ir, recursive_design=design)
         for binding in production.recursive_bindings:
@@ -207,7 +190,7 @@ def test_rr_observations_resolve_final_formal_and_generic_scopes(tmp_path: Path)
         clock clk reset rst in go:bit in zlang_formal_obs_4:u8 out y:u8
         reg r:u8=0 when go {r<-1} y=r
     }
-    """, include_clash=False)
+    """)
     formal = emit_formal_artifact(collision.ir, build_recursive_formal_design(collision.ir))
     binding = next(b for b in formal.recursive_bindings if b.local_semantic_id == "register:r")
     token = binding.formal_observation_token
@@ -234,7 +217,7 @@ def test_rr_observations_resolve_final_formal_and_generic_scopes(tmp_path: Path)
         clock clk reset rst in go:bit out y:u8
         child:CollisionChild {{ go {local_name}=7 }} y=child.y
     }}
-    """, include_clash=False)
+    """)
     artifact = emit_formal_artifact(nested.ir, build_recursive_formal_design(nested.ir))
     assert f"input wire logic [7:0] {local_name}" in artifact.text
     assert re.search(r"assign " + local_name + r"_\w+ = r;", artifact.text)

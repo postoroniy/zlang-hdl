@@ -11,7 +11,7 @@ from zlang.simulate import simulate
 
 
 def _compile(source: str):
-    return compile_source(source, include_clash=False).ir
+    return compile_source(source).ir
 
 
 def test_vector_literal_repeat_and_struct_update_are_exact_existing_ir() -> None:

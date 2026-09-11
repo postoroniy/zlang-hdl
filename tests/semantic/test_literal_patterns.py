@@ -18,7 +18,7 @@ from zlang.simulate import simulate
 
 
 def _compile(source: str):
-    return compile_source(source, include_clash=False).ir
+    return compile_source(source).ir
 
 
 def _analyze(source: str):
@@ -252,11 +252,9 @@ def test_literal_constants_round_trip_and_malformed_canonical_value_fails() -> N
 def test_packed_constant_spelling_does_not_change_ir_or_artifact_identity() -> None:
     concise = compile_source(
         "module M{out z:bits<8> out o:bits<8> z=zeros<8> o=ones<8>}",
-        include_clash=False,
     )
     literal = compile_source(
         "module M{out z:bits<8> out o:bits<8> z=0 o=255}",
-        include_clash=False,
     )
     assert concise.high_level_ir_identity == literal.high_level_ir_identity
     assert concise.selected_ir_identity == literal.selected_ir_identity

@@ -12,19 +12,13 @@ import pytest
 from tests.integration.test_80211a_ifft_library import (
     _exact_ifft64_frame,
 )
-from zlang.backend.clash import emit_artifact as emit_clash_artifact
-from zlang.backend.clash.public_wrapper import ClashPublicTopWrapper
 from zlang.backend.manifest import BackendArtifact
 from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
 from zlang.compiler import compile_file
 from zlang.opt import OptimizationStage, lower, restore
 from zlang.ir.types import EnumType
 from zlang.simulate import _PersistentStorageSimulationState, simulate_cycles
-from zlang.toolchain import (
-    find_clash_executable,
-    generate_verilog,
-    lint_with_verilator,
-)
+from zlang.toolchain import lint_with_verilator
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -41,7 +35,7 @@ RAW_TOP = "IeeeFramedIFFT64Raw"
 
 
 def _input_strip_module():
-    root = compile_file(SOURCE, top=RAW_TOP, include_clash=False).ir
+    root = compile_file(SOURCE, top=RAW_TOP).ir
     pending = [root]
     while pending:
         module = pending.pop()
@@ -134,14 +128,14 @@ def _raw_input_cycle(
 
 
 def test_ieee_ifft_hierarchy_and_canonical_round_trip() -> None:
-    plain = compile_file(SOURCE, top=PLAIN_TOP, include_clash=False).ir
+    plain = compile_file(SOURCE, top=PLAIN_TOP).ir
     assert [child.name for child in plain.children] == [
         "IFFT64DIFExactChain",
         "IFFT64ReorderCP",
     ]
     assert restore(lower(plain, stage=OptimizationStage.HIGH_LEVEL)) == plain
 
-    raw = compile_file(SOURCE, top=RAW_TOP, include_clash=False).ir
+    raw = compile_file(SOURCE, top=RAW_TOP).ir
     assert [child.name for child in raw.children] == [
         "IeeeIFFTFramedInputBoundary",
         "IeeeFramedIFFT64",
@@ -220,7 +214,7 @@ def test_input_strip_fsm_flushes_64_zeroes_under_stalls_and_reset() -> None:
 
 
 def test_ieee_ifft_persistent_nested_simulation_matches_exact_cp() -> None:
-    module = compile_file(SOURCE, top=PLAIN_TOP, include_clash=False).ir
+    module = compile_file(SOURCE, top=PLAIN_TOP).ir
     cycles, resets = _plain_cycles(900)
     actual = simulate_cycles(module, cycles, reset=resets)
     after_reset = actual[261:]
@@ -243,7 +237,7 @@ def test_ieee_ifft_persistent_nested_simulation_matches_exact_cp() -> None:
 
 
 def test_framed_ifft_flushes_finite_packet_and_preserves_metadata() -> None:
-    module = compile_file(SOURCE, top=RAW_TOP, include_clash=False).ir
+    module = compile_file(SOURCE, top=RAW_TOP).ir
     cycles = [_raw_input_cycle()]
     resets = [True]
 
@@ -289,7 +283,7 @@ def test_framed_ifft_flushes_finite_packet_and_preserves_metadata() -> None:
 def test_ieee_ifft_direct_sv_artifact_is_deterministic_and_strict() -> None:
     if shutil.which("verilator") is None:
         pytest.skip("Verilator is unavailable")
-    module = compile_file(SOURCE, top=RAW_TOP, include_clash=False).ir
+    module = compile_file(SOURCE, top=RAW_TOP).ir
     first = emit_sv_artifact(module)
     second = emit_sv_artifact(module)
     assert first.text == second.text
@@ -310,36 +304,3 @@ def test_ieee_ifft_direct_sv_artifact_is_deterministic_and_strict() -> None:
         rtl = root / f"{RAW_TOP}.sv"
         rtl.write_text(first.text)
         lint_with_verilator((rtl,), RAW_TOP)
-
-
-def test_ieee_ifft_real_clash_generation_is_bounded() -> None:
-    clash = find_clash_executable()
-    if clash is None or shutil.which("verilator") is None:
-        pytest.skip("Clash and Verilator are required")
-    module = compile_file(SOURCE, top=PLAIN_TOP, include_clash=False).ir
-    artifact = emit_clash_artifact(module)
-    assert len(artifact.text) < 180_000
-    with tempfile.TemporaryDirectory() as temporary:
-        rtl = generate_verilog(
-            artifact.text,
-            PLAIN_TOP,
-            Path(temporary),
-            clash,
-            companions=artifact.companions,
-            public_wrapper=ClashPublicTopWrapper.build(module),
-        )
-        # Clash 1.11's romFile implementation widens the Verilog selector to
-        # host Int.  Arithmetic/payload warnings are not waived.
-        lint = subprocess.run(
-            (
-                "verilator",
-                "--lint-only",
-                "-Wno-WIDTHTRUNC",
-                "--top-module",
-                PLAIN_TOP,
-                *(str(path) for path in rtl),
-            ),
-            capture_output=True,
-            text=True,
-        )
-        assert lint.returncode == 0, lint.stderr or lint.stdout

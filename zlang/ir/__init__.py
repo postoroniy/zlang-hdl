@@ -209,11 +209,6 @@ from zlang.ir.top_abi import (
     build_top_aggregate_abi,
     build_top_physical_abi,
 )
-from zlang.ir.cross_backend import (
-    CrossBackendCounterexample, CrossBackendError, CrossBackendMode,
-    CrossBackendProperty, CrossBackendRelation, CrossBackendResult,
-    CrossBackendStatus,
-)
 from zlang.ir.comparison_window import (
     ComparisonWindow,
     ComparisonWindowError,
@@ -348,12 +343,6 @@ __all__ = [
     "ElasticPipelineRegion",
     "ElasticStallPolicy",
     "ElasticTimingContract",
-    "CrossBackendCounterexample",
-    "CrossBackendError",
-    "CrossBackendMode",
-    "CrossBackendProperty",
-    "CrossBackendRelation",
-    "CrossBackendResult",
     "ComparisonWindow",
     "ComparisonWindowError",
     "ComparisonWindowKind",
@@ -367,7 +356,6 @@ __all__ = [
     "FormalRouteKind",
     "FormalSkipCode",
     "FormalSkipReason",
-    "CrossBackendStatus",
     "Crossing",
     "CrossingKind",
     "Delay",

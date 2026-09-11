@@ -66,7 +66,7 @@ module Top { clock clk reset rst
 
 
 def _compile(source: str):
-    return compile_source(source, include_clash=False).ir
+    return compile_source(source).ir
 
 
 def test_callable_parameter_lowers_to_exact_concrete_calls() -> None:
@@ -351,8 +351,8 @@ def test_unused_constant_binding_still_changes_semantic_and_artifact_identity() 
           image:vec<2,u8>=generate(i in 0..2) VALUE
           y=identity_with_image<T=u8,N=2,image=image>(x) }
     """
-    first = compile_source(template.replace("VALUE", "0"), include_clash=False)
-    changed = compile_source(template.replace("VALUE", "1"), include_clash=False)
+    first = compile_source(template.replace("VALUE", "0"))
+    changed = compile_source(template.replace("VALUE", "1"))
     assert first.high_level_ir_identity != changed.high_level_ir_identity
     assert first.selected_ir_identity != changed.selected_ir_identity
     first_artifact = emit_sv_artifact(

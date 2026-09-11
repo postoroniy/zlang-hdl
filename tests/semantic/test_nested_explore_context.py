@@ -13,7 +13,6 @@ def test_scalar_implement_is_module_assignment_only() -> None:
         compile_source(
             "fn select(x:u8)->u8 { explore { x } } "
             "module DirectExplore { in x:u8 out y:u8 y=select(x) }",
-            include_clash=False,
         )
 
 
@@ -21,7 +20,7 @@ def test_removed_scalar_explore_does_not_enter_generic_function_context() -> Non
     calls: list[str] = []
 
     class Verifier:
-        formal_route = "M36_clash"
+        formal_route = "M36_direct_systemverilog"
 
         def cache_identity(self, candidate: object, config: object):
             return {
@@ -42,7 +41,7 @@ def test_removed_scalar_explore_does_not_enter_generic_function_context() -> Non
                 "depth": config.bmc_depth,
                 "engine": config.engine,
                 "solver": config.solver,
-                "backend": "clash",
+                "backend": "direct_systemverilog",
                 **self.cache_identity(candidate, config),
             }
 
@@ -50,7 +49,6 @@ def test_removed_scalar_explore_does_not_enter_generic_function_context() -> Non
         compile_source(
             "fn select<type T>(x:T) { explore { x } } "
             "module GenericExplore { in x:u8 out y:u8 y=select(x) }",
-            include_clash=False,
             formal_policy=FormalPolicy.REQUIRED_BMC,
             formal_verifier=Verifier(),
         )
@@ -64,5 +62,4 @@ def test_removed_scalar_explore_does_not_enter_operator_body() -> None:
             "operator +(left:Box,right:Box) { "
             "Box { value=explore { left.value } } } "
             "module OperatorExplore { in a:Box in b:Box out y:Box y=a+b }",
-            include_clash=False,
         )

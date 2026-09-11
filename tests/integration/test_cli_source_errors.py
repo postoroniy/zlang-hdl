@@ -21,8 +21,13 @@ def run_cli(tmp_path: Path, source: str, *extra: str) -> subprocess.CompletedPro
 
 
 def test_parse_error_is_concise_and_does_not_publish_artifact(tmp_path: Path) -> None:
-    output = tmp_path / "bad.hs"
-    result = run_cli(tmp_path, "module Broken { out y:u8 y= }", "--output", str(output))
+    output = tmp_path / "bad.sv"
+    result = run_cli(
+        tmp_path,
+        "module Broken { out y:u8 y= }",
+        "--systemverilog",
+        str(output),
+    )
     assert result.returncode == 1
     assert result.stdout == ""
     assert "zlang: error:" in result.stderr

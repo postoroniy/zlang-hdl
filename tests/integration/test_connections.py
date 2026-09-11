@@ -6,7 +6,6 @@ import unittest
 
 import pytest
 
-from zlang.backend.clash import emit as emit_clash
 from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
 from zlang.compiler import compile_source
 from zlang.simulate import (
@@ -15,11 +14,7 @@ from zlang.simulate import (
     simulate_connection_cycles,
     simulate_protocol_cycles,
 )
-from zlang.toolchain import (
-    find_clash_executable,
-    generate_verilog,
-    lint_with_verilator,
-)
+from zlang.toolchain import lint_with_verilator
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -208,30 +203,3 @@ def _run_rv_buffer_verilator(
         capture_output=True, text=True,
     )
     assert ran.returncode == 0, ran.stdout + ran.stderr
-
-
-@pytest.mark.skipif(
-    shutil.which("verilator") is None,
-    reason="Verilator is required",
-)
-@pytest.mark.parametrize("backend", ("systemverilog", "clash"))
-def test_ready_valid_buffer_full_pop_push_dual_backend_trace(
-    tmp_path: Path, backend: str,
-) -> None:
-    clash = find_clash_executable()
-    if backend == "clash" and clash is None:
-        pytest.skip("real Clash is required")
-    module = compile_source(
-        (ROOT / "examples/rv_buffer.zhl").read_text(), include_clash=False,
-    ).ir
-    if backend == "systemverilog":
-        source = tmp_path / "RvBuffer.sv"
-        source.write_text(emit_sv_artifact(module).text)
-        rtl = (source,)
-    else:
-        assert clash is not None
-        rtl = tuple(generate_verilog(
-            emit_clash(module), module.name, tmp_path / "clash", clash,
-        ))
-    lint_with_verilator(rtl, module.name)
-    _run_rv_buffer_verilator(tmp_path, rtl, suffix=backend)

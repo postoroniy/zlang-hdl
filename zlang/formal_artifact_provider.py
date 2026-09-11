@@ -50,7 +50,6 @@ class FormalArtifactNamespace(str, Enum):
     PREPARED = "prepared"
     M35 = "M35"
     M36 = "M36"
-    M38 = "M38"
     M39 = "M39"
 
 

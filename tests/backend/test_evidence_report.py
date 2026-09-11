@@ -13,7 +13,6 @@ from zlang.evidence_report import (
     evidence_for_typed_module,
     evidence_for_unexecuted_property,
     evidence_for_validated_timing,
-    evidence_from_cross_backend_result,
     evidence_from_equivalence_result,
     evidence_from_formal_exploration_record,
     evidence_from_formal_result,
@@ -25,14 +24,6 @@ from zlang.evidence_report import (
 from zlang.formal_exploration import (
     FormalExplorationRecord,
     FormalPolicy,
-)
-from zlang.ir.cross_backend import (
-    CrossBackendCounterexample,
-    CrossBackendError,
-    CrossBackendMode,
-    CrossBackendRelation,
-    CrossBackendResult,
-    CrossBackendStatus,
 )
 from zlang.ir.equivalence import (
     EquivalenceCounterexample,
@@ -113,7 +104,7 @@ def _equivalence_result() -> EquivalenceResult:
         depth=12,
         relation_kind=EquivalenceRelation.FIXED_LATENCY_VALUE,
         latency_delta=3,
-        backend="clash",
+        backend="direct_systemverilog",
         reference_hash="b" * 64,
         implementation_hash="c" * 64,
         binding_map_version=2,
@@ -122,38 +113,6 @@ def _equivalence_result() -> EquivalenceResult:
     )
 
 
-def _cross_backend_result() -> CrossBackendResult:
-    return CrossBackendResult(
-        property_id="m38.eq.backends",
-        status=CrossBackendStatus.FAILED,
-        mode=CrossBackendMode.BMC,
-        engine="sby",
-        solver="z3",
-        depth=10,
-        relation=CrossBackendRelation.SAME_CYCLE_VALUE,
-        latency_delta=0,
-        selected_ir_identity="selected.dot",
-        left_backend="clash",
-        right_backend="direct_systemverilog",
-        left_artifact_hash="d" * 64,
-        right_artifact_hash="e" * 64,
-        manifest_version=9,
-        observable_signal_id="port:y",
-        source_origin=ORIGIN,
-        counterexample=CrossBackendCounterexample(
-            property_id="m38.eq.backends",
-            semantic_signal_id="port:y",
-            cycle=2,
-            sample_cycle=2,
-            left_backend="clash",
-            right_backend="direct_systemverilog",
-            left_artifact_hash="d" * 64,
-            right_artifact_hash="e" * 64,
-            values=(("left.y", "1"), ("right.y", "0")),
-            raw_trace="backend trace",
-            source_origin=ORIGIN,
-        ),
-    )
 
 
 def test_typed_adapters_preserve_formal_equivalence_and_artifact_metadata() -> None:
@@ -161,7 +120,6 @@ def test_typed_adapters_preserve_formal_equivalence_and_artifact_metadata() -> N
         _formal_result(), backend="direct_systemverilog", artifact_hash="f" * 64
     )
     m36 = evidence_from_equivalence_result(_equivalence_result())
-    m38 = evidence_from_cross_backend_result(_cross_backend_result())
 
     assert (m35.status, m35.mode, m35.depth) == ("failed", "bmc", 8)
     assert m35.property_id == "m35.fifo.bounds"
@@ -181,14 +139,6 @@ def test_typed_adapters_preserve_formal_equivalence_and_artifact_metadata() -> N
     assert m36.relation == "fixed_latency_value"
     assert m36.candidate_identity == "candidate.dot.pipeline3"
 
-    assert m38.backend == "clash<->direct_systemverilog"
-    assert m38.reference_hash == "d" * 64
-    assert m38.artifact_hash == "e" * 64
-    assert m38.counterexample_digest is not None
-    trace = json.loads(dict(m38.details)["counterexample_metadata"])
-    assert trace["semantic_signal_id"] == "port:y"
-    assert "raw_trace" not in trace
-
     # Attribution never participates in the evidence identity.
     moved = replace(
         _formal_result(),
@@ -204,7 +154,7 @@ def test_typed_adapters_preserve_formal_equivalence_and_artifact_metadata() -> N
 def test_m39_not_run_and_executed_candidate_evidence_are_distinct() -> None:
     not_run = evidence_from_formal_exploration_record(
         FormalExplorationRecord(
-            "candidate.a", 1, "valid", "M36_clash", FormalPolicy.OFF,
+            "candidate.a", 1, "valid", "M36_direct_systemverilog", FormalPolicy.OFF,
             None, None, None, "not-run", True, "formal disabled",
         )
     )
@@ -214,17 +164,17 @@ def test_m39_not_run_and_executed_candidate_evidence_are_distinct() -> None:
 
     bounded = evidence_from_formal_exploration_record(
         FormalExplorationRecord(
-            "candidate.b", 2, "valid", "M36_clash",
+            "candidate.b", 2, "valid", "M36_direct_systemverilog",
             FormalPolicy.REQUIRED_BMC, ProofMode.BMC, 16,
             FormalStatus.BOUNDED_PASS, "executed", True,
-            "bounded proof satisfied", "clash", "1" * 64,
+            "bounded proof satisfied", "direct_systemverilog", "1" * 64,
             **M39_BOUND,
         )
     )
     assert (bounded.status, bounded.mode, bounded.depth) == (
         "bounded_pass", "bmc", 16
     )
-    assert bounded.route == "M36_clash"
+    assert bounded.route == "M36_direct_systemverilog"
     assert bounded.property_id == "m36.test.candidate"
     assert bounded.reference_hash == "5" * 64
     assert bounded.source_origin == ORIGIN
@@ -236,11 +186,11 @@ def test_required_proven_bmc_and_prove_stages_remain_distinct_evidence() -> None
         candidate_identity="candidate.staged",
         rank=1,
         semantic_legality="valid",
-        formal_route="M36_clash",
+        formal_route="M36_direct_systemverilog",
         policy=FormalPolicy.REQUIRED_PROVEN,
         depth=12,
         cache_state="executed",
-        backend="clash",
+        backend="direct_systemverilog",
         artifact_hash="1" * 64,
         engine="sby",
         solver="z3",
@@ -276,14 +226,14 @@ def test_m39_cache_hit_state_does_not_change_evidence_identity() -> None:
         candidate_identity="candidate.cached",
         rank=1,
         semantic_legality="valid",
-        formal_route="M36_clash",
+        formal_route="M36_direct_systemverilog",
         policy=FormalPolicy.REQUIRED_BMC,
         mode=ProofMode.BMC,
         depth=8,
         status=FormalStatus.BOUNDED_PASS,
         eligible=True,
         reason="bounded proof satisfied",
-        backend="clash",
+        backend="direct_systemverilog",
         artifact_hash="7" * 64,
         engine="sby",
         solver="z3",
@@ -321,7 +271,6 @@ def test_static_legality_and_timing_evidence_require_typed_validated_ir() -> Non
     result = compile_source(
         "module Timed { clock clk reset rst in x:u8 out y:u8 "
         "y=delay<2>(x) timing { latency 2 ii 1 } }",
-        include_clash=False,
     )
     legality = evidence_for_typed_module(
         result.ir, high_level_ir_identity=result.high_level_ir_identity,
@@ -336,7 +285,7 @@ def test_static_legality_and_timing_evidence_require_typed_validated_ir() -> Non
     assert dict(timing.details)["latency"] == "2"
 
     untimed = compile_source(
-        "module Untimed { in x:u8 out y:u8 y=x }", include_clash=False,
+        "module Untimed { in x:u8 out y:u8 y=x }",
     )
     with pytest.raises(EvidenceReportError, match="exact module contract"):
         evidence_for_validated_timing(
@@ -360,9 +309,9 @@ def test_untyped_logs_and_malformed_candidate_records_are_rejected() -> None:
     with pytest.raises(EvidenceReportError, match="typed formal IR"):
         evidence_from_formal_exploration_record(
             FormalExplorationRecord(
-                "candidate", 1, "valid", "M36_clash", FormalPolicy.AVAILABLE,
+                "candidate", 1, "valid", "M36_direct_systemverilog", FormalPolicy.AVAILABLE,
                 ProofMode.BMC, 4, FormalStatus.FAILED, "executed", False,
-                "failed", backend="clash", artifact_hash="1" * 64,
+                "failed", backend="direct_systemverilog", artifact_hash="1" * 64,
                 counterexample={"cycle": 1}, **M39_BOUND,
             )
         )
@@ -370,31 +319,17 @@ def test_untyped_logs_and_malformed_candidate_records_are_rejected() -> None:
     with pytest.raises(EvidenceReportError, match="connected backend artifact"):
         evidence_from_formal_exploration_record(
             FormalExplorationRecord(
-                "candidate", 1, "valid", "M36_clash",
+                "candidate", 1, "valid", "M36_direct_systemverilog",
                 FormalPolicy.REQUIRED_BMC, ProofMode.BMC, 4,
                 FormalStatus.BOUNDED_PASS, "executed", True, "passed",
             )
         )
 
 
-def test_m36_and_m38_never_accept_bmc_as_unbounded_proof() -> None:
-    with pytest.raises(EquivalenceError, match="proven is valid only for prove"):
-        EquivalenceResult(
-            "m36.bad", EquivalenceStatus.PROVEN, EquivalenceMode.BMC,
-            "sby", "z3", 4, EquivalenceRelation.SAME_CYCLE_VALUE, 0,
-            "clash", "a", "b", 2, "candidate",
-        )
-    with pytest.raises(CrossBackendError, match="proven is valid only for prove"):
-        CrossBackendResult(
-            "m38.bad", CrossBackendStatus.PROVEN, CrossBackendMode.BMC,
-            "sby", "z3", 4, CrossBackendRelation.SAME_CYCLE_VALUE, 0,
-            "selected", "clash", "direct_systemverilog", "a", "b", 9,
-        )
 
 
 def test_json_text_and_report_records_are_deterministic_and_truthful() -> None:
     records = (
-        evidence_from_cross_backend_result(_cross_backend_result()),
         evidence_from_equivalence_result(_equivalence_result()),
         evidence_from_formal_result(_formal_result()),
         EvidenceRecord(

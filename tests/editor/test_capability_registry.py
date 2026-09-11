@@ -20,13 +20,12 @@ def _compile_witness(source_path: str, top: str):
     return compile_source(
         path.read_text(),
         top=top,
-        include_clash=False,
         source_unit=str(path),
     )
 
 
 def test_registry_is_versioned_unique_and_deterministic() -> None:
-    assert CAPABILITY_REGISTRY.schema_version == 24
+    assert CAPABILITY_REGISTRY.schema_version == 25
     assert CAPABILITY_REGISTRY.production_backend == "direct_systemverilog"
     surface = CAPABILITY_REGISTRY.editor_surface()
     assert tuple(surface) == ("keywords", "types", "intrinsics", "modes", "operators")
@@ -46,7 +45,6 @@ def test_registry_is_versioned_unique_and_deterministic() -> None:
         assert item["context"]
         assert item["status"] in {"supported", "bounded"}
         assert item["simulator"]
-        assert item["clash"] == "retired"
         assert item["direct_systemverilog"]
         assert item["formal"]
         assert item["witness"]["source_path"]
@@ -137,8 +135,8 @@ def test_representative_registered_intrinsic_families_compile(
 ) -> None:
     # Capability conformance is a parser/semantic contract.  Some accepted
     # physical contracts intentionally fail closed in backends that cannot yet
-    # implement them, so do not make the editor registry depend on Clash.
-    assert compile_source(source, include_clash=False).ir.name == "M", family
+    # implement them, so do not make the editor registry depend on an RTL backend.
+    assert compile_source(source).ir.name == "M", family
 
 
 @pytest.mark.parametrize("name", ("resize", "zero_extend", "sign_extend"))
@@ -169,7 +167,6 @@ def test_domain_is_semantic_terminology_not_a_source_keyword() -> None:
     assert "domain" not in CAPABILITY_REGISTRY.keywords
     result = compile_source(
         "module M { in domain:u8 out y:u8 y=domain }",
-        include_clash=False,
     )
     assert result.ir.ports[0].name == "domain"
 
@@ -269,4 +266,4 @@ def test_exploration_capability_distinguishes_advisory_and_required_formal() -> 
     )
     assert "`available` is advisory" in capability.formal
     assert "required policies require connected M36" in capability.formal
-    assert any("M38 never gates M39" in item for item in capability.limitations)
+    assert any("M39" in item for item in capability.limitations)

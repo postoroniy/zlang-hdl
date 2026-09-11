@@ -77,7 +77,7 @@ def test_external_manifest_lock_round_trip_and_profile_resolution(tmp_path: Path
         workspace.lock.manifest_resolution_digest,
         workspace.lock.packages,
     ).identity
-    result = compile_file(source, project=manifest_path, profile="release", include_clash=False)
+    result = compile_file(source, project=manifest_path, profile="release")
     mappings = load_profile_external_mappings(
         workspace.manifest, workspace.lock, "release", result.ir
     )
@@ -164,7 +164,6 @@ def test_external_mapping_fails_closed_for_dirty_source_and_port_mismatch(tmp_pa
         mismatch_source,
         project=mismatch_manifest,
         profile="release",
-        include_clash=False,
     )
     workspace = load_project_workspace(mismatch_source, project=mismatch_manifest)
     assert workspace is not None
@@ -176,7 +175,7 @@ def test_external_mapping_fails_closed_for_dirty_source_and_port_mismatch(tmp_pa
 
 def test_external_mapping_requires_explicit_profile_selection(tmp_path: Path) -> None:
     manifest, source, _ = _project(tmp_path)
-    result = compile_file(source, project=manifest, include_clash=False)
+    result = compile_file(source, project=manifest)
     workspace = load_project_workspace(source, project=manifest)
     assert workspace is not None
     with pytest.raises(ExternalMappingError, match="require a selected project profile"):

@@ -51,7 +51,7 @@ digests.
 
 Region identity is derived from the logical module specialization, typed public
 output binding, canonical expression identity, and exact result type. Source
-paths, spans, physical instances, generated Haskell, and RTL names are excluded.
+paths, spans, physical instances, and generated RTL names are excluded.
 Stale and duplicate identities fail explicitly. The first slice is root-module
 only and scalar-only; recursive/profile-selected protocol regions are deferred.
 
@@ -76,12 +76,10 @@ equal or contain that exact latency/II, but cannot weaken or contradict it.
 
 ## Backend plans
 
-`--backend-implementation-report` contains stable, independent `clash` and
-`systemverilog` slots. Each is `selected`, `generic_fallback`, `unsupported`,
-or `not_requested`. A preferred unsupported physical route may fall back to a
-technology-independent graph. A required route fails compilation. A physical
-direct-SystemVerilog graph is never relabelled as a Clash graph; Clash remains
-the independent generic/reference route for those target-specific plans.
+`--backend-implementation-report` contains one stable `systemverilog` slot. It
+is `selected`, `generic_fallback`, `unsupported`, or `not_requested`. A
+preferred unsupported physical route may fall back to a technology-independent
+graph. A required route fails compilation.
 
 Current boundaries are deliberate: one backend is selected per named profile,
 II is limited to existing semantics, and profiles cannot introduce protocol,

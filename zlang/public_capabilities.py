@@ -41,7 +41,7 @@ class PublicCapability:
     context: str
     status: str
     simulator: str
-    clash: str
+    backend_independent_ir: str
     direct_systemverilog: str
     formal: str
     witness: CapabilityWitness
@@ -60,9 +60,6 @@ class PublicCapabilityRegistry:
     operators: tuple[str, ...]
     capabilities: tuple[PublicCapability, ...]
     documentation: tuple[DocumentationRequirement, ...]
-    # Direct SystemVerilog is the sole production RTL backend.  The Clash
-    # field retained in individual capability records is a compatibility
-    # metadata slot for historical reports and is rendered as ``retired``.
     production_backend: str = "direct_systemverilog"
 
     def editor_surface(self) -> dict[str, list[str]]:
@@ -89,7 +86,7 @@ class PublicCapabilityRegistry:
                 "context": item.context,
                 "status": item.status,
                 "simulator": item.simulator,
-                "clash": "retired",
+                "backend_independent_ir": item.backend_independent_ir,
                 "direct_systemverilog": item.direct_systemverilog,
                 "formal": item.formal,
                 "witness": {
@@ -103,7 +100,7 @@ class PublicCapabilityRegistry:
 
 
 CAPABILITY_REGISTRY = PublicCapabilityRegistry(
-    schema_version=24,
+    schema_version=25,
     keywords=(
         "import", "module", "extern", "model", "struct", "enum", "union", "type", "fn", "operator", "equiv",
         "protocol", "role", "channel", "member", "resource", "target", "device",
@@ -330,8 +327,7 @@ CAPABILITY_REGISTRY = PublicCapabilityRegistry(
             CapabilityWitness("examples/all_syntax.zhl", "CreditSyntax"),
             (
                 "sender credits and receiver adapter occupancy are explicit; "
-                "VC-credit has no M35 accounting family and protocol-level M38 "
-                "is not claimed",
+                "VC-credit has no M35 accounting family",
             ),
         ),
         PublicCapability(
@@ -342,7 +338,7 @@ CAPABILITY_REGISTRY = PublicCapabilityRegistry(
             (
                 "parent outstanding and request/response buffer occupancies are "
                 "typed formal observations; bounded in-order/out-of-order profiles; "
-                "no protocol-level M38",
+                "no protocol-level equivalence route",
             ),
         ),
         PublicCapability(
@@ -389,8 +385,8 @@ CAPABILITY_REGISTRY = PublicCapabilityRegistry(
             (
                 "clocked same-cycle safety and bounded reachability only; "
                 "per-goal supported clock/reset routing does not imply cross-domain "
-                "proof semantics; liveness, temporal sequences, and source M36/M38 "
-                "controls are deferred",
+                "proof semantics; liveness, temporal sequences, and source-level "
+                "equivalence controls are deferred",
             ),
         ),
         PublicCapability(
@@ -401,8 +397,8 @@ CAPABILITY_REGISTRY = PublicCapabilityRegistry(
             (
                 "egglog, architecture enumeration, pipeline planning, cost "
                 "extraction, and proof gating are distinct stages; joint "
-                "--verify may add direct-SV M36 evidence; M38 never gates M39 "
-                "and is retired from production",
+                "--verify may add direct-SV M36 evidence while M39 remains a "
+                "separate selection gate",
             ),
         ),
         PublicCapability(

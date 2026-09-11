@@ -5,12 +5,9 @@ import subprocess
 import tempfile
 import unittest
 
-from tests.toolchain import CLASH_EXECUTABLE
-from zlang.backend.clash import emit
 from zlang.compiler import compile_source
 from zlang.opt import saturate
 from zlang.opt import RewriteRule
-from zlang.toolchain import generate_verilog
 
 
 ROOT = Path(__file__).resolve().parents[2]

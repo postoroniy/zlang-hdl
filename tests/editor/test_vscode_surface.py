@@ -219,7 +219,6 @@ def test_character_string_and_tuple_editor_surface_is_executable() -> None:
     result = compile_source(
         source,
         top="TextTupleSyntax",
-        include_clash=False,
         source_unit=str(SOURCE_PATH),
     )
     assert result.ir.name == "TextTupleSyntax"
@@ -264,7 +263,6 @@ def test_elastic_transform_keyword_is_highlighted_and_executable() -> None:
     assert compile_source(
         source,
         top="ElasticPipelineAuto",
-        include_clash=False,
         source_unit=str(ELASTIC_SOURCE_PATH),
     ).ir.name == "ElasticPipelineAuto"
 
@@ -277,7 +275,6 @@ def test_first_class_verification_words_are_contextually_highlighted() -> None:
     result = compile_source(
         source,
         top="VerificationUxSyntax",
-        include_clash=False,
         source_unit=str(source_path),
     )
 
@@ -301,7 +298,6 @@ def test_first_class_verification_words_are_contextually_highlighted() -> None:
     identifiers = compile_source(
         source,
         top="VerificationWordsRemainIdentifiers",
-        include_clash=False,
         source_unit=str(source_path),
     )
     assert tuple(port.name for port in identifiers.ir.ports[:5]) == (
@@ -394,16 +390,6 @@ def test_function_styles_are_three_scoped_theme_preserving_groups() -> None:
     assert styled_operator_scopes == grammar_operator_scopes
 
 
-def test_all_syntax_clash_mangles_prelude_colliding_port_names() -> None:
-    source = SOURCE_PATH.read_text()
-    credit = compile_source(source, top="CreditSyntax").clash
-    arbitration = compile_source(source, top="ArbitrationSyntax").clash
-    assert "circuit data_zlang send" in credit
-    assert "circuit high_zlang low_zlang" in arbitration
-    # External HDL port annotations remain the original ZLang API names.
-    assert 'PortName "data"' in credit
-    assert 'PortProduct "high"' in arbitration
-    assert 'PortProduct "low"' in arbitration
 
 
 def test_binary_literals_share_typed_value_and_unterminated_comment_is_diagnostic() -> None:

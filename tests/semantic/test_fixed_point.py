@@ -15,7 +15,6 @@ from zlang.opt import lower, restore
 from zlang.parser import ParseError, parse
 from zlang.semantic import SemanticError, analyze
 from zlang.simulate import simulate
-from zlang.toolchain import find_clash_executable, generate_verilog
 
 
 class FixedPointTests(unittest.TestCase):
@@ -493,16 +492,6 @@ module Top {
                             sat_artifact.recursive_bindings[0].canonical_type)
         self.assertEqual(restored.recursive_bindings, sat_artifact.recursive_bindings)
 
-    def test_stdlib_fixed_helpers_are_ordinary_source_modules(self):
-        result = compile_source(
-            "import std.math.fixed module Top { clock clk reset rst "
-            "in x:fixed<16,8> out y:fixed<16,8> "
-            "inst helper:FixedAbs<16,8>{x} y=helper.y }"
-        )
-        self.assertEqual(result.ir.children[0].source_identity, "std.math.fixed")
-        suffix = result.ir.elaborated_instances[0].specialization_identity[:8]
-        self.assertIn(f"fixedAbs_s{suffix} ::", result.clash)
-        self.assertIn("module FixedAbs", emit_experimental(result.ir))
 
     @unittest.skipUnless(shutil.which("verilator"), "Verilator is unavailable")
     def test_direct_sv_is_lint_clean(self):
@@ -576,71 +565,7 @@ endmodule
             subprocess.run((str(root / "obj" / "Vtb"),), check=True,
                            capture_output=True, text=True)
 
-    @unittest.skipUnless(
-        find_clash_executable() and shutil.which("verilator"),
-        "Clash and Verilator are unavailable",
-    )
-    def test_clash_all_rounding_modes_match_exhaustive_oracle(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            for index, mode in enumerate(
-                ("toward_zero", "floor", "away_zero", "nearest_even")
-            ):
-                module_name = f"FixedRound{index}"
-                source = (
-                    f"module {module_name} {{ in a:fixed<8,2> out y:fixed<8,0> "
-                    f"y=quantize<fixed<8,0>>(a){{round {mode} overflow wrap}} }}"
-                )
-                result = compile_source(source)
-                files = generate_verilog(
-                    result.clash, module_name, root / f"rtl-{index}"
-                )
-                bench = root / f"tb-{index}.sv"
-                bench.write_text(self._single_rounding_bench(module_name, mode))
-                environment = os.environ.copy()
-                environment["CCACHE_DISABLE"] = "1"
-                subprocess.run(
-                    ("verilator", "--binary", "--top-module", "tb", "-Wno-fatal",
-                     *(str(path) for path in files), str(bench),
-                     "-Mdir", str(root / f"obj-{index}")),
-                    check=True, capture_output=True, text=True, env=environment,
-                )
-                subprocess.run((str(root / f"obj-{index}" / "Vtb"),), check=True,
-                               capture_output=True, text=True)
 
-    @unittest.skipUnless(
-        find_clash_executable() and shutil.which("verilator"),
-        "Clash and Verilator are unavailable",
-    )
-    def test_clash_saturating_fixed_rtl_behavior(self):
-        result = compile_source(
-            "module FixedSat { in a:SF_Sat2.2 in b:SF_Sat2.2 "
-            "out y:SF_Sat2.2 y=a+b }"
-        )
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            files = generate_verilog(result.clash, "FixedSat", root / "rtl")
-            bench = root / "tb.sv"
-            bench.write_text(r"""
-module tb;
-  logic signed [3:0] a, b; wire signed [3:0] y;
-  FixedSat dut(.a,.b,.y);
-  initial begin
-    a=7; b=7; #1; if (y !== 7) $fatal(1,"positive saturation mismatch");
-    a=-8; b=-8; #1; if (y !== -8) $fatal(1,"negative saturation mismatch");
-    $finish;
-  end
-endmodule
-""")
-            environment = os.environ.copy()
-            environment["CCACHE_DISABLE"] = "1"
-            subprocess.run(
-                ("verilator", "--binary", "--top-module", "tb", "-Wno-fatal",
-                 *(str(path) for path in files), str(bench), "-Mdir", str(root / "obj")),
-                check=True, capture_output=True, text=True, env=environment,
-            )
-            subprocess.run((str(root / "obj" / "Vtb"),), check=True,
-                           capture_output=True, text=True)
 
 
 if __name__ == "__main__":

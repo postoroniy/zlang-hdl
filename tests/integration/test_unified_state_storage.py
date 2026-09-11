@@ -10,19 +10,13 @@ import subprocess
 import pytest
 
 from zlang.backend.systemverilog import emit_experimental
-from zlang.backend.clash import (
-    emit_formal_artifact as emit_clash_formal_artifact,
-    validate_register_formal_artifact,
-)
 from zlang.compiler import compile_source
 from zlang.formal import build_recursive_formal_design, run_verilog_formal
 from zlang.ir.formal import FormalStatus
-from zlang.toolchain import find_clash_executable, generate_verilog
 
 
 ROOT = Path(__file__).resolve().parents[2]
 VERILATOR = shutil.which("verilator")
-CLASH = find_clash_executable()
 FORMAL = all(shutil.which(tool) for tool in ("yosys", "sby", "z3"))
 
 
@@ -103,36 +97,8 @@ def test_direct_sv_atomic_transition_simulates() -> None:
         _simulate([rtl], root)
 
 
-@pytest.mark.skipif(CLASH is None or VERILATOR is None, reason="Clash or Verilator unavailable")
-def test_clash_atomic_transition_simulates() -> None:
-    compilation = compile_source(SOURCE)
-    from tempfile import TemporaryDirectory
-    with TemporaryDirectory(prefix="zlang-atomic-clash-") as temporary:
-        root = Path(temporary)
-        files = list(generate_verilog(compilation.clash, "AtomicFifo", root / "rtl", CLASH))
-        _simulate(files, root)
 
 
-@pytest.mark.skipif(CLASH is None, reason="Clash unavailable")
-def test_clash_formal_component_publishes_mixed_state_observations() -> None:
-    module = compile_source("""module MixedFormal { clock clk reset rst
-      in x:u8 in fire:bit out y:u8 fifo q:fifo<u8,2> reg r:u8=0
-      rule update when fire { q.push(x) r <- x } y=r }""").ir
-    design = build_recursive_formal_design(module)
-    artifact = emit_clash_formal_artifact(module, design)
-    from tempfile import TemporaryDirectory
-    with TemporaryDirectory(prefix="zlang-atomic-clash-formal-") as temporary:
-        files = generate_verilog(artifact.text, module.name, Path(temporary), CLASH)
-        validated = validate_register_formal_artifact(artifact, files)
-    available = {
-        item.semantic_binding_id for item in validated.formal_observations
-        if item.observation_token is not None
-    }
-    required = {
-        item.semantic_binding_id for item in design.bindings
-        if item.ref.local_semantic_id.startswith(("register:", "fifo:"))
-    }
-    assert required <= available
 
 
 @pytest.mark.skipif(not FORMAL, reason="Yosys, SymbiYosys, and Z3 are required")
@@ -155,14 +121,3 @@ def test_m35_combined_register_fifo_safety_executes() -> None:
         property_id="unified_state_storage.smoke", depth=8, systemverilog=True,
     )
     assert result.status is FormalStatus.BOUNDED_PASS
-
-
-def test_sdf_stage_generates_both_backends_and_m35_families() -> None:
-    result = compile_source((ROOT / "examples/fft_sdf_stage_atomic_transition.zhl").read_text())
-    assert "module SDFStateStage" in result.clash
-    assert "module SDFStateStage" in emit_experimental(result.ir)
-    families = {
-        (item.generated_from or "").split(":", 1)[0]
-        for item in result.formal_design.properties
-    }
-    assert {"register", "fifo", "rules", "ready_valid"} <= families

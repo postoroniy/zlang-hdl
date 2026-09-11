@@ -230,7 +230,7 @@ def test_fft512_staged_integer_oracle_has_frozen_digest_and_selected_bins() -> N
 
 def test_fft512_semantic_depth_256_rom_matches_independent_table() -> None:
     module = compile_source(
-        SOURCE.read_text(), top=TOP, include_clash=False
+        SOURCE.read_text(), top=TOP
     ).ir
     assert [child.roms[0].depth for child in module.children] == [
         256, 128, 64, 32, 16, 8, 4, 2, 1
@@ -256,7 +256,7 @@ from zlang.simulate import simulate_cycles
 
 source = Path("examples/fft/sdf_stage_numeric.zhl")
 module = compile_source(
-    source.read_text(), top="FFT512SDFReference", include_clash=False
+    source.read_text(), top="FFT512SDFReference"
 ).ir
 tokens = [
     {"re": real, "im": imag} for real, imag in _fixture()
