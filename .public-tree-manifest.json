@@ -79,7 +79,7 @@
     {
       "mode": "0644",
       "path": "CHANGELOG.md",
-      "sha256": "8bfca6e594180bc8006381db37c4680688399975ffdf62dd66a419a9f460df8d"
+      "sha256": "2ab2e43ca715b30d1ba7505a57ab12e8b1cc0bbc3834ce3fd211b356500b7e86"
     },
     {
       "mode": "0644",
@@ -1124,7 +1124,7 @@
     {
       "mode": "0644",
       "path": "release/status.json",
-      "sha256": "9105e4feb9d58c806ebbf9066f1f051c8be956d6f49df49cac13d77d4d10f35f"
+      "sha256": "3ea18c25077022a98ce075664c2ef510d8c93f22a4b6c52688f9538cf4063d68"
     },
     {
       "mode": "0644",
@@ -2194,7 +2194,7 @@
     {
       "mode": "0644",
       "path": "tests/packaging/test_stdlib_packaging.py",
-      "sha256": "241b41e94bcf7896ea2a3b3b525f2ed6e39bf6327262d5ed485e17c5aba8abd3"
+      "sha256": "66122549da478857a28428e4d3871038e88834850d4f45463b7d1ed91896d4bc"
     },
     {
       "mode": "0644",
@@ -2469,7 +2469,7 @@
     {
       "mode": "0644",
       "path": "tests/release/test_public_tree.py",
-      "sha256": "8f940a6562eb5e6eee39a4c1f1d3f9be66a02b3db4d9527ec5ad1dc8a4fbde28"
+      "sha256": "1c0a038377546c33bd78943b812845c10e6c2e077bdb5ac16c59174ce5314c86"
     },
     {
       "mode": "0644",
@@ -3349,7 +3349,7 @@
     {
       "mode": "0644",
       "path": "tests/test_release_surface.py",
-      "sha256": "e4194fe58689146b1c03e8f4ab2988d63b0d69bed98f37a8985693a784e6e5d4"
+      "sha256": "389fc42596811c6c06ff580eefa32c160f3dbb5560ffaf3b676f492af04aaeb6"
     },
     {
       "mode": "0644",
@@ -3509,7 +3509,7 @@
     {
       "mode": "0644",
       "path": "zlang/_version.py",
-      "sha256": "d30f80e099511bc5154acd6c4c97063604e7753a12154f047f8b0481a53c9e3f"
+      "sha256": "0cad273c7d7d2f922b5376cbdbaf83ed38333a7fc7a8f3cf3eba9fbcfdc37b9c"
     },
     {
       "mode": "0644",
