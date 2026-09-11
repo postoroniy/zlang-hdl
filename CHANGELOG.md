@@ -9,7 +9,7 @@ change incompatibly when the release notes identify the change. Versioned IR,
 artifact, lock, manifest, and verification schemas continue to reject
 incompatible input explicitly.
 
-## Unreleased
+## 0.1.0a6 — 2026-09-11
 
 ### Changed
 

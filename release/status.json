@@ -3,7 +3,7 @@
   "release": {
     "channel": "alpha",
     "repository": "https://github.com/postoroniy/zlang-hdl",
-    "version": "0.1.0a5"
+    "version": "0.1.0a6"
   },
   "platform": {
     "operating_system": "Linux",
