@@ -52,7 +52,7 @@ def test_project_compilation_round_trips_identity_and_backend_artifact(tmp_path:
     manifest, top, _ = _project(tmp_path)
     update_project_lock(manifest)
     before = _snapshot(tmp_path)
-    result = compile_file(top, include_clash=False)
+    result = compile_file(top)
     assert _snapshot(tmp_path) == before
     assert result.ir.root_module_identity is not None
     assert result.ir.root_module_identity.logical_path == "demo.top"
@@ -79,10 +79,10 @@ def test_semantic_dependency_change_invalidates_build_not_identical_rtl_hash(
 ) -> None:
     manifest, top, dependency = _project(tmp_path)
     update_project_lock(manifest)
-    first = emit_artifact(compile_file(top, include_clash=False).ir)
+    first = emit_artifact(compile_file(top).ir)
     dependency.write_text("// provenance-only change\nmodule Identity { in x:u8 out y:u8 y=x }")
     update_project_lock(manifest)
-    second = emit_artifact(compile_file(top, include_clash=False).ir)
+    second = emit_artifact(compile_file(top).ir)
     assert first.text == second.text
     assert first.artifact_hash == second.artifact_hash
     assert first.build_identity != second.build_identity
@@ -104,13 +104,13 @@ def test_root_package_import_participates_in_build_identity(tmp_path: Path) -> N
         "inst helper:Helper helper.x=x y=helper.y }"
     )
     update_project_lock(manifest)
-    first = emit_artifact(compile_file(top, include_clash=False).ir)
+    first = emit_artifact(compile_file(top).ir)
     assert first.dependency_closure is not None
     assert tuple(item.logical_path for item in first.dependency_closure.modules) == (
         "demo.helper",
     )
     helper.write_text("// source-only change\nmodule Helper { in x:u8 out y:u8 y=x }")
-    second = emit_artifact(compile_file(top, include_clash=False).ir)
+    second = emit_artifact(compile_file(top).ir)
     assert first.artifact_hash == second.artifact_hash
     assert first.build_identity != second.build_identity
 
@@ -205,7 +205,7 @@ def test_project_diagnostic_is_structured_and_never_fetches(tmp_path: Path) -> N
 def test_no_project_compile_file_keeps_legacy_std_only_behavior(tmp_path: Path) -> None:
     source = tmp_path / "standalone.zhl"
     source.write_text("module Standalone { out y:u8 y=1 }")
-    result = compile_file(source, include_clash=False)
+    result = compile_file(source)
     assert result.ir.name == "Standalone"
     assert result.ir.root_module_identity is None
     assert result.ir.dependency_closure is None

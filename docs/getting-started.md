@@ -3,7 +3,7 @@
 ZLang HDL is a statically elaborated hardware language. Source is parsed and checked
 into backend-independent typed IR before RTL is emitted. Direct SystemVerilog is
 the sole production backend and remains fail-closed for unsupported IR. Historical
-Clash support is an internal compatibility path, not a public or release backend.
+Clash support has been removed from the compiler and release toolchain.
 The [current status snapshot](current-language-status.md) records the accepted
 tool versions, regression/corpus counts, real-design evidence, and explicit
 product boundaries.

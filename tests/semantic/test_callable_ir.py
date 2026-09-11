@@ -141,10 +141,10 @@ def test_callable_diagnostic_source_relocation_does_not_change_identity() -> Non
         "module Top{in x:u8 out y:u8 y=identity(x)}"
     )
     first = compile_source(
-        source, source_unit="first/location.zhl", include_clash=False
+        source, source_unit="first/location.zhl"
     )
     second = compile_source(
-        source, source_unit="second/location.zhl", include_clash=False
+        source, source_unit="second/location.zhl"
     )
     assert (
         first.ir.callable_definitions[0].metadata.declaration_identity
@@ -166,12 +166,10 @@ def test_callable_functional_binder_identity_ignores_unrelated_function_order() 
     first = compile_source(
         target + unrelated + top,
         source_unit="callable-order.zhl",
-        include_clash=False,
     )
     reordered = compile_source(
         unrelated + target + top,
         source_unit="callable-order.zhl",
-        include_clash=False,
     )
 
     first_definition = next(
@@ -224,17 +222,14 @@ def test_specialization_identity_is_sensitive_to_dependency_closure() -> None:
     first = compile_source(
         source,
         dependency_closure=closure("d" * 64),
-        include_clash=False,
     )
     repeated = compile_source(
         source,
         dependency_closure=closure("d" * 64),
-        include_clash=False,
     )
     changed = compile_source(
         source,
         dependency_closure=closure("f" * 64),
-        include_clash=False,
     )
 
     first_id = first.ir.callable_definitions[0].callee_identity
@@ -254,7 +249,6 @@ module Top {
 }
 """,
         source_unit="call-sites.zhl",
-        include_clash=False,
     )
     assert len(result.ir.callable_definitions) == 1
     definition = result.ir.callable_definitions[0]
@@ -434,7 +428,6 @@ module Top {
 }
 """,
         source_unit="ordinary-calls-generic.zhl",
-        include_clash=False,
     )
 
     wrapper = next(
@@ -459,5 +452,4 @@ module Bad {
         compile_source(
             source,
             source_unit="ordinary-generic-cycle.zhl",
-            include_clash=False,
         )

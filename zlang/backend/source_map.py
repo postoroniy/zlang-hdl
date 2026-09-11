@@ -193,12 +193,10 @@ def build_generated_source_map(
             and item.role is SignalRole.OUTPUT
             and item.source_origin is not None
         ), None)
-        clash_wrapper_only = artifact.backend == "clash" and module.is_sequential
         if (
             origin is not None
             and binding is not None
             and binding.source_origin == origin
-            and not clash_wrapper_only
         ):
             line = _exact_assignment_line(artifact, binding.rtl_path)
             if line is not None:
@@ -231,13 +229,6 @@ def _exact_assignment_line(
             return None
         pattern = re.compile(rf"^\s*assign\s+{re.escape(rtl_path)}\s*=")
         matches = [index for index, line in enumerate(lines, 1) if pattern.search(line)]
-        return matches[0] if len(matches) == 1 else None
-    if artifact.backend == "clash":
-        # The bounded simple emitter places the one typed output expression on
-        # one ``topEntity ... = ...`` line.  Signatures and annotations cannot
-        # match this form.
-        pattern = re.compile(r"^topEntity(?:\s+[^=]+)?\s*=\s*.+$")
-        matches = [index for index, line in enumerate(lines, 1) if pattern.match(line)]
         return matches[0] if len(matches) == 1 else None
     return None
 __all__ = [

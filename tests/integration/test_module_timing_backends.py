@@ -7,7 +7,6 @@ import subprocess
 
 import pytest
 
-from tests.toolchain import CLASH_EXECUTABLE
 from zlang.architecture import expand_architectures
 from zlang.backend.manifest import BackendArtifact, IMPLEMENTATION_MANIFEST_VERSION
 from zlang.backend.naming import module_rtl_names
@@ -20,7 +19,7 @@ from zlang.ir.timing import InstanceOutputTiming, TimingKnowledge, ValueTiming
 from zlang.ir.types import UIntType
 from zlang.targets import generic_implementation_graph
 from zlang.timing import timing_info
-from zlang.toolchain import generate_verilog, lint_with_verilator
+from zlang.toolchain import lint_with_verilator
 
 
 SOURCE = """
@@ -55,7 +54,7 @@ def test_recursive_timing_and_generic_graph_use_exact_public_records() -> None:
     assert timing_info(nested).latency == 3
     assert expand_architectures(nested)[0].timing_contract.latency == 3
 
-    module = compile_source(SOURCE, top="Top", include_clash=False).ir
+    module = compile_source(SOURCE, top="Top").ir
     graph = generic_implementation_graph(module)
     assert graph.latency == 2
     assert graph.latency_knowledge == TimingKnowledge.KNOWN.value
@@ -64,7 +63,6 @@ def test_recursive_timing_and_generic_graph_use_exact_public_records() -> None:
     uncontracted = compile_source(
         "module M { clock clk reset rst in x:u8 out y:u9 "
         "y=extend<9>(pipeline(3) { x }) }",
-        include_clash=False,
     )
     assert uncontracted.implementation_graph.latency == 3
     assert uncontracted.implementation_graph.latency_knowledge == "known"
@@ -72,7 +70,6 @@ def test_recursive_timing_and_generic_graph_use_exact_public_records() -> None:
     stateful = compile_source(
         "module S { clock clk reset rst in en:bit out y:u8 reg q:u8=0 "
         "when en { q <- truncate<8>(q+1) } y=q }",
-        include_clash=False,
     )
     assert stateful.implementation_graph.latency_knowledge == "unknown"
 
@@ -87,7 +84,7 @@ def test_recursive_timing_and_generic_graph_use_exact_public_records() -> None:
 
 
 def test_timing_and_realization_backend_round_trip_in_artifact() -> None:
-    result = compile_source(SOURCE, top="Top", include_clash=False)
+    result = compile_source(SOURCE, top="Top")
     artifact = emit_target_artifact(result.ir, result.implementation_graph)
     restored = BackendArtifact.from_json(artifact.to_json())
 
@@ -151,7 +148,7 @@ def _build_and_run(rtl: tuple[Path, ...], tmp_path: Path) -> None:
 def test_direct_sv_keeps_timed_child_pipeline_physical_and_deterministic(
     tmp_path: Path,
 ) -> None:
-    module = compile_source(SOURCE, top="Top", include_clash=False).ir
+    module = compile_source(SOURCE, top="Top").ir
     first = emit_experimental(module)
     second = emit_experimental(module)
     assert first == second
@@ -165,24 +162,3 @@ def test_direct_sv_keeps_timed_child_pipeline_physical_and_deterministic(
     rtl.write_text(first)
     lint_with_verilator((rtl,), "Top")
     _build_and_run((rtl,), tmp_path)
-
-
-@pytest.mark.skipif(
-    CLASH_EXECUTABLE is None or shutil.which("verilator") is None,
-    reason="real Clash 1.11 and Verilator are required",
-)
-def test_clash_keeps_timed_child_pipeline_and_matches_reset_fill(
-    tmp_path: Path,
-) -> None:
-    result = compile_source(SOURCE, top="Top")
-    child_names = module_rtl_names(result.ir.children[0])
-    for stage in (1, 2):
-        assert (
-            f"{child_names.stage('pipeline', 0, stage)} = register"
-            in result.clash
-        )
-    rtl = generate_verilog(
-        result.clash, "Top", tmp_path / "clash", CLASH_EXECUTABLE
-    )
-    lint_with_verilator(rtl, "Top")
-    _build_and_run(rtl, tmp_path)

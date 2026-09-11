@@ -1,8 +1,8 @@
-"""Backend-independent planning IR for existing M35--M39 formal work.
+"""Backend-independent planning IR for production M35, M36, and M39 work.
 
 The objects in this module describe *how* an already typed property can be
-executed.  They intentionally do not merge the distinct M35, M36, or M38
-property/result types, and they contain no solver policy.  In particular, a
+executed. They keep M35 and M36 property/result types distinct and contain no
+solver policy. In particular, a
 goal has either one completely specified route or one structured skip reason;
 there is no partially executable plan.
 """
@@ -38,7 +38,6 @@ class FormalPlanGoalKind(str, Enum):
     SAFETY = "safety"
     COVER = "cover"
     M36_EQUIVALENCE = "m36_equivalence"
-    M38_EQUIVALENCE = "m38_equivalence"
 
 
 class FormalRouteKind(str, Enum):
@@ -47,7 +46,6 @@ class FormalRouteKind(str, Enum):
     PROPERTY_HARNESS = "property_harness"
     COVER_HARNESS = "cover_harness"
     SEMANTIC_EQUIVALENCE = "semantic_equivalence"
-    CROSS_BACKEND_EQUIVALENCE = "cross_backend_equivalence"
 
 
 class FormalSkipCode(str, Enum):
@@ -245,20 +243,7 @@ class FormalExecutableRoute:
         keys = tuple((item.backend, item.artifact_identity) for item in self.artifacts)
         if len(keys) != len(set(keys)):
             raise FormalPlanningError("formal-route backend artifacts must be unique")
-        if self.kind is FormalRouteKind.CROSS_BACKEND_EQUIVALENCE:
-            if len(self.artifacts) != 2:
-                raise FormalPlanningError(
-                    "cross-backend equivalence requires exactly two backend artifacts"
-                )
-            if len({item.backend for item in self.artifacts}) != 2:
-                raise FormalPlanningError(
-                    "cross-backend equivalence requires two distinct backends"
-                )
-            if self.reference_identity is not None:
-                raise FormalPlanningError(
-                    "cross-backend equivalence does not use a semantic reference identity"
-                )
-        elif len(self.artifacts) != 1:
+        if len(self.artifacts) != 1:
             raise FormalPlanningError(
                 "property, cover, and semantic-equivalence routes require one backend artifact"
             )
@@ -365,7 +350,6 @@ _ROUTE_FOR_GOAL = {
     FormalPlanGoalKind.SAFETY: FormalRouteKind.PROPERTY_HARNESS,
     FormalPlanGoalKind.COVER: FormalRouteKind.COVER_HARNESS,
     FormalPlanGoalKind.M36_EQUIVALENCE: FormalRouteKind.SEMANTIC_EQUIVALENCE,
-    FormalPlanGoalKind.M38_EQUIVALENCE: FormalRouteKind.CROSS_BACKEND_EQUIVALENCE,
 }
 
 

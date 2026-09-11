@@ -693,7 +693,7 @@ class CanonicalModule:
     elastic_pipeline_regions: tuple[CanonicalElasticPipelineRegion, ...] = ()
     specialization_bindings: tuple[object, ...] = ()
     # Stored losslessly, but excluded from hardware canonical identity.  The
-    # overlay has its own verification identity and must not perturb M36/M38.
+    # overlay has its own verification identity and must not perturb M36.
     verification_scopes: tuple[CanonicalVerificationScope, ...] = ()
     verification_expressions: tuple[CanonicalExpression, ...] = ()
 

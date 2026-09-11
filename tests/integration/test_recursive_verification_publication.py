@@ -183,7 +183,7 @@ module RootSequentialReadyValid {
 
 
 def _compile(source: str, top: str):
-    return compile_source(source, top=top, include_clash=False)
+    return compile_source(source, top=top)
 
 
 def _payload(directory: Path) -> dict[str, object]:
@@ -381,11 +381,6 @@ def test_missing_descendant_observation_skips_only_affected_physical_instance(
         "zlang.verification_publication.emit_formal_artifact",
         lambda *_args, **_kwargs: partial,
     )
-    monkeypatch.setattr(
-        "zlang.verification_publication._try_clash_formal_fallback",
-        lambda *_args, **_kwargs: (None, "forced Clash outage"),
-    )
-
     directory = tmp_path / "bundle"
     manifest = publish_compilation_verification_bundle(compilation, directory)
     payload = _payload(directory)

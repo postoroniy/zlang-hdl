@@ -12,7 +12,6 @@ from zlang.backend.manifest import (
     MANIFEST_VERSION,
     PHYSICAL_DOMAIN_MANIFEST_VERSION,
 )
-from zlang.backend.clash import emit_artifact as emit_clash_artifact
 from zlang.backend.systemverilog import emit_artifact, emit_target_artifact
 from zlang.compiler import compile_source
 from zlang.ir.equivalence import SignalRole
@@ -45,7 +44,7 @@ module SyncCounter {
 
 
 def _async_artifact() -> BackendArtifact:
-    module = compile_source(ASYNC, include_clash=False).ir
+    module = compile_source(ASYNC).ir
     return emit_artifact(module)
 
 
@@ -74,23 +73,10 @@ def test_nonlegacy_domain_publishes_exact_version_10_contract() -> None:
     assert restored.build_identity == artifact.build_identity
 
 
-def test_clash_and_direct_sv_publish_the_same_semantic_domain_identity() -> None:
-    module = compile_source(ASYNC, include_clash=False).ir
-    clash = emit_clash_artifact(module)
-    direct = emit_artifact(module)
-
-    assert clash.manifest_version == direct.manifest_version == 10
-    assert clash.physical_domains[0].identity == direct.physical_domains[0].identity
-    assert clash.physical_domains[0].contract_data == (
-        direct.physical_domains[0].contract_data
-    )
-    assert BackendArtifact.from_json(clash.to_json()).physical_domains == (
-        clash.physical_domains
-    )
 
 
 def test_legacy_default_domain_preserves_manifest_version_and_shape() -> None:
-    module = compile_source(LEGACY, include_clash=False).ir
+    module = compile_source(LEGACY).ir
     artifact = emit_artifact(module)
     data = json.loads(artifact.to_json())
 
@@ -182,7 +168,7 @@ interface AsyncIfc {
 }
 module Async : AsyncIfc { y = x }
 """
-    module = compile_source(source, include_clash=False).ir
+    module = compile_source(source).ir
     artifact = emit_artifact(module)
     signature = artifact.module_signature
 
@@ -211,7 +197,7 @@ module Top {
   y = child.y
 }
 """
-    module = compile_source(source, top="Top", include_clash=False).ir
+    module = compile_source(source, top="Top").ir
     recursive = build_recursive_formal_design(module)
     artifact = emit_artifact(module, recursive_design=recursive)
     domain_identity = artifact.physical_domains[0].identity
@@ -252,7 +238,7 @@ def test_public_domain_record_resolves_exact_clock_and_reset_bindings() -> None:
 
 def test_generic_target_publication_preserves_newer_physical_manifest() -> None:
     result = compile_source(
-        ASYNC, include_clash=False, target="generic"
+        ASYNC, target="generic"
     )
     artifact = emit_target_artifact(result.ir, result.implementation_graph)
 

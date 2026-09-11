@@ -307,7 +307,7 @@ def test_periodic_exact_pi_angles_share_one_compilation_local_quantization(
         "}"
     )
 
-    first = compile_source(source, include_clash=False).ir
+    first = compile_source(source).ir
     assert [item.expression.value for item in first.assignments] == [
         8192,
         8192,
@@ -322,7 +322,7 @@ def test_periodic_exact_pi_angles_share_one_compilation_local_quantization(
     # A second top-level compilation owns a fresh cache. Nothing survives in a
     # process-global mapping even though decimal/pi implementation caches are
     # bounded host optimizations.
-    compile_source(source, include_clash=False)
+    compile_source(source)
     assert len(evaluated) == 4
 
 

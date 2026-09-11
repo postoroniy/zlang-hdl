@@ -15,7 +15,7 @@ EXAMPLE = ROOT / "examples" / "ahb_csr_top.zhl"
 
 
 def test_ahb_lite_is_source_authored_and_canonical() -> None:
-    result = compile_source(EXAMPLE.read_text(), top="AhbCsrTop", include_clash=False)
+    result = compile_source(EXAMPLE.read_text(), top="AhbCsrTop")
     module = result.ir
     assert [child.name for child in module.children] == [
         "AHBLiteToRegBus",
@@ -87,7 +87,7 @@ def test_ahb_lite_rejects_unsupported_data_widths(data_width: int) -> None:
         f"child : AHBLiteToRegBus<32,{data_width}> }}"
     )
     with pytest.raises(SemanticError, match="parameter constraint"):
-        compile_source(source, include_clash=False)
+        compile_source(source)
 
 
 def test_ahb_lite_requires_enough_address_bits_for_alignment() -> None:
@@ -97,7 +97,7 @@ def test_ahb_lite_requires_enough_address_bits_for_alignment() -> None:
         "child : AHBLiteToRegBus<1,32> }"
     )
     with pytest.raises(SemanticError, match="parameter constraint"):
-        compile_source(source, include_clash=False)
+        compile_source(source)
 
 
 @pytest.mark.parametrize("data_width", (8, 16, 32, 64, 1024))
@@ -114,7 +114,7 @@ module Good {{
     regbus -> bridge.regbus
 }}
 """
-    module = compile_source(source, include_clash=False).ir
+    module = compile_source(source).ir
     bridge = module.children[0]
     assert bridge.aggregate_protocol_endpoints[0].protocol == "AHBLite"
     assert bridge.aggregate_protocol_endpoints[1].protocol == "RegBus"

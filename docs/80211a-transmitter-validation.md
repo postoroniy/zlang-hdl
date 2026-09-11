@@ -1,5 +1,9 @@
 # 802.11a transmitter real-design validation
 
+> **Historical evidence:** backend comparisons in this chronological report
+> describe accepted runs before Clash retirement. Current compilation,
+> verification, CI, and release acceptance use direct SystemVerilog only.
+
 ## Purpose and reference boundary
 
 This unnumbered product-validation project ports the architecture of Nirav

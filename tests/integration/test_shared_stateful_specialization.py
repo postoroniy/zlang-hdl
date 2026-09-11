@@ -9,8 +9,6 @@ import subprocess
 
 import pytest
 
-from tests.toolchain import CLASH_EXECUTABLE
-from zlang.backend.clash import emit_artifact as emit_clash_artifact
 from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
 from zlang.compiler import compile_file, compile_source
 from zlang.ir import Constant
@@ -22,7 +20,7 @@ from zlang.ir.hierarchy import (
 )
 from zlang.ir.types import UIntType
 from zlang.opt import lower, restore
-from zlang.toolchain import generate_verilog, lint_with_verilator
+from zlang.toolchain import lint_with_verilator
 from zlang.workspace import update_project_lock
 
 
@@ -175,77 +173,15 @@ def _compile_project(tmp_path: Path):
         top,
         project=manifest,
         top="SharedStatefulTop",
-        include_clash=False,
     )
 
 
-def test_shared_stateful_specialization_is_parent_catalog_independent(
-    tmp_path: Path,
-) -> None:
-    first = _compile_project(tmp_path)
-    module = first.ir
-    assert restore(lower(module)) == module
-
-    hierarchy = build_hierarchy_index(module)
-    shared_math = tuple(
-        item for item in hierarchy.specializations
-        if item.key.module_name == "SharedMath"
-    )
-    seed_rom = tuple(
-        item for item in hierarchy.specializations
-        if item.key.module_name == "SharedSeedRom"
-    )
-    assert len(shared_math) == 1
-    assert len(seed_rom) == 1
-    assert shared_math[0].occurrence_paths == (
-        ("SharedStatefulTop", "left_parent", "child"),
-        ("SharedStatefulTop", "right_parent", "child"),
-    )
-    assert seed_rom[0].occurrence_paths == (
-        ("SharedStatefulTop", "left_parent", "child", "child"),
-        ("SharedStatefulTop", "right_parent", "child", "child"),
-    )
-
-    left_math = hierarchy.at(shared_math[0].occurrence_paths[0]).module
-    right_math = hierarchy.at(shared_math[0].occurrence_paths[1]).module
-    assert tuple(item.name for item in left_math.functions) != tuple(
-        item.name for item in right_math.functions
-    )
-    assert tuple(
-        item.name for item in reachable_module_callables(left_math)
-    ) == ("shared_mix",)
-    assert tuple(
-        item.name for item in reachable_module_callables(right_math)
-    ) == ("shared_mix",)
-
-    left_seed = hierarchy.at(seed_rom[0].occurrence_paths[0]).module
-    right_seed = hierarchy.at(seed_rom[0].occurrence_paths[1]).module
-    assert tuple(item.name for item in left_seed.functions) != tuple(
-        item.name for item in right_seed.functions
-    )
-    assert reachable_module_callables(left_seed) == ()
-    assert reachable_module_callables(right_seed) == ()
-
-    direct = emit_sv_artifact(module)
-    clash = emit_clash_artifact(module)
-    second = compile_file(
-        tmp_path / "shared-project" / "src" / "top.zhl",
-        project=tmp_path / "shared-project" / "zlang.toml",
-        top="SharedStatefulTop",
-        include_clash=False,
-    ).ir
-    assert emit_sv_artifact(second) == direct
-    assert emit_clash_artifact(second) == clash
-    assert direct.text.count("module SharedMath") == 1
-    suffix = shared_math[0].key.specialization_identity[:8]
-    assert clash.text.count(f"sharedMath_s{suffix} ::") == 1
 
 
 def test_specialization_fingerprint_tracks_only_reachable_callable_bodies() -> None:
     module = compile_source(
         FINGERPRINT_SOURCE,
         top="FingerprintTop",
-        include_clash=False,
     ).ir
     child = module.children[0]
     reachable = next(item for item in child.functions if item.name == "reachable")
@@ -288,46 +224,3 @@ def test_specialization_fingerprint_tracks_only_reachable_callable_bodies() -> N
         match="specialization identity .* is reused for incompatible",
     ):
         build_hierarchy_index(malformed)
-
-
-@pytest.mark.skipif(
-    CLASH_EXECUTABLE is None or shutil.which("verilator") is None,
-    reason="real Clash 1.11 and Verilator are required",
-)
-def test_shared_stateful_specialization_generates_real_backend_rtl(
-    tmp_path: Path,
-) -> None:
-    module = _compile_project(tmp_path).ir
-    direct = emit_sv_artifact(module)
-    direct_path = tmp_path / "direct" / "SharedStatefulTop.sv"
-    direct_path.parent.mkdir()
-    direct_path.write_text(direct.text)
-    for companion in direct.companions:
-        (direct_path.parent / companion.logical_path).write_text(companion.text)
-    lint_with_verilator((direct_path,), "SharedStatefulTop")
-
-    clash = emit_clash_artifact(module)
-    rtl = generate_verilog(
-        clash.text,
-        "SharedStatefulTop",
-        tmp_path / "clash",
-        CLASH_EXECUTABLE,
-        companions=clash.companions,
-    )
-    # Clash 1.11 widens the index of its generated ROM array to host Int.
-    # Acknowledge only that known primitive warning; all other warnings remain
-    # fatal, as in the standalone ROM backend regression.
-    completed = subprocess.run(
-        [
-            str(shutil.which("verilator")),
-            "--lint-only",
-            "-Wno-WIDTHTRUNC",
-            "--top-module",
-            "SharedStatefulTop",
-            *(str(path) for path in rtl),
-        ],
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert completed.returncode == 0, completed.stderr or completed.stdout

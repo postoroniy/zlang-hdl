@@ -7,11 +7,10 @@ import subprocess
 
 import pytest
 
-from zlang.backend.clash import emit_artifact as emit_clash_artifact
 from zlang.backend.manifest import BackendArtifact
 from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
 from zlang.compiler import compile_source
-from zlang.toolchain import find_clash_executable, generate_verilog, lint_with_verilator
+from zlang.toolchain import lint_with_verilator
 
 
 SOURCE = """
@@ -170,23 +169,11 @@ def _simulate(
     assert run.returncode == 0, run.stderr or run.stdout
 
 
-def test_vector_update_backend_artifacts_are_deterministic_and_round_trip() -> None:
-    module = compile_source(SOURCE, include_clash=False).ir
-    for emitter in (emit_sv_artifact, emit_clash_artifact):
-        first = emitter(module)
-        second = emitter(module)
-        assert first.text == second.text
-        assert first.artifact_hash == second.artifact_hash
-        restored = BackendArtifact.from_json(first.to_json())
-        assert restored.artifact_hash == first.artifact_hash
-        assert restored.bindings == first.bindings
-        bindings = {item.semantic_signal_id: item for item in first.bindings}
-        assert bindings["port:observation"].width == 40
 
 
 @pytest.mark.skipif(shutil.which("verilator") is None, reason="Verilator unavailable")
 def test_direct_sv_vector_update_strict_lint_and_cycle_behavior(tmp_path: Path) -> None:
-    artifact = emit_sv_artifact(compile_source(SOURCE, include_clash=False).ir)
+    artifact = emit_sv_artifact(compile_source(SOURCE).ir)
     assert "32'hff <<" in artifact.text
     assert artifact.text.count("32'hff <<") == 1
     assert "else samples <= samples;" in artifact.text
@@ -196,37 +183,8 @@ def test_direct_sv_vector_update_strict_lint_and_cycle_behavior(tmp_path: Path) 
     _simulate((rtl,), tmp_path, "sv")
 
 
-@pytest.mark.skipif(
-    find_clash_executable() is None or shutil.which("verilator") is None,
-    reason="real Clash 1.11 and Verilator are required",
-)
-def test_clash_vector_update_strict_lint_and_cycle_behavior(tmp_path: Path) -> None:
-    compilation = compile_source(SOURCE)
-    assert "zlangUpdateVector" in compilation.clash
-    assert "replace (0 :: Index 4)" in compilation.clash
-    rtl = tuple(generate_verilog(
-        compilation.clash,
-        "VectorStateRTL",
-        tmp_path / "clash",
-        find_clash_executable(),
-    ))
-    assert rtl
-    lint_with_verilator(rtl, "VectorStateRTL")
-    _simulate(rtl, tmp_path, "clash")
 
 
-def test_struct_projected_vector_update_artifacts_are_deterministic() -> None:
-    module = compile_source(STRUCT_PROJECTED_SOURCE, include_clash=False).ir
-    for emitter in (emit_sv_artifact, emit_clash_artifact):
-        first = emitter(module)
-        second = emitter(module)
-        assert first.text == second.text
-        assert first.artifact_hash == second.artifact_hash
-        restored = BackendArtifact.from_json(first.to_json())
-        assert restored.artifact_hash == first.artifact_hash
-        assert restored.bindings == first.bindings
-        bindings = {item.semantic_signal_id: item for item in first.bindings}
-        assert bindings["port:observation"].width == 40
 
 
 @pytest.mark.skipif(shutil.which("verilator") is None, reason="Verilator unavailable")
@@ -234,7 +192,7 @@ def test_direct_sv_struct_projected_vector_update_cycle_behavior(
     tmp_path: Path,
 ) -> None:
     artifact = emit_sv_artifact(
-        compile_source(STRUCT_PROJECTED_SOURCE, include_clash=False).ir
+        compile_source(STRUCT_PROJECTED_SOURCE).ir
     )
     rtl = tmp_path / "StructProjectedVectorStateRTL.sv"
     rtl.write_text(artifact.text)
@@ -243,29 +201,6 @@ def test_direct_sv_struct_projected_vector_update_cycle_behavior(
         (rtl,),
         tmp_path,
         "struct_sv",
-        top_module="StructProjectedVectorStateRTL",
-        harness_source=STRUCT_PROJECTED_HARNESS,
-    )
-
-
-@pytest.mark.skipif(
-    find_clash_executable() is None or shutil.which("verilator") is None,
-    reason="real Clash 1.11 and Verilator are required",
-)
-def test_clash_struct_projected_vector_update_cycle_behavior(tmp_path: Path) -> None:
-    compilation = compile_source(STRUCT_PROJECTED_SOURCE)
-    rtl = tuple(generate_verilog(
-        compilation.clash,
-        "StructProjectedVectorStateRTL",
-        tmp_path / "struct_clash",
-        find_clash_executable(),
-    ))
-    assert rtl
-    lint_with_verilator(rtl, "StructProjectedVectorStateRTL")
-    _simulate(
-        rtl,
-        tmp_path,
-        "struct_clash",
         top_module="StructProjectedVectorStateRTL",
         harness_source=STRUCT_PROJECTED_HARNESS,
     )

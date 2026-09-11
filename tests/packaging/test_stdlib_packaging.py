@@ -200,16 +200,18 @@ def test_wheel_contains_and_resolves_every_shipped_stdlib_module(tmp_path: Path)
             textwrap.dedent(
                 """
                 import json
+                import importlib.util
                 import os
                 from pathlib import Path
 
                 import zlang
-                from zlang.backend_comparison import BENCHMARKS, load_benchmark_source
                 from zlang.compiler import compile_source
                 from zlang.stdlib import available_stdlib_modules, resolve_stdlib
 
                 installed = Path(os.environ["ZLANG_INSTALLED_ROOT"]).resolve()
                 assert Path(zlang.__file__).resolve().is_relative_to(installed)
+                assert importlib.util.find_spec("zlang.backend.clash") is None
+                compile_source("module InstalledDirect { out y:u1 y=0 }")
                 expected = tuple(json.loads(os.environ["ZLANG_EXPECTED_MODULES"]))
                 available = available_stdlib_modules()
                 assert available == expected, (available, expected)
@@ -217,12 +219,6 @@ def test_wheel_contains_and_resolves_every_shipped_stdlib_module(tmp_path: Path)
                     resolved = resolve_stdlib((module,))
                     assert resolved[-1].path == module
                     assert resolved[-1].source_path.is_relative_to(installed / "stdlib")
-                for benchmark in BENCHMARKS:
-                    compile_source(
-                        load_benchmark_source(benchmark),
-                        include_clash=False,
-                        source_unit=benchmark.source,
-                    )
                 print(json.dumps(available))
                 """
             ),

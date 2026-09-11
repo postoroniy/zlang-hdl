@@ -4,9 +4,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from zlang.backend.clash import emit_formal_artifact
 from zlang.backend.manifest import BackendArtifact, RECURSIVE_MANIFEST_VERSION
-from zlang.toolchain import find_clash_executable, generate_verilog, lint_with_verilator
+from zlang.backend.systemverilog import emit_formal_artifact
+from zlang.toolchain import lint_with_verilator
 from zlang.formal import build_recursive_formal_design, emit_recursive_harness, run_recursive_formal
 from zlang.ir.formal import FormalStatus
 from zlang.parser import parse
@@ -85,49 +85,7 @@ class RecursiveFormalBindingTests(unittest.TestCase):
         self.assertTrue(all(item.physical_instance_path for item in results))
         self.assertIn("not connected", results[0].reason)
 
-    def test_clash_formal_artifact_materializes_typed_rr_observations(self):
-        source = (ROOT / "examples/simple_dma_m40.zhl").read_text()
-        module = analyze(parse(source))
-        design = build_recursive_formal_design(module)
-        artifact = emit_formal_artifact(module, design)
-        self.assertIn("NOINLINE zformalInstance", artifact.text)
-        self.assertIn("topEntity", artifact.text)
-        self.assertIn('t_name = "SimpleDMA_formal"', artifact.text)
-        # Structured artifacts remain unavailable until generated RTL ports
-        # and widths have been validated.
-        rr_observations = [item for item in artifact.formal_observations
-                           if ":rr:" in item.semantic_binding_id]
-        self.assertEqual(len(rr_observations), 5)
-        self.assertTrue(all(item.observation_token is None
-                            for item in rr_observations))
-        # The child register is not yet exported by the closed Clash ABI and
-        # must remain an explicit unavailable observation.
-        nested_registers = [item for item in artifact.formal_observations
-                            if "register:count" in item.semantic_binding_id]
-        self.assertTrue(nested_registers)
-        self.assertTrue(all(item.observation_token is None for item in nested_registers))
-        # Request/response formal components publish the existing typed ledger,
-        # not requester/responder child schedules.  The rule binding remains in
-        # the recursive semantic manifest so its unsupported status is visible,
-        # but it must not force an unbound observation into this closed ABI.
-        nested_rule_fires = [
-            item for item in artifact.formal_observations
-            if ":rule:" in item.semantic_binding_id
-        ]
-        self.assertTrue(nested_rule_fires)
-        self.assertTrue(all(item.observation_token is None
-                            for item in nested_rule_fires))
 
-    @unittest.skipUnless(find_clash_executable() and shutil.which("verilator"),
-                         "Clash and Verilator are unavailable")
-    def test_clash_formal_artifact_generates_and_lints(self):
-        source = (ROOT / "examples/simple_dma_m40.zhl").read_text()
-        module = analyze(parse(source))
-        artifact = emit_formal_artifact(module, build_recursive_formal_design(module))
-        with tempfile.TemporaryDirectory() as directory:
-            files = generate_verilog(artifact.text, "SimpleDMA_formal",
-                                     Path(directory), find_clash_executable())
-            lint_with_verilator(files, "SimpleDMA_formal")
 
 
 if __name__ == "__main__":

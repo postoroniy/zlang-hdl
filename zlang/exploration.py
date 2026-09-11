@@ -517,16 +517,9 @@ def explore(
             and request.formal_config.policy.value != "off"
         ):
             from zlang.formal_candidate import (
-                M36ClashCandidateVerifier,
                 M36DirectSystemVerilogCandidateVerifier,
             )
-            verifier_type = (
-                M36DirectSystemVerilogCandidateVerifier
-                if getattr(request.formal_config, "backend", "clash")
-                == "direct_systemverilog"
-                else M36ClashCandidateVerifier
-            )
-            verifier = verifier_type(
+            verifier = M36DirectSystemVerilogCandidateVerifier(
                 request.root,
                 artifact_provider=getattr(
                     request.formal_config,

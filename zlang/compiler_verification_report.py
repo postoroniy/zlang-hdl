@@ -1,7 +1,7 @@
 """Deterministic public report for one compiler-owned formal execution.
 
 The existing :class:`VerificationRunReport` remains the M35/source-contract
-execution product.  This wrapper joins it to the independently typed M36/M38
+execution product. This wrapper joins it to independently typed direct-SV M36
 candidate reports without conflating their result/status models.
 """
 
@@ -23,8 +23,8 @@ from zlang.verification_bundle import (
 )
 
 
-COMPILER_VERIFICATION_REPORT_SCHEMA = "zlang-compiler-verification-report-v1"
-COMPILER_VERIFICATION_REPORT_SCHEMA_VERSION = 1
+COMPILER_VERIFICATION_REPORT_SCHEMA = "zlang-compiler-verification-report-v2"
+COMPILER_VERIFICATION_REPORT_SCHEMA_VERSION = 2
 
 
 class CompilerVerificationReportError(ValueError):
@@ -33,7 +33,7 @@ class CompilerVerificationReportError(ValueError):
 
 @dataclass(frozen=True)
 class CompilerVerificationReport:
-    """M35 execution plus exact selected-candidate M36/M38 evidence."""
+    """M35 execution plus exact selected-candidate direct-SV M36 evidence."""
 
     verification: VerificationRunReport
     formal_execution_plan: CompilerFormalExecutionPlan
@@ -210,8 +210,8 @@ class CompilerVerificationReport:
                 "candidate equivalence "
                 f"site={report.plan.site_identity} "
                 f"candidate={report.plan.candidate_identity} "
-                f"classification={report.triangle.classification.value} "
-                f"reason={report.triangle.reason.value}"
+                f"status={report.direct_systemverilog_m36.status.value} "
+                "backend=direct_systemverilog"
             )
             if report.tool_versions:
                 lines.append(

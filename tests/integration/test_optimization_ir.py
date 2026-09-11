@@ -4,8 +4,8 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from zlang.backend.clash import emit
 from zlang.backend.systemverilog import emit_contracts
+from zlang.backend.systemverilog.emitter import emit
 from zlang.cli import main
 from zlang.compiler import compile_source
 from zlang.costs import extract_estimated_costs

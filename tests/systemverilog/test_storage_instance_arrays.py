@@ -18,14 +18,14 @@ SOURCE = (ROOT / "examples" / "storage_instance_array.zhl").read_text()
 
 def _artifact() -> BackendArtifact:
     module = compile_source(
-        SOURCE, top="FifoLaneArray", include_clash=False
+        SOURCE, top="FifoLaneArray"
     ).ir
     return emit_artifact(module)
 
 
 def _artifact_for(top: str) -> BackendArtifact:
     return emit_artifact(
-        compile_source(SOURCE, top=top, include_clash=False).ir
+        compile_source(SOURCE, top=top).ir
     )
 
 

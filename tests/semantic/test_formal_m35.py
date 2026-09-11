@@ -70,7 +70,7 @@ class FormalM35Tests(unittest.TestCase):
                 }
                 y = q
             }
-        """, include_clash=False).ir
+        """).ir
         rules = [item for item in build_formal_design(module).properties
                  if item.generated_from and item.generated_from.startswith(("rules:", "priority:"))]
         self.assertEqual(len(rules), 2)
@@ -112,7 +112,7 @@ class FormalM35Tests(unittest.TestCase):
                 }
                 observed = seen
             }
-        """, include_clash=False).ir
+        """).ir
 
         transition = module.resolved_transition
         self.assertIsNotNone(transition)

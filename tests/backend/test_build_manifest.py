@@ -48,7 +48,6 @@ def _manifest(*, reverse: bool = False, origin_line: int = 1) -> WholeBuildManif
     dep_b = _file("deps/b.zhl", "module B {}\n", "zlang_dependency")
     sv = _file("build/systemverilog/Top.sv", "module Top; endmodule\n", "rtl")
     source_map = _file("build/systemverilog/Top.source-map.json", "{}\n", "source_map")
-    clash = _file("build/clash/Top.hs", "module Top where\n", "generated_source")
     report_file = _file("reports/formal.json", "{}\n", "report")
     selected = "selected:" + _hash("selected")
     backends = (
@@ -56,11 +55,6 @@ def _manifest(*, reverse: bool = False, origin_line: int = 1) -> WholeBuildManif
             "systemverilog", "Top", "required", "selected", _hash("sv-plan"), selected,
             _hash("sv-build"), sv.content_hash, 4, source_map.content_hash, _hash("sv-graph"),
             (report_file, source_map, sv), (), _origin(origin_line, "module-output"),
-        ),
-        BackendBuildRecord(
-            "clash", "Top", "preferred", "generic_fallback", _hash("clash-plan"), selected,
-            _hash("clash-build"), clash.content_hash, 4, None, _hash("clash-graph"),
-            (clash,), (), _origin(origin_line, "module-output"),
         ),
     )
     evidence = (
@@ -122,7 +116,6 @@ def _publish(root: Path, manifest: WholeBuildManifest) -> None:
         "deps/b.zhl": "module B {}\n",
         "build/systemverilog/Top.sv": "module Top; endmodule\n",
         "build/systemverilog/Top.source-map.json": "{}\n",
-        "build/clash/Top.hs": "module Top where\n",
         "reports/formal.json": "{}\n",
     }
     for logical_path, text in contents.items():
@@ -360,7 +353,7 @@ def test_backend_record_requires_artifacts_only_for_built_routes() -> None:
     assert unsupported.artifact_hash is None
     with pytest.raises(BuildManifestError, match="matching status"):
         BackendBuildRecord(
-            "clash", "Top", "not_requested", "unsupported", _hash("plan"), selected,
+            "systemverilog", "Top", "not_requested", "unsupported", _hash("plan"), selected,
         )
 
 

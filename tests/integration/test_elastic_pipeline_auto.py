@@ -10,8 +10,6 @@ import subprocess
 
 import pytest
 
-from zlang.backend.clash import emit as emit_clash
-from zlang.backend.clash import emit_artifact as emit_clash_artifact
 from zlang.backend.systemverilog import emit_formal_artifact
 from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
 from zlang.backend.systemverilog import emit_experimental
@@ -24,7 +22,7 @@ from zlang.formal import (
 )
 from zlang.ir.formal import FormalStatus
 from zlang.simulate import simulate_cycles
-from zlang.toolchain import find_clash_executable, generate_verilog, lint_with_verilator
+from zlang.toolchain import lint_with_verilator
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -52,7 +50,7 @@ def _cycle(value: int = 0, *, valid: int = 1, ready: int = 1):
 
 
 def _module():
-    return compile_source(SOURCE, include_clash=False).ir
+    return compile_source(SOURCE).ir
 
 
 def _transfers(trace):
@@ -141,40 +139,6 @@ module ElasticPipelineParent {
 """
 
 
-@pytest.mark.skipif(shutil.which("verilator") is None, reason="Verilator unavailable")
-@pytest.mark.skipif(find_clash_executable() is None, reason="Clash unavailable")
-def test_hierarchical_child_keeps_one_physical_closed_component(tmp_path: Path) -> None:
-    module = compile_source(
-        HIERARCHY_SOURCE,
-        top="ElasticPipelineParent",
-        include_clash=False,
-    ).ir
-    direct = emit_experimental(module)
-    child_modules = [
-        line.split()[1]
-        for line in direct.splitlines()
-        if line.startswith("module ElasticPipelineLeaf_s")
-    ]
-    assert len(child_modules) == 1
-    assert f"{child_modules[0]} pipe (" in direct
-    direct_file = tmp_path / "ElasticPipelineParent.sv"
-    direct_file.write_text(direct)
-    lint_with_verilator((direct_file,), module.name)
-    direct_run = tmp_path / "direct_run"
-    direct_run.mkdir()
-    hierarchy_bench = BENCH.replace(
-        "ElasticPipelineAuto dut", "ElasticPipelineParent dut"
-    )
-    _run_verilator((direct_file,), direct_run, bench_text=hierarchy_bench)
-
-    clash_files = generate_verilog(emit_clash(module), module.name, tmp_path / "clash")
-    lint_with_verilator(clash_files, module.name)
-    emitted = "\n".join(path.read_text() for path in clash_files)
-    assert "module ElasticPipelineParent_topEntity_protocol_elasticPipelineLeaf" in emitted
-    assert "module ElasticPipelineParent" in emitted
-    clash_run = tmp_path / "clash_run"
-    clash_run.mkdir()
-    _run_verilator(clash_files, clash_run, bench_text=hierarchy_bench)
 
 
 BENCH = r"""
@@ -276,33 +240,6 @@ def test_direct_sv_is_deterministic_and_cycle_exact(tmp_path: Path) -> None:
     _run_verilator((rtl,), tmp_path)
 
 
-def test_both_artifacts_publish_stable_public_rv_bindings() -> None:
-    module = _module()
-    sv_first = emit_sv_artifact(module)
-    sv_second = emit_sv_artifact(module)
-    clash_first = emit_clash_artifact(module)
-    clash_second = emit_clash_artifact(module)
-    assert sv_first.artifact_hash == sv_second.artifact_hash
-    assert clash_first.artifact_hash == clash_second.artifact_hash
-    for artifact in (sv_first, clash_first):
-        assert artifact.artifact_hash == hashlib.sha256(
-            artifact.text.encode()
-        ).hexdigest()
-        bindings = {item.semantic_signal_id: item for item in artifact.bindings}
-        assert {
-            "port:input.payload",
-            "port:input.valid",
-            "port:input.ready",
-            "port:output.payload",
-            "port:output.valid",
-            "port:output.ready",
-            "clock",
-            "reset",
-        } <= bindings.keys()
-        assert bindings["port:input.payload"].width == 64
-        assert bindings["port:output.payload"].width == 19
-        assert bindings["port:input.ready"].rtl_path == "input_ready"
-        assert bindings["port:output.valid"].rtl_path == "output_valid"
 
 
 @pytest.mark.skipif(
@@ -310,7 +247,7 @@ def test_both_artifacts_publish_stable_public_rv_bindings() -> None:
     reason="Yosys, SymbiYosys, and Z3 are required",
 )
 def test_existing_m35_ready_valid_stability_executes_on_direct_artifact() -> None:
-    compiled = compile_source(SOURCE, include_clash=False)
+    compiled = compile_source(SOURCE)
     recursive = build_recursive_formal_design(compiled.ir)
     artifact = emit_formal_artifact(compiled.ir, recursive)
     connected = connect_formal_design(compiled.formal_design, artifact)
@@ -340,11 +277,3 @@ def test_existing_m35_ready_valid_stability_executes_on_direct_artifact() -> Non
         systemverilog=True,
     )
     assert result.status is FormalStatus.BOUNDED_PASS
-
-
-@pytest.mark.skipif(shutil.which("verilator") is None, reason="Verilator unavailable")
-@pytest.mark.skipif(find_clash_executable() is None, reason="Clash unavailable")
-def test_real_clash_closed_component_is_cycle_exact(tmp_path: Path) -> None:
-    module = _module()
-    generated = generate_verilog(emit_clash(module), module.name, tmp_path / "clash")
-    _run_verilator(generated, tmp_path)

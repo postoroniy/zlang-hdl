@@ -1,7 +1,7 @@
-"""Compiler-owned view over the existing M35--M39 planning products.
+"""Compiler-owned view over the production M35, M36, and M39 products.
 
 This module deliberately does not merge the independently versioned M35, M36,
-M38, or M39 result types.  It records how one compilation relates the
+or M39 result types.  It records how one compilation relates the
 per-goal verification plan to the selection-owned candidate ledger and to the
 M39 evidence records that already exist on selected IR.
 """
@@ -19,14 +19,21 @@ from zlang.candidate_sites import (
     candidate_formal_record_sites,
 )
 from zlang.common import stable_digest, stable_json
-from zlang.evidence_report import evidence_from_formal_exploration_record
+from zlang.equivalence_result_codec import (
+    equivalence_result_from_data,
+    equivalence_result_to_data,
+)
+from zlang.evidence_report import (
+    evidence_from_equivalence_result,
+    evidence_from_formal_exploration_record,
+)
 from zlang.formal_exploration import FormalExplorationRecord, FormalPolicy
 from zlang.ir.formal_planning import FormalExecutionPlan, FormalPlanningError
 from zlang.ir.formal_planning import FormalGoalPlan, FormalPlanGoalKind
-from zlang.triangular_evidence import M38EvidenceReport
+from zlang.ir.equivalence import EquivalenceResult, EquivalenceStatus
 
 
-COMPILER_FORMAL_EXECUTION_PLAN_SCHEMA = 1
+COMPILER_FORMAL_EXECUTION_PLAN_SCHEMA = 2
 
 
 class FormalOrchestrationError(ValueError):
@@ -222,19 +229,11 @@ class M39AttemptReference:
 
 @dataclass(frozen=True)
 class CandidateEquivalencePlanReference:
-    """Typed M36/M38 plans for one exact selected candidate site.
-
-    Candidate goals deliberately do not live in the module-scoped M35
-    :class:`FormalExecutionPlan`: their selected-IR identity is the exact M28
-    candidate identity, not the whole selected module identity.  The compiler
-    wrapper cross-links both plan families through the selection-owned ledger.
-    """
+    """Typed direct-SystemVerilog M36 plan for one selected candidate site."""
 
     site_identity: str
     candidate_identity: str
-    clash_m36: FormalGoalPlan
     direct_systemverilog_m36: FormalGoalPlan
-    m38: FormalGoalPlan
     implementation_observable_identity: str
 
     def __post_init__(self) -> None:
@@ -244,51 +243,19 @@ class CandidateEquivalencePlanReference:
             self.implementation_observable_identity,
             "candidate implementation observable identity",
         )
-        for label, plan in (
-            ("Clash M36", self.clash_m36),
-            ("direct-SystemVerilog M36", self.direct_systemverilog_m36),
-        ):
-            if not isinstance(plan, FormalGoalPlan):
-                raise FormalOrchestrationError(f"{label} plan must be typed")
-            if plan.kind is not FormalPlanGoalKind.M36_EQUIVALENCE:
-                raise FormalOrchestrationError(f"{label} plan has the wrong kind")
-            if plan.selected_ir_identity != self.candidate_identity:
-                raise FormalOrchestrationError(
-                    f"{label} plan references a different candidate"
-                )
-            if self.implementation_observable_identity not in (
-                plan.required_observations
-            ):
-                raise FormalOrchestrationError(
-                    f"{label} plan does not publish the candidate implementation "
-                    "observable"
-                )
-        if not isinstance(self.m38, FormalGoalPlan):
-            raise FormalOrchestrationError("M38 candidate plan must be typed")
-        if self.m38.kind is not FormalPlanGoalKind.M38_EQUIVALENCE:
-            raise FormalOrchestrationError("M38 candidate plan has the wrong kind")
-        if self.m38.selected_ir_identity != self.candidate_identity:
+        plan = self.direct_systemverilog_m36
+        if not isinstance(plan, FormalGoalPlan):
+            raise FormalOrchestrationError("direct-SystemVerilog M36 plan must be typed")
+        if plan.kind is not FormalPlanGoalKind.M36_EQUIVALENCE:
+            raise FormalOrchestrationError("direct-SystemVerilog M36 plan has the wrong kind")
+        if plan.selected_ir_identity != self.candidate_identity:
             raise FormalOrchestrationError(
-                "M38 candidate plan references a different candidate"
+                "direct-SystemVerilog M36 plan references a different candidate"
             )
-        if self.m38.required_observations != (
-            self.implementation_observable_identity,
-        ):
+        if self.implementation_observable_identity not in plan.required_observations:
             raise FormalOrchestrationError(
-                "candidate M38 observations differ from the M36 implementation "
-                "observable"
-            )
-        if self.clash_m36.property_identity != self.direct_systemverilog_m36.property_identity:
-            raise FormalOrchestrationError(
-                "candidate M36 plans use different semantic-reference properties"
-            )
-        if not (
-            self.clash_m36.comparison_window
-            == self.direct_systemverilog_m36.comparison_window
-            == self.m38.comparison_window
-        ):
-            raise FormalOrchestrationError(
-                "candidate M36/M38 plans use different comparison windows"
+                "direct-SystemVerilog M36 plan does not publish the candidate "
+                "implementation observable"
             )
 
     @property
@@ -299,50 +266,33 @@ class CandidateEquivalencePlanReference:
         return {
             "site_identity": self.site_identity,
             "candidate_identity": self.candidate_identity,
-            "clash_m36": self.clash_m36.plan_identity,
             "direct_systemverilog_m36": self.direct_systemverilog_m36.plan_identity,
-            "m38": self.m38.plan_identity,
-            "implementation_observable_identity": (
-                self.implementation_observable_identity
-            ),
+            "implementation_observable_identity": self.implementation_observable_identity,
         }
 
     def to_data(self) -> dict[str, object]:
         return {
             "site_identity": self.site_identity,
             "candidate_identity": self.candidate_identity,
-            "clash_m36": self.clash_m36.to_data(),
             "direct_systemverilog_m36": self.direct_systemverilog_m36.to_data(),
-            "m38": self.m38.to_data(),
-            "implementation_observable_identity": (
-                self.implementation_observable_identity
-            ),
+            "implementation_observable_identity": self.implementation_observable_identity,
             "plan_identity": self.plan_identity,
         }
 
     @classmethod
     def from_data(cls, value: object) -> "CandidateEquivalencePlanReference":
         data = _mapping(value, "candidate equivalence plan")
-        _exact_keys(
-            data,
-            {
-                "site_identity", "candidate_identity", "clash_m36",
-                "direct_systemverilog_m36", "m38", "plan_identity",
-                "implementation_observable_identity",
-            },
-            "candidate equivalence plan",
-        )
+        _exact_keys(data, {
+            "site_identity", "candidate_identity", "direct_systemverilog_m36",
+            "implementation_observable_identity", "plan_identity",
+        }, "candidate equivalence plan")
         try:
             restored = cls(
                 _string(data["site_identity"], "candidate equivalence site"),
                 _string(data["candidate_identity"], "candidate identity"),
-                FormalGoalPlan.from_data(data["clash_m36"]),
                 FormalGoalPlan.from_data(data["direct_systemverilog_m36"]),
-                FormalGoalPlan.from_data(data["m38"]),
-                _string(
-                    data["implementation_observable_identity"],
-                    "candidate implementation observable identity",
-                ),
+                _string(data["implementation_observable_identity"],
+                        "candidate implementation observable identity"),
             )
         except FormalPlanningError as error:
             raise FormalOrchestrationError(str(error)) from error
@@ -355,13 +305,11 @@ class CandidateEquivalencePlanReference:
 
 @dataclass(frozen=True)
 class CandidateEquivalenceExecutionReport:
-    """Typed result cross-linked to one candidate equivalence plan."""
+    """Typed direct-SystemVerilog M36 result linked to its exact plan."""
 
     plan: CandidateEquivalencePlanReference
-    triangle: M38EvidenceReport
-    bounded_prerequisite: M38EvidenceReport | None = None
-    # Operational execution metadata is deliberately outside every semantic,
-    # property, evidence, and proof-cache identity.
+    direct_systemverilog_m36: EquivalenceResult
+    bounded_prerequisite: EquivalenceResult | None = None
     tool_versions: tuple[tuple[str, str], ...] = ()
     work_directories: tuple[tuple[str, str], ...] = ()
 
@@ -370,152 +318,65 @@ class CandidateEquivalenceExecutionReport:
             raise FormalOrchestrationError(
                 "candidate equivalence execution requires a typed plan"
             )
-        if not isinstance(self.triangle, M38EvidenceReport):
-            raise FormalOrchestrationError(
-                "candidate equivalence execution requires typed triangle evidence"
-            )
-        if not isinstance(self.tool_versions, tuple):
-            raise FormalOrchestrationError(
-                "candidate tool versions must be a tuple"
-            )
-        raw_versions = self.tool_versions
-        if any(
-            not isinstance(item, tuple)
-            or len(item) != 2
-            or not isinstance(item[0], str)
-            or not item[0]
-            or not isinstance(item[1], str)
-            or not item[1]
-            for item in raw_versions
+        for label, result in (
+            ("direct-SystemVerilog M36", self.direct_systemverilog_m36),
+            ("bounded prerequisite", self.bounded_prerequisite),
+        ):
+            if result is not None and not isinstance(result, EquivalenceResult):
+                raise FormalOrchestrationError(f"{label} must be typed M36 evidence")
+            if result is not None and result.property_id != (
+                self.plan.direct_systemverilog_m36.property_identity
+            ):
+                raise FormalOrchestrationError(f"{label} differs from its M36 plan")
+        if (
+            self.bounded_prerequisite is not None
+            and self.bounded_prerequisite.mode.value != "bmc"
         ):
             raise FormalOrchestrationError(
-                "candidate tool versions require non-empty name/value pairs"
+                "candidate bounded prerequisite contains non-BMC evidence"
             )
-        versions = tuple(sorted(raw_versions))
-        if len({name for name, _ in versions}) != len(versions):
-            raise FormalOrchestrationError(
-                "candidate tool versions contain duplicate tool names"
-            )
-        object.__setattr__(self, "tool_versions", versions)
-        if not isinstance(self.work_directories, tuple):
-            raise FormalOrchestrationError(
-                "candidate work directories must be a tuple"
-            )
-        raw_directories = self.work_directories
-        if any(
-            not isinstance(item, tuple)
-            or len(item) != 2
-            or not isinstance(item[0], str)
-            or not item[0]
-            or not isinstance(item[1], str)
-            or not item[1]
-            for item in raw_directories
+        for label, values in (
+            ("tool versions", self.tool_versions),
+            ("work directories", self.work_directories),
         ):
-            raise FormalOrchestrationError(
-                "candidate work directories require non-empty route/path pairs"
-            )
-        directories = tuple(sorted(raw_directories))
-        if len({route for route, _ in directories}) != len(directories):
-            raise FormalOrchestrationError(
-                "candidate work directories contain duplicate route labels"
-            )
-        object.__setattr__(self, "work_directories", directories)
-        if self.triangle.m38_plan != self.plan.m38:
-            raise FormalOrchestrationError(
-                "candidate equivalence M38 evidence differs from its plan"
-            )
-        left = self.triangle.left_m36
-        right = self.triangle.right_m36
-        if left is None or right is None:
-            raise FormalOrchestrationError(
-                "candidate equivalence execution must retain both typed M36 legs"
-            )
-        if left.plan != self.plan.clash_m36 or right.plan != self.plan.direct_systemverilog_m36:
-            raise FormalOrchestrationError(
-                "candidate equivalence M36 evidence differs from its plan"
-            )
-        prerequisite = self.bounded_prerequisite
-        if prerequisite is not None:
-            if not isinstance(prerequisite, M38EvidenceReport):
-                raise FormalOrchestrationError(
-                    "candidate bounded prerequisite must use typed triangle evidence"
-                )
-            if prerequisite.m38_plan != self.plan.m38:
-                raise FormalOrchestrationError(
-                    "candidate bounded prerequisite differs from its M38 plan"
-                )
-            if prerequisite.left_m36 is None or prerequisite.right_m36 is None:
-                raise FormalOrchestrationError(
-                    "candidate bounded prerequisite must retain both M36 legs"
-                )
-            if (
-                prerequisite.left_m36.plan != self.plan.clash_m36
-                or prerequisite.right_m36.plan
-                != self.plan.direct_systemverilog_m36
+            if not isinstance(values, tuple) or any(
+                not isinstance(item, tuple) or len(item) != 2
+                or not all(isinstance(value, str) and value for value in item)
+                for item in values
             ):
                 raise FormalOrchestrationError(
-                    "candidate bounded prerequisite differs from its M36 plans"
+                    f"candidate {label} require non-empty string pairs"
                 )
-            bounded = tuple(
-                item
-                for item in (
-                    prerequisite.left_m36.evidence,
-                    prerequisite.right_m36.evidence,
-                    prerequisite.m38_evidence,
-                )
-                if item is not None
-            )
-            final = tuple(
-                item
-                for item in (
-                    left.evidence,
-                    right.evidence,
-                    self.triangle.m38_evidence,
-                )
-                if item is not None
-            )
-            if any(item.mode != "bmc" for item in bounded):
-                raise FormalOrchestrationError(
-                    "candidate bounded prerequisite contains non-BMC evidence"
-                )
-            if any(item.mode != "prove" for item in final):
-                raise FormalOrchestrationError(
-                    "candidate final triangle contains non-PROVE evidence"
-                )
+            ordered = tuple(sorted(values))
+            if len({name for name, _ in ordered}) != len(ordered):
+                raise FormalOrchestrationError(f"candidate {label} contain duplicates")
+            object.__setattr__(self, label.replace(" ", "_"), ordered)
 
     @property
     def verification_failure(self) -> bool:
-        return self.triangle.verification_failure or (
-            self.bounded_prerequisite is not None
-            and self.bounded_prerequisite.verification_failure
+        return any(
+            item is not None and item.status is EquivalenceStatus.FAILED
+            for item in (self.bounded_prerequisite, self.direct_systemverilog_m36)
         )
 
     @property
     def evidence_records(self) -> tuple[EvidenceRecord, ...]:
-        prerequisite_values = () if self.bounded_prerequisite is None else (
-            self.bounded_prerequisite.left_m36.evidence,
-            self.bounded_prerequisite.right_m36.evidence,
-            self.bounded_prerequisite.m38_evidence,
-        )
-        values = (*prerequisite_values,
-            self.triangle.left_m36.evidence,
-            self.triangle.right_m36.evidence,
-            self.triangle.m38_evidence,
-        )
         unique: dict[str, EvidenceRecord] = {}
-        for item in values:
-            if item is not None:
-                unique.setdefault(item.evidence_id, item)
+        for result in (self.bounded_prerequisite, self.direct_systemverilog_m36):
+            if result is not None:
+                evidence = evidence_from_equivalence_result(result)
+                unique.setdefault(evidence.evidence_id, evidence)
         return tuple(unique.values())
 
     def to_data(self) -> dict[str, object]:
         return {
             "plan": self.plan.to_data(),
-            "triangle": self.triangle.to_data(),
+            "direct_systemverilog_m36": equivalence_result_to_data(
+                self.direct_systemverilog_m36
+            ),
             "bounded_prerequisite": (
-                None
-                if self.bounded_prerequisite is None
-                else self.bounded_prerequisite.to_data()
+                None if self.bounded_prerequisite is None
+                else equivalence_result_to_data(self.bounded_prerequisite)
             ),
             "tool_versions": [list(item) for item in self.tool_versions],
             "work_directories": [list(item) for item in self.work_directories],
@@ -524,52 +385,31 @@ class CandidateEquivalenceExecutionReport:
     @classmethod
     def from_data(cls, value: object) -> "CandidateEquivalenceExecutionReport":
         data = _mapping(value, "candidate equivalence execution report")
-        _exact_keys(
-            data,
-            {
-                "plan", "triangle", "bounded_prerequisite", "tool_versions",
-                "work_directories",
-            },
-            "candidate equivalence execution report",
-        )
-        tool_versions = data["tool_versions"]
-        work_directories = data["work_directories"]
-        if not isinstance(tool_versions, list) or not isinstance(
-            work_directories, list
-        ):
-            raise FormalOrchestrationError(
-                "candidate execution metadata must use JSON arrays"
-            )
-
-        def pairs(values: list[object], label: str) -> tuple[tuple[str, str], ...]:
-            restored: list[tuple[str, str]] = []
-            for item in values:
-                if (
-                    not isinstance(item, list)
-                    or len(item) != 2
-                    or not all(isinstance(value, str) for value in item)
+        _exact_keys(data, {
+            "plan", "direct_systemverilog_m36", "bounded_prerequisite",
+            "tool_versions", "work_directories",
+        }, "candidate equivalence execution report")
+        def pairs(value: object, label: str) -> tuple[tuple[str, str], ...]:
+            if not isinstance(value, list):
+                raise FormalOrchestrationError(f"candidate {label} must be an array")
+            result = []
+            for item in value:
+                if not isinstance(item, list) or len(item) != 2 or not all(
+                    isinstance(part, str) and part for part in item
                 ):
                     raise FormalOrchestrationError(
-                        f"candidate {label} entries must be string pairs"
+                        f"candidate {label} entries must be non-empty string pairs"
                     )
-                restored.append((item[0], item[1]))
-            return tuple(restored)
-        try:
-            return cls(
-                CandidateEquivalencePlanReference.from_data(data["plan"]),
-                M38EvidenceReport.from_data(data["triangle"]),
-                (
-                    None
-                    if data["bounded_prerequisite"] is None
-                    else M38EvidenceReport.from_data(
-                        data["bounded_prerequisite"]
-                    )
-                ),
-                pairs(tool_versions, "tool version"),
-                pairs(work_directories, "work directory"),
-            )
-        except ValueError as error:
-            raise FormalOrchestrationError(str(error)) from error
+                result.append((item[0], item[1]))
+            return tuple(result)
+        return cls(
+            CandidateEquivalencePlanReference.from_data(data["plan"]),
+            equivalence_result_from_data(data["direct_systemverilog_m36"]),
+            None if data["bounded_prerequisite"] is None else
+                equivalence_result_from_data(data["bounded_prerequisite"]),
+            pairs(data["tool_versions"], "tool versions"),
+            pairs(data["work_directories"], "work directories"),
+        )
 
     def to_json(self) -> str:
         return stable_json(self.to_data(), indent=2) + "\n"

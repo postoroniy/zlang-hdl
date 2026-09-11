@@ -72,10 +72,10 @@ def test_file_compilation_exposes_inputs_without_affecting_content_identity(
     )
 
     first = compile_file(
-        first_source, project=first_manifest, include_clash=False,
+        first_source, project=first_manifest,
     )
     second = compile_file(
-        second_source, project=second_manifest, include_clash=False,
+        second_source, project=second_manifest,
     )
     inputs = first.physical_inputs
 
@@ -118,20 +118,3 @@ def test_cli_rejects_file_sink_aliasing_any_compilation_input(
 
     assert str(protected.resolve()) in diagnostic
     assert protected.read_bytes() == original
-
-
-def test_cli_rejects_output_directory_containing_dependency_input(
-    tmp_path: Path,
-) -> None:
-    manifest, source, _, dependency_source = _project(tmp_path)
-    output_directory = dependency_source.parent
-    original = dependency_source.read_bytes()
-
-    diagnostic = _invoke_collision(
-        source,
-        manifest,
-        ["--verilog-dir", str(output_directory)],
-    )
-
-    assert "explicit output directory --verilog-dir" in diagnostic
-    assert dependency_source.read_bytes() == original

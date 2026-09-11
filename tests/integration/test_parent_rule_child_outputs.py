@@ -7,11 +7,10 @@ import subprocess
 
 import pytest
 
-from zlang.backend.clash import emit_artifact as emit_clash_artifact
 from zlang.backend.manifest import BackendArtifact
 from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
 from zlang.compiler import compile_source
-from zlang.toolchain import find_clash_executable, generate_verilog, lint_with_verilator
+from zlang.toolchain import lint_with_verilator
 
 
 SOURCE = """
@@ -314,26 +313,13 @@ def _simulate_harness(
     assert run.returncode == 0, run.stderr or run.stdout
 
 
-def test_artifacts_are_deterministic_and_manifest_round_trips() -> None:
-    module = compile_source(SOURCE, include_clash=False).ir
-    for emitter in (emit_sv_artifact, emit_clash_artifact):
-        first = emitter(module)
-        second = emitter(module)
-        assert first.text == second.text
-        assert first.artifact_hash == second.artifact_hash
-        restored = BackendArtifact.from_json(first.to_json())
-        assert restored.artifact_hash == first.artifact_hash
-        assert restored.bindings == first.bindings
-        assert {item.semantic_signal_id for item in first.bindings} >= {
-            "port:x", "port:observation", "clock", "reset"
-        }
 
 
 @pytest.mark.skipif(shutil.which("verilator") is None, reason="Verilator unavailable")
 def test_direct_sv_child_output_rule_operands_lint_and_simulate(
     tmp_path: Path,
 ) -> None:
-    artifact = emit_sv_artifact(compile_source(SOURCE, include_clash=False).ir)
+    artifact = emit_sv_artifact(compile_source(SOURCE).ir)
     rtl = tmp_path / "ParentRuleChildOutput.sv"
     rtl.write_text(artifact.text)
     lint_with_verilator((rtl,), "ParentRuleChildOutput")
@@ -355,7 +341,7 @@ def test_direct_sv_composes_child_instances_with_scheduled_storage(
     harness: str,
     tag: str,
 ) -> None:
-    artifact = emit_sv_artifact(compile_source(source, include_clash=False).ir)
+    artifact = emit_sv_artifact(compile_source(source).ir)
     rtl = tmp_path / f"{top}.sv"
     rtl.write_text(artifact.text)
     lint_with_verilator((rtl,), top)
@@ -368,107 +354,11 @@ def test_direct_sv_sequential_child_output_uses_pre_edge_snapshot(
 ) -> None:
     top = "SequentialChildParent"
     artifact = emit_sv_artifact(
-        compile_source(SEQUENTIAL_SOURCE, include_clash=False).ir
+        compile_source(SEQUENTIAL_SOURCE).ir
     )
     rtl = tmp_path / f"{top}.sv"
     rtl.write_text(artifact.text)
     lint_with_verilator((rtl,), top)
     _simulate_harness(
         (rtl,), tmp_path, "sequential_sv", top, SEQUENTIAL_HARNESS
-    )
-
-
-@pytest.mark.skipif(
-    find_clash_executable() is None or shutil.which("verilator") is None,
-    reason="real Clash 1.11 and Verilator are required",
-)
-def test_clash_child_output_rule_operands_lint_and_simulate(tmp_path: Path) -> None:
-    compilation = compile_source(SOURCE)
-    rtl = tuple(
-        generate_verilog(
-            compilation.clash,
-            "ParentRuleChildOutput",
-            tmp_path / "clash",
-            find_clash_executable(),
-        )
-    )
-    assert rtl
-    lint_with_verilator(rtl, "ParentRuleChildOutput")
-    _simulate(rtl, tmp_path, "clash")
-
-
-@pytest.mark.skipif(
-    find_clash_executable() is None or shutil.which("verilator") is None,
-    reason="real Clash 1.11 and Verilator are required",
-)
-def test_clash_sequential_child_output_uses_pre_edge_snapshot(
-    tmp_path: Path,
-) -> None:
-    top = "SequentialChildParent"
-    compilation = compile_source(SEQUENTIAL_SOURCE)
-    rtl = tuple(
-        generate_verilog(
-            compilation.clash,
-            top,
-            tmp_path / "clash_sequential",
-            find_clash_executable(),
-        )
-    )
-    lint_with_verilator(rtl, top)
-    _simulate_harness(
-        rtl, tmp_path, "sequential_clash", top, SEQUENTIAL_HARNESS
-    )
-
-
-def test_clash_recursive_stateful_wrapper_uses_closed_transition_abi() -> None:
-    top = "RecursiveStatefulTop"
-    module = compile_source(
-        RECURSIVE_STATEFUL_SOURCE, top=top, include_clash=False
-    ).ir
-    clash = emit_clash_artifact(module).text
-
-    wrapper_suffix = module.elaborated_instances[0].specialization_identity[:8]
-    leaf_suffix = module.children[0].elaborated_instances[0].specialization_identity[:8]
-    wrapper_name = f"protocol_recursiveStatefulWrapper_s{wrapper_suffix}"
-    leaf_name = f"protocol_recursiveLeaf_s{leaf_suffix}"
-    assert clash.count(f"{wrapper_name} ::") == 1
-    assert "leaf_consumed" in clash
-    assert f"RecursiveLeafComponentInput_s{leaf_suffix} <$>" in clash
-    assert f"recursiveLeafComponentConsumed_s{leaf_suffix} <$> leaf_result" in clash
-    assert "rule_capture_guard = leaf_consumed" in clash
-    assert "captured_count = register" in clash
-    assert "count = register" in clash
-    wrapper = clash[
-        clash.index(f"{wrapper_name} ::"):
-        clash.index(f"{leaf_name} ::")
-    ]
-    assert "parent_input" not in wrapper
-
-
-@pytest.mark.skipif(
-    find_clash_executable() is None or shutil.which("verilator") is None,
-    reason="real Clash 1.11 and Verilator are required",
-)
-def test_clash_recursive_stateful_wrapper_lints_and_simulates(
-    tmp_path: Path,
-) -> None:
-    top = "RecursiveStatefulTop"
-    module = compile_source(
-        RECURSIVE_STATEFUL_SOURCE, top=top, include_clash=False
-    ).ir
-    rtl = tuple(
-        generate_verilog(
-            emit_clash_artifact(module).text,
-            top,
-            tmp_path / "clash_recursive_stateful",
-            find_clash_executable(),
-        )
-    )
-    lint_with_verilator(rtl, top)
-    _simulate_harness(
-        rtl,
-        tmp_path,
-        "recursive_stateful_clash",
-        top,
-        RECURSIVE_STATEFUL_HARNESS,
     )

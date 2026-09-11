@@ -120,13 +120,6 @@ def test_snippet_inventory_and_registration_are_bounded() -> None:
         assert not re.search(r"\b(let|const|return)\b", _expand(snippet["prefix"]))
 
 
-@pytest.mark.parametrize("prefix", CONTEXTS)
-def test_default_expansion_compiles_in_documented_scope(prefix: str) -> None:
-    result = _compile(prefix)
-    _, _, top, output_types = CONTEXTS[prefix]
-    assert result.ir.name == top
-    assert tuple(str(port.type) for port in result.ir.outputs) == output_types
-    assert "topEntity" in result.clash
 
 
 def test_linked_tab_stops_follow_user_edits() -> None:

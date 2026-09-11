@@ -167,7 +167,7 @@ def test_backend_artifact_reads_legacy_rendered_binding_origin() -> None:
     artifact_hash = "b" * 64
     payload = {
         "manifest_version": 2,
-        "backend": "clash",
+        "backend": "direct_systemverilog",
         "module": "Top",
         "selected_ir_identity": "selected",
         "artifact_hash": artifact_hash,
@@ -184,7 +184,7 @@ def test_backend_artifact_reads_legacy_rendered_binding_origin() -> None:
                 "role": "output",
                 "clock_domain": None,
                 "reset_domain": None,
-                "backend": "clash",
+                "backend": "direct_systemverilog",
                 "artifact_hash": artifact_hash,
                 "source_origin": origin.render(),
             }
@@ -220,7 +220,6 @@ def test_compile_source_attaches_logical_unit_and_content_digest() -> None:
     source = "module Add { in a : u8 in b : u8 out y : u9 y = a + b }\n"
     result = compile_source(
         source,
-        include_clash=False,
         source_unit="examples/add.zhl",
     )
     origin = result.ir.assignments[0].expression.origin
@@ -232,10 +231,9 @@ def test_compile_source_attaches_logical_unit_and_content_digest() -> None:
 
 def test_source_unit_and_digest_do_not_change_hardware_or_artifact_identity() -> None:
     source = "module Add { in a : u8 in b : u8 out y : u9 y = a + b }\n"
-    anonymous = compile_source(source, include_clash=False)
+    anonymous = compile_source(source)
     located = compile_source(
         source,
-        include_clash=False,
         source_unit="examples/add.zhl",
     )
     anonymous_artifact = emit_systemverilog_artifact(anonymous.ir)
@@ -262,7 +260,6 @@ def test_imported_generic_body_keeps_stdlib_unit_and_digest() -> None:
     """
     result = compile_source(
         source,
-        include_clash=False,
         source_unit="examples/complex_add.zhl",
     )
     call = result.ir.assignments[0].expression

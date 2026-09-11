@@ -3,7 +3,7 @@
 The production backends already consume :class:`~zlang.ir.cdc.ClockDomain` as
 the authoritative physical reset contract.  Formal harnesses must do the same
 instead of inferring an edge or polarity from an RTL port name.  This module is
-deliberately independent from M35, M36, and M38: it renders the small piece of
+deliberately independent from M35 and M36: it renders the small piece of
 checker-local SystemVerilog which all three products need.
 
 The synchronized-release registers emitted here are *checker state*.  They do

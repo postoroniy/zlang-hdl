@@ -36,4 +36,3 @@ def test_json_cache_load_distinguishes_missing_corrupt_and_non_object(
     value, diagnostic = load_json_object(array)
     assert value is None
     assert diagnostic == "cache entry must be a JSON object with string keys"
-

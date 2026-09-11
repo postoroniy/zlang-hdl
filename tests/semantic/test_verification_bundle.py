@@ -848,8 +848,8 @@ def test_prove_report_binds_bounded_evidence_to_the_same_verification_context() 
     assert VerificationRunReport.from_data(report.to_data()) == report
 
     corruptions = (
-        {"route": "clash"},
-        {"backend": "clash"},
+        {"route": "direct_systemverilog"},
+        {"backend": "direct_systemverilog"},
         {"artifact_hash": "artifact:" + _digest("other")},
         {"binding_identity": "binding:" + _digest("other")},
         {"selected_ir_identity": "selected:" + _digest("other")},
@@ -867,8 +867,8 @@ def test_prove_report_binds_bounded_evidence_to_the_same_verification_context() 
                 (replace(bounded, **corruption),),
             )
 
-    alternate_final = replace(final, route="clash")
-    alternate_bounded = replace(bounded, route="clash")
+    alternate_final = replace(final, route="alternate_direct_model")
+    alternate_bounded = replace(bounded, route="alternate_direct_model")
     alternate = VerificationRunReport(
         identity, "Counter", config, (alternate_final,), (),
         (alternate_bounded,),

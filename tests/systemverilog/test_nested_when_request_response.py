@@ -196,7 +196,7 @@ int main(int argc, char** argv) {
 
 
 def _module(top: str):
-    return compile_source(SOURCE, top=top, include_clash=False).ir
+    return compile_source(SOURCE, top=top).ir
 
 
 def test_standalone_roles_publish_deterministic_activation_aware_artifacts() -> None:
@@ -231,7 +231,6 @@ def test_out_of_order_user_state_remains_explicitly_fail_closed() -> None:
     module = compile_source(
         OUT_OF_ORDER_STATE,
         top="StatefulTaggedRequester",
-        include_clash=False,
     ).ir
     with pytest.raises(SystemVerilogEmissionError) as raised:
         emit_artifact(module)

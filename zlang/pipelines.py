@@ -675,7 +675,7 @@ def render_pipeline_report(module: Module) -> str:
             f"stall_policy={region.timing.stall_policy.value} "
             f"valid_ff_estimate={region.plan.valid_stage_count} "
             f"ready_control_lut_estimate={region.plan.ready_control_lut_estimate} "
-            "m30_relation=not_applicable m36=unsupported m38=unsupported"
+            "m30_relation=not_applicable m36=unsupported"
         )
         selected = region.selected_candidate
         lines.append(

@@ -6,7 +6,6 @@ import unittest
 from dataclasses import replace
 from pathlib import Path
 
-from zlang.backend.clash import emit
 from zlang.backend.manifest import publish_artifact
 from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
 from zlang.backend.systemverilog import emit_experimental as emit_systemverilog
@@ -64,12 +63,6 @@ class ParameterizedAggregateProtocolTests(unittest.TestCase):
         self.assertEqual(request.type.width, 8)
         self.assertTrue(any(item.name == "bus" for item in module.children[0].aggregate_protocol_endpoints))
 
-    def test_structural_clash_output(self):
-        text = emit(analyze(parse(SOURCE)))
-        self.assertIn("protocol_producer", text)
-        self.assertIn("protocol_consumer", text)
-        self.assertIn("c_bus_irq =", text)
-        self.assertNotIn("bus_irq_ready", text)
 
     def test_direct_systemverilog_wires_reverse_scalar_member(self):
         module = analyze(parse(SOURCE))
@@ -129,7 +122,7 @@ endmodule
 
     def test_manifest_retains_aggregate_identity(self):
         module = analyze(parse(SOURCE))
-        artifact = publish_artifact(module.children[0], "tiny", backend="clash", selected_ir_identity="tiny-v1", side=BindingSide.IMPLEMENTATION)
+        artifact = publish_artifact(module.children[0], "tiny", backend="direct_systemverilog", selected_ir_identity="tiny-v1", side=BindingSide.IMPLEMENTATION)
         self.assertTrue(any(item.semantic_signal_id == "aggregate:Producer.bus" for item in artifact.bindings))
 
     def test_canonical_reverse_scalar_member_rejects_a_second_binding(self):

@@ -45,7 +45,7 @@ TWIDDLES = {
 @lru_cache(maxsize=1)
 def _fft16():
     return compile_source(
-        SOURCE.read_text(), top="FFT16SDFReference", include_clash=False
+        SOURCE.read_text(), top="FFT16SDFReference"
     ).ir
 
 

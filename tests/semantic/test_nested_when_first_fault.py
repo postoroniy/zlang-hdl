@@ -70,7 +70,6 @@ def _compile(top: str):
     return compile_source(
         FIXTURE.read_text(),
         top=top,
-        include_clash=False,
         source_unit="tests/fixtures/ztpu_first_fault_nested_when.zhl",
     ).ir
 

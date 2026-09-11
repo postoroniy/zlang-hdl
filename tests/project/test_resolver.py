@@ -227,24 +227,24 @@ def test_cross_source_declaration_and_module_conflicts_fail_closed(
     kind: str,
 ) -> None:
     imported_source = {
-        "type alias": "type Clash = u8 module Library {}",
-        "struct": "struct Clash { value:u8 } module Library {}",
-        "function": "fn clash(x:u8)->u8 { x } module Library {}",
+        "type alias": "type Collision = u8 module Library {}",
+        "struct": "struct Collision { value:u8 } module Library {}",
+        "function": "fn collision(x:u8)->u8 { x } module Library {}",
         "protocol": (
-            "protocol Clash { role source role sink "
+            "protocol Collision { role source role sink "
             "channel data:u8 source->sink } module Library {}"
         ),
-        "module": "module Clash {}",
+        "module": "module Collision {}",
     }[kind]
     root_prefix = {
-        "type alias": "type Clash = u16 ",
-        "struct": "struct Clash { other:u8 } ",
-        "function": "fn clash(x:u8)->u8 { x + 0 } ",
+        "type alias": "type Collision = u16 ",
+        "struct": "struct Collision { other:u8 } ",
+        "function": "fn collision(x:u8)->u8 { x + 0 } ",
         "protocol": (
-            "protocol Clash { role source role sink "
+            "protocol Collision { role source role sink "
             "channel other:u8 source->sink } "
         ),
-        "module": "module Clash {} ",
+        "module": "module Collision {} ",
     }[kind]
     imported = _write_module(tmp_path, "vendor.library", imported_source)
     resolver = IndexedModuleResolver(

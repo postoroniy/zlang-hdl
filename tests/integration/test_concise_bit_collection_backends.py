@@ -9,11 +9,9 @@ import tempfile
 
 import pytest
 
-from tests.toolchain import CLASH_EXECUTABLE
 from zlang.backend.manifest import BackendArtifact, publish_artifact
 from zlang.backend.systemverilog import emit_artifact
 from zlang.compiler import compile_source
-from zlang.cross_backend import run_cross_backend_formal
 from zlang.equivalence import (
     artifact_hash,
     emit_miter,
@@ -23,19 +21,13 @@ from zlang.equivalence import (
     publish_bindings,
     run_equivalence_formal,
 )
-from zlang.ir.cross_backend import (
-    CrossBackendMode,
-    CrossBackendProperty,
-    CrossBackendRelation,
-    CrossBackendStatus,
-)
 from zlang.ir.equivalence import (
     BindingMap,
     BindingSide,
     EquivalenceMode,
     EquivalenceStatus,
 )
-from zlang.toolchain import generate_verilog, lint_with_verilator
+from zlang.toolchain import lint_with_verilator
 
 
 SOURCE = """
@@ -118,7 +110,7 @@ def _verilate_and_run(tmp_path: Path, rtl: tuple[Path, ...], suffix: str) -> Non
 
 
 def test_direct_sv_concise_bit_collection_artifact_is_deterministic() -> None:
-    module = compile_source(SOURCE, include_clash=False).ir
+    module = compile_source(SOURCE).ir
     first = emit_artifact(module)
     second = emit_artifact(module)
     assert first.text == second.text
@@ -134,50 +126,19 @@ def test_direct_sv_concise_bit_collection_artifact_is_deterministic() -> None:
     assert outputs == {"port:result": (33, "bits<33>")}
 
 
-def test_clash_reshape_temporary_cannot_capture_a_same_named_input() -> None:
-    compilation = compile_source(RESHAPE_NAME_COLLISION_SOURCE)
-    assert "let zlangReshapeSource =" not in compilation.clash
-    assert "(\\zlangReshapeSource ->" in compilation.clash
 
 
-@pytest.mark.skipif(
-    CLASH_EXECUTABLE is None or shutil.which("verilator") is None,
-    reason="real Clash 1.11 and Verilator are required",
-)
-def test_real_clash_reshape_same_named_input_is_valid(tmp_path: Path) -> None:
-    compilation = compile_source(RESHAPE_NAME_COLLISION_SOURCE)
-    rtl = generate_verilog(
-        compilation.clash,
-        "ReshapeNameCollision",
-        tmp_path / "reshape_collision_rtl",
-        CLASH_EXECUTABLE,
-    )
-    lint_with_verilator(rtl, "ReshapeNameCollision")
 
 
 @pytest.mark.skipif(shutil.which("verilator") is None, reason="Verilator unavailable")
 def test_direct_sv_concise_bit_collections_are_bit_exact(tmp_path: Path) -> None:
-    artifact = emit_artifact(compile_source(SOURCE, include_clash=False).ir)
+    artifact = emit_artifact(compile_source(SOURCE).ir)
     rtl = tmp_path / "ConciseBitsRTL.sv"
     rtl.write_text(artifact.text)
     lint_with_verilator((rtl,), "ConciseBitsRTL")
     _verilate_and_run(tmp_path, (rtl,), "sv")
 
 
-@pytest.mark.skipif(
-    CLASH_EXECUTABLE is None or shutil.which("verilator") is None,
-    reason="real Clash 1.11 and Verilator are required",
-)
-def test_clash_concise_bit_collections_are_bit_exact(tmp_path: Path) -> None:
-    compilation = compile_source(SOURCE)
-    rtl = generate_verilog(
-        compilation.clash,
-        "ConciseBitsRTL",
-        tmp_path / "clash_rtl",
-        CLASH_EXECUTABLE,
-    )
-    lint_with_verilator(rtl, "ConciseBitsRTL")
-    _verilate_and_run(tmp_path, tuple(rtl), "clash")
 
 
 def _m36_sources(module, implementation: str):
@@ -235,7 +196,7 @@ def _m36_sources(module, implementation: str):
     reason="Yosys/SymbiYosys formal tools are unavailable",
 )
 def test_m36_concise_collections_pass_and_parity_mutation_fails() -> None:
-    module = compile_source(SOURCE, include_clash=False).ir
+    module = compile_source(SOURCE).ir
     implementation = emit_artifact(module).text
     property_, source = _m36_sources(module, implementation)
     top = "m36_" + property_.id.replace(".", "_")
@@ -252,50 +213,3 @@ def test_m36_concise_collections_pass_and_parity_mutation_fails() -> None:
     )
     assert failed.status is EquivalenceStatus.FAILED
     assert failed.counterexample is not None
-
-
-@pytest.mark.skipif(
-    CLASH_EXECUTABLE is None or len(formal_tools_available()) != 3,
-    reason="Clash and formal tools are required",
-)
-def test_m38_cross_backend_concise_collection_smoke() -> None:
-    compilation = compile_source(SOURCE)
-    module = compilation.ir
-    selected_identity = "selected:concise-bit-collections-cross-backend"
-    with tempfile.TemporaryDirectory() as temporary:
-        files = generate_verilog(
-            compilation.clash,
-            module.name,
-            Path(temporary) / "clash_rtl",
-            CLASH_EXECUTABLE,
-        )
-        clash_rtl = "\n".join(path.read_text() for path in files)
-    clash_artifact = publish_artifact(
-        module,
-        clash_rtl,
-        backend="clash",
-        selected_ir_identity=selected_identity,
-    )
-    direct_module = replace(module, name="ConciseBitsRTLSv")
-    direct_artifact = emit_artifact(
-        direct_module, selected_ir_identity=selected_identity
-    )
-    property_ = CrossBackendProperty(
-        "m38.concise_bit_collections.real",
-        CrossBackendRelation.SAME_CYCLE_VALUE,
-        selected_identity,
-        ("port:result",),
-        None,
-        None,
-        0,
-        0,
-    )
-    result = run_cross_backend_formal(
-        property_,
-        clash_artifact,
-        direct_artifact,
-        inputs=("port:raw",),
-        mode=CrossBackendMode.BMC,
-        depth=2,
-    )
-    assert result.status is CrossBackendStatus.BOUNDED_PASS

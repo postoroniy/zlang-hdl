@@ -9,7 +9,6 @@ from zlang.backend.systemverilog import emit_target
 from zlang.compiler import compile_source
 from zlang.fixed_point import quantize_rational
 from zlang.ir import expressions as expr
-from zlang.toolchain import find_clash_executable, generate_verilog
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -91,10 +90,3 @@ def test_selected_target_pipeline_is_bit_exact_in_verilator(tmp_path, top, laten
         check=True, capture_output=True, text=True, env=environment,
     )
     subprocess.run((str(obj / "Vtb"),), check=True, capture_output=True, text=True)
-
-
-@pytest.mark.skipif(find_clash_executable() is None, reason="Clash unavailable")
-def test_targetless_generic_auto_pipeline_still_generates_clash(tmp_path):
-    result = compile_source(SOURCE, top="SymmetricFixedFIRAuto")
-    assert result.implementation_graph.is_generic
-    assert generate_verilog(result.clash, "SymmetricFixedFIRAuto", tmp_path / "rtl")

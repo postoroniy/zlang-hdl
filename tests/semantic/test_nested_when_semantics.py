@@ -235,5 +235,5 @@ def test_child_output_dependency_includes_nested_activation_predicates() -> None
         match=r"combinational child dependency cycle: child\.y -> child\.y",
     ):
         compile_source(
-            source, top="ConditionalLoop", include_clash=False
+            source, top="ConditionalLoop"
         )

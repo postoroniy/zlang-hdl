@@ -1,7 +1,7 @@
 """Backend-neutral recursive M35 formal design.
 
 This module deliberately stops at the semantic/elaborated boundary.  It does
-not inspect Clash names or construct a hierarchical RTL path.  Backends attach
+does not inspect backend names or construct a hierarchical RTL path. Backends attach
 their physical locators later through the v4 artifact manifest.
 """
 

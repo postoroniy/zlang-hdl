@@ -1,6 +1,6 @@
 """Shared, fail-closed VCD decoding for existing formal result families.
 
-The decoder is intentionally independent of M35/M36/M38 result schemas.  It
+The decoder is intentionally independent of M35/M36 result schemas. It
 maps physical VCD leaves through explicit binding metadata, retains unknown
 four-state values verbatim, and only applies a typed interpretation when the
 caller supplies an exact canonical hardware type.

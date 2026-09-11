@@ -141,7 +141,7 @@ def _find_module(root, name: str):
 def _materialize(case: ModuleCase):
     source = SOURCES / (case.owner_source or case.source)
     top = case.owner_top or case.module
-    owner = compile_file(source, top=top, include_clash=False).ir
+    owner = compile_file(source, top=top).ir
     return owner, _find_module(owner, case.module)
 
 
@@ -155,13 +155,11 @@ def test_every_concrete_canonical_module_round_trips(case: ModuleCase) -> None:
             compile_file(
                 SOURCES / case.source,
                 top=case.module,
-                include_clash=False,
             )
         witness_source, witness_top = _UNINSTANTIATED_CHILDREN[case.module]
         witness = compile_file(
             SOURCES / witness_source,
             top=witness_top,
-            include_clash=False,
         ).ir
         assert restore(lower(witness, stage=OptimizationStage.HIGH_LEVEL)) == witness
         return
@@ -180,7 +178,6 @@ def test_every_concrete_canonical_module_round_trips(case: ModuleCase) -> None:
     again = compile_file(
         SOURCES / (case.owner_source or case.source),
         top=case.owner_top or case.module,
-        include_clash=False,
     ).ir
     assert again == owner
 
@@ -304,7 +301,7 @@ def test_canonical_cross_file_hierarchy_preserves_physical_children(
     top: str,
     expected_children: tuple[str, ...],
 ) -> None:
-    module = compile_file(SOURCES / source, top=top, include_clash=False).ir
+    module = compile_file(SOURCES / source, top=top).ir
     assert tuple(
         instance.instance.name for instance in module.elaborated_instances
     ) == expected_children

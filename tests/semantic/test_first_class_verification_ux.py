@@ -5,7 +5,6 @@ import hashlib
 
 import pytest
 
-from zlang.backend.clash import emit_artifact as emit_clash_artifact
 from zlang.backend.systemverilog import emit_artifact as emit_systemverilog_artifact
 from zlang.backend.systemverilog import emit_experimental as emit_systemverilog
 from zlang.compiler import compile_source
@@ -21,7 +20,7 @@ from zlang.simulate import VerificationAssertionError, simulate_cycles
 
 
 def _compile(source: str):
-    return compile_source(source, include_clash=False)
+    return compile_source(source)
 
 
 def test_empty_verification_overlay_does_not_hash_hardware(
@@ -331,55 +330,8 @@ def test_verification_overlay_round_trips_without_changing_hardware_identity() -
     assert restore(canonical) == verified.ir
 
 
-def test_verification_overlay_does_not_change_real_clash_artifact() -> None:
-    plain = compile_source(
-        "module SameClash { clock clk reset rst in a:bit out y:bit y=a }"
-    )
-    verified = compile_source(
-        "module SameClash { clock clk reset rst in a:bit out y:bit y=a "
-        "assert output_matches { y == a } cover output_high { y } }"
-    )
-
-    assert verified.clash == plain.clash
-    plain_artifact = emit_clash_artifact(
-        plain.ir,
-        selected_ir_identity=plain.selected_ir_identity,
-    )
-    verified_artifact = emit_clash_artifact(
-        verified.ir,
-        selected_ir_identity=verified.selected_ir_identity,
-    )
-    assert verified_artifact.text == plain_artifact.text
-    assert verified_artifact.artifact_hash == plain_artifact.artifact_hash
 
 
-def test_verification_only_generic_specialization_does_not_change_hardware() -> None:
-    prefix = "fn same<type T>(x:T)->bit { x == x } "
-    plain = _compile(
-        prefix + "module Same { clock clk reset rst in a:u8 out y:u8 y=a }"
-    )
-    verified = _compile(
-        prefix
-        + "module Same { clock clk reset rst in a:u8 out y:u8 y=a "
-        "assert reflexive { same(a) } }"
-    )
-
-    assert plain.ir.callable_definitions == ()
-    assert verified.ir.callable_definitions == plain.ir.callable_definitions
-    assert verified.high_level_ir_identity == plain.high_level_ir_identity
-    assert verified.selected_ir_identity == plain.selected_ir_identity
-    assert verified.clash == plain.clash
-    assert emit_systemverilog(verified.ir) == emit_systemverilog(plain.ir)
-    assert (
-        emit_systemverilog_artifact(
-            verified.ir,
-            selected_ir_identity=verified.selected_ir_identity,
-        ).artifact_hash
-        == emit_systemverilog_artifact(
-            plain.ir,
-            selected_ir_identity=plain.selected_ir_identity,
-        ).artifact_hash
-    )
 
 
 def test_goal_identity_is_stable_across_unrelated_verification_source_changes() -> None:

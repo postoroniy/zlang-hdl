@@ -8,11 +8,9 @@ import pytest
 
 from zlang.backend.systemverilog import emit_experimental
 from zlang.compiler import compile_source
-from zlang.toolchain import find_clash_executable, generate_verilog
 
 
 VERILATOR = shutil.which("verilator")
-CLASH = find_clash_executable()
 
 
 def fifo_source(depth: int) -> str:
@@ -87,20 +85,3 @@ def test_parameterized_fifo_direct_sv_is_concrete_and_simulates(depth: int) -> N
         rtl = root / "fifo.sv"
         rtl.write_text(text)
         run_verilator([rtl], root, compilation.ir.name, depth)
-
-
-@pytest.mark.parametrize("depth", (2, 8))
-@pytest.mark.skipif(
-    CLASH is None or VERILATOR is None,
-    reason="Clash or Verilator unavailable",
-)
-def test_parameterized_fifo_clash_is_concrete_and_simulates(depth: int) -> None:
-    compilation = compile_source(fifo_source(depth))
-    assert "DEPTH" not in compilation.clash
-    assert f"Vec {depth} (Unsigned 8)" in compilation.clash
-    with tempfile.TemporaryDirectory() as temporary:
-        root = Path(temporary)
-        files = list(generate_verilog(
-            compilation.clash, compilation.ir.name, root / "rtl", CLASH
-        ))
-        run_verilator(files, root, compilation.ir.name, depth)

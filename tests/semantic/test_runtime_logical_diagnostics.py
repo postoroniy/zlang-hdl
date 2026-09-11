@@ -15,7 +15,6 @@ def test_runtime_logical_binary_operator_has_structured_diagnostic(
     with pytest.raises(SemanticError) as caught:
         compile_source(
             f"module RuntimeLogic {{ in a,b:bit out y:bit y=a {operator} b }}",
-            include_clash=False,
         )
     assert caught.value.code == "ZL-SEMANTIC-RUNTIME-LOGIC"
     assert "runtime logical operator" in str(caught.value)
@@ -26,7 +25,5 @@ def test_runtime_logical_binary_operator_has_structured_diagnostic(
 def test_bitwise_hardware_operator_remains_supported() -> None:
     result = compile_source(
         "module BitwiseLogic { in a,b:bit out y:bit y=(a & b) | a }",
-        include_clash=False,
     )
     assert result.ir.name == "BitwiseLogic"
-

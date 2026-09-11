@@ -12,12 +12,9 @@ from contextlib import nullcontext
 from dataclasses import dataclass, replace
 from pathlib import Path
 import json
-import shutil
-import subprocess
 import tempfile
 from typing import Any, Iterable
 
-from zlang.backend.clash import emit_artifact as emit_clash_artifact
 from zlang.backend.systemverilog import (
     SystemVerilogEmissionError,
     emit_artifact as emit_systemverilog_artifact,
@@ -42,7 +39,7 @@ from zlang.formal_artifact_provider import (
     FormalArtifactNamespace,
     FormalArtifactProvider,
 )
-from zlang.formal import tool_versions, use_formal_toolchain
+from zlang.formal import use_formal_toolchain
 from zlang.formal_exploration import (
     FormalExplorationConfig,
     FormalExplorationError,
@@ -75,16 +72,10 @@ from zlang.ir.types import StructType, TupleType, VecType
 from zlang.ir.type_codec import canonical_type_data, canonical_type_from_data
 from zlang.source import SourceOrigin
 from zlang.timing import TimingInfo, timing_info, validate_timed_candidate
-from zlang.toolchain import (
-    ToolchainError,
-    clash_subprocess_environment,
-    find_clash_executable,
-    generate_verilog,
-)
 
 
 class FormalCandidateUnavailable(FormalExplorationError):
-    """The frozen candidate cannot reach the existing M36/Clash route."""
+    """The frozen candidate cannot reach the production M36 route."""
 
 
 @dataclass(frozen=True)
@@ -107,9 +98,7 @@ class PreparedCandidateEquivalence:
     This is a compiler preparation product, not a new equivalence relation.  It
     retains the two artifacts which the historical M39-only adapter used to
     discard after building its miter.  Retaining those typed artifacts lets the
-    optional compiler evidence path prepare an independent direct-SV M36 leg
-    and, when both legs are decisive, reuse the same implementation artifacts
-    for the existing M38 runner.
+    compiler evidence path retain the direct-SV M36 leg for deterministic replay.
 
     The trailing optional fields preserve the private ``_ProofBundle`` test
     construction API while callers migrate to this public product.
@@ -124,7 +113,7 @@ class PreparedCandidateEquivalence:
     property_identity: str
     assumptions_identity: str
     backend_identity: str
-    backend: str = "clash"
+    backend: str = "direct_systemverilog"
     reference_artifact: BackendArtifact | None = None
     implementation_artifact: BackendArtifact | None = None
     input_semantic_ids: tuple[str, ...] = ()
@@ -149,33 +138,6 @@ class _CandidateEquivalenceShape:
     output_name: str
     clock: str | None
     reset: str | None
-
-
-def _proof_bundle_tool_route(
-    config: FormalExplorationConfig,
-) -> dict[str, object]:
-    resolver = config.tool_resolver
-    formal_resolve = getattr(resolver, "formal_context", None)
-    clash_resolve = getattr(resolver, "clash_context", None)
-    if callable(formal_resolve) and callable(clash_resolve):
-        formal = formal_resolve(engine=config.engine, solver=config.solver)
-        clash = clash_resolve()
-        return {
-            "clash": clash.executable,
-            "clash_version": clash.version,
-            "formal_versions": [list(item) for item in formal.versions],
-        }
-    clash = find_clash_executable()
-    requested = tuple(dict.fromkeys(
-        ("yosys", "sby", "yosys-smtbmc", config.solver)
-        if config.engine == "sby"
-        else (config.engine, config.solver)
-    ))
-    return {
-        "clash": None if clash is None else str(Path(clash).resolve()),
-        "clash_version": None if clash is None else _clash_version(clash),
-        "formal_versions": [list(item) for item in tool_versions(requested)],
-    }
 
 
 def _proof_bundle_fingerprint(
@@ -557,10 +519,8 @@ def _input_refs(expression: object) -> dict[str, object]:
     return exploration_input_refs(expression)
 
 
-class M36ClashCandidateVerifier:
-    """Materialize one M39 candidate through the hidden Clash compatibility route."""
-
-    formal_route = "M36_clash"
+class _M36CandidateVerifierBase:
+    """Shared preparation for the production direct-SystemVerilog M36 route."""
 
     def __init__(
         self,
@@ -593,121 +553,16 @@ class M36ClashCandidateVerifier:
             }
         )
 
-    def _bundle_recipe(
-        self,
-        candidate: object,
-        config: FormalExplorationConfig,
-    ) -> dict[str, object] | None:
-        if self.unavailable_reason is not None:
-            return None
-        implementation = getattr(candidate, "expression", None)
-        if implementation is None:
-            return None
-        dependency_identity = (
-            config.dependency_identity
-            or getattr(candidate, "dependency_identity", None)
-            or dependency_context_identity(candidate)
-        )
-        return {
-            "schema": "zlang-m36-clash-proof-bundle-recipe-v1",
-            "rtl_naming": RTL_NAMING_SCHEMA,
-            "candidate": self._key(candidate),
-            "candidate_semantics": expression_semantic_identity(implementation),
-            "reference_semantics": expression_semantic_identity(
-                self.reference_expression
-            ),
-            "candidate_class": self.candidate_class or _candidate_class(candidate),
-            "clock_domain_contract": clock_domain_data(
-                self.clock_domain_contract
-            ),
-            "engine": config.engine,
-            "solver": config.solver,
-            "dependency_identity": dependency_identity,
-            "tool_route": _proof_bundle_tool_route(config),
-        }
-
-    def preparation_cache_recipe(
-        self,
-        candidate: object,
-        config: FormalExplorationConfig,
-    ) -> dict[str, object] | None:
-        """Describe a proof lookup without materializing Clash or a miter."""
-
-        bundle = self._bundle_recipe(candidate, config)
-        if bundle is None:
-            return None
-        return {
-            "schema": "zlang-m39-m36-preparation-lookup-v1",
-            "bundle": bundle,
-            "proof_config": {
-                "policy": config.policy.value,
-                "mode": (
-                    ProofMode.PROVE.value
-                    if config.policy is FormalPolicy.REQUIRED_PROVEN
-                    else ProofMode.BMC.value
-                ),
-                "depth": config.bmc_depth,
-                "timeout_seconds": config.timeout_seconds,
-                "engine": config.engine,
-                "solver": config.solver,
-                "cache_schema": config.schema_version,
-            },
-            "compiler_schema": {
-                "preparation_index": "zlang-m39-preparation-index-v1",
-                "proof_result": "zlang-formal-proof-cache-result-v3",
-                "m36_bundle": "zlang-m36-clash-proof-bundle-recipe-v1",
-                "m36_reference_miter": 1,
-                "backend_manifest": MANIFEST_VERSION,
-                "rtl_naming": RTL_NAMING_SCHEMA,
-            },
-        }
-
-    def _bundle(self, candidate: object, config: FormalExplorationConfig) -> _ProofBundle:
-        # Solver availability participates because bundle construction performs
-        # route discovery.  Do not retain unavailable/error results: a tool may
-        # legitimately become available later in the same compiler process.
-        if config.engine != "sby":
-            return self._build_bundle(candidate, config)
-        recipe = self._bundle_recipe(candidate, config)
-        if recipe is None:
-            return self._build_bundle(candidate, config)
-        return self.artifact_provider.get_or_prepare(
-            FormalArtifactNamespace.M36,
-            "clash-reference-miter-proof-bundle-v1",
-            recipe,
-            lambda: self._build_bundle(candidate, config),
-            encode=_encode_prepared_candidate,
-            decode=_decode_prepared_candidate,
-            fingerprint=_proof_bundle_fingerprint,
-        )
 
     def prepare(
         self,
         candidate: object,
         config: FormalExplorationConfig,
-        *,
-        backend: str = "clash",
     ) -> PreparedCandidateEquivalence:
-        """Prepare one existing M36 leg without executing the solver.
-
-        ``backend`` is deliberately closed to the two implementation routes.
-        Production M39 uses the direct-SystemVerilog adapter; the Clash route
-        is retained only for explicit historical compatibility and optional
-        cross-backend evidence.
-        """
+        """Prepare the production direct-SystemVerilog M36 leg."""
 
         if self.unavailable_reason is not None:
             raise FormalCandidateUnavailable(self.unavailable_reason)
-        if backend not in {"clash", "direct_systemverilog"}:
-            raise FormalCandidateUnavailable(
-                f"M36 candidate backend '{backend}' is unsupported"
-            )
-        # This is the same preparation product used by M39.  Keeping one
-        # recipe/API is essential: a joint M39 + verification run must reuse
-        # the already-generated RTL/miter rather than compiling the selected
-        # candidate a second time.
-        if backend == "clash":
-            return self._bundle(candidate, config)
         implementation = getattr(candidate, "expression", None)
         if implementation is None:
             raise FormalCandidateUnavailable(
@@ -718,35 +573,14 @@ class M36ClashCandidateVerifier:
             or getattr(candidate, "dependency_identity", None)
             or dependency_context_identity(candidate)
         )
-        tool_route: dict[str, object]
-        if backend == "clash":
-            resolver = config.tool_resolver
-            clash_resolve = getattr(resolver, "clash_context", None)
-            if callable(clash_resolve):
-                clash_context = clash_resolve()
-                tool_route = {
-                    "clash": clash_context.executable,
-                    "clash_version": clash_context.version,
-                }
-            else:
-                clash = find_clash_executable()
-                tool_route = {
-                    "clash": (
-                        None if clash is None else str(Path(clash).resolve())
-                    ),
-                    "clash_version": (
-                        None if clash is None else _clash_version(clash)
-                    ),
-                }
-        else:
-            tool_route = {
-                "emitter": "zlang-direct-systemverilog",
-                "manifest_version": MANIFEST_VERSION,
-            }
+        tool_route = {
+            "emitter": "zlang-direct-systemverilog",
+            "manifest_version": MANIFEST_VERSION,
+        }
         recipe = {
             "schema": "zlang-m36-candidate-backend-preparation-v1",
             "rtl_naming": RTL_NAMING_SCHEMA,
-            "backend": backend,
+            "backend": "direct_systemverilog",
             "candidate": self._key(candidate),
             "candidate_semantics": expression_semantic_identity(implementation),
             "reference_semantics": expression_semantic_identity(
@@ -768,282 +602,20 @@ class M36ClashCandidateVerifier:
             recipe["physical_graph_identity"] = physical_graph.identity
         return self.artifact_provider.get_or_prepare(
             FormalArtifactNamespace.M36,
-            f"{backend}-candidate-equivalence-preparation-v1",
+            "direct-systemverilog-candidate-equivalence-preparation-v1",
             recipe,
-            lambda: self._prepare_candidate_equivalence(
-                candidate, config, backend=backend
-            ),
+            lambda: self._prepare_candidate_equivalence(candidate, config),
             encode=_encode_prepared_candidate,
             decode=_decode_prepared_candidate,
             fingerprint=_proof_bundle_fingerprint,
         )
 
-    def _build_bundle(self, candidate: object, config: FormalExplorationConfig) -> _ProofBundle:
-        if config.engine != "sby":
-            raise FormalCandidateUnavailable(
-                "M36 Clash proof route supports only the configured 'sby' engine"
-            )
-        resolver = config.tool_resolver
-        formal_resolve = getattr(resolver, "formal_context", None)
-        clash_resolve = getattr(resolver, "clash_context", None)
-        if callable(formal_resolve) and callable(clash_resolve):
-            formal_context = formal_resolve(
-                engine=config.engine, solver=config.solver
-            )
-            clash_context = clash_resolve()
-            clash = clash_context.executable
-            missing = formal_context.missing
-        else:
-            formal_context = None
-            clash = find_clash_executable()
-            missing = tuple(
-                name for name in ("yosys", "sby", "yosys-smtbmc", config.solver)
-                if shutil.which(name) is None
-            )
-        if clash is None:
-            raise FormalCandidateUnavailable(
-                "M36 Clash proof route unavailable: Clash executable was not found"
-            )
-        if missing:
-            raise FormalCandidateUnavailable(
-                "M36 Clash proof route unavailable: missing formal tools: "
-                + ", ".join(missing)
-            )
-
-        implementation = candidate.expression
-        reference = self.reference_expression
-        if implementation.type != reference.type:
-            raise FormalCandidateUnavailable(
-                "M36 candidate/reference canonical types differ"
-            )
-        if isinstance(implementation.type, (StructType, TupleType, VecType)):
-            raise FormalCandidateUnavailable(
-                "M36 formal-aware exploration currently requires a scalar result"
-            )
-        inputs = _input_refs(implementation)
-        reference_inputs = _input_refs(reference)
-        if inputs != reference_inputs:
-            raise FormalCandidateUnavailable(
-                "M36 candidate/reference input bindings differ"
-            )
-
-        timing_relation = validate_timed_candidate(
-            reference,
-            implementation,
-            value_equivalent=True,
-        )
-        if not timing_relation.equivalent:
-            raise FormalCandidateUnavailable(
-                "M36 candidate timing relation is not valid: "
-                f"{timing_relation.proof}"
-            )
-        timed = bool(timing_relation.delta)
-        if timed:
-            domain = self.clock_domain_contract
-            if domain is None:
-                raise FormalCandidateUnavailable(
-                    "M36 timed candidate requires an explicit clock/reset domain"
-                )
-            domain.validate()
-            clock = domain.clock
-            reset = domain.reset
-        else:
-            domain = None
-            clock = None
-            reset = None
-        output_name = "result"
-        occupied = set(inputs)
-        while output_name in occupied:
-            output_name += "_"
-        prefix = stable_digest({
-            "schema": "zlang-m39-module-name-v1",
-            "candidate": self._key(candidate),
-        })[:12]
-        implementation_module = f"ZLangM39Impl_{prefix}"
-        reference_module = f"ZLangM39Ref_{prefix}"
-        ports = tuple(
-            Port(PortDirection.INPUT, name, type_)
-            for name, type_ in sorted(inputs.items())
-        )
-        output = Port(PortDirection.OUTPUT, output_name, implementation.type)
-        module = Module(
-            implementation_module,
-            (*ports, output),
-            (Assignment(output, implementation),),
-            clock=clock,
-            reset=reset,
-            clock_domains=(domain,) if domain is not None else (),
-        )
-        try:
-            selected_identity = self._key(candidate)
-            clash_source_artifact = emit_clash_artifact(
-                module,
-                selected_ir_identity=selected_identity,
-            )
-            with tempfile.TemporaryDirectory(prefix="zlang-m39-clash-") as temporary:
-                rtl_files = generate_verilog(
-                    clash_source_artifact.text,
-                    module.name,
-                    Path(temporary) / "rtl",
-                    clash,
-                )
-                implementation_rtl = "\n".join(
-                    path.read_text() for path in sorted(rtl_files)
-                )
-        except (OSError, ToolchainError, ValueError) as error:
-            raise FormalCandidateUnavailable(
-                f"M36 Clash proof route could not emit candidate RTL: {error}"
-            ) from error
-
-        reference_rtl = emit_reference_model(
-            reference_module,
-            output_name,
-            reference.type,
-            tuple(sorted(reference_inputs.items())),
-            reference,
-            clock_name=clock,
-            reset_name=reset,
-        )
-        reference_ir_module = replace(
-            module,
-            name=reference_module,
-            assignments=(Assignment(output, reference),),
-        )
-        candidate_kind = self.candidate_class or _candidate_class(candidate)
-        reference_timing = timing_info(reference)
-        candidate_timing = timing_info(implementation)
-        if timed:
-            reference_timing = TimingInfo(
-                reference_timing.latency, 1, clock, reset
-            )
-            candidate_timing = TimingInfo(
-                candidate_timing.latency, 1, clock, reset
-            )
-        property_ = make_equivalence_property(
-            reference,
-            implementation,
-            candidate_class=candidate_kind,
-            reference_root=expression_semantic_identity(reference),
-            implementation_root=self._key(candidate),
-            reference_timing=reference_timing,
-            implementation_timing=candidate_timing,
-            inputs=tuple(f"port:{name}" for name in sorted(inputs)),
-            reference_output=f"port:{output_name}",
-            implementation_output=f"port:{output_name}",
-            source_origin=getattr(reference, "origin", None),
-            selected_origin=getattr(implementation, "origin", None),
-            clock_domain_contract=(
-                self.clock_domain_contract if timed else None
-            ),
-        )
-        reference_rtl_names = {
-            **{f"port:{name}": name for name in reference_inputs},
-            f"port:{output_name}": output_name,
-        }
-        if timed:
-            reference_rtl_names.update({"clock": clock, "reset": reset})
-
-        # The source artifact is the backend's authoritative semantic-to-RTL
-        # publication.  Rebind those exact names to the generated RTL payload;
-        # do not reconstruct them from the candidate or from Clash text.
-        implementation_rtl_names = {
-            item.semantic_signal_id: item.rtl_path
-            for item in clash_source_artifact.bindings
-            if item.physical_available and item.rtl_path
-        }
-        implementation_artifact = publish_artifact(
-            module,
-            implementation_rtl,
-            backend="clash",
-            selected_ir_identity=selected_identity,
-            rtl_names=implementation_rtl_names,
-            side=BindingSide.IMPLEMENTATION,
-        )
-        reference_artifact = publish_artifact(
-            reference_ir_module,
-            reference_rtl,
-            backend="semantic_reference",
-            selected_ir_identity=selected_identity,
-            rtl_names=reference_rtl_names,
-            side=BindingSide.REFERENCE,
-        )
-        _validate_candidate_artifact(
-            implementation_artifact,
-            expected_semantic_ids=tuple(reference_rtl_names),
-        )
-        _validate_candidate_artifact(
-            reference_artifact,
-            expected_semantic_ids=tuple(reference_rtl_names),
-        )
-        bindings = BindingMap((
-            *reference_artifact.bindings,
-            *implementation_artifact.bindings,
-        ))
-        reference_hash = reference_artifact.artifact_hash
-        implementation_hash = implementation_artifact.artifact_hash
-        miter_emission = emit_miter_with_metadata(
-            property_,
-            bindings,
-            reference_module=reference_module,
-            implementation_module=implementation_module,
-            clock_name=clock or "clock",
-            reset_name=reset or "reset",
-        )
-        miter = miter_emission.source
-        source = "\n".join((reference_rtl, implementation_rtl, miter))
-        assumptions_identity = stable_digest(
-            {
-                "schema": "zlang-m39-m36-assumptions-v1",
-                "relation": property_.relation_kind.value,
-                "latency_delta": property_.latency_delta,
-                "comparison_window": property_.comparison_window.to_data(),
-                "clock": property_.implementation_clock,
-                "reset": property_.implementation_reset,
-                "ii": property_.implementation_ii,
-            }
-        )
-        return PreparedCandidateEquivalence(
-            property_,
-            source,
-            "m36_" + property_.id.replace(".", "_"),
-            reference_hash,
-            implementation_hash,
-            artifact_hash(miter),
-            property_.id,
-            assumptions_identity,
-            stable_digest({
-                "schema": "zlang-m39-clash-artifact-route-v1",
-                "source_build_identity": clash_source_artifact.build_identity,
-                "rtl_build_identity": implementation_artifact.build_identity,
-                "reference_build_identity": reference_artifact.build_identity,
-                "manifest_version": implementation_artifact.manifest_version,
-                "clash_executable": str(Path(clash).resolve()),
-                "clash_version": (
-                    clash_context.version
-                    if callable(formal_resolve) and callable(clash_resolve)
-                    else _clash_version(clash)
-                ),
-            }),
-            "clash",
-            reference_artifact,
-            implementation_artifact,
-            tuple(f"port:{name}" for name in sorted(inputs)),
-            miter_emission.trace_metadata,
-        )
 
     def _prepare_candidate_equivalence(
         self,
         candidate: object,
         config: FormalExplorationConfig,
-        *,
-        backend: str,
     ) -> PreparedCandidateEquivalence:
-        if backend == "clash":
-            return self._build_bundle(candidate, config)
-        if backend != "direct_systemverilog":
-            raise FormalCandidateUnavailable(
-                f"M36 candidate backend '{backend}' is unsupported"
-            )
         if config.engine != "sby":
             raise FormalCandidateUnavailable(
                 "M36 direct-SystemVerilog route supports only the configured "
@@ -1281,120 +853,14 @@ class M36ClashCandidateVerifier:
             miter_emission.trace_metadata,
         )
 
-    def cache_identity(
-        self, candidate: object, config: FormalExplorationConfig,
-    ) -> dict[str, str]:
-        if self.unavailable_reason is not None:
-            return {"unavailable_reason": self.unavailable_reason}
-        try:
-            bundle = self._bundle(candidate, config)
-        except FormalCandidateUnavailable as error:
-            return {"unavailable_reason": str(error)}
-        return {
-            "property_identity": bundle.property_identity,
-            # ``artifact_hash`` is retained as a compatibility spelling for
-            # the authoritative implementation artifact.  New cache/result
-            # validation binds both sides of the M36 relation explicitly.
-            "artifact_hash": bundle.implementation_artifact_hash,
-            "reference_artifact_hash": bundle.reference_artifact_hash,
-            "implementation_artifact_hash": bundle.implementation_artifact_hash,
-            "harness_hash": bundle.harness_hash,
-            "assumptions_identity": bundle.assumptions_identity,
-            "backend_identity": bundle.backend_identity,
-        }
-
-    def __call__(self, candidate: object, config: FormalExplorationConfig) -> dict[str, object]:
-        expected_mode = (
-            ProofMode.PROVE
-            if config.policy is FormalPolicy.REQUIRED_PROVEN else ProofMode.BMC
-        )
-        if self.unavailable_reason is not None:
-            return {
-                "status": FormalStatus.SKIPPED,
-                "mode": expected_mode,
-                "depth": config.bmc_depth,
-                "engine": config.engine,
-                "solver": config.solver,
-                "backend": "clash",
-                "reason": self.unavailable_reason,
-            }
-        try:
-            bundle = self._bundle(candidate, config)
-        except FormalCandidateUnavailable as error:
-            return {
-                "status": FormalStatus.SKIPPED,
-                "mode": expected_mode,
-                "depth": config.bmc_depth,
-                "engine": config.engine,
-                "solver": config.solver,
-                "backend": "clash",
-                "reason": str(error),
-            }
-        resolver = config.tool_resolver
-        resolve = getattr(resolver, "formal_context", None)
-        context = (
-            resolve(engine=config.engine, solver=config.solver)
-            if callable(resolve) else None
-        )
-        manager = (
-            use_formal_toolchain(context)
-            if context is not None else nullcontext()
-        )
-        work_directory = _m39_work_directory(
-            candidate,
-            self._key(candidate),
-            bundle,
-            config,
-            expected_mode,
-        )
-        with manager:
-            result = run_equivalence_formal(
-                bundle.property,
-                bundle.source,
-                top=bundle.top,
-                backend="clash",
-                mode=(
-                    EquivalenceMode.PROVE
-                    if expected_mode is ProofMode.PROVE else EquivalenceMode.BMC
-                ),
-                depth=config.bmc_depth,
-                solver=config.solver,
-                reference_hash=bundle.reference_artifact_hash,
-                implementation_hash=bundle.implementation_artifact_hash,
-                timeout_seconds=config.timeout_seconds,
-                work_directory=work_directory,
-                trace_metadata=bundle.trace_metadata,
-            )
-        return {
-            "status": FormalStatus(result.status.value),
-            "mode": expected_mode,
-            "depth": result.depth or config.bmc_depth,
-            "engine": result.engine or config.engine,
-            "solver": result.solver or config.solver,
-            "backend": "clash",
-            "artifact_hash": bundle.implementation_artifact_hash,
-            "implementation_artifact_hash": bundle.implementation_artifact_hash,
-            "reference_artifact_hash": bundle.reference_artifact_hash,
-            "property_identity": bundle.property_identity,
-            "harness_hash": bundle.harness_hash,
-            "assumptions_identity": bundle.assumptions_identity,
-            "backend_identity": bundle.backend_identity,
-            "source_origin": result.source_origin,
-            "selected_origin": result.selected_origin,
-            "work_directory": str(work_directory),
-            "reason": result.reason or "",
-            "counterexample": result.counterexample,
-        }
 
 
-class M36DirectSystemVerilogCandidateVerifier(M36ClashCandidateVerifier):
+class M36DirectSystemVerilogCandidateVerifier(_M36CandidateVerifierBase):
     """M39 adapter for the production direct-SystemVerilog route.
 
-    The historical class name is retained for compatibility with callers that
-    explicitly request Clash.  Production sessions which disable the hidden
-    Clash compatibility sink use this adapter instead; it reuses the same M36
-    reference/miter preparation and only changes the implementation artifact
-    route.  No second semantic or scheduling path is introduced.
+    This is the only compiler-owned RTL equivalence adapter.  It preserves the
+    backend-independent reference model and publishes a direct-SV implementation
+    artifact with exact bindings.
     """
 
     formal_route = "M36_direct_systemverilog"
@@ -1445,7 +911,7 @@ class M36DirectSystemVerilogCandidateVerifier(M36ClashCandidateVerifier):
         if self.unavailable_reason is not None:
             return {"unavailable_reason": self.unavailable_reason}
         try:
-            bundle = self.prepare(candidate, config, backend="direct_systemverilog")
+            bundle = self.prepare(candidate, config)
         except FormalCandidateUnavailable as error:
             return {"unavailable_reason": str(error)}
         return {
@@ -1474,9 +940,7 @@ class M36DirectSystemVerilogCandidateVerifier(M36ClashCandidateVerifier):
                 "reason": self.unavailable_reason,
             }
         try:
-            bundle = self.prepare(
-                candidate, config, backend="direct_systemverilog"
-            )
+            bundle = self.prepare(candidate, config)
         except FormalCandidateUnavailable as error:
             return {
                 "status": FormalStatus.SKIPPED,
@@ -1570,31 +1034,13 @@ def _validate_candidate_artifact(
         )
 
 
-def _clash_version(executable: str) -> str:
-    """Return stable backend-tool evidence for the M39 cache identity."""
-
-    try:
-        completed = subprocess.run(
-            (executable, "--version"),
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=15,
-            env=clash_subprocess_environment(executable),
-        )
-    except (OSError, subprocess.SubprocessError) as error:
-        return f"unavailable:{type(error).__name__}"
-    output = (completed.stdout or completed.stderr).strip()
-    return f"exit={completed.returncode}:{output}"
-
-
 def gate_standalone_pipelines(
     module: Module,
     config: FormalExplorationConfig,
     verifier: object | None = None,
     *,
     canonical_site_keys: Iterable[tuple[str, str | None, str]] = (),
-    backend: str = "clash",
+    backend: str = "direct_systemverilog",
 ) -> Module:
     """Apply the frozen M39 gate to ordinary implementation regions.
 
@@ -1638,14 +1084,14 @@ def gate_standalone_pipelines(
         domain, domain_limitation = candidate_owner_formal_domain(
             module, module_candidate_owner_identity(module)
         )
+        if backend != "direct_systemverilog":
+            raise FormalCandidateUnavailable(
+                f"formal backend '{backend}' is retired; use direct_systemverilog"
+            )
         selected_verifier = (
             verifier
             if verifier is not None and domain_limitation is None
-            else (
-                M36DirectSystemVerilogCandidateVerifier
-                if backend == "direct_systemverilog"
-                else M36ClashCandidateVerifier
-            )(
+            else M36DirectSystemVerilogCandidateVerifier(
                 exploration.source_expression,
                 candidate_class="m31",
                 artifact_provider=getattr(config, "artifact_provider", None),
@@ -1749,7 +1195,6 @@ def standalone_pipeline_candidate_space(exploration: object):
 __all__ = [
     "candidate_equivalence_class",
     "FormalCandidateUnavailable",
-    "M36ClashCandidateVerifier",
     "M36DirectSystemVerilogCandidateVerifier",
     "PhysicalTargetFormalCandidate",
     "PreparedCandidateEquivalence",

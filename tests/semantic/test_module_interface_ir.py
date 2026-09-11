@@ -23,7 +23,6 @@ module Timed : TimedIfc {
     timing { latency 2 ii 1 }
 }
 """,
-        include_clash=False,
     )
     signature = result.ir.module_signature
     assert signature is not None
@@ -36,14 +35,3 @@ module Timed : TimedIfc {
         "latency": 2,
         "reset_domain": "rst",
     }
-
-
-def test_named_interface_does_not_change_generated_clash_text() -> None:
-    plain = compile_source("module Pass { in a:u8 out y:u8 y=a }")
-    named = compile_source(
-        """
-interface PassIfc { in a:u8 out y:u8 }
-module Pass : PassIfc { in a:u8 out y:u8 y=a }
-"""
-    )
-    assert named.clash == plain.clash

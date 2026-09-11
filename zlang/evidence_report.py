@@ -1,7 +1,7 @@
 """Typed adapters and deterministic rendering for whole-build evidence.
 
 This module is deliberately a reporting boundary.  It accepts the structured
-results produced by M35, M36, M38, and M39; it never infers proof from log text,
+results produced by M35, M36, and M39; it never infers proof from log text,
 property registration, or harness generation.
 """
 
@@ -15,10 +15,6 @@ from typing import TYPE_CHECKING, Iterable, Mapping
 from zlang.build_manifest import EvidenceRecord, ReportRecord
 from zlang.common import stable_digest, stable_json
 from zlang.formal_exploration import FormalExplorationRecord
-from zlang.ir.cross_backend import (
-    CrossBackendCounterexample,
-    CrossBackendResult,
-)
 from zlang.ir.equivalence import EquivalenceCounterexample, EquivalenceResult
 from zlang.ir.formal import Counterexample, FormalProperty, FormalResult
 from zlang.ir.interfaces import InterfaceProtocol
@@ -105,10 +101,7 @@ class EvidenceReportPayload:
         }
         common_equivalence = {
             item.evidence_id for item in ordered
-            if item.claim in {
-                "m36.selected_architecture_equivalence",
-                "m38.cross_backend_equivalence",
-            }
+            if item.claim == "m36.selected_architecture_equivalence"
         }
         if report_evidence != common_equivalence:
             detail = sorted(report_evidence ^ common_equivalence)[0]
@@ -242,7 +235,7 @@ class EvidenceReportPayload:
 
 
 def _counterexample_data(
-    counterexample: Counterexample | EquivalenceCounterexample | CrossBackendCounterexample | None,
+    counterexample: Counterexample | EquivalenceCounterexample | None,
 ) -> dict[str, object] | None:
     if counterexample is None:
         return None
@@ -263,24 +256,8 @@ def _counterexample_data(
             "values": [list(item) for item in counterexample.values],
             "raw_trace": counterexample.raw_trace,
         }
-    if isinstance(counterexample, CrossBackendCounterexample):
-        return {
-            "kind": "m38",
-            "property_id": counterexample.property_id,
-            "semantic_signal_id": counterexample.semantic_signal_id,
-            "cycle": counterexample.cycle,
-            "sample_cycle": counterexample.sample_cycle,
-            "left_backend": counterexample.left_backend,
-            "right_backend": counterexample.right_backend,
-            "left_artifact_hash": counterexample.left_artifact_hash,
-            "right_artifact_hash": counterexample.right_artifact_hash,
-            "left_rtl_path": counterexample.left_rtl_path,
-            "right_rtl_path": counterexample.right_rtl_path,
-            "values": [list(item) for item in counterexample.values],
-            "raw_trace": counterexample.raw_trace,
-        }
     raise EvidenceReportError(
-        "counterexample evidence must use an M35, M36, or M38 typed counterexample"
+        "counterexample evidence must use an M35 or M36 typed counterexample"
     )
 
 
@@ -318,7 +295,7 @@ def _record(
     solver: str | None,
     relation: str | None,
     route: str | None,
-    counterexample: Counterexample | EquivalenceCounterexample | CrossBackendCounterexample | None,
+    counterexample: Counterexample | EquivalenceCounterexample | None,
     details: tuple[tuple[str, str], ...],
 ) -> EvidenceRecord:
     if depth is not None and depth < 1:
@@ -423,7 +400,7 @@ def evidence_from_verification_report(
 
     The verification executor already owns the distinction between same-cycle
     safety and bounded reachability.  This adapter merely publishes those typed
-    results through the common evidence facade; it never invokes M36, M38, or
+    results through the common evidence facade; it never invokes M36 or
     M39 and it deliberately excludes host-local work-directory paths.
     """
 
@@ -552,48 +529,6 @@ def evidence_from_equivalence_result(result: EquivalenceResult) -> EvidenceRecor
     )
 
 
-def evidence_from_cross_backend_result(result: CrossBackendResult) -> EvidenceRecord:
-    """Adapt one M38 backend-pair equivalence result."""
-
-    if not isinstance(result, CrossBackendResult):
-        raise TypeError("M38 evidence requires CrossBackendResult")
-    return _record(
-        "m38",
-        claim="m38.cross_backend_equivalence",
-        status=result.status.value,
-        mode=result.mode.value,
-        depth=result.depth,
-        property_id=result.property_id,
-        candidate_identity=result.selected_ir_identity,
-        backend=f"{result.left_backend}<->{result.right_backend}",
-        artifact_hash=result.right_artifact_hash,
-        reference_hash=result.left_artifact_hash,
-        source_origin=(
-            result.source_origin
-            if result.source_origin is not None
-            else (
-                None
-                if result.counterexample is None
-                else result.counterexample.source_origin
-            )
-        ),
-        engine=result.engine,
-        solver=result.solver,
-        relation=result.relation.value,
-        route="cross_backend",
-        counterexample=result.counterexample,
-        details=_details(
-            selected_ir_identity=result.selected_ir_identity,
-            left_backend=result.left_backend,
-            right_backend=result.right_backend,
-            left_artifact_hash=result.left_artifact_hash,
-            right_artifact_hash=result.right_artifact_hash,
-            manifest_version=result.manifest_version,
-            observable_signal_id=result.observable_signal_id,
-            latency_delta=result.latency_delta,
-            reason=result.reason,
-        ),
-    )
 
 
 def evidence_from_formal_exploration_record(
@@ -648,7 +583,7 @@ def evidence_from_formal_exploration_record(
     counterexample = result.counterexample
     if counterexample is not None and not isinstance(
         counterexample,
-        (Counterexample, EquivalenceCounterexample, CrossBackendCounterexample),
+        (Counterexample, EquivalenceCounterexample),
     ):
         raise EvidenceReportError("M39 counterexample metadata must use typed formal IR")
     if status == "failed" and counterexample is None:
@@ -858,13 +793,11 @@ def evidence_from_result(result: object) -> EvidenceRecord:
         return evidence_from_formal_result(result)
     if isinstance(result, EquivalenceResult):
         return evidence_from_equivalence_result(result)
-    if isinstance(result, CrossBackendResult):
-        return evidence_from_cross_backend_result(result)
     if isinstance(result, FormalExplorationRecord):
         return evidence_from_formal_exploration_record(result)
     raise TypeError(
         "evidence adapters accept only FormalResult, EquivalenceResult, "
-        "CrossBackendResult, or FormalExplorationRecord"
+        "or FormalExplorationRecord"
     )
 
 
@@ -1006,7 +939,6 @@ __all__ = [
     "evidence_for_typed_module",
     "evidence_for_unexecuted_property",
     "evidence_for_validated_timing",
-    "evidence_from_cross_backend_result",
     "evidence_from_equivalence_result",
     "evidence_from_formal_exploration_record",
     "evidence_from_formal_result",

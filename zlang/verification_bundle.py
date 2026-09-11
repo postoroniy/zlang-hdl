@@ -1551,7 +1551,7 @@ def _validate_candidate_replay_files(
 def load_candidate_equivalence_replay(
     bundle: LoadedVerificationBundle | Path,
 ) -> tuple[object, ...]:
-    """Load strict frozen M36/M38 inputs without compiling source."""
+    """Load strict frozen M36 inputs without compiling source."""
 
     loaded = load_verification_bundle(bundle) if isinstance(bundle, Path) else bundle
     payload = loaded.verification_ir.get("payload")
@@ -2955,7 +2955,7 @@ def _vcd_snapshot(
     cycle: int | None,
     bindings: tuple[TraceBinding, ...],
 ) -> tuple[tuple[str, str], ...]:
-    """Compatibility wrapper around the shared M35/M36/M38 decoder."""
+    """Compatibility wrapper around the shared M35/M36 decoder."""
 
     return decode_vcd_trace(path, cycle=cycle, bindings=bindings).values
 

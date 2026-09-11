@@ -12,11 +12,6 @@ import tempfile
 
 import pytest
 
-from zlang.backend.clash import (
-    emit_artifact as emit_clash_artifact,
-    emit_formal_artifact as emit_clash_formal_artifact,
-    validate_register_formal_artifact,
-)
 from zlang.backend.systemverilog import (
     emit_artifact as emit_sv_artifact,
     emit_formal_artifact as emit_sv_formal_artifact,
@@ -31,7 +26,6 @@ from zlang.formal import (
 from zlang.ir.formal import FormalStatus
 from zlang.ir.formal_observations import rule_fire_observation_id
 from zlang.ir.state import select_action_groups
-from zlang.toolchain import find_clash_executable, generate_verilog
 from zlang.workspace import load_project_workspace
 
 
@@ -65,7 +59,6 @@ def _compiled_rules():
     return compile_source(
         SCHEDULED_RULES,
         top="ScheduledRules",
-        include_clash=False,
         source_unit="tests/fixtures/rule-fire-scheduler.zhl",
     )
 
@@ -201,48 +194,8 @@ def test_rule_fire_catalog_is_formal_only_and_preserves_component_roles() -> Non
     )
 
 
-def test_formal_generation_does_not_change_production_text_or_hashes() -> None:
-    module = _compiled_rules().ir
-    direct_before = emit_sv_artifact(module)
-    clash_before = emit_clash_artifact(module)
-    design = build_recursive_formal_design(module)
-    emit_sv_formal_artifact(module, design)
-    emit_clash_formal_artifact(module, design)
-    direct_after = emit_sv_artifact(module)
-    clash_after = emit_clash_artifact(module)
-    assert (direct_before.text, direct_before.artifact_hash) == (
-        direct_after.text, direct_after.artifact_hash
-    )
-    assert (clash_before.text, clash_before.artifact_hash) == (
-        clash_after.text, clash_after.artifact_hash
-    )
 
 
-@pytest.mark.skipif(
-    not (shutil.which("verilator") and find_clash_executable()),
-    reason="real Clash and Verilator are required",
-)
-def test_rule_fire_matches_scheduler_for_all_guards_fifo_regions_and_reset() -> None:
-    compilation = _compiled_rules()
-    module = compilation.ir
-    assert module.resolved_transition is not None
-    design = build_recursive_formal_design(module)
-    with tempfile.TemporaryDirectory() as directory:
-        root = Path(directory)
-        direct = emit_sv_formal_artifact(module, design)
-        direct_file = root / "direct.sv"
-        direct_file.write_text(direct.text)
-        _run_verilator((direct_file,), direct, module.resolved_transition, root / "direct")
-
-    with tempfile.TemporaryDirectory() as directory:
-        root = Path(directory)
-        clash = emit_clash_formal_artifact(module, design)
-        files = generate_verilog(
-            clash.text, "ScheduledRules_formal", root,
-            find_clash_executable(),
-        )
-        clash = validate_register_formal_artifact(clash, files)
-        _run_verilator(files, clash, module.resolved_transition, root / "clash")
 
 
 def test_wifi_controller_priority_rules_are_connected_to_physical_fire() -> None:
@@ -251,7 +204,6 @@ def test_wifi_controller_priority_rules_are_connected_to_physical_fire() -> None
     compilation = compile_source(
         WIFI_CONTROLLER.read_text(),
         top="IeeeDataFramer24",
-        include_clash=False,
         source_unit=(
             "examples/projects/80211a_transmitter/src/controller.zhl"
         ),

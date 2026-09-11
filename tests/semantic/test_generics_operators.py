@@ -46,12 +46,10 @@ def test_callable_immutable_bindings_lower_to_existing_expression_ir() -> None:
         "fn accumulate<type T>(a:T,b:T){"
         "exact=a+b widened=exact+extend<9>(b) widened} "
         "module Top{in a:u8 in b:u8 out y:u10 y=accumulate(a,b)}",
-        include_clash=False,
     )
     nested = compile_source(
         "fn accumulate<type T>(a:T,b:T){(a+b)+extend<9>(b)} "
         "module Top{in a:u8 in b:u8 out y:u10 y=accumulate(a,b)}",
-        include_clash=False,
     )
     concise_body = concise.ir.callable_definitions[0].body
     nested_body = nested.ir.callable_definitions[0].body
@@ -69,13 +67,11 @@ def test_callable_bindings_are_sequential_immutable_and_inferred() -> None:
         compile_source(
             "fn bad<type T>(x:T){first=later later=x first} "
             "module Top{in x:u8 out y:u8 y=bad(x)}",
-            include_clash=False,
         )
     with pytest.raises(SemanticError, match="duplicate callable binding 'x'"):
         compile_source(
             "fn bad<type T>(x:T){x=x x} "
             "module Top{in x:u8 out y:u8 y=bad(x)}",
-            include_clash=False,
         )
 
 
@@ -163,7 +159,6 @@ def test_recursive_generic_function_specialization_is_rejected() -> None:
         compile_source(
             "fn recurse<type T>(x:T)->T{recurse(x)} "
             "module Top{in x:u8 out y:u8 y=recurse(x)}",
-            include_clash=False,
         )
 
 
@@ -179,7 +174,6 @@ module Top {
         compile_source(
             source,
             source_unit="generic-return.zhl",
-            include_clash=False,
         )
 
     error = captured.value
@@ -208,7 +202,6 @@ module Top {
         compile_source(
             source,
             source_unit="operator-inference.zhl",
-            include_clash=False,
         )
 
     error = captured.value

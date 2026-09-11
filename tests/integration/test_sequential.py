@@ -3,7 +3,6 @@ import subprocess
 import tempfile
 import unittest
 
-from tests.toolchain import CLASH_ENVIRONMENT, CLASH_EXECUTABLE
 from zlang.compiler import compile_source
 from zlang.simulate import SimulationError, simulate, simulate_cycles
 
@@ -53,22 +52,6 @@ class SequentialIntegrationTests(unittest.TestCase):
         with self.assertRaisesRegex(SimulationError, "use simulate_cycles"):
             simulate(module)
 
-    @unittest.skipUnless(CLASH_EXECUTABLE, "Clash executable is not available")
-    def test_milestone_four_examples_compile_to_verilog(self) -> None:
-        for source_name in ("Counter.hs", "DelayedMul.hs"):
-            with self.subTest(source=source_name), tempfile.TemporaryDirectory() as temporary:
-                subprocess.run(
-                    [
-                        CLASH_EXECUTABLE,
-                        "--verilog",
-                        str(ROOT / "examples/generated" / source_name),
-                        "-outputdir",
-                        temporary,
-                    ],
-                    check=True,
-                    cwd=ROOT,
-                    env=CLASH_ENVIRONMENT,
-                )
 
 
 if __name__ == "__main__":

@@ -80,7 +80,7 @@ module Controller {
 
 
 def _trace(source: str) -> list[dict[str, int]]:
-    module = compile_source(source, include_clash=False).ir
+    module = compile_source(source).ir
     return simulate_cycles(
         module,
         [
@@ -98,8 +98,8 @@ def _trace(source: str) -> list[dict[str, int]]:
 
 
 def test_concise_fsm_lowers_before_typed_ir_and_matches_verbose_cycles() -> None:
-    concise = compile_source(CONCISE, include_clash=False).ir
-    verbose = compile_source(VERBOSE, include_clash=False).ir
+    concise = compile_source(CONCISE).ir
+    verbose = compile_source(VERBOSE).ir
     assert tuple(register.name for register in concise.registers) == (
         "remaining", "phase",
     )
@@ -110,8 +110,8 @@ def test_concise_fsm_lowers_before_typed_ir_and_matches_verbose_cycles() -> None
 
 
 def test_concise_fsm_is_deterministic_and_canonical_round_trip_is_lossless() -> None:
-    first = compile_source(CONCISE, include_clash=False).ir
-    second = compile_source(CONCISE, include_clash=False).ir
+    first = compile_source(CONCISE).ir
+    second = compile_source(CONCISE).ir
     assert tuple(rule.name for rule in first.rules) == tuple(
         rule.name for rule in second.rules
     )

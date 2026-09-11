@@ -6,6 +6,10 @@ policy, backend products, companion files, actual tool executions, generated
 reports, and typed evidence without making any of those records the source of
 language semantics.
 
+> Dated multi-backend and M38 examples below are historical schema evidence.
+> Current builds contain only the direct-SystemVerilog production artifact;
+> current compiler execution does not prepare or run M38.
+
 The first schema is `zlang-whole-build-manifest-v1`. It is complementary to,
 not a replacement for, the per-backend `BackendArtifact` manifest.
 

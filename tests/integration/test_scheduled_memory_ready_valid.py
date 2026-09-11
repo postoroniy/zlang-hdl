@@ -14,13 +14,11 @@ import subprocess
 
 import pytest
 
-from zlang.backend.clash import emit as emit_clash
 from zlang.backend.manifest import BackendArtifact
 from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
 from zlang.compiler import compile_source
 from zlang.opt.lowering import lower, restore
 from zlang.simulate import simulate_cycles
-from zlang.toolchain import find_clash_executable, generate_verilog
 
 
 SOURCE = r"""
@@ -125,7 +123,7 @@ def _cycles() -> tuple[dict[str, object], ...]:
 
 
 def test_semantic_canonical_and_simulator_preserve_the_mixed_transition() -> None:
-    module = compile_source(SOURCE, include_clash=False).ir
+    module = compile_source(SOURCE).ir
     assert module.memories[0].scheduled
     assert tuple(register.name for register in module.registers) == ("pending",)
     assert tuple(rule.name for rule in module.rules) == (
@@ -153,33 +151,11 @@ def test_semantic_canonical_and_simulator_preserve_the_mixed_transition() -> Non
     assert trace[9]["tx"]["payload"] == 0
 
 
-def test_both_artifacts_are_deterministic_and_publish_the_public_ports() -> None:
-    module = compile_source(SOURCE, include_clash=False).ir
-    first = emit_sv_artifact(module)
-    second = emit_sv_artifact(module)
-    assert first.text == second.text
-    assert first.artifact_hash == second.artifact_hash
-    assert BackendArtifact.from_json(first.to_json()).to_json() == first.to_json()
-    semantic_ids = {binding.semantic_signal_id for binding in first.bindings}
-    assert {"port:rx", "port:tx"} <= {
-        identity.split(".", 1)[0] for identity in semantic_ids
-    } or {
-        "port:rx.payload",
-        "port:rx.valid",
-        "port:rx.ready",
-        "port:tx.payload",
-        "port:tx.valid",
-        "port:tx.ready",
-    } <= semantic_ids
-    clash_first = emit_clash(module)
-    assert emit_clash(module) == clash_first
 
 
 def _lint(
     files: tuple[Path, ...] | list[Path],
     top: str,
-    *,
-    clash_generated: bool = False,
 ) -> None:
     subprocess.run(
         (
@@ -191,7 +167,6 @@ def _lint(
             "-Wno-DECLFILENAME",
             "-Wno-UNUSEDSIGNAL",
             "-Wno-UNUSEDPARAM",
-            *(('-Wno-PROCASSINIT',) if clash_generated else ()),
             *map(str, files),
         ),
         check=True,
@@ -203,8 +178,6 @@ def _lint(
 def _simulate_rtl(
     files: tuple[Path, ...] | list[Path],
     root: Path,
-    *,
-    clash_generated: bool = False,
 ) -> None:
     bench = root / "tb.sv"
     bench.write_text(BENCH)
@@ -222,8 +195,6 @@ def _simulate_rtl(
         "-Wno-UNUSEDSIGNAL",
         "-Wno-UNUSEDPARAM",
     ]
-    if clash_generated:
-        command.append("-Wno-PROCASSINIT")
     command.extend((*map(str, files), str(bench), "--Mdir", str(object_dir)))
     subprocess.run(
         command,
@@ -242,24 +213,8 @@ def _simulate_rtl(
 
 @pytest.mark.skipif(shutil.which("verilator") is None, reason="Verilator unavailable")
 def test_direct_sv_is_strict_lint_clean(tmp_path: Path) -> None:
-    artifact = emit_sv_artifact(compile_source(SOURCE, include_clash=False).ir)
+    artifact = emit_sv_artifact(compile_source(SOURCE).ir)
     rtl = tmp_path / "ScheduledMemoryRv.sv"
     rtl.write_text(artifact.text)
     _lint([rtl], "ScheduledMemoryRv")
     _simulate_rtl([rtl], tmp_path)
-
-
-@pytest.mark.skipif(
-    shutil.which("verilator") is None or find_clash_executable() is None,
-    reason="Clash or Verilator unavailable",
-)
-def test_real_clash_is_strict_lint_clean(tmp_path: Path) -> None:
-    module = compile_source(SOURCE, include_clash=False).ir
-    files = generate_verilog(
-        emit_clash(module),
-        module.name,
-        tmp_path / "clash",
-        find_clash_executable(),
-    )
-    _lint(files, module.name, clash_generated=True)
-    _simulate_rtl(files, tmp_path, clash_generated=True)

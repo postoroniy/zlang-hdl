@@ -10,8 +10,6 @@ import subprocess
 
 import pytest
 
-from tests.toolchain import CLASH_EXECUTABLE
-from zlang.backend.clash.public_wrapper import ClashPublicTopWrapper
 from tests.integration.test_80211a_interleaver_packet import (
     _ieee_words,
     _psdu_beats,
@@ -20,7 +18,7 @@ from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
 from zlang.compiler import compile_file
 from zlang.opt import OptimizationStage, lower, restore
 from zlang.simulate import simulate, simulate_cycles
-from zlang.toolchain import generate_verilog, lint_with_verilator
+from zlang.toolchain import lint_with_verilator
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -33,7 +31,7 @@ SOURCE = (
     / "mapper.zhl"
 )
 KERNEL = "IeeeMapperBlock64"
-CLASH_KERNEL = "IeeeMapperFrame64"
+FRAME_KERNEL = "IeeeMapperFrame64"
 PACKET_TOP = "IeeePacketMapper64"
 VERILATOR = shutil.which("verilator")
 MASK48 = (1 << 48) - 1
@@ -159,7 +157,7 @@ def _expected_packet(rate: int, payload: bytes) -> list[dict[str, object]]:
 
 
 def test_mapper_kernel_matches_ieee_rates_constellations_and_pilots() -> None:
-    module = compile_file(SOURCE, top=KERNEL, include_clash=False).ir
+    module = compile_file(SOURCE, top=KERNEL).ir
     generator = random.Random(0x80211A)
     for rate in (1, 2, 4):
         for polarity in (0, 1):
@@ -183,7 +181,7 @@ def test_mapper_kernel_matches_ieee_rates_constellations_and_pilots() -> None:
 
 
 def test_sparse_invalid_rate_fails_closed_at_raw_boundary() -> None:
-    module = compile_file(SOURCE, top=KERNEL, include_clash=False).ir
+    module = compile_file(SOURCE, top=KERNEL).ir
     for raw_rate in (0, 3, 5, 6, 7):
         result = simulate(
             module,
@@ -199,7 +197,7 @@ def test_sparse_invalid_rate_fails_closed_at_raw_boundary() -> None:
 
 
 def test_packet_mapper_streams_all_rates_holds_stalls_and_preserves_metadata() -> None:
-    module = compile_file(SOURCE, top=PACKET_TOP, include_clash=False).ir
+    module = compile_file(SOURCE, top=PACKET_TOP).ir
     for rate, payload in ((1, b"\x55"), (2, b"\xa5"), (4, b"\x3c")):
         beats = _psdu_beats(payload)
         cycles = [
@@ -233,7 +231,7 @@ def test_packet_mapper_streams_all_rates_holds_stalls_and_preserves_metadata() -
 
 
 def test_reset_discards_a_stalled_symbol_and_restarts_pilot_epoch() -> None:
-    module = compile_file(SOURCE, top=PACKET_TOP, include_clash=False).ir
+    module = compile_file(SOURCE, top=PACKET_TOP).ir
     payload = b"\x55"
     beat = _psdu_beats(payload)[0]
     cycles = [
@@ -263,8 +261,8 @@ def test_reset_discards_a_stalled_symbol_and_restarts_pilot_epoch() -> None:
 
 
 def test_mapper_call_graph_canonical_roundtrip_and_packet_hierarchy() -> None:
-    kernel = compile_file(SOURCE, top=KERNEL, include_clash=False)
-    packet = compile_file(SOURCE, top=PACKET_TOP, include_clash=False)
+    kernel = compile_file(SOURCE, top=KERNEL)
+    packet = compile_file(SOURCE, top=PACKET_TOP)
     assert restore(lower(kernel.ir, stage=OptimizationStage.HIGH_LEVEL)) == kernel.ir
     assert restore(lower(packet.ir, stage=OptimizationStage.HIGH_LEVEL)) == packet.ir
     assert [port.type.width for port in kernel.ir.outputs] == [1, 2048]
@@ -280,15 +278,15 @@ def test_mapper_call_graph_canonical_roundtrip_and_packet_hierarchy() -> None:
 
 
 def test_direct_sv_is_deterministic_and_strict_lint_clean(tmp_path: Path) -> None:
-    for top in (CLASH_KERNEL, PACKET_TOP):
-        compilation = compile_file(SOURCE, top=top, include_clash=False)
+    for top in (FRAME_KERNEL, PACKET_TOP):
+        compilation = compile_file(SOURCE, top=top)
         first = emit_sv_artifact(compilation.ir)
         second = emit_sv_artifact(compilation.ir)
         assert first.text == second.text
         assert first.artifact_hash == second.artifact_hash
         assert first.to_json() == second.to_json()
         bindings = {item.semantic_signal_id: item for item in first.bindings}
-        if top == CLASH_KERNEL:
+        if top == FRAME_KERNEL:
             assert bindings["port:frame.re"].physical_available
             assert bindings["port:frame.im"].physical_available
         rtl = tmp_path / f"{top}.sv"
@@ -296,25 +294,12 @@ def test_direct_sv_is_deterministic_and_strict_lint_clean(tmp_path: Path) -> Non
         lint_with_verilator((rtl,), top)
 
 
-@pytest.mark.skipif(CLASH_EXECUTABLE is None, reason="real Clash 1.11 is unavailable")
-def test_real_clash_generation_and_verilator_lint(tmp_path: Path) -> None:
-    compilation = compile_file(SOURCE, top=CLASH_KERNEL)
-    rtl = tuple(
-        generate_verilog(
-            compilation.clash,
-            CLASH_KERNEL,
-            tmp_path / "clash_rtl",
-            CLASH_EXECUTABLE,
-            public_wrapper=ClashPublicTopWrapper.build(compilation.ir),
-        )
-    )
-    lint_with_verilator(rtl, CLASH_KERNEL)
 
 
 @pytest.mark.skipif(VERILATOR is None, reason="Verilator is unavailable")
 def test_direct_sv_numerical_smoke(tmp_path: Path) -> None:
-    compilation = compile_file(SOURCE, top=CLASH_KERNEL, include_clash=False)
-    rtl = tmp_path / f"{CLASH_KERNEL}.sv"
+    compilation = compile_file(SOURCE, top=FRAME_KERNEL)
+    rtl = tmp_path / f"{FRAME_KERNEL}.sv"
     rtl.write_text(emit_sv_artifact(compilation.ir).text)
     words = [0x0123456789AB, 0xFEDCBA987654]
     expected = ieee_mapper_frame(2, words, 1)
@@ -334,7 +319,7 @@ def test_direct_sv_numerical_smoke(tmp_path: Path) -> None:
                 "logic [2:0] raw_rate; logic [47:0] word0, word1, word2, word3;",
                 "logic polarity; wire signed [15:0] frame_re [0:63]; "
                 "wire signed [15:0] frame_im [0:63];",
-                f"{CLASH_KERNEL} dut(.*);",
+                f"{FRAME_KERNEL} dut(.*);",
                 "initial begin",
                 f"raw_rate=2; word0=48'h{words[0]:012x}; word1=48'h{words[1]:012x};",
                 "word2=0; word3=0; polarity=1; #1;",

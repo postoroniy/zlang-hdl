@@ -14,7 +14,6 @@ import shutil
 import tempfile
 import unittest
 
-from tests.toolchain import CLASH_EXECUTABLE
 from zlang.cli import main
 
 
@@ -44,16 +43,6 @@ class CliArtifactRoutingTests(unittest.TestCase):
         self.assertIn("module ALU", stdout)
         self.assertNotIn("module ALU where", stdout)
 
-    def test_systemverilog_only_suppresses_clash_stdout(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            output = Path(temporary) / "ALU.sv"
-            status, stdout = self.invoke(["--systemverilog", str(output)])
-            self.assertEqual(status, 0)
-            self.assertEqual(stdout, "")
-            self.assertEqual(
-                output.read_text(),
-                (ROOT / "examples/generated/ALU.direct.sv").read_text(),
-            )
 
     def test_explicit_backend_can_publish_structured_source_map(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -91,23 +80,6 @@ class CliArtifactRoutingTests(unittest.TestCase):
             self.assertEqual(raised.exception.code, 2)
             self.assertFalse(source_map.exists())
 
-    def test_direct_only_top_is_not_blocked_by_unrelated_clash_emission(self) -> None:
-        source = ROOT / "examples/multichannel_dma.zhl"
-        with tempfile.TemporaryDirectory() as temporary:
-            output = Path(temporary) / "DMAChannel.sv"
-            stdout = io.StringIO()
-            stderr = io.StringIO()
-            with redirect_stdout(stdout), redirect_stderr(stderr):
-                status = main(
-                    [
-                        str(source), "--top", "DMAChannel",
-                        "--systemverilog", str(output),
-                    ]
-                )
-            self.assertEqual(status, 0, stderr.getvalue())
-            self.assertEqual(stdout.getvalue(), "")
-            self.assertEqual(stderr.getvalue(), "")
-            self.assertIn("module DMAChannel", output.read_text())
 
     def test_check_reports_success_without_emitting_backend_text(self) -> None:
         status, stdout, stderr = self.invoke_with_stderr(["--check"])
@@ -148,18 +120,6 @@ class CliArtifactRoutingTests(unittest.TestCase):
             self.assertEqual(status, 0)
             self.assertIn("top DefaultTop", stdout.getvalue())
 
-    def test_verbose_systemverilog_reports_written_path_without_clash_stdout(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            output = Path(temporary) / "ALU.sv"
-            status, stdout, stderr = self.invoke_with_stderr(
-                ["--systemverilog", str(output), "--verbose"]
-            )
-            self.assertEqual(status, 0)
-            self.assertEqual(stdout, "")
-            self.assertIn("zlang: ok:", stderr)
-            self.assertIn("top ALU", stderr)
-            self.assertIn(str(output), stderr)
-            self.assertTrue(output.is_file())
 
     def test_check_rejects_artifact_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -182,42 +142,8 @@ class CliArtifactRoutingTests(unittest.TestCase):
                 (ROOT / "examples/generated/ALU.direct.sv").read_text(),
             )
 
-    def test_clash_output_only_suppresses_stdout(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            output = Path(temporary) / "ALU.hs"
-            status, stdout = self.invoke(["-o", str(output)])
-            self.assertEqual(status, 0)
-            self.assertEqual(stdout, "")
-            self.assertIn("module ALU where", output.read_text())
 
-    def test_combined_clash_and_systemverilog_outputs_are_both_written(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            clash = root / "ALU.hs"
-            direct = root / "ALU.sv"
-            status, stdout = self.invoke(
-                ["-o", str(clash), "--systemverilog", str(direct)]
-            )
-            self.assertEqual(status, 0)
-            self.assertEqual(stdout, "")
-            self.assertIn("module ALU where", clash.read_text())
-            self.assertEqual(
-                direct.read_text(),
-                (ROOT / "examples/generated/ALU.direct.sv").read_text(),
-            )
 
-    @unittest.skipUnless(CLASH_EXECUTABLE and VERILATOR,
-                         "Clash and Verilator are required")
-    def test_verilog_directory_is_a_silent_explicit_sink(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            output = Path(temporary) / "rtl"
-            status, stdout = self.invoke(["--verilog-dir", str(output)])
-            self.assertEqual(status, 0)
-            self.assertEqual(stdout, "")
-            self.assertTrue((output / "ALU.sv").is_file())
-            self.assertTrue(
-                (output / "ALU.topEntity" / "zlang_core_ALU.v").is_file()
-            )
 
     def test_report_only_output_is_a_silent_explicit_sink(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

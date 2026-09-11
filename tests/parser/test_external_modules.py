@@ -31,4 +31,3 @@ def test_parser_retains_external_model_and_named_interface() -> None:
     assert external.conforms_to.name == "AddIfc"
     assert external.external_model == "add_model"
     assert external.external_origin is not None
-

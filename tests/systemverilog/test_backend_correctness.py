@@ -45,7 +45,6 @@ module SpecializedTop {
 def _negative_contract_module():
     module = compile_source(
         "module NegativeContract { clock clk reset rst in x:s8 out y:s8 y=x }",
-        include_clash=False,
     ).ir
     signed = SIntType(8)
     bit = BitType()
@@ -98,7 +97,6 @@ def test_contract_sidecar_fails_closed_for_split_public_struct_output() -> None:
         "module SplitContract { clock clk reset rst in x:u8 out y:Result "
         "y = Result { data=x ok=1 } "
         "assert output_ok @ clk { y.ok } }",
-        include_clash=False,
     )
 
     assert "non-executable verification contract report" in result.contracts_sva
@@ -132,7 +130,6 @@ def test_contract_sidecar_uses_the_exact_nondefault_clock_reset_contract(
     result = compile_source(
         f"module NonDefaultContract {{ {domain} in x:bit out y:bit "
         "y=x assert same @clk { y == x } }",
-        include_clash=False,
     )
 
     assert "non-executable verification contract report" not in result.contracts_sva
@@ -191,7 +188,6 @@ def test_composed_hierarchy_rejects_incomplete_or_mismatched_metadata() -> None:
     module = compile_source(
         SPECIALIZED_HIERARCHY,
         top="SpecializedTop",
-        include_clash=False,
     ).ir
     incomplete = replace(module, children=module.children[:-1])
     with pytest.raises(SystemVerilogEmissionError, match="typed children"):
@@ -218,7 +214,6 @@ def test_recursive_artifact_rejects_missing_path_and_specialization_mismatch() -
     module = compile_source(
         SPECIALIZED_HIERARCHY,
         top="SpecializedTop",
-        include_clash=False,
     ).ir
     design = build_recursive_formal_design(module)
     child_binding_index = next(
@@ -253,7 +248,6 @@ def test_same_prefix_specializations_extend_their_component_names() -> None:
     module = compile_source(
         SPECIALIZED_HIERARCHY,
         top="SpecializedTop",
-        include_clash=False,
     ).ir
     identities = (
         "aaaaaaaaaa11111111111111",
@@ -274,7 +268,6 @@ def test_same_prefix_specialization_components_lint_with_verilator() -> None:
     module = compile_source(
         SPECIALIZED_HIERARCHY,
         top="SpecializedTop",
-        include_clash=False,
     ).ir
     identities = (
         "aaaaaaaaaa11111111111111",

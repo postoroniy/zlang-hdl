@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
-"""Reproducible Clash/direct-SV QoR evidence for the canonical 802.11a top.
+"""Reproducible direct-SystemVerilog QoR evidence for the canonical 802.11a top.
 
-This runner deliberately compiles one ZLang semantic module once and emits both
-backends from that identical IR.  It publishes the complete ROM companion
-bundle, passes every generated Clash Verilog file to downstream tools, and
-records failures/timeouts as evidence instead of silently dropping a backend.
+This runner compiles one ZLang semantic module, publishes the complete ROM
+companion bundle, and records failures/timeouts instead of dropping evidence.
 """
 
 from __future__ import annotations
@@ -21,12 +19,10 @@ import subprocess
 import time
 from typing import Any
 
-from zlang.backend.clash import emit_artifact as emit_clash_artifact
 from zlang.backend.companions import publish_companion_bundle
 from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
 from zlang.compiler import compile_file
 from zlang.ir.module import dependency_context_identity
-from zlang.toolchain import find_clash_executable, generate_verilog
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -456,13 +452,6 @@ def main() -> int:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--part", default=DEFAULT_PART)
     parser.add_argument("--period-ns", type=float, default=10.0)
-    parser.add_argument(
-        "--backend",
-        choices=("both", "direct_sv", "clash"),
-        default="both",
-        help="emit and measure both backends or one bounded rerun",
-    )
-    parser.add_argument("--clash", default=find_clash_executable())
     parser.add_argument("--yosys", default=shutil.which("yosys") or "yosys")
     parser.add_argument(
         "--vivado",
@@ -478,13 +467,6 @@ def main() -> int:
         "--skip-vivado", action="store_true", help="only generate RTL/Yosys evidence"
     )
     args = parser.parse_args()
-    enabled = (
-        ("direct_sv", "clash")
-        if args.backend == "both"
-        else (args.backend,)
-    )
-    if "clash" in enabled and not args.clash:
-        parser.error("Clash was not found; pass --clash")
     if args.period_ns <= 0:
         parser.error("--period-ns must be positive")
     args.output.mkdir(parents=True, exist_ok=True)
@@ -492,55 +474,30 @@ def main() -> int:
     source = args.source.resolve()
     source_hash = hashlib.sha256(source.read_bytes()).hexdigest()
     frontend_started = time.monotonic()
-    module = compile_file(source, top=args.top, include_clash=False).ir
+    module = compile_file(source, top=args.top).ir
     frontend_seconds = time.monotonic() - frontend_started
 
     rtl: dict[str, tuple[Path, ...]] = {}
     rtl_evidence: dict[str, Any] = {}
-    if "direct_sv" in enabled:
-        direct_started = time.monotonic()
-        direct_artifact = emit_sv_artifact(module)
-        direct_directory = args.output / "rtl" / "direct_sv"
-        direct_directory.mkdir(parents=True, exist_ok=True)
-        direct_file = direct_directory / f"{args.top}.sv"
-        direct_file.write_text(direct_artifact.text)
-        publish_companion_bundle(direct_artifact.companions, direct_directory)
-        direct_seconds = time.monotonic() - direct_started
-        rtl["direct_sv"] = (direct_file,)
-        rtl_evidence["direct_sv"] = asdict(
-            _rtl_evidence(
-                "direct_sv",
-                direct_seconds,
-                direct_artifact.artifact_hash,
-                rtl["direct_sv"],
-                direct_artifact.companions,
-                args.output,
-            )
+    direct_started = time.monotonic()
+    direct_artifact = emit_sv_artifact(module)
+    direct_directory = args.output / "rtl" / "direct_sv"
+    direct_directory.mkdir(parents=True, exist_ok=True)
+    direct_file = direct_directory / f"{args.top}.sv"
+    direct_file.write_text(direct_artifact.text)
+    publish_companion_bundle(direct_artifact.companions, direct_directory)
+    direct_seconds = time.monotonic() - direct_started
+    rtl["direct_sv"] = (direct_file,)
+    rtl_evidence["direct_sv"] = asdict(
+        _rtl_evidence(
+            "direct_sv",
+            direct_seconds,
+            direct_artifact.artifact_hash,
+            rtl["direct_sv"],
+            direct_artifact.companions,
+            args.output,
         )
-    if "clash" in enabled:
-        assert args.clash is not None
-        clash_started = time.monotonic()
-        clash_artifact = emit_clash_artifact(module)
-        clash_directory = args.output / "rtl" / "clash"
-        clash_files = generate_verilog(
-            clash_artifact.text,
-            args.top,
-            clash_directory,
-            args.clash,
-            companions=clash_artifact.companions,
-        )
-        clash_seconds = time.monotonic() - clash_started
-        rtl["clash"] = tuple(clash_files)
-        rtl_evidence["clash"] = asdict(
-            _rtl_evidence(
-                "clash",
-                clash_seconds,
-                clash_artifact.artifact_hash,
-                rtl["clash"],
-                clash_artifact.companions,
-                args.output,
-            )
-        )
+    )
     common = {
         "schema": "zlang-80211a-backend-qor-v1",
         "source": str(source),
@@ -549,12 +506,9 @@ def main() -> int:
         "top": args.top,
         "part": args.part,
         "period_ns": args.period_ns,
-        "requested_backend": args.backend,
+        "backend": "direct_systemverilog",
         "frontend_seconds": round(frontend_seconds, 3),
         "tools": {
-            "clash": _version((args.clash, "--version"))
-            if "clash" in enabled
-            else "not_requested",
             "yosys": _version((args.yosys, "-V")),
             "vivado": _version((args.vivado, "-version")),
         },

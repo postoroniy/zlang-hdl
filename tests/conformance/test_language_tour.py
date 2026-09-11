@@ -24,7 +24,6 @@ def test_every_language_tour_top_has_one_complete_positive_compiler_path() -> No
         result = compile_source(
             source,
             top=top,
-            include_clash=False,
             source_unit=str(LANGUAGE_TOUR_PATH),
         )
         assert restore(

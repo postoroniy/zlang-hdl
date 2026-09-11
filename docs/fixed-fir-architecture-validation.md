@@ -1,5 +1,9 @@
 # Fixed-point FIR architecture validation
 
+> **Historical evidence:** Clash measurements below preserve the original
+> comparison record. Current compiler planning, verification, and release
+> acceptance use direct SystemVerilog only.
+
 This unnumbered validation slice deliberately keeps automatic fixed-point
 exploration disabled. Four source-authored architectures implement one frozen
 numerical contract and are compared only after bit-exact backend validation.

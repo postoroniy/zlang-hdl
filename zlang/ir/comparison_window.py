@@ -1,4 +1,4 @@
-"""Shared reset/fill comparison-window semantics for M36 and M38."""
+"""Reset/fill comparison-window semantics for M36."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ class ComparisonWindowKind(str, Enum):
 class ComparisonWindow:
     """The exact cycle window in which an equivalence assertion can fire.
 
-    Timed M36/M38 miters assume reset in the initial state, clear their valid
+    Timed M36 miters assume reset in the initial state, clear their valid
     history on the reset edge, and sample assertions on subsequent active
     clock edges.  A synchronized asynchronous reset additionally keeps the
     checker in the reset epoch for its exact release interval.  Release cycles

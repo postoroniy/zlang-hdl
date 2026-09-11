@@ -88,7 +88,7 @@ class TopAggregateABITests(unittest.TestCase):
             SemanticError,
             "duplicate aggregate protocol delegation 'bus -> child.bus'",
         ):
-            compile_source(source, include_clash=False)
+            compile_source(source)
 
     def test_delegation_source_has_one_child_destination(self):
         source = SOURCE.replace(
@@ -102,7 +102,7 @@ class TopAggregateABITests(unittest.TestCase):
             SemanticError,
             "aggregate protocol source 'bus' has multiple delegation destinations",
         ):
-            compile_source(source, include_clash=False)
+            compile_source(source)
 
     def test_delegation_rejects_local_top_output_drivers(self):
         for assignment in ("bus.req.ready=1", "bus.irq=1"):
@@ -116,10 +116,10 @@ class TopAggregateABITests(unittest.TestCase):
                     "aggregate protocol source 'bus' has both local output "
                     "assignment and child delegation",
                 ):
-                    compile_source(source, include_clash=False)
+                    compile_source(source)
 
     def test_canonical_delegation_metadata_and_crossing_are_validated(self):
-        canonical = lower(compile_source(SOURCE, include_clash=False).ir)
+        canonical = lower(compile_source(SOURCE).ir)
         delegation = canonical.aggregate_protocol_connections[0]
 
         corruptions = (
@@ -154,7 +154,7 @@ class TopAggregateABITests(unittest.TestCase):
             "  connect bus -> child.bus\n",
             "  connect bus -> child.bus\n  connect other -> second.bus\n",
         )
-        canonical = lower(compile_source(source, include_clash=False).ir)
+        canonical = lower(compile_source(source).ir)
         first, second = canonical.aggregate_protocol_connections
         with self.assertRaisesRegex(
             CanonicalizationError,
@@ -170,7 +170,7 @@ class TopAggregateABITests(unittest.TestCase):
             ))
 
     def test_canonical_exact_duplicate_delegation_is_rejected(self):
-        canonical = lower(compile_source(SOURCE, include_clash=False).ir)
+        canonical = lower(compile_source(SOURCE).ir)
         delegation = canonical.aggregate_protocol_connections[0]
         with self.assertRaisesRegex(
             CanonicalizationError,
@@ -183,7 +183,7 @@ class TopAggregateABITests(unittest.TestCase):
 
     def test_manifest_v3_round_trip(self):
         module = compile_source(SOURCE).ir
-        artifact = publish_artifact(module, "top", backend="clash", selected_ir_identity="top-v3", side=BindingSide.IMPLEMENTATION)
+        artifact = publish_artifact(module, "top", backend="direct_systemverilog", selected_ir_identity="top-v3", side=BindingSide.IMPLEMENTATION)
         self.assertEqual(artifact.manifest_version, 3)
         restored = BackendArtifact.from_json(artifact.to_json())
         self.assertEqual(restored.manifest_version, 3)
@@ -208,7 +208,7 @@ class TopAggregateABITests(unittest.TestCase):
         self.assertEqual(lanes.signedness, "unsigned")
 
     def test_complete_top_abi_splits_structs_and_preserves_vector_arrays(self):
-        module = compile_source(SHAPES_SOURCE, include_clash=False).ir
+        module = compile_source(SHAPES_SOURCE).ir
         abi = build_top_physical_abi(module)
         leaves = {leaf.leaf_semantic_id: leaf for leaf in abi.leaves}
 
@@ -261,7 +261,7 @@ class TopAggregateABITests(unittest.TestCase):
         }
         """
         abi = build_top_physical_abi(
-            compile_source(source, include_clash=False).ir
+            compile_source(source).ir
         )
         self.assertEqual(
             tuple((leaf.leaf_semantic_id, leaf.external_name) for leaf in abi.leaves),
@@ -277,10 +277,10 @@ class TopAggregateABITests(unittest.TestCase):
     def test_request_response_payload_structs_are_split_for_both_roles(self):
         source = (ROOT / "examples/hierarchical_request_response_m40.zhl").read_text()
         requester = build_top_physical_abi(
-            compile_source(source, top="Requester", include_clash=False).ir
+            compile_source(source, top="Requester").ir
         )
         responder = build_top_physical_abi(
-            compile_source(source, top="Responder", include_clash=False).ir
+            compile_source(source, top="Responder").ir
         )
         request = {
             leaf.leaf_semantic_id: leaf for leaf in requester.leaves

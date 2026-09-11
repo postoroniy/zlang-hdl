@@ -32,7 +32,7 @@ ENUM_FSM_SOURCE = """
 
 
 def _compile(source: str):
-    return compile_source(source, include_clash=False).ir
+    return compile_source(source).ir
 
 
 def test_enum_ordinals_width_and_qualified_members_are_exact() -> None:

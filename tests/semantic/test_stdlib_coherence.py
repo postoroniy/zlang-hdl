@@ -318,7 +318,6 @@ def test_fixed_abs_specializes_to_widened_exact_type_and_preserves_raw_magnitude
         "module Top { in value:fixed<8,4> out magnitude:fixed<9,4> "
         "magnitude=fixed_abs(value) }",
         top="Top",
-        include_clash=False,
     )
     assignment = result.ir.assignments[0]
     assert isinstance(assignment.expression, ir_expr.Call)
@@ -348,7 +347,6 @@ def test_fixed_mac_specializes_to_full_precision_type_and_is_raw_exact() -> None
         "in accumulator:fixed<16,8> out result:fixed<17,8> "
         "result=fixed_mac(a,b,accumulator) }",
         top="Top",
-        include_clash=False,
     )
     assignment = result.ir.assignments[0]
     assert isinstance(assignment.expression, ir_expr.Call)
@@ -409,7 +407,7 @@ def test_stdlib_module_constraints_fail_at_specialization(
     message: str,
 ) -> None:
     with pytest.raises(SemanticError, match=message):
-        compile_source(source, top="Top", include_clash=False)
+        compile_source(source, top="Top")
 
 
 def test_generic_storage_fails_but_range_proven_gather_succeeds() -> None:
@@ -421,10 +419,10 @@ def test_generic_storage_fails_but_range_proven_gather_succeeds() -> None:
         SemanticError,
         match="initializer must specialize to a concrete vec<8,u8> vector",
     ):
-        compile_source(source, top="GenericRomTop", include_clash=False)
+        compile_source(source, top="GenericRomTop")
 
     gather = compile_source(
-        source, top="GenericPermutationTop", include_clash=False
+        source, top="GenericPermutationTop"
     )
     assert simulate(
         gather.ir,
@@ -435,14 +433,14 @@ def test_generic_storage_fails_but_range_proven_gather_succeeds() -> None:
 
 def test_new_stdlib_families_have_concrete_semantic_witnesses() -> None:
     for name, source in WITNESSES.items():
-        result = compile_source(source, top="Top", include_clash=False)
+        result = compile_source(source, top="Top")
         assert result.ir.name == "Top", name
         assert result.ir.library_dependencies, name
 
 
 def test_stdlib_table_gather_preserves_source_order_without_assuming_permutation() -> None:
     result = compile_source(
-        WITNESSES["coding_table_gather"], top="Top", include_clash=False
+        WITNESSES["coding_table_gather"], top="Top"
     )
     assert simulate(
         result.ir,
@@ -453,7 +451,7 @@ def test_stdlib_table_gather_preserves_source_order_without_assuming_permutation
 
 def test_new_stdlib_witnesses_emit_deterministic_direct_sv() -> None:
     for name, source in WITNESSES.items():
-        result = compile_source(source, top="Top", include_clash=False)
+        result = compile_source(source, top="Top")
         first = emit_sv_artifact(result.ir, selected_ir_identity=f"stdlib:{name}")
         second = emit_sv_artifact(result.ir, selected_ir_identity=f"stdlib:{name}")
         assert first.text == second.text, name
@@ -461,18 +459,12 @@ def test_new_stdlib_witnesses_emit_deterministic_direct_sv() -> None:
         assert first.library_dependencies == result.ir.library_dependencies, name
 
 
-def test_new_stdlib_witnesses_emit_deterministic_clash() -> None:
-    for name, source in WITNESSES.items():
-        first = compile_source(source, top="Top")
-        second = compile_source(source, top="Top")
-        assert first.clash, name
-        assert first.clash == second.clash, name
 
 
 @pytest.mark.skipif(shutil.which("verilator") is None, reason="Verilator unavailable")
 def test_new_stdlib_witnesses_are_strict_verilator_clean(tmp_path: Path) -> None:
     for name, source in WITNESSES.items():
-        result = compile_source(source, top="Top", include_clash=False)
+        result = compile_source(source, top="Top")
         artifact = emit_sv_artifact(
             result.ir,
             selected_ir_identity=f"stdlib:{name}",

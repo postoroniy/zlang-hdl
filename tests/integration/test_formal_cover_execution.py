@@ -86,7 +86,7 @@ module ConnectedCoverCounter {
     count <- truncate<8>(count + 1)
     y = count
 }
-""", include_clash=False)
+""")
     predicate = Binary(
         FormalBinaryOperator.EQUAL,
         ObservationRef("register:count", 8, FormalSignedness.UNSIGNED),

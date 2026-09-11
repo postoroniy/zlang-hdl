@@ -41,7 +41,7 @@ FORMAL_TOOLS = all(
 
 def _compilation():
     return compile_source(
-        SOURCE, top="CreditToRv", include_clash=False
+        SOURCE, top="CreditToRv"
     )
 
 

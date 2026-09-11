@@ -26,7 +26,7 @@ REAL_TOOLS = all(
 )
 
 SOURCE = """
-module CandidateTriangle {
+module CandidateEvidence {
     clock clk reset rst
     in a : u8
     out y : u8
@@ -70,7 +70,6 @@ def test_immutable_candidate_bundle_replays_without_source_or_selection(
 ) -> None:
     compilation = compile_source(
         source,
-        include_clash=False,
         formal_policy=FormalPolicy.AVAILABLE,
         formal_depth=depth,
         formal_timeout=30,
@@ -101,13 +100,6 @@ def test_immutable_candidate_bundle_replays_without_source_or_selection(
             "run_equivalence_formal",
             lambda *_args, **_kwargs: pytest.fail(
                 "bundle publication must not execute M36"
-            ),
-        )
-        publication_guard.setattr(
-            orchestration,
-            "run_cross_backend_formal",
-            lambda *_args, **_kwargs: pytest.fail(
-                "bundle publication must not execute M38"
             ),
         )
         publish_compilation_verification_bundle(
@@ -148,11 +140,6 @@ def test_immutable_candidate_bundle_replays_without_source_or_selection(
         orchestration,
         "run_equivalence_formal",
         lambda *_args, **_kwargs: pytest.fail("M36 replay missed its cache"),
-    )
-    monkeypatch.setattr(
-        orchestration,
-        "run_cross_backend_formal",
-        lambda *_args, **_kwargs: pytest.fail("M38 replay missed its cache"),
     )
     cached = orchestration.execute_frozen_candidate_equivalence(
         enriched, tuple(frozen), replay_config
@@ -198,7 +185,6 @@ def test_real_direct_candidate_evidence_reuses_m39_stage(
 ) -> None:
     compilation = compile_source(
         SOURCE,
-        include_clash=False,
         formal_policy=policy,
         formal_depth=4,
         formal_timeout=30,
@@ -244,9 +230,9 @@ def test_real_direct_candidate_evidence_reuses_m39_stage(
     assert not reports[0].verification_failure
     # Complete M39 reuse performs no second tool discovery or execution.
     assert reports[0].tool_versions == ()
-    expected_work_routes = {"m36:direct_systemverilog:bmc"}
+    expected_work_routes = {"m36:bmc"}
     if policy is FormalPolicy.REQUIRED_PROVEN:
-        expected_work_routes.add("m36:direct_systemverilog:prove")
+        expected_work_routes.add("m36:prove")
     assert {name for name, _ in reports[0].work_directories} == expected_work_routes
     assert all(Path(path).is_dir() for _, path in reports[0].work_directories)
     assert type(reports[0]).from_json(reports[0].to_json()) == reports[0]

@@ -28,12 +28,13 @@ The public source tree includes compiler sources, standard libraries, examples,
 tests and their applicable license/notice files. The Python wheel and sdist
 contain the compiler and shipped standard libraries, with the root LICENSE and
 NOTICE; they do not include the Wi-Fi example project or the repository test
-suite. External Clash, synthesis, simulator and solver installations are not
-bundled into those Python distributions.
+suite. External synthesis, simulator and solver installations are not bundled
+into those Python distributions.
 
 Dependency declarations, REUSE checks, artifact hashes and SBOMs support release
 review. They do not independently establish authorship, patent clearance or
-permission to redistribute material imported from another project.
+permission to redistribute material imported from another project. GHC and
+Clash are not compiler, package, CI, or release dependencies.
 
 These documents explain project policy and the inspected distribution paths.
 They do not change any license, grant rights over third-party material, or

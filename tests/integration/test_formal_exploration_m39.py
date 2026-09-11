@@ -15,9 +15,8 @@ from zlang.formal_exploration import (
 )
 from zlang.formal import run_verilog_formal
 from zlang.equivalence import formal_tools_available
-from zlang.formal_candidate import M36ClashCandidateVerifier
+from zlang.formal_candidate import M36DirectSystemVerilogCandidateVerifier
 from zlang.candidate_sites import candidate_formal_record_sites
-from zlang.toolchain import find_clash_executable
 from zlang.ir.equivalence import EquivalenceCounterexample
 from zlang.ir.formal import FormalStatus, ProofMode
 from zlang.ir.cdc import ClockDomain
@@ -45,7 +44,7 @@ def _m39_result_entries(directory):
 class BoundVerifier:
     """Explicit identity-bound seam for non-tool orchestration tests."""
 
-    formal_route = "M36_clash"
+    formal_route = "M36_direct_systemverilog"
 
     def __init__(self, callback):
         self.callback = callback
@@ -78,7 +77,7 @@ class BoundVerifier:
         result.setdefault("depth", config.bmc_depth)
         result.setdefault("engine", config.engine)
         result.setdefault("solver", config.solver)
-        result.setdefault("backend", "clash")
+        result.setdefault("backend", "direct_systemverilog")
         for key, value in identity.items():
             result.setdefault(key, value)
         status = FormalStatus(result.get("status", FormalStatus.UNKNOWN))
@@ -97,34 +96,6 @@ def bound(callback):
 
 
 class M39FormalExplorationTests(unittest.TestCase):
-    def test_direct_systemverilog_route_is_used_without_clash(self):
-        source = Path("examples/implementation_intent.zhl").read_text()
-        # A production direct-SV session must not even probe the hidden legacy
-        # Clash executable while selecting M39 evidence.
-        with patch(
-            "zlang.formal_candidate.find_clash_executable",
-            side_effect=AssertionError("retired Clash route was probed"),
-        ):
-            result = compile_source(
-                source,
-                formal_policy=FormalPolicy.AVAILABLE,
-                include_clash=False,
-            )
-        records = tuple(
-            record
-            for item in result.exploration_results
-            for record in item.formal_records
-            if record.status is not None
-        )
-        self.assertTrue(records)
-        self.assertEqual(
-            {record.formal_route for record in records},
-            {"M36_direct_systemverilog"},
-        )
-        self.assertEqual(
-            {record.backend for record in records},
-            {"direct_systemverilog"},
-        )
 
     def test_off_does_not_execute_and_preserves_rank(self):
         candidates, evaluations = space(("cheap", "expensive"))
@@ -177,7 +148,6 @@ class M39FormalExplorationTests(unittest.TestCase):
                     "status": FormalStatus.BOUNDED_PASS,
                     "mode": ProofMode.BMC,
                 },
-                include_clash=False,
             )
 
     def test_failed_result_without_counterexample_is_invalid(self):
@@ -185,7 +155,7 @@ class M39FormalExplorationTests(unittest.TestCase):
         identity = bound(lambda *_: {}).cache_identity
 
         class MissingCounterexample:
-            formal_route = "M36_clash"
+            formal_route = "M36_direct_systemverilog"
             cache_identity = staticmethod(identity)
 
             def __call__(self, candidate, config):
@@ -195,7 +165,7 @@ class M39FormalExplorationTests(unittest.TestCase):
                     "depth": config.bmc_depth,
                     "engine": config.engine,
                     "solver": config.solver,
-                    "backend": "clash",
+                    "backend": "direct_systemverilog",
                     **identity(candidate, config),
                 }
 
@@ -263,27 +233,6 @@ class M39FormalExplorationTests(unittest.TestCase):
             ["executed", "not-run", "not-run"],
         )
 
-    def test_compiler_route_reports_unsupported_engine_without_execution(self):
-        candidates, evaluations = space(("candidate",))
-        verifier = M36ClashCandidateVerifier(object())
-        advisory = gate_candidates(
-            candidates,
-            evaluations,
-            FormalExplorationConfig(FormalPolicy.AVAILABLE, engine="other"),
-            verifier,
-        )
-        self.assertEqual(advisory.records[0].status, FormalStatus.SKIPPED)
-        self.assertEqual(advisory.records[0].cache_state, "not-run")
-        self.assertIn("only", advisory.records[0].proof_reason)
-        with self.assertRaises(FormalExplorationError):
-            gate_candidates(
-                candidates,
-                evaluations,
-                FormalExplorationConfig(
-                    FormalPolicy.REQUIRED_BMC, engine="other"
-                ),
-                verifier,
-            )
 
     def test_required_bmc_accepts_bounded_and_rejects_bad_statuses(self):
         candidates, evaluations = space(("cheap", "second"))
@@ -538,7 +487,6 @@ class M39FormalExplorationTests(unittest.TestCase):
                     source,
                     formal_policy=FormalPolicy.REQUIRED_PROVEN,
                     formal_verifier=bound(staged),
-                    include_clash=False,
                 )
                 records = records_of(result)
                 self.assertEqual(
@@ -675,7 +623,7 @@ class M39FormalExplorationTests(unittest.TestCase):
                     "depth": 9,
                     "engine": "sby",
                     "solver": "z3",
-                    "backend": "clash",
+                    "backend": "direct_systemverilog",
                     "reason": "deliberate mutation",
                     "counterexample": counterexample,
                 }
@@ -698,7 +646,7 @@ class M39FormalExplorationTests(unittest.TestCase):
             self.assertEqual(record.cache_state, "hit")
             self.assertEqual(record.depth, 9)
             self.assertEqual((record.engine, record.solver), ("sby", "z3"))
-            self.assertEqual((record.backend, record.artifact_hash), ("clash", "b" * 64))
+            self.assertEqual((record.backend, record.artifact_hash), ("direct_systemverilog", "b" * 64))
             self.assertEqual(record.counterexample, counterexample)
             self.assertEqual(record.proof_reason, "deliberate mutation")
 
@@ -812,7 +760,7 @@ class M39FormalExplorationTests(unittest.TestCase):
                     return {
                         "status": FormalStatus.BOUNDED_PASS,
                         "mode": ProofMode.BMC,
-                        "backend": "clash",
+                        "backend": "direct_systemverilog",
                         "artifact_hash": "d" * 64,
                     }
 
@@ -915,7 +863,7 @@ class M39FormalExplorationTests(unittest.TestCase):
         def verify_selected(candidate, config):
             calls.append(candidate.implementation_identity)
             return {"status": FormalStatus.BOUNDED_PASS, "mode": ProofMode.BMC,
-                    "backend": "clash"}
+                    "backend": "direct_systemverilog"}
         result = compile_source(source, formal_policy=FormalPolicy.REQUIRED_BMC,
                                 formal_verifier=bound(verify_selected))
         exploration = result.exploration_results[0]
@@ -926,213 +874,10 @@ class M39FormalExplorationTests(unittest.TestCase):
         self.assertEqual(exploration.formal_records[0].cache_state, "executed")
         self.assertIn("formal candidate", result.exploration_report)
 
-    @unittest.skipUnless(
-        find_clash_executable()
-        and len(formal_tools_available()) == 3
-        and shutil.which("z3"),
-        "real Clash/Yosys/SymbiYosys/Z3 route is unavailable",
-    )
-    def test_compiler_owned_m36_clash_route_and_mutation(self):
-        good = compile_source(
-            "module Good { in a:u4 in b:u4 out y:u4 y=a|b }",
-            include_clash=False,
-        ).ir.assignments[0].expression
-        bad = compile_source(
-            "module Bad { in a:u4 in b:u4 out y:u4 y=a&b }",
-            include_clash=False,
-        ).ir.assignments[0].expression
-        good_candidate = SimpleNamespace(
-            expression=good,
-            implementation_identity="good-or",
-            semantic_identity="or-reference",
-            stages=("value",),
-            architecture=None,
-        )
-        bad_candidate = SimpleNamespace(
-            expression=bad,
-            implementation_identity="bad-and",
-            semantic_identity="or-reference",
-            stages=("value",),
-            architecture=None,
-        )
-        evaluations = (
-            SimpleNamespace(candidate=good_candidate, legal=True, objective_key=(0,)),
-        )
-        with tempfile.TemporaryDirectory() as cache_directory:
-            config = FormalExplorationConfig(
-                FormalPolicy.REQUIRED_BMC,
-                bmc_depth=2,
-                timeout_seconds=17,
-                cache_directory=Path(cache_directory),
-            )
-            verifier = M36ClashCandidateVerifier(good)
-            accepted = gate_candidates(
-                (good_candidate,), evaluations, config, verifier
-            )
-            record = accepted.records[0]
-            self.assertEqual(record.status, FormalStatus.BOUNDED_PASS)
-            self.assertEqual(record.backend, "clash")
-            self.assertRegex(record.artifact_hash or "", r"^[0-9a-f]{64}$")
-            self.assertRegex(
-                record.reference_artifact_hash or "", r"^[0-9a-f]{64}$"
-            )
-            self.assertEqual(
-                record.artifact_hash, record.implementation_artifact_hash
-            )
-            self.assertTrue(record.property_identity)
-            self.assertTrue(record.harness_hash)
-            self.assertTrue(record.assumptions_identity)
-            self.assertTrue(record.backend_identity)
-            cached = gate_candidates(
-                (good_candidate,), evaluations, config, verifier
-            )
-            self.assertEqual(cached.records[0].cache_state, "hit")
-            identity = verifier.cache_identity(good_candidate, config)
-            for field in (
-                "property_identity",
-                "artifact_hash",
-                "reference_artifact_hash",
-                "implementation_artifact_hash",
-                "harness_hash",
-                "assumptions_identity",
-                "backend_identity",
-            ):
-                self.assertTrue(identity[field])
-        mutated = gate_candidates(
-            (bad_candidate,),
-            (SimpleNamespace(
-                candidate=bad_candidate, legal=True, objective_key=(0,)
-            ),),
-            FormalExplorationConfig(FormalPolicy.AVAILABLE, bmc_depth=2),
-            verifier,
-        )
-        self.assertEqual(mutated.records[0].status, FormalStatus.FAILED)
-        self.assertIsNotNone(mutated.records[0].counterexample)
-        self.assertEqual(mutated.eligible, (bad_candidate,))
 
-    @unittest.skipUnless(
-        find_clash_executable()
-        and len(formal_tools_available()) == 3
-        and shutil.which("z3"),
-        "real Clash/Yosys/SymbiYosys/Z3 route is unavailable",
-    )
-    def test_compiler_route_covers_m27_and_m29_candidate_families(self):
-        witnesses = (
-            (
-                "m27",
-                "module ValueRewrite { in a:u8 out y:u8 "
-                "y=implement { a ^ 0 intent { minimize lut } } }",
-                lambda candidate: candidate.stages == ("value",),
-            ),
-            (
-                "m29",
-                "module MacAlternative { in a:u4 in b:u4 in c:u8 out y:u9 "
-                "y=implement { a*b+c intent { dsp <= 1 minimize lut } } }",
-                lambda candidate: any(
-                    stage == "dsp_mac" for stage in candidate.stages
-                ),
-            ),
-        )
-        for label, source, expected_candidate in witnesses:
-            with self.subTest(candidate_family=label):
-                result = compile_source(
-                    source,
-                    formal_policy=FormalPolicy.REQUIRED_BMC,
-                    formal_depth=2,
-                    include_clash=False,
-                )
-                exploration = result.exploration_results[0]
-                self.assertTrue(expected_candidate(exploration.selected_candidate))
-                self.assertEqual(
-                    exploration.formal_records[0].status,
-                    FormalStatus.BOUNDED_PASS,
-                )
-                self.assertEqual(
-                    exploration.formal_records[0].backend,
-                    "direct_systemverilog",
-                )
 
-    @unittest.skipUnless(
-        find_clash_executable()
-        and len(formal_tools_available()) == 3
-        and shutil.which("z3"),
-        "real Clash/Yosys/SymbiYosys/Z3 route is unavailable",
-    )
-    def test_compiler_route_covers_m32_exact_reduction(self):
-        compiled = compile_source(
-            "module Reduction { in a:vec<4,u3> in b:vec<4,u3> out y:u8 "
-            "y=implement { dot(a,b) intent { minimize lut } } }",
-            include_clash=False,
-        )
-        exploration = compiled.exploration_results[0]
-        candidate = next(
-            item for item in exploration.generated_candidates
-            if any(stage.startswith("reduction:") for stage in item.stages)
-        )
-        gated = gate_candidates(
-            (candidate,),
-            (SimpleNamespace(
-                candidate=candidate, legal=True, objective_key=(0,),
-            ),),
-            FormalExplorationConfig(
-                FormalPolicy.REQUIRED_BMC, bmc_depth=2,
-            ),
-            M36ClashCandidateVerifier(exploration.request.root),
-        )
-        record = gated.records[0]
-        self.assertEqual(record.status, FormalStatus.BOUNDED_PASS)
-        self.assertEqual(record.mode, ProofMode.BMC)
-        self.assertEqual(record.backend, "clash")
 
-    @unittest.skipUnless(
-        find_clash_executable()
-        and len(formal_tools_available()) == 3
-        and shutil.which("z3"),
-        "real Clash/Yosys/SymbiYosys/Z3 route is unavailable",
-    )
-    def test_compiler_owned_route_required_proven_is_unbounded(self):
-        result = compile_source(
-            "module Proven { in a:u8 out y:u8 "
-            "y=implement { a ^ 0 intent { minimize lut } } }",
-            formal_policy=FormalPolicy.REQUIRED_PROVEN,
-            formal_depth=2,
-            include_clash=False,
-        )
-        records = result.exploration_results[0].formal_records
-        self.assertEqual(len(records), 2)
-        self.assertEqual(
-            [(item.status, item.mode, item.eligible) for item in records],
-            [
-                (FormalStatus.BOUNDED_PASS, ProofMode.BMC, False),
-                (FormalStatus.PROVEN, ProofMode.PROVE, True),
-            ],
-        )
-        self.assertTrue(
-            all(item.backend == "direct_systemverilog" for item in records)
-        )
 
-    @unittest.skipUnless(
-        find_clash_executable()
-        and len(formal_tools_available()) == 3
-        and shutil.which("z3"),
-        "real Clash/Yosys/SymbiYosys/Z3 route is unavailable",
-    )
-    def test_implement_pipeline_catalog_does_not_duplicate_formal_site(self):
-        source = Path("examples/implementation_intent.zhl").read_text()
-        result = compile_source(
-            source,
-            formal_policy=FormalPolicy.REQUIRED_BMC,
-            formal_depth=8,
-            formal_max_candidates=2,
-            include_clash=False,
-        )
-        exploration = result.exploration_results[0]
-        self.assertEqual(len(exploration.formal_records), 1)
-        record = exploration.formal_records[0]
-        self.assertEqual(record.status, FormalStatus.BOUNDED_PASS)
-        self.assertEqual(record.backend, "direct_systemverilog")
-        self.assertEqual(len(result.ir.pipeline_explorations[0].formal_records), 0)
-        self.assertIn("catalog_only_no_proof_attached", result.pipeline_report)
 
     def test_selected_second_pipeline_record_is_the_only_catalog_evidence(self):
         source = """
@@ -1170,7 +915,6 @@ class M39FormalExplorationTests(unittest.TestCase):
             formal_policy=FormalPolicy.REQUIRED_BMC,
             formal_max_candidates=4,
             formal_verifier=bound(fail_first),
-            include_clash=False,
         )
         exploration = result.exploration_results[0]
         self.assertEqual(len(calls), 2)
@@ -1188,124 +932,7 @@ class M39FormalExplorationTests(unittest.TestCase):
         self.assertNotIn(calls[0], result.pipeline_report)
         self.assertIn(f"candidate_identity={calls[1]}", result.pipeline_report)
 
-    @unittest.skipUnless(
-        find_clash_executable()
-        and len(formal_tools_available()) == 3
-        and shutil.which("z3"),
-        "real Clash/Yosys/SymbiYosys/Z3 route is unavailable",
-    )
-    def test_positive_latency_implement_uses_one_timed_clash_m36_site(self):
-        source = """
-        module TimedImplement {
-          clock clk
-          reset rst
-          in a:u2
-          in b:u2
-          in c:u2
-          in d:u2
-          in e:u2
-          in f:u2
-          in g:u2
-          in h:u2
-          out y:u7
-          y = implement {
-            a*b+c*d+e*f+g*h
-            intent { latency >= 1 ii == 1 dsp <= 4 fmax >= 100 minimize lut }
-          }
-        }
-        """
-        result = compile_source(
-            source,
-            formal_policy=FormalPolicy.REQUIRED_BMC,
-            formal_depth=8,
-            formal_max_candidates=1,
-            include_clash=False,
-        )
-        exploration = result.exploration_results[0]
-        selected = exploration.selected_candidate
-        self.assertEqual(exploration.site_kind, "implement")
-        self.assertEqual(len(exploration.formal_records), 1)
-        record = exploration.formal_records[0]
-        self.assertEqual(record.status, FormalStatus.BOUNDED_PASS)
-        self.assertEqual(record.mode, ProofMode.BMC)
-        self.assertEqual(record.depth, 8)
-        self.assertEqual(record.candidate_identity, selected.implementation_identity)
-        self.assertGreater(selected.cost.latency.value or 0, 0)
-        self.assertEqual(len(result.ir.pipeline_explorations), 1)
-        self.assertEqual(len(result.ir.pipeline_explorations[0].formal_records), 1)
-        self.assertIn("emitted=true", result.pipeline_report)
-        self.assertIn(
-            f"candidate={selected.implementation_identity}",
-            result.pipeline_report,
-        )
-        sites = candidate_formal_record_sites(
-            result.ir, result.exploration_results
-        )
-        self.assertEqual(len(sites), 1)
-        self.assertEqual(sites[0][1].candidate_identity, selected.implementation_identity)
 
-        config = FormalExplorationConfig(
-            FormalPolicy.REQUIRED_BMC,
-            max_formal_candidates=1,
-            bmc_depth=8,
-        )
-        verifier = M36ClashCandidateVerifier(
-            exploration.request.root,
-            candidate_class="m31",
-            clock_domain_contract=ClockDomain("clk", "rst"),
-        )
-        prepared = verifier.prepare(selected, config)
-        self.assertEqual(prepared.property.candidate_class, "m31")
-        self.assertEqual(prepared.property.clock_domain_contract.clock, "clk")
-        self.assertEqual(prepared.property.clock_domain_contract.reset, "rst")
-        self.assertGreaterEqual(
-            prepared.property.comparison_window.minimum_bmc_depth, 1
-        )
-        self.assertLessEqual(
-            prepared.property.comparison_window.minimum_bmc_depth, 8
-        )
-        bindings = {
-            item.role.value: item
-            for item in prepared.implementation_artifact.bindings
-        }
-        self.assertEqual(bindings["clock"].rtl_path, "clk")
-        self.assertEqual(bindings["reset"].rtl_path, "rst")
-
-    @unittest.skipUnless(
-        find_clash_executable()
-        and len(formal_tools_available()) == 3
-        and shutil.which("z3"),
-        "real Clash/Yosys/SymbiYosys/Z3 route is unavailable",
-    )
-    def test_standalone_pipeline_cli_publishes_m39_evidence(self):
-        from zlang.cli import main
-
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            evidence_path = root / "evidence.json"
-            manifest_path = root / "build.json"
-            status = main([
-                "examples/implementation_intent.zhl",
-                "-o", str(root / "AutoPipelineProducts.hs"),
-                "--formal-policy", "required_bmc",
-                "--formal-depth", "8",
-                "--formal-max-candidates", "1",
-                "--evidence-report", str(evidence_path),
-                "--build-manifest", str(manifest_path),
-            ])
-            self.assertEqual(status, 0)
-            for path in (evidence_path, manifest_path):
-                payload = json.loads(path.read_text(encoding="utf-8"))
-                records = [
-                    item for item in payload["evidence"]
-                    if item["claim"] == "m39.formal_candidate_eligibility"
-                ]
-                self.assertEqual(len(records), 1)
-                record = records[0]
-                self.assertEqual(record["status"], "bounded_pass")
-                self.assertTrue(record["property_id"])
-                self.assertRegex(record["artifact_hash"], r"^[0-9a-f]{64}$")
-                self.assertRegex(record["reference_hash"], r"^[0-9a-f]{64}$")
 
 
 if __name__ == "__main__":

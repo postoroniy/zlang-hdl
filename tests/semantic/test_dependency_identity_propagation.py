@@ -220,10 +220,10 @@ def test_project_root_source_digest_reaches_artifact_build_identity(
     source.write_text("module Top { in x:u8 out y:u8 y=x }\n")
     update_project_lock(manifest)
 
-    first_module = compile_file(source, include_clash=False).ir
+    first_module = compile_file(source).ir
     first = emit_artifact(first_module)
     source.write_text("// Same design, different exact root source.\n" + source.read_text())
-    changed_module = compile_file(source, include_clash=False).ir
+    changed_module = compile_file(source).ir
     changed = emit_artifact(changed_module)
 
     assert first_module.root_module_identity is not None

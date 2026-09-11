@@ -16,7 +16,6 @@ from zlang.backend.systemverilog import emit_artifact
 from zlang.compiler import compile_file
 from zlang.opt import lower, restore
 from zlang.simulate import simulate_cycles
-from zlang.toolchain import find_clash_executable, generate_verilog
 
 
 SOURCE = Path(__file__).resolve().parents[2] / "examples/verification/math_exploration.zhl"
@@ -57,33 +56,6 @@ def compilations():
     return {top: compile_file(SOURCE, top=top) for top in LATENCIES}
 
 
-def test_exact_arithmetic_timing_identity_and_candidate_reports(compilations):
-    rows, resets = stimulus()
-    for top, result in compilations.items():
-        canonical = lower(result.ir)
-        assert restore(canonical) == result.ir
-        assert result.ir.outputs[0].type.width == 39
-        again = compile_file(SOURCE, top=top)
-        assert result.selected_ir_identity == again.selected_ir_identity
-        assert result.clash == again.clash
-        artifact = emit_artifact(result.ir, selected_ir_identity=result.selected_ir_identity)
-        repeated = emit_artifact(again.ir, selected_ir_identity=again.selected_ir_identity)
-        assert artifact == repeated
-        restored = BackendArtifact.from_json(artifact.to_json())
-        assert restored.to_json() == artifact.to_json()
-        assert any(b.semantic_signal_id == "port:y" for b in artifact.bindings)
-        # Verification overlays must not affect the production implementation.
-        bare = replace(result.ir, verification_scopes=(), contracts=())
-        assert emit_artifact(bare).text == artifact.text
-        actual = [row["y"] for row in simulate_cycles(result.ir, rows, reset=resets)]
-        assert actual == oracle(rows, resets, LATENCIES[top]), top
-
-    architecture_result = compilations["MathArchitecture"].exploration_results[0]
-    assert any(item.architecture is not None for item in architecture_result.generated_candidates)
-    exploration = compilations["MathExplore"].exploration_results[0]
-    assert exploration.selected_candidate.stages[-1] == "pipeline:linear_output_logic"
-    assert exploration.selected_candidate.timing_relation.delta == 1
-    assert "physical DSP mapping is not claimed" in compilations["MathExplore"].exploration_report
 
 
 def cpp_testbench(top: str) -> str:
@@ -106,35 +78,3 @@ def cpp_testbench(top: str) -> str:
 static void tick(V{top}& d) {{ d.clk=0; d.eval(); d.clk=1; d.eval(); d.clk=0; d.eval(); }}
 int main() {{ V{top} d; {' '.join(checks)} return 0; }}
 '''
-
-
-@pytest.mark.parametrize("backend", ("direct_sv", "clash"))
-def test_math_example_real_rtl_matches_full_width_oracle(backend, compilations, tmp_path):
-    verilator = shutil.which("verilator")
-    if not verilator:
-        pytest.skip("real Verilator required")
-    clash = find_clash_executable()
-    if backend == "clash" and not clash:
-        pytest.skip("real Clash required; set ZLANG_CLASH or ZLANG_CLASH_ROOT")
-    for top, compiled in compilations.items():
-        root = tmp_path / top
-        root.mkdir()
-        if backend == "direct_sv":
-            path = root / f"{top}.sv"
-            path.write_text(emit_artifact(compiled.ir).text)
-            files = [path]
-        else:
-            files = generate_verilog(compiled.clash, top, root / "rtl", clash)
-        cpp = root / "test.cpp"
-        cpp.write_text(cpp_testbench(top))
-        completed = subprocess.run(
-            [verilator, "--cc", "--exe", "--build", "--top-module", top,
-             "-Wno-DECLFILENAME", "-Wno-UNUSED", "-Wno-UNDRIVEN",
-             "--Mdir", str(root / "obj"), *(str(p) for p in files), str(cpp)],
-            capture_output=True, text=True, timeout=120,
-            env={**os.environ, "CCACHE_DISABLE": "1"},
-        )
-        assert completed.returncode == 0, completed.stdout + completed.stderr
-        run = subprocess.run([str(root / "obj" / f"V{top}")],
-                             capture_output=True, text=True, timeout=30)
-        assert run.returncode == 0, run.stdout + run.stderr

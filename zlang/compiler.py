@@ -56,7 +56,6 @@ def compile_source(
     target_tool: str = "Vivado",
     target_tool_version: str = "2024.2",
     target_clock_period_ns: float = 10.0,
-    include_clash: bool = True,
     source_unit: str | None = None,
     module_resolver=None,
     root_module_identity=None,
@@ -65,12 +64,7 @@ def compile_source(
     implementation_backend_mode: RequirementMode | str = RequirementMode.REQUIRED,
     implementation_contributions: tuple[ImplementationContribution, ...] = (),
 ) -> CompilationResult:
-    """Run source through the backend-independent pipeline.
-
-    Clash source remains part of the compatibility result by default.  A
-    caller requesting only another backend may disable that final, independent
-    emission step without changing semantic or selected IR.
-    """
+    """Run source through the backend-independent compilation pipeline."""
 
     # Keep this long-standing facade eager while making its orchestration
     # available independently through CompilationSession.
@@ -94,7 +88,6 @@ def compile_source(
             target_tool=target_tool,
             target_tool_version=target_tool_version,
             target_clock_period_ns=target_clock_period_ns,
-            include_clash=include_clash,
             source_unit=source_unit,
             module_resolver=module_resolver,
             root_module_identity=root_module_identity,

@@ -9,6 +9,18 @@ change incompatibly when the release notes identify the change. Versioned IR,
 artifact, lock, manifest, and verification schemas continue to reject
 incompatible input explicitly.
 
+## Unreleased
+
+### Changed
+
+- Removed the retired Clash emitter, its hidden compatibility CLI, generated
+  Haskell artifacts, packaging surface, test suite, and tool discovery. Direct
+  SystemVerilog is now the only production RTL backend in both policy and code.
+- Retired executable M38 cross-backend comparison without reusing its name for
+  another relation. M35 safety, direct-SV M36 semantic-reference equivalence,
+  and M39 formal-aware selection remain supported.
+- Release acceptance now requires zero skipped tests and no GHC/Clash tooling.
+
 ## 0.1.0a5 — 2026-09-11
 
 ### Added

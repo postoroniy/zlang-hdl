@@ -1060,14 +1060,11 @@ def gate_retained_explorations(
     config: object,
     verifier: object | None = None,
     *,
-    backend: str = "clash",
+    backend: str = "direct_systemverilog",
 ) -> tuple[Module, tuple[ExplorationResult, ...]]:
     """Apply the existing M39 gate after semantic typing to retained explores."""
 
-    from zlang.formal_candidate import (
-        M36ClashCandidateVerifier,
-        M36DirectSystemVerilogCandidateVerifier,
-    )
+    from zlang.formal_candidate import M36DirectSystemVerilogCandidateVerifier
     from zlang.formal_exploration import FormalPolicy, gate_candidates
 
     retained = tuple(results)
@@ -1085,14 +1082,12 @@ def gate_retained_explorations(
         domain, domain_limitation = candidate_owner_formal_domain(
             module, result.site_owner
         )
+        if backend != "direct_systemverilog":
+            raise CandidateSiteError(f"formal backend '{backend}' is retired")
         selected_verifier = (
             verifier
             if verifier is not None and domain_limitation is None
-            else (
-                M36DirectSystemVerilogCandidateVerifier
-                if backend == "direct_systemverilog"
-                else M36ClashCandidateVerifier
-            )(
+            else M36DirectSystemVerilogCandidateVerifier(
                 result.request.root,
                 artifact_provider=getattr(config, "artifact_provider", None),
                 clock_domain_contract=domain,
@@ -1172,7 +1167,7 @@ def gate_structured_candidate_sites(
     config: object,
     verifier: object | None = None,
     *,
-    backend: str = "clash",
+    backend: str = "direct_systemverilog",
 ) -> Module:
     """Gate retained choice/architecture candidate records.
 
@@ -1182,10 +1177,7 @@ def gate_structured_candidate_sites(
     gate and keep evidence outside canonical RTL identity.
     """
 
-    from zlang.formal_candidate import (
-        M36ClashCandidateVerifier,
-        M36DirectSystemVerilogCandidateVerifier,
-    )
+    from zlang.formal_candidate import M36DirectSystemVerilogCandidateVerifier
     from zlang.formal_exploration import FormalPolicy, gate_candidates
 
     if config.policy is FormalPolicy.OFF:
@@ -1205,14 +1197,12 @@ def gate_structured_candidate_sites(
         domain, domain_limitation = candidate_owner_formal_domain(
             module, module_candidate_owner_identity(module)
         )
+        if backend != "direct_systemverilog":
+            raise CandidateSiteError(f"formal backend '{backend}' is retired")
         selected_verifier = (
             verifier
             if verifier is not None and domain_limitation is None
-            else (
-                M36DirectSystemVerilogCandidateVerifier
-                if backend == "direct_systemverilog"
-                else M36ClashCandidateVerifier
-            )(
+            else M36DirectSystemVerilogCandidateVerifier(
                 choice.alternatives[0].expression,
                 candidate_class="m29",
                 artifact_provider=getattr(config, "artifact_provider", None),
@@ -1255,11 +1245,7 @@ def gate_structured_candidate_sites(
         selected_verifier = (
             verifier
             if verifier is not None and domain_limitation is None
-            else (
-                M36DirectSystemVerilogCandidateVerifier
-                if backend == "direct_systemverilog"
-                else M36ClashCandidateVerifier
-            )(
+            else M36DirectSystemVerilogCandidateVerifier(
                 architecture.source_expression,
                 candidate_class="m32",
                 artifact_provider=getattr(config, "artifact_provider", None),

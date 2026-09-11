@@ -42,19 +42,19 @@ module ScalarRom<D=4> {
 # prematurely chooses pipeline placement before a target is known.  Each value
 # below was independently compiled twice before being locked.
 EXPECTED = {
-    "add": "d37928b429d25aaa37a1d84a5c50faa548868a23ae69c97441d60a299907cd1a",
-    "stateful_protocol": "4561ff131d5f10a0e9af172159a2ddb7aea0fc4abf1ddac7dc6360a78440a9a5",
-    "fixed_dsp": "0c4386cd3f5f68ec88c39af512b6749c2210838c07ca2f560ef0688a3a44fdf9",
-    "csr": "93de423ee0228861961d0de7e2e326f376afb97fae336773c3a9f9c6c745c2d3",
-    "hierarchy": "faa57a0cba72bc45d5cad412c3a934bc29d78018e8ad4d384c729866d3f4f7f3",
+    "add": "74093c35c7bfd566484b131f0c31b769192c51349775a068094d59c51d3e1b70",
+    "stateful_protocol": "48bbebe45ab0e6df911dba9db92c1f7d1a4b39a41198a526c15bb2e1641e8691",
+    "fixed_dsp": "11282ec29ae710ef9ed768494c399775b708f22650050533fe44b6bd853b016a",
+    "csr": "aa383afacd33718cdbcdfbf53ccd1edbac6686105aaa17032eddddd23a58d4e3",
+    "hierarchy": "06f3e1560bf38c7cbb038c768e0f65f32764d3e374bbe611704e4e91a1bee61b",
     # Companion filenames now use exact typed ROM contents/layout rather than
     # source provenance, so equivalent spellings retain one physical image.
-    "rom": "edd9b76f4b46b51a0a3ea27b6558b45589c7437b4217b245017ab886cadf114c",
+    "rom": "493f220dcb881c2f7a63f0b5a8bec382a8c1076c720268af40336d1ceb203436",
     # The concise Wi-Fi source refactor uses slices, shared raw views, vector
     # generation and struct update while retaining the public ABI and IEEE
     # behavior.  This source/dependency-sensitive eager-result snapshot was
     # independently compiled twice before being locked here.
-    "wifi": "876a1df92d1f549e3e09086b32aa81aa9a1219da4c4bcb0c23f7b46b1ad014b6",
+    "wifi": "fd1421232198b05d874395d73c3a0b60f7ca9b554a1d1cc6e6cab6b60360ebbe",
 }
 
 
@@ -80,7 +80,6 @@ def _compile_case(name: str):
     if name == "wifi":
         return compile_file(
             ROOT / "examples/projects/80211a_transmitter/src/controller.zhl",
-            include_clash=False,
         )
     raise AssertionError(name)
 

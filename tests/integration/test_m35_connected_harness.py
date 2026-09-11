@@ -57,11 +57,11 @@ SIMPLE_DMA = (
 
 
 def connected_counter():
-    module = compile_source(COUNTER, include_clash=False).ir
+    module = compile_source(COUNTER).ir
     recursive = build_recursive_formal_design(module)
     artifact = emit_formal_artifact(module, recursive)
     return module, artifact, connect_formal_design(
-        compile_source(COUNTER, include_clash=False).formal_design,
+        compile_source(COUNTER).formal_design,
         artifact,
     )
 
@@ -94,7 +94,7 @@ def test_missing_formal_observation_fails_only_affected_property_closed() -> Non
     )
     broken = replace(artifact, formal_observations=observations)
     connected = connect_formal_design(
-        compile_source(COUNTER, include_clash=False).formal_design,
+        compile_source(COUNTER).formal_design,
         broken,
     )
     count_properties = [
@@ -160,7 +160,7 @@ def test_cli_sby_requires_and_references_connected_harness(tmp_path: Path) -> No
     reason="Yosys, SymbiYosys, and Z3 are required",
 )
 def test_connected_credit_sender_projections_are_driven_and_prove() -> None:
-    compiled = compile_source(CREDIT_SENDER, include_clash=False)
+    compiled = compile_source(CREDIT_SENDER)
     artifact = emit_formal_artifact(
         compiled.ir, build_recursive_formal_design(compiled.ir)
     )
@@ -190,7 +190,7 @@ def test_connected_credit_sender_projections_are_driven_and_prove() -> None:
     reason="Yosys, SymbiYosys, and Z3 are required",
 )
 def test_connected_ready_valid_uses_leaves_not_protocol_base_signals() -> None:
-    compiled = compile_source(READY_VALID_BUFFER, include_clash=False)
+    compiled = compile_source(READY_VALID_BUFFER)
     artifact = emit_formal_artifact(
         compiled.ir, build_recursive_formal_design(compiled.ir)
     )
@@ -215,7 +215,7 @@ def test_connected_ready_valid_uses_leaves_not_protocol_base_signals() -> None:
 )
 def test_simple_dma_all_request_response_observations_prove_and_mutate() -> None:
     compiled = compile_source(
-        SIMPLE_DMA, top="SimpleDMA", include_clash=False
+        SIMPLE_DMA, top="SimpleDMA"
     )
     artifact = emit_formal_artifact(
         compiled.ir, build_recursive_formal_design(compiled.ir)

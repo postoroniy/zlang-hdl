@@ -11,14 +11,12 @@ import shutil
 
 import pytest
 
-from tests.toolchain import CLASH_EXECUTABLE
-from zlang.backend.clash import emit as emit_clash
 from zlang.backend.systemverilog import emit_experimental as emit_systemverilog
 from zlang.cli import main as compiler_main
 from zlang.compiler import compile_source
 from zlang.opt import canonical_ir_identity, lower, render, restore
 from zlang.simulate import VerificationAssertionError, simulate_cycles
-from zlang.toolchain import generate_verilog, lint_with_verilator
+from zlang.toolchain import lint_with_verilator
 from zlang.verification_bundle import load_verification_bundle
 from zlang.verification_cli import main as verification_main
 
@@ -42,35 +40,6 @@ def compiled_examples():
     }
 
 
-@pytest.mark.parametrize("name", NAMES)
-def test_examples_are_deterministic_lossless_verification_overlays(
-    name: str, compiled_examples,
-) -> None:
-    compiled = compiled_examples[name]
-    repeated = compile_source(
-        (EXAMPLES / f"{name}.zhl").read_text(encoding="utf-8"),
-        source_unit=f"{name}.zhl",
-    )
-    canonical = lower(compiled.ir)
-    assert canonical == lower(repeated.ir)
-    assert render(canonical) == render(lower(repeated.ir))
-    assert restore(canonical) == compiled.ir
-    assert compiled.high_level_ir_identity == repeated.high_level_ir_identity
-    assert compiled.selected_ir_identity == repeated.selected_ir_identity
-    assert compiled.clash == repeated.clash
-    assert compiled.ir.verification_scopes
-    assert all(
-        goal.source_origin is not None
-        for scope in compiled.ir.verification_scopes
-        for goal in scope.goals
-    )
-
-    # Erase only the verification overlay, preserving the exact selected
-    # hardware and its source origins. Neither production emitter may change.
-    hardware = replace(compiled.ir, verification_scopes=(), contracts=())
-    assert canonical_ir_identity(lower(hardware)) == canonical_ir_identity(canonical)
-    assert emit_clash(hardware) == compiled.clash
-    assert emit_systemverilog(hardware) == emit_systemverilog(compiled.ir)
 
 
 def test_counter_simulation_saturates_and_clear_wins(compiled_examples) -> None:
@@ -250,24 +219,3 @@ def test_real_verification_examples_and_rare_bug_shallow_replay(
         assert {result["status"] for result in shallow["results"]} == {"bounded_pass"}
         assert {result["depth"] for result in shallow["results"]} == {8}
         assert load_verification_bundle(bundle).manifest.bundle_identity == identity
-
-
-@pytest.mark.parametrize("name", NAMES)
-@pytest.mark.parametrize("backend", ("direct_systemverilog", "clash"))
-def test_verification_examples_compile_with_strict_verilator(
-    name: str, backend: str, compiled_examples, tmp_path: Path,
-) -> None:
-    if not VERILATOR:
-        pytest.skip("Verilator is required for real generated-RTL lint")
-    compiled = compiled_examples[name]
-    if backend == "clash":
-        if not CLASH_EXECUTABLE:
-            pytest.skip("Clash is required for real Clash-to-Verilog compilation")
-        rtl = generate_verilog(
-            compiled.clash, compiled.ir.name, tmp_path / "rtl", CLASH_EXECUTABLE,
-        )
-    else:
-        source = tmp_path / f"{compiled.ir.name}.sv"
-        source.write_text(emit_systemverilog(compiled.ir), encoding="utf-8")
-        rtl = (source,)
-    lint_with_verilator(rtl, compiled.ir.name, VERILATOR)

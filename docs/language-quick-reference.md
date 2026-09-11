@@ -3,7 +3,7 @@
 Use this page as the first context document when writing or reviewing ZLang HDL
 with a coding assistant such as Qwen. It describes current executable source,
 not historical proposals. The compiler's typed IR defines semantics; generated
-Clash or SystemVerilog is not a second language specification.
+Generated SystemVerilog is not a second language specification.
 
 For an unfamiliar construct, consult the
 [syntax support matrix](syntax-support-matrix.md). For exact width tables and

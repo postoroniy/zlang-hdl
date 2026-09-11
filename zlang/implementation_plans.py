@@ -1,11 +1,4 @@
-"""Deterministic per-backend implementation planning records.
-
-This module is deliberately narrower than project-profile parsing.  It adapts
-the existing generic/target planners into independent backend decisions while
-keeping the selected :class:`ImplementationGraph` honest about which backend
-can realize it.  In particular, the current physical target graphs are a
-direct-SystemVerilog capability and are never relabelled as Clash graphs.
-"""
+"""Deterministic implementation planning for the production SV backend."""
 
 from __future__ import annotations
 
@@ -34,7 +27,7 @@ from zlang.targets import (
 
 
 PLAN_SCHEMA = "zlang-backend-implementation-plan-v1"
-_BACKEND_ORDER = ("clash", "systemverilog")
+_BACKEND_ORDER = ("systemverilog",)
 
 
 class BackendPlanStatus(str, Enum):
@@ -91,9 +84,6 @@ class BackendImplementationPlan:
             raise ValueError(f"backend plan status '{self.status.value}' cannot carry a graph")
         if self.status is BackendPlanStatus.GENERIC_FALLBACK and not self.graph.is_generic:
             raise ValueError("generic_fallback must carry a generic implementation graph")
-        if self.backend == "clash" and self.graph is not None:
-            if self.graph.realization_backend == "direct_systemverilog":
-                raise ValueError("a direct-SystemVerilog physical graph cannot be attached to Clash")
 
     @property
     def identity(self) -> str:
@@ -118,7 +108,7 @@ class BackendImplementationPlan:
 
 @dataclass(frozen=True)
 class BackendImplementationPlanningResult:
-    """Stable collection of all supported backend planning slots."""
+    """Stable collection containing the sole production backend plan."""
 
     plans: tuple[BackendImplementationPlan, ...]
     target_planning_result: TargetPlanningResult | None = None
@@ -166,13 +156,13 @@ def plan_backend_implementations(
     clock_period_ns: float = 10.0,
     strict_target_planning: bool = False,
 ) -> BackendImplementationPlanningResult:
-    """Plan Clash and direct-SV independently using existing target semantics.
+    """Plan direct SystemVerilog using existing target semantics.
 
     ``backend_requests`` accepts ``(backend, requirement)`` pairs as well as
     objects carrying ``kind``/``backend`` and ``mode``/``requirement`` fields.
     This keeps the planner independent from the project-profile data model.
-    Missing backend slots are retained as ``not_requested`` so reports and
-    identities never depend on request insertion order.
+    A missing request is retained as ``not_requested`` so report identity does
+    not depend on call-site branching.
     """
 
     requests = _normalize_requests(backend_requests)
@@ -199,9 +189,7 @@ def plan_backend_implementations(
             "the current target resource schema provides no such capability"
         )
 
-    # The existing target-aware auto planner is the sole producer for source
-    # pipeline(auto) physical candidates.  It currently emits physical graphs
-    # only for direct SystemVerilog.
+    # The target-aware planner produces physical graphs for direct SystemVerilog.
     try:
         if elastic_physical_error is not None:
             raise TargetArchitectureError(elastic_physical_error)
@@ -332,28 +320,7 @@ def _plan_backend(
             ),
         )
 
-    # Clash remains the technology-independent/reference route in this slice.
-    # A direct-SV graph is evidence for that backend only; it is never copied or
-    # relabelled here.
-    if selected.realization_backend == "direct_systemverilog" or physical_intent:
-        if architecture_mode is ArchitectureSelectionMode.REQUIRED:
-            return BackendImplementationPlan(
-                **common,
-                status=BackendPlanStatus.UNSUPPORTED,
-                reason="required physical architecture has no Clash realization",
-            )
-        return BackendImplementationPlan(
-            **common,
-            status=BackendPlanStatus.GENERIC_FALLBACK,
-            graph=generic,
-            reason="Clash uses the technology-independent generic fallback",
-        )
-    return BackendImplementationPlan(
-        **common,
-        status=BackendPlanStatus.SELECTED,
-        graph=generic,
-        reason="technology-independent generic implementation selected",
-    )
+    raise AssertionError(f"unreachable backend plan '{backend}'")
 
 
 def render_backend_implementation_report(
@@ -436,7 +403,6 @@ def _normalize_requests(
 def _backend_name(value: object) -> str:
     raw = getattr(value, "value", value)
     aliases = {
-        "clash": "clash",
         "systemverilog": "systemverilog",
         "direct_systemverilog": "systemverilog",
         "direct-sv": "systemverilog",

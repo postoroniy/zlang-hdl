@@ -1,7 +1,7 @@
 """Backend witnesses for the concise aggregate and structural surface.
 
 These fixtures deliberately keep one physical output per top so the legacy
-simple Clash emitter remains an independent witness for the already-normalized
+the direct-SystemVerilog emitter remains a witness for the already-normalized
 typed IR.
 """
 
@@ -14,12 +14,11 @@ import subprocess
 
 import pytest
 
-from tests.toolchain import CLASH_EXECUTABLE
 from zlang.backend.manifest import BackendArtifact
 from zlang.backend.systemverilog import emit_artifact
 from zlang.compiler import compile_source
 from zlang.simulate import simulate, simulate_cycles
-from zlang.toolchain import generate_verilog, lint_with_verilator
+from zlang.toolchain import lint_with_verilator
 
 
 AGGREGATE_SOURCE = """
@@ -222,7 +221,7 @@ def _verilate_and_run(
 
 
 def test_aggregate_surface_is_bit_exact_in_the_semantic_simulator() -> None:
-    module = compile_source(AGGREGATE_SOURCE, include_clash=False).ir
+    module = compile_source(AGGREGATE_SOURCE).ir
     assert simulate(
         module,
         a={"data": 0x5A, "last": 0},
@@ -236,7 +235,7 @@ def test_aggregate_surface_is_bit_exact_in_the_semantic_simulator() -> None:
 
 
 def test_qualified_fsm_and_compact_clock_reset_simulate_cycle_exactly() -> None:
-    module = compile_source(FSM_SOURCE, include_clash=False).ir
+    module = compile_source(FSM_SOURCE).ir
     trace = simulate_cycles(
         module,
         [
@@ -267,7 +266,7 @@ def test_direct_sv_surface_is_deterministic_strict_lint_clean_and_bit_exact(
     top: str,
     harness: str,
 ) -> None:
-    module = compile_source(source, top=top, include_clash=False).ir
+    module = compile_source(source, top=top).ir
     first = emit_artifact(module)
     second = emit_artifact(module)
     assert first.text == second.text
@@ -284,40 +283,5 @@ def test_direct_sv_surface_is_deterministic_strict_lint_clean_and_bit_exact(
         (rtl,),
         top=top,
         suffix="direct_sv",
-        harness_text=harness,
-    )
-
-
-@pytest.mark.skipif(
-    CLASH_EXECUTABLE is None or shutil.which("verilator") is None,
-    reason="real Clash 1.11 and Verilator are required",
-)
-@pytest.mark.parametrize(
-    ("source", "top", "harness"),
-    (
-        (AGGREGATE_SOURCE, "AggregateRTL", AGGREGATE_HARNESS),
-        (FSM_SOURCE, "QualifiedFsmRTL", FSM_HARNESS),
-        (CHAIN_SOURCE, "ChainRTL", CHAIN_HARNESS),
-    ),
-)
-def test_real_clash_surface_is_strict_lint_clean_and_bit_exact(
-    tmp_path: Path,
-    source: str,
-    top: str,
-    harness: str,
-) -> None:
-    compilation = compile_source(source, top=top)
-    rtl = generate_verilog(
-        compilation.clash,
-        top,
-        tmp_path / f"{top}_clash_rtl",
-        CLASH_EXECUTABLE,
-    )
-    lint_with_verilator(rtl, top)
-    _verilate_and_run(
-        tmp_path,
-        tuple(rtl),
-        top=top,
-        suffix="clash",
         harness_text=harness,
     )

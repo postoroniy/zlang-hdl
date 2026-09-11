@@ -16,7 +16,6 @@ def test_identity_ignores_source_origin_relocation_and_whitespace() -> None:
     compact = compile_source(
         "module Add { in a:u8 in b:u8 out y:u9 y=a+b }",
         source_unit="first/location.zhl",
-        include_clash=False,
     )
     relocated = compile_source(
         """
@@ -30,7 +29,6 @@ module Add {
 }
 """,
         source_unit="second/location.zhl",
-        include_clash=False,
     )
 
     assert compact.ir.assignments[0].expression.origin != relocated.ir.assignments[0].expression.origin
@@ -50,8 +48,8 @@ module Pass : PassIfc { in a:u8 out y:u8 y=a }
     first_path.write_text(source)
     second_path.write_text(source)
 
-    first = compile_file(first_path, include_clash=False)
-    second = compile_file(second_path, include_clash=False)
+    first = compile_file(first_path)
+    second = compile_file(second_path)
 
     assert first.ir.module_signature is not None
     assert second.ir.module_signature is not None
@@ -70,11 +68,9 @@ module Pass : PassIfc { in a:u8 out y:u8 y=a }
 def test_semantic_expression_change_alters_both_canonical_identities() -> None:
     xor = compile_source(
         "module Logic { in a:u8 in b:u8 out y:u8 y=a ^ b }",
-        include_clash=False,
     )
     bit_or = compile_source(
         "module Logic { in a:u8 in b:u8 out y:u8 y=a | b }",
-        include_clash=False,
     )
 
     assert xor.high_level_ir_identity != bit_or.high_level_ir_identity
@@ -84,7 +80,6 @@ def test_semantic_expression_change_alters_both_canonical_identities() -> None:
 def test_selected_extraction_is_part_of_selected_ir_identity() -> None:
     result = compile_source(
         (ROOT / "examples/cost_mac.zhl").read_text(),
-        include_clash=False,
     )
     selected = result.optimization_ir
     choice_index = next(
@@ -116,17 +111,3 @@ def test_selected_extraction_is_part_of_selected_ir_identity() -> None:
     assert replaced_result.selected_ir_identity == canonical_ir_identity(changed)
     assert replaced_result.selected_ir_identity != result.selected_ir_identity
     assert result.high_level_ir_identity != result.selected_ir_identity
-
-
-def test_named_interface_abi_changes_identity_without_changing_hardware_text() -> None:
-    plain = compile_source("module Pass { in a:u8 out y:u8 y=a }")
-    named = compile_source(
-        """
-interface PassIfc { in a:u8 out y:u8 }
-module Pass : PassIfc { in a:u8 out y:u8 y=a }
-"""
-    )
-
-    assert plain.clash == named.clash
-    assert plain.high_level_ir_identity != named.high_level_ir_identity
-    assert plain.selected_ir_identity != named.selected_ir_identity

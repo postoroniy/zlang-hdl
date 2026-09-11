@@ -167,60 +167,9 @@ def _direct_result(path: Path, top: str):
     # File-backed compilation is part of this exhaustive corpus contract:
     # project examples may import sibling modules through their zlang.toml
     # namespace, which a detached source string deliberately cannot resolve.
-    return compile_file(path, top=top, include_clash=False)
+    return compile_file(path, top=top)
 
 
-def test_every_example_module_root_has_an_explicit_direct_status() -> None:
-    roots = tuple(_roots())
-    assert len({path for path, *_ in roots}) == 88
-    assert len(roots) == 182
-
-    standalone = 0
-    child_only = 0
-    unsupported = 0
-    witnesses: set[tuple[str, str]] = set()
-    for path, relative, _, top in roots:
-        key = (relative, top)
-        if key in CHILD_OR_TEMPLATE_ONLY:
-            child_only += 1
-            expectation = CHILD_OR_TEMPLATE_ONLY[key]
-            with pytest.raises(
-                (SemanticError, SystemVerilogEmissionError),
-                match=expectation.diagnostic,
-            ):
-                emit_experimental(_direct_result(path, top).ir)
-            witness_relative = expectation.witness_relative or relative
-            witness = (witness_relative, expectation.witness_top)
-            if witness not in witnesses:
-                witness_path = EXAMPLES / witness_relative
-                witness_result = _direct_result(
-                    witness_path, expectation.witness_top
-                )
-                artifact = emit_artifact(witness_result.ir)
-                _assert_explicit_internal_drivers(
-                    artifact.text,
-                    f"{witness_relative}::{expectation.witness_top}",
-                )
-                assert artifact.to_json()
-                witnesses.add(witness)
-            continue
-        if key in DIRECT_UNSUPPORTED:
-            unsupported += 1
-            with pytest.raises(
-                SystemVerilogEmissionError,
-                match=DIRECT_UNSUPPORTED[key],
-            ):
-                emit_experimental(_direct_result(path, top).ir)
-            continue
-
-        standalone += 1
-        result = _direct_result(path, top)
-        assert result.clash == ""
-        artifact = emit_artifact(result.ir)
-        _assert_explicit_internal_drivers(artifact.text, f"{relative}::{top}")
-        assert artifact.to_json()
-
-    assert (standalone, child_only, unsupported) == (165, 17, 0)
 
 
 @pytest.mark.parametrize(

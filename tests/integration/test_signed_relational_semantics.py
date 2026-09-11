@@ -16,7 +16,6 @@ import subprocess
 
 import pytest
 
-from tests.toolchain import CLASH_EXECUTABLE
 from zlang.backend.systemverilog import emit_artifact
 from zlang.compiler import compile_source
 from zlang.equivalence import (
@@ -42,7 +41,7 @@ from zlang.ir.formal_predicates import (
     ObservationRef,
 )
 from zlang.simulate import simulate_cycles
-from zlang.toolchain import generate_verilog, lint_with_verilator
+from zlang.toolchain import lint_with_verilator
 
 
 VERILATOR = shutil.which("verilator")
@@ -253,8 +252,6 @@ def _build_and_run(
     rtl: tuple[Path, ...],
     harness: Path,
     obj: Path,
-    *,
-    clash_generated: bool = False,
 ) -> None:
     assert VERILATOR is not None
     environment = os.environ.copy()
@@ -269,7 +266,6 @@ def _build_and_run(
             "-Wno-DECLFILENAME",
             "-Wno-UNUSED",
             "-Wno-UNDRIVEN",
-            *(("-Wno-PROCASSINIT",) if clash_generated else ()),
             "--top-module",
             "SignedRelationalWitness",
             "--Mdir",
@@ -294,7 +290,7 @@ def _build_and_run(
 
 def test_simulator_preserves_signed_relational_semantics_across_hierarchy() -> None:
     module = compile_source(
-        WITNESS_SOURCE, top="SignedRelationalWitness", include_clash=False
+        WITNESS_SOURCE, top="SignedRelationalWitness"
     ).ir
     captured = {
         "load": 1,
@@ -327,7 +323,7 @@ def test_direct_sv_casts_typed_ordered_operands_and_matches_edges(
     tmp_path: Path,
 ) -> None:
     module = compile_source(
-        WITNESS_SOURCE, top="SignedRelationalWitness", include_clash=False
+        WITNESS_SOURCE, top="SignedRelationalWitness"
     ).ir
     first = emit_artifact(module)
     second = emit_artifact(module)
@@ -349,33 +345,10 @@ def test_direct_sv_casts_typed_ordered_operands_and_matches_edges(
     _build_and_run((rtl,), harness, tmp_path / "obj_direct")
 
 
-@pytest.mark.skipif(
-    CLASH_EXECUTABLE is None or VERILATOR is None,
-    reason="real Clash 1.11 and Verilator are required",
-)
-def test_clash_matches_signed_relational_edges(tmp_path: Path) -> None:
-    compilation = compile_source(WITNESS_SOURCE, top="SignedRelationalWitness")
-    rtl = tuple(
-        generate_verilog(
-            compilation.clash,
-            compilation.ir.name,
-            tmp_path / "clash",
-            CLASH_EXECUTABLE,
-        )
-    )
-    lint_with_verilator(rtl, compilation.ir.name)
-    harness = tmp_path / "signed_relational_clash.cpp"
-    harness.write_text(_verilator_harness())
-    _build_and_run(
-        rtl,
-        harness,
-        tmp_path / "obj_clash",
-        clash_generated=True,
-    )
 
 
 def _m36_source(implementation: str) -> tuple[object, str, str]:
-    module = compile_source(M36_SOURCE, include_clash=False).ir
+    module = compile_source(M36_SOURCE).ir
     expression = module.assignments[0].expression
     identity = "selected:signed-projection-relational"
     reference = emit_reference_model(
@@ -428,7 +401,7 @@ def _m36_source(implementation: str) -> tuple[object, str, str]:
     reason="Yosys/SymbiYosys formal tools are unavailable",
 )
 def test_m36_signed_projection_extend_passes_and_unsigned_mutation_fails() -> None:
-    module = compile_source(M36_SOURCE, include_clash=False).ir
+    module = compile_source(M36_SOURCE).ir
     implementation = emit_artifact(
         module, selected_ir_identity="selected:signed-projection-relational"
     ).text

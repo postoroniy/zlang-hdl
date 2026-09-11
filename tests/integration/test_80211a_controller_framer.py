@@ -9,9 +9,7 @@ import subprocess
 
 import pytest
 
-from tests.toolchain import CLASH_EXECUTABLE
 from zlang.backend.manifest import BackendArtifact
-from zlang.backend.clash.public_wrapper import ClashPublicTopWrapper
 from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
 from zlang.compiler import compile_file, compile_source
 from zlang.formal import build_recursive_formal_design
@@ -19,7 +17,7 @@ from zlang.ir import Concat, Constant
 from zlang.opt import OptimizationStage, lower, restore
 from zlang.semantic import SemanticError
 from zlang.simulate import simulate, simulate_cycles
-from zlang.toolchain import generate_verilog, lint_with_verilator
+from zlang.toolchain import lint_with_verilator
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -173,7 +171,7 @@ def _scramble_words(words: list[dict[str, object]]) -> list[dict[str, object]]:
 
 
 def test_ieee_signal_codes_and_sparse_rate_boundary() -> None:
-    module = compile_file(SOURCE, top=HEADER, include_clash=False).ir
+    module = compile_file(SOURCE, top=HEADER).ir
     for rate, code in RATE_CODES.items():
         for length in (1, 2, 3, 4, 4095):
             assert simulate(module, raw_rate=rate, length=length) == {
@@ -208,7 +206,7 @@ def test_ieee_signal_header_wrong_field_width_fails_at_concat_boundary() -> None
         "y=bad(rate,length)}"
     )
     with pytest.raises(SemanticError) as caught:
-        compile_source(source, include_clash=False)
+        compile_source(source)
     assert caught.value.code == "ZL-WIDTH-CONCAT"
     assert "produces bits<25>, expected exact bits<24>" in str(caught.value)
 
@@ -226,7 +224,7 @@ def test_ieee_signal_header_wrong_field_width_fails_at_concat_boundary() -> None
     ],
 )
 def test_framer_matches_independent_packet_oracle(rate: int, length: int) -> None:
-    module = compile_file(SOURCE, top=TOP, include_clash=False).ir
+    module = compile_file(SOURCE, top=TOP).ir
     payload = bytes((17 * index + 0x23) & 0xFF for index in range(length))
     signals, words = _run_packet(module, rate, payload)
     assert signals == [_signal_header(rate, length)]
@@ -234,7 +232,7 @@ def test_framer_matches_independent_packet_oracle(rate: int, length: int) -> Non
 
 
 def test_input_shape_validation_stall_and_mid_packet_reset() -> None:
-    module = compile_file(SOURCE, top=TOP, include_clash=False).ir
+    module = compile_file(SOURCE, top=TOP).ir
 
     # The final count and first/last markers are part of the accepted contract.
     invalid_cycles = [
@@ -300,7 +298,7 @@ def test_ieee_scrambler_forces_tail_zero_and_restarts_packet_epoch(
     rate: int,
     length: int,
 ) -> None:
-    module = compile_file(SOURCE, top=SCRAMBLED_TOP, include_clash=False).ir
+    module = compile_file(SOURCE, top=SCRAMBLED_TOP).ir
     payload = bytes((0xA5 + 29 * index) & 0xFF for index in range(length))
     signals, actual = _run_packet(module, rate, payload)
     framed = _framed_words(rate, payload)
@@ -317,7 +315,7 @@ def test_ieee_scrambler_forces_tail_zero_and_restarts_packet_epoch(
 
 
 def test_framer_canonical_and_direct_sv_artifact_are_deterministic() -> None:
-    module = compile_file(SOURCE, top=TOP, include_clash=False).ir
+    module = compile_file(SOURCE, top=TOP).ir
     assert restore(lower(module, stage=OptimizationStage.HIGH_LEVEL)) == module
 
     first = emit_sv_artifact(module)
@@ -347,7 +345,7 @@ def test_framer_canonical_and_direct_sv_artifact_are_deterministic() -> None:
     ):
         assert bindings[semantic_id].physical_available
 
-    composed = compile_file(SOURCE, top=SCRAMBLED_TOP, include_clash=False).ir
+    composed = compile_file(SOURCE, top=SCRAMBLED_TOP).ir
     recursive = build_recursive_formal_design(composed)
     composed_artifact = emit_sv_artifact(composed, recursive_design=recursive)
     assert composed_artifact.instances
@@ -399,7 +397,7 @@ def _run_verilator(tmp_path: Path, rtl: Path, testbench: str) -> None:
 
 @pytest.mark.skipif(VERILATOR is None, reason="Verilator unavailable")
 def test_framer_direct_sv_strict_lint_and_behavior(tmp_path: Path) -> None:
-    module = compile_file(SOURCE, top=TOP, include_clash=False).ir
+    module = compile_file(SOURCE, top=TOP).ir
     artifact = emit_sv_artifact(module)
     rtl = tmp_path / f"{TOP}.sv"
     rtl.write_text(artifact.text)
@@ -407,7 +405,7 @@ def test_framer_direct_sv_strict_lint_and_behavior(tmp_path: Path) -> None:
     composed_rtl = tmp_path / f"{SCRAMBLED_TOP}.sv"
     composed_rtl.write_text(
         emit_sv_artifact(
-            compile_file(SOURCE, top=SCRAMBLED_TOP, include_clash=False).ir
+            compile_file(SOURCE, top=SCRAMBLED_TOP).ir
         ).text
     )
     lint_with_verilator((composed_rtl,), SCRAMBLED_TOP)
@@ -509,21 +507,3 @@ module tb;
 endmodule
 """
     _run_verilator(tmp_path, rtl, testbench)
-
-
-@pytest.mark.skipif(
-    CLASH_EXECUTABLE is None or VERILATOR is None,
-    reason="real Clash 1.11 and Verilator are required",
-)
-def test_framer_real_clash_generation_and_strict_lint(tmp_path: Path) -> None:
-    compilation = compile_file(SOURCE, top=TOP)
-    rtl = tuple(
-        generate_verilog(
-            compilation.clash,
-            TOP,
-            tmp_path / "clash_rtl",
-            CLASH_EXECUTABLE,
-            public_wrapper=ClashPublicTopWrapper.build(compilation.ir),
-        )
-    )
-    lint_with_verilator(rtl, TOP)

@@ -33,7 +33,7 @@ module GeneralExpressionPipeline {
 
 
 def _scheduled(source: str = GENERAL) -> tuple[object, expr.Pipeline, PipelinePlan]:
-    module = compile_source(source, include_clash=False).ir
+    module = compile_source(source).ir
     value = module.assignments[0].expression
     assert isinstance(value, expr.Pipeline)
     assert value.pipeline_plan is not None
@@ -111,7 +111,6 @@ def test_signed_and_fixed_conversion_boundaries_remain_exact() -> None:
     signed = compile_source(
         "module Signed { clock clk reset rst in a,b:s8 in c:s16 "
         "out y:s17 y=pipeline(2){a*b+c} }",
-        include_clash=False,
     ).ir.assignments[0].expression
     assert isinstance(signed, expr.Pipeline)
     assert str(signed.type) == "s17"
@@ -122,7 +121,6 @@ def test_signed_and_fixed_conversion_boundaries_remain_exact() -> None:
         "out y:SF_Sat8.8 y=pipeline(3){"
         "quantize<SF_Sat8.8>(a*b+c*d){round nearest_even overflow saturate}"
         "} }",
-        include_clash=False,
     ).ir.assignments[0].expression
     assert isinstance(fixed, expr.Pipeline)
     assert fixed.pipeline_plan is not None
@@ -143,7 +141,6 @@ def test_supported_scalar_selection_bit_and_packing_nodes_are_scheduled() -> Non
         "out arithmetic:u8 out packed:bits<8> "
         "arithmetic=pipeline(3){select ? (a << 1) : (b ^ c)} "
         "packed=pipeline(2){concat(a[7:4],b[3:0])} }",
-        include_clash=False,
     ).ir
     operation_sets = tuple(
         {
@@ -338,4 +335,4 @@ def test_stateful_or_nested_timing_nodes_fail_closed() -> None:
         "y=pipeline(2){delay<1>(a)} }"
     )
     with pytest.raises(SemanticError, match="nested delay/pipeline"):
-        compile_source(source, include_clash=False)
+        compile_source(source)

@@ -1,10 +1,10 @@
 """Deterministic materialization planning for typed backend expressions.
 
 The semantic IR deliberately does not prescribe whether a pure value becomes
-an RTL/Haskell temporary.  Backends nevertheless need one common decision for
+an RTL temporary. The backend needs one common decision for
 large or shared expressions so an exact typed graph is not copied at every use
 site.  This module only plans names and rewrites value references; it does not
-render either SystemVerilog or Clash and therefore cannot change semantics.
+render SystemVerilog and therefore cannot change semantics.
 """
 
 from __future__ import annotations
@@ -77,8 +77,7 @@ def module_expression_roots(
     # A backend may render register reset values in a static/value context
     # instead of through its runtime expression renderer.  Such initializers
     # must not make an otherwise dead Signal temporary appear reusable.  The
-    # direct-SV procedural reset path does use the runtime renderer, while the
-    # Clash ``register initial next`` form deliberately does not.
+    # direct-SV procedural reset path uses the runtime renderer.
     if include_register_initials:
         roots.extend(register.initial for register in module.registers)
     roots.extend(binding.expression for binding in module.instance_bindings)

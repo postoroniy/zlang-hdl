@@ -15,7 +15,6 @@ import subprocess
 
 import pytest
 
-from tests.toolchain import CLASH_EXECUTABLE
 from zlang.backend.systemverilog import emit_artifact
 from zlang.compiler import compile_source
 from zlang.equivalence import (
@@ -41,7 +40,7 @@ from zlang.ir.formal_predicates import (
     ObservationRef,
 )
 from zlang.simulate import simulate
-from zlang.toolchain import generate_verilog, lint_with_verilator
+from zlang.toolchain import lint_with_verilator
 
 
 VERILATOR = shutil.which("verilator")
@@ -127,7 +126,7 @@ int main(int argc, char **argv) {
 
 
 def test_semantic_simulator_uses_typed_right_shift() -> None:
-    module = compile_source(WITNESS_SOURCE, include_clash=False).ir
+    module = compile_source(WITNESS_SOURCE).ir
 
     assert simulate(
         module,
@@ -149,7 +148,7 @@ def test_semantic_simulator_uses_typed_right_shift() -> None:
 def test_direct_systemverilog_uses_typed_shift_and_matches_signed_edges(
     tmp_path: Path,
 ) -> None:
-    module = compile_source(WITNESS_SOURCE, include_clash=False).ir
+    module = compile_source(WITNESS_SOURCE).ir
     text = emit_artifact(module).text
 
     assert re.search(r"assign signed_y = .*>>>.*;", text)
@@ -193,62 +192,10 @@ def test_direct_systemverilog_uses_typed_shift_and_matches_signed_edges(
     assert executed.returncode == 0, executed.stderr or executed.stdout
 
 
-@pytest.mark.skipif(
-    CLASH_EXECUTABLE is None or VERILATOR is None,
-    reason="real Clash 1.11 and Verilator are required",
-)
-def test_clash_uses_typed_shift_and_matches_signed_edges(tmp_path: Path) -> None:
-    compilation = compile_source(WITNESS_SOURCE)
-    assert "shiftR" in compilation.clash
-
-    rtl = tuple(
-        generate_verilog(
-            compilation.clash,
-            compilation.ir.name,
-            tmp_path / "clash",
-            CLASH_EXECUTABLE,
-        )
-    )
-    lint_with_verilator(rtl, compilation.ir.name)
-
-    harness = tmp_path / "signed_right_shift_clash.cpp"
-    obj = tmp_path / "obj_clash"
-    harness.write_text(_verilator_harness())
-    environment = os.environ.copy()
-    environment["CCACHE_DISABLE"] = "1"
-    built = subprocess.run(
-        (
-            VERILATOR,
-            "--cc",
-            "--exe",
-            "--build",
-            "-Wno-DECLFILENAME",
-            "-Wno-UNUSED",
-            "-Wno-UNDRIVEN",
-            "--top-module",
-            compilation.ir.name,
-            "--Mdir",
-            str(obj),
-            *(str(path) for path in rtl),
-            str(harness),
-        ),
-        check=False,
-        capture_output=True,
-        text=True,
-        env=environment,
-    )
-    assert built.returncode == 0, built.stderr or built.stdout
-    executed = subprocess.run(
-        (str(obj / "VSignedRightShiftWitness"),),
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    assert executed.returncode == 0, executed.stderr or executed.stdout
 
 
 def _m36_source(implementation: str) -> tuple[object, str, str]:
-    module = compile_source(M36_SOURCE, include_clash=False).ir
+    module = compile_source(M36_SOURCE).ir
     expression = module.assignments[0].expression
     selected = "selected:signed-right-shift"
     reference = emit_reference_model(
@@ -301,7 +248,7 @@ def _m36_source(implementation: str) -> tuple[object, str, str]:
     reason="Yosys/SymbiYosys formal tools are unavailable",
 )
 def test_m36_signed_shift_reference_passes_and_logical_mutation_fails() -> None:
-    module = compile_source(M36_SOURCE, include_clash=False).ir
+    module = compile_source(M36_SOURCE).ir
     implementation = emit_artifact(
         module, selected_ir_identity="selected:signed-right-shift"
     ).text

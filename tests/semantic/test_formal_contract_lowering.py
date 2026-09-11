@@ -3,7 +3,7 @@ from zlang.ir.formal_predicates import Mux
 
 
 def contract(source: str, name: str = "g"):
-    design = compile_source(source, include_clash=False).formal_design
+    design = compile_source(source).formal_design
     return next(
         item for item in design.properties
         if item.generated_from == f"contract:{name}"

@@ -58,7 +58,6 @@ class DirectSystemVerilogEmitterTests(unittest.TestCase):
     def test_runtime_logical_not_lowers_without_unary_minus(self) -> None:
         result = compile_source(
             "module Invert { in x:bit out y:bit y = !x }",
-            include_clash=False,
         )
         generated = emit_experimental(result.ir)
         self.assertIn("assign y = ((x) == (1'd0));", generated)
@@ -92,7 +91,7 @@ module NestedSwitchCall {
     y = choose_bump(select, value)
 }
 """
-        result = compile_source(source, include_clash=False)
+        result = compile_source(source)
         generated = emit_experimental(result.ir)
 
         self.assertIn("module NestedSwitchCall", generated)
@@ -133,7 +132,6 @@ module SwitchShared {
     }
 }
 """,
-            include_clash=False,
         )
         generated = emit_experimental(result.ir)
         temporary = next(
@@ -154,7 +152,6 @@ module SwitchShared {
             "module NegativeConstant { out y:fixed<16,14> "
             "y=quantize<fixed<16,14>>(-0.7071067811865475) { "
             "round nearest_even overflow saturate } }",
-            include_clash=False,
         )
         generated = emit_experimental(result.ir)
         self.assertIn("-16'sd11585", generated)
@@ -171,7 +168,6 @@ module SwitchShared {
         result = compile_source(
             "module ReservedOutput { in input:s16 out output:s16 "
             "output=input }",
-            include_clash=False,
         )
         generated = emit_experimental(result.ir)
         self.assertIn("input wire logic signed [15:0] zlang_input", generated)

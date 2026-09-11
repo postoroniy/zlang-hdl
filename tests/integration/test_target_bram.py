@@ -7,7 +7,6 @@ import pytest
 
 from zlang.backend.systemverilog import emit_experimental, emit_target, emit_target_artifact
 from zlang.compiler import compile_source
-from zlang.toolchain import find_clash_executable, generate_verilog
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -74,19 +73,3 @@ endmodule
         check=True, capture_output=True, text=True, env=environment,
     )
     subprocess.run((str(obj / "Vtb"),), check=True, capture_output=True, text=True)
-
-
-@pytest.mark.skipif(
-    find_clash_executable() is None or shutil.which("verilator") is None,
-    reason="Clash or Verilator unavailable",
-)
-def test_generic_memory_generates_real_clash_verilog(tmp_path: Path) -> None:
-    compilation = compile_source(SOURCE)
-    files = generate_verilog(
-        compilation.clash, "TargetBRAMMemory", tmp_path / "clash-rtl"
-    )
-    subprocess.run(
-        ("verilator", "--lint-only", "-Wno-fatal", "--top-module",
-         "TargetBRAMMemory", *(str(path) for path in files)),
-        check=True, capture_output=True, text=True,
-    )

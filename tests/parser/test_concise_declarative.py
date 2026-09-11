@@ -146,22 +146,6 @@ class ConciseDeclarativeSyntaxTests(unittest.TestCase):
             {("o__t", "payload"), ("o__t", "valid"), ("i__t", "ready")},
         )
 
-    def test_top_aggregate_pass_through_matches_explicit_leaf_backend_behavior(self) -> None:
-        prefix = """
-        protocol Stream { role source role sink channel t:rv<u8> source -> sink }
-        module Top { clock clk reset rst
-          interface i:Stream.sink @clk
-          interface o:Stream.source @clk
-        """
-        sugar = compile_source(prefix + "i -> o }")
-        manual = compile_source(
-            prefix
-            + "o.t.payload=i.t.payload o.t.valid=i.t.valid i.t.ready=o.t.ready }"
-        )
-        self.assertEqual(sugar.clash, manual.clash)
-        self.assertEqual(emit_experimental(sugar.ir), emit_experimental(manual.ir))
-        self.assertIn("i__t_payload = zlangRvPayload <$> i__t", sugar.clash)
-        self.assertIn("o__t_ready = zlangRvReady <$> o__t_backward", sugar.clash)
 
     def test_top_aggregate_pass_through_rejects_reverse_flow(self) -> None:
         source = """

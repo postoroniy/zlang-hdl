@@ -7,11 +7,10 @@ import subprocess
 
 import pytest
 
-from tests.toolchain import CLASH_EXECUTABLE
 from zlang.backend.manifest import BackendArtifact
 from zlang.backend.systemverilog import emit_artifact
 from zlang.compiler import compile_source
-from zlang.toolchain import generate_verilog, lint_with_verilator
+from zlang.toolchain import lint_with_verilator
 
 
 SOURCE = """
@@ -116,7 +115,7 @@ def _verilate_and_run(tmp_path: Path, rtl: tuple[Path, ...], suffix: str) -> Non
 
 
 def test_direct_sv_sparse_enum_artifact_is_deterministic() -> None:
-    module = compile_source(SOURCE, include_clash=False).ir
+    module = compile_source(SOURCE).ir
     first = emit_artifact(module)
     second = emit_artifact(module)
     assert first.text == second.text
@@ -133,47 +132,18 @@ def test_direct_sv_sparse_enum_artifact_is_deterministic() -> None:
 
 @pytest.mark.skipif(shutil.which("verilator") is None, reason="Verilator unavailable")
 def test_direct_sv_sparse_enum_is_bit_exact(tmp_path: Path) -> None:
-    artifact = emit_artifact(compile_source(SOURCE, include_clash=False).ir)
+    artifact = emit_artifact(compile_source(SOURCE).ir)
     rtl = tmp_path / "EncodedEnumRTL.sv"
     rtl.write_text(artifact.text)
     lint_with_verilator((rtl,), "EncodedEnumRTL")
     _verilate_and_run(tmp_path, (rtl,), "sv")
 
 
-@pytest.mark.skipif(
-    CLASH_EXECUTABLE is None or shutil.which("verilator") is None,
-    reason="real Clash 1.11 and Verilator are required",
-)
-def test_clash_sparse_enum_is_bit_exact(tmp_path: Path) -> None:
-    compilation = compile_source(SOURCE)
-    rtl = generate_verilog(
-        compilation.clash,
-        "EncodedEnumRTL",
-        tmp_path / "clash_rtl",
-        CLASH_EXECUTABLE,
-    )
-    lint_with_verilator(rtl, "EncodedEnumRTL")
-    _verilate_and_run(tmp_path, tuple(rtl), "clash")
 
 
 @pytest.mark.skipif(shutil.which("verilator") is None, reason="Verilator unavailable")
 def test_direct_sv_sparse_enum_register_path_lints(tmp_path: Path) -> None:
-    artifact = emit_artifact(compile_source(STATE_SOURCE, include_clash=False).ir)
+    artifact = emit_artifact(compile_source(STATE_SOURCE).ir)
     rtl = tmp_path / "EncodedEnumStateRTL.sv"
     rtl.write_text(artifact.text)
     lint_with_verilator((rtl,), "EncodedEnumStateRTL")
-
-
-@pytest.mark.skipif(
-    CLASH_EXECUTABLE is None or shutil.which("verilator") is None,
-    reason="real Clash 1.11 and Verilator are required",
-)
-def test_clash_sparse_enum_register_path_lints(tmp_path: Path) -> None:
-    compilation = compile_source(STATE_SOURCE)
-    rtl = generate_verilog(
-        compilation.clash,
-        "EncodedEnumStateRTL",
-        tmp_path / "clash_state_rtl",
-        CLASH_EXECUTABLE,
-    )
-    lint_with_verilator(rtl, "EncodedEnumStateRTL")

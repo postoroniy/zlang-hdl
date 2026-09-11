@@ -83,7 +83,7 @@ module AsyncDomainCounter {
 
 
 def test_unrelated_async_domain_does_not_poison_legacy_goal() -> None:
-    module = compile_source(MULTI_DOMAIN_GOALS, include_clash=False).ir
+    module = compile_source(MULTI_DOMAIN_GOALS).ir
     legacy, second = module.clock_domains
     mixed = replace(
         module,
@@ -104,7 +104,7 @@ def test_unrelated_async_domain_does_not_poison_legacy_goal() -> None:
 
 
 def test_power_up_reset_remains_fail_closed_for_every_goal() -> None:
-    module = compile_source(COUNTER, include_clash=False).ir
+    module = compile_source(COUNTER).ir
     guarded = replace(
         module,
         clock_domains=(replace(
@@ -123,7 +123,7 @@ def test_power_up_reset_remains_fail_closed_for_every_goal() -> None:
 
 
 def test_connector_checks_only_the_goal_physical_domain() -> None:
-    compiled = compile_source(COUNTER, include_clash=False)
+    compiled = compile_source(COUNTER)
     artifact = emit_formal_artifact(
         compiled.ir,
         build_recursive_formal_design(compiled.ir),
@@ -162,7 +162,7 @@ def test_connector_checks_only_the_goal_physical_domain() -> None:
 
 
 def test_connector_preserves_whole_design_guard_when_only_goal_is_async() -> None:
-    compiled = compile_source(COUNTER, include_clash=False)
+    compiled = compile_source(COUNTER)
     artifact = emit_formal_artifact(
         compiled.ir,
         build_recursive_formal_design(compiled.ir),
@@ -198,7 +198,7 @@ def test_connector_preserves_whole_design_guard_when_only_goal_is_async() -> Non
 def test_bundle_connects_each_supported_domain_independently(
     tmp_path: Path,
 ) -> None:
-    compiled = compile_source(MULTI_DOMAIN_GOALS, include_clash=False)
+    compiled = compile_source(MULTI_DOMAIN_GOALS)
     bundle_path = tmp_path / "bundle"
     publish_compilation_verification_bundle(compiled, bundle_path)
     bundle = load_verification_bundle(bundle_path)
@@ -250,7 +250,6 @@ def test_multidomain_exact_goal_routes_survive_formal_disk_cache(
     cache = tmp_path / "formal-cache"
     compiled = compile_source(
         MULTI_DOMAIN_GOALS,
-        include_clash=False,
         formal_cache=cache,
     )
 
@@ -273,7 +272,7 @@ def test_multidomain_exact_goal_routes_survive_formal_disk_cache(
 def test_source_goal_keeps_multidomain_state_binding_and_fails_closed(
     tmp_path: Path,
 ) -> None:
-    compiled = compile_source(MULTI_DOMAIN_STATE_GOAL, include_clash=False)
+    compiled = compile_source(MULTI_DOMAIN_STATE_GOAL)
     source_goal = next(
         item for item in compiled.formal_design.properties
         if item.generated_from.startswith("verification-assert:")
@@ -311,7 +310,7 @@ def test_source_goal_keeps_multidomain_state_binding_and_fails_closed(
 def test_skipped_async_goal_retains_available_artifact_domain_identity(
     tmp_path: Path,
 ) -> None:
-    compiled = compile_source(ASYNC_COUNTER, include_clash=False)
+    compiled = compile_source(ASYNC_COUNTER)
     source_goal = next(
         item for item in compiled.formal_design.properties
         if item.kind.value == "assertion"
@@ -358,7 +357,7 @@ TOOLS = ("yosys", "sby", "yosys-smtbmc", "z3")
 def test_multi_domain_constant_cover_executes_against_closed_formal_top(
     tmp_path: Path,
 ) -> None:
-    compiled = compile_source(MULTI_DOMAIN_GOALS, include_clash=False)
+    compiled = compile_source(MULTI_DOMAIN_GOALS)
     artifact = emit_formal_artifact(
         compiled.ir,
         compiled.recursive_formal_design,

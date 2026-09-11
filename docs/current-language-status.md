@@ -35,7 +35,8 @@ property/observation family, or new equivalence relation.
   passes strict Verilator lint; child/template roots are exercised through a
   concrete parent.
 - The accepted tool host has Verilator 5.044, Yosys and SymbiYosys 0.68,
-  `yosys-smtbmc`, and Z3 4.8.12. Clash/GHC are not required.
+  `yosys-smtbmc`, and Z3 4.8.12. GHC and Clash are not installed or discovered
+  by the compiler and are not test or release dependencies.
 - The complete 1,033-cycle FFT512 persistent-hierarchy replay runs by default,
   accepts all 1,023 offered tokens, and produces the frozen 512-output digest.
 - Direct-SV simulation tooling can publish a separate semantic state catalog
@@ -49,9 +50,7 @@ verification routes remain fail-closed.
 ## Backend policy
 
 Direct SystemVerilog is the sole production backend. Historical Clash support
-is retired from the public toolchain; compatibility emission is retained only
-for dated internal fixtures and is never a release or feature-completeness
-requirement.
+has been removed from the compiler, package, CLI, tests, CI, and release gate.
 Direct SystemVerilog is the sole supported production backend for its validated
 subset; `--systemverilog` is the public option and
 `--experimental-systemverilog` is a compatibility alias. The backend does not
@@ -61,8 +60,7 @@ public `TopPhysicalABI`, and publishes versioned `BackendArtifact` bindings.
 Top-level struct fields, tuple `itemN` components, and protocol aggregates are
 exposed as semantic leaves in direct SystemVerilog. Vectors remain native public
 arrays. Direct-SV component ABIs are closed over all child dependencies;
-unsupported combinations cannot publish partial RTL. Historical Clash
-component details are not part of the production ABI.
+unsupported combinations cannot publish partial RTL.
 
 ## Implemented language surface
 

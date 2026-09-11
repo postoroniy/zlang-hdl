@@ -896,7 +896,7 @@ class YosysMeasurement:
     candidate_hash: str
     cache_key: str
     yosys_version: str
-    clash_version: str
+    frontend_version: str
     target: str
     constraints: tuple[tuple[str, str], ...]
     lut_cells: int

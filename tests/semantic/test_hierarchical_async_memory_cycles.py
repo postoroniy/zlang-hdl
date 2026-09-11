@@ -42,7 +42,7 @@ module Loop {
         SemanticError,
         match=r"combinational child dependency cycle: c\.q -> c\.q",
     ):
-        compile_source(self_address, top="Loop", include_clash=False)
+        compile_source(self_address, top="Loop")
 
     two_children = _memory_child(latency=0, collision="read_first") + """
 module PairLoop {
@@ -53,7 +53,7 @@ module PairLoop {
 }
 """
     with pytest.raises(SemanticError, match="combinational child dependency cycle"):
-        compile_source(two_children, top="PairLoop", include_clash=False)
+        compile_source(two_children, top="PairLoop")
 
     write_first = _memory_child(latency=0, collision="write_first") + """
 module WriteLoop {
@@ -66,7 +66,7 @@ module WriteLoop {
         SemanticError,
         match=r"combinational child dependency cycle: c\.q -> c\.q",
     ):
-        compile_source(write_first, top="WriteLoop", include_clash=False)
+        compile_source(write_first, top="WriteLoop")
 
 
 def test_sequential_and_read_first_next_edge_feedback_remain_legal() -> None:
@@ -77,7 +77,7 @@ module ReadFirstFeedback {
     q=c.q
 }
 """
-    compile_source(read_first, top="ReadFirstFeedback", include_clash=False)
+    compile_source(read_first, top="ReadFirstFeedback")
 
     latency_one = _memory_child(latency=1, collision="write_first") + """
 module RegisteredReadFeedback {
@@ -86,10 +86,10 @@ module RegisteredReadFeedback {
     q=c.q
 }
 """
-    compile_source(latency_one, top="RegisteredReadFeedback", include_clash=False)
+    compile_source(latency_one, top="RegisteredReadFeedback")
 
     banked = (ROOT / "examples" / "ztpu_banked_memory.zhl").read_text()
-    compile_source(banked, top="ZtpuBankedMemory", include_clash=False)
+    compile_source(banked, top="ZtpuBankedMemory")
 
 
 def test_latency_zero_dependencies_are_transitive_through_nested_children() -> None:
@@ -109,7 +109,7 @@ module NestedLoop {
         SemanticError,
         match=r"combinational child dependency cycle: mid\.q -> mid\.q",
     ):
-        compile_source(source, top="NestedLoop", include_clash=False)
+        compile_source(source, top="NestedLoop")
 
 
 def test_rule_driven_child_output_dependencies_are_not_hidden() -> None:
@@ -128,7 +128,7 @@ module RuleLoop {
         SemanticError,
         match=r"combinational child dependency cycle: child\.y -> child\.y",
     ):
-        compile_source(source, top="RuleLoop", include_clash=False)
+        compile_source(source, top="RuleLoop")
 
 
 def test_rule_output_dependencies_include_the_exact_resolved_schedule() -> None:
@@ -150,7 +150,7 @@ module ScheduledLoop {
         SemanticError,
         match=r"combinational child dependency cycle: child\.y -> child\.y",
     ):
-        compile_source(conflicting, top="ScheduledLoop", include_clash=False)
+        compile_source(conflicting, top="ScheduledLoop")
 
     unrelated = """
 module IndependentOutput {
@@ -166,7 +166,7 @@ module IndependentFeedback {
     y=child.y
 }
 """
-    compile_source(unrelated, top="IndependentFeedback", include_clash=False)
+    compile_source(unrelated, top="IndependentFeedback")
 
 
 @pytest.mark.parametrize(
@@ -205,7 +205,7 @@ module FifoLoop {{
             r"child\.observed -> child\.observed"
         ),
     ):
-        compile_source(source, top="FifoLoop", include_clash=False)
+        compile_source(source, top="FifoLoop")
 
 
 def test_fifo_state_and_scheduled_observations_remain_cycle_cuts() -> None:
@@ -224,7 +224,7 @@ module LegacyStateFeedback {
     valid=child.valid
 }
 """
-    compile_source(legacy_state, top="LegacyStateFeedback", include_clash=False)
+    compile_source(legacy_state, top="LegacyStateFeedback")
 
     scheduled = """
 module ScheduledFifoReady {
@@ -239,4 +239,4 @@ module ScheduledStateFeedback {
     ready=child.ready
 }
 """
-    compile_source(scheduled, top="ScheduledStateFeedback", include_clash=False)
+    compile_source(scheduled, top="ScheduledStateFeedback")

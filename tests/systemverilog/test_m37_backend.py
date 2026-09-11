@@ -4,12 +4,10 @@ import subprocess
 import tempfile
 import unittest
 
-from zlang.backend.clash import emit_artifact as emit_clash_artifact
 from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact, emit_experimental
 from zlang.compiler import compile_source
 from zlang.formal import run_verilog_formal
 from zlang.ir.formal import FormalStatus
-from zlang.toolchain import find_clash_executable, generate_verilog
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -19,16 +17,6 @@ class M37BackendTests(unittest.TestCase):
     def compile(self, name):
         return compile_source((ROOT / "examples" / name).read_text())
 
-    def test_both_backends_publish_versioned_artifact_manifests(self):
-        result = self.compile("alu.zhl")
-        for artifact in (emit_clash_artifact(result.ir), emit_sv_artifact(result.ir)):
-            self.assertEqual(artifact.manifest_version, 2)
-            self.assertEqual(len(artifact.artifact_hash), 64)
-            artifact.binding_map().validate(required=())
-            data = artifact.to_json()
-            self.assertIn('"selected_ir_identity"', data)
-            self.assertIn('"source_origin"', data)
-            self.assertEqual({item.backend for item in artifact.bindings}, {artifact.backend})
 
     def test_direct_reductions_are_lowered_from_typed_ir(self):
         for name in ("dot_product.zhl", "generated_reduce.zhl", "mapped_sum.zhl"):
@@ -68,7 +56,6 @@ class M37BackendTests(unittest.TestCase):
             }
             """,
             top="FifoProjection",
-            include_clash=False,
         )
         text = emit_experimental(result.ir)
         self.assertIn("logic [15:0] queue_front;", text)
@@ -104,7 +91,6 @@ class M37BackendTests(unittest.TestCase):
             module PackedParity { in value:u7 out parity:bit parity=parity7(value) }
             """,
             top="PackedParity",
-            include_clash=False,
         )
         text = emit_experimental(result.ir)
         self.assertNotRegex(text, r"\$unsigned\([^\n]+\)\[[0-9]+\]")
@@ -141,7 +127,6 @@ class M37BackendTests(unittest.TestCase):
             }
             """,
             top="ReservedSequence",
-            include_clash=False,
         )
         text = emit_experimental(result.ir)
         self.assertIn("logic [6:0] zlang_sequence;", text)
@@ -177,7 +162,6 @@ class M37BackendTests(unittest.TestCase):
             }
             """,
             top="ReservedJoin",
-            include_clash=False,
         )
         text = emit_experimental(result.ir)
         self.assertIn("Child_s", text)
@@ -203,28 +187,6 @@ class M37BackendTests(unittest.TestCase):
                 )
             self.assertEqual(completed.returncode, 0, completed.stderr)
 
-    def test_direct_and_clash_artifacts_have_real_formal_smoke(self):
-        result = self.compile("alu.zhl")
-        wrapper = """
-module M37Formal(input [31:0] a, input [31:0] b, input [2:0] op);
-  wire [31:0] y;
-  ALU dut(.a(a), .b(b), .op(op), .y(y));
-  always @* assert(y == ((op == 0) ? (a+b) : ((op == 1) ? (a-b) :
-                    ((op == 2) ? (a&b) : ((op == 3) ? (a|b) : 0)))));
-endmodule
-"""
-        direct = run_verilog_formal(emit_sv_artifact(result.ir).text + wrapper,
-                                     top="M37Formal", property_id="m37.direct.alu",
-                                     systemverilog=True)
-        self.assertNotEqual(direct.status, FormalStatus.FAILED)
-        clash_executable = find_clash_executable()
-        if clash_executable:
-            with tempfile.TemporaryDirectory() as directory:
-                files = generate_verilog(result.clash, "ALU", Path(directory), clash_executable)
-                clash_text = "\n".join(path.read_text() for path in files)
-                clash = run_verilog_formal(clash_text + wrapper, top="M37Formal",
-                                            property_id="m37.clash.alu")
-                self.assertNotEqual(clash.status, FormalStatus.FAILED)
 
 
 if __name__ == "__main__":

@@ -16,7 +16,6 @@ def test_complex_sum_retains_exact_overload_expansion_and_type() -> None:
         "import std.math.complex "
         "module Top{in x:vec<8,Complex<fixed<35,30>>> "
         "out y:Complex<fixed<38,30>> y=sum(x)}",
-        include_clash=False,
     )
     reduction = result.ir.assignments[0].expression
     assert isinstance(reduction, expr.Reduce)
@@ -50,13 +49,11 @@ def test_complex_sum_stdlib_spelling_matches_language_sum() -> None:
     direct_module = compile_source(
         "import std.math.complex "
         "module Top{in x:vec<4,Complex<s8>> out y:Complex<s10> y=sum(x)}",
-        include_clash=False,
     ).ir
     helper_module = compile_source(
         "import std.math.complex "
         "module Top{in x:vec<4,Complex<s8>> "
         "out y:Complex<s10> y=complex_sum(x)}",
-        include_clash=False,
     ).ir
     expanded_helper = expand_callable_calls(
         helper_module.assignments[0].expression,
@@ -76,7 +73,6 @@ def test_complex_dot_uses_same_exact_nominal_reduction() -> None:
         "in a:vec<8,Complex<fixed<18,16>>> "
         "in b:vec<8,Complex<fixed<16,14>>> "
         "out y:Complex<fixed<38,30>> y=dot(a,b)}",
-        include_clash=False,
     )
     reduction = result.ir.assignments[0].expression
     assert isinstance(reduction, expr.Reduce)
@@ -91,7 +87,6 @@ def test_nominal_sum_uses_owner_operator_not_struct_field_magic() -> None:
         "operator +<type A,type B>(a:Pair<A>,b:Pair<B>){"
         "Pair{left=a.left right=b.right}} "
         "module Top{in x:vec<4,Pair<u8>> out y:Pair<u8> y=sum(x)}",
-        include_clash=False,
     )
     reduction = result.ir.assignments[0].expression
     assert isinstance(reduction, expr.Reduce)
@@ -109,7 +104,6 @@ def test_nominal_sum_rejects_missing_or_non_closed_exact_overload() -> None:
         compile_source(
             "struct Pair{left:u8 right:u8} "
             "module Top{in x:vec<2,Pair> out y:Pair y=sum(x)}",
-            include_clash=False,
         )
     with pytest.raises(SemanticError, match="balanced-tree operator"):
         compile_source(
@@ -117,7 +111,6 @@ def test_nominal_sum_rejects_missing_or_non_closed_exact_overload() -> None:
             "operator +(a:Pair<u8>,b:Pair<u8>){"
             "Pair{left=a.left+b.left right=a.right+b.right}} "
             "module Top{in x:vec<4,Pair<u8>> out y:Pair<u10> y=sum(x)}",
-            include_clash=False,
         )
 
 
@@ -127,7 +120,6 @@ def test_nominal_reduce_support_is_additive_only() -> None:
             "import std.math.complex "
             "module Top{in x:vec<2,Complex<u8>> "
             "out y:Complex<u16> y=reduce(*,x)}",
-            include_clash=False,
         )
 
 
@@ -145,7 +137,6 @@ def test_compact_nominal_sum_preserves_odd_even_exact_widening(
         f"module Top{{in x:vec<{length},Complex<fixed<35,30>>> "
         f"out y:Complex<fixed<{root_width},30>> "
         f"y=sum(generate(i in 0..{length}) x[i])}}",
-        include_clash=False,
     )
     reduction = result.ir.assignments[0].expression
     assert isinstance(reduction, expr.Reduce)
@@ -163,7 +154,6 @@ def test_compact_nominal_sum_preserves_non_associative_midpoint_order() -> None:
         "operator +(a:Trace,b:Trace){Trace{v=a.v-b.v}} "
         "module Top{in x:vec<33,Trace> out y:Trace "
         "y=sum(generate(i in 0..33) x[i])}",
-        include_clash=False,
     )
     reduction = result.ir.assignments[0].expression
     assert isinstance(reduction, expr.Reduce)
@@ -189,7 +179,6 @@ def test_compact_nominal_sum_reports_missing_intermediate_overload() -> None:
             "Pair{left=a.left+b.left right=a.right+b.right}} "
             "module Top{in x:vec<32,Pair<u8>> out y:Pair<u13> "
             "y=sum(generate(i in 0..32) x[i])}",
-            include_clash=False,
         )
 
 
@@ -201,12 +190,10 @@ def test_functional_binder_identity_is_source_relocation_insensitive() -> None:
     first = compile_source(
         source,
         source_unit="first/location.zhl",
-        include_clash=False,
     )
     second = compile_source(
         source,
         source_unit="second/location.zhl",
-        include_clash=False,
     )
     reformatted = compile_source(
         """
@@ -219,7 +206,6 @@ def test_functional_binder_identity_is_source_relocation_insensitive() -> None:
         }
         """,
         source_unit="third/location.zhl",
-        include_clash=False,
     )
     identities = tuple(
         result.ir.assignments[0].expression.binder.identity
@@ -234,7 +220,6 @@ def test_distinct_functional_declarations_have_distinct_binder_identities() -> N
     module = compile_source(
         "module Top{in x:vec<32,u8> out a:vec<32,u8> out b:vec<32,u8> "
         "a=generate(i in 0..32)x[i] b=generate(i in 0..32)x[i]}",
-        include_clash=False,
     ).ir
     regions = tuple(assignment.expression for assignment in module.assignments)
     assert all(isinstance(region, expr.FunctionalRegion) for region in regions)
@@ -247,7 +232,6 @@ def test_compaction_never_retains_an_erased_local_reference() -> None:
         "out y:vec<32,bit> state_bits:vec<32,bit>="
         "bitcast<vec<32,bit>>(state) "
         "y=generate(i in 0..32) state_bits[i]}",
-        include_clash=False,
     ).ir
     generated = module.assignments[0].expression
     assert isinstance(generated, expr.Generate)

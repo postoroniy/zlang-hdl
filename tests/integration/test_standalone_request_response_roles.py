@@ -9,18 +9,12 @@ import subprocess
 
 import pytest
 
-from zlang.backend.clash import emit as emit_clash
-from zlang.backend.clash import emit_artifact as emit_clash_artifact
 from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
 from zlang.compiler import compile_source
 from zlang.ir.interfaces import RequestResponseRole
 from zlang.opt import OptimizationStage, lower, restore
 from zlang.simulate import simulate_request_response_cycles
-from zlang.toolchain import (
-    find_clash_executable,
-    generate_verilog,
-    lint_with_verilator,
-)
+from zlang.toolchain import lint_with_verilator
 
 
 SOURCE = r"""
@@ -66,7 +60,7 @@ module StandaloneResponder {
 
 
 def _module(name: str):
-    return compile_source(SOURCE, top=name, include_clash=False).ir
+    return compile_source(SOURCE, top=name).ir
 
 
 def test_roles_and_canonical_links_are_exact() -> None:
@@ -148,39 +142,6 @@ def test_role_aware_simulator_accounts_stalls_limits_and_same_cycle_response() -
     }
 
 
-def test_backend_artifacts_are_deterministic_and_publish_role_aware_leaves() -> None:
-    for name, expected_role in (
-        ("StandaloneRequester", "requester"),
-        ("StandaloneResponder", "responder"),
-    ):
-        module = _module(name)
-        sv_first = emit_sv_artifact(module)
-        sv_second = emit_sv_artifact(module)
-        clash_first = emit_clash_artifact(module)
-        clash_second = emit_clash_artifact(module)
-        assert (sv_first.text, sv_first.artifact_hash) == (
-            sv_second.text, sv_second.artifact_hash
-        )
-        assert (clash_first.text, clash_first.artifact_hash) == (
-            clash_second.text, clash_second.artifact_hash
-        )
-        for artifact in (sv_first, clash_first):
-            restored = type(artifact).from_json(artifact.to_json())
-            # Manifests intentionally do not duplicate the emitted source
-            # payload; identity and typed bindings must round-trip exactly.
-            assert restored.artifact_hash == artifact.artifact_hash
-            assert restored.selected_ir_identity == artifact.selected_ir_identity
-            assert restored.bindings == artifact.bindings
-            request_valid = next(
-                item for item in artifact.bindings
-                if item.semantic_signal_id == "port:mem.request.valid"
-            )
-            response_valid = next(
-                item for item in artifact.bindings
-                if item.semantic_signal_id == "port:mem.response.valid"
-            )
-            assert request_valid.protocol_role == expected_role
-            assert response_valid.protocol_role == expected_role
 
 
 @pytest.mark.skipif(shutil.which("verilator") is None, reason="Verilator unavailable")
@@ -252,16 +213,3 @@ endmodule
         text=True,
     )
     assert run.returncode == 0, run.stderr or run.stdout
-
-
-@pytest.mark.skipif(
-    find_clash_executable() is None or shutil.which("verilator") is None,
-    reason="Clash or Verilator unavailable",
-)
-@pytest.mark.parametrize("top", ("StandaloneRequester", "StandaloneResponder"))
-def test_real_clash_1_11_generates_lint_clean_rtl(top: str, tmp_path: Path) -> None:
-    module = _module(top)
-    generated = generate_verilog(
-        emit_clash(module), module.name, tmp_path / f"clash-{top}"
-    )
-    lint_with_verilator(generated, module.name)

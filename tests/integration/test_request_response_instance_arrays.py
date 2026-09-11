@@ -11,12 +11,6 @@ import subprocess
 
 import pytest
 
-from tests.toolchain import CLASH_EXECUTABLE
-from zlang.backend.clash import (
-    emit as emit_clash,
-    emit_artifact as emit_clash_artifact,
-)
-from zlang.backend.clash.public_wrapper import ClashPublicTopWrapper
 from zlang.backend.manifest import BackendArtifact
 from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
 from zlang.compiler import compile_source
@@ -26,7 +20,7 @@ from zlang.opt import lower, restore
 from zlang.opt.lowering import CanonicalizationError
 from zlang.semantic import SemanticError
 from zlang.simulate import simulate_request_response_cycles
-from zlang.toolchain import generate_verilog, lint_with_verilator
+from zlang.toolchain import lint_with_verilator
 
 
 SOURCE = (
@@ -37,7 +31,7 @@ SOURCE = (
 
 def _module():
     return compile_source(
-        SOURCE, top="RequestResponseArrayTop", include_clash=False
+        SOURCE, top="RequestResponseArrayTop"
     ).ir
 
 
@@ -105,7 +99,6 @@ def test_array_rejects_out_of_order_and_unindexed_connections() -> None:
         compile_source(
             out_of_order,
             top="RequestResponseArrayTop",
-            include_clash=False,
         )
 
     unindexed = SOURCE.replace(
@@ -116,7 +109,6 @@ def test_array_rejects_out_of_order_and_unindexed_connections() -> None:
         compile_source(
             unindexed,
             top="RequestResponseArrayTop",
-            include_clash=False,
         )
 
     mixed_protocol = SOURCE.replace(
@@ -135,7 +127,6 @@ def test_array_rejects_out_of_order_and_unindexed_connections() -> None:
         compile_source(
             mixed_protocol,
             top="RequestResponseArrayTop",
-            include_clash=False,
         )
 
 
@@ -190,65 +181,6 @@ def test_each_physical_child_has_an_independent_simulator_ledger() -> None:
     assert lane1[2]["mem"]["response"]["transfer"] == 1
 
 
-def test_backend_artifacts_are_deterministic_and_bind_each_ledger() -> None:
-    module = _module()
-    first = emit_sv_artifact(module)
-    second = emit_sv_artifact(module)
-    assert (first.text, first.artifact_hash, first.to_json()) == (
-        second.text, second.artifact_hash, second.to_json()
-    )
-    restored = BackendArtifact.from_json(first.to_json())
-    assert restored.bindings == first.bindings
-    clash_first = emit_clash_artifact(module)
-    clash_second = emit_clash_artifact(module)
-    assert (
-        clash_first.text,
-        clash_first.artifact_hash,
-        clash_first.to_json(),
-    ) == (
-        clash_second.text,
-        clash_second.artifact_hash,
-        clash_second.to_json(),
-    )
-    assert BackendArtifact.from_json(clash_first.to_json()).bindings == (
-        clash_first.bindings
-    )
-    assert first.text.count("module ArrayRequester_s") == 1
-    assert first.text.count("module ArrayResponder_s") == 1
-    assert first.text.count("ArrayRequester_s") == 3
-    assert first.text.count("ArrayResponder_s") == 3
-    tracker_ids = {
-        f"{item.semantic_id}:outstanding"
-        for item in module.request_response_connections
-    }
-    for artifact in (first, clash_first):
-        tracker_bindings = {
-            item.semantic_signal_id: item
-            for item in artifact.bindings
-            if item.semantic_signal_id in tracker_ids
-        }
-        assert set(tracker_bindings) == tracker_ids
-        # Production ABIs do not recursively export hidden accounting state.
-        # Preserve both semantic bindings but do not fabricate public locators;
-        # the two actual ledgers must nevertheless remain distinct in emitted RTL.
-        assert all(
-            not item.physical_available for item in tracker_bindings.values()
-        )
-        assert all(item.rtl_path == "" for item in tracker_bindings.values())
-    tracker_tokens = [
-        line.strip().split()[-1].rstrip(";")
-        for line in first.text.splitlines()
-        if line.strip().startswith("logic [1:0] rr_")
-    ]
-    assert len(tracker_tokens) == 2
-    assert len(set(tracker_tokens)) == 2
-    for artifact in (first, clash_first):
-        public = {
-            item.semantic_signal_id: item for item in artifact.bindings
-            if item.semantic_signal_id in {"port:responses", "port:accepted"}
-        }
-        assert set(public) == {"port:responses", "port:accepted"}
-        assert all(item.physical_available for item in public.values())
 
 
 BENCH = r"""
@@ -320,20 +252,3 @@ def test_direct_sv_array_is_strict_lint_clean_and_cycle_exact(tmp_path: Path) ->
     rtl.write_text(emit_sv_artifact(_module()).text)
     lint_with_verilator((rtl,), "RequestResponseArrayTop")
     _run_bench((rtl,), tmp_path, "direct")
-
-
-@pytest.mark.skipif(
-    CLASH_EXECUTABLE is None or shutil.which("verilator") is None,
-    reason="real Clash 1.11 and Verilator are required",
-)
-def test_real_clash_array_is_strict_lint_clean_and_cycle_exact(tmp_path: Path) -> None:
-    compilation = compile_source(SOURCE, top="RequestResponseArrayTop")
-    rtl = generate_verilog(
-        emit_clash(compilation.ir),
-        compilation.ir.name,
-        tmp_path / "clash",
-        CLASH_EXECUTABLE,
-        public_wrapper=ClashPublicTopWrapper.build(compilation.ir),
-    )
-    lint_with_verilator(rtl, "RequestResponseArrayTop")
-    _run_bench(tuple(rtl), tmp_path, "clash")

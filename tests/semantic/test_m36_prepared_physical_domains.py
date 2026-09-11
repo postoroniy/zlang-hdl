@@ -13,6 +13,7 @@ from zlang.formal_candidate import (
     PreparedCandidateEquivalence,
     prepared_candidate_equivalence_from_data,
     prepared_candidate_equivalence_to_data,
+    validate_prepared_equivalence_domains,
 )
 from zlang.formal_orchestration import FormalOrchestrationError
 from zlang.ir import (
@@ -315,10 +316,9 @@ def test_in_memory_frozen_site_reuses_the_same_physical_domain_validator() -> No
         ),
         valid.input_semantic_ids,
     )
-    with pytest.raises(FormalOrchestrationError, match="physical domain is invalid"):
-        FrozenCandidateEquivalenceSite._validate_leg(
-            "direct_systemverilog",
-            SimpleNamespace(route=None),
+    with pytest.raises(ValueError, match="physical clock/reset contract"):
+        validate_prepared_equivalence_domains(
             valid.property,
-            mismatched,
+            mismatched.reference_artifact,
+            mismatched.implementation_artifact,
         )

@@ -55,7 +55,7 @@ class ExternalPhysicalMapping:
             ) from error
 
     def __post_init__(self) -> None:
-        if self.backend not in {"direct_systemverilog", "clash"}:
+        if self.backend != "direct_systemverilog":
             raise ExternalMappingError(f"unsupported external backend '{self.backend}'")
         if not self.logical_extern_identity:
             raise ExternalMappingError("external logical identity must not be empty")

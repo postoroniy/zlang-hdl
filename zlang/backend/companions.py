@@ -2,7 +2,7 @@
 
 The semantic ROM owns typed constant contents.  This module is the sole place
 that turns those contents into the compiler-owned, backend-neutral binary image
-used by both Clash and direct SystemVerilog.
+used by direct SystemVerilog.
 """
 
 from __future__ import annotations

@@ -252,7 +252,7 @@ module DelayedNestedTop {{
     )
     hierarchy = simulate_cycles(
         compile_source(
-            source, top="DelayedNestedTop", include_clash=False
+            source, top="DelayedNestedTop"
         ).ir,
         cycles,
         reset=resets,

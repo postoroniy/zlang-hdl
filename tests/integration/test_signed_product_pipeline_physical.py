@@ -168,7 +168,6 @@ def test_targeted_implement_m39_gates_one_complete_physical_candidate() -> None:
         SOURCE,
         top="FFTComplexMultiplyRealAuto",
         target=TARGET,
-        include_clash=False,
         formal_policy="required_bmc",
         formal_depth=8,
         formal_verifier=verifier,
@@ -198,7 +197,6 @@ def test_exact_pipeline_is_target_planned_and_emits_real_dsp_boundaries(
         EXACT_SOURCE,
         top="ExactSignedProductPipeline",
         target=TARGET,
-        include_clash=False,
     )
     assert result.ir.pipeline_explorations == ()
     assert result.implementation_graph.latency == 3
@@ -259,7 +257,6 @@ def test_exact_pipeline_physical_graph_is_the_m36_implementation_artifact() -> N
         EXACT_SOURCE,
         top="ExactSignedProductPipeline",
         target=TARGET,
-        include_clash=False,
     )
     implementation = result.ir.assignments[0].expression
     reference = erase_pipeline_timing(implementation)
@@ -286,7 +283,6 @@ def test_exact_pipeline_physical_graph_is_the_m36_implementation_artifact() -> N
     prepared = verifier.prepare(
         candidate,
         FormalExplorationConfig(FormalPolicy.AVAILABLE, bmc_depth=8),
-        backend="direct_systemverilog",
     )
 
     assert "DSP48E1" in prepared.implementation_artifact.text
@@ -307,7 +303,6 @@ def test_planning_phase_m39_checks_complete_dsp_graph_and_detects_mutations() ->
         SMALL_FORMAL_SOURCE,
         top="SmallExactSignedProductPipeline",
         target=TARGET,
-        include_clash=False,
         formal_policy="required_bmc",
         formal_depth=8,
         formal_timeout=30,
@@ -372,7 +367,6 @@ def test_planning_phase_m39_checks_the_selected_egraph_value_schedule() -> None:
         "y=pipeline(2){a*8} }",
         top="ShiftedFormal",
         target="generic",
-        include_clash=False,
         formal_policy="required_bmc",
         formal_depth=6,
         formal_timeout=30,
@@ -400,7 +394,6 @@ def test_physical_m36_detects_unsigned_dsp_sign_extension_mutation() -> None:
         "y=pipeline(3){a*b} }",
         top="UnsignedDSP",
         target=TARGET,
-        include_clash=False,
         formal_policy="required_bmc",
         formal_depth=7,
         formal_timeout=30,
@@ -507,7 +500,6 @@ module ExactMultiplyAdd {{
         source,
         top="ExactMultiplyAdd",
         target=TARGET,
-        include_clash=False,
     )
     graph = result.implementation_graph
     assert len(graph.resources) == 1
@@ -605,7 +597,6 @@ module IntegerMultiplyAdd {{
         source,
         top="IntegerMultiplyAdd",
         target=TARGET,
-        include_clash=False,
     )
     assert result.target_planning_result.selected_candidate.name == (
         "Xilinx7MultiplyAdd/multiply_output_registered"
@@ -698,7 +689,6 @@ module IntegerProductSum {{
         source,
         top="IntegerProductSum",
         target=TARGET,
-        include_clash=False,
     )
     assert len(result.implementation_graph.resources) == 2
     assert all(

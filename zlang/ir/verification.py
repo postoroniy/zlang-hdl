@@ -3,7 +3,7 @@
 The historical :class:`Contract` records remain the compatibility surface for
 M16 ``assume``/``guarantee`` declarations.  The first-class verification UX is
 kept in a distinct overlay so adding a source goal cannot change production
-hardware or the existing M36/M38/M39 identities.
+hardware or the existing M36/M39 identities.
 """
 
 from __future__ import annotations

@@ -112,7 +112,7 @@ def test_output_dependency_keeps_activation_when_group_has_other_effects() -> No
         SemanticError,
         match=r"combinational child dependency cycle: child\.y -> child\.y",
     ):
-        compile_source(source, top="Top", include_clash=False)
+        compile_source(source, top="Top")
 
 
 def _conditional_canonical():

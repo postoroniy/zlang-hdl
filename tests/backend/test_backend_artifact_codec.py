@@ -6,7 +6,6 @@ import json
 
 import pytest
 
-from zlang.backend.clash import emit_artifact as emit_clash_artifact
 from zlang.backend.manifest import (
     BackendArtifact,
     MANIFEST_VERSION,
@@ -18,15 +17,12 @@ from zlang.compiler import compile_source
 
 SOURCE = "module Add { in a:u8 in b:u8 out y:u9 y=a+b }"
 
-
-def _artifacts() -> tuple[BackendArtifact, BackendArtifact]:
-    module = compile_source(SOURCE, include_clash=False).ir
-    return emit_clash_artifact(module), emit_systemverilog_artifact(module)
+def _artifact() -> BackendArtifact:
+    return emit_systemverilog_artifact(compile_source(SOURCE).ir)
 
 
-@pytest.mark.parametrize("index", (0, 1), ids=("clash", "direct-systemverilog"))
-def test_backend_artifact_round_trip_is_byte_identical(index: int) -> None:
-    artifact = _artifacts()[index]
+def test_backend_artifact_round_trip_is_byte_identical() -> None:
+    artifact = _artifact()
     encoded = artifact.to_json()
     restored = BackendArtifact.from_json(encoded)
 
@@ -66,7 +62,7 @@ def test_backend_artifact_round_trip_is_byte_identical(index: int) -> None:
     ),
 )
 def test_backend_artifact_rejects_malformed_schema(mutate, message: str) -> None:
-    data = json.loads(_artifacts()[1].to_json())
+    data = json.loads(_artifact().to_json())
     mutate(data)
 
     with pytest.raises(ValueError, match=message):
@@ -76,7 +72,7 @@ def test_backend_artifact_rejects_malformed_schema(mutate, message: str) -> None
 @pytest.mark.parametrize(
     ("field", "value", "message"),
     (
-        ("backend", "clash", "backend does not match"),
+        ("backend", "retired_backend", "backend does not match"),
         ("selected_ir_identity", "wrong-selected", "selected IR identity"),
         ("artifact_hash", "0" * 64, "hash does not match"),
     ),
@@ -84,7 +80,7 @@ def test_backend_artifact_rejects_malformed_schema(mutate, message: str) -> None
 def test_backend_artifact_rejects_binding_artifact_mismatch(
     field: str, value: str, message: str
 ) -> None:
-    data = json.loads(_artifacts()[1].to_json())
+    data = json.loads(_artifact().to_json())
     data["bindings"][0][field] = value
 
     with pytest.raises(ValueError, match=message):
@@ -97,7 +93,7 @@ def test_backend_artifact_rejects_non_object_root() -> None:
 
 
 def test_backend_artifact_rejects_unknown_future_version() -> None:
-    data = json.loads(_artifacts()[0].to_json())
+    data = json.loads(_artifact().to_json())
     data["manifest_version"] = 11
 
     with pytest.raises(ValueError, match="unsupported backend manifest version"):

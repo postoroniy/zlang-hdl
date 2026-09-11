@@ -44,7 +44,7 @@ def test_recursive_locators_match_public_wrapper_state_root(tmp_path: Path) -> N
             q={result}
         }}
         """
-        compilation = compile_source(source, include_clash=False)
+        compilation = compile_source(source)
         design = build_recursive_formal_design(compilation.ir)
         artifact = emit_artifact(
             compilation.ir, recursive_design=design,

@@ -139,7 +139,6 @@ module MappedFormalError {
 """
     module = compile_source(
         source,
-        include_clash=False,
         source_unit="examples/mapped_formal_error.zhl",
     ).ir
     artifact, source_map = emit_artifact_with_source_map(module)

@@ -3,7 +3,6 @@ import subprocess
 import tempfile
 import unittest
 
-from tests.toolchain import CLASH_ENVIRONMENT, CLASH_EXECUTABLE
 from zlang.compiler import compile_source
 from zlang.simulate import SimulationError, simulate
 
@@ -37,23 +36,6 @@ class HardwareTypeIntegrationTests(unittest.TestCase):
         with self.assertRaisesRegex(SimulationError, "does not fit bits<3>"):
             simulate(vector_module, a=8)
 
-    @unittest.skipUnless(CLASH_EXECUTABLE, "Clash executable is not available")
-    def test_milestone_one_example_compiles_to_verilog(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            output_directory = Path(temporary_directory)
-            subprocess.run(
-                [
-                    CLASH_EXECUTABLE,
-                    "--verilog",
-                    str(ROOT / "examples/generated/ExtendedAdd.hs"),
-                    "-outputdir",
-                    str(output_directory),
-                ],
-                check=True,
-                cwd=ROOT,
-                env=CLASH_ENVIRONMENT,
-            )
-            self.assertTrue(list(output_directory.rglob("*.v")))
 
 
 if __name__ == "__main__":

@@ -6,12 +6,10 @@ from pathlib import Path
 
 import pytest
 
-from zlang.backend.clash.public_wrapper import ClashPublicTopWrapper
 from zlang.backend.systemverilog import emit_experimental
 from zlang.compiler import compile_source
 from zlang.simulate import simulate
 from zlang.timing import timing_info
-from zlang.toolchain import find_clash_executable, generate_verilog
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -60,23 +58,6 @@ def test_complex_butterfly_direct_sv_is_lint_clean_and_materialized() -> None:
         )
 
 
-@pytest.mark.skipif(
-    find_clash_executable() is None or shutil.which("verilator") is None,
-    reason="Clash or Verilator unavailable",
-)
-def test_complex_butterfly_real_clash_rtl_is_lint_clean() -> None:
-    result = compile_source(SOURCE, top="ComplexFFTButterfly")
-    with tempfile.TemporaryDirectory() as temporary:
-        files = generate_verilog(
-            result.clash,
-            "ComplexFFTButterfly",
-            Path(temporary) / "clash",
-            public_wrapper=ClashPublicTopWrapper.build(result.ir),
-        )
-        subprocess.run(
-            ("verilator", "--lint-only", "-Wall", "-Wno-fatal", *map(str, files)),
-            check=True, capture_output=True, text=True,
-        )
 
 
 @pytest.mark.skipif(shutil.which("verilator") is None, reason="Verilator unavailable")
@@ -95,25 +76,6 @@ def test_signed_complex_real_pipeline_direct_sv_is_lint_clean() -> None:
         )
 
 
-@pytest.mark.skipif(
-    find_clash_executable() is None or shutil.which("verilator") is None,
-    reason="Clash or Verilator unavailable",
-)
-def test_signed_complex_real_pipeline_clash_rtl_is_lint_clean() -> None:
-    result = compile_source(
-        PIPELINE_SOURCE, top="FFTComplexMultiplyRealAuto"
-    )
-    with tempfile.TemporaryDirectory() as temporary:
-        files = generate_verilog(
-            result.clash,
-            result.ir.name,
-            Path(temporary) / "clash",
-            public_wrapper=ClashPublicTopWrapper.build(result.ir),
-        )
-        subprocess.run(
-            ("verilator", "--lint-only", "-Wall", "-Wno-fatal", *map(str, files)),
-            check=True, capture_output=True, text=True,
-        )
 
 
 def _signed_pipeline_bench(latency: int) -> str:
@@ -169,25 +131,3 @@ def test_signed_complex_real_pipeline_direct_sv_simulates_bit_exact() -> None:
         rtl.write_text(emit_experimental(module))
         assignment = next(item for item in module.assignments if item.target.name == "result")
         _simulate_rtl([rtl], root, latency=timing_info(assignment.expression).latency)
-
-
-@pytest.mark.skipif(
-    find_clash_executable() is None or shutil.which("verilator") is None,
-    reason="Clash or Verilator unavailable",
-)
-def test_signed_complex_real_pipeline_clash_simulates_bit_exact() -> None:
-    result = compile_source(
-        PIPELINE_SOURCE, top="FFTComplexMultiplyRealAuto"
-    )
-    with tempfile.TemporaryDirectory() as temporary:
-        root = Path(temporary)
-        files = generate_verilog(
-            result.clash,
-            result.ir.name,
-            root / "clash",
-            public_wrapper=ClashPublicTopWrapper.build(result.ir),
-        )
-        assignment = next(item for item in result.ir.assignments if item.target.name == "result")
-        _simulate_rtl(
-            list(files), root, latency=timing_info(assignment.expression).latency
-        )

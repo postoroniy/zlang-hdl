@@ -47,12 +47,6 @@ from zlang.common import stable_digest
 from zlang.parser import ParseError, parse
 from zlang.semantic import SemanticError
 from zlang.costs import CostExtractionError
-from zlang.backend.clash import emit, emit_artifact as emit_clash_artifact
-from zlang.backend.clash.public_wrapper import (
-    ClashPublicTopWrapper,
-    ClashPublicWrapperError,
-    bind_artifact_to_public_wrapper,
-)
 from zlang.backend.companions import (
     CompanionArtifact,
     CompanionArtifactError,
@@ -87,12 +81,7 @@ from zlang.synthesis import (
     characterize_with_yosys,
     render_synthesis_report,
 )
-from zlang.toolchain import (
-    ToolchainError,
-    find_clash_executable,
-    generate_verilog,
-    lint_with_verilator,
-)
+from zlang.toolchain import ToolchainError, lint_with_verilator
 from zlang.formal import connect_formal_design, emit_harness, emit_sby
 from zlang.ir.formal import FormalError, ProofMode
 from zlang.verification_bundle import (
@@ -140,11 +129,9 @@ from zlang.evidence_report import (
 
 
 _ARTIFACT_SINK_ATTRIBUTES = (
-    "output",
     "systemverilog",
     "experimental_systemverilog",
     "simulation_state_bundle",
-    "verilog_dir",
     "implementation_manifest",
     "csr_markdown",
     "csr_json",
@@ -172,7 +159,6 @@ _ARTIFACT_SINK_ATTRIBUTES = (
 )
 
 _OWNED_OUTPUT_DIRECTORY_ATTRIBUTES = (
-    "verilog_dir",
     "verification_bundle",
     "simulation_state_bundle",
     "formal_cache",
@@ -195,9 +181,7 @@ def has_explicit_artifact_sink(arguments: argparse.Namespace) -> bool:
     """Return whether the invocation explicitly requests a file artifact.
 
     Selection and tool configuration flags are deliberately absent from this
-    list.  Keeping the decision in one helper preserves the legacy Clash
-    stdout default while making every explicit publication path suppress
-    implicit output.
+    list. Every explicit publication path suppresses implicit SV output.
     """
     return any(
         getattr(arguments, attribute, None) is not None
@@ -368,31 +352,12 @@ def _preflight_companion_paths(
     arguments: argparse.Namespace,
     *,
     systemverilog_output: Path | None,
-    clash_companions: Sequence[CompanionArtifact],
     direct_companions: Sequence[CompanionArtifact],
     compilation_inputs: Sequence[Path],
 ) -> None:
     """Reject deterministic companion aliases before publishing any product."""
 
     destinations: list[tuple[str, Path, CompanionArtifact]] = []
-    if arguments.output is not None:
-        destinations.extend(
-            (
-                "Clash companion",
-                arguments.output.parent / companion.logical_path,
-                companion,
-            )
-            for companion in clash_companions
-        )
-    if arguments.verilog_dir is not None:
-        destinations.extend(
-            (
-                "Clash RTL companion",
-                arguments.verilog_dir / companion.logical_path,
-                companion,
-            )
-            for companion in clash_companions
-        )
     if systemverilog_output is not None:
         destinations.extend(
             (
@@ -583,10 +548,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         action="store_true",
         help="report successful compilation and explicitly written artifacts",
     )
-    # These options remain parser-compatible for pre-alpha scripts, but are
-    # intentionally hidden: Clash is no longer a production/public backend.
-    # The compatibility path is exercised only when explicitly requested.
-    parser.add_argument("-o", "--output", type=Path, help=argparse.SUPPRESS)
     parser.add_argument(
         "--systemverilog",
         type=Path,
@@ -606,11 +567,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
-        "--verilog-dir",
-        type=Path,
-        help=argparse.SUPPRESS,
-    )
-    parser.add_argument(
         "--constraints-xdc",
         type=Path,
         help="publish a typed single-domain XDC create_clock constraint",
@@ -625,7 +581,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         action="store_true",
         help="lint generated SystemVerilog with Verilator (requires --systemverilog)",
     )
-    parser.add_argument("--clash", help=argparse.SUPPRESS)
     parser.add_argument("--verilator", help="explicit Verilator executable")
     parser.add_argument("--yosys", help="explicit Yosys executable")
     parser.add_argument(
@@ -834,8 +789,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if arguments.formal_jobs < 1:
         parser.error("--formal-jobs must be positive")
     if arguments.verilator_lint and (
-        arguments.verilog_dir is None
-        and arguments.systemverilog is None
+        arguments.systemverilog is None
         and arguments.experimental_systemverilog is None
     ):
         parser.error("--verilator-lint requires --systemverilog")
@@ -859,11 +813,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     if constraint_requested and arguments.profile is None:
         parser.error("constraint publication requires --profile")
     if constraint_requested:
-        requested_backends = sum((
-            arguments.output is not None or arguments.verilog_dir is not None,
+        requested_backends = int(
             arguments.systemverilog is not None
-            or arguments.experimental_systemverilog is not None,
-        ))
+            or arguments.experimental_systemverilog is not None
+        )
         if requested_backends != 1:
             parser.error(
                 "constraint publication requires exactly one direct-SystemVerilog output"
@@ -875,10 +828,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     if arguments.build_manifest is not None and not any(
         path is not None
         for path in (
-            arguments.output,
             arguments.systemverilog,
             arguments.experimental_systemverilog,
-            arguments.verilog_dir,
         )
     ):
         parser.error(
@@ -906,14 +857,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         source_text = source_bytes.decode("utf-8")
         source_digest = hashlib.sha256(source_bytes).hexdigest()
         explicit_sink = has_explicit_artifact_sink(arguments) or arguments.verify
-        # Production CLI compilation is direct-SystemVerilog only.  The
-        # internal Clash compatibility product is requested solely by the
-        # hidden legacy ``-o/--verilog-dir`` options; it is never constructed
-        # for a normal no-option invocation, --check, or a direct-SV sink.
-        include_clash = (
-            not arguments.check
-            and (arguments.output is not None or arguments.verilog_dir is not None)
-        )
         if arguments.check and arguments.top is None:
             syntax = parse(source_text)
             checked_module_names = tuple(
@@ -949,7 +892,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                     architecture=arguments.target_architecture,
                     architecture_mode=arguments.target_architecture_mode,
                     target_evidence_policy=arguments.target_evidence_policy,
-                    include_clash=include_clash,
                 )
             except (ParseError, SemanticError, TopSelectionError) as error:
                 if arguments.check and len(compile_tops) > 1:
@@ -1041,7 +983,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             feedback = characterize_with_yosys(
                 result.ir,
                 arguments.synthesis_cache,
-                clash_executable=arguments.clash,
                 yosys_executable=arguments.yosys,
                 target=YosysTarget(arguments.synthesis_target),
             )
@@ -1058,7 +999,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             result,
             ir=measured_ir,
             optimization_ir=measured_optimization_ir,
-            clash=emit(measured_ir),
             implementation_report=render_implementation_report(measured_ir),
         )
         synthesis_report = render_synthesis_report(feedback)
@@ -1089,22 +1029,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     systemverilog_output = arguments.systemverilog or arguments.experimental_systemverilog
     rom_companions = collect_rom_companions(result.ir)
     if arguments.source_map is not None:
-        selected_backend_outputs = sum(
-            path is not None for path in (arguments.output, systemverilog_output)
-        )
-        if selected_backend_outputs != 1:
-            parser.error(
-                "--source-map requires exactly one of --output or --systemverilog"
-            )
+        if systemverilog_output is None:
+            parser.error("--source-map requires --systemverilog")
     direct_systemverilog = ""
     direct_artifact = None
     simulation_state_bundle = None
     external_mappings = ()
     direct_companion_paths: tuple[Path, ...] = ()
-    clash_companion_paths: tuple[Path, ...] = ()
-    clash_rtl_companion_paths: tuple[Path, ...] = ()
-    generated_verilog_files: tuple[Path, ...] = ()
-    clash_manifest_source_path: Path | None = None
     source_map = None
     tool_executions: list[ToolExecutionRecord] = []
     if systemverilog_output is not None or not has_explicit_artifact_sink(arguments):
@@ -1338,28 +1269,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             "initialized ROM emission requires an explicit --systemverilog output "
             "so companion images can be published"
         )
-    clash_public_wrapper = None
-    if arguments.verilog_dir is not None:
-        try:
-            clash_public_wrapper = ClashPublicTopWrapper.build(result.ir)
-        except ClashPublicWrapperError as error:
-            parser.error(str(error))
-    clash_artifact = None
-    if arguments.output is not None or arguments.verilog_dir is not None or (
-        arguments.source_map is not None and systemverilog_output is None
-    ):
-        clash_artifact = emit_clash_artifact(
-            result.ir,
-            selected_ir_identity=result.selected_ir_identity,
-        )
-        if clash_public_wrapper is not None:
-            try:
-                clash_artifact = bind_artifact_to_public_wrapper(
-                    clash_artifact,
-                    clash_public_wrapper,
-                )
-            except ClashPublicWrapperError as error:
-                parser.error(str(error))
     constraint_products: list[tuple[Path, ConstraintArtifact]] = []
     if constraint_requested:
         manifest_path = result.physical_inputs.project_manifest
@@ -1372,7 +1281,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     f"profile '{arguments.profile}' has no platform clock declaration"
                 )
             constraint = platform_profile.clocks[0]
-            bound_artifact = direct_artifact or clash_artifact
+            bound_artifact = direct_artifact
             if bound_artifact is None:
                 raise PlatformConstraintError(
                     "constraint publication requires a generated backend artifact"
@@ -1394,29 +1303,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         _preflight_companion_paths(
             arguments,
             systemverilog_output=systemverilog_output,
-            clash_companions=(clash_artifact.companions if clash_artifact else ()),
             direct_companions=(direct_artifact.companions if direct_artifact else ()),
             compilation_inputs=result.physical_inputs.all_paths,
         )
     except ValueError as error:
         parser.error(str(error))
     if not has_sink:
-        # stdout is the production backend's stream form.  This keeps the
-        # convenient ``zlang design.zhl`` invocation useful without exposing
-        # or probing the retired Clash backend.
+        # stdout is the production backend's stream form.
         if direct_artifact is None:
             parser.error("direct SystemVerilog emission was not produced")
         print(direct_artifact.text, end="")
-    elif arguments.output is not None:
-        arguments.output.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            clash_companion_paths = publish_companion_bundle(
-                clash_artifact.companions if clash_artifact else (),
-                arguments.output.parent,
-            )
-        except CompanionArtifactError as error:
-            parser.error(str(error))
-        arguments.output.write_text(result.clash)
     if systemverilog_output is not None:
         systemverilog_output.parent.mkdir(
             parents=True, exist_ok=True
@@ -1474,16 +1370,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         arguments.implementation_manifest.parent.mkdir(parents=True, exist_ok=True)
         arguments.implementation_manifest.write_text(direct_artifact.to_json())
     if arguments.source_map is not None:
-        if systemverilog_output is not None:
-            # Direct-SV publication always constructed this exact artifact
-            # before reaching the source-map path.  Falling back to emission
-            # here would make --source-map render the design twice.
-            mapped_artifact = direct_artifact
-        else:
-            mapped_artifact = clash_artifact or emit_clash_artifact(
-                result.ir,
-                selected_ir_identity=result.selected_ir_identity,
-            )
+        # Direct-SV publication constructed this exact artifact before source-map
+        # publication; do not render the design twice.
+        mapped_artifact = direct_artifact
         assert mapped_artifact is not None
         source_map = build_generated_source_map(result.ir, mapped_artifact)
         arguments.source_map.parent.mkdir(parents=True, exist_ok=True)
@@ -1633,96 +1522,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     if arguments.saturation_report is not None:
         arguments.saturation_report.parent.mkdir(parents=True, exist_ok=True)
         arguments.saturation_report.write_text(saturation_report)
-    if arguments.verilog_dir is not None:
-        try:
-            generated_verilog_files = generate_verilog(
-                result.clash,
-                result.ir.name,
-                arguments.verilog_dir,
-                arguments.clash,
-                source_map=(
-                    source_map
-                    if source_map is not None and source_map.backend == "clash"
-                    else None
-                ),
-                companions=(clash_artifact.companions if clash_artifact else ()),
-                public_wrapper=clash_public_wrapper,
-            )
-            if arguments.build_manifest is not None and arguments.output is None:
-                assert clash_artifact is not None
-                if clash_artifact.text != result.clash:
-                    raise ToolchainError(
-                        "published Clash artifact differs from the source compiled to RTL"
-                    )
-                clash_manifest_source_path = (
-                    arguments.verilog_dir
-                    / ".zlang"
-                    / "generated"
-                    / f"{result.ir.name}.hs"
-                )
-                clash_manifest_source_path.parent.mkdir(parents=True, exist_ok=True)
-                clash_manifest_source_path.write_text(
-                    clash_artifact.text,
-                    encoding="utf-8",
-                )
-            clash_rtl_companion_paths = tuple(sorted(
-                {
-                    parent / companion.logical_path
-                    for parent in {
-                        arguments.verilog_dir.resolve(),
-                        *(path.resolve().parent for path in generated_verilog_files),
-                    }
-                    for companion in (
-                        clash_artifact.companions if clash_artifact else ()
-                    )
-                },
-                key=lambda path: path.as_posix(),
-            ))
-            clash_executable = arguments.clash or find_clash_executable()
-            assert clash_executable is not None
-            rtl_outputs = tuple(
-                "backends/clash/rtl/"
-                + path.resolve().relative_to(arguments.verilog_dir.resolve()).as_posix()
-                for path in generated_verilog_files
-            )
-            tool_executions.append(_tool_execution(
-                role="rtl_generation",
-                tool="clash",
-                version=_query_tool_version(clash_executable, "--version"),
-                argv_shape=(
-                    "clash", "--verilog", "<generated-source>",
-                    "-outputdir", "<rtl-output>",
-                    "-fclash-component-prefix", "<typed-core-prefix>",
-                ),
-                outputs=rtl_outputs,
-            ))
-            if arguments.verilator_lint:
-                verilator_executable = arguments.verilator or shutil.which("verilator")
-                assert verilator_executable is not None
-                lint_with_verilator(
-                    (
-                        *generated_verilog_files,
-                        *((arguments.contracts_sva,) if arguments.contracts_sva else ()),
-                    ),
-                    result.ir.name,
-                    arguments.verilator,
-                    source_map=(
-                        source_map
-                        if source_map is not None and source_map.backend == "clash"
-                        else None
-                    ),
-                )
-                tool_executions.append(_tool_execution(
-                    role="rtl_lint",
-                    tool="verilator",
-                    version=_query_tool_version(verilator_executable, "--version"),
-                    argv_shape=(
-                        "verilator", "--lint-only", "--top-module", "<top>",
-                        "<rtl-inputs>",
-                    ),
-                ))
-        except (ToolchainError, ClashPublicWrapperError) as error:
-            parser.error(str(error))
     for path, contents in (
         (arguments.csr_markdown, result.csr_markdown),
         (arguments.csr_json, result.csr_json),
@@ -1782,86 +1581,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                     arguments.source_map.read_bytes()
                 ).hexdigest()
                 source_map_publication = published_file_from_path(
-                    "backends/"
-                    + (
-                        "clash" if source_map is not None and source_map.backend == "clash"
-                        else "direct_systemverilog"
-                    )
-                    + "/source-map.json",
+                    "backends/direct_systemverilog/source-map.json",
                     arguments.source_map,
                     kind="generated_source_map",
                 )
-
-            if clash_artifact is not None and (
-                arguments.output is not None or arguments.verilog_dir is not None
-            ):
-                clash_files: list[PhysicalPublication] = []
-                if arguments.output is not None:
-                    clash_files.append(published_file_from_path(
-                        backend_logical_path("clash", result.ir.name, "hs"),
-                        arguments.output,
-                        kind="clash_source",
-                    ))
-                elif clash_manifest_source_path is not None:
-                    clash_files.append(published_file_from_path(
-                        backend_logical_path("clash", result.ir.name, "hs"),
-                        clash_manifest_source_path,
-                        kind="clash_source",
-                    ))
-                for path in generated_verilog_files:
-                    relative = path.resolve().relative_to(
-                        arguments.verilog_dir.resolve()
-                    ).as_posix()
-                    clash_files.append(published_file_from_path(
-                        f"backends/clash/rtl/{relative}",
-                        path,
-                        kind="generated_verilog",
-                    ))
-                if (
-                    source_map_publication is not None
-                    and source_map is not None
-                    and source_map.backend == "clash"
-                ):
-                    clash_files.append(source_map_publication)
-                clash_companions: list[PhysicalPublication] = []
-                clash_companions.extend(
-                    published_file_from_path(
-                        f"backends/clash/companions/source/{path.name}",
-                        path,
-                        kind="rom_image",
-                    )
-                    for path in clash_companion_paths
-                )
-                if arguments.verilog_dir is not None:
-                    clash_companions.extend(
-                        published_file_from_path(
-                            "backends/clash/companions/rtl/"
-                            + path.resolve().relative_to(
-                                arguments.verilog_dir.resolve()
-                            ).as_posix(),
-                            path,
-                            kind="rom_image",
-                        )
-                        for path in clash_rtl_companion_paths
-                    )
-                clash_companions.extend(constraint_publications.get("clash", ()))
-                clash_plan = result.backend_implementation_plans.plan_for("clash")
-                backend_builds.append(backend_build_record(
-                    artifact=clash_artifact,
-                    plan=clash_plan,
-                    publications=clash_files,
-                    companions=clash_companions,
-                    selected_ir_identity=result.selected_ir_identity,
-                    implementation_graph_identity=(
-                        clash_plan.graph.identity if clash_plan.graph is not None else None
-                    ),
-                    source_map_hash=(
-                        source_map_hash
-                        if source_map is not None and source_map.backend == "clash"
-                        else None
-                    ),
-                ))
-                all_publications.extend((*clash_files, *clash_companions))
 
             if direct_artifact is not None and systemverilog_output is not None:
                 direct_files = [published_file_from_path(
@@ -1972,9 +1695,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 tool_executions.extend((
                     _tool_execution(
                         role="synthesis_frontend",
-                        tool="clash",
-                        version=synthesis_feedback.clash_version,
-                        argv_shape=("clash", "--verilog", "<candidate>"),
+                        tool="zlang-direct-systemverilog",
+                        version=synthesis_feedback.frontend_version,
+                        argv_shape=("zlang", "<candidate>", "--systemverilog", "<rtl>"),
                         outputs=synthesis_outputs,
                     ),
                     _tool_execution(

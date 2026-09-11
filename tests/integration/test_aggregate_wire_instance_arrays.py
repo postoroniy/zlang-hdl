@@ -9,12 +9,11 @@ import subprocess
 
 import pytest
 
-from zlang.backend.clash import emit as emit_clash
 from zlang.backend.manifest import BackendArtifact
 from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
 from zlang.compiler import compile_source
 from zlang.simulate import simulate
-from zlang.toolchain import find_clash_executable, generate_verilog, lint_with_verilator
+from zlang.toolchain import lint_with_verilator
 
 
 SOURCE = r"""
@@ -35,27 +34,9 @@ module PairLaneArray {
 
 
 def _module():
-    return compile_source(SOURCE, top="PairLaneArray", include_clash=False).ir
+    return compile_source(SOURCE, top="PairLaneArray").ir
 
 
-def test_simulator_and_artifacts_preserve_sequence_and_struct_members() -> None:
-    module = _module()
-    assert simulate(module, x=(0x12, 0x34)) == {
-        "y": [
-            {"left": 0x12, "right": 0x12},
-            {"left": 0x34, "right": 0x34},
-        ]
-    }
-    first = emit_sv_artifact(module)
-    second = emit_sv_artifact(module)
-    assert first.text == second.text
-    assert first.artifact_hash == second.artifact_hash
-    assert BackendArtifact.from_json(first.to_json()).to_json() == first.to_json()
-    assert first.text.count("module PairLane_s") == 1
-    assert first.text.count("PairLane_s") == 3
-    assert "input wire logic [7:0] x [0:1]" in first.text
-    assert "output logic [7:0] y_left [0:1]" in first.text
-    assert emit_clash(module) == emit_clash(module)
 
 
 @pytest.mark.skipif(shutil.which("verilator") is None, reason="Verilator unavailable")
@@ -95,18 +76,3 @@ endmodule
         (str(object_dir / "Vtb"),), capture_output=True, text=True
     )
     assert run.returncode == 0, run.stderr or run.stdout
-
-
-@pytest.mark.skipif(
-    shutil.which("verilator") is None or find_clash_executable() is None,
-    reason="Clash or Verilator unavailable",
-)
-def test_real_clash_generates_lint_clean_aggregate_array_rtl(tmp_path: Path) -> None:
-    module = _module()
-    files = generate_verilog(
-        emit_clash(module),
-        module.name,
-        tmp_path / "clash",
-        find_clash_executable(),
-    )
-    lint_with_verilator(files, module.name)

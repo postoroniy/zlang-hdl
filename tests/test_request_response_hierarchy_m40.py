@@ -5,12 +5,11 @@ import os
 import shutil
 import subprocess
 
-from zlang.backend.clash import emit_artifact
-from zlang.backend.clash import emit
+from zlang.backend.systemverilog.emitter import emit, emit_artifact
 from zlang.ir.formal import generate_properties
 from zlang.parser import ParseError, parse
 from zlang.semantic import SemanticError, analyze
-from zlang.toolchain import find_clash_executable, generate_verilog, lint_with_verilator
+from zlang.toolchain import lint_with_verilator
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -87,16 +86,15 @@ class RequestResponseHierarchyM40Tests(unittest.TestCase):
         source = self.source().replace("max_outstanding 1", "max_outstanding 4")
         module = analyze(parse(source))
         generated = emit(module)
-        self.assertIn("rr_requester_bus_requester_outstanding = register (0 :: Unsigned 3)", generated)
-        self.assertIn("if resetActive || count >= 4 then low", generated)
+        self.assertIn(
+            "logic [2:0] rr_requester_bus_requester_outstanding;",
+            generated,
+        )
+        self.assertIn(
+            "rr_requester_bus_requester_outstanding < 3'd4",
+            generated,
+        )
 
-    @unittest.skipUnless(find_clash_executable() and shutil.which("verilator"),
-                         "Clash and Verilator are required")
-    def test_multi_outstanding_two_real_clash_and_lint(self) -> None:
-        module = analyze(parse(self.source().replace("max_outstanding 1", "max_outstanding 2")))
-        with tempfile.TemporaryDirectory() as temporary:
-            files = generate_verilog(emit(module), module.name, Path(temporary) / "rtl")
-            lint_with_verilator(files, module.name)
 
     def test_formal_descriptor_properties_and_bindings(self) -> None:
         source = self.source().replace("max_outstanding 1", "max_outstanding 2")
@@ -114,35 +112,6 @@ class RequestResponseHierarchyM40Tests(unittest.TestCase):
         with self.assertRaises(ParseError):
             analyze(parse(source))
 
-    @unittest.skipUnless(find_clash_executable() and __import__("shutil").which("verilator"),
-                         "Clash and Verilator are required")
-    def test_real_clash_and_verilator(self) -> None:
-        module = analyze(parse(self.source()))
-        from zlang.backend.clash import emit
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            rtl = generate_verilog(emit(module), module.name, root / "rtl")
-            lint_with_verilator(rtl, module.name)
-            harness = root / "rr_test.cpp"
-            harness.write_text(
-                '#include "VHierarchicalRequestResponse.h"\n'
-                "static void tick(VHierarchicalRequestResponse& d) { d.clk=1; d.eval(); d.clk=0; d.eval(); }\n"
-                "int main() { VHierarchicalRequestResponse d{}; d.clk=0; d.rst=1; d.fire=0; d.accept_request=0; d.accept_response=0; d.data=9; tick(d); tick(d); d.rst=0; d.accept_request=1; d.fire=1; d.eval(); if(!d.response_seen) return 1; tick(d); d.fire=0; d.accept_request=0; tick(d); if(d.response_seen) return 2; d.accept_response=1; tick(d); tick(d); return d.response_seen ? 3 : 0; }\n"
-            )
-            obj = root / "obj"
-            environment = os.environ.copy()
-            environment["CCACHE_DISABLE"] = "1"
-            completed = subprocess.run(
-                [
-                    shutil.which("verilator") or "verilator",
-                    "--cc", "--exe", "--build", "--Mdir", str(obj),
-                    "--top-module", module.name,
-                    *(str(path) for path in rtl), str(harness),
-                ],
-                cwd=root, env=environment, capture_output=True, text=True,
-            )
-            self.assertEqual(completed.returncode, 0, completed.stderr)
-            self.assertEqual(subprocess.run([str(obj / "VHierarchicalRequestResponse")]).returncode, 0)
 
 
 if __name__ == "__main__":

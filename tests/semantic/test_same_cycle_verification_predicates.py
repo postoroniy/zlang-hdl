@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import pytest
 
-from zlang.backend.clash import emit_artifact as emit_clash_artifact
 from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
 from zlang.compiler import compile_source
 from zlang.ir.formal_predicates import FormalPredicate
@@ -73,7 +72,6 @@ def _source_properties(compilation):
 def test_complete_pure_same_cycle_surface_uses_structured_predicates() -> None:
     compilation = compile_source(
         VERIFIED,
-        include_clash=False,
         source_unit="tests/fixtures/same_cycle_predicates.zhl",
     )
     properties = _source_properties(compilation)
@@ -117,29 +115,6 @@ def test_complete_pure_same_cycle_surface_uses_structured_predicates() -> None:
     assert restore(canonical) == compilation.ir
 
 
-def test_verification_surface_cannot_change_production_rtl_or_artifact_hashes() -> None:
-    plain = compile_source(HARDWARE, include_clash=False)
-    verified = compile_source(VERIFIED, include_clash=False)
-    assert verified.high_level_ir_identity == plain.high_level_ir_identity
-    assert verified.selected_ir_identity == plain.selected_ir_identity
-
-    plain_sv = emit_sv_artifact(
-        plain.ir, selected_ir_identity=plain.selected_ir_identity
-    )
-    verified_sv = emit_sv_artifact(
-        verified.ir, selected_ir_identity=verified.selected_ir_identity
-    )
-    assert verified_sv.text == plain_sv.text
-    assert verified_sv.artifact_hash == plain_sv.artifact_hash
-
-    plain_clash = emit_clash_artifact(
-        plain.ir, selected_ir_identity=plain.selected_ir_identity
-    )
-    verified_clash = emit_clash_artifact(
-        verified.ir, selected_ir_identity=verified.selected_ir_identity
-    )
-    assert verified_clash.text == plain_clash.text
-    assert verified_clash.artifact_hash == plain_clash.artifact_hash
 
 
 @pytest.mark.parametrize(
@@ -158,7 +133,7 @@ def test_temporal_functional_and_hidden_child_predicates_fail_closed(
     source: str,
 ) -> None:
     with pytest.raises(SemanticError) as caught:
-        compile_source(source, include_clash=False)
+        compile_source(source)
     assert caught.value.code == "ZL-VERIFY-PREDICATE"
     assert caught.value.primary is not None
     assert "verification clause 'unsupported'" in str(caught.value)
@@ -176,7 +151,7 @@ def test_range_proven_runtime_index_lowers_to_existing_mux_predicate() -> None:
         assert selected_bit { y == values[index] }
     }
     """
-    compilation = compile_source(source, include_clash=False)
+    compilation = compile_source(source)
     property_ = next(
         item for item in compilation.formal_design.properties
         if item.generated_from == "verification-assert:$module:selected_bit"

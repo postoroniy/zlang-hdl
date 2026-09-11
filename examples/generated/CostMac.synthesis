@@ -1,5 +1,5 @@
 module CostMac
-feedback_source=measured tool=yosys version=[Yosys 0.64 (git sha1 6d2c445ae, g++ 13.3.0-6ubuntu2~24.04.1 -fPIC -O3)] clash_version=[Clash, version 1.11.0 (using clash-lib, version: 1.11.0)]
+feedback_source=measured tool=yosys version=[Yosys 0.64 (git sha1 6d2c445ae, g++ 13.3.0-6ubuntu2~24.04.1 -fPIC -O3)] frontend_version=[zlang-direct-systemverilog-v1]
 target=generic-lut6 constraints=[flatten=true,lut_inputs=6,exclude_flip_flops_from_depth=true]
 candidate output=y kind=dsp_mac candidate_hash=05028f10a452b9a61e72efab13088154fec295842ac3f76d1d76ebacd61121f7 cache_key=926c155a54c5b5d74bed3e8950af8086fd6cefd7a0116e8e11ac5521bd45c02a cache_hit=false
   estimate lut=17 ff=17 dsp=1 bram=0 latency=1 ii=1

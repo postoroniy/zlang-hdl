@@ -8,12 +8,12 @@ import subprocess
 import tempfile
 
 from zlang import compile_source
+from zlang.backend.systemverilog.emitter import emit, emit_artifact
 from zlang.parser import parse
 from zlang.semantic import SemanticError, analyze
 from zlang.ir import expressions as ir_expr
-from zlang.backend.clash import ClashEmissionError, emit, emit_artifact
 from zlang.opt.lowering import lower
-from zlang.toolchain import find_clash_executable, generate_verilog, lint_with_verilator
+from zlang.toolchain import lint_with_verilator
 
 
 class CompositionM40Tests(unittest.TestCase):
@@ -144,23 +144,6 @@ class CompositionM40Tests(unittest.TestCase):
             tuple(replace(node, origins=()) for node in concise_canonical.expressions),
         )
 
-    def test_explicit_fifo_wrapper_and_direct_buffer_emit_fifo_state(self):
-        direct = (
-            "module E { out req:rv<u8> req.valid=1 req.payload=1 } "
-            "module T { clock clk reset rst out mem:rv<u8> inst e:E "
-            "connect e.req -> mem { buffer 2 } }"
-        )
-        wrapper = (
-            "module E { out req:rv<u8> req.valid=1 req.payload=1 } "
-            "module F { clock clk reset rst in rx:rv<u8> out tx:rv<u8> "
-            "connect rx -> tx { buffer 2 } } "
-            "module T { clock clk reset rst out mem:rv<u8> inst e:E inst f:F "
-            "connect e.req -> f.rx connect f.tx -> mem }"
-        )
-        direct_text = compile_source(direct, top="T").clash
-        wrapper_text = compile_source(wrapper, top="T").clash
-        self.assertIn("buffer_count", direct_text)
-        self.assertIn("protocol_f", wrapper_text)
 
     def test_sequential_child_elaboration_propagates_domain(self):
         module = analyze(parse(
@@ -185,15 +168,6 @@ class CompositionM40Tests(unittest.TestCase):
         self.assertEqual(endpoint.protocol.value, "ready_valid")
         self.assertEqual(endpoint.payload_type.width, 8)
 
-    def test_protocol_example_emits_preserved_hierarchy(self):
-        source = Path("examples/hierarchical_protocol_m40.zhl").read_text()
-        module = analyze(parse(source))
-        self.assertEqual(len(module.hierarchical_connections), 2)
-        result = compile_source(source, top="ProtocolTop")
-        self.assertIn("protocol_requestFifo", result.clash)
-        self.assertIn("fifo_rx = producer_tx", result.clash)
-        self.assertIn("producer_tx_ready = fifo_rx_ready", result.clash)
-        self.assertIn("fifo_tx_ready = consumer_rx_ready", result.clash)
 
     def test_protocol_manifest_publishes_physical_handshake_bindings(self):
         source = Path("examples/hierarchical_protocol_m40.zhl").read_text()
@@ -205,123 +179,10 @@ class CompositionM40Tests(unittest.TestCase):
         self.assertIn("endpoint:fifo.rx.ready", ids)
         self.assertIn("endpoint:consumer.rx.ready", ids)
 
-    def test_mixed_stateful_child_preserves_scalar_and_protocol_ports(self):
-        source = """
-        struct Req { addr:u8 data:u8 write:bit }
-        module Engine {
-          clock clk reset rst
-          in start:bit in base:u8
-          out busy:bit out req:rv<Req>
-          reg count:u8 = 0
-          rule step when start { count <- truncate<8>(count + 1) }
-          busy = start
-          req.payload = Req { addr=base data=0 write=1 }
-          req.valid = start
-        }
-        module Sink {
-          clock clk reset rst
-          in rx:rv<Req> out seen:bit
-          rx.ready = 1
-          seen = rx.valid
-        }
-        module Top {
-          clock clk reset rst
-          in start:bit in base:u8 out busy:bit
-          inst e:Engine inst s:Sink
-          e.start=start e.base=base
-          connect e.req -> s.rx
-          busy=e.busy
-        }
-        """
-        result = compile_source(source, top="Top")
-        self.assertIn("protocol_engine", result.clash)
-        self.assertRegex(result.clash, r"Signal ZLangSystem EngineComponentInput_s([0-9a-f]{8}) -> Signal ZLangSystem EngineComponentOutput_s\1")
-        helper = re.search(r"(protocol_engine_s[0-9a-f]{8}) ::", result.clash).group(1)
-        suffix = helper.rsplit("_", 1)[1]
-        self.assertIn(f"{helper} = mealy {helper}Transition", result.clash)
-        self.assertIn(f"{{-# NOINLINE {helper} #-}}", result.clash)
-        self.assertIn(f"e_component_input = EngineComponentInput_{suffix} <$> parent_start", result.clash)
-        self.assertNotIn("protocol_engine mixed_start", result.clash)
-        transition = result.clash.split(f"{helper}Transition ::", 1)[1].split(
-            f"{helper} ::", 1
-        )[0]
-        self.assertNotIn("parent_", transition)
 
-    def test_simple_dma_uses_closed_mixed_child_and_request_fifo(self):
-        source = Path("examples/simple_dma_m40.zhl").read_text()
-        result = compile_source(source, top="SimpleDMA")
-        self.assertRegex(result.clash, r"protocol_transferEngine_s[0-9a-f]{8} = mealy")
-        self.assertIn("engine_component_input = TransferEngineComponentInput", result.clash)
-        self.assertIn("engine_mem_request_memory_mem_request_buffer_count", result.clash)
-        self.assertIn("engine_mem_request_ready_bit", result.clash)
-        self.assertIn("memory_mem_request = ZLangReadyValidForward", result.clash)
-        helper = re.search(r"(protocol_transferEngine_s[0-9a-f]{8}) ::", result.clash).group(1)
-        transition = result.clash.split(f"{helper}Transition ::", 1)[1].split(
-            f"{helper} ::", 1
-        )[0]
-        self.assertNotIn("parent_", transition)
 
-    @unittest.skipUnless(find_clash_executable() and shutil.which("verilator"),
-                         "Clash and Verilator are required")
-    def test_protocol_hierarchy_runs_in_verilator(self):
-        source = Path("examples/hierarchical_protocol_m40.zhl").read_text()
-        result = compile_source(source, top="ProtocolTop")
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            files = generate_verilog(result.clash, "ProtocolTop", root / "rtl",
-                                     find_clash_executable())
-            lint_with_verilator(files, "ProtocolTop")
-            harness = root / "protocol_test.cpp"
-            harness.write_text(
-                '#include "VProtocolTop.h"\n'
-                'static void tick(VProtocolTop& d) { d.clk=0; d.eval(); d.clk=1; d.eval(); d.clk=0; d.eval(); }\n'
-                'int main() { VProtocolTop d; d.rst=1; for(int i=0;i<3;i++) tick(d); d.rst=0; for(int i=0;i<4;i++) tick(d); return d.seen == 7 ? 0 : 1; }\n'
-            )
-            obj = root / "obj"
-            env = os.environ.copy(); env["CCACHE_DISABLE"] = "1"
-            subprocess.run([
-                shutil.which("verilator"), "--cc", "--exe", "--build",
-                "--top-module", "ProtocolTop", "--Mdir", str(obj),
-                "-o", "protocol_sim", *(str(f) for f in files), str(harness)
-            ], check=True, cwd=Path.cwd(), env=env)
-            subprocess.run([str(obj / "protocol_sim")], check=True)
 
-    @unittest.skipUnless(find_clash_executable() and shutil.which("verilator"),
-                         "Clash and Verilator are required")
-    def test_simple_dma_request_fifo_runs_in_verilator(self):
-        source = Path("examples/simple_dma_m40.zhl").read_text()
-        result = compile_source(source, top="SimpleDMA")
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            files = generate_verilog(result.clash, "SimpleDMA", root / "rtl",
-                                     find_clash_executable())
-            self.assertTrue(any("protocol_transferEngine" in path.name for path in files))
-            lint_with_verilator(files, "SimpleDMA")
-            harness = root / "dma_test.cpp"
-            harness.write_text(
-                '#include "VSimpleDMA.h"\n'
-                'static void tick(VSimpleDMA& d) { d.clk=0; d.eval(); d.clk=1; d.eval(); d.clk=0; d.eval(); }\n'
-                'int main() { VSimpleDMA d; d.base=10; d.data=0x5a; d.start=0; d.accept=0; '
-                'd.rst=1; tick(d); tick(d); d.rst=0; tick(d); if(d.busy) return 1; '
-                'd.start=1; tick(d); if(!d.busy) return 2; '
-                'tick(d); d.accept=1; tick(d); if(!d.busy) return 3; '
-                'd.start=0; tick(d); if(d.busy) return 4; return 0; }\n'
-            )
-            obj = root / "obj"
-            env = os.environ.copy(); env["CCACHE_DISABLE"] = "1"
-            subprocess.run([
-                shutil.which("verilator"), "--cc", "--exe", "--build",
-                "--top-module", "SimpleDMA", "--Mdir", str(obj),
-                "-o", "dma_sim", *(str(f) for f in files), str(harness)
-            ], check=True, cwd=Path.cwd(), env=env)
-            subprocess.run([str(obj / "dma_sim")], check=True)
 
-    def test_top_selection_preserves_shared_structs(self):
-        result = compile_source(
-            "struct P { x:u8 } module Leaf { in x:u8 out y:P y=P { x=x } }",
-            top="Leaf",
-        )
-        self.assertIn("data P", result.clash)
 
 
 if __name__ == "__main__":

@@ -47,8 +47,7 @@ full-width incrementing transaction at a time, with 1–256-beat counting,
 independent channel backpressure, checked `RLAST`, counted `WLAST`, and
 deterministic boolean error latching for nonzero `RRESP`/`BRESP`. The validated
 `AW=64,DW=32` witness passes semantic/canonical restoration, deterministic
-backend emission, simulator traces, and direct-SystemVerilog/Verilator; the
-equivalent real Clash 1.11/Verilator check also passes. IDs, write strobes,
+backend emission, simulator traces, and direct-SystemVerilog/Verilator. IDs, write strobes,
 burst-kind and other full-AXI sidebands, multiple outstanding transactions,
 UB-DMA chunking, and fences remain outside this bounded profile.
 
@@ -156,7 +155,7 @@ inst generated : StorageGeneratedRom<
 ```
 
 Both wrappers elaborate to the existing typed `Rom` IR with concrete immutable
-contents and the same companion image for Clash and direct SystemVerilog.
+contents and the deterministic companion image used by direct SystemVerilog.
 `StorageRom` accepts a fully evaluated exact `vec<N,T>` constant;
 `StorageGeneratedRom` invokes a statically selected pure zero-argument producer
 during elaboration. Constants and producers are specialization parameters, not

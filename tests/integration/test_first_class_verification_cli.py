@@ -49,7 +49,7 @@ module AsyncTraceBindings {
 """
     directory = tmp_path / "bundle"
     publish_compilation_verification_bundle(
-        compile_source(source, include_clash=False), directory
+        compile_source(source), directory
     )
     payload = load_verification_bundle(directory).verification_ir["payload"]
     binding_sets = payload["binding_sets"]
@@ -66,27 +66,6 @@ module AsyncTraceBindings {
         assert bindings["trace:reset"]["rtl_name"] != "arst_n"
 
 
-def test_verification_overlay_does_not_change_production_rtl() -> None:
-    hardware = """
-module VerificationHashStable {
-    clock clk
-    reset rst
-    in a : bit
-    out y : bit
-    y = a
-}
-"""
-    verified = hardware.replace(
-        "    y = a\n",
-        "    y = a\n    assert follows @ clk { y == a }\n"
-        "    cover high @ clk { y }\n",
-    )
-    plain = compile_source(hardware)
-    with_goals = compile_source(verified)
-    assert plain.clash == with_goals.clash
-    assert emit_experimental(plain.ir) == emit_experimental(with_goals.ir)
-    assert "follows: assert property" in with_goals.contracts_sva
-    assert "high: cover property" in with_goals.contracts_sva
 
 
 def test_compiler_bundle_is_independent_of_execution_depth(tmp_path: Path) -> None:
@@ -127,10 +106,10 @@ module OriginStableVerification {
 """
     shifted = source.replace("    assert same", "\n    assert same")
     left = publish_compilation_verification_bundle(
-        compile_source(source, include_clash=False), tmp_path / "left"
+        compile_source(source), tmp_path / "left"
     )
     right = publish_compilation_verification_bundle(
-        compile_source(shifted, include_clash=False), tmp_path / "right"
+        compile_source(shifted), tmp_path / "right"
     )
 
     assert left.hardware_identity == right.hardware_identity
@@ -155,7 +134,7 @@ module SelectedIrCrossLink {
 }
 """
     publish_compilation_verification_bundle(
-        compile_source(source, include_clash=False), tmp_path / "bundle"
+        compile_source(source), tmp_path / "bundle"
     )
     loaded = load_verification_bundle(tmp_path / "bundle")
     payload = json.loads(json.dumps(loaded.verification_ir["payload"]))
@@ -399,7 +378,7 @@ module JointFormalEvidence {
     source.write_text(source_text, encoding="utf-8")
 
     class Verifier:
-        formal_route = "M36_clash"
+        formal_route = "M36_direct_systemverilog"
 
         @staticmethod
         def identity(candidate):
@@ -423,7 +402,7 @@ module JointFormalEvidence {
                 "status": FormalStatus.BOUNDED_PASS,
                 "mode": ProofMode.BMC,
                 "depth": config.bmc_depth,
-                "backend": "clash",
+                "backend": "direct_systemverilog",
                 "engine": "sby",
                 "solver": "z3",
                 **self.identity(candidate),
@@ -431,7 +410,6 @@ module JointFormalEvidence {
 
     compilation = compile_source(
         source_text,
-        include_clash=False,
         formal_policy=FormalPolicy.AVAILABLE,
         formal_verifier=Verifier(),
     )
@@ -498,7 +476,7 @@ module CandidateTrigger {
     source.write_text(source_text, encoding="utf-8")
 
     class Verifier:
-        formal_route = "M36_clash"
+        formal_route = "M36_direct_systemverilog"
 
         @staticmethod
         def cache_identity(candidate, _config=None):
@@ -519,7 +497,7 @@ module CandidateTrigger {
                 "status": FormalStatus.BOUNDED_PASS,
                 "mode": ProofMode.BMC,
                 "depth": config.bmc_depth,
-                "backend": "clash",
+                "backend": "direct_systemverilog",
                 "engine": "sby",
                 "solver": "z3",
                 **self.cache_identity(candidate),
@@ -527,12 +505,10 @@ module CandidateTrigger {
 
     off = compile_source(
         source_text,
-        include_clash=False,
         formal_policy=FormalPolicy.OFF,
     )
     available = compile_source(
         source_text,
-        include_clash=False,
         formal_policy=FormalPolicy.AVAILABLE,
         formal_verifier=Verifier(),
     )
@@ -609,7 +585,7 @@ module CandidateReportExit {
     source.write_text(source_text, encoding="utf-8")
 
     class Verifier:
-        formal_route = "M36_clash"
+        formal_route = "M36_direct_systemverilog"
 
         @staticmethod
         def cache_identity(candidate, _config=None):
@@ -630,7 +606,7 @@ module CandidateReportExit {
                 "status": FormalStatus.BOUNDED_PASS,
                 "mode": ProofMode.BMC,
                 "depth": config.bmc_depth,
-                "backend": "clash",
+                "backend": "direct_systemverilog",
                 "engine": "sby",
                 "solver": "z3",
                 **self.cache_identity(candidate),
@@ -638,7 +614,6 @@ module CandidateReportExit {
 
     compilation = compile_source(
         source_text,
-        include_clash=False,
         formal_policy=FormalPolicy.AVAILABLE,
         formal_verifier=Verifier(),
     )

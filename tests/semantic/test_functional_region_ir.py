@@ -431,7 +431,6 @@ def test_semantic_compaction_captures_ready_valid_payload_only() -> None:
         "input.ready = 1 "
         "values = generate(i in 0..64) { input.payload[i] + 1 } "
         "}",
-        include_clash=False,
     ).ir
 
     region = module.assignments[1].expression
@@ -454,7 +453,6 @@ def test_semantic_compaction_keeps_ready_valid_control_outside_regions(
         "input.ready = 1 "
         f"values = generate(i in 0..32) input.{signal} "
         "}",
-        include_clash=False,
     ).ir
 
     assert not isinstance(module.assignments[1].expression, FunctionalRegion)
@@ -498,7 +496,6 @@ def test_semantic_compaction_keeps_untracked_ordinary_helper_definition() -> Non
     module = compile_source(
         "fn zero()->u8{0} module Top{out y:vec<32,u8> "
         "y=generate(i in 0..32) zero()}",
-        include_clash=False,
     ).ir
     assert isinstance(module.assignments[0].expression, FunctionalRegion)
     assert tuple(function.name for function in module.functions) == ("zero",)
@@ -509,7 +506,6 @@ def test_semantic_compaction_prunes_only_unreachable_generic_call_graph() -> Non
         "fn inner<K>()->u8{K} fn outer<K>()->u8{inner<K=K>()} "
         "module Top{out y:vec<32,u8> "
         "y=generate(i in 0..32) outer<K=i>()}",
-        include_clash=False,
     ).ir
     assert isinstance(module.assignments[0].expression, FunctionalRegion)
     assert module.callable_definitions == ()
@@ -521,7 +517,6 @@ def test_semantic_compaction_retains_specialization_used_outside_region() -> Non
         "fn value<K>()->u8{K} module Top{out scalar:u8 out values:vec<32,u8> "
         "scalar=value<K=7>() "
         "values=generate(i in 0..32) value<K=7>()}",
-        include_clash=False,
     ).ir
     assert isinstance(module.assignments[1].expression, FunctionalRegion)
     assert len(module.callable_definitions) == 1

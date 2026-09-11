@@ -29,5 +29,5 @@ errors use a stable generic category rather than inventing meaning from text.
 Backend output can additionally publish a hash-bound
 [generated source map](generated-source-maps.md). External-tool attribution is
 accepted only when the generated text hash matches the sidecar and exactly one
-entry covers the reported line. Otherwise the original Clash/Verilator
+entry covers the reported line. Otherwise the original Verilator/Yosys/vendor
 diagnostic is left unchanged.

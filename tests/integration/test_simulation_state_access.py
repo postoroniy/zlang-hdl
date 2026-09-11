@@ -97,7 +97,7 @@ module StateReplay {
 
 
 def _compile():
-    return compile_source(SOURCE, include_clash=False)
+    return compile_source(SOURCE)
 
 
 def _binding(catalog, kind, name, path=("StateReplay",)):
@@ -190,7 +190,7 @@ module LaneTop {
     values = generate(i in 0..2) lane[i].value
 }
 """
-    compilation = compile_source(source, top="LaneTop", include_clash=False)
+    compilation = compile_source(source, top="LaneTop")
     catalog = build_simulation_state_catalog(
         compilation.ir, selected_ir_identity=compilation.selected_ir_identity
     )
@@ -353,7 +353,7 @@ module WideReplay {
     commands.write_data = 0
     command = commands.read_data
 }
-""", include_clash=False)
+""")
     artifact = emit_artifact(
         compilation.ir, selected_ir_identity=compilation.selected_ir_identity
     )
@@ -376,7 +376,7 @@ module MultiDomainState {
     reg count : u8 = 0 @a
     value = count
 }
-""", include_clash=False)
+""")
     with pytest.raises(SimulationStateError, match="exactly one root"):
         build_simulation_state_catalog(
             compilation.ir,
@@ -393,7 +393,7 @@ module EnumState {
     reg phase : Phase = Phase.Idle
     active = phase == Phase.Run
 }
-""", include_clash=False)
+""")
     with pytest.raises(SimulationStateError, match="unsupported by simulation state"):
         build_simulation_state_catalog(
             enum_compilation.ir,
@@ -464,7 +464,7 @@ module AsyncReplay {
     when step { count <- truncate<8>(count + 1) }
     value = count
 }
-""", include_clash=False)
+""")
     session = SimulationStateSession.from_compilation(compilation)
     count = _binding(
         session.catalog,
@@ -517,7 +517,7 @@ module StateNameCollision {
 }
 """.replace("__CONFLICTING_DECLARATION__", conflicting_declaration)
     compilation = compile_source(
-        source, top="StateNameCollision", include_clash=False
+        source, top="StateNameCollision"
     )
     if conflicting_declaration == "foo_cells : CollisionChild":
         # A private child token may move; architectural source state retains
@@ -563,7 +563,7 @@ module ChildOutputStateCollision {
     }
     result = foo.memory_cells
 }
-""", top="ChildOutputStateCollision", include_clash=False)
+""", top="ChildOutputStateCollision")
 
     artifact = emit_artifact(
         compilation.ir, selected_ir_identity=compilation.selected_ir_identity
@@ -587,7 +587,7 @@ module LegacyFifoPortName {
     queue.pop = 0
     y = queue_front
 }
-""", include_clash=False)
+""")
 
     artifact = emit_artifact(
         compilation.ir,

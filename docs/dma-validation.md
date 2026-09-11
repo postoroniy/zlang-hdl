@@ -6,8 +6,9 @@
 > protocol, instance-array, and backend slices. Use the
 > [current status snapshot](current-language-status.md) and
 > [syntax matrix](syntax-support-matrix.md) for present support. The retained
-> SimpleDMA design itself passes semantic/canonical processing, both RTL
-> backends, Verilator, and its applicable existing verification checks.
+> SimpleDMA design itself passes semantic/canonical processing, production
+> direct-SystemVerilog/Verilator, and its applicable existing verification
+> checks. Clash references below are historical evidence only.
 
 The generic top-level aggregate ABI is now available for source-defined
 protocol boundaries. This does not change SimpleDMA semantics; future

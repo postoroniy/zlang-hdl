@@ -145,7 +145,7 @@ _ORIGIN_FIELDS = frozenset(
         "source_hash",
         "source_path",
         # Verification declarations intentionally have a separate identity;
-        # source assertions must not invalidate selected-hardware/M36/M38 keys.
+        # source assertions must not invalidate selected-hardware/M36 keys.
         "verification_scopes",
         "verification_expressions",
     }

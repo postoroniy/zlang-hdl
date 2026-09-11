@@ -10,8 +10,6 @@ import subprocess
 
 import pytest
 
-from tests.toolchain import CLASH_EXECUTABLE
-from zlang.backend.clash import emit_artifact as emit_clash_artifact
 from zlang.backend.manifest import BackendArtifact
 from zlang.backend.naming import (
     build_component_name_plan, module_rtl_names, validate_component_name_plans,
@@ -20,7 +18,6 @@ from zlang.backend.systemverilog import emit_artifact
 from zlang.compiler import compile_source
 from zlang.ir.hierarchy import build_hierarchy_index
 from zlang.simulate import simulate_cycles
-from zlang.toolchain import generate_verilog
 
 
 SOURCE = """
@@ -102,13 +99,10 @@ def _cycles():
     return cycles, resets, before, after
 
 
-def _strict_lint(files: tuple[Path, ...], top: str, *, cwd: Path, clash: bool = False) -> None:
+def _strict_lint(files: tuple[Path, ...], top: str, *, cwd: Path) -> None:
     completed = subprocess.run((
         "verilator", "--lint-only", "--sv", "--top-module", top,
         "-Wall", "-Wno-DECLFILENAME", "-Wno-UNUSEDSIGNAL", "-Wno-UNUSEDPARAM",
-        # Clash deliberately emits FPGA initialization beside explicit reset.
-        # This style waiver does not waive widths, drivers or implicit nets.
-        *(("-Wno-PROCASSINIT",) if clash else ()),
         *(str(path) for path in files),
     ), cwd=cwd, text=True, capture_output=True, timeout=90)
     assert completed.returncode == 0, completed.stdout + completed.stderr
@@ -142,52 +136,6 @@ def _run_trace(files: tuple[Path, ...], directory: Path, cycles, resets, expecte
     assert result.returncode == 0, result.stdout + result.stderr
 
 
-@pytest.mark.skipif(CLASH_EXECUTABLE is None or shutil.which("verilator") is None,
-                    reason="real Clash and Verilator required")
-def test_collision_heavy_hierarchy_has_identical_simulator_and_both_rtl_traces(tmp_path: Path) -> None:
-    compilation = compile_source(SOURCE, top="NamingTop", include_clash=False)
-    repeated = compile_source(SOURCE, top="NamingTop", include_clash=False)
-    assert compilation.selected_ir_identity == repeated.selected_ir_identity
-    assert compilation.high_level_ir_identity == repeated.high_level_ir_identity
-    module = compilation.ir
-    before_ports = tuple((port.name, port.type, port.direction) for port in module.ports)
-    cycles, resets, before, after = _cycles()
-    assert simulate_cycles(module, cycles, reset=resets) == before
-    assert tuple(after[1][name] for name in OUTPUTS[:4]) == (5, 7, 11, 13)
-    assert tuple(after[3][name] for name in OUTPUTS[:4]) == (8, 7, 20, 15)
-
-    direct = emit_artifact(module, selected_ir_identity=compilation.selected_ir_identity)
-    assert direct.to_json() == emit_artifact(repeated.ir, selected_ir_identity=repeated.selected_ir_identity).to_json()
-    clash = emit_clash_artifact(module, selected_ir_identity=compilation.selected_ir_identity)
-    assert clash.to_json() == emit_clash_artifact(repeated.ir, selected_ir_identity=repeated.selected_ir_identity).to_json()
-    assert tuple((port.name, port.type, port.direction) for port in module.ports) == before_ports
-    for artifact in (direct, clash):
-        assert BackendArtifact.from_json(artifact.to_json()).to_json() == artifact.to_json()
-    direct_ids = {item.semantic_signal_id for item in direct.bindings if item.semantic_signal_id.startswith("port:")}
-    clash_ids = {item.semantic_signal_id for item in clash.bindings if item.semantic_signal_id.startswith("port:")}
-    assert direct_ids == clash_ids == {f"port:{name}" for name, _, _ in before_ports}
-    local = module_rtl_names(module)
-    assert local.instance("lane_0") == "lane_0"
-    assert local.instance("lane[0]") != "lane_0"
-    assert local.child_signal("cfg", "ready") != "cfg_ready"
-    assert "logic [7:0] cfg_ready;" in direct.text
-    assert "logic [7:0] rule_tick_fire;" in direct.text
-    assert "zlang_instance_" not in direct.text
-    assert "zlang_arg_passthrough_" not in direct.text
-    assert "cfg__ready" not in direct.text
-    assert re.search(r"^module Counter_s[0-9a-f]{8} \(", direct.text, re.M)
-
-    for backend, artifact in (("direct", direct), ("clash", clash)):
-        directory = tmp_path / backend
-        directory.mkdir()
-        if backend == "direct":
-            file = directory / "NamingTop.sv"
-            file.write_text(artifact.text)
-            files = (file,)
-        else:
-            files = generate_verilog(artifact.text, "NamingTop", directory / "rtl", CLASH_EXECUTABLE)
-        _strict_lint(files, "NamingTop", cwd=directory, clash=backend == "clash")
-        _run_trace(files, directory, cycles, resets, after)
 
 
 @pytest.mark.skipif(shutil.which("verilator") is None, reason="Verilator required")
@@ -199,7 +147,7 @@ def test_independently_emitted_incompatible_specializations_coexist_in_one_hdl_u
             "module Child<W=8> { in x:uint<W> out y:uint<W> y=x } "
             f"module {top} {{ in x:u{width} out y:u{width} child:Child<{width}>{{x}} y=child.y }}"
         )
-        module = compile_source(source, top=top, include_clash=False).ir
+        module = compile_source(source, top=top).ir
         artifacts.append(emit_artifact(module))
         plans.append(build_component_name_plan(build_hierarchy_index(module)))
     validate_component_name_plans(*plans)

@@ -17,7 +17,6 @@ class ArchitectureSemanticTests(unittest.TestCase):
         result = compile_source(
             (ROOT / "examples/implementation_intent.zhl").read_text(),
             top="FirArchitecture",
-            include_clash=False,
         )
         return result.ir, list(result.exploration_results)
 

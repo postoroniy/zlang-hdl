@@ -5,7 +5,6 @@ import tempfile
 import textwrap
 import unittest
 
-from tests.toolchain import CLASH_ENVIRONMENT, CLASH_EXECUTABLE
 from zlang.compiler import compile_source
 from zlang.simulate import (
     ProtocolViolation,
@@ -135,105 +134,6 @@ class RequestResponseIntegrationTests(unittest.TestCase):
         with self.assertRaisesRegex(ProtocolViolation, "non-outstanding ID 2"):
             simulate_request_response_cycles(module, [first, unknown])
 
-    @unittest.skipUnless(
-        CLASH_EXECUTABLE and shutil.which("iverilog") and shutil.which("vvp"),
-        "Clash and Icarus Verilog are required",
-    )
-    def test_generated_out_of_order_rtl_limits_and_matches_ids(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            output_directory = Path(temporary_directory)
-            subprocess.run(
-                [
-                    CLASH_EXECUTABLE,
-                    "--verilog",
-                    str(ROOT / "examples/generated/RequestClient.hs"),
-                    "-outputdir",
-                    str(output_directory),
-                ],
-                check=True,
-                cwd=ROOT,
-                env=CLASH_ENVIRONMENT,
-            )
-            generated = next(output_directory.rglob("RequestClient.v"))
-            verilog = generated.read_text()
-            self.assertIn("psl property mem_ids_valid", verilog)
-            self.assertIn("psl property mem_within_limit", verilog)
-            self.assertIn("psl property mem_has_request", verilog)
-            testbench = output_directory / "tb.v"
-            testbench.write_text(
-                textwrap.dedent(
-                    """
-                    module tb;
-                      reg clk=0, rst=1;
-                      reg [1:0] request_payload_id=2'h1;
-                      reg [7:0] request_payload_data=8'h01;
-                      reg issue=1, accept_response=1;
-                      reg mem_request_ready=1;
-                      reg [1:0] mem_response_payload_id=0;
-                      reg [7:0] mem_response_payload_data=0;
-                      reg mem_response_valid=0;
-                      wire [1:0] response_payload_id, mem_request_payload_id;
-                      wire [7:0] response_payload_data, mem_request_payload_data;
-                      wire mem_request_valid, mem_response_ready;
-                      RequestClient dut(
-                        .clk(clk), .rst(rst),
-                        .request_payload_id(request_payload_id),
-                        .request_payload_data(request_payload_data), .issue(issue),
-                        .accept_response(accept_response),
-                        .mem_request_ready(mem_request_ready),
-                        .mem_response_payload_id(mem_response_payload_id),
-                        .mem_response_payload_data(mem_response_payload_data),
-                        .mem_response_valid(mem_response_valid),
-                        .response_payload_id(response_payload_id),
-                        .response_payload_data(response_payload_data),
-                        .mem_request_payload_id(mem_request_payload_id),
-                        .mem_request_payload_data(mem_request_payload_data),
-                        .mem_request_valid(mem_request_valid),
-                        .mem_response_ready(mem_response_ready)
-                      );
-                      always #5 clk=~clk;
-                      initial begin
-                        @(posedge clk); #1; rst=0; #1;
-                        if (!mem_request_valid) $fatal(1, "first request blocked");
-                        @(posedge clk); #1;
-                        request_payload_id=2'h2;
-                        request_payload_data=8'h02; #1;
-                        if (!mem_request_valid) $fatal(1, "second request blocked");
-                        @(posedge clk); #1;
-                        if (mem_request_valid) $fatal(1, "outstanding limit ignored");
-                        issue=0;
-                        mem_response_payload_id=2'h2;
-                        mem_response_payload_data=8'h02;
-                        mem_response_valid=1; #1;
-                        if (!mem_response_ready) $fatal(1, "known ID rejected");
-                        @(posedge clk); #1;
-                        mem_response_payload_id=2'h3;
-                        mem_response_payload_data=8'h03; #1;
-                        if (mem_response_ready) $fatal(1, "unknown ID accepted");
-                        mem_response_payload_id=2'h1;
-                        mem_response_payload_data=8'h01; #1;
-                        if (!mem_response_ready) $fatal(1, "remaining ID rejected");
-                        $finish;
-                      end
-                    endmodule
-                    """
-                )
-            )
-            executable = output_directory / "simulation"
-            verilog_files = [str(path) for path in output_directory.rglob("*.v")]
-            subprocess.run(
-                [
-                    "iverilog",
-                    "-g2012",
-                    "-s",
-                    "tb",
-                    "-o",
-                    str(executable),
-                    *verilog_files,
-                ],
-                check=True,
-            )
-            subprocess.run(["vvp", str(executable)], check=True)
 
 
 if __name__ == "__main__":

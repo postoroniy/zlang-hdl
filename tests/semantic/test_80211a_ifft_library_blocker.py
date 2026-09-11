@@ -26,7 +26,6 @@ def _compile(depth: int):
     return compile_source(
         source,
         top="IFFTExactFeedbackTypeGrowth",
-        include_clash=False,
     ).ir
 
 
@@ -66,7 +65,6 @@ def test_larger_homogeneous_cell_only_moves_the_same_growth_boundary() -> None:
     module = compile_source(
         source,
         top="IFFTExactFeedbackTypeGrowth",
-        include_clash=False,
     ).ir
     transition = module.resolved_transition
     assert transition is not None

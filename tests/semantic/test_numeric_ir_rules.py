@@ -140,7 +140,6 @@ def test_fixed_add_sub_scale_mismatch_is_structured_and_semantically_preserved(
         compile_source(
             "module BadScale { in a:fixed<8,4> in b:fixed<8,3> "
             f"out y:fixed<9,4> y=a{operator}b }}",
-            include_clash=False,
         )
 
 
@@ -192,7 +191,6 @@ def test_semantic_binary_ir_matches_the_shared_rules() -> None:
             compared = a < b
         }
         """,
-        include_clash=False,
     ).ir
     assignments = {
         assignment.target.name: assignment.expression

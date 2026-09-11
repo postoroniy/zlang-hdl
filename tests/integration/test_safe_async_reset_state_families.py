@@ -14,8 +14,6 @@ import subprocess
 
 import pytest
 
-from tests.toolchain import CLASH_EXECUTABLE
-from zlang.backend.clash.emitter import emit as emit_clash
 from zlang.backend.systemverilog.emitter import emit as emit_systemverilog
 from zlang.compiler import compile_source
 from zlang.simulate import (
@@ -23,7 +21,7 @@ from zlang.simulate import (
     simulate_cycles,
     simulate_request_response_cycles,
 )
-from zlang.toolchain import generate_verilog, lint_with_verilator
+from zlang.toolchain import lint_with_verilator
 
 
 RULES = """
@@ -358,7 +356,7 @@ endmodule
 
 
 def _module(source: str, top: str):
-    return compile_source(source, top=top, include_clash=False).ir
+    return compile_source(source, top=top).ir
 
 
 def _idle_fifo(payload: int) -> dict[str, object]:
@@ -476,21 +474,6 @@ def test_direct_sv_state_family_passes_strict_verilator_lint(
     lint_with_verilator((rtl,), top)
 
 
-@pytest.mark.skipif(
-    CLASH_EXECUTABLE is None or shutil.which("verilator") is None,
-    reason="real Clash 1.11 and Verilator are required",
-)
-@pytest.mark.parametrize(("top", "source"), FAMILIES)
-def test_real_clash_state_family_generates_and_lints(
-    top: str,
-    source: str,
-    tmp_path: Path,
-) -> None:
-    module = _module(source, top)
-    clash = emit_clash(module)
-    assert clash.count("resetSynchronizer") == 1
-    rtl = generate_verilog(clash, top, tmp_path / top, CLASH_EXECUTABLE)
-    lint_with_verilator(rtl, top)
 
 
 def _run_behavioral_verilator(
@@ -527,38 +510,3 @@ def _run_behavioral_verilator(
         text=True,
     )
     assert ran.returncode == 0, ran.stderr or ran.stdout
-
-
-@pytest.mark.parametrize("backend", ("direct_systemverilog", "clash"))
-@pytest.mark.parametrize(
-    ("top", "source"),
-    tuple(
-        (top, source)
-        for top, source in FAMILIES
-        if top in BEHAVIOR_BENCHES
-    ),
-)
-def test_midstream_safe_reset_is_cycle_exact_in_real_rtl(
-    backend: str,
-    top: str,
-    source: str,
-    tmp_path: Path,
-) -> None:
-    if shutil.which("verilator") is None:
-        pytest.skip("Verilator is required for reset behavior")
-    if backend == "clash" and CLASH_EXECUTABLE is None:
-        pytest.skip("real Clash 1.11 is required for Clash reset behavior")
-
-    module = _module(source, top)
-    root = tmp_path / backend / top
-    root.mkdir(parents=True)
-    if backend == "direct_systemverilog":
-        path = root / f"{top}.sv"
-        path.write_text(emit_systemverilog(module))
-        rtl = (path,)
-    else:
-        assert CLASH_EXECUTABLE is not None
-        rtl = generate_verilog(
-            emit_clash(module), top, root / "rtl", CLASH_EXECUTABLE
-        )
-    _run_behavioral_verilator(rtl, BEHAVIOR_BENCHES[top], root)

@@ -14,15 +14,12 @@ import subprocess
 
 import pytest
 
-from tests.toolchain import CLASH_EXECUTABLE
-from zlang.backend.clash import emit_artifact as emit_clash_artifact
 from zlang.backend.manifest import BackendArtifact
-from zlang.backend.clash.public_wrapper import ClashPublicTopWrapper
 from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
 from zlang.compiler import compile_file
 from zlang.opt import OptimizationStage, lower, restore
 from zlang.simulate import simulate, simulate_cycles
-from zlang.toolchain import generate_verilog, lint_with_verilator
+from zlang.toolchain import lint_with_verilator
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -444,7 +441,7 @@ endmodule
 
 def test_ieee_convolutional_kernel_bit_order_and_history() -> None:
     module = compile_file(
-        ENCODER_SOURCE, top=ENCODE_KERNEL, include_clash=False
+        ENCODER_SOURCE, top=ENCODE_KERNEL
     ).ir
     generator = random.Random(0x80211A24)
     vectors = [(0, 0), (1, 0), (0x800000, 0), (0xFFFFFF, 0x3F)]
@@ -465,7 +462,7 @@ def test_ieee_convolutional_kernel_bit_order_and_history() -> None:
 
 @pytest.mark.parametrize("rate", [1, 2, 4])
 def test_ieee_interleaver_kernel_matches_two_permutation_oracle(rate: int) -> None:
-    module = compile_file(SOURCE, top=INTERLEAVE_KERNEL, include_clash=False).ir
+    module = compile_file(SOURCE, top=INTERLEAVE_KERNEL).ir
     generator = random.Random(0x1EEE000 + rate)
     vectors = [[1, 0, 0, 0]]
     vectors.extend(
@@ -503,12 +500,12 @@ def test_ieee_interleaver_kernel_matches_two_permutation_oracle(rate: int) -> No
 def test_full_ieee_slice_matches_packet_oracle(
     rate: int, payload: bytes
 ) -> None:
-    module = compile_file(SOURCE, top=TOP, include_clash=False).ir
+    module = compile_file(SOURCE, top=TOP).ir
     assert _run_packet(module, rate, payload) == _ieee_words(rate, payload)
 
 
 def test_output_stall_and_reset_start_a_new_packet_epoch() -> None:
-    module = compile_file(SOURCE, top=TOP, include_clash=False).ir
+    module = compile_file(SOURCE, top=TOP).ir
     payload = b"\xab"
     beat = _psdu_beats(payload)[0]
     cycles = [
@@ -551,7 +548,7 @@ def test_output_stall_and_reset_start_a_new_packet_epoch() -> None:
 
 
 def test_back_to_back_packets_restart_convolutional_history() -> None:
-    module = compile_file(SOURCE, top=TOP, include_clash=False).ir
+    module = compile_file(SOURCE, top=TOP).ir
     first = b"\x01"
     second = b"\x80"
     cycles = [_cycle()]
@@ -571,76 +568,13 @@ def test_back_to_back_packets_restart_convolutional_history() -> None:
     ] == _ieee_words(1, first) + _ieee_words(1, second)
 
 
-def test_semantic_canonical_and_backend_artifacts_are_deterministic() -> None:
-    module = compile_file(SOURCE, top=TOP, include_clash=False).ir
-    assert restore(lower(module, stage=OptimizationStage.HIGH_LEVEL)) == module
-    assert [item.instance.name for item in module.elaborated_instances] == [
-        "framer",
-        "scrambler",
-        "encoder",
-        "interleaver",
-    ]
-
-    for emitter in (emit_sv_artifact, emit_clash_artifact):
-        first = emitter(module)
-        second = emitter(module)
-        assert first.text == second.text
-        assert first.artifact_hash == second.artifact_hash
-        restored = BackendArtifact.from_json(first.to_json())
-        assert restored.artifact_hash == first.artifact_hash
-        assert restored.bindings == first.bindings
-        assert restored.instances == first.instances
-        assert first.root_module_identity is not None
-        assert first.dependency_closure is not None
-        dependencies = {
-            item.logical_path for item in first.dependency_closure.modules
-        }
-        assert {
-            "wifi80211a_transmitter.controller",
-            "wifi80211a_transmitter.data_types",
-            "wifi80211a_transmitter.conv_encoder",
-        } <= dependencies
-        bindings = {item.semantic_signal_id: item for item in first.bindings}
-        for semantic_id in (
-            "port:command.payload.rate",
-            "port:psdu.payload.data",
-            "port:output.payload.data",
-            "port:output.payload.meta.rate",
-            "port:output.payload.meta.tail_mask",
-        ):
-            assert bindings[semantic_id].physical_available
 
 
 @pytest.mark.skipif(VERILATOR is None, reason="Verilator unavailable")
 def test_ieee_top_direct_sv_strict_lint(tmp_path: Path) -> None:
-    module = compile_file(SOURCE, top=TOP, include_clash=False).ir
+    module = compile_file(SOURCE, top=TOP).ir
     artifact = emit_sv_artifact(module)
     rtl = tmp_path / f"{TOP}.sv"
     rtl.write_text(artifact.text)
     lint_with_verilator((rtl,), TOP)
     _verilate_and_run(tmp_path, (rtl,), "direct_sv")
-
-
-@pytest.mark.skipif(
-    CLASH_EXECUTABLE is None or VERILATOR is None,
-    reason="real Clash 1.11 and Verilator are required",
-)
-def test_ieee_kernels_real_clash_and_strict_verilator(tmp_path: Path) -> None:
-    for source, top in (
-        (ENCODER_SOURCE, ENCODE_KERNEL),
-        (SOURCE, INTERLEAVE_KERNEL),
-        (SOURCE, TOP),
-    ):
-        compilation = compile_file(source, top=top)
-        rtl = tuple(
-            generate_verilog(
-                compilation.clash,
-                top,
-                tmp_path / f"clash_{top}",
-                CLASH_EXECUTABLE,
-                public_wrapper=ClashPublicTopWrapper.build(compilation.ir),
-            )
-        )
-        lint_with_verilator(rtl, top)
-        if top == TOP:
-            _verilate_and_run(tmp_path, rtl, "clash")

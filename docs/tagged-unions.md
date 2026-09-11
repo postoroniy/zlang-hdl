@@ -43,7 +43,7 @@ binders cannot rename, omit, repeat, or shadow an existing value.
 Matching is pure and zero-latency. Semantic lowering retains a typed
 `UnionConstruct`, `UnionTag`, and `UnionField`, then expresses selection with the
 ordinary typed `Switch`. The simulator carries an immutable nominal runtime
-value. Direct SystemVerilog and Clash carry the exact frozen packed bits.
+value. Direct SystemVerilog carries the exact frozen packed bits.
 Registers and internal scalar child ports may use union values.
 
 ## Deliberate boundaries

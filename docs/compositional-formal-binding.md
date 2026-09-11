@@ -1,5 +1,9 @@
 # Recursive M35 formal binding implementation
 
+> **Historical evidence:** this chronological implementation record predates
+> complete Clash/M38 retirement. Current executable M35 publication uses the
+> production direct-SystemVerilog artifact only.
+
 Status: the bounded register, FIFO, in-order request/response, and CSR semantic
 state families are implemented for both backend manifests where their exact
 observations are published. Missing observations still produce explicit skips;

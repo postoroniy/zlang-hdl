@@ -8,9 +8,8 @@ semantics.
 
 Direct SystemVerilog is the sole production backend for the validated,
 fail-closed subset. `--experimental-systemverilog` remains a compatibility
-alias for `--systemverilog`. Historical Clash emission is retired from the
-production toolchain; the Python compatibility API and hidden legacy CLI
-options remain only for dated fixtures and are not release requirements.
+alias for `--systemverilog`. Historical Clash emission has been removed from
+the compiler, CLI, Python package, tests, and release toolchain.
 
 Every supported direct-SV example root emits deterministic RTL and passes strict
 Verilator lint. Unsupported IR raises a structured backend error and does not
@@ -40,8 +39,7 @@ packing slices, clock/reset domains, and manifest identities all come from the
 same typed projection.
 
 Direct SystemVerilog emits a private packed `<Top>__zlang_core` only when a
-boundary conversion is needed. Historical Clash wrappers packed `Vec` values;
-that compatibility flow is no longer a production artifact. Direct-SV uses the
+boundary conversion is needed. Direct-SV uses the
 typed packing metadata and does not parse or rename generated RTL.
 
 The versioned [whole-build manifest](whole-build-manifests.md) joins locked
@@ -71,8 +69,6 @@ zlang SOURCE [options]
 | `--top NAME` | Select an elaboration root. |
 | `--project PATH` | Select a locked `zlang.toml` project instead of parent discovery. |
 | `--profile NAME` | Select one strict implementation profile from the project. |
-| `-o`, `--output PATH` | Legacy Clash source output (hidden compatibility path; not a production artifact). |
-| `--verilog-dir DIR` | Legacy Clash-to-Verilog output (hidden compatibility path; not a production flow). |
 | `--constraints-xdc PATH`, `--constraints-sdc PATH` | Publish one typed single-domain clock constraint beside the selected physical ABI. |
 | `--verilator-lint` | Lint emitted direct SystemVerilog; requires `--systemverilog`. |
 | `--systemverilog PATH` | Write direct SystemVerilog for the supported subset. |
@@ -104,14 +100,11 @@ zlang SOURCE [options]
 | `--formal-jobs N` | Execute independent verification-bundle safety/cover jobs and independent selected-candidate sites concurrently. Stages within one candidate site remain ordered; report order remains deterministic. |
 | `--synthesis-report PATH`, `--synthesis-cache DIR` | Publish/cache optional measured Yosys candidate evidence. |
 | `--synthesis-target generic-lut6` | Select the current bounded Yosys characterization target. |
-| `--clash PATH` | Select Clash for a hidden legacy compatibility invocation. |
 | `--verilator PATH` | Select the Verilator executable. |
 | `--yosys PATH` | Select the Yosys executable. |
 | `--verbose` | Print success/artifact notices on stderr. |
 
-The hidden Clash compatibility option is deterministic when an old fixture
-explicitly selects it, but normal direct-SV compilation never discovers or
-requires Clash. Verilator, Yosys/SBY, and solver tools are resolved from
+Verilator, Yosys/SBY, and solver tools are resolved from
 `PATH` by the commands that require them.
 
 Artifact/report sinks suppress implicit backend stdout. With no explicit sink,
@@ -131,9 +124,8 @@ and arbitrary-width packed values as least-significant-word-first arrays of
 32-bit words. See the public
 [simulation-state contract](direct-systemverilog.md#simulation-only-architectural-state-access).
 
-The hidden legacy `--verilog-dir` option may still publish a compatibility
-wrapper for old fixtures. Production publication uses `--systemverilog` and
-the direct-SV artifact directly; no generated Haskell/Clash core is involved.
+Production publication uses `--systemverilog` and the direct-SV artifact
+directly; no generated Haskell intermediate is involved.
 
 All explicit output files and compiler-owned output/cache directories must be
 pairwise disjoint and outside every resolved source, project, lock, dependency,
@@ -174,8 +166,8 @@ Formal execution follows an exact trigger matrix:
   jobs;
 - `--verification-bundle` publishes immutable safety/cover inputs and the base
   compiler linking plan, but does not execute or prepare selected-candidate
-  M36, even if a non-`off` policy is also supplied. Publication does not invoke
-  the retired Clash backend or run a solver;
+  M36, even if a non-`off` policy is also supplied. Publication does not run a
+  solver;
 - `--verify` with a non-`off` policy enriches that plan and executes M35/source
   jobs plus the compatible selected-candidate direct-SV M36 route.
 
@@ -300,8 +292,7 @@ stage was requested.
 ROM-backed direct-SV formal artifacts publish exact companion images under
 `implementation/companions/`, and each executable job lists those companions
 as hash-validated inputs. If direct-SV formal emission is unavailable, the
-goal is explicitly skipped; the retired Clash compatibility backend is never
-substituted in production.
+goal is explicitly skipped; no alternate backend is substituted.
 Unsupported aggregate/protocol/hidden shapes remain explicitly non-executable;
 the fallback never reconstructs bindings from generated names.
 
@@ -364,9 +355,8 @@ estimated cost is not physical evidence.
 The production direct-SV renderer consumes the typed hierarchy,
 endpoint/connection, `TopPhysicalABI`, and physical-type facts. Its composed
 recursion, named-port routing, request/response ledgers, and FIFO helpers live in
-`zlang/backend/systemverilog/composed.py`. The historical Clash implementation
-is isolated compatibility code and is not part of the production emission or
-release contract.
+`zlang/backend/systemverilog/composed.py`. No second RTL emitter participates
+in production emission or release acceptance.
 
 Before the production renderer may publish a `BackendArtifact`, the shared
 `ModuleFeatureInventory` enumerates every concrete assignment, local, state and
@@ -391,13 +381,11 @@ the emitter remains fail-closed. See the
 
 The machine-readable release minimum and skip budget live in
 [`release/status.json`](../release/status.json) and are checked against two
-complete CI JUnit reports. Only retired-Clash compatibility tests may skip;
-the release plugin rejects every other skipped test. The
+complete CI JUnit reports. The release plugin rejects every skipped test. The
 FFT512 persistent-hierarchy replay is a routine default-suite test: its
 1,033-cycle scenario completes in about 11 seconds with roughly 84 MiB RSS and
 matches the same frozen oracle as direct-SV. Direct-SV, Verilator, Yosys/SBY,
-and Z3 integration paths run in the default suite; legacy Clash checks run only
-when that optional tool is present. Exact numerical and architecture evidence is
+and Z3 integration paths run in the default suite. Exact numerical and architecture evidence is
 recorded in the [FFT guide](../examples/fft/README.md) and
 [802.11a report](80211a-transmitter-validation.md).
 The repository-wide dated summary is maintained in

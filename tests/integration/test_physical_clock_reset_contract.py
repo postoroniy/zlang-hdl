@@ -7,7 +7,6 @@ import subprocess
 
 import pytest
 
-from zlang.backend.clash.emitter import ClashEmissionError, emit as emit_clash
 from zlang.backend.systemverilog.emitter import (
     SystemVerilogEmissionError,
     emit as emit_systemverilog,
@@ -23,8 +22,7 @@ from zlang.opt.lowering import lower, restore
 from zlang.parser import ParseError, parse
 from zlang.semantic import analyze
 from zlang.simulate import simulate_cycles
-from zlang.toolchain import generate_verilog, lint_with_verilator
-from tests.toolchain import CLASH_EXECUTABLE
+from zlang.toolchain import lint_with_verilator
 
 
 PHYSICAL = """
@@ -185,132 +183,3 @@ endmodule
         env={**os.environ, "CCACHE_DISABLE": "1"},
     )
     subprocess.run((str(obj / "Vtb"),), check=True, capture_output=True, text=True)
-
-
-def test_clash_renders_physical_domain_and_legacy_text_is_unchanged() -> None:
-    raw_async = emit_clash(analyze(parse(PHYSICAL)))
-    assert "vActiveEdge=Falling" in raw_async
-    assert "vResetKind=Asynchronous" in raw_async
-    assert "vResetPolarity=ActiveLow" in raw_async
-    assert "resetSynchronizer" not in raw_async
-    assert "exposeClockResetEnable circuit clk rst_n enableGen" in raw_async
-
-    safe_async = emit_clash(analyze(parse(SAFE_ASYNC)))
-    assert "vResetKind=Asynchronous" in safe_async
-    assert "vResetPolarity=ActiveHigh" in safe_async
-    assert safe_async.count("resetSynchronizer") == 1
-    assert (
-        "exposeClockResetEnable circuit clk (resetSynchronizer clk arst) enableGen"
-        in safe_async
-    )
-
-    legacy_source = PHYSICAL.replace(
-        "clock clk { edge falling }\n  reset rst_n @clk {\n"
-        "    mode asynchronous\n    polarity active_low\n"
-        "    power_up unspecified\n  }",
-        "clock clk\n  reset rst_n @clk",
-    )
-    assert emit_clash(analyze(parse(legacy_source))) == emit_clash(
-        analyze(parse(legacy_source))
-    )
-
-
-@pytest.mark.skipif(
-    CLASH_EXECUTABLE is None or shutil.which("verilator") is None,
-    reason="real Clash 1.11 and Verilator are required",
-)
-@pytest.mark.parametrize("source", (PHYSICAL, SAFE_ASYNC, SAFE_ASYNC_FALLING_LOW))
-def test_real_clash_accepts_raw_and_synchronized_async_reset(
-    source: str,
-    tmp_path: Path,
-) -> None:
-    module = analyze(parse(source))
-    rtl = generate_verilog(
-        emit_clash(module), module.name, tmp_path / module.name, CLASH_EXECUTABLE
-    )
-    lint_with_verilator(rtl, module.name)
-
-
-@pytest.mark.skipif(
-    CLASH_EXECUTABLE is None or shutil.which("verilator") is None,
-    reason="real Clash 1.11 and Verilator are required",
-)
-def test_real_clash_safe_async_asserts_immediately_and_releases_after_two_edges(
-    tmp_path: Path,
-) -> None:
-    module = analyze(parse(SAFE_ASYNC))
-    rtl = generate_verilog(
-        emit_clash(module), module.name, tmp_path / "rtl", CLASH_EXECUTABLE
-    )
-    bench = tmp_path / "tb.sv"
-    bench.write_text(
-        """
-`timescale 1ns/1ps
-module tb;
-  logic clk = 0;
-  logic arst = 1;
-  logic [7:0] x = 8'd9;
-  wire [7:0] y;
-  SafeAsyncCounter dut(.*);
-  always #5 clk = ~clk;
-  initial begin
-    #2;
-    if (y !== 0) $fatal(1, "asynchronous assertion");
-    arst = 0;
-    @(posedge clk); #1;
-    if (y !== 0) $fatal(1, "first release edge");
-    @(posedge clk); #1;
-    if (y !== 0) $fatal(1, "second release edge");
-    @(posedge clk); #1;
-    if (y !== 9) $fatal(1, "third edge must restart state");
-
-    x = 8'd17;
-    @(posedge clk); #1;
-    if (y !== 17) $fatal(1, "normal update");
-    #1 arst = 1; #1;
-    if (y !== 0) $fatal(1, "between-edge assertion");
-    arst = 0;
-    @(posedge clk); #1;
-    if (y !== 0) $fatal(1, "reassert release edge one");
-    arst = 1; #1;
-    if (y !== 0) $fatal(1, "reassert during release");
-    arst = 0; x = 8'd23;
-    @(posedge clk); #1;
-    if (y !== 0) $fatal(1, "restarted release edge one");
-    @(posedge clk); #1;
-    if (y !== 0) $fatal(1, "restarted release edge two");
-    @(posedge clk); #1;
-    if (y !== 23) $fatal(1, "restarted release completion");
-    $finish;
-  end
-endmodule
-"""
-    )
-    object_dir = tmp_path / "obj"
-    built = subprocess.run(
-        (
-            "verilator", "--binary", "--timing", "--top-module", "tb",
-            "--Mdir", str(object_dir), *(str(path) for path in rtl), str(bench),
-        ),
-        check=False,
-        capture_output=True,
-        text=True,
-        env={**os.environ, "CCACHE_DISABLE": "1"},
-    )
-    assert built.returncode == 0, built.stderr or built.stdout
-    ran = subprocess.run(
-        (str(object_dir / "Vtb"),),
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    assert ran.returncode == 0, ran.stderr or ran.stdout
-
-
-def test_power_up_reset_fails_before_backend_publication() -> None:
-    source = PHYSICAL.replace("power_up unspecified", "power_up reset")
-    module = analyze(parse(source))
-    with pytest.raises(SystemVerilogEmissionError, match="power_up reset"):
-        emit_systemverilog(module)
-    with pytest.raises(ClashEmissionError, match="power_up=reset"):
-        emit_clash(module)

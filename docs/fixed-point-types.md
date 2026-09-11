@@ -1,8 +1,8 @@
 # Fixed-point types
 
 ZLang fixed point is a scaled integer type in backend-independent semantic IR.
-Simulator, Clash, and direct SystemVerilog consume the same typed conversions;
-no backend defines separate numeric rules.
+The semantic simulator and direct SystemVerilog consume the same typed
+conversions; the backend does not define separate numeric rules.
 
 ## Formats
 

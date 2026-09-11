@@ -88,7 +88,6 @@ module StatefulMaterialization {
     value = count
 }
 """,
-        include_clash=False,
     ).ir
     assert module.resolved_transition is not None
     group = module.resolved_transition.action_groups[0]

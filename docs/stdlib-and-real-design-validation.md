@@ -1,5 +1,9 @@
 # Standard library and real-design validation
 
+> **Historical evidence:** backend comparison tables and Clash runs below are
+> retained as dated validation records. They are not current backend support or
+> release requirements.
+
 This unnumbered product-validation slice expands reusable source libraries; it
 does not start another numbered milestone or change the frozen formal
 architecture.

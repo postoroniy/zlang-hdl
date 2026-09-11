@@ -65,11 +65,6 @@ child state. A hierarchy does not create one synchronizer per sibling. A
 clocked but completely state-free module publishes the same physical contract
 without emitting an unused conditioner, because no reset epoch is consumed.
 
-Clash 1.11 renders edge, reset kind, and polarity in one `createDomain` and
-applies `resetSynchronizer` exactly once in the top wrapper. Closed child
-components receive that conditioned `Reset`; they do not capture or recreate
-the external reset.
-
 The semantic simulator models each input item as one active edge. It therefore
 models immediate assertion at the sampled boundary and the exact two-edge
 release hold. Assertion between active edges is additionally checked in RTL
@@ -95,7 +90,7 @@ two-edge release hold, and restart on the third edge in 24 real-RTL profiles.
 
 | Active clock edge | Reset assertion | External polarity | Release | Existing formal routes |
 | --- | --- | --- | --- | --- |
-| rising or falling | synchronous | active-high or active-low | native | M35/source safety and cover; existing bindable recursive M35; same-cycle and fixed-latency II=1 M36; compatible M38; applicable M39 policies |
+| rising or falling | synchronous | active-high or active-low | native | M35/source safety and cover; existing bindable recursive M35; same-cycle and fixed-latency II=1 direct-SV M36; applicable M39 policies |
 | rising or falling | asynchronous | active-high or active-low | native | the same bounded routes, for a single physical domain |
 | rising or falling | asynchronous | active-high or active-low | synchronized, exactly two active edges | the same bounded routes, for a single physical domain |
 
@@ -145,7 +140,7 @@ power-on reset, and macro-selected RTL semantics are not supported.
 synthesizable initialization mechanism is frozen. DSP48 physical reset pins,
 elastic or variable-latency `pipeline(auto)` equivalence, CDC/reset-refinement
 proofs, and target BRAM reset pins remain fail closed. So do multi-domain
-asynchronous reset, general hierarchical M36/M38, and every route with missing
+asynchronous reset, general hierarchical M36, and every route with missing
 or incompatible domain manifests, bindings, assumptions, or observations.
 M39 `available` records unavailable evidence without changing eligibility;
 required policies fail unless the existing exact M36 route executes at the
@@ -156,7 +151,7 @@ introduced.
 
 The accepted implementation exercises ordinary registers/rules, FIFO and
 ready/valid, memory, CSR, request/response, and nested hierarchy through the
-simulator, direct SystemVerilog, real Clash 1.11, and strict Verilator. Tests
+simulator, direct SystemVerilog, and strict Verilator. Tests
 cover assertion between edges, two release edges, third-edge restart,
 reassertion, both polarities, falling-edge release, exact hierarchy rejection,
 manifest round-trip, and the original fail-closed formal/target boundary. The

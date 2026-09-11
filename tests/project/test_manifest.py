@@ -62,7 +62,7 @@ latency = 4
 '''))
     second = ProjectManifest.parse(_manifest(profiles='''
 [profiles.fast]
-backend = "clash"
+backend = "direct_systemverilog"
 formal = true
 workers = [8]
 '''))

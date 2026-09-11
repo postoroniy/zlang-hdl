@@ -42,7 +42,7 @@ from zlang.simulate import simulate
 
 
 class _BoundVerifier:
-    formal_route = "M36_clash"
+    formal_route = "M36_direct_systemverilog"
 
     def __init__(self, callback):
         self.callback = callback
@@ -70,7 +70,7 @@ class _BoundVerifier:
         result.setdefault("depth", config.bmc_depth)
         result.setdefault("engine", config.engine)
         result.setdefault("solver", config.solver)
-        result.setdefault("backend", "clash")
+        result.setdefault("backend", "direct_systemverilog")
         for key, value in identity.items():
             result.setdefault(key, value)
         if (
@@ -113,7 +113,6 @@ def test_m39_rewrite_uses_exact_child_specialization_owner() -> None:
         formal_verifier=_BoundVerifier(
             lambda _candidate, _config: {"status": FormalStatus.BOUNDED_PASS}
         ),
-        include_clash=False,
     )
 
     semantic_sites = tuple(
@@ -134,7 +133,6 @@ def test_m39_rewrite_uses_exact_child_specialization_owner() -> None:
         formal_verifier=_BoundVerifier(
             lambda _candidate, _config: {"status": FormalStatus.BOUNDED_PASS}
         ),
-        include_clash=False,
     )
     assert repeated.candidate_site_ledger == session.candidate_site_ledger
     assert canonical_ir_identity(lower(repeated.selected_ir)) == canonical_ir_identity(
@@ -162,7 +160,7 @@ def test_selection_record_restore_keys_sibling_children_by_specialization() -> N
         y1=c1.y y2=c2.y
     }
     """
-    base = compile_source(source, top="Top", include_clash=False).ir
+    base = compile_source(source, top="Top").ir
     marked_children = tuple(
         replace(
             child,
@@ -189,7 +187,7 @@ def test_identical_child_specializations_share_one_candidate_site() -> None:
     source = _SPECIALIZED_CHILD_EXPLORE.replace(
         "c2 : Child<P=2>", "c2 : Child<P=1>"
     )
-    result = compile_source(source, top="Top", include_clash=False)
+    result = compile_source(source, top="Top")
     sites = tuple(
         item for item in result.candidate_site_ledger.sites
         if item.output == "y"
@@ -202,7 +200,6 @@ def test_semantic_ledger_preserves_detailed_choice_constraint_diagnostic() -> No
         "module Impossible { in a:u8 in b:u8 in c:u16 out y:u17 "
         "y=choice(auto,minimize=lut,lut<=10,dsp<=0){"
         "mul_add=>a*b+c dsp_mac=>a*b+c} }",
-        include_clash=False,
     )
     with pytest.raises(
         CostExtractionError,
@@ -231,7 +228,6 @@ def test_semantic_catalog_never_calls_verifier_and_selection_uses_exact_rank() -
         "y=implement { a ^ 0 intent { minimize lut } } }",
         formal_policy=FormalPolicy.REQUIRED_BMC,
         formal_verifier=_BoundVerifier(verify),
-        include_clash=False,
     )
     assert session.semantic_ir.name == "Ranked"
     static = session.semantic_candidate_site_ledger
@@ -253,7 +249,6 @@ def test_scalar_explore_is_not_a_callable_expression() -> None:
         CompilationSession(
             "fn select<type T>(x:T) { explore { x ^ 0 } } "
             "module Nested { in x:u8 out y:u8 y=select(x) }",
-            include_clash=False,
         ).semantic_ir
 
 
@@ -270,7 +265,7 @@ def test_frozen_source_entry_points_have_deterministic_typed_records(
     kind: CandidateSiteKind,
 ) -> None:
     source = (Path("examples") / filename).read_text(encoding="utf-8")
-    result = compile_source(source, include_clash=False)
+    result = compile_source(source)
     ledger = result.candidate_site_ledger
     assert ledger is not None
     assert kind in {item.kind for item in ledger.sites}
@@ -291,7 +286,6 @@ def test_external_profile_region_is_catalogued_without_semantic_verifier() -> No
     )
     result = compile_source(
         "module Profiled { in a:u4 in b:u4 in c:u8 out y:u9 y=a*b+c }",
-        include_clash=False,
         implementation_contributions=(contribution,),
     )
     ledger = result.candidate_site_ledger
@@ -323,7 +317,6 @@ def test_external_profile_is_generated_then_gated_in_selection_rank_order() -> N
 
     session = CompilationSession(
         "module Profiled { in a:u4 in b:u4 in c:u8 out y:u9 y=a*b+c }",
-        include_clash=False,
         implementation_contributions=(contribution,),
         formal_policy=FormalPolicy.REQUIRED_BMC,
         formal_verifier=_BoundVerifier(verify),
@@ -367,7 +360,6 @@ def test_required_policy_gates_choice_and_architecture_in_exact_rank_order(
     session = CompilationSession(
         (Path("examples") / filename).read_text(encoding="utf-8"),
         top=top,
-        include_clash=False,
         formal_policy=FormalPolicy.REQUIRED_BMC,
         formal_verifier=_BoundVerifier(verify),
     )
@@ -406,7 +398,6 @@ def test_required_policy_gates_choice_and_architecture_in_exact_rank_order(
 def test_candidate_ledger_rejects_corrupted_identity_and_rank() -> None:
     result = compile_source(
         "module E { in a:u8 out y:u8 y=implement { a ^ 0 intent { minimize lut } } }",
-        include_clash=False,
     )
     ledger = result.candidate_site_ledger
     assert ledger is not None
@@ -421,8 +412,8 @@ def test_candidate_ledger_identity_is_origin_insensitive() -> None:
         "module OriginStable { in a:u8 out y:u8 "
         "y=implement { a ^ 0 intent { minimize lut } } }"
     )
-    left = compile_source(source, include_clash=False).candidate_site_ledger
-    right = compile_source("\n" + source, include_clash=False).candidate_site_ledger
+    left = compile_source(source).candidate_site_ledger
+    right = compile_source("\n" + source).candidate_site_ledger
     assert left is not None and right is not None
     assert left.identity == right.identity
     assert left.sites[0].source_origin != right.sites[0].source_origin
@@ -444,7 +435,6 @@ def test_m39_origin_stripping_preserves_execution_and_evidence_identity() -> Non
 
         result = CompilationSession(
             text,
-            include_clash=False,
             formal_policy=FormalPolicy.REQUIRED_BMC,
             formal_verifier=_BoundVerifier(verify),
         )
@@ -461,7 +451,7 @@ def test_pipeline_catalog_classification_ignores_source_origin() -> None:
     """A restored planner record joins its unified site by typed identity."""
 
     source = Path("examples/implementation_intent.zhl").read_text()
-    result = compile_source(source, include_clash=False)
+    result = compile_source(source)
     pipeline = result.ir.pipeline_explorations[0]
     stripped = replace(
         pipeline,
@@ -484,7 +474,7 @@ def test_mixed_pipeline_catalog_preserves_legacy_tuple_order() -> None:
       y2 = implement { a*b+c*d+e*f+g*h intent { latency >= 1 ii == 1 } }
     }
     """
-    base = compile_source(source, include_clash=False).ir
+    base = compile_source(source).ir
     assert tuple(item.output for item in base.pipeline_explorations) == ("y1", "y2")
     canonical = {pipeline_site_key(base, base.pipeline_explorations[0])}
     updated = gate_standalone_pipelines(

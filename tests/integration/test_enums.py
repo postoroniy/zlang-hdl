@@ -7,10 +7,9 @@ import subprocess
 
 import pytest
 
-from tests.toolchain import CLASH_EXECUTABLE
 from zlang.backend.systemverilog import emit_artifact
 from zlang.compiler import compile_source
-from zlang.toolchain import generate_verilog, lint_with_verilator
+from zlang.toolchain import lint_with_verilator
 
 
 SOURCE = """
@@ -84,7 +83,7 @@ def _verilate_and_run(tmp_path: Path, rtl: tuple[Path, ...], suffix: str) -> Non
 def test_enum_fsm_direct_systemverilog_is_width_exact_and_behaves(
     tmp_path: Path,
 ) -> None:
-    compilation = compile_source(SOURCE, top="EnumFsm", include_clash=False)
+    compilation = compile_source(SOURCE, top="EnumFsm")
     first = emit_artifact(compilation.ir)
     second = emit_artifact(compilation.ir)
     assert first.text == second.text
@@ -99,17 +98,3 @@ def test_enum_fsm_direct_systemverilog_is_width_exact_and_behaves(
     rtl = tmp_path / "EnumFsm.sv"
     rtl.write_text(first.text)
     _verilate_and_run(tmp_path, (rtl,), "sv")
-
-
-@pytest.mark.skipif(
-    CLASH_EXECUTABLE is None or shutil.which("verilator") is None,
-    reason="real Clash 1.11 and Verilator are required",
-)
-def test_enum_fsm_clash_generates_lints_and_behaves(tmp_path: Path) -> None:
-    compilation = compile_source(SOURCE, top="EnumFsm")
-    assert "Unsigned 2" in compilation.clash
-    rtl = generate_verilog(
-        compilation.clash, "EnumFsm", tmp_path / "clash_rtl", CLASH_EXECUTABLE
-    )
-    lint_with_verilator(rtl, "EnumFsm")
-    _verilate_and_run(tmp_path, tuple(rtl), "clash")

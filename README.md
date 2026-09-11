@@ -17,8 +17,8 @@ architectural capability, not a claim about productivity or performance.
 The initial supported development and release environment is Linux x86-64 with
 Python 3.12. Direct SystemVerilog is the sole supported production RTL backend;
 external synthesis and formal tools are optional unless their corresponding
-flow is requested. Historical Clash emission remains an internal compatibility
-path only and is not part of the public or release contract.
+flow is requested. The retired Clash backend is not installed, discovered, or
+executed by the compiler or its regression suite.
 
 ## Quick start
 
@@ -83,8 +83,8 @@ The validated language includes:
   manifests;
 - bounded equality saturation, implementation exploration, synthesis evidence,
   M35 safety checks, M36 semantic-reference equivalence, M39 formal-aware
-  selection, and source-level verification goals. Historical M38
-  cross-backend evidence is retained only as dated validation evidence.
+  selection, and source-level verification goals. M38 records in dated reports
+  are historical evidence only; the production compiler does not execute M38.
 
 The executable [language tour](examples/all_syntax.zhl) is representative, not a
 complete support contract. Use the
@@ -109,7 +109,6 @@ combination is supported or that measured FPGA timing is guaranteed.
 | Flow | Status |
 | --- | --- |
 | Direct SystemVerilog | Sole supported production backend; fail-closed outside its validated subset |
-| Clash | Retired from production; internal compatibility path for historical tests only |
 | Verilator | Optional lint and behavioral RTL validation |
 | Yosys/SymbiYosys/Z3 | Optional bounded/proven safety and equivalence execution |
 
@@ -175,8 +174,8 @@ git diff --check
 
 External-tool tests discover tools from explicit CLI options or `PATH`.
 Dedicated release jobs require pinned Verilator, Yosys, SymbiYosys,
-yosys-smtbmc, and Z3 versions and reject unexpected skips. Clash/GHC are not
-release dependencies; any remaining Clash checks are legacy/manual only.
+yosys-smtbmc, and Z3 versions and reject unexpected skips. GHC and Clash are
+not installation, development, CI, or release dependencies.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the DCO, test expectations, and
 third-party provenance requirements. Community support is described in

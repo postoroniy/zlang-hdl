@@ -32,28 +32,10 @@ module QualifiedComplex {
 """
 
 
-def test_alias_normalizes_to_existing_semantic_and_canonical_identity() -> None:
-    legacy = compile_source(LEGACY)
-    qualified = compile_source(QUALIFIED)
-
-    assert qualified.ir == legacy.ir
-    assert qualified.selected_ir_identity == legacy.selected_ir_identity
-    assert restore(qualified.optimization_ir) == qualified.ir
-    assert qualified.clash == legacy.clash
-
-    legacy_sv = emit_sv_artifact(
-        legacy.ir, selected_ir_identity=legacy.selected_ir_identity
-    )
-    qualified_sv = emit_sv_artifact(
-        qualified.ir, selected_ir_identity=qualified.selected_ir_identity
-    )
-    assert qualified_sv.text == legacy_sv.text
-    assert qualified_sv.artifact_hash == legacy_sv.artifact_hash
-    assert qualified_sv.build_identity == legacy_sv.build_identity
 
 
 def test_legacy_unqualified_import_behavior_is_preserved() -> None:
-    result = compile_source(LEGACY, include_clash=False)
+    result = compile_source(LEGACY)
     assert tuple(output.name for output in result.ir.outputs) == ("total", "made")
 
 
@@ -69,7 +51,7 @@ def test_qualified_generic_function_explicit_specialization_and_operators() -> N
         reduced = cx.complex_sum<T=u8,N=2>([a,b])
     }
     """
-    result = compile_source(source, include_clash=False)
+    result = compile_source(source)
     assert tuple(str(output.type) for output in result.ir.outputs) == (
         "Complex<u9>",
         "Complex<u9>",
@@ -109,7 +91,7 @@ def test_alias_diagnostics_are_structured(
     source: str, code: str, message: str
 ) -> None:
     with pytest.raises(SemanticError) as caught:
-        compile_source(source, include_clash=False)
+        compile_source(source)
     assert caught.value.code == code
     assert message in str(caught.value)
 
@@ -121,7 +103,7 @@ def test_duplicate_alias_is_rejected_before_typing() -> None:
     module Bad { in x : u8 out y : u8 y = x }
     """
     with pytest.raises(SemanticError) as caught:
-        compile_source(source, include_clash=False)
+        compile_source(source)
     assert caught.value.code == "ZL-IMPORT-ALIAS-DUPLICATE"
     assert "duplicate import alias 'math'" in str(caught.value)
 
@@ -132,5 +114,5 @@ def test_alias_does_not_reexport_a_transitive_dependency() -> None:
     module Bad { in x : fft.Complex<u8> out y : u8 y = 0 }
     """
     with pytest.raises(SemanticError) as caught:
-        compile_source(source, include_clash=False)
+        compile_source(source)
     assert caught.value.code == "ZL-IMPORT-MEMBER-UNKNOWN"

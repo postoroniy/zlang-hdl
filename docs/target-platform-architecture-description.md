@@ -13,7 +13,7 @@ ZLang keeps functional behavior, implementation architecture, and physical
 target data separate. The first bounded implementation maps the ordinary
 functional [symmetric FIR example](../examples/symmetric_fixed_fir.zhl) to four
 DSP48E1 resources on `xc7z030ffg676-1`. Without an explicit selection, the same
-source continues through the unchanged generic Clash or direct-SV path.
+source continues through the generic direct-SV path.
 
 ## Compiler-shipped source descriptions
 
@@ -37,7 +37,8 @@ An exact source-level `timing { latency N ii 1 }` block is public module
 behavior, not target-selection policy. Generic implementation graphs publish
 their derived `timeless`/`known`/`unknown` timing class and are explicitly
 backend-independent. A selected physical graph carries its realization backend
-so a direct-SystemVerilog resource plan cannot be attributed to Clash. Target
+so a direct-SystemVerilog resource plan cannot be attributed to another
+physical implementation. Target
 selection must preserve any exact public module latency.
 
 The bounded Series-7 profile describes a signed 25-bit pre-adder, signed 25x18
@@ -111,8 +112,8 @@ use is never presented as a Vivado measurement.
 
 ## Boundaries
 
-Clash remains available for the generic implementation; it precisely does not
-claim to realize the selected primitive graph. Existing M36 can validate the
+The generic direct-SystemVerilog implementation remains available when no
+primitive graph is selected. Existing M36 can validate the
 semantic fixed-point region, but its reference emitter does not model vendor
 primitives. Physical evidence therefore consists of the exact semantic oracle,
 Verilator execution of the separate resource behavior model, and real Vivado

@@ -44,7 +44,7 @@ module MemoryProfile {{
 
 
 def _emit(source: str) -> str:
-    module = compile_source(source, include_clash=False).ir
+    module = compile_source(source).ir
     first = emit_experimental(module)
     assert emit_experimental(module) == first
     return first

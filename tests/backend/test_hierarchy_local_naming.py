@@ -57,12 +57,12 @@ module Top {
 
 @pytest.fixture(scope="module")
 def specialized():
-    return compile_source(SPECIALIZED, include_clash=False).ir
+    return compile_source(SPECIALIZED).ir
 
 
 @pytest.fixture(scope="module")
 def collision_module():
-    return compile_source(COLLISIONS, include_clash=False).ir
+    return compile_source(COLLISIONS).ir
 
 
 def test_component_names_are_compact_exact_keyed_and_order_independent(specialized) -> None:
@@ -193,7 +193,7 @@ module StageNames {
     acc:u8 = pipeline(2) { x }
     y=acc z=delay<1>(x)
 }
-""", include_clash=False).ir
+""").ir
     plan = module_rtl_names(module)
     anonymous = module.rules[0].name
     assert anonymous.startswith("__anonymous_rule_")
@@ -222,35 +222,40 @@ module Top {
     rx -> table.rx
     table.tx -> tx
 }
-""", include_clash=False).ir
+""").ir
     sv = module_rtl_names(module)
     assert sv.instance("table") == "zlang_table"
     assert sv.child_signal("table", "tx", "payload") == "zlang_table_tx_payload"
     assert sv.child_signal("table", "rx_ready") == "zlang_table_rx_ready"
-    clash = module_rtl_names(module, identifier=lambda value: f"v_{value}" if value == "table" else value,
-                             reserved=("v_table_tx_payload",))
-    assert clash.instance("table") == "v_table"
-    assert clash.child_signal("table", "tx_payload").startswith("v_table_tx_payload_")
+    alternate = module_rtl_names(
+        module,
+        identifier=lambda value: f"v_{value}" if value == "table" else value,
+        reserved=("v_table_tx_payload",),
+    )
+    assert alternate.instance("table") == "v_table"
+    assert alternate.child_signal("table", "tx_payload").startswith(
+        "v_table_tx_payload_"
+    )
     assert rtl_instance_identifier("lane[0]") == "lane_0"
     assert rtl_instance_identifier("table") == rtl_identifier("table")
 
 
 def test_child_packed_ports_do_not_reserve_duplicate_public_leaf_aliases() -> None:
     from tests.test_parameterized_aggregate_protocol import SOURCE
-    from zlang.backend.clash.emitter import _clash_module_names
-
-    aggregate = compile_source(SOURCE, include_clash=False).ir
-    for plan in (module_rtl_names(aggregate), _clash_module_names(aggregate)):
-        assert plan.child_signal("c", "bus__irq") == "c_bus_irq"
-        assert plan.child_signal("c", "bus__req", "ready") == "c_bus_req_ready"
-        assert not any(item.kind == "child_signal" and item.key == ("c", "bus_irq")
-                       for item in plan.entries)
+    aggregate = compile_source(SOURCE).ir
+    plan = module_rtl_names(aggregate)
+    assert plan.child_signal("c", "bus__irq") == "c_bus_irq"
+    assert plan.child_signal("c", "bus__req", "ready") == "c_bus_req_ready"
+    assert not any(
+        item.kind == "child_signal" and item.key == ("c", "bus_irq")
+        for item in plan.entries
+    )
 
     structured = compile_source("""
     struct Payload { irq:bit data:u8 }
     module Child { in x:u8 out packet:Payload packet=Payload{irq=1 data=x} }
     module Top { in x:u8 out y:u8 c:Child{x} y=c.packet.data }
-    """, include_clash=False).ir
+    """).ir
     packed = module_rtl_names(structured)
     assert packed.child_signal("c", "packet") == "c_packet"
     assert not any(item.kind == "child_signal" and item.key in {
@@ -263,7 +268,7 @@ def test_child_packed_ports_do_not_reserve_duplicate_public_leaf_aliases() -> No
         compile_source("""
         module Child { in x:bit out bus_irq:bit out bus__irq:bit bus_irq=x bus__irq=x }
         module Top { in x:bit out y:bit out z:bit c:Child{x} y=c.bus_irq z=c.bus__irq }
-        """, include_clash=False)
+        """)
 
     # Distinct legal packed ports below different physical owners can also
     # share one preferred local spelling. Both must retain unique allocation.
@@ -271,12 +276,12 @@ def test_child_packed_ports_do_not_reserve_duplicate_public_leaf_aliases() -> No
     module First { in x:bit out irq:bit irq=x }
     module Second { in x:bit out b_irq:bit b_irq=x }
     module Top { in x:bit out y:bit out z:bit a_b:First{x} a:Second{x} y=a_b.irq z=a.b_irq }
-    """, include_clash=False).ir
-    for plan in (module_rtl_names(distinct), _clash_module_names(distinct)):
-        first = plan.child_signal("a_b", "irq")
-        second = plan.child_signal("a", "b_irq")
-        assert first.startswith("a_b_irq_") and second.startswith("a_b_irq_")
-        assert first != second
+    """).ir
+    plan = module_rtl_names(distinct)
+    first = plan.child_signal("a_b", "irq")
+    second = plan.child_signal("a", "b_irq")
+    assert first.startswith("a_b_irq_") and second.startswith("a_b_irq_")
+    assert first != second
 
 
 def test_semantic_hierarchy_paths_resolve_through_each_parent_namespace(collision_module) -> None:

@@ -137,16 +137,16 @@ The applied interface and model produce one exact semantic signature. Physical
 SystemVerilog is supplied separately through a hash-validated
 `ExternalPhysicalMapping`; inline HDL never defines ZLang semantics. The first
 release supports non-parameterized, clockless scalar inputs and one scalar
-output in direct SystemVerilog. State, protocols, arrays, generic external
-components and Clash physical mapping fail closed.
+output in direct SystemVerilog. State, protocols, arrays, and generic external
+components fail closed.
 
 ## Clock and reset boundary
 
-Legacy `clock clk` plus synchronous active-high `reset rst` works through both
-backends. A single-domain parent may supply that exact domain to a child only
+Legacy `clock clk` plus synchronous active-high `reset rst` works through the
+production direct-SystemVerilog backend. A single-domain parent may supply that exact domain to a child only
 when the mapping is unambiguous; this is domain inheritance, not implicit CDC.
 One non-default falling-edge, asynchronous, or active-low physical contract is
-typed and emitted by both direct SystemVerilog and Clash 1.11. Concise
+typed and emitted by direct SystemVerilog. Concise
 `async reset` adds one root-owned two-edge release conditioner and passes the
 conditioned reset through the closed child ABI; the raw asynchronous
 compatibility form remains distinct. Instance arrays require one compatible
@@ -164,8 +164,8 @@ anonymous 64-bit public bus nor eight separately named ports. Nested
 `vec<Struct>` values become one array per struct field, and `vec<Tuple>` values
 become one array per tuple component.
 
-Both direct SystemVerilog and Clash-generated RTL use this same public
-`TopPhysicalABI`. Packed values are allowed only in the private core and child
+Direct-SystemVerilog RTL uses this public `TopPhysicalABI`. Packed values are
+allowed only in the private core and child
 component ABIs. The conversion follows the canonical packing order with
 element zero in the most-significant region. There is no source annotation or
 compiler option selecting another public ABI.

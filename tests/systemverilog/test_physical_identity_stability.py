@@ -51,7 +51,6 @@ def _compile(source: str, dependency_digest: str):
         source,
         source_unit="physical-identity.zhl",
         dependency_closure=closure,
-        include_clash=False,
     ).ir
 
 
