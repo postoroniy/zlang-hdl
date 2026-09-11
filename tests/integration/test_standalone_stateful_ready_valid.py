@@ -13,7 +13,11 @@ import pytest
 from zlang.backend.clash import emit as emit_clash
 from zlang.backend.systemverilog import emit_experimental
 from zlang.compiler import compile_source
-from zlang.toolchain import generate_verilog, lint_with_verilator
+from zlang.toolchain import (
+    find_clash_executable,
+    generate_verilog,
+    lint_with_verilator,
+)
 
 
 SOURCE = r"""
@@ -106,9 +110,11 @@ endmodule
         assert run.returncode == 0, run.stderr or run.stdout
 
 
-@pytest.mark.skipif(shutil.which("verilator") is None, reason="Verilator unavailable")
+@pytest.mark.skipif(
+    find_clash_executable() is None or shutil.which("verilator") is None,
+    reason="Clash or Verilator unavailable",
+)
 def test_real_clash_closed_top_generates_lint_clean_rtl(tmp_path: Path) -> None:
     module = compile_source(SOURCE, include_clash=False).ir
     generated = generate_verilog(emit_clash(module), module.name, tmp_path / "clash")
     lint_with_verilator(generated, module.name)
-

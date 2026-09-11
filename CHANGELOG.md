@@ -9,6 +9,36 @@ change incompatibly when the release notes identify the change. Versioned IR,
 artifact, lock, manifest, and verification schemas continue to reject
 incompatible input explicitly.
 
+## 0.1.0a5 — 2026-09-11
+
+### Added
+
+- Backend-independent scheduled value graphs for deterministic physical
+  partitioning of supported pure scalar `pipeline(N)` expressions.
+- Exact typed arithmetic e-graph alternatives and bounded Xilinx 7-Series
+  DSP48E1 covering for multiply, add/sub, preadd and signed-product chains.
+- Per-stage pipeline reports with stable operation identities, balancing
+  delays, cost provenance and selected resource configuration.
+
+### Changed
+
+- Direct SystemVerilog is the sole production RTL backend. The public Clash
+  output options and `zlang-compare-backends` command are retired; the legacy
+  emitter remains internal compatibility code only.
+- M39 and compiler-owned selected-candidate equivalence now use the direct-SV
+  M36 route. M38 is retained only as unavailable historical schema data.
+- Exact `pipeline(N)` scheduling is deferred until target/profile planning,
+  preserving semantic latency while allowing real internal register cuts.
+
+### Fixed
+
+- Formal observation outputs can be added to a staged direct-SV datapath
+  without invalidating its single scheduled output or changing production RTL.
+- Unsigned DSP operand legality accounts for the required physical sign bit,
+  and malformed same-stage dependency cycles are rejected deterministically.
+- Generic Fmax is derived from the scheduled graph or remains unknown instead
+  of using a fabricated constant estimate.
+
 ## 0.1.0a4 — 2026-09-10
 
 ### Added

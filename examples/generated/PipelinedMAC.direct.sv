@@ -8,17 +8,20 @@ module PipelinedMAC (
   output logic [16:0] y
 );
   // Generated from backend-independent typed ZLang IR.
-  logic [16:0] pipeline_0_s1;
-  logic [16:0] pipeline_0_s2;
+  logic [15:0] pipeline_0_s1;
+  logic [15:0] pipeline_1_s1;
+  logic [16:0] pipeline_2_s1;
   always_ff @(posedge clk) begin
     if (rst) begin
       pipeline_0_s1 <= '0;
-      pipeline_0_s2 <= '0;
+      pipeline_1_s1 <= '0;
+      pipeline_2_s1 <= '0;
     end else begin
-      pipeline_0_s1 <= ({{1{1'b0}}, ({{8{1'b0}}, a} * {{8{1'b0}}, b})} + {{1{1'b0}}, c});
-      pipeline_0_s2 <= pipeline_0_s1;
+      pipeline_0_s1 <= ({{8{1'b0}}, a} * {{8{1'b0}}, b});
+      pipeline_1_s1 <= c;
+      pipeline_2_s1 <= ({{1{1'b0}}, pipeline_0_s1} + {{1{1'b0}}, pipeline_1_s1});
     end
   end
-  assign y = pipeline_0_s2;
+  assign y = pipeline_2_s1;
 endmodule
 `default_nettype wire

@@ -1,7 +1,6 @@
 // Comparison point for the eight-term dot product: eight coefficient cycles
-// plus four cycles of endpoint/internal-DSP register budget.  The total
-// externally observable latency is exactly twelve cycles; Vivado retiming may
-// redistribute, but must not add or remove, these registers.
+// plus four exact compensation cycles.  The compiler partitions the typed DAG;
+// any unused compute stages remain explicit latency compensation.
 module DotProductPipelined12 {
     clock clk
     reset rst

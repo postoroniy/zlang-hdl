@@ -8,6 +8,28 @@ so production, reference, and verification emitters cannot drift apart.
 from __future__ import annotations
 
 
+def render_typed_resize(
+    rendered: str,
+    *,
+    source_width: int,
+    target_width: int,
+    signed: bool,
+) -> str:
+    """Render the exact typed operand width used by ZLang arithmetic.
+
+    This helper is shared by production and semantic-reference emitters so an
+    enclosing SystemVerilog expression cannot silently resize multiplication
+    or addition operands according to Verilog context rules.
+    """
+
+    if source_width >= target_width:
+        return f"({rendered})"
+    if signed:
+        return f"{target_width}'($signed({rendered}))"
+    extension = target_width - source_width
+    return f"{{{{{extension}{{1'b0}}}}, {rendered}}}"
+
+
 def render_right_shift(left: str, amount: str, *, signed: bool) -> str:
     """Render one typed right shift without relying on SV context signedness.
 
@@ -44,4 +66,8 @@ def render_ordered_comparison(
     return f"({cast}({left}) {operator} {cast}({right}))"
 
 
-__all__ = ["render_ordered_comparison", "render_right_shift"]
+__all__ = [
+    "render_ordered_comparison",
+    "render_right_shift",
+    "render_typed_resize",
+]

@@ -11,17 +11,33 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from enum import Enum
 import ast
+from hashlib import sha256
 import json
 from itertools import product
 from typing import Any
 
-from zlang.ir.expressions import BinaryOperator, Expression
+from zlang.ir.expressions import (
+    BinaryOperator,
+    Expression,
+    FixedConversionKind,
+    FixedOverflow,
+    FixedRounding,
+)
 from zlang.ir.module import (
     EquivalenceGuardKind,
     EquivalenceGuardPredicate,
     EquivalenceRule,
 )
-from zlang.ir.types import BitType, BitsType, HardwareType, SIntType, UIntType
+from zlang.ir.types import (
+    BitType,
+    BitsType,
+    FixedOverflowPolicy,
+    FixedType,
+    HardwareType,
+    SIntType,
+    UFixedType,
+    UIntType,
+)
 from zlang.source import SourceOrigin
 from zlang.opt.ir import (
     CanonicalExpression,
@@ -61,6 +77,8 @@ class RewriteRule(str, Enum):
     MUX_CONSTANT = "mux_constant"
     RESIZE_IDENTITY = "resize_identity"
     MULTIPLY_POWER_OF_TWO = "multiply_power_of_two"
+    ADD_COMMUTE = "add_commute"
+    MULTIPLY_COMMUTE = "multiply_commute"
 
 
 @dataclass(frozen=True)
@@ -530,7 +548,12 @@ def _egg_node(
 ) -> _EggNode: ...
 
 
+@function
+def _egg_operand_list(first: _EggNode, rest: _EggNode) -> _EggNode: ...
+
+
 _EGG_NONE = _EggNode("none", "")
+_EGG_OPERAND_NIL = _EggNode("operand_nil", "")
 
 
 @dataclass(frozen=True)
@@ -765,6 +788,20 @@ def _compile_egg_rewrites(
             )
         )
 
+    for identity, logical, family, engine_rule in _typed_arithmetic_egg_rewrites(
+        original
+    ):
+        compiled.append(
+            _CompiledRewrite(
+                identity,
+                logical,
+                "equality",
+                (f"builtin:{identity}",),
+                (),
+                engine_rule,
+            )
+        )
+
     for rule in sorted(equivalences, key=lambda item: item.name):
         source_rules = _source_egg_rewrites(rule, original)
         if not source_rules:
@@ -835,6 +872,229 @@ def _builtin_egg_rewrites():
         ("truncate_identity", RewriteRule.RESIZE_IDENTITY, ("resize_identity", "truncate"),
          rewrite(_egg_resize(type_name, "truncate", exact_resize_operand)).to(exact_resize_operand)),
     )
+
+
+def _typed_arithmetic_egg_rewrites(original: Term):
+    """Compile exact-signature arithmetic rules observed in this typed DAG.
+
+    Concrete type names are part of every rule.  This deliberately avoids an
+    untyped universal arithmetic identity and makes mixed-width/signature
+    changes impossible inside an e-class.
+    """
+
+    x_inner = var("arithmetic_x_inner", _EggNode)
+    y_inner = var("arithmetic_y_inner", _EggNode)
+    rules: list[tuple[str, RewriteRule, tuple[str, str], object]] = []
+    signatures: set[tuple[str, HardwareType, HardwareType, HardwareType, HardwareType | None]] = set()
+    for term in _all_terms(original):
+        if term.op is ExpressionOp.ADD and len(term.operands) == 2:
+            left, right = term.operands
+            signatures.add(("add", term.type, left.type, right.type, None))
+        elif term.op is ExpressionOp.BINARY and len(term.operands) == 2:
+            operator = term.attribute("operator")
+            if operator in {BinaryOperator.SUBTRACT, BinaryOperator.MULTIPLY}:
+                left, right = term.operands
+                signatures.add((
+                    operator.value,
+                    term.type,
+                    left.type,
+                    right.type,
+                    term.attribute("operand_type"),
+                ))
+    for operator, result_type, left_type, right_type, operand_type in sorted(
+        signatures,
+        key=lambda item: tuple(str(part) for part in item),
+    ):
+        result_name = _type_name(result_type)
+        left_name = _type_name(left_type)
+        right_name = _type_name(right_type)
+        operand_name = _type_name(operand_type or result_type)
+        x = _egg_typed(left_name, x_inner)
+        y = _egg_typed(right_name, y_inner)
+        signature = sha256(
+            repr((operator, result_name, left_name, right_name, operand_name)).encode()
+        ).hexdigest()[:16]
+        if operator == "add":
+            # Add is commutative only when swapping operands preserves the
+            # exact typed signature admitted by semantic analysis.
+            if left_type == right_type:
+                rules.append((
+                    f"add_commute.{signature}", RewriteRule.ADD_COMMUTE,
+                    ("add_commute", "add"),
+                    rewrite(_egg_binary(result_name, "add", x, y)).to(
+                        _egg_binary(result_name, "add", y, x)
+                    ),
+                ))
+            if left_type == result_type:
+                rules.append((
+                    f"add_zero_right.{signature}", RewriteRule.ADD_ZERO,
+                    ("add_zero", "add"),
+                    rewrite(
+                        _egg_binary(
+                            result_name, "add", x,
+                            _egg_constant(right_name, 0),
+                        )
+                    ).to(x),
+                ))
+            if right_type == result_type:
+                rules.append((
+                    f"add_zero_left.{signature}", RewriteRule.ADD_ZERO,
+                    ("add_zero", "add"),
+                    rewrite(
+                        _egg_binary(
+                            result_name, "add",
+                            _egg_constant(left_name, 0), y,
+                        )
+                    ).to(y),
+                ))
+            continue
+        if operator == BinaryOperator.SUBTRACT.value and left_type == result_type:
+            rules.append((
+                f"subtract_zero.{signature}", RewriteRule.SUBTRACT_ZERO,
+                ("subtract_zero", operator),
+                rewrite(
+                    _egg_binary(
+                        result_name, operator, x,
+                        _egg_constant(right_name, 0), operand_name,
+                    )
+                ).to(x),
+            ))
+            continue
+        if operator != BinaryOperator.MULTIPLY.value:
+            continue
+        if left_type == right_type:
+            rules.append((
+                f"multiply_commute.{signature}", RewriteRule.MULTIPLY_COMMUTE,
+                ("multiply_commute", operator),
+                rewrite(
+                    _egg_binary(result_name, operator, x, y, operand_name)
+                ).to(
+                    _egg_binary(result_name, operator, y, x, operand_name)
+                ),
+            ))
+        # Multiplication by zero is exact for all supported integer/fixed
+        # signatures and the replacement is explicitly result-typed.
+        rules.extend((
+            (
+                f"multiply_zero_right.{signature}", RewriteRule.MULTIPLY_ZERO,
+                ("multiply_zero", operator),
+                rewrite(
+                    _egg_binary(
+                        result_name, operator, x,
+                        _egg_constant(right_name, 0), operand_name,
+                    )
+                ).to(_egg_constant(result_name, 0)),
+            ),
+            (
+                f"multiply_zero_left.{signature}", RewriteRule.MULTIPLY_ZERO,
+                ("multiply_zero", operator),
+                rewrite(
+                    _egg_binary(
+                        result_name, operator,
+                        _egg_constant(left_name, 0), y, operand_name,
+                    )
+                ).to(_egg_constant(result_name, 0)),
+            ),
+        ))
+        if not isinstance(result_type, (FixedType, UFixedType)):
+            if left_type == result_type:
+                rules.append((
+                    f"multiply_one_right.{signature}", RewriteRule.MULTIPLY_ONE,
+                    ("multiply_one", operator),
+                    rewrite(
+                        _egg_binary(
+                            result_name, operator, x,
+                            _egg_constant(right_name, 1), operand_name,
+                        )
+                    ).to(x),
+                ))
+            if right_type == result_type:
+                rules.append((
+                    f"multiply_one_left.{signature}", RewriteRule.MULTIPLY_ONE,
+                    ("multiply_one", operator),
+                    rewrite(
+                        _egg_binary(
+                            result_name, operator,
+                            _egg_constant(left_name, 1), y, operand_name,
+                        )
+                    ).to(y),
+                ))
+
+        # Multiplication grows to a wider exact integer result in ZLang, while
+        # shifts deliberately preserve their left-hand width.  A strength
+        # reduction is therefore sound only when the non-constant operand is
+        # first extended to the multiplication result type.  Instantiate the
+        # rewrite for constants actually present in this bounded typed DAG;
+        # this avoids an untyped "is power of two" predicate in egglog.
+        if isinstance(result_type, (UIntType, SIntType)):
+            for term in _all_terms(original):
+                if (
+                    term.op is not ExpressionOp.BINARY
+                    or term.attribute("operator") is not BinaryOperator.MULTIPLY
+                    or term.type != result_type
+                    or len(term.operands) != 2
+                ):
+                    continue
+                term_left, term_right = term.operands
+                for side, constant, value in (
+                    ("right", term_right, term_left),
+                    ("left", term_left, term_right),
+                ):
+                    shift = _power_of_two_shift(constant)
+                    if shift is None or shift < 1:
+                        continue
+                    if (
+                        type(value.type) is not type(result_type)
+                        or value.type.width > result_type.width
+                    ):
+                        continue
+                    value_name = _type_name(value.type)
+                    constant_name = _type_name(constant.type)
+                    value_var = _egg_typed(value_name, x_inner)
+                    widened = (
+                        value_var
+                        if value.type == result_type
+                        else _egg_resize(result_name, "extend", value_var)
+                    )
+                    shift_type = UIntType(max(1, shift.bit_length()))
+                    shifted = _egg_binary(
+                        result_name,
+                        BinaryOperator.SHIFT_LEFT.value,
+                        widened,
+                        _egg_constant(_type_name(shift_type), shift),
+                        result_name,
+                    )
+                    constant_node = _egg_constant(
+                        constant_name,
+                        int(constant.attribute("value")),
+                    )
+                    multiply = (
+                        _egg_binary(
+                            result_name,
+                            operator,
+                            value_var,
+                            constant_node,
+                            operand_name,
+                        )
+                        if side == "right"
+                        else _egg_binary(
+                            result_name,
+                            operator,
+                            constant_node,
+                            value_var,
+                            operand_name,
+                        )
+                    )
+                    power_signature = sha256(
+                        repr((signature, side, value.type, constant.type, shift)).encode()
+                    ).hexdigest()[:16]
+                    rules.append((
+                        f"multiply_power_of_two.{power_signature}",
+                        RewriteRule.MULTIPLY_POWER_OF_TWO,
+                        ("multiply_power_of_two", operator),
+                        rewrite(multiply).to(shifted),
+                    ))
+    return tuple(rules)
 
 
 def _source_egg_rewrites(
@@ -1068,8 +1328,23 @@ def _egg_rewrites(equivalences=(), original: Term | None = None):
     ]
 
 
-def _egg_binary(type_name: StringLike, operator: StringLike, left: _EggNode, right: _EggNode) -> _EggNode:
-    return _egg_typed(type_name, _egg_node("binary", type_name, operator, left, right, _EGG_NONE))
+def _egg_binary(
+    type_name: StringLike,
+    operator: StringLike,
+    left: _EggNode,
+    right: _EggNode,
+    operand_type: StringLike | None = None,
+) -> _EggNode:
+    return _egg_typed(
+        type_name,
+        _egg_node(
+            "binary", type_name, operator, left, right,
+            _EggNode(
+                "operand_type",
+                type_name if operand_type is None else operand_type,
+            ),
+        ),
+    )
 
 
 def _egg_mux(type_name: StringLike, condition: _EggNode, when_true: _EggNode, when_false: _EggNode) -> _EggNode:
@@ -1078,6 +1353,45 @@ def _egg_mux(type_name: StringLike, condition: _EggNode, when_true: _EggNode, wh
 
 def _egg_resize(type_name: StringLike, operation: StringLike, operand: _EggNode) -> _EggNode:
     return _egg_typed(type_name, _egg_node("resize", type_name, operation, operand, _EGG_NONE, _EGG_NONE))
+
+
+def _egg_fixed_convert(
+    type_name: StringLike,
+    payload: StringLike,
+    operand: _EggNode,
+) -> _EggNode:
+    return _egg_typed(
+        type_name,
+        _egg_node(
+            "fixed_convert", type_name, payload, operand, _EGG_NONE, _EGG_NONE
+        ),
+    )
+
+
+def _egg_operands(values: tuple[_EggNode, ...]) -> _EggNode:
+    result = _EGG_OPERAND_NIL
+    for value in reversed(values):
+        result = _egg_operand_list(value, result)
+    return result
+
+
+def _egg_wiring(
+    type_name: StringLike,
+    operation: StringLike,
+    payload: StringLike,
+    operands: tuple[_EggNode, ...],
+) -> _EggNode:
+    return _egg_typed(
+        type_name,
+        _egg_node(
+            "wiring",
+            type_name,
+            json.dumps({"operation": operation, "payload": payload}),
+            _egg_operands(operands),
+            _EGG_NONE,
+            _EGG_NONE,
+        ),
+    )
 
 
 def _egg_constant(type_name: StringLike, value: int) -> _EggNode:
@@ -1092,11 +1406,45 @@ def _term_to_egg(term: Term) -> _EggNode:
     if term.op is ExpressionOp.ADD:
         return _egg_binary(type_name, "add", operands[0], operands[1])
     if term.op is ExpressionOp.BINARY:
-        return _egg_binary(type_name, str(term.attribute("operator").value), operands[0], operands[1])
+        return _egg_binary(
+            type_name,
+            str(term.attribute("operator").value),
+            operands[0],
+            operands[1],
+            _type_name(term.attribute("operand_type")),
+        )
     if term.op is ExpressionOp.MUX:
         return _egg_mux(type_name, operands[0], operands[1], operands[2])
     if term.op in {ExpressionOp.EXTEND, ExpressionOp.TRUNCATE}:
         return _egg_resize(type_name, term.op.value, operands[0])
+    if term.op is ExpressionOp.FIXED_CONVERT:
+        payload = json.dumps(
+            {
+                "rounding": term.attribute("rounding").value,
+                "overflow": term.attribute("overflow").value,
+                "conversion_kind": term.attribute("conversion_kind").value,
+                "rational_denominator": dict(term.attributes).get(
+                    "rational_denominator"
+                ),
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        return _egg_fixed_convert(type_name, payload, operands[0])
+    if term.op is ExpressionOp.SLICE:
+        return _egg_wiring(
+            type_name,
+            term.op.value,
+            json.dumps({
+                "msb": int(term.attribute("msb")),
+                "lsb": int(term.attribute("lsb")),
+            }, sort_keys=True),
+            operands,
+        )
+    if term.op is ExpressionOp.CONCAT:
+        return _egg_wiring(type_name, term.op.value, "", operands)
+    if term.op is ExpressionOp.BITCAST:
+        return _egg_wiring(type_name, term.op.value, "", operands)
     # Opaque pure scalar leaves preserve the existing semantic term while
     # preventing unapproved rewrites from looking through it.
     payload = json.dumps({"op": term.op.value, "attributes": repr(term.attributes)}, sort_keys=True)
@@ -1139,19 +1487,12 @@ def _egg_to_term(expression: _EggNode) -> Term:
                 return Term(NodeCategory.VALUE, ExpressionOp.ADD, type_,
                             (left_term, right_term))
             operator = BinaryOperator(_string_value(payload))
-            operand_type = (
-                left_term.type
-                if operator
-                in {
-                    BinaryOperator.EQUAL,
-                    BinaryOperator.NOT_EQUAL,
-                    BinaryOperator.LESS,
-                    BinaryOperator.LESS_EQUAL,
-                    BinaryOperator.GREATER,
-                    BinaryOperator.GREATER_EQUAL,
-                }
-                else type_
-            )
+            operand_args = get_callable_args(third, _EggNode)
+            if operand_args is None or _string_value(operand_args[0]) != "operand_type":
+                raise SaturationError(
+                    "egglog binary node lost its exact operand-type signature"
+                )
+            operand_type = _parse_type_name(_string_value(operand_args[1]))
             return Term(NodeCategory.VALUE, ExpressionOp.BINARY, type_,
                         (left_term, right_term),
                         (("operator", operator), ("operand_type", operand_type)))
@@ -1161,7 +1502,65 @@ def _egg_to_term(expression: _EggNode) -> Term:
         if op_name == "resize":
             operation = ExpressionOp.EXTEND if _string_value(payload) == "extend" else ExpressionOp.TRUNCATE
             return Term(NodeCategory.VALUE, operation, type_, (_egg_to_term(first),))
+        if op_name == "fixed_convert":
+            conversion = json.loads(_string_value(payload))
+            return Term(
+                NodeCategory.VALUE,
+                ExpressionOp.FIXED_CONVERT,
+                type_,
+                (_egg_to_term(first),),
+                (
+                    ("rounding", FixedRounding(conversion["rounding"])),
+                    ("overflow", FixedOverflow(conversion["overflow"])),
+                    (
+                        "conversion_kind",
+                        FixedConversionKind(conversion["conversion_kind"]),
+                    ),
+                    (
+                        "rational_denominator",
+                        conversion.get("rational_denominator"),
+                    ),
+                ),
+            )
+        if op_name == "wiring":
+            descriptor = json.loads(_string_value(payload))
+            operation = ExpressionOp(descriptor["operation"])
+            operands = _egg_operand_terms(first)
+            if operation is ExpressionOp.SLICE:
+                values = json.loads(descriptor["payload"])
+                attributes = (("msb", values["msb"]), ("lsb", values["lsb"]))
+            elif operation is ExpressionOp.CONCAT:
+                attributes = (("operand_widths", tuple(item.type.width for item in operands)),)
+            elif operation is ExpressionOp.BITCAST:
+                if len(operands) != 1:
+                    raise SaturationError("egglog bitcast lost its unique operand")
+                attributes = (("source_type", operands[0].type),)
+            else:  # pragma: no cover - closed by _term_to_egg.
+                raise SaturationError(
+                    f"egglog produced unsupported wiring operation {operation.value}"
+                )
+            return Term(
+                NodeCategory.VALUE,
+                operation,
+                type_,
+                operands,
+                attributes,
+            )
     raise SaturationError(f"egglog extraction produced an unsupported expression fn={fn!r} name={fn_name!r} args={args!r}")
+
+
+def _egg_operand_terms(value: _EggNode) -> tuple[Term, ...]:
+    result: list[Term] = []
+    current = value
+    while True:
+        nil = get_callable_args(current, _EggNode)
+        if nil is not None and _string_value(nil[0]) == "operand_nil":
+            return tuple(result)
+        pair = get_callable_args(current, _egg_operand_list)
+        if pair is None:
+            raise SaturationError("egglog wiring node has a malformed operand list")
+        first, current = pair
+        result.append(_egg_to_term(first))
 
 
 def _type_name(type_: HardwareType) -> str:
@@ -1170,9 +1569,24 @@ def _type_name(type_: HardwareType) -> str:
 
 def _parse_type_name(name: str) -> HardwareType:
     if name == "bit": return BitType()
+    if name.startswith("bits<"): return BitsType(int(name[5:-1]))
+    for prefix, constructor in (
+        ("fixed_sat<", lambda width, fraction: FixedType(
+            width, fraction, FixedOverflowPolicy.SATURATE
+        )),
+        ("fixed<", lambda width, fraction: FixedType(width, fraction)),
+        ("ufixed_sat<", lambda width, fraction: UFixedType(
+            width, fraction, FixedOverflowPolicy.SATURATE
+        )),
+        ("ufixed<", lambda width, fraction: UFixedType(width, fraction)),
+    ):
+        if name.startswith(prefix) and name.endswith(">"):
+            width, fraction = (
+                int(item) for item in name[len(prefix):-1].split(",", 1)
+            )
+            return constructor(width, fraction)
     if name.startswith("u"): return UIntType(int(name[1:]))
     if name.startswith("s"): return SIntType(int(name[1:]))
-    if name.startswith("bits<"): return BitsType(int(name[5:-1]))
     raise SaturationError(f"unsupported e-graph type '{name}'")
 
 

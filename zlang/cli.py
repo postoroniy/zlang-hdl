@@ -583,7 +583,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         action="store_true",
         help="report successful compilation and explicitly written artifacts",
     )
-    parser.add_argument("-o", "--output", type=Path, help="output Clash .hs file")
+    # These options remain parser-compatible for pre-alpha scripts, but are
+    # intentionally hidden: Clash is no longer a production/public backend.
+    # The compatibility path is exercised only when explicitly requested.
+    parser.add_argument("-o", "--output", type=Path, help=argparse.SUPPRESS)
     parser.add_argument(
         "--systemverilog",
         type=Path,
@@ -605,7 +608,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--verilog-dir",
         type=Path,
-        help="run Clash and retain generated Verilog in this directory",
+        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         "--constraints-xdc",
@@ -620,9 +623,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--verilator-lint",
         action="store_true",
-        help="lint generated Verilog with Verilator (requires --verilog-dir)",
+        help="lint generated SystemVerilog with Verilator (requires --systemverilog)",
     )
-    parser.add_argument("--clash", help="explicit Clash executable")
+    parser.add_argument("--clash", help=argparse.SUPPRESS)
     parser.add_argument("--verilator", help="explicit Verilator executable")
     parser.add_argument("--yosys", help="explicit Yosys executable")
     parser.add_argument(
@@ -655,7 +658,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         type=Path,
         help=(
             "write a generated-line to ZLang-origin sidecar for exactly one "
-            "explicit Clash or direct-SystemVerilog output"
+            "explicit direct-SystemVerilog output"
         ),
     )
     parser.add_argument(
@@ -741,7 +744,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--backend-implementation-report",
         type=Path,
-        help="write independent Clash and direct-SystemVerilog planning results",
+        help="write the direct-SystemVerilog implementation planning result",
     )
     parser.add_argument("--formal-harness", type=Path, help="write the M35 formal checker harness")
     parser.add_argument("--formal-sby", type=Path, help="write the M35 SymbiYosys configuration")
@@ -830,8 +833,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.error("--verify-require requires --verify")
     if arguments.formal_jobs < 1:
         parser.error("--formal-jobs must be positive")
-    if arguments.verilator_lint and arguments.verilog_dir is None:
-        parser.error("--verilator-lint requires --verilog-dir")
+    if arguments.verilator_lint and (
+        arguments.verilog_dir is None
+        and arguments.systemverilog is None
+        and arguments.experimental_systemverilog is None
+    ):
+        parser.error("--verilator-lint requires --systemverilog")
     if arguments.simulation_state_bundle is not None and not (
         arguments.systemverilog is not None
         or arguments.experimental_systemverilog is not None
@@ -859,8 +866,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         ))
         if requested_backends != 1:
             parser.error(
-                "constraint publication requires exactly one Clash or "
-                "direct-SystemVerilog backend output"
+                "constraint publication requires exactly one direct-SystemVerilog output"
             )
     try:
         _preflight_explicit_output_paths(arguments)
@@ -876,8 +882,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
     ):
         parser.error(
-            "--build-manifest requires at least one published Clash or "
-            "direct-SystemVerilog backend output"
+            "--build-manifest requires a published direct-SystemVerilog output"
         )
 
     checked_module_names: tuple[str, ...] = ()
@@ -901,13 +906,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         source_text = source_bytes.decode("utf-8")
         source_digest = hashlib.sha256(source_bytes).hexdigest()
         explicit_sink = has_explicit_artifact_sink(arguments) or arguments.verify
+        # Production CLI compilation is direct-SystemVerilog only.  The
+        # internal Clash compatibility product is requested solely by the
+        # hidden legacy ``-o/--verilog-dir`` options; it is never constructed
+        # for a normal no-option invocation, --check, or a direct-SV sink.
         include_clash = (
             not arguments.check
-            and (
-                not explicit_sink
-                or arguments.output is not None
-                or arguments.verilog_dir is not None
-            )
+            and (arguments.output is not None or arguments.verilog_dir is not None)
         )
         if arguments.check and arguments.top is None:
             syntax = parse(source_text)
@@ -1102,7 +1107,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     clash_manifest_source_path: Path | None = None
     source_map = None
     tool_executions: list[ToolExecutionRecord] = []
-    if systemverilog_output is not None:
+    if systemverilog_output is not None or not has_explicit_artifact_sink(arguments):
         try:
             if result.physical_inputs.project_manifest is not None:
                 manifest = ProjectManifest.load(result.physical_inputs.project_manifest)
@@ -1330,8 +1335,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     has_sink = has_explicit_artifact_sink(arguments) or arguments.verify
     if rom_companions and not has_sink:
         parser.error(
-            "initialized ROM emission requires an explicit -o, --systemverilog, "
-            "or --verilog-dir output so companion images can be published"
+            "initialized ROM emission requires an explicit --systemverilog output "
+            "so companion images can be published"
         )
     clash_public_wrapper = None
     if arguments.verilog_dir is not None:
@@ -1396,7 +1401,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     except ValueError as error:
         parser.error(str(error))
     if not has_sink:
-        print(result.clash, end="")
+        # stdout is the production backend's stream form.  This keeps the
+        # convenient ``zlang design.zhl`` invocation useful without exposing
+        # or probing the retired Clash backend.
+        if direct_artifact is None:
+            parser.error("direct SystemVerilog emission was not produced")
+        print(direct_artifact.text, end="")
     elif arguments.output is not None:
         arguments.output.parent.mkdir(parents=True, exist_ok=True)
         try:
@@ -1419,6 +1429,34 @@ def main(argv: Sequence[str] | None = None) -> int:
         except CompanionArtifactError as error:
             parser.error(str(error))
         systemverilog_output.write_text(direct_systemverilog)
+        if arguments.verilator_lint:
+            verilator_executable = arguments.verilator or shutil.which("verilator")
+            if verilator_executable is None:
+                parser.error("--verilator-lint requires Verilator on PATH")
+            try:
+                lint_with_verilator(
+                    (
+                        systemverilog_output,
+                        *((arguments.contracts_sva,) if arguments.contracts_sva else ()),
+                    ),
+                    result.ir.name,
+                    verilator_executable,
+                    source_map=(
+                        source_map if source_map is not None
+                        and source_map.backend == "direct_systemverilog" else None
+                    ),
+                )
+            except ToolchainError as error:
+                parser.error(str(error))
+            tool_executions.append(_tool_execution(
+                role="rtl_lint",
+                tool="verilator",
+                version=_query_tool_version(verilator_executable, "--version"),
+                argv_shape=(
+                    "verilator", "--lint-only", "--top-module", "<top>",
+                    "<rtl-inputs>",
+                ),
+            ))
     if arguments.simulation_state_bundle is not None:
         assert simulation_state_bundle is not None
         assert systemverilog_output is not None
@@ -2046,7 +2084,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         detail = (
             "; wrote " + ", ".join(str(path) for path in written_paths)
             if written_paths
-            else "; Clash emitted to stdout"
+            else "; direct SystemVerilog emitted to stdout"
         )
         print(
             f"{CLI_NAME}: ok: {arguments.source} (top {result.ir.name}){detail}",

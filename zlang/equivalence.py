@@ -14,6 +14,7 @@ from zlang.common.tool_inventory import discover_tool_inventory
 from zlang.common.systemverilog import (
     render_ordered_comparison,
     render_right_shift,
+    render_typed_resize,
 )
 from zlang.formal_domain import (
     FormalDomainRendering,
@@ -129,12 +130,38 @@ def _expr(value: expr.Expression) -> str:
             f"({_expr(value.fallback)}))"
         )
     if isinstance(value, expr.Add):
-        return f"({_expr(value.left)} + {_expr(value.right)})"
+        width = value.type.width
+        left = render_typed_resize(
+            _expr(value.left),
+            source_width=value.left.type.width,
+            target_width=width,
+            signed=isinstance(value.left.type, (SIntType, FixedType)),
+        )
+        right = render_typed_resize(
+            _expr(value.right),
+            source_width=value.right.type.width,
+            target_width=width,
+            signed=isinstance(value.right.type, (SIntType, FixedType)),
+        )
+        return f"({left} + {right})"
     if isinstance(value, expr.Binary):
+        width = value.operand_type.width
+        left = render_typed_resize(
+            _expr(value.left),
+            source_width=value.left.type.width,
+            target_width=width,
+            signed=isinstance(value.left.type, (SIntType, FixedType)),
+        )
+        right = render_typed_resize(
+            _expr(value.right),
+            source_width=value.right.type.width,
+            target_width=width,
+            signed=isinstance(value.right.type, (SIntType, FixedType)),
+        )
         if value.operator is expr.BinaryOperator.SHIFT_RIGHT:
             return render_right_shift(
-                _expr(value.left),
-                _expr(value.right),
+                left,
+                right,
                 signed=isinstance(value.operand_type, SIntType),
             )
         if value.operator in {
@@ -144,12 +171,12 @@ def _expr(value: expr.Expression) -> str:
             expr.BinaryOperator.GREATER_EQUAL,
         }:
             return render_ordered_comparison(
-                _expr(value.left),
+                left,
                 value.operator.value,
-                _expr(value.right),
+                right,
                 signed=isinstance(value.operand_type, (SIntType, FixedType)),
             )
-        return f"({_expr(value.left)} {value.operator.value} {_expr(value.right)})"
+        return f"({left} {value.operator.value} {right})"
     if isinstance(value, expr.Extend):
         # Resize nodes are semantic bit-vector boundaries.  Relying on a later
         # assignment context is incorrect when the resized value feeds another
@@ -448,6 +475,65 @@ def _fixed_convert_expr(value: expr.FixedConvert) -> str:
     return f"$signed({sized})" if target_signed else sized
 
 
+def _reference_netlist(
+    expression: expr.Expression,
+) -> tuple[tuple[tuple[str, HardwareType, str], ...], str]:
+    """Materialize a deterministic typed DAG for the semantic reference.
+
+    Besides keeping solver input bounded, this prevents SystemVerilog context
+    sizing from changing the meaning of a nested ZLang arithmetic operation.
+    Equal semantic subexpressions share one wire; source provenance remains
+    diagnostic-only and therefore does not affect names or proof identity.
+    """
+
+    from zlang.ir.signed_reductions import expression_semantic_identity
+
+    emitted: dict[str, str] = {}
+    names: set[str] = set()
+    declarations: list[tuple[str, HardwareType, str]] = []
+
+    def map_value(value: object) -> object:
+        if isinstance(value, expr.Expression):
+            return visit(value)
+        if isinstance(value, tuple):
+            return tuple(map_value(item) for item in value)
+        if is_dataclass(value) and not isinstance(value, type):
+            updates = {
+                item.name: map_value(getattr(value, item.name))
+                for item in fields(value)
+                if item.init and item.name not in {"type", "origin"}
+            }
+            return replace(value, **updates) if updates else value
+        return value
+
+    def visit(value: expr.Expression) -> expr.Expression:
+        if isinstance(value, (expr.InputRef, expr.Constant)):
+            return value
+        identity = expression_semantic_identity(value)
+        existing = emitted.get(identity)
+        if existing is not None:
+            return expr.InputRef(existing, value.type, origin=value.origin)
+        updates = {
+            item.name: map_value(getattr(value, item.name))
+            for item in fields(value)
+            if item.init and item.name not in {"type", "origin"}
+        }
+        lowered = replace(value, **updates) if updates else value
+        base = f"zlang_ref_{identity[:12]}"
+        name = base
+        suffix = 1
+        while name in names:
+            suffix += 1
+            name = f"{base}_{suffix}"
+        names.add(name)
+        emitted[identity] = name
+        declarations.append((name, value.type, _expr(lowered)))
+        return expr.InputRef(name, value.type, origin=value.origin)
+
+    root = visit(expression)
+    return tuple(declarations), _expr(root)
+
+
 def emit_reference_model(module_name: str, output_name: str, output_type: HardwareType,
                          inputs: tuple[tuple[str, HardwareType], ...],
                          expression: expr.Expression, *,
@@ -475,10 +561,23 @@ def emit_reference_model(module_name: str, output_name: str, output_type: Hardwa
         expression,
         tuple(callable_definitions),
     )
-    return "\n".join((
-        "`default_nettype none", f"module {module_name}(", ",\n".join(f"  {port}" for port in ports),
-        ");", f"  assign {output_name} = {_expr(expression)};", "endmodule", "`default_nettype wire", "",
+    netlist, result = _reference_netlist(expression)
+    lines = [
+        "`default_nettype none",
+        f"module {module_name}(",
+        ",\n".join(f"  {port}" for port in ports),
+        ");",
+    ]
+    for name, type_, rendered in netlist:
+        lines.append(f"  {_type(type_)} {name};")
+        lines.append(f"  assign {name} = {rendered};")
+    lines.extend((
+        f"  assign {output_name} = {result};",
+        "endmodule",
+        "`default_nettype wire",
+        "",
     ))
+    return "\n".join(lines)
 
 
 def make_equivalence_property(reference: expr.Expression, implementation: expr.Expression,
@@ -755,7 +854,13 @@ def emit_miter_with_metadata(
         lines.append(
             f"  always_ff @({domain_rendering.sample_event}) if "
             f"(!{domain_rendering.reset_active} && "
-            f"{sample_valid_name}[{property_.latency_delta}]) assert "
+            # The assertion samples pre-edge state.  After a value enters at
+            # edge E, an N-register implementation is observable immediately
+            # after edge E+N and therefore at the assertion sampling point of
+            # edge E+N+1.  At that point valid[N-1] and history[N-1] both name
+            # the same source sample.  valid[N] delayed the comparison by one
+            # additional cycle and made changing-input pipelines fail M36.
+            f"{sample_valid_name}[{property_.latency_delta - 1}]) assert "
             f"({reference_history_name}[{property_.latency_delta - 1}] == "
             f"{implementation_value_name});"
         )

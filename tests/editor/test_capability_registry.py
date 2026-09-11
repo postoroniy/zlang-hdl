@@ -26,7 +26,8 @@ def _compile_witness(source_path: str, top: str):
 
 
 def test_registry_is_versioned_unique_and_deterministic() -> None:
-    assert CAPABILITY_REGISTRY.schema_version == 23
+    assert CAPABILITY_REGISTRY.schema_version == 24
+    assert CAPABILITY_REGISTRY.production_backend == "direct_systemverilog"
     surface = CAPABILITY_REGISTRY.editor_surface()
     assert tuple(surface) == ("keywords", "types", "intrinsics", "modes", "operators")
     for category, spellings in surface.items():
@@ -45,7 +46,7 @@ def test_registry_is_versioned_unique_and_deterministic() -> None:
         assert item["context"]
         assert item["status"] in {"supported", "bounded"}
         assert item["simulator"]
-        assert item["clash"]
+        assert item["clash"] == "retired"
         assert item["direct_systemverilog"]
         assert item["formal"]
         assert item["witness"]["source_path"]

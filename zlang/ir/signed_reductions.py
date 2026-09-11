@@ -18,7 +18,13 @@ from zlang.ir.numeric import (
     multiplication_rule,
     subtraction_rule,
 )
-from zlang.ir.types import FixedType, HardwareType, UFixedType
+from zlang.ir.types import (
+    FixedType,
+    HardwareType,
+    SIntType,
+    UFixedType,
+    UIntType,
+)
 from zlang.source import SourceOrigin
 
 
@@ -136,14 +142,18 @@ def recognize_signed_product_reduction(
     terms: list[SignedProductTerm] = []
     for ordinal, (sign, product) in enumerate(products):
         product_identity = expression_semantic_identity(product)
-        signedness = "signed" if isinstance(product.type, FixedType) else "unsigned"
+        signedness = (
+            "signed"
+            if isinstance(product.type, (FixedType, SIntType))
+            else "unsigned"
+        )
         semantic_identity = sha256(repr((
             SIGNED_PRODUCT_REDUCTION_SCHEMA, "term", ordinal, sign.value,
             product_identity, product.type,
         )).encode()).hexdigest()
         terms.append(SignedProductTerm(
             ordinal, sign, product, product_identity, product.type,
-            product.type.width, product.type.fraction, signedness,
+            product.type.width, _fraction(product.type), signedness,
             semantic_identity, product.origin,
         ))
 
@@ -157,11 +167,15 @@ def recognize_signed_product_reduction(
         )
         right_term = terms[ordinal + 1]
         semantic_identity = expression_semantic_identity(node)
-        signedness = "signed" if isinstance(node.type, FixedType) else "unsigned"
+        signedness = (
+            "signed"
+            if isinstance(node.type, (FixedType, SIntType))
+            else "unsigned"
+        )
         joins.append(SignedProductJoin(
             ordinal, operator, node, left_identity, right_term.semantic_identity,
             node.left.type, node.right.type, node.type, node.type.width,
-            node.type.fraction, signedness, semantic_identity, node.origin,
+            _fraction(node.type), signedness, semantic_identity, node.origin,
         ))
         left_identity = semantic_identity
 
@@ -216,7 +230,7 @@ def _is_full_precision_fixed_product(value: expr.Expression) -> bool:
     if not (
         isinstance(value, expr.Binary)
         and value.operator is expr.BinaryOperator.MULTIPLY
-        and isinstance(value.type, (FixedType, UFixedType))
+        and isinstance(value.type, (FixedType, UFixedType, SIntType, UIntType))
         and type(value.left.type) is type(value.type)
         and type(value.right.type) is type(value.type)
     ):
@@ -229,7 +243,7 @@ def _is_full_precision_fixed_product(value: expr.Expression) -> bool:
 
 
 def _join_is_exact(value: expr.Expression) -> bool:
-    if not isinstance(value.type, (FixedType, UFixedType)):
+    if not isinstance(value.type, (FixedType, UFixedType, SIntType, UIntType)):
         return False
     try:
         rule = (
@@ -242,6 +256,10 @@ def _join_is_exact(value: expr.Expression) -> bool:
     return value.type == rule.result_type and (
         isinstance(value, expr.Add) or value.operand_type == rule.operand_type
     )
+
+
+def _fraction(type_: HardwareType) -> int:
+    return type_.fraction if isinstance(type_, (FixedType, UFixedType)) else 0
 
 
 def _semantic_payload(value) -> str:

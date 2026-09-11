@@ -26,8 +26,35 @@ from zlang.backend.systemverilog.emitter import (
 from zlang.ir import expressions as expr
 from zlang.ir.module import Module, PortDirection, Register
 from zlang.ir.target import ImplementationGraph, ResourceDefinition, ResourceInstance
-from zlang.ir.types import FixedType
+from zlang.ir.types import FixedType, SIntType, UFixedType, UIntType
 from zlang.targets import load_target
+from zlang.pipeline_scheduling import erase_pipeline_timing
+
+
+def _implementation_output(module: Module, conversion: expr.Expression) -> str | None:
+    """Resolve the source output from typed implementation identity only."""
+
+    exploration = next(
+        (
+            item
+            for item in module.pipeline_explorations
+            if item.source_expression == conversion
+        ),
+        None,
+    )
+    if exploration is not None:
+        return exploration.output
+    assignment = next(
+        (
+            item
+            for item in module.assignments
+            if isinstance(item.expression, expr.Pipeline)
+            and erase_pipeline_timing(item.expression) == conversion
+            and hasattr(item.target, "name")
+        ),
+        None,
+    )
+    return assignment.target.name if assignment is not None else None
 
 
 def emit_target(module: Module, graph: ImplementationGraph, *, simulation_model: bool = False) -> str:
@@ -116,6 +143,14 @@ def _mapping(node: ResourceInstance, port: str):
     return item.expression
 
 
+def _optional_mapping(node: ResourceInstance, port: str):
+    item = next(
+        (value for value in node.semantic_mappings if value.resource_port == port),
+        None,
+    )
+    return item.expression if item is not None else None
+
+
 def _configuration(node: ResourceInstance) -> dict[str, int | str]:
     return dict(node.configuration)
 
@@ -138,19 +173,48 @@ def _dsp48e1_parameters(
     )
 
 
+def _physical_signed_width(type_) -> int:
+    return type_.width + int(isinstance(type_, (UIntType, UFixedType)))
+
+
 def _signed_extend(value, width: int) -> str:
     rendered = _expression(value)
-    source_width = value.type.width
+    source_width = _physical_signed_width(value.type)
     if source_width > width:
         raise SystemVerilogEmissionError(
             f"selected expression width {source_width} exceeds physical port width {width}"
         )
+    if isinstance(value.type, (UIntType, UFixedType)):
+        widened = f"$signed({{1'b0, {rendered}}})"
+    else:
+        widened = f"$signed({rendered})"
     if source_width == width:
-        return rendered
+        return widened
     # A sized SystemVerilog cast preserves the signed value while making the
     # physical port width explicit.  It also works for packed-vector slices,
     # for which a second indexing operation is not portable across tools.
-    return f"{width}'($signed({rendered}))"
+    return f"{width}'({widened})"
+
+
+def _physical_result_expression(boundary: expr.Expression, accumulator: str) -> str:
+    """Project a DSP accumulator through the exact typed public boundary."""
+
+    if isinstance(boundary, expr.FixedConvert) and isinstance(
+        boundary.expression.type, FixedType
+    ):
+        accumulator_type = FixedType(48, boundary.expression.type.fraction)
+        conversion = replace(
+            boundary,
+            expression=expr.InputRef(accumulator, accumulator_type),
+        )
+        return _expression(conversion)
+    if isinstance(boundary.type, (FixedType, SIntType)):
+        return f"$signed({accumulator}[{boundary.type.width - 1}:0])"
+    if isinstance(boundary.type, (UFixedType, UIntType)):
+        return f"{accumulator}[{boundary.type.width - 1}:0]"
+    raise SystemVerilogEmissionError(
+        "selected DSP graph has no exact integer/fixed result boundary"
+    )
 
 
 def _emit_signed_product_dsp48e1_graph(module, graph, definitions, simulation_model):
@@ -194,13 +258,19 @@ def _emit_signed_product_dsp48e1_graph(module, graph, definitions, simulation_mo
     for index, node in enumerate(graph.resources):
         config = _configuration(node)
         mode = config.get("accumulator_mode")
-        if mode not in {"accumulator_plus_product", "accumulator_minus_product"}:
+        if mode not in {
+            "accumulator_plus_product",
+            "accumulator_minus_product",
+            "product_minus_accumulator",
+        }:
             raise SystemVerilogEmissionError(
                 f"signed-product resource '{node.identity}' has unsupported accumulator mode '{mode}'"
             )
         physical = physical_names[node.identity]
         a_value = _mapping(node, "a")
         b_value = _mapping(node, "b")
+        p_value = _mapping(node, "p")
+        d_value = _optional_mapping(node, "d")
         if a_value.type.width > 25 or b_value.type.width > 18:
             raise SystemVerilogEmissionError(
                 f"signed-product resource '{node.identity}' mapping exceeds DSP48E1 ports"
@@ -210,13 +280,31 @@ def _emit_signed_product_dsp48e1_graph(module, graph, definitions, simulation_mo
             f"    .{name}({value})"
             for name, value in _dsp48e1_parameters(config, terminal=terminal)
         )
+        external_accumulator = _optional_mapping(node, "pcin")
         pcin = (
-            "48'sd0" if index == 0
-            else f"{physical_names[graph.resources[index - 1].identity]}_pcout"
+            _signed_extend(external_accumulator, 48)
+            if external_accumulator is not None
+            else (
+                "48'sd0" if index == 0
+                else f"{physical_names[graph.resources[index - 1].identity]}_pcout"
+            )
         )
         # With OPMODE selecting X=M, Y=0 and Z=PCIN, ALUMODE 0011 is
         # Z-(X-Y-CIN), i.e. the source-advertised accumulator-minus-product.
-        alumode = "4'b0011" if mode == "accumulator_minus_product" else "4'b0000"
+        alumode = {
+            "accumulator_plus_product": "4'b0000",
+            "accumulator_minus_product": "4'b0011",
+            "product_minus_accumulator": "4'b0001",
+        }[mode]
+        carryin = "1'b1" if mode == "product_minus_accumulator" else "1'b0"
+        model_parameters = (
+            f",\n    .ZLANG_A_WIDTH({_physical_signed_width(a_value.type)})"
+            f",\n    .ZLANG_D_WIDTH({1 if d_value is None else _physical_signed_width(d_value.type)})"
+            f",\n    .ZLANG_B_WIDTH({_physical_signed_width(b_value.type)})"
+            f",\n    .ZLANG_PRE_WIDTH({int(config.get('preadd_physical_width', _physical_signed_width(a_value.type)))})"
+            f",\n    .ZLANG_ACC_WIDTH({_physical_signed_width(p_value.type)})"
+            if simulation_model else ""
+        )
         lines.extend((
             f"  logic signed [24:0] {physical}_a;",
             f"  logic signed [24:0] {physical}_d;",
@@ -224,7 +312,8 @@ def _emit_signed_product_dsp48e1_graph(module, graph, definitions, simulation_mo
             f"  logic signed [47:0] {physical}_p;",
             f"  logic signed [47:0] {physical}_pcout;",
             f"  assign {physical}_a = {_signed_extend(a_value, 25)};",
-            f"  assign {physical}_d = 25'sd0;",
+            f"  assign {physical}_d = "
+            + ("25'sd0;" if d_value is None else f"{_signed_extend(d_value, 25)};"),
             f"  assign {physical}_b = {_signed_extend(b_value, 18)};",
             "  DSP48E1 #(",
             parameter_text + ",",
@@ -232,13 +321,13 @@ def _emit_signed_product_dsp48e1_graph(module, graph, definitions, simulation_mo
             '    .B_INPUT("DIRECT"),',
             '    .USE_DPORT("TRUE"),',
             '    .USE_MULT("MULTIPLY"),',
-            '    .USE_SIMD("ONE48")',
+            f'    .USE_SIMD("ONE48"){model_parameters}',
             f"  ) {physical}_primitive (",
             f"    .A({{{{5{{{physical}_a[24]}}}}, {physical}_a}}),",
             f"    .D({physical}_d), .B({physical}_b), .C(48'sd0),",
             f"    .ACIN(30'sd0), .BCIN(18'sd0), .PCIN({pcin}),",
             "    .CARRYCASCIN(1'b0), .MULTSIGNIN(1'b0),",
-            f"    .ALUMODE({alumode}), .CARRYIN(1'b0), .CARRYINSEL(3'b000),",
+            f"    .ALUMODE({alumode}), .CARRYIN({carryin}), .CARRYINSEL(3'b000),",
             "    .INMODE(5'b00100), .OPMODE(7'b0010101),",
             f"    .CLK({_identifier(module.clock)}),",
             "    .CEA1(1'b1), .CEA2(1'b1), .CEAD(1'b1), .CEALUMODE(1'b1),",
@@ -254,18 +343,13 @@ def _emit_signed_product_dsp48e1_graph(module, graph, definitions, simulation_mo
         ))
 
     conversion = graph.quantization
-    if not isinstance(conversion, expr.FixedConvert) or not isinstance(
-        conversion.expression.type, FixedType
-    ):
+    if conversion is None:
         raise SystemVerilogEmissionError(
-            "selected signed-product cascade has no typed final fixed-point conversion"
+            "selected signed-product cascade has no typed result boundary"
         )
-    physical_accumulator_type = FixedType(48, conversion.expression.type.fraction)
-    physical_conversion = replace(
+    physical_result = _physical_result_expression(
         conversion,
-        expression=expr.InputRef(
-            "zlang_signed_product_acc", physical_accumulator_type
-        ),
+        "zlang_signed_product_acc",
     )
     last_physical = physical_names[graph.resources[-1].identity]
     register_assignment = next(
@@ -288,16 +372,13 @@ def _emit_signed_product_dsp48e1_graph(module, graph, definitions, simulation_mo
             f"  assign zlang_signed_product_acc = {last_physical}_p;",
             f"  always_ff @({clock_event(module, _identifier)}) begin",
             f"    if ({reset_asserted(module, _identifier)}) {_identifier(final_register.name)} <= {_expression(final_register.initial)};",
-            f"    else {_identifier(final_register.name)} <= {_expression(physical_conversion)};",
+            f"    else {_identifier(final_register.name)} <= {physical_result};",
             "  end",
             f"  assign {_identifier(output_assignment.target.name)} = {_identifier(final_register.name)};",
         ))
     else:
-        exploration = next(
-            (item for item in module.pipeline_explorations
-             if item.source_expression == conversion), None,
-        )
-        if exploration is None:
+        output = _implementation_output(module, conversion)
+        if output is None:
             raise SystemVerilogEmissionError(
                 "selected signed-product cascade has neither a registered boundary nor a typed implementation pipeline region"
             )
@@ -318,12 +399,12 @@ def _emit_signed_product_dsp48e1_graph(module, graph, definitions, simulation_mo
             f"    if ({reset_asserted(module, _identifier)}) begin",
             *(f"      {name} <= '0;" for name in names),
             "    end else begin",
-            f"      {names[0]} <= {_expression(physical_conversion)};",
+            f"      {names[0]} <= {physical_result};",
             *(f"      {names[index]} <= {names[index - 1]};"
               for index in range(1, len(names))),
             "    end",
             "  end",
-            f"  assign {_identifier(exploration.output)} = {names[-1]};",
+            f"  assign {_identifier(output)} = {names[-1]};",
         ))
     top = "\n".join((
         f"module {_identifier(module.name)} (",
@@ -354,19 +435,28 @@ def _emit_dsp48e1_graph(module, graph, definitions, simulation_model):
     for node in graph.resources:
         config = _configuration(node)
         terminal = node.identity == graph.resources[-1].identity
+        a_mapping = _mapping(node, "a")
+        d_mapping = _mapping(node, "d")
+        b_mapping = _mapping(node, "b")
         lines.extend((
             f"  logic signed [24:0] {node.identity}_a;",
             f"  logic signed [24:0] {node.identity}_d;",
             f"  logic signed [17:0] {node.identity}_b;",
             f"  logic signed [47:0] {node.identity}_p;",
             f"  logic signed [47:0] {node.identity}_pcout;",
-            f"  assign {node.identity}_a = {_signed_extend(_mapping(node, 'a'), 25)};",
-            f"  assign {node.identity}_d = {_signed_extend(_mapping(node, 'd'), 25)};",
-            f"  assign {node.identity}_b = {_signed_extend(_mapping(node, 'b'), 18)};",
+            f"  assign {node.identity}_a = {_signed_extend(a_mapping, 25)};",
+            f"  assign {node.identity}_d = {_signed_extend(d_mapping, 25)};",
+            f"  assign {node.identity}_b = {_signed_extend(b_mapping, 18)};",
         ))
         pcin = "48'sd0" if node.identity == "dsp0" else f"dsp{int(node.identity[3:]) - 1}_pcout"
         parameters = _dsp48e1_parameters(config, terminal=terminal)
         parameter_text = ",\n".join(f"    .{name}({value})" for name, value in parameters)
+        model_parameters = (
+            f",\n    .ZLANG_A_WIDTH({_physical_signed_width(a_mapping.type)})"
+            f",\n    .ZLANG_D_WIDTH({_physical_signed_width(d_mapping.type)})"
+            f",\n    .ZLANG_B_WIDTH({_physical_signed_width(b_mapping.type)})"
+            if simulation_model else ""
+        )
         lines.extend((
             "  DSP48E1 #(",
             parameter_text + ",",
@@ -374,7 +464,7 @@ def _emit_dsp48e1_graph(module, graph, definitions, simulation_model):
             '    .B_INPUT("DIRECT"),',
             '    .USE_DPORT("TRUE"),',
             '    .USE_MULT("MULTIPLY"),',
-            '    .USE_SIMD("ONE48")',
+            f'    .USE_SIMD("ONE48"){model_parameters}',
             f"  ) {node.identity}_primitive (",
             f"    .A({{{{5{{{node.identity}_a[24]}}}}, {node.identity}_a}}),",
             f"    .D({node.identity}_d), .B({node.identity}_b), .C(48'sd0),",
@@ -425,11 +515,8 @@ def _emit_dsp48e1_graph(module, graph, definitions, simulation_model):
             f"  assign {_identifier(output_assignment.target.name)} = {_identifier(final_register.name)};",
         ))
     else:
-        exploration = next(
-            (item for item in module.pipeline_explorations
-             if item.source_expression == conversion), None,
-        )
-        if exploration is None:
+        output = _implementation_output(module, conversion)
+        if output is None:
             raise SystemVerilogEmissionError(
                 "selected DSP cascade has neither a registered boundary nor a typed implementation pipeline region"
             )
@@ -453,7 +540,7 @@ def _emit_dsp48e1_graph(module, graph, definitions, simulation_model):
               for index in range(1, len(names))),
             "    end",
             "  end",
-            f"  assign {_identifier(exploration.output)} = {names[-1]};",
+            f"  assign {_identifier(output)} = {names[-1]};",
         ))
     top = "\n".join((
         f"module {_identifier(module.name)} (",
@@ -494,7 +581,10 @@ def _dsp48e1_simulation_model() -> str:
   parameter integer BCASCREG=0, BREG=0, CARRYINREG=0, CARRYINSELREG=0,
   parameter integer CREG=0, DREG=0, INMODEREG=0, MREG=0, OPMODEREG=0, PREG=0,
   parameter A_INPUT="DIRECT", B_INPUT="DIRECT", USE_DPORT="TRUE",
-  parameter USE_MULT="MULTIPLY", USE_SIMD="ONE48"
+  parameter USE_MULT="MULTIPLY", USE_SIMD="ONE48",
+  parameter integer ZLANG_A_WIDTH=25, ZLANG_D_WIDTH=25,
+  parameter integer ZLANG_B_WIDTH=18, ZLANG_PRE_WIDTH=25,
+  parameter integer ZLANG_ACC_WIDTH=48
 ) (
   input wire [29:0] A, input wire [24:0] D, input wire [17:0] B,
   input wire [47:0] C, input wire [29:0] ACIN, input wire [17:0] BCIN,
@@ -516,8 +606,16 @@ def _dsp48e1_simulation_model() -> str:
   logic signed [24:0] preadd;
   logic signed [42:0] product_comb;
   logic signed [42:0] product;
-  logic signed [47:0] product_extended;
   logic signed [47:0] result_value;
+  localparam integer ZLANG_PRODUCT_WIDTH = ZLANG_PRE_WIDTH + ZLANG_B_WIDTH;
+  logic signed [ZLANG_A_WIDTH-1:0] a_narrow;
+  logic signed [ZLANG_D_WIDTH-1:0] d_narrow;
+  logic signed [ZLANG_B_WIDTH-1:0] b_narrow;
+  logic signed [ZLANG_PRE_WIDTH-1:0] preadd_narrow;
+  logic signed [ZLANG_PRODUCT_WIDTH-1:0] product_narrow;
+  logic signed [ZLANG_ACC_WIDTH-1:0] pcin_narrow;
+  logic signed [ZLANG_ACC_WIDTH-1:0] product_acc_narrow;
+  logic signed [ZLANG_ACC_WIDTH-1:0] result_narrow;
   always @(posedge CLK) begin
     if (RSTA) a_q <= 0; else if (CEA1) a_q <= A;
     if (RSTD) d_q <= 0; else if (CED) d_q <= D;
@@ -526,16 +624,32 @@ def _dsp48e1_simulation_model() -> str:
   assign a_value = AREG == 0 ? A : a_q;
   assign d_value = DREG == 0 ? D : d_q;
   assign b_value = BREG == 0 ? B : b_q;
-  assign preadd = $signed(a_value[24:0]) + $signed(d_value);
-  assign product_comb = preadd * $signed(b_value);
+  assign a_narrow = $signed(a_value[ZLANG_A_WIDTH-1:0]);
+  assign d_narrow = $signed(d_value[ZLANG_D_WIDTH-1:0]);
+  assign b_narrow = $signed(b_value[ZLANG_B_WIDTH-1:0]);
+  assign preadd_narrow =
+    ZLANG_PRE_WIDTH'($signed(a_narrow)) +
+    ZLANG_PRE_WIDTH'($signed(d_narrow));
+  assign preadd = {{(25-ZLANG_PRE_WIDTH){preadd_narrow[ZLANG_PRE_WIDTH-1]}},
+                   preadd_narrow};
+  assign product_narrow = $signed(preadd_narrow) * $signed(b_narrow);
+  assign product_comb = {{(43-ZLANG_PRODUCT_WIDTH){
+                           product_narrow[ZLANG_PRODUCT_WIDTH-1]}},
+                         product_narrow};
   always @(posedge CLK) begin
     if (RSTM) product_q <= 0; else if (CEM) product_q <= product_comb;
   end
   assign product = MREG == 0 ? product_comb : product_q;
-  assign product_extended = {{5{product[42]}}, product};
-  assign result_value = ALUMODE == 4'b0011
-    ? $signed(PCIN) - product_extended
-    : $signed(PCIN) + product_extended;
+  assign pcin_narrow = $signed(PCIN[ZLANG_ACC_WIDTH-1:0]);
+  assign product_acc_narrow = ZLANG_ACC_WIDTH'($signed(product));
+  assign result_narrow = ALUMODE == 4'b0011
+    ? pcin_narrow - product_acc_narrow
+    : (ALUMODE == 4'b0001 && CARRYIN)
+      ? product_acc_narrow - pcin_narrow
+      : pcin_narrow + product_acc_narrow;
+  assign result_value = {{(48-ZLANG_ACC_WIDTH){
+                           result_narrow[ZLANG_ACC_WIDTH-1]}},
+                         result_narrow};
   always @(posedge CLK) begin
     if (RSTP) p_q <= 0; else if (CEP) p_q <= result_value;
   end
@@ -641,6 +755,11 @@ def emit_target_artifact(
         graph.evidence_identity,
         graph.realization_backend,
         graph.latency_knowledge,
+        (
+            graph.scheduled_value_graph.identity
+            if graph.scheduled_value_graph is not None
+            else None
+        ),
     )
     return replace(
         base,

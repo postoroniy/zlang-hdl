@@ -16,7 +16,11 @@ from zlang.compiler import compile_source
 from zlang.ir.interfaces import RequestResponseRole
 from zlang.opt import OptimizationStage, lower, restore
 from zlang.simulate import simulate_request_response_cycles
-from zlang.toolchain import generate_verilog, lint_with_verilator
+from zlang.toolchain import (
+    find_clash_executable,
+    generate_verilog,
+    lint_with_verilator,
+)
 
 
 SOURCE = r"""
@@ -250,7 +254,10 @@ endmodule
     assert run.returncode == 0, run.stderr or run.stdout
 
 
-@pytest.mark.skipif(shutil.which("verilator") is None, reason="Verilator unavailable")
+@pytest.mark.skipif(
+    find_clash_executable() is None or shutil.which("verilator") is None,
+    reason="Clash or Verilator unavailable",
+)
 @pytest.mark.parametrize("top", ("StandaloneRequester", "StandaloneResponder"))
 def test_real_clash_1_11_generates_lint_clean_rtl(top: str, tmp_path: Path) -> None:
     module = _module(top)

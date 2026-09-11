@@ -17,10 +17,11 @@ open-source project. That scope includes:
   libraries;
 - parsing, semantic analysis, canonical and selected IR, optimization, and
   source mapping;
-- Clash and direct-SystemVerilog emission, simulation, manifests, and local
-  build tooling;
+- production direct-SystemVerilog emission, simulation, manifests, and local
+  build tooling; the retired Clash compatibility implementation remains
+  Community source but is not a supported compiler path;
 - local safety verification (M35), semantic-reference equivalence (M36),
-  cross-backend evidence (M38), formal-aware candidate selection (M39), and
+  historical M38 records, formal-aware candidate selection (M39), and
   immutable verification bundles;
 - local implementation selection, including `implement`, `choice`, cost
   extraction, and local synthesis

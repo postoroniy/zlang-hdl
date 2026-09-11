@@ -10,6 +10,7 @@ from zlang.candidate_sites import CandidateSiteLedger
 from zlang.exploration import ExplorationResult
 from zlang.formal_artifact_provider import FormalArtifactProvider
 from zlang.formal_tooling import FormalToolResolver
+from zlang.formal_exploration import FormalExplorationRecord
 from zlang.implementation_plans import BackendImplementationPlanningResult
 from zlang.implementation_policy import ModuleImplementationPolicy
 from zlang.implementation_regions import ImplementationRegion
@@ -66,6 +67,10 @@ class CompilationResult:
     )
     candidate_site_ledger: CandidateSiteLedger | None = field(
         default=None,
+        compare=False,
+    )
+    physical_formal_records: tuple[FormalExplorationRecord, ...] = field(
+        default=(),
         compare=False,
     )
 

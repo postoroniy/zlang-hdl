@@ -1,7 +1,7 @@
 # From a long expression to a checked pipeline
 
-This Community example uses existing ZLang HDL features, not a new compiler
-transformation. [math_exploration.zhl](math_exploration.zhl) implements an exact
+This Community example exercises the compiler's general scalar scheduling and
+formal flow. [math_exploration.zhl](math_exploration.zhl) implements an exact
 eight-product correlator:
 
 ```zlang
@@ -22,8 +22,8 @@ visible; they do not require a compiler-specific function or DSP primitive.
 | Top | What changes? | Internal latency | II |
 | --- | --- | ---: | ---: |
 | `MathOneCycle` | Original combinational expression | 0 | 1 |
-| `MathArchitecture` | Bounded accumulator topology selection | 0 | 1 |
-| `MathExplore` | Topology, multiplier intent and internal register placement | 4 | 1 |
+| `MathArchitecture` | Compiler-selected value/resource intent | 0 | 1 |
+| `MathExplore` | Compiler-selected value and exact one-cycle schedule | 1 | 1 |
 
 The first two have **no internal pipeline registers**. The timing experiment
 places identical launch and capture registers around every kernel; their entire
@@ -31,39 +31,32 @@ arithmetic must fit between two consecutive edges. A failed 10 ns timing check
 therefore means this measured one-cycle implementation misses 100 MHz. Complexity
 alone cannot prove that statement for every FPGA, ASIC or implementation.
 
-Topology-only selection uses:
+The same canonical `implement` form expresses both policies. A bounded
+same-cycle/resource choice uses:
 
 ```zlang
-y = architecture(auto, parallelism<=8, depth<=3, candidates<=8) {
+y = implement {
     a0*b0 + a1*b1 + a2*b2 + a3*b3
         + a4*b4 + a5*b5 + a6*b6 + a7*b7
+    intent { latency <= 4 ii == 1 dsp <= 8 minimize lut }
 }
 ```
 
-The current report considers eight candidates and selects `folded_p4`, with
-three addition levels. Despite that historical name this is **not temporal
-folding**: all eight products still exist, and II remains one. It is not a
-promise of four DSPs. Six candidate topologies violate the stated depth bound.
-
-The combined search permits actual internal pipeline cuts:
+Requiring positive latency makes fixed-pipeline candidates eligible:
 
 ```zlang
-y = explore {
+y = implement {
     a0*b0 + a1*b1 + a2*b2 + a3*b3
         + a4*b4 + a5*b5 + a6*b6 + a7*b7
-    allow { reduction dsp pipeline reassociate }
-    require { latency >= 4 ii == 1 dsp <= 8 }
-    minimize lut
+    intent { latency >= 1 ii == 1 dsp <= 8 minimize lut }
 }
 ```
 
-It currently selects `balanced_levels_dsp`: one multiplier stage followed by
-three registered addition levels. The allowed latency change is explicit. The
-search is bounded/truncated, not an exhaustive global optimum. `dsp` is generic
-mapping intent and its cost is estimated; physical primitive counts come only
-from synthesis. The `100 MHz` requirement is checked separately by Vivado.
-There is no vendor primitive, forced DSP attribute, synthesis retiming or
-automatic physical-feedback loop hidden in this example.
+The current generic profile selects an exact one-cycle scheduled candidate.
+With a supported Xilinx 7-Series target, the same typed DAG may be covered by
+DSP48E1 resources before deterministic exact-N partitioning. The search is
+bounded, not a global optimum. Estimates remain distinct from synthesis or
+routed timing evidence.
 
 ## Generate RTL and inspect the decisions
 
@@ -81,14 +74,11 @@ Run from the repository root with ZLang installed in `.venv`:
   --evidence-report build/math/evidence.json
 ```
 
-Adding `--verilog-dir build/math/clash` requests real Clash RTL as well.
-Install Clash 1.11 on `PATH` or set `ZLANG_CLASH` to its executable. For a local
-built Clash checkout, `ZLANG_CLASH_ROOT` also configures its package environment.
 No solver runs just because ordinary RTL was generated.
 
 ## Ask formal whether the optimization preserved the computation
 
-Put `sby`, `yosys`, `yosys-smtbmc`, `z3` and Clash on the configured tool paths:
+Put `sby`, `yosys`, `yosys-smtbmc`, and `z3` on `PATH`:
 
 ```sh
 .venv/bin/python -m tools.math_exploration_formal \
@@ -101,13 +91,12 @@ bundle, structured report, cache, RTL, solver logs and counterexamples. It does
 not insert a test-only verifier or constrain inputs to selected test vectors.
 
 ```text
-Original canonical arithmetic  <->  selected Clash RTL       M36 / M39 gate
-Original canonical arithmetic  <->  selected direct-SV RTL   M36
-Selected Clash RTL             <->  selected direct-SV RTL   M38
+Original canonical arithmetic  <->  selected direct-SV RTL   M36 / M39 gate
 ```
 
-Comparison aligns each result with the original input sample four cycles
-earlier and masks reset/fill. The source invariant `y < 34359738368` is an
+Comparison aligns each result with the original input sample at the selected
+exact latency (currently one cycle) and masks reset/fill. The source invariant
+`y < 34359738368` is an
 additional safety goal, not a substitute for arithmetic equivalence.
 
 Yosys prepares the bit-vector transition system; SymbiYosys orchestrates jobs;
@@ -123,7 +112,7 @@ The driver also demonstrates three important failures/checks:
 - Too shallow a comparison window must be `unknown`, never a vacuous pass.
 - Flip the generated output's low bit: equivalence must return `failed` with
   a counterexample.
-- Bypass the final register but keep the original four-cycle contract:
+- Bypass the final register but keep the original exact-latency contract:
   equivalence must return `failed`, exposing incorrect sample alignment.
 
 Both mutations live only in separate generated RTL copies. The original source,
@@ -157,7 +146,7 @@ The runner exits zero when all three measurements completed, not when every
 variant met timing; inspect each row's `setup_pass`, `hold_pass`, and
 `timing_pass`. A failing baseline is an expected result of this experiment.
 
-### Recorded result — 2026-09-08
+### Historical recorded result — 2026-09-08
 
 Vivado 2024.2 build 5239630, `xc7z030ffg676-1`, 10.000 ns, direct-SV,
 identical OOC launch/capture shells, two threads per process, at most two
@@ -191,7 +180,9 @@ all-path `results.json`; future fresh runs query register-only paths directly.
 Exact source SHA256:
 `db002f4b7aaa492e673d9210f55eb060c5355045f849ff1be613845261534c14`.
 The same source snapshot produced the numerical, formal and timing evidence.
-Formal execution used real SBY/Yosys 0.68, Z3 4.8.12 and Clash 1.11:
+This table records the pre-retirement dual-backend experiment. Current
+production verification executes only the direct-SV M36/M39 row; the Clash and
+M38 rows are historical evidence.
 
 | Check | Recorded result |
 | --- | --- |
@@ -236,6 +227,6 @@ changing arithmetic semantics to make the proof easier is not acceptable.
 
 The consolidated witness checks exact boundary/random samples, continuous
 traffic, fill and mid-stream reset against an independent integer oracle in
-the semantic simulator and both real backends under strict Verilator. Canonical
+the semantic simulator and production direct-SV under strict Verilator. Canonical
 round-trip, artifacts and unchanged production RTL after erasing verification
 declarations are checked separately from solver and timing evidence.

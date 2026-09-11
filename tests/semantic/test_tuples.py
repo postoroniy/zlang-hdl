@@ -340,7 +340,10 @@ def test_m26_scalar_egraph_rejects_tuple_roots_and_scalar_projections(
     root = result.optimization_ir.assignments[0].expression
     with pytest.raises(
         EGraphAdapterError,
-        match="scalar hardware types only",
+        match=(
+            "scalar hardware types only|"
+            "outside the exact scalar e-graph operation set"
+        ),
     ):
         canonical_to_egraph(result.optimization_ir, root)
 

@@ -16,7 +16,7 @@ from zlang.semantic import analyze
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def test_exact_complex_real_pipeline_auto_keeps_generic_fallback_and_physical_candidates() -> None:
+def test_exact_complex_real_pipeline_uses_packaged_dsp48_evidence() -> None:
     source = (
         ROOT / "examples" / "fft" / "complex_multiply_pipeline_auto.zhl"
     ).read_text()
@@ -37,17 +37,30 @@ def test_exact_complex_real_pipeline_auto_keeps_generic_fallback_and_physical_ca
         if "SignedProduct" in candidate.name and not candidate.graph.is_generic
     )
     assert len(physical) == 4
-    assert result.implementation_graph.is_generic
-    assert result.implementation_graph.timing_dag.output_latency == 1
+    assert not result.implementation_graph.is_generic
+    assert len(result.implementation_graph.resources) == 2
+    assert result.implementation_graph.pipeline_configuration_identity.endswith(
+        ".multiply_registered"
+    )
+    assert result.implementation_graph.timing_dag.output_latency == 2
+    scheduled = result.implementation_graph.scheduled_value_graph
+    assert scheduled is not None
+    assert scheduled.exact_latency == 2
+    assert len(scheduled.resource_bindings) == 3
+    selected_cost = {
+        metric: (value, source)
+        for metric, value, source in result.implementation_graph.selected_cost
+    }
+    assert selected_cost["dsp"] == (2, "routed_measurement")
+    assert selected_cost["fmax_est"][0] >= 100
+    assert selected_cost["fmax_est"][1] == "routed_measurement"
     rejected = tuple(
         candidate for candidate in result.target_planning_result.rejected_candidates
         if "SignedProduct" in candidate.name
     )
-    assert all(
-        any("fmax_est requirement cannot be proven" in reason
-            for reason in candidate.rejection_reasons)
-        for candidate in rejected
-    )
+    assert len(rejected) == 1
+    assert rejected[0].name.endswith("/unregistered")
+    assert any("fmax_est" in reason for reason in rejected[0].rejection_reasons)
 
 
 def test_reusable_sdf_delay_depth_parameter_elaborates() -> None:

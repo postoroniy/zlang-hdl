@@ -132,7 +132,7 @@ def test_wheel_contains_and_resolves_every_shipped_stdlib_module(tmp_path: Path)
     assert "stdlib/bus/ahb_lite.zhl" in packaged
     assert "stdlib/autodiscovery/deep/nested.zhl" in packaged
     assert "Requires-Python: <3.13,>=3.12\n" in metadata
-    assert "Version: 0.1.0a4\n" in metadata
+    assert "Version: 0.1.0a5\n" in metadata
     assert "License-Expression: Apache-2.0\n" in metadata
     assert "License-File: LICENSE\n" in metadata
     assert "License-File: NOTICE\n" in metadata
@@ -266,7 +266,6 @@ def test_wheel_contains_and_resolves_every_shipped_stdlib_module(tmp_path: Path)
     for program in (
         "zlang",
         "zlang-lock",
-        "zlang-compare-backends",
         "zlang-verify",
     ):
         version_result = subprocess.run(
@@ -279,7 +278,7 @@ def test_wheel_contains_and_resolves_every_shipped_stdlib_module(tmp_path: Path)
         assert version_result.returncode == 0, (
             version_result.stdout + version_result.stderr
         )
-        assert version_result.stdout == f"{program} 0.1.0a4\n"
+        assert version_result.stdout == f"{program} 0.1.0a5\n"
     lock_result = subprocess.run(
         [
             sys.executable, "-m", "zlang.project_cli", "update",

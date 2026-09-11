@@ -94,7 +94,6 @@ jobs:
           for environment in "$PWD/build/wheel-venv" "$PWD/build/sdist-venv"; do
             test "$("$environment/bin/zlang" --version)" = "zlang ${GITHUB_REF_NAME#v}"
             test "$("$environment/bin/zlang-lock" --version)" = "zlang-lock ${GITHUB_REF_NAME#v}"
-            test "$("$environment/bin/zlang-compare-backends" --version)" = "zlang-compare-backends ${GITHUB_REF_NAME#v}"
             test "$("$environment/bin/zlang-verify" --version)" = "zlang-verify ${GITHUB_REF_NAME#v}"
             (cd "$smoke_dir" && "$environment/bin/zlang" package-smoke.zhl --check)
           done

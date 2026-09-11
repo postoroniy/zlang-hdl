@@ -15,9 +15,10 @@ architectural capability, not a claim about productivity or performance.
 > closed rather than publishing guessed RTL.
 
 The initial supported development and release environment is Linux x86-64 with
-Python 3.12. ZLang can emit direct SystemVerilog or Clash source; external RTL,
-synthesis, and formal tools are optional unless their corresponding flow is
-requested.
+Python 3.12. Direct SystemVerilog is the sole supported production RTL backend;
+external synthesis and formal tools are optional unless their corresponding
+flow is requested. Historical Clash emission remains an internal compatibility
+path only and is not part of the public or release contract.
 
 ## Quick start
 
@@ -78,11 +79,12 @@ The validated language includes:
   arbitration, and named-domain CDC;
 - source-authored RegBus, AHB-Lite, AXI4-Lite, APB, Wishbone, AXI-Stream, CSR,
   math, stream, storage, coding, and target-library components;
-- direct-SystemVerilog and Clash emission with source maps and versioned
-  BackendArtifact manifests;
+- direct-SystemVerilog emission with source maps and versioned BackendArtifact
+  manifests;
 - bounded equality saturation, implementation exploration, synthesis evidence,
-  M35 safety checks, M36 semantic-reference equivalence, M38 cross-backend
-  evidence, M39 formal-aware selection, and source-level verification goals.
+  M35 safety checks, M36 semantic-reference equivalence, M39 formal-aware
+  selection, and source-level verification goals. Historical M38
+  cross-backend evidence is retained only as dated validation evidence.
 
 The executable [language tour](examples/all_syntax.zhl) is representative, not a
 complete support contract. Use the
@@ -106,19 +108,15 @@ combination is supported or that measured FPGA timing is guaranteed.
 
 | Flow | Status |
 | --- | --- |
-| Clash | Primary/reference backend for the validated subset |
-| Direct SystemVerilog | Supported secondary backend; fail-closed outside its validated subset |
+| Direct SystemVerilog | Sole supported production backend; fail-closed outside its validated subset |
+| Clash | Retired from production; internal compatibility path for historical tests only |
 | Verilator | Optional lint and behavioral RTL validation |
 | Yosys/SymbiYosys/Z3 | Optional bounded/proven safety and equivalence execution |
 
-Emit Clash and, when Clash is installed, retain generated Verilog:
+Emit direct SystemVerilog:
 
 ```bash
-.venv/bin/zlang examples/add.zhl -o build/Add.hs
-.venv/bin/zlang examples/add.zhl \
-  -o build/Add.hs \
-  --verilog-dir build/clash-verilog \
-  --verilator-lint
+.venv/bin/zlang examples/add.zhl --systemverilog build/Add.sv
 ```
 
 Create and replay an immutable verification bundle:
@@ -175,10 +173,10 @@ Run focused tests serially while debugging. Run the complete suite in parallel:
 git diff --check
 ```
 
-External-tool tests discover tools from explicit CLI options, documented
-environment variables, or `PATH`. Dedicated release jobs require pinned Clash,
-Verilator, Yosys, SymbiYosys, yosys-smtbmc, and Z3 versions and reject unexpected
-skips.
+External-tool tests discover tools from explicit CLI options or `PATH`.
+Dedicated release jobs require pinned Verilator, Yosys, SymbiYosys,
+yosys-smtbmc, and Z3 versions and reject unexpected skips. Clash/GHC are not
+release dependencies; any remaining Clash checks are legacy/manual only.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the DCO, test expectations, and
 third-party provenance requirements. Community support is described in

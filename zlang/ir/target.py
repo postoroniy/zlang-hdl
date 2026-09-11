@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from hashlib import sha256
 
 from zlang.ir.expressions import Expression
+from zlang.ir.scheduled import ScheduledValueGraph
 
 
 @dataclass(frozen=True)
@@ -321,10 +322,11 @@ class ImplementationGraph:
     objective: str = "lut"
     selected_cost: tuple[tuple[str, int | float | None, str], ...] = ()
     evidence_identity: str | None = None
+    scheduled_value_graph: ScheduledValueGraph | None = None
 
     @property
     def identity(self) -> str:
-        payload = repr((
+        values = (
             self.semantic_region_identity, self.architecture_template_identity,
             self.target_identity, self.target_hash, self.resource_definition_hashes,
             self.resources, self.dedicated_edges, self.latency,
@@ -336,7 +338,12 @@ class ImplementationGraph:
             self.pipeline_configuration_identity, self.active_pipeline_sites,
             self.physical_binding_identities,
             self.timing_dag.identity if self.timing_dag is not None else None,
-        ))
+        )
+        # Preserve accepted evidence identities for legacy graphs.  The new
+        # scheduled graph participates only when it is actually present.
+        if self.scheduled_value_graph is not None:
+            values = (*values, self.scheduled_value_graph.identity)
+        payload = repr(values)
         return sha256(payload.encode()).hexdigest()
 
     @property

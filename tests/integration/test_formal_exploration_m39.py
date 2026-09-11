@@ -97,6 +97,35 @@ def bound(callback):
 
 
 class M39FormalExplorationTests(unittest.TestCase):
+    def test_direct_systemverilog_route_is_used_without_clash(self):
+        source = Path("examples/implementation_intent.zhl").read_text()
+        # A production direct-SV session must not even probe the hidden legacy
+        # Clash executable while selecting M39 evidence.
+        with patch(
+            "zlang.formal_candidate.find_clash_executable",
+            side_effect=AssertionError("retired Clash route was probed"),
+        ):
+            result = compile_source(
+                source,
+                formal_policy=FormalPolicy.AVAILABLE,
+                include_clash=False,
+            )
+        records = tuple(
+            record
+            for item in result.exploration_results
+            for record in item.formal_records
+            if record.status is not None
+        )
+        self.assertTrue(records)
+        self.assertEqual(
+            {record.formal_route for record in records},
+            {"M36_direct_systemverilog"},
+        )
+        self.assertEqual(
+            {record.backend for record in records},
+            {"direct_systemverilog"},
+        )
+
     def test_off_does_not_execute_and_preserves_rank(self):
         candidates, evaluations = space(("cheap", "expensive"))
         called = []
@@ -1020,7 +1049,7 @@ class M39FormalExplorationTests(unittest.TestCase):
                 )
                 self.assertEqual(
                     exploration.formal_records[0].backend,
-                    "clash",
+                    "direct_systemverilog",
                 )
 
     @unittest.skipUnless(
@@ -1078,7 +1107,9 @@ class M39FormalExplorationTests(unittest.TestCase):
                 (FormalStatus.PROVEN, ProofMode.PROVE, True),
             ],
         )
-        self.assertTrue(all(item.backend == "clash" for item in records))
+        self.assertTrue(
+            all(item.backend == "direct_systemverilog" for item in records)
+        )
 
     @unittest.skipUnless(
         find_clash_executable()
@@ -1099,7 +1130,7 @@ class M39FormalExplorationTests(unittest.TestCase):
         self.assertEqual(len(exploration.formal_records), 1)
         record = exploration.formal_records[0]
         self.assertEqual(record.status, FormalStatus.BOUNDED_PASS)
-        self.assertEqual(record.backend, "clash")
+        self.assertEqual(record.backend, "direct_systemverilog")
         self.assertEqual(len(result.ir.pipeline_explorations[0].formal_records), 0)
         self.assertIn("catalog_only_no_proof_attached", result.pipeline_report)
 

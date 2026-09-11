@@ -130,7 +130,23 @@ def normalized_candidate_hash(
     dependency_identity = dependency_context_identity(module)
     if dependency_identity is not None:
         identity_lines.append(f"dependency_identity={dependency_identity}")
-    identity_lines.append(render(lower(normalized), include_origins=False))
+    # Allocation numbers are physical elaboration details, not semantic
+    # candidate identity.  Strip them from the normalized representation so
+    # equivalent source formatting (or a different demand order) cannot alter
+    # synthesis-cache keys.
+    normalized_render = re.sub(
+        r"\binstance=\d+\b", "instance=<stable>",
+        render(lower(normalized), include_origins=False),
+    )
+    # The verbose dataclass rendering of a scheduled plan contains diagnostic
+    # source spans.  The schedule itself is already represented by the typed
+    # candidate semantics above; keep only a stable marker in this legacy
+    # synthesis identity view.
+    normalized_render = re.sub(
+        r"\s+pipeline_plan=.*$", " pipeline_plan=<scheduled>",
+        normalized_render, flags=re.MULTILINE,
+    )
+    identity_lines.append(normalized_render)
     payload = "\n".join(identity_lines)
     return stable_digest(payload)
 

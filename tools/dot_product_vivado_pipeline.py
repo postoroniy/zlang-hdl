@@ -14,6 +14,7 @@ import time
 from zlang.backend.systemverilog import emit_experimental
 from zlang.compiler import compile_source
 from zlang.ir import expressions as ir_expr
+from zlang.timing import timing_info
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -129,10 +130,11 @@ def main() -> int:
     )
     if not isinstance(output_assignment.expression, ir_expr.Pipeline):
         raise ValueError("the selected dot-product output is not a fixed pipeline")
-    if output_assignment.expression.stages != args.latency:
+    actual_latency = timing_info(output_assignment.expression).latency
+    if actual_latency != args.latency:
         raise ValueError(
             f"reported latency {args.latency} does not match source pipeline "
-            f"latency {output_assignment.expression.stages}"
+            f"latency {actual_latency}"
         )
     rtl = emit_experimental(compilation.ir)
     with ThreadPoolExecutor(max_workers=max(1, args.jobs)) as executor:

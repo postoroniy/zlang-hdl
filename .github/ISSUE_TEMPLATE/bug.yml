@@ -36,6 +36,6 @@ body:
     id: tools
     attributes:
       label: Environment and external tool versions
-      description: Include Python, OS, backend, Clash, Verilator, Yosys/SBY and Z3 when relevant.
+      description: Include Python, OS, direct-SystemVerilog, Verilator, Yosys/SBY and Z3 when relevant.
     validations:
       required: true

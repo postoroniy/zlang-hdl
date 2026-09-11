@@ -144,6 +144,8 @@ def _gate_all_standalone_pipelines(
     config: FormalExplorationConfig,
     verifier: object | None,
     canonical_site_keys: Iterable[tuple[str, str | None, str]] = (),
+    *,
+    backend: str = "clash",
 ) -> IrModule:
     from zlang.formal_candidate import gate_standalone_pipelines
 
@@ -151,9 +153,26 @@ def _gate_all_standalone_pipelines(
     return _map_modules(
         module,
         lambda item: gate_standalone_pipelines(
-            item, config, verifier, canonical_site_keys=keys
+            item, config, verifier, canonical_site_keys=keys, backend=backend
         ),
     )
+
+
+def _defer_one_root_pipeline_to_physical_m39(module: IrModule) -> bool:
+    """Return whether planning can construct one complete physical candidate.
+
+    The pre-planning M39 route must not prove a raw ``Pipeline`` expression
+    which has not yet received its internal schedule.  The target planner's
+    bounded physical route currently owns exactly one root scalar pipeline;
+    all other standalone forms retain the historical gate/diagnostic.
+    """
+
+    pipelines = tuple(
+        item.expression
+        for item in module.assignments
+        if isinstance(item.expression, ir_expr.Pipeline)
+    )
+    return len(pipelines) == 1 and len(module.pipeline_explorations) <= 1
 
 
 def _attach_unified_pipeline_formal_records(
@@ -183,12 +202,79 @@ def _attach_unified_pipeline_formal_records(
                 continue
             if len(matches) == 1:
                 result = matches[0]
+                # The unified implement gate may select a different
+                # architecture than the planner's initial catalog choice.
+                # Rebind the catalog's selected name by stable implementation
+                # identity before comparing expressions, so only the actually
+                # emitted candidate receives the retained formal record.
+                emitted_identity = result.selected_candidate.implementation_identity
+                matching_candidate = next(
+                    (
+                        candidate
+                        for candidate in pipeline.candidates
+                        if selection_expression_semantic_identity(
+                            candidate.expression
+                        )
+                        == selection_expression_semantic_identity(
+                            result.selected_candidate.expression
+                        )
+                    ),
+                    None,
+                )
+                if matching_candidate is None:
+                    # Unified exploration records carry the architecture name
+                    # in their deterministic stage provenance even when the
+                    # implementation-site wrapper has a distinct identity
+                    # schema.  Use that typed name as a conservative fallback.
+                    stage_names = tuple(
+                        str(stage).split(":", 1)[1]
+                        for stage in getattr(result.selected_candidate, "stages", ())
+                        if str(stage).startswith("pipeline:")
+                    )
+                    matching_candidate = next(
+                        (
+                            candidate for candidate in pipeline.candidates
+                            if candidate.name in stage_names
+                        ),
+                        None,
+                    )
+                selected_name_changed = (
+                    matching_candidate is not None
+                    and pipeline.selected != matching_candidate.name
+                )
+                if selected_name_changed:
+                    pipeline = replace(pipeline, selected=matching_candidate.name)
+                # Unified implementation candidates carry the enclosing
+                # Pipeline value, whereas planner catalog entries carry the
+                # inner value DAG.  Keep the catalog's selected entry aligned
+                # with the emitted implementation so report emission checks
+                # compare the same typed value (without changing candidate
+                # identity or scheduling semantics).
+                if matching_candidate is not None:
+                    selected_value = (
+                        result.selected_candidate.expression.expression
+                        if isinstance(
+                            result.selected_candidate.expression,
+                            ir_expr.Pipeline,
+                        )
+                        else result.selected_candidate.expression
+                    )
+                    candidates = tuple(
+                        replace(candidate, expression=selected_value)
+                        if candidate.name == matching_candidate.name
+                        else candidate
+                        for candidate in pipeline.candidates
+                    )
+                    if candidates != pipeline.candidates:
+                        pipeline = replace(pipeline, candidates=candidates)
                 # A planner catalog is allowed to carry evidence only when
                 # its exact selected expression is the one emitted by the
                 # unified implementation result.  Matching only the region
                 # would attach proof for a different (often zero-cycle)
                 # candidate to a positive-latency catalog entry.
                 selected_matches = (
+                    matching_candidate is not None
+                    or
                     selection_expression_semantic_identity(
                         result.selected_candidate.expression
                     )
@@ -196,7 +282,6 @@ def _attach_unified_pipeline_formal_records(
                         pipeline.selected_candidate.expression
                     )
                 )
-                emitted_identity = result.selected_candidate.implementation_identity
                 records = (
                     tuple(
                         record
@@ -210,7 +295,7 @@ def _attach_unified_pipeline_formal_records(
                 pipelines.append(updated)
                 # Pipeline formal metadata is intentionally compare=False, so
                 # dataclass equality cannot detect this report-only update.
-                changed = changed or (
+                changed = changed or selected_name_changed or (
                     pipeline.formal_records != records
                 )
             else:
@@ -526,9 +611,175 @@ class _FormalProduct:
 
 @dataclass(frozen=True)
 class _PlanningProduct:
+    module: IrModule
     backend_plans: BackendImplementationPlanningResult
     target_planning_result: TargetPlanningResult | None
     implementation_graph: object | None
+    physical_formal_records: tuple[FormalExplorationRecord, ...] = ()
+
+
+def _gate_physical_target_candidates(
+    module: IrModule,
+    plans: BackendImplementationPlanningResult,
+    config: FormalExplorationConfig,
+    injected_verifier: object | None,
+) -> tuple[
+    BackendImplementationPlanningResult,
+    TargetPlanningResult | None,
+    object | None,
+    tuple[FormalExplorationRecord, ...],
+]:
+    """Apply M39 to complete value+schedule+resource candidates.
+
+    Earlier M39 sites validate typed value alternatives.  This bounded
+    planning-phase gate additionally validates the exact physical graph which
+    direct-SV will publish.  It is intentionally limited to the current
+    single-output scalar target planner; unsupported shapes remain explicit.
+    """
+
+    result = plans.target_planning_result
+    if config.policy is FormalPolicy.OFF or result is None:
+        graph = result.selected_graph if result is not None else None
+        return plans, result, graph, ()
+    if result.extraction is None:
+        raise SemanticError(
+            "physical formal policy requires a ranked target candidate set",
+            code="ZL-FORMAL-PHYSICAL-CANDIDATE",
+        )
+
+    from zlang.formal_candidate import (
+        M36DirectSystemVerilogCandidateVerifier,
+        PhysicalTargetFormalCandidate,
+    )
+    from zlang.formal_exploration import gate_candidates
+    from zlang.pipeline_scheduling import erase_pipeline_timing
+
+    assignments = tuple(
+        assignment
+        for assignment in module.assignments
+        if isinstance(assignment.expression, ir_expr.Pipeline)
+        and hasattr(assignment.target, "name")
+    )
+    selected_quantization = result.selected_graph.quantization
+    if selected_quantization is not None:
+        assignments = tuple(
+            assignment
+            for assignment in assignments
+            if erase_pipeline_timing(assignment.expression)
+            == selected_quantization
+        )
+    if len(assignments) != 1:
+        raise SemanticError(
+            "physical M39 gate requires exactly one target-planned scalar "
+            "pipeline output",
+            code="ZL-FORMAL-PHYSICAL-CANDIDATE",
+        )
+    source_assignment = assignments[0]
+    plan = source_assignment.expression.pipeline_plan
+    reference = (
+        plan.source_expression
+        if plan is not None and plan.source_expression is not None
+        else erase_pipeline_timing(source_assignment.expression)
+    )
+    selected_value = erase_pipeline_timing(source_assignment.expression)
+    if selected_quantization is not None and reference != selected_quantization:
+        if selected_value != selected_quantization:
+            raise SemanticError(
+                "physical M39 selected value does not match the target region",
+                code="ZL-FORMAL-PHYSICAL-CANDIDATE",
+            )
+
+    target_by_identity = {
+        candidate.implementation_identity: candidate
+        for candidate in result.generated_candidates
+    }
+    wrappers = []
+    evaluations = []
+    for evaluation in result.extraction.evaluations:
+        target_candidate = evaluation.candidate
+        implementation = source_assignment.expression
+        if implementation.stages != target_candidate.graph.latency:
+            implementation = replace(
+                implementation,
+                stages=target_candidate.graph.latency,
+                expression=selected_value,
+                pipeline_plan=None,
+            )
+        physical_module = replace(
+            module,
+            assignments=tuple(
+                replace(item, expression=implementation)
+                if item is source_assignment else item
+                for item in module.assignments
+            ),
+        )
+        wrapper = PhysicalTargetFormalCandidate(
+            expression=implementation,
+            module=physical_module,
+            implementation_graph=target_candidate.graph,
+            semantic_identity=target_candidate.graph.semantic_region_identity,
+            implementation_identity=target_candidate.implementation_identity,
+            cost=target_candidate.cost,
+        )
+        wrappers.append(wrapper)
+        evaluations.append(replace(evaluation, candidate=wrapper))
+
+    domain = module.clock_domains[0] if len(module.clock_domains) == 1 else None
+    verifier = injected_verifier or M36DirectSystemVerilogCandidateVerifier(
+        reference,
+        candidate_class="pipeline",
+        artifact_provider=getattr(config, "artifact_provider", None),
+        clock_domain_contract=domain,
+        unavailable_reason=(
+            None
+            if domain is not None
+            else "physical target candidate requires exactly one formal domain"
+        ),
+    )
+    gate = gate_candidates(
+        tuple(wrappers),
+        tuple(evaluations),
+        config,
+        verifier,
+        route="M36_direct_systemverilog",
+    )
+    selected_identity = (
+        result.selected_candidate.implementation_identity
+        if config.policy is FormalPolicy.AVAILABLE
+        else gate.eligible[0].implementation_identity
+    )
+    selected = target_by_identity[selected_identity]
+    extraction = replace(
+        result.extraction,
+        selected=selected,
+        selected_cost=selected.cost,
+        reason=(
+            result.extraction.reason
+            + "; complete physical candidate passed M39 policy "
+            + config.policy.value
+        ),
+    )
+    result = replace(
+        result,
+        selected_candidate=selected,
+        extraction=extraction,
+        formal_records=gate.records,
+    )
+    previous_graph = plans.target_planning_result.selected_graph
+    updated_plans = tuple(
+        replace(plan, graph=selected.graph)
+        if plan.graph is not None
+        and plan.backend == "systemverilog"
+        and plan.graph.identity == previous_graph.identity
+        else plan
+        for plan in plans.plans
+    )
+    plans = replace(
+        plans,
+        plans=updated_plans,
+        target_planning_result=result,
+    )
+    return plans, result, selected.graph, gate.records
 
 
 @dataclass(frozen=True)
@@ -836,6 +1087,9 @@ class CompilationSession:
             dependency_identity=dependency_identity,
             artifact_provider=self.formal_artifact_provider,
             tool_resolver=self.formal_tool_resolver,
+            backend=(
+                "clash" if self.include_clash else "direct_systemverilog"
+            ),
         )
 
     def _analyze(self, *, check_only: bool) -> _AnalysisProduct:
@@ -963,30 +1217,56 @@ class CompilationSession:
                     "elastic pipeline(auto); M35 ready/valid safety remains available"
                 )
             try:
-                semantic_ir, exploration_results = gate_retained_explorations(
-                    semantic_ir,
-                    exploration_results,
-                    configured_formal,
-                    self.formal_verifier,
+                defer_physical = (
+                    _defer_one_root_pipeline_to_physical_m39(semantic_ir)
+                    and len(exploration_results) == 1
+                    and exploration_results[0].site_kind == "implement"
+                    and self.options.target not in {None, "generic"}
                 )
+                if not defer_physical:
+                    semantic_ir, exploration_results = gate_retained_explorations(
+                        semantic_ir,
+                        exploration_results,
+                        configured_formal,
+                        self.formal_verifier,
+                        backend=configured_formal.backend,
+                    )
+                else:
+                    # Policy belongs to the implementation site even though
+                    # execution is deferred until target planning has formed
+                    # the complete value+schedule+resource candidates.
+                    exploration_results = tuple(
+                        replace(
+                            item,
+                            request=replace(
+                                item.request,
+                                formal_config=configured_formal,
+                                formal_verifier=None,
+                            ),
+                        )
+                        for item in exploration_results
+                    )
                 semantic_ir = _attach_unified_pipeline_formal_records(
                     semantic_ir,
                     exploration_results,
                 )
-                semantic_ir = _gate_all_standalone_pipelines(
-                    semantic_ir,
-                    configured_formal,
-                    self.formal_verifier,
-                    canonical_site_keys=(
-                        exploration_site_key(item)
-                        for item in exploration_results
-                        if item.site_kind == "implement"
-                    ),
-                )
+                if not defer_physical and not _defer_one_root_pipeline_to_physical_m39(semantic_ir):
+                    semantic_ir = _gate_all_standalone_pipelines(
+                        semantic_ir,
+                        configured_formal,
+                        self.formal_verifier,
+                        canonical_site_keys=(
+                            exploration_site_key(item)
+                            for item in exploration_results
+                            if item.site_kind == "implement"
+                        ),
+                        backend=configured_formal.backend,
+                    )
                 semantic_ir = gate_structured_candidate_sites(
                     semantic_ir,
                     configured_formal,
                     self.formal_verifier,
+                    backend=configured_formal.backend,
                 )
             except ValueError as error:
                 raise SemanticError(str(error)) from error
@@ -1015,6 +1295,13 @@ class CompilationSession:
         if (
             external_explorations
             and configured_formal.policy is not FormalPolicy.OFF
+            # A concrete target turns this external value site into a complete
+            # value+schedule+resource candidate during planning. Gating the
+            # pre-planning expression here would prove a different artifact
+            # and, for newly partitioned DAGs, cannot emit the nested physical
+            # boundaries. The planning-phase M39 gate below owns that route.
+            and implementation_policy.request.target in {None, "generic"}
+            and not _defer_one_root_pipeline_to_physical_m39(backend_ir)
         ):
             try:
                 backend_ir, external_explorations = gate_retained_explorations(
@@ -1022,6 +1309,7 @@ class CompilationSession:
                     external_explorations,
                     configured_formal,
                     self.formal_verifier,
+                    backend=configured_formal.backend,
                 )
             except ValueError as error:
                 raise SemanticError(str(error)) from error
@@ -1110,8 +1398,35 @@ class CompilationSession:
     def _build_planning(self) -> _PlanningProduct:
         selection = self._selection
         request = selection.implementation_request
+        from zlang.pipeline_scheduling import (
+            PipelineSchedulingError,
+            TargetResourceOperationCostModel,
+            schedule_module_fixed_pipelines,
+        )
+
+        try:
+            cost_model = None
+            if request.target not in {None, "generic"}:
+                from zlang.targets import load_target
+
+                _, _, resources = load_target(request.target)
+                cost_model = TargetResourceOperationCostModel(resources)
+            planned_module = schedule_module_fixed_pipelines(
+                selection.module,
+                cost_model=cost_model,
+            )
+        except PipelineSchedulingError as error:
+            raise SemanticError(
+                f"fixed pipeline cannot schedule the typed expression: {error}",
+                code="ZL-PIPELINE-SCHEDULE",
+                notes=(
+                    "fixed pipeline scheduling accepts only pure combinational "
+                    "typed values and never moves state, protocol, storage, or "
+                    "CDC effects",
+                ),
+            ) from error
         plans = plan_backend_implementations(
-            selection.module,
+            planned_module,
             backend_requests=(
                 (request.backend,) if request.backend is not None else ()
             ),
@@ -1127,12 +1442,37 @@ class CompilationSession:
             strict_target_planning=request.backend is None,
         )
         target_result = plans.target_planning_result
+        physical_formal_records: tuple[FormalExplorationRecord, ...] = ()
+        if (
+            target_result is not None
+            and request.formal_policy is not FormalPolicy.OFF
+            # The bounded single-root path owns one complete
+            # value+schedule+resource gate here. Multi-site designs retain the
+            # established selection-time M39 route and never receive a second
+            # solver invocation.
+            and _defer_one_root_pipeline_to_physical_m39(planned_module)
+            and (
+                not planned_module.pipeline_explorations
+                or request.target not in {None, "generic"}
+            )
+        ):
+            try:
+                plans, target_result, _, physical_formal_records = (
+                    _gate_physical_target_candidates(
+                        planned_module,
+                        plans,
+                        self._formal_config(check_only=False),
+                        self.formal_verifier,
+                    )
+                )
+            except ValueError as error:
+                raise SemanticError(str(error)) from error
         if request.backend is None:
             graph = (
                 target_result.selected_graph
                 if target_result is not None
                 else select_implementation_graph(
-                    selection.module,
+                    planned_module,
                     target=request.target,
                     architecture=request.architecture.identity,
                     mode=request.architecture.mode,
@@ -1140,7 +1480,13 @@ class CompilationSession:
             )
         else:
             graph = plans.plan_for(request.backend.kind).graph
-        return _PlanningProduct(plans, target_result, graph)
+        return _PlanningProduct(
+            planned_module,
+            plans,
+            target_result,
+            graph,
+            physical_formal_records,
+        )
 
     @property
     def target_instance(self):
@@ -1181,12 +1527,12 @@ class CompilationSession:
     def _build_reports(self) -> _ReportProduct:
         selection = self._selection
         planning = self.planning
-        implementation_report = render_implementation_report(selection.module)
+        implementation_report = render_implementation_report(planning.module)
         if not implementation_report and selection.exploration_results:
             implementation_report = render_exploration_report(
                 selection.exploration_results
             )
-        architecture_report = render_architecture_report(selection.module)
+        architecture_report = render_architecture_report(planning.module)
         if not architecture_report and selection.exploration_results:
             # ``--architecture-report`` remains a compatibility output alias,
             # but canonical ``implement`` regions no longer manufacture a
@@ -1198,7 +1544,7 @@ class CompilationSession:
         return _ReportProduct(
             implementation_report,
             render_cost_report(selection.extraction),
-            render_pipeline_report(selection.module)
+            render_pipeline_report(planning.module)
             + (
                 planning.target_planning_result.report
                 if planning.target_planning_result
@@ -1223,7 +1569,7 @@ class CompilationSession:
         reports = self.reports
         return CompilationResult(
             ast=self.syntax,
-            ir=selection.module,
+            ir=planning.module,
             optimization_ir=selection.optimization_ir,
             clash=clash,
             csr_markdown=documents.csr_markdown,
@@ -1260,6 +1606,7 @@ class CompilationSession:
             formal_artifact_provider=self.formal_artifact_provider,
             formal_tool_resolver=self.formal_tool_resolver,
             candidate_site_ledger=selection.candidate_site_ledger,
+            physical_formal_records=planning.physical_formal_records,
         )
 
 

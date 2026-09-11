@@ -147,7 +147,7 @@ def run(output: Path, *, source: Path = DEFAULT_SOURCE, depth: int = 10, timeout
     evidence = typed_report.candidate_equivalence[0].evidence_records
     candidate_statuses = [item.status for item in evidence]
     accepted = (
-        len(candidate_statuses) == 3
+        len(candidate_statuses) == 1
         and all(item == "bounded_pass" for item in candidate_statuses)
         and all(item["status"] == item["expected"] for item in checks.values())
         and all(checks[name]["counterexample"] for name in ("output_bit_flip", "missing_final_stage"))

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, fields, is_dataclass
 from enum import Enum
+from typing import TYPE_CHECKING
 
 from zlang.ir.interfaces import (
     CreditSignal,
@@ -32,6 +33,9 @@ from zlang.ir.types import (
     VecType,
 )
 from zlang.source import SourceOrigin
+
+if TYPE_CHECKING:
+    from zlang.ir.pipelines import PipelinePlan
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -815,6 +819,7 @@ class Pipeline(TracedExpression):
     expression: Expression
     instance: int
     type: HardwareType
+    pipeline_plan: PipelinePlan | None = None
 
 
 def sequential_stage_count(expression: Delay | Pipeline) -> int:

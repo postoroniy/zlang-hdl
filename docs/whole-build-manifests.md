@@ -244,24 +244,18 @@ of it.
   runs the existing selection-time M39-to-M36 route. `--verify` with policy
   `off` executes M35/source safety and covers. Bundle-only publication creates
   immutable safety/cover inputs and the base compiler plan but does not prepare
-  or execute selected-candidate M36/M38. Joint `--verify` plus a non-`off`
-  policy enriches the plan and may execute compatible selected-candidate Clash
-  M36, direct-SV M36, and M38 routes.
+  or execute selected-candidate M36. Joint `--verify` plus a non-`off` policy
+  may execute the compatible selected-candidate direct-SV M36 route.
 - A base bundle replays only immutable M35/source safety and cover jobs. When
-  selected-candidate M36/M38 routes were prepared for publication, their strict
+  selected-candidate M36 routes were prepared for publication, their strict
   path-free typed inputs are stored as hash-validated companion records;
   `zlang-verify` executes those frozen routes without source or M39 reselection.
   Solver results remain external run evidence and are never embedded as trusted
   source facts.
-- This orchestration does not invent new M36, M38, or M39 relations; all results
-  still use their existing typed compiler-owned routes and distinct status
-  vocabularies. M38 is advisory for M39 eligibility, but an actually executed
-  M38 counterexample is a verification failure.
-- M38's current miter validator accepts the original BackendArtifact v2
-  intersection. Newer feature-bearing artifact versions may be recorded in a
-  whole-build manifest, but that does not make them M38-compatible. An M38 claim
-  is included only when a typed `CrossBackendResult` already exists for a
-  compatible v2 artifact pair.
+- This orchestration does not invent new M36 or M39 relations; all results still
+  use their existing typed compiler-owned routes and distinct status
+  vocabularies. Historical M38 records remain readable as dated evidence, but
+  the production compiler does not prepare or execute an M38 route.
 - A whole-build manifest does not establish protocol observational equivalence,
   hierarchical M36/M38, liveness, CDC refinement, or any new formal relation.
 - Recursive register/FIFO/request-response/CSR goals require complete published

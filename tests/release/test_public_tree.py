@@ -295,9 +295,10 @@ def test_release_status_checks_version_corpus_and_junit(tmp_path: Path) -> None:
             "python": ">=3.12,<3.13",
             "architecture": "x86_64",
         },
-        "validation": {
-            "minimum_tests_passed": 2,
-            "maximum_tests_skipped": 0,
+            "validation": {
+                "minimum_tests_passed": 2,
+                "minimum_tests_collected": 2,
+                "maximum_tests_skipped": 0,
             "example_corpus": {
                 "source_files": 1,
                 "module_roots": 2,
@@ -307,7 +308,6 @@ def test_release_status_checks_version_corpus_and_junit(tmp_path: Path) -> None:
             },
         },
         "eda_toolchain": {
-            "clash": "1.11.0",
             "iverilog": "13.0",
             "sby": "0.68",
             "verilator": "5.044",
@@ -395,6 +395,7 @@ def test_release_workflows_preserve_checkout_and_security_contracts() -> None:
     ) in release
     assert "import std.math.complex" in release
     assert '"$environment/bin/zlang" package-smoke.zhl --check' in release
+    assert "zlang-compare-backends" not in release
 
     # Installer inventory is release evidence, not merely project dependencies.
     assert release.count("--upgrade pip==26.2.1") == 2
@@ -562,9 +563,9 @@ def test_release_checksums_cover_editor_payloads_and_fail_if_either_is_missing(
     body = textwrap.dedent(step.split("        run: |\n", 1)[1])
     checksum_script = "(cd dist && sha256sum" + body.split("(cd dist && sha256sum", 1)[1]
     payloads = (
-        "zlang_hdl-0.1.0a4-py3-none-any.whl",
-        "zlang_hdl-0.1.0a4.tar.gz",
-        "zlang-hdl-v0.1.0a4.cdx.json",
+        "zlang_hdl-0.1.0a5-py3-none-any.whl",
+        "zlang_hdl-0.1.0a5.tar.gz",
+        "zlang-hdl-v0.1.0a5.cdx.json",
         "release-requirements.txt",
         "zlang-hdl-0.1.0.vsix",
         "zlang-hdl-0.1.0-vsix-audit.json",
@@ -680,7 +681,7 @@ def test_public_policy_documents_are_discoverable() -> None:
     for capability in (
         "direct-SystemVerilog",
         "local safety verification",
-        "cross-backend evidence",
+        "historical M38 records",
         "formal-aware candidate selection",
         "`implement`",
         "`choice`",
@@ -708,4 +709,39 @@ def test_no_skip_plugin_turns_skip_into_failure(tmp_path: Path) -> None:
         text=True,
     )
     assert completed.returncode == 1
+    assert "1 skipped" in completed.stdout
+
+
+@pytest.mark.parametrize(
+    "reason",
+    (
+        "real Clash 1.11 is unavailable",
+        "root hierarchy equivalence requires Clash",
+    ),
+)
+def test_no_skip_plugin_allows_only_retired_clash_skip(
+    tmp_path: Path,
+    reason: str,
+) -> None:
+    test_file = tmp_path / "test_legacy_clash.py"
+    test_file.write_text(
+        "import pytest\n\ndef test_legacy_backend():\n"
+        f"    pytest.skip({reason!r})\n",
+        encoding="utf-8",
+    )
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "-q",
+            "-p",
+            "tools.pytest_no_skips",
+            str(test_file),
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 0
     assert "1 skipped" in completed.stdout

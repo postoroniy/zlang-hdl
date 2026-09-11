@@ -14,7 +14,6 @@ import sys
 import tomllib
 import xml.etree.ElementTree as ET
 
-from zlang.toolchain import find_clash_executable
 
 
 DEFAULT_STATUS = Path("release/status.json")
@@ -125,14 +124,7 @@ def _command_output(command: tuple[str, ...]) -> str:
 
 
 def _check_tools(expected: dict[str, str]) -> None:
-    clash = find_clash_executable()
-    if clash is None:
-        raise StatusError(
-            "required EDA tool is missing: clash "
-            "(set ZLANG_CLASH or ZLANG_CLASH_ROOT)"
-        )
     commands = {
-        "clash": (clash, "--version"),
         "iverilog": ("iverilog", "-V"),
         "sby": ("sby", "--version"),
         "verilator": ("verilator", "--version"),
@@ -200,9 +192,15 @@ def validate(
             f"recorded={validation.get('example_corpus')!r}, actual={actual_corpus!r}"
         )
     minimum = validation.get("minimum_tests_passed")
+    minimum_collected = validation.get("minimum_tests_collected")
     maximum_skipped = validation.get("maximum_tests_skipped")
     if not isinstance(minimum, int) or minimum <= 0:
         raise StatusError("minimum_tests_passed must be a positive integer")
+    if not isinstance(minimum_collected, int) or minimum_collected < minimum:
+        raise StatusError(
+            "minimum_tests_collected must be an integer at least as large as "
+            "minimum_tests_passed"
+        )
     if not isinstance(maximum_skipped, int) or maximum_skipped < 0:
         raise StatusError("maximum_tests_skipped must be a non-negative integer")
     if junit is not None:
@@ -214,6 +212,11 @@ def validate(
         if skipped > maximum_skipped:
             raise StatusError(
                 f"{skipped} tests skipped; release allows at most {maximum_skipped}"
+            )
+        if passed + skipped < minimum_collected:
+            raise StatusError(
+                f"only {passed + skipped} tests collected; release requires "
+                f"{minimum_collected}"
             )
         if passed < minimum:
             raise StatusError(f"only {passed} tests passed; release requires {minimum}")

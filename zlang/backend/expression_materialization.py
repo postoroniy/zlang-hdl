@@ -137,8 +137,12 @@ def plan_materialization(
     preferred_names: Mapping[expr.Expression, str] | None = None,
     reserved_names: Iterable[str] = (),
     generated_prefix: str = "zlang_expr_",
+    minimum_shared_size: int = 4,
 ) -> tuple[MaterializedExpression, ...]:
     """Choose shared/expensive exact expressions in deterministic DFS order."""
+
+    if minimum_shared_size < 1:
+        raise ValueError("minimum shared expression size must be positive")
 
     preferred = dict(preferred_names or {})
     occurrences: Counter[expr.Expression] = Counter()
@@ -206,7 +210,9 @@ def plan_materialization(
     selected: list[expr.Expression] = []
     for value in order:
         size = size_of(value)
-        used_repeatedly = occurrences[value] > 1 and size >= 4
+        used_repeatedly = (
+            occurrences[value] > 1 and size >= minimum_shared_size
+        )
         feeds_expensive_conversion = value in expensive_conversion_inputs
         if (
             value in preferred

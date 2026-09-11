@@ -478,6 +478,7 @@ class ImplementationManifest:
     evidence_identity: str | None = None
     realization_backend: str = "backend_independent"
     latency_knowledge: str = "known"
+    scheduled_value_graph_identity: str | None = None
 
 def _width(type_: HardwareType) -> int:
     return physical_width(type_)
@@ -777,6 +778,7 @@ class BackendArtifact:
                 "alignment_delays": [list(item) for item in implementation.alignment_delays],
                 "compensation_delays": [list(item) for item in implementation.compensation_delays],
                 "evidence_identity": implementation.evidence_identity,
+                "scheduled_value_graph_identity": implementation.scheduled_value_graph_identity,
                 "implementation_artifact_hash": implementation.implementation_artifact_hash,
             }
         return canonical_json(payload)
@@ -904,6 +906,7 @@ class BackendArtifact:
                 raw_implementation.get("evidence_identity"),
                 raw_implementation.get("realization_backend", "backend_independent"),
                 raw_implementation.get("latency_knowledge", "known"),
+                raw_implementation.get("scheduled_value_graph_identity"),
             )
         raw_contract = data.get("timing_contract")
         timing_contract = None

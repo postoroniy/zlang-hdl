@@ -38,10 +38,11 @@ class CliArtifactRoutingTests(unittest.TestCase):
             status = main([self.source, *arguments])
         return status, stdout.getvalue(), stderr.getvalue()
 
-    def test_no_option_keeps_legacy_clash_stdout(self) -> None:
+    def test_no_option_emits_production_systemverilog_stdout(self) -> None:
         status, stdout = self.invoke([])
         self.assertEqual(status, 0)
-        self.assertIn("module ALU where", stdout)
+        self.assertIn("module ALU", stdout)
+        self.assertNotIn("module ALU where", stdout)
 
     def test_systemverilog_only_suppresses_clash_stdout(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

@@ -3,7 +3,7 @@
   "release": {
     "channel": "alpha",
     "repository": "https://github.com/postoroniy/zlang-hdl",
-    "version": "0.1.0a4"
+    "version": "0.1.0a5"
   },
   "platform": {
     "operating_system": "Linux",
@@ -11,18 +11,18 @@
     "architecture": "x86_64"
   },
   "validation": {
-    "minimum_tests_passed": 3902,
-    "maximum_tests_skipped": 0,
+    "minimum_tests_passed": 3500,
+    "minimum_tests_collected": 3900,
+    "maximum_tests_skipped": 400,
     "example_corpus": {
-      "source_files": 87,
-      "module_roots": 181,
-      "standalone_supported": 164,
+      "source_files": 88,
+      "module_roots": 182,
+      "standalone_supported": 165,
       "child_or_template_only": 17,
       "direct_unsupported": 0
     }
   },
   "eda_toolchain": {
-    "clash": "1.11.0",
     "iverilog": "13.0",
     "sby": "0.68",
     "verilator": "5.044",

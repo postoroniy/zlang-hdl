@@ -84,7 +84,7 @@ def test_region_selector_is_exact_and_profile_constraint_executes_m34(
     selected = compile_file(top, profile="small", include_clash=False)
     assert selected.implementation_request.regions == (region.identity,)
     assert len(selected.exploration_results) == 1
-    assert selected.exploration_results[0].selected_candidate.stages == ("source",)
+    assert selected.exploration_results[0].selected_candidate.stages == ("value",)
 
     manifest.write_text(manifest.read_text().replace(region.identity, "0" * 64))
     with pytest.raises(Exception, match="unknown or stale implementation region"):

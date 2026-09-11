@@ -20,8 +20,8 @@ command + PSDU
   -> ready/valid complex samples
 ```
 
-`Ieee80211aTransmitter` is the stable project top. Both Clash and direct
-SystemVerilog are generated from the same typed ZLang hierarchy.
+`Ieee80211aTransmitter` is the stable project top. Production
+SystemVerilog is generated from the backend-independent typed ZLang hierarchy.
 
 ## Source layout
 
@@ -89,11 +89,10 @@ From this project directory:
   --project zlang.toml --top Ieee80211aTransmitter \
   --systemverilog build/Ieee80211aTransmitter.sv
 
-# Clash-generated Verilog plus Verilator lint
+# Production direct-SystemVerilog plus Verilator lint
 ../../../.venv/bin/zlang src/transmitter.zhl \
   --project zlang.toml --top Ieee80211aTransmitter \
-  --verilog-dir build/Ieee80211aTransmitter-clash \
-  --verilator-lint
+  --systemverilog build/Ieee80211aTransmitter.sv --verilator-lint
 ```
 
 Useful leaf checks:

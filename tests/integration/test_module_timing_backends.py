@@ -177,7 +177,10 @@ def test_clash_keeps_timed_child_pipeline_and_matches_reset_fill(
     result = compile_source(SOURCE, top="Top")
     child_names = module_rtl_names(result.ir.children[0])
     for stage in (1, 2):
-        assert f"{child_names.stage('pipeline', 0, stage)} = register" in result.clash
+        assert (
+            f"{child_names.stage('pipeline', 0, stage)} = register"
+            in result.clash
+        )
     rtl = generate_verilog(
         result.clash, "Top", tmp_path / "clash", CLASH_EXECUTABLE
     )

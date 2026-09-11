@@ -8,7 +8,7 @@ import pytest
 
 import zlang
 from zlang._version import __version__
-from zlang import backend_comparison, cli, project_cli, verification_cli
+from zlang import cli, project_cli, verification_cli
 from zlang import toolchain
 
 
@@ -29,7 +29,6 @@ def test_root_license_is_unmodified_apache_2_0() -> None:
     (
         (cli.main, "zlang"),
         (project_cli.main, "zlang-lock"),
-        (backend_comparison.main, "zlang-compare-backends"),
         (verification_cli.main, "zlang-verify"),
     ),
 )
@@ -48,7 +47,7 @@ def test_every_public_cli_reports_the_distribution_version(
 def test_package_and_build_metadata_share_one_version_source() -> None:
     configuration = tomllib.loads((ROOT / "pyproject.toml").read_text())
 
-    assert zlang.__version__ == __version__ == "0.1.0a4"
+    assert zlang.__version__ == __version__ == "0.1.0a5"
     assert configuration["project"]["dynamic"] == ["version"]
     assert configuration["project"]["license"] == "Apache-2.0"
     assert configuration["project"]["requires-python"] == ">=3.12,<3.13"
@@ -81,7 +80,7 @@ def test_every_owned_hardware_source_uses_the_canonical_suffix() -> None:
     sources = tuple(path for root in roots for path in root.rglob("*.zhl"))
 
     assert legacy == ()
-    assert len(sources) == 132
+    assert len(sources) == 134
 
 
 def test_clash_discovery_has_no_machine_specific_fallback(monkeypatch) -> None:

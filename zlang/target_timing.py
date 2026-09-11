@@ -129,6 +129,7 @@ def build_dsp_cascade_timing_dag(
         kind = {
             "accumulator_plus_product": "signed_product_add_segment",
             "accumulator_minus_product": "signed_product_subtract_segment",
+            "product_minus_accumulator": "signed_product_subtract_segment",
         }.get(accumulator_mode, "resource_segment")
         semantic_mapping = (
             next(
@@ -213,7 +214,7 @@ def build_dsp_cascade_timing_dag(
 def build_signed_product_timing_dag(
     reduction: SignedProductReduction,
     *,
-    quantization: expr.FixedConvert,
+    quantization: expr.Expression,
     output_latency: int,
     target_identity: str | None,
 ) -> TimingDAG:
@@ -249,11 +250,16 @@ def build_signed_product_timing_dag(
             source_origin=(join.source_origin.render() if join.source_origin else None),
             target_identity=target_identity,
         ))
-    quant_id = _identity(reduction.semantic_identity, "fixed_quantization")
+    boundary_kind = (
+        "fixed_quantization"
+        if isinstance(quantization, expr.FixedConvert)
+        else "exact_value_projection"
+    )
+    quant_id = _identity(reduction.semantic_identity, boundary_kind)
     output_id = _identity(reduction.semantic_identity, "output_boundary")
     nodes.extend((
         TimingNode(
-            quant_id, "fixed_quantization", "quantization",
+            quant_id, boundary_kind, "quantization",
             expression_semantic_identity(quantization),
             source_origin=(quantization.origin.render() if quantization.origin else None),
             target_identity=target_identity,

@@ -10,7 +10,7 @@ from zlang.costs import MetricSource
 from zlang.ir import expressions as expr
 from zlang.ir.pipelines import PipelineMetric, PipelineRelation
 from zlang.ir.types import UIntType
-from zlang.target_planner import MeasurementKey, QoREvidence
+from zlang.target_planner import MeasurementKey, QoREvidence, load_qor_evidence
 from zlang.target_timing import alignment_delays
 from zlang.targets import TargetArchitectureError
 
@@ -42,6 +42,25 @@ def _evidence(graph, *, stage=MetricSource.ROUTED_MEASUREMENT, tool="Vivado"):
         ),
         stage, 233, 16, 4, 0, 108.08, 0.748, "test fixture",
     )
+
+
+def test_default_qor_catalog_loads_fir_and_signed_product_evidence():
+    identities = {
+        item.key.architecture_template_identity
+        for item in load_qor_evidence()
+    }
+    assert identities == {
+        "std.arch.xilinx7_fir.Xilinx7SymmetricDSPCascade",
+        "std.arch.xilinx7_signed_product.Xilinx7SignedProductCascade",
+    }
+
+
+def test_generic_candidate_uses_computed_structural_fmax_not_placeholder():
+    result = _compile()
+    generic = result.target_planning_result.generated_candidates[0]
+    assert generic.name == "generic"
+    assert generic.cost.fmax_est.value not in {None, 100}
+    assert generic.cost.fmax_est.source is MetricSource.STRUCTURAL_ESTIMATE
 
 
 def test_ii_alias_normalizes_to_existing_throughput_constraint_and_exact_latency():

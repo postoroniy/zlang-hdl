@@ -127,6 +127,7 @@ class ExplorationSelectionError(ValueError):
         constraints: tuple[UnifiedConstraint, ...],
         candidates: Iterable[ExplorationCandidate],
         cause: CostExtractionError,
+        rejected: Iterable[RejectedCandidate] = (),
     ) -> None:
         self.constraints = constraints
         self.candidate_summaries = tuple(
@@ -142,6 +143,17 @@ class ExplorationSelectionError(ValueError):
         )
         if candidates_text:
             message += f"; candidates: {candidates_text}"
+        rejection_reasons = tuple(
+            dict.fromkeys(
+                item.reason[:800]
+                for item in rejected
+                if item.reason
+            )
+        )
+        if rejection_reasons:
+            message += "; rejected transformations: " + "; ".join(
+                rejection_reasons[:4]
+            )
         super().__init__(message)
         self.__cause__ = cause
 
@@ -219,6 +231,51 @@ class ExplorationResult:
     @property
     def report(self) -> str:
         return render_result(self)
+
+
+def _general_pipeline_latencies(request: ExplorationRequest) -> tuple[int, ...]:
+    """Return a deterministic bounded latency search set for DAG scheduling.
+
+    Scalar ``implement`` only enables pipeline candidates after the source has
+    supplied a positive latency constraint.  Exact constraints therefore map
+    to one latency, bounded ranges retain both endpoints, and an open upper
+    bound receives a deliberately small finite search horizon.  The M28
+    constraint evaluator remains authoritative for candidate legality.
+    """
+
+    constraint = next(
+        (
+            item
+            for item in request.constraints
+            if item.metric is ir_expr.CostMetric.LATENCY
+        ),
+        None,
+    )
+    if constraint is None:
+        return ()
+    lower = max(1, int(constraint.minimum or 1))
+    if constraint.maximum is not None:
+        upper = int(constraint.maximum)
+    else:
+        # Open-ended implementation intent must still produce a bounded,
+        # reproducible catalog.  Four neighbouring depths are sufficient for
+        # this first structural scheduler and match the established bounded
+        # automatic-pipeline search scale.
+        upper = lower + 3
+    if upper < lower:
+        return ()
+    count = upper - lower + 1
+    budget = min(request.bounds.max_pipeline_candidates, 16)
+    if count <= budget:
+        return tuple(range(lower, upper + 1))
+    # Preserve both semantic boundary candidates and sample the interior
+    # evenly.  Integer arithmetic and first-occurrence deduplication make the
+    # result stable across hosts.
+    selected = {
+        lower + (index * (count - 1)) // (budget - 1)
+        for index in range(budget)
+    }
+    return tuple(sorted(selected))
 
 
 def explore(
@@ -335,6 +392,7 @@ def explore(
         # LUT/FF/BRAM and lower-only latency constraints.
         from zlang.pipelines import (
             PipelineExplorationError,
+            explore_general_pipeline,
             explore_pipeline,
             pipeline_constraints_from_unified,
         )
@@ -342,9 +400,12 @@ def explore(
         pipeline_constraints = pipeline_constraints_from_unified(
             request.constraints
         )
+        general_latencies = _general_pipeline_latencies(request)
         expanded = list(candidates)
         from zlang.ir.pipelines import MultiplierMapping
         for parent in candidates:
+            pipeline_candidates = []
+            pipeline_failures: list[str] = []
             try:
                 generated = explore_pipeline(
                     context.output,
@@ -354,9 +415,37 @@ def explore(
                     context.allocate_instance,
                 )
             except PipelineExplorationError as error:
-                rejected.append(RejectedCandidate(parent, "pipeline", str(error)))
+                pipeline_failures.append(f"specialized: {error}")
+            else:
+                pipeline_candidates.extend(generated.candidates)
+            # Preserve the validated sum/product and target-DSP catalog as the
+            # specialized architecture family.  The general DAG scheduler is
+            # a bounded fallback, not a duplicate replacement catalog.
+            if not pipeline_candidates and general_latencies:
+                try:
+                    general = explore_general_pipeline(
+                        context.output,
+                        parent.expression,
+                        context.result_type,
+                        pipeline_constraints,
+                        general_latencies,
+                        context.allocate_instance,
+                    )
+                except PipelineExplorationError as error:
+                    pipeline_failures.append(f"general DAG: {error}")
+                else:
+                    pipeline_candidates.extend(general.candidates)
+            if not pipeline_candidates:
+                rejected.append(
+                    RejectedCandidate(
+                        parent,
+                        "pipeline",
+                        "; ".join(pipeline_failures)
+                        or "no bounded pipeline candidate was generated",
+                    )
+                )
                 continue
-            for pipeline in generated.candidates:
+            for pipeline in pipeline_candidates:
                 if (
                     pipeline.multiplier_mapping is MultiplierMapping.DSP
                     and TransformFamily.DSP not in allowed
@@ -417,6 +506,7 @@ def explore(
             request.constraints,
             candidates,
             error,
+            rejected,
         ) from error
     formal_records: tuple[object, ...] = ()
     if request.formal_config is not None:
@@ -426,8 +516,17 @@ def explore(
             verifier is None
             and request.formal_config.policy.value != "off"
         ):
-            from zlang.formal_candidate import M36ClashCandidateVerifier
-            verifier = M36ClashCandidateVerifier(
+            from zlang.formal_candidate import (
+                M36ClashCandidateVerifier,
+                M36DirectSystemVerilogCandidateVerifier,
+            )
+            verifier_type = (
+                M36DirectSystemVerilogCandidateVerifier
+                if getattr(request.formal_config, "backend", "clash")
+                == "direct_systemverilog"
+                else M36ClashCandidateVerifier
+            )
+            verifier = verifier_type(
                 request.root,
                 artifact_provider=getattr(
                     request.formal_config,

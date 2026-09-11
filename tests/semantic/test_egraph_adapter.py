@@ -5,7 +5,7 @@ from dataclasses import replace
 from zlang.compiler import compile_source
 from zlang.ir.types import UIntType
 from zlang.opt import RewriteRule, SaturationError, saturate, term_to_expression
-from zlang.opt.ir import pure_metadata
+from zlang.opt.ir import ExpressionOp, pure_metadata
 from zlang.simulate import simulate
 from zlang.opt import (
     EGraphAdapterError,
@@ -108,7 +108,12 @@ class EGraphAdapterTests(unittest.TestCase):
     def test_unsafe_arithmetic_and_incompatible_bitwise_types_are_not_merged(self) -> None:
         arithmetic = compile_source("module Arithmetic { in x:u4 out y:u5 y=x+0 }")
         root = arithmetic.optimization_ir.assignments[0].expression
-        self.assertEqual(saturate(arithmetic.optimization_ir, root).alternatives, ())
+        arithmetic_result = saturate(arithmetic.optimization_ir, root)
+        self.assertEqual(len(arithmetic_result.alternatives), 1)
+        self.assertTrue(all(
+            item.op is ExpressionOp.ADD
+            for item in arithmetic_result.equivalence_class.terms
+        ))
 
         bitwise = compile_source("module Bitwise { in x:u4 out y:u4 y=x|0 }")
         root = bitwise.optimization_ir.assignments[0].expression

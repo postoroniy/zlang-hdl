@@ -3,7 +3,7 @@ import unittest
 
 from zlang.compiler import compile_source
 from zlang.ir.expressions import BinaryOperator
-from zlang.ir.types import BitType, UIntType
+from zlang.ir.types import BitType, FixedType, UIntType
 from zlang.opt import (
     EquivalenceMode,
     RewriteRule,
@@ -22,7 +22,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class EqualitySaturationSemanticTests(unittest.TestCase):
-    def test_power_of_two_multiply_is_not_strength_reduced(self) -> None:
+    def test_unsigned_power_of_two_multiply_uses_exact_widen_then_shift(self) -> None:
         compilation = compile_source(
             (ROOT / "examples/shift_multiply.zhl").read_text()
         )
@@ -33,16 +33,36 @@ class EqualitySaturationSemanticTests(unittest.TestCase):
         self.assertFalse(result.truncated)
         self.assertEqual(result.observations, (Observation.TYPED_VALUE,))
         self.assertEqual(result.equivalence_class.type, UIntType(16))
-        self.assertNotIn(RewriteRule.MULTIPLY_POWER_OF_TWO, result.rules)
-        self.assertEqual(result.alternatives, ())
+        self.assertIn(RewriteRule.MULTIPLY_POWER_OF_TWO, result.rules)
+        self.assertIn(RewriteRule.MULTIPLY_COMMUTE, result.rules)
+        shifted = tuple(
+            item
+            for item in result.alternatives
+            if item.op is ExpressionOp.BINARY
+            and item.attribute("operator") is BinaryOperator.SHIFT_LEFT
+        )
+        self.assertTrue(shifted)
+        self.assertEqual(shifted[0].type, UIntType(16))
+        self.assertEqual(shifted[0].operands[0].op, ExpressionOp.EXTEND)
+        self.assertEqual(shifted[0].operands[0].type, UIntType(16))
 
-    def test_signed_multiply_is_not_strength_reduced(self) -> None:
+    def test_signed_power_of_two_multiply_uses_signed_exact_extension(self) -> None:
         compilation = compile_source(
             "module SignedShift { in x:s8 out y:s16 y=x*8 }"
         )
         root = compilation.optimization_ir.assignments[0].expression
         result = saturate(compilation.optimization_ir, root)
-        self.assertEqual(result.alternatives, ())
+        self.assertIn(RewriteRule.MULTIPLY_POWER_OF_TWO, result.rules)
+        self.assertIn(RewriteRule.MULTIPLY_COMMUTE, result.rules)
+        shifted = tuple(
+            item
+            for item in result.alternatives
+            if item.op is ExpressionOp.BINARY
+            and item.attribute("operator") is BinaryOperator.SHIFT_LEFT
+        )
+        self.assertTrue(shifted)
+        self.assertEqual(str(shifted[0].type), "s16")
+        self.assertEqual(shifted[0].operands[0].op, ExpressionOp.EXTEND)
 
     def test_identity_and_zero_rewrites_keep_the_declared_result_type(self) -> None:
         source = (
@@ -91,6 +111,38 @@ class EqualitySaturationSemanticTests(unittest.TestCase):
         self.assertTrue(
             any(term.op is ExpressionOp.INPUT for term in result.alternatives)
         )
+
+    def test_exact_wiring_nodes_preserve_operands_while_children_saturate(self) -> None:
+        compilation = compile_source("""
+            module Wiring {
+                in x, y : bits<2>
+                in u : u4
+                out joined : bits<4>
+                out upper : bits<2>
+                out raw : bits<4>
+                joined = concat(x | 0, y)
+                upper = concat(x | 0, y)[3:2]
+                raw = bitcast<bits<4>>(u | 0)
+            }
+        """)
+        for assignment, root_operation in zip(
+            compilation.optimization_ir.assignments,
+            (ExpressionOp.CONCAT, ExpressionOp.SLICE, ExpressionOp.BITCAST),
+            strict=True,
+        ):
+            with self.subTest(output=assignment.target_name):
+                result = saturate(
+                    compilation.optimization_ir,
+                    assignment.expression,
+                )
+                self.assertIn(RewriteRule.BIT_OR_ZERO, result.rules)
+                self.assertTrue(result.alternatives)
+                self.assertTrue(all(
+                    term.op is root_operation
+                    for term in result.equivalence_class.terms
+                ))
+                for term in result.equivalence_class.terms:
+                    term_to_expression(term)
 
     def test_nested_identities_retain_the_typed_original_and_explore_candidates(self) -> None:
         source = "module Nested { in x:u8 out y:u8 y=(x|0)^0 }"
@@ -292,8 +344,27 @@ class EqualitySaturationSemanticTests(unittest.TestCase):
         result = saturate(compilation.optimization_ir, root)
 
         self.assertTrue(result.saturated)
-        self.assertEqual(result.rules, ())
-        self.assertEqual(result.alternatives, ())
+        self.assertEqual(result.rules, (RewriteRule.MULTIPLY_COMMUTE,))
+        self.assertEqual(len(result.alternatives), 1)
+
+    def test_fixed_arithmetic_is_exact_typed_and_quantization_is_opaque(self) -> None:
+        arithmetic = compile_source(
+            "module FixedAdd { in a,b:fixed<8,4> out y:fixed<9,4> y=a+b }"
+        )
+        root = arithmetic.optimization_ir.assignments[0].expression
+        result = saturate(arithmetic.optimization_ir, root)
+        self.assertEqual(result.equivalence_class.type, FixedType(9, 4))
+        self.assertEqual(result.rules, (RewriteRule.ADD_COMMUTE,))
+        self.assertEqual(len(result.alternatives), 1)
+
+        boundary = compile_source(
+            "module FixedBoundary { in a,b:fixed<8,4> out y:fixed<8,4> "
+            "y=quantize<fixed<8,4>>(a+b) { round floor overflow saturate } }"
+        )
+        root = boundary.optimization_ir.assignments[0].expression
+        bounded = saturate(boundary.optimization_ir, root)
+        self.assertIn(RewriteRule.ADD_COMMUTE, bounded.rules)
+        self.assertEqual(bounded.equivalence_class.type, FixedType(8, 4))
 
     def test_state_protocol_and_architectural_dependencies_are_rejected(self) -> None:
         cases = []
