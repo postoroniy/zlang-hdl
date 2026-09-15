@@ -14,7 +14,6 @@ import subprocess
 
 import pytest
 
-from zlang.backend.manifest import BackendArtifact
 from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
 from zlang.compiler import compile_source
 from zlang.opt.lowering import lower, restore

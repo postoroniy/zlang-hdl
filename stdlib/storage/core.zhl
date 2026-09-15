@@ -151,3 +151,116 @@ where N >= 2 && is_power_of_two(N) {
         ? 0
         : (commit & commit_open & write_bank ? 1 : valid1)
 }
+
+// Ordinary source wrapper around the existing explicit asynchronous FIFO
+// crossing. It introduces no second FIFO primitive and no implicit CDC.
+module StorageAsyncFifo<type T,D=4> {
+    clock write_clk
+    reset write_rst @write_clk
+    clock read_clk
+    reset read_rst @read_clk
+    in source : rv<T> @write_clk
+    out sink : rv<T> @read_clk
+
+    connect source -> sink {
+        crossing async_fifo(D)
+    }
+}
+
+// Same-clock true dual-port logical memory. Physical selection may use a
+// matching native resource or the bounded generic register/mux realization.
+module StorageDualPortMemory<type T,N,AW>
+where N >= 2 && is_power_of_two(N) && AW == floor_log2(N) {
+    clock clk
+    reset rst
+    in a_read : bit
+    in a_write : bit
+    in a_address : uint<AW>
+    in a_write_data : T
+    out a_read_data : T
+    in b_read : bit
+    in b_write : bit
+    in b_address : uint<AW>
+    in b_write_data : T
+    out b_read_data : T
+
+    memory storage : mem<T,N> {
+        read_write_port a
+        read_write_port b
+        read_latency 1
+        collision old
+        write_priority a > b
+    }
+    storage.a.read_enable = a_read
+    storage.a.write_enable = a_write
+    storage.a.address = a_address
+    storage.a.write_data = a_write_data
+    storage.b.read_enable = b_read
+    storage.b.write_enable = b_write
+    storage.b.address = b_address
+    storage.b.write_data = b_write_data
+    a_read_data = storage.a.data
+    b_read_data = storage.b.data
+}
+
+// A one-writer/two-reader shape is deterministically implemented as coherent
+// replicated 1R1W memories when no exact native resource is selected.
+module Storage2R1WMemory<type T,N,AW>
+where N >= 2 && is_power_of_two(N) && AW == floor_log2(N) {
+    clock clk
+    reset rst
+    in write : bit
+    in write_address : uint<AW>
+    in write_data : T
+    in read0 : bit
+    in read0_address : uint<AW>
+    out read0_data : T
+    in read1 : bit
+    in read1_address : uint<AW>
+    out read1_data : T
+
+    memory storage : mem<T,N> {
+        write_port write
+        read_port read0
+        read_port read1
+        read_latency 1
+        collision old
+    }
+    storage.write.enable = write
+    storage.write.address = write_address
+    storage.write.data = write_data
+    storage.read0.read_enable = read0
+    storage.read0.address = read0_address
+    storage.read1.read_enable = read1
+    storage.read1.address = read1_address
+    read0_data = storage.read0.data
+    read1_data = storage.read1.data
+}
+
+// The bounded independent-clock writable-memory shape: one write-only source
+// domain and one read-only destination domain.
+module StorageAsyncMemory1W1R<type T,N,AW>
+where N >= 2 && is_power_of_two(N) && AW == floor_log2(N) {
+    clock write_clk
+    reset write_rst @write_clk
+    clock read_clk
+    reset read_rst @read_clk
+    in write : bit @write_clk
+    in write_address : uint<AW> @write_clk
+    in write_data : T @write_clk
+    in read_address : uint<AW> @read_clk
+    out read_data : T @read_clk
+
+    memory storage : async_mem<T,N> {
+        write_port write @write_clk
+        read_port read @read_clk
+        read_latency 1
+        collision old
+        reset { contents preserve read_data clear }
+    }
+    storage.write.enable = write
+    storage.write.address = write_address
+    storage.write.data = write_data
+    storage.read.address = read_address
+    read_data = storage.read.data
+}

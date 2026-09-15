@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from hashlib import sha256
 
 
-SCHEDULED_VALUE_GRAPH_SCHEMA = "zlang-scheduled-value-graph-v2"
+SCHEDULED_VALUE_GRAPH_SCHEMA = "zlang-scheduled-value-graph-v3"
 
 
 @dataclass(frozen=True)
@@ -47,6 +47,7 @@ class ScheduledValueGraph:
     alignment_delay_identities: tuple[str, ...] = ()
     compensation_delay_identities: tuple[str, ...] = ()
     rewrite_certificate: tuple[str, ...] = ()
+    clock_domain: str | None = None
     schema: str = SCHEDULED_VALUE_GRAPH_SCHEMA
 
     def __post_init__(self) -> None:

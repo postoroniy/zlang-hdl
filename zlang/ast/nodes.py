@@ -16,12 +16,22 @@ class Direction(str, Enum):
 @dataclass(frozen=True)
 class TypeName:
     text: str
+    # Exact parser-owned span for named type occurrences.  It is observational
+    # metadata only and deliberately excluded from AST value identity.
+    origin: SourceSpan | None = field(default=None, compare=False, repr=False)
+    # Generic type spelling is retained compactly in ``text`` for compatibility,
+    # but definition tooling needs exact spans for every nested named component.
+    # This parser-owned metadata is observational and never affects semantics.
+    named_origins: tuple[tuple[str, SourceSpan], ...] = field(
+        default=(), compare=False, repr=False
+    )
 
 
 @dataclass(frozen=True)
 class VectorTypeName:
     length: int | str
     element_type: TypeSyntax
+    origin: SourceSpan | None = field(default=None, compare=False, repr=False)
 
 
 @dataclass(frozen=True)
@@ -29,6 +39,7 @@ class TupleTypeName:
     """One structural source tuple type in component order."""
 
     elements: tuple[TypeSyntax, ...]
+    origin: SourceSpan | None = field(default=None, compare=False, repr=False)
 
     def __post_init__(self) -> None:
         if not 2 <= len(self.elements) <= 8:
@@ -64,6 +75,9 @@ PortTypeSyntax = TypeSyntax | InterfaceTypeName
 class TypeAlias:
     name: str
     target: TypeSyntax
+    source_identity: str | None = field(default=None, compare=False, repr=False)
+    origin: SourceSpan | None = field(default=None, compare=False, repr=False)
+    name_origin: SourceSpan | None = field(default=None, compare=False, repr=False)
 
 
 @dataclass(frozen=True)
@@ -76,6 +90,10 @@ class EnumDecl:
     origin: SourceSpan | None = field(default=None, compare=False)
     backing_type: TypeSyntax | None = None
     encodings: tuple[int | None, ...] = ()
+    name_origin: SourceSpan | None = field(default=None, compare=False, repr=False)
+    member_origins: tuple[SourceSpan | None, ...] = field(
+        default=(), compare=False, repr=False
+    )
 
 
 @dataclass(frozen=True)
@@ -177,6 +195,7 @@ class ResourceDefinitionDecl:
     physical_site_bindings: tuple[tuple[str, str], ...] = ()
     physical_edge_bindings: tuple[tuple[str, str, str], ...] = ()
     origin: SourceSpan | None = field(default=None, compare=False)
+    name_origin: SourceSpan | None = field(default=None, compare=False, repr=False)
 
 
 @dataclass(frozen=True)
@@ -184,6 +203,10 @@ class TargetFamilyDecl:
     name: str
     resources: tuple[str, ...]
     origin: SourceSpan | None = field(default=None, compare=False)
+    name_origin: SourceSpan | None = field(default=None, compare=False, repr=False)
+    resource_origins: tuple[SourceSpan | None, ...] = field(
+        default=(), compare=False, repr=False
+    )
 
 
 @dataclass(frozen=True)
@@ -208,6 +231,8 @@ class ArchitectureTemplateDecl:
     pipeline_configuration: str | None = None
     dedicated_link: str | None = None
     origin: SourceSpan | None = field(default=None, compare=False)
+    name_origin: SourceSpan | None = field(default=None, compare=False, repr=False)
+    resource_origin: SourceSpan | None = field(default=None, compare=False, repr=False)
 
 
 @dataclass(frozen=True)
@@ -239,6 +264,11 @@ class StructDecl:
     fields: tuple[StructFieldDecl, ...]
     parameters: tuple[ModuleParameter, ...] = ()
     source_identity: str | None = field(default=None, compare=False)
+    # Parser-owned declaration and name spans are observational metadata used
+    # by compiler tooling (definition/navigation).  They do not participate
+    # in semantic AST identity.
+    origin: SourceSpan | None = field(default=None, compare=False, repr=False)
+    name_origin: SourceSpan | None = field(default=None, compare=False, repr=False)
 
 
 @dataclass(frozen=True)
@@ -254,6 +284,9 @@ class AggregateInterfaceDecl:
 class Parameter:
     name: str
     type_name: TypeSyntax
+    # The parser-owned identifier span is optional for compatibility with
+    # programmatically constructed AST nodes.
+    name_origin: SourceSpan | None = field(default=None, compare=False, repr=False)
 
 
 @dataclass(frozen=True)
@@ -268,6 +301,10 @@ class PortDecl:
     names: tuple[str, ...] = ()
     initializer: "Expression | None" = None
     origin: SourceSpan | None = field(default=None, compare=False)
+    # One span per source name; grouped declarations retain source order.
+    name_origins: tuple[SourceSpan | None, ...] = field(
+        default=(), compare=False, repr=False
+    )
 
 
 @dataclass(frozen=True)
@@ -307,6 +344,12 @@ class InstanceDecl:
     # semantic elaboration resolves it.
     array_length: int | str | None = None
     bindings: tuple["Assignment", ...] = ()
+    # Source-only spans retained for compiler-owned editor navigation.  These
+    # are deliberately appended so existing positional construction remains
+    # compatible; they never participate in hardware semantics.
+    origin: SourceSpan | None = field(default=None, compare=False, repr=False)
+    name_origin: SourceSpan | None = field(default=None, compare=False, repr=False)
+    module_origin: SourceSpan | None = field(default=None, compare=False, repr=False)
 
 
 @dataclass(frozen=True)
@@ -331,6 +374,8 @@ class GenericDeclaration:
     # syntax metadata until category-neutral declarations are resolved.
     specializations: tuple[SpecializationArgument, ...] = ()
     origin: SourceSpan | None = field(default=None, compare=False)
+    name_origin: SourceSpan | None = field(default=None, compare=False, repr=False)
+    type_origin: SourceSpan | None = field(default=None, compare=False, repr=False)
 
 
 @dataclass(frozen=True)
@@ -399,7 +444,7 @@ class CrossingKind(str, Enum):
 @dataclass(frozen=True)
 class Crossing:
     kind: CrossingKind
-    depth: int | None = None
+    depth: int | str | None = None
 
 
 @dataclass(frozen=True)
@@ -415,6 +460,16 @@ class ConnectionDecl:
     # second ordinary protocol edge.  It has a dedicated AST node so the
     # scalar exact ``PipelineExpr`` cannot be confused with protocol timing.
     transform: "ProtocolTransformExpr | None" = None
+    # Exact lexer spans for each identifier in the source and destination
+    # endpoint.  Endpoint text remains the semantic spelling above; these
+    # source-only records let compiler-owned navigation resolve connection
+    # uses without reparsing strings in tooling.
+    source_name_origins: tuple[SourceSpan | None, ...] = field(
+        default=(), compare=False, repr=False
+    )
+    destination_name_origins: tuple[SourceSpan | None, ...] = field(
+        default=(), compare=False, repr=False
+    )
 
 
 @dataclass(frozen=True)
@@ -423,6 +478,9 @@ class ConnectionChainDecl:
 
     endpoints: tuple[str, ...]
     origin: SourceSpan | None = field(default=None, compare=False)
+    endpoint_name_origins: tuple[tuple[SourceSpan | None, ...], ...] = field(
+        default=(), compare=False, repr=False
+    )
 
 
 class ArbitrationPolicy(str, Enum):
@@ -487,6 +545,7 @@ class LocatedExpression:
 class StructConstructExpr(LocatedExpression):
     struct_name: str
     fields: tuple[StructFieldValue, ...]
+    name_origin: SourceSpan | None = field(default=None, compare=False, repr=False)
 
 
 @dataclass(frozen=True)
@@ -581,6 +640,7 @@ class CsrBlockDecl:
     name: str
     base_address: int
     registers: tuple[CsrRegisterDecl, ...]
+    domain: str | None = None
     origin: SourceSpan | None = field(default=None, compare=False)
 
 
@@ -727,6 +787,7 @@ class MuxExpr(LocatedExpression):
 class EnumMemberRef:
     enum_name: str
     member: str
+    origin: SourceSpan | None = field(default=None, compare=False, repr=False)
 
 
 @dataclass(frozen=True)
@@ -747,12 +808,18 @@ class CallExpr(LocatedExpression):
     function: str
     arguments: tuple[Expression, ...]
     specializations: tuple[SpecializationArgument, ...] = ()
+    # Exact callee span when the grammar has a direct callable head.  The
+    # enclosing expression origin remains available through LocatedExpression.
+    callee_origin: SourceSpan | None = field(default=None, compare=False, repr=False)
 
 
 @dataclass(frozen=True)
 class FieldExpr(LocatedExpression):
     expression: Expression
     field: str
+    # Exact member token span when the parser retained it.  The enclosing
+    # expression origin remains the compatibility fallback for hand-built ASTs.
+    member_origin: SourceSpan | None = field(default=None, compare=False, repr=False)
 
 
 @dataclass(frozen=True)
@@ -897,6 +964,7 @@ class PipelineExpr(LocatedExpression):
     stages: int
     expression: Expression
     constraints: tuple[PipelineConstraint, ...] = ()
+    domain: str | None = None
 
 
 @dataclass(frozen=True)
@@ -1082,6 +1150,7 @@ class FunctionDecl:
     bindings: tuple[Assignment | TupleDestructureDecl, ...] = ()
     origin: SourceSpan | None = field(default=None, compare=False)
     source_identity: str | None = field(default=None, compare=False)
+    name_origin: SourceSpan | None = field(default=None, compare=False, repr=False)
 
 
 @dataclass(frozen=True)
@@ -1094,6 +1163,7 @@ class OperatorDecl:
     bindings: tuple[Assignment | TupleDestructureDecl, ...] = ()
     origin: SourceSpan | None = field(default=None, compare=False)
     source_identity: str | None = field(default=None, compare=False)
+    name_origin: SourceSpan | None = field(default=None, compare=False, repr=False)
 
 
 @dataclass(frozen=True)
@@ -1105,6 +1175,7 @@ class Assignment:
     # Syntax-only validation marker for the hidden value retained by flat
     # tuple destructuring.  It is erased before typed IR construction.
     tuple_destructure_arity: int | None = field(default=None, compare=False)
+    name_origin: SourceSpan | None = field(default=None, compare=False, repr=False)
 
 
 @dataclass(frozen=True)
@@ -1138,12 +1209,21 @@ class RegisterDecl:
     type_name: TypeSyntax
     initial: Expression
     domain: str | None = None
+    # Exact declaration/name spans are tooling metadata only.  Appending them
+    # keeps existing positional construction and semantic AST identity stable.
+    origin: SourceSpan | None = field(default=None, compare=False, repr=False)
+    name_origin: SourceSpan | None = field(default=None, compare=False, repr=False)
 
 
 @dataclass(frozen=True)
 class NextAssignment:
     target: str | "IndexedAssignmentTarget"
     expression: Expression
+    # Exact scalar target token retained only for compiler-owned navigation.
+    # It is deliberately excluded from syntax/semantic equality.
+    target_origin: SourceSpan | None = field(
+        default=None, compare=False, repr=False
+    )
 
 
 @dataclass(frozen=True)
@@ -1153,6 +1233,9 @@ class IndexedAssignmentTarget:
     register: str
     index: Expression
     origin: SourceSpan | None = field(default=None, compare=False)
+    name_origin: SourceSpan | None = field(
+        default=None, compare=False, repr=False
+    )
 
 
 @dataclass(frozen=True)
@@ -1188,6 +1271,7 @@ class RuleDecl:
     guard: Expression
     actions: tuple[NextAssignment | ResourceAction | ConditionalAction, ...]
     origin: SourceSpan | None = field(default=None, compare=False)
+    domain: str | None = None
 
 
 @dataclass(frozen=True)
@@ -1195,6 +1279,7 @@ class AnonymousRuleDecl:
     guard: Expression
     actions: tuple[NextAssignment | ResourceAction | ConditionalAction, ...]
     origin: SourceSpan | None = field(default=None, compare=False)
+    domain: str | None = None
 
 
 @dataclass(frozen=True)
@@ -1245,6 +1330,7 @@ class FsmDecl:
     initial_member: str
     states: tuple[FsmStateDecl, ...]
     origin: SourceSpan | None = field(default=None, compare=False)
+    domain: str | None = None
 
 
 @dataclass(frozen=True)
@@ -1269,11 +1355,29 @@ class FifoDecl:
     # module specialization before semantic storage IR is constructed.
     depth: int | str
     origin: SourceSpan | None = field(default=None, compare=False)
+    domain: str | None = None
 
 
 class MemoryCollision(str, Enum):
     READ_FIRST = "read_first"
     WRITE_FIRST = "write_first"
+    NO_CHANGE = "no_change"
+
+
+class MemoryPortKind(str, Enum):
+    READ = "read"
+    WRITE = "write"
+    READ_WRITE = "read_write"
+
+
+@dataclass(frozen=True)
+class MemoryPortDecl:
+    """One named logical access port on a writable memory."""
+
+    name: str
+    kind: MemoryPortKind
+    domain: str | None = None
+    origin: SourceSpan | None = field(default=None, compare=False)
 
 
 class MemoryResetPolicy(str, Enum):
@@ -1295,6 +1399,11 @@ class MemoryDecl:
     # policy became source-visible.
     contents_reset: MemoryResetPolicy = MemoryResetPolicy.CLEAR
     read_data_reset: MemoryResetPolicy = MemoryResetPolicy.CLEAR
+    domain: str | None = None
+    ports: tuple[MemoryPortDecl, ...] = ()
+    async_memory: bool = False
+    write_priority: tuple[str, ...] = ()
+    initializer: Expression | None = None
 
 
 @dataclass(frozen=True)
@@ -1307,6 +1416,7 @@ class RomDecl:
     read_latency: int
     initializer: Expression
     origin: SourceSpan | None = field(default=None, compare=False)
+    domain: str | None = None
 
 
 @dataclass(frozen=True)
@@ -1443,3 +1553,5 @@ class Module:
     # parameters.  It is discharged during specialization and never reaches a
     # backend as hardware logic.
     parameter_constraint: Expression | None = None
+    # Exact module-name span for compiler-owned definition/navigation records.
+    name_origin: SourceSpan | None = field(default=None, compare=False, repr=False)

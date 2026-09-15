@@ -57,7 +57,7 @@ from zlang.ir.formal import (
     ProofMode,
 )
 from zlang.ir.formal_planning import FormalExecutionPlan, FormalPlanningError
-from zlang.source import SourceOrigin
+from zlang.source import SourceOrigin, source_origin_to_data
 from zlang.toolchain import GeneratedDiagnosticContext
 
 
@@ -204,10 +204,6 @@ def _validate_relative_path(value: object, *, prefix: str | None = None) -> str:
             f"verification bundle path '{path}' must be below '{prefix}'"
         )
     return path
-
-
-def _origin_to_data(origin: SourceOrigin | None) -> object:
-    return None if origin is None else origin.to_data()
 
 
 def _origin_from_data(value: object) -> SourceOrigin | None:
@@ -1048,7 +1044,7 @@ class VerificationJob:
             "reason": self.reason,
             "source_files": list(self.source_files),
             "source_map_files": list(self.source_map_files),
-            "source_origin": _origin_to_data(self.source_origin),
+            "source_origin": source_origin_to_data(self.source_origin),
             "systemverilog": self.systemverilog,
             "top": self.top,
         }
@@ -1496,7 +1492,6 @@ def _validate_candidate_replay_files(
     """Decode and cross-link immutable candidate companions to exact plans."""
 
     from zlang.candidate_equivalence import FrozenCandidateEquivalenceSite
-    from zlang.formal_orchestration import FormalOrchestrationError
 
     records = _candidate_replay_records(payload)
     files_by_path = {item.logical_path: item for item in files}
@@ -2193,7 +2188,7 @@ class VerificationJobResult:
             "property_id": self.property_id,
             "reason": self.reason,
             "solver": self.solver,
-            "source_origin": _origin_to_data(self.source_origin),
+            "source_origin": source_origin_to_data(self.source_origin),
             "status": self.status,
             "tool_versions": [list(item) for item in self.tool_versions],
             "witness": witness,
@@ -2583,7 +2578,7 @@ class VerificationRunReport:
                     ),
                     "physical_domain_identity": item.physical_domain_identity,
                     "physical_instance_path": item.physical_instance_path,
-                    "source_origin": _origin_to_data(item.source_origin),
+                    "source_origin": source_origin_to_data(item.source_origin),
                 }
                 for item in self.results
             ],
@@ -2638,7 +2633,7 @@ class VerificationRunReport:
                     ),
                     "physical_domain_identity": item.physical_domain_identity,
                     "physical_instance_path": item.physical_instance_path,
-                    "source_origin": _origin_to_data(item.source_origin),
+                    "source_origin": source_origin_to_data(item.source_origin),
                 }
                 for item in self.bounded_results
             ],

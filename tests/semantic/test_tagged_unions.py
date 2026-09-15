@@ -16,8 +16,6 @@ from zlang.ir.type_codec import (
 )
 from zlang.ir.types import (
     BitsType,
-    FixedType,
-    SIntType,
     TaggedUnionField,
     TaggedUnionType,
     TaggedUnionVariant,

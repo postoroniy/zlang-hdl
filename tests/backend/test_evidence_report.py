@@ -26,8 +26,6 @@ from zlang.formal_exploration import (
     FormalPolicy,
 )
 from zlang.ir.equivalence import (
-    EquivalenceCounterexample,
-    EquivalenceError,
     EquivalenceMode,
     EquivalenceRelation,
     EquivalenceResult,

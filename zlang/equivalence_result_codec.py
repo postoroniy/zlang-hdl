@@ -18,7 +18,7 @@ from zlang.ir.equivalence import (
     EquivalenceResult,
     EquivalenceStatus,
 )
-from zlang.source import SourceOrigin, SourceSpan
+from zlang.source import SourceOrigin, SourceSpan, source_origin_to_data
 
 
 EQUIVALENCE_RESULT_CODEC_SCHEMA = 1
@@ -89,10 +89,6 @@ def _enum(enum_type: type, value: object, description: str):
         raise EquivalenceResultCodecError(
             f"unsupported {description} '{text}'"
         ) from error
-
-
-def _origin_to_data(origin: SourceOrigin | None) -> dict[str, object] | None:
-    return None if origin is None else origin.to_data()
 
 
 def _origin_from_data(value: object, description: str) -> SourceOrigin | None:
@@ -230,8 +226,8 @@ def equivalence_result_to_data(result: EquivalenceResult) -> dict[str, object]:
         "implementation_hash": result.implementation_hash,
         "binding_map_version": result.binding_map_version,
         "candidate_identity": result.candidate_identity,
-        "source_origin": _origin_to_data(result.source_origin),
-        "selected_origin": _origin_to_data(result.selected_origin),
+        "source_origin": source_origin_to_data(result.source_origin),
+        "selected_origin": source_origin_to_data(result.selected_origin),
         "counterexample": _equivalence_counterexample_to_data(result.counterexample),
         "reason": result.reason,
     }

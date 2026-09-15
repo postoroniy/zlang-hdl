@@ -1,15 +1,13 @@
 from __future__ import annotations
 
-from dataclasses import replace
 import os
 from pathlib import Path
 import shutil
 import subprocess
-import tempfile
 
 import pytest
 
-from zlang.backend.manifest import BackendArtifact, publish_artifact
+from zlang.backend.manifest import BackendArtifact
 from zlang.backend.systemverilog import emit_artifact
 from zlang.compiler import compile_source
 from zlang.equivalence import (

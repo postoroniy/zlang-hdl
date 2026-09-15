@@ -1,12 +1,9 @@
 from pathlib import Path
 import os
-import shutil
 import subprocess
 import unittest
 
-import pytest
 
-from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
 from zlang.compiler import compile_source
 from zlang.simulate import (
     ProtocolViolation,
@@ -14,7 +11,6 @@ from zlang.simulate import (
     simulate_connection_cycles,
     simulate_protocol_cycles,
 )
-from zlang.toolchain import lint_with_verilator
 
 
 ROOT = Path(__file__).resolve().parents[2]

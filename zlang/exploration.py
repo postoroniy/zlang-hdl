@@ -59,6 +59,7 @@ class ExplorationContext:
     # typing, without re-running the analyzer with a live verifier.
     site_owner: str | None = None
     site_kind: str = "source_explore"
+    clock_domain: str | None = None
 
 
 @dataclass(frozen=True)
@@ -413,6 +414,7 @@ def explore(
                     context.result_type,
                     pipeline_constraints,
                     context.allocate_instance,
+                    context.clock_domain,
                 )
             except PipelineExplorationError as error:
                 pipeline_failures.append(f"specialized: {error}")
@@ -430,6 +432,7 @@ def explore(
                         pipeline_constraints,
                         general_latencies,
                         context.allocate_instance,
+                        context.clock_domain,
                     )
                 except PipelineExplorationError as error:
                     pipeline_failures.append(f"general DAG: {error}")

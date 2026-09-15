@@ -4,23 +4,17 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
-import shutil
-import subprocess
 
 import pytest
 
-from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
 from zlang.compiler import compile_file, compile_source
 from zlang.ir import Constant
-from zlang.ir.callables import reachable_module_callables
 from zlang.ir.hierarchy import (
     HierarchyError,
     build_hierarchy_index,
     specialization_fingerprint,
 )
 from zlang.ir.types import UIntType
-from zlang.opt import lower, restore
-from zlang.toolchain import lint_with_verilator
 from zlang.workspace import update_project_lock
 
 

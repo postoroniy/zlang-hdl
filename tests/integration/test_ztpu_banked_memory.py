@@ -2,19 +2,13 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-import re
 import shutil
 import subprocess
 
 import pytest
 
-from zlang.backend.manifest import BackendArtifact
-from zlang.backend.naming import module_rtl_names
 from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
 from zlang.compiler import compile_source
-from zlang.formal import build_recursive_formal_design
-from zlang.opt import lower, restore
-from zlang.semantic import SemanticError
 from zlang.simulate import simulate_cycles
 from zlang.toolchain import lint_with_verilator
 

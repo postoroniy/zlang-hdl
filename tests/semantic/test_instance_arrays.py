@@ -400,7 +400,7 @@ module ScheduledLaneArray {
         ),
         (
             "clock a reset ar @a clock b reset br @b "
-            "out y:u8 @a reg q:u8=0 @a y=q",
+            "out y:u8 @a reg q:u8 @a=0 y=q",
             "must share exactly one synchronous clock/reset domain",
         ),
     ),

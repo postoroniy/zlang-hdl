@@ -2,20 +2,12 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
-import os
 from pathlib import Path
 import random
-import shutil
-import subprocess
 
 import pytest
 
-from zlang.backend.manifest import BackendArtifact
-from zlang.backend.systemverilog import emit_artifact
 from zlang.compiler import compile_file
-from zlang.opt import lower, restore
-from zlang.simulate import simulate_cycles
 
 
 SOURCE = Path(__file__).resolve().parents[2] / "examples/verification/math_exploration.zhl"

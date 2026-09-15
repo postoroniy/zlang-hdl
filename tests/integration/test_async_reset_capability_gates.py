@@ -9,7 +9,6 @@ from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact, emit_
 from zlang.backend.systemverilog import emit_formal_artifact as emit_sv_formal_artifact
 from zlang.backend.systemverilog.emitter import SystemVerilogEmissionError
 from zlang.compilation_session import CompilationSession
-from zlang.equivalence import publish_bindings
 from zlang.formal import (
     build_formal_design,
     build_recursive_formal_design,
@@ -24,7 +23,6 @@ from zlang.implementation_request import (
     PolicyOrigin,
     TransformPolicy,
 )
-from zlang.ir.equivalence import BindingSide
 from zlang.ir.formal import (
     FormalStatus,
     ProofMode,
@@ -334,7 +332,7 @@ def test_elastic_pipeline_rejects_safe_async_reset_before_planning() -> None:
     planner.assert_not_called()
 
 
-def test_multidomain_cdc_rejects_nondefault_reset_before_emission() -> None:
+def test_multidomain_cdc_uses_the_exact_conditioned_reset_per_domain() -> None:
     source = (
         Path(__file__).resolve().parents[2]
         / "examples"
@@ -343,8 +341,15 @@ def test_multidomain_cdc_rejects_nondefault_reset_before_emission() -> None:
         "reset source_reset @ source_clock",
         "async reset source_reset @ source_clock",
     )
-    with pytest.raises(
-        SemanticError,
-        match="multi-domain asynchronous reset is not supported",
-    ):
-        CompilationSession(source).selected_ir
+    module = CompilationSession(source).selected_ir
+    artifact = emit_sv_artifact(module)
+    source_domain = next(
+        item for item in artifact.physical_domains
+        if item.clock == "source_clock"
+    )
+    assert source_domain.reset_mode == "asynchronous"
+    assert source_domain.reset_release_mode == "synchronized"
+    assert source_domain.reset_release_cycles == 2
+    assert "assign source_ready = !zlang_reset_effective_" in artifact.text
+    assert "always_ff @(posedge source_clock or posedge zlang_reset_effective_" in artifact.text
+    assert "always_ff @(posedge destination_clock)" in artifact.text

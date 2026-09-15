@@ -7,7 +7,7 @@ import sys
 
 import pytest
 
-from zlang.compiler import compile_file, compile_source
+from zlang.compiler import compile_file
 from zlang.implementation_request import ImplementationRequestError
 from zlang.workspace import update_project_lock
 

@@ -30,9 +30,9 @@ The child must retain the existing storage-array contract: scalar wire ports,
 one inherited clock/reset domain, and no nested instances. Multiple scalar
 outputs are allowed. Each array element has a distinct physical instance
 identity and storage state; all elements share the one deterministic
-specialization identity. Both backends consume `ElaboratedInstance` bindings
-directly and emit one reusable component plus one application/instance per
-physical element.
+specialization identity. The direct-SystemVerilog backend consumes
+`ElaboratedInstance` bindings directly and emits one reusable component plus one
+application/instance per physical element.
 
 CSR, other protocol/storage mixtures, multiple storage resources, arbitrary
 nested storage hierarchy, multiple clock domains, CDC, runtime-selected inputs
@@ -58,7 +58,7 @@ same typed `HierarchicalConnection`, closed component ABI, and FIFO state as a
 non-array child.  Ready/valid arrays with synchronous memory or initialized ROM
 remain rejected because they do not yet have a frozen protocol/storage contract.
 
-## Backend evidence
+## Historical backend evidence
 
 The two-lane FIFO witness checks exact logical vector order (`v[0]` occupies
 the most-significant representation region), blocked pushes, simultaneous

@@ -28,6 +28,13 @@ python3 -m venv .venv
 .venv/bin/python -m pip install -e '.[test]'
 ```
 
+The compiler and LSP do not require an EDA installation. Verilator, Yosys,
+SymbiYosys, `yosys-smtbmc`, Z3 and Icarus are optional external programs for
+the corresponding lint, synthesis, formal and simulation flows. See
+[Installing ZLang HDL and the external EDA toolchain](installing-toolchain.md)
+for the recommended OSS CAD Suite route, separate component installation,
+release-tested versions and a real formal smoke test.
+
 Check a source file without creating backend artifacts:
 
 ```sh

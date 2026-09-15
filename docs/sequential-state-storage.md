@@ -1,9 +1,9 @@
 # Sequential logic, rules, and storage
 
-ZLang keeps combinational values, next-state actions, timing, and storage
-explicit in typed IR. Synchronous active-high reset is the default; an explicit
-single-domain asynchronous contract is available when the physical interface
-requires it.
+ZLang keeps combinational values, next-state actions, timing, storage, and
+physical clock ownership explicit in typed IR. Synchronous active-high reset is
+the default. Each independently declared clock has one reset contract and may
+own ordinary state in the same module.
 
 ## Clock and reset
 
@@ -22,14 +22,40 @@ clock clk reset rst
 ```
 
 Clock and reset are declared together. Multiple domains require explicit reset,
-port, state, and connection associations:
+port, and state ownership wherever inference would be ambiguous:
 
 ```zlang
 clock source_clock
 reset source_reset @source_clock
+
+clock destination_clock
+reset destination_reset @destination_clock
+
+reg source_count : u32 @source_clock = 0
+reg destination_count : u32 @destination_clock = 0
+
+rule TickSource @source_clock when 1 {
+    source_count <- truncate<32>(source_count + 1)
+}
+
+rule TickDestination @destination_clock when 1 {
+    destination_count <- truncate<32>(destination_count + 2)
+}
 ```
 
-Implicit clock-domain crossing is rejected. See
+An unannotated stateful declaration remains concise in a single-clock module.
+In a multi-clock module its domain may be inferred from one unique destination
+or dynamic operand domain; otherwise analysis reports `ZL-DOMAIN-AMBIGUOUS`.
+Constants are domain-neutral. Combining dynamic values from different domains,
+including through an unannotated local, reports `ZL-DOMAIN-CROSSING`.
+
+Rules and priorities are scheduled within a domain. Rules in unrelated domains
+do not acquire cross-clock mutual exclusion or atomicity. FSM-generated state
+and rules inherit the FSM annotation. Exact `pipeline(N) @clk { ... }`, FIFO,
+memory, ROM, and CSR state similarly retain one resolved owner; inserted
+pipeline and balancing registers never act as CDC.
+
+Implicit clock-domain crossing is always rejected. See
 [Hierarchy and protocols](hierarchy-protocols.md#clock-domain-crossings).
 
 The recommended asynchronous spelling asserts immediately and releases only
@@ -53,6 +79,12 @@ reg count : u8 = 0
 count <- truncate<8>(count + 1)
 ```
 
+The explicit multi-clock spelling places the annotation before the initializer:
+
+```zlang
+reg count : u8 @datapath_clk = 0
+```
+
 Expressions read committed beginning-of-cycle state. All accepted `<-` updates
 become visible together at the active edge. A register without an accepted
 update holds. Reset restores the declared constant. Multiple unordered writers
@@ -72,7 +104,7 @@ phase <- switch phase {
 }
 ```
 
-The simulator, Clash, and direct SystemVerilog share the declaration-order
+The semantic simulator and direct SystemVerilog share the declaration-order
 ordinal encoding. The source-authored APB bridge in
 [`stdlib/bus/apb.zhl`](../stdlib/bus/apb.zhl) uses an enum for its internal phase
 without exposing it through the external bus ABI.
@@ -155,14 +187,18 @@ delayed = delay<2>(value)
 piped = pipeline(3) { expression }
 ```
 
-`delay<N>` adds exactly `N` zero-reset scalar stages. `pipeline(N)` evaluates the
-body and adds exactly `N` zero-reset output stages; it does not imply a particular
-internal partition. Both accept one value per cycle after fill. Operands at an
-operator must be latency-aligned; the compiler does not silently add balancing
-registers.
+`delay<N>` adds exactly `N` zero-reset scalar stages. `pipeline(N)` is an exact
+visible-latency contract: for a supported pure scalar expression DAG, planning
+may place real computation boundaries within those `N` cycles and inserts the
+required reconvergent-path balancing. It never changes the requested latency or
+II, and `pipeline(1)` remains exactly one cycle. Unsupported nodes fail closed;
+the emitter does not fall back to an unreported whole-expression output delay.
+Outside a scheduled pipeline region, non-timeless operands at an operator must
+still be latency-aligned explicitly.
 
-`pipeline(auto)` is a separate, bounded implementation-planning form described
-in [Optimization and formal verification](optimization-formal.md).
+Compiler-selected latency/resource alternatives use
+`implement { expression intent { ... } }`. Scalar `pipeline(auto)` is retired;
+protocol `transform pipeline(auto, ...)` is a separate ready/valid construct.
 
 ## Exact module timing contracts
 
@@ -185,11 +221,12 @@ module TimedChild {
 }
 ```
 
-The contract describes observable behavior; it does not insert registers or
-authorize retiming. Constants are timeless, ordinary input-dependent logic is
-known at latency zero, and explicit `delay<N>`/`pipeline(N)` adds `N`. Timeless
-values may join a known path. All other non-timeless operands at a join must
-have the same known latency.
+The contract describes observable behavior; it does not itself insert registers
+or authorize retiming. Constants are timeless, ordinary input-dependent logic
+is known at latency zero, and explicit `delay<N>`/`pipeline(N)` adds exactly
+`N`. A supported pipeline region may use its compiler-owned scheduled graph to
+place and balance those internal cuts. Timeless values may join a known path;
+joins outside that graph still require equal known latency.
 
 Registers, rules, FIFO/memory/ROM observations, protocols, and uncontracted
 child outputs are `unknown` for this first public contract. A positive latency
@@ -197,9 +234,9 @@ requires exactly one clock/reset domain. Only `ii 1` is accepted. A contracted
 child adds its declared latency to the common known latency of its bound scalar
 inputs; an unaligned parent join is rejected instead of silently balanced.
 
-This is distinct from `pipeline(auto)` constraints and target evidence. A
-planner or profile must preserve an exact module contract as immutable public
-behavior.
+This is distinct from `implement` constraints, target estimates, and measured
+evidence. A planner or profile must preserve an exact module contract as
+immutable public behavior.
 
 ## Guarded atomic actions
 
@@ -375,6 +412,94 @@ Within a masked rule-owned memory, the compatible two-operand form
 `table.write(address, data)` means an all-lanes write. The mask does not add a
 read enable, another port, a new clock domain, or target-specific BRAM mapping.
 
+### Named same-clock ports
+
+Leaving the body without port declarations preserves the legacy controls and
+their generated behavior. A memory may instead declare up to eight named
+logical ports:
+
+```zlang
+memory table : mem<u32,1024> @clk {
+    read_write_port a
+    read_write_port b
+    init RESET_WORD
+    read_latency 1
+    collision old
+    write_priority a > b
+}
+
+table.a.read_enable = a_read
+table.a.write_enable = a_write
+table.a.address = a_address
+table.a.write_data = a_data
+a_data_out = table.a.read_data
+```
+
+`read_port`, `write_port`, and `read_write_port` state the exact access shape.
+All named ports of an ordinary `mem` have one resolved clock domain. When more
+than one port can write, `write_priority` must list every writer exactly once.
+Priority affects only writes to the same address; simultaneous writes to
+different addresses both commit. `collision old`, `new`, and `no_change`
+select the same-clock registered-read result. The older spellings
+`read_first` and `write_first` remain accepted aliases for `old` and `new`.
+
+Named-port masks retain the arbitrary-bitwidth lane rule above. Mixed port
+widths and asymmetric depths are rejected. Rule-local memory actions remain a
+property of the legacy implicit 1R1W form and cannot be mixed with named ports.
+
+An optional `init VALUE` supplies one exact compile-time element value for
+every cell. It may be a typed module value parameter. With `contents clear`,
+generic/register-array hardware writes that value to every cell on reset. With
+`contents preserve`, it is only the deterministic power-up value; FPGA block
+RAM maps it to bitstream initialization and does not pretend that a runtime
+reset rewrites the array. Omitting `init` retains the exact zero value used by
+the existing reset/initialization policies. Full per-address images remain the
+role of immutable `rom` in this slice.
+
+The bounded implementation planner first uses an exact target resource. A
+`1W+nR` shape otherwise becomes coherent replicated 1R1W storage; other
+same-clock multiwrite shapes may use a deterministic register array, read
+muxes, and priority gates when the logical storage is at most 4096 bits.
+Larger unsupported shapes fail with a diagnostic recommending explicit
+banking, arbitration, or standard-library composition. No automatic banking is
+performed because arbitrary same-bank collisions need a protocol contract.
+
+### Explicit dual-clock memory
+
+`async_mem<T,N>` is a separate, deliberately narrow semantic resource:
+
+```zlang
+memory table : async_mem<u32,1024> {
+    write_port wr @write_clk
+    read_port rd @read_clk
+    init INITIAL_WORD
+    read_latency 1
+    collision old
+    reset { contents preserve read_data clear }
+}
+
+table.wr.enable = write_enable
+table.wr.address = write_address
+table.wr.data = write_data
+table.wr.mask = write_mask
+table.rd.address = read_address
+read_data = table.rd.data
+```
+
+It has exactly one write-only port and one read-only port in different explicit
+domains. Cells change only on the writer edge; `rd.data` changes only on the
+reader edge and has destination-domain provenance. The contents reset policy
+belongs to the write domain and the read-result policy to the read domain.
+Direct use of foreign-domain controls is rejected; a pipeline register is not a
+CDC primitive.
+
+For coincident logical edges the simulator uses a pre-edge snapshot: `old`
+returns the prior cell, while `new` forwards the coincident write. This is a
+precise digital model, not an analog metastability or silicon timing guarantee.
+Portable generic direct-SystemVerilog publishes `old`; stricter or other
+collision claims require an exact target capability. Asynchronous 2RW,
+mixed-width ports, ECC, and dual-clock ROM remain deferred.
+
 ```zlang
 memory table : mem<u8,16> {
     read_latency 1
@@ -440,12 +565,15 @@ policy clears or holds the result register. `read_first` observes the old cell
 before a coincident write edge; `write_first` observes the fully byte-mask-
 merged write word.
 
-The simulator and both generic RTL backends initialize executable preserved
-memory state deterministically to zero, but runtime reset does not recreate
-that initialization. Target-specific selection stays fail-closed: the current
-BRAM mapping advertises only the default one-cycle clear/clear profile.
-Synthesizable writable-memory initialization, multiport memory, and automatic
-target-memory selection are not part of this hardware surface. Simulation-only
+The simulator and generic direct-SystemVerilog initialize executable preserved
+memory state to its declared uniform `init` word, or zero when omitted, but
+runtime reset does not recreate that initialization under `contents preserve`.
+The Xilinx same-clock true-dual mapping therefore requires preserved contents;
+Vivado maps its source initializer to BRAM initialization. Target selection
+stays fail-closed when a resource does not advertise initialization support.
+Full/partial writable-memory images, automatic banking, unbounded
+multiport memory, and asynchronous 2RW are not part of this hardware surface.
+Bounded named-port selection is described above. Simulation-only
 tests may instead publish a selected-IR-bound state catalog and Verilator VPI
 companion with `--simulation-state-bundle`; that tooling neither adds hardware
 ports nor changes memory reset semantics. The
@@ -453,12 +581,12 @@ ports nor changes memory reset semantics. The
 [simulation-state access](direct-systemverilog.md#simulation-only-architectural-state-access)
 sections define the two distinct boundaries.
 
-### Replicated read ports and banking
+### Replicated read ports, wrappers, and banking
 
-The language does not invent a native multiport memory primitive. A logical
-two-read/one-write store can instead be expressed compositionally from the
-existing one-read/one-write memory and compile-time instance arrays. The
-validated [`ZtpuBankedMemory`](../examples/ztpu_banked_memory.zhl) uses four
+Named ports now provide a bounded native logical model; source composition is
+still preferable when banking or arbitration policy is architecturally
+significant. The validated
+[`ZtpuBankedMemory`](../examples/ztpu_banked_memory.zhl) uses four
 banks and two read replicas per bank: both replicas receive the same decoded,
 byte-masked synchronous write, while each read address selects its own replica
 and bank. This produces eight distinct physical 1R1W memories, one shared leaf
@@ -467,10 +595,14 @@ specialization, two combinational read results, and one logical write port.
 The concrete witness contains 256 32-bit words, split into four banks of 64
 words. Its runtime reset suppresses writes and preserves both cells and
 combinational read data; executable simulation begins from deterministic zero
-contents. Simulator, direct SystemVerilog, and real Clash 1.11 agree on full
-and per-byte writes, independent reads, same-address `read_first` behavior,
-reset, and replica coherence. This is source composition, not a new memory
-semantic or backend name-based rewrite.
+contents. The semantic simulator and direct SystemVerilog agree on full and
+per-byte writes, independent reads, same-address `read_first` behavior, reset,
+and replica coherence. This is source composition, not a new memory semantic or
+backend name-based rewrite. The ordinary stdlib modules
+`StorageDualPortMemory`, `Storage2R1WMemory`, and `StorageAsyncMemory1W1R`
+expose common shapes while lowering through the same memory IR.
+`StorageAsyncFifo` similarly wraps the existing ready/valid `async_fifo(D)`
+crossing; a normal `fifo<T,N>` never becomes asynchronous.
 
 Target-memory closure remains separate. In particular, the existing promoted
 OpenRAM/target macro contract does not yet match this zero-latency,
@@ -504,12 +636,12 @@ result is zero. Reset never changes the immutable contents; after reset, the
 first non-reset result corresponds to the preceding accepted non-reset address.
 There is no hidden second output register.
 
-Backends consume one compiler-owned companion image. It contains one exact-
+The production backend consumes one compiler-owned companion image. It contains one exact-
 width binary word per line, address zero first. Struct declaration field zero
 and vector element zero occupy the most-significant bits, recursively, while
 fixed-point values retain their raw signed or unsigned bit pattern. Direct
-SystemVerilog `$readmemb` and Clash `romFile` consume byte-identical images.
-The CLI publishes companions beside the selected output, and artifact metadata
+SystemVerilog `$readmemb` consumes that image. The CLI publishes companions
+beside the selected output, and artifact metadata
 retains the initialization dependency, evaluator, content, and file hashes.
 Missing or colliding companion files fail closed.
 

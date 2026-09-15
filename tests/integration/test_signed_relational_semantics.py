@@ -41,7 +41,6 @@ from zlang.ir.formal_predicates import (
     ObservationRef,
 )
 from zlang.simulate import simulate_cycles
-from zlang.toolchain import lint_with_verilator
 
 
 VERILATOR = shutil.which("verilator")

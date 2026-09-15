@@ -98,7 +98,7 @@ jobs:
       - name: Exercise real TextMate and Oniguruma tokenization
         working-directory: editors/vscode/zlang-hdl
         run: npm test
-      - name: Build the static lexical VSIX in temporary storage
+      - name: Build the Community VSIX in temporary storage
         working-directory: editors/vscode/zlang-hdl
         run: npm run package -- "$RUNNER_TEMP/zlang-hdl-0.1.0.vsix"
       - name: Audit actual VSIX contents, licensing and package identity
@@ -107,7 +107,7 @@ jobs:
           > "$RUNNER_TEMP/zlang-hdl-0.1.0-audit.json"
       - name: Verify editor tooling remains outside the public projection
         run: python tools/public_tree.py check-source --source .
-      - name: Retain the successfully audited lexical VSIX
+      - name: Retain the successfully audited Community VSIX
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: zlang-hdl-0.1.0-vsix

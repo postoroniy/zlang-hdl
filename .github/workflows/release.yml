@@ -66,6 +66,7 @@ jobs:
       - name: Build one sdist and a byte-reproducible wheel
         shell: bash
         run: |
+          umask 022
           export SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
           mkdir -p build/dist-first build/dist-second
           python -m build --no-isolation --sdist --outdir build/dist-first
@@ -110,7 +111,7 @@ jobs:
             --requirements dist/release-requirements.txt \
             --project-version "${GITHUB_REF_NAME#v}" \
             --report build/release-inventory-audit.json
-      - name: Set up pinned Node.js for the lexical extension
+      - name: Set up pinned Node.js for the Community VS Code extension
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "22.23.2"
@@ -156,7 +157,7 @@ jobs:
       - name: Exercise real TextMate and Oniguruma tokenization
         working-directory: editors/vscode/zlang-hdl
         run: npm test
-      - name: Build and audit the exact-tag static lexical VSIX
+      - name: Build and audit the exact-tag Community VSIX
         shell: bash
         run: |
           npm --prefix editors/vscode/zlang-hdl run package -- "$RUNNER_TEMP/zlang-hdl-0.1.0.vsix"

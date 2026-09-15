@@ -22,6 +22,8 @@ guides relate to historical milestone and design-freeze evidence.
 For hands-on verification, use the
 [formal examples](../examples/verification/README.md): actual proofs,
 counterexamples, scoped assumptions, backpressure and immutable bundle replay.
+Installation of release wheels and optional Verilator/Yosys/SBY/Z3 programs is
+covered separately by the [toolchain installation guide](installing-toolchain.md).
 
 For short-context coding assistants (including Qwen), start with the
 [concise source-authoring reference](language-quick-reference.md). It contains
@@ -29,6 +31,11 @@ only current executable spellings, exact semantic rules, common failure modes,
 and validation commands. Read the topic guides below only when the task needs
 their additional detail; historical milestone documents are not language
 instructions.
+
+The public repository also ships a project skill at
+[`../.qwen/skills/zlang-hdl/SKILL.md`](../.qwen/skills/zlang-hdl/SKILL.md).
+Qwen can discover it directly from the checkout. The skill is a compact workflow
+and routing layer over these guides, not a second language specification.
 
 ## Product-first guide
 
@@ -47,7 +54,9 @@ instructions.
    aggregate standard buses, CSR, arbitration, and CDC.
 6. **[Optimization and formal verification](optimization-formal.md)** — canonical
    versus selected IR, choices, pipeline/architecture exploration, contracts,
-   M35/M36/M39 boundaries, retired historical M38 records, and proof status meanings.
+   M35/M36/M39 boundaries, retired historical M38 records, and proof status
+   meanings. The [compiler responsibility split](egraph-optimization-infrastructure.md)
+   distinguishes egglog, scheduling, resource matching, verification, and direct-SV.
 7. **[Backends, CLI, and tooling](backends-tooling.md)** — direct-SV production policy,
    output options, reports, stdlib resolution, editor support, and test tooling.
 8. **[Standard library](stdlib.md)** — the compiler-shipped `std` namespace,
@@ -63,7 +72,10 @@ instructions.
 12. **[Whole-build manifests and evidence](whole-build-manifests.md)** —
     reproducible canonical/backend identities, published files, tool executions,
     and exact proof-status meanings.
-13. **[Current implementation status](current-language-status.md)** — accepted
+13. **[Generated-navigation bundles](generated-navigation-bundles.md)** —
+    relocatable, hash-validated generated RTL/source-map/source-snapshot
+    provenance for future tooling; no navigation method yet.
+14. **[Current implementation status](current-language-status.md)** — accepted
     corpus/test/tool snapshot, backend/formal policy, real-design evidence, and
     current explicit boundaries.
 
@@ -81,7 +93,7 @@ Compiler and editor integrations should also use the versioned
 | Bit and collection layout | `x[MSB:LSB]`, LSB-zero `bits_value[i]`, exact `zeros<N>`/`ones<N>`, `concat`, `reshape`, `bitcast<T>`; low-level `pack`/`unpack<T>` | [Slicing and representation](types-and-numerics.md#slicing-concatenation-and-representation) |
 | Pure reuse | `fn` with explicit or inferred exact return, generic `type T`, declaration-ordered defaults such as `IW=index_width(N)`, exact constant parameters, static `operation=fn name`, operators | [Functions/generics](expressions-functions-generics.md) |
 | Functional datapath | `generate`, `map`, `reduce`, `sum`, `dot`, static `values[first..past_last]` | [Functional datapath](expressions-functions-generics.md#functional-datapath) |
-| State | `reg`, `<-`, atomic `when`/`else when`/`else`, `priority a > b > c`, typed or qualified-initial `fsm` | [Guarded atomic actions](sequential-state-storage.md#guarded-atomic-actions) |
+| State | `reg x : T @clk`, `rule R @clk`, `<-`, atomic `when`/`else when`/`else`, `priority a > b > c`, `fsm F : State @clk` | [Clock ownership and guarded atomic actions](sequential-state-storage.md#clock-and-reset) |
 | Physical reset | `reset rst`; `async reset arst @clk` for two-edge synchronized release | [Clock/reset contract](physical-clock-reset-contract.md) |
 | Storage | `fifo`, arbitrary-bitwidth bit-packable 1R1W `memory` with zero/one-cycle reads, byte masks (including a partial high lane) and explicit cell/read-result reset policy, initialized `rom`; replicated read ports through ordinary hierarchy | [Sequential storage](sequential-state-storage.md) |
 | Hierarchy | concise `child : Module`, compatible `inst child : Module`, compile-time child arrays, `connect`, `module M : Ifc` | [Composition](hierarchy-protocols.md), [named interfaces](named-module-interfaces.md) |
@@ -95,6 +107,10 @@ Compiler and editor integrations should also use the versioned
 
 - Hardware assignments are concurrent. `=` drives a current-cycle value; `<-`
   schedules next-state.
+- Every stateful entity has exactly one resolved clock domain. An annotation
+  may be omitted only when the owner is unambiguous; a multi-clock module never
+  chooses the first declared clock. Dynamic domain provenance follows through
+  immutable combinational values, and only explicit CDC changes it.
 - Assignment is exact. ZLang does not silently resize, perform a numeric
   signed/unsigned conversion, rescale fixed point, insert protocol adapters, or
   cross clock domains. The one documented representation-only exception is an
@@ -204,11 +220,15 @@ The current executable language intentionally does not claim:
   inputs, and runtime-selected protocol endpoints; one range-proven element
   update to a one-dimensional `reg vec<N,T>` and read-only output projection
   such as `lane[select].value` are supported;
-- native multiport memories, synthesizable writable-memory initialization, or
-  automatic ROM/BRAM exploration; the bounded global 1R1W memory supports an explicit
-  combinational-read profile and independent clear/preserve reset policies,
-  while fixed multi-read stores may be source-composed from replicated 1R1W
-  child arrays. Simulation tests may preload/inspect selected register, vector,
+- asynchronous 2RW or mixed-width memories, full per-address writable-memory
+  images, automatic banking, or automatic ROM exploration; `mem<T,N>`
+  supports up to eight named same-domain ports and bounded native, replicated,
+  or register-array implementations, while `async_mem<T,N>` is exactly one
+  write-only and one registered read-only port in distinct domains. An optional
+  compile-time `init VALUE` initializes every writable cell uniformly; generic
+  clear-on-reset storage restores it, while preserved FPGA RAM uses it as
+  power-up/bitstream initialization. Simulation
+  tests may preload/inspect selected register, vector,
   memory-cell, and registered-read state through the direct-SV
   `--simulation-state-bundle` companion without changing hardware;
 - automatic protocol adaptation, implicit CDC, full AXI4 bursts/IDs, package

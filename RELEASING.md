@@ -87,12 +87,18 @@ and pull-request dependency review do not replace this full release-time gate.
 Require passing real TextMate/Oniguruma tests, then audit the actual VSIX against
 the tagged source, including the exact
 static inventory and authoritative LICENSE/NOTICE bytes, before copying either
-file into the release payload. Both files belong in `SHA256SUMS` and artifact
+file into the release payload. Run the dev-only installed-VSIX VS Code host
+smoke in an isolated temporary profile from this exact audited candidate;
+same-file and nested-project F12/Shift+F12, activation and editor behavior
+must pass. JSON-RPC unit tests alone do not satisfy the editor release gate.
+Both files belong in `SHA256SUMS` and artifact
 attestation coverage. Rerun the VSIX audit from the verified exact tag and verify
 the GitHub attestation against that source commit, tag and release workflow: the
 standalone audit JSON establishes payload/source byte agreement, not commit
 provenance. The Python SBOM describes the Python inventory; npm
-tooling is build-only, and no runtime dependency or LSP is shipped in the VSIX.
+build tooling is not shipped. The VSIX contains only the audited standard
+`vscode-languageclient` runtime closure and the thin client that starts the
+separately installed `zlang-lsp`; it does not contain the Python compiler/server.
 The editor version remains independent of the compiler alpha version. Attaching
 the VSIX to this GitHub release does not publish it to Marketplace or Open VSX.
 
@@ -107,6 +113,7 @@ a clean checkout with a fixed `SOURCE_DATE_EPOCH`:
 .venv/bin/python -m pip install --upgrade pip==26.2.1
 .venv/bin/python -m pip install build==1.3.0 setuptools==84.0.0 \
   twine==6.2.0 wheel==0.46.3
+umask 022
 SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)" \
   .venv/bin/python -m build --no-isolation
 .venv/bin/python -m twine check dist/*

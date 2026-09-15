@@ -11,7 +11,7 @@ import pytest
 
 from zlang.backend.systemverilog import emit_experimental
 from zlang.compiler import compile_source
-from zlang.formal import build_recursive_formal_design, run_verilog_formal
+from zlang.formal import run_verilog_formal
 from zlang.ir.formal import FormalStatus
 
 

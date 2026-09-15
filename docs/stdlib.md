@@ -63,7 +63,8 @@ release; the example carries that exact contract through the CSR hierarchy.
 
 `std.math.complex` is ordinary source-authoritative ZLang. It has no bus or
 stream dependency and uses only generic structs/functions and nominal operator
-declarations; semantic analysis and both backends have no Complex special case.
+declarations; semantic analysis and the direct-SystemVerilog backend have no
+Complex special case.
 Mixed fixed-point multiplication retains its full exact width and scale, and
 the caller places every quantization boundary explicitly. In particular, the
 core contains no implicit `fixed<18,16>` butterfly. The historical Q2.16
@@ -145,6 +146,11 @@ generic `StorageQueue<T,D,CW>` (`CW = ceil_log2(D + 1)`), and bounded raw-bit
 power-of-two depth, exact runtime indices, and explicit bitcast at typed/raw
 boundaries. Ping-pong publication is ordered: a second `commit` is blocked
 until the visible read bank retires, while simultaneous retire/commit is legal.
+The same file provides ordinary `StorageDualPortMemory<T,N,AW>`,
+`Storage2R1WMemory<T,N,AW>`, and `StorageAsyncMemory1W1R<T,N,AW>` wrappers over
+the shared typed memory IR. `StorageAsyncFifo<T,D>` wraps the existing explicit
+ready/valid `async_fifo(D)` crossing. These module names are not compiler
+intrinsics and do not authorize implicit CDC.
 It also provides immutable, source-authored generic ROM wrappers:
 
 ```zlang

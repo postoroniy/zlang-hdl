@@ -14,7 +14,8 @@ release, and unspecified power-up state.
 
 ## Recommended asynchronous reset
 
-The concise asynchronous form is safe for ordinary single-domain state:
+The concise asynchronous form is safe for ordinary state. In a multi-clock
+module each annotated domain owns an independent conditioner:
 
 ```zlang
 clock clk
@@ -132,15 +133,18 @@ not merely the raw pin level.
 ## Boundaries
 
 One clock domain has exactly one reset. Declaring both `reset` and `async reset`
-for that domain is an error. Multi-domain asynchronous reset, implicit reset
-crossings, reset combiners, configurable synchronizer depth, glitch filters,
-power-on reset, and macro-selected RTL semantics are not supported.
+for that domain is an error. Direct-SV supports multiple independently
+conditioned asynchronous domains; current formal execution still skips an
+asynchronous goal in a multi-domain module because no cross-domain reset-epoch
+relation is claimed. Implicit reset crossings, reset combiners, configurable
+synchronizer depth, glitch filters, power-on reset, and macro-selected RTL
+semantics are not supported.
 
 `power_up reset` remains typed but fails closed because no common portable
 synthesizable initialization mechanism is frozen. DSP48 physical reset pins,
 elastic or variable-latency `pipeline(auto)` equivalence, CDC/reset-refinement
 proofs, and target BRAM reset pins remain fail closed. So do multi-domain
-asynchronous reset, general hierarchical M36, and every route with missing
+asynchronous formal execution, general hierarchical M36, and every route with missing
 or incompatible domain manifests, bindings, assumptions, or observations.
 M39 `available` records unavailable evidence without changing eligibility;
 required policies fail unless the existing exact M36 route executes at the

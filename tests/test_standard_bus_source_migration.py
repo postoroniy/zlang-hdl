@@ -2,7 +2,7 @@ import hashlib
 import unittest
 from pathlib import Path
 
-from zlang.parser import ParseError, parse
+from zlang.parser import parse
 from zlang.semantic import analyze
 from zlang.stdlib import stdlib_source
 

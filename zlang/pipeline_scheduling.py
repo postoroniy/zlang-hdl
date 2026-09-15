@@ -39,13 +39,14 @@ from zlang.ir.traversal import (
     walk_expression,
 )
 from zlang.ir.types import (
-    BitType,
-    BitsType,
     FixedType,
     HardwareType,
-    SIntType,
     UFixedType,
-    UIntType,
+)
+from zlang.opt.capabilities import expression_capability, semantic_expression_op
+from zlang.resource_matching import (
+    DspMultiplyResourceMatcher,
+    ResourceMatcher,
 )
 from zlang.timing import timing_info, validate_timed_candidate
 
@@ -156,6 +157,7 @@ class TargetResourceOperationCostModel:
 
     resources: tuple[ResourceDefinition, ...]
     structural: StructuralOperationCostModel = StructuralOperationCostModel()
+    matchers: tuple[ResourceMatcher, ...] = (DspMultiplyResourceMatcher(),)
 
     @property
     def source(self) -> PipelineCostSource:
@@ -175,51 +177,32 @@ class TargetResourceOperationCostModel:
         operation_class: str,
     ) -> ScheduledOperationCost:
         generic = self.structural.cost(operation, operation_class)
-        if operation_class not in {"multiply", "fixed_multiply"}:
-            return replace(generic, source=self.source)
-        operands = _operation_children(operation)
+        matches = []
         for resource in sorted(self.resources, key=lambda item: item.identity):
-            if resource.resource_class != "dsp_mac" or len(operands) != 2:
-                continue
-            try:
-                fits = (
-                    _physical_dsp_width(operands[0].type)
-                    <= resource.limit("multiplier_a")
-                    and _physical_dsp_width(operands[1].type)
-                    <= resource.limit("multiplier_b")
-                ) or (
-                    _physical_dsp_width(operands[1].type)
-                    <= resource.limit("multiplier_a")
-                    and _physical_dsp_width(operands[0].type)
-                    <= resource.limit("multiplier_b")
-                )
-            except ValueError:
-                continue
-            site = next(
-                (
-                    item for item in resource.pipeline_sites
-                    if item.semantic_location == "multiply"
-                    and item.estimated_delay_ps > 0
+            for matcher in self.matchers:
+                match = matcher.match(operation, operation_class, resource)
+                if match is not None:
+                    matches.append(match)
+        if matches:
+            # Keep the old matcher semantics: the first stable resource
+            # identity wins. Resource ranking belongs to implementation
+            # planning, not to the operation-cost adapter.
+            selected = min(
+                matches,
+                key=lambda item: (
+                    item.resource_identity,
+                    item.mapping,
                 ),
-                None,
             )
-            if not fits or site is None:
-                continue
             return ScheduledOperationCost(
-                site.estimated_delay_ps,
-                0,
-                1,
-                resource.resource_class,
+                selected.estimated_delay_ps,
+                selected.estimated_lut,
+                selected.estimated_dsp,
+                selected.resource_class,
                 PipelineCostSource.TARGET_ESTIMATE,
-                resource.name,
+                selected.resource_name,
             )
         return replace(generic, source=self.source)
-
-
-def _physical_dsp_width(type_: HardwareType) -> int:
-    """Width of one value when connected to a signed DSP arithmetic port."""
-
-    return type_.width + int(isinstance(type_, (UIntType, UFixedType)))
 
 
 @dataclass(frozen=True)
@@ -252,6 +235,7 @@ def schedule_fixed_pipeline(
     cost_model: OperationCostModel | None = None,
     semantic_source_expression: expr.Expression | None = None,
     rewrite_certificate: tuple[str, ...] = (),
+    domain: str | None = None,
 ) -> expr.Pipeline:
     """Partition one exact pure expression into ``requested_latency`` cycles."""
 
@@ -276,6 +260,7 @@ def schedule_fixed_pipeline(
             allocate_instance(),
             source.type,
             origin=source.origin,
+            domain=domain,
         )
         semantic_source_identity = expression_semantic_identity(semantic_source)
         selected_value_identity = expression_semantic_identity(source)
@@ -358,6 +343,7 @@ def schedule_fixed_pipeline(
             model.source.value,
             cut_identities=(cut_identity,),
             rewrite_certificate=rewrite_certificate,
+            clock_domain=domain,
         )
         plan = PipelinePlan(
             stage_boundaries=tuple(
@@ -439,6 +425,7 @@ def schedule_fixed_pipeline(
                     allocate_instance(),
                     semantic_value.type,
                     origin=semantic_value.origin,
+                    domain=domain,
                 )
                 registered[key] = cached
             result = cached
@@ -530,6 +517,7 @@ def schedule_fixed_pipeline(
             allocate_instance(),
             source.type,
             origin=source.origin,
+            domain=domain,
         )
     else:
         root_stage = placements[source].stage
@@ -686,6 +674,7 @@ def schedule_fixed_pipeline(
             item.identity for item in compensation_records
         ),
         rewrite_certificate=rewrite_certificate,
+        clock_domain=domain,
     )
     plan = PipelinePlan(
         stage_boundaries=tuple(f"stage_{index}" for index in range(requested_latency)),
@@ -762,6 +751,7 @@ def schedule_module_fixed_pipelines(
                     cost_model=cost_model,
                     semantic_source_expression=value.expression,
                     rewrite_certificate=item.certificate,
+                    domain=value.domain,
                 )
                 plan = candidate.pipeline_plan
                 assert plan is not None
@@ -791,6 +781,7 @@ def schedule_module_fixed_pipelines(
                 cost_model=cost_model,
                 semantic_source_expression=value.expression,
                 rewrite_certificate=selected.certificate,
+                domain=value.domain,
             )
         return value
 
@@ -1131,6 +1122,20 @@ def _operation_class(value: expr.Expression) -> str | None:
         (expr.InputRef, expr.ParameterRef, expr.Constant, expr.RegisterRef),
     ):
         return None
+    operation = semantic_expression_op(value)
+    capability = expression_capability(operation) if operation is not None else None
+    if capability is None or not capability.schedulable_scalar:
+        if isinstance(value, (expr.Delay, expr.Pipeline)):
+            raise PipelineSchedulingError(
+                "nested delay/pipeline is not supported inside fixed pipeline scheduling"
+            )
+        if isinstance(value, expr.Call):
+            raise PipelineSchedulingError(
+                f"pipeline callable '{value.function}' was not expanded to concrete arithmetic"
+            )
+        raise PipelineSchedulingError(
+            f"pipeline scheduling does not support typed node {type(value).__name__}"
+        )
     if isinstance(value, expr.Add):
         return "fixed_add" if isinstance(value.type, (FixedType, UFixedType)) else "add"
     if isinstance(value, expr.Binary):
@@ -1182,16 +1187,8 @@ def _operation_class(value: expr.Expression) -> str | None:
         return "tuple_construct"
     if isinstance(value, expr.RuntimeIndex):
         return "runtime_index"
-    if isinstance(value, (expr.Delay, expr.Pipeline)):
-        raise PipelineSchedulingError(
-            "nested delay/pipeline is not supported inside fixed pipeline scheduling"
-        )
-    if isinstance(value, expr.Call):
-        raise PipelineSchedulingError(
-            f"pipeline callable '{value.function}' was not expanded to concrete arithmetic"
-        )
     raise PipelineSchedulingError(
-        f"pipeline scheduling does not support typed node {type(value).__name__}"
+        f"pipeline operation {operation.value} has no cost classification"
     )
 
 

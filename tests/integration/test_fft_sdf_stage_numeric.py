@@ -14,24 +14,17 @@ import json
 import os
 from pathlib import Path
 import re
-import shutil
 import subprocess
 import sys
 import tempfile
 
 import pytest
 
-from zlang.backend.companions import publish_companion_bundle
-from zlang.backend.manifest import (
-    BackendArtifact,
-    COMPANION_MANIFEST_VERSION,
-    RECURSIVE_MANIFEST_VERSION,
-)
 from zlang.backend.systemverilog import emit_experimental
 from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
 from zlang.build_manifest import WholeBuildManifest
 from zlang.compiler import _inline_locals, compile_file, compile_source
-from zlang.formal import build_formal_design, build_recursive_formal_design, run_formal
+from zlang.formal import build_formal_design, run_formal
 from zlang.ir import FixedConvert, FixedType, FormalStatus, ProofMode
 from zlang.ir.callables import expand_callable_calls
 from zlang.opt import OptimizationStage, lower, restore

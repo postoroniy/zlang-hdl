@@ -4,6 +4,7 @@
 .direnv/
 .env
 .env.*
+/.local/
 .coverage
 .coverage.*
 .mypy_cache/
@@ -11,7 +12,11 @@
 .ruff_cache/
 .pytest_cache/
 .pytest-tmp/
-.qwen/
+.qwen/*
+!.qwen/skills/
+.qwen/skills/*
+!.qwen/skills/zlang-hdl/
+!.qwen/skills/zlang-hdl/**
 .tmp/
 .vscode/
 build/

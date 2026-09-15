@@ -20,6 +20,8 @@ class CDCRendering:
     logic_port: Callable[[str, str, HardwareType], str]
     packed_width: Callable[[HardwareType], int]
     packed_range: Callable[[int], str]
+    clock_event: Callable[[Module, str], str]
+    reset_asserted: Callable[[Module, str], str]
     module: Callable[[Module, list[str], list[str]], str]
 
 
@@ -34,18 +36,16 @@ def _connection(module: Module, kind: CrossingKind, rendering: CDCRendering):
             f"direct {kind.value} CDC requires exactly one explicit crossing"
         )
     if (
-        module.assignments
-        or module.registers
-        or module.next_assignments
-        or module.rules
-        or module.fifos
+        module.fifos
         or module.memories
+        or module.roms
         or module.csr_blocks
         or module.elaborated_instances
         or module.hierarchical_connections
     ):
         raise rendering.error(
-            f"direct {kind.value} CDC cannot be mixed with state, hierarchy, or CSR"
+            f"direct {kind.value} CDC cannot yet be mixed with storage, "
+            "hierarchy, or CSR"
         )
     connection = crossings[0]
     crossing = connection.crossing
@@ -97,8 +97,8 @@ def _emit_sync_level(module: Module, rendering: CDCRendering) -> str:
     identifier = rendering.identifier
     src = identifier(source.name)
     dst = identifier(destination.name)
-    clock = identifier(destination_domain.clock)
-    reset = identifier(destination_domain.reset)
+    clock_event = rendering.clock_event(module, destination_domain.clock)
+    reset = rendering.reset_asserted(module, destination_domain.clock)
     ports = [
         *_ports(module, rendering),
         rendering.logic_port("input", src, source.type),
@@ -107,7 +107,7 @@ def _emit_sync_level(module: Module, rendering: CDCRendering) -> str:
     lines = [
         '  (* ASYNC_REG = "TRUE" *) logic zlang_sync_stage1, zlang_sync_stage2;',
         f"  assign {dst} = {reset} ? 1'b0 : zlang_sync_stage2;",
-        f"  always_ff @(posedge {clock}) begin",
+        f"  always_ff @({clock_event}) begin",
         f"    if ({reset}) begin",
         "      zlang_sync_stage1 <= 1'b0;",
         "      zlang_sync_stage2 <= 1'b0;",
@@ -135,10 +135,10 @@ def _emit_pulse_toggle(module: Module, rendering: CDCRendering) -> str:
     identifier = rendering.identifier
     src = identifier(source.name)
     dst = identifier(destination.name)
-    src_clock = identifier(source_domain.clock)
-    src_reset = identifier(source_domain.reset)
-    dst_clock = identifier(destination_domain.clock)
-    dst_reset = identifier(destination_domain.reset)
+    src_clock_event = rendering.clock_event(module, source_domain.clock)
+    src_reset = rendering.reset_asserted(module, source_domain.clock)
+    dst_clock_event = rendering.clock_event(module, destination_domain.clock)
+    dst_reset = rendering.reset_asserted(module, destination_domain.clock)
     ports = [
         *_ports(module, rendering),
         rendering.logic_port("input", src, source.type),
@@ -150,11 +150,11 @@ def _emit_pulse_toggle(module: Module, rendering: CDCRendering) -> str:
         "  logic zlang_previous_toggle;",
         f"  assign {dst} = {dst_reset} ? 1'b0 : "
         "(zlang_toggle_sync2 ^ zlang_previous_toggle);",
-        f"  always_ff @(posedge {src_clock}) begin",
+        f"  always_ff @({src_clock_event}) begin",
         f"    if ({src_reset}) zlang_source_toggle <= 1'b0;",
         f"    else if ({src}) zlang_source_toggle <= ~zlang_source_toggle;",
         "  end",
-        f"  always_ff @(posedge {dst_clock}) begin",
+        f"  always_ff @({dst_clock_event}) begin",
         f"    if ({dst_reset}) begin",
         "      zlang_toggle_sync1 <= 1'b0;",
         "      zlang_toggle_sync2 <= 1'b0;",
@@ -185,10 +185,10 @@ def _emit_handshake(module: Module, rendering: CDCRendering) -> str:
     identifier = rendering.identifier
     src = identifier(source.name)
     dst = identifier(destination.name)
-    src_clock = identifier(source_domain.clock)
-    src_reset = identifier(source_domain.reset)
-    dst_clock = identifier(destination_domain.clock)
-    dst_reset = identifier(destination_domain.reset)
+    src_clock_event = rendering.clock_event(module, source_domain.clock)
+    src_reset = rendering.reset_asserted(module, source_domain.clock)
+    dst_clock_event = rendering.clock_event(module, destination_domain.clock)
+    dst_reset = rendering.reset_asserted(module, destination_domain.clock)
     width = rendering.packed_width(source.type)
     ports = [
         *_ports(module, rendering),
@@ -212,7 +212,7 @@ def _emit_handshake(module: Module, rendering: CDCRendering) -> str:
         f"  assign {dst}_valid = !{dst_reset} && "
         "(zlang_request_sync2 != zlang_destination_acknowledge);",
         f"  assign {dst}_payload = zlang_held_payload;",
-        f"  always_ff @(posedge {src_clock}) begin",
+        f"  always_ff @({src_clock_event}) begin",
         f"    if ({src_reset}) begin",
         "      zlang_held_payload <= '0;",
         "      zlang_source_request <= 1'b0;",
@@ -227,7 +227,7 @@ def _emit_handshake(module: Module, rendering: CDCRendering) -> str:
         "      end",
         "    end",
         "  end",
-        f"  always_ff @(posedge {dst_clock}) begin",
+        f"  always_ff @({dst_clock_event}) begin",
         f"    if ({dst_reset}) begin",
         "      zlang_request_sync1 <= 1'b0;",
         "      zlang_request_sync2 <= 1'b0;",
@@ -268,10 +268,10 @@ def _emit_async_fifo(module: Module, rendering: CDCRendering) -> str:
     identifier = rendering.identifier
     src = identifier(source.name)
     dst = identifier(destination.name)
-    src_clock = identifier(source_domain.clock)
-    src_reset = identifier(source_domain.reset)
-    dst_clock = identifier(destination_domain.clock)
-    dst_reset = identifier(destination_domain.reset)
+    src_clock_event = rendering.clock_event(module, source_domain.clock)
+    src_reset = rendering.reset_asserted(module, source_domain.clock)
+    dst_clock_event = rendering.clock_event(module, destination_domain.clock)
+    dst_reset = rendering.reset_asserted(module, destination_domain.clock)
     inverted_read_pointer = (
         f"{{~zlang_read_gray_sync2[{pointer_width - 1}:"
         f"{pointer_width - 2}], "
@@ -312,7 +312,7 @@ def _emit_async_fifo(module: Module, rendering: CDCRendering) -> str:
         f"  assign {dst}_valid = !{dst_reset} && !zlang_empty;",
         f"  assign {dst}_payload = "
         f"zlang_storage[zlang_read_binary[{address_width - 1}:0]];",
-        f"  always_ff @(posedge {src_clock}) begin",
+        f"  always_ff @({src_clock_event}) begin",
         f"    if ({src_reset}) begin",
         "      zlang_write_binary <= '0;",
         "      zlang_write_gray <= '0;",
@@ -329,7 +329,7 @@ def _emit_async_fifo(module: Module, rendering: CDCRendering) -> str:
         f"<= {src}_payload;",
         "    end",
         "  end",
-        f"  always_ff @(posedge {dst_clock}) begin",
+        f"  always_ff @({dst_clock_event}) begin",
         f"    if ({dst_reset}) begin",
         "      zlang_read_binary <= '0;",
         "      zlang_read_gray <= '0;",

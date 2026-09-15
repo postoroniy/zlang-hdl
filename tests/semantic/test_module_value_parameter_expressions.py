@@ -1,12 +1,8 @@
 from dataclasses import fields, is_dataclass
 from pathlib import Path
-import shutil
-import subprocess
-import tempfile
 
 import pytest
 
-from zlang.backend.systemverilog import emit_experimental
 from zlang.equivalence import make_equivalence_property
 from zlang.ir import Constant, ParameterRef
 from zlang.ir import EquivalenceRelation

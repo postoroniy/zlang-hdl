@@ -13,6 +13,28 @@ class ConnectionParserTests(unittest.TestCase):
         self.assertEqual(connection.buffer_depth, 0)
         self.assertIsNone(connection.adapter)
 
+    def test_connection_retains_exact_endpoint_name_spans(self) -> None:
+        connection = parse(
+            "module Link { in rx:rv<u8> out tx:rv<u8> "
+            "child:Stage rx -> child.tx }"
+        ).connections[0]
+        self.assertEqual(
+            [
+                (item.start_line, item.start_column, item.end_column)
+                for item in connection.source_name_origins
+                if item is not None
+            ],
+            [(1, 54, 56)],
+        )
+        self.assertEqual(
+            [
+                (item.start_line, item.start_column, item.end_column)
+                for item in connection.destination_name_origins
+                if item is not None
+            ],
+            [(1, 60, 65), (1, 66, 68)],
+        )
+
     def test_buffer_and_explicit_adapter_are_preserved(self) -> None:
         connection = parse(
             "module Link { in rx:rv<u8> out tx:credit<u8,2> "

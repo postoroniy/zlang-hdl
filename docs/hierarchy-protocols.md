@@ -283,6 +283,15 @@ Hardware status uses `<-`, commands use `->`, and sticky events make simultaneou
 hardware/software priority explicit. RTL, JSON, and Markdown are derived from
 the same typed model.
 
+In a multi-clock module the bank declares its owner after its base address:
+
+```zlang
+csr control @0x4000_0000 @apb_clk { /* registers */ }
+```
+
+All blocks sharing the canonical access ABI must use that one domain. A
+runtime CSR value consumed by another domain still requires explicit CDC.
+
 ## Clock-domain crossings
 
 Implicit CDC is an error. Existing explicit forms are:
@@ -298,9 +307,25 @@ Implicit CDC is an error. Existing explicit forms are:
 connect source -> destination { crossing async_fifo(4) }
 ```
 
+The crossing is a semantic boundary. Its output has destination-domain
+provenance and may feed destination-domain combinational logic, rules, FSMs, or
+state normally. The compiler never rewrites, balances, or resource-packs logic
+through the boundary, and never chooses a crossing automatically.
+
+```zlang
+connect enable_a -> enable_b { crossing sync_level }
+rule Observe @clk_b when enable_b { seen <- 1 }
+```
+
 An aggregate with exactly one forward ready/valid member may use the same
 `async_fifo` crossing; its complete payload is atomic. Both domains must
 participate in a coordinated reset episode.
+
+The ordinary `std.storage.core.StorageAsyncFifo<T,D>` wrapper exposes this same
+crossing as a reusable module with explicit writer and reader clock/reset
+ports. It lowers through the existing CDC IR; its module name is not special
+to the compiler. A normal `fifo<T,N>` never changes into an asynchronous FIFO
+because its endpoints happen to use different domains.
 
 No automatic protocol adaptation or implicit CDC is performed. Full AXI4
 bursts/IDs and bus-specific CDC bridges remain deferred.

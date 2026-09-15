@@ -7,7 +7,7 @@ from zlang.backend.systemverilog import emit_artifact
 from zlang.compiler import compile_source
 from zlang.ir import expressions as expr
 from zlang.ir.packing import pack_runtime, unpack_runtime
-from zlang.ir.types import BitsType, FixedType, SIntType, StructType, VecType
+from zlang.ir.types import BitsType, FixedType, SIntType, VecType
 from zlang.opt import OptimizationStage, lower, restore
 from zlang.semantic import SemanticError
 from zlang.simulate import simulate

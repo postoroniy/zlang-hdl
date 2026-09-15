@@ -10,14 +10,12 @@ import subprocess
 
 import pytest
 
-from zlang.backend.manifest import BackendArtifact
 from zlang.backend.naming import (
-    build_component_name_plan, module_rtl_names, validate_component_name_plans,
+    build_component_name_plan, validate_component_name_plans,
 )
 from zlang.backend.systemverilog import emit_artifact
 from zlang.compiler import compile_source
 from zlang.ir.hierarchy import build_hierarchy_index
-from zlang.simulate import simulate_cycles
 
 
 SOURCE = """

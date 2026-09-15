@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Invoked by VS Code --extensionTestsPath, never shipped in the lexical VSIX.
+// Invoked by VS Code --extensionTestsPath, never shipped in the Community VSIX.
 'use strict';
 
 const assert = require('node:assert/strict');
@@ -58,13 +58,14 @@ async function checkHost() {
   assert.equal(extension.id, extensionId);
   const manifest = extension.packageJSON;
   assert.equal(manifest.version, '0.1.0');
-  for (const field of ['main', 'browser', 'activationEvents']) {
-    assert.equal(Object.hasOwn(manifest, field), false, `Unexpected runtime entry: ${field}`);
-  }
-  for (const field of ['dependencies', 'optionalDependencies', 'extensionDependencies']) {
-    assert.equal(Object.keys(manifest[field] || {}).length, 0, `Unexpected runtime dependency: ${field}`);
-  }
-  assert.equal(fs.existsSync(path.join(installedPath, 'node_modules')), false);
+  assert.equal(manifest.main, './extension.js');
+  assert.equal(Object.hasOwn(manifest, 'activationEvents'), false);
+  assert.deepEqual(manifest.dependencies, { 'vscode-languageclient': '^9.0.1' });
+  assert.equal(fs.existsSync(path.join(installedPath, 'node_modules')), false,
+    'Development node_modules must not be shipped');
+  assert.equal(fs.existsSync(path.join(
+    installedPath, 'vendor', 'node_modules', 'vscode-languageclient', 'lib', 'node', 'main.js')),
+  true, 'Production language-client runtime is missing');
   const language = manifest.contributes.languages.find((item) => item.id === languageId);
   assert.ok(language, 'Missing installed language contribution');
   assert.deepEqual(language.extensions, ['.zhl']);
@@ -102,6 +103,116 @@ async function checkHost() {
   await configuration.update('autoIndent', 'full', vscode.ConfigurationTarget.WorkspaceFolder);
   await configuration.update('autoClosingBrackets', 'languageDefined', vscode.ConfigurationTarget.WorkspaceFolder);
   const document = editor.document;
+
+  // Exercise the real contributed LanguageClient immediately after extension
+  // activation.  The activation promise must not resolve until the server has
+  // registered its providers; otherwise this first request races start().
+  const extensionApi = vscode.extensions.getExtension(extensionId);
+  await extensionApi.activate();
+  const useOffset = document.getText().lastIndexOf('x');
+  const definitions = await vscode.commands.executeCommand(
+    'vscode.executeDefinitionProvider',
+    document.uri,
+    document.positionAt(useOffset),
+  );
+  assert.ok(definitions && definitions.length === 1,
+    'installed LanguageClient did not provide F12 definition after activation');
+  const definition = definitions[0];
+  const definitionUri = definition.targetUri ?? definition.uri;
+  const definitionRange = definition.targetRange ?? definition.range;
+  assert.equal(definitionUri.toString(), document.uri.toString());
+  assert.deepEqual(definitionRange.start, new vscode.Position(1, 7));
+
+  // Mirror dogfooding with the repository opened above a nested locked ZLang
+  // project.  Only the root document is opened; declaration targets must be
+  // resolved from the document-local manifest/lock, never workspaceFolder.
+  const wifiProject = path.join(scratch, 'examples', 'projects', '80211a_transmitter');
+  fs.cpSync(
+    path.join(sourceRepository, 'examples', 'projects', '80211a_transmitter'),
+    wifiProject,
+    { recursive: true },
+  );
+  const transmitter = await vscode.workspace.openTextDocument(vscode.Uri.file(
+    path.join(wifiProject, 'src', 'transmitter.zhl'),
+  ));
+  assert.equal(transmitter.languageId, languageId);
+  for (const [name, target, line, character] of [
+    ['WifiTxCommand', 'data_types.zhl', 11, 7],
+    ['IeeePacketMapper64', 'mapper.zhl', 357, 7],
+  ]) {
+    const offset = transmitter.getText().indexOf(name);
+    assert.notEqual(offset, -1, `missing ${name} occurrence`);
+    const locations = await vscode.commands.executeCommand(
+      'vscode.executeDefinitionProvider',
+      transmitter.uri,
+      // Mirror F12 after VS Code has selected the symbol: selection.active is
+      // the exclusive right edge, not a character inside the identifier.
+      transmitter.positionAt(offset + name.length),
+    );
+    assert.ok(locations && locations.length === 1, `no definition for ${name}`);
+    const location = locations[0];
+    const targetUri = location.targetUri ?? location.uri;
+    const targetRange = location.targetRange ?? location.range;
+    assert.equal(
+      targetUri.toString(),
+      vscode.Uri.file(path.join(wifiProject, 'src', target)).toString(),
+    );
+    assert.deepEqual(targetRange.start, new vscode.Position(line, character));
+    assert.equal(
+      vscode.workspace.textDocuments.some((item) => item.uri.toString() === targetUri.toString()),
+      false,
+      `${name} target was opened instead of resolved from the locked project`,
+    );
+  }
+
+  // Exercise the installed References provider, not only the JSON-RPC server
+  // test.  The declaration sits above another module in the same source.
+  const syntaxPath = path.join(scratch, 'all_syntax.zhl');
+  fs.copyFileSync(path.join(sourceRepository, 'examples', 'all_syntax.zhl'), syntaxPath);
+  const syntax = await vscode.workspace.openTextDocument(vscode.Uri.file(syntaxPath));
+  const syntaxLines = syntax.getText().split('\n');
+  const enumLine = syntaxLines.findIndex((line) => line.startsWith('enum CorpusCode :'));
+  assert.ok(enumLine >= 0, 'missing CorpusCode declaration');
+  const enumPosition = new vscode.Position(enumLine, syntaxLines[enumLine].indexOf('CorpusCode'));
+  const enumReferences = await vscode.commands.executeCommand(
+    'vscode.executeReferenceProvider', syntax.uri, enumPosition, { includeDeclaration: true },
+  );
+  assert.equal(enumReferences?.length, 5, 'installed Shift+F12 omitted same-file enum uses');
+  assert.equal(enumReferences.filter((item) => item.range.start.line === enumLine).length, 1);
+  assert.ok(enumReferences.every((item) => item.uri.toString() === syntax.uri.toString()));
+  assert.ok(enumReferences.every((item) =>
+    item.range.end.character - item.range.start.character === 'CorpusCode'.length));
+  const enumUseLine = syntaxLines.findIndex((line) => line.includes('enum_decode<CorpusCode>'));
+  assert.ok(enumUseLine >= 0);
+  const useReferences = await vscode.commands.executeCommand(
+    'vscode.executeReferenceProvider', syntax.uri,
+    new vscode.Position(enumUseLine, syntaxLines[enumUseLine].indexOf('CorpusCode')),
+    { includeDeclaration: true },
+  );
+  const coordinates = (items) => items.map((item) => [
+    item.uri.toString(), item.range.start.line, item.range.start.character,
+    item.range.end.line, item.range.end.character,
+  ]);
+  assert.deepEqual(coordinates(useReferences), coordinates(enumReferences),
+    'declaration/use Shift+F12 returned different semantic reference sets');
+
+  for (const [name, declarationFile, expectedCount] of [
+    ['WifiTxCommand', 'data_types.zhl', 6],
+    ['IeeePacketMapper64', 'mapper.zhl', 2],
+  ]) {
+    const offset = transmitter.getText().indexOf(name);
+    const references = await vscode.commands.executeCommand(
+      'vscode.executeReferenceProvider', transmitter.uri,
+      transmitter.positionAt(offset), { includeDeclaration: true },
+    );
+    assert.equal(references?.length, expectedCount, `installed Shift+F12 omitted ${name} uses`);
+    assert.ok(references.some((item) => item.uri.fsPath ===
+      path.join(wifiProject, 'src', declarationFile)));
+  }
+
+  // Navigation providers may change VS Code's active editor; restore the
+  // scratch UI fixture before exercising typing and snippet commands.
+  await vscode.window.showTextDocument(document, { preview: false });
 
   await replace(editor, 'in x : u8');
   editor.selection = new vscode.Selection(0, 0, 0, document.lineAt(0).text.length);
@@ -149,13 +260,18 @@ async function checkHost() {
     installedPath,
     workspace,
     checks: [
-      'isolated installed VSIX identity and static-only manifest',
+      'isolated installed VSIX identity and standard LSP client manifest',
       'automatic .zhl association; no .zl or .zlh association',
+      'activation-complete LanguageClient and real F12 definition provider',
+      'nested-project type/module F12 with unopened declaration targets',
+      'same-file enum and nested-project type/module Shift+F12 from installed VSIX',
       'line-comment toggle and removal',
       'bracket auto-closing and Enter indentation',
       'registered Clocked module snippet and working tabstops',
     ],
-    notChecked: ['rendered theme colors, font styling, and visual screenshot appearance'],
+    notChecked: [
+      'rendered theme colors, font styling, and visual screenshot appearance',
+    ],
   }));
 }
 

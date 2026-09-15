@@ -14,7 +14,6 @@ from zlang.compiler import compile_source
 from zlang.ir.interfaces import RequestResponseRole
 from zlang.opt import OptimizationStage, lower, restore
 from zlang.simulate import simulate_request_response_cycles
-from zlang.toolchain import lint_with_verilator
 
 
 SOURCE = r"""

@@ -4,7 +4,7 @@ import unittest
 
 from zlang.equivalence import make_equivalence_property, run_equivalence_formal
 from zlang.formal import run_verilog_targets
-from zlang.ir import EquivalenceMode, EquivalenceStatus, InputRef, UIntType
+from zlang.ir import EquivalenceStatus, InputRef, UIntType
 from zlang.ir.formal import FormalStatus, ProofMode
 from zlang.timing import TimingInfo
 from zlang.ir import Pipeline
@@ -51,8 +51,6 @@ reg [1:0] credits; always @(posedge clk) begin if (rst) credits <= 0; else credi
     def test_m36_same_cycle_and_fixed_latency_real_execution(self):
         u8 = UIntType(8)
         x = InputRef("x", u8)
-        same = make_equivalence_property(x, x, candidate_class="m27",
-                                         reference_root="r", implementation_root="i")
         source = """module m36(input clk, input [7:0] x);
 wire [7:0] reference_value = x; wire [7:0] implementation_value = x;
 always @(posedge clk) assert(reference_value == implementation_value);

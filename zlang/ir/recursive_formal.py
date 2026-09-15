@@ -30,7 +30,6 @@ from zlang.ir.csr import (
 )
 from zlang.ir.module import (
     Assignment,
-    ElaboratedInstance,
     Module,
     Port,
     PortDirection,

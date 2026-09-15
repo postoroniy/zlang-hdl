@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 from hashlib import sha256
-from typing import Iterable
 
 from zlang.ir.interfaces import ConnectionAdapter, InterfaceProtocol
 
@@ -135,12 +134,16 @@ class ProtocolTraceChecker:
         self._violations: list[str] = []
 
     def reset(self) -> None:
-        self._accepted.clear(); self._emitted.clear(); self._buffer.clear()
+        self._accepted.clear()
+        self._emitted.clear()
+        self._buffer.clear()
 
     def observe_input_transfer(self, payload: object) -> bool:
         if len(self._buffer) >= self.depth:
             return False
-        self._accepted.append(payload); self._buffer.append(payload); return True
+        self._accepted.append(payload)
+        self._buffer.append(payload)
+        return True
 
     def observe_output_transfer(self, payload: object) -> bool:
         if not self._buffer:
@@ -149,7 +152,8 @@ class ProtocolTraceChecker:
         expected = self._buffer.pop(0)
         if expected != payload:
             self._violations.append("payload ordering or duplication violation")
-        self._emitted.append(payload); return expected == payload
+        self._emitted.append(payload)
+        return expected == payload
 
     def finish(self) -> TraceCheck:
         if len(self._emitted) > len(self._accepted):

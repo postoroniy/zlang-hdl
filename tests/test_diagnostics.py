@@ -5,8 +5,14 @@ import json
 import pytest
 
 from zlang.backend.systemverilog import SystemVerilogEmissionError
-from zlang.diagnostics import DIAGNOSTIC_SCHEMA, Diagnostic, DiagnosticError
-from zlang.parser import ParseError, parse
+from zlang.diagnostics import (
+    DIAGNOSTIC_SCHEMA,
+    Diagnostic,
+    DiagnosticEdit,
+    DiagnosticError,
+    DiagnosticFix,
+)
+from zlang.parser import parse
 from zlang.semantic import SemanticError, analyze
 from zlang.source import SourceOrigin, SourceSpan
 
@@ -43,6 +49,26 @@ def test_diagnostic_json_schema_is_stable_and_deterministic() -> None:
         "notes": ["the expression produces one carry bit"],
         "fixes": ["use an explicit exact-width conversion"],
     }
+
+
+def test_machine_fix_metadata_requires_exact_source_identity() -> None:
+    with pytest.raises(ValueError, match="source identity"):
+        DiagnosticEdit(
+            SourceOrigin(SourceSpan(1, 1, 1, 2), "name"),
+            "replacement",
+        )
+    origin = SourceOrigin(
+        SourceSpan(1, 1, 1, 2),
+        "name",
+        "top.zhl",
+        "0" * 64,
+    )
+    edit = DiagnosticEdit(origin, "")
+    fix = DiagnosticFix("Delete name", (edit,))
+    error = DiagnosticError("bad name", machine_fixes=(fix,))
+    assert error.machine_fixes == (fix,)
+    with pytest.raises(ValueError, match="at least one edit"):
+        DiagnosticFix("Empty", ())
 
 
 

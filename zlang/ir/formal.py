@@ -7,11 +7,10 @@ is the only layer that resolves those records to implementation signals.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 from enum import Enum
 import hashlib
 import re
-from typing import Iterable
 
 from zlang.ir.interfaces import (
     CreditSignal,
@@ -1059,6 +1058,7 @@ def generate_properties(module: Module) -> FormalDesign:
         module = replace(
             module,
             registers=(), fifos=(), csr_blocks=(), rules=(), rule_priorities=(),
+            resolved_transition=None,
             ports=tuple(port for port in module.ports if port.protocol is InterfaceProtocol.WIRE),
         )
     properties: list[FormalProperty] = []
@@ -3181,6 +3181,90 @@ def formal_harness_domain_rendering(
     )
 
 
+@dataclass
+class _ConnectedHarnessPrelude:
+    lines: list[str]
+    bindings: dict[str, SignalBinding]
+    predicate_bindings: dict[str, SignalBinding]
+    rendering: FormalDomainRendering
+    history_valid: str
+    used_names: set[str]
+
+
+def _connected_harness_prelude(
+    design: FormalDesign,
+    *,
+    top: str,
+    properties: tuple[FormalProperty | CoverProperty, ...],
+) -> _ConnectedHarnessPrelude:
+    """Emit the shared implementation wrapper for safety and cover harnesses."""
+
+    assert design.connected_module is not None
+    assert design.implementation_text is not None
+    dut_ports = _canonical_dut_ports(design.dut_ports)
+    port_by_name = {item.rtl_name: item for item in dut_ports}
+    input_ports = tuple(item for item in dut_ports if item.direction == "input")
+    lines = [design.implementation_text.rstrip(), "", "`default_nettype none"]
+    header = f"module {top}"
+    if input_ports:
+        declarations = []
+        for item in input_ports:
+            packed = "" if item.width == 1 else f" [{item.width - 1}:0]"
+            declarations.append(f"input wire{packed} {item.rtl_name}")
+        header += "(" + ", ".join(declarations) + ");"
+    else:
+        header += ";"
+    lines.append(header)
+    for item in dut_ports:
+        if item.direction == "output":
+            packed = "" if item.width == 1 else f" [{item.width - 1}:0]"
+            lines.append(f"  wire{packed} {item.rtl_name};")
+    observation_tokens = {
+        item.rtl_name: item for item in design.bindings
+        if item.semantic_signal_id not in {"clock", "reset"}
+    }
+    for item in observation_tokens.values():
+        if item.rtl_name not in port_by_name:
+            packed = "" if item.width == 1 else f" [{item.width - 1}:0]"
+            lines.append(f"  wire{packed} {item.rtl_name};")
+    connections = [
+        f".{item.rtl_name}({item.rtl_name})" for item in dut_ports
+    ] + [
+        f".{item.rtl_name}({item.rtl_name})"
+        for item in observation_tokens.values()
+        if item.rtl_name not in port_by_name
+    ]
+    lines.append(
+        f"  {design.connected_module} dut (" + ", ".join(connections) + ");"
+    )
+    used_names = {
+        item.rtl_name for item in (*dut_ports, *observation_tokens.values())
+    }
+    history_valid = allocate_private_rtl_identifier(
+        "zlang_m35_past_valid",
+        semantic_identity=f"{top}|m35|history-valid",
+        used=used_names,
+    )
+    bindings = {item.semantic_signal_id: item for item in design.bindings}
+    rendering = _connected_domain_rendering(
+        design,
+        properties,
+        bindings,
+        used_names=used_names,
+    )
+    predicate_bindings = _effective_reset_bindings(bindings, rendering)
+    lines.extend(f"  {item}" for item in rendering.support_lines)
+    lines.append(f"  {rendering.initial_assumption}")
+    return _ConnectedHarnessPrelude(
+        lines,
+        bindings,
+        predicate_bindings,
+        rendering,
+        history_valid,
+        used_names,
+    )
+
+
 def emit_harness(design: FormalDesign, *, mode: ProofMode = ProofMode.BMC, depth: int = 20) -> str:
     """Emit a connected checker, or an explicit non-executable report."""
     if depth < 1:
@@ -3218,61 +3302,16 @@ def emit_harness(design: FormalDesign, *, mode: ProofMode = ProofMode.BMC, depth
                 raise FormalError(
                     f"property '{prop.id}' has no signal binding for '{signal}'"
                 )
-    assert design.connected_module is not None
-    assert design.implementation_text is not None
-    dut_ports = _canonical_dut_ports(design.dut_ports)
-    port_by_name = {item.rtl_name: item for item in dut_ports}
-    input_ports = tuple(item for item in dut_ports if item.direction == "input")
-    lines = [design.implementation_text.rstrip(), "", "`default_nettype none"]
-    header = f"module {design.module_name}__m35_formal"
-    if input_ports:
-        declarations = []
-        for item in input_ports:
-            packed = "" if item.width == 1 else f" [{item.width - 1}:0]"
-            declarations.append(f"input wire{packed} {item.rtl_name}")
-        header += "(" + ", ".join(declarations) + ");"
-    else:
-        header += ";"
-    lines.append(header)
-    for item in dut_ports:
-        if item.direction == "output":
-            packed = "" if item.width == 1 else f" [{item.width - 1}:0]"
-            lines.append(f"  wire{packed} {item.rtl_name};")
-    observation_tokens = {
-        item.rtl_name: item for item in design.bindings
-        if item.semantic_signal_id not in {"clock", "reset"}
-    }
-    for item in observation_tokens.values():
-        if item.rtl_name not in port_by_name:
-            packed = "" if item.width == 1 else f" [{item.width - 1}:0]"
-            lines.append(f"  wire{packed} {item.rtl_name};")
-    connections = [
-        f".{item.rtl_name}({item.rtl_name})" for item in dut_ports
-    ] + [
-        f".{item.rtl_name}({item.rtl_name})"
-        for item in observation_tokens.values()
-        if item.rtl_name not in port_by_name
-    ]
-    lines.append(
-        f"  {design.connected_module} dut (" + ", ".join(connections) + ");"
-    )
-    used_names = {
-        item.rtl_name for item in (*dut_ports, *observation_tokens.values())
-    }
-    history_valid = allocate_private_rtl_identifier(
-        "zlang_m35_past_valid",
-        semantic_identity=f"{design.module_name}|m35|history-valid",
-        used=used_names,
-    )
-    rendering = _connected_domain_rendering(
+    harness = _connected_harness_prelude(
         design,
-        design.properties,
-        binding,
-        used_names=used_names,
+        top=f"{design.module_name}__m35_formal",
+        properties=design.properties,
     )
-    predicate_binding = _effective_reset_bindings(binding, rendering)
-    lines.extend(f"  {item}" for item in rendering.support_lines)
-    lines.append(f"  {rendering.initial_assumption}")
+    lines = harness.lines
+    history_valid = harness.history_valid
+    rendering = harness.rendering
+    predicate_binding = harness.predicate_bindings
+    used_names = harness.used_names
     lines.append(f"  reg {history_valid} = 1'b0;")
     legacy = rendering.domain.is_legacy_default
     reset_history_valid = None
@@ -3433,65 +3472,20 @@ def emit_cover_harness(
                 raise FormalError(
                     f"assumption '{assumption.id}' has no signal binding for '{signal}'"
                 )
-    assert design.connected_module is not None
-    assert design.implementation_text is not None
     top = top or cover_harness_top(design, cover_id)
     if not _IDENT.match(top):
         raise FormalError(f"cover harness top is not a legal identifier: {top!r}")
 
-    dut_ports = _canonical_dut_ports(design.dut_ports)
-    port_by_name = {item.rtl_name: item for item in dut_ports}
-    input_ports = tuple(item for item in dut_ports if item.direction == "input")
-    lines = [design.implementation_text.rstrip(), "", "`default_nettype none"]
-    header = f"module {top}"
-    if input_ports:
-        declarations = []
-        for item in input_ports:
-            packed = "" if item.width == 1 else f" [{item.width - 1}:0]"
-            declarations.append(f"input wire{packed} {item.rtl_name}")
-        header += "(" + ", ".join(declarations) + ");"
-    else:
-        header += ";"
-    lines.append(header)
-    for item in dut_ports:
-        if item.direction == "output":
-            packed = "" if item.width == 1 else f" [{item.width - 1}:0]"
-            lines.append(f"  wire{packed} {item.rtl_name};")
-    observation_tokens = {
-        item.rtl_name: item for item in design.bindings
-        if item.semantic_signal_id not in {"clock", "reset"}
-    }
-    for item in observation_tokens.values():
-        if item.rtl_name not in port_by_name:
-            packed = "" if item.width == 1 else f" [{item.width - 1}:0]"
-            lines.append(f"  wire{packed} {item.rtl_name};")
-    connections = [
-        f".{item.rtl_name}({item.rtl_name})" for item in dut_ports
-    ] + [
-        f".{item.rtl_name}({item.rtl_name})"
-        for item in observation_tokens.values()
-        if item.rtl_name not in port_by_name
-    ]
-    lines.append(
-        f"  {design.connected_module} dut (" + ", ".join(connections) + ");"
-    )
-    used_names = {
-        item.rtl_name for item in (*dut_ports, *observation_tokens.values())
-    }
-    history_valid = allocate_private_rtl_identifier(
-        "zlang_m35_past_valid",
-        semantic_identity=f"{top}|m35|history-valid",
-        used=used_names,
-    )
-    rendering = _connected_domain_rendering(
+    harness = _connected_harness_prelude(
         design,
-        (*assumptions, prop),
-        binding,
-        used_names=used_names,
+        top=top,
+        properties=(*assumptions, prop),
     )
-    predicate_binding = _effective_reset_bindings(binding, rendering)
-    lines.extend(f"  {item}" for item in rendering.support_lines)
-    lines.append(f"  {rendering.initial_assumption}")
+    lines = harness.lines
+    history_valid = harness.history_valid
+    rendering = harness.rendering
+    predicate_binding = harness.predicate_bindings
+    used_names = harness.used_names
     cover_needs_past = any(
         item.cycle is ObservationCycle.PREVIOUS
         for item in prop.predicate.observations()

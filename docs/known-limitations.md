@@ -1,6 +1,6 @@
 # Known limitations
 
-ZLang `0.1.0a5` is an experimental alpha release.  The compiler deliberately
+ZLang `0.1.0a7` is an experimental alpha release.  The compiler deliberately
 fails closed when a design falls outside a validated language/backend
 intersection: it must not publish RTL after silently dropping an IR entity.
 
@@ -22,6 +22,14 @@ intersection: it must not publish RTL after silently dropping an IR entity.
 - Runtime-selected instance inputs/protocols, general cross-module atomic
   scheduling, full AXI4, automatic CDC insertion, and arbitrary stateful
   elastic pipelines are outside the alpha contract.
+- Stateful objects inside one module may belong to independent explicit clock
+  domains. A bounded `async_mem` is the sole storage exception: its one writer
+  and one registered reader have distinct owners and form an explicit semantic
+  boundary. Asynchronous 2RW memory, mixed widths, automatic banking,
+  cross-clock atomic rules, derived/gated clocks, and target-aware scheduling
+  across a CDC boundary are not implemented. Ordinary global memory control is
+  still not composable with unrelated user register/rule state in the same
+  module; use hierarchy until that unified-state slice is implemented.
 - The direct-SV production intersection is authoritative. Unsupported
   combinations must produce a structured diagnostic rather than partial RTL.
 - The Python API is provisional.  The command-line interface and versioned

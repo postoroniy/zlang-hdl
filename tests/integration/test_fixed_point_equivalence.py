@@ -1,10 +1,6 @@
-from dataclasses import replace
-from pathlib import Path
-import tempfile
 
 import pytest
 
-from zlang.backend.manifest import publish_artifact
 from zlang.backend.systemverilog import emit_artifact
 from zlang.compiler import compile_source
 from zlang.equivalence import (

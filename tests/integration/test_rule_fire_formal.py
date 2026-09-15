@@ -8,12 +8,10 @@ from pathlib import Path
 import os
 import shutil
 import subprocess
-import tempfile
 
 import pytest
 
 from zlang.backend.systemverilog import (
-    emit_artifact as emit_sv_artifact,
     emit_formal_artifact as emit_sv_formal_artifact,
 )
 from zlang.compiler import compile_source

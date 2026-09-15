@@ -26,7 +26,6 @@ from zlang.ir import (
     EquivalenceStatus,
     SignalRole,
 )
-from zlang.toolchain import lint_with_verilator
 
 
 SOURCE = """

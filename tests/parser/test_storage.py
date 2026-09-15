@@ -1,10 +1,37 @@
 import unittest
 
-from zlang.ast.nodes import MemoryCollision, MemoryResetPolicy
+from zlang.ast.nodes import MemoryCollision, MemoryPortKind, MemoryResetPolicy
 from zlang.parser import ParseError, parse
 
 
 class StorageParserTests(unittest.TestCase):
+    def test_named_and_async_memory_ports_parse(self) -> None:
+        module = parse(
+            """
+            module Storage {
+              clock a reset ar @a clock b reset br @b
+              memory local:mem<u8,4> @a {
+                read_write_port x read_write_port y
+                read_latency 1 collision no_change write_priority x > y
+              }
+              memory crossing:async_mem<u8,4> {
+                write_port wr @a read_port rd @b
+                read_latency 1 collision old
+              }
+            }
+            """
+        )
+        local, crossing = module.memories
+        self.assertEqual(
+            [port.kind for port in local.ports],
+            [MemoryPortKind.READ_WRITE, MemoryPortKind.READ_WRITE],
+        )
+        self.assertEqual(local.write_priority, ("x", "y"))
+        self.assertIs(local.collision, MemoryCollision.NO_CHANGE)
+        self.assertTrue(crossing.async_memory)
+        self.assertEqual([port.domain for port in crossing.ports], ["a", "b"])
+        self.assertIs(crossing.collision, MemoryCollision.READ_FIRST)
+
     def test_fifo_and_memory_options_parse(self) -> None:
         module = parse(
             """

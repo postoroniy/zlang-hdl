@@ -19,6 +19,38 @@ DIAGNOSTIC_SCHEMA = "zlang-diagnostic-v1"
 
 
 @dataclass(frozen=True)
+class DiagnosticEdit:
+    """One exact current-source edit owned by a compiler diagnostic."""
+
+    origin: SourceOrigin
+    replacement: str
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.replacement, str):
+            raise TypeError("diagnostic edit replacement must be a string")
+        if self.origin.source_unit is None or self.origin.digest is None:
+            raise ValueError(
+                "machine-applicable diagnostic edits require source identity"
+            )
+
+
+@dataclass(frozen=True)
+class DiagnosticFix:
+    """One atomic machine-applicable fix, potentially containing many edits."""
+
+    title: str
+    edits: tuple[DiagnosticEdit, ...]
+
+    def __post_init__(self) -> None:
+        if not self.title:
+            raise ValueError("diagnostic fix title must not be empty")
+        if not self.edits:
+            raise ValueError("diagnostic fix requires at least one edit")
+        if any(not isinstance(edit, DiagnosticEdit) for edit in self.edits):
+            raise TypeError("diagnostic fix edits must be DiagnosticEdit records")
+
+
+@dataclass(frozen=True)
 class Diagnostic:
     """One stable compiler diagnostic independent of its presentation."""
 
@@ -115,6 +147,7 @@ class DiagnosticError(ValueError):
         primary: SourceOrigin | None = None,
         notes: Iterable[str] = (),
         fixes: Iterable[str] = (),
+        machine_fixes: Iterable[DiagnosticFix] = (),
     ) -> None:
         super().__init__(message)
         self.diagnostic = Diagnostic(
@@ -124,6 +157,13 @@ class DiagnosticError(ValueError):
             tuple(notes),
             tuple(fixes),
         )
+        self.machine_fixes = tuple(machine_fixes)
+        if any(
+            not isinstance(fix, DiagnosticFix) for fix in self.machine_fixes
+        ):
+            raise TypeError(
+                "machine-applicable fixes must be DiagnosticFix records"
+            )
 
     @property
     def code(self) -> str:
@@ -157,6 +197,8 @@ def diagnostic_from_exception(
 __all__ = [
     "DIAGNOSTIC_SCHEMA",
     "Diagnostic",
+    "DiagnosticEdit",
     "DiagnosticError",
+    "DiagnosticFix",
     "diagnostic_from_exception",
 ]

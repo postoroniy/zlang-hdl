@@ -79,12 +79,13 @@ def _expression_timing(
 ) -> ir_timing.ValueTiming:
     """Derive frozen timeless/known/unknown timing from already-typed IR."""
 
-    recurse = lambda value: _expression_timing(
-        value,
-        local_expressions=local_expressions,
-        instance_outputs=instance_outputs,
-        active_locals=active_locals,
-    )
+    def recurse(value: ir_expr.Expression) -> ir_timing.ValueTiming:
+        return _expression_timing(
+            value,
+            local_expressions=local_expressions,
+            instance_outputs=instance_outputs,
+            active_locals=active_locals,
+        )
 
     if isinstance(expression, (ir_expr.Constant, ir_expr.ParameterRef)):
         return ir_timing.ValueTiming.timeless()

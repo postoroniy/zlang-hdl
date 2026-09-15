@@ -5,7 +5,6 @@ import pytest
 from zlang.compiler import compile_source
 from zlang.formal_exploration import FormalPolicy
 from zlang.ir.formal import FormalStatus, ProofMode
-from zlang.simulate import simulate
 
 
 def test_scalar_implement_is_module_assignment_only() -> None:

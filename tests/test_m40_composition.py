@@ -1,19 +1,12 @@
 import unittest
 from dataclasses import replace
 from pathlib import Path
-import os
-import re
-import shutil
-import subprocess
-import tempfile
 
-from zlang import compile_source
 from zlang.backend.systemverilog.emitter import emit, emit_artifact
 from zlang.parser import parse
 from zlang.semantic import SemanticError, analyze
 from zlang.ir import expressions as ir_expr
 from zlang.opt.lowering import lower
-from zlang.toolchain import lint_with_verilator
 
 
 class CompositionM40Tests(unittest.TestCase):

@@ -50,9 +50,10 @@ backend never infers wrap, saturation, or rounding from source spelling.
   homogeneous vector `concat`, compile-time `reshape`, reductions, fixed-point
   arithmetic/conversion, and selected or nested fixed-latency scalar pipelines
   with II=1;
-- registers, next-state assignments, atomic rules, reset, and priority,
-  including one-domain `async reset` with one root-owned two-register
-  asynchronous-assert/synchronous-release conditioner;
+- registers, next-state assignments, atomic rules, FSM lowering, reset, and
+  priority in one or more explicitly owned domains, including one independent
+  two-register asynchronous-assert/synchronous-release conditioner per
+  applicable domain;
 - reusable parameter specializations, distinct scalar physical child
   instances, and compile-time indexed combinational or single-domain
   sequential instance arrays, including aggregate scalar outputs and scheduled
@@ -212,9 +213,9 @@ the affected property reports `skipped` rather than fabricating a proof.
 
 Full burst/ID AXI4, backend-specific CDC primitives,
 backend-by-region selection, hierarchical M36, and protocol-level M38
-remain outside this backend subset. Direct SV is not promoted to the primary
-backend. Compile-time indexed instance arrays are structurally unrolled from
-typed IR. Supported bounded profiles include scalar combinational/sequential
+remain outside this backend subset. Direct SV is the sole production backend.
+Compile-time indexed instance arrays are structurally unrolled from typed IR.
+Supported bounded profiles include scalar combinational/sequential
 children, aggregate scalar outputs, primitive ready/valid children with scalar
 wire peers, storage-only FIFO/memory/ROM children, primitive ready/valid
 children owning one FIFO, scheduled FIFO actions combined with ordinary
@@ -285,9 +286,9 @@ The two additional ZTPU templates require concrete type/value parameters and
 are therefore child/template-only. Their concrete `ZtpuBankedMemory` parent is
 standalone-supported, emits one reusable 1R1W leaf module with eight physical
 instances, publishes all recursive instance/storage paths, and passes strict
-Verilator lint and cycle simulation. Real Clash 1.11 emits the same typed
-component graph and behavior through its bundled multi-output scalar child ABI;
-this is not a post-normalization RTL-hierarchy claim.
+Verilator lint and cycle simulation. Historical dual-backend comparison for the
+same witness remains in its dated validation record and is not a current release
+dependency.
 
 The additional streaming roots include the staged `FFT4SDFReference` through
 `FFT512SDFReference` hierarchy. Direct SV emits one distinct specialization per
@@ -295,7 +296,7 @@ stage and deterministic ROM companions at the corresponding depths; FFT512
 publishes all nine companions and passes complete oracle-backed RTL simulation.
 The persistent backend-independent simulator also runs the same 1,033-cycle
 replay by default in about 11 seconds and roughly 84 MiB RSS. Its 512 outputs
-match both direct-SV and Clash RTL against the frozen oracle. This validates the
+match direct-SV RTL against the frozen oracle. This validates the
 functional hierarchy, not automatic DSP mapping or physical QoR.
 
 `examples/projects/80211a_transmitter` is the first complete converted-IP
@@ -323,7 +324,7 @@ exists.
 The compact whole-vector IFFT64 reference is deliberately not added as a full
 N=64 RTL corpus root. Its N=64 path is semantic/canonical/simulator evidence;
 N=8 and N=16 use the same typed `FunctionalRegion` and exact reduction plan as
-physical direct-SV/Clash/Verilator witnesses. The backend does not contain an
+physical direct-SV/Verilator witnesses. The backend does not contain an
 IFFT, Complex, or Wi-Fi-specific lowering rule.
 
 The canonical hierarchy is a streaming inverse DIF-SDF design rather
@@ -331,9 +332,8 @@ than that whole-vector reference. It composes IEEE-authoritative framing,
 scrambling, convolutional coding, corrected R1/R2/R4 interleaving, mapping,
 D32/D16/D8/D4/D2/D1, natural-order reorder, and an 80-sample cyclic prefix.
 `Ieee80211aTransmitter` passes a complete 903-cycle direct-SV/Verilator packet
-replay against the independent oracle. The same replay also passes real Clash
-1.11 RTL, so this is functional backend evidence rather than direct-SV-only or
-Wi-Fi-specific backend behavior.
+replay against the independent oracle. The implementation uses generic typed
+hierarchy rather than Wi-Fi-specific backend behavior.
 
 Strict lint keeps only non-correctness waivers for declaration filenames and
 unused/undriven test-fixture signals. Width, latch, driver, and structural
@@ -341,7 +341,15 @@ warnings remain fatal. In particular, all fixed-point conversion constants are
 emitted at the exact conversion work width. Writable memories lower their typed
 zero/one-cycle read, collision, byte-mask, cell-reset and read-result-reset
 profile directly; the omitted profile retains the legacy one-cycle clear/clear
-text.
+text. Named same-clock generic ports emit one deterministic cell-owning
+process; an exact selected Xilinx true-dual binding emits one process per
+physical port and requires reset-preserved cells so BRAM inference remains
+truthful. Optional uniform `init VALUE` drives generic clear-on-reset contents
+or preserved FPGA power-up contents according to the source reset policy.
+Bounded 1W+nR fallback emits coherent replicated arrays. `async_mem` emits
+distinct writer/read-result processes, with exactly one cell writer and exact
+domain-local resets. Generic async RTL is labelled structural rather than a
+vendor collision guarantee.
 
 ## Internal combinational-driver style
 
@@ -378,16 +386,13 @@ The representative `examples/all_syntax.zhl` language-tour backend audit checks
 every declared top separately; exhaustive direct-SV root coverage remains the
 separate registry described above:
 
-- Clash generates real Verilog and passes Verilator lint for all 27 tops;
-- direct SystemVerilog emits and passes strict Verilator lint for all 27 tops;
+- direct SystemVerilog emits and passes strict Verilator lint for all 29 tops;
 - `CdcSyntax` and the single-channel aggregate `AXIStream` crossing use the
   same typed Gray-pointer async-FIFO semantics;
 - nested rule expressions containing `delay`/`pipeline`, fixed saturation,
-  packet arbitration, clocked contracts, and Clash ports colliding with
-  Prelude names have dedicated regressions;
+  packet arbitration, and clocked contracts have dedicated regressions;
 - fixed-priority and round-robin packet arbitration, plus nested state staging,
   execute in real Verilator simulations.
 
 The wider streaming, fixed-point, DMA, and Wishbone tops remain lint-clean in
-direct SV and compile through real Clash. Python `compileall` and
-`git diff --check` also pass.
+direct SV. Python `compileall` and `git diff --check` also pass.

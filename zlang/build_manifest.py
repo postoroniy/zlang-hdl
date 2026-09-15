@@ -13,11 +13,11 @@ import hashlib
 import json
 from pathlib import Path, PurePosixPath
 import re
-from typing import Any, Iterable, Mapping
+from typing import Iterable, Mapping
 
 from zlang.common.serialization import stable_digest, stable_json
 from zlang.opt.identity import CANONICAL_IR_IDENTITY_SCHEMA
-from zlang.source import SourceOrigin
+from zlang.source import SourceOrigin, source_origin_to_data
 
 
 WHOLE_BUILD_SCHEMA = "zlang-whole-build-manifest-v1"
@@ -83,10 +83,6 @@ def _logical_path(value: object, label: str = "logical path") -> str:
     if normalized != path:
         raise BuildManifestError(f"{label} must be normalized")
     return path
-
-
-def _origin_to_data(origin: SourceOrigin | None) -> dict[str, object] | None:
-    return origin.to_data() if origin is not None else None
 
 
 def _origin_from_data(value: object, label: str) -> SourceOrigin | None:
@@ -183,7 +179,10 @@ class CanonicalIrRef:
         _digest(self.content_hash, "canonical IR content hash", optional=True)
 
     def to_data(self) -> dict[str, object]:
-        return {**self.identity_data(), "source_origin": _origin_to_data(self.source_origin)}
+        return {
+            **self.identity_data(),
+            "source_origin": source_origin_to_data(self.source_origin),
+        }
 
     def identity_data(self) -> dict[str, object]:
         return {
@@ -248,7 +247,10 @@ class PublishedFile:
         return cls(logical_path, content_hash, kind, size, source_origin)
 
     def to_data(self) -> dict[str, object]:
-        return {**self.identity_data(), "source_origin": _origin_to_data(self.source_origin)}
+        return {
+            **self.identity_data(),
+            "source_origin": source_origin_to_data(self.source_origin),
+        }
 
     def identity_data(self) -> dict[str, object]:
         return {
@@ -344,7 +346,7 @@ class BackendBuildRecord:
         data = self.identity_data()
         data["files"] = [item.to_data() for item in self.files]
         data["companions"] = [item.to_data() for item in self.companions]
-        data["source_origin"] = _origin_to_data(self.source_origin)
+        data["source_origin"] = source_origin_to_data(self.source_origin)
         return data
 
     def identity_data(self) -> dict[str, object]:
@@ -474,7 +476,7 @@ class EvidenceRecord:
     def to_data(self) -> dict[str, object]:
         data = self.identity_data()
         data["details"] = [list(item) for item in self.details]
-        data["source_origin"] = _origin_to_data(self.source_origin)
+        data["source_origin"] = source_origin_to_data(self.source_origin)
         return data
 
     def identity_data(self) -> dict[str, object]:
@@ -577,7 +579,10 @@ class ToolExecutionRecord:
             raise BuildManifestError("tool outputs must be unique")
 
     def to_data(self) -> dict[str, object]:
-        return {**self.identity_data(), "source_origin": _origin_to_data(self.source_origin)}
+        return {
+            **self.identity_data(),
+            "source_origin": source_origin_to_data(self.source_origin),
+        }
 
     def identity_data(self) -> dict[str, object]:
         return {
@@ -668,7 +673,7 @@ class ReportRecord:
             "logical_path": self.logical_path,
             "evidence_ids": list(self.evidence_ids),
             "identity_hash": self.identity_hash,
-            "source_origin": _origin_to_data(self.source_origin),
+            "source_origin": source_origin_to_data(self.source_origin),
         }
 
     def identity_data(self) -> dict[str, object]:

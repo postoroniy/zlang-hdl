@@ -371,8 +371,8 @@ component policy remain in the direct-SV backend.
 
 ## Current validation snapshot
 
-The exhaustive direct-SV corpus currently discovers **88 `.zhl` files and 182
-module roots**: 165 standalone roots emit artifacts and pass strict Verilator
+The exhaustive release-owned direct-SV corpus currently discovers **89 `.zhl` files and 187
+module roots**: 170 standalone roots emit artifacts and pass strict Verilator
 lint, while 17 generic/hierarchical children are exercised through concrete
 parents. No discovered root is on an unsupported allow-list. This count is an
 acceptance snapshot, not a promise that an arbitrary future IR shape is covered;

@@ -29,7 +29,7 @@ butterfly add/subtract. The outputs are
 `Complex<fixed<19,16>>`. No `_18_16` helper remains.
 
 The runnable `examples/complex_fft_butterfly.zhl` exercises this contract through
-semantic/canonical IR, the simulator, Clash, direct SystemVerilog and Verilator.
+semantic/canonical IR, the simulator, direct SystemVerilog and Verilator.
 
 ## Concrete correctness bug fixed by the attempt
 
@@ -947,16 +947,13 @@ II=1. A finite frame requires 511 later accepted ordinary sentinel tokens and
 nine final idle drain cycles. Sentinels are next-frame samples, not an implicit
 flush protocol.
 
-The current direct-SystemVerilog artifact is 202,856 bytes and 1,275 lines and passes
-strict Verilator lint. The real Clash 1.11 structural generation/lint gate also
-passes; on the validation host it takes approximately 198 seconds and 1.28 GiB
-peak memory. A complete dual-backend Verilator run compares all 512 outputs to
-the oracle and passes bit-for-bit. The same run discards a partial pre-reset
-epoch, then holds the first clean-epoch output stable through five cycles of
-downstream backpressure while the source retains its unaccepted token. After
-the stall, all 512 outputs transfer exactly once and in order. The combined
-direct-SV/Clash build and simulation takes 355.05 seconds and peaks at about
-4.61 GiB RSS.
+The current direct-SystemVerilog artifact is 202,856 bytes and 1,275 lines and
+passes strict Verilator lint. Its complete Verilator run compares all 512 outputs
+to the oracle and passes bit-for-bit. It also discards a partial pre-reset epoch,
+then holds the first clean-epoch output stable through five cycles of downstream
+backpressure while the source retains its unaccepted token. After the stall, all
+512 outputs transfer exactly once and in order. Older Clash resource and timing
+measurements elsewhere in this document are retained as historical evidence.
 
 The persistent backend-independent hierarchy simulator now completes the exact
 1,033-cycle continuous replay in about 11 seconds with roughly 84 MiB peak RSS
@@ -965,8 +962,8 @@ ordinary sentinel samples, produces exactly 512 outputs, and matches the frozen
 digest with first output at cycle 520 and last output at cycle 1031. The test is
 part of the default suite and retains a 60-second hard timeout.
 
-Together with the existing direct-SystemVerilog and real Clash 1.11 Verilator
-replays, this establishes bit-exact agreement of all three execution paths with
-the independent frozen oracle. Stall/reset coverage remains in the dual-backend
-RTL fixture and the generic persistent-hierarchy tests; it is not duplicated in
-the long numerical replay.
+Together with the direct-SystemVerilog replay, this establishes bit-exact
+agreement of the production RTL and backend-independent simulator with the
+independent frozen oracle. Stall/reset coverage remains in the direct-SV RTL
+fixture and the generic persistent-hierarchy tests; it is not duplicated in the
+long numerical replay.

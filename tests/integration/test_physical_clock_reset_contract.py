@@ -8,7 +8,6 @@ import subprocess
 import pytest
 
 from zlang.backend.systemverilog.emitter import (
-    SystemVerilogEmissionError,
     emit as emit_systemverilog,
 )
 from zlang.ir.cdc import (
@@ -22,7 +21,6 @@ from zlang.opt.lowering import lower, restore
 from zlang.parser import ParseError, parse
 from zlang.semantic import analyze
 from zlang.simulate import simulate_cycles
-from zlang.toolchain import lint_with_verilator
 
 
 PHYSICAL = """

@@ -9,12 +9,11 @@ It deliberately does not run a backend or a proof engine.
 from __future__ import annotations
 
 from dataclasses import dataclass
-import hashlib
 import os
 from pathlib import Path
 import re
 import tempfile
-from typing import Iterable, Mapping
+from typing import Iterable
 
 from zlang.backend.manifest import BackendArtifact
 from zlang.build_manifest import (

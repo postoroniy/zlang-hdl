@@ -1,6 +1,6 @@
 import unittest
 
-from zlang.ir.expressions import Binary, BinaryOperator, Constant, Mux, Switch
+from zlang.ir.expressions import Binary, BinaryOperator, Constant
 from zlang.ir.types import BitType, BitsType, SIntType, UIntType
 from zlang.parser import parse
 from zlang.semantic import SemanticError, analyze

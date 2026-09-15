@@ -8,7 +8,7 @@ class CdcParserTests(unittest.TestCase):
     def test_named_domains_are_preserved_on_resets_ports_and_state(self) -> None:
         module = parse(
             "module Domains { clock a reset ar @ a clock b reset br @ b "
-            "in x:bit @ a out y:bit @ b reg held:bit=0 @ a "
+            "in x:bit @ a out y:bit @ b reg held:bit @ a=0 "
             "connect x -> y { crossing sync_level } }"
         )
 

@@ -6,7 +6,6 @@ import tempfile
 import unittest
 
 from zlang.backend.systemverilog import emit_artifact, emit_experimental
-from zlang.backend.systemverilog import SystemVerilogEmissionError
 from zlang.compiler import compile_source
 from zlang.formal import build_recursive_formal_design
 from zlang.parser import parse

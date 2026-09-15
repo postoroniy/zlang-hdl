@@ -1,0 +1,64 @@
+// Independent state in two physical domains.  Every stateful declaration is
+// explicit because the module has more than one possible owner.
+module MultiClockStateful {
+    clock control_clk
+    reset control_rst @control_clk
+
+    clock datapath_clk
+    reset datapath_rst @datapath_clk
+
+    in control_enable : bit @control_clk
+    out control_count : u8 @control_clk
+    out datapath_count : u8 @datapath_clk
+
+    reg control_state : u8 @control_clk = 0
+    reg datapath_state : u8 @datapath_clk = 0
+
+    rule CountControl @control_clk when control_enable {
+        control_state <- truncate<8>(control_state + 1)
+    }
+
+    rule CountDatapath @datapath_clk when 1 {
+        datapath_state <- truncate<8>(datapath_state + 2)
+    }
+
+    control_count = control_state
+    datapath_count = datapath_state
+}
+
+// An explicit crossing changes dynamic provenance to the destination domain;
+// destination-domain state can then consume the synchronized value normally.
+module StatefulSyncLevel {
+    clock source_clk
+    reset source_rst @source_clk
+
+    clock destination_clk
+    reset destination_rst @destination_clk
+
+    in source_enable : bit @source_clk
+    out destination_enable : bit @destination_clk
+    out observed_cycles : u8 @destination_clk
+
+    reg observed : u8 @destination_clk = 0
+    rule Observe @destination_clk when destination_enable {
+        observed <- truncate<8>(observed + 1)
+    }
+
+    observed_cycles = observed
+    connect source_enable -> destination_enable { crossing sync_level }
+}
+
+// Multi-bit traffic uses an explicit asynchronous FIFO, never bit-wise level
+// synchronizers.
+module MultiClockStream {
+    clock source_clk
+    reset source_rst @source_clk
+
+    clock destination_clk
+    reset destination_rst @destination_clk
+
+    in source : rv<u32> @source_clk
+    out destination : rv<u32> @destination_clk
+
+    connect source -> destination { crossing async_fifo(8) }
+}

@@ -94,6 +94,7 @@ def module_expression_roots(
                 memory.write_address,
                 memory.write_data,
                 memory.write_mask,
+                memory.initial_value,
             )
             if value is not None
         )

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import ast
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -158,10 +160,21 @@ def test_public_tree_excludes_editor_scratch_but_retains_sources(tmp_path: Path)
     # before the projection's deliberate rejection of source symlinks.
     (source / editor / "node_modules/.bin/tool").symlink_to("executable")
 
+    # Exercise the repository ignore policy without assuming that this test is
+    # itself running from a Git checkout (sdist/export validation is supported).
+    (source / ".gitignore").write_bytes((ROOT / ".gitignore").read_bytes())
+    initialized = subprocess.run(
+        ["git", "init", "--quiet"],
+        cwd=source,
+        capture_output=True,
+        text=True,
+    )
+    assert initialized.returncode == 0, initialized.stderr
+
     ignored = subprocess.run(
         ["git", "check-ignore", "--no-index", "--stdin"],
         input="\n".join((*excluded, *retained)) + "\n",
-        cwd=ROOT,
+        cwd=source,
         capture_output=True,
         text=True,
     )
@@ -454,12 +467,12 @@ def test_release_workflow_audits_editor_before_attestation_and_publication(
         "name: Verify annotated tag and GitHub signature",
         "check-export --source .",
         "python tools/release_inventory.py",
-        "name: Set up pinned Node.js for the lexical extension",
+        "name: Set up pinned Node.js for the Community VS Code extension",
         "run: npm ci --ignore-scripts",
         "name: Require a fresh full locked editor advisory audit",
         "npm audit --package-lock-only --include=dev --include=optional --include=peer",
         "run: npm test",
-        "name: Build and audit the exact-tag static lexical VSIX",
+        "name: Build and audit the exact-tag Community VSIX",
         'npm --prefix editors/vscode/zlang-hdl run package -- "$RUNNER_TEMP/zlang-hdl-0.1.0.vsix"',
         'python tests/editor/test_vscode_package.py "$RUNNER_TEMP/zlang-hdl-0.1.0.vsix"',
         'cp -- "$RUNNER_TEMP/zlang-hdl-0.1.0.vsix"',
@@ -532,7 +545,7 @@ def test_release_workflow_audits_editor_before_attestation_and_publication(
         assert (result.returncode == 0) is accepted, result.stderr
         assert (tmp_path / "build/editor-npm-audit.json").read_text() == report + "\n"
     packaging = release.split(
-        "      - name: Build and audit the exact-tag static lexical VSIX\n", 1
+        "      - name: Build and audit the exact-tag Community VSIX\n", 1
     )[1].split("      - name:", 1)[0]
     assert "        shell: bash\n" in packaging
     assert "||" not in packaging
@@ -563,9 +576,9 @@ def test_release_checksums_cover_editor_payloads_and_fail_if_either_is_missing(
     body = textwrap.dedent(step.split("        run: |\n", 1)[1])
     checksum_script = "(cd dist && sha256sum" + body.split("(cd dist && sha256sum", 1)[1]
     payloads = (
-        "zlang_hdl-0.1.0a6-py3-none-any.whl",
-        "zlang_hdl-0.1.0a6.tar.gz",
-        "zlang-hdl-v0.1.0a6.cdx.json",
+        "zlang_hdl-0.1.0a7-py3-none-any.whl",
+        "zlang_hdl-0.1.0a7.tar.gz",
+        "zlang-hdl-v0.1.0a7.cdx.json",
         "release-requirements.txt",
         "zlang-hdl-0.1.0.vsix",
         "zlang-hdl-0.1.0-vsix-audit.json",
@@ -602,6 +615,28 @@ def test_release_checksums_cover_editor_payloads_and_fail_if_either_is_missing(
         path.write_bytes(content)
 
 
+def test_public_projection_accepts_only_real_git_worktree_pointer(
+    tmp_path: Path,
+) -> None:
+    spec = importlib.util.spec_from_file_location("public_tree_pointer", PUBLIC_TREE)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    checkout = tmp_path / "checkout"
+    checkout.mkdir()
+    gitdir = tmp_path / "shared-gitdir"
+    gitdir.mkdir()
+    (checkout / ".git").write_text(f"gitdir: {gitdir}\n", encoding="utf-8")
+    (checkout / "source.zhl").write_text("module Top {}\n", encoding="utf-8")
+    assert [item.name for item in module._source_files(checkout, "manifest.json")] == [
+        "source.zhl"
+    ]
+    (checkout / ".git").write_text("not Git metadata\n", encoding="utf-8")
+    with pytest.raises(module.ProjectionError, match="invalid Git worktree"):
+        module._source_files(checkout, "manifest.json")
+
+
 def test_repository_public_projection_is_closed_and_excludes_private_files() -> None:
     spec = importlib.util.spec_from_file_location("public_tree_live", PUBLIC_TREE)
     assert spec is not None and spec.loader is not None
@@ -617,15 +652,33 @@ def test_repository_public_projection_is_closed_and_excludes_private_files() -> 
     assert "docs/known-limitations.md" in selected
     assert "docs/project-scope.md" in selected
     assert "docs/editions.md" in selected
+    assert "docs/zlang-lsp.md" in selected
     assert "docs/licensing/COMMUNITY_BASELINE.md" in selected
     assert "docs/licensing/RELEASE_BOUNDARY_AUDIT.md" not in selected
     assert "TRADEMARKS.md" in selected
     assert "LICENSES/Apache-2.0.txt" in selected
     assert "LICENSES/MIT.txt" in selected
+    assert ".qwen/skills/zlang-hdl/SKILL.md" in selected
+    assert ".qwen/skills/zlang-hdl/references/language-and-rtl.md" in selected
+    for required_community_multiclock_path in (
+        "examples/multi_clock_stateful.zhl",
+        "tests/integration/test_multi_clock_stateful.py",
+        "zlang/backend/systemverilog/cdc.py",
+        "zlang/pipeline_scheduling.py",
+        "zlang/public_capabilities.py",
+        "zlang/simulate.py",
+    ):
+        assert required_community_multiclock_path in selected
+    assert not any(
+        path.startswith(".qwen/")
+        and not path.startswith(".qwen/skills/zlang-hdl/")
+        for path in selected
+    )
     assert not any(path.startswith("examples/comparisons/") for path in selected)
     assert not any("design-freeze" in path for path in selected)
     assert not any(path.startswith("docs/milestone-") for path in selected)
     for root in (
+        ".qwen/skills/zlang-hdl",
         "docs/reproducers",
         "editors/vscode/zlang-hdl",
         "stdlib",
@@ -639,6 +692,144 @@ def test_repository_public_projection_is_closed_and_excludes_private_files() -> 
             if path.is_relative_to(ROOT / root)
         }
         assert expected <= selected
+
+
+def test_public_qwen_skill_is_current_and_community_only() -> None:
+    skill_root = ROOT / ".qwen/skills/zlang-hdl"
+    skill = (skill_root / "SKILL.md").read_text(encoding="utf-8")
+    normalized_skill = " ".join(skill.split())
+    references = tuple(sorted((skill_root / "references").glob("*.md")))
+
+    assert "name: zlang-hdl" in skill
+    assert "Direct SystemVerilog is the only production backend" in normalized_skill
+    assert "The command is `zlang`, not `zlangc`" in skill
+    assert "references/agent-mode.md" not in skill
+    assert references
+    for reference in references:
+        relative = reference.relative_to(skill_root).as_posix()
+        assert f"]({relative})" in skill
+
+    public_text = "\n".join(
+        (path.read_text(encoding="utf-8") for path in (skill_root / "SKILL.md", *references))
+    )
+    for stale_or_private in (
+        "--clash",
+        "--verilog-dir",
+        "ZLANG_CLASH",
+        "zagent",
+        "zlang-agent-core",
+        "zlang-hdl-agent",
+    ):
+        assert stale_or_private not in public_text
+
+
+def test_community_package_has_no_enterprise_dependency_direction() -> None:
+    """Community may be consumed by Agent Mode, never import or expose it."""
+
+    forbidden_roots = {"zagent", "zlang_agent", "zlang_agent_core"}
+    violations: list[str] = []
+    for source in sorted((ROOT / "zlang").rglob("*.py")):
+        tree = ast.parse(source.read_text(encoding="utf-8"), filename=str(source))
+        for node in ast.walk(tree):
+            imported: tuple[str, ...] = ()
+            if isinstance(node, ast.Import):
+                imported = tuple(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.module is not None:
+                imported = (node.module,)
+            for name in imported:
+                if name.partition(".")[0] in forbidden_roots:
+                    violations.append(
+                        f"{source.relative_to(ROOT)}:{node.lineno}: {name}"
+                    )
+    assert violations == []
+
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    dependencies = project["project"].get("dependencies", [])
+    scripts = project["project"].get("scripts", {})
+    assert not any(
+        dependency.lower().replace("_", "-").split("[", 1)[0].startswith(
+            ("zlang-agent", "zlang-hdl-agent", "zagent")
+        )
+        for dependency in dependencies
+    )
+    assert not any(
+        name == "zagent" or target.startswith(("zlang_agent", "zlang_agent_core"))
+        for name, target in scripts.items()
+    )
+
+
+def test_enterprise_package_presence_does_not_change_community_artifact(
+    tmp_path: Path,
+) -> None:
+    """Unused Agent distributions cannot participate in compiler discovery."""
+
+    enterprise = tmp_path / "site-packages"
+    for package in ("zlang_agent", "zlang_agent_core"):
+        package_root = enterprise / package
+        package_root.mkdir(parents=True)
+        (package_root / "__init__.py").write_text(
+            "raise AssertionError('Community imported private Agent Mode')\n",
+            encoding="utf-8",
+        )
+    for distribution in ("zlang-hdl-agent", "zlang-agent-core"):
+        metadata = enterprise / f"{distribution.replace('-', '_')}-0.1.dist-info"
+        metadata.mkdir()
+        (metadata / "METADATA").write_text(
+            f"Metadata-Version: 2.4\nName: {distribution}\nVersion: 0.1\n",
+            encoding="utf-8",
+        )
+
+    script = """
+import json
+from zlang.backend.systemverilog import emit_artifact
+from zlang.compiler import compile_source
+
+source = r'''\
+module BoundaryDualClock {
+    clock clk_a
+    reset rst_a @clk_a
+    clock clk_b
+    reset rst_b @clk_b
+    out qa : u8 @clk_a
+    out qb : u8 @clk_b
+    reg a : u8 @clk_a = 0
+    reg b : u8 @clk_b = 0
+    rule A @clk_a when 1 { a <- truncate<8>(a + 1) }
+    rule B @clk_b when 1 { b <- truncate<8>(b + 2) }
+    qa = a
+    qb = b
+}
+'''
+artifact = emit_artifact(compile_source(source).ir)
+print(json.dumps({
+    "artifact_hash": artifact.artifact_hash,
+    "build_identity": artifact.build_identity,
+    "selected_ir_identity": artifact.selected_ir_identity,
+    "text": artifact.text,
+}, sort_keys=True))
+"""
+
+    def compile_with(extra_path: Path | None) -> str:
+        environment = os.environ.copy()
+        roots = [str(ROOT)]
+        if extra_path is not None:
+            roots.insert(0, str(extra_path))
+        existing = environment.get("PYTHONPATH")
+        if existing:
+            roots.append(existing)
+        environment["PYTHONPATH"] = os.pathsep.join(roots)
+        completed = subprocess.run(
+            [sys.executable, "-c", script],
+            cwd=ROOT,
+            env=environment,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert completed.returncode == 0, completed.stderr
+        return completed.stdout
+
+    assert compile_with(None) == compile_with(enterprise)
 
 
 def test_public_policy_documents_are_discoverable() -> None:
@@ -669,6 +860,9 @@ def test_public_policy_documents_are_discoverable() -> None:
     assert "Verilator" in baseline and "state-access" in baseline
     assert "MIT" in baseline and "CC-BY-4.0" in baseline
     assert "Enterprise; classified, not implemented" in editions
+    assert "First-class single/multi-clock state" in editions
+    assert "exact `pipeline(N)` scheduling" in editions
+    assert "explicit CDC primitives" in editions
     assert "TRADEMARKS.md" in notice
     assert "make the resulting HDL a copy" not in notice
     assert "TRADEMARKS.md" in releasing

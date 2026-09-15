@@ -194,6 +194,8 @@ class CsrBlock:
     identity: CsrBlockIdentity | None = None
     source_origin: SourceOrigin | None = None
     state_bindings: tuple[CsrFieldStateBinding, ...] = ()
+    domain: str | None = None
+    reset: str | None = None
 
 
 def derived_state_bindings(

@@ -1,4 +1,4 @@
-from dataclasses import FrozenInstanceError, replace
+from dataclasses import FrozenInstanceError
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -13,11 +13,6 @@ from zlang.compilation_session import CompilationSession
 from zlang.formal import (
     run_verilog_formal,
     tool_versions,
-)
-from zlang.formal_exploration import (
-    FormalExplorationConfig,
-    FormalPolicy,
-    proof_cache_key,
 )
 from zlang.ir.formal import FormalStatus
 

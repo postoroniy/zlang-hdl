@@ -46,7 +46,7 @@ class CdcSemanticTests(unittest.TestCase):
     def test_register_domain_is_typed_and_local_next_state_is_allowed(self) -> None:
         module = analyze_body(
             "in x:bit @ source_clock out y:bit @ source_clock "
-            "reg held:bit=0 @ source_clock y=held held<-x"
+            "reg held:bit @ source_clock=0 y=held held<-x"
         )
         self.assertEqual(module.registers[0].domain, "source_clock")
 

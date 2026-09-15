@@ -450,6 +450,66 @@ module ExplorationSyntax {
     }
 }
 
+module PortedMemorySyntax {
+    clock clk
+    reset rst
+    in a_read : bit
+    in a_write : bit
+    in a_address : u4
+    in a_data : bits<13>
+    in b_read : bit
+    in b_write : bit
+    in b_address : u4
+    in b_data : bits<13>
+    out a_result : bits<13>
+    out b_result : bits<13>
+
+    memory table : mem<bits<13>,16> {
+        read_write_port a
+        read_write_port b
+        init 0x12
+        read_latency 1
+        collision old
+        write_priority a > b
+    }
+    table.a.read_enable = a_read
+    table.a.write_enable = a_write
+    table.a.address = a_address
+    table.a.write_data = a_data
+    table.b.read_enable = b_read
+    table.b.write_enable = b_write
+    table.b.address = b_address
+    table.b.write_data = b_data
+    a_result = table.a.data
+    b_result = table.b.data
+}
+
+module AsyncMemorySyntax {
+    clock write_clk
+    reset write_rst @write_clk
+    clock read_clk
+    reset read_rst @read_clk
+    in write_enable : bit @write_clk
+    in write_address : u4 @write_clk
+    in write_data : u8 @write_clk
+    in read_address : u4 @read_clk
+    out read_data : u8 @read_clk
+
+    memory table : async_mem<u8,16> {
+        write_port wr @write_clk
+        read_port rd @read_clk
+        init 0x5a
+        read_latency 1
+        collision old
+        reset { contents preserve read_data clear }
+    }
+    table.wr.enable = write_enable
+    table.wr.address = write_address
+    table.wr.data = write_data
+    table.rd.address = read_address
+    read_data = table.rd.data
+}
+
 // Final/default top: bare `zlang examples/all_syntax.zhl` is deterministic.
 module AllSyntax {
     /* decimal, hexadecimal and binary spellings are lexical equivalents. */

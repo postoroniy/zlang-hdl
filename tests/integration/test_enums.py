@@ -9,7 +9,6 @@ import pytest
 
 from zlang.backend.systemverilog import emit_artifact
 from zlang.compiler import compile_source
-from zlang.toolchain import lint_with_verilator
 
 
 SOURCE = """

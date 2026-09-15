@@ -194,7 +194,7 @@ endpoint_index: "[" (NUMBER|NAME) "]"
                   | _CROSSING crossing_spec -> connection_crossing
                   | _TRANSFORM protocol_transform_expr -> connection_transform
 ?crossing_spec: CDC_CROSSING -> basic_crossing
-              | _ASYNC_FIFO "(" WIDTH ")" -> async_fifo_crossing
+              | _ASYNC_FIFO "(" storage_depth ")" -> async_fifo_crossing
 arbiter_decl: _ARBITER "[" arbiter_sources "]" _ARROW NAME "{" _POLICY ARBITRATION_POLICY _GRANT GRANT_SCOPE "}"
 arbiter_sources: NAME "," NAME ("," NAME)*
 contract_decl: CONTRACT_KIND NAME _AT NAME _DISABLE _IFF NAME "{" source_expr "}"
@@ -206,7 +206,7 @@ verification_scope_decl: _VERIFICATION_CONTRACT NAME [_AT NAME] "{" verification
 verification_requirement_decl: _VERIFICATION_REQUIRE NAME "{" source_expr "}"
 verification_scoped_goal_decl: VERIFICATION_SCOPED_GOAL_KIND NAME "{" source_expr "}"
 assignment_target: NAME ("." NAME)*
-csr_decl: _CSR NAME _AT NUMBER "{" csr_register* "}"
+csr_decl: _CSR NAME _AT NUMBER [_AT NAME] "{" csr_register* "}"
 csr_register: NAME _AT NUMBER "{" csr_field* "}"
 csr_field: NAME type_name [csr_position] CSR_ACCESS ["=" NUMBER] [csr_binding]
 csr_position: _AT NUMBER [":" NUMBER]
@@ -220,9 +220,9 @@ reset_decl: _RESET NAME [_AT NAME] [reset_physical_block]
 reset_physical_block: "{" _MODE NAME _POLARITY NAME _POWER_UP NAME "}"
 async_reset_decl: _ASYNC _RESET NAME [_AT NAME] [async_reset_physical_block]
 async_reset_physical_block: "{" _POLARITY NAME "}"
-register_decl: _REG NAME ":" type_name "=" source_expr [_AT NAME]
+register_decl: _REG NAME ":" type_name [_AT NAME] "=" source_expr
 next_assignment: NAME _NEXT_ASSIGN source_expr
-rule_decl: _RULE NAME _WHEN source_expr action_block [conditional_else]
+rule_decl: _RULE NAME [_AT NAME] _WHEN source_expr action_block [conditional_else]
 anonymous_rule_decl: _WHEN source_expr action_block [conditional_else]
 action_block: "{" action_statement* "}"
 ?action_statement: rule_action | conditional_action
@@ -239,17 +239,22 @@ priority_block: _PRIORITY "{" priority_arm+ "}"
 ?priority_arm: NAME ":" _WHEN source_expr action_block [conditional_else] -> labeled_priority_arm
              | _WHEN source_expr action_block [conditional_else] -> anonymous_priority_arm
              | priority_block -> nested_priority_arm
-fsm_decl: _FSM NAME ":" type_name "=" NAME "{" fsm_state+ "}" -> typed_fsm_decl
-        | _FSM NAME "=" NAME "." NAME "{" fsm_state+ "}" -> inferred_fsm_decl
+fsm_decl: _FSM NAME ":" type_name [_AT NAME] "=" NAME "{" fsm_state+ "}" -> typed_fsm_decl
+        | _FSM NAME [_AT NAME] "=" NAME "." NAME "{" fsm_state+ "}" -> inferred_fsm_decl
 fsm_state: NAME "{" fsm_state_body "}"
 ?fsm_state_body: _HOLD -> fsm_hold
                | fsm_transition -> fsm_single_transition
                | _PRIORITY "{" fsm_transition+ "}" -> fsm_priority
 fsm_transition: [_WHEN source_expr] _ARROW NAME action_block
-fifo_decl: _FIFO NAME ":" _FIFO "<" type_name "," storage_depth ">"
-memory_decl: _MEMORY NAME ":" _MEM "<" type_name "," storage_depth ">" "{" _READ_LATENCY NUMBER _COLLISION MEMORY_COLLISION [memory_reset_policy] "}"
+fifo_decl: _FIFO NAME ":" _FIFO "<" type_name "," storage_depth ">" [_AT NAME]
+memory_decl: _MEMORY NAME ":" memory_storage_kind "<" type_name "," storage_depth ">" [_AT NAME] "{" memory_port_decl* [memory_initializer] _READ_LATENCY NUMBER _COLLISION MEMORY_COLLISION [memory_write_priority] [memory_reset_policy] "}"
+?memory_storage_kind: _MEM -> synchronous_memory_kind
+                    | _ASYNC_MEM -> asynchronous_memory_kind
+memory_port_decl: MEMORY_PORT_KIND NAME [_AT NAME]
+memory_initializer: _INIT source_expr
+memory_write_priority: _WRITE_PRIORITY NAME (">" NAME)+
 memory_reset_policy: _RESET "{" _CONTENTS MEMORY_RESET_POLICY _READ_DATA MEMORY_RESET_POLICY "}"
-rom_decl: _ROM NAME ":" _ROM "<" type_name "," storage_depth ">" "{" _READ_LATENCY WIDTH _INIT source_expr "}"
+rom_decl: _ROM NAME ":" _ROM "<" type_name "," storage_depth ">" [_AT NAME] "{" _READ_LATENCY WIDTH _INIT source_expr "}"
 
 // Storage depths use the same compile-time integer expression vocabulary as
 // widths, but additionally allow a lone value parameter or signed literal.
@@ -400,7 +405,7 @@ resize_expr: RESIZE_OP "<" (WIDTH|NAME) _angle_call_close "(" expr ")" -> explic
            | RESIZE_OP "(" expr ")" -> contextual_resize_expr
 delay_expr: _DELAY "<" WIDTH _angle_call_close "(" expr ")"
 _angle_call_close: ">" | _CALL_RANGLE
-pipeline_expr: _PIPELINE "(" PIPELINE_DEPTH ("," pipeline_constraint)* ")" "{" expr "}"
+pipeline_expr: _PIPELINE "(" PIPELINE_DEPTH ("," pipeline_constraint)* ")" [_AT NAME] "{" expr "}"
 protocol_transform_expr: _PIPELINE "(" _AUTO ("," pipeline_constraint)* ")" "{" expr "}"
 pipeline_constraint: PIPELINE_METRIC PIPELINE_RELATION NUMBER
 removed_pipeline_auto_expr: _PIPELINE "(" _AUTO ("," pipeline_constraint)* ")" "{" expr "}"
@@ -514,7 +519,8 @@ ORDERING.3: /in_order(?![A-Za-z0-9_])/ | /out_of_order(?![A-Za-z0-9_])/
 ADAPTER.3: /rv_to_credit(?![A-Za-z0-9_])/ | /credit_to_rv(?![A-Za-z0-9_])/
 CSR_ACCESS.3: /(?:rw|ro|wo|w1c|pulse|reserved)(?![A-Za-z0-9_])/
 CSR_PRIORITY.3: /hardware(?![A-Za-z0-9_])/ | /software(?![A-Za-z0-9_])/
-MEMORY_COLLISION.3: /read_first(?![A-Za-z0-9_])/ | /write_first(?![A-Za-z0-9_])/
+MEMORY_COLLISION.3: /read_first(?![A-Za-z0-9_])/ | /write_first(?![A-Za-z0-9_])/ | /old(?![A-Za-z0-9_])/ | /new(?![A-Za-z0-9_])/ | /no_change(?![A-Za-z0-9_])/
+MEMORY_PORT_KIND.3: /read_write_port(?![A-Za-z0-9_])/ | /read_port(?![A-Za-z0-9_])/ | /write_port(?![A-Za-z0-9_])/
 MEMORY_RESET_POLICY.3: /clear(?![A-Za-z0-9_])/ | /preserve(?![A-Za-z0-9_])/
 CDC_CROSSING.3: /sync_level(?![A-Za-z0-9_])/ | /pulse_toggle(?![A-Za-z0-9_])/ | /handshake(?![A-Za-z0-9_])/
 ARBITRATION_POLICY.3: /fixed_priority(?![A-Za-z0-9_])/ | /round_robin(?![A-Za-z0-9_])/
@@ -646,6 +652,7 @@ _IF.4: /if(?![A-Za-z0-9_])/
 _FIFO.3: /fifo(?![A-Za-z0-9_])/
 _MEMORY.3: /memory(?![A-Za-z0-9_])/
 _MEM.3: /mem(?![A-Za-z0-9_])/
+_ASYNC_MEM.3: /async_mem(?![A-Za-z0-9_])/
 // Priority is above the legacy CSR `ro` token so `rom` remains one keyword.
 _ROM.4: /rom(?![A-Za-z0-9_])/
 _READ_LATENCY.3: /read_latency(?![A-Za-z0-9_])/
@@ -653,6 +660,7 @@ _INIT.3: /init(?![A-Za-z0-9_])/
 _COLLISION.3: /collision(?![A-Za-z0-9_])/
 _CONTENTS.3: /contents(?![A-Za-z0-9_])/
 _READ_DATA.3: /read_data(?![A-Za-z0-9_])/
+_WRITE_PRIORITY.3: /write_priority(?![A-Za-z0-9_])/
 _CLOCK.3: /clock(?![A-Za-z0-9_])/
 _RESET.3: /reset(?![A-Za-z0-9_])/
 _ASYNC.3: /async(?![A-Za-z0-9_])/

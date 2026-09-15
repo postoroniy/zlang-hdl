@@ -9,7 +9,7 @@ from zlang.ast.nodes import (
     NumberExpr,
     SwitchExpr,
 )
-from zlang.parser import ParseError, parse
+from zlang.parser import parse
 
 
 ROOT = Path(__file__).resolve().parents[2]

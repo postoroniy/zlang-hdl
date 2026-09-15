@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import fields, is_dataclass
+from dataclasses import fields
 
 import pytest
 

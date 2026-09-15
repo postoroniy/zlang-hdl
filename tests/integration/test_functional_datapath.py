@@ -1,11 +1,8 @@
 from pathlib import Path
-import shutil
-import tempfile
 import unittest
 
 from zlang.compiler import compile_source
 from zlang.simulate import simulate
-from zlang.toolchain import lint_with_verilator
 
 
 ROOT = Path(__file__).resolve().parents[2]

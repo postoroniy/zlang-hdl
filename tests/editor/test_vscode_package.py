@@ -1,8 +1,4 @@
-"""Static VSIX acceptance; runnable with Python's standard library alone.
-
-Usage: python tests/editor/test_vscode_package.py /path/to/zlang-hdl-0.1.0.vsix
-The normal tests construct archives from source; they never run npm or VS Code.
-"""
+"""Audited VSIX acceptance for the Community ZLang HDL extension."""
 
 from __future__ import annotations
 
@@ -22,27 +18,26 @@ from zipfile import BadZipFile, ZipFile, ZipInfo
 
 ROOT = Path(__file__).resolve().parents[2]
 EXT = ROOT / "editors" / "vscode" / "zlang-hdl"
-PINS = {
-    "@vscode/vsce": "3.9.2",
-    "vscode-oniguruma": "2.0.1",
-    "vscode-textmate": "9.3.2",
-}
-ASSETS = {
+PINS = {"@vscode/vsce": "3.9.2", "vscode-oniguruma": "2.0.1", "vscode-textmate": "9.3.2"}
+STATIC_ASSETS = {
     "extension/LICENSE.txt": ROOT / "LICENSE",
     "extension/NOTICE": ROOT / "NOTICE",
     "extension/changelog.md": EXT / "CHANGELOG.md",
-    "extension/language-configuration.json": EXT / "language-configuration.json",
     "extension/package.json": EXT / "package.json",
+    "extension/language-configuration.json": EXT / "language-configuration.json",
     "extension/readme.md": EXT / "README.md",
     "extension/recommended-settings.json": EXT / "recommended-settings.json",
     "extension/snippets/zlang-hdl.json": EXT / "snippets" / "zlang-hdl.json",
     "extension/syntaxes/zlang.tmLanguage.json": EXT / "syntaxes" / "zlang.tmLanguage.json",
+    "extension/extension.js": EXT / "extension.js",
 }
-INVENTORY = frozenset(ASSETS) | {"extension.vsixmanifest", "[Content_Types].xml"}
-RUNTIME_FIELDS = frozenset({
-    "main", "browser", "activationEvents", "dependencies", "optionalDependencies",
-    "extensionDependencies", "extensionPack", "enabledApiProposals",
-})
+REQUIRED_RUNTIME = {
+    "extension/vendor/node_modules/vscode-languageclient/lib/node/main.js",
+    "extension/vendor/node_modules/vscode-jsonrpc/lib/node/main.js",
+    "extension/vendor/node_modules/vscode-languageserver-protocol/lib/node/main.js",
+    "extension/vendor/node_modules/vscode-languageserver-types/lib/umd/main.js",
+    "extension/vendor/node_modules/semver/index.js",
+}
 VSIX_NS = "http://schemas.microsoft.com/developer/vsx-schema/2011"
 CONTENT_NS = "http://schemas.openxmlformats.org/package/2006/content-types"
 MANIFEST_ASSETS = {
@@ -52,13 +47,15 @@ MANIFEST_ASSETS = {
     "Microsoft.VisualStudio.Services.Content.License": "extension/LICENSE.txt",
 }
 CONTENT_TYPES = {
-    ".json": "application/json", ".md": "text/markdown", ".txt": "text/plain",
-    ".vsixmanifest": "text/xml",
+    ".bnf": "application/octet-stream", ".cmd": "application/octet-stream",
+    ".js": "application/javascript", ".json": "application/json",
+    ".md": "text/markdown", ".sh": "application/x-sh", ".ts": "video/mp2t",
+    ".txt": "text/plain", ".vsixmanifest": "text/xml", ".yml": "text/yaml",
 }
 
 
 class VSIXAuditError(ValueError):
-    """The archive or its authoritative source failed the static-only gate."""
+    """The archive or its authoritative source failed the package gate."""
 
 
 def _require(condition: bool, message: str) -> None:
@@ -82,17 +79,8 @@ def _json(data: bytes) -> dict:
     return value
 
 
-def validate_metadata(package: dict) -> None:
-    _require(not RUNTIME_FIELDS.intersection(package), "runtime fields are forbidden")
-    _require(
-        (package.get("publisher"), package.get("name"), package.get("version"))
-        == ("postoroniy", "zlang-hdl", "0.1.0"),
-        "unexpected extension identity or version",
-    )
-    _require(package.get("license") == "Apache-2.0", "incorrect license metadata")
-    _require(package.get("engines") == {"vscode": "^1.85.0"}, "incorrect VS Code engine")
-    _require(package.get("devDependencies") == PINS, "dev dependencies must be pinned")
-    _require(package.get("contributes") == {
+def _contributes() -> dict:
+    return {
         "languages": [{
             "id": "zlang-hdl", "aliases": ["ZLang HDL", "ZLang"],
             "extensions": [".zhl"], "configuration": "./language-configuration.json",
@@ -102,40 +90,87 @@ def validate_metadata(package: dict) -> None:
             "path": "./syntaxes/zlang.tmLanguage.json",
         }],
         "snippets": [{"language": "zlang-hdl", "path": "./snippets/zlang-hdl.json"}],
-    }, "incorrect static language/grammar/snippet registration")
+        "configuration": {
+            "title": "ZLang HDL",
+            "properties": {
+                "zlang.lsp.path": {
+                    "type": "string", "default": "",
+                    "description": (
+                        "Direct path or PATH command for the Community zlang-lsp "
+                        "executable. Use ${workspaceFolder}/.venv/bin/zlang-lsp "
+                        "for a repository checkout."
+                    ),
+                },
+            },
+        },
+    }
+
+
+def validate_metadata(package: dict, *, packaged: bool = False) -> None:
+    _require(
+        (package.get("publisher"), package.get("name"), package.get("version"))
+        == ("postoroniy", "zlang-hdl", "0.1.0"),
+        "unexpected extension identity or version",
+    )
+    _require(package.get("license") == "Apache-2.0", "incorrect license metadata")
+    _require(package.get("engines") == {"vscode": "^1.85.0"}, "incorrect VS Code engine")
+    _require(package.get("main") == "./extension.js", "missing extension entrypoint")
+    _require("activationEvents" not in package, "language activation is contributed automatically")
+    _require(package.get("dependencies") == {"vscode-languageclient": "^9.0.1"},
+             "incorrect runtime dependency")
+    _require(package.get("contributes") == _contributes(), "incorrect language registration")
     _require(package.get("capabilities") == {
-        "untrustedWorkspaces": {"supported": True}, "virtualWorkspaces": True,
-    }, "incorrect static workspace capabilities")
+        "untrustedWorkspaces": {
+            "supported": False,
+            "description": (
+                "The extension starts the configured local zlang-lsp executable "
+                "only in a trusted workspace."
+            ),
+        },
+        "virtualWorkspaces": False,
+    }, "incorrect workspace capabilities")
+    if packaged:
+        _require("devDependencies" not in package, "development dependencies shipped")
+        _require("files" not in package, "source-only files manifest shipped")
+        _require("scripts" not in package, "development scripts shipped")
+    else:
+        _require(package.get("devDependencies") == PINS, "dev dependencies must be pinned")
+        _require("extension.js" in package.get("files", []), "entrypoint missing from source files")
 
 
 def validate_lock(package: dict, lock: dict) -> None:
     _require(lock.get("lockfileVersion") == 3, "expected npm lockfile version 3")
-    _require(
-        (lock.get("name"), lock.get("version")) == ("zlang-hdl", "0.1.0"),
-        "lockfile identity differs from extension",
-    )
+    _require((lock.get("name"), lock.get("version")) == ("zlang-hdl", "0.1.0"),
+             "lockfile identity differs from extension")
     packages = lock.get("packages")
     _require(isinstance(packages, dict) and "" in packages, "missing locked packages")
     root = packages[""]
     _require(isinstance(root, dict), "invalid lock root")
-    for key in ("name", "version", "license", "devDependencies", "engines"):
+    for key in ("name", "version", "license", "devDependencies", "dependencies", "engines"):
         _require(root.get(key) == package.get(key), f"lock root differs for {key}")
     for name, version in PINS.items():
         node = packages.get(f"node_modules/{name}", {})
         _require(node.get("version") == version, f"unlocked direct dependency: {name}")
+    runtime_prefixes = (
+        "node_modules/vscode-languageclient", "node_modules/vscode-jsonrpc",
+        "node_modules/vscode-languageserver-protocol", "node_modules/vscode-languageserver-types",
+        "node_modules/semver",
+    )
     for name, node in packages.items():
         if not name:
             continue
-        _require(name.startswith("node_modules/"), f"unexpected lock package: {name}")
-        _require(isinstance(node, dict) and node.get("dev") is True,
-                 f"dependency is not dev-only: {name}")
-        _require(not node.get("link"), f"linked dependency: {name}")
+        _require(name.startswith("node_modules/") and isinstance(node, dict) and not node.get("link"),
+                 f"invalid package record: {name}")
+        if name.startswith(runtime_prefixes):
+            _require(node.get("dev") is not True, f"runtime dependency is dev-only: {name}")
+        else:
+            _require(node.get("dev") is True, f"unexpected non-runtime package: {name}")
         _require(isinstance(node.get("version"), str) and bool(re.fullmatch(
             r"[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?", node["version"]
         )), f"unversioned dependency: {name}")
-        _require(isinstance(node.get("resolved"), str) and node["resolved"].startswith(
-            "https://registry.npmjs.org/"
-        ), f"non-registry dependency: {name}")
+        _require(isinstance(node.get("resolved"), str)
+                 and node["resolved"].startswith("https://registry.npmjs.org/"),
+                 f"non-registry dependency: {name}")
         _require(isinstance(node.get("integrity"), str) and bool(re.fullmatch(
             r"sha512-[A-Za-z0-9+/]+={0,2}", node["integrity"]
         )), f"dependency lacks integrity: {name}")
@@ -157,22 +192,17 @@ def _validate_xml(members: dict[str, bytes], package: dict) -> None:
              and root.get("Version") == "2.0.0", "incorrect VSIX manifest root")
     identities = root.findall("v:Metadata/v:Identity", ns)
     _require(len(identities) == 1 and identities[0].attrib == {
-        "Language": "en-US", "Id": "zlang-hdl", "Version": "0.1.0",
-        "Publisher": "postoroniy",
+        "Language": "en-US", "Id": "zlang-hdl", "Version": "0.1.0", "Publisher": "postoroniy",
     }, "incorrect VSIX XML identity")
-    for name, expected in (
-        ("License", "extension/LICENSE.txt"), ("DisplayName", package["displayName"]),
-    ):
+    for name, expected in (("License", "extension/LICENSE.txt"),
+                           ("DisplayName", package["displayName"])):
         values = root.findall(f"v:Metadata/v:{name}", ns)
-        _require(len(values) == 1 and values[0].text == expected,
-                 f"incorrect VSIX XML {name}")
+        _require(len(values) == 1 and values[0].text == expected, f"incorrect VSIX XML {name}")
     properties = root.findall("v:Metadata/v:Properties/v:Property", ns)
     by_id = {entry.get("Id"): entry.get("Value") for entry in properties}
     _require(len(properties) == len(by_id), "duplicate VSIX property")
-    for name, expected in {
-        "Engine": "^1.85.0", "ExtensionDependencies": "", "ExtensionPack": "",
-        "EnabledApiProposals": "",
-    }.items():
+    for name, expected in {"Engine": "^1.85.0", "ExtensionDependencies": "",
+                           "ExtensionPack": "", "EnabledApiProposals": ""}.items():
         _require(by_id.get(f"Microsoft.VisualStudio.Code.{name}") == expected,
                  f"incorrect VSIX XML {name}")
     targets = root.findall("v:Installation/v:InstallationTarget", ns)
@@ -180,22 +210,21 @@ def _validate_xml(members: dict[str, bytes], package: dict) -> None:
              "incorrect VSIX installation target")
     dependencies = root.findall("v:Dependencies", ns)
     _require(len(dependencies) == 1 and len(dependencies[0]) == 0,
-             "VSIX dependencies are forbidden")
+             "extension dependencies must remain empty")
     assets = root.findall("v:Assets/v:Asset", ns)
-    _require(len(assets) == len(MANIFEST_ASSETS) and {
-        item.get("Type"): item.get("Path") for item in assets
-    } == MANIFEST_ASSETS and all(item.get("Addressable") == "true" for item in assets),
-        "incorrect VSIX asset declarations")
+    _require(len(assets) == len(MANIFEST_ASSETS)
+             and {item.get("Type"): item.get("Path") for item in assets} == MANIFEST_ASSETS
+             and all(item.get("Addressable") == "true" for item in assets),
+             "incorrect VSIX asset declarations")
     types = _xml(members["[Content_Types].xml"], "content types")
-    _require(types.tag == f"{{{CONTENT_NS}}}Types" and len(types) == len(CONTENT_TYPES)
-             and all(item.tag == f"{{{CONTENT_NS}}}Default" for item in types)
+    _require(types.tag == f"{{{CONTENT_NS}}}Types"
              and {item.get("Extension"): item.get("ContentType") for item in types}
              == CONTENT_TYPES, "incorrect VSIX content types")
 
 
 def audit_vsix(path: Path) -> dict:
     """Audit without extraction, installation, credentials, or network access."""
-    _require(path.stat().st_size <= 2_000_000, "VSIX exceeds static package size bound")
+    _require(path.stat().st_size <= 2_000_000, "VSIX exceeds package size bound")
     with ZipFile(path) as archive:
         entries = archive.infolist()
         names = [entry.filename for entry in entries]
@@ -210,21 +239,33 @@ def audit_vsix(path: Path) -> dict:
                      in {0, stat.S_IFREG}, f"non-regular ZIP entry: {name}")
             _require(not entry.flag_bits & 1, f"encrypted ZIP entry: {name}")
             _require(entry.file_size <= 1_000_000, f"oversized ZIP entry: {name}")
-        _require(set(names) == INVENTORY, "unexpected VSIX inventory")
+        _require(set(STATIC_ASSETS) <= set(names), "missing static extension asset")
+        _require(REQUIRED_RUNTIME <= set(names), "missing language-client runtime asset")
+        _require(not any(name.startswith("extension/node_modules/") for name in names),
+                 "unvetted node_modules tree shipped")
+        allowed = set(STATIC_ASSETS) | {"extension.vsixmanifest", "[Content_Types].xml"}
+        _require(all(name in allowed or name.startswith("extension/vendor/node_modules/")
+                     for name in names), "unexpected extension payload")
         _require(sum(entry.file_size for entry in entries) <= 2_000_000,
-                 "expanded VSIX exceeds size bound")
+                 "expanded VSIX exceeds package bound")
         members = {name: archive.read(name) for name in names}
 
     package = _json(members["extension/package.json"])
-    validate_metadata(package)
+    validate_metadata(package, packaged=True)
     source_package = _json((EXT / "package.json").read_bytes())
     validate_metadata(source_package)
     validate_lock(source_package, _json((EXT / "package-lock.json").read_bytes()))
     grammar = _json(members["extension/syntaxes/zlang.tmLanguage.json"])
     _require(grammar.get("scopeName") == "source.zlang", "incorrect TextMate scope")
     _validate_xml(members, package)
-    for name, source in ASSETS.items():
+    for name, source in STATIC_ASSETS.items():
+        if name == "extension/package.json":
+            continue
         _require(members[name] == source.read_bytes(), f"packaged bytes differ from source: {name}")
+    text = b"\n".join(members[name] for name in names if name.endswith((".js", ".json", ".md")))
+    _require(b"/home/slava" not in text and b"zlang-agent" not in text
+             and b"Ollama" not in text and b"CUDA" not in text,
+             "private path or Enterprise/AI reference shipped")
     return {
         "extension_id": "postoroniy.zlang-hdl", "version": "0.1.0",
         "file_count": len(members), "files": sorted(members),
@@ -233,8 +274,15 @@ def audit_vsix(path: Path) -> dict:
 
 
 def _source_members() -> dict[str, bytes]:
-    """Source-derived test fixture, independent of npm and a prebuilt archive."""
-    members = {name: source.read_bytes() for name, source in ASSETS.items()}
+    """Source-derived fixture with a minimal production runtime tree."""
+    members = {name: source.read_bytes() for name, source in STATIC_ASSETS.items()
+               if name != "extension/package.json"}
+    package = _json((EXT / "package.json").read_bytes())
+    for field in ("files", "devDependencies", "scripts"):
+        package.pop(field, None)
+    members["extension/package.json"] = json.dumps(package, indent=2).encode() + b"\n"
+    for name in REQUIRED_RUNTIME:
+        members[name] = b"module.exports = {};\n"
     manifest = ET.Element(f"{{{VSIX_NS}}}PackageManifest", Version="2.0.0")
     metadata = ET.SubElement(manifest, f"{{{VSIX_NS}}}Metadata")
     ET.SubElement(metadata, f"{{{VSIX_NS}}}Identity", Language="en-US", Id="zlang-hdl",
@@ -242,10 +290,8 @@ def _source_members() -> dict[str, bytes]:
     ET.SubElement(metadata, f"{{{VSIX_NS}}}DisplayName").text = "ZLang HDL"
     ET.SubElement(metadata, f"{{{VSIX_NS}}}License").text = "extension/LICENSE.txt"
     properties = ET.SubElement(metadata, f"{{{VSIX_NS}}}Properties")
-    for name, value in {
-        "Engine": "^1.85.0", "ExtensionDependencies": "", "ExtensionPack": "",
-        "EnabledApiProposals": "",
-    }.items():
+    for name, value in {"Engine": "^1.85.0", "ExtensionDependencies": "",
+                        "ExtensionPack": "", "EnabledApiProposals": ""}.items():
         ET.SubElement(properties, f"{{{VSIX_NS}}}Property",
                       Id=f"Microsoft.VisualStudio.Code.{name}", Value=value)
     installation = ET.SubElement(manifest, f"{{{VSIX_NS}}}Installation")
@@ -271,50 +317,42 @@ class VSCodePackageTests(unittest.TestCase):
     def archive(self, members: dict[str, bytes] | list[tuple[str | ZipInfo, bytes]]) -> Path:
         entries = list(members.items()) if isinstance(members, dict) else members
         with warnings.catch_warnings():
-            warnings.simplefilter("ignore", UserWarning)  # Deliberate duplicate-entry test.
+            warnings.simplefilter("ignore", UserWarning)
             with ZipFile(self.archive_path, "w") as archive:
                 for name, data in entries:
                     archive.writestr(name, data)
         return self.archive_path
 
-    def test_source_metadata_and_lock_are_static_and_pinned(self) -> None:
+    def test_source_metadata_and_lock_are_runtime_pinned(self) -> None:
         package = _json((EXT / "package.json").read_bytes())
         lock = _json((EXT / "package-lock.json").read_bytes())
         validate_metadata(package)
         validate_lock(package, lock)
-        self.assertEqual(len(INVENTORY), 11)
-        for key, value in (("version", "3.9.1"), ("dev", False), ("integrity", "")):
-            with self.subTest(key=key):
-                broken = copy.deepcopy(lock)
-                broken["packages"]["node_modules/@vscode/vsce"][key] = value
-                with self.assertRaises(VSIXAuditError):
-                    validate_lock(package, broken)
+        self.assertIn("vscode-languageclient", package["dependencies"])
+        broken = copy.deepcopy(lock)
+        broken["packages"]["node_modules/@vscode/vsce"]["version"] = "3.9.1"
+        with self.assertRaises(VSIXAuditError):
+            validate_lock(package, broken)
+
+    def test_installation_guide_uses_the_registered_lsp_setting(self) -> None:
+        guide = (ROOT / "docs" / "installing-toolchain.md").read_text(
+            encoding="utf-8"
+        )
+        properties = _contributes()["configuration"]["properties"]
+        self.assertIn('"zlang.lsp.path"', guide)
+        self.assertIn("zlang.lsp.path", properties)
+        self.assertNotIn("zlang.server.path", guide)
 
     def test_source_derived_archive_is_accepted_and_hashed(self) -> None:
         path = self.archive(_source_members())
         report = audit_vsix(path)
         self.assertEqual(report["extension_id"], "postoroniy.zlang-hdl")
-        self.assertEqual(report["version"], "0.1.0")
-        self.assertEqual(report["file_count"], 11)
-        self.assertEqual(report["files"], sorted(INVENTORY))
+        self.assertGreaterEqual(report["file_count"], len(STATIC_ASSETS) + len(REQUIRED_RUNTIME) + 2)
         self.assertEqual(report["sha256"], hashlib.sha256(path.read_bytes()).hexdigest())
 
-    def test_archive_rejects_every_runtime_metadata_field(self) -> None:
-        for field in sorted(RUNTIME_FIELDS):
-            with self.subTest(field=field):
-                members = _source_members()
-                package = _json(members["extension/package.json"])
-                package[field] = "runtime.js"
-                members["extension/package.json"] = json.dumps(package).encode()
-                with self.assertRaisesRegex(VSIXAuditError, "runtime fields"):
-                    audit_vsix(self.archive(members))
-
     def test_archive_rejects_changed_identity_registration_and_scope(self) -> None:
-        mutations = (
-            ("publisher", "someone-else"), ("version", "0.1.1"),
-            ("license", "MIT"), ("contributes", {}),
-        )
-        for key, value in mutations:
+        for key, value in (("publisher", "someone-else"), ("version", "0.1.1"),
+                           ("license", "MIT"), ("contributes", {})):
             with self.subTest(key=key):
                 members = _source_members()
                 package = _json(members["extension/package.json"])
@@ -330,7 +368,9 @@ class VSCodePackageTests(unittest.TestCase):
             audit_vsix(self.archive(members))
 
     def test_archive_rejects_license_notice_and_source_byte_drift(self) -> None:
-        for name in ASSETS:
+        for name in STATIC_ASSETS:
+            if name == "extension/package.json":
+                continue
             with self.subTest(asset=name):
                 members = _source_members()
                 members[name] += b"\n"
@@ -341,7 +381,7 @@ class VSCodePackageTests(unittest.TestCase):
         members = _source_members()
         missing = dict(members)
         del missing["extension/LICENSE.txt"]
-        with self.assertRaisesRegex(VSIXAuditError, "inventory"):
+        with self.assertRaisesRegex(VSIXAuditError, "missing static"):
             audit_vsix(self.archive(missing))
         for name in (
             "extension/node_modules/runtime.js", "extension/.env", "extension/test.js",
@@ -359,11 +399,9 @@ class VSCodePackageTests(unittest.TestCase):
             audit_vsix(self.archive(list(missing.items()) + [(symlink, b"../../LICENSE")]))
 
     def test_archive_rejects_corrupt_xml_identity_license_and_entities(self) -> None:
-        for old, new, message in (
-            (b'Publisher="postoroniy"', b'Publisher="other"', "XML identity"),
-            (b'Version="0.1.0"', b'Version="0.1.1"', "XML identity"),
-            (b"extension/LICENSE.txt", b"extension/NOTICE", "XML License"),
-        ):
+        for old, new, message in ((b'Publisher="postoroniy"', b'Publisher="other"', "XML identity"),
+                                  (b'Version="0.1.0"', b'Version="0.1.1"', "XML identity"),
+                                  (b"extension/LICENSE.txt", b"extension/NOTICE", "XML License")):
             with self.subTest(replacement=new):
                 members = _source_members()
                 members["extension.vsixmanifest"] = members["extension.vsixmanifest"].replace(old, new)

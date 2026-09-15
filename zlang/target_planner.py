@@ -252,9 +252,14 @@ def _generic_candidate(module: Module, target, exploration, requirements) -> Tar
     selected = exploration.selected_candidate
     graph = generic_implementation_graph(module, target)
     if selected.pipeline_plan.scheduled_value_graph is not None:
+        scheduled = selected.pipeline_plan.scheduled_value_graph
+        if scheduled.clock_domain is None and len(module.clock_domains) == 1:
+            scheduled = replace(
+                scheduled, clock_domain=module.clock_domains[0].clock
+            )
         graph = replace(
             graph,
-            scheduled_value_graph=selected.pipeline_plan.scheduled_value_graph,
+            scheduled_value_graph=scheduled,
         )
     graph = replace(
         graph,

@@ -33,7 +33,6 @@ from zlang.ir.product_reductions import (
 from zlang.ir.types import FixedType, HardwareType, SIntType, UFixedType, UIntType
 from zlang.ir.signed_reductions import recognize_signed_product_reduction
 from zlang.ir.signed_reductions import (
-    expression_semantic_identity,
     selection_expression_semantic_identity,
 )
 from zlang.costs import CandidateCost, UnifiedConstraint, extract_best
@@ -133,13 +132,14 @@ def explore_pipeline(
     result_type: HardwareType,
     constraints: tuple[PipelineConstraint, ...],
     allocate_instance: Callable[[], int],
+    domain: str | None = None,
 ) -> PipelineExploration:
     """Generate, validate, and select a bounded multi-product pipeline."""
 
     _validate_constraints(constraints)
     if isinstance(result_type, (FixedType, UFixedType)):
         return _explore_fixed_output(
-            output, expression, result_type, constraints, allocate_instance,
+            output, expression, result_type, constraints, allocate_instance, domain,
         )
     products = _flatten_products(expression)
     if len(products) < 4:
@@ -182,7 +182,7 @@ def explore_pipeline(
     candidates = (
         _candidate(
             "linear_output_logic",
-            _output_pipeline(linear, allocate_instance),
+            _output_pipeline(linear, allocate_instance, domain),
             PipelineTree.LINEAR,
             RegisterPlacement.OUTPUT,
             MultiplierMapping.LOGIC,
@@ -196,7 +196,7 @@ def explore_pipeline(
         ),
         _candidate(
             "balanced_output_logic",
-            _output_pipeline(balanced, allocate_instance),
+            _output_pipeline(balanced, allocate_instance, domain),
             PipelineTree.BALANCED,
             RegisterPlacement.OUTPUT,
             MultiplierMapping.LOGIC,
@@ -211,7 +211,7 @@ def explore_pipeline(
         _candidate(
             "balanced_levels_logic",
             coerce_integer_result(
-                _registered_balanced_tree(products, allocate_instance),
+                _registered_balanced_tree(products, allocate_instance, domain),
                 result_type,
                 error_type=PipelineExplorationError,
             ),
@@ -232,7 +232,7 @@ def explore_pipeline(
         ),
         _candidate(
             "balanced_output_dsp",
-            _output_pipeline(balanced, allocate_instance),
+            _output_pipeline(balanced, allocate_instance, domain),
             PipelineTree.BALANCED,
             RegisterPlacement.OUTPUT,
             MultiplierMapping.DSP,
@@ -252,7 +252,7 @@ def explore_pipeline(
         _candidate(
             "balanced_levels_dsp",
             coerce_integer_result(
-                _registered_balanced_tree(products, allocate_instance),
+                _registered_balanced_tree(products, allocate_instance, domain),
                 result_type,
                 error_type=PipelineExplorationError,
             ),
@@ -349,6 +349,7 @@ def explore_general_pipeline(
     constraints: tuple[PipelineConstraint, ...],
     latencies: tuple[int, ...],
     allocate_instance: Callable[[], int],
+    domain: str | None = None,
 ) -> PipelineExploration:
     """Generate exact-latency candidates for one supported scalar typed DAG.
 
@@ -378,6 +379,7 @@ def explore_general_pipeline(
                 expression,
                 latency,
                 allocate_instance,
+                domain=domain,
             )
         except PipelineSchedulingError as error:
             failures.append(f"latency {latency}: {error}")
@@ -767,6 +769,7 @@ def _explore_fixed_output(
     result_type: FixedType | UFixedType,
     constraints: tuple[PipelineConstraint, ...],
     allocate_instance: Callable[[], int],
+    domain: str | None = None,
 ) -> PipelineExploration:
     """Compatibility candidate for exact fixed reductions.
 
@@ -811,7 +814,7 @@ def _explore_fixed_output(
     )
     scheduled = explore_general_pipeline(
         output, expression, result_type, constraints, latencies,
-        allocate_instance,
+        allocate_instance, domain,
     )
     candidates = tuple(
         replace(
@@ -906,9 +909,12 @@ def _flatten_products(expression: expr.Expression) -> tuple[expr.Binary, ...]:
 def _registered_balanced_tree(
     products: tuple[expr.Binary, ...],
     allocate_instance: Callable[[], int],
+    domain: str | None = None,
 ) -> expr.Expression:
     level: tuple[expr.Expression, ...] = tuple(
-        expr.Pipeline(1, product, allocate_instance(), product.type)
+        expr.Pipeline(
+            1, product, allocate_instance(), product.type, domain=domain
+        )
         for product in products
     )
     while len(level) > 1:
@@ -918,7 +924,9 @@ def _registered_balanced_tree(
                 level[index], level[index + 1], error_type=PipelineExplorationError
             )
             next_level.append(
-                expr.Pipeline(1, summed, allocate_instance(), summed.type)
+                expr.Pipeline(
+                    1, summed, allocate_instance(), summed.type, domain=domain
+                )
             )
         level = tuple(next_level)
     return level[0]
@@ -927,8 +935,11 @@ def _registered_balanced_tree(
 def _output_pipeline(
     expression: expr.Expression,
     allocate_instance: Callable[[], int],
+    domain: str | None = None,
 ) -> expr.Pipeline:
-    return expr.Pipeline(1, expression, allocate_instance(), expression.type)
+    return expr.Pipeline(
+        1, expression, allocate_instance(), expression.type, domain=domain
+    )
 
 
 def _logic_lut(

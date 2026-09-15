@@ -147,3 +147,14 @@ class SourceOrigin:
         if digest is not None and not isinstance(digest, str):
             raise ValueError("source-origin digest must be a string")
         return cls(span, construct, source_unit, digest)
+
+
+def source_origin_to_data(
+    origin: SourceOrigin | None,
+) -> dict[str, object] | None:
+    """Encode an optional source origin without duplicating codec wrappers."""
+
+    return None if origin is None else origin.to_data()
+
+
+__all__ = ["SourceOrigin", "SourceSpan", "source_origin_to_data"]

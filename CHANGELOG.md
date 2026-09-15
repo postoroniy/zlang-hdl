@@ -9,6 +9,52 @@ change incompatibly when the release notes identify the change. Versioned IR,
 artifact, lock, manifest, and verification schemas continue to reject
 incompatible input explicitly.
 
+## 0.1.0a7 — 2026-09-15
+
+### Added
+
+- A complete installation guide for source and wheel installs, VS Code LSP
+  wiring, OSS CAD Suite or separate Verilator/Yosys/SBY/Z3 setup, exact
+  release-tested versions, and a real formal smoke test.
+- First-class clock-domain ownership for registers, rules, concise FSMs,
+  exact scalar pipelines, FIFO/memory/ROM resources, CSR state and compatible
+  hierarchical children. Multi-clock modules now emit independent direct-SV
+  sequential processes and one reset conditioner per physical domain.
+- Domain provenance through dynamic combinational expressions, with explicit
+  `sync_level`, `pulse_toggle`, `handshake` and `async_fifo` crossings as the
+  only supported way to change provenance.
+- Named same-clock read/write memory ports, bounded multiport physical planning,
+  and explicit independent-clock `async_mem` 1W1R with domain-owned read state.
+  Uniform compile-time `init VALUE` preserves generic reset and FPGA power-up
+  initialization semantics without claiming analog collision guarantees.
+- Community `zlang-lsp` and the independently packaged VS Code language client,
+  with compiler-owned Definition/References, content-bound symbol shards and
+  real installed-editor navigation acceptance.
+- A tracked Community-only Qwen project skill with concise routing for `.zhl`
+  authoring, compiler work, direct-SystemVerilog integration, optimization,
+  formal verification, and standards-based conversion. The public projection
+  requires the skill and its references while keeping it independent from the
+  compiler and editor packages.
+
+### Changed
+
+- Consolidated duplicated source-origin codecs, signed DSP width calculation,
+  constant-term extraction and M36 expression traversal into shared compiler
+  utilities without changing their serialized or arithmetic semantics.
+- Scheduled-value and physical candidate identities now include resolved clock
+  ownership. Existing packaged DSP48 QoR records were deterministically re-keyed
+  to that identity schema; their measured Vivado values are unchanged.
+- Canonical IR identity schema v14 records the resolved domain of child-output
+  values, preventing hierarchy or inferred locals from erasing CDC provenance.
+- Refreshed current-facing language, storage, standard-library, FFT, backend,
+  and formal guides for the direct-SystemVerilog-only production policy, the
+  current example-corpus manifest, and the shared e-graph/scheduler/resource
+  responsibility split.
+- Definition and References now share bounded multi-module top selection.
+  References validates project-root bytes and candidate bounds instead of
+  publishing stale or truncated sets; same-file enum and resource navigation
+  retain exact compiler-owned identifier spans.
+
 ## 0.1.0a6 — 2026-09-11
 
 ### Changed

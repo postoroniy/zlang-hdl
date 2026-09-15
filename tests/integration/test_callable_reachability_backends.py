@@ -1,34 +1,25 @@
 from __future__ import annotations
 
 from pathlib import Path
-import shutil
 
 import pytest
 
 from zlang.backend.systemverilog import emit_experimental
-from zlang.backend.systemverilog.emitter import SystemVerilogEmissionError
-from zlang.compiler import compile_file, compile_source
+from zlang.compiler import compile_file
 from zlang.ir import (
-    Assignment,
     Call,
     Constant,
     Function,
     FunctionParameter,
-    InputRef,
-    Module,
     ParameterRef,
-    Port,
-    PortDirection,
 )
 from zlang.ir.callables import (
     CallableKind,
     CallableMetadata,
     CallableReachabilityError,
     reachable_callable_definitions,
-    reachable_module_callables,
 )
 from zlang.ir.types import UIntType
-from zlang.toolchain import lint_with_verilator
 
 
 ROOT = Path(__file__).resolve().parents[2]

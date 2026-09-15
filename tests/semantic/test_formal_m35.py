@@ -5,9 +5,9 @@ from unittest.mock import patch
 from zlang.compiler import compile_source
 from zlang.formal import build_formal_design, emit_sby, run_formal, run_verilog_formal
 from zlang.ir import (
-    Assignment, BitType, Constant, Contract, ContractKind, Fifo, FormalError,
+    BitType, Constant, Fifo, FormalError,
     FormalDesign, FormalProperty, FormalPropertyClassification, FormalStatus,
-    Module, NextAssignment, Ownership,
+    Module, Ownership,
     Port, PortDirection, ProofMode, PropertyKind, FixedType,
     Register, SignalBinding, UIntType,
     TemporalForm,

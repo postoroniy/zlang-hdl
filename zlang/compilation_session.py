@@ -15,6 +15,7 @@ from types import SimpleNamespace
 from typing import Callable, Iterable, Mapping
 
 from zlang.architectures import render_architecture_report
+from zlang.analysis_needs import AnalysisNeeds
 from zlang.ast.nodes import Module as AstModule
 from zlang.backend.systemverilog import emit_contracts
 from zlang.costs import (
@@ -36,6 +37,7 @@ from zlang.candidate_sites import (
 )
 from zlang.compilation_inputs import PhysicalCompilationInputs
 from zlang.compilation_products import CompilationResult
+from zlang.completion_resolution import CompletionScope
 from zlang.csr import emit_csr_json, emit_csr_markdown
 from zlang.exploration import ExplorationResult, render_exploration_report
 from zlang.formal import (
@@ -76,16 +78,17 @@ from zlang.ir import expressions as ir_expr
 from zlang.ir.formal import FormalDesign, FormalStatus, ProofMode
 from zlang.ir.module import Module as IrModule, dependency_context_identity
 from zlang.ir.signed_reductions import (
-    expression_semantic_identity,
     selection_expression_semantic_identity,
 )
 from zlang.opt import CanonicalModule, OptimizationStage, lower, restore
 from zlang.parser import parse
 from zlang.pipelines import render_pipeline_report
 from zlang.semantic import SemanticError, analyze
+from zlang.definition_resolution import DefinitionResolution, DefinitionTarget
 from zlang.target_planner import TargetPlanningResult
 from zlang.targets import ArchitectureSelectionMode, select_implementation_graph
 from zlang.stdlib import track_resolved_stdlib_source_paths
+from zlang.signature_help_resolution import SignatureHelpCall
 
 
 class SessionTopSelectionError(ValueError):
@@ -579,12 +582,19 @@ class CompilationSessionOptions:
     implementation_backend: BackendKind | str | None
     implementation_backend_mode: RequirementMode | str
     implementation_contributions: tuple[ImplementationContribution, ...]
+    # Editor/tooling may analyze a project module in its legal child context;
+    # production compilation keeps the public top boundary closed by default.
+    allow_external_enum_inputs: bool
 
 
 @dataclass(frozen=True)
 class _AnalysisProduct:
     module: IrModule
     exploration_results: tuple[ExplorationResult, ...]
+    definition_resolutions: tuple[DefinitionResolution, ...] = ()
+    definition_declarations: tuple[DefinitionTarget, ...] = ()
+    completion_scopes: tuple[CompletionScope, ...] = ()
+    signature_help_calls: tuple[SignatureHelpCall, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -858,11 +868,29 @@ class CompilationSession:
         implementation_backend: BackendKind | str | None = None,
         implementation_backend_mode: RequirementMode | str = RequirementMode.REQUIRED,
         implementation_contributions: tuple[ImplementationContribution, ...] = (),
+        allow_external_enum_inputs: bool = False,
         physical_inputs: PhysicalCompilationInputs | None = None,
+        analysis_needs: AnalysisNeeds = AnalysisNeeds.NONE,
+        # Kept as a narrow compatibility adapter for callers that used the
+        # pre-demand-driven session spelling.  Internally there is one needs
+        # bitmask, never three independent collection switches.
+        collect_definitions: bool = False,
+        collect_completion_scopes: bool = False,
+        collect_signature_help: bool = False,
     ) -> None:
         if not isinstance(source, str):
             raise TypeError("source must be text")
         self._source = source
+        try:
+            self._analysis_needs = AnalysisNeeds(analysis_needs)
+        except (TypeError, ValueError) as error:
+            raise TypeError("analysis_needs must be an AnalysisNeeds value") from error
+        if collect_definitions:
+            self._analysis_needs |= AnalysisNeeds.DEFINITIONS
+        if collect_completion_scopes:
+            self._analysis_needs |= AnalysisNeeds.DEFINITIONS | AnalysisNeeds.COMPLETION
+        if collect_signature_help:
+            self._analysis_needs |= AnalysisNeeds.SIGNATURE_HELP
         self._options = CompilationSessionOptions(
             formal_policy=formal_policy,
             formal_depth=formal_depth,
@@ -896,6 +924,7 @@ class CompilationSession:
             implementation_backend=implementation_backend,
             implementation_backend_mode=implementation_backend_mode,
             implementation_contributions=tuple(implementation_contributions),
+            allow_external_enum_inputs=allow_external_enum_inputs,
         )
 
         self._values: dict[str, object] = {}
@@ -1086,6 +1115,18 @@ class CompilationSession:
 
     def _analyze(self, *, check_only: bool) -> _AnalysisProduct:
         exploration_results: list[ExplorationResult] = []
+        definition_resolutions: list[DefinitionResolution] | None = (
+            [] if self._analysis_needs.wants(AnalysisNeeds.DEFINITIONS) else None
+        )
+        definition_declarations: list[DefinitionTarget] | None = (
+            [] if self._analysis_needs.wants(AnalysisNeeds.DEFINITIONS) else None
+        )
+        completion_scopes: list[CompletionScope] | None = (
+            [] if self._analysis_needs.wants(AnalysisNeeds.COMPLETION) else None
+        )
+        signature_help_calls: list[SignatureHelpCall] | None = (
+            [] if self._analysis_needs.wants(AnalysisNeeds.SIGNATURE_HELP) else None
+        )
         stdlib_sources: set[Path] = set()
         try:
             with track_resolved_stdlib_source_paths() as tracked_sources:
@@ -1106,6 +1147,14 @@ class CompilationSession:
                     module_resolver=self.module_resolver,
                     root_module_identity=self.root_module_identity,
                     dependency_closure=self.dependency_closure,
+                    analysis_needs=self._analysis_needs,
+                    definition_resolutions=definition_resolutions,
+                    definition_declarations=definition_declarations,
+                    completion_scopes=completion_scopes,
+                    signature_help_calls=signature_help_calls,
+                    allow_external_enum_inputs=(
+                        self._options.allow_external_enum_inputs
+                    ),
                 )
         finally:
             self._physical_inputs = self._physical_inputs.with_stdlib_sources(
@@ -1117,7 +1166,14 @@ class CompilationSession:
                 root_module_identity=self.root_module_identity,
                 dependency_closure=self.dependency_closure,
             )
-        return _AnalysisProduct(module, tuple(exploration_results))
+        return _AnalysisProduct(
+            module,
+            tuple(exploration_results),
+            tuple(definition_resolutions or ()),
+            tuple(definition_declarations or ()),
+            tuple(completion_scopes or ()),
+            tuple(signature_help_calls or ()),
+        )
 
     @property
     def semantic_ir(self) -> IrModule:
@@ -1125,6 +1181,34 @@ class CompilationSession:
 
         product = self._demand("semantic", lambda: self._analyze(check_only=True))
         return product.module
+
+    @property
+    def semantic_definition_resolutions(self) -> tuple[DefinitionResolution, ...]:
+        """Compiler-owned definition records for editor tooling only."""
+
+        product = self._demand("semantic", lambda: self._analyze(check_only=True))
+        return product.definition_resolutions
+
+    @property
+    def semantic_definition_declarations(self) -> tuple[DefinitionTarget, ...]:
+        """Compiler-owned declaration targets for editor tooling only."""
+
+        product = self._demand("semantic", lambda: self._analyze(check_only=True))
+        return product.definition_declarations
+
+    @property
+    def semantic_completion_scopes(self) -> tuple[CompletionScope, ...]:
+        """Compiler-owned visible-scope records for editor completion."""
+
+        product = self._demand("semantic", lambda: self._analyze(check_only=True))
+        return product.completion_scopes
+
+    @property
+    def semantic_signature_help_calls(self) -> tuple[SignatureHelpCall, ...]:
+        """Compiler-owned resolved calls for editor signature help."""
+
+        product = self._demand("semantic", lambda: self._analyze(check_only=True))
+        return product.signature_help_calls
 
     def check(self) -> IrModule:
         """Validate syntax and semantics, demanding no downstream product."""

@@ -38,7 +38,7 @@ from zlang.ir.functional_regions import (
     ExactReductionPlan,
     FunctionalRegionKind,
 )
-from zlang.ir.storage import MemoryCollision, MemoryResetPolicy
+from zlang.ir.storage import MemoryCollision, MemoryPortKind, MemoryResetPolicy
 from zlang.ir.state import StateActionKind, StateResource
 from zlang.source import SourceOrigin
 from zlang.ir.pipelines import (
@@ -52,7 +52,6 @@ from zlang.ir.pipelines import (
 )
 from zlang.ir.elastic import (
     ElasticPipelinePlan,
-    ElasticStallPolicy,
     ElasticTimingContract,
     validate_elastic_region_metadata,
 )
@@ -81,7 +80,6 @@ from zlang.ir.timing import (
     OutputTiming,
 )
 from zlang.dependencies import DependencyClosure, DependencyModuleIdentity
-from zlang.source import SourceOrigin
 
 
 NodeId = int
@@ -399,6 +397,7 @@ class CanonicalRule:
     name: str
     guard: NodeId
     actions: tuple[CanonicalNextAssignment, ...]
+    domain: str | None = None
 
 
 @dataclass(frozen=True)
@@ -410,6 +409,7 @@ class CanonicalFifo:
     push: NodeId | None
     pop: NodeId | None
     source_origin: SourceOrigin | None = None
+    domain: str | None = None
 
 
 @dataclass(frozen=True)
@@ -430,6 +430,7 @@ class CanonicalActionGroup:
     guard: NodeId
     actions: tuple[CanonicalStateAction, ...]
     source_origin: SourceOrigin | None = None
+    domain: str | None = None
 
 
 @dataclass(frozen=True)
@@ -440,6 +441,20 @@ class CanonicalResolvedTransition:
     resources: tuple[StateResource, ...]
     action_groups: tuple[CanonicalActionGroup, ...]
     priorities: tuple[tuple[str, str], ...]
+
+
+@dataclass(frozen=True)
+class CanonicalMemoryPort:
+    name: str
+    semantic_id: str
+    kind: MemoryPortKind
+    domain: str
+    address: NodeId
+    read_enable: NodeId | None = None
+    write_enable: NodeId | None = None
+    write_data: NodeId | None = None
+    write_mask: NodeId | None = None
+    source_origin: SourceOrigin | None = None
 
 
 @dataclass(frozen=True)
@@ -460,6 +475,11 @@ class CanonicalMemory:
     # Appended to preserve the historical positional constructor ABI.
     contents_reset: MemoryResetPolicy = MemoryResetPolicy.CLEAR
     read_data_reset: MemoryResetPolicy = MemoryResetPolicy.CLEAR
+    domain: str | None = None
+    ports: tuple[CanonicalMemoryPort, ...] = ()
+    async_memory: bool = False
+    write_priority: tuple[str, ...] = ()
+    initial_value: NodeId | None = None
 
 
 @dataclass(frozen=True)
@@ -477,6 +497,7 @@ class CanonicalRom:
     evaluator_schema: str
     content_hash: str
     source_origin: SourceOrigin | None = None
+    domain: str | None = None
 
     def __post_init__(self) -> None:
         if not self.semantic_id:

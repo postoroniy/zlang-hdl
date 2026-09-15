@@ -13,6 +13,12 @@ Text remains the default and is compatible with existing scripts:
 zlang design.zhl --check
 ```
 
+The `fixes` values in the version-1 diagnostic are human-readable suggestions,
+not source edits. Machine-applicable edits have a separate compiler-owned
+metadata and tooling projection described in
+[Compiler-owned diagnostic edit projection](diagnostic-edit-projection.md);
+consumers must never derive edits from these strings.
+
 Machine consumers select one deterministic JSON object:
 
 ```sh

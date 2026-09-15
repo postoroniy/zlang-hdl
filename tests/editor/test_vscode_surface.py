@@ -27,6 +27,12 @@ def test_extension_json_and_registration_are_valid() -> None:
     language = package["contributes"]["languages"][0]
     assert package["name"] == "zlang-hdl"
     assert package["displayName"] == "ZLang HDL"
+    assert package["main"] == "./extension.js"
+    assert "activationEvents" not in package
+    assert package["dependencies"] == {"vscode-languageclient": "^9.0.1"}
+    assert package["capabilities"]["untrustedWorkspaces"]["supported"] is False
+    assert "extension.js" in package["files"]
+    assert package["contributes"]["configuration"]["properties"]["zlang.lsp.path"]["default"] == ""
     assert language["id"] == "zlang-hdl"
     assert language["aliases"] == ["ZLang HDL", "ZLang"]
     assert language["extensions"] == [".zhl"]
@@ -38,6 +44,19 @@ def test_extension_json_and_registration_are_valid() -> None:
     assert grammar["name"] == "ZLang HDL"
     assert surface == CAPABILITY_REGISTRY.editor_surface()
     assert "editor.tokenColorCustomizations" in recommended_settings
+
+
+def test_lsp_client_bootstrap_is_standard_and_semantics_free() -> None:
+    client = (EXT / "extension.js").read_text()
+    assert "vscode-languageclient/node" in client
+    assert "TransportKind.stdio" in client
+    assert "zlang.lsp.path" in client
+    assert "sh -c" not in client and "bash -c" not in client
+    assert "zlang-agent" not in client and "Ollama" not in client
+    assert "textDocument/" not in client
+    assert "async function activate(context)" in client
+    assert "await client.start()" in client
+    assert "void client.start()" not in client
 
 
 def test_editor_surface_has_no_known_phantom_claims() -> None:

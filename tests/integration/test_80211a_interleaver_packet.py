@@ -14,10 +14,8 @@ import subprocess
 
 import pytest
 
-from zlang.backend.manifest import BackendArtifact
 from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
 from zlang.compiler import compile_file
-from zlang.opt import OptimizationStage, lower, restore
 from zlang.simulate import simulate, simulate_cycles
 from zlang.toolchain import lint_with_verilator
 

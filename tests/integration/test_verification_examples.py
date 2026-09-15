@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from contextlib import redirect_stderr, redirect_stdout
-from dataclasses import replace
 import io
 import json
 from pathlib import Path
@@ -11,12 +10,9 @@ import shutil
 
 import pytest
 
-from zlang.backend.systemverilog import emit_experimental as emit_systemverilog
 from zlang.cli import main as compiler_main
 from zlang.compiler import compile_source
-from zlang.opt import canonical_ir_identity, lower, render, restore
 from zlang.simulate import VerificationAssertionError, simulate_cycles
-from zlang.toolchain import lint_with_verilator
 from zlang.verification_bundle import load_verification_bundle
 from zlang.verification_cli import main as verification_main
 

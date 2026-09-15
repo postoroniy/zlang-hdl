@@ -20,10 +20,13 @@ from zlang.ir.module import (
 from zlang.ir.storage import (
     Fifo,
     Memory,
+    MemoryPort,
+    MemoryPortKind,
     MemoryResetPolicy,
     Rom,
     memory_byte_mask_width,
 )
+from zlang.ir.constants import ConstantExpressionError, constant_runtime_value
 from zlang.ir.external import ExternalModuleContract
 from zlang.ir.state import (
     ActionGroup,
@@ -61,6 +64,7 @@ from zlang.opt.ir import (
     CanonicalExternalModuleContract,
     CanonicalImplementationEvidence,
     CanonicalMemory,
+    CanonicalMemoryPort,
     CanonicalRom,
     CanonicalModule,
     CanonicalNextAssignment,
@@ -246,6 +250,7 @@ class _ExpressionBuilder:
                 ExpressionOp.MEMORY_REF,
                 memory=expression.memory,
                 signal=expression.signal,
+                port=expression.port,
             )
         if isinstance(expression, expr.RomRef):
             return self._leaf(
@@ -490,6 +495,7 @@ class _ExpressionBuilder:
                 ExpressionOp.INSTANCE_OUTPUT,
                 instance=expression.instance,
                 port=expression.port,
+                domain=expression.domain,
             )
         if isinstance(expression, expr.Generate):
             return self._compound(
@@ -576,6 +582,7 @@ class _ExpressionBuilder:
             attributes: dict[str, object] = {
                 "stages": expression.stages,
                 "instance": expression.instance,
+                "domain": expression.domain,
             }
             if expression.pipeline_plan is not None:
                 attributes["pipeline_plan"] = expression.pipeline_plan
@@ -664,6 +671,9 @@ class _ExpressionBuilder:
             if self._default_domain is not None:
                 domains.add(self._default_domain)
             effects.add(EffectKind.OBSERVE_TRANSACTION)
+        elif op is ExpressionOp.INSTANCE_OUTPUT:
+            if expression.domain is not None:
+                domains.add(expression.domain)
         elif op is ExpressionOp.FIFO_REF:
             if self._default_domain is not None:
                 domains.add(self._default_domain)
@@ -685,8 +695,9 @@ class _ExpressionBuilder:
             effects.add(EffectKind.TIME_SHIFT)
         elif op is ExpressionOp.PIPELINE:
             latency += expression.stages
-            if not domains and self._default_domain is not None:
-                domains.add(self._default_domain)
+            pipeline_domain = expression.domain or self._default_domain
+            if pipeline_domain is not None:
+                domains.add(pipeline_domain)
             effects.add(EffectKind.TIME_SHIFT)
         elif op is ExpressionOp.IMPLEMENTATION_CHOICE:
             semantics = expression.alternatives[0].semantics
@@ -854,6 +865,7 @@ def lower(
                 )
                 for action in rule.actions
             ),
+            rule.domain,
         )
         for rule in module.rules
     )
@@ -866,6 +878,7 @@ def lower(
             builder.lower(fifo.push) if fifo.push is not None else None,
             builder.lower(fifo.pop) if fifo.pop is not None else None,
             fifo.source_origin,
+            fifo.domain,
         )
         for fifo in module.fifos
     )
@@ -894,6 +907,7 @@ def lower(
                         ) for action in group.actions
                     ),
                     group.source_origin,
+                    group.domain,
                 ) for group in module.resolved_transition.action_groups
             ),
             module.resolved_transition.priorities,
@@ -920,6 +934,28 @@ def lower(
             ),
             contents_reset=memory.contents_reset,
             read_data_reset=memory.read_data_reset,
+            domain=memory.domain,
+            ports=tuple(
+                CanonicalMemoryPort(
+                    port.name,
+                    port.semantic_id,
+                    port.kind,
+                    port.domain,
+                    builder.lower(port.address),
+                    builder.lower(port.read_enable) if port.read_enable is not None else None,
+                    builder.lower(port.write_enable) if port.write_enable is not None else None,
+                    builder.lower(port.write_data) if port.write_data is not None else None,
+                    builder.lower(port.write_mask) if port.write_mask is not None else None,
+                    port.source_origin,
+                )
+                for port in memory.ports
+            ),
+            async_memory=memory.async_memory,
+            write_priority=memory.write_priority,
+            initial_value=(
+                builder.lower(memory.initial_value)
+                if memory.initial_value is not None else None
+            ),
         )
         for memory in module.memories
     )
@@ -938,6 +974,7 @@ def lower(
             rom.evaluator_schema,
             rom.content_hash,
             rom.source_origin,
+            rom.domain,
         )
         for rom in module.roms
     )
@@ -1208,6 +1245,29 @@ def restore(module: CanonicalModule) -> Module:
             "with the module"
         )
 
+    domains_by_clock = {item.clock: item for item in module.clock_domains}
+    for block in module.csr_blocks:
+        if block.domain is None:
+            if len(module.clock_domains) > 1:
+                raise CanonicalizationError(
+                    f"canonical CSR block '{block.name}' has no clock domain"
+                )
+            continue
+        domain = domains_by_clock.get(block.domain)
+        if domain is None or block.reset != domain.reset:
+            raise CanonicalizationError(
+                f"canonical CSR block '{block.name}' physical domain disagrees "
+                "with the module clock/reset contracts"
+            )
+        if any(
+            binding.clock_domain != block.domain
+            or binding.reset_domain != block.reset
+            for binding in block.state_bindings
+        ):
+            raise CanonicalizationError(
+                f"canonical CSR block '{block.name}' state binding domain disagrees"
+            )
+
     expressions = _ExpressionRestorer(module.expressions)
     verification_expressions = _ExpressionRestorer(
         module.verification_expressions
@@ -1321,6 +1381,7 @@ def restore(module: CanonicalModule) -> Module:
                 )
                 for action in rule.actions
             ),
+            rule.domain,
         )
         for rule in module.rules
     )
@@ -1350,12 +1411,79 @@ def restore(module: CanonicalModule) -> Module:
             raise CanonicalizationError(
                 "canonical memory write mask has no width metadata"
             )
-        scheduled = memory.read_address is None
+        scheduled = memory.read_address is None and not memory.ports
+        if memory.ports:
+            if any(item is not None for item in controls) or memory.write_mask is not None:
+                raise CanonicalizationError(
+                    "canonical ported memory cannot also use legacy controls"
+                )
+            if len(memory.ports) > 8:
+                raise CanonicalizationError(
+                    "canonical ported memory supports at most eight logical ports"
+                )
+            names = tuple(port.name for port in memory.ports)
+            identities = tuple(port.semantic_id for port in memory.ports)
+            if len(names) != len(set(names)) or len(identities) != len(set(identities)):
+                raise CanonicalizationError(
+                    "canonical memory port names and identities must be unique"
+                )
+            writable = tuple(
+                port.name for port in memory.ports
+                if port.kind in {MemoryPortKind.WRITE, MemoryPortKind.READ_WRITE}
+            )
+            if len(writable) > 1 and (
+                len(memory.write_priority) != len(writable)
+                or set(memory.write_priority) != set(writable)
+            ):
+                raise CanonicalizationError(
+                    "canonical multi-writer memory requires a complete priority"
+                )
+            for port in memory.ports:
+                if not port.semantic_id or not port.name or not port.domain:
+                    raise CanonicalizationError(
+                        "canonical memory port identity, name, and domain are required"
+                    )
+                readable = port.kind in {MemoryPortKind.READ, MemoryPortKind.READ_WRITE}
+                writable_port = port.kind in {MemoryPortKind.WRITE, MemoryPortKind.READ_WRITE}
+                if readable != (port.read_enable is not None):
+                    raise CanonicalizationError(
+                        f"canonical memory port '{port.name}' has invalid read controls"
+                    )
+                if writable_port != (
+                    port.write_enable is not None and port.write_data is not None
+                ):
+                    raise CanonicalizationError(
+                        f"canonical memory port '{port.name}' has invalid write controls"
+                    )
+                if not writable_port and port.write_mask is not None:
+                    raise CanonicalizationError(
+                        f"canonical read port '{port.name}' cannot carry a write mask"
+                    )
+            if memory.async_memory:
+                kinds = tuple(port.kind for port in memory.ports)
+                if (
+                    len(kinds) != 2
+                    or kinds.count(MemoryPortKind.WRITE) != 1
+                    or kinds.count(MemoryPortKind.READ) != 1
+                    or len({port.domain for port in memory.ports}) != 2
+                    or memory.read_latency != 1
+                ):
+                    raise CanonicalizationError(
+                        "canonical async memory requires distinct one-write/one-read ports and latency one"
+                    )
+            elif len({port.domain for port in memory.ports}) != 1:
+                raise CanonicalizationError(
+                    "canonical ordinary ported memory requires one clock domain"
+                )
+        elif memory.async_memory or memory.write_priority:
+            raise CanonicalizationError(
+                "canonical async/priority metadata requires named ports"
+            )
         if scheduled and memory.write_mask is not None:
             raise CanonicalizationError(
                 "canonical scheduled memory stores masks on write actions"
             )
-        if not scheduled and (
+        if not scheduled and not memory.ports and (
             (memory.write_mask_width is None) != (memory.write_mask is None)
         ):
             raise CanonicalizationError(
@@ -1397,9 +1525,40 @@ def restore(module: CanonicalModule) -> Module:
             ),
             contents_reset=memory.contents_reset,
             read_data_reset=memory.read_data_reset,
+            domain=memory.domain,
+            ports=tuple(
+                MemoryPort(
+                    port.name,
+                    port.semantic_id,
+                    port.kind,
+                    port.domain,
+                    expressions.restore(port.address),
+                    expressions.restore(port.read_enable) if port.read_enable is not None else None,
+                    expressions.restore(port.write_enable) if port.write_enable is not None else None,
+                    expressions.restore(port.write_data) if port.write_data is not None else None,
+                    expressions.restore(port.write_mask) if port.write_mask is not None else None,
+                    port.source_origin,
+                )
+                for port in memory.ports
+            ),
+            async_memory=memory.async_memory,
+            write_priority=memory.write_priority,
+            initial_value=(
+                expressions.restore(memory.initial_value)
+                if memory.initial_value is not None else None
+            ),
         )
         for memory in module.memories
     )
+    for memory in memories:
+        if memory.initial_value is None:
+            continue
+        try:
+            constant_runtime_value(memory.initial_value)
+        except ConstantExpressionError as error:
+            raise CanonicalizationError(
+                f"canonical memory '{memory.name}' init value is not constant: {error}"
+            ) from error
     resolved_transition = (
         ResolvedTransition(
             module.resolved_transition.semantic_id,
@@ -1425,6 +1584,7 @@ def restore(module: CanonicalModule) -> Module:
                         ) for action in group.actions
                     ),
                     group.source_origin,
+                    group.domain,
                 ) for group in module.resolved_transition.action_groups
             ),
             module.resolved_transition.priorities,
@@ -1581,6 +1741,17 @@ def restore(module: CanonicalModule) -> Module:
             )
         }
         for group in resolved_transition.action_groups:
+            rule = rules_by_name[group.rule_name]
+            if group.domain != rule.domain:
+                raise CanonicalizationError(
+                    f"canonical action group '{group.rule_name}' clock domain "
+                    "does not match its typed rule"
+                )
+            if group.domain not in verification_domains:
+                raise CanonicalizationError(
+                    f"canonical action group '{group.rule_name}' references "
+                    f"missing clock domain '{group.domain}'"
+                )
             for action in group.actions:
                 if action.semantic_id in action_ids:
                     raise CanonicalizationError(
@@ -1609,6 +1780,7 @@ def restore(module: CanonicalModule) -> Module:
                     if (
                         resource.type != port.type
                         or resource.domain != (port.domain or resolved_transition.domain)
+                        or resource.domain != group.domain
                         or resource.depth is not None
                     ):
                         raise CanonicalizationError(
@@ -1636,6 +1808,7 @@ def restore(module: CanonicalModule) -> Module:
                         resource.type != register.type
                         or resource.domain
                         != (register.domain or resolved_transition.domain)
+                        or resource.domain != group.domain
                     ):
                         raise CanonicalizationError(
                             f"scheduled register '{resource.name}' resource metadata disagrees"
@@ -1666,7 +1839,8 @@ def restore(module: CanonicalModule) -> Module:
                     if (
                         resource.type != fifo.element_type
                         or resource.depth != fifo.depth
-                        or resource.domain != resolved_transition.domain
+                        or resource.domain != fifo.domain
+                        or resource.domain != group.domain
                     ):
                         raise CanonicalizationError(
                             f"scheduled FIFO '{resource.name}' resource metadata disagrees"
@@ -1700,6 +1874,10 @@ def restore(module: CanonicalModule) -> Module:
                     if resource.kind is not StateResourceKind.MEMORY:
                         raise CanonicalizationError(
                             "canonical memory action links to a non-memory resource"
+                        )
+                    if resource.domain != memory.domain or resource.domain != group.domain:
+                        raise CanonicalizationError(
+                            f"scheduled memory '{resource.name}' resource domain disagrees"
                         )
                     expected_arity = (
                         1 if action.kind is StateActionKind.MEMORY_READ_REQUEST
@@ -1805,7 +1983,7 @@ def restore(module: CanonicalModule) -> Module:
                     raise CanonicalizationError(
                         f"scheduled memory '{memory.name}' resource metadata disagrees"
                     )
-                if resource.domain != resolved_transition.domain:
+                if resource.domain != memory.domain:
                     raise CanonicalizationError(
                         f"scheduled memory '{memory.name}' resource domain disagrees"
                     )
@@ -1865,6 +2043,7 @@ def restore(module: CanonicalModule) -> Module:
                 expressions.restore(fifo.push) if fifo.push is not None else None,
                 expressions.restore(fifo.pop) if fifo.pop is not None else None,
                 fifo.source_origin,
+                fifo.domain,
             )
             for fifo in module.fifos
         ),
@@ -1884,6 +2063,7 @@ def restore(module: CanonicalModule) -> Module:
                 rom.evaluator_schema,
                 rom.content_hash,
                 rom.source_origin,
+                rom.domain,
             )
             for rom in module.roms
         ),
@@ -2129,7 +2309,8 @@ class _ExpressionRestorer:
             )
         elif op is ExpressionOp.MEMORY_REF:
             restored = expr.MemoryRef(
-                attribute("memory"), attribute("signal"), node.type
+                attribute("memory"), attribute("signal"), node.type,
+                attribute("port") if "port" in dict(node.attributes) else None,
             )
         elif op is ExpressionOp.ROM_REF:
             restored = expr.RomRef(
@@ -2481,7 +2662,12 @@ class _ExpressionRestorer:
                 )
             restored = expr.Unpack(operands[0], node.type)
         elif op is ExpressionOp.INSTANCE_OUTPUT:
-            restored = expr.InstanceOutputRef(attribute("instance"), attribute("port"), node.type)
+            restored = expr.InstanceOutputRef(
+                attribute("instance"),
+                attribute("port"),
+                node.type,
+                domain=attribute("domain"),
+            )
         elif op is ExpressionOp.GENERATE:
             restored = expr.Generate(
                 attribute("index"),
@@ -2615,6 +2801,7 @@ class _ExpressionRestorer:
                 attribute("instance"),
                 node.type,
                 pipeline_plan=pipeline_plan,
+                domain=dict(node.attributes).get("domain"),
             )
             if pipeline_plan is not None and pipeline_plan.scheduler != "legacy":
                 from zlang.ir.signed_reductions import expression_semantic_identity
@@ -2930,6 +3117,7 @@ def _build_entities(
                     memory.write_address,
                     memory.write_data,
                     memory.write_mask,
+                    memory.initial_value,
                 ) if item is not None),
             )
         )

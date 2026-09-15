@@ -253,6 +253,7 @@ def apply_external_region_exploration(
                     allocate,
                     module_candidate_owner_identity(module),
                     "external_profile",
+                    assignment.target.domain,
                 ),
             )
         except ValueError as error:

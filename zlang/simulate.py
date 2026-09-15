@@ -54,6 +54,7 @@ from zlang.ir.state import (
     conditional_actions,
     select_action_groups,
 )
+from zlang.ir.storage import MemoryCollision, MemoryPortKind
 from zlang.ir.verification import (
     VerificationGoal,
     VerificationGoalKind,
@@ -63,12 +64,8 @@ from zlang.ir.verification import (
 from zlang.ir.types import (
     BitType,
     BitsType,
-    EnumType,
     FixedType,
     HardwareType,
-    SIntType,
-    StructType,
-    UFixedType,
     UIntType,
     VecType,
 )
@@ -761,6 +758,326 @@ def simulate_cycles(
     return results
 
 
+def simulate_multiclock_steps(
+    module: Module,
+    input_steps: Iterable[dict[str, object]],
+    domain_edges: Iterable[set[str]],
+    resets: Iterable[set[str]] | None = None,
+) -> list[dict[str, object]]:
+    """Evaluate bounded ordinary state on an explicit asynchronous edge trace.
+
+    One item is a simulator time step, not a global clock cycle.  ``domain_edges``
+    names the clocks that have an active edge at that step and ``resets`` names
+    the domains whose effective reset is sampled at that edge.  Constants and
+    combinational outputs settle at every step; only state owned by an active
+    domain may commit.  CDC protocols retain their dedicated logical simulators.
+
+    This first-class path covers ordinary scalar state plus explicitly ported
+    memories.  A memory edge is sampled from one common pre-edge cell snapshot;
+    consequently coincident unrelated clock edges implement the language's
+    exact digital ``old``/``new``/``no_change`` contract without assigning an
+    ordering to the two clocks.
+    """
+
+    if len(module.clock_domains) < 2:
+        raise SimulationError(
+            "simulate_multiclock_steps requires at least two clock domains"
+        )
+    if any((
+        module.fifos,
+        module.roms,
+        module.csr_blocks,
+        module.request_responses,
+        module.elastic_pipeline_regions,
+        module.elaborated_instances,
+    )) or any(
+        port.protocol is not InterfaceProtocol.WIRE for port in module.ports
+    ):
+        raise SimulationError(
+            "multi-clock ordinary-state simulation supports scalar wire "
+            "register/rule/FSM/pipeline and explicitly ported-memory modules only"
+        )
+    if any(not memory.ported for memory in module.memories):
+        raise SimulationError(
+            "multi-clock memory simulation requires explicit named memory ports"
+        )
+
+    steps = list(input_steps)
+    edges = list(domain_edges)
+    reset_steps = list(resets) if resets is not None else [set() for _ in steps]
+    if len(edges) != len(steps) or len(reset_steps) != len(steps):
+        raise SimulationError(
+            "multi-clock input, edge, and reset schedules must have equal lengths"
+        )
+    known_domains = {domain.clock for domain in module.clock_domains}
+    expected = {port.name: port for port in module.inputs}
+    functions = _function_table(module)
+    initial_state = {
+        register.name: _evaluate(register.initial, {}, functions)
+        for register in module.registers
+    }
+    state = dict(initial_state)
+    staged_nodes = _module_delay_nodes(module)
+    for node in staged_nodes.values():
+        if isinstance(node, expr.Delay) or node.domain is None:
+            raise SimulationError(
+                "multi-clock simulation requires every staged expression to "
+                "be a domain-qualified pipeline"
+            )
+        if node.domain not in known_domains:
+            raise SimulationError(
+                f"pipeline references unknown clock domain '{node.domain}'"
+            )
+    delay_stages = {
+        instance: [_zero_runtime(node.type)] * expr.sequential_stage_count(node)
+        for instance, node in staged_nodes.items()
+    }
+    memory_cells = {
+        memory.name: [
+            _memory_initial_runtime(memory) for _ in range(memory.depth)
+        ]
+        for memory in module.memories
+    }
+    memory_read_data = {
+        f"{memory.name}.{port.name}": _zero_runtime(memory.element_type)
+        for memory in module.memories
+        for port in memory.ports
+        if port.kind in {MemoryPortKind.READ, MemoryPortKind.READ_WRITE}
+    }
+    next_by_register = {
+        assignment.target.name: assignment.expression
+        for assignment in module.next_assignments
+        if isinstance(assignment.target, Register)
+    }
+    ordered_rules = _simulation_rule_schedule(module)
+    results: list[dict[str, object]] = []
+
+    for inputs, active_edges, active_resets in zip(
+        steps, edges, reset_steps, strict=True
+    ):
+        unknown = (active_edges | active_resets) - known_domains
+        if unknown:
+            raise SimulationError(
+                f"unknown clock domain '{sorted(unknown)[0]}'"
+            )
+        missing = expected.keys() - inputs.keys()
+        extra = inputs.keys() - expected.keys()
+        if missing:
+            raise SimulationError(f"missing input '{sorted(missing)[0]}'")
+        if extra:
+            raise SimulationError(f"unknown input '{sorted(extra)[0]}'")
+        for name, port in expected.items():
+            if not _fits(inputs[name], port.type):
+                raise SimulationError(f"input '{name}' does not fit {port.type}")
+
+        values = {**inputs, **state}
+        values.update(
+            {
+                f"{key}.read_data": value
+                for key, value in memory_read_data.items()
+            }
+        )
+        values.update(
+            {
+                f"$delay_{instance}": stages[-1]
+                for instance, stages in delay_stages.items()
+            }
+        )
+        _settle_local_values(module, values, functions)
+
+        # Memory controls are typed expressions rather than ordinary locals.
+        # Resolve them after inputs/registers and before any edge commits.
+        for memory in module.memories:
+            for port in memory.ports:
+                values[f"${memory.name}.{port.name}.address"] = _evaluate(
+                    port.address, values, functions
+                )
+                if port.read_enable is not None:
+                    values[f"${memory.name}.{port.name}.read_enable"] = _evaluate(
+                        port.read_enable, values, functions
+                    )
+                if port.write_enable is not None:
+                    values[f"${memory.name}.{port.name}.write_enable"] = _evaluate(
+                        port.write_enable, values, functions
+                    )
+                    assert port.write_data is not None
+                    values[f"${memory.name}.{port.name}.write_data"] = _evaluate(
+                        port.write_data, values, functions
+                    )
+                    if port.write_mask is not None:
+                        values[f"${memory.name}.{port.name}.write_mask"] = _evaluate(
+                            port.write_mask, values, functions
+                        )
+
+        fired_rule_names: set[str] = set()
+        if module.resolved_transition is not None:
+            selected = _select_storage_action_groups(module, values, {}, functions)
+            fired_rule_names = {
+                name
+                for name in selected
+                if next(
+                    group.domain
+                    for group in module.resolved_transition.action_groups
+                    if group.rule_name == name
+                ) in active_edges
+                and next(
+                    group.domain
+                    for group in module.resolved_transition.action_groups
+                    if group.rule_name == name
+                ) not in active_resets
+            }
+        else:
+            for rule in ordered_rules:
+                if (
+                    rule.domain in active_edges
+                    and rule.domain not in active_resets
+                    and bool(_evaluate(rule.guard, values, functions))
+                ):
+                    fired_rule_names.add(rule.name)
+        fired_rules = tuple(
+            rule for rule in ordered_rules if rule.name in fired_rule_names
+        )
+
+        cycle_outputs = {
+            assignment.target.name: _evaluate(
+                assignment.expression, values, functions
+            )
+            for assignment in module.assignments
+        }
+        for output in module.outputs:
+            if output.name in cycle_outputs:
+                continue
+            value: object = _zero_runtime(output.type)
+            for rule in reversed(fired_rules):
+                action = next(
+                    (
+                        item
+                        for item in _active_rule_assignments(
+                            rule, values, functions
+                        )
+                        if item.target.name == output.name
+                    ),
+                    None,
+                )
+                if action is not None:
+                    value = _evaluate(action.expression, values, functions)
+            cycle_outputs[output.name] = value
+        results.append(cycle_outputs)
+
+        next_state = dict(state)
+        for register in module.registers:
+            domain = register.domain
+            if domain not in active_edges:
+                continue
+            if domain in active_resets:
+                next_state[register.name] = initial_state[register.name]
+                continue
+            if register.name in next_by_register:
+                next_state[register.name] = _evaluate(
+                    next_by_register[register.name], values, functions
+                )
+        for rule in fired_rules:
+            for action in _active_rule_assignments(rule, values, functions):
+                if isinstance(action.target, Register):
+                    next_state[action.target.name] = _evaluate(
+                        action.expression, values, functions
+                    )
+        state = next_state
+
+        next_memory_cells = {
+            name: list(cells) for name, cells in memory_cells.items()
+        }
+        next_memory_read_data = dict(memory_read_data)
+        for memory in module.memories:
+            cells = memory_cells[memory.name]
+            writable = tuple(
+                port for port in memory.ports
+                if port.kind in {MemoryPortKind.WRITE, MemoryPortKind.READ_WRITE}
+            )
+            readable = tuple(
+                port for port in memory.ports
+                if port.kind in {MemoryPortKind.READ, MemoryPortKind.READ_WRITE}
+            )
+            by_name = {port.name: port for port in writable}
+            priority = tuple(
+                by_name[name] for name in memory.write_priority
+            ) if memory.write_priority else writable
+            effective_writes: list[tuple[object, int, object]] = []
+            claimed_addresses: set[int] = set()
+            for port in priority:
+                if port.domain not in active_edges or port.domain in active_resets:
+                    continue
+                if not bool(values[f"${memory.name}.{port.name}.write_enable"]):
+                    continue
+                address = int(values[f"${memory.name}.{port.name}.address"])
+                _validate_memory_address(memory.name, memory.depth, address, port.name)
+                if address in claimed_addresses:
+                    continue
+                claimed_addresses.add(address)
+                new_value = values[f"${memory.name}.{port.name}.write_data"]
+                if port.write_mask is not None:
+                    new_value = _merge_memory_bytes(
+                        cells[address],
+                        new_value,
+                        int(values[f"${memory.name}.{port.name}.write_mask"]),
+                        memory.element_type,
+                    )
+                effective_writes.append((port, address, new_value))
+
+            for port in readable:
+                if port.domain not in active_edges:
+                    continue
+                key = f"{memory.name}.{port.name}"
+                if port.domain in active_resets:
+                    if memory.read_data_reset.value == "clear":
+                        next_memory_read_data[key] = _zero_runtime(memory.element_type)
+                    continue
+                if not bool(values[f"${memory.name}.{port.name}.read_enable"]):
+                    continue
+                address = int(values[f"${memory.name}.{port.name}.address"])
+                _validate_memory_address(memory.name, memory.depth, address, port.name)
+                collision = next(
+                    (value for _, write_address, value in effective_writes
+                     if write_address == address),
+                    None,
+                )
+                if collision is not None and memory.collision is MemoryCollision.NO_CHANGE:
+                    continue
+                next_memory_read_data[key] = (
+                    collision
+                    if collision is not None
+                    and memory.collision is MemoryCollision.WRITE_FIRST
+                    else cells[address]
+                )
+
+            writer_domains = {port.domain for port in writable}
+            if active_resets & writer_domains and memory.contents_reset.value == "clear":
+                next_memory_cells[memory.name] = [
+                    _memory_initial_runtime(memory) for _ in range(memory.depth)
+                ]
+            else:
+                for _, address, value in effective_writes:
+                    next_memory_cells[memory.name][address] = value
+        memory_cells = next_memory_cells
+        memory_read_data = next_memory_read_data
+
+        for instance, node in staged_nodes.items():
+            assert isinstance(node, expr.Pipeline) and node.domain is not None
+            if node.domain not in active_edges:
+                continue
+            if node.domain in active_resets:
+                delay_stages[instance] = [
+                    _zero_runtime(node.type)
+                ] * expr.sequential_stage_count(node)
+                continue
+            source = _evaluate(node.expression, values, functions)
+            delay_stages[instance] = [
+                source, *delay_stages[instance][:-1]
+            ]
+
+    return results
+
+
 def simulate_elastic_pipeline_cycles(
     module: Module,
     input_cycles: Iterable[dict[str, object]],
@@ -1032,7 +1349,7 @@ def simulate_hierarchical_scalar_cycles(
                     )
             cells = (
                 [
-                    _zero_runtime(memory.element_type)
+                    _memory_initial_runtime(memory)
                     for _ in range(memory.depth)
                 ]
                 if (
@@ -2167,14 +2484,25 @@ class _PersistentStorageSimulationState:
             {fifo.name: [] for fifo in module.fifos},
             {
                 memory.name: [
-                    _zero_runtime(memory.element_type)
+                    _memory_initial_runtime(memory)
                     for _ in range(memory.depth)
                 ]
                 for memory in module.memories
             },
             {
-                memory.name: _zero_runtime(memory.element_type)
+                key: _zero_runtime(memory.element_type)
                 for memory in module.memories
+                for key in (
+                    tuple(
+                        f"{memory.name}.{port.name}"
+                        for port in memory.ports
+                        if port.kind in {
+                            MemoryPortKind.READ,
+                            MemoryPortKind.READ_WRITE,
+                        }
+                    )
+                    if memory.ported else (memory.name,)
+                )
             },
             {
                 rom.name: _zero_runtime(rom.element_type)
@@ -2288,12 +2616,23 @@ class _PersistentStorageSimulationState:
                 for memory in module.memories
             }
             memory_read_data = {
-                memory.name: (
-                    self.memory_read_data[memory.name]
+                key: (
+                    self.memory_read_data[key]
                     if memory.read_data_reset.value == "preserve"
-                    else cleared_memory_read_data[memory.name]
+                    else cleared_memory_read_data[key]
                 )
                 for memory in module.memories
+                for key in (
+                    tuple(
+                        f"{memory.name}.{port.name}"
+                        for port in memory.ports
+                        if port.kind in {
+                            MemoryPortKind.READ,
+                            MemoryPortKind.READ_WRITE,
+                        }
+                    )
+                    if memory.ported else (memory.name,)
+                )
             }
             delay_stages = {
                 instance: [_zero_runtime(delay.type)] * expr.sequential_stage_count(delay)
@@ -2368,6 +2707,18 @@ class _PersistentStorageSimulationState:
                 values[f"{fifo.name}.overflow"] = 0
                 values[f"{fifo.name}.underflow"] = 0
         for memory in module.memories:
+            if memory.ported:
+                if memory.read_latency == 1:
+                    for port in memory.ports:
+                        if port.kind not in {
+                            MemoryPortKind.READ,
+                            MemoryPortKind.READ_WRITE,
+                        }:
+                            continue
+                        values[f"{memory.name}.{port.name}.read_data"] = (
+                            memory_read_data[f"{memory.name}.{port.name}"]
+                        )
+                continue
             if memory.read_latency == 1:
                 values[f"{memory.name}.read_data"] = memory_read_data[memory.name]
         for rom in module.roms:
@@ -2447,6 +2798,28 @@ class _PersistentStorageSimulationState:
         for memory in module.memories:
             if memory.scheduled:
                 continue
+            if memory.ported:
+                for port in memory.ports:
+                    pending_controls.append(
+                        (memory.name, port, f"{port.name}.address", port.address)
+                    )
+                    if port.read_enable is not None:
+                        pending_controls.append((
+                            memory.name, port,
+                            f"{port.name}.read_enable", port.read_enable,
+                        ))
+                    if port.write_enable is not None:
+                        assert port.write_data is not None
+                        pending_controls.extend((
+                            (memory.name, port, f"{port.name}.write_enable", port.write_enable),
+                            (memory.name, port, f"{port.name}.write_data", port.write_data),
+                        ))
+                        if port.write_mask is not None:
+                            pending_controls.append((
+                                memory.name, port,
+                                f"{port.name}.write_mask", port.write_mask,
+                            ))
+                continue
             controls = [
                     (memory.name, memory, "read_address", memory.read_address),
                     (memory.name, memory, "write_enable", memory.write_enable),
@@ -2467,9 +2840,22 @@ class _PersistentStorageSimulationState:
             fifo.name for fifo in module.fifos if not fifo.scheduled
         }
         unresolved_async_memory_reads = {
-            memory.name
+            (
+                f"{memory.name}.{port.name}"
+                if memory.ported else memory.name
+            )
             for memory in module.memories
             if memory.read_latency == 0
+            for port in (
+                tuple(
+                    item for item in memory.ports
+                    if item.kind in {
+                        MemoryPortKind.READ,
+                        MemoryPortKind.READ_WRITE,
+                    }
+                )
+                if memory.ported else (None,)
+            )
         }
         while (
             pending_assignments
@@ -2543,21 +2929,48 @@ class _PersistentStorageSimulationState:
                 progressed = True
 
             for memory in module.memories:
-                if memory.name not in unresolved_async_memory_reads:
+                if memory.read_latency != 0:
                     continue
-                try:
-                    values[f"{memory.name}.read_data"] = (
-                        _async_memory_read_value(
-                            memory,
-                            memory_cells[memory.name],
-                            values,
-                            reset_active=reset_active,
+                if memory.ported:
+                    for port in memory.ports:
+                        key = f"{memory.name}.{port.name}"
+                        if (
+                            key not in unresolved_async_memory_reads
+                            or port.kind not in {
+                                MemoryPortKind.READ,
+                                MemoryPortKind.READ_WRITE,
+                            }
+                        ):
+                            continue
+                        try:
+                            values[f"{key}.read_data"] = (
+                                _ported_latency_zero_read_value(
+                                    memory,
+                                    port,
+                                    memory_cells[memory.name],
+                                    values,
+                                    reset_active=reset_active,
+                                )
+                            )
+                        except KeyError:
+                            continue
+                        unresolved_async_memory_reads.remove(key)
+                        progressed = True
+                    continue
+                if memory.name in unresolved_async_memory_reads:
+                    try:
+                        values[f"{memory.name}.read_data"] = (
+                            _async_memory_read_value(
+                                memory,
+                                memory_cells[memory.name],
+                                values,
+                                reset_active=reset_active,
+                            )
                         )
-                    )
-                except KeyError:
-                    continue
-                unresolved_async_memory_reads.remove(memory.name)
-                progressed = True
+                    except KeyError:
+                        continue
+                    unresolved_async_memory_reads.remove(memory.name)
+                    progressed = True
 
             if not progressed:
                 unresolved = [
@@ -2784,6 +3197,60 @@ class _PersistentStorageSimulationState:
                     next_memory_read_data[memory.name] = next_read_data
                 if write is not None:
                     next_memory_cells[memory.name][write[0]] = merged_write
+                continue
+            if memory.ported:
+                cells = memory_cells[memory.name]
+                writable = tuple(
+                    port for port in memory.ports
+                    if port.kind in {MemoryPortKind.WRITE, MemoryPortKind.READ_WRITE}
+                )
+                readable = tuple(
+                    port for port in memory.ports
+                    if port.kind in {MemoryPortKind.READ, MemoryPortKind.READ_WRITE}
+                )
+                by_name = {port.name: port for port in writable}
+                priority = tuple(
+                    by_name[name] for name in memory.write_priority
+                ) if memory.write_priority else writable
+                effective_writes: list[tuple[object, int, object]] = []
+                claimed_addresses: set[int] = set()
+                for port in priority:
+                    if not bool(values[f"${memory.name}.{port.name}.write_enable"]):
+                        continue
+                    address = int(values[f"${memory.name}.{port.name}.address"])
+                    _validate_memory_address(memory.name, memory.depth, address, port.name)
+                    if address in claimed_addresses:
+                        continue
+                    claimed_addresses.add(address)
+                    new_value = values[f"${memory.name}.{port.name}.write_data"]
+                    if port.write_mask is not None:
+                        new_value = _merge_memory_bytes(
+                            cells[address],
+                            new_value,
+                            int(values[f"${memory.name}.{port.name}.write_mask"]),
+                            memory.element_type,
+                        )
+                    effective_writes.append((port, address, new_value))
+                for port in readable:
+                    if not bool(values[f"${memory.name}.{port.name}.read_enable"]):
+                        continue
+                    address = int(values[f"${memory.name}.{port.name}.address"])
+                    _validate_memory_address(memory.name, memory.depth, address, port.name)
+                    collision = next(
+                        (value for _, write_address, value in effective_writes
+                         if write_address == address),
+                        None,
+                    )
+                    if collision is not None and memory.collision is MemoryCollision.NO_CHANGE:
+                        continue
+                    next_memory_read_data[f"{memory.name}.{port.name}"] = (
+                        collision
+                        if collision is not None
+                        and memory.collision is MemoryCollision.WRITE_FIRST
+                        else cells[address]
+                    )
+                for _, address, value in effective_writes:
+                    next_memory_cells[memory.name][address] = value
                 continue
             cells = memory_cells[memory.name]
             read_address = int(values[f"${memory.name}.read_address"])
@@ -4857,6 +5324,10 @@ def _evaluate(
     if isinstance(expression, expr.FifoRef):
         return values[f"{expression.fifo}.{expression.signal.value}"]
     if isinstance(expression, expr.MemoryRef):
+        if expression.port is not None:
+            return values[
+                f"{expression.memory}.{expression.port}.{expression.signal.value}"
+            ]
         return values[f"{expression.memory}.{expression.signal.value}"]
     if isinstance(expression, expr.RomRef):
         return values[f"{expression.rom}.{expression.signal.value}"]
@@ -5370,6 +5841,78 @@ def _async_memory_read_value(
     )
 
 
+def _ported_latency_zero_read_value(
+    memory: object,
+    read_port: object,
+    cells: list[object],
+    values: Mapping[str, object],
+    *,
+    reset_active: bool,
+) -> object:
+    """Evaluate a same-clock named combinational read from the pre-edge view."""
+
+    name = str(getattr(memory, "name"))
+    port_name = str(getattr(read_port, "name"))
+    element_type = getattr(memory, "element_type")
+    if reset_active and getattr(memory, "read_data_reset").value == "clear":
+        return _zero_runtime(element_type)
+    address = int(values[f"${name}.{port_name}.address"])
+    _validate_memory_address(name, len(cells), address, port_name)
+    old_value = cells[address]
+    if reset_active or getattr(memory, "collision") is not MemoryCollision.WRITE_FIRST:
+        return old_value
+
+    writable = tuple(
+        port for port in getattr(memory, "ports")
+        if port.kind in {MemoryPortKind.WRITE, MemoryPortKind.READ_WRITE}
+    )
+    by_name = {port.name: port for port in writable}
+    priority = tuple(
+        by_name[item] for item in getattr(memory, "write_priority")
+    ) if getattr(memory, "write_priority") else writable
+    claimed_addresses: set[int] = set()
+    for port in priority:
+        if not bool(values[f"${name}.{port.name}.write_enable"]):
+            continue
+        write_address = int(values[f"${name}.{port.name}.address"])
+        _validate_memory_address(name, len(cells), write_address, port.name)
+        if write_address in claimed_addresses:
+            continue
+        claimed_addresses.add(write_address)
+        if write_address != address:
+            continue
+        new_value = values[f"${name}.{port.name}.write_data"]
+        if port.write_mask is None:
+            return new_value
+        return _merge_memory_bytes(
+            old_value,
+            new_value,
+            int(values[f"${name}.{port.name}.write_mask"]),
+            element_type,
+        )
+    return old_value
+
+
+def _validate_memory_address(
+    memory_name: str,
+    depth: int,
+    address: int,
+    port_name: str | None = None,
+) -> None:
+    """Reject an out-of-range logical memory access before indexing Python."""
+
+    if 0 <= address < depth:
+        return
+    owner = (
+        f"memory '{memory_name}' port '{port_name}'"
+        if port_name is not None
+        else f"memory '{memory_name}'"
+    )
+    raise SimulationError(
+        f"{owner} address {address} is outside 0..{depth - 1}"
+    )
+
+
 def _merge_memory_bytes(
     old_value: object,
     new_value: object,
@@ -5412,6 +5955,18 @@ def _zero_runtime(type_: HardwareType) -> object:
         return zero_runtime_value(type_)
     except RuntimeValueError as error:
         raise SimulationError(f"no reset value for delayed {type_}") from error
+
+
+def _memory_initial_runtime(memory: object) -> object:
+    initial = getattr(memory, "initial_value", None)
+    if initial is None:
+        return _zero_runtime(getattr(memory, "element_type"))
+    try:
+        return constant_runtime_value(initial)
+    except ConstantExpressionError as error:
+        raise SimulationError(
+            f"memory '{getattr(memory, 'name')}' has a non-constant init value: {error}"
+        ) from error
 
 
 def _collect_delays(

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import replace
-import importlib
 from pathlib import Path
 
 import pytest

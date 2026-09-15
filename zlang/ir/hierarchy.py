@@ -518,23 +518,41 @@ def build_hierarchy_index(
                         f"{expected_semantic_path!r}"
                     )
                 if child.clock_domains:
-                    if len(current.clock_domains) != 1 or len(child.clock_domains) != 1:
-                        raise HierarchyError(
-                            f"child '{instance_name}' physical clock/reset contract "
-                            "requires one exact parent domain"
+                    parent_matches = tuple(
+                        tuple(
+                            domain
+                            for domain in current.clock_domains
+                            if domain == child_domain
                         )
-                    parent_domain = current.clock_domains[0]
-                    child_domain = child.clock_domains[0]
-                    if (
-                        elaborated.clock != parent_domain.clock
-                        or elaborated.reset != parent_domain.reset
-                        or child.clock != child_domain.clock
-                        or child.reset != child_domain.reset
-                        or child_domain != parent_domain
-                    ):
+                        for child_domain in child.clock_domains
+                    )
+                    if any(len(matches) != 1 for matches in parent_matches):
                         raise HierarchyError(
                             f"child '{instance_name}' physical clock/reset contract "
                             "does not exactly match its elaborated parent domain"
+                        )
+                    if len(child.clock_domains) == 1:
+                        child_domain = child.clock_domains[0]
+                        parent_domain = parent_matches[0][0]
+                        if (
+                            elaborated.clock != parent_domain.clock
+                            or elaborated.reset != parent_domain.reset
+                            or child.clock != child_domain.clock
+                            or child.reset != child_domain.reset
+                        ):
+                            raise HierarchyError(
+                                f"child '{instance_name}' physical clock/reset contract "
+                                "does not exactly match its elaborated parent domain"
+                            )
+                    elif (
+                        elaborated.clock is not None
+                        or elaborated.reset is not None
+                        or child.clock is not None
+                        or child.reset is not None
+                    ):
+                        raise HierarchyError(
+                            f"multi-domain child '{instance_name}' cannot use the "
+                            "single-domain compatibility projection"
                         )
                 elif elaborated.clock is not None or elaborated.reset is not None:
                     raise HierarchyError(
@@ -963,7 +981,7 @@ def validate_hierarchical_connections(
                 payload_type = port.type
                 protocol = port.protocol
                 capacity = port.capacity
-                domain = port.domain if top else current.clock
+                domain = port.domain
 
             if endpoint.direction is not expected_direction:
                 raise HierarchyError(

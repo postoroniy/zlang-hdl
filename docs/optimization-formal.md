@@ -19,6 +19,9 @@ opaque quantization boundary. Reassociation of ordinary carry-growing adds,
 movement across rounding/rescale, state, timing, protocols, storage, rules, and
 CDC are excluded. Source `equiv` declarations register only accepted exact
 same-cycle value rules; they are not assertions or temporal equivalence.
+The current internal responsibility split and fail-closed capability/barrier
+registry are documented in
+[E-graph and physical optimization architecture](egraph-optimization-infrastructure.md).
 
 ## One implementation-policy path
 
@@ -242,7 +245,8 @@ to recover their meaning.
 
 Verification declarations have a separate identity and do not change
 production RTL text/hashes, high-level or selected hardware identities,
-optimization, M36/M38 relations, or M39 cache semantics.
+optimization, the current M36 relation, historical M38 records, or M39 cache
+semantics.
 
 The simulation `VerificationMonitor` samples after combinational settle and
 before edge commit. Failed active `assert`/`ensure` goals are source-attributed
@@ -260,7 +264,7 @@ safety success `unknown` with a vacuity diagnostic rather than a pass.
 
 Executable formal routes consume the exact typed physical-domain contract.
 With `power_up unspecified`, M35/source safety and cover, existing bindable
-recursive M35 observations, fixed-latency II=1 M36, compatible M38, and the
+recursive M35 observations, fixed-latency II=1 M36, and the
 corresponding M39 policies support rising/falling edges, synchronous or raw
 asynchronous assertion, both polarities, and the existing two-active-edge
 synchronized release. Asynchronous formal execution remains single-domain;
@@ -306,7 +310,7 @@ The immutable inputs currently use bundle schema v4 and verification-IR
 snapshot v3. M35/source execution uses run-report schema v7, which adds a deterministic
 run identity, strict route provenance, staged BMC/prove evidence, and per-job
 work/tool attribution. Joint compiler execution wraps that raw report and
-candidate M36/M38 evidence in `zlang-compiler-verification-report-v1`. Retained VCD frames are mapped
+candidate M36 evidence in `zlang-compiler-verification-report-v1`. Retained VCD frames are mapped
 through the bundle bindings to semantic signal IDs for source-facing witness
 and counterexample values. Work paths and raw logs remain reproducibility data,
 not semantic or run identity.
@@ -323,8 +327,8 @@ and `skipped`. `bounded_pass` is never proof. Cover has a distinct vocabulary:
 `bounded_unreached` is neither `proven` nor `unreachable`, and an ordinary cover
 miss does not make the command fail.
 
-Exit status `0` means the requested safety level was satisfied. A M35/source
-counterexample or any actually executed M36/M38 counterexample returns `1`.
+Exit status `0` means the requested safety level was satisfied. An M35/source
+counterexample or an executed M36 counterexample returns `1`.
 M35 unknown/skipped/vacuous execution, tool/configuration failure, or a
 requested proof with only bounded evidence returns `2`. A cover miss alone is
 not a failure, and unavailable advisory candidate evidence does not alter M39
@@ -356,8 +360,8 @@ internal, mixed, unresolved, and unsupported shapes remain explicit incomplete
 routes.
 
 The exact source, IR, binding, simulation, vacuity, bundle, and result contract,
-including the shared planning, routing, caching, comparison-window, and
-triangular-evidence rules, is documented in this guide.
+including shared planning, routing, caching, and comparison-window rules, is
+documented in this guide. Older triangular M38 evidence remains historical.
 
 ## Formal layers
 
@@ -376,7 +380,7 @@ triangular-evidence rules, is documented in this guide.
   M39 records into CLI evidence and whole-build manifests.
 
 Variable-latency elastic ready/valid transforms are deliberately outside the
-M36/M38 fixed-latency relation. They never enter that route by treating their
+M36 fixed-latency relation. They never enter that route by treating their
 minimum unstalled latency as wall-clock latency.
 
 `available` executes only the candidate selected by unchanged one-based M28
@@ -384,8 +388,8 @@ rank and records its result without changing static eligibility, including when
 the advisory run finds a counterexample. Required policies walk the same exact
 rank: a failed candidate is excluded and the next is tried; unknown/timeout
 stops selection with attempted-record diagnostics. `required_proven` retains a
-separate BMC stage before its prove attempt. M38/direct-SV evidence remains
-optional and never participates in M39 eligibility.
+separate BMC stage before its prove attempt. Historical M38 evidence never
+participates in M39 eligibility.
 
 Decisive M39 results are route-bound data, not trusted callback booleans. The
 property, harness, assumptions, backend route, semantic-reference artifact,
@@ -393,7 +397,7 @@ implementation artifact, engine, mode, and depth must all match the
 cache identity before a candidate can become eligible. Exact reuse additionally
 matches stage policy, timeout, tool snapshot, dependencies, and compiler schema.
 Failed results require typed counterexample metadata; non-failed results reject
-it. Decisive M36/M38 evidence requires a positive depth. Missing
+it. Decisive M36 evidence requires a positive depth. Missing
 `yosys-smtbmc` is reported like any
 other genuinely unavailable formal tool and never becomes false success.
 An `unknown` result or timeout in a required mode terminates the selection: the
@@ -409,9 +413,9 @@ rank into the selection phase, where `--formal-policy` executes the M39 route.
 Bundle-only publication records one strict compiler-owned linking plan over the
 exact verification goal plan, candidate-site ledger, and retained M39 records.
 Joint `--verify` with a non-off policy enriches that immutable plan with the
-selected-candidate M36/M38 plan before execution; candidate results are emitted
+selected-candidate M36 plan before execution; candidate results are emitted
 afterward in the combined report/evidence. Bundle publication may additionally
-freeze the exact selected-candidate M36/M38 inputs as hash-validated, path-free
+freeze the exact selected-candidate M36 inputs as hash-validated, path-free
 companions; `zlang-verify` then executes those inputs without source compilation
 or M39 reselection. Base bundles contain no candidate replay inputs.
 The common evidence report validates those links without merging result types.
@@ -447,12 +451,12 @@ environment assumptions. Automatic root assumptions receive a separate
 feasibility cover, so dependent safety evidence is vacuity-checked.
 
 Range-proven runtime vector selection is available to the existing same-cycle
-predicate IR. One separate compiler-owned helper can derive a whole-root
-same-cycle M36/M38 triangle for exactly one pure scalar child by following
-typed hierarchy bindings and producing formal-only Yosys namespaces. It does
+predicate IR. One separate compiler-owned helper can derive whole-root
+same-cycle M36 evidence for exactly one pure scalar child by following typed
+hierarchy bindings and producing formal-only Yosys namespaces. It does
 not flatten production RTL and does not authorize state, protocols, storage,
 arrays, nesting, or aggregate boundaries. Protocol-valued and aggregate-
-protocol top boundaries fail closed in the scalar M36/M38 entry points.
+protocol top boundaries fail closed in the scalar M36 entry points.
 
 See [Current language status](current-language-status.md) and
 [Known limitations](known-limitations.md) for the accepted matrix and remaining

@@ -3,7 +3,10 @@
 Use this page as the first context document when writing or reviewing ZLang HDL
 with a coding assistant such as Qwen. It describes current executable source,
 not historical proposals. The compiler's typed IR defines semantics; generated
-Generated SystemVerilog is not a second language specification.
+SystemVerilog is not a second language specification. In a repository checkout,
+Qwen should use the tracked project skill at
+[`../.qwen/skills/zlang-hdl/SKILL.md`](../.qwen/skills/zlang-hdl/SKILL.md); this
+page remains the concise language authority shared by humans and assistants.
 
 For an unfamiliar construct, consult the
 [syntax support matrix](syntax-support-matrix.md). For exact width tables and
@@ -61,6 +64,24 @@ module Accumulator {
 All operands are read from one pre-edge snapshot. An accepted action group
 commits atomically; reset has priority. Multiple conflicting actions require an
 explicit `priority` relation or are rejected.
+
+Multiple domains use the same declarations with one `@clock` owner:
+
+```zlang
+module DualClock {
+    clock a reset ra @a
+    clock b reset rb @b
+    reg left : u32 @a = 0
+    reg right : u32 @b = 0
+    rule TickLeft @a when 1 { left <- truncate<32>(left + 1) }
+    rule TickRight @b when 1 { right <- truncate<32>(right + 2) }
+}
+```
+
+An omitted owner is accepted only when exactly one domain can be inferred.
+Dynamic provenance follows through local expressions; an explicit
+`sync_level`, `pulse_toggle`, `handshake`, or `async_fifo(N)` is the only way
+to cross domains.
 
 ## Types, literals, and exact conversions
 
@@ -134,7 +155,7 @@ qualifier but does not create a runtime namespace.
 - Use explicit `connect`/`source -> sink`, adapters, and CDC crossings. The
   compiler never inserts these silently.
 - Top-level structs and tuples become recursively named leaf ports; vectors stay
-  native unpacked arrays in both backends.
+  native unpacked arrays in the production direct-SystemVerilog ABI.
 
 Read [sequential state/storage](sequential-state-storage.md) and
 [hierarchy/protocols](hierarchy-protocols.md) before composing stateful children.
