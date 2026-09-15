@@ -82,8 +82,8 @@ counted final beat. Any nonzero RRESP or BRESP sets a sticky boolean error for
 that transaction epoch.
 
 The concrete `AW=64,DW=32` reader/writer witness passes semantic and canonical
-round trips, deterministic artifact checks, bounded simulator traces,
-direct-SystemVerilog/Verilator, and real Clash 1.11/Verilator. Validation
+round trips, deterministic artifact checks, bounded simulator traces, and
+direct-SystemVerilog/Verilator. Validation
 includes 1- and 256-beat requests, invalid 0
 and 257 lengths, misalignment, independent channel stalls, stable owned
 payloads, RLAST/RRESP/BRESP failures, reset in active phases, and ignored starts

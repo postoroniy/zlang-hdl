@@ -49,6 +49,7 @@ test = [
 
 [project.scripts]
 zlang = "zlang.cli:main"
+zlang-lsp = "zlang.lsp.server:main"
 zlang-lock = "zlang.project_cli:main"
 zlang-verify = "zlang.verification_cli:main"
 

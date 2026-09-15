@@ -46,7 +46,6 @@ from zlang.build_publication import (
 from zlang.common import stable_digest
 from zlang.parser import ParseError, parse
 from zlang.semantic import SemanticError
-from zlang.costs import CostExtractionError
 from zlang.backend.companions import (
     CompanionArtifact,
     CompanionArtifactError,
@@ -105,7 +104,7 @@ from zlang.candidate_equivalence import (
     prepare_selected_candidate_equivalence,
 )
 from zlang.compiler_verification_report import CompilerVerificationReport
-from zlang.targets import ArchitectureSelectionMode, TargetArchitectureError
+from zlang.targets import ArchitectureSelectionMode
 from zlang.costs import SourcePolicy
 from zlang.diagnostics import Diagnostic, DiagnosticError, diagnostic_from_exception
 from zlang.workspace import WorkspaceError
@@ -125,6 +124,10 @@ from zlang.evidence_report import (
     evidence_for_unexecuted_property,
     evidence_for_validated_timing,
     evidence_from_verification_report,
+)
+from zlang.generated_navigation_bundle import (
+    GeneratedNavigationBundleError,
+    publish_generated_navigation_bundle,
 )
 
 
@@ -156,6 +159,7 @@ _ARTIFACT_SINK_ATTRIBUTES = (
     "constraints_sdc",
     "evidence_report",
     "build_manifest",
+    "generated_navigation_bundle",
 )
 
 _OWNED_OUTPUT_DIRECTORY_ATTRIBUTES = (
@@ -163,6 +167,7 @@ _OWNED_OUTPUT_DIRECTORY_ATTRIBUTES = (
     "simulation_state_bundle",
     "formal_cache",
     "synthesis_cache",
+    "generated_navigation_bundle",
 )
 
 _EXPLICIT_FILE_SINK_ATTRIBUTES = tuple(
@@ -617,6 +622,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--generated-navigation-bundle",
+        type=Path,
+        help=(
+            "publish a relocatable, hash-validated generated RTL/source-map "
+            "bundle (requires --systemverilog)"
+        ),
+    )
+    parser.add_argument(
         "--evidence-report",
         type=Path,
         help="write deterministic typed build evidence",
@@ -798,6 +811,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         or arguments.experimental_systemverilog is not None
     ):
         parser.error("--simulation-state-bundle requires --systemverilog")
+    if arguments.generated_navigation_bundle is not None and not (
+        arguments.systemverilog is not None
+        or arguments.experimental_systemverilog is not None
+    ):
+        parser.error("--generated-navigation-bundle requires --systemverilog")
     if arguments.saturation_report is not None and arguments.saturate_output is None:
         parser.error("--saturation-report requires --saturate-output")
     if arguments.saturate_output is not None and arguments.saturation_report is None:
@@ -856,7 +874,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         source_bytes = arguments.source.read_bytes()
         source_text = source_bytes.decode("utf-8")
         source_digest = hashlib.sha256(source_bytes).hexdigest()
-        explicit_sink = has_explicit_artifact_sink(arguments) or arguments.verify
         if arguments.check and arguments.top is None:
             syntax = parse(source_text)
             checked_module_names = tuple(
@@ -1369,14 +1386,38 @@ def main(argv: Sequence[str] | None = None) -> int:
     if arguments.implementation_manifest is not None:
         arguments.implementation_manifest.parent.mkdir(parents=True, exist_ok=True)
         arguments.implementation_manifest.write_text(direct_artifact.to_json())
-    if arguments.source_map is not None:
+    if (
+        arguments.source_map is not None
+        or arguments.generated_navigation_bundle is not None
+    ):
         # Direct-SV publication constructed this exact artifact before source-map
         # publication; do not render the design twice.
         mapped_artifact = direct_artifact
         assert mapped_artifact is not None
         source_map = build_generated_source_map(result.ir, mapped_artifact)
-        arguments.source_map.parent.mkdir(parents=True, exist_ok=True)
-        arguments.source_map.write_text(source_map.to_json())
+        if arguments.source_map is not None:
+            arguments.source_map.parent.mkdir(parents=True, exist_ok=True)
+            arguments.source_map.write_text(source_map.to_json())
+    if arguments.generated_navigation_bundle is not None:
+        assert direct_artifact is not None
+        assert source_map is not None
+        assert systemverilog_output is not None
+        root_identity = result.ir.root_module_identity
+        try:
+            publish_generated_navigation_bundle(
+                arguments.generated_navigation_bundle,
+                artifact=direct_artifact,
+                source_map=source_map,
+                generated_path=systemverilog_output,
+                root_source_unit=(
+                    root_identity.logical_path
+                    if root_identity is not None
+                    else arguments.source.name
+                ),
+                root_source_digest=source_digest,
+            )
+        except GeneratedNavigationBundleError as error:
+            parser.error(str(error))
     if arguments.contracts_sva is not None:
         arguments.contracts_sva.parent.mkdir(parents=True, exist_ok=True)
         arguments.contracts_sva.write_text(result.contracts_sva)

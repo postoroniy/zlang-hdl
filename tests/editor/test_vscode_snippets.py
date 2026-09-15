@@ -10,7 +10,6 @@ import json
 import re
 from pathlib import Path
 
-import pytest
 
 from zlang.compiler import compile_source
 from zlang.ir.expressions import Pipeline

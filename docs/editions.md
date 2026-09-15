@@ -11,6 +11,7 @@ release snapshot/tag is still subject to release acceptance and publication.
 | Capability | Edition / status |
 |---|---|
 | Baseline language, stdlib, simulator and direct-SystemVerilog | Community; production capabilities retained |
+| First-class single/multi-clock state, exact `pipeline(N)` scheduling and explicit CDC primitives | Community; language/compiler correctness infrastructure retained |
 | Local formal verification, equivalence, caches, bundles and exploration | Community; existing capabilities retained |
 | CSR hardware behavior, RTL, JSON and Markdown | Community; existing capabilities retained |
 | Verilator state-access C++ header and simulation tooling | Community; existing capabilities retained |

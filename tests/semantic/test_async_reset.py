@@ -312,7 +312,7 @@ def test_one_domain_cannot_declare_both_sync_and_async_resets() -> None:
         analyze(parse(source))
 
 
-def test_multi_domain_asynchronous_reset_fails_closed() -> None:
+def test_multi_domain_asynchronous_reset_contracts_are_independent() -> None:
     source = """
 module BadCdcReset {
   clock source
@@ -322,13 +322,19 @@ module BadCdcReset {
 }
 """
 
-    with pytest.raises(
-        SemanticError, match="multi-domain asynchronous reset is not supported"
-    ):
-        analyze(parse(source))
+    module = analyze(parse(source))
+    source_domain, destination_domain = module.clock_domains
+    assert source_domain.clock == "source"
+    assert source_domain.reset == "source_reset"
+    assert source_domain.reset_mode.value == "asynchronous"
+    assert source_domain.reset_release_mode.value == "synchronized"
+    assert source_domain.reset_release_cycles == 2
+    assert destination_domain.clock == "destination"
+    assert destination_domain.reset == "destination_reset"
+    assert destination_domain.reset_mode.value == "synchronous"
 
 
-def test_unused_named_interface_cannot_hide_multidomain_async_reset() -> None:
+def test_unused_named_interface_does_not_impose_its_domains_on_the_selected_module() -> None:
     source = """
 interface BadResetIfc {
   clock source
@@ -340,7 +346,6 @@ interface BadResetIfc {
 module Unrelated { in x : u8 out y : u8 y = x }
 """
 
-    with pytest.raises(
-        SemanticError, match="multi-domain asynchronous reset is not supported"
-    ):
-        analyze(parse(source))
+    module = analyze(parse(source))
+    assert module.name == "Unrelated"
+    assert module.clock_domains == ()

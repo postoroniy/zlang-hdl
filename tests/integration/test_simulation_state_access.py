@@ -373,7 +373,7 @@ module MultiDomainState {
     clock a reset ar @a
     clock b reset br @b
     out value : u8 @a
-    reg count : u8 = 0 @a
+    reg count : u8 @a = 0
     value = count
 }
 """)

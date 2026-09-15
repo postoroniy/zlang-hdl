@@ -783,16 +783,6 @@ def test_measured_required_uses_routed_signed_product_evidence(mode: str) -> Non
 @pytest.mark.skipif(shutil.which("verilator") is None, reason="Verilator unavailable")
 def test_all_signed_fft_physical_variants_are_bit_exact_in_verilator(tmp_path: Path) -> None:
     sr, si, tr, ti = 10000, -7000, 1200, 3000
-    expected = {
-        "real": quantize_rational(
-            sr * tr - si * ti, 1 << 30, fraction=16, width=18, signed=True,
-            rounding="nearest_even", overflow="saturate",
-        ),
-        "imag": quantize_rational(
-            sr * ti + si * tr, 1 << 30, fraction=16, width=18, signed=True,
-            rounding="nearest_even", overflow="saturate",
-        ),
-    }
     expected_model = {
         "real": quantize_rational(
             sr * tr - si * ti, 1 << 30, fraction=16, width=18, signed=True,

@@ -33,11 +33,9 @@ from zlang.ir import (
     build_exact_reduction_plan,
 )
 from zlang.ir.functional import (
-    materialize_exact_reduction,
     materialize_functional_region,
 )
 from zlang.ir.types import UIntType, VecType
-from zlang.simulate import simulate
 from zlang.toolchain import lint_with_verilator
 
 

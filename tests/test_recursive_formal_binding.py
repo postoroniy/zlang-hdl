@@ -1,12 +1,8 @@
-import json
-import shutil
-import tempfile
 import unittest
 from pathlib import Path
 
 from zlang.backend.manifest import BackendArtifact, RECURSIVE_MANIFEST_VERSION
 from zlang.backend.systemverilog import emit_formal_artifact
-from zlang.toolchain import lint_with_verilator
 from zlang.formal import build_recursive_formal_design, emit_recursive_harness, run_recursive_formal
 from zlang.ir.formal import FormalStatus
 from zlang.parser import parse

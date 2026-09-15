@@ -12,7 +12,7 @@ from hashlib import sha256
 from typing import Any
 
 from zlang.ir import expressions as expr
-from zlang.ir.types import BitsType, SIntType, UIntType
+from zlang.ir.types import SIntType, UIntType
 from zlang.timing import timing_info
 
 

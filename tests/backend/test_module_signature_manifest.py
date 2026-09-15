@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 
 import pytest
@@ -8,7 +7,6 @@ import pytest
 from zlang.backend.manifest import (
     BackendArtifact,
     MANIFEST_VERSION,
-    MODULE_SIGNATURE_MANIFEST_VERSION,
 )
 from zlang.backend.systemverilog import emit_artifact as emit_systemverilog_artifact
 from zlang.compiler import compile_source

@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import dataclass, replace
+from bisect import bisect_right
 from functools import cache
 from fractions import Fraction
 import re
@@ -104,6 +105,8 @@ from zlang.ast.nodes import (
     MuxExpr,
     MemoryCollision,
     MemoryDecl,
+    MemoryPortDecl,
+    MemoryPortKind,
     MemoryResetPolicy,
     MapExpr,
     NameExpr,
@@ -182,7 +185,61 @@ def _cost_metric(value: str) -> CostMetric:
     return CostMetric.FMAX_EST if value == "fmax" else CostMetric(value)
 
 
+@dataclass(frozen=True)
+class _ParsedHierarchicalEndpoint:
+    """One endpoint spelling plus exact name-token spans for editor tooling."""
+
+    text: str
+    name_origins: tuple[SourceSpan | None, ...]
+
+
+@dataclass(frozen=True)
+class _ParsedRuleTarget:
+    """One scalar rule target plus its exact lexer-owned name span."""
+
+    name: str
+    name_origin: SourceSpan | None
+
+
 class _AstBuilder(Transformer):
+    _TYPE_NAME_COMPONENT = re.compile(
+        r"[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)*"
+    )
+
+    def __init__(self, source: str) -> None:
+        super().__init__()
+        self._source = source
+        self._line_starts = [0]
+        self._line_starts.extend(
+            match.end() for match in re.finditer(r"\n", source)
+        )
+
+    def _source_offset(self, line: int, column: int) -> int:
+        return self._line_starts[line - 1] + column - 1
+
+    def _source_position(self, offset: int) -> tuple[int, int]:
+        line_index = bisect_right(self._line_starts, offset) - 1
+        return line_index + 1, offset - self._line_starts[line_index] + 1
+
+    def _type_name_components(
+        self, origin: SourceSpan
+    ) -> tuple[tuple[str, SourceSpan], ...]:
+        """Recover exact lexer-level names inside one parsed generic type."""
+
+        start = self._source_offset(origin.start_line, origin.start_column)
+        end = self._source_offset(origin.end_line, origin.end_column)
+        result: list[tuple[str, SourceSpan]] = []
+        for match in self._TYPE_NAME_COMPONENT.finditer(self._source[start:end]):
+            absolute_start = start + match.start()
+            absolute_end = start + match.end()
+            start_line, start_column = self._source_position(absolute_start)
+            end_line, end_column = self._source_position(absolute_end)
+            result.append((
+                match.group(0),
+                SourceSpan(start_line, start_column, end_line, end_column),
+            ))
+        return tuple(result)
+
     def compilation_unit(self, items: list[object]) -> Module:
         modules = tuple(item for item in items if isinstance(item, Module))
         module = (
@@ -324,11 +381,16 @@ class _AstBuilder(Transformer):
             tuple((item[1], item[2]) for item in items[1:] if _tagged(item, "resource_physical_site")),
             tuple((item[1], item[2], item[3]) for item in items[1:] if _tagged(item, "resource_physical_edge")),
             self._span(meta),
+            self._token_span(items[0]),
         )
 
     @v_args(meta=True)
     def target_family_decl(self, meta: object, items: list[object]) -> TargetFamilyDecl:
-        return TargetFamilyDecl(str(items[0]), tuple(str(item) for item in items[1:]), self._span(meta))
+        return TargetFamilyDecl(
+            str(items[0]), tuple(str(item) for item in items[1:]),
+            self._span(meta), self._token_span(items[0]),
+            tuple(self._token_span(item) for item in items[1:]),
+        )
 
     def target_part(self, items: list[object]) -> tuple[str, str]:
         return ("target_part", str(items[0]))
@@ -355,7 +417,10 @@ class _AstBuilder(Transformer):
         return ("architecture_operation", str(items[0]))
 
     def architecture_resource(self, items: list[object]) -> tuple[str, str, int]:
-        return ("architecture_resource", str(items[0]), self._parse_number(items[1]))
+        return (
+            "architecture_resource", str(items[0]), self._parse_number(items[1]),
+            self._token_span(items[0]),
+        )
 
     def architecture_latency(self, items: list[object]) -> tuple[str, int]:
         return ("architecture_latency", self._parse_number(items[0]))
@@ -375,7 +440,10 @@ class _AstBuilder(Transformer):
     @v_args(meta=True)
     def architecture_template_decl(self, meta: object, items: list[object]) -> ArchitectureTemplateDecl:
         operations = tuple(item[1] for item in items[1:] if _tagged(item, "architecture_operation"))
-        resources = tuple((item[1], item[2]) for item in items[1:] if _tagged(item, "architecture_resource"))
+        resources = tuple(
+            (item[1], item[2], item[3])
+            for item in items[1:] if _tagged(item, "architecture_resource")
+        )
         latencies = tuple(item[1] for item in items[1:] if _tagged(item, "architecture_latency"))
         intervals = tuple(item[1] for item in items[1:] if _tagged(item, "architecture_ii"))
         if not (len(operations) == len(resources) == len(latencies) == len(intervals) == 1):
@@ -389,6 +457,8 @@ class _AstBuilder(Transformer):
             next((item[1] for item in items[1:] if _tagged(item, "architecture_pipeline")), None),
             next((item[1] for item in items[1:] if _tagged(item, "architecture_dedicated")), None),
             self._span(meta),
+            self._token_span(items[0]),
+            resources[0][2],
         )
 
     def protocol_role(self, items: list[object]) -> tuple[str, str]:
@@ -476,7 +546,8 @@ class _AstBuilder(Transformer):
     def specialization_arguments(self, items: list[object]) -> tuple[SpecializationArgument, ...]:
         return tuple(items)
 
-    def instance_decl(self, items: list[object]) -> InstanceDecl:
+    @v_args(meta=True)
+    def instance_decl(self, meta: object, items: list[object]) -> InstanceDecl:
         name = str(items[0])
         array_length = next(
             (item[1] for item in items[1:] if _tagged(item, "array_length")),
@@ -494,7 +565,18 @@ class _AstBuilder(Transformer):
             (item for item in items[1:] if isinstance(item, tuple) and all(isinstance(binding, Assignment) for binding in item)),
             (),
         )
-        return InstanceDecl(name, module, arguments, array_length, bindings)
+        return InstanceDecl(
+            name,
+            module,
+            arguments,
+            array_length,
+            bindings,
+            self._span(meta),
+            self._token_span(items[0]),
+            self._token_span(next(
+                item for item in items[1:] if isinstance(item, str)
+            )),
+        )
 
     def csr_declaration_name(self, _items: list[object]) -> str:
         # ``csr`` is a contextual declaration keyword, but remains a legal
@@ -633,8 +715,14 @@ class _AstBuilder(Transformer):
             actions,
         )
 
-    def generic_type_body(self, items: list[object]) -> tuple[object, ...]:
-        return ("generic_type", items[0], items[1])
+    @v_args(meta=True)
+    def generic_type_body(self, meta: object, items: list[object]) -> tuple[object, ...]:
+        type_origin = (
+            self._name_span_from_meta(meta, items[0].text)
+            if isinstance(items[0], TypeName)
+            else self._span(meta)
+        )
+        return ("generic_type", items[0], items[1], type_origin or self._span(meta))
 
     def instance_array_length(self, items: list[object]) -> tuple[str, object]:
         return ("array_length", items[0])
@@ -667,6 +755,8 @@ class _AstBuilder(Transformer):
             initializer=initializer,
             specializations=specializations,
             origin=self._span(meta),
+            name_origin=self._token_span(items[0]),
+            type_origin=body[3],
         )
 
     def hierarchical_target(self, items: list[object]) -> str:
@@ -750,7 +840,12 @@ class _AstBuilder(Transformer):
 
     @v_args(meta=True)
     def struct_construct_expr(self, meta: object, items: list[object]) -> StructConstructExpr:
-        return StructConstructExpr(str(items[0]), tuple(items[1:]), origin=self._span(meta))
+        return StructConstructExpr(
+            str(items[0]),
+            tuple(items[1:]),
+            origin=self._span(meta),
+            name_origin=self._token_span(items[0]),
+        )
 
     @v_args(meta=True)
     def qualified_struct_construct_expr(
@@ -761,6 +856,7 @@ class _AstBuilder(Transformer):
             qualified_name,
             tuple(items[1:]),
             origin=self._span(meta),
+            name_origin=self._token_span(items[0]),
         )
 
     @v_args(meta=True)
@@ -865,15 +961,23 @@ class _AstBuilder(Transformer):
     ) -> NameExpr:
         return NameExpr(str(items[0]), origin=self._span(meta))
 
-    def type_alias(self, items: list[object]) -> TypeAlias:
-        return TypeAlias(str(items[0]), items[1])
+    @v_args(meta=True)
+    def type_alias(self, meta: object, items: list[object]) -> TypeAlias:
+        return TypeAlias(
+            str(items[0]),
+            items[1],
+            origin=self._span(meta),
+            name_origin=self._token_span(items[0]),
+        )
 
-    def enum_member(self, items: list[object]) -> tuple[str, int | None]:
+    @v_args(meta=True)
+    def enum_member(self, meta: object, items: list[object]) -> tuple[str, int | None, SourceSpan | None]:
         return (
             str(items[0]),
             self._parse_number(items[1])
             if len(items) > 1 and items[1] is not None
             else None,
+            self._token_span(items[0]),
         )
 
     @v_args(meta=True)
@@ -885,7 +989,7 @@ class _AstBuilder(Transformer):
         members = tuple(
             item for item in items[1:]
             if isinstance(item, tuple)
-            and len(item) == 2
+            and len(item) >= 2
             and isinstance(item[0], str)
             and (item[1] is None or isinstance(item[1], int))
         )
@@ -894,6 +998,8 @@ class _AstBuilder(Transformer):
             origin=self._span(meta),
             backing_type=backing_type,
             encodings=tuple(item[1] for item in members),
+            name_origin=self._token_span(items[0]),
+            member_origins=tuple(item[2] for item in members),
         )
 
     def tagged_union_field(self, items: list[object]) -> TaggedUnionFieldDecl:
@@ -918,13 +1024,18 @@ class _AstBuilder(Transformer):
     def struct_field(self, items: list[object]) -> StructFieldDecl:
         return StructFieldDecl(str(items[0]), items[1])
 
-    def struct_decl(self, items: list[object]) -> StructDecl:
+    @v_args(meta=True)
+    def struct_decl(self, meta: object, items: list[object]) -> StructDecl:
         parameters = next(
             (item for item in items[1:] if isinstance(item, tuple) and all(isinstance(p, ModuleParameter) for p in item)),
             (),
         )
         fields = tuple(item for item in items[1:] if isinstance(item, StructFieldDecl))
-        return StructDecl(str(items[0]), fields, parameters)
+        return StructDecl(
+            str(items[0]), fields, parameters,
+            origin=self._span(meta),
+            name_origin=self._token_span(items[0]),
+        )
 
     def protocol_endpoint_ref(self, items: list[object]) -> tuple[str, tuple[SpecializationArgument, ...], str, str | None]:
         arguments = next(
@@ -940,8 +1051,13 @@ class _AstBuilder(Transformer):
         protocol, arguments, role, domain = items[1]
         return AggregateInterfaceDecl(str(items[0]), protocol, arguments, role, domain)
 
-    def parameter(self, items: list[object]) -> Parameter:
-        return Parameter(str(items[0]), items[1])
+    @v_args(meta=True)
+    def parameter(self, meta: object, items: list[object]) -> Parameter:
+        return Parameter(
+            str(items[0]),
+            items[1],
+            name_origin=self._token_span(items[0]),
+        )
 
     def parameter_list(self, items: list[object]) -> tuple[Parameter, ...]:
         return tuple(items)
@@ -957,7 +1073,13 @@ class _AstBuilder(Transformer):
 
     @v_args(meta=True)
     def callable_binding(self, meta: object, items: list[object]) -> Assignment:
-        return Assignment(str(items[0]), items[1], origin=self._span(meta))
+        target = str(items[0])
+        return Assignment(
+            target,
+            items[1],
+            origin=self._span(meta),
+            name_origin=self._token_span(items[0]),
+        )
 
     def callable_body(
         self, items: list[object]
@@ -1005,6 +1127,7 @@ class _AstBuilder(Transformer):
             generic_parameters,
             bindings,
             origin=self._span(meta),
+            name_origin=self._token_span(items[0]),
         )
 
     def pattern_function_call(self, items: list[object]) -> CallExpr:
@@ -1088,7 +1211,8 @@ class _AstBuilder(Transformer):
             origin=self._span(meta),
         )
 
-    def module(self, items: list[object]) -> Module:
+    @v_args(meta=True)
+    def module(self, meta: object, items: list[object]) -> Module:
         name = str(items[0])
         body: list[object] = []
         for item in items[1:]:
@@ -1189,6 +1313,7 @@ class _AstBuilder(Transformer):
                 and item is not None
             ),
             parameter_constraint=parameter_constraint,
+            name_origin=self._token_span(items[0]),
         )
 
     def module_where(self, items: list[object]) -> tuple[str, object]:
@@ -1207,6 +1332,7 @@ class _AstBuilder(Transformer):
             conforms_to=interface_ref,
             external_model=str(items[2]),
             external_origin=self._span(meta),
+            name_origin=self._token_span(items[0]),
         )
 
     def module_timing_latency(self, items: list[object]) -> tuple[str, int]:
@@ -1333,15 +1459,38 @@ class _AstBuilder(Transformer):
         )
         return ("reset", name, domain, declaration)
 
-    def register_decl(self, items: list[object]) -> RegisterDecl:
-        domain = str(items[3]) if len(items) == 4 and items[3] is not None else None
-        return RegisterDecl(str(items[0]), items[1], items[2], domain)
+    @v_args(meta=True)
+    def register_decl(self, meta: object, items: list[object]) -> RegisterDecl:
+        domain = str(items[2]) if len(items) == 4 and items[2] is not None else None
+        return RegisterDecl(
+            str(items[0]),
+            items[1],
+            items[-1],
+            domain,
+            self._span(meta),
+            self._token_span(items[0]),
+        )
 
-    def next_assignment(self, items: list[object]) -> NextAssignment:
-        return NextAssignment(str(items[0]), items[1])
+    @v_args(meta=True)
+    def next_assignment(self, meta: object, items: list[object]) -> NextAssignment:
+        return NextAssignment(
+            str(items[0]),
+            items[1],
+            self._token_span(items[0]) or self._name_span_from_meta(
+                meta, str(items[0])
+            ),
+        )
 
-    def scalar_rule_target(self, items: list[object]) -> str:
-        return str(items[0])
+    @v_args(meta=True)
+    def scalar_rule_target(
+        self, meta: object, items: list[object]
+    ) -> _ParsedRuleTarget:
+        return _ParsedRuleTarget(
+            str(items[0]),
+            self._token_span(items[0]) or self._name_span_from_meta(
+                meta, str(items[0])
+            ),
+        )
 
     @v_args(meta=True)
     def indexed_rule_target(
@@ -1353,10 +1502,14 @@ class _AstBuilder(Transformer):
             str(items[0]),
             items[1],
             self._span(meta),
+            self._token_span(items[0]),
         )
 
     def rule_assignment(self, items: list[object]) -> NextAssignment:
-        return NextAssignment(items[0], items[1])
+        target = items[0]
+        if isinstance(target, _ParsedRuleTarget):
+            return NextAssignment(target.name, items[1], target.name_origin)
+        return NextAssignment(target, items[1])
 
     @staticmethod
     def _action_block(value: object) -> tuple[object, ...]:
@@ -1417,8 +1570,10 @@ class _AstBuilder(Transformer):
     @v_args(meta=True)
     def rule_decl(self, meta: object, items: list[object]) -> RuleDecl:
         origin = self._span(meta)
+        domain = str(items[1]) if items[1] is not None else None
+        offset = 1
         guard, actions = self._root_action_chain(
-            items[1], items[2], items[3:], origin
+            items[1 + offset], items[2 + offset], items[3 + offset:], origin
         )
         if not actions:
             raise ParseError("atomic rule cannot be empty")
@@ -1427,6 +1582,7 @@ class _AstBuilder(Transformer):
             guard,
             actions,
             origin,
+            domain,
         )
 
     def concise_rule_decl(self, items: list[object]) -> RuleDecl:
@@ -1537,27 +1693,36 @@ class _AstBuilder(Transformer):
 
     @v_args(meta=True)
     def typed_fsm_decl(self, meta: object, items: list[object]) -> FsmDecl:
+        domain = str(items[2]) if items[2] is not None else None
+        initial = str(items[3])
         return FsmDecl(
             str(items[0]),
             items[1],
-            str(items[2]),
-            tuple(item for item in items[3:] if isinstance(item, FsmStateDecl)),
+            initial,
+            tuple(item for item in items[4:] if isinstance(item, FsmStateDecl)),
             self._span(meta),
+            domain,
         )
 
     @v_args(meta=True)
     def inferred_fsm_decl(self, meta: object, items: list[object]) -> FsmDecl:
+        domain = str(items[1]) if items[1] is not None else None
+        enum_name, initial = str(items[2]), str(items[3])
         return FsmDecl(
             str(items[0]),
-            TypeName(str(items[1])),
-            str(items[2]),
-            tuple(item for item in items[3:] if isinstance(item, FsmStateDecl)),
+            TypeName(enum_name),
+            initial,
+            tuple(item for item in items[4:] if isinstance(item, FsmStateDecl)),
             self._span(meta),
+            domain,
         )
 
     @v_args(meta=True)
     def fifo_decl(self, meta: object, items: list[object]) -> FifoDecl:
-        return FifoDecl(str(items[0]), items[1], items[2], self._span(meta))
+        domain = str(items[3]) if items[3] is not None else None
+        return FifoDecl(
+            str(items[0]), items[1], items[2], self._span(meta), domain
+        )
 
     @v_args(meta=True)
     def memory_decl(self, meta: object, items: list[object]) -> MemoryDecl:
@@ -1565,12 +1730,41 @@ class _AstBuilder(Transformer):
             (item for item in items if _tagged(item, "memory_reset_policy")),
             None,
         )
+        kind = next(item for item in items if _tagged(item, "memory_kind"))
+        ports = tuple(item for item in items if isinstance(item, MemoryPortDecl))
+        priority = next(
+            (item for item in items if _tagged(item, "memory_write_priority")),
+            None,
+        )
+        initializer = next(
+            (item for item in items if _tagged(item, "memory_initializer")),
+            None,
+        )
+        structural = [
+            item for item in items[4:]
+            if item is not None
+            and not isinstance(item, MemoryPortDecl)
+            and not _tagged(item, "memory_reset_policy")
+            and not _tagged(item, "memory_write_priority")
+            and not _tagged(item, "memory_initializer")
+        ]
+        domain = str(structural[0]) if len(structural) == 3 else None
+        latency, collision = structural[-2:]
+        collision_name = str(collision)
+        collision_aliases = {
+            "old": MemoryCollision.READ_FIRST,
+            "new": MemoryCollision.WRITE_FIRST,
+            "no_change": MemoryCollision.NO_CHANGE,
+        }
+        collision_value = collision_aliases.get(collision_name)
+        if collision_value is None:
+            collision_value = MemoryCollision(collision_name)
         return MemoryDecl(
             str(items[0]),
-            items[1],
             items[2],
-            self._parse_number(items[3]),
-            MemoryCollision(str(items[4])),
+            items[3],
+            self._parse_number(latency),
+            collision_value,
             self._span(meta),
             contents_reset=(
                 reset_policy[1]
@@ -1580,7 +1774,40 @@ class _AstBuilder(Transformer):
                 reset_policy[2]
                 if reset_policy is not None else MemoryResetPolicy.CLEAR
             ),
+            domain=domain,
+            ports=ports,
+            async_memory=kind[1] == "async",
+            write_priority=priority[1] if priority is not None else (),
+            initializer=initializer[1] if initializer is not None else None,
         )
+
+    def synchronous_memory_kind(self, _items: list[object]) -> tuple[str, str]:
+        return ("memory_kind", "synchronous")
+
+    def asynchronous_memory_kind(self, _items: list[object]) -> tuple[str, str]:
+        return ("memory_kind", "async")
+
+    @v_args(meta=True)
+    def memory_port_decl(
+        self, meta: object, items: list[object]
+    ) -> MemoryPortDecl:
+        spelling = str(items[0])
+        kind = {
+            "read_port": MemoryPortKind.READ,
+            "write_port": MemoryPortKind.WRITE,
+            "read_write_port": MemoryPortKind.READ_WRITE,
+        }[spelling]
+        return MemoryPortDecl(
+            str(items[1]), kind,
+            str(items[2]) if len(items) > 2 and items[2] is not None else None,
+            self._span(meta),
+        )
+
+    def memory_write_priority(self, items: list[object]) -> tuple[object, ...]:
+        return ("memory_write_priority", tuple(str(item) for item in items))
+
+    def memory_initializer(self, items: list[object]) -> tuple[object, ...]:
+        return ("memory_initializer", items[0])
 
     def memory_reset_policy(self, items: list[object]) -> tuple[object, ...]:
         return (
@@ -1591,17 +1818,29 @@ class _AstBuilder(Transformer):
 
     @v_args(meta=True)
     def rom_decl(self, meta: object, items: list[object]) -> RomDecl:
+        # Lark preserves the absent optional ``@ clock`` as ``None``.  Filter
+        # it before deciding whether the declaration carries a domain; turning
+        # it into the string ``"None"`` would make every legacy ROM appear to
+        # reference an unknown physical clock.
+        body = [item for item in items[3:] if item is not None]
+        domain = str(body[0]) if len(body) == 3 else None
+        latency, initializer = body[-2:]
         return RomDecl(
             str(items[0]),
             items[1],
             items[2],
-            int(str(items[3])),
-            items[4],
+            int(str(latency)),
+            initializer,
             self._span(meta),
+            domain,
         )
 
-    def port_name_list(self, items: list[object]) -> tuple[str, tuple[str, ...]]:
-        return ("port_names", tuple(str(item) for item in items))
+    def port_name_list(self, items: list[object]) -> tuple[object, ...]:
+        return (
+            "port_names",
+            tuple(str(item) for item in items),
+            tuple(self._token_span(item) for item in items),
+        )
 
     @v_args(meta=True)
     def port_decl(self, meta: object, items: list[object]) -> PortDecl:
@@ -1620,7 +1859,9 @@ class _AstBuilder(Transformer):
         return PortDecl(
             Direction(str(items[0])), names[0], type_name, domain,
             () if len(names) == 1 else names,
-            initializer, self._span(meta),
+            initializer,
+            self._span(meta),
+            tuple(names_item[2]) if len(names_item) > 2 else (),
         )
 
     def wire_interface_type(self, items: list[object]) -> InterfaceTypeName:
@@ -1677,7 +1918,7 @@ class _AstBuilder(Transformer):
         return Crossing(CrossingKind(str(items[0])))
 
     def async_fifo_crossing(self, items: list[object]) -> Crossing:
-        return Crossing(CrossingKind.ASYNC_FIFO, int(str(items[0])))
+        return Crossing(CrossingKind.ASYNC_FIFO, items[0])
 
     def connection_crossing(self, items: list[object]) -> tuple[str, object]:
         return ("crossing", items[0])
@@ -1687,15 +1928,21 @@ class _AstBuilder(Transformer):
 
     def connect_decl(self, items: list[object]) -> ConnectionDecl:
         options = dict(item for item in items[2:] if item is not None)
+        source = items[0]
+        destination = items[1]
+        assert isinstance(source, _ParsedHierarchicalEndpoint)
+        assert isinstance(destination, _ParsedHierarchicalEndpoint)
         return ConnectionDecl(
-            str(items[0]),
-            str(items[1]),
+            source.text,
+            destination.text,
             int(options.get("buffer", 0)),
             int(options.get("request_buffer", 0)),
             int(options.get("response_buffer", 0)),
             options.get("adapter"),
             options.get("crossing"),
             options.get("transform"),
+            source.name_origins,
+            destination.name_origins,
         )
 
     bare_connect_decl = connect_decl
@@ -1704,12 +1951,21 @@ class _AstBuilder(Transformer):
     def connection_chain_decl(
         self, meta: object, items: list[object]
     ) -> ConnectionChainDecl:
+        endpoints = tuple(items)
+        assert all(
+            isinstance(item, _ParsedHierarchicalEndpoint) for item in endpoints
+        )
         return ConnectionChainDecl(
-            tuple(str(item) for item in items), origin=self._span(meta)
+            tuple(item.text for item in endpoints),
+            origin=self._span(meta),
+            endpoint_name_origins=tuple(item.name_origins for item in endpoints),
         )
 
-    def hierarchical_endpoint(self, items: list[object]) -> str:
+    def hierarchical_endpoint(
+        self, items: list[object]
+    ) -> _ParsedHierarchicalEndpoint:
         result = str(items[0])
+        name_origins = [self._token_span(items[0])]
         for item in items[1:]:
             if item is None:
                 continue
@@ -1717,7 +1973,8 @@ class _AstBuilder(Transformer):
                 result += f"[{item[1]}]"
             else:
                 result += "." + str(item)
-        return result
+                name_origins.append(self._token_span(item))
+        return _ParsedHierarchicalEndpoint(result, tuple(name_origins))
 
     def endpoint_index(self, items: list[object]) -> tuple[str, object]:
         token = str(items[0])
@@ -1866,40 +2123,70 @@ class _AstBuilder(Transformer):
 
     @v_args(meta=True)
     def csr_decl(self, meta: object, items: list[object]) -> CsrBlockDecl:
+        trailing = items[2:]
+        domain = next(
+            (
+                str(item)
+                for item in trailing
+                if item is not None and not isinstance(item, CsrRegisterDecl)
+            ),
+            None,
+        )
         return CsrBlockDecl(
             str(items[0]),
             self._parse_number(items[1]),
             tuple(
-                item for item in items[2:] if isinstance(item, CsrRegisterDecl)
+                item for item in trailing if isinstance(item, CsrRegisterDecl)
             ),
+            domain,
             self._span(meta),
         )
 
-    def builtin_type(self, items: list[object]) -> TypeName:
-        return TypeName(str(items[0]))
+    @v_args(meta=True)
+    def builtin_type(self, meta: object, items: list[object]) -> TypeName:
+        return TypeName(str(items[0]), origin=self._span(meta))
 
-    def generic_fixed_type_value(self, items: list[object]) -> TypeName:
-        return TypeName(str(items[0]))
+    @v_args(meta=True)
+    def generic_fixed_type_value(self, meta: object, items: list[object]) -> TypeName:
+        return TypeName(str(items[0]), origin=self._span(meta))
 
-    def generic_type_value(self, items: list[object]) -> TypeName:
-        return TypeName(str(items[0]))
+    @v_args(meta=True)
+    def generic_type_value(self, meta: object, items: list[object]) -> TypeName:
+        origin = self._span(meta)
+        return TypeName(
+            str(items[0]),
+            origin=origin,
+            named_origins=self._type_name_components(origin),
+        )
 
-    def alias_type(self, items: list[object]) -> TypeName:
-        return TypeName(str(items[0]))
+    @v_args(meta=True)
+    def alias_type(self, meta: object, items: list[object]) -> TypeName:
+        return TypeName(str(items[0]), origin=self._span(meta))
 
-    def generic_type_ref(self, items: list[object]) -> TypeName:
+    @v_args(meta=True)
+    def generic_type_ref(self, meta: object, items: list[object]) -> TypeName:
+        origin = self._span(meta)
         if len(items) == 1:
             text = str(items[0])
             match = re.fullmatch(r"(uint|sint|bits)<([0-9]+)>", text)
             if match is not None and int(match.group(2)) < 1:
                 raise ParseError("generic hardware type width must be positive")
-            return TypeName(text)
+            return TypeName(
+                text,
+                origin=origin,
+                named_origins=self._type_name_components(origin),
+            )
         if str(items[0]) in {"uint", "sint", "bits"} and str(items[1]).isdigit() and int(str(items[1])) < 1:
             raise ParseError("generic hardware type width must be positive")
-        return TypeName(f"{items[0]}<{','.join(str(item) for item in items[1:])}>")
+        return TypeName(
+            f"{items[0]}<{','.join(str(item) for item in items[1:])}>",
+            origin=origin,
+            named_origins=self._type_name_components(origin),
+        )
 
-    def specialization_type_ref(self, items: list[object]) -> TypeName:
-        return TypeName(str(items[0]))
+    @v_args(meta=True)
+    def specialization_type_ref(self, meta: object, items: list[object]) -> TypeName:
+        return TypeName(str(items[0]), origin=self._span(meta))
 
     def type_ref(self, items: list[object]) -> str:
         return f"{items[0]}<{','.join(str(item) for item in items[1:])}>"
@@ -1948,21 +2235,29 @@ class _AstBuilder(Transformer):
     def storage_depth_expression(self, items: list[object]) -> str:
         return str(items[0])
 
-    def vector_type(self, items: list[object]) -> VectorTypeName:
+    @v_args(meta=True)
+    def vector_type(self, meta: object, items: list[object]) -> VectorTypeName:
         length = str(items[0])
-        return VectorTypeName(int(length) if length.isdigit() else length, items[1])
+        return VectorTypeName(
+            int(length) if length.isdigit() else length,
+            items[1],
+            origin=self._span(meta),
+        )
 
-    def string_type(self, items: list[object]) -> VectorTypeName:
+    @v_args(meta=True)
+    def string_type(self, meta: object, items: list[object]) -> VectorTypeName:
         length = str(items[0])
         return VectorTypeName(
             int(length) if length.isdigit() else length,
             TypeName("char"),
+            origin=self._span(meta),
         )
 
-    def tuple_type(self, items: list[object]) -> TupleTypeName:
+    @v_args(meta=True)
+    def tuple_type(self, meta: object, items: list[object]) -> TupleTypeName:
         if not 2 <= len(items) <= 8:
             raise ParseError("a tuple type requires between 2 and 8 components")
-        return TupleTypeName(tuple(items))
+        return TupleTypeName(tuple(items), origin=self._span(meta))
 
     def tuple_type_passthrough(self, items: list[object]) -> TupleTypeName:
         return items[0]
@@ -1975,11 +2270,24 @@ class _AstBuilder(Transformer):
             raise ParseError("a tuple literal requires between 2 and 8 elements")
         return TupleLiteralExpr(tuple(items), origin=self._span(meta))
 
-    def assignment(self, items: list[object]) -> Assignment:
-        return Assignment(str(items[0]), items[1])
+    @v_args(meta=True)
+    def assignment(self, meta: object, items: list[object]) -> Assignment:
+        target = str(items[0])
+        return Assignment(
+            target,
+            items[1],
+            name_origin=self._name_span_from_meta(meta, target.split(".", 1)[0]),
+        )
 
-    def typed_assignment(self, items: list[object]) -> Assignment:
-        return Assignment(str(items[0]), items[2], items[1])
+    @v_args(meta=True)
+    def typed_assignment(self, meta: object, items: list[object]) -> Assignment:
+        target = str(items[0])
+        return Assignment(
+            target,
+            items[2],
+            items[1],
+            name_origin=self._name_span_from_meta(meta, target.split(".", 1)[0]),
+        )
 
     def assignment_target(self, items: list[object]) -> str:
         return ".".join(str(item) for item in items)
@@ -2069,7 +2377,11 @@ class _AstBuilder(Transformer):
             (),
         )
         return CallExpr(
-            str(items[0]), arguments, specializations, origin=self._span(meta)
+            str(items[0]),
+            arguments,
+            specializations,
+            origin=self._span(meta),
+            callee_origin=self._token_span(items[0]),
         )
 
     @v_args(meta=True)
@@ -2092,7 +2404,17 @@ class _AstBuilder(Transformer):
 
     @v_args(meta=True)
     def field_expr(self, meta: object, items: list[object]) -> FieldExpr:
-        return FieldExpr(items[0], str(items[1]), origin=self._span(meta))
+        member = str(items[1])
+        member_origin = self._token_span(items[1]) or self._name_span_from_end_meta(
+            meta, member
+        )
+        expression = items[0]
+        return FieldExpr(
+            expression,
+            member,
+            origin=self._span(meta),
+            member_origin=member_origin,
+        )
 
     @v_args(meta=True)
     def index_expr(self, meta: object, items: list[object]) -> IndexExpr:
@@ -2376,6 +2698,10 @@ class _AstBuilder(Transformer):
     @v_args(meta=True)
     def pipeline_expr(self, meta: object, items: list[object]) -> PipelineExpr:
         depth = str(items[0])
+        domain = next(
+            (str(item) for item in items[1:-1] if isinstance(item, str)),
+            None,
+        )
         return PipelineExpr(
             int(depth),
             items[-1],
@@ -2384,6 +2710,7 @@ class _AstBuilder(Transformer):
                 if isinstance(item, PipelineConstraint)
             ),
             origin=self._span(meta),
+            domain=domain,
         )
 
     @v_args(meta=True)
@@ -2563,21 +2890,38 @@ class _AstBuilder(Transformer):
     def numeric_switch_key(self, items: list[object]) -> int:
         return self._parse_number(items[0])
 
-    def enum_switch_key(self, items: list[object]) -> EnumMemberRef:
+    @v_args(meta=True)
+    def enum_switch_key(self, meta: object, items: list[object]) -> EnumMemberRef:
         owner, member = str(items[0]).split(".", 1)
-        return EnumMemberRef(owner, member)
+        return EnumMemberRef(owner, member, self._token_span(items[0]) or self._span(meta))
 
-    def qualified_nominal_ref(self, items: list[object]) -> tuple[str, str]:
+    @v_args(meta=True)
+    def qualified_nominal_ref(
+        self, meta: object, items: list[object]
+    ) -> tuple[str, str, SourceSpan | None]:
         owner, member = str(items[0]).split(".", 1)
-        return owner, member
+        return owner, member, self._token_span(items[0]) or self._span(meta)
 
     @v_args(meta=True)
     def qualified_nominal_expr(
         self, meta: object, items: list[object]
     ) -> FieldExpr:
-        owner, member = items[0]
-        origin = self._span(meta)
-        return FieldExpr(NameExpr(owner, origin=origin), member, origin=origin)
+        owner, member, token_span = items[0]
+        origin = token_span or self._span(meta)
+        member_origin = None
+        if origin is not None and origin.start_line == origin.end_line:
+            member_origin = SourceSpan(
+                origin.end_line,
+                origin.end_column - len(member),
+                origin.end_line,
+                origin.end_column,
+            )
+        return FieldExpr(
+            NameExpr(owner, origin=origin),
+            member,
+            origin=origin,
+            member_origin=member_origin,
+        )
 
     def switch_arm(self, items: list[object]) -> SwitchArm:
         return SwitchArm(items[0], items[1])
@@ -2684,6 +3028,58 @@ class _AstBuilder(Transformer):
         )
 
     @staticmethod
+    def _token_span(token: object) -> SourceSpan | None:
+        """Return the exact lexer-token span when Lark retained positions."""
+
+        if not all(
+            hasattr(token, attribute)
+            for attribute in ("line", "column", "end_line", "end_column")
+        ):
+            return None
+        return SourceSpan(
+            int(getattr(token, "line")),
+            int(getattr(token, "column")),
+            int(getattr(token, "end_line")),
+            int(getattr(token, "end_column")),
+        )
+
+    @classmethod
+    def _name_span_from_meta(cls, meta: object, name: str) -> SourceSpan | None:
+        """Use the parser production start plus token length for simple names."""
+
+        if not all(
+            hasattr(meta, attribute) for attribute in ("line", "column")
+        ) or "." in name:
+            return None
+        start_line = int(getattr(meta, "line"))
+        start_column = int(getattr(meta, "column"))
+        return SourceSpan(
+            start_line,
+            start_column,
+            start_line,
+            start_column + len(name),
+        )
+
+    @classmethod
+    def _name_span_from_end_meta(cls, meta: object, name: str) -> SourceSpan | None:
+        """Recover a trailing simple-name span from propagated production end."""
+
+        if not name or "." in name or not all(
+            hasattr(meta, attribute) for attribute in ("end_line", "end_column")
+        ):
+            return None
+        end_line = int(getattr(meta, "end_line"))
+        end_column = int(getattr(meta, "end_column"))
+        if end_column <= len(name):
+            return None
+        return SourceSpan(
+            end_line,
+            end_column - len(name),
+            end_line,
+            end_column,
+        )
+
+    @staticmethod
     def _parse_number(value: object) -> int:
         text = str(value).replace("_", "")
         if text.lower().startswith("0x"):
@@ -2727,6 +3123,12 @@ def _ordinary_binding_name_is_valid(name: str) -> bool:
     return True
 
 
+def is_valid_identifier(name: str) -> bool:
+    """Validate a rename candidate with the parser's ordinary-name rules."""
+
+    return isinstance(name, str) and bool(name) and _ordinary_binding_name_is_valid(name)
+
+
 def _tagged(item: object, tag: str) -> bool:
     return isinstance(item, tuple) and len(item) >= 2 and item[0] == tag
 
@@ -2746,7 +3148,7 @@ def parse(source: str) -> Module:
             f"syntax error at line {error.line}, column {error.column}: {context}"
         ) from error
     try:
-        result = _AstBuilder().transform(tree)
+        result = _AstBuilder(source).transform(tree)
     except VisitError as error:
         if isinstance(error.orig_exc, ParseError):
             raise error.orig_exc from error

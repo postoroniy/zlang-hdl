@@ -15,8 +15,6 @@ import sys
 
 import pytest
 
-from zlang.backend.companions import publish_companion_bundle
-from zlang.backend.manifest import BackendArtifact
 from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
 from zlang.build_manifest import WholeBuildManifest
 from zlang.compiler import compile_file

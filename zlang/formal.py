@@ -6,7 +6,7 @@ when no configured proof wrapper is available and never treats BMC as proof.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from contextlib import contextmanager
 from contextvars import ContextVar
 import re
@@ -116,7 +116,6 @@ def run_recursive_formal(design: RecursiveFormalDesign, *, mode: ProofMode = Pro
     observation input.  A backend adapter can replace this conservative result
     path once its formal artifact publishes actual observation ports.
     """
-    versions = tool_versions()
     if artifact is not None:
         unavailable = tuple(
             item.semantic_binding_id for item in design.bindings

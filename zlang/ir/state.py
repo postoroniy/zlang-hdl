@@ -80,6 +80,7 @@ class ActionGroup:
     guard: Expression
     actions: tuple[StateAction, ...]
     source_origin: SourceOrigin | None = None
+    domain: str | None = None
 
 
 @dataclass(frozen=True)
@@ -93,6 +94,45 @@ class ResolvedTransition:
 
     def group(self, rule_name: str) -> ActionGroup:
         return next(item for item in self.action_groups if item.rule_name == rule_name)
+
+
+def transition_for_domain(
+    transition: ResolvedTransition,
+    domain: str,
+) -> ResolvedTransition:
+    """Project one independent clock-domain scheduler from a module transition.
+
+    The semantic module keeps one authoritative resource/action ledger so IDs
+    remain globally unique.  Scheduling, simulation and RTL emission operate on
+    this lossless per-domain view; no cross-clock priority or atomicity is
+    invented.
+    """
+
+    groups = tuple(
+        group for group in transition.action_groups if group.domain == domain
+    )
+    resource_ids = {
+        action.resource_id for group in groups for action in group.actions
+    }
+    resources = tuple(
+        resource
+        for resource in transition.resources
+        if resource.domain == domain or resource.semantic_id in resource_ids
+    )
+    priorities = tuple(
+        (higher, lower)
+        for higher, lower in transition.priorities
+        if any(group.rule_name == higher for group in groups)
+        and any(group.rule_name == lower for group in groups)
+    )
+    return ResolvedTransition(
+        f"{transition.semantic_id}:domain:{domain}",
+        domain,
+        None,
+        resources,
+        groups,
+        priorities,
+    )
 
 
 def actions_conflict(left: StateAction, right: StateAction) -> bool:

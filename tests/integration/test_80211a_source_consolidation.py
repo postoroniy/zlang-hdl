@@ -150,7 +150,10 @@ def test_every_concrete_canonical_module_round_trips(case: ModuleCase) -> None:
     if case.module in _UNINSTANTIATED_CHILDREN:
         with pytest.raises(
             SemanticError,
-            match="top-level input .* cannot expose enum type",
+            match=(
+                r"top-level input .* cannot expose (?:enum type|type .* "
+                r"because it contains an enum-valued field)"
+            ),
         ):
             compile_file(
                 SOURCES / case.source,

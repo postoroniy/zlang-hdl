@@ -35,26 +35,29 @@ module ScalarRom<D=4> {
 # suffix changed from ``.zl`` to ``.zhl``: source-unit and physical-input
 # provenance belong to this eager surface even though production RTL identity
 # is unchanged.  Cases which publish selected/canonical value products were
-# recaptured again for canonical schema v13, which retains conditional action
+# recaptured for canonical schema v13, which retains conditional action
 # activation predicates and scheduled scalar-output resources explicitly.  The
 # present values also include the direct-production backend policy and the
 # planning-owned scheduled-value/resource products; semantic typing no longer
-# prematurely chooses pipeline placement before a target is known.  Each value
-# below was independently compiled twice before being locked.
+# prematurely chooses pipeline placement before a target is known.  Stateful
+# entities now also retain their resolved physical clock-domain ownership in
+# the eager result surface; canonical schema v14 additionally retains the
+# domain of each child-output value. Each value below was independently compiled twice
+# before being locked.
 EXPECTED = {
     "add": "74093c35c7bfd566484b131f0c31b769192c51349775a068094d59c51d3e1b70",
-    "stateful_protocol": "48bbebe45ab0e6df911dba9db92c1f7d1a4b39a41198a526c15bb2e1641e8691",
+    "stateful_protocol": "08eb7c05972028f90c79cf66a9ea71f3257a7c5c60e0fd29d3b4aa66aefea9f7",
     "fixed_dsp": "11282ec29ae710ef9ed768494c399775b708f22650050533fe44b6bd853b016a",
-    "csr": "aa383afacd33718cdbcdfbf53ccd1edbac6686105aaa17032eddddd23a58d4e3",
+    "csr": "85797a67a97c652e101d04b3830b54bd1a2c1cafbbe675457d78d81c050c3e9d",
     "hierarchy": "06f3e1560bf38c7cbb038c768e0f65f32764d3e374bbe611704e4e91a1bee61b",
     # Companion filenames now use exact typed ROM contents/layout rather than
     # source provenance, so equivalent spellings retain one physical image.
-    "rom": "493f220dcb881c2f7a63f0b5a8bec382a8c1076c720268af40336d1ceb203436",
+    "rom": "fd53bac5688437e8d015596e41c3f55110bd23fd1f923b71bf172e44a82a0c24",
     # The concise Wi-Fi source refactor uses slices, shared raw views, vector
     # generation and struct update while retaining the public ABI and IEEE
     # behavior.  This source/dependency-sensitive eager-result snapshot was
     # independently compiled twice before being locked here.
-    "wifi": "fd1421232198b05d874395d73c3a0b60f7ca9b554a1d1cc6e6cab6b60360ebbe",
+    "wifi": "0117a5c170e2bb8ac8034071d075052ce1309c11a9b5bf06c194b1ddd500c09d",
 }
 
 

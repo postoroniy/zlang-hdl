@@ -2,9 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
 from zlang.compiler import compile_source
-from zlang.opt.lowering import restore
 from zlang.semantic import SemanticError
 
 

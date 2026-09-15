@@ -24,7 +24,8 @@ from zlang.backend.systemverilog.emitter import (
     emit_artifact as emit_generic_artifact,
 )
 from zlang.ir import expressions as expr
-from zlang.ir.module import Module, PortDirection, Register
+from zlang.ir.physical_types import signed_arithmetic_port_width
+from zlang.ir.module import Module, Register
 from zlang.ir.target import ImplementationGraph, ResourceDefinition, ResourceInstance
 from zlang.ir.types import FixedType, SIntType, UFixedType, UIntType
 from zlang.targets import load_target
@@ -173,13 +174,9 @@ def _dsp48e1_parameters(
     )
 
 
-def _physical_signed_width(type_) -> int:
-    return type_.width + int(isinstance(type_, (UIntType, UFixedType)))
-
-
 def _signed_extend(value, width: int) -> str:
     rendered = _expression(value)
-    source_width = _physical_signed_width(value.type)
+    source_width = signed_arithmetic_port_width(value.type)
     if source_width > width:
         raise SystemVerilogEmissionError(
             f"selected expression width {source_width} exceeds physical port width {width}"
@@ -298,11 +295,11 @@ def _emit_signed_product_dsp48e1_graph(module, graph, definitions, simulation_mo
         }[mode]
         carryin = "1'b1" if mode == "product_minus_accumulator" else "1'b0"
         model_parameters = (
-            f",\n    .ZLANG_A_WIDTH({_physical_signed_width(a_value.type)})"
-            f",\n    .ZLANG_D_WIDTH({1 if d_value is None else _physical_signed_width(d_value.type)})"
-            f",\n    .ZLANG_B_WIDTH({_physical_signed_width(b_value.type)})"
-            f",\n    .ZLANG_PRE_WIDTH({int(config.get('preadd_physical_width', _physical_signed_width(a_value.type)))})"
-            f",\n    .ZLANG_ACC_WIDTH({_physical_signed_width(p_value.type)})"
+            f",\n    .ZLANG_A_WIDTH({signed_arithmetic_port_width(a_value.type)})"
+            f",\n    .ZLANG_D_WIDTH({1 if d_value is None else signed_arithmetic_port_width(d_value.type)})"
+            f",\n    .ZLANG_B_WIDTH({signed_arithmetic_port_width(b_value.type)})"
+            f",\n    .ZLANG_PRE_WIDTH({int(config.get('preadd_physical_width', signed_arithmetic_port_width(a_value.type)))})"
+            f",\n    .ZLANG_ACC_WIDTH({signed_arithmetic_port_width(p_value.type)})"
             if simulation_model else ""
         )
         lines.extend((
@@ -452,9 +449,9 @@ def _emit_dsp48e1_graph(module, graph, definitions, simulation_model):
         parameters = _dsp48e1_parameters(config, terminal=terminal)
         parameter_text = ",\n".join(f"    .{name}({value})" for name, value in parameters)
         model_parameters = (
-            f",\n    .ZLANG_A_WIDTH({_physical_signed_width(a_mapping.type)})"
-            f",\n    .ZLANG_D_WIDTH({_physical_signed_width(d_mapping.type)})"
-            f",\n    .ZLANG_B_WIDTH({_physical_signed_width(b_mapping.type)})"
+            f",\n    .ZLANG_A_WIDTH({signed_arithmetic_port_width(a_mapping.type)})"
+            f",\n    .ZLANG_D_WIDTH({signed_arithmetic_port_width(d_mapping.type)})"
+            f",\n    .ZLANG_B_WIDTH({signed_arithmetic_port_width(b_mapping.type)})"
             if simulation_model else ""
         )
         lines.extend((

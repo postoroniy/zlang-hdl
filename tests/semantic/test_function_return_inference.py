@@ -4,7 +4,6 @@ from pathlib import Path
 
 import pytest
 
-from zlang.backend.systemverilog import emit_experimental
 from zlang.compiler import compile_source
 from zlang.ir import expressions as expr
 from zlang.module_resolver import IndexedModuleResolver, load_indexed_module

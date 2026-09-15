@@ -7,6 +7,8 @@ from dataclasses import dataclass, field
 from zlang.ast.nodes import Module as AstModule
 from zlang.compilation_inputs import PhysicalCompilationInputs
 from zlang.candidate_sites import CandidateSiteLedger
+from zlang.completion_resolution import CompletionScope
+from zlang.definition_resolution import DefinitionResolution, DefinitionTarget
 from zlang.exploration import ExplorationResult
 from zlang.formal_artifact_provider import FormalArtifactProvider
 from zlang.formal_tooling import FormalToolResolver
@@ -19,6 +21,7 @@ from zlang.ir.formal import FormalDesign
 from zlang.ir.module import Module as IrModule
 from zlang.opt import CanonicalModule, canonical_ir_identity
 from zlang.target_planner import TargetPlanningResult
+from zlang.signature_help_resolution import SignatureHelpCall
 
 
 @dataclass(frozen=True)
@@ -91,6 +94,26 @@ class SemanticCheckResult:
     physical_inputs: PhysicalCompilationInputs = field(
         default_factory=PhysicalCompilationInputs,
         compare=False,
+    )
+    definition_resolutions: tuple[DefinitionResolution, ...] = field(
+        default=(),
+        compare=False,
+        repr=False,
+    )
+    definition_declarations: tuple[DefinitionTarget, ...] = field(
+        default=(),
+        compare=False,
+        repr=False,
+    )
+    completion_scopes: tuple[CompletionScope, ...] = field(
+        default=(),
+        compare=False,
+        repr=False,
+    )
+    signature_help_calls: tuple[SignatureHelpCall, ...] = field(
+        default=(),
+        compare=False,
+        repr=False,
     )
 
 

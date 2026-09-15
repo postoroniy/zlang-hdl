@@ -50,7 +50,7 @@ module DomainStateGoal {
     clock b
     reset rb @b
     out y : u8 @b
-    reg count : u8 = 0 @b
+    reg count : u8 @b = 0
     count <- truncate<8>(count + 1)
     y = count
     assert count_is_representable @b { count <= 255 }
@@ -269,7 +269,7 @@ def test_multidomain_exact_goal_routes_survive_formal_disk_cache(
     assert compiled.formal_artifact_provider.stats.disk_hits >= 1
 
 
-def test_source_goal_keeps_multidomain_state_binding_and_fails_closed(
+def test_source_goal_keeps_multidomain_state_binding_and_routes_exact_domain(
     tmp_path: Path,
 ) -> None:
     compiled = compile_source(MULTI_DOMAIN_STATE_GOAL)
@@ -292,19 +292,17 @@ def test_source_goal_keeps_multidomain_state_binding_and_fails_closed(
         item for item in bundle.manifest.jobs
         if item.property_id == source_goal.id
     )
-    assert not job.executable
-    assert "backend_unavailable" in (job.reason or "")
-    assert "no signal binding for 'register:count'" not in (job.reason or "")
+    assert job.executable
+    assert job.reason is None
     assert (job.clock_domain, job.reset_domain) == ("b", "rb")
     expected_domain = next(
         item for item in compiled.ir.clock_domains
         if (item.clock, item.reset) == ("b", "rb")
     )
     assert job.clock_domain_contract == expected_domain
-    # No backend artifact was emitted for this unsupported mixed state shape,
-    # so the exact typed contract remains available while the manifest link is
-    # truthfully absent.
-    assert job.physical_domain_identity is None
+    assert job.physical_domain_identity == clock_domain_contract_identity(
+        expected_domain
+    )
 
 
 def test_skipped_async_goal_retains_available_artifact_domain_identity(

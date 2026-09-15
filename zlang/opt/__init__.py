@@ -26,18 +26,16 @@ from zlang.opt.identity import (
     CANONICAL_IR_IDENTITY_SCHEMA,
     canonical_ir_identity,
 )
-from zlang.opt.saturation import (
+from zlang.opt.rewrite_model import (
     EquivalenceClass,
-    RewriteRegistration,
-    RewriteRule,
-    SaturationError,
     SaturationResult,
     Term,
     render_saturation,
     render_term,
-    saturate,
     term_to_expression,
 )
+from zlang.opt.saturation import SaturationError, saturate
+from zlang.opt.rewrite_spec import RewriteRegistration, RewriteRule
 
 __all__ = [
     "CanonicalModule",

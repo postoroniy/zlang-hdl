@@ -6,6 +6,7 @@ import hashlib
 from pathlib import Path
 
 from zlang.costs import SourcePolicy
+from zlang.analysis_needs import AnalysisNeeds
 from zlang.formal_exploration import FormalPolicy
 from zlang.targets import ArchitectureSelectionMode
 from zlang.workspace import WorkspaceError, load_project_workspace
@@ -20,7 +21,7 @@ from zlang.compilation_products import CompilationResult, SemanticCheckResult
 from zlang.compilation_session import (
     CompilationSession,
     SessionTopSelectionError,
-    inline_locals as _inline_locals,
+    inline_locals as _inline_locals,  # noqa: F401 - stable test/tooling helper
 )
 from zlang.source_identity import validate_source_path
 
@@ -254,6 +255,7 @@ def check_file_snapshot(
     source_digest: str | None = None,
     project: Path | str | None = None,
     profile: str | None = None,
+    analysis_needs: AnalysisNeeds = AnalysisNeeds.NONE,
     **options,
 ) -> SemanticCheckResult:
     """Check one exact file snapshot without planning or backend products.
@@ -263,12 +265,25 @@ def check_file_snapshot(
     different.
     """
 
+    try:
+        analysis_needs = AnalysisNeeds(analysis_needs)
+    except (TypeError, ValueError) as error:
+        raise TypeError("analysis_needs must be an AnalysisNeeds value") from error
+    # Legacy collection switches are accepted only as compatibility input; the
+    # session receives one centralized demand mask.
+    if options.pop("collect_definitions", False):
+        analysis_needs |= AnalysisNeeds.DEFINITIONS
+    if options.pop("collect_completion_scopes", False):
+        analysis_needs |= AnalysisNeeds.DEFINITIONS | AnalysisNeeds.COMPLETION
+    if options.pop("collect_signature_help", False):
+        analysis_needs |= AnalysisNeeds.SIGNATURE_HELP
     session = create_file_compilation_session_snapshot(
         source,
         source_text,
         source_digest=source_digest,
         project=project,
         profile=profile,
+        analysis_needs=analysis_needs,
         **options,
     )
     try:
@@ -280,4 +295,8 @@ def check_file_snapshot(
         ast=syntax,
         ir=module,
         physical_inputs=session.physical_inputs,
+        definition_resolutions=session.semantic_definition_resolutions,
+        definition_declarations=session.semantic_definition_declarations,
+        completion_scopes=session.semantic_completion_scopes,
+        signature_help_calls=session.semantic_signature_help_calls,
     )

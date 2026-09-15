@@ -44,6 +44,43 @@ class RomSignal(str, Enum):
 class MemoryCollision(str, Enum):
     READ_FIRST = "read_first"
     WRITE_FIRST = "write_first"
+    NO_CHANGE = "no_change"
+
+
+class MemoryPortKind(str, Enum):
+    READ = "read"
+    WRITE = "write"
+    READ_WRITE = "read_write"
+
+
+@dataclass(frozen=True)
+class MemoryPort:
+    """One fully typed logical memory access port."""
+
+    name: str
+    semantic_id: str
+    kind: MemoryPortKind
+    domain: str
+    address: Expression
+    read_enable: Expression | None = None
+    write_enable: Expression | None = None
+    write_data: Expression | None = None
+    write_mask: Expression | None = None
+    source_origin: SourceOrigin | None = None
+
+    def __post_init__(self) -> None:
+        if not self.name or not self.semantic_id or not self.domain:
+            raise ValueError("memory port name, identity, and domain are required")
+        if not isinstance(self.kind, MemoryPortKind):
+            raise ValueError("memory port kind is invalid")
+        readable = self.kind in {MemoryPortKind.READ, MemoryPortKind.READ_WRITE}
+        writable = self.kind in {MemoryPortKind.WRITE, MemoryPortKind.READ_WRITE}
+        if readable != (self.read_enable is not None):
+            raise ValueError("readable memory port requires one read-enable expression")
+        if writable != (self.write_enable is not None and self.write_data is not None):
+            raise ValueError("writable memory port requires write enable and data")
+        if not writable and self.write_mask is not None:
+            raise ValueError("read-only memory port cannot carry a write mask")
 
 
 class MemoryResetPolicy(str, Enum):
@@ -68,6 +105,7 @@ class Fifo:
     push: Expression | None
     pop: Expression | None
     source_origin: object | None = None
+    domain: str | None = None
 
     @property
     def scheduled(self) -> bool:
@@ -96,12 +134,19 @@ class Memory:
     # Appended to preserve the historical positional constructor ABI.
     contents_reset: MemoryResetPolicy = MemoryResetPolicy.CLEAR
     read_data_reset: MemoryResetPolicy = MemoryResetPolicy.CLEAR
+    domain: str | None = None
+    ports: tuple[MemoryPort, ...] = ()
+    async_memory: bool = False
+    write_priority: tuple[str, ...] = ()
+    initial_value: Expression | None = None
 
     def __post_init__(self) -> None:
         if not self.semantic_id:
             raise ValueError("memory semantic identity must not be empty")
         if self.read_latency not in {0, 1}:
             raise ValueError("memory read latency must be zero or one")
+        if self.initial_value is not None and self.initial_value.type != self.element_type:
+            raise ValueError("memory initial value must have the exact element type")
         for label, policy in (
             ("contents", self.contents_reset),
             ("read data", self.read_data_reset),
@@ -126,15 +171,46 @@ class Memory:
         if self.read_address is None and self.write_mask is not None:
             raise ValueError("scheduled memory masks belong to write actions")
         if self.read_address is None and self.read_latency == 0:
-            raise ValueError("scheduled memory requires read latency one")
+            if not self.ports:
+                raise ValueError("scheduled memory requires read latency one")
         if self.read_address is not None and (
             (self.write_mask_width is None) != (self.write_mask is None)
         ):
             raise ValueError("global masked memory requires a write-mask expression")
+        if self.ports:
+            if any(item is not None for item in controls) or self.write_mask is not None:
+                raise ValueError("ported memory cannot also use legacy controls")
+            if len(self.ports) > 8:
+                raise ValueError("ported memory supports at most eight logical ports")
+            names = tuple(port.name for port in self.ports)
+            if len(names) != len(set(names)):
+                raise ValueError("memory port names must be unique")
+            writable = tuple(
+                port.name for port in self.ports
+                if port.kind in {MemoryPortKind.WRITE, MemoryPortKind.READ_WRITE}
+            )
+            if len(writable) > 1 and set(self.write_priority) != set(writable):
+                raise ValueError("multi-writer memory requires a complete write priority")
+            if self.async_memory:
+                kinds = tuple(port.kind for port in self.ports)
+                if kinds.count(MemoryPortKind.WRITE) != 1 or kinds.count(MemoryPortKind.READ) != 1 or len(kinds) != 2:
+                    raise ValueError("async memory requires exactly one write and one read port")
+                if len({port.domain for port in self.ports}) != 2:
+                    raise ValueError("async memory ports must use different domains")
+                if self.read_latency != 1:
+                    raise ValueError("async memory requires read latency one")
+            elif len({port.domain for port in self.ports}) != 1:
+                raise ValueError("ordinary ported memory requires one clock domain")
+        elif self.async_memory or self.write_priority:
+            raise ValueError("async/priority memory metadata requires named ports")
 
     @property
     def scheduled(self) -> bool:
-        return self.read_address is None
+        return self.read_address is None and not self.ports
+
+    @property
+    def ported(self) -> bool:
+        return bool(self.ports)
 
     @property
     def address_width(self) -> int:
@@ -158,6 +234,7 @@ class Rom:
     evaluator_schema: str
     content_hash: str
     source_origin: SourceOrigin | None = None
+    domain: str | None = None
 
     def __post_init__(self) -> None:
         if not self.name:

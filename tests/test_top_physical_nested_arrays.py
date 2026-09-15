@@ -2,17 +2,10 @@
 
 from __future__ import annotations
 
-import os
-from pathlib import Path
-import shutil
-import subprocess
 
-import pytest
 
 from zlang import compile_source
 from zlang.backend.manifest import BackendArtifact
-from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
-from zlang.toolchain import lint_with_verilator
 
 
 NESTED_SOURCE = """

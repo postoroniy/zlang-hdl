@@ -9,11 +9,9 @@ import subprocess
 
 import pytest
 
-from zlang.backend.manifest import BackendArtifact
 from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
 from zlang.compiler import compile_source
 from zlang.ir.hierarchy import build_hierarchy_index
-from zlang.ir.recursive_formal import build_recursive_formal_design
 from zlang.opt import lower, restore
 from zlang.semantic import SemanticError
 from zlang.simulate import simulate, simulate_cycles

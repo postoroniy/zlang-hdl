@@ -1,15 +1,10 @@
 import unittest
 from pathlib import Path
-import tempfile
-import os
-import shutil
-import subprocess
 
 from zlang.backend.systemverilog.emitter import emit, emit_artifact
 from zlang.ir.formal import generate_properties
 from zlang.parser import ParseError, parse
 from zlang.semantic import SemanticError, analyze
-from zlang.toolchain import lint_with_verilator
 
 
 ROOT = Path(__file__).resolve().parents[1]

@@ -23,7 +23,6 @@ from zlang.build_manifest import (
 )
 from zlang.backend.companions import (
     collect_rom_companions,
-    publish_companion_bundle,
 )
 import zlang.cli as cli_module
 from zlang.cli import main

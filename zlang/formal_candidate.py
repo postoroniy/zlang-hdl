@@ -13,7 +13,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 import json
 import tempfile
-from typing import Any, Iterable
+from typing import Iterable
 
 from zlang.backend.systemverilog import (
     SystemVerilogEmissionError,
@@ -70,7 +70,7 @@ from zlang.ir.target import ImplementationGraph
 from zlang.ir.signed_reductions import expression_semantic_identity
 from zlang.ir.types import StructType, TupleType, VecType
 from zlang.ir.type_codec import canonical_type_data, canonical_type_from_data
-from zlang.source import SourceOrigin
+from zlang.source import SourceOrigin, source_origin_to_data
 from zlang.timing import TimingInfo, timing_info, validate_timed_candidate
 
 
@@ -204,10 +204,6 @@ def _m39_work_directory(
     )
 
 
-def _origin_data(origin: SourceOrigin | None) -> object:
-    return None if origin is None else origin.to_data()
-
-
 def _origin_from_data(value: object) -> SourceOrigin | None:
     if value is None:
         return None
@@ -236,8 +232,8 @@ def _property_data(property_: EquivalenceProperty) -> dict[str, object]:
         "implementation_reset": property_.implementation_reset,
         "latency_delta": property_.latency_delta,
         "comparison_window": property_.comparison_window.to_data(),
-        "source_origin": _origin_data(property_.source_origin),
-        "selected_origin": _origin_data(property_.selected_origin),
+        "source_origin": source_origin_to_data(property_.source_origin),
+        "selected_origin": source_origin_to_data(property_.selected_origin),
         "candidate_class": property_.candidate_class,
         "clock_domain_contract": clock_domain_data(
             property_.clock_domain_contract

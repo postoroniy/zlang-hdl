@@ -39,6 +39,8 @@ EXPECTED_LANGUAGE_TOUR_TOPS = (
     "CsrSyntax",
     "ContractSyntax",
     "ExplorationSyntax",
+    "PortedMemorySyntax",
+    "AsyncMemorySyntax",
     "AllSyntax",
 )
 

@@ -1,6 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor
 import json
-import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -14,12 +13,8 @@ from zlang.formal_exploration import (
     gate_candidates,
 )
 from zlang.formal import run_verilog_formal
-from zlang.equivalence import formal_tools_available
-from zlang.formal_candidate import M36DirectSystemVerilogCandidateVerifier
-from zlang.candidate_sites import candidate_formal_record_sites
 from zlang.ir.equivalence import EquivalenceCounterexample
 from zlang.ir.formal import FormalStatus, ProofMode
-from zlang.ir.cdc import ClockDomain
 from zlang.compiler import compile_source
 
 

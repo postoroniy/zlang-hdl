@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import pytest
 
-from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
 from zlang.compiler import compile_source
 from zlang.ir.formal_predicates import FormalPredicate
 from zlang.opt import lower, restore

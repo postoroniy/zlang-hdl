@@ -5,13 +5,10 @@ from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
-import pytest
 
 import zlang.formal_candidate as candidate_module
-import zlang.formal_exploration as exploration_module
 import zlang.verification_publication as publication_module
 from zlang.backend.systemverilog import (
-    SystemVerilogEmissionError,
     emit_formal_artifact as emit_systemverilog_formal_artifact,
 )
 from zlang.compilation_session import CompilationSession
@@ -24,13 +21,6 @@ from zlang.formal_artifact_provider import (
     FormalArtifactRecipe,
 )
 from zlang.ir.comparison_window import ComparisonWindow
-from zlang.ir.cdc import (
-    ClockDomain,
-    ClockEdge,
-    ResetMode,
-    ResetPolarity,
-    ResetReleaseMode,
-)
 from zlang.ir.equivalence import EquivalenceProperty, EquivalenceRelation
 from zlang.ir.types import BitType
 

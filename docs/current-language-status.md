@@ -8,7 +8,7 @@ coordination logs are historical evidence: their original scope, tool results,
 and test counts remain valid for the recorded slice but are not the current
 repository baseline.
 
-Snapshot date: **2026-09-08**.
+Snapshot date: **2026-09-15**.
 
 The bounded formal-closure and concise-lowering follow-up is accepted in this
 snapshot. Its current public behavior is documented in
@@ -20,6 +20,21 @@ snapshot. Existing formal routes now consume the physical contract already
 carried by `ClockDomain` and BackendArtifact v10; it adds no source syntax,
 property/observation family, or new equivalence relation.
 
+The latest optimizer cleanup is also included. One shared capability/barrier
+registry, declarative rewrite specifications, target-neutral resource matching,
+and the exact-N scheduled-value graph now separate pure equality, physical
+scheduling, and target binding. Egglog remains the sole equality-saturation
+engine; the direct-SV emitter consumes the selected graph instead of
+rediscovering arithmetic architecture.
+
+First-class state ownership is now multi-clock. Registers, rules, concise FSMs,
+fixed scalar pipelines, FIFO/memory/ROM resources, and CSR banks resolve one
+exact `ClockDomain`; ambiguous ownership and unsynchronized dynamic provenance
+fail during semantic analysis. Direct SystemVerilog emits independent
+sequential regions and reset conditioners. Existing explicit CDC primitives are
+semantic optimizer/timing barriers, and a scalar crossing result becomes an
+ordinary destination-domain value.
+
 ## Validation baseline
 
 - The public release minimum, zero-skip policy, corpus totals, and exact EDA
@@ -28,8 +43,8 @@ property/observation family, or new equivalence relation.
   complete eight-worker JUnit reports against that manifest. This includes
   compiler-owned formal closure, concise lowering, specialization-safe M39,
   exact physical reset applicability, and real external-tool integrations.
-- Exhaustive example registry, updated with the verification tutorial on
-  2026-09-08: **88 `.zhl` files / 178 module roots / 161
+- Exhaustive release-owned example registry, as recorded by the release manifest:
+  **89 `.zhl` files / 187 module roots / 170
   standalone roots / 17 child or template roots / 0 unsupported roots**.
 - Every standalone direct-SystemVerilog root emits a `BackendArtifact` and
   passes strict Verilator lint; child/template roots are exercised through a
@@ -79,10 +94,13 @@ The current language includes:
   `ActionGroup` identity, active-effect and output-conflict scheduling, and
   explicit priority; runtime-indexed one-dimensional vector-register updates,
   FIFOs,
-  1R1W writable memories with global zero/one-cycle reads,
-  independent cell/read-result reset policy and one-cycle rule-local actions,
-  source-composed replicated read ports through compile-time child arrays, and
-  immutable initialized synchronous ROMs;
+  backward-compatible 1R1W writable memories, up to eight named same-clock
+  ports with bounded native/replicated/register-array planning, exact
+  same-clock write priority and collision behavior, one-write/one-read
+  `async_mem` across two explicit domains, independent cell/read-result reset
+  policy, uniform compile-time writable-memory initialization, one-cycle
+  rule-local legacy actions, and immutable initialized
+  synchronous ROMs;
 - parameterized hierarchy, named module interfaces, bounded external modules,
   scalar/mixed/protocol children, instance arrays, read-only runtime instance
   output projection, ready/valid, credit, request/response, packet/VC,
@@ -186,7 +204,7 @@ tour, not an exhaustive language specification.
   family or source temporal semantics.
 - Existing request/response accounting can bind the parent-owned outstanding
   ledger and independent request/response buffer occupancies through typed
-  formal-only component ports in both backends. Existing receiver-credit
+  formal-only direct-SV component ports. Existing receiver-credit
   accounting likewise binds the real adapter occupancy, send, and returned
   credit; direct-SV is the production route. Every non-empty automatic root assumption set receives
   an unassumed feasibility query, so an otherwise clean safety BMC cannot pass
@@ -258,8 +276,8 @@ selection, while compile-time `if` remains elaboration-only. The product also
 does not claim mutable locals,
 implicit numeric conversion, runtime polymorphism/traits, arbitrary runtime or
 nested state selection, runtime-selected instance inputs or protocol endpoints,
-native multiport writable memories, synthesizable writable-memory initialization,
-automatic BRAM inference, implicit
+asymmetric or unbounded multiport memories, asynchronous 2RW memories,
+full/partial writable-memory initialization images, automatic banking, implicit
 CDC/adapters, full AXI4 IDs/multiple outstanding/general burst attributes,
 arbitrary temporal/SVA/SMT source syntax,
 true liveness/fairness, or general hierarchical M36/M38. Exact narrower forms

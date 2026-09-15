@@ -22,6 +22,9 @@ executed by the compiler or its regression suite.
 
 ## Quick start
 
+For a release wheel, editor setup, and the optional Verilator/Yosys/SBY/Z3
+toolchain, use the [complete installation guide](docs/installing-toolchain.md).
+
 Clone the repository and install an editable development environment:
 
 ```bash
@@ -73,10 +76,11 @@ The validated language includes:
   and fixed-string types;
 - pure functions, generics, compile-time generation, reductions, ROM images, and
   deterministic specialization;
-- registers, rules, fixed pipelines, FIFOs, synchronous memories, hierarchy, and
-  instance arrays;
+- per-domain registers, rules, FSMs, fixed pipelines, FIFOs, synchronous
+  memories, hierarchy, and instance arrays inside single- or multi-clock
+  modules;
 - ready/valid, credit, request/response, aggregate protocols, explicit buffering,
-  arbitration, and named-domain CDC;
+  arbitration, and mandatory explicit named-domain CDC;
 - source-authored RegBus, AHB-Lite, AXI4-Lite, APB, Wishbone, AXI-Stream, CSR,
   math, stream, storage, coding, and target-library components;
 - direct-SystemVerilog emission with source maps and versioned BackendArtifact
@@ -91,6 +95,9 @@ complete support contract. Use the
 [current language status](docs/current-language-status.md),
 [syntax support matrix](docs/syntax-support-matrix.md), and
 [known limitations](docs/known-limitations.md) for the current, bounded surface.
+Qwen users can also rely on the tracked
+[ZLang HDL project skill](.qwen/skills/zlang-hdl/SKILL.md), which routes work to
+the same current guides and executable compiler contracts.
 
 Representative real-design validations include:
 
@@ -142,6 +149,7 @@ BMC but fails at a deeper bound, with a source-attributed counterexample.
 
 ## Documentation
 
+- [Installation and external EDA tools](docs/installing-toolchain.md)
 - [Getting started](docs/getting-started.md)
 - [Language guide](docs/language-guide.md)
 - [Current language and implementation status](docs/current-language-status.md)
@@ -153,6 +161,7 @@ BMC but fails at a deeper bound, with a source-attributed counterexample.
 - [Standard library](docs/stdlib.md)
 - [Optimization and formal verification](docs/optimization-formal.md)
 - [Backends and tooling](docs/backends-tooling.md)
+- [Compiler tooling integration API](docs/tooling-integration-api.md)
 - [Projects and dependencies](docs/projects-dependencies.md)
 - [Open-source project scope](docs/project-scope.md)
 - [Test strategy](docs/testing.md)
@@ -181,6 +190,12 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the DCO, test expectations, and
 third-party provenance requirements. Community support is described in
 [SUPPORT.md](SUPPORT.md), and vulnerabilities must be reported privately as
 described in [SECURITY.md](SECURITY.md).
+
+## Support ZLang HDL
+
+If ZLang HDL is useful to you, you can voluntarily support its continued development:
+
+☕ [Buy Me a Coffee](https://buymeacoffee.com/zlanghdl)
 
 ## License and attribution
 

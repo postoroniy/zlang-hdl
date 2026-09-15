@@ -9,7 +9,15 @@ from __future__ import annotations
 
 from enum import Enum
 
-from zlang.ir.types import BitType, BitsType, FixedType, HardwareType, SIntType
+from zlang.ir.types import (
+    BitType,
+    BitsType,
+    FixedType,
+    HardwareType,
+    SIntType,
+    UFixedType,
+    UIntType,
+)
 
 
 class PhysicalSignedness(str, Enum):
@@ -40,4 +48,15 @@ def physical_signedness(type_: HardwareType) -> PhysicalSignedness:
     return PhysicalSignedness.UNSIGNED
 
 
-__all__ = ["PhysicalSignedness", "physical_signedness", "physical_width"]
+def signed_arithmetic_port_width(type_: HardwareType) -> int:
+    """Return width after representing an unsigned value on a signed port."""
+
+    return physical_width(type_) + int(isinstance(type_, (UIntType, UFixedType)))
+
+
+__all__ = [
+    "PhysicalSignedness",
+    "physical_signedness",
+    "physical_width",
+    "signed_arithmetic_port_width",
+]

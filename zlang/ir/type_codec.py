@@ -278,6 +278,98 @@ def canonical_type_from_data(value: object) -> HardwareType:
     raise TypeCodecError(f"unknown canonical hardware type kind '{kind}'")
 
 
+_SCALAR_TYPE_KINDS = frozenset({"bit", "uint", "sint", "bits", "fixed", "ufixed"})
+
+
+def scalar_type_data(type_: HardwareType) -> dict[str, object]:
+    """Return the frozen scalar-only e-graph type payload.
+
+    The e-graph schema predates the general canonical codec and spells ``bit``
+    without a redundant width member.  Keep that external spelling while
+    deriving every type rule from the one canonical codec.
+    """
+
+    data = canonical_type_data(type_)
+    if data["kind"] not in _SCALAR_TYPE_KINDS:
+        raise TypeCodecError("only scalar hardware types are supported")
+    if data["kind"] == "bit":
+        data = {"kind": "bit"}
+    return data
+
+
+def scalar_type_from_data(value: object) -> HardwareType:
+    """Restore the frozen scalar-only e-graph type payload."""
+
+    data = dict(_mapping(value, "scalar hardware type"))
+    kind = _string(data.get("kind"), "scalar hardware type kind")
+    if kind not in _SCALAR_TYPE_KINDS:
+        raise TypeCodecError(f"unknown scalar hardware type kind '{kind}'")
+    if kind == "bit":
+        _keys(data, {"kind"})
+        data["width"] = 1
+    result = canonical_type_from_data(data)
+    if not isinstance(
+        result,
+        (BitType, UIntType, SIntType, BitsType, FixedType, UFixedType),
+    ):
+        raise TypeCodecError("only scalar hardware types are supported")
+    return result
+
+
+def scalar_type_name(type_: HardwareType) -> str:
+    """Return the deterministic scalar token used inside egglog terms."""
+
+    scalar_type_data(type_)
+    return str(type_)
+
+
+def scalar_type_from_name(name: str) -> HardwareType:
+    """Restore one deterministic scalar egglog type token."""
+
+    if name == "bit":
+        return BitType()
+    if name.startswith("bits<") and name.endswith(">"):
+        return _construct("bits hardware type", lambda: BitsType(int(name[5:-1])))
+    for prefix, constructor in (
+        (
+            "fixed_sat<",
+            lambda width, fraction: FixedType(
+                width, fraction, FixedOverflowPolicy.SATURATE
+            ),
+        ),
+        ("fixed<", lambda width, fraction: FixedType(width, fraction)),
+        (
+            "ufixed_sat<",
+            lambda width, fraction: UFixedType(
+                width, fraction, FixedOverflowPolicy.SATURATE
+            ),
+        ),
+        ("ufixed<", lambda width, fraction: UFixedType(width, fraction)),
+    ):
+        if name.startswith(prefix) and name.endswith(">"):
+            try:
+                width, fraction = (
+                    int(item) for item in name[len(prefix):-1].split(",", 1)
+                )
+            except ValueError as error:
+                raise TypeCodecError(f"invalid scalar hardware type '{name}'") from error
+            return _construct(
+                "fixed-point hardware type",
+                lambda: constructor(width, fraction),
+            )
+    for prefix, constructor in (("u", UIntType), ("s", SIntType)):
+        if name.startswith(prefix):
+            try:
+                width = int(name[1:])
+            except ValueError as error:
+                raise TypeCodecError(f"invalid scalar hardware type '{name}'") from error
+            return _construct(
+                "integer hardware type",
+                lambda: constructor(width),
+            )
+    raise TypeCodecError(f"unsupported scalar hardware type '{name}'")
+
+
 def _mapping(value: object, description: str) -> Mapping[str, object]:
     if not isinstance(value, Mapping):
         raise TypeCodecError(f"{description} must be an object")
@@ -323,4 +415,12 @@ def _integer_list(value: object, description: str) -> tuple[int, ...]:
     return tuple(_integer(item, description) for item in value)
 
 
-__all__ = ["TypeCodecError", "canonical_type_data", "canonical_type_from_data"]
+__all__ = [
+    "TypeCodecError",
+    "canonical_type_data",
+    "canonical_type_from_data",
+    "scalar_type_data",
+    "scalar_type_from_data",
+    "scalar_type_from_name",
+    "scalar_type_name",
+]

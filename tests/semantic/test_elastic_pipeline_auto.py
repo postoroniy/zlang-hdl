@@ -10,7 +10,6 @@ import pytest
 from zlang.backend.module_features import ModuleFeatureKind, module_feature_inventory
 from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
 from zlang.compilation_session import CompilationSession
-from zlang.equivalence import publish_bindings
 from zlang.formal import build_formal_design
 from zlang.formal_exploration import FormalPolicy
 from zlang.implementation_plans import (
@@ -20,7 +19,6 @@ from zlang.implementation_plans import (
 )
 from zlang.ir.cdc import ClockEdge
 from zlang.ir.elastic import ElasticStallPolicy
-from zlang.ir.equivalence import BindingSide, EquivalenceError
 from zlang.ir.formal import FormalStatus
 from zlang.ir.interfaces import InterfaceProtocol
 from zlang.ir.module import PortDirection

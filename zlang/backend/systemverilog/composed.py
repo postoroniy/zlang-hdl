@@ -323,6 +323,24 @@ def _connection_key(
     return (owner, _endpoint_base(endpoint, rendering), signal)
 
 
+def _external_protocol_signal(
+    module: Module,
+    endpoint: ProtocolEndpoint,
+    signal: str,
+    identifier: Callable[[str], str],
+) -> str | None:
+    """Return the already-declared top ABI signal for a top endpoint."""
+
+    if endpoint.owner != module.name:
+        return None
+    base = identifier(endpoint.name)
+    if endpoint.protocol is InterfaceProtocol.READY_VALID:
+        return f"{base}_{signal}"
+    if signal == "wire":
+        return base
+    return None
+
+
 def composed_component_identifier_claims(
     module: Module,
     rendering: ComposedRendering,
@@ -344,16 +362,6 @@ def composed_component_identifier_claims(
 
     def claim(token: str, owner: str) -> None:
         claims.append((token, owner))
-
-    def external_signal(endpoint: ProtocolEndpoint, signal: str) -> str | None:
-        if endpoint.owner != module.name:
-            return None
-        base = identifier(endpoint.name)
-        if endpoint.protocol is InterfaceProtocol.READY_VALID:
-            return f"{base}_{signal}"
-        if signal == "wire":
-            return base
-        return None
 
     rr_edges = {
         id(edge): (descriptor, channel)
@@ -386,8 +394,12 @@ def composed_component_identifier_claims(
         rr_info = rr_edges.get(id(connection))
         if connection.source.protocol is InterfaceProtocol.WIRE:
             shared = (
-                external_signal(connection.source, "wire")
-                or external_signal(connection.destination, "wire")
+                _external_protocol_signal(
+                    module, connection.source, "wire", identifier,
+                )
+                or _external_protocol_signal(
+                    module, connection.destination, "wire", identifier,
+                )
             )
             if shared is None:
                 claim(f"zlang_conn_{index}", f"scalar hierarchy connection {index}")
@@ -458,8 +470,12 @@ def composed_component_identifier_claims(
 
         if rr_info is None:
             shared = (
-                external_signal(connection.source, "payload")
-                or external_signal(connection.destination, "payload")
+                _external_protocol_signal(
+                    module, connection.source, "payload", identifier,
+                )
+                or _external_protocol_signal(
+                    module, connection.destination, "payload", identifier,
+                )
             )
             if shared is None:
                 for signal in ("payload", "valid", "ready"):
@@ -604,17 +620,6 @@ def _emit_composed_component(
                 f"aggregate scalar output '{name}' has multiple drivers"
             )
 
-    def external_signal(endpoint: ProtocolEndpoint, signal: str) -> str | None:
-        """Return the already-declared top ABI leaf for a top endpoint."""
-        if endpoint.owner != module.name:
-            return None
-        base = identifier(endpoint.name)
-        if endpoint.protocol is InterfaceProtocol.READY_VALID:
-            return f"{base}_{signal}"
-        if signal == "wire":
-            return base
-        return None
-
     stage_declarations, stage_logic, stage_render = services.staging_emission(module)
     if stage_declarations:
         # A composed scalar child keeps its own physical pipeline registers.
@@ -747,8 +752,12 @@ def _emit_composed_component(
                     "hierarchical scalar connection does not accept protocol options"
                 )
             base = f"zlang_conn_{index}"
-            source_external = external_signal(connection.source, "wire")
-            destination_external = external_signal(connection.destination, "wire")
+            source_external = _external_protocol_signal(
+                module, connection.source, "wire", identifier,
+            )
+            destination_external = _external_protocol_signal(
+                module, connection.destination, "wire", identifier,
+            )
             shared = source_external or destination_external
             if shared is None:
                 shared = base
@@ -865,9 +874,11 @@ def _emit_composed_component(
         else:
             base = f"zlang_conn_{index}"
             if rr_info is None:
-                source_external = external_signal(connection.source, "payload")
-                destination_external = external_signal(
-                    connection.destination, "payload"
+                source_external = _external_protocol_signal(
+                    module, connection.source, "payload", identifier,
+                )
+                destination_external = _external_protocol_signal(
+                    module, connection.destination, "payload", identifier,
                 )
                 shared = source_external or destination_external
                 if shared is None:
@@ -878,8 +889,12 @@ def _emit_composed_component(
                     ))
                 for signal in ("payload", "valid", "ready"):
                     value = (
-                        external_signal(connection.source, signal)
-                        or external_signal(connection.destination, signal)
+                        _external_protocol_signal(
+                            module, connection.source, signal, identifier,
+                        )
+                        or _external_protocol_signal(
+                            module, connection.destination, signal, identifier,
+                        )
                         or f"{base}_{signal}"
                     )
                     connection_signals[
@@ -1037,16 +1052,49 @@ def _emit_composed_component(
         owner = elaborated.instance.name
         instance_name = local_names.instance(owner)
         connections: list[str] = []
-        if child.clock is not None:
-            connections.append(
-                f".{identifier(child.clock)}"
-                f"({identifier(module.clock or child.clock)})"
+        if len(child.clock_domains) == 1:
+            child_domain = child.clock_domains[0]
+            if elaborated.clock is None or elaborated.reset is None:
+                raise physical.error(
+                    f"sequential child '{owner}' has no resolved parent domain"
+                )
+            parent_domain = next(
+                (
+                    item for item in module.clock_domains
+                    if item.clock == elaborated.clock
+                    and item.reset == elaborated.reset
+                ),
+                None,
             )
-        if child.reset is not None:
+            if parent_domain is None:
+                raise physical.error(
+                    f"sequential child '{owner}' has no exact parent clock/reset contract"
+                )
             connections.append(
-                f".{identifier(child.reset)}"
-                f"({effective_reset_signal(module, identifier)})"
+                f".{identifier(child_domain.clock)}"
+                f"({identifier(parent_domain.clock)})"
             )
+            connections.append(
+                f".{identifier(child_domain.reset)}"
+                f"({effective_reset_signal(module, identifier, parent_domain.clock)})"
+            )
+        elif child.clock_domains:
+            parent_domains = {item.clock: item for item in module.clock_domains}
+            for child_domain in child.clock_domains:
+                parent_domain = parent_domains.get(child_domain.clock)
+                if parent_domain != child_domain:
+                    raise physical.error(
+                        f"sequential child '{owner}' domain '{child_domain.clock}' "
+                        "has no exact parent clock/reset contract"
+                    )
+                connections.append(
+                    f".{identifier(child_domain.clock)}"
+                    f"({identifier(parent_domain.clock)})"
+                )
+                connections.append(
+                    f".{identifier(child_domain.reset)}"
+                    f"({effective_reset_signal(module, identifier, parent_domain.clock)})"
+                )
         for port in child.ports:
             port_name = identifier(port.name)
             if port.protocol is InterfaceProtocol.WIRE:

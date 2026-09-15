@@ -1,13 +1,8 @@
-import subprocess
-import tempfile
 import unittest
-import os
-from pathlib import Path
 
 from zlang import compile_source
 from zlang.backend.systemverilog import emit_artifact
 from zlang.semantic import SemanticError
-from zlang.toolchain import lint_with_verilator
 
 AXI = """import std.bus.reg\nimport std.bus.axi_lite\nmodule AxiCsrTop { clock clk reset rst interface axi : AXI4Lite<32,32>.slave inst frontend : AXI4LiteToRegBus<32,32> inst csr : RegBusCSRTarget<32,32> connect axi -> frontend.axi connect frontend.regbus -> csr.regbus out done:bit done=csr.done }"""
 APB = """import std.bus.reg\nimport std.bus.apb\nmodule ApbCsrTop { clock clk reset rst interface apb : APB<32,32>.slave inst frontend : APBToRegBus<32,32> inst csr : RegBusCSRTarget<32,32> connect apb -> frontend.apb connect frontend.regbus -> csr.regbus out done:bit done=csr.done }"""

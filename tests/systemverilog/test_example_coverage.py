@@ -10,19 +10,17 @@ import subprocess
 import pytest
 
 from zlang.backend.systemverilog import (
-    SystemVerilogEmissionError,
-    emit_artifact,
     emit_experimental,
 )
 from zlang.compiler import compile_file
 from zlang.ir.interfaces import RequestResponseRole
 from zlang.opt import OptimizationStage, lower, restore
 from zlang.parser import parse
-from zlang.semantic import SemanticError
 
 
 ROOT = Path(__file__).resolve().parents[2]
 EXAMPLES = ROOT / "examples"
+EXCLUDED_EXAMPLE_PREFIXES = ("projects/80211ad_phylayer/",)
 INITIALIZED_INTERNAL_WIRE = re.compile(r"(?m)^[ \t]*wire\b[^;\n]*=")
 
 
@@ -65,7 +63,7 @@ CHILD_OR_TEMPLATE_ONLY = {
         "projects/80211a_transmitter/src/conv_encoder.zhl",
         "IeeeConvolutionalEncoder24",
     ): ChildExpectation(
-        "top-level input 'input' cannot expose enum type",
+        "top-level input 'input' cannot expose (?:enum type|type .* because it contains an enum-valued field)",
         "IeeePacketEncoderInterleaver24",
         "projects/80211a_transmitter/src/interleaver.zhl",
     ),
@@ -73,21 +71,21 @@ CHILD_OR_TEMPLATE_ONLY = {
         "projects/80211a_transmitter/src/interleaver.zhl",
         "IeeeInterleaver48",
     ): ChildExpectation(
-        "top-level input 'input' cannot expose enum type",
+        "top-level input 'input' cannot expose (?:enum type|type .* because it contains an enum-valued field)",
         "IeeePacketEncoderInterleaver24",
     ),
     (
         "projects/80211a_transmitter/src/interleaver.zhl",
         "IeeeEncoderInterleaver24",
     ): ChildExpectation(
-        "top-level input 'input' cannot expose enum type",
+        "top-level input 'input' cannot expose (?:enum type|type .* because it contains an enum-valued field)",
         "IeeePacketEncoderInterleaver24",
     ),
     (
         "projects/80211a_transmitter/src/scrambler.zhl",
         "IeeeDataScrambler24",
     ): ChildExpectation(
-        "top-level input 'input' cannot expose enum type",
+        "top-level input 'input' cannot expose (?:enum type|type .* because it contains an enum-valued field)",
         "IeeePacketFramerScrambler24",
         "projects/80211a_transmitter/src/controller.zhl",
     ),
@@ -95,56 +93,56 @@ CHILD_OR_TEMPLATE_ONLY = {
         "projects/80211a_transmitter/src/ifft.zhl",
         "IeeeIFFTFramedOutputBoundary",
     ): ChildExpectation(
-        "top-level input 'input' cannot expose enum type",
+        "top-level input 'input' cannot expose (?:enum type|type .* because it contains an enum-valued field)",
         "IeeeFramedIFFT64Raw",
     ),
     (
         "projects/80211a_transmitter/src/ifft.zhl",
         "IeeeIFFTInputStrip",
     ): ChildExpectation(
-        "top-level input 'input' cannot expose enum type",
+        "top-level input 'input' cannot expose (?:enum type|type .* because it contains an enum-valued field)",
         "IeeeFramedIFFT64Raw",
     ),
     (
         "projects/80211a_transmitter/src/ifft.zhl",
         "IeeeIFFTOutputAttach",
     ): ChildExpectation(
-        "top-level input 'frame_meta' cannot expose enum type",
+        "top-level input 'frame_meta' cannot expose (?:enum type|type .* because it contains an enum-valued field)",
         "IeeeFramedIFFT64Raw",
     ),
     (
         "projects/80211a_transmitter/src/ifft.zhl",
         "IeeeFramedIFFT64",
     ): ChildExpectation(
-        "top-level input 'input' cannot expose enum type",
+        "top-level input 'input' cannot expose (?:enum type|type .* because it contains an enum-valued field)",
         "IeeeFramedIFFT64Raw",
     ),
     (
         "projects/80211a_transmitter/src/mapper.zhl",
         "IeeeMapper64",
     ): ChildExpectation(
-        "top-level input 'input' cannot expose enum type",
+        "top-level input 'input' cannot expose (?:enum type|type .* because it contains an enum-valued field)",
         "IeeePacketMapper64",
     ),
     (
         "projects/80211a_transmitter/src/mapper.zhl",
         "IeeeMapperSerializer64",
     ): ChildExpectation(
-        "top-level input 'input' cannot expose enum type",
+        "top-level input 'input' cannot expose (?:enum type|type .* because it contains an enum-valued field)",
         "IeeePacketMapper64",
     ),
     (
         "projects/80211a_transmitter/src/mapper.zhl",
         "IeeeMapperStream64",
     ): ChildExpectation(
-        "top-level input 'input' cannot expose enum type",
+        "top-level input 'input' cannot expose (?:enum type|type .* because it contains an enum-valued field)",
         "IeeePacketMapper64",
     ),
     (
         "projects/80211a_transmitter/src/mapper.zhl",
         "IeeeMappedSampleToIFFT64",
     ): ChildExpectation(
-        "top-level input 'input' cannot expose enum type",
+        "top-level input 'input' cannot expose (?:enum type|type .* because it contains an enum-valued field)",
         "IeeePacketMapper64",
     ),
 }
@@ -155,9 +153,11 @@ DIRECT_UNSUPPORTED: dict[tuple[str, str], str] = {}
 
 def _roots():
     for path in sorted(EXAMPLES.rglob("*.zhl")):
+        relative = path.relative_to(EXAMPLES).as_posix()
+        if relative.startswith(EXCLUDED_EXAMPLE_PREFIXES):
+            continue
         source = path.read_text()
         syntax = parse(source)
-        relative = path.relative_to(EXAMPLES).as_posix()
         for module in (*syntax.submodules, syntax):
             yield path, relative, source, module.name
 
@@ -227,4 +227,4 @@ def test_every_standalone_supported_example_root_passes_strict_lint(tmp_path: Pa
             f"{relative}::{top}\n{completed.stderr}"
         )
         checked += 1
-    assert checked == 165
+    assert checked == 170

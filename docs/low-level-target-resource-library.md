@@ -5,8 +5,10 @@ This low-level layer describes legal resources and physical bindings; it does
 not itself select a design. The separate accepted
 [high-level target-aware planner](high-level-target-aware-architecture-pipeline-planner.md)
 automatically selects the bounded symmetric-FIR and signed-product candidates
-documented there. General graph covering and automatic storage/clock-resource
-planning remain outside the supported slice.
+documented there. Bounded ported-memory planning can match an exact advertised
+memory shape, replicate 1R1W resources for 1W+nR, or use a bounded register/mux
+fallback. Automatic banking and clock-resource planning remain outside the
+supported slice.
 
 ## Implemented model
 
@@ -101,6 +103,25 @@ write-first bypass across independent addresses is not the selected primitive's
 simple-dual-port collision contract.  The validation fixture therefore uses
 the already-defined read-first semantics; the compiler did not weaken or
 silently reinterpret the original mode.
+
+Named true-dual selection is a distinct RTL shape. Generic same-clock
+multiport storage retains one deterministic process, but the selected Xilinx
+2RW route requires `contents preserve` and emits one physical process per
+port. A 1024x9 fixture with uniform `init 0x12` was synthesized by Vivado
+2024.2 for `xc7z030ffg676-1`; Vivado explicitly recognized a true-dual RAM
+template and produced one RAMB18E1 (17 LUT / 20 FF around the RAM for reset,
+enable, and same-address priority logic). The corresponding generic
+independent-clock 1W1R structural witness also produced one RAMB18E1. That
+inference result does not upgrade its cross-clock collision model to an exact
+vendor guarantee.
+
+The live resource capability schema now distinguishes `simple_dual`,
+same-clock `true_dual`, and independent-clock `1W1R`; it also separates
+same-clock from cross-clock collision guarantees. A legacy `true_dual` flag is
+not sufficient evidence for an asynchronous collision contract. The current
+7-Series data intentionally advertises no exact cross-clock old/new guarantee,
+so strict target-required `async_mem` publication fails closed while generic
+direct-SV remains an explicitly labelled structural digital model.
 
 ## Intel and ASIC status
 

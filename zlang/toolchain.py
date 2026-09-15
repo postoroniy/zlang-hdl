@@ -63,7 +63,7 @@ def attribute_combined_generated_diagnostic(
     unique = {
         (
             item.semantic_identity,
-            item.source_origin.render(),
+            item.source_origin,
         ): item
         for item in matches
     }

@@ -4,31 +4,11 @@ from pathlib import Path
 import os
 import shutil
 import subprocess
-import tempfile
-from dataclasses import replace
 
 import pytest
 
 from zlang import compile_source
 from zlang.backend.systemverilog import emit_artifact as emit_systemverilog_artifact
-from zlang.backend.manifest import BackendArtifact
-from zlang.backend.manifest import publish_artifact
-from zlang.equivalence import (
-    artifact_hash,
-    emit_miter,
-    emit_reference_model,
-    formal_tools_available,
-    make_equivalence_property,
-    publish_bindings,
-    run_equivalence_formal,
-)
-from zlang.ir.equivalence import (
-    BindingMap,
-    BindingSide,
-    EquivalenceMode,
-    EquivalenceStatus,
-)
-from zlang.simulate import simulate
 from zlang.toolchain import lint_with_verilator
 
 

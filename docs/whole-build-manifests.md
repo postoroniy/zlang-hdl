@@ -26,8 +26,8 @@ spans and other attribution-only metadata. An optional canonical content hash
 may accompany either reference. The high-level and selected identities are not
 backend artifacts, RTL hashes, or synthesis-plan identities.
 
-Each backend is planned independently from the same selected-IR identity. Its
-record keeps these identities separate:
+The production direct-SystemVerilog backend is planned from the selected-IR
+identity. Its record keeps these identities separate:
 
 - the normalized backend plan identity;
 - the backend `build_identity`;
@@ -36,8 +36,7 @@ record keeps these identities separate:
 - an optional source-map hash.
 
 This distinction prevents a physical direct-SystemVerilog resource plan from
-being attributed to Clash, and prevents generated RTL from being mistaken for
-the selected semantic design. Backend states are explicit: `selected`,
+being mistaken for the selected semantic design. Backend states are explicit: `selected`,
 `generic_fallback`, `unsupported`, `failed`, or `not_requested`. A selected or
 fallback build must publish an artifact, its manifest version, and at least one
 content-addressed output. Unsupported, failed, and unrequested plans cannot
@@ -75,26 +74,20 @@ compatibility exception is `--systemverilog` plus
 the same bytes. Physical paths protect the workspace from overwrite; they never
 enter semantic, artifact, cache, or whole-build identity.
 
-Companions remain associated with the backend that needs them. For example, an
-initialized ROM image is not hidden inside the RTL identity: the image is a
-separate content-addressed companion and can be validated beside direct-SV
-`$readmemb` output or in the Clash compilation workspace.
+Companions remain associated with the backend product that needs them. For
+example, an initialized ROM image is not hidden inside the RTL identity: the
+image is a separate content-addressed companion validated beside direct-SV
+`$readmemb` output.
 
 The CLI acquires the root source once as raw UTF-8 bytes. Semantic compilation
 and manifest hashing use that same snapshot; CRLF is preserved, and a physical
-source change before final publication rejects the manifest. Clash likewise
-generates RTL in a fresh staging directory, so pre-existing Verilog below the
-requested output directory is neither claimed nor hashed as a current result.
-For a `--verilog-dir`-only build, the exact generated Clash source is retained
-as a backend product so the `BackendArtifact` text hash remains verifiable.
-Generated RTL and ROM companions are then published through one relative-path
+source change before final publication rejects the manifest. Generated RTL and
+ROM companions are published through one relative-path
 publisher: every directory and leaf is opened without following symlinks, the
 payload is fsynced in a same-directory exclusive temporary, renamed atomically,
 and revalidated by content. Symlinked or non-regular destinations fail without
-writing through them. Because Clash emits relative `$readmemb` references, the
-same content-addressed image is recorded at the output root and beside each
-generated Verilog module directory; all copies retain one semantic companion
-identity and are hash-validated independently.
+writing through them. Every published companion retains one semantic identity
+and is hash-validated independently.
 
 Generated source maps and rendered reports are content-validated in the same
 way. A report's stable semantic identity is derived from its report ID, kind,
@@ -130,7 +123,8 @@ mode, and depth:
 
 - M35 records safety-property execution or an explicit unexecuted property;
 - M36 records selected architecture versus semantic-reference equivalence;
-- M38 records an executed Clash/direct-SV artifact pair;
+- historical M38 records retain an executed Clash/direct-SV artifact pair but
+  the current compiler does not create one;
 - M39 records formal candidate eligibility without promoting an unexecuted
   route into proof evidence.
 
@@ -168,8 +162,8 @@ remain outside `run_identity`.
 
 A joint `--verify` plus non-`off` formal-policy run publishes
 `zlang-compiler-verification-report-v1`. That wrapper links the raw v7 report to
-the exact compiler execution plan and separately typed selected-candidate
-M36/M38 reports. Candidate reports retain deterministic per-route work roots and
+the exact compiler execution plan and separately typed selected-candidate M36
+reports. Candidate reports retain deterministic per-route work roots and
 the discovered tool snapshot when execution needed tool discovery; exact
 in-session M39 reuse also carries its recorded work root. Physical paths remain
 operational metadata outside every semantic, run, evidence, and cache identity.
@@ -188,13 +182,13 @@ first makes its dependent safety result vacuous/unknown and therefore blocks
 proof. The merged report retains both the bounded cover evidence and any proved
 safety results. This sequencing is part of execution, not bundle identity.
 
-A safety counterexample or an actually executed joint M36/M38 counterexample is
+A safety counterexample or an executed joint M36 counterexample is
 a verification failure. Missing/unknown/vacuous M35/source evidence or an
 unsatisfied requested proof is incomplete. A bounded cover miss is non-failing,
 and unavailable advisory candidate evidence neither changes M39 eligibility nor
 makes an otherwise complete joint run incomplete.
 
-Likewise, merely detecting Clash, Verilator, Yosys, SymbiYosys, or Z3 does not
+Likewise, merely detecting Verilator, Yosys, SymbiYosys, or Z3 does not
 create a tool-execution record. A tool record represents an actual normalized
 invocation and includes its role, exact reported version, path-free command
 shape, result status and exit code, logical outputs, and proof mode/depth when
@@ -203,8 +197,9 @@ build.
 
 ## Counterexample and source attribution
 
-Failed M35, M36, and M38 results retain their typed counterexample metadata and
-ZLang `SourceOrigin`. The evidence identity contains a SHA-256 digest of the
+Failed current M35 and M36 results retain their typed counterexample metadata
+and ZLang `SourceOrigin`. Historical M38 results remain readable. The evidence
+identity contains a SHA-256 digest of the
 complete counterexample data, including the raw trace, while human/JSON report
 details include concise metadata such as the property, cycle, semantic signal,
 backend pair, and artifact hashes. The potentially large raw trace is not

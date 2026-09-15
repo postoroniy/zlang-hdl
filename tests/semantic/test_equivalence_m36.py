@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 from zlang.compiler import compile_source
 from zlang.equivalence import (
-    artifact_hash, emit_miter, emit_miter_with_metadata, emit_reference_model,
+    emit_miter, emit_miter_with_metadata, emit_reference_model,
     make_equivalence_property, publish_bindings, run_equivalence_formal,
     unavailable_result,
 )

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 from pathlib import Path
 import shutil
 import subprocess
@@ -9,7 +8,6 @@ import pytest
 
 from zlang.backend.systemverilog.emitter import (
     emit as emit_systemverilog,
-    emit_artifact as emit_systemverilog_artifact,
 )
 from zlang.compiler import compile_source
 

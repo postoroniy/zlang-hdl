@@ -20,7 +20,7 @@ from zlang.formal_artifact_provider import (
 from zlang.ir.equivalence import EquivalenceCounterexample
 from zlang.ir.formal import Counterexample, FormalStatus, ProofMode
 from zlang.ir.module import dependency_context_identity
-from zlang.source import SourceOrigin
+from zlang.source import SourceOrigin, source_origin_to_data
 
 
 _CACHE_RESULT_SCHEMA = "zlang-formal-proof-cache-result-v3"
@@ -590,8 +590,8 @@ class _CachedProof:
             "backend_identity": self.backend_identity,
             "reference_artifact_hash": self.reference_artifact_hash,
             "implementation_artifact_hash": self.implementation_artifact_hash,
-            "source_origin": _origin_to_data(self.source_origin),
-            "selected_origin": _origin_to_data(self.selected_origin),
+            "source_origin": source_origin_to_data(self.source_origin),
+            "selected_origin": source_origin_to_data(self.selected_origin),
         }
 
 
@@ -627,10 +627,6 @@ def _required_string(value: object, label: str) -> str:
     if not result:
         raise FormalExplorationError(f"cached proof {label} must not be empty")
     return result
-
-
-def _origin_to_data(value: SourceOrigin | None) -> dict[str, object] | None:
-    return None if value is None else value.to_data()
 
 
 def _origin_from_data(value: object, label: str) -> SourceOrigin | None:
@@ -920,9 +916,9 @@ def _cached_proof_mismatch(
             or cache_identity.get("artifact_hash")
         ),
     }
-    for field, expected_value in expected.items():
-        if expected_value is not None and getattr(proof, field) != expected_value:
-            return f"cached {field.replace('_', ' ')} does not match route"
+    for field_name, expected_value in expected.items():
+        if expected_value is not None and getattr(proof, field_name) != expected_value:
+            return f"cached {field_name.replace('_', ' ')} does not match route"
     expected_mode = (
         ProofMode.PROVE
         if config.policy is FormalPolicy.REQUIRED_PROVEN

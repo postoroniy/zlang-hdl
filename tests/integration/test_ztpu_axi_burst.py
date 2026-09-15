@@ -14,7 +14,6 @@ import subprocess
 
 import pytest
 
-from zlang.backend.manifest import BackendArtifact
 from zlang.backend.systemverilog import (
     emit_artifact as emit_sv_artifact,
     emit_formal_artifact,
@@ -26,7 +25,6 @@ from zlang.formal import (
     emit_harness,
     run_verilog_formal,
 )
-from zlang.ir.equivalence import SignalRole
 from zlang.ir.formal import FormalStatus, PropertyKind
 from zlang.ir.interfaces import InterfaceProtocol
 from zlang.ir.module import PortDirection

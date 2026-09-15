@@ -8,7 +8,6 @@ import subprocess
 
 import pytest
 
-from zlang.backend.manifest import BackendArtifact
 from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
 from zlang.compiler import compile_source
 from zlang.ir.hierarchy import build_hierarchy_index
@@ -145,7 +144,8 @@ int main(int argc,char**argv) {
 def _run_verilator(tmp_path: Path, rtl: tuple[Path, ...]) -> None:
     harness = tmp_path / "test.cpp"
     harness.write_text(HARNESS)
-    environment = os.environ.copy(); environment["CCACHE_DISABLE"] = "1"
+    environment = os.environ.copy()
+    environment["CCACHE_DISABLE"] = "1"
     completed = subprocess.run(
         (
             "verilator", "--cc", "--exe", "--build",

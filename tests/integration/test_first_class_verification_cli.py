@@ -7,7 +7,6 @@ import shutil
 
 import pytest
 
-from zlang.backend.systemverilog import emit_experimental
 from zlang.build_manifest import WholeBuildManifest
 import zlang.cli as cli_module
 from zlang.cli import main as compiler_main

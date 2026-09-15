@@ -10,7 +10,7 @@ from typing import Iterable
 
 from zlang.ast import nodes as ast
 from zlang.ir import expressions as expr
-from zlang.ir.module import Assignment, Module, NextAssignment, PortDirection, Register
+from zlang.ir.module import Assignment, Module, NextAssignment, Register
 from zlang.ir.target import (
     ArchitectureTemplate,
     DedicatedPhysicalEdge,
@@ -31,7 +31,6 @@ from zlang.ir.types import FixedType, SIntType, UFixedType, UIntType, VecType
 from zlang.ir.timing import TimingKnowledge
 from zlang.ir.signed_reductions import (
     ProductTermSign,
-    SignedProductReduction,
     expression_semantic_identity,
     recognize_signed_product_reduction,
 )
@@ -631,6 +630,17 @@ def _map_synchronous_memory(module, target, family, resources, template, policy)
     resource = matches[0]
     validate_inventory(target, ((resource.identity, 1),))
     memory = module.memories[0]
+    named_true_dual = (
+        memory.ported
+        and not memory.async_memory
+        and len(memory.ports) == 2
+        and all(port.kind.value == "read_write" for port in memory.ports)
+    )
+    if memory.ported and not named_true_dual:
+        raise TargetArchitectureError(
+            "selected synchronous-memory architecture supports legacy simple-dual "
+            "or exact same-clock two-read/write port shape only"
+        )
     if memory.scheduled:
         raise TargetArchitectureError(
             "target memory mapping does not support rule-owned scheduled memory"
@@ -639,7 +649,14 @@ def _map_synchronous_memory(module, target, family, resources, template, policy)
         raise TargetArchitectureError(
             "target memory mapping supports only one-cycle synchronous reads"
         )
-    if (
+    if named_true_dual:
+        if memory.contents_reset.value != "preserve":
+            raise TargetArchitectureError(
+                "native true-dual block-memory mapping requires "
+                "reset-preserved contents; clearing every cell would prevent "
+                "exact block-memory inference"
+            )
+    elif (
         memory.contents_reset.value != "clear"
         or memory.read_data_reset.value != "clear"
     ):
@@ -647,13 +664,37 @@ def _map_synchronous_memory(module, target, family, resources, template, policy)
             "target memory mapping does not advertise reset-preserved contents "
             "or read data"
         )
-    if memory.write_mask_width is not None:
+    if memory.write_mask_width is not None or any(
+        port.write_mask is not None for port in memory.ports
+    ):
         raise TargetArchitectureError(
             "target memory mapping does not support byte write masks"
         )
+    port_mode = "true_dual" if named_true_dual else "simple_dual"
     validate_memory_configuration(
-        resource, width=memory.element_type.width, depth=memory.depth, port_mode="simple_dual",
+        resource, width=memory.element_type.width, depth=memory.depth,
+        port_mode=port_mode,
     )
+    if named_true_dual:
+        capabilities = dict(resource.capabilities)
+        if memory.initial_value is not None and not capabilities.get(
+            "initialization", ""
+        ):
+            raise TargetArchitectureError(
+                f"memory resource '{resource.identity}' does not advertise "
+                "initial-content support"
+            )
+        collision_modes = set(
+            capabilities.get(
+                "same_clock_collision",
+                capabilities.get("read_during_write", ""),
+            ).split(".")
+        )
+        if memory.collision.value not in collision_modes:
+            raise TargetArchitectureError(
+                f"memory resource '{resource.identity}' does not support "
+                f"same-clock collision mode '{memory.collision.value}'"
+            )
     configuration = validate_pipeline_configuration(
         resource, template.pipeline_configuration or "core_registered",
     )
@@ -663,18 +704,51 @@ def _map_synchronous_memory(module, target, family, resources, template, policy)
             f"architecture '{template.identity}' latency {template.latency} does not match "
             f"memory/configuration latency {total_latency}"
         )
-    node = ResourceInstance(
-        "memory0", resource.identity, resource.operation,
-        tuple((*configuration.physical_settings,
-               ("pipeline_configuration", configuration.name),
-               ("depth", memory.depth), ("width", memory.element_type.width))),
-        (
+    semantic_mappings = (
+        tuple(
+            mapping
+            for port in memory.ports
+            for mapping in (
+                SemanticPortMapping(
+                    f"{port.name}.address",
+                    f"memory:{memory.name}:port:{port.name}:address",
+                    port.address,
+                ),
+                SemanticPortMapping(
+                    f"{port.name}.read_enable",
+                    f"memory:{memory.name}:port:{port.name}:read_enable",
+                    port.read_enable,
+                ),
+                SemanticPortMapping(
+                    f"{port.name}.write_enable",
+                    f"memory:{memory.name}:port:{port.name}:write_enable",
+                    port.write_enable,
+                ),
+                SemanticPortMapping(
+                    f"{port.name}.write_data",
+                    f"memory:{memory.name}:port:{port.name}:write_data",
+                    port.write_data,
+                ),
+                SemanticPortMapping(
+                    f"{port.name}.read_data",
+                    f"memory:{memory.name}:port:{port.name}:read_data",
+                ),
+            )
+        )
+        if named_true_dual else (
             SemanticPortMapping("read_address", f"memory:{memory.name}:read_address", memory.read_address),
             SemanticPortMapping("write_enable", f"memory:{memory.name}:write_enable", memory.write_enable),
             SemanticPortMapping("write_address", f"memory:{memory.name}:write_address", memory.write_address),
             SemanticPortMapping("write_data", f"memory:{memory.name}:write_data", memory.write_data),
             SemanticPortMapping("read_data", f"memory:{memory.name}:read_data"),
-        ),
+        )
+    )
+    node = ResourceInstance(
+        "memory0", resource.identity, resource.operation,
+        tuple((*configuration.physical_settings,
+               ("pipeline_configuration", configuration.name),
+               ("depth", memory.depth), ("width", memory.element_type.width))),
+        semantic_mappings,
     )
     return ImplementationGraph(
         semantic_region_identity=sha256(_semantic_payload(memory).encode()).hexdigest(),
@@ -686,7 +760,7 @@ def _map_synchronous_memory(module, target, family, resources, template, policy)
         realization_backend="direct_systemverilog",
         latency_knowledge=TimingKnowledge.KNOWN.value,
         legality_evidence=(
-            f"single synchronous memory {memory.depth}x{memory.element_type.width}",
+            f"{port_mode} synchronous memory {memory.depth}x{memory.element_type.width}",
             f"pipeline configuration {configuration.name}",
         ),
         architecture_template_hash=template.source_hash,
@@ -1305,6 +1379,16 @@ def _attach_scheduled_value_graph(
     scheduled = plans[0].scheduled_value_graph
     if scheduled is None:
         return graph
+    if scheduled.clock_domain is None and len(module.clock_domains) == 1:
+        # Implementation-intent regions predate explicit state ownership and
+        # therefore do not carry a source-level Pipeline node from which to
+        # copy the domain.  Their output boundary still resolves the unique
+        # physical domain.  Attach it before resource covering so physical,
+        # evidence and cache identities cannot be reused after moving the
+        # region to another clock.
+        scheduled = replace(
+            scheduled, clock_domain=module.clock_domains[0].clock
+        )
     # A natural resource configuration which exceeds an exact source latency
     # is retained only so the target report can explain its rejection.  It is
     # not a complete/publishable schedule and must not borrow the source
@@ -1373,6 +1457,7 @@ def _attach_scheduled_value_graph(
             item.identity for item in timing.compensation_delays
         ) if timing else (),
         rewrite_certificate=scheduled.rewrite_certificate,
+        clock_domain=scheduled.clock_domain,
     )
     return replace(graph, scheduled_value_graph=physical)
 

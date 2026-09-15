@@ -111,6 +111,7 @@ class MemoryRef(TracedExpression):
     memory: str
     signal: MemorySignal
     type: HardwareType
+    port: str | None = None
 
 
 @dataclass(frozen=True)
@@ -566,6 +567,7 @@ class InstanceOutputRef(TracedExpression):
     instance: str
     port: str
     type: HardwareType
+    domain: str | None = None
 
 
 @dataclass(frozen=True)
@@ -820,6 +822,7 @@ class Pipeline(TracedExpression):
     instance: int
     type: HardwareType
     pipeline_plan: PipelinePlan | None = None
+    domain: str | None = None
 
 
 def sequential_stage_count(expression: Delay | Pipeline) -> int:

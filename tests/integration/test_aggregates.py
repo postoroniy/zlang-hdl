@@ -1,6 +1,4 @@
 from pathlib import Path
-import subprocess
-import tempfile
 import unittest
 
 from zlang.compiler import compile_source

@@ -2,7 +2,7 @@ from pathlib import Path
 import unittest
 
 from zlang.ir.expressions import Call, FieldAccess, ParameterRef, VectorIndex
-from zlang.ir.types import BitType, StructField, StructType, UIntType, VecType
+from zlang.ir.types import BitType, StructField, StructType, UIntType
 from zlang.parser import parse
 from zlang.semantic import SemanticError, analyze
 

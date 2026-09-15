@@ -368,7 +368,6 @@ module tb;
             "y=quantize<SF8.8>(1000.0){round floor overflow saturate} }"
         ).ir
         left = contextual.assignments[0].expression
-        right = explicit.assignments[0].expression
         self.assertIsInstance(left, ir_expr.FixedConvert)
         self.assertEqual(left.rational_denominator, 10)
         self.assertEqual(simulate(contextual)["y"], 26)

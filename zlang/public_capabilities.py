@@ -100,7 +100,7 @@ class PublicCapabilityRegistry:
 
 
 CAPABILITY_REGISTRY = PublicCapabilityRegistry(
-    schema_version=25,
+    schema_version=27,
     keywords=(
         "import", "module", "extern", "model", "struct", "enum", "union", "type", "fn", "operator", "equiv",
         "protocol", "role", "channel", "member", "resource", "target", "device",
@@ -117,8 +117,9 @@ CAPABILITY_REGISTRY = PublicCapabilityRegistry(
         "response_buffer", "adapter", "crossing", "async_fifo", "arbiter", "policy",
         "grant", "disable", "iff", "csr", "sticky", "rule", "when", "priority",
         "fsm", "hold",
-        "fifo", "memory", "mem", "rom", "read_latency", "init", "collision",
-        "contents", "read_data", "reg", "delay",
+        "fifo", "memory", "mem", "async_mem", "rom", "read_latency", "init",
+        "collision", "read_port", "write_port", "read_write_port",
+        "write_priority", "contents", "read_data", "reg", "delay",
         "timing",
         "pipeline", "choice", "auto", "explore", "allow", "avoid", "require",
         "minimize", "maximize", "generate", "map", "sum", "reduce", "dot", "quantize",
@@ -128,7 +129,7 @@ CAPABILITY_REGISTRY = PublicCapabilityRegistry(
     types=(
         "bit", "char", "string", "uint", "sint", "bits", "uN", "sN", "fixed", "ufixed",
         "fixed_sat", "ufixed_sat", "SF", "UF", "SF_Sat", "UF_Sat", "vec",
-        "fifo", "mem", "rom", "wire", "rv", "credit", "packet", "vc_credit",
+        "fifo", "mem", "async_mem", "rom", "wire", "rv", "credit", "packet", "vc_credit",
         "request_response",
     ),
     intrinsics=(
@@ -147,7 +148,8 @@ CAPABILITY_REGISTRY = PublicCapabilityRegistry(
         "rw", "ro", "wo", "w1c", "pulse", "reserved", "in_order", "out_of_order",
         "fixed_priority", "round_robin", "beat", "packet", "sync_level",
         "pulse_toggle", "handshake", "async_fifo", "rv_to_credit", "credit_to_rv",
-        "read_first", "write_first", "clear", "preserve", "hardware", "software", "mul_add",
+        "read_first", "write_first", "old", "new", "no_change", "clear",
+        "preserve", "hardware", "software", "mul_add",
         "multiply_add", "dsp_mac", "optional_yosys", "reduction", "reassociate",
         "auto", "nearest_even", "toward_zero", "floor", "away_zero", "wrap",
         "saturate", "lut", "ff", "dsp", "bram", "latency", "throughput", "ii",
@@ -254,7 +256,7 @@ CAPABILITY_REGISTRY = PublicCapabilityRegistry(
             ),
         ),
         PublicCapability(
-            "sequential-state", "single clock domain", "supported", "supported",
+            "sequential-state", "explicit per-state clock domain", "supported", "supported",
             "supported", "supported",
             "existing M35 register/rule families retain one outer rule-fire observation",
             CapabilityWitness("examples/all_syntax.zhl", "VectorStateUpdateSyntax"),
@@ -265,10 +267,12 @@ CAPABILITY_REGISTRY = PublicCapabilityRegistry(
                 "an illegal selected FIFO/memory action suppresses the complete "
                 "group without readiness-selected fallback; active output writes "
                 "participate in whole-rule conflict scheduling",
+                "multiple domains have independent schedulers; cross-domain "
+                "atomicity is never inferred",
             ),
         ),
         PublicCapability(
-            "physical-clock-reset", "single physical domain", "bounded",
+            "physical-clock-reset", "one or more explicit physical domains", "bounded",
             "supported", "supported", "supported",
             (
                 "existing formal routes support exact rising/falling, "
@@ -279,39 +283,52 @@ CAPABILITY_REGISTRY = PublicCapabilityRegistry(
             (
                 "default synchronous active-high, raw asynchronous compatibility, "
                 "or asynchronous assertion with fixed two-edge synchronized release; "
-                "no power-on reset, implicit reset crossing, or multi-domain async reset",
+                "one reset per clock, one conditioner per synchronized-release "
+                "domain; no power-on reset or implicit reset crossing",
             ),
         ),
         PublicCapability(
-            "encoded-enums-and-fsm", "single clock domain", "supported", "supported",
+            "multi-clock-stateful-logic", "explicit per-entity clock ownership",
+            "bounded", "supported", "supported", "supported",
+            "source goals use exact per-goal domains; automatic state families remain bounded",
+            CapabilityWitness(
+                "examples/multi_clock_stateful.zhl", "MultiClockStateful"
+            ),
+            (
+                "dynamic provenance cannot cross domains without sync_level, "
+                "pulse_toggle, handshake, or async_fifo; no cross-clock atomicity",
+            ),
+        ),
+        PublicCapability(
+            "encoded-enums-and-fsm", "explicit FSM clock domain", "supported", "supported",
             "supported", "supported", "no enum/FSM-specific property family",
             CapabilityWitness("examples/all_syntax.zhl", "FsmSyntax"),
             ("FSM syntax lowers to enum state plus ordinary rules",),
         ),
         PublicCapability(
-            "vector-state-update", "single clock domain", "bounded", "supported",
+            "vector-state-update", "one resolved domain per register", "bounded", "supported",
             "supported", "supported", "register safety where observable",
             CapabilityWitness("examples/all_syntax.zhl", "VectorStateUpdateSyntax"),
             ("one range-proven element write; no nested paths or runtime-selected instances",),
         ),
         PublicCapability(
-            "fifo-storage", "single clock domain", "supported", "supported",
+            "fifo-storage", "one resolved domain per FIFO", "supported", "supported",
             "supported", "supported", "existing M35 FIFO family",
             CapabilityWitness("examples/all_syntax.zhl", "FifoSyntax"),
             ("bounded synchronous FIFO semantics",),
         ),
         PublicCapability(
-            "writable-memory", "single clock domain", "bounded", "supported",
+            "writable-memory", "explicit domain per logical port", "bounded", "supported",
             "supported", "supported", "no memory-specific M35 family",
-            CapabilityWitness("examples/ztpu_async_memory.zhl", "ZtpuAsyncMemory"),
+            CapabilityWitness("examples/all_syntax.zhl", "PortedMemorySyntax"),
             (
-                "arbitrary-width bit-packable 1R1W; global reads may be "
-                "combinational or one-cycle; byte masks use ceil(W/8) lanes "
-                "and clip the final high lane; "
-                "scheduled reads remain one-cycle; cell and read-result reset "
-                "policies are independent; no initialized or native multiport "
-                "writable memory; bounded replicated/banked ports are ordinary "
-                "source hierarchy",
+                "legacy arbitrary-width 1R1W remains compatible; named same-clock "
+                "ports support up to eight logical ports with explicit collision "
+                "and write priority; 1W+nR uses coherent replication and bounded "
+                "multiwrite uses register/mux logic; async_mem is exactly 1W1R "
+                "across distinct domains with one read-domain cycle; byte masks "
+                "retain ceil(W/8) clipped-lane semantics; no mixed widths, async "
+                "2RW, ECC, or automatic banking",
             ),
         ),
         PublicCapability(
@@ -365,14 +382,21 @@ CAPABILITY_REGISTRY = PublicCapabilityRegistry(
         PublicCapability(
             "cdc", "multiple clock domains", "bounded", "supported",
             "supported", "supported", "no CDC proof family",
-            CapabilityWitness("examples/all_syntax.zhl", "CdcSyntax"),
-            ("only frozen sync_level, pulse_toggle, handshake, and async_fifo crossings",),
+            CapabilityWitness("examples/multi_clock_stateful.zhl", "StatefulSyncLevel"),
+            (
+                "only frozen sync_level, pulse_toggle, handshake, and async_fifo "
+                "crossings; ordinary destination-domain state may consume an "
+                "explicit scalar crossing",
+            ),
         ),
         PublicCapability(
-            "csr", "single clock domain", "supported", "supported",
+            "csr", "one resolved domain per shared access bank", "supported", "supported",
             "supported", "supported", "existing M35 CSR family",
             CapabilityWitness("examples/all_syntax.zhl", "CsrSyntax"),
-            ("source-authored bounded register-bank model",),
+            (
+                "source-authored bounded register-bank model; blocks sharing one "
+                "canonical access ABI must share one domain",
+            ),
         ),
         PublicCapability(
             "contracts", "verification", "supported", "supported",
@@ -594,10 +618,10 @@ CAPABILITY_REGISTRY = PublicCapabilityRegistry(
             "storage",
             "docs/syntax-support-matrix.md",
             (
-                "`fifo`, `memory`, initialized `rom`",
-                "global memory reads are zero- or one-cycle",
-                "optional `ceil(W/8)` byte write mask",
-                "cell and read-result reset are independently `clear`/`preserve`",
+                "`fifo`, `memory : mem<T,N>`",
+                "up to eight same-domain logical ports",
+                "Arbitrary positive bit-packable widths retain `ceil(W/8)` masks",
+                "independent cell/read-result reset policies",
             ),
         ),
         DocumentationRequirement(

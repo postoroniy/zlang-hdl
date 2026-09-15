@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING
 
 from zlang.ir.expressions import Expression, Reduce, ValueRange
 from zlang.ir.callables import (
-    CallableKind,
     CallableMetadata,
     stable_callee_identity,
 )
@@ -24,7 +23,7 @@ from zlang.ir.types import BitType, HardwareType
 from zlang.ir.types import EnumType, StructType, TaggedUnionType
 from zlang.ir.csr import CsrAccessInterface, CsrBlock
 from zlang.ir.storage import Fifo, Memory, Rom
-from zlang.ir.cdc import ClockDomain, Crossing
+from zlang.ir.cdc import ClockDomain, Crossing, clock_domain_data
 from zlang.ir.arbitration import PacketArbiter
 from zlang.ir.verification import (
     Contract,
@@ -75,13 +74,34 @@ def default_selected_ir_identity(module: object) -> str:
 
     name = str(getattr(module, "name"))
     dependency_identity = dependency_context_identity(module)
-    if dependency_identity is None:
+    clock_domains = tuple(getattr(module, "clock_domains", ()))
+    is_domain_sensitive = len(clock_domains) > 1
+    if dependency_identity is None and not is_domain_sensitive:
         return f"selected:{name}"
     return "selected:" + stable_digest(
         {
-            "schema": "zlang-selected-ir-v1",
+            "schema": "zlang-selected-ir-v2",
             "module": name,
             "dependency_identity": dependency_identity,
+            "clock_domains": (
+                tuple(clock_domain_data(item) for item in clock_domains)
+                if is_domain_sensitive else ()
+            ),
+            "state_domains": (
+                tuple(
+                    (kind, item.name, getattr(item, "domain", None))
+                    for kind, collection in (
+                        ("register", getattr(module, "registers", ())),
+                        ("rule", getattr(module, "rules", ())),
+                        ("fifo", getattr(module, "fifos", ())),
+                        ("memory", getattr(module, "memories", ())),
+                        ("rom", getattr(module, "roms", ())),
+                        ("csr", getattr(module, "csr_blocks", ())),
+                    )
+                    for item in collection
+                )
+                if is_domain_sensitive else ()
+            ),
         }
     )
 
@@ -784,6 +804,7 @@ class Rule:
     name: str
     guard: Expression
     actions: tuple[NextAssignment, ...]
+    domain: str | None = None
 
 
 @dataclass(frozen=True)
@@ -939,6 +960,23 @@ class Module:
         validate_verification_overlay(self.verification_scopes)
         for domain in self.clock_domains:
             domain.validate()
+        if len(self.clock_domains) > 1:
+            known_domains = {domain.clock for domain in self.clock_domains}
+            for kind, collection in (
+                ("register", self.registers),
+                ("rule", self.rules),
+                ("FIFO", self.fifos),
+                ("memory", self.memories),
+                ("ROM", self.roms),
+                ("CSR block", self.csr_blocks),
+            ):
+                for item in collection:
+                    owner = getattr(item, "domain", None)
+                    if owner not in known_domains:
+                        raise ValueError(
+                            f"multi-clock module {kind} '{item.name}' requires "
+                            "one valid clock-domain identity"
+                        )
         validate_elastic_module_regions(
             self.elastic_pipeline_regions,
             self.ports,
@@ -1041,3 +1079,19 @@ class Module:
         """Return the backend-independent always-leaf public top contract."""
         from zlang.ir.top_abi import build_top_physical_abi
         return build_top_physical_abi(self)
+
+
+def reset_for_clock(module: Module, clock: str | None) -> str | None:
+    """Resolve the reset owned by one physical clock in ``module``.
+
+    The legacy module-level clock/reset pair remains the fallback only for its
+    exact clock.  Keeping this lookup here prevents ABI and artifact publishers
+    from developing subtly different multi-clock reset projections.
+    """
+
+    if clock is None:
+        return None
+    return next(
+        (domain.reset for domain in module.clock_domains if domain.clock == clock),
+        module.reset if clock == module.clock else None,
+    )

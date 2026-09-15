@@ -50,6 +50,7 @@ from zlang.ir.hierarchy import (
 )
 from zlang.ir.constants import ConstantExpressionError, constant_runtime_value
 from zlang.ir.callables import (
+    CallableKind,
     CallableExpansionError,
     CallableReachabilityError,
     expand_callable_calls,
@@ -70,7 +71,9 @@ from zlang.ir.functional_regions import (
     build_exact_reduction_plan,
 )
 from zlang.common import stable_digest
+from zlang.analysis_needs import AnalysisNeeds
 from zlang.common.graph import reachable
+from zlang.diagnostics import DiagnosticEdit, DiagnosticFix
 from zlang.ir.signed_reductions import expression_semantic_identity
 from zlang.ir.traversal import (
     ExpressionTraversalPolicy,
@@ -113,6 +116,9 @@ from zlang.pipelines import (
     pipeline_constraints_from_unified,
 )
 from zlang.source import SourceOrigin, SourceSpan
+from zlang.completion_resolution import CompletionCandidate, CompletionScope
+from zlang.definition_resolution import DefinitionResolution, DefinitionTarget
+from zlang.signature_help_resolution import SignatureHelpCall, SignatureParameter
 from .errors import SemanticError
 from .public_timing import analyze_public_module_timing
 from zlang.dependencies import DependencyClosure, DependencyModuleIdentity
@@ -424,6 +430,7 @@ class _TypeResolver:
         tagged_unions: tuple[ast.TaggedUnionDecl, ...] = (),
     ) -> None:
         self._aliases: dict[str, ast.TypeSyntax] = {}
+        self._alias_declarations: dict[str, ast.TypeAlias] = {}
         self._structs: dict[str, ast.StructDecl] = {}
         self._enum_declarations: dict[str, ast.EnumDecl] = {}
         self._enums: dict[str, EnumType] = {}
@@ -434,10 +441,15 @@ class _TypeResolver:
         self._parameter_values = dict(parameter_values or {})
         self._type_bindings = dict(type_bindings or {})
         self._identity_namespace = identity_namespace
+        # Set by the owning semantic context once optional editor metadata is
+        # enabled.  Type resolution remains fully semantic; this reference is
+        # only an observational sink for authoritative definition records.
+        self._definition_context: _ExpressionContext | None = None
 
         for declaration in aliases:
             self._check_available(declaration.name, "type alias")
             self._aliases[declaration.name] = declaration.target
+            self._alias_declarations[declaration.name] = declaration
         for declaration in structs:
             self._check_available(declaration.name, "struct")
             self._structs[declaration.name] = declaration
@@ -553,6 +565,8 @@ class _TypeResolver:
             raise SemanticError(f"type name '{name}' is already a tagged union")
 
     def resolve(self, syntax: ast.TypeSyntax) -> HardwareType:
+        if self._definition_context is not None:
+            _record_named_type_definition(self._definition_context, syntax, self)
         if isinstance(syntax, ast.VectorTypeName):
             length = syntax.length
             if isinstance(length, str):
@@ -622,9 +636,12 @@ class _TypeResolver:
                  pyast.BitOr, pyast.BitXor),
             ):
                 left, right = visit(node.left), visit(node.right)
-                if isinstance(node.op, pyast.Add): return left + right
-                if isinstance(node.op, pyast.Sub): return left - right
-                if isinstance(node.op, pyast.Mult): return left * right
+                if isinstance(node.op, pyast.Add):
+                    return left + right
+                if isinstance(node.op, pyast.Sub):
+                    return left - right
+                if isinstance(node.op, pyast.Mult):
+                    return left * right
                 if isinstance(node.op, pyast.LShift):
                     if right < 0:
                         raise SemanticError(
@@ -641,9 +658,12 @@ class _TypeResolver:
                     if right == 0:
                         raise SemanticError(f"constant {description} division by zero")
                     return left % right
-                if isinstance(node.op, pyast.BitAnd): return left & right
-                if isinstance(node.op, pyast.BitOr): return left | right
-                if isinstance(node.op, pyast.BitXor): return left ^ right
+                if isinstance(node.op, pyast.BitAnd):
+                    return left & right
+                if isinstance(node.op, pyast.BitOr):
+                    return left | right
+                if isinstance(node.op, pyast.BitXor):
+                    return left ^ right
                 if right == 0:
                     raise SemanticError(
                         f"constant {description} division by zero"
@@ -750,16 +770,22 @@ class _TypeResolver:
     @staticmethod
     def _generic_parts(name: str) -> tuple[str, tuple[str, ...]] | None:
         start = name.find("<")
-        if start < 0 or not name.endswith(">"): return None
+        if start < 0 or not name.endswith(">"):
+            return None
         angle_depth, paren_depth, parts, begin = 0, 0, [], start + 1
         for index in range(start + 1, len(name) - 1):
             char = name[index]
-            if char == "<": angle_depth += 1
-            elif char == ">": angle_depth -= 1
-            elif char == "(": paren_depth += 1
-            elif char == ")": paren_depth -= 1
+            if char == "<":
+                angle_depth += 1
+            elif char == ">":
+                angle_depth -= 1
+            elif char == "(":
+                paren_depth += 1
+            elif char == ")":
+                paren_depth -= 1
             elif char == "," and angle_depth == 0 and paren_depth == 0:
-                parts.append(name[begin:index].strip()); begin = index + 1
+                parts.append(name[begin:index].strip())
+                begin = index + 1
         parts.append(name[begin:-1].strip())
         return name[:start], tuple(parts)
 
@@ -877,6 +903,15 @@ class _TypeResolver:
                 result = TaggedUnionType(
                     name, tuple(variants), f"{owner}::union::{name}"
                 )
+            elif (
+                name in self._parameters
+                and self._parameters[name].kind == "type"
+            ):
+                raise SemanticError(
+                    f"unknown type '{name}': generic type parameter requires "
+                    "a concrete specialization",
+                    code="ZL-GENERIC-SPECIALIZATION-REQUIRED",
+                )
             else:
                 raise SemanticError(f"unknown type '{name}'")
             self._resolved[name] = result
@@ -912,6 +947,33 @@ class _TypeResolver:
 
     def enum_type(self, name: str) -> EnumType | None:
         return self._enums.get(name)
+
+    def named_declaration(
+        self, name: str
+    ) -> tuple[str, ast.TypeAlias | ast.StructDecl | ast.EnumDecl] | None:
+        """Return one source declaration for a non-builtin named type."""
+
+        if name in self._alias_declarations:
+            return "type", self._alias_declarations[name]
+        if name in self._structs:
+            return "type", self._structs[name]
+        if name in self._enum_declarations:
+            return "enum", self._enum_declarations[name]
+        generic = self._generic_parts(name)
+        if generic is not None:
+            base, _arguments = generic
+            if base in self._structs:
+                return "type", self._structs[base]
+            if base in self._alias_declarations:
+                return "type", self._alias_declarations[base]
+            if base in self._enum_declarations:
+                return "enum", self._enum_declarations[base]
+        return None
+
+    def set_definition_context(self, context: _ExpressionContext | None) -> None:
+        """Attach the current semantic context for optional type definitions."""
+
+        self._definition_context = context
 
 
 def _resolved_module_value_parameters(
@@ -1105,16 +1167,10 @@ def _interface_clock_domains(
 def _validate_async_reset_domain_scope(
     clock_domains: tuple[ir_cdc.ClockDomain, ...],
 ) -> None:
-    """Keep the bounded async-reset contract single-domain everywhere."""
+    """Validate the complete table; async release is owned per domain."""
 
-    if len(clock_domains) > 1 and any(
-        domain.reset_mode is ir_cdc.ResetMode.ASYNCHRONOUS
-        for domain in clock_domains
-    ):
-        raise SemanticError(
-            "multi-domain asynchronous reset is not supported; use synchronous "
-            "resets or isolate the asynchronous-reset domain in a child module"
-        )
+    for domain in clock_domains:
+        domain.validate()
 
 
 def _clock_domain_from_source(
@@ -2157,6 +2213,7 @@ def _analyze_csr_blocks(
     module_identity: str,
     clock_domain: str | None,
     reset_domain: str | None,
+    clock_domains: tuple[ir_cdc.ClockDomain, ...],
     source_unit: str | None,
     source_digest: str | None,
 ) -> tuple[ir_csr.CsrBlock, ...]:
@@ -2165,6 +2222,28 @@ def _analyze_csr_blocks(
     absolute_addresses: set[int] = set()
     bound_command_outputs: set[str] = set()
     for block_ordinal, declaration in enumerate(declarations):
+        if not clock_domains:
+            raise SemanticError(
+                f"CSR blocks require a module clock and reset; found "
+                f"'{declaration.name}'"
+            )
+        declared_domains = {item.clock: item for item in clock_domains}
+        selected_clock = declaration.domain or clock_domain
+        if selected_clock is None:
+            available = ", ".join(item.clock for item in clock_domains)
+            raise SemanticError(
+                f"ambiguous clock domain for CSR block '{declaration.name}'; "
+                f"available domains: {available}; annotate it with @clock",
+                code="ZL-DOMAIN-AMBIGUOUS",
+            )
+        selected_domain = declared_domains.get(selected_clock)
+        if selected_domain is None:
+            raise SemanticError(
+                f"CSR block '{declaration.name}' references unknown clock domain "
+                f"'{selected_clock}'",
+                code="ZL-DOMAIN-UNKNOWN",
+            )
+        selected_reset = selected_domain.reset
         block_identity = ir_csr.CsrBlockIdentity(module_identity, block_ordinal)
         block_origin = (
             SourceOrigin(
@@ -2232,84 +2311,84 @@ def _analyze_csr_blocks(
             occupied_bits: set[int] = set()
             next_lsb = 0
             fields: list[ir_csr.CsrField] = []
-            for field_ordinal, field in enumerate(register.fields):
+            for field_ordinal, field_decl in enumerate(register.fields):
                 field_identity = ir_csr.CsrFieldIdentity(
                     register_identity, field_ordinal
                 )
                 field_origin = (
                     SourceOrigin(
-                        field.origin,
-                        f"CSR field {declaration.name}.{register.name}.{field.name}",
+                        field_decl.origin,
+                        f"CSR field {declaration.name}.{register.name}.{field_decl.name}",
                         source_unit,
                         source_digest,
                     )
-                    if field.origin is not None else register_origin
+                    if field_decl.origin is not None else register_origin
                 )
-                if field.name in field_names:
+                if field_decl.name in field_names:
                     raise SemanticError(
-                        f"duplicate field '{field.name}' in CSR register "
+                        f"duplicate field '{field_decl.name}' in CSR register "
                         f"'{register.name}'"
                     )
-                field_names.add(field.name)
-                type_ = type_resolver.resolve(field.type_name)
+                field_names.add(field_decl.name)
+                type_ = type_resolver.resolve(field_decl.type_name)
                 if not isinstance(type_, (BitType, UIntType, BitsType)):
                     raise SemanticError(
-                        f"CSR field '{field.name}' requires bit, unsigned, or bits type"
+                        f"CSR field '{field_decl.name}' requires bit, unsigned, or bits type"
                     )
-                if field.msb is None:
+                if field_decl.msb is None:
                     lsb = next_lsb
                     msb = lsb + type_.width - 1
                 else:
-                    if field.lsb is None:
+                    if field_decl.lsb is None:
                         raise SemanticError(
-                            f"CSR field '{field.name}' has an incomplete bit position"
+                            f"CSR field '{field_decl.name}' has an incomplete bit position"
                         )
-                    msb = field.msb
-                    lsb = field.lsb
+                    msb = field_decl.msb
+                    lsb = field_decl.lsb
                     if msb < lsb:
                         raise SemanticError(
-                            f"CSR field '{field.name}' bit range must be msb:lsb"
+                            f"CSR field '{field_decl.name}' bit range must be msb:lsb"
                         )
                     if msb - lsb + 1 != type_.width:
                         raise SemanticError(
-                            f"CSR field '{field.name}' range width does not match "
+                            f"CSR field '{field_decl.name}' range width does not match "
                             f"{type_}"
                         )
                 if msb >= 32:
                     raise SemanticError(
-                        f"CSR field '{field.name}' exceeds 32-bit register width"
+                        f"CSR field '{field_decl.name}' exceeds 32-bit register width"
                     )
                 bits = set(range(lsb, msb + 1))
                 if bits & occupied_bits:
                     raise SemanticError(
-                        f"CSR field '{field.name}' overlaps another field in "
+                        f"CSR field '{field_decl.name}' overlaps another field in "
                         f"'{register.name}'"
                     )
                 occupied_bits.update(bits)
                 next_lsb = max(next_lsb, msb + 1)
-                reset = field.reset if field.reset is not None else 0
+                reset = field_decl.reset if field_decl.reset is not None else 0
                 if reset >= (1 << type_.width):
                     raise SemanticError(
-                        f"reset value for CSR field '{field.name}' does not fit {type_}"
+                        f"reset value for CSR field '{field_decl.name}' does not fit {type_}"
                     )
-                access = ir_csr.CsrAccess(field.access.value)
-                if access is ir_csr.CsrAccess.RESERVED and field.reset is not None:
+                access = ir_csr.CsrAccess(field_decl.access.value)
+                if access is ir_csr.CsrAccess.RESERVED and field_decl.reset is not None:
                     raise SemanticError(
-                        f"reserved CSR field '{field.name}' must not have a reset value"
+                        f"reserved CSR field '{field_decl.name}' must not have a reset value"
                     )
                 if access is ir_csr.CsrAccess.PULSE and reset != 0:
                     raise SemanticError(
-                        f"pulse CSR field '{field.name}' must reset to zero"
+                        f"pulse CSR field '{field_decl.name}' must reset to zero"
                     )
                 binding: ir_csr.CsrHardwareBinding | None = None
-                if field.binding is not None:
-                    signal_name = field.binding.signal
+                if field_decl.binding is not None:
+                    signal_name = field_decl.binding.signal
                     port = symbols.get(signal_name)
                     if port is None and "." in signal_name:
                         port = symbols.get(signal_name.replace(".", "_"))
                     if port is None:
                         raise SemanticError(
-                            f"CSR field '{field.name}' references unknown hardware "
+                            f"CSR field '{field_decl.name}' references unknown hardware "
                             f"signal '{signal_name}'"
                         )
                     if port.protocol is not InterfaceProtocol.WIRE:
@@ -2318,10 +2397,10 @@ def _analyze_csr_blocks(
                         )
                     if port.type != type_:
                         raise SemanticError(
-                            f"CSR field '{field.name}' has type {type_}, but hardware "
+                            f"CSR field '{field_decl.name}' has type {type_}, but hardware "
                             f"signal '{port.name}' has type {port.type}"
                         )
-                    kind = ir_csr.CsrBindingKind(field.binding.kind.value)
+                    kind = ir_csr.CsrBindingKind(field_decl.binding.kind.value)
                     if kind is ir_csr.CsrBindingKind.STATUS:
                         if access is not ir_csr.CsrAccess.READ_ONLY:
                             raise SemanticError(
@@ -2331,9 +2410,9 @@ def _analyze_csr_blocks(
                             raise SemanticError(
                                 f"CSR status signal '{port.name}' must be an input"
                             )
-                        if field.reset is not None:
+                        if field_decl.reset is not None:
                             raise SemanticError(
-                                f"hardware-driven status field '{field.name}' must "
+                                f"hardware-driven status field '{field_decl.name}' must "
                                 "not declare a reset"
                             )
                     elif kind is ir_csr.CsrBindingKind.STICKY:
@@ -2363,13 +2442,13 @@ def _analyze_csr_blocks(
                             )
                         bound_command_outputs.add(port.name)
                     priority = (
-                        ir_csr.CsrPriority(field.binding.priority.value)
-                        if field.binding.priority is not None
+                        ir_csr.CsrPriority(field_decl.binding.priority.value)
+                        if field_decl.binding.priority is not None
                         else None
                     )
                     binding = ir_csr.CsrHardwareBinding(kind, port.name, priority)
                 typed_field = ir_csr.CsrField(
-                    field.name, type_, access, msb, lsb, reset, binding,
+                    field_decl.name, type_, access, msb, lsb, reset, binding,
                     field_identity, field_origin,
                 )
                 fields.append(typed_field)
@@ -2387,8 +2466,8 @@ def _analyze_csr_blocks(
                         reset,
                         field_origin,
                         f"csr-state:{field_identity.render()}",
-                        clock_domain,
-                        reset_domain,
+                        selected_clock,
+                        selected_reset,
                     ))
             registers.append(
                 ir_csr.CsrRegister(
@@ -2405,6 +2484,8 @@ def _analyze_csr_blocks(
             block_identity,
             block_origin,
             tuple(state_bindings),
+            selected_clock,
+            selected_reset,
         )
         ir_csr.validate_state_bindings(typed_block)
         blocks.append(typed_block)
@@ -2654,6 +2735,7 @@ class _FifoSymbol:
     name: str
     element_type: HardwareType
     depth: int
+    domain: str
 
     @property
     def count_width(self) -> int:
@@ -2661,10 +2743,20 @@ class _FifoSymbol:
 
 
 @dataclass(frozen=True)
+class _MemoryPortSymbol:
+    name: str
+    kind: ast.MemoryPortKind
+    domain: str
+
+
+@dataclass(frozen=True)
 class _MemorySymbol:
     name: str
     element_type: HardwareType
     depth: int
+    domain: str
+    ports: tuple[_MemoryPortSymbol, ...] = ()
+    async_memory: bool = False
 
     @property
     def address_width(self) -> int:
@@ -2676,6 +2768,7 @@ class _RomSymbol:
     name: str
     element_type: HardwareType
     depth: int
+    domain: str
 
     @property
     def address_width(self) -> int:
@@ -2693,6 +2786,8 @@ class _CompileTimeRealQuantization:
 class _ExpressionContext:
     functions: dict[str, _FunctionSignature]
     allow_delay: bool
+    clock_domains: tuple[str, ...] = ()
+    default_clock_domain: str | None = None
     generic_functions: dict[str, ast.FunctionDecl] = field(default_factory=dict)
     function_catalog: _FunctionCatalog | None = None
     # Compile-time parameters are immutable elaboration inputs, not hardware
@@ -2738,6 +2833,9 @@ class _ExpressionContext:
     instance_output_protocols: dict[
         tuple[str, str], InterfaceProtocol
     ] = field(default_factory=dict)
+    instance_output_domains: dict[tuple[str, str], str | None] = field(
+        default_factory=dict
+    )
     instance_arrays: dict[str, int] = field(default_factory=dict)
     # The bounded runtime instance-array spelling is only a read-only mux at a
     # module's public scalar-wire output boundary.  Explicit Generate plus
@@ -2746,6 +2844,11 @@ class _ExpressionContext:
     # Keep write-only outputs out of the readable namespace while retaining
     # enough declaration information for an actionable mistaken-read error.
     write_only_outputs: dict[str, ir_module.Port] = field(default_factory=dict)
+    # A scalar output driven by an explicit CDC connection is the typed
+    # destination-domain value of that crossing.  It may feed local logic in
+    # that destination domain without turning arbitrary outputs into readable
+    # implementation state.
+    readable_cdc_outputs: set[str] = field(default_factory=set)
     # Ordinary module outputs are write-only inside hardware expressions.  A
     # verification overlay is the deliberate exception: contracts and goals
     # observe the already-defined public boundary without feeding any value
@@ -2780,6 +2883,15 @@ class _ExpressionContext:
     source_unit: str | None = None
     source_digest: str | None = None
     source_digests: dict[str, str] = field(default_factory=dict)
+    # Optional compiler-owned editor projection.  It is populated only when a
+    # semantic check explicitly requests definition records; the records never
+    # participate in typed/canonical identity.
+    analysis_needs: AnalysisNeeds = AnalysisNeeds.NONE
+    definition_resolutions: list[DefinitionResolution] | None = None
+    definition_targets: dict[int, SourceOrigin] = field(default_factory=dict)
+    definition_declarations: list[DefinitionTarget] | None = None
+    completion_scopes: list[CompletionScope] | None = None
+    signature_help_calls: list[SignatureHelpCall] | None = None
     # Parser object identities are used only as an intra-compilation memo key.
     # The retained binder identity contains the deterministic semantic ordinal
     # and nesting path, never a source span, digest, or Python object identity.
@@ -2904,6 +3016,336 @@ def _record_callable_use(context: _ExpressionContext, identity: str) -> None:
     context.callable_use_counts[identity] = (
         context.callable_use_counts.get(identity, 0) + 1
     )
+
+
+def _declaration_origin(
+    span: SourceSpan | None,
+    construct: str,
+    context: _ExpressionContext,
+    *,
+    source_unit: str | None = None,
+) -> SourceOrigin | None:
+    """Create one authoritative declaration origin without source guessing."""
+
+    if span is None:
+        return None
+    unit = source_unit if source_unit is not None else context.source_unit
+    return SourceOrigin(
+        span,
+        construct,
+        unit,
+        context.source_digests.get(unit, context.source_digest)
+        if unit is not None
+        else context.source_digest,
+    )
+
+
+def _remember_definition_target(
+    context: _ExpressionContext,
+    symbol: object,
+    origin: SourceOrigin | None,
+    *,
+    name: str | None = None,
+    kind: str | None = None,
+) -> None:
+    """Associate the exact semantic symbol object with its declaration span."""
+
+    if origin is not None and (
+        context.analysis_needs.wants(AnalysisNeeds.DEFINITIONS)
+        or context.analysis_needs.wants(AnalysisNeeds.COMPLETION)
+    ):
+        context.definition_targets[id(symbol)] = origin
+        if (
+            context.definition_declarations is not None
+            and name is not None
+            and kind is not None
+        ):
+            context.definition_declarations.append(
+                DefinitionTarget(origin, name, kind)
+            )
+
+
+def _definition_kind(symbol: object) -> str:
+    if isinstance(symbol, ir_module.Port):
+        return "port"
+    if isinstance(symbol, ir_module.FunctionParameter):
+        return "parameter"
+    if isinstance(symbol, ir_module.Register):
+        return "register"
+    if isinstance(symbol, ir_module.LocalValue):
+        return "value"
+    return "symbol"
+
+
+def _record_definition(
+    context: _ExpressionContext,
+    occurrence: SourceOrigin | None,
+    target: SourceOrigin | None,
+    *,
+    name: str,
+    kind: str,
+) -> None:
+    if (
+        context.definition_resolutions is None
+        or occurrence is None
+        or target is None
+    ):
+        return
+    context.definition_resolutions.append(
+        DefinitionResolution(occurrence, target, name, kind)
+    )
+
+
+def _record_named_type_definition(
+    context: _ExpressionContext,
+    syntax: ast.TypeSyntax,
+    resolver: _TypeResolver,
+) -> None:
+    """Record a resolved named-type occurrence for editor definition lookup.
+
+    This is deliberately attached to the existing type resolver rather than
+    re-resolving syntax in tooling.  Builtin and module type parameters have
+    no source declaration target in the current workspace and are therefore
+    excluded.  The operation is observational only and is gated by the
+    demand-driven ``DEFINITIONS`` need.
+    """
+
+    if (
+        not context.analysis_needs.wants(AnalysisNeeds.DEFINITIONS)
+        or context.definition_resolutions is None
+        or not isinstance(syntax, ast.TypeName)
+        or syntax.origin is None
+    ):
+        return
+    entries = syntax.named_origins or ((syntax.text, syntax.origin),)
+    for name, occurrence_span in entries:
+        generic = resolver._generic_parts(name)
+        base = generic[0] if generic is not None else name
+        if (
+            resolver._resolve_builtin(base) is not None
+            or base in resolver._type_bindings
+            or base in resolver._parameter_values
+        ):
+            continue
+        found = resolver.named_declaration(name)
+        if found is None:
+            continue
+        kind, declaration = found
+        target_span = (
+            getattr(declaration, "name_origin", None)
+            or getattr(declaration, "origin", None)
+        )
+        if target_span is None:
+            continue
+        target_unit = getattr(declaration, "source_identity", None)
+        target = _declaration_origin(
+            target_span,
+            f"{kind} {base}",
+            context,
+            source_unit=target_unit,
+        )
+        occurrence = SourceOrigin(
+            occurrence_span,
+            f"{kind} {base}",
+            context.source_unit,
+            context.source_digest,
+        )
+        if any(
+            item.occurrence == occurrence
+            and item.target == target
+            and item.name == base
+            and item.kind == kind
+            for item in context.definition_resolutions
+        ):
+            continue
+        _record_definition(context, occurrence, target, name=base, kind=kind)
+
+
+def _record_type_syntax_definitions(
+    context: _ExpressionContext,
+    syntax: ast.TypeSyntax,
+    resolver: _TypeResolver,
+) -> None:
+    """Record named types nested in one declaration's source type syntax."""
+
+    if isinstance(syntax, ast.TypeName):
+        _record_named_type_definition(context, syntax, resolver)
+    elif isinstance(syntax, ast.VectorTypeName):
+        _record_type_syntax_definitions(context, syntax.element_type, resolver)
+    elif isinstance(syntax, ast.TupleTypeName):
+        for element in syntax.elements:
+            _record_type_syntax_definitions(context, element, resolver)
+
+
+def _record_enum_member_definition(
+    context: _ExpressionContext,
+    expression: ast.FieldExpr | ast.EnumMemberRef,
+    enum_type: EnumType,
+    resolver: _TypeResolver,
+) -> None:
+    """Record one compiler-resolved enum member occurrence."""
+
+    if (
+        not context.analysis_needs.wants(AnalysisNeeds.DEFINITIONS)
+        or context.definition_resolutions is None
+    ):
+        return
+    declaration = resolver._enum_declarations.get(enum_type.name)
+    if declaration is None:
+        return
+    try:
+        member_name = (
+            expression.field
+            if isinstance(expression, ast.FieldExpr)
+            else expression.member
+        )
+        member_index = declaration.members.index(member_name)
+    except ValueError:
+        return
+    member_span = (
+        declaration.member_origins[member_index]
+        if member_index < len(declaration.member_origins)
+        else None
+    )
+    if member_span is None:
+        return
+    target = _declaration_origin(
+        member_span,
+        f"enum member {declaration.name}.{member_name}",
+        context,
+        source_unit=declaration.source_identity,
+    )
+    occurrence_span = (
+        expression.member_origin or expression.origin
+        if isinstance(expression, ast.FieldExpr)
+        else expression.origin
+    )
+    occurrence = (
+        SourceOrigin(
+            occurrence_span,
+            f"enum member {enum_type.name}.{member_name}",
+            context.source_unit,
+            context.source_digest,
+        )
+        if occurrence_span is not None
+        else None
+    )
+    _record_definition(
+        context,
+        occurrence,
+        target,
+        name=member_name,
+        kind="enum_member",
+    )
+
+
+def _module_declaration_origin(
+    declaration: ast.Module,
+    context: _ExpressionContext,
+) -> SourceOrigin | None:
+    """Return the resolver-owned exact source origin of a module name."""
+
+    span = declaration.name_origin
+    if span is None:
+        # A hand-built AST without an exact module-name span is not safe for
+        # editor navigation.  Do not widen it to the whole module declaration.
+        return None
+    source_unit = declaration.source_identity or context.source_unit
+    digest = (
+        declaration.source_hash
+        or (context.source_digests.get(source_unit) if source_unit is not None else None)
+        or context.source_digest
+    )
+    return SourceOrigin(
+        span,
+        f"module {declaration.name}",
+        source_unit,
+        digest,
+    )
+
+
+def _record_module_definition(
+    context: _ExpressionContext,
+    instance: ast.InstanceDecl,
+    target_module: ast.Module,
+) -> None:
+    """Record one resolved module-instance type without textual lookup."""
+
+    if not context.analysis_needs.wants(AnalysisNeeds.DEFINITIONS):
+        return
+    if context.definition_resolutions is None:
+        return
+    occurrence = _declaration_origin(
+        instance.module_origin,
+        f"module {instance.module}",
+        context,
+    )
+    target = _module_declaration_origin(target_module, context)
+    if occurrence is None or target is None:
+        return
+    _record_definition(
+        context,
+        occurrence,
+        target,
+        name=instance.module,
+        kind="module",
+    )
+    if context.definition_declarations is not None:
+        already_published = any(
+            item.name == target_module.name
+            and item.kind == "module"
+            and item.target == target
+            for item in context.definition_declarations
+        )
+        if not already_published:
+            context.definition_declarations.append(
+                DefinitionTarget(target, target_module.name, "module")
+            )
+
+
+def _record_local_resource_definitions(
+    context: _ExpressionContext, module: ast.Module
+) -> None:
+    """Resolve source-local resource DSL names for definition-aware analysis.
+
+    Target catalog construction owns physical resource legality separately.
+    This side channel publishes only exact parsed names with one unambiguous
+    source-local declaration; it never guesses an external target definition
+    by spelling or promotes an unresolved reference to a result.
+    """
+
+    if context.definition_declarations is None:
+        return
+    declared: dict[str, list[SourceOrigin]] = {}
+    for resource in module.resource_definitions:
+        target = _declaration_origin(
+            resource.name_origin,
+            f"resource {resource.name}",
+            context,
+        )
+        if target is None:
+            continue
+        declared.setdefault(resource.name, []).append(target)
+        _remember_definition_target(
+            context, resource, target, name=resource.name, kind="resource"
+        )
+
+    def record(name: str, span: SourceSpan | None) -> None:
+        targets = declared.get(name, ())
+        if len(targets) != 1:
+            return
+        occurrence = _declaration_origin(span, f"resource {name}", context)
+        _record_definition(
+            context, occurrence, targets[0], name=name, kind="resource"
+        )
+
+    for family in module.target_families:
+        for name, span in zip(
+            family.resources, family.resource_origins, strict=False
+        ):
+            record(name, span)
+    for architecture in module.architecture_templates:
+        record(architecture.resource, architecture.resource_origin)
 
 
 def _release_callable_use(context: _ExpressionContext, identity: str) -> None:
@@ -3918,7 +4360,7 @@ def _specialization_bindings(
                     f"{candidate.type}, expected exact {expected_type}"
                 )
             try:
-                runtime_value = constant_runtime_value(candidate)
+                constant_runtime_value(candidate)
             except ConstantExpressionError as error:
                 raise SemanticError(
                     f"compile-time constant parameter '{parameter.name}' is not "
@@ -4290,6 +4732,7 @@ def _annotate_callable_error(
         primary=call_origin or error.primary,
         notes=notes,
         fixes=error.fixes,
+        machine_fixes=error.machine_fixes,
     )
 
 
@@ -4518,9 +4961,9 @@ def _specialize_callable_unannotated(
         raise SemanticError(f"'{owner}' returns {body.type}, expected {expected_return}")
 
     kind = (
-        ir_module.CallableKind.FUNCTION
+        CallableKind.FUNCTION
         if isinstance(declaration, ast.FunctionDecl)
-        else ir_module.CallableKind.OPERATOR
+        else CallableKind.OPERATOR
     )
     declaration_identity = (
         f"{declaration.source_identity or context.source_unit or '<source>'}:{owner}"
@@ -4596,6 +5039,40 @@ def _check_callable_body(
     """
 
     symbols = dict(parameters)
+    # Parameter declarations currently retain the enclosing callable span
+    # rather than a separate name span.  Keeping that authoritative declaration
+    # origin is preferable to reconstructing a range from source text.
+    for parameter in parameters.values():
+        if not isinstance(parameter, ir_module.FunctionParameter):
+            continue
+        parameter_declaration = next(
+            (
+                item for item in declaration.parameters
+                if item.name == parameter.name
+            ),
+            None,
+        )
+        # Keep the compiler-owned parameter identity in the origin construct
+        # so two parameters in one callable cannot be grouped as one symbol.
+        parameter_origin = _declaration_origin(
+            (
+                getattr(parameter_declaration, "name_origin", None)
+                if parameter_declaration is not None
+                else None
+            )
+            or getattr(parameter, "name_origin", None)
+            or declaration.origin,
+            f"parameter {parameter.name}",
+            context,
+            source_unit=declaration.source_identity,
+        )
+        _remember_definition_target(
+            context,
+            parameter,
+            parameter_origin,
+            name=parameter.name,
+            kind="parameter",
+        )
     for binding in declaration.bindings:
         if isinstance(binding, ast.TupleDestructureDecl):
             if len(binding.names) != len(set(binding.names)):
@@ -4626,8 +5103,20 @@ def _check_callable_body(
             for index, (name, type_) in enumerate(
                 zip(binding.names, value.type.elements, strict=True)
             ):
-                symbols[name] = ir_expr.TupleProject(
+                projection = ir_expr.TupleProject(
                     value, index, type_, origin=value.origin
+                )
+                symbols[name] = projection
+                _remember_definition_target(
+                    context,
+                    projection,
+                    _declaration_origin(
+                        getattr(binding, "name_origin", None) or binding.origin,
+                        f"value {name}",
+                        context,
+                    ),
+                    name=name,
+                    kind="value",
                 )
             continue
         if binding.target in symbols:
@@ -4635,8 +5124,20 @@ def _check_callable_body(
                 f"duplicate callable binding '{binding.target}'; callable "
                 "parameters and inferred bindings are immutable"
             )
-        symbols[binding.target] = _check_expression(
+        binding_value = _check_expression(
             binding.expression, symbols, None, context
+        )
+        symbols[binding.target] = binding_value
+        _remember_definition_target(
+            context,
+            binding_value,
+            _declaration_origin(
+                getattr(binding, "name_origin", None) or binding.origin,
+                f"value {binding.target}",
+                context,
+            ),
+            name=binding.target,
+            kind="value",
         )
     if typed_boundary and expected is not None:
         return _check_typed_boundary(
@@ -5040,7 +5541,15 @@ def _select_compile_time_module_items(
             item.initial_member,
             origin=item.origin,
         )
-        fsm_expanded.append(ast.RegisterDecl(item.name, item.type_name, initial))
+        fsm_expanded.append(
+            ast.RegisterDecl(
+                item.name,
+                item.type_name,
+                initial,
+                item.domain,
+                item.origin,
+            )
+        )
         identity_prefix = (
             f"{module.source_identity or module.name}|{module.source_hash or ''}|"
             f"{tuple((parameter.name, parameter.kind, parameter.default) for parameter in module.parameters)}|"
@@ -5122,6 +5631,7 @@ def _select_compile_time_module_items(
                         *transition.actions,
                     ),
                     transition.origin,
+                    item.domain,
                 ))
                 if previous_rule is not None:
                     fsm_expanded.append(ast.RulePriority(previous_rule, rule_name))
@@ -5356,17 +5866,27 @@ def _normalize_concise_module_items(
                     f"protocol port '{declaration.name}' cannot have an initializer"
                 )
         expanded: list[object] = []
-        for name in names:
+        for index, name in enumerate(names):
+            name_origin = (
+                declaration.name_origins[index]
+                if index < len(declaration.name_origins)
+                else None
+            )
             expanded.append(replace(
                 declaration,
                 name=name,
                 names=(),
                 initializer=None,
+                name_origins=(() if name_origin is None else (name_origin,)),
             ))
         if declaration.initializer is not None:
             expanded.append(ast.Assignment(
                 declaration.name, declaration.initializer,
                 origin=declaration.origin,
+                name_origin=(
+                    declaration.name_origins[0]
+                    if declaration.name_origins else None
+                ),
             ))
         return tuple(expanded)
 
@@ -5419,6 +5939,9 @@ def _normalize_concise_module_items(
             result = ast.InstanceDecl(
                 declaration.name, reference, arguments,
                 declaration.array_length, declaration.bindings,
+                declaration.origin,
+                declaration.name_origin,
+                declaration.type_origin,
             )
             instances.append(result)
             return result
@@ -5427,7 +5950,13 @@ def _normalize_concise_module_items(
                 raise SemanticError(f"immutable value '{declaration.name}' cannot have instance options")
             if declaration.initializer is None:
                 raise SemanticError(f"immutable value '{declaration.name}' requires an initializer")
-            result = ast.Assignment(declaration.name, declaration.initializer, declaration.type_name)
+            result = ast.Assignment(
+                declaration.name,
+                declaration.initializer,
+                declaration.type_name,
+                origin=declaration.origin,
+                name_origin=declaration.name_origin,
+            )
             assignments.append(result)
             return result
         elif is_protocol:
@@ -5859,7 +6388,18 @@ def _normalize_qualified_imports(
                 f"type '{hidden}' requires its import alias",
                 code="ZL-IMPORT-ALIAS-REQUIRED",
             )
-        return ast.TypeName(normalized)
+        # Preserve the parser-owned source span while normalizing an aliased
+        # spelling.  Definition tooling uses this occurrence origin and must
+        # not lose it during import normalization.
+        normalized_origins = tuple(
+            (_QUALIFIED_IMPORT_MEMBER.sub(replace_member, name), origin)
+            for name, origin in value.named_origins
+        )
+        return replace(
+            value,
+            text=normalized,
+            named_origins=normalized_origins,
+        )
 
     def walk(value: object) -> object:
         if isinstance(value, ast.ImportDecl):
@@ -5951,8 +6491,27 @@ def analyze(
     _imports_premerged: bool = False,
     _instance_stack: tuple[str, ...] = (),
     _hierarchy_cache: HierarchyTraversalCache | None = None,
+    analysis_needs: AnalysisNeeds = AnalysisNeeds.NONE,
+    definition_resolutions: list[DefinitionResolution] | None = None,
+    definition_declarations: list[DefinitionTarget] | None = None,
+    completion_scopes: list[CompletionScope] | None = None,
+    signature_help_calls: list[SignatureHelpCall] | None = None,
 ) -> ir_module.Module:
     """Resolve and type-check an AST module into backend-independent IR."""
+
+    try:
+        analysis_needs = AnalysisNeeds(analysis_needs)
+    except (TypeError, ValueError) as error:
+        raise TypeError("analysis_needs must be an AnalysisNeeds value") from error
+    # Preserve direct callers of the historical sink arguments while keeping
+    # one needs mechanism internally.  CompilationSession/tooling use the
+    # explicit mask and do not rely on these compatibility inferences.
+    if definition_resolutions is not None or definition_declarations is not None:
+        analysis_needs |= AnalysisNeeds.DEFINITIONS
+    if completion_scopes is not None:
+        analysis_needs |= AnalysisNeeds.DEFINITIONS | AnalysisNeeds.COMPLETION
+    if signature_help_calls is not None:
+        analysis_needs |= AnalysisNeeds.SIGNATURE_HELP
 
     if module.name in _instance_stack:
         cycle = " -> ".join((*_instance_stack, module.name))
@@ -6035,6 +6594,35 @@ def analyze(
     if len(direct_imports) != len(set(direct_imports)):
         duplicate = next(path for path in direct_imports if direct_imports.count(path) > 1)
         declaration = next(item for item in module.imports if item.path == duplicate)
+        seen_imports: set[tuple[str, str | None]] = set()
+        removable_duplicate = None
+        for item in module.imports:
+            if item.path != duplicate:
+                continue
+            identity = (item.path, item.alias)
+            if identity in seen_imports:
+                removable_duplicate = item
+                break
+            seen_imports.add(identity)
+        machine_fixes = ()
+        if (
+            removable_duplicate is not None
+            and removable_duplicate.origin is not None
+            and effective_source_unit is not None
+            and effective_source_digest is not None
+        ):
+            edit_origin = SourceOrigin(
+                removable_duplicate.origin,
+                "duplicate import declaration",
+                effective_source_unit,
+                effective_source_digest,
+            )
+            machine_fixes = (
+                DiagnosticFix(
+                    "Remove duplicate import declaration",
+                    (DiagnosticEdit(edit_origin, ""),),
+                ),
+            )
         raise SemanticError(
             f"duplicate import '{duplicate}'",
             code="ZL-IMPORT-DUPLICATE",
@@ -6048,6 +6636,7 @@ def analyze(
                 if declaration.origin is not None else None
             ),
             fixes=("remove the duplicate import declaration",),
+            machine_fixes=machine_fixes,
         )
     try:
         resolved_imports = active_module_resolver.resolve(
@@ -6624,7 +7213,133 @@ def analyze(
         source_unit=effective_source_unit,
         source_digest=effective_source_digest,
         source_digests=source_digests,
+        analysis_needs=analysis_needs,
+        definition_resolutions=definition_resolutions,
+        definition_declarations=definition_declarations,
+        completion_scopes=completion_scopes,
+        signature_help_calls=signature_help_calls,
     )
+    # Named type occurrences are recorded only for definition-aware analyses;
+    # ordinary compiler checks keep this side channel completely disabled.
+    type_resolver.set_definition_context(pure_context)
+    if pure_context.definition_declarations is not None:
+        _record_local_resource_definitions(pure_context, module)
+        _remember_definition_target(
+            pure_context,
+            module,
+            _module_declaration_origin(module, pure_context),
+            name=module.name,
+            kind="module",
+        )
+        for declaration in (*module.functions, *module.operators):
+            name = (
+                declaration.name
+                if isinstance(declaration, ast.FunctionDecl)
+                else f"operator{declaration.operator}"
+            )
+            kind = (
+                "function"
+                if isinstance(declaration, ast.FunctionDecl)
+                else "operator"
+            )
+            _remember_definition_target(
+                pure_context,
+                declaration,
+                _declaration_origin(
+                    declaration.name_origin or declaration.origin,
+                    f"{kind} {name}",
+                    pure_context,
+                    source_unit=declaration.source_identity,
+                ),
+                name=name,
+                kind=kind,
+            )
+        for declaration in (*module.type_aliases, *module.structs, *module.enums):
+            kind = "enum" if isinstance(declaration, ast.EnumDecl) else "type"
+            name_origin = getattr(declaration, "name_origin", None)
+            declaration_origin = getattr(declaration, "origin", None)
+            target = _declaration_origin(
+                name_origin or declaration_origin,
+                f"{kind} {declaration.name}",
+                pure_context,
+                source_unit=getattr(declaration, "source_identity", None),
+            )
+            if target is not None:
+                _remember_definition_target(
+                    pure_context,
+                    declaration,
+                    target,
+                    name=declaration.name,
+                    kind=kind,
+                )
+            if isinstance(declaration, ast.EnumDecl):
+                for member, member_span in zip(
+                    declaration.members,
+                    declaration.member_origins,
+                    strict=False,
+                ):
+                    if member_span is None:
+                        continue
+                    member_target = _declaration_origin(
+                        member_span,
+                        f"enum member {declaration.name}.{member}",
+                        pure_context,
+                        source_unit=declaration.source_identity,
+                    )
+                    if member_target is None:
+                        continue
+                    if not any(
+                        item.target == member_target
+                        and item.name == member
+                        and item.kind == "enum_member"
+                        for item in pure_context.definition_declarations
+                    ):
+                        pure_context.definition_declarations.append(
+                            DefinitionTarget(member_target, member, "enum_member")
+                        )
+        # Function/struct/alias signatures are resolved before the expression
+        # context exists.  Reuse their parser-owned spans here so definitions
+        # are complete without re-running type checking.
+        for declaration in module.type_aliases:
+            declaration_context = _context_for_source_declaration(
+                pure_context, declaration.source_identity
+            )
+            _record_type_syntax_definitions(
+                declaration_context, declaration.target, type_resolver
+            )
+        for declaration in module.structs:
+            declaration_context = _context_for_source_declaration(
+                pure_context, declaration.source_identity
+            )
+            for field in declaration.fields:
+                _record_type_syntax_definitions(
+                    declaration_context, field.type_name, type_resolver
+                )
+        for declaration in module.functions:
+            declaration_context = _context_for_source_declaration(
+                pure_context, declaration.source_identity
+            )
+            for parameter in declaration.parameters:
+                _record_type_syntax_definitions(
+                    declaration_context, parameter.type_name, type_resolver
+                )
+            if declaration.return_type is not None:
+                _record_type_syntax_definitions(
+                    declaration_context, declaration.return_type, type_resolver
+                )
+        # Module-interface signatures are resolved independently of whether a
+        # source module is selected as the physical top or reached through the
+        # selected hierarchy.  Retain those compiler-resolved type occurrences
+        # for tooling without analyzing an inactive child body or relaxing any
+        # top-level ABI legality rule.
+        for child in module.submodules:
+            child_context = _context_for_source_declaration(
+                pure_context, child.source_identity
+            )
+            for port in child.ports:
+                _record_type_syntax_definitions(
+                    child_context, port.type_name, type_resolver
+                )
     function_catalog.context = pure_context
     for function_name in sorted(function_prototypes):
         function_catalog.resolve(function_name)
@@ -6779,6 +7494,47 @@ def analyze(
         for domain in clock_domains
         for item in (domain.clock, domain.reset)
     }
+    domains_by_clock = {domain.clock: domain for domain in clock_domains}
+
+    def resolve_state_domain(
+        kind: str,
+        name: str,
+        requested: str | None,
+        inferred: Iterable[str | None] = (),
+    ) -> str:
+        """Resolve one state owner without declaration-order guessing."""
+
+        if not clock_domains:
+            raise SemanticError(f"{kind} '{name}' requires a clock and reset")
+        if requested is not None:
+            if requested not in domains_by_clock:
+                raise SemanticError(
+                    f"{kind} '{name}' references unknown clock domain "
+                    f"'{requested}'",
+                    code="ZL-DOMAIN-UNKNOWN",
+                )
+            return requested
+        candidates = {item for item in inferred if item is not None}
+        if len(candidates) == 1:
+            return next(iter(candidates))
+        if len(candidates) > 1:
+            rendered = ", ".join(sorted(candidates))
+            raise SemanticError(
+                f"clock-domain mismatch while inferring {kind} '{name}': "
+                f"dynamic values belong to {rendered}",
+                code="ZL-DOMAIN-CROSSING",
+                fixes=("insert an explicit supported clock-domain crossing",),
+            )
+        if len(clock_domains) == 1:
+            return clock_domains[0].clock
+        available = ", ".join(domain.clock for domain in clock_domains)
+        raise SemanticError(
+            f"ambiguous clock domain for {kind} '{name}'; available domains: "
+            f"{available}",
+            code="ZL-DOMAIN-AMBIGUOUS",
+            fixes=(f"annotate the declaration with @{clock_domains[0].clock} or another listed domain",),
+        )
+
     if any(domain.clock == domain.reset for domain in clock_domains):
         raise SemanticError("clock and reset must have different names")
 
@@ -6827,10 +7583,19 @@ def analyze(
             and not allow_external_enum_inputs
             and _contains_enum_type(port.type)
         ):
+            if isinstance(port.type, EnumType):
+                boundary_message = (
+                    f"top-level input '{port.name}' cannot expose enum type "
+                    f"{port.type.name}; use an internal child interface"
+                )
+            else:
+                boundary_message = (
+                    f"top-level input '{port.name}' cannot expose type "
+                    f"{port.type} because it contains an enum-valued field; "
+                    "use an internal child interface"
+                )
             raise SemanticError(
-                f"top-level input '{port.name}' cannot expose enum type "
-                f"{port.type}; use an internal child interface or an explicit "
-                "future pack/unpack boundary"
+                boundary_message
             )
         if (
             direction is ir_module.PortDirection.INPUT
@@ -6866,6 +7631,21 @@ def analyze(
                 f"port '{declaration.name}' requires an explicit clock domain"
             )
         symbols[port.name] = port
+        _remember_definition_target(
+            pure_context,
+            port,
+            _declaration_origin(
+                (
+                    declaration.name_origins[0]
+                    if declaration.name_origins
+                    else declaration.origin
+                ),
+                f"port {declaration.name}",
+                pure_context,
+            ),
+            name=declaration.name,
+            kind="port",
+        )
         ports.append(port)
 
     source_scalar_ports = tuple(ports)
@@ -6942,6 +7722,7 @@ def analyze(
         module_identity=csr_module_identity,
         clock_domain=clock,
         reset_domain=reset,
+        clock_domains=clock_domains,
         source_unit=effective_source_unit,
         source_digest=effective_source_digest,
     )
@@ -6953,6 +7734,7 @@ def analyze(
     protocol_endpoints: list[ir_module.ProtocolEndpoint] = []
     connected_sources: set[str] = set()
     connected_destinations: set[str] = set()
+    readable_cdc_outputs: set[str] = set()
     aggregate_interface_names = {
         declaration.name for declaration in module.aggregate_interfaces
     }
@@ -7016,7 +7798,15 @@ def analyze(
         crossing = (
             ir_cdc.Crossing(
                 ir_cdc.CrossingKind(declaration.crossing.kind.value),
-                declaration.crossing.depth,
+                (
+                    type_resolver._eval_storage_depth(
+                        declaration.crossing.depth,
+                        kind="async_fifo",
+                        name=f"{declaration.source}->{declaration.destination}",
+                    )
+                    if declaration.crossing.depth is not None
+                    else None
+                ),
             )
             if declaration.crossing is not None
             else None
@@ -7160,6 +7950,12 @@ def analyze(
         )
         connected_sources.add(source.name)
         connected_destinations.add(destination.name)
+        if (
+            crossing is not None
+            and destination.direction is ir_module.PortDirection.OUTPUT
+            and destination.protocol is InterfaceProtocol.WIRE
+        ):
+            readable_cdc_outputs.add(destination.name)
 
     arbiters: list[ir_arbitration.PacketArbiter] = []
     arbitrated_ports: set[str] = set()
@@ -7337,10 +8133,9 @@ def analyze(
     memory_declarations: dict[str, ast.MemoryDecl] = {}
     rom_declarations: dict[str, ast.RomDecl] = {}
     for declaration in module.fifos:
-        if clock is None:
-            raise SemanticError(
-                f"FIFO '{declaration.name}' requires a clock and reset"
-            )
+        storage_domain = resolve_state_domain(
+            "FIFO", declaration.name, declaration.domain
+        )
         if declaration.name in (
             symbols.keys()
             | request_response_symbols.keys()
@@ -7351,7 +8146,7 @@ def analyze(
                 f"duplicate storage, interface, CSR, or port name "
                 f"'{declaration.name}'"
             )
-        if declaration.name in {clock, reset}:
+        if declaration.name in timing_names:
             raise SemanticError(
                 f"FIFO name '{declaration.name}' conflicts with clock or reset"
             )
@@ -7362,14 +8157,16 @@ def analyze(
             declaration.name,
             type_resolver.resolve(declaration.element_type),
             depth,
+            storage_domain,
         )
         resource_symbols[symbol.name] = symbol
         fifo_declarations[symbol.name] = declaration
 
     for declaration in module.memories:
-        if clock is None:
+        if declaration.async_memory and declaration.domain is not None:
             raise SemanticError(
-                f"memory '{declaration.name}' requires a clock and reset"
+                f"async memory '{declaration.name}' declares domains on its ports, "
+                "not on the memory"
             )
         if declaration.name in (
             symbols.keys()
@@ -7381,7 +8178,7 @@ def analyze(
                 f"duplicate storage, interface, CSR, or port name "
                 f"'{declaration.name}'"
             )
-        if declaration.name in {clock, reset}:
+        if declaration.name in timing_names:
             raise SemanticError(
                 f"memory name '{declaration.name}' conflicts with clock or reset"
             )
@@ -7403,19 +8200,126 @@ def analyze(
                 f"memory '{declaration.name}' requires a recursively "
                 "bit-packable non-enum element type"
             )
+        port_symbols: tuple[_MemoryPortSymbol, ...] = ()
+        if declaration.ports:
+            if len(declaration.ports) > 8:
+                raise SemanticError(
+                    f"memory '{declaration.name}' supports at most 8 logical ports"
+                )
+            port_names = tuple(port.name for port in declaration.ports)
+            if len(port_names) != len(set(port_names)):
+                raise SemanticError(
+                    f"memory '{declaration.name}' has duplicate port names"
+                )
+            if declaration.async_memory:
+                if declaration.read_latency != 1:
+                    raise SemanticError(
+                        f"async memory '{declaration.name}' requires read_latency 1"
+                    )
+                kinds = tuple(port.kind for port in declaration.ports)
+                if (
+                    len(kinds) != 2
+                    or kinds.count(ast.MemoryPortKind.WRITE) != 1
+                    or kinds.count(ast.MemoryPortKind.READ) != 1
+                ):
+                    raise SemanticError(
+                        f"async memory '{declaration.name}' requires exactly one "
+                        "write_port and one read_port"
+                    )
+                resolved_ports = []
+                for port in declaration.ports:
+                    if port.domain is None:
+                        raise SemanticError(
+                            f"async memory port '{declaration.name}.{port.name}' "
+                            "requires an explicit clock domain"
+                        )
+                    resolved_ports.append(_MemoryPortSymbol(
+                        port.name,
+                        port.kind,
+                        resolve_state_domain(
+                            "memory port",
+                            f"{declaration.name}.{port.name}",
+                            port.domain,
+                        ),
+                    ))
+                if len({port.domain for port in resolved_ports}) != 2:
+                    raise SemanticError(
+                        f"async memory '{declaration.name}' ports must use "
+                        "different clock domains"
+                    )
+                port_symbols = tuple(resolved_ports)
+                storage_domain = next(
+                    port.domain for port in port_symbols
+                    if port.kind is ast.MemoryPortKind.WRITE
+                )
+            else:
+                explicit_domains = tuple(
+                    port.domain for port in declaration.ports
+                    if port.domain is not None
+                )
+                storage_domain = resolve_state_domain(
+                    "memory", declaration.name, declaration.domain,
+                    explicit_domains,
+                )
+                port_symbols = tuple(
+                    _MemoryPortSymbol(
+                        port.name,
+                        port.kind,
+                        resolve_state_domain(
+                            "memory port",
+                            f"{declaration.name}.{port.name}",
+                            port.domain or storage_domain,
+                        ),
+                    )
+                    for port in declaration.ports
+                )
+                if any(port.domain != storage_domain for port in port_symbols):
+                    raise SemanticError(
+                        f"ordinary memory '{declaration.name}' ports must share "
+                        f"domain '{storage_domain}'"
+                    )
+            writable_names = tuple(
+                port.name for port in port_symbols
+                if port.kind in {
+                    ast.MemoryPortKind.WRITE,
+                    ast.MemoryPortKind.READ_WRITE,
+                }
+            )
+            if len(writable_names) > 1 and (
+                len(declaration.write_priority) != len(writable_names)
+                or set(declaration.write_priority) != set(writable_names)
+            ):
+                raise SemanticError(
+                    f"multi-writer memory '{declaration.name}' requires a complete "
+                    "write_priority containing every writable port exactly once"
+                )
+            if len(declaration.write_priority) != len(set(declaration.write_priority)):
+                raise SemanticError(
+                    f"memory '{declaration.name}' write_priority contains duplicates"
+                )
+        else:
+            if declaration.async_memory:
+                raise SemanticError(
+                    f"async memory '{declaration.name}' requires named ports"
+                )
+            storage_domain = resolve_state_domain(
+                "memory", declaration.name, declaration.domain
+            )
         symbol = _MemorySymbol(
             declaration.name,
             element_type,
             depth,
+            storage_domain,
+            port_symbols,
+            declaration.async_memory,
         )
         resource_symbols[symbol.name] = symbol
         memory_declarations[symbol.name] = declaration
 
     for declaration in module.roms:
-        if clock is None:
-            raise SemanticError(
-                f"ROM '{declaration.name}' requires a clock and reset"
-            )
+        storage_domain = resolve_state_domain(
+            "ROM", declaration.name, declaration.domain
+        )
         if declaration.name in (
             symbols.keys()
             | request_response_symbols.keys()
@@ -7426,7 +8330,7 @@ def analyze(
                 f"duplicate storage, interface, CSR, or port name "
                 f"'{declaration.name}'"
             )
-        if declaration.name in {clock, reset}:
+        if declaration.name in timing_names:
             raise SemanticError(
                 f"ROM name '{declaration.name}' conflicts with clock or reset"
             )
@@ -7445,7 +8349,9 @@ def analyze(
                 f"ROM '{declaration.name}' element type {element_type} is not "
                 f"recursively bit-packable and non-enum: {error}"
             ) from error
-        symbol = _RomSymbol(declaration.name, element_type, depth)
+        symbol = _RomSymbol(
+            declaration.name, element_type, depth, storage_domain
+        )
         resource_symbols[symbol.name] = symbol
         rom_declarations[symbol.name] = declaration
 
@@ -7519,26 +8425,15 @@ def analyze(
     registers: list[ir_module.Register] = []
     register_symbols: dict[str, ir_module.Register] = {}
     for declaration in module.registers:
-        if not clock_domains:
-            raise SemanticError(
-                f"register '{declaration.name}' requires a clock and reset"
-            )
         if declaration.name in symbols or declaration.name in register_symbols:
             raise SemanticError(f"duplicate state or port name '{declaration.name}'")
         if declaration.name in timing_names:
             raise SemanticError(
                 f"register name '{declaration.name}' conflicts with clock or reset"
             )
-        register_domain = declaration.domain or clock
-        if declaration.domain is not None and declaration.domain not in module.clocks:
-            raise SemanticError(
-                f"register '{declaration.name}' references unknown clock domain "
-                f"'{declaration.domain}'"
-            )
-        if len(clock_domains) > 1 and register_domain is None:
-            raise SemanticError(
-                f"register '{declaration.name}' requires an explicit clock domain"
-            )
+        register_domain = resolve_state_domain(
+            "register", declaration.name, declaration.domain
+        )
         type_ = type_resolver.resolve(declaration.type_name)
         initial = _check_typed_boundary(
             declaration.initial, {}, type_, pure_context
@@ -7556,10 +8451,23 @@ def analyze(
         )
         registers.append(register)
         register_symbols[register.name] = register
+        _remember_definition_target(
+            pure_context,
+            register,
+            _declaration_origin(
+                declaration.name_origin or declaration.origin,
+                f"register {declaration.name}",
+                pure_context,
+            ),
+            name=declaration.name,
+            kind="register",
+        )
 
     module_context = _ExpressionContext(
         function_signatures,
         allow_delay=bool(clock_domains),
+        clock_domains=tuple(domain.clock for domain in clock_domains),
+        default_clock_domain=clock,
         generic_functions=generic_functions,
         compile_time_constants=pure_context.compile_time_constants,
         static_callables=pure_context.static_callables,
@@ -7587,11 +8495,18 @@ def analyze(
         source_unit=effective_source_unit,
         source_digest=effective_source_digest,
         source_digests=source_digests,
+        definition_resolutions=pure_context.definition_resolutions,
+        definition_targets=pure_context.definition_targets,
+        definition_declarations=pure_context.definition_declarations,
+        completion_scopes=pure_context.completion_scopes,
+        signature_help_calls=pure_context.signature_help_calls,
+        analysis_needs=pure_context.analysis_needs,
         functional_binder_ordinals=pure_context.functional_binder_ordinals,
         next_functional_binder_ordinal=(
             pure_context.next_functional_binder_ordinal
         ),
         write_only_outputs=outputs,
+        readable_cdc_outputs=readable_cdc_outputs,
     )
     value_symbols: dict[str, _ValueSymbol] = {
         **inputs,
@@ -7600,6 +8515,35 @@ def analyze(
         **register_symbols,
         **resource_symbols,
     }
+
+    # A dotted assignment target is a semantic use of its already-resolved
+    # state/protocol/resource owner.  Retain the exact base-token occurrence so
+    # F12/references do not depend on parsing the target string in tooling.
+    for assignment in module.assignments:
+        if "." not in assignment.target or assignment.name_origin is None:
+            continue
+        base = assignment.target.split(".", 1)[0]
+        symbol = value_symbols.get(base)
+        if symbol is None:
+            continue
+        span = assignment.name_origin
+        occurrence_span = SourceSpan(
+            span.start_line,
+            span.start_column,
+            span.start_line,
+            span.start_column + len(base),
+        )
+        _record_definition(
+            module_context,
+            _declaration_origin(
+                occurrence_span,
+                f"name {base}",
+                module_context,
+            ),
+            module_context.definition_targets.get(id(symbol)),
+            name=base,
+            kind=_definition_kind(symbol),
+        )
 
     # Aggregate protocol endpoints are expanded once, at semantic elaboration,
     # into the same leaf ports used by ordinary hierarchy.  The aggregate
@@ -7797,7 +8741,7 @@ def analyze(
             if port is None:
                 raise SemanticError(f"'{path}' is not a child protocol endpoint")
             owner, name, direction, endpoint_type = inst.name, port.name, port.direction, port.type
-            capacity, domain = port.capacity, child.clock
+            capacity, domain = port.capacity, port.domain
         else:
             raise SemanticError(f"protocol endpoint path '{path}' is too deep")
         expected = (
@@ -7887,12 +8831,12 @@ def analyze(
         parts = assignment.target.split(".")
         if parts[0] not in resource_symbols:
             continue
-        if len(parts) != 2:
+        if len(parts) not in {2, 3}:
             raise SemanticError(
-                f"storage control target '{assignment.target}' must select one field"
+                f"storage control target '{assignment.target}' has invalid depth"
             )
         resource = resource_symbols[parts[0]]
-        field = parts[1]
+        field = parts[-1]
         if isinstance(resource, _FifoSymbol):
             try:
                 signal = ir_storage.FifoSignal(field)
@@ -7906,6 +8850,45 @@ def analyze(
                 ir_storage.FifoSignal.POP,
             }
         elif isinstance(resource, _MemorySymbol):
+            port = None
+            if resource.ports:
+                if len(parts) != 3:
+                    raise SemanticError(
+                        f"ported memory control '{assignment.target}' must select "
+                        "a named port and field"
+                    )
+                port = next(
+                    (item for item in resource.ports if item.name == parts[1]),
+                    None,
+                )
+                if port is None:
+                    raise SemanticError(
+                        f"memory '{resource.name}' has no port '{parts[1]}'"
+                    )
+                allowed = {
+                    ast.MemoryPortKind.READ: {"address", "read_enable"},
+                    ast.MemoryPortKind.WRITE: {"address", "enable", "data", "mask"},
+                    ast.MemoryPortKind.READ_WRITE: {
+                        "address", "read_enable", "write_enable",
+                        "write_data", "write_mask",
+                    },
+                }[port.kind]
+                if field not in allowed:
+                    raise SemanticError(
+                        f"memory port '{resource.name}.{port.name}' has no writable "
+                        f"field '{field}'"
+                    )
+                control_key = f"{port.name}.{field}"
+                if control_key in resource_controls[resource.name]:
+                    raise SemanticError(
+                        f"storage control '{assignment.target}' is assigned more than once"
+                    )
+                resource_controls[resource.name][control_key] = assignment.expression
+                continue
+            if len(parts) != 2:
+                raise SemanticError(
+                    f"legacy memory control '{assignment.target}' selects one field"
+                )
             try:
                 signal = ir_storage.MemorySignal(field)
             except ValueError as error:
@@ -7998,6 +8981,7 @@ def analyze(
                     effective_source_digest,
                 )
                 if getattr(declaration, "origin", None) is not None else None,
+                symbol.domain,
             )
         )
 
@@ -8006,6 +8990,184 @@ def analyze(
         symbol = resource_symbols[name]
         assert isinstance(symbol, _MemorySymbol)
         controls = resource_controls[name]
+        initial_value = None
+        if declaration.initializer is not None:
+            initial_value = _check_typed_boundary(
+                declaration.initializer,
+                value_symbols,
+                symbol.element_type,
+                module_context,
+            )
+            initial_value = _expand_analysis_calls(
+                initial_value,
+                module_context,
+                purpose=f"memory '{name}' initializer",
+            )
+            try:
+                constant_runtime_value(initial_value)
+            except ConstantExpressionError as error:
+                raise SemanticError(
+                    f"memory '{name}' init value must be a compile-time "
+                    f"constant of exact type {symbol.element_type}: {error}"
+                ) from error
+        if symbol.ports:
+            if name in scheduled_memory_names:
+                raise SemanticError(
+                    f"ported memory '{name}' does not accept rule-local memory actions"
+                )
+            address_type = UIntType(symbol.address_width)
+            write_mask_width = (
+                ir_storage.memory_byte_mask_width(symbol.element_type.width)
+                if any(key.endswith(".mask") or key.endswith(".write_mask") for key in controls)
+                else None
+            )
+            typed_ports: list[ir_storage.MemoryPort] = []
+            declaration_ports = {port.name: port for port in declaration.ports}
+            for port_symbol in symbol.ports:
+                prefix = f"{port_symbol.name}."
+                port_controls = {
+                    key[len(prefix):]: value
+                    for key, value in controls.items()
+                    if key.startswith(prefix)
+                }
+                readable = port_symbol.kind in {
+                    ast.MemoryPortKind.READ,
+                    ast.MemoryPortKind.READ_WRITE,
+                }
+                writable = port_symbol.kind in {
+                    ast.MemoryPortKind.WRITE,
+                    ast.MemoryPortKind.READ_WRITE,
+                }
+                required = {"address"}
+                if writable:
+                    required |= (
+                        {"enable", "data"}
+                        if port_symbol.kind is ast.MemoryPortKind.WRITE
+                        else {"write_enable", "write_data"}
+                    )
+                missing = required - port_controls.keys()
+                if missing:
+                    raise SemanticError(
+                        f"memory port '{name}.{port_symbol.name}' has no "
+                        f"'{sorted(missing)[0]}' control assignment"
+                    )
+                address = _check_expression(
+                    port_controls["address"], value_symbols,
+                    address_type, module_context,
+                )
+                read_enable = None
+                if readable:
+                    source = port_controls.get("read_enable")
+                    read_enable = (
+                        _check_expression(
+                            source, value_symbols, BitType(), module_context
+                        )
+                        if source is not None else ir_expr.Constant(1, BitType())
+                    )
+                write_enable = write_data = write_mask = None
+                if writable:
+                    enable_name = (
+                        "enable"
+                        if port_symbol.kind is ast.MemoryPortKind.WRITE
+                        else "write_enable"
+                    )
+                    data_name = (
+                        "data"
+                        if port_symbol.kind is ast.MemoryPortKind.WRITE
+                        else "write_data"
+                    )
+                    mask_name = (
+                        "mask"
+                        if port_symbol.kind is ast.MemoryPortKind.WRITE
+                        else "write_mask"
+                    )
+                    write_enable = _check_expression(
+                        port_controls[enable_name], value_symbols,
+                        BitType(), module_context,
+                    )
+                    write_data = _check_typed_boundary(
+                        port_controls[data_name], value_symbols,
+                        symbol.element_type, module_context,
+                    )
+                    if mask_name in port_controls:
+                        lane_count = ir_storage.memory_byte_mask_width(
+                            symbol.element_type.width
+                        )
+                        write_mask = _check_expression(
+                            port_controls[mask_name], value_symbols,
+                            BitsType(lane_count), module_context,
+                        )
+                expected_fields = [("address", address.type, address_type)]
+                if read_enable is not None:
+                    expected_fields.append(
+                        ("read_enable", read_enable.type, BitType())
+                    )
+                if write_enable is not None:
+                    expected_fields.append(
+                        ("write_enable", write_enable.type, BitType())
+                    )
+                if write_data is not None:
+                    expected_fields.append(
+                        ("write_data", write_data.type, symbol.element_type)
+                    )
+                for label, actual, expected in expected_fields:
+                    if actual != expected:
+                        raise SemanticError(
+                            f"memory port '{name}.{port_symbol.name}.{label}' "
+                            f"has type {actual}, expected {expected}"
+                        )
+                port_decl = declaration_ports[port_symbol.name]
+                port_origin = (
+                    SourceOrigin(
+                        port_decl.origin,
+                        f"memory port {name}.{port_symbol.name}",
+                        effective_source_unit,
+                        effective_source_digest,
+                    )
+                    if port_decl.origin is not None else None
+                )
+                typed_ports.append(ir_storage.MemoryPort(
+                    port_symbol.name,
+                    f"state:{transition_prefix}:memory:{name}:port:{port_symbol.name}",
+                    ir_storage.MemoryPortKind(port_symbol.kind.value),
+                    port_symbol.domain,
+                    address,
+                    read_enable,
+                    write_enable,
+                    write_data,
+                    write_mask,
+                    port_origin,
+                ))
+            origin = (
+                SourceOrigin(
+                    declaration.origin, f"memory {name}", effective_source_unit,
+                    effective_source_digest,
+                )
+                if declaration.origin is not None else None
+            )
+            memories.append(ir_storage.Memory(
+                name,
+                f"state:{transition_prefix}:memory:{name}",
+                symbol.element_type,
+                symbol.depth,
+                declaration.read_latency,
+                ir_storage.MemoryCollision(declaration.collision.value),
+                None, None, None, None,
+                origin,
+                write_mask_width=write_mask_width,
+                contents_reset=ir_storage.MemoryResetPolicy(
+                    declaration.contents_reset.value
+                ),
+                read_data_reset=ir_storage.MemoryResetPolicy(
+                    declaration.read_data_reset.value
+                ),
+                domain=symbol.domain,
+                ports=tuple(typed_ports),
+                async_memory=declaration.async_memory,
+                write_priority=declaration.write_priority,
+                initial_value=initial_value,
+            ))
+            continue
         required = {"read_address", "write_enable", "write_address", "write_data"}
         scheduled = name in scheduled_memory_names
         if controls and scheduled:
@@ -8092,6 +9254,8 @@ def analyze(
                 read_data_reset=ir_storage.MemoryResetPolicy(
                     declaration.read_data_reset.value
                 ),
+                domain=symbol.domain,
+                initial_value=initial_value,
             )
         )
 
@@ -8226,7 +9390,77 @@ def analyze(
             evaluator_schema=_COMPILE_TIME_EVALUATOR_SCHEMA,
             content_hash=content_hash,
             source_origin=origin,
+            domain=symbol.domain,
         ))
+
+    def validate_resource_domain(
+        kind: str,
+        name: str,
+        domain: str,
+        expressions: Iterable[ir_expr.Expression | None],
+    ) -> None:
+        """Reject global storage controls that bypass explicit CDC checking."""
+
+        for value in expressions:
+            if value is None:
+                continue
+            source_domains = {
+                item
+                for item in _expression_domains(
+                    _expand_immutable_locals(value, value_symbols),
+                    {**symbols, **resource_symbols},
+                    register_symbols,
+                )
+                if item is not None
+            }
+            foreign = source_domains - {domain}
+            if foreign:
+                raise SemanticError(
+                    f"clock-domain mismatch in {kind} '{name}': resource "
+                    f"domain is '{domain}', control reads "
+                    f"'{sorted(foreign)[0]}'",
+                    code="ZL-DOMAIN-CROSSING",
+                    primary=value.origin,
+                    fixes=(
+                        "insert an explicit supported clock-domain crossing",
+                    ),
+                )
+
+    for fifo in fifos:
+        validate_resource_domain(
+            "FIFO", fifo.name, fifo.domain,
+            (fifo.data, fifo.push, fifo.pop),
+        )
+    for memory in memories:
+        if memory.ports:
+            for port in memory.ports:
+                validate_resource_domain(
+                    "memory port",
+                    f"{memory.name}.{port.name}",
+                    port.domain,
+                    (
+                        port.address,
+                        port.read_enable,
+                        port.write_enable,
+                        port.write_data,
+                        port.write_mask,
+                    ),
+                )
+        else:
+            validate_resource_domain(
+                "memory", memory.name, memory.domain,
+                (
+                    memory.read_address,
+                    memory.write_enable,
+                    memory.write_address,
+                    memory.write_data,
+                    memory.write_mask,
+                ),
+            )
+    for rom in roms:
+        validate_resource_domain(
+            "ROM", rom.name, rom.domain, (rom.read_address,),
+        )
 
     # Parent state/rule expressions are checked before physical child
     # elaboration below.  Publish the exact specialized scalar output
@@ -8771,6 +10005,11 @@ def analyze(
             _specializations,
         ) = resolve_instance_specialization(declaration)
         child_ast = specialized_child_ast(declaration, specialized_parameters)
+        _record_module_definition(
+            module_context,
+            declaration,
+            child_ast,
+        )
         child_resolver = _TypeResolver(
             child_ast.type_aliases,
             child_ast.structs,
@@ -8839,6 +10078,9 @@ def analyze(
                         ast.InterfaceKind.VC_CREDIT: InterfaceProtocol.VC_CREDIT,
                     }[syntax.kind]
                 )
+                module_context.instance_output_domains[
+                    (physical_name, port.name)
+                ] = port.domain
         if output_fields and array_length is None:
             aggregate_type = StructType(
                 f"__instance_{declaration.name}", tuple(output_fields)
@@ -8888,6 +10130,17 @@ def analyze(
         )
         locals_.append(local)
         value_symbols[local.name] = local
+        _remember_definition_target(
+            module_context,
+            local,
+            _declaration_origin(
+                declaration.name_origin or declaration.origin,
+                f"value {declaration.target}",
+                module_context,
+            ),
+            name=declaration.target,
+            kind="value",
+        )
 
     next_assignments: list[ir_module.NextAssignment] = []
     assigned_registers: set[str] = set()
@@ -8901,6 +10154,17 @@ def analyze(
             raise SemanticError(
                 f"register '{target.name}' has more than one next-state assignment"
             )
+        _record_definition(
+            module_context,
+            _declaration_origin(
+                assignment.target_origin,
+                f"register {target.name}",
+                module_context,
+            ),
+            module_context.definition_targets.get(id(target)),
+            name=target.name,
+            kind="register",
+        )
         expression = _check_typed_boundary(
             assignment.expression, value_symbols, target.type, module_context
         )
@@ -8927,16 +10191,51 @@ def analyze(
     ] = {}
     rule_names: set[str] = set()
     for declaration in module.rules:
-        if not clock_domains:
-            raise SemanticError(f"rule '{declaration.name}' requires a clock and reset")
         if declaration.name in rule_names:
             raise SemanticError(f"duplicate rule '{declaration.name}'")
         rule_names.add(declaration.name)
+        target_domains: set[str | None] = set()
+        for leaf in _conditional_action_leaves(declaration.actions):
+            source_action = leaf.action
+            if isinstance(source_action, ast.ResourceAction):
+                resource = resource_symbols.get(source_action.resource)
+                if resource is not None:
+                    target_domains.add(resource.domain)
+                continue
+            target_name = (
+                source_action.target.register
+                if isinstance(source_action.target, ast.IndexedAssignmentTarget)
+                else source_action.target
+            )
+            target = register_symbols.get(target_name) or outputs.get(target_name)
+            if target is not None:
+                target_domains.add(target.domain)
+        rule_domain = resolve_state_domain(
+            "rule", declaration.name, declaration.domain, target_domains
+        )
         guard = _check_expression(
             declaration.guard, value_symbols, BitType(), module_context
         )
         if guard.type != BitType():
             raise SemanticError(f"guard for rule '{declaration.name}' must be bit")
+        guard_domains = {
+            item
+            for item in _expression_domains(
+                _expand_immutable_locals(guard, value_symbols),
+                {**symbols, **resource_symbols},
+                register_symbols,
+            )
+            if item is not None
+        }
+        if guard_domains - {rule_domain}:
+            foreign = sorted(guard_domains - {rule_domain})[0]
+            raise SemanticError(
+                f"clock-domain mismatch in rule '{declaration.name}': rule "
+                f"domain is '{rule_domain}', guard reads '{foreign}'",
+                code="ZL-DOMAIN-CROSSING",
+                primary=guard.origin,
+                fixes=("insert an explicit supported clock-domain crossing",),
+            )
         guard_analysis = _expand_analysis_calls(
             _expand_immutable_locals(guard, value_symbols),
             module_context,
@@ -9151,6 +10450,14 @@ def analyze(
                     raise SemanticError(
                         f"rule '{declaration.name}' references unknown state resource '{action.resource}'"
                     )
+                if resource.domain != rule_domain:
+                    raise SemanticError(
+                        f"clock-domain mismatch in rule '{declaration.name}': "
+                        f"rule domain is '{rule_domain}', resource "
+                        f"'{resource.name}' belongs to '{resource.domain}'",
+                        code="ZL-DOMAIN-CROSSING",
+                        primary=effect_origin(action),
+                    )
                 resource_kind = "FIFO" if isinstance(resource, _FifoSymbol) else "memory"
                 origin = (
                     SourceOrigin(
@@ -9280,6 +10587,25 @@ def analyze(
                         f"rule '{declaration.name}' indexed target "
                         f"'{indexed.register}' is not a register"
                     )
+                _record_definition(
+                    action_context,
+                    _declaration_origin(
+                        indexed.name_origin,
+                        f"register {target.name}",
+                        action_context,
+                    ),
+                    action_context.definition_targets.get(id(target)),
+                    name=target.name,
+                    kind="register",
+                )
+                if target.domain != rule_domain:
+                    raise SemanticError(
+                        f"clock-domain mismatch in rule '{declaration.name}': "
+                        f"rule domain is '{rule_domain}', register "
+                        f"'{target.name}' belongs to '{target.domain}'",
+                        code="ZL-DOMAIN-CROSSING",
+                        primary=effect_origin(action),
+                    )
                 if not isinstance(target.type, VecType):
                     raise SemanticError(
                         f"rule '{declaration.name}' indexed target "
@@ -9372,6 +10698,14 @@ def analyze(
                     f"rule '{declaration.name}' target '{action.target}' is not a "
                     "register or output wire"
                 )
+            if target.domain != rule_domain:
+                raise SemanticError(
+                    f"clock-domain mismatch in rule '{declaration.name}': "
+                    f"rule domain is '{rule_domain}', target '{target.name}' "
+                    f"belongs to '{target.domain}'",
+                    code="ZL-DOMAIN-CROSSING",
+                    primary=effect_origin(action),
+                )
             if isinstance(target, ir_module.Port) and not isinstance(
                 target.type, (BitType, UIntType, SIntType, BitsType)
             ):
@@ -9389,6 +10723,17 @@ def analyze(
                     f"{target.type} target '{target.name}'"
                 )
             target_kind = "output" if isinstance(target, ir_module.Port) else "register"
+            _record_definition(
+                action_context,
+                _declaration_origin(
+                    action.target_origin,
+                    f"{target_kind} {target.name}",
+                    action_context,
+                ),
+                action_context.definition_targets.get(id(target)),
+                name=target.name,
+                kind=target_kind,
+            )
             claim_effect_target(
                 target.name,
                 leaf,
@@ -9397,17 +10742,66 @@ def analyze(
             actions.append(ir_module.NextAssignment(
                 target, expression, activation
             ))
-        rules.append(ir_module.Rule(declaration.name, guard, tuple(actions)))
+        for effect in actions:
+            effect_domains = {
+                item
+                for item in _expression_domains(
+                    _expand_immutable_locals(effect.expression, value_symbols),
+                    {**symbols, **resource_symbols},
+                    register_symbols,
+                )
+                if item is not None
+            }
+            if effect_domains - {rule_domain}:
+                foreign = sorted(effect_domains - {rule_domain})[0]
+                raise SemanticError(
+                    f"clock-domain mismatch in rule '{declaration.name}': "
+                    f"action in '{rule_domain}' reads '{foreign}'",
+                    code="ZL-DOMAIN-CROSSING",
+                    primary=effect.expression.origin,
+                    fixes=("insert an explicit supported clock-domain crossing",),
+                )
+        for _, _, operands, origin, activation in resource_actions:
+            for operand in (*operands, *((activation,) if activation is not None else ())):
+                operand_domains = {
+                    item
+                    for item in _expression_domains(
+                        _expand_immutable_locals(operand, value_symbols),
+                        {**symbols, **resource_symbols},
+                        register_symbols,
+                    )
+                    if item is not None
+                }
+                if operand_domains - {rule_domain}:
+                    foreign = sorted(operand_domains - {rule_domain})[0]
+                    raise SemanticError(
+                        f"clock-domain mismatch in rule '{declaration.name}': "
+                        f"resource action in '{rule_domain}' reads '{foreign}'",
+                        code="ZL-DOMAIN-CROSSING",
+                        primary=origin,
+                    )
+        rules.append(
+            ir_module.Rule(declaration.name, guard, tuple(actions), rule_domain)
+        )
         rule_resource_actions[declaration.name] = resource_actions
 
     priorities: list[ir_module.RulePriority] = []
     priority_edges: set[tuple[str, str]] = set()
+    rule_domains = {rule.name: rule.domain for rule in rules}
     for declaration in module.rule_priorities:
         edge = (declaration.higher, declaration.lower)
         if declaration.higher not in rule_names or declaration.lower not in rule_names:
             raise SemanticError("rule priority references an unknown rule")
         if declaration.higher == declaration.lower:
             raise SemanticError("a rule cannot have priority over itself")
+        if rule_domains[declaration.higher] != rule_domains[declaration.lower]:
+            raise SemanticError(
+                f"rule priority cannot order different clock domains: "
+                f"'{declaration.higher}' is in '{rule_domains[declaration.higher]}' "
+                f"and '{declaration.lower}' is in "
+                f"'{rule_domains[declaration.lower]}'",
+                code="ZL-DOMAIN-CROSSING",
+            )
         if edge in priority_edges:
             raise SemanticError("duplicate rule priority")
         priority_edges.add(edge)
@@ -9434,7 +10828,7 @@ def analyze(
         resource_ids[(ir_state.StateResourceKind.FIFO, fifo.name)] = semantic_id
         resources.append(ir_state.StateResource(
             semantic_id, fifo.name, ir_state.StateResourceKind.FIFO,
-            fifo.element_type, clock, fifo.source_origin, fifo.depth,
+            fifo.element_type, fifo.domain, fifo.source_origin, fifo.depth,
         ))
     for memory in memories:
         if not memory.scheduled:
@@ -9443,7 +10837,7 @@ def analyze(
         resource_ids[(ir_state.StateResourceKind.MEMORY, memory.name)] = semantic_id
         resources.append(ir_state.StateResource(
             semantic_id, memory.name, ir_state.StateResourceKind.MEMORY,
-            memory.element_type, clock, memory.source_origin, memory.depth,
+            memory.element_type, memory.domain, memory.source_origin, memory.depth,
         ))
     for port in ports:
         if port.name not in rule_output_targets:
@@ -9494,10 +10888,13 @@ def analyze(
             ))
         action_groups.append(ir_state.ActionGroup(
             group_id, rule.name, rule.guard, tuple(state_actions), rule.guard.origin,
+            rule.domain,
         ))
     for index, first in enumerate(action_groups):
         for second in action_groups[index + 1:]:
             if (
+                first.domain == second.domain
+                and
                 ir_state.groups_conflict(first, second)
                 and not _priority_orders(
                     first.rule_name, second.rule_name, priority_edges
@@ -9516,7 +10913,8 @@ def analyze(
         for index, first in enumerate(writers):
             for second in writers[index + 1:]:
                 if (
-                    not _priority_orders(first.name, second.name, priority_edges)
+                    first.domain == second.domain
+                    and not _priority_orders(first.name, second.name, priority_edges)
                     and not _guards_are_provably_disjoint(
                         first.guard, second.guard
                     )
@@ -9535,6 +10933,7 @@ def analyze(
         tuple(
             (
                 group.semantic_id,
+                group.domain,
                 expression_semantic_identity(group.guard),
                 tuple(
                     (
@@ -9705,6 +11104,7 @@ def analyze(
                 destination.type,
                 constraints,
                 module_context.allocate_delay,
+                source.domain,
             )
         except PipelineExplorationError as error:
             raise SemanticError(str(error)) from error
@@ -9843,6 +11243,17 @@ def analyze(
         )
         locals_.append(local)
         value_symbols[local.name] = local
+        _remember_definition_target(
+            module_context,
+            local,
+            _declaration_origin(
+                declaration.name_origin or declaration.origin,
+                f"value {declaration.target}",
+                module_context,
+            ),
+            name=declaration.target,
+            kind="value",
+        )
 
     # Validate hierarchy references and freeze specialization identity.  The
     # backend-neutral IR deliberately keeps child-module lowering separate.
@@ -9919,6 +11330,11 @@ def analyze(
             else None,
             _instance_stack=active_instance_stack,
             _hierarchy_cache=selected_hierarchy_cache,
+            analysis_needs=analysis_needs,
+            definition_resolutions=definition_resolutions,
+            definition_declarations=definition_declarations,
+            completion_scopes=completion_scopes,
+            signature_help_calls=signature_help_calls,
         )
         if array_length is not None:
             # Aggregate wire values use the same typed hierarchical ABI as
@@ -10058,21 +11474,29 @@ def analyze(
             )
             instances.append(instance)
             child_irs[physical_name] = child_ir
+        instance_clock: str | None = None
+        instance_reset: str | None = None
         if child_ir.is_sequential:
-            if not clock_domains or clock is None or reset is None:
-                raise SemanticError(
-                    f"sequential child '{declaration.name}' requires a parent clock/reset"
+            matched_domains = []
+            for child_domain in child_ir.clock_domains:
+                matches = tuple(
+                    parent_domain
+                    for parent_domain in clock_domains
+                    if parent_domain == child_domain
                 )
-            if child_ir.clock != clock or child_ir.reset != reset:
-                raise SemanticError(
-                    f"child '{declaration.name}' clock/reset must match parent "
-                    f"('{clock}', '{reset}')"
-                )
-            if child_ir.clock_domains != clock_domains:
-                raise SemanticError(
-                    f"child '{declaration.name}' physical clock/reset contract "
-                    "must exactly match its parent domain"
-                )
+                if len(matches) != 1:
+                    available = ", ".join(item.clock for item in clock_domains)
+                    raise SemanticError(
+                        f"child '{declaration.name}' physical clock/reset contract "
+                        f"({child_domain.clock}, {child_domain.reset}) does not match "
+                        f"one exact parent domain; available domains: {available}"
+                    )
+                matched_domains.append(matches[0])
+            # Compatibility fields retain the historical one-domain projection.
+            # Multi-domain children are connected from their full domain tuple.
+            if len(matched_domains) == 1:
+                instance_clock = matched_domains[0].clock
+                instance_reset = matched_domains[0].reset
         specialization_identity = hashlib.sha256(
             f"{declaration.module}|{tuple(sorted(resolved_arguments.items()))}".encode()
         ).hexdigest()[:24]
@@ -10081,8 +11505,8 @@ def analyze(
                 ir_module.ElaboratedInstance(
                     next(item for item in instances if item.name == physical_name),
                     child_ir.name,
-                    clock if child_ir.is_sequential else None,
-                    reset if child_ir.is_sequential else None,
+                    instance_clock,
+                    instance_reset,
                     instance_identity=hashlib.sha256(
                         f"{module.name}|{physical_name}|{declaration.module}|"
                         f"{tuple(sorted(resolved_arguments.items()))}".encode()
@@ -10102,6 +11526,9 @@ def analyze(
                         f"predeclared {predeclared_type}, analyzed {port.type}"
                     )
                 module_context.instance_outputs[(physical_name, port.name)] = port.type
+                module_context.instance_output_domains[
+                    (physical_name, port.name)
+                ] = port.domain
         # Child port types are resolved through the child declaration's public
         # syntax when available; a synthetic aggregate exposes c.y to the
         # parent type checker without guessing generated RTL names.
@@ -10115,6 +11542,18 @@ def analyze(
 
     hierarchical_connection_declarations = list(module.connections)
     instance_declarations = {item.name: item for item in module.instances}
+    for declaration in module.instances:
+        _remember_definition_target(
+            module_context,
+            declaration,
+            _declaration_origin(
+                declaration.name_origin or declaration.origin,
+                f"instance {declaration.name}",
+                module_context,
+            ),
+            name=declaration.name,
+            kind="instance",
+        )
     for chain in module.connection_chains:
         if len(chain.endpoints) < 3:
             raise SemanticError("connection chain requires at least one intermediate instance")
@@ -10124,7 +11563,11 @@ def analyze(
                 "connection-chain array endpoints are not supported"
             )
         current_source = chain.endpoints[0]
-        for instance_name in chain.endpoints[1:-1]:
+        current_origins = (
+            chain.endpoint_name_origins[0]
+            if chain.endpoint_name_origins else ()
+        )
+        for chain_index, instance_name in enumerate(chain.endpoints[1:-1], 1):
             if "." in instance_name or "[" in instance_name:
                 raise SemanticError(
                     "connection-chain intermediates must be bare physical instance names"
@@ -10161,10 +11604,25 @@ def analyze(
             hierarchical_connection_declarations.append(ast.ConnectionDecl(
                 current_source,
                 f"{instance_name}.{protocol_inputs[0].name}",
+                source_name_origins=current_origins,
+                destination_name_origins=(
+                    chain.endpoint_name_origins[chain_index]
+                    if chain.endpoint_name_origins else ()
+                ),
             ))
             current_source = f"{instance_name}.{protocol_outputs[0].name}"
+            current_origins = (
+                chain.endpoint_name_origins[chain_index]
+                if chain.endpoint_name_origins else ()
+            )
         hierarchical_connection_declarations.append(ast.ConnectionDecl(
-            current_source, chain.endpoints[-1]
+            current_source,
+            chain.endpoints[-1],
+            source_name_origins=current_origins,
+            destination_name_origins=(
+                chain.endpoint_name_origins[-1]
+                if chain.endpoint_name_origins else ()
+            ),
         ))
 
     hierarchical_connection_declarations = [
@@ -10179,6 +11637,76 @@ def analyze(
     array_rv_sources: set[tuple[str, str]] = set()
     array_rv_destinations: set[tuple[str, str]] = set()
 
+    def record_connection_endpoint_definitions(
+        path: str,
+        name_origins: tuple[SourceSpan | None, ...],
+    ) -> None:
+        """Publish exact semantic uses of names in one protocol endpoint."""
+
+        if not name_origins:
+            return
+        parts = path.split(".")
+        owner = parts[0].split("[", 1)[0]
+
+        def occurrence(span: SourceSpan | None, name: str, kind: str) -> SourceOrigin | None:
+            return _declaration_origin(
+                span,
+                f"{kind} {name}",
+                module_context,
+            )
+
+        if len(parts) == 1:
+            symbol = value_symbols.get(owner) or symbols.get(owner)
+            if symbol is not None:
+                _record_definition(
+                    module_context,
+                    occurrence(name_origins[0], owner, "name"),
+                    module_context.definition_targets.get(id(symbol)),
+                    name=owner,
+                    kind=_definition_kind(symbol),
+                )
+            return
+
+        declaration = instance_declarations.get(owner)
+        if declaration is None:
+            return
+        _record_definition(
+            module_context,
+            occurrence(name_origins[0], owner, "name"),
+            module_context.definition_targets.get(id(declaration)),
+            name=owner,
+            kind="instance",
+        )
+        if len(parts) != 2 or len(name_origins) < 2:
+            return
+        child_module = known_modules.get(declaration.module)
+        if child_module is None:
+            return
+        member = parts[1]
+        for port_declaration in child_module.ports:
+            names = port_declaration.names or (port_declaration.name,)
+            if member not in names:
+                continue
+            index = names.index(member)
+            target_span = (
+                port_declaration.name_origins[index]
+                if index < len(port_declaration.name_origins)
+                else port_declaration.origin
+            )
+            _record_definition(
+                module_context,
+                occurrence(name_origins[1], member, "name"),
+                _declaration_origin(
+                    target_span,
+                    f"port {member}",
+                    module_context,
+                    source_unit=child_module.source_identity,
+                ),
+                name=member,
+                kind="port",
+            )
+            return
+
     def array_physical_owner(owner: str) -> bool:
         match = re.fullmatch(
             r"(?P<array>[A-Za-z_][A-Za-z0-9_]*)\[[0-9]+\]", owner
@@ -10189,6 +11717,12 @@ def analyze(
         )
 
     for declaration in hierarchical_connection_declarations:
+        record_connection_endpoint_definitions(
+            declaration.source, declaration.source_name_origins
+        )
+        record_connection_endpoint_definitions(
+            declaration.destination, declaration.destination_name_origins
+        )
         if "." not in declaration.source and "." not in declaration.destination:
             source_top = next(
                 (
@@ -10246,7 +11780,17 @@ def analyze(
             aggregate_crossing = (
                 ir_cdc.Crossing(
                     ir_cdc.CrossingKind(declaration.crossing.kind.value),
-                    declaration.crossing.depth,
+                    (
+                        type_resolver._eval_storage_depth(
+                            declaration.crossing.depth,
+                            kind="async_fifo",
+                            name=(
+                                f"{declaration.source}->{declaration.destination}"
+                            ),
+                        )
+                        if declaration.crossing.depth is not None
+                        else None
+                    ),
                 )
                 if declaration.crossing is not None
                 else None
@@ -10637,6 +12181,24 @@ def analyze(
                 )
             if any(item.instance == root and item.port == child_port.name for item in instance_bindings):
                 raise SemanticError(f"instance input '{assignment.target}' is assigned more than once")
+            bound_domains = {
+                item
+                for item in _expression_domains(
+                    _expand_immutable_locals(bound, value_symbols),
+                    {**symbols, **resource_symbols},
+                    register_symbols,
+                )
+                if item is not None
+            }
+            if child_port.domain is not None and bound_domains - {child_port.domain}:
+                foreign = sorted(bound_domains - {child_port.domain})[0]
+                raise SemanticError(
+                    f"instance input '{assignment.target}' in domain "
+                    f"'{child_port.domain}' reads dynamic value from '{foreign}'",
+                    code="ZL-DOMAIN-CROSSING",
+                    primary=bound.origin,
+                    fixes=("insert an explicit supported clock-domain crossing first",),
+                )
             instance_bindings.append(ir_module.InstancePortBinding(root, child_port.name, bound))
             continue
         if "." not in assignment.target and assignment.target in {
@@ -10691,6 +12253,32 @@ def analyze(
             operand = _expand_exploration_calls(
                 operand, functions, module_context
             )
+            implementation_domains = {
+                item
+                for item in _expression_domains(
+                    operand,
+                    {**symbols, **resource_symbols},
+                    register_symbols,
+                )
+                if item is not None
+            }
+            implementation_domain = getattr(target, "domain", None)
+            if implementation_domain is None and len(implementation_domains) == 1:
+                implementation_domain = next(iter(implementation_domains))
+            if implementation_domain is None:
+                implementation_domain = module_context.default_clock_domain
+            if implementation_domains - {implementation_domain}:
+                foreign = sorted(implementation_domains - {implementation_domain})[0]
+                raise SemanticError(
+                    f"implementation region in '{implementation_domain}' reads "
+                    f"dynamic value from '{foreign}'; implementation planning "
+                    "cannot cross clock domains",
+                    code="ZL-DOMAIN-CROSSING",
+                    primary=_semantic_origin(
+                        assignment.expression, module_context
+                    ),
+                    fixes=("insert an explicit supported clock-domain crossing first",),
+                )
             objective = assignment.expression.objective
             _validate_exploration_objective(objective)
             objective_metric = _exploration_objective_metric(objective)
@@ -10722,6 +12310,7 @@ def analyze(
                         module_context.allocate_delay,
                         candidate_site_owner,
                         site_kind,
+                        implementation_domain,
                     ),
                 )
             except ExplorationSelectionError as error:
@@ -10848,8 +12437,22 @@ def analyze(
                 expression_context,
             )
         elif not isinstance(assignment.expression, ast.ImplementExpr):
+            source_expression = assignment.expression
+            if (
+                isinstance(source_expression, ast.PipelineExpr)
+                and source_expression.domain is None
+                and isinstance(target, ir_module.Port)
+                and target.domain is not None
+            ):
+                # The explicitly clock-qualified destination is an exact
+                # contextual domain boundary.  Record that constraint before
+                # typing the pipeline so constant-only kernels remain concise
+                # in a multi-clock module without declaration-order guessing.
+                source_expression = replace(
+                    source_expression, domain=target.domain
+                )
             expression = _check_expression(
-                assignment.expression,
+                source_expression,
                 value_symbols,
                 target_type,
                 expression_context,
@@ -10933,7 +12536,9 @@ def analyze(
             continue
         target_domain = assignment.target.domain
         source_domains = _expression_domains(
-            assignment.expression, symbols, register_symbols
+            _expand_immutable_locals(assignment.expression, value_symbols),
+            {**symbols, **resource_symbols},
+            register_symbols,
         )
         mismatched = {
             domain
@@ -10952,7 +12557,9 @@ def analyze(
             )
     for assignment in next_assignments:
         source_domains = _expression_domains(
-            assignment.expression, symbols, register_symbols
+            _expand_immutable_locals(assignment.expression, value_symbols),
+            {**symbols, **resource_symbols},
+            register_symbols,
         )
         mismatched = {
             domain
@@ -11147,6 +12754,11 @@ def analyze(
         source_unit=effective_source_unit,
         source_digest=effective_source_digest,
         source_digests=source_digests,
+        definition_resolutions=pure_context.definition_resolutions,
+        definition_targets=pure_context.definition_targets,
+        definition_declarations=pure_context.definition_declarations,
+        signature_help_calls=pure_context.signature_help_calls,
+        analysis_needs=pure_context.analysis_needs,
         functional_binder_ordinals=dict(pure_context.functional_binder_ordinals),
         next_functional_binder_ordinal=[
             pure_context.next_functional_binder_ordinal[0]
@@ -11641,6 +13253,14 @@ def analyze(
 
     csr_access: ir_csr.CsrAccessInterface | None = None
     if csr_blocks:
+        csr_domains = {block.domain for block in csr_blocks}
+        if len(csr_domains) != 1:
+            raise SemanticError(
+                "all CSR blocks sharing the canonical access ABI must belong "
+                "to one clock domain",
+                code="ZL-DOMAIN-CROSSING",
+            )
+        csr_domain = csr_blocks[0].domain
         reserved = {"addr", "write", "wdata", "read", "rdata", "ready"}
         collision = next((port.name for port in ports if port.name in reserved), None)
         if collision is not None:
@@ -11653,14 +13273,14 @@ def analyze(
         ports.extend(
             ir_module.Port(
                 ir_module.PortDirection.INPUT, name, type_,
-                domain=clock,
+                domain=csr_domain,
             )
             for name, type_ in csr_access.input_types
         )
         ports.extend(
             ir_module.Port(
                 ir_module.PortDirection.OUTPUT, name, type_,
-                domain=clock,
+                domain=csr_domain,
             )
             for name, type_ in csr_access.output_types
         )
@@ -11671,19 +13291,19 @@ def analyze(
                         ir_module.PortDirection.OUTPUT,
                         ir_csr.csr_state_port_name(binding),
                         binding.canonical_type,
-                        domain=clock,
+                        domain=block.domain,
                     ),
                     ir_module.Port(
                         ir_module.PortDirection.OUTPUT,
                         ir_csr.csr_write_hit_port_name(binding),
                         ir_csr.BitType(),
-                        domain=clock,
+                        domain=block.domain,
                     ),
                     ir_module.Port(
                         ir_module.PortDirection.OUTPUT,
                         ir_csr.csr_write_value_port_name(binding),
                         binding.canonical_type,
-                        domain=clock,
+                        domain=block.domain,
                     ),
                 ))
 
@@ -12655,6 +14275,177 @@ def _guard_range_refinements(
     return visit(expression)
 
 
+def _completion_function_detail(
+    name: str,
+    signature: _FunctionSignature | None = None,
+    declaration: ast.FunctionDecl | None = None,
+) -> str:
+    """Render a stable source-facing callable detail for completion."""
+
+    if signature is not None:
+        parameters = ", ".join(
+            f"{parameter.name} : {parameter.type}"
+            for parameter in signature.parameters
+        )
+        return f"fn {name}({parameters}) -> {signature.return_type}"
+    if declaration is None:
+        return f"fn {name}"
+    parameters = ", ".join(
+        f"{parameter.name} : {parameter.type_name}"
+        for parameter in declaration.parameters
+    )
+    generic = ""
+    if declaration.generic_parameters:
+        generic = "<" + ", ".join(
+            parameter.name for parameter in declaration.generic_parameters
+        ) + ">"
+    suffix = (
+        f" -> {declaration.return_type}"
+        if declaration.return_type is not None
+        else ""
+    )
+    return f"fn {name}{generic}({parameters}){suffix}"
+
+
+def _completion_candidates(
+    inputs: dict[str, _ValueSymbol],
+    context: _ExpressionContext,
+) -> tuple[CompletionCandidate, ...]:
+    """Project the compiler's current semantic environment for one scope."""
+
+    candidates: list[CompletionCandidate] = []
+    for name, signature in context.functions.items():
+        candidates.append(
+            CompletionCandidate(
+                name,
+                "function",
+                _completion_function_detail(name, signature=signature),
+                context.definition_targets.get(id(signature.declaration)),
+            )
+        )
+    for name, declaration in context.generic_functions.items():
+        candidates.append(
+            CompletionCandidate(
+                name,
+                "function",
+                _completion_function_detail(name, declaration=declaration),
+                context.definition_targets.get(id(declaration)),
+            )
+        )
+    for name, symbol in inputs.items():
+        kind: str | None = None
+        detail: str | None = None
+        if isinstance(symbol, ir_module.Port):
+            if symbol.protocol is not InterfaceProtocol.WIRE:
+                continue
+            kind, detail = "port", str(symbol.type)
+        elif isinstance(symbol, ir_module.FunctionParameter):
+            kind, detail = "parameter", str(symbol.type)
+        elif isinstance(symbol, ir_module.LocalValue):
+            kind, detail = "value", str(symbol.type)
+        elif isinstance(symbol, ir_expr.Expression):
+            # Callable-local immutable bindings are represented by their
+            # already-typed expression rather than a LocalValue.
+            kind, detail = "value", str(symbol.type)
+        if kind is None:
+            continue
+        candidates.append(
+            CompletionCandidate(
+                name,
+                kind,
+                detail,
+                context.definition_targets.get(id(symbol)),
+            )
+        )
+    for name in context.parameters:
+        candidates.append(CompletionCandidate(name, "parameter", "compile-time parameter"))
+    for name in context.index_bindings:
+        candidates.append(CompletionCandidate(name, "parameter", "compile-time index"))
+    for name, value in context.compile_time_constants.items():
+        candidates.append(CompletionCandidate(name, "parameter", str(value.type)))
+    for name in context.static_callables:
+        candidates.append(CompletionCandidate(name, "function", f"fn {name}"))
+
+    unique: dict[tuple[object, ...], CompletionCandidate] = {}
+    for candidate in candidates:
+        target = candidate.target
+        target_key = (
+            None
+            if target is None
+            else (
+                target.source_unit,
+                target.digest,
+                target.span.start_line,
+                target.span.start_column,
+                target.span.end_line,
+                target.span.end_column,
+                target.construct,
+            )
+        )
+        unique[(candidate.name, candidate.kind, candidate.detail, target_key)] = candidate
+    return tuple(
+        sorted(
+            unique.values(),
+            key=lambda candidate: (candidate.name, candidate.kind, candidate.detail or ""),
+        )
+    )
+
+
+def _record_completion_scope(
+    expression: ast.Expression,
+    inputs: dict[str, _ValueSymbol],
+    context: _ExpressionContext,
+) -> None:
+    """Record visible candidates without affecting semantic checking."""
+
+    if context.completion_scopes is None or expression.origin is None:
+        return
+    origin = _semantic_origin(expression, context)
+    if origin is None:
+        return
+    context.completion_scopes.append(
+        CompletionScope(origin, _completion_candidates(inputs, context))
+    )
+
+
+def _record_signature_help_call(
+    expression: ast.CallExpr,
+    context: _ExpressionContext,
+    parameters: tuple[ir_module.FunctionParameter, ...],
+    return_type: HardwareType,
+) -> None:
+    """Record one resolved call for semantic signature-help queries."""
+
+    if context.signature_help_calls is None or expression.origin is None:
+        return
+    call_origin = _semantic_origin(expression, context)
+    if call_origin is None or len(parameters) != len(expression.arguments):
+        return
+    argument_origins = tuple(
+        _semantic_origin(argument, context) for argument in expression.arguments
+    )
+    # Active-parameter selection is only sound when every argument has an
+    # authoritative parser span.  The callee span may be absent for a few
+    # synthesized/internal calls; the enclosing call span remains sufficient
+    # for a conservative query in that case.
+    record = SignatureHelpCall(
+        call_origin,
+        _callable_reference_origin(expression, context),
+        argument_origins,
+        expression.function,
+        tuple(
+            SignatureParameter(parameter.name, str(parameter.type))
+            for parameter in parameters
+        ),
+        str(return_type),
+    )
+    # Return-type probing and the final callable-body check can visit the same
+    # source call more than once.  Keep one deterministic compiler fact for a
+    # given resolved call/signature while retaining distinct specializations.
+    if record not in context.signature_help_calls:
+        context.signature_help_calls.append(record)
+
+
 def _check_expression(
     expression: ast.Expression,
     inputs: dict[str, _ValueSymbol],
@@ -12663,6 +14454,8 @@ def _check_expression(
 ) -> ir_expr.Expression:
     _budget_step(context)
     source_expression = expression
+    if context.analysis_needs.wants(AnalysisNeeds.COMPLETION):
+        _record_completion_scope(source_expression, inputs, context)
     if isinstance(expression, ast.CompileTimeIfExpr):
         selected = (
             expression.when_true
@@ -12996,6 +14789,22 @@ def _check_expression_untraced(
         owner = expression.expression.name
         enum_type = context.type_resolver.enum_type(owner)
         if enum_type is not None:
+            # Preserve both the owner enum and the exact member occurrence for
+            # compiler-owned navigation.  The AST expression keeps its
+            # original full qualified provenance for compilation identity.
+            owner_span = expression.expression.origin
+            if owner_span is not None and owner_span.start_line == owner_span.end_line:
+                owner_span = SourceSpan(
+                    owner_span.start_line,
+                    owner_span.start_column,
+                    owner_span.start_line,
+                    owner_span.start_column + len(owner),
+                )
+            _record_named_type_definition(
+                context,
+                ast.TypeName(owner, origin=owner_span),
+                context.type_resolver,
+            )
             try:
                 code = enum_type.member_code(expression.field)
             except ValueError as error:
@@ -13007,6 +14816,9 @@ def _check_expression_untraced(
                     f"enum member {enum_type.name}.{expression.field} has type "
                     f"{enum_type}, expected exact {expected}"
                 )
+            _record_enum_member_definition(
+                context, expression, enum_type, context.type_resolver
+            )
             return ir_expr.Constant(code, enum_type)
         union_type = context.type_resolver.tagged_union_type(owner)
         if union_type is not None:
@@ -13089,6 +14901,11 @@ def _check_expression_untraced(
         symbol = inputs.get(expression.name)
         if symbol is None:
             output = context.write_only_outputs.get(expression.name)
+            if (
+                output is not None
+                and expression.name in context.readable_cdc_outputs
+            ):
+                return ir_expr.InputRef(expression.name, output.type)
             if output is not None and not context.allow_output_reads:
                 raise SemanticError(
                     f"module output '{expression.name}' cannot be read internally; "
@@ -13106,6 +14923,7 @@ def _check_expression_untraced(
             and symbol.direction is ir_module.PortDirection.OUTPUT
             and symbol.protocol is InterfaceProtocol.WIRE
             and not context.allow_output_reads
+            and expression.name not in context.readable_cdc_outputs
         ):
             raise SemanticError(
                 f"module output '{expression.name}' cannot be read internally; "
@@ -13117,6 +14935,13 @@ def _check_expression_untraced(
                     "that local both internally and for the output assignment",
                 ),
             )
+        _record_definition(
+            context,
+            _semantic_origin(expression, context),
+            context.definition_targets.get(id(symbol)),
+            name=expression.name,
+            kind=_definition_kind(symbol),
+        )
         if isinstance(symbol, ir_expr.Expression):
             return symbol
         if isinstance(symbol, (_FifoSymbol, _MemorySymbol, _RomSymbol)):
@@ -13754,12 +15579,57 @@ def _check_expression_untraced(
             context,
             purpose=f"pipeline({expression.stages}) expression",
         )
+        operand_ports = {
+            name: symbol
+            for name, symbol in inputs.items()
+            if isinstance(symbol, (ir_module.Port, _FifoSymbol, _MemorySymbol, _RomSymbol))
+        }
+        operand_registers = {
+            name: symbol
+            for name, symbol in inputs.items()
+            if isinstance(symbol, ir_module.Register)
+        }
+        operand_domains = {
+            item
+            for item in _expression_domains(
+                scheduling_operand, operand_ports, operand_registers
+            )
+            if item is not None
+        }
+        pipeline_domain = expression.domain or context.default_clock_domain
+        if expression.domain is not None and expression.domain not in context.clock_domains:
+            raise SemanticError(
+                f"pipeline references unknown clock domain '{expression.domain}'",
+                code="ZL-DOMAIN-UNKNOWN",
+                primary=_semantic_origin(expression, context),
+            )
+        if pipeline_domain is None and len(operand_domains) == 1:
+            pipeline_domain = next(iter(operand_domains))
+        if pipeline_domain is None:
+            if len(context.clock_domains) == 1:
+                pipeline_domain = context.clock_domains[0]
+            else:
+                raise SemanticError(
+                    "ambiguous clock domain for pipeline; annotate it with @clock",
+                    code="ZL-DOMAIN-AMBIGUOUS",
+                    primary=_semantic_origin(expression, context),
+                )
+        if operand_domains - {pipeline_domain}:
+            foreign = sorted(operand_domains - {pipeline_domain})[0]
+            raise SemanticError(
+                f"scalar pipeline in '{pipeline_domain}' reads dynamic value "
+                f"from '{foreign}'; a pipeline cut is not a CDC crossing",
+                code="ZL-DOMAIN-CROSSING",
+                primary=_semantic_origin(expression, context),
+                fixes=("insert an explicit supported clock-domain crossing first",),
+            )
         return ir_expr.Pipeline(
             expression.stages,
             scheduling_operand,
             context.allocate_delay(),
             scheduling_operand.type,
             origin=_semantic_origin(expression, context),
+            domain=pipeline_domain,
         )
 
     if isinstance(expression, ast.ImplementationChoiceExpr):
@@ -14050,6 +15920,7 @@ def _check_expression_untraced(
                 operand, rounding, overflow, ir_expr.FixedConversionKind.RESCALE, expected,
             )
         call_origin = _semantic_origin(expression, context)
+        reference_origin = _callable_reference_origin(expression, context)
         signature = _lookup_function_signature(
             context,
             expression.function,
@@ -14057,6 +15928,18 @@ def _check_expression_untraced(
         )
         generic = context.generic_functions.get(expression.function)
         if generic is not None:
+            _record_definition(
+                context,
+                reference_origin,
+                _declaration_origin(
+                    generic.name_origin or generic.origin,
+                    f"function {generic.name}",
+                    context,
+                    source_unit=generic.source_identity,
+                ),
+                name=generic.name,
+                kind="function",
+            )
             arguments = tuple(
                 _check_expression(argument, inputs, None, context)
                 for argument in expression.arguments
@@ -14068,7 +15951,7 @@ def _check_expression_untraced(
                 expression.specializations,
                 context,
             )
-            return _specialize_callable(
+            result = _specialize_callable(
                 generic,
                 arguments,
                 expression.specializations,
@@ -14076,6 +15959,20 @@ def _check_expression_untraced(
                 call_origin=_semantic_origin(expression, context),
                 specialization_symbols=inputs,
             )
+            if isinstance(result, ir_expr.Call):
+                definition = (
+                    context.callable_definitions.get(result.callee_identity)
+                    if result.callee_identity is not None
+                    else None
+                )
+                if definition is not None:
+                    _record_signature_help_call(
+                        expression,
+                        context,
+                        definition.parameters,
+                        definition.return_type,
+                    )
+            return result
         static_callable = context.static_callables.get(expression.function)
         if static_callable is not None:
             if expression.specializations:
@@ -14169,9 +16066,35 @@ def _check_expression_untraced(
                     f"callable parameter '{expression.function}' resolved to "
                     "a different concrete callee identity"
                 )
+            if concrete_definition is not None:
+                _record_signature_help_call(
+                    expression,
+                    context,
+                    concrete_definition.parameters,
+                    concrete_definition.return_type,
+                )
+            else:
+                _record_signature_help_call(
+                    expression,
+                    context,
+                    target_signature.parameters,
+                    target_signature.return_type,
+                )
             return result
         if signature is None:
             raise SemanticError(f"unknown function '{expression.function}'")
+        _record_definition(
+            context,
+            reference_origin,
+            _declaration_origin(
+                signature.declaration.name_origin or signature.declaration.origin,
+                f"function {signature.declaration.name}",
+                context,
+                source_unit=signature.declaration.source_identity,
+            ),
+            name=signature.declaration.name,
+            kind="function",
+        )
         if len(expression.arguments) != len(signature.parameters):
             raise SemanticError(
                 f"function '{expression.function}' expects "
@@ -14192,9 +16115,24 @@ def _check_expression_untraced(
                     f"expected {parameter.type}"
                 )
             arguments.append(argument)
+        _record_signature_help_call(
+            expression,
+            context,
+            signature.parameters,
+            signature.return_type,
+        )
         return ir_expr.Call(expression.function, tuple(arguments), signature.return_type)
 
     if isinstance(expression, ast.StructConstructExpr):
+        if context.type_resolver is not None:
+            _record_named_type_definition(
+                context,
+                ast.TypeName(
+                    expression.struct_name,
+                    origin=expression.name_origin,
+                ),
+                context.type_resolver,
+            )
         # Resolve field punning before any generic/concrete struct path.  The
         # resulting NameExpr deliberately goes through the normal lexical
         # lookup below, so shorthand has exactly the same diagnostics and
@@ -14303,6 +16241,34 @@ def _check_expression_untraced(
         ):
             interface_name = expression.expression.expression.name
             symbol = inputs.get(interface_name)
+            if isinstance(symbol, _MemorySymbol) and symbol.ports:
+                port_name = expression.expression.field
+                port = next(
+                    (item for item in symbol.ports if item.name == port_name),
+                    None,
+                )
+                if port is None:
+                    raise SemanticError(
+                        f"memory '{symbol.name}' has no port '{port_name}'"
+                    )
+                if expression.field not in {"data", "read_data"}:
+                    raise SemanticError(
+                        f"memory port field '{symbol.name}.{port_name}."
+                        f"{expression.field}' is write-only or unknown"
+                    )
+                if port.kind not in {
+                    ast.MemoryPortKind.READ,
+                    ast.MemoryPortKind.READ_WRITE,
+                }:
+                    raise SemanticError(
+                        f"memory port '{symbol.name}.{port_name}' is not readable"
+                    )
+                return ir_expr.MemoryRef(
+                    symbol.name,
+                    ir_storage.MemorySignal.READ_DATA,
+                    symbol.element_type,
+                    port.name,
+                )
             if isinstance(symbol, ir_module.RequestResponseInterface):
                 try:
                     channel = RequestResponseChannel(
@@ -14387,6 +16353,13 @@ def _check_expression_untraced(
                     "is not a value; select payload, valid, ready, or transfer"
                 )
             if isinstance(symbol, ir_module.Port):
+                _record_definition(
+                    context,
+                    _semantic_origin(expression.expression, context),
+                    context.definition_targets.get(id(symbol)),
+                    name=symbol.name,
+                    kind="port",
+                )
                 if symbol.protocol is InterfaceProtocol.READY_VALID:
                     try:
                         signal = ReadyValidSignal(expression.field)
@@ -14510,7 +16483,12 @@ def _check_expression_untraced(
                         f"'{expression.field}'"
                     )
                 return ir_expr.InstanceOutputRef(
-                    physical, expression.field, instance_type
+                    physical,
+                    expression.field,
+                    instance_type,
+                    domain=context.instance_output_domains.get(
+                        (physical, expression.field)
+                    ),
                 )
 
             physical_names = tuple(f"{array}[{item}]" for item in range(length))
@@ -14570,6 +16548,9 @@ def _check_expression_untraced(
                     f"{array}[{typed_index.value}]",
                     expression.field,
                     instance_type,
+                    domain=context.instance_output_domains.get(
+                        (f"{array}[{typed_index.value}]", expression.field)
+                    ),
                 )
             if not isinstance(typed_index.type, (UIntType, BitsType)):
                 raise SemanticError(
@@ -14596,7 +16577,12 @@ def _check_expression_untraced(
                 length,
                 tuple(
                     ir_expr.InstanceOutputRef(
-                        physical, expression.field, instance_type
+                        physical,
+                        expression.field,
+                        instance_type,
+                        domain=context.instance_output_domains.get(
+                            (physical, expression.field)
+                        ),
                     )
                     for physical in physical_names
                 ),
@@ -14620,7 +16606,12 @@ def _check_expression_untraced(
             )
             if instance_type is not None:
                 return ir_expr.InstanceOutputRef(
-                    expression.expression.name, expression.field, instance_type
+                    expression.expression.name,
+                    expression.field,
+                    instance_type,
+                    domain=context.instance_output_domains.get(
+                        (expression.expression.name, expression.field)
+                    ),
                 )
         aggregate = _check_expression(expression.expression, inputs, None, context)
         if not isinstance(aggregate.type, StructType):
@@ -15151,6 +17142,26 @@ def _check_expression_untraced(
                     raise SemanticError(
                         f"enum '{key_type.name}' has no member '{arm.key.member}'"
                     ) from error
+                _record_named_type_definition(
+                    context,
+                    ast.TypeName(
+                        arm.key.enum_name,
+                        origin=(
+                            SourceSpan(
+                                arm.key.origin.start_line,
+                                arm.key.origin.start_column,
+                                arm.key.origin.start_line,
+                                arm.key.origin.start_column + len(arm.key.enum_name),
+                            )
+                            if arm.key.origin is not None
+                            else None
+                        ),
+                    ),
+                    context.type_resolver,
+                )
+                _record_enum_member_definition(
+                    context, arm.key, key_type, context.type_resolver
+                )
                 if arm.key.member in seen_members:
                     raise SemanticError(
                         f"duplicate enum switch member "
@@ -15813,6 +17824,22 @@ def _semantic_origin(
     )
 
 
+def _callable_reference_origin(
+    expression: ast.CallExpr,
+    context: _ExpressionContext,
+) -> SourceOrigin | None:
+    """Return the exact compiler-owned callee occurrence when available."""
+
+    if expression.callee_origin is None:
+        return _semantic_origin(expression, context)
+    return SourceOrigin(
+        expression.callee_origin,
+        f"call {expression.function}",
+        context.source_unit,
+        context.source_digest,
+    )
+
+
 def _contains_explore(value: object) -> bool:
     if isinstance(value, ast.ImplementExpr):
         return True
@@ -16403,7 +18430,7 @@ def _guards_are_provably_disjoint(
 
 def _expression_domains(
     expression: ir_expr.Expression,
-    ports: dict[str, ir_module.Port],
+    ports: dict[str, object],
     registers: dict[str, ir_module.Register],
 ) -> set[str | None]:
     if isinstance(expression, ir_expr.InputRef):
@@ -16430,14 +18457,27 @@ def _expression_domains(
             ir_expr.FunctionalCaptureRef,
             ir_expr.FunctionalTableLookup,
             ir_expr.RequestResponseRef,
-            ir_expr.FifoRef,
-            ir_expr.MemoryRef,
-            ir_expr.RomRef,
-            ir_expr.InstanceOutputRef,
             ir_expr.Constant,
         ),
     ):
         return {None}
+    if isinstance(expression, ir_expr.InstanceOutputRef):
+        return {expression.domain}
+    if isinstance(expression, ir_expr.FifoRef):
+        resource = ports.get(expression.fifo)
+        return {getattr(resource, "domain", None)}
+    if isinstance(expression, ir_expr.MemoryRef):
+        resource = ports.get(expression.memory)
+        if isinstance(resource, _MemorySymbol) and expression.port is not None:
+            port = next(
+                (item for item in resource.ports if item.name == expression.port),
+                None,
+            )
+            return {port.domain if port is not None else None}
+        return {getattr(resource, "domain", None)}
+    if isinstance(expression, ir_expr.RomRef):
+        resource = ports.get(expression.rom)
+        return {getattr(resource, "domain", None)}
     if isinstance(expression, (ir_expr.EnumEncode, ir_expr.EnumValid)):
         return _expression_domains(expression.expression, ports, registers)
     if isinstance(expression, (ir_expr.UnionTag, ir_expr.UnionField)):
@@ -16480,10 +18520,14 @@ def _expression_domains(
             ir_expr.Pack,
             ir_expr.Unpack,
             ir_expr.Delay,
-            ir_expr.Pipeline,
         ),
     ):
         domains = _expression_domains(expression.expression, ports, registers)
+        return domains
+    if isinstance(expression, ir_expr.Pipeline):
+        domains = _expression_domains(expression.expression, ports, registers)
+        if expression.domain is not None:
+            domains.add(expression.domain)
         return domains
     if isinstance(expression, (ir_expr.RuntimeIndex, ir_expr.VectorUpdate)):
         domains = _expression_domains(expression.expression, ports, registers)

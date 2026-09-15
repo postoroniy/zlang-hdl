@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 import json
-from types import SimpleNamespace
 
 import pytest
 
-from zlang.candidate_equivalence import FrozenCandidateEquivalenceSite
 from zlang.backend.manifest import BackendArtifact, publish_artifact
 from zlang.formal_candidate import (
     PreparedCandidateEquivalence,
@@ -15,7 +13,6 @@ from zlang.formal_candidate import (
     prepared_candidate_equivalence_to_data,
     validate_prepared_equivalence_domains,
 )
-from zlang.formal_orchestration import FormalOrchestrationError
 from zlang.ir import (
     Assignment,
     BitType,

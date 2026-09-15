@@ -65,6 +65,103 @@ def test_source_map_is_deterministic_round_trippable_and_writable(tmp_path):
     assert sidecar.read_text(encoding="utf-8") == first.to_json()
 
 
+def test_source_map_granularity_is_exact_assignment_lines_only():
+    module = _module()
+    artifact, source_map = emit_sv_bundle(module)
+    assert len(source_map.entries) == 1
+
+    assignment_line = source_map.entries[0].generated.start_line
+    lines = artifact.text.splitlines()
+    module_line = next(
+        index for index, line in enumerate(lines, 1) if line.startswith("module ")
+    )
+    input_line = next(
+        index for index, line in enumerate(lines, 1) if "input wire logic" in line
+    )
+    helper_comment_line = next(
+        index
+        for index, line in enumerate(lines, 1)
+        if "Generated from backend-independent typed ZLang IR" in line
+    )
+
+    assert source_map.entries_for_line(assignment_line) == source_map.entries
+    assert source_map.entries_for_line(module_line) == ()
+    assert source_map.entries_for_line(input_line) == ()
+    assert source_map.entries_for_line(helper_comment_line) == ()
+
+
+def test_recursive_manifest_bindings_do_not_imply_generated_line_mappings():
+    source = """
+module Child {
+    in a : u8
+    out y : u8
+    y = a
+}
+
+module Parent {
+    in a : u8
+    out y : u8
+    child : Child
+    child.a = a
+    y = child.y
+}
+"""
+    result = compile_source(source, top="Parent", source_unit="hierarchy.zhl")
+    artifact, source_map = emit_sv_bundle(
+        result.ir,
+        recursive_design=result.recursive_formal_design,
+    )
+
+    assert len(artifact.components) == 2
+    assert len(artifact.instances) == 2
+    assert artifact.recursive_bindings
+    assert all(item.source_origin is None for item in artifact.instances)
+    assert all(item.source_origin is None for item in artifact.recursive_bindings)
+    assert source_map.entries == ()
+
+
+def test_source_origin_digest_records_the_snapshot_needed_for_stale_detection():
+    module = compile_source(
+        SOURCE,
+        source_unit="tests/fixtures/generated_source_map.zhl",
+    ).ir
+    _, source_map = emit_sv_bundle(module)
+    origin = source_map.entries[0].source_origin
+    assert origin.digest == hashlib.sha256(SOURCE.encode()).hexdigest()
+    assert origin.digest != hashlib.sha256((SOURCE + "\n").encode()).hexdigest()
+
+
+def test_reverse_line_lookup_preserves_all_proven_overlapping_entries():
+    first_origin = SourceOrigin(
+        SourceSpan(2, 1, 2, 2),
+        "name a",
+        "overlap.zhl",
+        "a" * 64,
+    )
+    second_origin = SourceOrigin(
+        SourceSpan(3, 1, 3, 2),
+        "name b",
+        "overlap.zhl",
+        "a" * 64,
+    )
+    source_map = GeneratedSourceMap(
+        "direct_systemverilog",
+        "Overlap",
+        "selected:test",
+        "b" * 64,
+        (
+            GeneratedSourceMapEntry(
+                GeneratedLineRange(7, 7), "value:a", first_origin
+            ),
+            GeneratedSourceMapEntry(
+                GeneratedLineRange(7, 7), "value:b", second_origin
+            ),
+        ),
+    )
+
+    assert source_map.entries_for_line(7) == source_map.entries
+
+
 def test_source_map_preserves_extended_origin_fields_when_available():
     origin = SourceOrigin(
         span=SourceSpan(3, 5, 3, 10),
@@ -175,3 +272,31 @@ def test_combined_formal_source_attribution_applies_exact_line_offset():
         f"ERROR: formal.v:{local_line}:9: wrong source slice",
         (context,),
     ) == f"ERROR: formal.v:{local_line}:9: wrong source slice"
+
+
+def test_combined_attribution_does_not_merge_distinct_source_snapshots():
+    module = compile_source(
+        SOURCE,
+        source_unit="examples/first.zhl",
+    ).ir
+    artifact, source_map = emit_sv_bundle(module)
+    entry = source_map.entries[0]
+    other_origin = replace(
+        entry.source_origin,
+        source_unit="examples/second.zhl",
+        digest="c" * 64,
+    )
+    other_map = replace(
+        source_map,
+        entries=(replace(entry, source_origin=other_origin),),
+    )
+    line = entry.generated.start_line
+    detail = f"ERROR: combined.sv:{line}:9: ambiguous source snapshots"
+
+    assert attribute_combined_generated_diagnostic(
+        detail,
+        (
+            GeneratedDiagnosticContext(source_map, artifact.text),
+            GeneratedDiagnosticContext(other_map, artifact.text),
+        ),
+    ) == detail

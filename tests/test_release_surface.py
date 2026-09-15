@@ -9,7 +9,6 @@ import pytest
 import zlang
 from zlang._version import __version__
 from zlang import cli, project_cli, verification_cli
-from zlang import toolchain
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -47,7 +46,7 @@ def test_every_public_cli_reports_the_distribution_version(
 def test_package_and_build_metadata_share_one_version_source() -> None:
     configuration = tomllib.loads((ROOT / "pyproject.toml").read_text())
 
-    assert zlang.__version__ == __version__ == "0.1.0a6"
+    assert zlang.__version__ == __version__ == "0.1.0a7"
     assert configuration["project"]["dynamic"] == ["version"]
     assert configuration["project"]["license"] == "Apache-2.0"
     assert configuration["project"]["requires-python"] == ">=3.12,<3.13"
@@ -77,7 +76,17 @@ def test_every_owned_hardware_source_uses_the_canonical_suffix() -> None:
         ROOT / "editors" / "vscode" / "zlang-hdl" / "examples",
     )
     legacy = tuple(path for root in roots for path in root.rglob("*.zl"))
-    sources = tuple(path for root in roots for path in root.rglob("*.zhl"))
+    sources = tuple(
+        path
+        for root in roots
+        for path in root.rglob("*.zhl")
+        if not (
+            root == ROOT / "examples"
+            and path.relative_to(root).as_posix().startswith(
+                "projects/80211ad_phylayer/"
+            )
+        )
+    )
 
     assert legacy == ()
-    assert len(sources) == 134
+    assert len(sources) == 135

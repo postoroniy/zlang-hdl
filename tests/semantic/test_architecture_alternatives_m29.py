@@ -9,7 +9,6 @@ from zlang.architecture import (
 from zlang.compiler import compile_source
 from zlang.costs import UnifiedConstraint
 from zlang.ir.expressions import CostMetric
-from zlang.ir.types import SIntType
 
 
 class ArchitectureAlternativesM29Tests(unittest.TestCase):

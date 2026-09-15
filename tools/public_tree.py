@@ -157,6 +157,19 @@ def _source_files(
             relative = _relative(candidate, source)
             if relative == manifest:
                 continue
+            if relative == ".git":
+                # Git linked worktrees have a root .git *file* pointing to
+                # their shared object database. It is checkout metadata, not
+                # public source; reject an invalid or arbitrary file instead
+                # of silently excluding it from the publication audit.
+                try:
+                    pointer = candidate.read_text(encoding="utf-8")
+                except (OSError, UnicodeError) as error:
+                    raise ProjectionError("invalid Git worktree metadata") from error
+                match = re.fullmatch(r"gitdir: ([^\r\n]+)\n?", pointer)
+                if match is None or not (source / match.group(1)).resolve().is_dir():
+                    raise ProjectionError("invalid Git worktree metadata")
+                continue
             if candidate.is_symlink():
                 raise ProjectionError(f"symlink is forbidden: {relative}")
             if candidate.is_file():

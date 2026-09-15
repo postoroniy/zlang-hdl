@@ -4,10 +4,8 @@ import subprocess
 import tempfile
 import unittest
 
-from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact, emit_experimental
+from zlang.backend.systemverilog import emit_experimental
 from zlang.compiler import compile_source
-from zlang.formal import run_verilog_formal
-from zlang.ir.formal import FormalStatus
 
 
 ROOT = Path(__file__).resolve().parents[2]

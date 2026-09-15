@@ -9,19 +9,12 @@ must not create a narrower backend subset.
 
 from __future__ import annotations
 
-import os
-from pathlib import Path
-import re
 import shutil
-import subprocess
 
 import pytest
 
-from zlang.backend.naming import module_rtl_names
 from zlang.backend.systemverilog import emit_experimental as emit_systemverilog
 from zlang.compiler import compile_source
-from zlang.parser import parse
-from zlang.semantic import analyze
 from zlang.toolchain import lint_with_verilator
 
 

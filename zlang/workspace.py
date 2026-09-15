@@ -253,6 +253,10 @@ def _annotate_source(record: ResolvedModuleSource) -> ResolvedModuleSource:
         return replace(
             unit,
             source_identity=identity,
+            type_aliases=tuple(
+                replace(item, source_identity=identity)
+                for item in unit.type_aliases
+            ),
             source_hash=digest,
             enums=tuple(
                 replace(item, source_identity=identity) for item in unit.enums

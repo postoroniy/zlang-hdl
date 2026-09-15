@@ -94,10 +94,14 @@ def _module_scope_identifiers(module: Module, identifier) -> set[str]:
     return {identifier(name) for name in names}
 
 
-def _reset_conditioning_names(module: Module, identifier) -> tuple[str, str]:
+def _reset_conditioning_names(
+    module: Module,
+    identifier,
+    clock: str | None = None,
+) -> tuple[str, str]:
     """Allocate the conditioner registers and effective-reset net together."""
 
-    domain = module_domain(module)
+    domain = module_domain(module, clock)
     token = _domain_token(domain)
     used = _module_scope_identifiers(module, identifier)
     semantic_identity = "|".join((
@@ -213,7 +217,7 @@ def effective_reset_signal(
         or not module_requires_reset_conditioner(module)
     ):
         return identifier(domain.reset)
-    return _reset_conditioning_names(module, identifier)[1]
+    return _reset_conditioning_names(module, identifier, domain.clock)[1]
 
 
 def native_release_module(module: Module) -> Module:
@@ -244,7 +248,13 @@ def native_release_module(module: Module) -> Module:
 
 
 def reset_conditioner_lines(module: Module, identifier) -> tuple[str, ...]:
-    """Emit the one root-domain async-assert/sync-release conditioner."""
+    """Emit one async-assert/sync-release conditioner per physical domain.
+
+    The semantic module owns the complete physical-domain table.  A
+    synchronized reset is conditioned in its own clock domain and the
+    resulting net is selected by :func:`effective_reset_signal`; no root clock
+    or declaration-order default participates in this mapping.
+    """
 
     synchronized = tuple(
         domain
@@ -253,48 +263,48 @@ def reset_conditioner_lines(module: Module, identifier) -> tuple[str, ...]:
     )
     if not synchronized or not module_requires_reset_conditioner(module):
         return ()
-    if len(module.clock_domains) != 1 or len(synchronized) != 1:
-        raise PhysicalDomainError(
-            "synchronized reset release requires exactly one physical domain"
+    lines: list[str] = []
+    for domain in synchronized:
+        if domain.reset_release_cycles != 2:
+            raise PhysicalDomainError(
+                "direct SystemVerilog synchronized reset release requires two cycles"
+            )
+        stages, effective = _reset_conditioning_names(
+            module, identifier, domain.clock
         )
-    domain = module_domain(module)
-    if domain.reset_release_cycles != 2:
-        raise PhysicalDomainError(
-            "direct SystemVerilog synchronized reset release requires two cycles"
+        clock = identifier(domain.clock)
+        reset = identifier(domain.reset)
+        clock_edge = "posedge" if domain.edge is ClockEdge.RISING else "negedge"
+        reset_edge = (
+            "posedge"
+            if domain.reset_polarity is ResetPolarity.ACTIVE_HIGH
+            else "negedge"
         )
-    stages, effective = _reset_conditioning_names(module, identifier)
-    clock = identifier(domain.clock)
-    reset = identifier(domain.reset)
-    clock_edge = "posedge" if domain.edge is ClockEdge.RISING else "negedge"
-    reset_edge = (
-        "posedge"
-        if domain.reset_polarity is ResetPolarity.ACTIVE_HIGH
-        else "negedge"
-    )
-    asserted = (
-        reset
-        if domain.reset_polarity is ResetPolarity.ACTIVE_HIGH
-        else f"!{reset}"
-    )
-    asserted_bits = (
-        "2'b11"
-        if domain.reset_polarity is ResetPolarity.ACTIVE_HIGH
-        else "2'b00"
-    )
-    deasserted_bit = (
-        "1'b0"
-        if domain.reset_polarity is ResetPolarity.ACTIVE_HIGH
-        else "1'b1"
-    )
-    return (
-        f'  (* ASYNC_REG = "TRUE" *) logic [1:0] {stages};',
-        f"  logic {effective};",
-        f"  always_ff @({clock_edge} {clock} or {reset_edge} {reset}) begin",
-        f"    if ({asserted}) {stages} <= {asserted_bits};",
-        f"    else {stages} <= {{{stages}[0], {deasserted_bit}}};",
-        "  end",
-        f"  assign {effective} = {stages}[1];",
-    )
+        asserted = (
+            reset
+            if domain.reset_polarity is ResetPolarity.ACTIVE_HIGH
+            else f"!{reset}"
+        )
+        asserted_bits = (
+            "2'b11"
+            if domain.reset_polarity is ResetPolarity.ACTIVE_HIGH
+            else "2'b00"
+        )
+        deasserted_bit = (
+            "1'b0"
+            if domain.reset_polarity is ResetPolarity.ACTIVE_HIGH
+            else "1'b1"
+        )
+        lines.extend((
+            f'  (* ASYNC_REG = "TRUE" *) logic [1:0] {stages};',
+            f"  logic {effective};",
+            f"  always_ff @({clock_edge} {clock} or {reset_edge} {reset}) begin",
+            f"    if ({asserted}) {stages} <= {asserted_bits};",
+            f"    else {stages} <= {{{stages}[0], {deasserted_bit}}};",
+            "  end",
+            f"  assign {effective} = {stages}[1];",
+        ))
+    return tuple(lines)
 
 
 def clock_event(module: Module, identifier, clock: str | None = None) -> str:

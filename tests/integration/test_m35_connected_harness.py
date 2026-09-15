@@ -15,7 +15,7 @@ from zlang.formal import (
     emit_harness,
     run_verilog_formal,
 )
-from zlang.ir.formal import FormalError, FormalStatus
+from zlang.ir.formal import FormalStatus
 
 
 COUNTER = """

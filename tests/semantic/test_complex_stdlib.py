@@ -1,7 +1,6 @@
 from pathlib import Path
 
 from zlang.compiler import compile_source
-from zlang.backend.systemverilog import emit_experimental
 from zlang.ir import expressions as expr
 from zlang.ir.types import FixedType, StructType
 

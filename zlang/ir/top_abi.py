@@ -22,6 +22,7 @@ from zlang.ir.module import (
     Port,
     PortDirection,
     RequestResponseInterface,
+    reset_for_clock,
 )
 from zlang.ir.packing import is_bit_packable, packed_width
 from zlang.ir.physical_types import physical_width
@@ -232,7 +233,7 @@ def _port_leaves(module: Module, port: Port) -> tuple[ExternalTopLeaf, ...]:
     common = dict(
         container_id=semantic, category="port", role=None,
         specialization=port.protocol.value,
-        clock_domain=domain, reset_domain=module.reset,
+        clock_domain=domain, reset_domain=reset_for_clock(module, domain),
     )
     if port.protocol is InterfaceProtocol.WIRE:
         leaves = _typed_signal_leaves(
@@ -386,7 +387,9 @@ def _aggregate_leaves(module: Module, endpoint: AggregateProtocolEndpoint) -> tu
             container_id=aggregate_id, category="aggregate",
             specialization=endpoint.specialization_identity or endpoint.protocol,
             role=endpoint.role, clock_domain=endpoint.domain or member.domain or module.clock,
-            reset_domain=module.reset, origin=None,
+            reset_domain=reset_for_clock(
+                module, endpoint.domain or member.domain or module.clock
+            ), origin=None,
         )
         if member.protocol is InterfaceProtocol.READY_VALID:
             for signal, type_, direction, owner in (

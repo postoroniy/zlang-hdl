@@ -7,19 +7,12 @@ from functools import lru_cache
 import os
 from pathlib import Path
 import re
-import shutil
 import subprocess
 
-import pytest
 
 from tests.integration.test_fft512_sdf_reference import (
-    OUTPUT_DIGEST,
-    _canonical_digest,
     _fixture,
-    _staged_oracle,
 )
-from zlang.backend.companions import publish_companion_bundle
-from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
 from zlang.compiler import compile_file
 
 

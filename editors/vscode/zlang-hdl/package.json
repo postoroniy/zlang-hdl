@@ -1,7 +1,7 @@
 {
   "name": "zlang-hdl",
   "displayName": "ZLang HDL",
-  "description": "ZLang HDL .zhl syntax highlighting, snippets and editing support. No language server required.",
+  "description": "ZLang HDL .zhl editing support with the Community zlang-lsp client.",
   "version": "0.1.0",
   "publisher": "postoroniy",
   "author": "Viacheslav Vinogradov",
@@ -11,22 +11,47 @@
     "url": "https://github.com/postoroniy/zlang-hdl.git",
     "directory": "editors/vscode/zlang-hdl"
   },
-  "bugs": { "url": "https://github.com/postoroniy/zlang-hdl/issues" },
+  "bugs": {
+    "url": "https://github.com/postoroniy/zlang-hdl/issues"
+  },
   "homepage": "https://github.com/postoroniy/zlang-hdl",
-  "engines": { "vscode": "^1.85.0" },
-  "categories": ["Programming Languages"],
-  "keywords": ["zlang", "zlang-hdl", "hdl", "fpga", "asic", "systemverilog", "rtl"],
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "main": "./extension.js",
+  "categories": [
+    "Programming Languages"
+  ],
+  "keywords": [
+    "zlang",
+    "zlang-hdl",
+    "hdl",
+    "fpga",
+    "asic",
+    "systemverilog",
+    "rtl"
+  ],
   "capabilities": {
-    "untrustedWorkspaces": { "supported": true },
-    "virtualWorkspaces": true
+    "untrustedWorkspaces": {
+      "supported": false,
+      "description": "The extension starts the configured local zlang-lsp executable only in a trusted workspace."
+    },
+    "virtualWorkspaces": false
   },
   "files": [
-    "package.json", "README.md", "CHANGELOG.md", "LICENSE", "NOTICE",
-    "language-configuration.json", "recommended-settings.json",
-    "syntaxes/zlang.tmLanguage.json", "snippets/zlang-hdl.json"
+    "package.json",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "NOTICE",
+    "extension.js",
+    "language-configuration.json",
+    "recommended-settings.json",
+    "syntaxes/zlang.tmLanguage.json",
+    "snippets/zlang-hdl.json"
   ],
   "scripts": {
-    "test": "node test/tokenize.test.cjs",
+    "test": "node --check extension.js && node test/tokenize.test.cjs",
     "package": "node test/package.cjs"
   },
   "devDependencies": {
@@ -35,17 +60,44 @@
     "vscode-textmate": "9.3.2"
   },
   "contributes": {
-    "languages": [{
-      "id": "zlang-hdl",
-      "aliases": ["ZLang HDL", "ZLang"],
-      "extensions": [".zhl"],
-      "configuration": "./language-configuration.json"
-    }],
-    "snippets": [{ "language": "zlang-hdl", "path": "./snippets/zlang-hdl.json" }],
-    "grammars": [{
-      "language": "zlang-hdl",
-      "scopeName": "source.zlang",
-      "path": "./syntaxes/zlang.tmLanguage.json"
-    }]
+    "languages": [
+      {
+        "id": "zlang-hdl",
+        "aliases": [
+          "ZLang HDL",
+          "ZLang"
+        ],
+        "extensions": [
+          ".zhl"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "snippets": [
+      {
+        "language": "zlang-hdl",
+        "path": "./snippets/zlang-hdl.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "zlang-hdl",
+        "scopeName": "source.zlang",
+        "path": "./syntaxes/zlang.tmLanguage.json"
+      }
+    ],
+    "configuration": {
+      "title": "ZLang HDL",
+      "properties": {
+        "zlang.lsp.path": {
+          "type": "string",
+          "default": "",
+          "description": "Direct path or PATH command for the Community zlang-lsp executable. Use ${workspaceFolder}/.venv/bin/zlang-lsp for a repository checkout."
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
   }
 }

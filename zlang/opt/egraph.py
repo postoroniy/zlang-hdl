@@ -11,10 +11,14 @@ from enum import Enum
 import json
 from typing import Any
 
+from zlang.ir.type_codec import (
+    TypeCodecError,
+    scalar_type_data,
+    scalar_type_from_data,
+)
 from zlang.ir.types import (
     BitType,
     BitsType,
-    FixedOverflowPolicy,
     FixedType,
     HardwareType,
     SIntType,
@@ -26,6 +30,7 @@ from zlang.opt.ir import (
     CanonicalExpression, CanonicalModule, EffectKind, ExpressionOp, NodeCategory,
     NodeId, NodeMetadata, Purity, Signedness,
 )
+from zlang.opt.capabilities import expression_capability
 from zlang.opt.lowering import restore_expression
 from zlang.source import SourceOrigin
 
@@ -44,6 +49,37 @@ class EGraphNode:
     operands: tuple[int, ...] = ()
     attributes: tuple[tuple[str, object], ...] = ()
     origins: tuple[SourceOrigin, ...] = ()
+
+    @classmethod
+    def from_canonical(
+        cls,
+        node: CanonicalExpression,
+        *,
+        identity: int,
+        operands: tuple[int, ...],
+    ) -> EGraphNode:
+        return cls(
+            identity,
+            node.category,
+            node.op,
+            node.type,
+            node.metadata,
+            operands,
+            node.attributes,
+            node.origins,
+        )
+
+    def to_canonical(self) -> CanonicalExpression:
+        return CanonicalExpression(
+            self.id,
+            self.category,
+            self.op,
+            self.type,
+            self.metadata,
+            self.operands,
+            self.attributes,
+            self.origins,
+        )
 
 
 @dataclass(frozen=True)
@@ -81,7 +117,7 @@ def canonical_nodes_to_egraph(
     frozen M26 eligibility checks.
     """
 
-    _require_scalar_pure_nodes(source, root)
+    validate_scalar_pure_nodes(source, root)
     order: list[NodeId] = []
     seen: set[NodeId] = set()
 
@@ -98,11 +134,10 @@ def canonical_nodes_to_egraph(
     return EGraphProgram(
         remap[root],
         tuple(
-            EGraphNode(
-                remap[old], source[old].category, source[old].op, source[old].type,
-                source[old].metadata,
-                tuple(remap[item] for item in source[old].operands),
-                source[old].attributes, source[old].origins,
+            EGraphNode.from_canonical(
+                source[old],
+                identity=remap[old],
+                operands=tuple(remap[item] for item in source[old].operands),
             )
             for old in order
         ),
@@ -112,13 +147,7 @@ def canonical_nodes_to_egraph(
 def egraph_to_canonical(program: EGraphProgram) -> tuple[tuple[CanonicalExpression, ...], int]:
     """Restore an e-graph program to canonical expression nodes and root."""
     return (
-        tuple(
-            CanonicalExpression(
-                node.id, node.category, node.op, node.type, node.metadata,
-                node.operands, node.attributes, node.origins,
-            )
-            for node in program.nodes
-        ),
+        tuple(node.to_canonical() for node in program.nodes),
         program.root,
     )
 
@@ -185,13 +214,21 @@ def render_egraph(program: EGraphProgram) -> str:
 
 
 def _require_scalar_pure_root(module: CanonicalModule, root: NodeId) -> None:
-    _require_scalar_pure_nodes(module.expressions, root)
+    validate_scalar_pure_nodes(module.expressions, root)
 
 
-def _require_scalar_pure_nodes(
+def validate_scalar_pure_nodes(
     expressions: tuple[CanonicalExpression, ...],
     root: NodeId,
+    *,
+    allow_retained_calls: bool = False,
 ) -> None:
+    """Validate the frozen exact-scalar e-graph boundary.
+
+    Retained calls are admitted only for the bounded pre-expansion check used
+    by saturation. Programs copied into the adapter always use the strict
+    default and therefore never contain calls.
+    """
     if root < 0 or root >= len(expressions):
         raise EGraphAdapterError(f"canonical expression root %{root} does not exist")
     seen: set[NodeId] = set()
@@ -202,29 +239,52 @@ def _require_scalar_pure_nodes(
         seen.add(node_id)
         node = expressions[node_id]
         if node.category is not NodeCategory.VALUE or node.metadata.purity is not Purity.PURE:
-            raise EGraphAdapterError(f"dependency %{node_id} is outside the pure value e-graph boundary")
+            effects = ",".join(effect.value for effect in node.metadata.effects) or "none"
+            raise EGraphAdapterError(
+                f"root %{root} is not a pure mathematical value: dependency "
+                f"%{node.id} is {node.category.value}.{node.op.value} "
+                f"purity={node.metadata.purity.value} effects=[{effects}]"
+            )
         if not isinstance(
             node.type,
             (BitType, UIntType, SIntType, BitsType, FixedType, UFixedType),
         ):
             raise EGraphAdapterError("e-graph currently supports scalar hardware types only")
-        if node.op not in {
-            ExpressionOp.INPUT,
-            ExpressionOp.PARAMETER,
-            ExpressionOp.CONSTANT,
-            ExpressionOp.ADD,
-            ExpressionOp.BINARY,
-            ExpressionOp.EXTEND,
-            ExpressionOp.TRUNCATE,
-            ExpressionOp.FIXED_CONVERT,
-            ExpressionOp.MUX,
-            ExpressionOp.SLICE,
-            ExpressionOp.CONCAT,
-            ExpressionOp.BITCAST,
-        }:
+        capability = expression_capability(node.op)
+        if (
+            capability is None or not capability.egraph_exact
+        ) and not (allow_retained_calls and node.op is ExpressionOp.CALL):
             raise EGraphAdapterError(
                 f"{node.op.value} is outside the exact scalar e-graph operation set"
             )
+        operand_types = tuple(expressions[item].type for item in node.operands)
+        if node.op is ExpressionOp.BINARY:
+            operator = node.attribute("operator")
+            if operator in {BinaryOperator.SHIFT_LEFT, BinaryOperator.SHIFT_RIGHT}:
+                compatible = bool(operand_types) and operand_types[0] == node.type
+            elif operator in {
+                BinaryOperator.BIT_AND,
+                BinaryOperator.BIT_OR,
+                BinaryOperator.BIT_XOR,
+            }:
+                compatible = all(item == node.type for item in operand_types)
+            else:
+                compatible = True
+            if not compatible:
+                raise EGraphAdapterError(
+                    f"root %{root} has incompatible operand types for {operator.value}"
+                )
+        elif node.op is ExpressionOp.MUX:
+            compatible = (
+                len(operand_types) == 3
+                and isinstance(operand_types[0], BitType)
+                and operand_types[1] == node.type
+                and operand_types[2] == node.type
+            )
+            if not compatible:
+                raise EGraphAdapterError(
+                    f"root %{root} has incompatible mux operand types"
+                )
         for operand in node.operands:
             visit(operand)
 
@@ -232,40 +292,17 @@ def _require_scalar_pure_nodes(
 
 
 def _encode_type(type_: HardwareType) -> dict[str, Any]:
-    if isinstance(type_, BitType): return {"kind": "bit"}
-    if isinstance(type_, UIntType): return {"kind": "uint", "width": type_.width}
-    if isinstance(type_, SIntType): return {"kind": "sint", "width": type_.width}
-    if isinstance(type_, BitsType): return {"kind": "bits", "width": type_.width}
-    if isinstance(type_, FixedType):
-        return {
-            "kind": "fixed", "width": type_.width, "fraction": type_.fraction,
-            "overflow": type_.overflow.value,
-        }
-    if isinstance(type_, UFixedType):
-        return {
-            "kind": "ufixed", "width": type_.width, "fraction": type_.fraction,
-            "overflow": type_.overflow.value,
-        }
-    raise EGraphAdapterError("only scalar hardware types can cross the e-graph boundary")
+    try:
+        return scalar_type_data(type_)
+    except TypeCodecError as error:
+        raise EGraphAdapterError(str(error)) from error
 
 
 def _decode_type(payload: dict[str, Any]) -> HardwareType:
-    kind = payload["kind"]
-    if kind == "bit": return BitType()
-    if kind == "uint": return UIntType(payload["width"])
-    if kind == "sint": return SIntType(payload["width"])
-    if kind == "bits": return BitsType(payload["width"])
-    if kind == "fixed":
-        return FixedType(
-            payload["width"], payload["fraction"],
-            FixedOverflowPolicy(payload["overflow"]),
-        )
-    if kind == "ufixed":
-        return UFixedType(
-            payload["width"], payload["fraction"],
-            FixedOverflowPolicy(payload["overflow"]),
-        )
-    raise EGraphAdapterError(f"unknown scalar type '{kind}'")
+    try:
+        return scalar_type_from_data(payload)
+    except TypeCodecError as error:
+        raise EGraphAdapterError(str(error)) from error
 
 
 def _encode_metadata(metadata: NodeMetadata) -> dict[str, Any]:
@@ -290,14 +327,17 @@ def _decode_origin(payload: dict[str, Any]) -> SourceOrigin:
 
 
 def _encode_value(value: object) -> object:
-    if isinstance(value, Enum): return {"enum": value.__class__.__name__, "value": value.value}
-    if isinstance(
-        value,
-        (BitType, UIntType, SIntType, BitsType, FixedType, UFixedType),
-    ):
-        return {"type": _encode_type(value)}
-    if isinstance(value, tuple): return {"tuple": [_encode_value(item) for item in value]}
-    if isinstance(value, (str, int, bool)) or value is None: return value
+    if isinstance(value, Enum):
+        return {"enum": value.__class__.__name__, "value": value.value}
+    if isinstance(value, HardwareType):
+        try:
+            return {"type": _encode_type(value)}
+        except EGraphAdapterError:
+            pass
+    if isinstance(value, tuple):
+        return {"tuple": [_encode_value(item) for item in value]}
+    if isinstance(value, (str, int, bool)) or value is None:
+        return value
     raise EGraphAdapterError(f"unsupported e-graph attribute value {value!r}")
 
 
@@ -312,8 +352,14 @@ _ENUMS = {
 
 def _decode_value(value: object) -> object:
     if isinstance(value, dict) and "enum" in value:
-        try: return _ENUMS[value["enum"]](value["value"])
-        except (KeyError, ValueError) as error: raise EGraphAdapterError(f"unsupported serialized enum {value!r}") from error
-    if isinstance(value, dict) and "type" in value: return _decode_type(value["type"])
-    if isinstance(value, dict) and "tuple" in value: return tuple(_decode_value(item) for item in value["tuple"])
+        try:
+            return _ENUMS[value["enum"]](value["value"])
+        except (KeyError, ValueError) as error:
+            raise EGraphAdapterError(
+                f"unsupported serialized enum {value!r}"
+            ) from error
+    if isinstance(value, dict) and "type" in value:
+        return _decode_type(value["type"])
+    if isinstance(value, dict) and "tuple" in value:
+        return tuple(_decode_value(item) for item in value["tuple"])
     return value

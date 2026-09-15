@@ -35,15 +35,14 @@ from zlang.ir.module import (
     Module,
     Port,
     PortDirection,
-    Register,
     Rule,
     default_selected_ir_identity,
 )
 from zlang.ir.storage import (
     FifoSignal,
     MemoryCollision,
+    MemoryPortKind,
     MemoryResetPolicy,
-    MemorySignal,
     RomSignal,
 )
 from zlang.ir.state import (
@@ -52,10 +51,10 @@ from zlang.ir.state import (
     StateResourceKind,
     action_activation_predicate_index,
     conditional_activation_predicates,
-    conditional_actions,
     groups_conflict,
     ordered_groups as ordered_state_groups,
     selection_regions,
+    transition_for_domain,
 )
 from zlang.ir.types import (
     BitType,
@@ -150,10 +149,13 @@ from zlang.ir.hierarchy import (
 )
 from zlang.ir.functional import (
     lower_reduction,
-    materialize_exact_reduction,
     materialize_functional_region,
 )
 from zlang.ir.recursive_formal import BackendPhysicalLocator
+from zlang.memory_planning import (
+    MemoryImplementationKind,
+    plan_memory_implementation,
+)
 from zlang.ir.top_abi import build_top_physical_abi
 from zlang.ir.formal_observations import (
     RequestResponseObservationSignal,
@@ -546,18 +548,47 @@ def _validate_state_storage_rtl_namespace(
             claim(f"{name}_{suffix}", f"FIFO '{fifo.name}' {suffix}")
     for memory in module.memories:
         name = rtl_identifier(memory.name)
-        claim(rtl_memory_cells_identifier(memory.name), f"memory '{memory.name}' cells")
-        claim(
-            rtl_memory_read_data_identifier(memory.name),
-            f"memory '{memory.name}' read data",
-        )
+        if memory.ported:
+            implementation = plan_memory_implementation(memory)
+            if (
+                implementation.implementation
+                is MemoryImplementationKind.REPLICATED_1R1W
+            ):
+                for port in memory.ports:
+                    if port.kind in {MemoryPortKind.READ, MemoryPortKind.READ_WRITE}:
+                        claim(
+                            f"{rtl_memory_cells_identifier(memory.name)}_"
+                            f"{rtl_identifier(port.name)}",
+                            f"memory '{memory.name}' port '{port.name}' cells",
+                        )
+            else:
+                claim(
+                    rtl_memory_cells_identifier(memory.name),
+                    f"memory '{memory.name}' cells",
+                )
+            for port in memory.ports:
+                if port.kind in {MemoryPortKind.READ, MemoryPortKind.READ_WRITE}:
+                    claim(
+                        f"{name}_{rtl_identifier(port.name)}_read_data",
+                        f"memory '{memory.name}' port '{port.name}' read data",
+                    )
+            claim(f"{name}_reset_index", f"memory '{memory.name}' reset iterator")
+        else:
+            claim(
+                rtl_memory_cells_identifier(memory.name),
+                f"memory '{memory.name}' cells",
+            )
+            claim(
+                rtl_memory_read_data_identifier(memory.name),
+                f"memory '{memory.name}' read data",
+            )
         if memory.scheduled:
             for suffix in (
                 "read_fire", "write_fire", "read_address", "write_address",
                 "write_data", "reset_index",
             ):
                 claim(f"{name}_{suffix}", f"memory '{memory.name}' {suffix}")
-        else:
+        elif not memory.ported:
             claim("zlang_memory_reset_index", "memory reset iterator")
         if memory.write_mask_width is not None:
             for suffix in ("write_mask", "write_mask_expanded", "write_merged"):
@@ -911,11 +942,12 @@ def _emit_packed(
             _module_domain(module)
         except _PhysicalDomainError as error:
             raise SystemVerilogEmissionError(str(error)) from error
-    elif any(not domain.is_legacy_default for domain in module.clock_domains):
-        raise SystemVerilogEmissionError(
-            "non-default physical clock/reset contracts are not supported on "
-            "multi-domain direct-SystemVerilog modules"
-        )
+    else:
+        try:
+            for domain in module.clock_domains:
+                _module_domain(module, domain.clock)
+        except _PhysicalDomainError as error:
+            raise SystemVerilogEmissionError(str(error)) from error
 
     unsafe_state_engines = unsupported_legacy_state_mix(module)
     if unsafe_state_engines:
@@ -953,8 +985,9 @@ def _emit_packed(
             ModuleFeatureGroup.AGGREGATE_PROTOCOL_ENDPOINTS,
             ModuleFeatureGroup.CONNECTIONS,
             ModuleFeatureGroup.AGGREGATE_PROTOCOL_CONNECTIONS,
+            *_STATE_GROUPS,
         )
-        body = _emit_cdc_subsystem(module, _cdc_rendering())
+        body = _emit_cdc_subsystem(module, _cdc_rendering(module))
         return "`default_nettype none\n" + body + "`default_nettype wire\n"
     if any(connection.adapter is not None for connection in module.connections):
         _account_emission_plan(
@@ -1756,14 +1789,68 @@ def _rv_fifo_helper(
         name, width, depth, module, expose_count=expose_count,
         allow_full_replace=allow_full_replace,
     )
-def _cdc_rendering() -> CDCRendering:
+def _cdc_rendering(module: Module | None = None) -> CDCRendering:
+    def emit_module(
+        typed_module: Module,
+        ports: list[str],
+        lines: list[str],
+    ) -> str:
+        if module is None or not (
+            typed_module.registers
+            or typed_module.next_assignments
+            or typed_module.rules
+            or typed_module.assignments
+        ):
+            return _module(typed_module, ports, lines)
+
+        crossing = next(
+            item for item in typed_module.connections
+            if item.crossing is not None
+        )
+        endpoint_names = {
+            crossing.source.name,
+            crossing.destination.name,
+        }
+        extra_ports = [
+            _port_declaration(port)
+            for port in typed_module.ports
+            if port.name not in endpoint_names
+            and port.protocol is InterfaceProtocol.WIRE
+        ]
+        declarations, _assignments, render = _materialized_emission(typed_module)
+        state_lines: list[str] = []
+        if typed_module.registers or typed_module.next_assignments or typed_module.rules:
+            _append_unified_state(
+                typed_module,
+                declarations,
+                state_lines,
+                render,
+            )
+        else:
+            state_lines.extend(
+                f"  assign {_identifier(_assignment_name(assignment))} = "
+                f"{render(assignment.expression)};"
+                for assignment in typed_module.assignments
+            )
+        return _module(
+            typed_module,
+            [*ports, *extra_ports],
+            [*declarations, *lines, *state_lines],
+        )
+
     return CDCRendering(
         SystemVerilogEmissionError,
         _identifier,
         _logic_port,
         _width,
         _range,
-        _module,
+        lambda typed_module, clock: _clock_event(
+            typed_module, _identifier, clock
+        ),
+        lambda typed_module, clock: _reset_asserted(
+            typed_module, _identifier, clock
+        ),
+        emit_module,
     )
 
 
@@ -1808,12 +1895,312 @@ def _memory_byte_mask_concatenation(
     )
 
 
+def _ported_memory_fragments(
+    module: Module,
+    memory,
+    render,
+    *,
+    ram_style: str | None = None,
+) -> tuple[list[str], list[str]]:
+    """Emit one normalized named-port memory without backend re-discovery."""
+
+    if not memory.ports:
+        raise SystemVerilogEmissionError("ported-memory emission requires named ports")
+    if memory.async_memory and memory.collision is not MemoryCollision.READ_FIRST:
+        raise SystemVerilogEmissionError(
+            f"independent-clock memory collision mode '{memory.collision.value}' "
+            "requires an exact target physical binding; generic synthesizable "
+            "SystemVerilog publishes only the structural old-data model"
+        )
+    width = _width(memory.element_type)
+    name = _identifier(memory.name)
+    base_cells = rtl_memory_cells_identifier(memory.name)
+    initial_word = (
+        render(memory.initial_value) if memory.initial_value is not None else "'0"
+    )
+    style = f'(* ram_style = "{ram_style}" *) ' if ram_style else ""
+    readable = tuple(
+        port for port in memory.ports
+        if port.kind in {MemoryPortKind.READ, MemoryPortKind.READ_WRITE}
+    )
+    writable = tuple(
+        port for port in memory.ports
+        if port.kind in {MemoryPortKind.WRITE, MemoryPortKind.READ_WRITE}
+    )
+    implementation = plan_memory_implementation(memory)
+    replicated = (
+        implementation.implementation
+        is MemoryImplementationKind.REPLICATED_1R1W
+    )
+    cells_by_read_port = {
+        port.name: (
+            f"{base_cells}_{_identifier(port.name)}"
+            if replicated else base_cells
+        )
+        for port in readable
+    }
+    cell_arrays = tuple(dict.fromkeys(cells_by_read_port.values())) or (base_cells,)
+    declarations = [
+        *(
+            f"  {style}logic [{width - 1}:0] {cells} [0:{memory.depth - 1}];"
+            for cells in cell_arrays
+        ),
+        f"  integer {name}_reset_index;",
+    ]
+    logic: list[str] = [
+        f"  // memory_plan={implementation.implementation.value} "
+        f"identity={implementation.identity}"
+    ]
+    if (
+        memory.initial_value is not None
+        or memory.contents_reset is MemoryResetPolicy.PRESERVE
+    ):
+        logic.append("  initial begin")
+        for cells in cell_arrays:
+            logic.extend((
+                f"    for ({name}_reset_index = 0; {name}_reset_index < {memory.depth}; "
+                f"{name}_reset_index = {name}_reset_index + 1)",
+                f"      {cells}[{name}_reset_index] = {initial_word};",
+            ))
+        logic.append("  end")
+    by_name = {port.name: port for port in writable}
+    priority = tuple(
+        by_name[item] for item in memory.write_priority
+    ) if memory.write_priority else writable
+    effective_enable: dict[str, str] = {}
+    higher: list[object] = []
+    for port in priority:
+        assert port.write_enable is not None
+        enable = render(port.write_enable)
+        blockers = [
+            f"({effective_enable[item.name]} && "
+            f"({render(item.address)} == {render(port.address)}))"
+            for item in higher
+        ]
+        effective_enable[port.name] = (
+            enable if not blockers
+            else f"({enable} && !({' || '.join(blockers)}))"
+        )
+        higher.append(port)
+    for port in readable:
+        declarations.append(
+            f"  logic [{width - 1}:0] {name}_{_identifier(port.name)}_read_data;"
+        )
+    for port in writable:
+        if port.write_mask is None:
+            continue
+        lanes = memory.write_mask_width
+        assert lanes is not None
+        prefix = f"{name}_{_identifier(port.name)}"
+        declarations.extend((
+            f"  logic [{lanes - 1}:0] {prefix}_write_mask;",
+            f"  logic [{width - 1}:0] {prefix}_write_mask_expanded;",
+            f"  logic [{width - 1}:0] {prefix}_write_merged;",
+        ))
+        expanded = _memory_byte_mask_concatenation(
+            f"{prefix}_write_mask", element_width=width, lane_count=lanes
+        )
+        assert port.write_data is not None
+        logic.extend((
+            f"  assign {prefix}_write_mask = {render(port.write_mask)};",
+            f"  assign {prefix}_write_mask_expanded = {{{expanded}}};",
+            f"  assign {prefix}_write_merged = "
+            f"({cell_arrays[0]}[{render(port.address)}] & ~{prefix}_write_mask_expanded) | "
+            f"({render(port.write_data)} & {prefix}_write_mask_expanded);",
+        ))
+
+    def write_value(port) -> str:
+        assert port.write_data is not None
+        return (
+            f"{name}_{_identifier(port.name)}_write_merged"
+            if port.write_mask is not None else render(port.write_data)
+        )
+
+    writer_domains = {port.domain for port in writable}
+    if len(writer_domains) > 1:
+        raise SystemVerilogEmissionError(
+            "ported-memory RTL supports writers in one domain"
+        )
+    writer_domain = next(iter(writer_domains), memory.domain)
+
+    def append_cell_reset(indent: str) -> None:
+        if memory.contents_reset is MemoryResetPolicy.CLEAR:
+            for cells in cell_arrays:
+                logic.extend((
+                    f"{indent}for ({name}_reset_index = 0; {name}_reset_index < {memory.depth}; "
+                    f"{name}_reset_index = {name}_reset_index + 1)",
+                    f"{indent}  {cells}[{name}_reset_index] <= {initial_word};",
+                ))
+        else:
+            logic.append(f"{indent}// Memory contents hold across writer reset.")
+
+    def append_writes(indent: str) -> None:
+        for port in priority:
+            for cells in cell_arrays:
+                logic.append(
+                    f"{indent}if ({effective_enable[port.name]}) "
+                    f"{cells}[{render(port.address)}] <= {write_value(port)};"
+                )
+
+    def append_read_reset(domain_ports, indent: str) -> None:
+        for port in domain_ports:
+            target = f"{name}_{_identifier(port.name)}_read_data"
+            if memory.read_data_reset is MemoryResetPolicy.CLEAR:
+                logic.append(f"{indent}{target} <= '0;")
+
+    def append_reads(domain_ports, indent: str) -> None:
+        for port in domain_ports:
+            assert port.read_enable is not None
+            target = f"{name}_{_identifier(port.name)}_read_data"
+            read_cells = cells_by_read_port[port.name]
+            collisions = [
+                (writer, f"({effective_enable[writer.name]} && "
+                 f"({render(writer.address)} == {render(port.address)}))")
+                for writer in priority
+            ]
+            any_collision = " || ".join(term for _, term in collisions) or "1'b0"
+            if memory.collision is MemoryCollision.NO_CHANGE:
+                logic.append(
+                    f"{indent}if ({render(port.read_enable)} && !({any_collision})) "
+                    f"{target} <= {read_cells}[{render(port.address)}];"
+                )
+            elif memory.collision is MemoryCollision.WRITE_FIRST and collisions:
+                selected = f"{read_cells}[{render(port.address)}]"
+                for writer, term in reversed(collisions):
+                    selected = f"{term} ? {write_value(writer)} : ({selected})"
+                logic.append(
+                    f"{indent}if ({render(port.read_enable)}) {target} <= {selected};"
+                )
+            else:
+                logic.append(
+                    f"{indent}if ({render(port.read_enable)}) "
+                    f"{target} <= {read_cells}[{render(port.address)}];"
+                )
+
+    read_domains = tuple(dict.fromkeys(port.domain for port in readable))
+    common_registered = (
+        not memory.async_memory
+        and memory.read_latency == 1
+        and writer_domain is not None
+        and read_domains == (writer_domain,)
+    )
+    native_true_dual = (
+        ram_style == "block"
+        and common_registered
+        and len(memory.ports) == 2
+        and all(port.kind is MemoryPortKind.READ_WRITE for port in memory.ports)
+    )
+    if native_true_dual:
+        if memory.contents_reset is not MemoryResetPolicy.PRESERVE:
+            raise SystemVerilogEmissionError(
+                "selected true-dual block-memory emission requires preserved "
+                "contents; clearing every cell prevents exact native inference"
+            )
+        # A true-dual RAM has one physical clocked process per port.  Generic
+        # ported memories deliberately retain their single deterministic
+        # process; this shape is emitted only after exact target selection.
+        for port in memory.ports:
+            target = f"{name}_{_identifier(port.name)}_read_data"
+            logic.extend((
+                f"  always_ff @({_clock_event(module, _identifier, port.domain)}) begin",
+                f"    if ({_reset_asserted(module, _identifier, port.domain)}) begin",
+            ))
+            if memory.read_data_reset is MemoryResetPolicy.CLEAR:
+                logic.append(f"      {target} <= '0;")
+            logic.append("    end else begin")
+            logic.append(
+                f"      if ({effective_enable[port.name]}) "
+                f"{base_cells}[{render(port.address)}] <= {write_value(port)};"
+            )
+            append_reads((port,), "      ")
+            logic.extend(("    end", "  end"))
+        return declarations, logic
+    if common_registered:
+        logic.extend((
+            f"  always_ff @({_clock_event(module, _identifier, writer_domain)}) begin",
+            f"    if ({_reset_asserted(module, _identifier, writer_domain)}) begin",
+        ))
+        append_cell_reset("      ")
+        append_read_reset(readable, "      ")
+        logic.append("    end else begin")
+        append_writes("      ")
+        append_reads(readable, "      ")
+        logic.extend(("    end", "  end"))
+        return declarations, logic
+
+    if writer_domain is not None:
+        logic.extend((
+            f"  always_ff @({_clock_event(module, _identifier, writer_domain)}) begin",
+            f"    if ({_reset_asserted(module, _identifier, writer_domain)}) begin",
+        ))
+        append_cell_reset("      ")
+        logic.append("    end else begin")
+        append_writes("      ")
+        logic.extend(("    end", "  end"))
+
+    for domain in read_domains:
+        domain_ports = tuple(port for port in readable if port.domain == domain)
+        if memory.read_latency == 0:
+            for port in domain_ports:
+                target = f"{name}_{_identifier(port.name)}_read_data"
+                read_value = (
+                    f"{cells_by_read_port[port.name]}[{render(port.address)}]"
+                )
+                if memory.collision is MemoryCollision.WRITE_FIRST:
+                    for writer in reversed(priority):
+                        collision = (
+                            f"({effective_enable[writer.name]} && "
+                            f"({render(writer.address)} == {render(port.address)}))"
+                        )
+                        read_value = (
+                            f"{collision} ? {write_value(writer)} : ({read_value})"
+                        )
+                if memory.read_data_reset is MemoryResetPolicy.CLEAR:
+                    read_value = (
+                        f"{_reset_asserted(module, _identifier, domain)} "
+                        f"? '0 : ({read_value})"
+                    )
+                logic.append(f"  assign {target} = {read_value};")
+            continue
+        logic.extend((
+            f"  always_ff @({_clock_event(module, _identifier, domain)}) begin",
+            f"    if ({_reset_asserted(module, _identifier, domain)}) begin",
+        ))
+        append_read_reset(domain_ports, "      ")
+        logic.append("    end else begin")
+        append_reads(domain_ports, "      ")
+        logic.extend(("    end", "  end"))
+    return declarations, logic
+
+
 def _emit_memory(module: Module, *, ram_style: str | None = None) -> str:
-    if len(module.memories) != 1 or module.clock is None or module.reset is None:
+    if len(module.memories) != 1 or not module.clock_domains:
         raise SystemVerilogEmissionError(
             "direct SystemVerilog memory emission requires one memory and clock/reset"
         )
     memory = module.memories[0]
+    if memory.ports:
+        declarations, lines = _ported_memory_fragments(
+            module, memory, _expression, ram_style=ram_style
+        )
+        for assignment in module.assignments:
+            if assignment.target.name == memory.name:
+                continue
+            lines.append(
+                f"  assign {_identifier(_assignment_name(assignment))} = "
+                f"{_expression(assignment.expression)};"
+            )
+        return _named_module(
+            module.name,
+            _physical_port_declarations(module),
+            declarations + lines,
+            typed_module=module,
+        )
+    if memory.domain is None:
+        raise SystemVerilogEmissionError(
+            f"memory '{memory.name}' has no resolved clock domain"
+        )
+    memory_clock = memory.domain
     if memory.read_latency not in (0, 1):
         raise SystemVerilogEmissionError(
             "direct SystemVerilog memory emission requires read_latency 0 or 1"
@@ -1822,6 +2209,10 @@ def _emit_memory(module: Module, *, ram_style: str | None = None) -> str:
     name = _identifier(memory.name)
     cells_name = rtl_memory_cells_identifier(memory.name)
     read_data_name = rtl_memory_read_data_identifier(memory.name)
+    initial_word = (
+        _expression(memory.initial_value)
+        if memory.initial_value is not None else "'0"
+    )
     style = f'(* ram_style = "{ram_style}" *) ' if ram_style else ""
     declarations = [
         f"  {style}logic [{width - 1}:0] {cells_name} [0:{memory.depth - 1}];",
@@ -1858,7 +2249,7 @@ def _emit_memory(module: Module, *, ram_style: str | None = None) -> str:
                 else _expression(memory.write_data)
             )
             read_value = (
-                f"({_reset_deasserted(module, _identifier)} && "
+                f"({_reset_deasserted(module, _identifier, memory_clock)} && "
                 f"{_expression(memory.write_enable)} && "
                 f"({_expression(memory.read_address)} == "
                 f"{_expression(memory.write_address)})) ? "
@@ -1866,13 +2257,14 @@ def _emit_memory(module: Module, *, ram_style: str | None = None) -> str:
             )
         if memory.read_data_reset is MemoryResetPolicy.CLEAR:
             read_value = (
-                f"{_reset_asserted(module, _identifier)} ? '0 : ({read_value})"
+                f"{_reset_asserted(module, _identifier, memory_clock)} ? '0 : ({read_value})"
             )
         combinational.append(f"  assign {name}_read_data = {read_value};")
 
     initialization: list[str] = []
     if (
-        memory.contents_reset is MemoryResetPolicy.PRESERVE
+        memory.initial_value is not None
+        or memory.contents_reset is MemoryResetPolicy.PRESERVE
         or (
             memory.read_latency == 1
             and memory.read_data_reset is MemoryResetPolicy.PRESERVE
@@ -1884,12 +2276,15 @@ def _emit_memory(module: Module, *, ram_style: str | None = None) -> str:
             and memory.read_data_reset is MemoryResetPolicy.PRESERVE
         ):
             initialization.append(f"    {name}_read_data = '0;")
-        if memory.contents_reset is MemoryResetPolicy.PRESERVE:
+        if (
+            memory.contents_reset is MemoryResetPolicy.PRESERVE
+            or memory.initial_value is not None
+        ):
             initialization.extend((
                 f"    for (zlang_memory_reset_index = 0; "
                 f"zlang_memory_reset_index < {memory.depth}; "
                 "zlang_memory_reset_index = zlang_memory_reset_index + 1)",
-                f"      {name}_cells[zlang_memory_reset_index] = '0;",
+                f"      {name}_cells[zlang_memory_reset_index] = {initial_word};",
             ))
         initialization.append("  end")
 
@@ -1898,8 +2293,8 @@ def _emit_memory(module: Module, *, ram_style: str | None = None) -> str:
         *combinational,
         *initialization,
         f"  {'always' if initialization else 'always_ff'} "
-        f"@({_clock_event(module, _identifier)}) begin",
-        f"    if ({_reset_asserted(module, _identifier)}) begin",
+        f"@({_clock_event(module, _identifier, memory_clock)}) begin",
+        f"    if ({_reset_asserted(module, _identifier, memory_clock)}) begin",
     ]
     if memory.read_latency == 1 and memory.read_data_reset is MemoryResetPolicy.CLEAR:
         lines.append(f"      {name}_read_data <= '0;")
@@ -1909,7 +2304,9 @@ def _emit_memory(module: Module, *, ram_style: str | None = None) -> str:
             f"zlang_memory_reset_index < {memory.depth}; "
             "zlang_memory_reset_index = zlang_memory_reset_index + 1) "
         )
-        lines.append(f"        {name}_cells[zlang_memory_reset_index] <= '0;")
+        lines.append(
+            f"        {name}_cells[zlang_memory_reset_index] <= {initial_word};"
+        )
     if (
         memory.contents_reset is MemoryResetPolicy.PRESERVE
         and (
@@ -1954,13 +2351,17 @@ def _emit_memory(module: Module, *, ram_style: str | None = None) -> str:
 def _emit_rom_logic(module: Module, render) -> tuple[list[str], list[str]]:
     """Emit immutable ROM arrays and their single registered read boundary."""
 
-    if module.roms and (module.clock is None or module.reset is None):
+    if module.roms and not module.clock_domains:
         raise SystemVerilogEmissionError(
             "initialized ROM emission requires one module clock and reset"
         )
     declarations: list[str] = []
     logic: list[str] = []
     for rom in module.roms:
+        if rom.domain is None:
+            raise SystemVerilogEmissionError(
+                f"ROM '{rom.name}' has no resolved clock domain"
+            )
         companion = companion_for_rom(rom)
         name = _identifier(rom.name)
         width = _width(rom.element_type)
@@ -1972,8 +2373,8 @@ def _emit_rom_logic(module: Module, render) -> tuple[list[str], list[str]]:
             "  initial begin",
             f'    $readmemb("{companion.logical_path}", {name}_cells);',
             "  end",
-            f"  always_ff @({_clock_event(module, _identifier)}) begin",
-            f"    if ({_reset_asserted(module, _identifier)}) {name}_read_data <= '0;",
+            f"  always_ff @({_clock_event(module, _identifier, rom.domain)}) begin",
+            f"    if ({_reset_asserted(module, _identifier, rom.domain)}) {name}_read_data <= '0;",
             f"    else {name}_read_data <= {name}_cells[{render(rom.read_address)}];",
             "  end",
         ))
@@ -2021,9 +2422,14 @@ def _referenced_fifo_signals(module: Module, fifo: object) -> set[FifoSignal]:
 
 
 def _emit_fifo(module: Module) -> str:
-    if len(module.fifos) != 1 or module.clock is None or module.reset is None:
+    if len(module.fifos) != 1 or not module.clock_domains:
         raise SystemVerilogEmissionError("direct FIFO emission requires one clock/reset FIFO")
     fifo = module.fifos[0]
+    if fifo.domain is None:
+        raise SystemVerilogEmissionError(
+            f"FIFO '{fifo.name}' has no resolved clock domain"
+        )
+    fifo_clock = fifo.domain
     sources = tuple(p for p in module.inputs if p.protocol is InterfaceProtocol.READY_VALID)
     sinks = tuple(p for p in module.outputs if p.protocol is InterfaceProtocol.READY_VALID)
     scalar_wire = all(
@@ -2039,15 +2445,7 @@ def _emit_fifo(module: Module) -> str:
     if scalar_wire:
         ports = _physical_port_declarations(module)
     else:
-        source, sink = sources[0], sinks[0]
-        source_name = _identifier(source.name)
-        sink_name = _identifier(sink.name)
-        ports = [f"input logic {_identifier(module.clock)}",
-                 f"input logic {_identifier(module.reset)}",
-                 _logic_port("input", f"{source_name}_payload", source.type),
-                 f"input logic {source_name}_valid", f"output logic {source_name}_ready",
-                 _logic_port("output", f"{sink_name}_payload", sink.type),
-                 f"output logic {sink_name}_valid", f"input logic {sink_name}_ready"]
+        ports = _physical_port_declarations(module)
     name = fifo.name
     if fifo.data is None or fifo.push is None or fifo.pop is None:
         raise SystemVerilogEmissionError(
@@ -2071,13 +2469,13 @@ def _emit_fifo(module: Module) -> str:
     if FifoSignal.VALID in referenced_fifo_signals:
         observation_declarations.append(f"  logic {name}_valid;")
         observation_assignments.append(
-            f"  assign {name}_valid = !({_reset_asserted(module, _identifier)}) "
+            f"  assign {name}_valid = !({_reset_asserted(module, _identifier, fifo_clock)}) "
             f"&& ({name}_count != '0);"
         )
     if FifoSignal.READY in referenced_fifo_signals:
         observation_declarations.append(f"  logic {name}_ready;")
         observation_assignments.append(
-            f"  assign {name}_ready = !({_reset_asserted(module, _identifier)}) && "
+            f"  assign {name}_ready = !({_reset_asserted(module, _identifier, fifo_clock)}) && "
             f"(({name}_count < {count_width}'d{fifo.depth}) || {name}_pop);"
         )
     if FifoSignal.FULL in referenced_fifo_signals:
@@ -2098,22 +2496,22 @@ def _emit_fifo(module: Module) -> str:
     request_assignments = [
         f"  assign {name}_push_request = {_expression(fifo.push)};",
         f"  assign {name}_pop_request = {_expression(fifo.pop)};",
-        f"  assign {name}_pop = !({_reset_asserted(module, _identifier)}) && "
+        f"  assign {name}_pop = !({_reset_asserted(module, _identifier, fifo_clock)}) && "
         f"{name}_pop_request && ({name}_count != '0);",
-        f"  assign {name}_push = !({_reset_asserted(module, _identifier)}) && "
+        f"  assign {name}_push = !({_reset_asserted(module, _identifier, fifo_clock)}) && "
         f"{name}_push_request && "
         f"(({name}_count < {count_width}'d{fifo.depth}) || {name}_pop);",
     ]
     if FifoSignal.OVERFLOW in referenced_fifo_signals:
         request_declarations.append(f"  logic {name}_overflow;")
         request_assignments.append(
-            f"  assign {name}_overflow = !({_reset_asserted(module, _identifier)}) && "
+            f"  assign {name}_overflow = !({_reset_asserted(module, _identifier, fifo_clock)}) && "
             f"{name}_push_request && {name}_full && !{name}_pop;"
         )
     if FifoSignal.UNDERFLOW in referenced_fifo_signals:
         request_declarations.append(f"  logic {name}_underflow;")
         request_assignments.append(
-            f"  assign {name}_underflow = !({_reset_asserted(module, _identifier)}) && "
+            f"  assign {name}_underflow = !({_reset_asserted(module, _identifier, fifo_clock)}) && "
             f"{name}_pop_request && {name}_empty;"
         )
     lines = [f"  logic {_range(width)}{name}_storage [0:{fifo.depth - 1}];",
@@ -2128,8 +2526,8 @@ def _emit_fifo(module: Module) -> str:
                  f"{_expression(assignment.expression)};"
                  for assignment in module.assignments
              ),
-             f"  always_ff @({_clock_event(module, _identifier)}) begin",
-             f"    if ({_reset_asserted(module, _identifier)}) begin {name}_count <= '0; {name}_rd <= '0; {name}_wr <= '0; end",
+             f"  always_ff @({_clock_event(module, _identifier, fifo_clock)}) begin",
+             f"    if ({_reset_asserted(module, _identifier, fifo_clock)}) begin {name}_count <= '0; {name}_rd <= '0; {name}_wr <= '0; end",
              "    else begin",
              f"      if ({name}_push) begin {name}_storage[{name}_wr] <= {_expression(fifo.data)}; {name}_wr <= ({name}_wr == {ptr_width}'d{fifo.depth - 1}) ? '0 : {name}_wr + 1'b1; end",
              f"      if ({name}_pop) {name}_rd <= ({name}_rd == {ptr_width}'d{fifo.depth - 1}) ? '0 : {name}_rd + 1'b1;",
@@ -2153,22 +2551,27 @@ def _append_unified_state(
     parent that owns scheduled state must not lose that state merely because it
     also instantiates a child component.
     """
-    if module.clock is None or module.reset is None or module.resolved_transition is None:
+    if not module.clock_domains or module.resolved_transition is None:
         raise SystemVerilogEmissionError("unified state emission requires clock/reset transition IR")
     if any(not fifo.scheduled for fifo in module.fifos):
         raise SystemVerilogEmissionError("mixed legacy and scheduled FIFO resources are not implemented")
     transition = module.resolved_transition
     local_names = module_rtl_names(module)
-    resources = {item.semantic_id: item for item in transition.resources}
     groups = ordered_state_groups(transition)
-    group_by_name = {item.rule_name: item for item in groups}
-
-    conditional = conditional_actions(transition)
     activation_predicates = conditional_activation_predicates(transition)
     activation_names = tuple(
         f"zlang_condition_{index}_active"
         for index in range(len(activation_predicates))
     )
+
+    for memory in module.memories:
+        if not memory.ported:
+            continue
+        memory_declarations, memory_logic = _ported_memory_fragments(
+            module, memory, render
+        )
+        declarations.extend(memory_declarations)
+        logic.extend(memory_logic)
 
     def action_enable(group, action) -> str:
         fire = local_names.rule(group.rule_name, "fire")
@@ -2204,13 +2607,17 @@ def _append_unified_state(
             f"  assign {name}_front = {name}_storage[{name}_rd];",
             f"  assign {name}_empty = ({name}_count == '0);",
             f"  assign {name}_full = ({name}_count == {fifo.count_width}'d{fifo.depth});",
-            f"  assign {name}_valid = {_reset_deasserted(module, _identifier)} && !{name}_empty;",
-            f"  assign {name}_ready = {_reset_deasserted(module, _identifier)} && "
+            f"  assign {name}_valid = "
+            f"{_reset_deasserted(module, _identifier, fifo.domain)} && !{name}_empty;",
+            f"  assign {name}_ready = "
+            f"{_reset_deasserted(module, _identifier, fifo.domain)} && "
             f"({name}_count < {fifo.count_width}'d{fifo.depth});",
             f"  assign {name}_overflow = 1'b0;",
             f"  assign {name}_underflow = 1'b0;",
         ))
     for memory in module.memories:
+        if memory.ported:
+            continue
         if not memory.scheduled:
             raise SystemVerilogEmissionError(
                 "mixed legacy and scheduled memory resources are not implemented"
@@ -2252,55 +2659,70 @@ def _append_unified_state(
         declarations.append(f"  logic {name};")
         logic.append(f"  assign {name} = {render(activation)};")
 
-    fifo_names = [fifo.name for fifo in module.fifos]
-    guard_names = [group.rule_name for group in groups]
-    for group in groups:
-        clauses: list[str] = []
-        for region in selection_regions(transition, group.rule_name):
-            count_values = region[:len(fifo_names)]
-            guard_values = region[
-                len(fifo_names):len(fifo_names) + len(guard_names)
-            ]
-            activation_values = region[
-                len(fifo_names) + len(guard_names):
-            ]
-            terms: list[str] = []
-            for name, fifo, value in zip(
-                fifo_names, module.fifos, count_values, strict=True
-            ):
-                if value is FifoOccupancy.EMPTY:
-                    terms.append(f"{_identifier(name)}_count == '0")
-                elif value is FifoOccupancy.FULL:
-                    terms.append(
-                        f"{_identifier(name)}_count == "
-                        f"{fifo.count_width}'d{fifo.depth}"
-                    )
-                elif value is FifoOccupancy.MIDDLE:
-                    terms.append(
-                        f"({_identifier(name)}_count > '0 && "
-                        f"{_identifier(name)}_count < "
-                        f"{fifo.count_width}'d{fifo.depth})"
-                    )
-            terms.extend(
-                f"{local_names.rule(name, 'guard')} == 1'b{1 if value else 0}"
-                for name, value in zip(
-                    guard_names, guard_values, strict=True
-                )
-                if value is not None
-            )
-            terms.extend(
-                f"{activation_names[index]} == 1'b{1 if value else 0}"
-                for index, value in enumerate(
-                    activation_values
-                )
-                if value is not None
-            )
-            clauses.append("(" + " && ".join(terms) + ")")
-        condition = " || ".join(clauses) if clauses else "1'b0"
-        logic.append(
-            f"  assign {local_names.rule(group.rule_name, 'fire')} = "
-            f"{_reset_deasserted(module, _identifier)} && ({condition});"
+    fifo_by_name = {fifo.name: fifo for fifo in module.fifos}
+    for physical_domain in module.clock_domains:
+        local_transition = transition_for_domain(
+            transition, physical_domain.clock
         )
+        local_groups = ordered_state_groups(local_transition)
+        local_fifos = tuple(
+            resource
+            for resource in local_transition.resources
+            if resource.kind is StateResourceKind.FIFO
+        )
+        local_activations = conditional_activation_predicates(local_transition)
+        guard_names = [group.rule_name for group in local_groups]
+        for group in local_groups:
+            clauses: list[str] = []
+            for region in selection_regions(local_transition, group.rule_name):
+                count_values = region[:len(local_fifos)]
+                guard_values = region[
+                    len(local_fifos):len(local_fifos) + len(guard_names)
+                ]
+                activation_values = region[
+                    len(local_fifos) + len(guard_names):
+                ]
+                terms: list[str] = []
+                for resource, value in zip(
+                    local_fifos, count_values, strict=True
+                ):
+                    fifo = fifo_by_name[resource.name]
+                    name = fifo.name
+                    if value is FifoOccupancy.EMPTY:
+                        terms.append(f"{_identifier(name)}_count == '0")
+                    elif value is FifoOccupancy.FULL:
+                        terms.append(
+                            f"{_identifier(name)}_count == "
+                            f"{fifo.count_width}'d{fifo.depth}"
+                        )
+                    elif value is FifoOccupancy.MIDDLE:
+                        terms.append(
+                            f"({_identifier(name)}_count > '0 && "
+                            f"{_identifier(name)}_count < "
+                            f"{fifo.count_width}'d{fifo.depth})"
+                        )
+                terms.extend(
+                    f"{local_names.rule(name, 'guard')} == 1'b{1 if value else 0}"
+                    for name, value in zip(
+                        guard_names, guard_values, strict=True
+                    )
+                    if value is not None
+                )
+                terms.extend(
+                    f"{activation_names[activation_predicates.index(activation)]} "
+                    f"== 1'b{1 if value else 0}"
+                    for activation, value in zip(
+                        local_activations, activation_values, strict=True
+                    )
+                    if value is not None
+                )
+                clauses.append("(" + " && ".join(terms) + ")")
+            condition = " || ".join(clauses) if clauses else "1'b0"
+            logic.append(
+                f"  assign {local_names.rule(group.rule_name, 'fire')} = "
+                f"{_reset_deasserted(module, _identifier, physical_domain.clock)} "
+                f"&& ({condition});"
+            )
 
     for fifo in module.fifos:
         resource_id = next(
@@ -2398,117 +2820,158 @@ def _append_unified_state(
                 f"({name}_write_data & {name}_write_mask_expanded);"
             )
 
-    scheduled_memory_initialization = False
     for memory in module.memories:
         initialize_contents = (
             memory.contents_reset is MemoryResetPolicy.PRESERVE
+            or memory.initial_value is not None
         )
         initialize_read_data = (
             memory.read_data_reset is MemoryResetPolicy.PRESERVE
         )
         if not (initialize_contents or initialize_read_data):
             continue
-        scheduled_memory_initialization = True
         name = _identifier(memory.name)
         logic.append("  initial begin")
         if initialize_read_data:
             logic.append(f"    {name}_read_data = '0;")
         if initialize_contents:
+            initial_word = (
+                render(memory.initial_value)
+                if memory.initial_value is not None else "'0"
+            )
             logic.extend((
                 f"    for ({name}_reset_index = 0; {name}_reset_index < "
                 f"{memory.depth}; {name}_reset_index = {name}_reset_index + 1)",
-                f"      {name}_cells[{name}_reset_index] = '0;",
+                f"      {name}_cells[{name}_reset_index] = {initial_word};",
             ))
         logic.append("  end")
 
-    logic.append(
-        f"  {'always' if scheduled_memory_initialization else 'always_ff'} "
-        f"@({_clock_event(module, _identifier)}) begin"
-    )
-    logic.append(f"    if ({_reset_asserted(module, _identifier)}) begin")
-    for register in module.registers:
-        logic.append(f"      {_identifier(register.name)} <= {render(register.initial)};")
-    for fifo in module.fifos:
-        name = _identifier(fifo.name)
-        logic.append(f"      {name}_count <= '0; {name}_rd <= '0; {name}_wr <= '0;")
-    for memory in module.memories:
-        name = _identifier(memory.name)
-        if memory.read_data_reset is MemoryResetPolicy.CLEAR:
-            logic.append(f"      {name}_read_data <= '0;")
-        if memory.contents_reset is MemoryResetPolicy.CLEAR:
-            logic.append(
-                f"      for ({name}_reset_index = 0; {name}_reset_index < "
-                f"{memory.depth}; {name}_reset_index = {name}_reset_index + 1) "
-                f"{name}_cells[{name}_reset_index] <= '0;"
-            )
-        if (
-            memory.read_data_reset is MemoryResetPolicy.PRESERVE
-            and memory.contents_reset is MemoryResetPolicy.PRESERVE
-        ):
-            logic.append(
-                f"      // {name} contents and read result hold across reset."
-            )
-    logic.append("    end else begin")
-    for register in module.registers:
-        writers = []
-        resource_id = next(
-            item.semantic_id for item in transition.resources
-            if item.kind.value == "register" and item.name == register.name
+    for physical_domain in module.clock_domains:
+        domain_registers = tuple(
+            item for item in module.registers
+            if item.domain == physical_domain.clock
         )
-        for group in groups:
-            for action in group.actions:
-                if (
-                    action.resource_id != resource_id
-                    or action.kind is not StateActionKind.REGISTER_WRITE
-                ):
-                    continue
-                writers.append((group, action))
-        for index, (group, action) in enumerate(writers):
-            keyword = "if" if index == 0 else "else if"
-            logic.append(
-                f"      {keyword} ({action_enable(group, action)}) "
-                f"{_identifier(register.name)} <= {render(action.operands[0])};"
-            )
-        default = next((item for item in module.next_assignments if item.target.name == register.name), None)
-        if default is not None:
-            logic.append(
-                f"      {'else ' if writers else ''}{_identifier(register.name)} <= {render(default.expression)};"
-            )
-    for fifo in module.fifos:
-        name = _identifier(fifo.name)
-        ptr_width = max(1, (fifo.depth - 1).bit_length())
-        logic.extend((
-            f"      if ({name}_push) begin {name}_storage[{name}_wr] <= {name}_push_data; "
-            f"{name}_wr <= ({name}_wr == {ptr_width}'d{fifo.depth - 1}) ? '0 : {name}_wr + 1'b1; end",
-            f"      if ({name}_pop) {name}_rd <= ({name}_rd == {ptr_width}'d{fifo.depth - 1}) ? '0 : {name}_rd + 1'b1;",
-            f"      case ({{{name}_push, {name}_pop}})",
-            f"        2'b10: {name}_count <= {name}_count + 1'b1;",
-            f"        2'b01: {name}_count <= {name}_count - 1'b1;",
-            f"        default: {name}_count <= {name}_count;",
-            "      endcase",
-        ))
-    for memory in module.memories:
-        name = _identifier(memory.name)
+        domain_fifos = tuple(
+            item for item in module.fifos
+            if item.domain == physical_domain.clock
+        )
+        domain_memories = tuple(
+            item for item in module.memories
+            if item.domain == physical_domain.clock
+        )
+        if not (domain_registers or domain_fifos or domain_memories):
+            continue
+        domain_has_initialization = any(
+            memory.contents_reset is MemoryResetPolicy.PRESERVE
+            or memory.read_data_reset is MemoryResetPolicy.PRESERVE
+            or memory.initial_value is not None
+            for memory in domain_memories
+        )
         logic.append(
-            f"      if ({name}_write_fire) "
-            f"{name}_cells[{name}_write_address] <= "
-            f"{name + '_write_merged' if memory.write_mask_width is not None else name + '_write_data'};"
+            f"  {'always' if domain_has_initialization else 'always_ff'} "
+            f"@({_clock_event(module, _identifier, physical_domain.clock)}) begin"
         )
-        if memory.collision is MemoryCollision.WRITE_FIRST:
-            logic.extend((
-                f"      if ({name}_read_fire) begin",
-                f"        if ({name}_write_fire && ({name}_read_address == {name}_write_address))",
-                f"          {name}_read_data <= "
-                f"{name + '_write_merged' if memory.write_mask_width is not None else name + '_write_data'};",
-                f"        else {name}_read_data <= {name}_cells[{name}_read_address];",
-                "      end",
-            ))
-        else:
+        logic.append(
+            f"    if ({_reset_asserted(module, _identifier, physical_domain.clock)}) begin"
+        )
+        for register in domain_registers:
             logic.append(
-                f"      if ({name}_read_fire) "
-                f"{name}_read_data <= {name}_cells[{name}_read_address];"
+                f"      {_identifier(register.name)} <= {render(register.initial)};"
             )
-    logic.extend(("    end", "  end"))
+        for fifo in domain_fifos:
+            name = _identifier(fifo.name)
+            logic.append(
+                f"      {name}_count <= '0; {name}_rd <= '0; {name}_wr <= '0;"
+            )
+        for memory in domain_memories:
+            name = _identifier(memory.name)
+            if memory.read_data_reset is MemoryResetPolicy.CLEAR:
+                logic.append(f"      {name}_read_data <= '0;")
+            if memory.contents_reset is MemoryResetPolicy.CLEAR:
+                initial_word = (
+                    render(memory.initial_value)
+                    if memory.initial_value is not None else "'0"
+                )
+                logic.append(
+                    f"      for ({name}_reset_index = 0; {name}_reset_index < "
+                    f"{memory.depth}; {name}_reset_index = {name}_reset_index + 1) "
+                    f"{name}_cells[{name}_reset_index] <= {initial_word};"
+                )
+            if (
+                memory.read_data_reset is MemoryResetPolicy.PRESERVE
+                and memory.contents_reset is MemoryResetPolicy.PRESERVE
+            ):
+                logic.append(
+                    f"      // {name} contents and read result hold across reset."
+                )
+        logic.append("    end else begin")
+        for register in domain_registers:
+            writers = []
+            resource_id = next(
+                item.semantic_id for item in transition.resources
+                if item.kind.value == "register" and item.name == register.name
+            )
+            for group in groups:
+                for action in group.actions:
+                    if (
+                        action.resource_id != resource_id
+                        or action.kind is not StateActionKind.REGISTER_WRITE
+                    ):
+                        continue
+                    writers.append((group, action))
+            for index, (group, action) in enumerate(writers):
+                keyword = "if" if index == 0 else "else if"
+                logic.append(
+                    f"      {keyword} ({action_enable(group, action)}) "
+                    f"{_identifier(register.name)} <= {render(action.operands[0])};"
+                )
+            default = next(
+                (
+                    item for item in module.next_assignments
+                    if item.target.name == register.name
+                ),
+                None,
+            )
+            if default is not None:
+                logic.append(
+                    f"      {'else ' if writers else ''}{_identifier(register.name)} "
+                    f"<= {render(default.expression)};"
+                )
+        for fifo in domain_fifos:
+            name = _identifier(fifo.name)
+            ptr_width = max(1, (fifo.depth - 1).bit_length())
+            logic.extend((
+                f"      if ({name}_push) begin {name}_storage[{name}_wr] <= {name}_push_data; "
+                f"{name}_wr <= ({name}_wr == {ptr_width}'d{fifo.depth - 1}) ? '0 : {name}_wr + 1'b1; end",
+                f"      if ({name}_pop) {name}_rd <= ({name}_rd == {ptr_width}'d{fifo.depth - 1}) ? '0 : {name}_rd + 1'b1;",
+                f"      case ({{{name}_push, {name}_pop}})",
+                f"        2'b10: {name}_count <= {name}_count + 1'b1;",
+                f"        2'b01: {name}_count <= {name}_count - 1'b1;",
+                f"        default: {name}_count <= {name}_count;",
+                "      endcase",
+            ))
+        for memory in domain_memories:
+            name = _identifier(memory.name)
+            logic.append(
+                f"      if ({name}_write_fire) "
+                f"{name}_cells[{name}_write_address] <= "
+                f"{name + '_write_merged' if memory.write_mask_width is not None else name + '_write_data'};"
+            )
+            if memory.collision is MemoryCollision.WRITE_FIRST:
+                logic.extend((
+                    f"      if ({name}_read_fire) begin",
+                    f"        if ({name}_write_fire && ({name}_read_address == {name}_write_address))",
+                    f"          {name}_read_data <= "
+                    f"{name + '_write_merged' if memory.write_mask_width is not None else name + '_write_data'};",
+                    f"        else {name}_read_data <= {name}_cells[{name}_read_address];",
+                    "      end",
+                ))
+            else:
+                logic.append(
+                    f"      if ({name}_read_fire) "
+                    f"{name}_read_data <= {name}_cells[{name}_read_address];"
+                )
+        logic.extend(("    end", "  end"))
     # Scalar rule outputs share the already-resolved rule-fire schedule with
     # register writes.  A direct assignment, when present, is the ordinary
     # combinational fallback; otherwise the reset/idle value is the exact
@@ -2835,7 +3298,9 @@ def _formal_adapter_count_projection(
 
 
 def _formal_rule_fire_reset(
-    module: Module, accepted: expr.Expression,
+    module: Module,
+    accepted: expr.Expression,
+    clock: str | None = None,
 ) -> expr.Expression:
     """Gate the accepted schedule with the reset consumed by emitted state.
 
@@ -2844,14 +3309,18 @@ def _formal_rule_fire_reset(
     conditioned native-release reset supplied through their component ABI.
     """
 
-    if module.reset is None:
+    if not module.clock_domains:
         return accepted
-    domain = _module_domain(module)
+    domain = _module_domain(module, clock)
     bit = BitType()
     origin = getattr(accepted, "origin", None)
     deasserted = expr.Binary(
         expr.BinaryOperator.EQUAL,
-        expr.InputRef(_effective_reset_signal(module, _identifier), bit, origin=origin),
+        expr.InputRef(
+            _effective_reset_signal(module, _identifier, domain.clock),
+            bit,
+            origin=origin,
+        ),
         expr.Constant(
             0 if domain.reset_polarity is ResetPolarity.ACTIVE_HIGH else 1,
             bit, origin=origin,
@@ -2981,7 +3450,7 @@ def _formal_local_expression(
             accepted = disjunction(regions)
             return (
                 accepted if defer_rule_reset
-                else _formal_rule_fire_reset(module, accepted)
+                else _formal_rule_fire_reset(module, accepted, group.domain)
             )
     if semantic_id.startswith("register:"):
         name = semantic_id.split(":", 1)[1]
@@ -3169,7 +3638,7 @@ def _instrument_direct_formal_module(
         used_names = set(namespace.reserved) | {
             item.physical_name for item in namespace.entries
         }
-        deferred_rule_outputs: set[str] = set()
+        deferred_rule_outputs: dict[str, str] = {}
         deferred_rr_outputs: dict[str, str] = {}
         local_rule_ids = {
             rule_fire_observation_id(group.rule_name)
@@ -3239,7 +3708,9 @@ def _instrument_direct_formal_module(
                     formal_adapter_counts.add(adapter_projection)
                 publish(binding, expression, ())
                 if binding.ref.local_semantic_id in local_rule_ids:
-                    deferred_rule_outputs.add(output_map[binding.semantic_binding_id])
+                    deferred_rule_outputs[output_map[binding.semantic_binding_id]] = (
+                        binding.ref.local_semantic_id
+                    )
                 if binding.ref.local_semantic_id.startswith("rr:"):
                     deferred_rr_outputs[output_map[binding.semantic_binding_id]] = (
                         binding.ref.local_semantic_id
@@ -3333,12 +3804,22 @@ def _instrument_direct_formal_module(
             # scope are used by production state emission; no raw-port or
             # generated-name convention is substituted for that contract.
             reset_component = transformed if top else _native_release_module(transformed)
+            rule_domains = {
+                rule_fire_observation_id(group.rule_name): group.domain
+                for group in transformed.resolved_transition.action_groups
+            } if transformed.resolved_transition is not None else {}
             transformed = replace(
                 transformed,
                 assignments=tuple(
                     replace(
                         assignment,
-                        expression=_formal_rule_fire_reset(reset_component, assignment.expression),
+                        expression=_formal_rule_fire_reset(
+                            reset_component,
+                            assignment.expression,
+                            rule_domains.get(
+                                deferred_rule_outputs[assignment.target.name]
+                            ),
+                        ),
                     )
                     if assignment.target.name in deferred_rule_outputs else assignment
                     for assignment in transformed.assignments
@@ -3603,6 +4084,35 @@ def _emit_pipeline(module: Module) -> str:
         for assignment in module.assignments
         if assignment.signal is None and assignment.channel is None
     }
+    if module.clock is None and len(module.clock_domains) > 1:
+        if (
+            len(module.assignments) != len(module.outputs)
+            or assigned_names != {port.name for port in module.outputs}
+        ):
+            raise SystemVerilogEmissionError(
+                "multi-clock pipeline emission requires every output to have "
+                "one assignment"
+            )
+        declarations, sequential, render = _embedded_staging_emission(module)
+        if not sequential:
+            raise SystemVerilogEmissionError(
+                "multi-clock sequential datapath requires a domain-qualified "
+                "pipeline"
+            )
+        assignments = [
+            f"  assign {_identifier(assignment.target.name)} = "
+            f"{render(assignment.expression)};"
+            for assignment in module.assignments
+        ]
+        return _module(
+            module,
+            [
+                *_clock_reset_port_declarations(module),
+                *(_port_declaration(port) for port in module.inputs),
+                *(_port_declaration(port) for port in module.outputs),
+            ],
+            [*declarations, *sequential, *assignments],
+        )
     if (
         module.clock is None
         or module.reset is None
@@ -4043,7 +4553,7 @@ def _emit_vc_credit(module: Module) -> str:
         f"  logic {name}_can_send;",
         f"  assign {name}_payload = {_expression(payload.expression)};",
         f"  assign {name}_vc = {_expression(channel.expression)};",
-        f"  always_comb begin",
+        "  always_comb begin",
         f"    {name}_can_send = 1'b0;",
         f"    case ({name}_vc)",
         *(
@@ -4383,16 +4893,26 @@ def _embedded_staging_emission(
     for root in _module_expression_roots(module, local_names):
         collect(root)
 
-    if staged and (module.clock is None or module.reset is None):
+    if staged and not module.clock_domains:
         raise SystemVerilogEmissionError(
             "staged hierarchical component requires clock and reset"
         )
 
     aliases: dict[expr.Expression, str] = {}
     declarations: list[str] = []
-    resets: list[str] = []
-    updates: list[str] = []
+    resets: dict[str, list[str]] = {}
+    updates: dict[str, list[str]] = {}
     for value in staged:
+        value_domain = (
+            value.domain if isinstance(value, expr.Pipeline) else module.clock
+        )
+        if value_domain is None:
+            raise SystemVerilogEmissionError(
+                "delay in a multi-clock module requires domain-qualified "
+                "lowering before direct emission"
+            )
+        domain_resets = resets.setdefault(value_domain, [])
+        domain_updates = updates.setdefault(value_domain, [])
         count = value.cycles if isinstance(value, expr.Delay) else value.stages
         kind = "delay" if isinstance(value, expr.Delay) else "pipeline"
         signed = " signed" if isinstance(value.type, (SIntType, FixedType)) else ""
@@ -4401,26 +4921,28 @@ def _embedded_staging_emission(
             declarations.append(
                 f"  logic{signed} {_range(_width(value.type))}{name};"
             )
-            resets.append(f"      {name} <= '0;")
+            domain_resets.append(f"      {name} <= '0;")
         physical_input = _replace_materialized(value.expression, aliases)
-        updates.append(
+        domain_updates.append(
             f"      {local_names.stage(kind, value.instance, 1)} <= {_expression(physical_input)};"
         )
         for index in range(2, count + 1):
-            updates.append(
+            domain_updates.append(
                 f"      {local_names.stage(kind, value.instance, index)} <= "
                 f"{local_names.stage(kind, value.instance, index - 1)};"
             )
         aliases[value] = local_names.stage(kind, value.instance, count)
 
     sequential: list[str] = []
-    if staged:
+    for domain in module.clock_domains:
+        if domain.clock not in updates:
+            continue
         sequential.extend((
-            f"  always_ff @({_clock_event(module, _identifier)}) begin",
-            f"    if ({_reset_asserted(module, _identifier)}) begin",
-            *resets,
+            f"  always_ff @({_clock_event(module, _identifier, domain.clock)}) begin",
+            f"    if ({_reset_asserted(module, _identifier, domain.clock)}) begin",
+            *resets[domain.clock],
             "    end else begin",
-            *updates,
+            *updates[domain.clock],
             "    end",
             "  end",
         ))
@@ -4442,7 +4964,7 @@ def _append_rule_state(
 ) -> None:
     """Append classifier-approved scalar register/rule state to a module body."""
 
-    if module.registers and (module.clock is None or module.reset is None):
+    if module.registers and not module.clock_domains:
         raise SystemVerilogEmissionError("direct rule emission requires clock/reset")
     ordered_rules = _ordered_rules(module)
     declarations.extend(
@@ -4452,11 +4974,15 @@ def _append_rule_state(
         for register in module.registers
     )
     for register in module.registers:
+        if register.domain is None:
+            raise SystemVerilogEmissionError(
+                f"register '{register.name}' has no resolved clock domain"
+            )
         writers = tuple(
             (rule, action)
             for rule in ordered_rules
             for action in rule.actions
-            if action.target.name == register.name
+            if action.target.name == register.name and rule.domain == register.domain
         )
         default = next(
             (
@@ -4466,16 +4992,18 @@ def _append_rule_state(
             ),
             None,
         )
-        logic.append(f"  always_ff @({_clock_event(module, _identifier)}) begin")
+        logic.append(
+            f"  always_ff @({_clock_event(module, _identifier, register.domain)}) begin"
+        )
         if compact_reset:
             logic.extend((
-                f"    if ({_reset_asserted(module, _identifier)}) "
+                f"    if ({_reset_asserted(module, _identifier, register.domain)}) "
                 f"{_identifier(register.name)} <= {render(register.initial)};",
                 "    else begin",
             ))
         else:
             logic.extend((
-                f"    if ({_reset_asserted(module, _identifier)}) begin",
+                f"    if ({_reset_asserted(module, _identifier, register.domain)}) begin",
                 f"      {_identifier(register.name)} <= {render(register.initial)};",
                 "    end else begin",
             ))
@@ -4504,11 +5032,17 @@ def _append_rule_state(
 
 
 def _emit_rules(module: Module) -> str:
-    if module.clock is None or module.reset is None:
+    if not module.clock_domains:
         raise SystemVerilogEmissionError("direct rule emission requires clock/reset")
     ports = [
-        f"input logic {module.clock}",
-        f"input logic {module.reset}",
+        *(
+            item
+            for domain in module.clock_domains
+            for item in (
+                f"input logic {_identifier(domain.clock)}",
+                f"input logic {_identifier(domain.reset)}",
+            )
+        ),
         *(_port_declaration(port) for port in module.inputs),
         *(_port_declaration(port) for port in module.outputs),
     ]
@@ -4666,11 +5200,16 @@ def _emit_packet_arbiter(module: Module) -> str:
 
 
 def _emit_csr(module: Module, *, expose_internal_abi: bool = False) -> str:
-    if module.clock is None or module.reset is None or len(module.csr_blocks) != 1:
+    if len(module.csr_blocks) != 1:
         raise SystemVerilogEmissionError(
-            "direct CSR emission requires one block and one clock domain"
+            "direct CSR emission requires one block"
         )
     block = module.csr_blocks[0]
+    if block.domain is None or block.reset is None:
+        raise SystemVerilogEmissionError(
+            "direct CSR emission requires an explicitly resolved physical domain"
+        )
+    csr_clock = block.domain
     access = module.csr_access
     if access is None:
         raise SystemVerilogEmissionError("typed CSR access interface is missing")
@@ -4702,8 +5241,14 @@ def _emit_csr(module: Module, *, expose_internal_abi: bool = False) -> str:
             ),
         ]
     ports = [
-        f"input logic {module.clock}",
-        f"input logic {module.reset}",
+        *(
+            item
+            for domain in module.clock_domains
+            for item in (
+                f"input logic {_identifier(domain.clock)}",
+                f"input logic {_identifier(domain.reset)}",
+            )
+        ),
         *(_port_declaration(port) for port in user_ports),
         *(_logic_port("input", name, type_)
           for name, type_ in access.input_types),
@@ -4728,8 +5273,8 @@ def _emit_csr(module: Module, *, expose_internal_abi: bool = False) -> str:
             f"  logic {_range(field.width)}{_csr_field_name(block, register, field)};"
             for register, field in stored
         ),
-        f"  always_ff @({_clock_event(module, _identifier)}) begin",
-        f"    if ({_reset_asserted(module, _identifier)}) begin",
+        f"  always_ff @({_clock_event(module, _identifier, csr_clock)}) begin",
+        f"    if ({_reset_asserted(module, _identifier, csr_clock)}) begin",
         *(
             f"      {_csr_field_name(block, register, field)} <= "
             f"{field.width}'d{field.reset};"
@@ -5223,6 +5768,11 @@ def _expression(expression: expr.Expression) -> str:
             f"{expression.signal.value}"
         )
     if isinstance(expression, expr.MemoryRef):
+        if expression.port is not None:
+            return (
+                f"{_identifier(expression.memory)}_"
+                f"{_identifier(expression.port)}_{expression.signal.value}"
+            )
         return f"{_identifier(expression.memory)}_{expression.signal.value}"
     if isinstance(expression, expr.RomRef):
         if expression.signal is not RomSignal.READ_DATA:
@@ -5379,7 +5929,9 @@ def _expression(expression: expr.Expression) -> str:
             converted = value
         else:
             shift = -delta
-            literal = lambda value: f"{work_width}'d{value}"
+            def literal(value: int) -> str:
+                return f"{work_width}'d{value}"
+
             magnitude = (f"(({value}) < 0 ? -({value}) : ({value}))"
                          if source_signed else f"({value})")
             quotient = f"({magnitude} >> {shift})"

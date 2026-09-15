@@ -32,8 +32,13 @@ from zlang.ir.cdc import (
     ResetReleaseMode,
     clock_domain_contract_identity,
 )
-from zlang.ir.module import Module, PortDirection
-from zlang.ir.module import default_selected_ir_identity, dependency_context_identity
+from zlang.ir.module import (
+    Module,
+    PortDirection,
+    default_selected_ir_identity,
+    dependency_context_identity,
+    reset_for_clock,
+)
 from zlang.dependencies import DependencyClosure, DependencyModuleIdentity
 from zlang.common import stable_digest
 from zlang.ir.timing import (
@@ -1050,11 +1055,13 @@ def publish_artifact(module: Module, text: str, *, backend: str,
             if forward_role is SignalRole.INPUT
             else SignalRole.INPUT
         )
+        port_clock = port.domain or module.clock
         bindings.append(EquivalenceBinding(
             artifact_version, side, semantic, selected_ir_identity, module.name,
             names.get(semantic, port.name), _width(port.type), signedness(port.type),
             forward_role,
-            port.domain or module.clock, module.reset, backend, digest, origins.get(port.name),
+            port_clock, reset_for_clock(module, port_clock), backend, digest,
+            origins.get(port.name),
             physical_available=port.protocol is InterfaceProtocol.WIRE,
             canonical_type=_canonical_type(port.type)))
         fields: tuple[tuple[str, int, str, SignalRole], ...] = ()
@@ -1092,7 +1099,7 @@ def publish_artifact(module: Module, text: str, *, backend: str,
                 artifact_version, side, field_id, selected_ir_identity,
                 module.name, names.get(field_id, f"{port.name}_{field}"),
                 width, field_signedness, field_role,
-                port.domain or module.clock, module.reset, backend, digest,
+                port_clock, reset_for_clock(module, port_clock), backend, digest,
                 origins.get(port.name), canonical_type=(
                     _canonical_type(port.type) if field == "payload" else
                     f"uint<{width}>" if width > 1 else "bit"
@@ -1117,11 +1124,13 @@ def publish_artifact(module: Module, text: str, *, backend: str,
             if endpoint.owner == module.name
             else f"{endpoint.owner}_{endpoint.name}{physical_suffix}"
         )
+        endpoint_clock = endpoint.domain or module.clock
         bindings.append(EquivalenceBinding(
             MANIFEST_VERSION, side, semantic, selected_ir_identity, module.name,
             names.get(semantic, endpoint_rtl),
             _width(endpoint.payload_type), signedness(endpoint.payload_type),
-            endpoint_role, endpoint.domain or module.clock, module.reset, backend, digest,
+            endpoint_role, endpoint_clock,
+            reset_for_clock(module, endpoint_clock), backend, digest,
             physical_available=endpoint.protocol is InterfaceProtocol.WIRE,
             canonical_type=_canonical_type(endpoint.payload_type),
         ))
@@ -1143,16 +1152,19 @@ def publish_artifact(module: Module, text: str, *, backend: str,
                     else f"{endpoint.owner}_{endpoint.name}{physical_suffix}_{field}",
                 ),
                 width, signedness(endpoint.payload_type) if field == "payload" else "bit",
-                field_role, endpoint.domain or module.clock, module.reset, backend, digest,
+                field_role, endpoint_clock,
+                reset_for_clock(module, endpoint_clock), backend, digest,
                 canonical_type=(_canonical_type(endpoint.payload_type) if field == "payload" else "bit"),
             ))
     if top_abi.leaves:
         for aggregate in module.aggregate_protocol_endpoints:
             aggregate_id = f"aggregate:{module.name}.{aggregate.name}"
+            aggregate_clock = aggregate.domain or module.clock
             bindings.append(EquivalenceBinding(
                 artifact_version, side, aggregate_id, selected_ir_identity, module.name,
                 names.get(aggregate_id, aggregate.name), 1, "bit", SignalRole.OUTPUT,
-                aggregate.domain or module.clock, module.reset, backend, digest,
+                aggregate_clock, reset_for_clock(module, aggregate_clock),
+                backend, digest,
                 aggregate_endpoint_id=aggregate_id,
                 protocol_specialization_id=aggregate.specialization_identity,
                 protocol_role=aggregate.role,
@@ -1160,6 +1172,7 @@ def publish_artifact(module: Module, text: str, *, backend: str,
                 physical_available=False,
             ))
         for leaf in top_abi.leaves:
+            aggregate_clock = aggregate.domain or module.clock
             bindings.append(EquivalenceBinding(
                 artifact_version, side, leaf.leaf_semantic_id,
                 selected_ir_identity, module.name,
@@ -1179,7 +1192,8 @@ def publish_artifact(module: Module, text: str, *, backend: str,
                 artifact_version, side, aggregate_id, selected_ir_identity, module.name,
                 names.get(aggregate_id, aggregate.name), max(1, aggregate_width), "bit",
                 SignalRole.OUTPUT,
-                aggregate.domain or module.clock, module.reset, backend, digest,
+                aggregate_clock, reset_for_clock(module, aggregate_clock),
+                backend, digest,
                 physical_available=False,
             ))
     for connection in module.hierarchical_connections:

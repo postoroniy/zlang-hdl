@@ -9,9 +9,6 @@ import pytest
 
 from zlang.backend.systemverilog import emit_experimental
 from zlang.compiler import compile_file
-from zlang.ir.types import EnumType
-from zlang.opt import OptimizationStage, lower, restore
-from zlang.simulate import simulate
 from zlang.toolchain import lint_with_verilator
 
 

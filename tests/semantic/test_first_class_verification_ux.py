@@ -5,8 +5,6 @@ import hashlib
 
 import pytest
 
-from zlang.backend.systemverilog import emit_artifact as emit_systemverilog_artifact
-from zlang.backend.systemverilog import emit_experimental as emit_systemverilog
 from zlang.compiler import compile_source
 from zlang.ir.expressions import Binary, RegisterRef
 from zlang.ir.formal import PropertyKind

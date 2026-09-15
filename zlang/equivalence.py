@@ -28,8 +28,7 @@ from zlang.ir.cdc import ClockDomain, PowerUpPolicy
 from zlang.ir.equivalence import (
     BindingMap, BindingSide, EquivalenceBinding, EquivalenceError,
     EquivalenceMode, EquivalenceProperty, EquivalenceRelation,
-    EquivalenceResult, EquivalenceCounterexample, EquivalenceStatus, SignalRole, classify_equivalence,
-    signedness, stable_equivalence_id,
+    EquivalenceResult, EquivalenceCounterexample, EquivalenceStatus, SignalRole, signedness, stable_equivalence_id,
 )
 from zlang.ir.types import (
     BitType, BitsType, EnumType, FixedType, HardwareType, SIntType, UFixedType, UIntType,
@@ -330,6 +329,26 @@ def _expr(value: expr.Expression) -> str:
     raise EquivalenceError(f"unsupported reference expression: {type(value).__name__}")
 
 
+def _map_expression_children(
+    value: object,
+    visit,
+) -> object:
+    """Recursively replace expression leaves with one caller-owned visitor."""
+
+    if isinstance(value, expr.Expression):
+        return visit(value)
+    if isinstance(value, tuple):
+        return tuple(_map_expression_children(item, visit) for item in value)
+    if is_dataclass(value) and not isinstance(value, type):
+        updates = {
+            item.name: _map_expression_children(getattr(value, item.name), visit)
+            for item in fields(value)
+            if item.init and item.name not in {"type", "origin"}
+        }
+        return replace(value, **updates) if updates else value
+    return value
+
+
 def _materialize_reference_expression(
     expression: expr.Expression,
     definitions: tuple[object, ...],
@@ -342,20 +361,6 @@ def _materialize_reference_expression(
     boundary.  No optimizer or equality relation observes the materialized
     implementation tree.
     """
-
-    def map_value(value: object) -> object:
-        if isinstance(value, expr.Expression):
-            return visit(value)
-        if isinstance(value, tuple):
-            return tuple(map_value(item) for item in value)
-        if is_dataclass(value) and not isinstance(value, type):
-            updates = {
-                item.name: map_value(getattr(value, item.name))
-                for item in fields(value)
-                if item.init and item.name not in {"type", "origin"}
-            }
-            return replace(value, **updates) if updates else value
-        return value
 
     def visit(value: expr.Expression) -> expr.Expression:
         if isinstance(value, expr.Reduce):
@@ -385,7 +390,7 @@ def _materialize_reference_expression(
             expanded = expand_callable_calls(value, definitions)
             return visit(expanded)
         updates = {
-            item.name: map_value(getattr(value, item.name))
+            item.name: _map_expression_children(getattr(value, item.name), visit)
             for item in fields(value)
             if item.init and item.name not in {"type", "origin"}
         }
@@ -492,20 +497,6 @@ def _reference_netlist(
     names: set[str] = set()
     declarations: list[tuple[str, HardwareType, str]] = []
 
-    def map_value(value: object) -> object:
-        if isinstance(value, expr.Expression):
-            return visit(value)
-        if isinstance(value, tuple):
-            return tuple(map_value(item) for item in value)
-        if is_dataclass(value) and not isinstance(value, type):
-            updates = {
-                item.name: map_value(getattr(value, item.name))
-                for item in fields(value)
-                if item.init and item.name not in {"type", "origin"}
-            }
-            return replace(value, **updates) if updates else value
-        return value
-
     def visit(value: expr.Expression) -> expr.Expression:
         if isinstance(value, (expr.InputRef, expr.Constant)):
             return value
@@ -514,7 +505,7 @@ def _reference_netlist(
         if existing is not None:
             return expr.InputRef(existing, value.type, origin=value.origin)
         updates = {
-            item.name: map_value(getattr(value, item.name))
+            item.name: _map_expression_children(getattr(value, item.name), visit)
             for item in fields(value)
             if item.init and item.name not in {"type", "origin"}
         }

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import fields
 
 import pytest
 
@@ -16,7 +15,6 @@ from zlang.compilation_session import (
     CompilationSession,
 )
 from zlang.compiler import (
-    CompilationResult,
     TopSelectionError,
     compile_file,
     compile_file_snapshot,

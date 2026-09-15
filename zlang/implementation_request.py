@@ -12,7 +12,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 import re
-from types import MappingProxyType
 from typing import Mapping, Sequence
 
 from zlang.common.serialization import stable_digest
