@@ -333,7 +333,7 @@ module VerificationEvidence {
     compiler_plan = evidence_payload["formal_execution_plan"]
     assert compiler_plan is not None
     assert compiler_plan["formal_policy"] == "off"
-    assert compiler_plan["m39_attempts"] == []
+    assert compiler_plan["formal_selection_attempts"] == []
     assert compiler_plan["verification_plan"]["goals"]
     evidence = evidence_payload["evidence"]
     verification = [
@@ -345,7 +345,7 @@ module VerificationEvidence {
     }
     assert all(item["source_origin"] is not None for item in verification)
     assert all(item["route"] == "verification_bundle" for item in verification)
-    assert not any(item["claim"].startswith(("m36.", "m38.", "m39.")) for item in evidence)
+    assert not any(item["claim"].startswith(("semantic_equivalence.", "retired_cross_backend_equivalence.", "formal_selection.")) for item in evidence)
 
     manifest = WholeBuildManifest.from_json(manifest_path.read_text())
     manifest_verification = [
@@ -377,12 +377,12 @@ module JointFormalEvidence {
     source.write_text(source_text, encoding="utf-8")
 
     class Verifier:
-        formal_route = "M36_direct_systemverilog"
+        formal_route = "semantic_equivalence_direct_systemverilog"
 
         @staticmethod
         def identity(candidate):
             return {
-                "property_identity": "m36.joint." + candidate.implementation_identity,
+                "property_identity": "semantic_equivalence.joint." + candidate.implementation_identity,
                 "reference_artifact_hash": "a" * 64,
                 "implementation_artifact_hash": "b" * 64,
                 "artifact_hash": "b" * 64,
@@ -449,9 +449,9 @@ module JointFormalEvidence {
     )
     assert payload.formal_execution_plan is not None
     assert payload.formal_execution_plan.formal_policy is FormalPolicy.AVAILABLE
-    assert payload.formal_execution_plan.m39_attempts
+    assert payload.formal_execution_plan.formal_selection_attempts
     assert any(
-        item.claim == "m39.formal_candidate_eligibility"
+        item.claim == "formal_selection.formal_candidate_eligibility"
         for item in payload.evidence
     )
     assert any(item.claim.startswith("verification.") for item in payload.evidence)
@@ -475,12 +475,12 @@ module CandidateTrigger {
     source.write_text(source_text, encoding="utf-8")
 
     class Verifier:
-        formal_route = "M36_direct_systemverilog"
+        formal_route = "semantic_equivalence_direct_systemverilog"
 
         @staticmethod
         def cache_identity(candidate, _config=None):
             return {
-                "property_identity": "m36.trigger." + candidate.implementation_identity,
+                "property_identity": "semantic_equivalence.trigger." + candidate.implementation_identity,
                 "reference_artifact_hash": "a" * 64,
                 "implementation_artifact_hash": "b" * 64,
                 "artifact_hash": "b" * 64,
@@ -584,12 +584,12 @@ module CandidateReportExit {
     source.write_text(source_text, encoding="utf-8")
 
     class Verifier:
-        formal_route = "M36_direct_systemverilog"
+        formal_route = "semantic_equivalence_direct_systemverilog"
 
         @staticmethod
         def cache_identity(candidate, _config=None):
             return {
-                "property_identity": "m36.exit." + candidate.implementation_identity,
+                "property_identity": "semantic_equivalence.exit." + candidate.implementation_identity,
                 "reference_artifact_hash": "a" * 64,
                 "implementation_artifact_hash": "b" * 64,
                 "artifact_hash": "b" * 64,

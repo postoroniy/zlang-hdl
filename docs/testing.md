@@ -21,6 +21,16 @@ could hide source, dependency, tool-version, or mutation changes.
 
 ## Routine gates
 
+The root Makefile is the supported local entry point. It selects
+`.venv/bin/python` when present and otherwise uses `python`; both choices can be
+overridden explicitly:
+
+```sh
+make static
+make test-fast
+make test WORKERS=4 PYTHON=python
+```
+
 Check all 27 independent tops in the executable language tour through parsing,
 semantic analysis, canonical round-trip, and direct artifact construction:
 
@@ -48,7 +58,7 @@ production tool remains an explicit skip and fails release acceptance.
 The complete suite remains required before accepting a compiler slice:
 
 ```sh
-.venv/bin/python -m pytest -n 8 --dist=loadscope -q
+make test
 ```
 
 It retains unique width/type failures, malformed canonical/artifact tests,
@@ -56,6 +66,21 @@ reset/stall traces, formal mutations, proof-status classification, project and
 wheel resolution, independent backend ABI checks, and numerical boundary
 vectors. These cannot be represented honestly by one valid `all_syntax.zhl`
 program.
+
+Before a release candidate, `make release-candidate` runs the public-tree and
+release-status checks, static validation, REUSE/dependency and pinned-tool
+audits, two complete zero-skip regressions, the locked editor tests, and a
+deterministic wheel/sdist build. It only prepares local artifacts under
+`build/local-release`; signed commits, tags, uploads and publication remain the
+explicit maintainer steps in `RELEASING.md`.
+
+The two release regressions run from a fresh Community export. `make test`
+remains the broader development-tree gate and may include explicitly excluded
+private validation inputs; those inputs cannot satisfy public release evidence.
+
+`make public-check` always validates a fresh temporary Community projection, so
+the same command is safe on the development tree and on an exported public
+checkout; it never relies on a stale in-place projection manifest.
 
 Use the exhaustive external-tool marker when isolating the two corpus-wide
 release gates:

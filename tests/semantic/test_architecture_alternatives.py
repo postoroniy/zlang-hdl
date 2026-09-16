@@ -11,7 +11,7 @@ from zlang.costs import UnifiedConstraint
 from zlang.ir.expressions import CostMetric
 
 
-class ArchitectureAlternativesM29Tests(unittest.TestCase):
+class ArchitectureAlternativesTests(unittest.TestCase):
     def _root(self, type_name="u4"):
         ctype = "u8" if type_name.startswith("u") else "s8"
         out = "u9" if type_name.startswith("u") else "s9"
@@ -45,7 +45,7 @@ class ArchitectureAlternativesM29Tests(unittest.TestCase):
         with self.assertRaises(Exception):
             compile_source("module M { in a:u4 in b:s4 in c:u8 out y:u9 y=a*b+c }")
 
-    def test_m28_selection_and_dsp_constraint(self):
+    def test_cost_selection_selection_and_dsp_constraint(self):
         candidates = expand_architectures(self._root())
         self.assertEqual(extract_best_architecture(candidates, CostMetric.LUT).selected.implementation,
                          ArchitectureImplementation.DSP_MAC)

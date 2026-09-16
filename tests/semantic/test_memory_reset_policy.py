@@ -83,6 +83,7 @@ def test_absent_reset_block_is_exactly_explicit_clear_clear() -> None:
 def test_latency_and_reset_policy_participate_in_canonical_identity() -> None:
     baseline = lower(analyze(parse(source(latency=1))))
     changed_latency = lower(analyze(parse(source(latency=0))))
+    changed_two_cycle_latency = lower(analyze(parse(source(latency=2))))
     changed_contents = lower(
         analyze(parse(source(latency=1, contents="clear")))
     )
@@ -92,14 +93,15 @@ def test_latency_and_reset_policy_participate_in_canonical_identity() -> None:
     identities = {
         canonical_ir_identity(item)
         for item in (
-            baseline, changed_latency, changed_contents, changed_read_data
+            baseline, changed_latency, changed_two_cycle_latency,
+            changed_contents, changed_read_data
         )
     }
-    assert len(identities) == 4
+    assert len(identities) == 5
 
 
-@pytest.mark.parametrize("latency", (-1, 2, 3))
-def test_memory_read_latency_is_exactly_zero_or_one(latency: int) -> None:
+@pytest.mark.parametrize("latency", (-1, 17))
+def test_memory_read_latency_has_bounded_exact_contract(latency: int) -> None:
     # Negative spelling is not part of the storage syntax; exercise positive
     # malformed values semantically and retain the parser rejection for -1.
     if latency < 0:
@@ -110,7 +112,7 @@ def test_memory_read_latency_is_exactly_zero_or_one(latency: int) -> None:
         return
     with pytest.raises(
         SemanticError,
-        match="memory 'table' read_latency must be 0 or 1",
+        match="memory 'table' read_latency must be in 0..16",
     ):
         analyze(parse(source(latency=latency)))
 
@@ -144,8 +146,8 @@ def test_canonical_memory_rejects_malformed_latency_policy_and_scheduled_profile
     canonical = lower(analyze(parse(source(latency=1))))
     memory = canonical.memories[0]
 
-    with pytest.raises(CanonicalizationError, match="read latency must be zero or one"):
-        restore(replace(canonical, memories=(replace(memory, read_latency=2),)))
+    with pytest.raises(CanonicalizationError, match="read latency must be in 0..16"):
+        restore(replace(canonical, memories=(replace(memory, read_latency=17),)))
     with pytest.raises(CanonicalizationError, match="contents reset policy is invalid"):
         restore(
             replace(

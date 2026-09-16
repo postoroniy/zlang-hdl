@@ -329,7 +329,7 @@ def test_unified_constraint_adapter_preserves_exact_relation() -> None:
         ),),
     ))
     assert request.unified_constraints() == (
-        # Existing M28 represents exact as identical lower/upper bounds.
+        # Existing deterministic cost selection represents exact as identical lower/upper bounds.
         request.constraints[0].as_unified(),
     )
     assert request.unified_constraints()[0].minimum == 1

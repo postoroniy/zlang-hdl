@@ -6,10 +6,8 @@ import unittest
 from dataclasses import replace
 from pathlib import Path
 
-from zlang.backend.manifest import publish_artifact
 from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
 from zlang.backend.systemverilog import emit_experimental as emit_systemverilog
-from zlang.ir.equivalence import BindingSide
 from zlang.ir.expressions import InputRef
 from zlang.ir.module import InstancePortBinding
 from zlang.ir.types import BitType
@@ -122,7 +120,9 @@ endmodule
 
     def test_manifest_retains_aggregate_identity(self):
         module = analyze(parse(SOURCE))
-        artifact = publish_artifact(module.children[0], "tiny", backend="direct_systemverilog", selected_ir_identity="tiny-v1", side=BindingSide.IMPLEMENTATION)
+        artifact = emit_sv_artifact(
+            module.children[0], selected_ir_identity="tiny-inline"
+        )
         self.assertTrue(any(item.semantic_signal_id == "aggregate:Producer.bus" for item in artifact.bindings))
 
     def test_canonical_reverse_scalar_member_rejects_a_second_binding(self):

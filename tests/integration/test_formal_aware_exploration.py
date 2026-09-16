@@ -29,17 +29,17 @@ def space(names):
 
 
 def _bound_property(candidate):
-    return f"m36.test.{candidate.implementation_identity}"
+    return f"semantic_equivalence.test.{candidate.implementation_identity}"
 
 
-def _m39_result_entries(directory):
-    return tuple((Path(directory) / "M39" / "results").glob("*.json"))
+def _formal_selection_result_entries(directory):
+    return tuple((Path(directory) / "formal-aware-selection" / "results").glob("*.json"))
 
 
 class BoundVerifier:
     """Explicit identity-bound seam for non-tool orchestration tests."""
 
-    formal_route = "M36_direct_systemverilog"
+    formal_route = "semantic_equivalence_direct_systemverilog"
 
     def __init__(self, callback):
         self.callback = callback
@@ -90,7 +90,7 @@ def bound(callback):
     return BoundVerifier(callback)
 
 
-class M39FormalExplorationTests(unittest.TestCase):
+class FormalAwareExplorationTests(unittest.TestCase):
 
     def test_off_does_not_execute_and_preserves_rank(self):
         candidates, evaluations = space(("cheap", "expensive"))
@@ -150,7 +150,7 @@ class M39FormalExplorationTests(unittest.TestCase):
         identity = bound(lambda *_: {}).cache_identity
 
         class MissingCounterexample:
-            formal_route = "M36_direct_systemverilog"
+            formal_route = "semantic_equivalence_direct_systemverilog"
             cache_identity = staticmethod(identity)
 
             def __call__(self, candidate, config):
@@ -444,7 +444,7 @@ class M39FormalExplorationTests(unittest.TestCase):
                 [item.cache_state for item in cached.records],
                 ["hit", "hit"],
             )
-            self.assertEqual(len(_m39_result_entries(directory)), 2)
+            self.assertEqual(len(_formal_selection_result_entries(directory)), 2)
 
     def test_required_proven_staging_is_shared_by_implement_regions(self):
         cases = (
@@ -540,7 +540,7 @@ class M39FormalExplorationTests(unittest.TestCase):
                 "mode": ProofMode.BMC,
             })
             gate_candidates(candidates, evaluations, config, verifier)
-            canonical = next(iter(_m39_result_entries(root)))
+            canonical = next(iter(_formal_selection_result_entries(root)))
             legacy = root / canonical.name
             canonical.replace(legacy)
             legacy_payload = json.loads(legacy.read_text(encoding="utf-8"))
@@ -657,7 +657,7 @@ class M39FormalExplorationTests(unittest.TestCase):
                 "mode": ProofMode.BMC,
             })
             gate_candidates(candidates, evaluations, config, verifier)
-            cache_path = next(iter(_m39_result_entries(directory)))
+            cache_path = next(iter(_formal_selection_result_entries(directory)))
             cache_path.write_text("{not-json", encoding="utf-8")
             repaired = gate_candidates(candidates, evaluations, config, verifier)
             self.assertEqual(len(calls), 2)
@@ -697,7 +697,7 @@ class M39FormalExplorationTests(unittest.TestCase):
                     "mode": ProofMode.BMC,
                 }),
             )
-            cache_path = next(iter(_m39_result_entries(directory)))
+            cache_path = next(iter(_formal_selection_result_entries(directory)))
             payload = json.loads(cache_path.read_text(encoding="utf-8"))
             payload["result"]["status"] = FormalStatus.BOUNDED_PASS.value
             payload["result_hash"] = stable_digest(payload["result"])
@@ -761,7 +761,7 @@ class M39FormalExplorationTests(unittest.TestCase):
 
             verifier = Verifier()
             gate_candidates(candidates, evaluations, config, verifier)
-            cache_path = next(iter(_m39_result_entries(directory)))
+            cache_path = next(iter(_formal_selection_result_entries(directory)))
             payload = json.loads(cache_path.read_text(encoding="utf-8"))
             payload["result"]["artifact_hash"] = "0" * 64
             cache_path.write_text(json.dumps(payload), encoding="utf-8")
@@ -810,6 +810,36 @@ class M39FormalExplorationTests(unittest.TestCase):
             self.assertEqual(len(results), 2)
             self.assertTrue(all(result.eligible for result in results))
             self.assertEqual(cached.records[0].cache_state, "hit")
+
+    def test_one_config_freezes_tool_versions_across_cache_lookup(self):
+        candidates, evaluations = space(("candidate",))
+        with tempfile.TemporaryDirectory() as directory:
+            config = FormalExplorationConfig(
+                FormalPolicy.REQUIRED_BMC,
+                cache_directory=Path(directory),
+            )
+            calls = []
+            verifier = bound(lambda candidate, cfg: calls.append(candidate) or {
+                "status": FormalStatus.BOUNDED_PASS,
+                "mode": ProofMode.BMC,
+            })
+            with patch(
+                "zlang.formal_exploration.tool_versions",
+                side_effect=(
+                    (("sby", "old"), ("z3", "old")),
+                    (("sby", "new"), ("z3", "new")),
+                ),
+            ) as versions:
+                first = gate_candidates(
+                    candidates, evaluations, config, verifier
+                )
+                cached = gate_candidates(
+                    candidates, evaluations, config, verifier
+                )
+            self.assertEqual(first.records[0].cache_state, "executed")
+            self.assertEqual(cached.records[0].cache_state, "hit")
+            self.assertEqual(len(calls), 1)
+            versions.assert_called_once()
 
     def test_deterministic_order_budget_and_unsupported_route(self):
         candidates, evaluations = space(("a", "b", "c"))
@@ -863,7 +893,7 @@ class M39FormalExplorationTests(unittest.TestCase):
                                 formal_verifier=bound(verify_selected))
         exploration = result.exploration_results[0]
         self.assertGreaterEqual(len(exploration.generated_candidates), 4)
-        # ``implement`` owns one unified M39 site.  Planner pipeline metadata
+        # ``implement`` owns one unified formal-aware selection site.  Planner pipeline metadata
         # is mirrored from that proof and must not trigger a second route.
         self.assertEqual(len(calls), 1)
         self.assertEqual(exploration.formal_records[0].cache_state, "executed")

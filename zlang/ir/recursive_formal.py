@@ -1,4 +1,4 @@
-"""Backend-neutral recursive M35 formal design.
+"""Backend-neutral recursive safety verification formal design.
 
 This module deliberately stops at the semantic/elaborated boundary.  It does
 does not inspect backend names or construct a hierarchical RTL path. Backends attach
@@ -639,7 +639,7 @@ def _semantic_signedness(module: Module, design: FormalDesign) -> dict[str, str]
 
 
 def build_recursive_formal_design(module: Module, *, selected_ir_identity: str | None = None) -> RecursiveFormalDesign:
-    """Instantiate M35 properties and semantic bindings for every physical instance."""
+    """Instantiate safety verification properties and semantic bindings for every physical instance."""
     selected = selected_ir_identity or default_selected_ir_identity(module)
     root_identity = _digest({"root": module.name, "source": _module_source_key(module)})
     components: list[ComponentContract] = []

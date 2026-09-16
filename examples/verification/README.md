@@ -205,4 +205,4 @@ Recorded 2026-09-08 with Yosys/SBY 0.68 and Z3 4.8.12. The tests require actual
 solver execution and check status, assumption scope, retained traces and replay;
 they do not accept tool absence as success. See
 [the formal guide](../../docs/optimization-formal.md) for reset assumptions,
-backend routing, M36/M38/M39 and current applicability boundaries.
+backend routing, semantic-reference equivalence/retired cross-backend equivalence/formal-aware selection and current applicability boundaries.

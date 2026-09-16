@@ -245,7 +245,7 @@ def test_priority_fire_mutation_has_source_attributed_counterexample() -> None:
     harness = emit_harness(focused, depth=4)
     passed = run_verilog_formal(
         harness,
-        top="ScheduledRules__m35_formal",
+        top="ScheduledRules__safety_verification_formal",
         property_id=priority.id,
         depth=4,
         systemverilog=True,
@@ -267,7 +267,7 @@ def test_priority_fire_mutation_has_source_attributed_counterexample() -> None:
     assert mutated != harness
     failed = run_verilog_formal(
         mutated,
-        top="ScheduledRules__m35_formal",
+        top="ScheduledRules__safety_verification_formal",
         property_id=priority.id,
         depth=4,
         systemverilog=True,

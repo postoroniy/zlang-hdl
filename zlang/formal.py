@@ -1,4 +1,4 @@
-"""M35 formal-flow orchestration.
+"""safety verification formal-flow orchestration.
 
 Property generation is separate from execution. The runner returns ``skipped``
 when no configured proof wrapper is available and never treats BMC as proof.
@@ -65,7 +65,7 @@ def build_formal_design(module: Module) -> FormalDesign:
 
 
 def connect_formal_design(design: FormalDesign, artifact: object) -> FormalDesign:
-    """Connect only reset contracts covered by the frozen M35 harness model."""
+    """Connect only reset contracts covered by the frozen safety verification harness model."""
 
     if design.non_executable_reason is not None:
         # Preserve property generation as a useful report, but deliberately do
@@ -77,7 +77,7 @@ def connect_formal_design(design: FormalDesign, artifact: object) -> FormalDesig
 
 
 def build_recursive_formal_design(module: Module, *, selected_ir_identity: str | None = None) -> RecursiveFormalDesign:
-    """Build recursive M35 properties without consulting backend signal names."""
+    """Build recursive safety verification properties without consulting backend signal names."""
     return _build_recursive_formal_design(module, selected_ir_identity=selected_ir_identity)
 
 
@@ -91,7 +91,7 @@ def emit_recursive_harness(design: RecursiveFormalDesign, *, mode: ProofMode = P
     """
     if depth < 1:
         raise FormalError("formal depth must be positive")
-    module_name = f"{design.root_instance_identity}__recursive_m35_formal"
+    module_name = f"{design.root_instance_identity}__recursive_safety_verification_formal"
     lines = ["`default_nettype none", f"module {module_name}(input wire clock, input wire reset,"]
     observations = sorted(design.bindings, key=lambda item: item.semantic_binding_id)
     ports = [f"  input wire [{item.width - 1}:0] zlang_formal_obs_{index}"
@@ -214,7 +214,7 @@ _FORMAL_TOOLCHAIN_OVERRIDE: ContextVar[FormalToolchainContext | None] = (
 def use_formal_toolchain(context: FormalToolchainContext):
     """Reuse one compiler-owned discovery snapshot through legacy runners.
 
-    M36 deliberately retains its existing public API. This scoped
+    semantic-reference equivalence deliberately retains its existing public API. This scoped
     adapter lets compiler orchestration call those APIs without causing their
     eventual :func:`run_verilog_formal` invocation to rediscover tools.
     """
@@ -233,7 +233,7 @@ def run_formal(design: FormalDesign, *, mode: ProofMode = ProofMode.BMC,
                executable: str | None = None) -> tuple[FormalResult, ...]:
     """Execute only through an explicitly configured result adapter.
 
-    M35 deliberately refuses to infer solver semantics from arbitrary command
+    safety verification deliberately refuses to infer solver semantics from arbitrary command
     output. A future backend can provide a wrapper that creates ``FormalResult``
     records while preserving property IDs and source origins.
     """
@@ -251,7 +251,7 @@ def run_formal(design: FormalDesign, *, mode: ProofMode = ProofMode.BMC,
         return tuple(FormalResult(p.id, FormalStatus.SKIPPED, mode, engine, solver, depth,
                                   source_origin=p.source_origin, tool_versions=versions,
                                   reason=reason) for p in design.properties)
-    raise FormalError("custom formal execution requires an M35 result adapter")
+    raise FormalError("custom formal execution requires an safety verification result adapter")
 
 
 def _publish_formal_auxiliary_files(
@@ -372,7 +372,7 @@ def run_verilog_formal(source: str, *, top: str, property_id: str,
     """Run a concrete backend-bound Verilog harness through SymbiYosys.
 
     This is deliberately separate from semantic property generation. It is used
-    by M35/M36 integration tests and by backend adapters that have published a
+    by safety verification/semantic-reference equivalence integration tests and by backend adapters that have published a
     complete binding map. Missing tools return ``skipped``.
     """
     context = toolchain or _FORMAL_TOOLCHAIN_OVERRIDE.get()
@@ -718,7 +718,7 @@ def emit_sby(
         )
     if not solver or any(character.isspace() for character in solver):
         raise FormalError("formal solver name must be one non-empty token")
-    top = top or f"{design.module_name}__m35_formal"
+    top = top or f"{design.module_name}__safety_verification_formal"
     source_file = source_file or f"{top}.sv"
     if not source_file or any(character in source_file for character in "\n\r"):
         raise FormalError("formal harness filename must be one non-empty line")

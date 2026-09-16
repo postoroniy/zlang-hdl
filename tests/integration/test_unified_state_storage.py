@@ -1,4 +1,4 @@
-"""Real-tool parity and M35 smoke for atomic rule-local FIFO transitions."""
+"""Real-tool parity and safety verification smoke for atomic rule-local FIFO transitions."""
 
 from __future__ import annotations
 
@@ -102,7 +102,7 @@ def test_direct_sv_atomic_transition_simulates() -> None:
 
 
 @pytest.mark.skipif(not FORMAL, reason="Yosys, SymbiYosys, and Z3 are required")
-def test_m35_combined_register_fifo_safety_executes() -> None:
+def test_safety_verification_combined_register_fifo_safety_executes() -> None:
     rtl = emit_experimental(compile_source(SOURCE).ir)
     checks = r"""
   initial assume(rst);

@@ -243,13 +243,13 @@ def test_direct_sv_is_deterministic_and_cycle_exact(tmp_path: Path) -> None:
     not all(shutil.which(tool) for tool in ("yosys", "sby", "z3")),
     reason="Yosys, SymbiYosys, and Z3 are required",
 )
-def test_existing_m35_ready_valid_stability_executes_on_direct_artifact() -> None:
+def test_existing_safety_verification_ready_valid_stability_executes_on_direct_artifact() -> None:
     compiled = compile_source(SOURCE)
     recursive = build_recursive_formal_design(compiled.ir)
     artifact = emit_formal_artifact(compiled.ir, recursive)
     connected = connect_formal_design(compiled.formal_design, artifact)
 
-    # This is the ordinary M35 ready/valid property set.  The elastic slice
+    # This is the ordinary safety verification ready/valid property set.  The elastic slice
     # adds no observation family and must not fall back to a handwritten
     # property or an unbound/non-executable report.
     assert len(connected.properties) == 2
@@ -268,8 +268,8 @@ def test_existing_m35_ready_valid_stability_executes_on_direct_artifact() -> Non
     assert "non-executable property report" not in harness
     result = run_verilog_formal(
         harness,
-        top="ElasticPipelineAuto__m35_formal",
-        property_id="m35.connected.elastic-ready-valid",
+        top="ElasticPipelineAuto__safety_verification_formal",
+        property_id="safety_verification.connected.elastic-ready-valid",
         depth=8,
         systemverilog=True,
     )

@@ -72,7 +72,7 @@ int main(int argc, char **argv) {
   };
   const Case cases[] = {
     {0xa5u, 0xfeu, 0xa5ffeu, 0xa5u},
-    {0x12u, 0x7fu, 0x1277fu, 0x48u},
+    {0x12u, 0x7fu, 0x1277fu, 0x12u},
     {0x00u, 0x80u, 0x00880u, 0x00u},
     {0xffu, 0x00u, 0xff000u, 0xffu},
   };
@@ -141,7 +141,7 @@ def test_direct_sv_packing_lints_and_is_bit_exact(tmp_path: Path) -> None:
 
 
 
-def _m36(module, implementation: str, implementation_module: str, backend: str):
+def _semantic_equivalence(module, implementation: str, implementation_module: str, backend: str):
     expression = module.assignments[0].expression
     identity = "selected:packing-value"
     input_ids = tuple(f"port:{port.name}" for port in module.inputs)
@@ -196,11 +196,11 @@ def _m36(module, implementation: str, implementation_module: str, backend: str):
     len(formal_tools_available()) != 3,
     reason="Yosys/SymbiYosys formal tools are unavailable",
 )
-def test_m36_packing_reference_is_visible_and_mutation_fails() -> None:
+def test_semantic_equivalence_packing_reference_is_visible_and_mutation_fails() -> None:
     module = compile_source(SOURCE).ir
     implementation = emit_artifact(module).text
-    property_, source = _m36(module, implementation, module.name, "direct_systemverilog")
-    top = "m36_" + property_.id.replace(".", "_")
+    property_, source = _semantic_equivalence(module, implementation, module.name, "direct_systemverilog")
+    top = "semantic_equivalence_" + property_.id.replace(".", "_")
     correct = run_equivalence_formal(
         property_, source, top=top, mode=EquivalenceMode.BMC, depth=2
     )
@@ -208,7 +208,7 @@ def test_m36_packing_reference_is_visible_and_mutation_fails() -> None:
 
     mutated = implementation.replace(">> 4", ">> 3", 1)
     assert mutated != implementation
-    _, bad_source = _m36(module, mutated, module.name, "direct_systemverilog")
+    _, bad_source = _semantic_equivalence(module, mutated, module.name, "direct_systemverilog")
     failed = run_equivalence_formal(
         property_, bad_source, top=top, mode=EquivalenceMode.BMC, depth=2
     )
@@ -220,17 +220,17 @@ def test_m36_packing_reference_is_visible_and_mutation_fails() -> None:
     len(formal_tools_available()) != 3,
     reason="Yosys/SymbiYosys formal tools are unavailable",
 )
-def test_m36_negative_signed_literal_passes_and_mutation_fails() -> None:
+def test_semantic_equivalence_negative_signed_literal_passes_and_mutation_fails() -> None:
     module = compile_source(SIGNED_LITERAL_SOURCE).ir
     implementation = emit_artifact(module).text
     assert "-8'sd1" in implementation
-    property_, source = _m36(
+    property_, source = _semantic_equivalence(
         module,
         implementation,
         module.name,
         "direct_systemverilog",
     )
-    top = "m36_" + property_.id.replace(".", "_")
+    top = "semantic_equivalence_" + property_.id.replace(".", "_")
     correct = run_equivalence_formal(
         property_, source, top=top, mode=EquivalenceMode.BMC, depth=2
     )
@@ -238,7 +238,7 @@ def test_m36_negative_signed_literal_passes_and_mutation_fails() -> None:
 
     mutated = implementation.replace("-8'sd1", "8'sd0", 1)
     assert mutated != implementation
-    _, bad_source = _m36(
+    _, bad_source = _semantic_equivalence(
         module,
         mutated,
         module.name,

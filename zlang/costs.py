@@ -155,7 +155,7 @@ def extract_best_eclass(
     constraints: Iterable[UnifiedConstraint | expr.CostConstraint] = (),
     source_policy: SourcePolicy | str = SourcePolicy.ESTIMATE_ONLY,
 ) -> ExtractionResult:
-    """Apply M28 extraction to an M26/M27 ``SaturationResult`` e-class."""
+    """Apply deterministic cost selection extraction to an e-graph optimization/guarded exact rewrite ``SaturationResult`` e-class."""
     eclass = saturation_result.equivalence_class
     return extract_best(
         eclass.terms,
@@ -167,7 +167,7 @@ def extract_best_eclass(
 
 
 def candidate_cost_from_alternative(alternative: expr.ImplementationAlternative) -> CandidateCost:
-    """Adapt the existing M20 estimate object to the unified M28 vector."""
+    """Adapt the existing cost extraction estimate object to the unified deterministic cost selection vector."""
     estimate = estimate_cost(alternative)
     structural = estimate.lut + estimate.ff + estimate.dsp + estimate.bram + 1
     return CandidateCost.estimate(
@@ -299,7 +299,7 @@ class CostExtractionResult:
 def estimate_cost(
     alternative: expr.ImplementationAlternative,
 ) -> expr.ImplementationCostEstimate:
-    """Apply the documented target-independent Milestone 20 cost model."""
+    """Apply the documented target-independent structural cost model."""
 
     applicability = alternative.applicability
     semantics = alternative.semantics
@@ -371,8 +371,8 @@ def extract_estimated_costs(module: Module) -> CostExtractionResult:
                 f"no legal implementation for output '{assignment.target.name}' "
                 f"under {COST_MODEL} estimated costs: {failures}"
             )
-        # M34 compatibility normalization: legacy choice(auto) retains its
-        # syntax and report objects, but selection uses the same M28 policy as
+        # bounded exploration compatibility normalization: legacy choice(auto) retains its
+        # syntax and report objects, but selection uses the same deterministic cost selection policy as
         # every other candidate producer.
         legal_alternatives = tuple(
             alternative

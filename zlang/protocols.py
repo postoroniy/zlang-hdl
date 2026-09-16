@@ -1,4 +1,4 @@
-"""M33 protocol observational-equivalence and finite trace safety models."""
+"""protocol equivalence protocol observational-equivalence and finite trace safety models."""
 
 from __future__ import annotations
 

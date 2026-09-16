@@ -1,8 +1,8 @@
 # FFT512 streaming validation
 
-> **Historical evidence:** Clash and M38 references below document earlier
+> **Historical evidence:** Clash and retired cross-backend equivalence references below document earlier
 > accepted comparisons. Current FFT compilation, validation, and release
-> acceptance use direct SystemVerilog and compiler-owned semantic/M36 evidence.
+> acceptance use direct SystemVerilog and compiler-owned semantic/semantic-reference equivalence evidence.
 
 ## Scope and current result
 
@@ -99,14 +99,14 @@ forms close it:
 
 | Component | Configuration | Latency | DSP A/B/D/M/P | WNS (ns) | Fmax (MHz) | Route (s) |
 | --- | --- | ---: | --- | ---: | ---: | ---: |
-| real | unregistered | 1 | 0/0/0/0/0 | -2.495 | 80.032 | 109.641 |
-| real | multiply_registered | 2 | 0/0/0/1/0 | +0.529 | 105.585 | 84.263 |
-| real | multiply_output_registered | 3 | 0/0/0/1/1 terminal | +0.709 | 107.631 | 75.666 |
-| real | fully_pipelined | 4 | 1/1/1/1/1 terminal | +0.709 | 107.631 | 76.359 |
-| imag | unregistered | 1 | 0/0/0/0/0 | -1.640 | 85.911 | 98.854 |
-| imag | multiply_registered | 2 | 0/0/0/1/0 | +0.529 | 105.585 | 79.456 |
-| imag | multiply_output_registered | 3 | 0/0/0/1/1 terminal | +0.709 | 107.631 | 76.108 |
-| imag | fully_pipelined | 4 | 1/1/1/1/1 terminal | +0.709 | 107.631 | 76.244 |
+| real | unregistered | 1 | 0/0/0/0/0 | -2.629 | 79.183 | 77.233 |
+| real | multiply_registered | 2 | 0/0/0/1/0 | +0.529 | 105.585 | 52.013 |
+| real | multiply_output_registered | 3 | 0/0/0/1/1 terminal | +0.580 | 106.157 | 50.878 |
+| real | fully_pipelined | 4 | 1/1/1/1/1 terminal | +0.580 | 106.157 | 50.985 |
+| imag | unregistered | 1 | 0/0/0/0/0 | -1.960 | 83.612 | 75.249 |
+| imag | multiply_registered | 2 | 0/0/0/1/0 | +0.529 | 105.585 | 52.879 |
+| imag | multiply_output_registered | 3 | 0/0/0/1/1 terminal | +0.580 | 106.157 | 50.461 |
+| imag | fully_pipelined | 4 | 1/1/1/1/1 terminal | +0.580 | 106.157 | 50.083 |
 
 The machine-readable routed evidence is kept in
 `zlang/data/xc7z030_signed_product_qor.json`; the reproducible runner is
@@ -117,10 +117,13 @@ unregistered candidates and deterministically selects the latency-2
 `multiply_registered` candidate for the 100 MHz constraint. Structural
 estimates never masquerade as routed proof.
 
+These rows were regenerated from the current LSB-first packing implementation;
+no measurement was copied or re-keyed from the previous physical ABI.
+
 ## Cardinal twiddles
 
 The canonical probe for `(1,0)` correctly inlines the constant `Complex` value,
-but retains four fixed multiplications. This is consistent with the current M26
+but retains four fixed multiplications. This is consistent with the current e-graph optimization
 freeze: arithmetic identities and fixed-point strength reduction were explicitly
 excluded. Consequently there is presently no existing legal optimization that
 can promise zero DSPs for `1`, `-1`, `j`, or `-j`. No new rewrite was added in
@@ -245,7 +248,7 @@ module containing existing FIFO/memory resources together with existing
 registers/rules: define same-edge read visibility, atomic control/state update,
 reset ordering, conflict diagnostics, and backend-independent transition
 ordering, then implement it consistently in simulator, Clash, direct-SV, and
-existing M35 observations. It must not add FFT-specific storage, BRAM/SRL
+existing safety verification observations. It must not add FFT-specific storage, BRAM/SRL
 selection, or new protocol rules. Runtime indexing and FIFO suitability for the
 actual SDF feedback algorithm remain untested beyond this blocker.
 
@@ -258,7 +261,7 @@ during the review.
 
 No latency, II, conservation, stall, reset, or RTL result is claimed for a
 complete SDF stage. Parameterized FIFO fixtures at depths 2 and 8 do generate
-concrete Clash/direct-SV and simulate in Verilator, and existing M35 FIFO bounds
+concrete Clash/direct-SV and simulate in Verilator, and existing safety verification FIFO bounds
 use the resolved depth. The functional butterfly and signed-reduction results
 remain unchanged. No nine-stage FFT, cardinal twiddle rewrite, automatic
 storage selection, or physical signed-DSP emission was started.
@@ -278,7 +281,7 @@ acceptance fixture is `examples/fft_sdf_stage_atomic_transition.zhl`. It has a
 parameterized delay FIFO, phase state, output holding state, ready/valid stall
 gating, and one pop/push/register transition. Python simulation and both RTL
 backends agree on directed fill, stall, full replacement, drain, and reset
-sequences. The real M35 solver smoke checks the combined FIFO count/legality and
+sequences. The real safety verification solver smoke checks the combined FIFO count/legality and
 register reset properties without adding a formal family.
 
 This acceptance fixture intentionally uses a scalar payload and does not claim
@@ -332,7 +335,7 @@ concrete `N=8`, `D=4`, and `K=3` bindings.
 The former `unknown input 'D'` diagnostic is gone. Direct-SV/Verilator and real
 Clash generation consume only concrete constants. Parameterized and equivalent
 literal expressions have the same concrete expression semantic identity, which
-is the existing M36/M38 comparison boundary. Invalid unresolved parameters,
+is the existing semantic-reference equivalence/retired cross-backend equivalence comparison boundary. Invalid unresolved parameters,
 runtime specialization values, contextual overflow, negative shift amounts,
 division by zero, and non-exact compile-time division remain explicit errors.
 
@@ -380,7 +383,7 @@ regression fixture.
 Specialization checks cover future stage delays `256, 128, 64, 32, 16, 8, 4,
 2`, with the corresponding concrete counter/index widths; the degenerate
 `D=1` lookup is a static index. Canonical round-trip, simulator, direct-SV,
-real Clash, Verilator, M36 semantic-reference proof, and M38 raw-bit smoke agree
+real Clash, Verilator, semantic-reference equivalence semantic-reference proof, and retired cross-backend equivalence raw-bit smoke agree
 on the packed-vector selection order.
 
 This slice deliberately stops after closing the generic expression capability.
@@ -439,7 +442,7 @@ under the current frozen semantics.
 
 The same source specializes semantically at `D=8` (with the corresponding
 counter/index widths); the FIFO and initialized twiddle-ROM shapes are concrete without
-duplicating the module. Existing M35 property construction can produce its
+duplicating the module. Existing safety verification property construction can produce its
 ordinary register, FIFO, ready/valid, and rule safety property set for the
 stage. Those properties remain unbound to a backend observation harness for
 this standalone internal stage, so any existing runner result is explicitly
@@ -450,9 +453,9 @@ the current pipeline planner operates on pure/selected value regions, while
 this stage's latency is defined by its explicit output holding and FIFO
 transition. No new planner semantics, cardinal-twiddle strength reduction,
 physical DSP binding, memory inference, or formal observation family was
-introduced. Existing M35/M36/M38 properties remain the applicable checks, with
+introduced. Existing safety verification/semantic-reference equivalence/retired cross-backend equivalence properties remain the applicable checks, with
 property construction and backend-bound proof execution reported separately.
-No M36/M38 relation was asserted for this standalone stateful stage; those
+No semantic-reference equivalence/retired cross-backend equivalence relation was asserted for this standalone stateful stage; those
 existing slices remain unchanged and the repository regression continues to
 exercise their real-solver coverage.
 
@@ -492,7 +495,7 @@ cross-backend oracle test in
 - future FFT delay/index specialization matrix for `D=256..1`;
 - canonical range/source-origin round-trip and local identity independence;
 - direct-SV and real Clash runtime-select Verilator simulation;
-- real M36 runtime-select versus explicit-switch proof and M38 raw-bit smoke;
+- real semantic-reference equivalence runtime-select versus explicit-switch proof and retired cross-backend equivalence raw-bit smoke;
 - generic alias canonicalization and exact mixed fixed-point inference;
 - semantic and canonical IR round-trip for the functional butterfly;
 - bit-exact cardinal butterfly simulation;
@@ -501,10 +504,10 @@ cross-backend oracle test in
 - acceptance regression for the former minimal pipeline failure;
 - signed real/imag descriptor, identity and timing-DAG tests;
 - generic direct-SV and Clash Verilator simulation;
-- real M36 correct and mutated add/sub proofs;
+- real semantic-reference equivalence correct and mutated add/sub proofs;
 - explicit physical-emission fail-closed diagnostics;
 - inspection of the canonical cardinal-twiddle graph;
-- existing target-planner, M36 and M38 regressions through the repository suite;
+- existing target-planner, semantic-reference equivalence and retired cross-backend equivalence regressions through the repository suite;
 - explicit `FFTSDFStageNumericD4` hierarchy elaboration and both-backend
   Verilator simulation against the exact oracle.
 
@@ -525,7 +528,7 @@ conversion is duplicated in the state transition itself. The FIFO push is
 checked through the resolved `StateAction` representation, where it retains the
 `high_diff` aggregate reference.
 
-The existing M35 generator was exercised for this stateful stage. It produces
+The existing safety verification generator was exercised for this stateful stage. It produces
 the register, FIFO, ready/valid, and rule safety families, but this standalone
 internal stage has no backend observation harness. Every result is therefore
 reported as an explicit `skipped` with a diagnostic; no proof is claimed and no

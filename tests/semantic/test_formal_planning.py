@@ -50,7 +50,7 @@ def _artifact(
 def _safety_goal() -> FormalGoalPlan:
     return FormalGoalPlan(
         goal_identity="goal:count-within",
-        property_identity="m35.register.count.bounds",
+        property_identity="safety_verification.register.count.bounds",
         kind=FormalPlanGoalKind.SAFETY,
         clock_domain="clk",
         reset_domain="rst",
@@ -67,12 +67,12 @@ def _safety_goal() -> FormalGoalPlan:
     )
 
 
-def _m36_goal() -> FormalGoalPlan:
+def _semantic_equivalence_goal() -> FormalGoalPlan:
     window = ComparisonWindow.reset_fill(3)
     return FormalGoalPlan(
         goal_identity="goal:selected-candidate",
-        property_identity="m36.equiv.pipeline.example",
-        kind=FormalPlanGoalKind.M36_EQUIVALENCE,
+        property_identity="semantic_equivalence.equiv.pipeline.example",
+        kind=FormalPlanGoalKind.SEMANTIC_EQUIVALENCE,
         clock_domain="clk",
         reset_domain="rst",
         assumption_ids=(),
@@ -93,12 +93,12 @@ def test_execution_plan_round_trips_deterministically() -> None:
     plan = FormalExecutionPlan(
         "selected:counter",
         "verification:counter",
-        (_safety_goal(), _m36_goal()),
+        (_safety_goal(), _semantic_equivalence_goal()),
     )
     reversed_plan = FormalExecutionPlan(
         "selected:counter",
         "verification:counter",
-        (_m36_goal(), _safety_goal()),
+        (_semantic_equivalence_goal(), _safety_goal()),
     )
 
     assert plan == reversed_plan
@@ -122,14 +122,14 @@ def test_execution_plan_derives_deterministic_applicability_summary() -> None:
     plan = FormalExecutionPlan(
         "selected:counter",
         "verification:counter",
-        (_m36_goal(), skipped),
+        (_semantic_equivalence_goal(), skipped),
     )
 
     assert plan.applicability_summary() == {
         "total": 2,
         "executable": 1,
         "skipped": 1,
-        "goal_kinds": {"m36_equivalence": 1, "safety": 1},
+        "goal_kinds": {"semantic_equivalence": 1, "safety": 1},
         "routes": {"semantic_equivalence": 1},
         "backends": {"direct_systemverilog": 1},
         "skip_reasons": {"observation_unavailable": 1},
@@ -267,14 +267,14 @@ def test_strict_codec_rejects_corruption() -> None:
 
 def test_execution_plan_rejects_duplicate_goal_but_allows_shared_property() -> None:
     first = _safety_goal()
-    duplicate_goal = replace(_m36_goal(), goal_identity=first.goal_identity)
+    duplicate_goal = replace(_semantic_equivalence_goal(), goal_identity=first.goal_identity)
     with pytest.raises(FormalPlanningError, match="goal identities"):
         FormalExecutionPlan("selected:counter", "verification:x", (first, duplicate_goal))
 
     # One typed property may legitimately have separately routed execution
-    # goals (for example, bounded and proof-oriented direct-SV M36 jobs).
+    # goals (for example, bounded and proof-oriented direct-SV semantic-reference equivalence jobs).
     shared_property = replace(
-        _m36_goal(), property_identity=first.property_identity
+        _semantic_equivalence_goal(), property_identity=first.property_identity
     )
     plan = FormalExecutionPlan(
         "selected:counter", "verification:x", (first, shared_property)

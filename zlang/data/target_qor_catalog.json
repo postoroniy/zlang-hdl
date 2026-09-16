@@ -1,13 +1,13 @@
 {
-  "schema": "zlang-target-qor-catalog-v1",
+  "schema": "zlang-target-qor-catalog-v2",
   "entries": [
     {
       "path": "xc7z030_dsp_pipeline_qor.json",
-      "sha256": "4fefb64a5f26eaf424866844d5e87b8c8224c7067bc6ef6e560bb3b1ea2e4594"
+      "sha256": "51aba647b6c932c60a6177d89430e7183bc2eecda08c87ecd72a58bc0f7457d7"
     },
     {
       "path": "xc7z030_signed_product_qor.json",
-      "sha256": "5ee82947d83ea73343f2ca0d36593cbab75f299b071c380b8662a48de0978026"
+      "sha256": "1403c634cd76fc4f8185940aa4996aaa6dc0fffdcb30a43130b72452586d12e0"
     }
   ]
 }

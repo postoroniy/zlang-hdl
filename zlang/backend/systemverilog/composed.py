@@ -8,6 +8,7 @@ emitters authoritative without introducing an emitter import cycle.
 
 from __future__ import annotations
 
+from contextlib import AbstractContextManager
 from dataclasses import dataclass, replace
 from typing import Callable
 
@@ -65,6 +66,7 @@ class SVPhysicalSyntax:
 
     error: Callable[[str], Exception]
     identifier: Callable[[str], str]
+    component_identifier: Callable[[str], str]
     instance_identifier: Callable[[str], str]
     packed_width: Callable[[HardwareType], int]
     packed_range: Callable[[int], str]
@@ -100,6 +102,7 @@ class ComposedLeafServices:
     ordered_rules: Callable[[Module], tuple[Rule, ...]]
     assignment_name: Callable[[Assignment], str]
     emit_external: Callable[[Module, str], str]
+    suspend_top_boundary: Callable[[], AbstractContextManager[None]]
 
 
 @dataclass(frozen=True)
@@ -187,7 +190,8 @@ def emit_composed_design(module: Module, rendering: ComposedRendering) -> str:
             child_names[elaborated.instance.name] = child_name
             key = (child_name, elaborated.specialization_identity or "")
             if key not in emitted:
-                visit(child, child_name)
+                with services.suspend_top_boundary():
+                    visit(child, child_name)
                 emitted[key] = child_name
         closed_state_component = (
             emitted_current.resolved_transition is not None
@@ -305,22 +309,29 @@ def emit_composed_design(module: Module, rendering: ComposedRendering) -> str:
 
 
 def _endpoint_base(
+    module: Module,
     endpoint: ProtocolEndpoint,
     rendering: ComposedRendering,
 ) -> str:
-    base = rendering.physical.identifier(endpoint.name)
+    identifier = (
+        rendering.physical.identifier
+        if endpoint.owner == module.name
+        else rendering.physical.component_identifier
+    )
+    base = identifier(endpoint.name)
     if endpoint.channel is not None:
         base += f"_{endpoint.channel.value}"
     return base
 
 
 def _connection_key(
+    module: Module,
     owner: str,
     endpoint: ProtocolEndpoint,
     signal: str,
     rendering: ComposedRendering,
 ) -> tuple[str, str, str]:
-    return (owner, _endpoint_base(endpoint, rendering), signal)
+    return (owner, _endpoint_base(module, endpoint, rendering), signal)
 
 
 def _external_protocol_signal(
@@ -405,11 +416,12 @@ def composed_component_identifier_claims(
                 claim(f"zlang_conn_{index}", f"scalar hierarchy connection {index}")
             connection_keys.add(
                 _connection_key(
-                    connection.source.owner, connection.source, "wire", rendering
+                    module, connection.source.owner, connection.source, "wire", rendering
                 )
             )
             connection_keys.add(
                 _connection_key(
+                    module,
                     connection.destination.owner,
                     connection.destination,
                     "wire",
@@ -452,6 +464,7 @@ def composed_component_identifier_claims(
             for signal in ("payload", "valid", "ready"):
                 connection_keys.add(
                     _connection_key(
+                        module,
                         connection.source.owner,
                         connection.source,
                         signal,
@@ -460,6 +473,7 @@ def composed_component_identifier_claims(
                 )
                 connection_keys.add(
                     _connection_key(
+                        module,
                         connection.destination.owner,
                         connection.destination,
                         signal,
@@ -493,6 +507,7 @@ def composed_component_identifier_claims(
         for signal in ("payload", "valid", "ready"):
             connection_keys.add(
                 _connection_key(
+                    module,
                     connection.source.owner,
                     connection.source,
                     signal,
@@ -501,6 +516,7 @@ def composed_component_identifier_claims(
             )
             connection_keys.add(
                 _connection_key(
+                    module,
                     connection.destination.owner,
                     connection.destination,
                     signal,
@@ -527,14 +543,19 @@ def composed_component_identifier_claims(
         for member in top.members:
             if member.protocol is InterfaceProtocol.WIRE:
                 connection_keys.add(
-                    (child_owner, f"{identifier(child.name)}__{identifier(member.name)}", "wire")
+                    (
+                        child_owner,
+                        f"{physical.component_identifier(child.name)}__"
+                        f"{physical.component_identifier(member.name)}",
+                        "wire",
+                    )
                 )
 
     for index, elaborated in enumerate(module.elaborated_instances):
         child = module.children[index]
         owner = elaborated.instance.name
         for port in child.ports:
-            port_name = identifier(port.name)
+            port_name = physical.component_identifier(port.name)
             if (
                 port.protocol is InterfaceProtocol.WIRE
                 and port.direction is PortDirection.OUTPUT
@@ -764,11 +785,12 @@ def _emit_composed_component(
                 declarations.append(f"  logic {packed_range(width)}{shared};")
             connection_signals[
                 _connection_key(
-                    connection.source.owner, connection.source, "wire", rendering
+                    module, connection.source.owner, connection.source, "wire", rendering
                 )
             ] = shared
             connection_signals[
                 _connection_key(
+                    module,
                     connection.destination.owner,
                     connection.destination,
                     "wire",
@@ -823,11 +845,12 @@ def _emit_composed_component(
             for signal in ("payload", "valid", "ready"):
                 connection_signals[
                     _connection_key(
-                        connection.source.owner, connection.source, signal, rendering
+                        module, connection.source.owner, connection.source, signal, rendering
                     )
                 ] = f"{up}_{signal}"
                 connection_signals[
                     _connection_key(
+                        module,
                         connection.destination.owner,
                         connection.destination,
                         signal,
@@ -899,6 +922,7 @@ def _emit_composed_component(
                     )
                     connection_signals[
                         _connection_key(
+                            module,
                             connection.source.owner,
                             connection.source,
                             signal,
@@ -907,6 +931,7 @@ def _emit_composed_component(
                     ] = value
                     connection_signals[
                         _connection_key(
+                            module,
                             connection.destination.owner,
                             connection.destination,
                             signal,
@@ -945,6 +970,7 @@ def _emit_composed_component(
                 for signal in ("payload", "valid"):
                     connection_signals[
                         _connection_key(
+                            module,
                             connection.source.owner,
                             connection.source,
                             signal,
@@ -953,6 +979,7 @@ def _emit_composed_component(
                     ] = f"{src}_{signal}"
                     connection_signals[
                         _connection_key(
+                            module,
                             connection.destination.owner,
                             connection.destination,
                             signal,
@@ -961,6 +988,7 @@ def _emit_composed_component(
                     ] = f"{dst}_{signal}"
                 connection_signals[
                     _connection_key(
+                        module,
                         connection.source.owner,
                         connection.source,
                         "ready",
@@ -969,6 +997,7 @@ def _emit_composed_component(
                 ] = f"{src}_ready"
                 connection_signals[
                     _connection_key(
+                        module,
                         connection.destination.owner,
                         connection.destination,
                         "ready",
@@ -1033,8 +1062,11 @@ def _emit_composed_component(
             if item.name == child_name
         )
         for member in top.members:
-            top_port = f"{identifier(top_name)}__{identifier(member.name)}"
-            child_port = f"{identifier(child_name)}__{identifier(member.name)}"
+            top_port = identifier(f"{top_name}__{member.name}")
+            child_port = (
+                f"{physical.component_identifier(child_name)}__"
+                f"{physical.component_identifier(member.name)}"
+            )
             if member.protocol is InterfaceProtocol.WIRE:
                 connection_signals[(child_owner, child_port, "wire")] = top_port
             else:
@@ -1071,11 +1103,11 @@ def _emit_composed_component(
                     f"sequential child '{owner}' has no exact parent clock/reset contract"
                 )
             connections.append(
-                f".{identifier(child_domain.clock)}"
+                f".{physical.component_identifier(child_domain.clock)}"
                 f"({identifier(parent_domain.clock)})"
             )
             connections.append(
-                f".{identifier(child_domain.reset)}"
+                f".{physical.component_identifier(child_domain.reset)}"
                 f"({effective_reset_signal(module, identifier, parent_domain.clock)})"
             )
         elif child.clock_domains:
@@ -1088,15 +1120,15 @@ def _emit_composed_component(
                         "has no exact parent clock/reset contract"
                     )
                 connections.append(
-                    f".{identifier(child_domain.clock)}"
+                    f".{physical.component_identifier(child_domain.clock)}"
                     f"({identifier(parent_domain.clock)})"
                 )
                 connections.append(
-                    f".{identifier(child_domain.reset)}"
+                    f".{physical.component_identifier(child_domain.reset)}"
                     f"({effective_reset_signal(module, identifier, parent_domain.clock)})"
                 )
         for port in child.ports:
-            port_name = identifier(port.name)
+            port_name = physical.component_identifier(port.name)
             if port.protocol is InterfaceProtocol.WIRE:
                 delegated = connection_signals.get((owner, port_name, "wire"))
                 if delegated is not None:
@@ -1130,7 +1162,7 @@ def _emit_composed_component(
                     )
                 connections.append(f".{port_name}_{signal_name}({signal})")
         for interface in child.request_responses:
-            base = identifier(interface.name)
+            base = physical.component_identifier(interface.name)
             for channel in (
                 RequestResponseChannel.REQUEST,
                 RequestResponseChannel.RESPONSE,

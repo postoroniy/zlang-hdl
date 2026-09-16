@@ -1,9 +1,9 @@
 """Backend-independent source verification overlay.
 
 The historical :class:`Contract` records remain the compatibility surface for
-M16 ``assume``/``guarantee`` declarations.  The first-class verification UX is
+typed optimization ``assume``/``guarantee`` declarations.  The first-class verification UX is
 kept in a distinct overlay so adding a source goal cannot change production
-hardware or the existing M36/M39 identities.
+hardware or the existing semantic-reference equivalence/formal-aware selection identities.
 """
 
 from __future__ import annotations

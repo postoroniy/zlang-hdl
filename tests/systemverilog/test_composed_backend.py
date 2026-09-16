@@ -21,9 +21,9 @@ class ComposedDirectSystemVerilogTests(unittest.TestCase):
 
     def test_real_design_hierarchy_lints(self) -> None:
         cases = (
-            ("hierarchical_protocol_m40.zhl", "ProtocolTop"),
-            ("hierarchical_request_response_m40.zhl", "HierarchicalRequestResponse"),
-            ("simple_dma_m40.zhl", "SimpleDMA"),
+            ("hierarchical_protocol.zhl", "ProtocolTop"),
+            ("hierarchical_request_response.zhl", "HierarchicalRequestResponse"),
+            ("simple_dma.zhl", "SimpleDMA"),
             ("axi_csr_top.zhl", "AxiCsrTop"),
             ("apb_csr_top.zhl", "ApbCsrTop"),
         )
@@ -71,7 +71,7 @@ class ComposedDirectSystemVerilogTests(unittest.TestCase):
 
     def test_recursive_manifest_uses_published_hierarchical_locators(self) -> None:
         module = compile_source(
-            (ROOT / "examples/simple_dma_m40.zhl").read_text(), top="SimpleDMA"
+            (ROOT / "examples/simple_dma.zhl").read_text(), top="SimpleDMA"
         ).ir
         design = build_recursive_formal_design(module)
         artifact = emit_artifact(module, recursive_design=design)
@@ -115,12 +115,18 @@ class ComposedDirectSystemVerilogTests(unittest.TestCase):
             run = subprocess.run((str(executable),), capture_output=True, text=True)
             self.assertEqual(run.returncode, 0, run.stderr or run.stdout)
 
-    def _simulate_systemverilog(self, source: str, top: str, testbench: str) -> None:
+    def _simulate_systemverilog(
+        self, source: str, top: str, testbench: str,
+        *, source_override: str | None = None,
+    ) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             rtl = root / f"{top}.sv"
             bench = root / "tb.sv"
-            rtl.write_text(self.emit(source, top))
+            rtl.write_text(
+                self.emit(source, top) if source_override is None
+                else emit_experimental(compile_source(source_override, top=top).ir)
+            )
             bench.write_text(testbench)
             obj = root / "obj"
             environment = os.environ.copy()
@@ -182,6 +188,90 @@ module tb;
   end
 endmodule
 """,
+        )
+
+    def test_registered_async_fifo_prefetch_sustains_one_beat_per_read_edge(self) -> None:
+        self._simulate_systemverilog(
+            "cdc_async_fifo.zhl", "CdcAsyncFifo", r"""
+module tb;
+  logic source_clock=0,source_reset=1,destination_clock=0,destination_reset=1;
+  logic [7:0] source_payload=0,destination_payload;
+  logic source_valid=0,source_ready,destination_valid,destination_ready=0;
+  CdcAsyncFifo dut(.*);
+  task source_tick; begin #1 source_clock=1; #1 source_clock=0; end endtask
+  task destination_tick; begin #1 destination_clock=1; #1 destination_clock=0; end endtask
+  initial begin
+    source_tick; destination_tick;
+    source_reset=0; destination_reset=0;
+    for (int i=1; i<=4; i++) begin
+      #1; if (!source_ready) $fatal(1,"source stalled too early");
+      source_payload=8'(i); source_valid=1; source_tick;
+    end
+    source_valid=0;
+    #1; if (source_ready) $fatal(1,"full FIFO accepted a fifth beat");
+    repeat (3) destination_tick;
+    destination_ready=1;
+    for (int i=1; i<=4; i++) begin
+      #1; if (!destination_valid || destination_payload != 8'(i))
+        $fatal(1,"registered prefetch inserted a bubble or reordered data");
+      destination_tick;
+    end
+    #1; if (destination_valid) $fatal(1,"last beat was duplicated");
+    $finish;
+  end
+endmodule
+""",
+        )
+
+    def test_async_fifo_depth8_independent_10ns_7ns_clocks_wrap_and_stall(self) -> None:
+        source = (ROOT / "examples/cdc_async_fifo.zhl").read_text().replace(
+            "async_fifo(4)", "async_fifo(8)"
+        )
+        self._simulate_systemverilog(
+            "cdc_async_fifo.zhl", "CdcAsyncFifo", r"""
+`timescale 1ns/1ps
+module tb;
+  logic source_clock=0,source_reset=1,destination_clock=0,destination_reset=1;
+  logic [7:0] source_payload=0,destination_payload;
+  logic source_valid=0,source_ready,destination_valid,destination_ready=0;
+  integer sent=0,received=0,destination_cycles=0;
+  logic [7:0] stalled_payload=0;
+  logic was_stalled=0;
+  CdcAsyncFifo dut(.*);
+  always #5 source_clock=~source_clock;
+  always #3.5 destination_clock=~destination_clock;
+  always @(negedge source_clock) begin
+    source_valid = !source_reset && sent < 32;
+    source_payload = 8'(sent+1);
+  end
+  always @(posedge source_clock)
+    if (!source_reset && source_valid && source_ready) sent++;
+  always @(negedge destination_clock)
+    destination_ready = !destination_reset && destination_cycles >= 40 &&
+      (destination_cycles % 7 != 0);
+  always @(posedge destination_clock) if (!destination_reset) begin
+    destination_cycles++;
+    if (was_stalled && (!destination_valid || destination_payload != stalled_payload))
+      $fatal(1,"registered FIFO output changed under backpressure");
+    was_stalled = destination_valid && !destination_ready;
+    if (was_stalled) stalled_payload = destination_payload;
+    if (destination_valid && destination_ready) begin
+      if (destination_payload != 8'(received+1))
+        $fatal(1,"FIFO lost, duplicated, or reordered a beat");
+      received++;
+      if (received == 32) begin
+        if (sent != 32) $fatal(1,"consumer outran accepted inputs");
+        $finish;
+      end
+    end
+  end
+  initial begin
+    #21; source_reset=0; destination_reset=0;
+    #2000; $fatal(1,"independent-clock FIFO deadlocked");
+  end
+endmodule
+""",
+            source_override=source,
         )
 
     def test_direct_aggregate_async_fifo_transfers_one_atomic_beat(self) -> None:
@@ -299,7 +389,7 @@ int main() {
 
     def test_ready_valid_fifo_hierarchy_simulates(self) -> None:
         self._simulate(
-            "hierarchical_protocol_m40.zhl", "ProtocolTop",
+            "hierarchical_protocol.zhl", "ProtocolTop",
             '#include "VProtocolTop.h"\n'
             'static void tick(VProtocolTop& d){d.clk=0;d.eval();d.clk=1;d.eval();d.clk=0;d.eval();}\n'
             'int main(){VProtocolTop d{};d.rst=1;tick(d);tick(d);d.rst=0;for(int i=0;i<4;i++)tick(d);return d.seen==7?0:1;}\n',
@@ -307,7 +397,7 @@ int main() {
 
     def test_request_response_hierarchy_simulates(self) -> None:
         self._simulate(
-            "hierarchical_request_response_m40.zhl", "HierarchicalRequestResponse",
+            "hierarchical_request_response.zhl", "HierarchicalRequestResponse",
             '#include "VHierarchicalRequestResponse.h"\n'
             'static void tick(VHierarchicalRequestResponse& d){d.clk=0;d.eval();d.clk=1;d.eval();d.clk=0;d.eval();}\n'
             'int main(){VHierarchicalRequestResponse d{};d.rst=1;d.data=9;tick(d);tick(d);d.rst=0;d.accept_request=1;d.fire=1;d.eval();if(!d.response_seen)return 1;tick(d);d.fire=0;d.accept_request=0;tick(d);if(d.response_seen)return 2;d.accept_response=1;tick(d);return d.response_seen?3:0;}\n',
@@ -315,7 +405,7 @@ int main() {
 
     def test_simple_dma_buffers_and_completes(self) -> None:
         self._simulate(
-            "simple_dma_m40.zhl", "SimpleDMA",
+            "simple_dma.zhl", "SimpleDMA",
             '#include "VSimpleDMA.h"\n'
             'static void tick(VSimpleDMA& d){d.clk=0;d.eval();d.clk=1;d.eval();d.clk=0;d.eval();}\n'
             'int main(){VSimpleDMA d{};d.base=10;d.data=0x5a;d.start=0;d.accept=0;d.rst=1;tick(d);tick(d);d.rst=0;tick(d);if(d.busy)return 1;d.start=1;tick(d);if(!d.busy)return 2;tick(d);d.accept=1;tick(d);if(!d.busy)return 3;d.start=0;for(int i=0;i<4;i++)tick(d);return d.busy?4:0;}\n',

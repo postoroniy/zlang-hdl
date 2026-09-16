@@ -1,4 +1,4 @@
-"""Small typed-IR evaluator used for Milestone 0 behavioral checks."""
+"""Small typed-IR evaluator used for behavioral checks."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ from copy import deepcopy
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 
+from zlang.async_fifo import build_async_fifo_physical_plan
 from zlang.ir import expressions as expr
 from zlang.ir import packing as ir_packing
 from zlang.ir.constants import ConstantExpressionError, constant_runtime_value
@@ -844,6 +845,16 @@ def simulate_multiclock_steps(
         for port in memory.ports
         if port.kind in {MemoryPortKind.READ, MemoryPortKind.READ_WRITE}
     }
+    memory_read_stages = {
+        f"{memory.name}.{port.name}": [
+            _zero_runtime(memory.element_type)
+            for _ in range(memory.read_latency - 1)
+        ]
+        for memory in module.memories
+        for port in memory.ports
+        if port.kind in {MemoryPortKind.READ, MemoryPortKind.READ_WRITE}
+        and memory.read_latency > 1
+    }
     next_by_register = {
         assignment.target.name: assignment.expression
         for assignment in module.next_assignments
@@ -988,6 +999,9 @@ def simulate_multiclock_steps(
             name: list(cells) for name, cells in memory_cells.items()
         }
         next_memory_read_data = dict(memory_read_data)
+        next_memory_read_stages = {
+            key: list(stages) for key, stages in memory_read_stages.items()
+        }
         for memory in module.memories:
             cells = memory_cells[memory.name]
             writable = tuple(
@@ -1031,7 +1045,16 @@ def simulate_multiclock_steps(
                 if port.domain in active_resets:
                     if memory.read_data_reset.value == "clear":
                         next_memory_read_data[key] = _zero_runtime(memory.element_type)
+                        if key in next_memory_read_stages:
+                            next_memory_read_stages[key] = [
+                                _zero_runtime(memory.element_type)
+                                for _ in next_memory_read_stages[key]
+                            ]
                     continue
+                if memory.read_latency > 1:
+                    stages = memory_read_stages[key]
+                    next_memory_read_data[key] = stages[-1]
+                    next_memory_read_stages[key][1:] = stages[:-1]
                 if not bool(values[f"${memory.name}.{port.name}.read_enable"]):
                     continue
                 address = int(values[f"${memory.name}.{port.name}.address"])
@@ -1043,12 +1066,16 @@ def simulate_multiclock_steps(
                 )
                 if collision is not None and memory.collision is MemoryCollision.NO_CHANGE:
                     continue
-                next_memory_read_data[key] = (
+                captured = (
                     collision
                     if collision is not None
                     and memory.collision is MemoryCollision.WRITE_FIRST
                     else cells[address]
                 )
+                if memory.read_latency > 1:
+                    next_memory_read_stages[key][0] = captured
+                else:
+                    next_memory_read_data[key] = captured
 
             writer_domains = {port.domain for port in writable}
             if active_resets & writer_domains and memory.contents_reset.value == "clear":
@@ -1060,6 +1087,7 @@ def simulate_multiclock_steps(
                     next_memory_cells[memory.name][address] = value
         memory_cells = next_memory_cells
         memory_read_data = next_memory_read_data
+        memory_read_stages = next_memory_read_stages
 
         for instance, node in staged_nodes.items():
             assert isinstance(node, expr.Pipeline) and node.domain is not None
@@ -1086,7 +1114,7 @@ def simulate_elastic_pipeline_cycles(
     """Simulate one frozen globally-stalled ready/valid transform.
 
     Data and valid state share one clock enable.  Consequently a downstream
-    stall freezes every selected M31 register, preserving payload stability
+    stall freezes every selected pipeline scheduling register, preserving payload stability
     without introducing an independent scheduler.
     """
 
@@ -1322,7 +1350,7 @@ def simulate_hierarchical_scalar_cycles(
                 not reset_active and count < fifo.depth
             )
         for memory in module.memories:
-            if memory.read_latency == 1:
+            if memory.read_latency >= 1:
                 values[f"{memory.name}.read_data"] = (
                     _zero_runtime(memory.element_type)
                     if (
@@ -2519,9 +2547,28 @@ class _PersistentStorageSimulationState:
             self.rom_read_data,
             self.register_state,
         ) = self._fresh_state()
+        self.memory_read_stages = self._fresh_read_stages()
         self.delay_stages = {
             instance: [_zero_runtime(delay.type)] * expr.sequential_stage_count(delay)
             for instance, delay in self.delay_nodes.items()
+        }
+
+    def _fresh_read_stages(self) -> dict[str, list[object]]:
+        return {
+            key: [
+                _zero_runtime(memory.element_type)
+                for _ in range(memory.read_latency - 1)
+            ]
+            for memory in self.module.memories
+            if memory.read_latency > 1
+            for key in (
+                tuple(
+                    f"{memory.name}.{port.name}"
+                    for port in memory.ports
+                    if port.kind in {MemoryPortKind.READ, MemoryPortKind.READ_WRITE}
+                )
+                if memory.ported else (memory.name,)
+            )
         }
 
     def preview(
@@ -2634,6 +2681,24 @@ class _PersistentStorageSimulationState:
                     if memory.ported else (memory.name,)
                 )
             }
+            cleared_read_stages = self._fresh_read_stages()
+            memory_read_stages = {
+                key: (
+                    self.memory_read_stages[key]
+                    if memory.read_data_reset.value == "preserve"
+                    else cleared_read_stages[key]
+                )
+                for memory in module.memories
+                if memory.read_latency > 1
+                for key in (
+                    tuple(
+                        f"{memory.name}.{port.name}"
+                        for port in memory.ports
+                        if port.kind in {MemoryPortKind.READ, MemoryPortKind.READ_WRITE}
+                    )
+                    if memory.ported else (memory.name,)
+                )
+            }
             delay_stages = {
                 instance: [_zero_runtime(delay.type)] * expr.sequential_stage_count(delay)
                 for instance, delay in self.delay_nodes.items()
@@ -2642,6 +2707,7 @@ class _PersistentStorageSimulationState:
             fifo_contents = self.fifo_contents
             memory_cells = self.memory_cells
             memory_read_data = self.memory_read_data
+            memory_read_stages = self.memory_read_stages
             rom_read_data = self.rom_read_data
             register_state = self.register_state
             delay_stages = self.delay_stages
@@ -2708,7 +2774,7 @@ class _PersistentStorageSimulationState:
                 values[f"{fifo.name}.underflow"] = 0
         for memory in module.memories:
             if memory.ported:
-                if memory.read_latency == 1:
+                if memory.read_latency >= 1:
                     for port in memory.ports:
                         if port.kind not in {
                             MemoryPortKind.READ,
@@ -2719,7 +2785,7 @@ class _PersistentStorageSimulationState:
                             memory_read_data[f"{memory.name}.{port.name}"]
                         )
                 continue
-            if memory.read_latency == 1:
+            if memory.read_latency >= 1:
                 values[f"{memory.name}.read_data"] = memory_read_data[memory.name]
         for rom in module.roms:
             values[f"{rom.name}.read_data"] = rom_read_data[rom.name]
@@ -3066,6 +3132,7 @@ class _PersistentStorageSimulationState:
                 self.fifo_contents,
                 self.memory_cells,
                 self.memory_read_data,
+                self.memory_read_stages,
                 self.rom_read_data,
                 self.register_state,
                 self.delay_stages,
@@ -3073,6 +3140,7 @@ class _PersistentStorageSimulationState:
                 fifo_contents,
                 memory_cells,
                 memory_read_data,
+                memory_read_stages,
                 rom_read_data,
                 register_state,
                 delay_stages,
@@ -3089,6 +3157,9 @@ class _PersistentStorageSimulationState:
             name: list(cells) for name, cells in memory_cells.items()
         }
         next_memory_read_data = dict(memory_read_data)
+        next_memory_read_stages = {
+            key: list(stages) for key, stages in memory_read_stages.items()
+        }
         next_rom_read_data = dict(rom_read_data)
         next_register_state = dict(register_state)
         next_delay_stages = {
@@ -3232,6 +3303,11 @@ class _PersistentStorageSimulationState:
                         )
                     effective_writes.append((port, address, new_value))
                 for port in readable:
+                    key = f"{memory.name}.{port.name}"
+                    if memory.read_latency > 1:
+                        stages = memory_read_stages[key]
+                        next_memory_read_data[key] = stages[-1]
+                        next_memory_read_stages[key][1:] = stages[:-1]
                     if not bool(values[f"${memory.name}.{port.name}.read_enable"]):
                         continue
                     address = int(values[f"${memory.name}.{port.name}.address"])
@@ -3243,12 +3319,16 @@ class _PersistentStorageSimulationState:
                     )
                     if collision is not None and memory.collision is MemoryCollision.NO_CHANGE:
                         continue
-                    next_memory_read_data[f"{memory.name}.{port.name}"] = (
+                    captured = (
                         collision
                         if collision is not None
                         and memory.collision is MemoryCollision.WRITE_FIRST
                         else cells[address]
                     )
+                    if memory.read_latency > 1:
+                        next_memory_read_stages[key][0] = captured
+                    else:
+                        next_memory_read_data[key] = captured
                 for _, address, value in effective_writes:
                     next_memory_cells[memory.name][address] = value
                 continue
@@ -3265,7 +3345,7 @@ class _PersistentStorageSimulationState:
                 )
                 if memory.write_mask is not None else write_data
             )
-            if memory.read_latency == 1:
+            if memory.read_latency >= 1:
                 if (
                     write_enable
                     and read_address == write_address
@@ -3274,7 +3354,13 @@ class _PersistentStorageSimulationState:
                     next_read_data = merged_write
                 else:
                     next_read_data = cells[read_address]
-                next_memory_read_data[memory.name] = next_read_data
+                if memory.read_latency > 1:
+                    stages = memory_read_stages[memory.name]
+                    next_memory_read_data[memory.name] = stages[-1]
+                    next_memory_read_stages[memory.name][1:] = stages[:-1]
+                    next_memory_read_stages[memory.name][0] = next_read_data
+                else:
+                    next_memory_read_data[memory.name] = next_read_data
             if write_enable:
                 next_memory_cells[memory.name][write_address] = merged_write
         for rom in module.roms:
@@ -3291,6 +3377,7 @@ class _PersistentStorageSimulationState:
         self.fifo_contents = next_fifo_contents
         self.memory_cells = next_memory_cells
         self.memory_read_data = next_memory_read_data
+        self.memory_read_stages = next_memory_read_stages
         self.rom_read_data = next_rom_read_data
         self.register_state = next_register_state
         self.delay_stages = next_delay_stages
@@ -3420,9 +3507,20 @@ def simulate_cdc_steps(
     request_stage_one = 0
     request_stage_two = 0
     held_data = _zero_runtime(source.type)
-    fifo_entries: list[list[object]] = []
-    source_used = 0
-    returned_slots: list[int] = []
+    fifo_plan = (
+        build_async_fifo_physical_plan(module, connection)
+        if crossing.kind is CrossingKind.ASYNC_FIFO else None
+    )
+    fifo_cells = (
+        [_zero_runtime(source.type) for _ in range(fifo_plan.depth)]
+        if fifo_plan is not None else []
+    )
+    fifo_write_binary = fifo_write_gray = 0
+    fifo_read_binary = fifo_read_gray = 0
+    fifo_read_gray_sync1 = fifo_read_gray_sync2 = 0
+    fifo_write_gray_sync1 = fifo_write_gray_sync2 = 0
+    fifo_full = fifo_output_valid = False
+    fifo_read_data = _zero_runtime(source.type)
     results: list[dict[str, object]] = []
 
     for inputs, active_edges, active_resets in zip(
@@ -3490,6 +3588,23 @@ def simulate_cdc_steps(
         coordinated_reset = relevant_resets == endpoint_domains
         source_edge = source.domain in active_edges
         destination_edge = destination.domain in active_edges
+        fifo_signals = (
+            fifo_plan.controller.evaluate({
+                "zlang_source_valid": source_valid,
+                "zlang_destination_ready": destination_ready,
+                "zlang_source_reset": int(coordinated_reset),
+                "zlang_destination_reset": int(coordinated_reset),
+                "zlang_write_binary": fifo_write_binary,
+                "zlang_write_gray": fifo_write_gray,
+                "zlang_read_binary": fifo_read_binary,
+                "zlang_read_gray": fifo_read_gray,
+                "zlang_read_gray_sync2": fifo_read_gray_sync2,
+                "zlang_write_gray_sync2": fifo_write_gray_sync2,
+                "zlang_full": int(fifo_full),
+                "zlang_output_valid": int(fifo_output_valid),
+            })
+            if fifo_plan is not None else {}
+        )
 
         if crossing.kind is CrossingKind.SYNC_LEVEL:
             results.append(
@@ -3534,17 +3649,10 @@ def simulate_cdc_steps(
                 }
             )
         else:
-            assert crossing.depth is not None
-            visible = bool(fifo_entries and int(fifo_entries[0][1]) == 0)
-            source_ready = int(
-                not coordinated_reset and source_used < crossing.depth
-            )
-            destination_valid = int(not coordinated_reset and visible)
-            destination_payload = (
-                fifo_entries[0][0]
-                if fifo_entries
-                else _zero_runtime(source.type)
-            )
+            assert fifo_plan is not None
+            source_ready = fifo_signals["zlang_source_ready"]
+            destination_valid = fifo_signals["zlang_destination_valid"]
+            destination_payload = fifo_read_data
             results.append(
                 {
                     source.name: {
@@ -3578,9 +3686,12 @@ def simulate_cdc_steps(
             request_stage_one = 0
             request_stage_two = 0
             held_data = _zero_runtime(source.type)
-            fifo_entries = []
-            source_used = 0
-            returned_slots = []
+            fifo_write_binary = fifo_write_gray = 0
+            fifo_read_binary = fifo_read_gray = 0
+            fifo_read_gray_sync1 = fifo_read_gray_sync2 = 0
+            fifo_write_gray_sync1 = fifo_write_gray_sync2 = 0
+            fifo_full = fifo_output_valid = False
+            fifo_read_data = _zero_runtime(source.type)
         else:
             if crossing.kind is CrossingKind.SYNC_LEVEL:
                 old_stage_one = bit_stage_one
@@ -3636,33 +3747,46 @@ def simulate_cdc_steps(
                         destination_acknowledge = request_stage_two
 
             else:
-                assert crossing.depth is not None
-                visible = bool(fifo_entries and int(fifo_entries[0][1]) == 0)
-                source_ready_before = int(source_used < crossing.depth)
-                destination_valid_before = int(visible)
-                source_transfer = bool(source_valid and source_ready_before)
-                destination_transfer = bool(
-                    destination_valid_before and destination_ready
+                assert fifo_plan is not None
+                address_mask = fifo_plan.depth - 1
+                source_transfer = bool(source_edge and fifo_signals["zlang_push"])
+                destination_transfer = bool(destination_edge and fifo_signals["zlang_pop"])
+                write_next = fifo_signals["zlang_write_binary_next"]
+                write_gray_next = fifo_signals["zlang_write_gray_next"]
+                read_next = fifo_signals["zlang_read_binary_next"]
+                read_gray_next = fifo_signals["zlang_read_gray_next"]
+                prefetch = bool(destination_edge and fifo_signals["zlang_fifo_prefetch"])
+                fetched = (
+                    deepcopy(fifo_cells[read_next & address_mask])
+                    if prefetch else None
                 )
+                old_write_binary = fifo_write_binary
+                old_write_gray = fifo_write_gray
+                old_read_gray = fifo_read_gray
+                old_read_gray_sync1 = fifo_read_gray_sync1
+                old_write_gray_sync1 = fifo_write_gray_sync1
                 if source_edge:
-                    returned_slots = [delay - 1 for delay in returned_slots]
-                    returned_now = sum(delay <= 0 for delay in returned_slots)
-                    if returned_now:
-                        source_used -= returned_now
-                        returned_slots = [
-                            delay for delay in returned_slots if delay > 0
-                        ]
+                    fifo_read_gray_sync1 = old_read_gray
+                    fifo_read_gray_sync2 = old_read_gray_sync1
+                    fifo_write_binary = write_next
+                    fifo_write_gray = write_gray_next
+                    fifo_full = bool(fifo_signals["zlang_full_next"])
+                    if source_transfer:
+                        assert source_payload is not None
+                        fifo_cells[old_write_binary & address_mask] = deepcopy(
+                            source_payload
+                        )
                 if destination_edge:
-                    for entry in fifo_entries:
-                        entry[1] = max(0, int(entry[1]) - 1)
-                    if destination_transfer:
-                        fifo_entries.pop(0)
-                if source_edge and source_transfer:
-                    assert source_payload is not None
-                    fifo_entries.append([source_payload, 2])
-                    source_used += 1
-                if destination_edge and destination_transfer:
-                    returned_slots.append(2)
+                    fifo_write_gray_sync1 = old_write_gray
+                    fifo_write_gray_sync2 = old_write_gray_sync1
+                    fifo_read_binary = read_next
+                    fifo_read_gray = read_gray_next
+                    if prefetch:
+                        assert fetched is not None
+                        fifo_read_data = fetched
+                        fifo_output_valid = True
+                    elif destination_transfer:
+                        fifo_output_valid = False
 
     return results
 

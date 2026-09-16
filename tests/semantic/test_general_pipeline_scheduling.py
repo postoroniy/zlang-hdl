@@ -186,7 +186,8 @@ def test_exact_typed_egraph_alternative_is_selected_before_partitioning() -> Non
     assert isinstance(plan.source_expression, expr.Binary)
     assert plan.source_expression.operator is expr.BinaryOperator.MULTIPLY
     assert plan.selected_value_identity != plan.source_expression_identity
-    assert plan.rewrite_certificate[0] == "egglog_exact_typed"
+    assert plan.rewrite_certificate[0] == "checked_value_certificate=verified"
+    assert plan.rewrite_certificate[1] == "checker=exact-local-value-v1"
     assert any(
         item.startswith("rewrite=multiply_power_of_two")
         for item in plan.rewrite_certificate

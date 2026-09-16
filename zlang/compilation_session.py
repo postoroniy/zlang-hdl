@@ -100,7 +100,7 @@ class SessionTopSelectionError(ValueError):
 
 
 _UNSUPPORTED_RESET_FORMAL_REASON = (
-    "M39 authoritative M36 route requires one physical domain with "
+    "formal-aware selection authoritative semantic-reference equivalence route requires one physical domain with "
     "power_up unspecified"
 )
 
@@ -160,10 +160,10 @@ def _gate_all_standalone_pipelines(
     )
 
 
-def _defer_one_root_pipeline_to_physical_m39(module: IrModule) -> bool:
+def _defer_one_root_pipeline_to_physical_formal_selection(module: IrModule) -> bool:
     """Return whether planning can construct one complete physical candidate.
 
-    The pre-planning M39 route must not prove a raw ``Pipeline`` expression
+    The pre-planning formal-aware selection route must not prove a raw ``Pipeline`` expression
     which has not yet received its internal schedule.  The target planner's
     bounded physical route currently owns exactly one root scalar pipeline;
     all other standalone forms retain the historical gate/diagnostic.
@@ -181,7 +181,7 @@ def _attach_unified_pipeline_formal_records(
     module: IrModule,
     results: Iterable[ExplorationResult],
 ) -> IrModule:
-    """Mirror one unified M39 record into planner-only pipeline metadata.
+    """Mirror one unified formal-aware selection record into planner-only pipeline metadata.
 
     ``implement`` owns the formal candidate site.  Its retained pipeline
     table is still useful to reports and target planning, but must not trigger
@@ -346,7 +346,7 @@ def _with_elastic_formal_records(
                         cache_state=CACHE_STATE_NOT_RUN,
                         eligible=True,
                         reason=(
-                            "M36 fixed-latency equivalence does not apply "
+                            "semantic-reference equivalence fixed-latency equivalence does not apply "
                             "to a stalled elastic relation"
                         ),
                         source_origin=region.source_origin,
@@ -637,9 +637,9 @@ def _gate_physical_target_candidates(
     object | None,
     tuple[FormalExplorationRecord, ...],
 ]:
-    """Apply M39 to complete value+schedule+resource candidates.
+    """Apply formal-aware selection to complete value+schedule+resource candidates.
 
-    Earlier M39 sites validate typed value alternatives.  This bounded
+    Earlier formal-aware selection sites validate typed value alternatives.  This bounded
     planning-phase gate additionally validates the exact physical graph which
     direct-SV will publish.  It is intentionally limited to the current
     single-output scalar target planner; unsupported shapes remain explicit.
@@ -656,7 +656,7 @@ def _gate_physical_target_candidates(
         )
 
     from zlang.formal_candidate import (
-        M36DirectSystemVerilogCandidateVerifier,
+        SemanticEquivalenceDirectSystemVerilogCandidateVerifier,
         PhysicalTargetFormalCandidate,
     )
     from zlang.formal_exploration import gate_candidates
@@ -678,7 +678,7 @@ def _gate_physical_target_candidates(
         )
     if len(assignments) != 1:
         raise SemanticError(
-            "physical M39 gate requires exactly one target-planned scalar "
+            "physical formal-aware selection gate requires exactly one target-planned scalar "
             "pipeline output",
             code="ZL-FORMAL-PHYSICAL-CANDIDATE",
         )
@@ -693,7 +693,7 @@ def _gate_physical_target_candidates(
     if selected_quantization is not None and reference != selected_quantization:
         if selected_value != selected_quantization:
             raise SemanticError(
-                "physical M39 selected value does not match the target region",
+                "physical formal-aware selection selected value does not match the target region",
                 code="ZL-FORMAL-PHYSICAL-CANDIDATE",
             )
 
@@ -733,7 +733,7 @@ def _gate_physical_target_candidates(
         evaluations.append(replace(evaluation, candidate=wrapper))
 
     domain = module.clock_domains[0] if len(module.clock_domains) == 1 else None
-    verifier = injected_verifier or M36DirectSystemVerilogCandidateVerifier(
+    verifier = injected_verifier or SemanticEquivalenceDirectSystemVerilogCandidateVerifier(
         reference,
         candidate_class="pipeline",
         artifact_provider=getattr(config, "artifact_provider", None),
@@ -749,7 +749,7 @@ def _gate_physical_target_candidates(
         tuple(evaluations),
         config,
         verifier,
-        route="M36_direct_systemverilog",
+        route="semantic_equivalence_direct_systemverilog",
     )
     selected_identity = (
         result.selected_candidate.implementation_identity
@@ -763,7 +763,7 @@ def _gate_physical_target_candidates(
         selected_cost=selected.cost,
         reason=(
             result.extraction.reason
-            + "; complete physical candidate passed M39 policy "
+            + "; complete physical candidate passed formal-aware selection policy "
             + config.policy.value
         ),
     )
@@ -938,7 +938,7 @@ class CompilationSession:
             else self._options.formal_cache / "artifacts"
         )
         # Construction is side-effect free.  Host tools are inspected only
-        # when a requested M39 route first needs them.
+        # when a requested formal-aware selection route first needs them.
         self._formal_tool_resolver = FormalToolResolver()
 
     @property
@@ -1135,7 +1135,7 @@ class CompilationSession:
                     self.syntax,
                     exploration_results=exploration_results,
                     # Semantic typing always generates and ranks candidates
-                    # statically.  M39 execution is owned by selection below.
+                    # statically.  formal-aware selection execution is owned by selection below.
                     formal_config=self._formal_config(check_only=True),
                     formal_verifier=None,
                     source_unit=self.source_unit,
@@ -1236,7 +1236,7 @@ class CompilationSession:
                 module, exploration_results
             )
         except CostExtractionError:
-            # Candidate-site ranking uses the common M28 extractor.  For an
+            # Candidate-site ranking uses the common deterministic cost selection extractor.  For an
             # impossible legacy ``choice(auto)`` its generic error is less
             # useful than the established source-level diagnostic, which
             # names the output and every failed candidate constraint.
@@ -1277,7 +1277,7 @@ class CompilationSession:
             kinds = ", ".join(sorted({item.kind.value for item in static_only}))
             raise SemanticError(
                 "formal-required policy cannot gate retained candidate sites "
-                f"without an M39 evidence attachment: {kinds}"
+                f"without an formal-aware selection evidence attachment: {kinds}"
             )
         if configured_formal.policy is not FormalPolicy.OFF:
             has_elastic = any(
@@ -1289,12 +1289,12 @@ class CompilationSession:
                 FormalPolicy.REQUIRED_PROVEN,
             }:
                 raise SemanticError(
-                    "formal-required policy has no M36 route for variable-latency "
-                    "elastic pipeline(auto); M35 ready/valid safety remains available"
+                    "formal-required policy has no semantic-reference equivalence route for variable-latency "
+                    "elastic pipeline(auto); safety verification ready/valid safety remains available"
                 )
             try:
                 defer_physical = (
-                    _defer_one_root_pipeline_to_physical_m39(semantic_ir)
+                    _defer_one_root_pipeline_to_physical_formal_selection(semantic_ir)
                     and len(exploration_results) == 1
                     and exploration_results[0].site_kind == "implement"
                     and self.options.target not in {None, "generic"}
@@ -1326,7 +1326,7 @@ class CompilationSession:
                     semantic_ir,
                     exploration_results,
                 )
-                if not defer_physical and not _defer_one_root_pipeline_to_physical_m39(semantic_ir):
+                if not defer_physical and not _defer_one_root_pipeline_to_physical_formal_selection(semantic_ir):
                     semantic_ir = _gate_all_standalone_pipelines(
                         semantic_ir,
                         configured_formal,
@@ -1375,9 +1375,9 @@ class CompilationSession:
             # value+schedule+resource candidate during planning. Gating the
             # pre-planning expression here would prove a different artifact
             # and, for newly partitioned DAGs, cannot emit the nested physical
-            # boundaries. The planning-phase M39 gate below owns that route.
+            # boundaries. The planning-phase formal-aware selection gate below owns that route.
             and implementation_policy.request.target in {None, "generic"}
-            and not _defer_one_root_pipeline_to_physical_m39(backend_ir)
+            and not _defer_one_root_pipeline_to_physical_formal_selection(backend_ir)
         ):
             try:
                 backend_ir, external_explorations = gate_retained_explorations(
@@ -1524,9 +1524,9 @@ class CompilationSession:
             and request.formal_policy is not FormalPolicy.OFF
             # The bounded single-root path owns one complete
             # value+schedule+resource gate here. Multi-site designs retain the
-            # established selection-time M39 route and never receive a second
+            # established selection-time formal-aware selection route and never receive a second
             # solver invocation.
-            and _defer_one_root_pipeline_to_physical_m39(planned_module)
+            and _defer_one_root_pipeline_to_physical_formal_selection(planned_module)
             and (
                 not planned_module.pipeline_explorations
                 or request.target not in {None, "generic"}

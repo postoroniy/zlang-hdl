@@ -12,8 +12,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from hashlib import sha256
 
+from zlang.ir.packing import PACKING_LAYOUT_SCHEMA
 
-SCHEDULED_VALUE_GRAPH_SCHEMA = "zlang-scheduled-value-graph-v3"
+
+SCHEDULED_VALUE_GRAPH_SCHEMA = "zlang-scheduled-value-graph-v4"
+SCHEDULED_VALUE_GRAPH_IDENTITY_SCHEMA = "zlang-scheduled-value-physical-v2"
 
 
 @dataclass(frozen=True)
@@ -123,11 +126,41 @@ class ScheduledValueGraph:
 
     @property
     def identity(self) -> str:
+        # Delay estimates, their provenance and rewrite certificates explain
+        # selection; they do not change the registers or resource bindings.
+        physical = (
+            self.source_expression_identity,
+            self.selected_value_identity,
+            self.operation_identities,
+            self.operation_semantic_identities,
+            self.dependencies,
+            self.stage_assignment,
+            self.exact_latency,
+            self.initiation_interval,
+            self.resource_bindings,
+            self.cut_identities,
+            self.alignment_delay_identities,
+            self.compensation_delay_identities,
+            self.clock_domain,
+        )
+        return sha256(
+            repr((
+                SCHEDULED_VALUE_GRAPH_IDENTITY_SCHEMA,
+                PACKING_LAYOUT_SCHEMA,
+                physical,
+            )).encode("utf-8")
+        ).hexdigest()
+
+    @property
+    def legacy_identity(self) -> str:
+        """Exact pre-v1 identity for matching previously published QoR keys."""
+
         return sha256(repr((self.schema, self)).encode("utf-8")).hexdigest()
 
 
 __all__ = [
     "SCHEDULED_VALUE_GRAPH_SCHEMA",
+    "SCHEDULED_VALUE_GRAPH_IDENTITY_SCHEMA",
     "ScheduledValueGraph",
     "ScheduledValueResourceBinding",
 ]

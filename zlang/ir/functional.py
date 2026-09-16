@@ -49,7 +49,7 @@ def materialize_functional_region(
     """Instantiate one typed functional template for final backend lowering.
 
     This is intentionally not part of :func:`collection_elements`: semantic,
-    optimization, M32, and e-graph consumers continue to observe one compact
+    optimization, exact reduction planning, and e-graph consumers continue to observe one compact
     region.  Concrete backends may call this bounded helper at their final
     expression-emission boundary.
     """
@@ -523,7 +523,7 @@ def lower_reduction(reduction: expr.Reduce) -> expr.Expression:
     if reduction.plan is not None:
         return materialize_exact_reduction(reduction)
     # A compact functional collection remains opaque to semantic optimization,
-    # M32, and the e-graph, but an ordinary built-in scalar reduction still
+    # exact reduction planning, and the e-graph, but an ordinary built-in scalar reduction still
     # needs the same executable tree it had before compaction.  Reconstruct the
     # bounded leaves only at this final lowering boundary; do not teach
     # ``collection_elements`` to expose the compact region globally.

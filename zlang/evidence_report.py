@@ -1,7 +1,7 @@
 """Typed adapters and deterministic rendering for whole-build evidence.
 
 This module is deliberately a reporting boundary.  It accepts the structured
-results produced by M35, M36, and M39; it never infers proof from log text,
+results produced by safety verification, semantic-reference equivalence, and formal-aware selection; it never infers proof from log text,
 property registration, or harness generation.
 """
 
@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Iterable, Mapping
 
 from zlang.build_manifest import EvidenceRecord, ReportRecord
 from zlang.common import stable_digest, stable_json
+from zlang.formal_counterexample_codec import counterexample_to_data
 from zlang.formal_exploration import FormalExplorationRecord
 from zlang.ir.equivalence import EquivalenceCounterexample, EquivalenceResult
 from zlang.ir.formal import Counterexample, FormalProperty, FormalResult
@@ -48,7 +49,7 @@ class RenderedEvidenceReport:
 
 @dataclass(frozen=True)
 class EvidenceReportPayload:
-    """Strict common evidence view for verification and M39 selection records."""
+    """Strict common evidence view for verification and formal-aware selection selection records."""
 
     evidence: tuple[EvidenceRecord, ...]
     formal_execution_plan: "CompilerFormalExecutionPlan | None" = None
@@ -101,7 +102,7 @@ class EvidenceReportPayload:
         }
         common_equivalence = {
             item.evidence_id for item in ordered
-            if item.claim == "m36.selected_architecture_equivalence"
+            if item.claim == "semantic_equivalence.selected_architecture_equivalence"
         }
         if report_evidence != common_equivalence:
             detail = sorted(report_evidence ^ common_equivalence)[0]
@@ -110,19 +111,19 @@ class EvidenceReportPayload:
                 f"'{detail}'"
             )
         by_id = {item.evidence_id: item for item in ordered}
-        actual_m39 = {
+        actual_formal_selection = {
             item.evidence_id for item in ordered
-            if item.claim == "m39.formal_candidate_eligibility"
+            if item.claim == "formal_selection.formal_candidate_eligibility"
         }
-        expected_m39 = set(plan.m39_evidence_ids)
-        if actual_m39 != expected_m39:
-            missing = sorted(expected_m39 - actual_m39)
-            extra = sorted(actual_m39 - expected_m39)
+        expected_formal_selection = set(plan.formal_selection_evidence_ids)
+        if actual_formal_selection != expected_formal_selection:
+            missing = sorted(expected_formal_selection - actual_formal_selection)
+            extra = sorted(actual_formal_selection - expected_formal_selection)
             detail = missing[0] if missing else extra[0]
             raise EvidenceReportError(
-                f"evidence report M39 records differ from compiler plan: '{detail}'"
+                f"evidence report formal-aware selection records differ from compiler plan: '{detail}'"
             )
-        for attempt in plan.m39_attempts:
+        for attempt in plan.formal_selection_attempts:
             item = by_id[attempt.evidence_id]
             details = dict(item.details)
             if (
@@ -137,7 +138,7 @@ class EvidenceReportPayload:
                 or details.get("policy") != attempt.policy.value
             ):
                 raise EvidenceReportError(
-                    f"M39 evidence '{attempt.evidence_id}' differs from compiler plan"
+                    f"formal-aware selection evidence '{attempt.evidence_id}' differs from compiler plan"
                 )
         verification = tuple(
             item for item in ordered
@@ -237,28 +238,12 @@ class EvidenceReportPayload:
 def _counterexample_data(
     counterexample: Counterexample | EquivalenceCounterexample | None,
 ) -> dict[str, object] | None:
-    if counterexample is None:
-        return None
-    if isinstance(counterexample, Counterexample):
-        return {
-            "kind": "m35",
-            "property_id": counterexample.property_id,
-            "cycle": counterexample.cycle,
-            "values": [list(item) for item in counterexample.values],
-            "raw_trace": counterexample.raw_trace,
-        }
-    if isinstance(counterexample, EquivalenceCounterexample):
-        return {
-            "kind": "m36",
-            "property_id": counterexample.property_id,
-            "failure_cycle": counterexample.failure_cycle,
-            "sample_cycle": counterexample.sample_cycle,
-            "values": [list(item) for item in counterexample.values],
-            "raw_trace": counterexample.raw_trace,
-        }
-    raise EvidenceReportError(
-        "counterexample evidence must use an M35 or M36 typed counterexample"
-    )
+    try:
+        return counterexample_to_data(counterexample)
+    except TypeError as error:
+        raise EvidenceReportError(
+            "counterexample evidence must use an safety verification or semantic-reference equivalence typed counterexample"
+        ) from error
 
 
 def _details(**values: object) -> tuple[tuple[str, str], ...]:
@@ -365,13 +350,13 @@ def evidence_from_formal_result(
     backend: str | None = None,
     artifact_hash: str | None = None,
 ) -> EvidenceRecord:
-    """Adapt one executed or explicitly skipped M35 property result."""
+    """Adapt one executed or explicitly skipped safety verification property result."""
 
     if not isinstance(result, FormalResult):
-        raise TypeError("M35 evidence requires FormalResult")
+        raise TypeError("safety verification evidence requires FormalResult")
     return _record(
-        "m35",
-        claim="m35.safety_property",
+        "safety_verification",
+        claim="safety_verification.safety_property",
         status=result.status.value,
         mode=result.mode.value,
         depth=result.depth,
@@ -400,8 +385,8 @@ def evidence_from_verification_report(
 
     The verification executor already owns the distinction between same-cycle
     safety and bounded reachability.  This adapter merely publishes those typed
-    results through the common evidence facade; it never invokes M36 or
-    M39 and it deliberately excludes host-local work-directory paths.
+    results through the common evidence facade; it never invokes semantic-reference equivalence or
+    formal-aware selection and it deliberately excludes host-local work-directory paths.
     """
 
     if not isinstance(report, VerificationRunReport):
@@ -500,13 +485,13 @@ def evidence_from_verification_job_result(
 
 
 def evidence_from_equivalence_result(result: EquivalenceResult) -> EvidenceRecord:
-    """Adapt one M36 semantic-reference equivalence result."""
+    """Adapt one semantic-reference equivalence semantic-reference equivalence result."""
 
     if not isinstance(result, EquivalenceResult):
-        raise TypeError("M36 evidence requires EquivalenceResult")
+        raise TypeError("semantic-reference equivalence evidence requires EquivalenceResult")
     return _record(
-        "m36",
-        claim="m36.selected_architecture_equivalence",
+        "semantic_equivalence",
+        claim="semantic_equivalence.selected_architecture_equivalence",
         status=result.status.value,
         mode=result.mode.value,
         depth=result.depth,
@@ -536,20 +521,20 @@ def evidence_from_formal_exploration_record(
     *,
     site_identity: str | None = None,
 ) -> EvidenceRecord:
-    """Adapt one M39 candidate record without promoting an unexecuted route."""
+    """Adapt one formal-aware selection candidate record without promoting an unexecuted route."""
 
     if not isinstance(result, FormalExplorationRecord):
-        raise TypeError("M39 evidence requires FormalExplorationRecord")
+        raise TypeError("formal-aware selection evidence requires FormalExplorationRecord")
     if not result.candidate_identity:
-        raise EvidenceReportError("M39 evidence requires a candidate identity")
+        raise EvidenceReportError("formal-aware selection evidence requires a candidate identity")
     if result.rank < 1:
-        raise EvidenceReportError("M39 evidence rank must be positive")
+        raise EvidenceReportError("formal-aware selection evidence rank must be positive")
     if site_identity is not None and not site_identity:
-        raise EvidenceReportError("M39 candidate-site identity must be non-empty")
+        raise EvidenceReportError("formal-aware selection candidate-site identity must be non-empty")
     if result.status is None:
         if result.mode is not None or result.depth is not None:
             raise EvidenceReportError(
-                "unexecuted M39 evidence cannot carry proof mode or depth"
+                "unexecuted formal-aware selection evidence cannot carry proof mode or depth"
             )
         status = "not_run"
         mode = None
@@ -557,13 +542,13 @@ def evidence_from_formal_exploration_record(
     else:
         status = result.status.value
         if result.mode is None:
-            raise EvidenceReportError("executed M39 evidence requires a proof mode")
+            raise EvidenceReportError("executed formal-aware selection evidence requires a proof mode")
         mode = result.mode.value
         depth = result.depth
         if status in {"bounded_pass", "proven", "failed"}:
             if not result.backend or not result.artifact_hash:
                 raise EvidenceReportError(
-                    "decisive M39 evidence requires a connected backend artifact"
+                    "decisive formal-aware selection evidence requires a connected backend artifact"
                 )
             for label, value in (
                 ("property identity", result.property_identity),
@@ -578,21 +563,21 @@ def evidence_from_formal_exploration_record(
             ):
                 if not value:
                     raise EvidenceReportError(
-                        f"decisive M39 evidence requires {label}"
+                        f"decisive formal-aware selection evidence requires {label}"
                     )
     counterexample = result.counterexample
     if counterexample is not None and not isinstance(
         counterexample,
         (Counterexample, EquivalenceCounterexample),
     ):
-        raise EvidenceReportError("M39 counterexample metadata must use typed formal IR")
+        raise EvidenceReportError("formal-aware selection counterexample metadata must use typed formal IR")
     if status == "failed" and counterexample is None:
         raise EvidenceReportError(
-            "failed M39 evidence requires counterexample metadata"
+            "failed formal-aware selection evidence requires counterexample metadata"
         )
     return _record(
-        "m39",
-        claim="m39.formal_candidate_eligibility",
+        "formal_selection",
+        claim="formal_selection.formal_candidate_eligibility",
         status=status,
         mode=mode,
         depth=depth,
@@ -642,8 +627,8 @@ def evidence_for_unexecuted_property(
     if not isinstance(property_, FormalProperty):
         raise TypeError("unexecuted property evidence requires FormalProperty")
     return _record(
-        "m35",
-        claim="m35.safety_property",
+        "safety_verification",
+        claim="safety_verification.safety_property",
         status="not_run",
         mode=None,
         depth=None,

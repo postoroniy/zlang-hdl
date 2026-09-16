@@ -1,6 +1,6 @@
 """Backend-independent architectural alternatives for proven value expressions.
 
-Architecture candidates are intentionally outside the M26/M27 value e-graph.
+Architecture candidates are intentionally outside the e-graph optimization/guarded exact rewrite value e-graph.
 They reference one exact semantic expression and preserve its timing contract.
 """
 
@@ -75,7 +75,7 @@ def architecture_candidate_hash(candidate: ArchitectureCandidate) -> str:
 def expand_architectures(value_root: expr.Expression, context: object | None = None) -> tuple[ArchitectureCandidate, ...]:
     """Expand one normalized semantic value into deterministic candidates.
 
-    M29 recognizes only the local scalar ``Add(Mul(a,b), c)`` shape. Unsupported
+    architecture alternatives recognizes only the local scalar ``Add(Mul(a,b), c)`` shape. Unsupported
     values receive the original generic candidate and no invented architecture.
     """
     timing = TimingContract(_expression_latency(value_root), 1)
@@ -121,13 +121,13 @@ def _supported_scalar(left, right, addend) -> bool:
 
 def _expression_latency(value: expr.Expression) -> int:
     # Pipeline uses the canonical ``stages`` field.  Delegate to the shared
-    # recursive M30 traversal so conversions/arithmetic wrapped around a fixed
+    # recursive timing alignment traversal so conversions/arithmetic wrapped around a fixed
     # pipeline retain their exact structural latency as well.
     return timing_info(value).latency
 
 
 def architecture_cost(candidate: ArchitectureCandidate):
-    """Return a M28 CandidateCost using only structural estimates."""
+    """Return a deterministic cost selection CandidateCost using only structural estimates."""
     from zlang.costs import CandidateCost
     width = candidate.value_root.type.width
     multiply = _mul_add_shape(candidate.value_root)
@@ -152,7 +152,7 @@ def extract_best_architecture(candidates, objective="lut", constraints=(), sourc
 
 
 def architecture_candidates_for_choice(choice: expr.ImplementationChoice) -> tuple[ArchitectureCandidate, ...]:
-    """Adapt legacy ``choice`` alternatives to the M29 candidate model."""
+    """Adapt legacy ``choice`` alternatives to the architecture alternatives candidate model."""
     candidates: list[ArchitectureCandidate] = []
     for alternative in choice.alternatives:
         implementation = {
@@ -172,6 +172,6 @@ def architecture_candidates_for_choice(choice: expr.ImplementationChoice) -> tup
 
 
 def expand_reduction_architectures(value_root, search=None):
-    """M32 generic reduction entry point kept beside M29 architecture APIs."""
+    """exact reduction planning generic reduction entry point kept beside architecture alternatives architecture APIs."""
     from zlang.reductions import ReductionSearch, expand_reduction
     return expand_reduction(value_root, search or ReductionSearch())

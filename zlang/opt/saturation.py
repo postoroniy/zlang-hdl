@@ -15,6 +15,7 @@ from itertools import product
 from typing import Any
 
 from egglog import EGraph, Expr as EggExpr, StringLike, String, function, rewrite, var
+from egglog.egraph import to_runtime_expr
 from egglog.deconstruct import get_callable_args, get_callable_fn
 
 from zlang.ir.expressions import (
@@ -77,10 +78,106 @@ from zlang.opt.rewrite_guards import (
     guard_holds,
     pattern_options,
 )
+from zlang.opt.value_certificate import (
+    checked_value_certificate,
+)
 
 
 class SaturationError(ValueError):
     """A root or requested equality-saturation mode is not eligible."""
+
+
+_MAX_GRAPH_SNAPSHOT_NODES = 16_384
+
+
+def _extract_root_graph(graph: EGraph, root: _EggNode, max_terms: int) -> tuple[Term, ...]:
+    """Decode a root-scoped egglog graph without its termdag/Python extractor.
+
+    The serialized node IDs are only graph edges.  They never participate in
+    candidate ordering or identities; equal-cost options use their decoded
+    semantic expression instead.  This adapter is pinned to egglog 13.2.0.
+    """
+    runtime = to_runtime_expr(root)
+    graph._add_decls(runtime)
+    low_root = graph._state.typed_expr_to_egg(runtime.__egg_typed_expr__)
+    snapshot = graph._egraph.serialize(
+        [low_root], include_temporary_functions=True,
+    )
+    snapshot.map_ops(graph._state.op_mapping())
+    data = json.loads(snapshot.to_json())
+    nodes = data.get("nodes")
+    roots = data.get("root_eclasses")
+    if not isinstance(nodes, dict) or len(nodes) > _MAX_GRAPH_SNAPSHOT_NODES:
+        raise SaturationError("egglog root graph snapshot is absent or exceeds 16384 nodes")
+    if not isinstance(roots, list) or len(roots) != 1 or roots[0] not in {
+        node.get("eclass") for node in nodes.values()
+    }:
+        raise SaturationError("egglog root graph snapshot has no unique root e-class")
+    classes: dict[str, list[dict[str, Any]]] = {}
+    for node_id, node in nodes.items():
+        if not isinstance(node, dict) or not isinstance(node.get("children"), list):
+            raise SaturationError("egglog graph snapshot has a malformed node")
+        children = node["children"]
+        if any(child not in nodes for child in children):
+            raise SaturationError("egglog graph snapshot has a dangling child")
+        classes.setdefault(node["eclass"], []).append(node)
+
+    def decode(op: str, args: tuple[Any, ...]) -> Any:
+        if not args:
+            if not (op.startswith('"') and op.endswith('"')):
+                raise SaturationError(f"unsupported egglog graph leaf {op}")
+            return json.loads(op)
+        if op == "_EggNode" and len(args) == 2:
+            return _EggNode(*args)
+        if op == "_egg_typed" and len(args) == 2:
+            return _egg_typed(*args)
+        if op == "_egg_node" and len(args) == 6:
+            return _egg_node(*args)
+        if op == "_egg_operand_list" and len(args) == 2:
+            return _egg_operand_list(*args)
+        raise SaturationError(f"unsupported egglog graph operation {op}/{len(args)}")
+
+    # Resolve one cheapest finite representative per child e-class by cost
+    # relaxation.  A saturated class may refer back to itself (x == x | 0),
+    # but positive node costs keep its finite leaf cheaper.  Root alternatives
+    # are the graph-owned root nodes instantiated with those representatives.
+    best: dict[str, tuple[float, str, Any]] = {}
+    for _ in range(len(classes) + 1):
+        changed = False
+        for node in nodes.values():
+            children = tuple(best.get(nodes[child]["eclass"]) for child in node["children"])
+            if any(child is None for child in children):
+                continue
+            value = decode(node["op"], tuple(child[2] for child in children if child))
+            item = (
+                float(node.get("cost", 1.0)) + sum(child[0] for child in children if child),
+                str(value), value,
+            )
+            previous = best.get(node["eclass"])
+            if previous is None or item[:2] < previous[:2]:
+                best[node["eclass"]] = item
+                changed = True
+        if not changed:
+            break
+    if roots[0] not in best:
+        raise SaturationError("egglog graph snapshot has no finite root representative")
+    root_values: dict[str, tuple[float, str, Any]] = {}
+    for node in classes[roots[0]]:
+        children = tuple(best.get(nodes[child]["eclass"]) for child in node["children"])
+        if any(child is None for child in children):
+            continue
+        value = decode(node["op"], tuple(child[2] for child in children if child))
+        item = (
+            float(node.get("cost", 1.0)) + sum(child[0] for child in children if child),
+            str(value), value,
+        )
+        root_values[item[1]] = item
+    selected = tuple(
+        sorted(root_values.values(), key=lambda item: (item[0], item[1]))[:max_terms + 1]
+    )
+    if not selected:
+        raise SaturationError("egglog root graph contains no finite expression")
+    return tuple(_egg_to_term(item[2]) for item in selected)
 
 
 def _require_pure_value_root(module: CanonicalModule, root: NodeId) -> None:
@@ -125,7 +222,7 @@ def _power_of_two_shift(term: Term) -> int | None:
     return value.bit_length() - 1
 
 
-# M26 uses egglog for congruence closure and saturation.  The expression schema
+# e-graph optimization uses egglog for congruence closure and saturation.  The expression schema
 # keeps the exact ZLang type on every node and on every child wrapper; rewrite
 # results therefore cannot cross a type boundary.
 
@@ -172,7 +269,7 @@ class _CompiledRewrite:
     def engine_rules(self) -> tuple[Any, ...]:
         """Return the directed egglog rules implementing this registration.
 
-        Built-in M26 simplifications are intentionally one-way.  A source
+        Built-in e-graph optimization simplifications are intentionally one-way.  A source
         ``<=>`` declaration is one logical registration backed by two directed
         engine rules, so reporting and provenance stay attached to the source
         equality rather than pretending that it was two source declarations.
@@ -213,13 +310,13 @@ def saturate(
 ) -> SaturationResult:
     """Saturate one pure scalar root with the pinned egglog engine.
 
-    M26 deliberately excludes arithmetic identities, reassociation, strength
+    e-graph optimization deliberately excludes arithmetic identities, reassociation, strength
     reduction, timing, architecture, and protocol rewrites.
     """
 
     if mode is not EquivalenceMode.MATHEMATICAL:
         raise SaturationError(
-            "M26 e-graph saturation supports only mathematical equivalence, "
+            "e-graph optimization e-graph saturation supports only mathematical equivalence, "
             f"got {mode.value}"
         )
     if max_iterations < 1:
@@ -237,7 +334,7 @@ def saturate(
         expanded_nodes, expanded_root_id = lower_expression_graph(
             semantic_module,
             expanded_root,
-            scope="m26-call-expansion",
+            scope="egraph_optimization-call-expansion",
         )
         adapter_program = canonical_nodes_to_egraph(
             expanded_nodes,
@@ -257,11 +354,49 @@ def saturate(
     graph.let("root", egg_root)
     report = graph.run(max_iterations)
     eclass_count = _engine_typed_eclass_count(graph)
-    extracted = graph.extract_multiple(egg_root, max_terms + 1)
-    terms = [_egg_to_term(item) for item in extracted]
+    extraction_rejections: list[str] = []
+    any_rule_fired = any(
+        report.num_matches_per_rule.get(engine_rule.decl, 0) > 0
+        for item in compiled for engine_rule in item.engine_rules
+    )
+    if not any_rule_fired:
+        # With no equality edge there is exactly one semantic member.  Do not
+        # ask an engine deconstruction API to rebuild it: that historical path
+        # is precisely where carry-growing child structure was lost.
+        extracted = (original,)
+    else:
+        try:
+            extracted = _extract_root_graph(graph, egg_root, max_terms + 1)
+        except (SaturationError, ValueError, TypeError, KeyError) as error:
+            extracted = ()
+            extraction_rejections.append(f"graph extraction rejected: {error}")
+    terms = []
+    certificates = []
+    active_specs = tuple(item.spec for item in compiled)
+    for item in extracted:
+        term = item
+        # Egglog's bounded extraction may assemble an e-class representative
+        # whose child substitution no longer has the exact carry-growing type
+        # of a nested add.  A matching root type alone cannot certify such a
+        # candidate.  Only fully typed DAGs may enter implementation search.
+        try:
+            candidate_nodes, candidate_root = lower_expression_graph(
+                semantic_module,
+                term_to_expression(term),
+                scope="egraph_optimization-extracted-candidate",
+            )
+            validate_scalar_pure_nodes(candidate_nodes, candidate_root)
+            certificate = checked_value_certificate(
+                original, term, active_specs, module.equivalences,
+            )
+        except (EGraphAdapterError, TypeError, ValueError) as error:
+            extraction_rejections.append(f"typed candidate rejected: {error}")
+            continue
+        terms.append(term)
+        certificates.append(certificate)
     if any(term.type != original.type for term in terms):
         raise SaturationError("egglog produced an incompatible type in one e-class")
-    # ``extract_multiple`` enumerates bounded cheapest representatives; it is
+    # Root-scoped graph extraction enumerates bounded cheapest representatives; it is
     # not an archival dump of every inserted expression.  In particular, after
     # nested identities such as ``(x | 0) ^ 0`` merge, egglog can return ``x``,
     # ``x | 0`` and ``x ^ 0`` without returning the more expensive original.
@@ -271,6 +406,10 @@ def saturate(
     for term in terms:
         term_to_expression(term)
     unique = {render_term(term): term for term in terms}
+    certificates_by_term = {
+        render_term(term): certificate
+        for term, certificate in zip(terms, certificates, strict=True)
+    }
     original_key = render_term(original)
     unique.setdefault(original_key, original)
     ordered = [original] + [
@@ -282,6 +421,11 @@ def saturate(
     if len(ordered) > max_terms:
         ordered = ordered[:max_terms]
     alternatives = tuple(term for term in ordered if term != original)
+    admitted_certificates = tuple(
+        certificates_by_term[render_term(term)]
+        for term in alternatives
+        if render_term(term) in certificates_by_term
+    )
     iterations = len(report.iterations)
     saturated = (iterations < max_iterations or not report.updated) and not truncated
     truncated = truncated or (len(ordered) >= max_terms and not saturated)
@@ -321,14 +465,15 @@ def saturate(
         saturated,
         truncated,
         registrations,
-        tuple(
+        (*extraction_rejections, *(
             item.reason
             for item in registrations
             if not item.enabled
             and item.reason is not None
             and any(source.startswith("source:") for source in item.provenance)
-        ),
+        )),
         eclass_count,
+        admitted_certificates,
     )
 
 
@@ -359,7 +504,7 @@ def _compile_egg_rewrites(
 ) -> tuple[tuple[_CompiledRewrite, ...], tuple[RewriteRegistration, ...]]:
     """Build the exact bounded rule set used for one typed root.
 
-    Built-ins remain the M26 baseline.  A source declaration replaces the
+    Built-ins remain the e-graph optimization baseline.  A source declaration replaces the
     corresponding built-in family for this module, so its typed guard is
     observable rather than being bypassed by an unconditional duplicate.
     Source rules are instantiated only for exact types and constants already

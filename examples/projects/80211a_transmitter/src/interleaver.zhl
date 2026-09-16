@@ -25,37 +25,37 @@ struct IeeeInterleavedBlock192 {
 // transmitted sequence ordered from its MSB to its LSB.
 fn ieee_first48(word : bits<48>) -> bits<48> {
     generate(i in 0..16) [
-        word[47 - i],
-        word[31 - i],
-        word[15 - i]
+        word[i],
+        word[16 + i],
+        word[32 + i]
     ]
 }
 
 fn ieee_first96(words : vec<2,bits<48>>) -> bits<96> {
     generate(i in 0..16) [
-        words[0][47 - i],
-        words[0][31 - i],
-        words[0][15 - i],
-        words[1][47 - i],
-        words[1][31 - i],
-        words[1][15 - i]
+        words[1][i],
+        words[1][16 + i],
+        words[1][32 + i],
+        words[0][i],
+        words[0][16 + i],
+        words[0][32 + i]
     ]
 }
 
 fn ieee_first192(words : vec<4,bits<48>>) -> bits<192> {
     generate(i in 0..16) [
-        words[0][47 - i],
-        words[0][31 - i],
-        words[0][15 - i],
-        words[1][47 - i],
-        words[1][31 - i],
-        words[1][15 - i],
-        words[2][47 - i],
-        words[2][31 - i],
-        words[2][15 - i],
-        words[3][47 - i],
-        words[3][31 - i],
-        words[3][15 - i]
+        words[3][i],
+        words[3][16 + i],
+        words[3][32 + i],
+        words[2][i],
+        words[2][16 + i],
+        words[2][32 + i],
+        words[1][i],
+        words[1][16 + i],
+        words[1][32 + i],
+        words[0][i],
+        words[0][16 + i],
+        words[0][32 + i]
     ]
 }
 
@@ -170,7 +170,7 @@ module IeeeInterleaver48 {
     output_last = (block_rate == WifiRate.Bpsk6)
         | ((block_rate == WifiRate.Qpsk12) & (output_count == 1))
         | ((block_rate == WifiRate.Qam16_24) & (output_count == 3))
-    output_data = bitcast<vec<4,bits<48>>>(completed.front.data)[output_count]
+    output_data = bitcast<vec<4,bits<48>>>(completed.front.data)[3 - output_count]
     output_control = completed.front.controls[output_count]
     retiring_block = output.transfer & output_last
 

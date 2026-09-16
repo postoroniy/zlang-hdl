@@ -124,7 +124,7 @@ module IeeeMapperRateStateVerification {
 }
 
 // IeeeIFFTFramedOutputBoundary itself is combinational.  This clocked raw
-// round-trip wrapper gives automatic M35 ready/valid assumptions/assertions an
+// round-trip wrapper gives automatic safety verification ready/valid assumptions/assertions an
 // unambiguous sampling domain without changing the production component.
 module IeeeIFFTBoundaryVerification {
     clock clk reset rst

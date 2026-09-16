@@ -2,9 +2,9 @@
 
 Semantic modules retain their nominal structs, vectors, and protocol objects.
 This module projects only the *physical public boundary*: structs become named
-field leaves, while vectors remain typed unpacked-array shapes. The packed
-slice metadata is the exact bridge to backends which keep a private packed
-core representation.
+field leaves, while vectors remain typed multidimensional shapes. The packed
+slice metadata is the exact bridge to backends which use packed-array public
+ports and keep a private flat packed core representation.
 """
 
 from __future__ import annotations
@@ -462,7 +462,7 @@ def _typed_signal_leaves(
 def _public_layout(
     type_: HardwareType, path: tuple[str, ...]
 ) -> tuple[tuple[tuple[str, ...], HardwareType, tuple[int, ...], tuple[PackedElementSlice, ...]], ...]:
-    """Return source-order leaves with the exact packing.py MSB layout."""
+    """Return source-order leaves with the exact canonical packed layout."""
 
     if is_bit_packable(type_):
         if packed_width(type_) != _width(type_):  # pragma: no cover - invariant
@@ -482,9 +482,8 @@ def _public_layout(
                 visit(field.type, current_path + (field.name,), cursor, dimensions, indices)
             return
         if isinstance(current, TupleType):
-            cursor = base_lsb + _width(current)
+            cursor = base_lsb
             for index, element in enumerate(current.elements):
-                cursor -= _width(element)
                 visit(
                     element,
                     current_path + (f"item{index}",),
@@ -492,12 +491,12 @@ def _public_layout(
                     dimensions,
                     indices,
                 )
+                cursor += _width(element)
             return
         if isinstance(current, VecType):
-            cursor = base_lsb + _width(current)
             for index in range(current.length):
-                cursor -= _width(current.element_type)
-                visit(current.element_type, current_path, cursor,
+                element_lsb = base_lsb + index * _width(current.element_type)
+                visit(current.element_type, current_path, element_lsb,
                       dimensions + (current.length,), indices + (index,))
             return
         key = (current_path, current, dimensions)

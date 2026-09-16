@@ -16,7 +16,7 @@ from zlang.ir.expressions import CostMetric
 ROOT = Path(__file__).resolve().parents[2]
 
 
-class ReductionM32Tests(unittest.TestCase):
+class ExactReductionTests(unittest.TestCase):
     def _expr(self, path):
         return compile_source((ROOT / path).read_text()).ir.assignments[0].expression
 
@@ -46,7 +46,7 @@ class ReductionM32Tests(unittest.TestCase):
         self.assertTrue(candidates)
         self.assertEqual(candidates[0].semantics.count, 3)
 
-    def test_m28_selection_and_dsp_bound(self):
+    def test_cost_selection_selection_and_dsp_bound(self):
         candidates = expand_reduction(self._expr("examples/dot_builtin.zhl"))
         selected = extract_best_reduction(candidates, CostMetric.LUT)
         self.assertTrue(selected.selected.legal)

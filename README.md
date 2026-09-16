@@ -15,7 +15,9 @@ architectural capability, not a claim about productivity or performance.
 > closed rather than publishing guessed RTL.
 
 The initial supported development and release environment is Linux x86-64 with
-Python 3.12. Direct SystemVerilog is the sole supported production RTL backend;
+CPython `>=3.12,<3.13`. You do not need that interpreter preinstalled: the
+recommended `uv` workflow can provision it for the project. Direct
+SystemVerilog is the sole supported production RTL backend;
 external synthesis and formal tools are optional unless their corresponding
 flow is requested. The retired Clash backend is not installed, discovered, or
 executed by the compiler or its regression suite.
@@ -25,14 +27,26 @@ executed by the compiler or its regression suite.
 For a release wheel, editor setup, and the optional Verilator/Yosys/SBY/Z3
 toolchain, use the [complete installation guide](docs/installing-toolchain.md).
 
-Clone the repository and install an editable development environment:
+Clone the repository and let [`uv`](https://docs.astral.sh/uv/) provision the
+verified Python runtime and editable development environment:
 
 ```bash
 git clone https://github.com/postoroniy/zlang-hdl.git
 cd zlang-hdl
-python3.12 -m venv .venv
-.venv/bin/python -m pip install -e '.[test]'
+uv python install 3.12
+uv venv --python 3.12
+uv pip install -e '.[test]'
 ```
+
+For an ordinary release-wheel installation, install the commands in an isolated
+environment:
+
+```bash
+uv tool install --python 3.12 /path/to/zlang_hdl-VERSION-py3-none-any.whl
+```
+
+See the complete guide for PATH setup, a pip/venv alternative, and WSL2
+instructions.
 
 Check a design without emitting RTL:
 
@@ -86,9 +100,9 @@ The validated language includes:
 - direct-SystemVerilog emission with source maps and versioned BackendArtifact
   manifests;
 - bounded equality saturation, implementation exploration, synthesis evidence,
-  M35 safety checks, M36 semantic-reference equivalence, M39 formal-aware
-  selection, and source-level verification goals. M38 records in dated reports
-  are historical evidence only; the production compiler does not execute M38.
+  safety verification safety checks, semantic-reference equivalence semantic-reference equivalence, formal-aware selection formal-aware
+  selection, and source-level verification goals. retired cross-backend equivalence records in dated reports
+  are historical evidence only; the production compiler does not execute retired cross-backend equivalence.
 
 The executable [language tour](examples/all_syntax.zhl) is representative, not a
 complete support contract. Use the
@@ -118,6 +132,12 @@ combination is supported or that measured FPGA timing is guaranteed.
 | Direct SystemVerilog | Sole supported production backend; fail-closed outside its validated subset |
 | Verilator | Optional lint and behavioral RTL validation |
 | Yosys/SymbiYosys/Z3 | Optional bounded/proven safety and equivalence execution |
+
+The current verified external-tool configuration is Verilator 5.052, Yosys
+0.69, SymbiYosys 0.69, Z3 4.8.12, and Icarus Verilog/VVP 14.0. These are
+evidence versions, not compatibility bounds; see the
+[installation guide](docs/installing-toolchain.md#verify-the-installation) and
+machine-readable [`release/status.json`](release/status.json).
 
 Emit direct SystemVerilog:
 

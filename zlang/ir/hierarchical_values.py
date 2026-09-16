@@ -4,7 +4,7 @@ This module does not flatten implementation RTL.  It derives an independent
 semantic value expression for the deliberately small whole-root equivalence
 surface: one combinational scalar child, connected through typed
 ``InstancePortBinding`` records, with no state, protocol, storage, array, or
-nested hierarchy.  Formal consumers can therefore reuse the existing M36
+nested hierarchy.  Formal consumers can therefore reuse the existing semantic-reference equivalence
 same-cycle value relation without inventing a hierarchical refinement model.
 """
 
@@ -145,7 +145,7 @@ def materialize_pure_hierarchical_output(
     Resolution follows the validated hierarchy index and typed instance
     bindings.  Source names are never used to rediscover a specialization or a
     physical child.  The returned graph contains no ``InstanceOutputRef`` and
-    is suitable for the existing independent M36 value emitter.
+    is suitable for the existing independent semantic-reference equivalence value emitter.
     """
 
     if isinstance(max_nodes, bool) or not isinstance(max_nodes, int) or max_nodes < 1:

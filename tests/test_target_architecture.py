@@ -7,7 +7,10 @@ import subprocess
 
 import pytest
 
-from zlang.backend.manifest import BackendArtifact, IMPLEMENTATION_MANIFEST_VERSION
+from zlang.backend.manifest import (
+    BackendArtifact,
+    INLINE_TOP_BOUNDARY_MANIFEST_VERSION,
+)
 from zlang.backend.systemverilog import emit_experimental, emit_target, emit_target_artifact
 from zlang.backend.systemverilog.emitter import SystemVerilogEmissionError
 from zlang.compiler import compile_source
@@ -174,7 +177,7 @@ def test_direct_sv_consumes_graph_and_manifest_round_trips() -> None:
     assert rtl.count("nearest_even") == 0  # lowering is logic, not an RTL annotation
     artifact = emit_target_artifact(result.ir, result.implementation_graph)
     restored = BackendArtifact.from_json(artifact.to_json())
-    assert restored.manifest_version == IMPLEMENTATION_MANIFEST_VERSION
+    assert restored.manifest_version == INLINE_TOP_BOUNDARY_MANIFEST_VERSION
     assert restored.implementation == artifact.implementation
     manifest = json.loads(artifact.to_json())["implementation"]
     assert len(manifest["resources"]) == 4
@@ -229,9 +232,11 @@ def test_target_dsp_model_is_bit_exact_in_verilator(tmp_path: Path) -> None:
     target_text = emit_target(
         result.ir, result.implementation_graph, simulation_model=True
     )
-    assert "input wire logic signed [11:0] samples [0:7]" in target_text
-    assert "input wire logic signed [11:0] coefficients [0:3]" in target_text
-    assert "module SymmetricFixedFIR_zlang_core (" in target_text
+    assert "input wire logic signed [7:0][11:0] samples" in target_text
+    assert "input wire logic signed [3:0][11:0] coefficients" in target_text
+    assert target_text.count("module SymmetricFixedFIR (") == 1
+    assert "SymmetricFixedFIR_zlang_core" not in target_text
+    assert "zlang_top_core" not in target_text
     target_artifact = emit_target_artifact(
         result.ir, result.implementation_graph, simulation_model=True
     )
@@ -275,8 +280,8 @@ def test_target_dsp_model_is_bit_exact_in_verilator(tmp_path: Path) -> None:
         )
     bench = tmp_path / "tb.sv"
     bench.write_text(
-        "module tb; logic clk=0,rst=1; logic signed [11:0] samples[0:7]; "
-        "logic signed [11:0] coefficients[0:3]; "
+        "module tb; logic clk=0,rst=1; logic signed [7:0][11:0] samples; "
+        "logic signed [3:0][11:0] coefficients; "
         "wire signed [15:0] result,generic_result; "
         "SymmetricFixedFIR dut(.clk,.rst,.samples,.coefficients,.result); "
         "SymmetricFixedFIRGeneric generic_dut(.clk,.rst,.samples,.coefficients,.result(generic_result)); "

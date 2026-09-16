@@ -80,7 +80,7 @@ only producer deletes the later of two imports with identical logical path and
 alias. Cross-file machine edits are not projected in this schema.
 
 The compiler/tooling records remain protocol neutral. They are not LSP
-`TextEdit`, `WorkspaceEdit`, `CodeAction` or `Command` values. Milestone 11
+`TextEdit`, `WorkspaceEdit`, `CodeAction` or `Command` values. The LSP layer
 leaves this schema unchanged and mechanically maps current-source machine fixes
 to edit-only LSP quick fixes after rechecking the current editor snapshot. The
 full audit and safety rationale are recorded in
@@ -88,7 +88,7 @@ full audit and safety rationale are recorded in
 
 ## Generated RTL navigation audit
 
-Milestone 12 adds no tooling navigation projection. The existing
+The generated-RTL audit adds no tooling navigation projection. The existing
 `GeneratedSourceMap` v1 is authoritative for hash-verified generated-line to
 source-origin attribution, but its bounded builder currently maps only one
 unique top-level output assignment. It has no generated artifact path or
@@ -100,7 +100,7 @@ Consequently `zlang.tooling` does not expose raw `BackendArtifact` or source-map
 objects and does not generate RTL on a tooling request. The exact capability
 and prerequisite are recorded in [Generated source maps](generated-source-maps.md).
 
-M13 adds the protocol-neutral
+generated-navigation bundle adds the protocol-neutral
 `zlang.generated_navigation_bundle.load_generated_navigation_bundle()`
 boundary. It validates one explicit relocatable publication directory, exact
 generated/backend-manifest/source-map hashes, lineage, and complete producing

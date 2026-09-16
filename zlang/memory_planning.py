@@ -121,6 +121,16 @@ def _native_capable(
 ) -> bool:
     if capabilities is None:
         return False
+    # A clocked block-memory read has at least one visible read boundary.
+    # A zero-cycle contract may be mapped only to a resource explicitly
+    # advertising combinational reads (for example LUTRAM), never to BRAM.
+    if memory.read_latency == 0 and capabilities.get("synchronous_read") == "true":
+        return False
+    # The present physical target mapper verifies exactly one native clocked
+    # read boundary.  A catalog entry alone cannot prove a second internal
+    # output cut or the reset/enable behavior of fabric compensation stages.
+    if memory.read_latency != 1:
+        return False
     if memory.initial_value is not None and not capabilities.get("initialization"):
         return False
     shape, reads, writes, _ = _logical_shape(memory)

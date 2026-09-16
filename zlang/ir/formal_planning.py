@@ -1,7 +1,7 @@
-"""Backend-independent planning IR for production M35, M36, and M39 work.
+"""Backend-independent planning IR for production safety verification, semantic-reference equivalence, and formal-aware selection work.
 
 The objects in this module describe *how* an already typed property can be
-executed. They keep M35 and M36 property/result types distinct and contain no
+executed. They keep safety verification and semantic-reference equivalence property/result types distinct and contain no
 solver policy. In particular, a
 goal has either one completely specified route or one structured skip reason;
 there is no partially executable plan.
@@ -37,7 +37,7 @@ class FormalPlanGoalKind(str, Enum):
 
     SAFETY = "safety"
     COVER = "cover"
-    M36_EQUIVALENCE = "m36_equivalence"
+    SEMANTIC_EQUIVALENCE = "semantic_equivalence"
 
 
 class FormalRouteKind(str, Enum):
@@ -349,7 +349,7 @@ class FormalSkipReason:
 _ROUTE_FOR_GOAL = {
     FormalPlanGoalKind.SAFETY: FormalRouteKind.PROPERTY_HARNESS,
     FormalPlanGoalKind.COVER: FormalRouteKind.COVER_HARNESS,
-    FormalPlanGoalKind.M36_EQUIVALENCE: FormalRouteKind.SEMANTIC_EQUIVALENCE,
+    FormalPlanGoalKind.SEMANTIC_EQUIVALENCE: FormalRouteKind.SEMANTIC_EQUIVALENCE,
 }
 
 

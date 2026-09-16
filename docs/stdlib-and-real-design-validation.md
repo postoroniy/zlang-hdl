@@ -4,9 +4,8 @@
 > retained as dated validation records. They are not current backend support or
 > release requirements.
 
-This unnumbered product-validation slice expands reusable source libraries; it
-does not start another numbered milestone or change the frozen formal
-architecture.
+This product-validation work expands reusable source libraries without changing
+the formal architecture.
 
 The stable import namespace is `std`, while maintained source files live below
 `stdlib/`. The resolver maps names such as `std.math.fixed` and
@@ -61,7 +60,7 @@ ROM is now supported and validated by the FFT work; writable/reloadable or
 multiport coefficient memory remains deferred.
 
 Original-slice validation: two independent `pytest -n 8 --dist=loadscope` runs passed
-668/668 tests in 122.96 s and 124.51 s. Focused real-solver M35/M36/M38/M39
+668/668 tests in 122.96 s and 124.51 s. Focused real-solver safety verification/semantic-reference equivalence/retired cross-backend equivalence/formal-aware selection
 regression passed 20 tests. Real Clash generation, Verilator lint/simulation,
 Yosys structural synthesis, Python compileall, and `git diff --check` pass.
 

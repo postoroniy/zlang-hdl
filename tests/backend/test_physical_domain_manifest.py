@@ -1,4 +1,4 @@
-"""Version-10 physical clock/reset contract publication regressions."""
+"""Physical clock/reset contract publication regressions."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import pytest
 
 from zlang.backend.manifest import (
     BackendArtifact,
-    MANIFEST_VERSION,
+    INLINE_TOP_BOUNDARY_MANIFEST_VERSION,
     PHYSICAL_DOMAIN_MANIFEST_VERSION,
 )
 from zlang.backend.systemverilog import emit_artifact, emit_target_artifact
@@ -48,10 +48,10 @@ def _async_artifact() -> BackendArtifact:
     return emit_artifact(module)
 
 
-def test_nonlegacy_domain_publishes_exact_version_10_contract() -> None:
+def test_nonlegacy_domain_publishes_current_contract() -> None:
     artifact = _async_artifact()
 
-    assert artifact.manifest_version == PHYSICAL_DOMAIN_MANIFEST_VERSION
+    assert artifact.manifest_version == INLINE_TOP_BOUNDARY_MANIFEST_VERSION
     assert len(artifact.physical_domains) == 1
     domain = artifact.physical_domains[0]
     assert domain.clock == "clk"
@@ -75,14 +75,14 @@ def test_nonlegacy_domain_publishes_exact_version_10_contract() -> None:
 
 
 
-def test_legacy_default_domain_preserves_manifest_version_and_shape() -> None:
+def test_legacy_default_domain_uses_inline_top_manifest_with_exact_domain() -> None:
     module = compile_source(LEGACY).ir
     artifact = emit_artifact(module)
     data = json.loads(artifact.to_json())
 
-    assert artifact.manifest_version == MANIFEST_VERSION
-    assert artifact.physical_domains == ()
-    assert "physical_domains" not in data
+    assert artifact.manifest_version == INLINE_TOP_BOUNDARY_MANIFEST_VERSION
+    assert len(artifact.physical_domains) == 1
+    assert len(data["physical_domains"]) == 1
 
 
 def test_physical_paths_participate_in_build_identity_but_origin_does_not() -> None:
@@ -176,7 +176,7 @@ module Async : AsyncIfc { y = x }
     domain = signature.signature_data["clock_domains"][0]
     assert domain["reset_release_mode"] == "synchronized"
     assert domain["reset_release_cycles"] == 2
-    assert artifact.manifest_version == PHYSICAL_DOMAIN_MANIFEST_VERSION
+    assert artifact.manifest_version == INLINE_TOP_BOUNDARY_MANIFEST_VERSION
 
 
 def test_recursive_components_and_instances_link_one_physical_domain() -> None:
@@ -243,5 +243,5 @@ def test_generic_target_publication_preserves_newer_physical_manifest() -> None:
     artifact = emit_target_artifact(result.ir, result.implementation_graph)
 
     assert artifact.implementation is not None
-    assert artifact.manifest_version == PHYSICAL_DOMAIN_MANIFEST_VERSION
+    assert artifact.manifest_version == INLINE_TOP_BOUNDARY_MANIFEST_VERSION
     assert len(artifact.physical_domains) == 1

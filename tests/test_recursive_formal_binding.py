@@ -1,7 +1,10 @@
 import unittest
 from pathlib import Path
 
-from zlang.backend.manifest import BackendArtifact, RECURSIVE_MANIFEST_VERSION
+from zlang.backend.manifest import (
+    BackendArtifact,
+    INLINE_TOP_BOUNDARY_MANIFEST_VERSION,
+)
 from zlang.backend.systemverilog import emit_formal_artifact
 from zlang.formal import build_recursive_formal_design, emit_recursive_harness, run_recursive_formal
 from zlang.ir.formal import FormalStatus
@@ -52,7 +55,9 @@ class RecursiveFormalBindingTests(unittest.TestCase):
         module = analyze(parse(source))
         design = build_recursive_formal_design(module)
         artifact = emit_formal_artifact(module, design)
-        self.assertEqual(artifact.manifest_version, RECURSIVE_MANIFEST_VERSION)
+        self.assertEqual(
+            artifact.manifest_version, INLINE_TOP_BOUNDARY_MANIFEST_VERSION
+        )
         self.assertTrue(artifact.instances)
         self.assertTrue(artifact.recursive_bindings)
         self.assertTrue(artifact.formal_observations)
@@ -61,11 +66,11 @@ class RecursiveFormalBindingTests(unittest.TestCase):
         self.assertEqual(restored.instances, artifact.instances)
         self.assertEqual(restored.recursive_bindings, artifact.recursive_bindings)
         harness = emit_recursive_harness(design)
-        self.assertIn("recursive_m35_formal", harness)
+        self.assertIn("recursive_safety_verification_formal", harness)
         self.assertIn("observation", harness)
 
     def test_deterministic_serialization_and_cache_identity(self):
-        source = (ROOT / "examples/hierarchical_request_response_m40.zhl").read_text()
+        source = (ROOT / "examples/hierarchical_request_response.zhl").read_text()
         module = analyze(parse(source))
         first = build_recursive_formal_design(module)
         second = build_recursive_formal_design(module)

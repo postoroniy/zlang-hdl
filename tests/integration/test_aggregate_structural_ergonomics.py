@@ -121,14 +121,14 @@ int main(int argc, char **argv) {
   dut.b_data = 0x5a;
   dut.b_last = 1;
   dut.eval();
-  if (uint64_t(dut.y) != 0x08101ad2d2d2d6ULL) return 1;
+  if (uint64_t(dut.y) != 0x18100ad2d2d2d6ULL) return 1;
 
   dut.a_data = 0xa5;
   dut.a_last = 1;
   dut.b_data = 0x5b;
   dut.b_last = 1;
   dut.eval();
-  if (uint64_t(dut.y) != 0x08101d2d2d2d2dULL) return 2;
+  if (uint64_t(dut.y) != 0x18100d2d2d2d2dULL) return 2;
 
   return 0;
 }
@@ -226,12 +226,12 @@ def test_aggregate_surface_is_bit_exact_in_the_semantic_simulator() -> None:
         module,
         a={"data": 0x5A, "last": 0},
         b={"data": 0x5A, "last": 1},
-    ) == {"y": 0x08101AD2D2D2D6}
+    ) == {"y": 0x18100AD2D2D2D6}
     assert simulate(
         module,
         a={"data": 0xA5, "last": 1},
         b={"data": 0x5B, "last": 1},
-    ) == {"y": 0x08101D2D2D2D2D}
+    ) == {"y": 0x18100D2D2D2D2D}
 
 
 def test_qualified_fsm_and_compact_clock_reset_simulate_cycle_exactly() -> None:

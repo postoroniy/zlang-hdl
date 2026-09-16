@@ -25,10 +25,17 @@ from zlang.ir.types import (
     UFixedType,
     UIntType,
 )
-from zlang.ir.expressions import BinaryOperator, ReductionOperator
+from zlang.ir.expressions import (
+    BinaryOperator, FixedConversionKind, FixedOverflow, FixedRounding,
+    ReductionOperator,
+)
+from zlang.ir.numeric import (
+    NumericTypeError, addition_rule, bitwise_rule, comparison_rule,
+    multiplication_rule, subtraction_rule,
+)
 from zlang.opt.ir import (
     CanonicalExpression, CanonicalModule, EffectKind, ExpressionOp, NodeCategory,
-    NodeId, NodeMetadata, Purity, Signedness,
+    NodeId, NodeMetadata, Purity, Signedness, pure_metadata,
 )
 from zlang.opt.capabilities import expression_capability
 from zlang.opt.lowering import restore_expression
@@ -114,7 +121,7 @@ def canonical_nodes_to_egraph(
 
     This entry point allows a consumer to perform a bounded semantic operation,
     such as expansion of retained typed calls, before applying the unchanged
-    frozen M26 eligibility checks.
+    frozen e-graph optimization eligibility checks.
     """
 
     validate_scalar_pure_nodes(source, root)
@@ -258,25 +265,81 @@ def validate_scalar_pure_nodes(
                 f"{node.op.value} is outside the exact scalar e-graph operation set"
             )
         operand_types = tuple(expressions[item].type for item in node.operands)
-        if node.op is ExpressionOp.BINARY:
-            operator = node.attribute("operator")
-            if operator in {BinaryOperator.SHIFT_LEFT, BinaryOperator.SHIFT_RIGHT}:
-                compatible = bool(operand_types) and operand_types[0] == node.type
-            elif operator in {
-                BinaryOperator.BIT_AND,
-                BinaryOperator.BIT_OR,
-                BinaryOperator.BIT_XOR,
-            }:
-                compatible = all(item == node.type for item in operand_types)
-            else:
-                compatible = True
-            if not compatible:
+        attrs = dict(node.attributes)
+        if len(attrs) != len(node.attributes):
+            raise EGraphAdapterError(f"root %{root} has duplicate attributes on %{node.id}")
+        exact_metadata = pure_metadata(node.type)
+        if (
+            node.metadata.width != exact_metadata.width
+            or node.metadata.signedness != exact_metadata.signedness
+            or node.metadata.latency != 0
+            or node.metadata.initiation_interval != 1
+            or node.metadata.effects
+        ):
+            raise EGraphAdapterError(f"root %{root} has invalid scalar metadata on %{node.id}")
+        if node.op in {ExpressionOp.INPUT, ExpressionOp.PARAMETER, ExpressionOp.CONSTANT}:
+            if node.operands:
+                raise EGraphAdapterError(f"root %{root} has a leaf with operands")
+            required = {"value"} if node.op is ExpressionOp.CONSTANT else {"name"}
+            if set(attrs) != required:
+                raise EGraphAdapterError(f"root %{root} has invalid leaf attributes")
+            if node.op is ExpressionOp.CONSTANT and not isinstance(attrs["value"], int):
+                raise EGraphAdapterError(f"root %{root} has a noninteger constant")
+        if node.op is ExpressionOp.ADD:
+            if attrs:
+                raise EGraphAdapterError(f"root %{root} has unsupported add attributes")
+            if len(operand_types) != 2:
                 raise EGraphAdapterError(
-                    f"root %{root} has incompatible operand types for {operator.value}"
+                    f"root %{root} has an add with the wrong operand count"
+                )
+            try:
+                expected = addition_rule(*operand_types).result_type
+            except NumericTypeError as error:
+                raise EGraphAdapterError(
+                    f"root %{root} has incompatible add operand types"
+                ) from error
+            if expected != node.type:
+                raise EGraphAdapterError(
+                    f"root %{root} has an add whose result type {node.type} "
+                    f"does not match exact numeric type {expected}"
+                )
+        elif node.op is ExpressionOp.BINARY:
+            operator = node.attribute("operator")
+            if len(operand_types) != 2 or set(attrs) != {"operator", "operand_type"}:
+                raise EGraphAdapterError(f"root %{root} has an invalid binary signature")
+            if not isinstance(operator, BinaryOperator):
+                raise EGraphAdapterError(f"root %{root} has an unknown binary operator")
+            try:
+                if operator is BinaryOperator.SUBTRACT:
+                    rule = subtraction_rule(*operand_types)
+                elif operator is BinaryOperator.MULTIPLY:
+                    rule = multiplication_rule(*operand_types)
+                elif operator in {BinaryOperator.BIT_AND, BinaryOperator.BIT_OR, BinaryOperator.BIT_XOR}:
+                    rule = bitwise_rule(*operand_types)
+                elif operator in {BinaryOperator.SHIFT_LEFT, BinaryOperator.SHIFT_RIGHT}:
+                    if not isinstance(operand_types[0], (UIntType, SIntType, BitsType)) or not isinstance(operand_types[1], UIntType):
+                        raise EGraphAdapterError(f"root %{root} has incompatible shift operands")
+                    expected_operand, expected_result = operand_types[0], operand_types[0]
+                    rule = None
+                else:
+                    rule = comparison_rule(
+                        *operand_types,
+                        equality=operator in {BinaryOperator.EQUAL, BinaryOperator.NOT_EQUAL},
+                    )
+                if rule is not None:
+                    expected_operand, expected_result = rule.operand_type, rule.result_type
+            except NumericTypeError as error:
+                raise EGraphAdapterError(f"root %{root} has incompatible {operator.value} operands") from error
+            if attrs["operand_type"] != expected_operand or node.type != expected_result:
+                raise EGraphAdapterError(
+                    f"root %{root} has {operator.value} whose numeric signature "
+                    f"{attrs['operand_type']}/{node.type} differs from exact "
+                    f"{expected_operand}/{expected_result}"
                 )
         elif node.op is ExpressionOp.MUX:
             compatible = (
                 len(operand_types) == 3
+                and not attrs
                 and isinstance(operand_types[0], BitType)
                 and operand_types[1] == node.type
                 and operand_types[2] == node.type
@@ -285,6 +348,68 @@ def validate_scalar_pure_nodes(
                 raise EGraphAdapterError(
                     f"root %{root} has incompatible mux operand types"
                 )
+        elif node.op in {ExpressionOp.EXTEND, ExpressionOp.TRUNCATE}:
+            if len(operand_types) != 1 or attrs or type(operand_types[0]) is not type(node.type):
+                raise EGraphAdapterError(f"root %{root} has incompatible resize operands")
+            if node.op is ExpressionOp.EXTEND and node.type.width < operand_types[0].width:
+                raise EGraphAdapterError(f"root %{root} has an extend that narrows")
+            if node.op is ExpressionOp.TRUNCATE and node.type.width > operand_types[0].width:
+                raise EGraphAdapterError(f"root %{root} has a truncate that widens")
+        elif node.op is ExpressionOp.FIXED_CONVERT:
+            if len(operand_types) != 1 or set(attrs) != {
+                "rounding", "overflow", "conversion_kind", "rational_denominator",
+            }:
+                raise EGraphAdapterError(f"root %{root} has an incompatible fixed conversion")
+            if not isinstance(attrs["rounding"], FixedRounding) or not isinstance(attrs["overflow"], FixedOverflow) or not isinstance(attrs["conversion_kind"], FixedConversionKind):
+                raise EGraphAdapterError(f"root %{root} has invalid fixed conversion metadata")
+            source_type = operand_types[0]
+            kind = attrs["conversion_kind"]
+            denominator = attrs["rational_denominator"]
+            if denominator is not None and (
+                kind is not FixedConversionKind.RESCALE
+                or not isinstance(denominator, int)
+                or isinstance(denominator, bool)
+                or denominator <= 0
+            ):
+                raise EGraphAdapterError(f"root %{root} has invalid rational conversion metadata")
+            if kind is FixedConversionKind.TO_RAW:
+                compatible = (
+                    denominator is None
+                    and (
+                        isinstance(source_type, FixedType) and isinstance(node.type, SIntType)
+                        or isinstance(source_type, UFixedType) and isinstance(node.type, UIntType)
+                    )
+                    and source_type.width == node.type.width
+                )
+            elif kind is FixedConversionKind.FROM_RAW:
+                compatible = (
+                    denominator is None
+                    and (
+                        isinstance(source_type, SIntType) and isinstance(node.type, FixedType)
+                        or isinstance(source_type, UIntType) and isinstance(node.type, UFixedType)
+                    )
+                    and source_type.width == node.type.width
+                )
+            else:
+                compatible = (
+                    isinstance(node.type, FixedType)
+                    and isinstance(source_type, (FixedType, SIntType))
+                    or isinstance(node.type, UFixedType)
+                    and isinstance(source_type, (UFixedType, UIntType))
+                )
+            if not compatible:
+                raise EGraphAdapterError(f"root %{root} has incompatible fixed conversion types")
+        elif node.op is ExpressionOp.SLICE:
+            if len(operand_types) != 1 or set(attrs) != {"msb", "lsb"} or not isinstance(node.type, BitsType) or not all(isinstance(attrs[key], int) for key in attrs):
+                raise EGraphAdapterError(f"root %{root} has invalid slice metadata")
+            if not (0 <= attrs["lsb"] <= attrs["msb"] < operand_types[0].width) or node.type.width != attrs["msb"] - attrs["lsb"] + 1:
+                raise EGraphAdapterError(f"root %{root} has invalid slice width/span")
+        elif node.op is ExpressionOp.CONCAT:
+            if len(operand_types) < 2 or not isinstance(node.type, BitsType) or set(attrs) != {"operand_widths"} or attrs["operand_widths"] != tuple(item.width for item in operand_types) or node.type.width != sum(item.width for item in operand_types):
+                raise EGraphAdapterError(f"root %{root} has invalid concat signature")
+        elif node.op is ExpressionOp.BITCAST:
+            if len(operand_types) != 1 or set(attrs) != {"source_type"} or attrs["source_type"] != operand_types[0] or node.type.width != operand_types[0].width:
+                raise EGraphAdapterError(f"root %{root} has invalid bitcast signature")
         for operand in node.operands:
             visit(operand)
 

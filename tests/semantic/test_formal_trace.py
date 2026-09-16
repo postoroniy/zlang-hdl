@@ -84,7 +84,7 @@ def test_shared_decoder_reports_cycles_window_state_and_typed_values(
         '{"raw":-8,"type":"fixed<8,4>","value":"-1/2"}'
     )
     assert values["state"] == '{"code":4,"enum":"State.Done"}'
-    assert values["lanes"] == "[10,3]"
+    assert values["lanes"] == "[3,10]"
     assert values["unknown"] == "x"
 
 

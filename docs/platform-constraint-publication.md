@@ -1,7 +1,6 @@
 # Platform clock-constraint publication
 
-Status: bounded unnumbered slice implemented. This work does not create another
-numbered milestone and does not change ZLang source semantics.
+Status: implemented. This work does not change ZLang source semantics.
 
 ## Decision
 

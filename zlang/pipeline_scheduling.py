@@ -856,25 +856,32 @@ def _exact_value_alternatives(
             max_iterations=8,
             max_terms=16,
         )
-        fired = tuple(
-            registration.identity
-            for registration in result.registrations
-            if registration.fired
-        )
+        certificates = {
+            certificate.selected_identity: certificate
+            for certificate in result.certificates
+        }
         by_identity = {expression_semantic_identity(source): original}
         for term in result.alternatives:
             alternative = term_to_expression(term)
             if source.origin is not None:
                 alternative = replace(alternative, origin=source.origin)
             identity = expression_semantic_identity(alternative)
+            from hashlib import sha256
+            from zlang.opt import render_term
+            term_identity = sha256(render_term(term).encode()).hexdigest()
+            certificate = certificates[term_identity]
             by_identity.setdefault(
                 identity,
                 _ValueAlternative(
                     alternative,
                     (
-                        "egglog_exact_typed",
+                        "checked_value_certificate=verified",
+                        f"checker={certificate.checker_version}",
+                        f"proof_source={certificate.source_identity}",
+                        f"proof_selected={certificate.selected_identity}",
+                        f"proof_normal_form={certificate.normal_form_identity}",
                         f"selected_value={identity}",
-                        *(f"rewrite={name}" for name in fired),
+                        *(f"rewrite={name}" for name in certificate.active_rule_identities),
                     ),
                 ),
             )

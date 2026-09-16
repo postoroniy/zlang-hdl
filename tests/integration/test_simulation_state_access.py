@@ -108,6 +108,31 @@ def _binding(catalog, kind, name, path=("StateReplay",)):
     )
 
 
+def test_multi_cycle_memory_read_result_remains_visible_to_state_access() -> None:
+    compilation = compile_source("""
+module LatencyState {
+    clock clk reset rst
+    in addr : u2
+    out result : u8
+    memory table : mem<u8,4> { read_latency 2 collision old }
+    table.read_address = addr
+    table.write_enable = 0
+    table.write_address = 0
+    table.write_data = 0
+    result = table.read_data
+}
+""")
+    catalog = build_simulation_state_catalog(
+        compilation.ir,
+        selected_ir_identity=compilation.selected_ir_identity,
+    )
+    assert catalog.resolve(
+        physical_instance_path=("LatencyState",),
+        object_kind=SimulationStateKind.MEMORY_READ_DATA,
+        object_name="table",
+    ).canonical_type.width == 8
+
+
 def test_catalog_round_trip_identity_shape_and_stale_rejection() -> None:
     compilation = _compile()
     catalog = build_simulation_state_catalog(
@@ -301,7 +326,8 @@ def test_direct_bundle_is_deterministic_strict_and_does_not_change_rtl(
     assert bundle == SystemVerilogSimulationStateBundle.from_json(bundle.to_json())
     assert bundle.cpp_header() == bundle.cpp_header()
     assert all(
-        item.vpi_path.startswith("TOP.StateReplay.zlang_top_core.")
+        item.vpi_path.startswith("TOP.StateReplay.")
+        and ".zlang_top_core." not in item.vpi_path
         for item in bundle.locators
     )
     duplicate_path = replace(
@@ -486,7 +512,6 @@ module AsyncReplay {
 
 @pytest.mark.parametrize("conflicting_declaration", (
     "reg foo_cells : u8 = 0",
-    "reg foo_reset_index : u8 = 0",
     "in foo_cells : u8",
     "in foo_read_data : u8",
     "foo_cells : CollisionChild",
@@ -539,6 +564,33 @@ module StateNameCollision {
             compilation.ir,
             selected_ir_identity=compilation.selected_ir_identity,
         )
+
+
+def test_memory_reset_iterator_is_loop_local_and_may_shadow_source_state() -> None:
+    compilation = compile_source("""
+module LoopLocalResetIndex {
+    clock clk reset rst
+    in enable : bit
+    in address : u1
+    out result : u8
+    reg foo_reset_index : u8 = 0
+    memory foo : mem<u8,2> {
+        init 0
+        read_latency 1
+        collision read_first
+    }
+    rule access when enable {
+        foo.read(address)
+    }
+    result = foo.read_data
+}
+""", top="LoopLocalResetIndex")
+    artifact = emit_artifact(
+        compilation.ir,
+        selected_ir_identity=compilation.selected_ir_identity,
+    )
+    assert "logic [7:0] foo_reset_index;" in artifact.text
+    assert "for (integer foo_reset_index = 0;" in artifact.text
 
 
 def test_child_output_is_allocated_away_from_memory_state() -> None:

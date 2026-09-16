@@ -280,7 +280,7 @@ identity without cloning every call body. These are two storage forms for one
 language contract, not two reduction semantics.
 
 There is no component-wise field rule, implicit conversion, identity insertion,
-or special case for `Complex`. M32 and the e-graph do not reassociate the frozen
+or special case for `Complex`. exact reduction planning and the e-graph do not reassociate the frozen
 tree, and explicit quantization remains exactly where the source or overload
 body placed it.
 
@@ -367,15 +367,15 @@ flat   : vec<8,u8> = reshape(matrix)
 
 Slices use inclusive compile-time `[MSB:LSB]` bounds. A single packed-bit
 selection `raw[index]` returns `bit`, uses conventional LSB-zero numbering,
-and currently requires a compile-time-proven index. This differs intentionally
-from vector sequence indexing: `vec` element zero occupies the most-significant
-packed region. Scalar `concat` places its
+and currently requires a compile-time-proven index. Vector sequence indexing
+uses the same low-first convention: `vec` element zero occupies the least-
+significant packed element region. Scalar `concat` places its
 first operand at the MSB; homogeneous-vector `concat` preserves collection
 order and returns a vector. `reshape` changes only nested vector shape.
 `bitcast<T>` uses the canonical layout described in
 [Types and numerics](types-and-numerics.md#slicing-concatenation-and-representation):
-struct declaration field zero, vector element zero, and tuple `item0` are at the
-MSB. It requires exact packed width and performs no resize or scale change. A
+struct declaration field zero is at the MSB, while vector element zero and tuple
+`item0` are at the LSB. It requires exact packed width and performs no resize or scale change. A
 source or target containing a nominal enum is rejected; enum representation is
 not a public bitcast contract. `pack` and `unpack<T>` remain low-level
 compatibility spellings.
@@ -426,7 +426,7 @@ are retained once as deterministic monomorphic callable definitions. Each use
 site is a typed `Call` carrying the exact callee identity, signature, result
 type, and its own source origin. Analyses that require concrete arithmetic use
 the shared bounded call-expansion service; nominal reductions remain opaque to
-M32 and the frozen e-graph rewrite set. Direct SystemVerilog emits one
+exact reduction planning and the frozen e-graph rewrite set. Direct SystemVerilog emits one
 `function automatic` per specialization rather than cloning the body at every
 call site.
 

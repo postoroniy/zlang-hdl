@@ -10,9 +10,9 @@ from zlang.semantic import SemanticError, analyze
 ROOT = Path(__file__).resolve().parents[1]
 
 
-class RequestResponseHierarchyM40Tests(unittest.TestCase):
+class RequestResponseHierarchyTests(unittest.TestCase):
     def source(self) -> str:
-        return (ROOT / "examples/hierarchical_request_response_m40.zhl").read_text()
+        return (ROOT / "examples/hierarchical_request_response.zhl").read_text()
 
     def test_requester_responder_channels_are_elaborated(self) -> None:
         module = analyze(parse(self.source()))
@@ -37,7 +37,7 @@ class RequestResponseHierarchyM40Tests(unittest.TestCase):
 
     def test_manifest_publishes_both_channel_bindings(self) -> None:
         module = analyze(parse(self.source()))
-        artifact = emit_artifact(module, selected_ir_identity="rr-m40")
+        artifact = emit_artifact(module, selected_ir_identity="rr-hierarchy_composition")
         ids = {binding.semantic_signal_id for binding in artifact.bindings}
         self.assertIn("endpoint:requester.bus.request.payload", ids)
         self.assertIn("endpoint:requester.bus.request.ready", ids)
@@ -72,7 +72,7 @@ class RequestResponseHierarchyM40Tests(unittest.TestCase):
         self.assertEqual(descriptor.requester, "requester")
         self.assertEqual(descriptor.responder, "responder")
         self.assertEqual(descriptor.reset_epoch_policy, "synchronous_shared")
-        artifact = emit_artifact(module, selected_ir_identity="rr-m40-n2")
+        artifact = emit_artifact(module, selected_ir_identity="rr-hierarchy_composition-n2")
         binding_ids = {binding.semantic_signal_id for binding in artifact.bindings}
         self.assertIn(f"{descriptor.semantic_id}:outstanding", binding_ids)
         self.assertIn(f"{descriptor.semantic_id}:waiting_response", binding_ids)

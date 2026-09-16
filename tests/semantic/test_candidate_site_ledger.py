@@ -1,4 +1,4 @@
-"""Selection-owned M39 candidate-site ledger coverage."""
+"""Selection-owned formal-aware selection candidate-site ledger coverage."""
 
 from __future__ import annotations
 
@@ -42,7 +42,7 @@ from zlang.simulate import simulate
 
 
 class _BoundVerifier:
-    formal_route = "M36_direct_systemverilog"
+    formal_route = "semantic_equivalence_direct_systemverilog"
 
     def __init__(self, callback):
         self.callback = callback
@@ -51,7 +51,7 @@ class _BoundVerifier:
     def _identity(candidate) -> dict[str, str]:
         suffix = candidate.implementation_identity
         return {
-            "property_identity": f"m36.candidate-ledger.{suffix}",
+            "property_identity": f"semantic_equivalence.candidate-ledger.{suffix}",
             "reference_artifact_hash": "a" * 64,
             "implementation_artifact_hash": "b" * 64,
             "artifact_hash": "b" * 64,
@@ -105,7 +105,7 @@ module Top {
 """
 
 
-def test_m39_rewrite_uses_exact_child_specialization_owner() -> None:
+def test_formal_selection_rewrite_uses_exact_child_specialization_owner() -> None:
     session = CompilationSession(
         _SPECIALIZED_CHILD_EXPLORE,
         top="Top",
@@ -420,7 +420,7 @@ def test_candidate_ledger_identity_is_origin_insensitive() -> None:
     assert CandidateSiteLedger.from_json(left.to_json()) == left
 
 
-def test_m39_origin_stripping_preserves_execution_and_evidence_identity() -> None:
+def test_formal_selection_origin_stripping_preserves_execution_and_evidence_identity() -> None:
     source = (
         "module OriginFormal { in a:u8 out y:u8 "
         "y=implement { a ^ 0 intent { minimize lut } } }"

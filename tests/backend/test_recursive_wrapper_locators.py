@@ -1,4 +1,4 @@
-"""Production recursive locators include the public ABI's private state root."""
+"""Production recursive locators start at the inline public top state root."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ from zlang.formal import build_recursive_formal_design
 
 
 @pytest.mark.skipif(shutil.which("verilator") is None, reason="Verilator unavailable")
-def test_recursive_locators_match_public_wrapper_state_root(tmp_path: Path) -> None:
+def test_recursive_locators_match_inline_public_top_state_root(tmp_path: Path) -> None:
     variants = (
         ("struct", "Pair", "p.a", "Pair {a=c.y b=p.b}", ""),
         ("vector", "vec<2,u8>", "p[0]", "[c.y,p[1]]", ""),
@@ -60,12 +60,10 @@ def test_recursive_locators_match_public_wrapper_state_root(tmp_path: Path) -> N
         assert restored.recursive_bindings == artifact.recursive_bindings
         bundle = build_systemverilog_simulation_state_bundle(compilation.ir, artifact)
         state_root = physical_state_root_path(compilation.ir)
-        expected_core = () if label == "scalar" else (state_root[2],)
-        assert len(state_root) == (2 if label == "scalar" else 3)
-        if label == "collision":
-            assert state_root[2].startswith("zlang_top_core_")
-        elif label != "scalar":
-            assert state_root[2] == "zlang_top_core"
+        expected_core: tuple[str, ...] = ()
+        assert state_root == ("TOP", "Top")
+        assert "module Top_zlang_core (" not in artifact.text
+        assert " zlang_top_core (" not in artifact.text
 
         registers = [b for b in artifact.recursive_bindings if b.local_semantic_id.startswith("register:")]
         assert len(registers) == 2
@@ -77,7 +75,7 @@ def test_recursive_locators_match_public_wrapper_state_root(tmp_path: Path) -> N
             is_root = len(binding.physical_instance_path) == 1
             assert binding.rtl_path == expected_core + (() if is_root else ("c",))
             if is_root:
-                assert binding.rtl_module == ("Top" if label == "scalar" else "Top_zlang_core")
+                assert binding.rtl_module == "Top"
             else:
                 assert binding.rtl_module.startswith("Child_s")
             # These are production/debug locations, not executable formal

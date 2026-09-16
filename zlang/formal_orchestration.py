@@ -1,9 +1,9 @@
-"""Compiler-owned view over the production M35, M36, and M39 products.
+"""Compiler-owned view over the production safety verification, semantic-reference equivalence, and formal-aware selection products.
 
-This module deliberately does not merge the independently versioned M35, M36,
-or M39 result types.  It records how one compilation relates the
+This module deliberately does not merge the independently versioned safety verification, semantic-reference equivalence,
+or formal-aware selection result types.  It records how one compilation relates the
 per-goal verification plan to the selection-owned candidate ledger and to the
-M39 evidence records that already exist on selected IR.
+formal-aware selection evidence records that already exist on selected IR.
 """
 
 from __future__ import annotations
@@ -74,8 +74,8 @@ def _integer(value: object, label: str) -> int:
 
 
 @dataclass(frozen=True)
-class M39AttemptReference:
-    """Stable reference from the compiler plan to one existing M39 record."""
+class FormalSelectionAttemptReference:
+    """Stable reference from the compiler plan to one existing formal-aware selection record."""
 
     site_identity: str
     candidate_identity: str
@@ -89,10 +89,10 @@ class M39AttemptReference:
     route: str
 
     def __post_init__(self) -> None:
-        _string(self.site_identity, "M39 candidate-site identity")
-        _string(self.candidate_identity, "M39 candidate identity")
-        _integer(self.rank, "M39 candidate rank")
-        _string(self.evidence_id, "M39 evidence identity")
+        _string(self.site_identity, "formal-aware selection candidate-site identity")
+        _string(self.candidate_identity, "formal-aware selection candidate identity")
+        _integer(self.rank, "formal-aware selection candidate rank")
+        _string(self.evidence_id, "formal-aware selection evidence identity")
         try:
             object.__setattr__(self, "policy", FormalPolicy(self.policy))
         except ValueError as error:
@@ -101,36 +101,36 @@ class M39AttemptReference:
             "not_run", "bounded_pass", "proven", "failed", "unknown", "skipped",
         }:
             raise FormalOrchestrationError(
-                f"unsupported M39 attempt status '{self.status}'"
+                f"unsupported formal-aware selection attempt status '{self.status}'"
             )
         if self.mode is not None and self.mode not in {"bmc", "prove"}:
             raise FormalOrchestrationError(
-                f"unsupported M39 attempt mode '{self.mode}'"
+                f"unsupported formal-aware selection attempt mode '{self.mode}'"
             )
         if self.depth is not None:
-            _integer(self.depth, "M39 attempt depth")
+            _integer(self.depth, "formal-aware selection attempt depth")
         if self.status == "not_run" and (
             self.mode is not None or self.depth is not None
         ):
             raise FormalOrchestrationError(
-                "an unexecuted M39 attempt cannot carry mode or depth"
+                "an unexecuted formal-aware selection attempt cannot carry mode or depth"
             )
         if self.status == "bounded_pass" and (
             self.mode != "bmc" or self.depth is None
         ):
             raise FormalOrchestrationError(
-                "M39 bounded_pass requires BMC mode and a positive depth"
+                "formal-aware selection bounded_pass requires BMC mode and a positive depth"
             )
         if self.status == "failed" and (
             self.mode not in {"bmc", "prove"} or self.depth is None
         ):
             raise FormalOrchestrationError(
-                "M39 failed requires BMC or prove mode and a positive depth"
+                "formal-aware selection failed requires BMC or prove mode and a positive depth"
             )
         if self.status == "proven" and self.mode != "prove":
-            raise FormalOrchestrationError("M39 proven requires prove mode")
-        _optional_string(self.property_identity, "M39 property identity")
-        _string(self.route, "M39 formal route")
+            raise FormalOrchestrationError("formal-aware selection proven requires prove mode")
+        _optional_string(self.property_identity, "formal-aware selection property identity")
+        _string(self.route, "formal-aware selection formal route")
 
     @classmethod
     def from_evidence(
@@ -139,31 +139,31 @@ class M39AttemptReference:
         site_identity: str,
         rank: int,
         evidence: EvidenceRecord,
-    ) -> "M39AttemptReference":
-        if evidence.claim != "m39.formal_candidate_eligibility":
+    ) -> "FormalSelectionAttemptReference":
+        if evidence.claim != "formal_selection.formal_candidate_eligibility":
             raise FormalOrchestrationError(
-                "M39 attempt reference requires M39 candidate evidence"
+                "formal-aware selection attempt reference requires formal-aware selection candidate evidence"
             )
         if evidence.candidate_identity is None or evidence.route is None:
             raise FormalOrchestrationError(
-                "M39 candidate evidence is missing candidate or route identity"
+                "formal-aware selection candidate evidence is missing candidate or route identity"
             )
         details = dict(evidence.details)
         try:
             policy = FormalPolicy(details["policy"])
         except (KeyError, ValueError) as error:
             raise FormalOrchestrationError(
-                "M39 candidate evidence has no valid formal policy"
+                "formal-aware selection candidate evidence has no valid formal policy"
             ) from error
         try:
             evidence_rank = int(details["rank"])
         except (KeyError, ValueError) as error:
             raise FormalOrchestrationError(
-                "M39 candidate evidence has no valid rank"
+                "formal-aware selection candidate evidence has no valid rank"
             ) from error
         if evidence_rank != rank:
             raise FormalOrchestrationError(
-                "M39 candidate evidence rank differs from its candidate ledger"
+                "formal-aware selection candidate evidence rank differs from its candidate ledger"
             )
         return cls(
             site_identity,
@@ -196,44 +196,44 @@ class M39AttemptReference:
         return self.identity_data()
 
     @classmethod
-    def from_data(cls, value: object) -> "M39AttemptReference":
-        data = _mapping(value, "M39 attempt reference")
+    def from_data(cls, value: object) -> "FormalSelectionAttemptReference":
+        data = _mapping(value, "formal-aware selection attempt reference")
         _exact_keys(
             data,
             {
                 "site_identity", "candidate_identity", "rank", "evidence_id",
                 "policy", "status", "mode", "depth", "property_identity", "route",
             },
-            "M39 attempt reference",
+            "formal-aware selection attempt reference",
         )
         depth = data["depth"]
         if depth is not None:
-            depth = _integer(depth, "M39 attempt depth")
+            depth = _integer(depth, "formal-aware selection attempt depth")
         try:
-            policy = FormalPolicy(_string(data["policy"], "M39 formal policy"))
+            policy = FormalPolicy(_string(data["policy"], "formal-aware selection formal policy"))
         except ValueError as error:
             raise FormalOrchestrationError(str(error)) from error
         return cls(
-            _string(data["site_identity"], "M39 candidate-site identity"),
-            _string(data["candidate_identity"], "M39 candidate identity"),
-            _integer(data["rank"], "M39 candidate rank"),
-            _string(data["evidence_id"], "M39 evidence identity"),
+            _string(data["site_identity"], "formal-aware selection candidate-site identity"),
+            _string(data["candidate_identity"], "formal-aware selection candidate identity"),
+            _integer(data["rank"], "formal-aware selection candidate rank"),
+            _string(data["evidence_id"], "formal-aware selection evidence identity"),
             policy,
-            _string(data["status"], "M39 attempt status"),
-            _optional_string(data["mode"], "M39 attempt mode"),
+            _string(data["status"], "formal-aware selection attempt status"),
+            _optional_string(data["mode"], "formal-aware selection attempt mode"),
             depth,
-            _optional_string(data["property_identity"], "M39 property identity"),
-            _string(data["route"], "M39 formal route"),
+            _optional_string(data["property_identity"], "formal-aware selection property identity"),
+            _string(data["route"], "formal-aware selection formal route"),
         )
 
 
 @dataclass(frozen=True)
 class CandidateEquivalencePlanReference:
-    """Typed direct-SystemVerilog M36 plan for one selected candidate site."""
+    """Typed direct-SystemVerilog semantic-reference equivalence plan for one selected candidate site."""
 
     site_identity: str
     candidate_identity: str
-    direct_systemverilog_m36: FormalGoalPlan
+    direct_systemverilog_semantic_equivalence: FormalGoalPlan
     implementation_observable_identity: str
 
     def __post_init__(self) -> None:
@@ -243,18 +243,18 @@ class CandidateEquivalencePlanReference:
             self.implementation_observable_identity,
             "candidate implementation observable identity",
         )
-        plan = self.direct_systemverilog_m36
+        plan = self.direct_systemverilog_semantic_equivalence
         if not isinstance(plan, FormalGoalPlan):
-            raise FormalOrchestrationError("direct-SystemVerilog M36 plan must be typed")
-        if plan.kind is not FormalPlanGoalKind.M36_EQUIVALENCE:
-            raise FormalOrchestrationError("direct-SystemVerilog M36 plan has the wrong kind")
+            raise FormalOrchestrationError("direct-SystemVerilog semantic-reference equivalence plan must be typed")
+        if plan.kind is not FormalPlanGoalKind.SEMANTIC_EQUIVALENCE:
+            raise FormalOrchestrationError("direct-SystemVerilog semantic-reference equivalence plan has the wrong kind")
         if plan.selected_ir_identity != self.candidate_identity:
             raise FormalOrchestrationError(
-                "direct-SystemVerilog M36 plan references a different candidate"
+                "direct-SystemVerilog semantic-reference equivalence plan references a different candidate"
             )
         if self.implementation_observable_identity not in plan.required_observations:
             raise FormalOrchestrationError(
-                "direct-SystemVerilog M36 plan does not publish the candidate "
+                "direct-SystemVerilog semantic-reference equivalence plan does not publish the candidate "
                 "implementation observable"
             )
 
@@ -266,7 +266,7 @@ class CandidateEquivalencePlanReference:
         return {
             "site_identity": self.site_identity,
             "candidate_identity": self.candidate_identity,
-            "direct_systemverilog_m36": self.direct_systemverilog_m36.plan_identity,
+            "direct_systemverilog_semantic_equivalence": self.direct_systemverilog_semantic_equivalence.plan_identity,
             "implementation_observable_identity": self.implementation_observable_identity,
         }
 
@@ -274,7 +274,7 @@ class CandidateEquivalencePlanReference:
         return {
             "site_identity": self.site_identity,
             "candidate_identity": self.candidate_identity,
-            "direct_systemverilog_m36": self.direct_systemverilog_m36.to_data(),
+            "direct_systemverilog_semantic_equivalence": self.direct_systemverilog_semantic_equivalence.to_data(),
             "implementation_observable_identity": self.implementation_observable_identity,
             "plan_identity": self.plan_identity,
         }
@@ -283,14 +283,14 @@ class CandidateEquivalencePlanReference:
     def from_data(cls, value: object) -> "CandidateEquivalencePlanReference":
         data = _mapping(value, "candidate equivalence plan")
         _exact_keys(data, {
-            "site_identity", "candidate_identity", "direct_systemverilog_m36",
+            "site_identity", "candidate_identity", "direct_systemverilog_semantic_equivalence",
             "implementation_observable_identity", "plan_identity",
         }, "candidate equivalence plan")
         try:
             restored = cls(
                 _string(data["site_identity"], "candidate equivalence site"),
                 _string(data["candidate_identity"], "candidate identity"),
-                FormalGoalPlan.from_data(data["direct_systemverilog_m36"]),
+                FormalGoalPlan.from_data(data["direct_systemverilog_semantic_equivalence"]),
                 _string(data["implementation_observable_identity"],
                         "candidate implementation observable identity"),
             )
@@ -305,10 +305,10 @@ class CandidateEquivalencePlanReference:
 
 @dataclass(frozen=True)
 class CandidateEquivalenceExecutionReport:
-    """Typed direct-SystemVerilog M36 result linked to its exact plan."""
+    """Typed direct-SystemVerilog semantic-reference equivalence result linked to its exact plan."""
 
     plan: CandidateEquivalencePlanReference
-    direct_systemverilog_m36: EquivalenceResult
+    direct_systemverilog_semantic_equivalence: EquivalenceResult
     bounded_prerequisite: EquivalenceResult | None = None
     tool_versions: tuple[tuple[str, str], ...] = ()
     work_directories: tuple[tuple[str, str], ...] = ()
@@ -319,15 +319,15 @@ class CandidateEquivalenceExecutionReport:
                 "candidate equivalence execution requires a typed plan"
             )
         for label, result in (
-            ("direct-SystemVerilog M36", self.direct_systemverilog_m36),
+            ("direct-SystemVerilog semantic-reference equivalence", self.direct_systemverilog_semantic_equivalence),
             ("bounded prerequisite", self.bounded_prerequisite),
         ):
             if result is not None and not isinstance(result, EquivalenceResult):
-                raise FormalOrchestrationError(f"{label} must be typed M36 evidence")
+                raise FormalOrchestrationError(f"{label} must be typed semantic-reference equivalence evidence")
             if result is not None and result.property_id != (
-                self.plan.direct_systemverilog_m36.property_identity
+                self.plan.direct_systemverilog_semantic_equivalence.property_identity
             ):
-                raise FormalOrchestrationError(f"{label} differs from its M36 plan")
+                raise FormalOrchestrationError(f"{label} differs from its semantic-reference equivalence plan")
         if (
             self.bounded_prerequisite is not None
             and self.bounded_prerequisite.mode.value != "bmc"
@@ -356,13 +356,13 @@ class CandidateEquivalenceExecutionReport:
     def verification_failure(self) -> bool:
         return any(
             item is not None and item.status is EquivalenceStatus.FAILED
-            for item in (self.bounded_prerequisite, self.direct_systemverilog_m36)
+            for item in (self.bounded_prerequisite, self.direct_systemverilog_semantic_equivalence)
         )
 
     @property
     def evidence_records(self) -> tuple[EvidenceRecord, ...]:
         unique: dict[str, EvidenceRecord] = {}
-        for result in (self.bounded_prerequisite, self.direct_systemverilog_m36):
+        for result in (self.bounded_prerequisite, self.direct_systemverilog_semantic_equivalence):
             if result is not None:
                 evidence = evidence_from_equivalence_result(result)
                 unique.setdefault(evidence.evidence_id, evidence)
@@ -371,8 +371,8 @@ class CandidateEquivalenceExecutionReport:
     def to_data(self) -> dict[str, object]:
         return {
             "plan": self.plan.to_data(),
-            "direct_systemverilog_m36": equivalence_result_to_data(
-                self.direct_systemverilog_m36
+            "direct_systemverilog_semantic_equivalence": equivalence_result_to_data(
+                self.direct_systemverilog_semantic_equivalence
             ),
             "bounded_prerequisite": (
                 None if self.bounded_prerequisite is None
@@ -386,7 +386,7 @@ class CandidateEquivalenceExecutionReport:
     def from_data(cls, value: object) -> "CandidateEquivalenceExecutionReport":
         data = _mapping(value, "candidate equivalence execution report")
         _exact_keys(data, {
-            "plan", "direct_systemverilog_m36", "bounded_prerequisite",
+            "plan", "direct_systemverilog_semantic_equivalence", "bounded_prerequisite",
             "tool_versions", "work_directories",
         }, "candidate equivalence execution report")
         def pairs(value: object, label: str) -> tuple[tuple[str, str], ...]:
@@ -404,7 +404,7 @@ class CandidateEquivalenceExecutionReport:
             return tuple(result)
         return cls(
             CandidateEquivalencePlanReference.from_data(data["plan"]),
-            equivalence_result_from_data(data["direct_systemverilog_m36"]),
+            equivalence_result_from_data(data["direct_systemverilog_semantic_equivalence"]),
             None if data["bounded_prerequisite"] is None else
                 equivalence_result_from_data(data["bounded_prerequisite"]),
             pairs(data["tool_versions"], "tool versions"),
@@ -434,7 +434,7 @@ def _compilation_formal_policy(compilation: object) -> FormalPolicy:
         ) from error
 
 
-def _m39_site_evidence(
+def _formal_selection_site_evidence(
     compilation: object,
 ) -> tuple[tuple[CandidateSiteRecord, EvidenceRecord], ...]:
     """Join retained records to their exact semantic sites.
@@ -445,7 +445,7 @@ def _m39_site_evidence(
 
     if _compilation_formal_policy(compilation) is FormalPolicy.OFF:
         # Selection retains useful ``not_run`` metadata under the OFF policy,
-        # but it is not an M39 attempt and must not leak into evidence.
+        # but it is not an formal-aware selection attempt and must not leak into evidence.
         return ()
 
     module = getattr(compilation, "ir", None)
@@ -468,7 +468,7 @@ def _m39_site_evidence(
         site = ledger_sites.get(derived_site.identity)
         if site is None:
             raise FormalOrchestrationError(
-                f"M39 record references unknown candidate site '{derived_site.identity}'"
+                f"formal-aware selection record references unknown candidate site '{derived_site.identity}'"
             )
         matches = tuple(
             candidate
@@ -477,7 +477,7 @@ def _m39_site_evidence(
         )
         if len(matches) != 1 or matches[0].rank != record.rank:
             raise FormalOrchestrationError(
-                "M39 record candidate/rank differs from its exact candidate site"
+                "formal-aware selection record candidate/rank differs from its exact candidate site"
             )
         evidence = evidence_from_formal_exploration_record(
             record,
@@ -487,7 +487,7 @@ def _m39_site_evidence(
         if previous is not None:
             if previous != (site, evidence):
                 raise FormalOrchestrationError(
-                    f"M39 evidence '{evidence.evidence_id}' is retained inconsistently"
+                    f"formal-aware selection evidence '{evidence.evidence_id}' is retained inconsistently"
                 )
             continue
         by_identity[evidence.evidence_id] = (site, evidence)
@@ -495,10 +495,10 @@ def _m39_site_evidence(
     return tuple(sorted(typed, key=lambda item: item[1].evidence_id))
 
 
-def collect_m39_evidence(compilation: object) -> tuple[EvidenceRecord, ...]:
-    """Collect every retained M39 record across all frozen candidate entry points."""
+def collect_formal_selection_evidence(compilation: object) -> tuple[EvidenceRecord, ...]:
+    """Collect every retained formal-aware selection record across all frozen candidate entry points."""
 
-    return tuple(evidence for _, evidence in _m39_site_evidence(compilation))
+    return tuple(evidence for _, evidence in _formal_selection_site_evidence(compilation))
 
 
 @dataclass(frozen=True)
@@ -509,7 +509,7 @@ class CompilerFormalExecutionPlan:
     verification_plan: FormalExecutionPlan
     candidate_site_ledger: CandidateSiteLedger
     formal_policy: FormalPolicy
-    m39_attempts: tuple[M39AttemptReference, ...] = ()
+    formal_selection_attempts: tuple[FormalSelectionAttemptReference, ...] = ()
     candidate_equivalence_plans: tuple[CandidateEquivalencePlanReference, ...] = ()
     schema_version: int = COMPILER_FORMAL_EXECUTION_PLAN_SCHEMA
 
@@ -542,21 +542,21 @@ class CompilerFormalExecutionPlan:
                 "unsupported compiler formal execution-plan schema"
             )
         ordered = tuple(sorted(
-            self.m39_attempts,
+            self.formal_selection_attempts,
             key=lambda item: (item.site_identity, item.rank, item.evidence_id),
         ))
-        object.__setattr__(self, "m39_attempts", ordered)
+        object.__setattr__(self, "formal_selection_attempts", ordered)
         evidence_ids = tuple(item.evidence_id for item in ordered)
         if len(evidence_ids) != len(set(evidence_ids)):
             raise FormalOrchestrationError(
-                "compiler formal plan contains duplicate M39 evidence references"
+                "compiler formal plan contains duplicate formal-aware selection evidence references"
             )
         sites = {item.identity: item for item in self.candidate_site_ledger.sites}
         for attempt in ordered:
             site = sites.get(attempt.site_identity)
             if site is None:
                 raise FormalOrchestrationError(
-                    f"M39 attempt references unknown candidate site '{attempt.site_identity}'"
+                    f"formal-aware selection attempt references unknown candidate site '{attempt.site_identity}'"
                 )
             matches = tuple(
                 item for item in site.candidates
@@ -564,15 +564,15 @@ class CompilerFormalExecutionPlan:
             )
             if len(matches) != 1 or matches[0].rank != attempt.rank:
                 raise FormalOrchestrationError(
-                    "M39 attempt candidate/rank differs from its candidate ledger"
+                    "formal-aware selection attempt candidate/rank differs from its candidate ledger"
                 )
             if attempt.policy is not self.formal_policy:
                 raise FormalOrchestrationError(
-                    "M39 attempt policy differs from the compiler formal policy"
+                    "formal-aware selection attempt policy differs from the compiler formal policy"
                 )
         if self.formal_policy is FormalPolicy.OFF and ordered:
             raise FormalOrchestrationError(
-                "formal policy 'off' cannot contain executed M39 attempt records"
+                "formal policy 'off' cannot contain executed formal-aware selection attempt records"
             )
         candidate_plans = tuple(sorted(
             self.candidate_equivalence_plans,
@@ -612,8 +612,8 @@ class CompilerFormalExecutionPlan:
         return "compiler-formal-plan:" + stable_digest(self.identity_data())
 
     @property
-    def m39_evidence_ids(self) -> tuple[str, ...]:
-        return tuple(item.evidence_id for item in self.m39_attempts)
+    def formal_selection_evidence_ids(self) -> tuple[str, ...]:
+        return tuple(item.evidence_id for item in self.formal_selection_attempts)
 
     def identity_data(self) -> dict[str, object]:
         return {
@@ -622,7 +622,7 @@ class CompilerFormalExecutionPlan:
             "verification_plan": self.verification_plan.identity_data(),
             "candidate_site_ledger": self.candidate_site_ledger.to_identity_data(),
             "formal_policy": self.formal_policy.value,
-            "m39_attempts": [item.identity_data() for item in self.m39_attempts],
+            "formal_selection_attempts": [item.identity_data() for item in self.formal_selection_attempts],
             "candidate_equivalence_plans": [
                 item.identity_data() for item in self.candidate_equivalence_plans
             ],
@@ -635,7 +635,7 @@ class CompilerFormalExecutionPlan:
             "verification_plan": self.verification_plan.to_data(),
             "candidate_site_ledger": self.candidate_site_ledger.to_data(),
             "formal_policy": self.formal_policy.value,
-            "m39_attempts": [item.to_data() for item in self.m39_attempts],
+            "formal_selection_attempts": [item.to_data() for item in self.formal_selection_attempts],
             "candidate_equivalence_plans": [
                 item.to_data() for item in self.candidate_equivalence_plans
             ],
@@ -652,14 +652,14 @@ class CompilerFormalExecutionPlan:
             data,
             {
                 "schema_version", "selected_ir_identity", "verification_plan",
-                "candidate_site_ledger", "formal_policy", "m39_attempts",
+                "candidate_site_ledger", "formal_policy", "formal_selection_attempts",
                 "candidate_equivalence_plans", "plan_identity",
             },
             "compiler formal execution plan",
         )
-        attempts = data["m39_attempts"]
+        attempts = data["formal_selection_attempts"]
         if not isinstance(attempts, list):
-            raise FormalOrchestrationError("M39 attempts must be an array")
+            raise FormalOrchestrationError("formal-aware selection attempts must be an array")
         candidate_plans = data["candidate_equivalence_plans"]
         if not isinstance(candidate_plans, list):
             raise FormalOrchestrationError(
@@ -681,7 +681,7 @@ class CompilerFormalExecutionPlan:
             verification,
             ledger,
             policy,
-            tuple(M39AttemptReference.from_data(item) for item in attempts),
+            tuple(FormalSelectionAttemptReference.from_data(item) for item in attempts),
             tuple(
                 CandidateEquivalencePlanReference.from_data(item)
                 for item in candidate_plans
@@ -720,9 +720,9 @@ def build_compiler_formal_execution_plan(
     if not isinstance(selected, str) or not selected:
         raise FormalOrchestrationError("compilation has no selected-IR identity")
     policy = _compilation_formal_policy(compilation)
-    site_evidence = _m39_site_evidence(compilation)
+    site_evidence = _formal_selection_site_evidence(compilation)
     evidence = tuple(item for _, item in site_evidence)
-    attempts: list[M39AttemptReference] = []
+    attempts: list[FormalSelectionAttemptReference] = []
     for site, record in site_evidence:
         assert record.candidate_identity is not None
         matches = tuple(
@@ -731,7 +731,7 @@ def build_compiler_formal_execution_plan(
             if candidate.candidate_identity == record.candidate_identity
         )
         assert len(matches) == 1
-        attempts.append(M39AttemptReference.from_evidence(
+        attempts.append(FormalSelectionAttemptReference.from_evidence(
             site_identity=site.identity,
             rank=matches[0].rank,
             evidence=record,
@@ -790,8 +790,8 @@ __all__ = [
     "CandidateEquivalencePlanReference",
     "CompilerFormalExecutionPlan",
     "FormalOrchestrationError",
-    "M39AttemptReference",
+    "FormalSelectionAttemptReference",
     "build_compiler_formal_execution_plan",
-    "collect_m39_evidence",
+    "collect_formal_selection_evidence",
     "validate_legacy_formal_view",
 ]

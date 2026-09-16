@@ -239,7 +239,7 @@ def test_combined_axi_burst_schema_survives_typed_and_canonical_ir() -> None:
         (WRITER, {"ready_valid:axi__aw", "ready_valid:axi__w"}),
     ),
 )
-def test_root_ready_valid_m35_executes_with_real_sby_z3(
+def test_root_ready_valid_safety_verification_executes_with_real_sby_z3(
     top: str, expected_assertions: set[str]
 ) -> None:
     compiled = compile_source(SOURCE, top=top)
@@ -262,8 +262,8 @@ def test_root_ready_valid_m35_executes_with_real_sby_z3(
 
     result = run_verilog_formal(
         emit_harness(design, depth=6),
-        top=f"{top}__m35_formal",
-        property_id=f"m35.connected.ztpu-axi-burst.{top}",
+        top=f"{top}__safety_verification_formal",
+        property_id=f"safety_verification.connected.ztpu-axi-burst.{top}",
         depth=6,
         systemverilog=True,
     )

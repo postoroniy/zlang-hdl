@@ -63,8 +63,8 @@ def _bench(top, latency):
                 f"if ($signed(result) !== {literal}) $fatal(1,\"vector {index}: %0d\",$signed(result));"
             )
     return (
-        "module tb; logic clk=0,rst=1; logic signed [11:0] samples[0:7]; "
-        "logic signed [11:0] coefficients[0:3]; wire signed [15:0] result; "
+        "module tb; logic clk=0,rst=1; logic signed [7:0][11:0] samples; "
+        "logic signed [3:0][11:0] coefficients; wire signed [15:0] result; "
         f"{top} dut(.clk,.rst,.samples,.coefficients,.result); "
         "task tick; begin #1 clk=1; #1; clk=0; #1; end endtask "
         f"initial begin tick; rst=0; {''.join(checks)} $finish; end endmodule\n"

@@ -1,34 +1,112 @@
 # Installing ZLang HDL and the external EDA toolchain
 
-ZLang HDL supports Linux x86-64 with Python 3.12 for the current alpha
-release. Parsing, semantic checking and direct-SystemVerilog generation need
-only the Python package. Verilator, Yosys, SymbiYosys and a solver are external
-programs used only when their corresponding lint, synthesis or formal flow is
-requested.
+ZLang HDL supports Linux x86-64 with CPython `>=3.12,<3.13` for the current
+alpha release. You do not need to find a distribution package for that exact
+runtime: the recommended `uv` workflow can download and manage it independently
+of the system Python. Parsing, semantic checking and direct-SystemVerilog
+generation need only the Python package. Verilator, Yosys, SymbiYosys and a
+solver are external programs used only when their corresponding lint,
+synthesis or formal flow is requested.
 
 The exact versions used by release acceptance are recorded in
 [`release/status.json`](../release/status.json). Other versions may work, but
 they are not evidence for the published release.
 
-## Install ZLang HDL
+## Recommended installation with uv
 
-For development from a Git checkout:
+Install [`uv`](https://docs.astral.sh/uv/getting-started/installation/) using
+its official platform instructions. Confirm that the executable is visible in
+the same terminal that will run ZLang:
+
+```sh
+uv --version
+```
+
+For ordinary use, install the wheel downloaded from the matching GitHub release
+as an isolated command-line tool. `uv` provisions the requested interpreter if
+it is not already present:
+
+```sh
+uv python install 3.12
+uv tool install --python 3.12 /path/to/zlang_hdl-VERSION-py3-none-any.whl
+zlang --version
+zlang-lock --version
+zlang-verify --version
+```
+
+If `uv` reports that its tool directory is not on `PATH`, run `uv tool
+update-shell`, then start a new shell. `uv tool dir --bin` prints the command
+directory for manual PATH configuration. To replace an installation made from
+a downloaded wheel, repeat `uv tool install --force ...` with the new wheel.
+
+For development from a Git checkout, keep the environment local to the
+repository:
 
 ```sh
 git clone https://github.com/postoroniy/zlang-hdl.git
 cd zlang-hdl
-python3.12 -m venv .venv
-.venv/bin/python -m pip install --upgrade pip
-.venv/bin/python -m pip install -e '.[test]'
+uv python install 3.12
+uv venv --python 3.12
+uv pip install -e '.[test]'
 ```
 
-For ordinary use, install a wheel downloaded from the matching GitHub release:
+The remainder of this guide uses `.venv/bin/zlang` so commands work in an
+editable checkout. With a `uv tool` installation, omit the `.venv/bin/` prefix.
+
+## Conventional venv and pip alternative
+
+If a compatible Python is already available, use whatever executable name the
+host provides; the example deliberately avoids assuming a version-suffixed
+command:
 
 ```sh
-python3.12 -m venv .venv
+python3 -c 'import sys; assert (3, 12) <= sys.version_info < (3, 13), sys.version'
+python3 -m venv .venv
 .venv/bin/python -m pip install --upgrade pip
 .venv/bin/python -m pip install /path/to/zlang_hdl-VERSION-py3-none-any.whl
 ```
+
+For an editable development checkout, replace the final line with:
+
+```sh
+.venv/bin/python -m pip install -e '.[test]'
+```
+
+This fallback needs a compatible interpreter and `venv` support from the host.
+Do not replace or upgrade the operating system's own Python merely to install
+ZLang; use `uv` or an isolated virtual environment.
+
+## Windows through WSL2
+
+The current release is tested as a Linux application, not as a native Windows
+Python package. On Windows 10/11, install WSL2 with an Ubuntu distribution,
+open the Ubuntu shell, and perform the Linux installation entirely inside it.
+For example:
+
+```sh
+sudo apt-get update
+sudo apt-get install -y curl git build-essential
+```
+
+Then install `uv` using its official Linux instructions and follow the `uv`
+steps above. Keep active projects under the WSL Linux filesystem, for example
+`~/src/zlang-hdl`, rather than `/mnt/c/...`; this generally gives much better
+compiler, Git, pytest and EDA-tool filesystem performance. Start VS Code through
+its WSL extension so the editor, `zlang-lsp`, Python environment and EDA
+executables all see the same Linux paths.
+
+Inside a development checkout, these forms are equivalent:
+
+```sh
+.venv/bin/zlang examples/add.zhl --check
+uv run --no-sync zlang examples/add.zhl --check
+```
+
+`uv run --no-sync` uses the already-created project environment without
+changing dependencies. The direct executable form is preferable in scripts
+because it makes the selected environment explicit.
+
+## Check and run ZLang
 
 Check the installed commands:
 
@@ -141,10 +219,26 @@ z3 --version
 iverilog -V
 ```
 
-The current release acceptance environment is Linux x86-64, Python 3.12,
-Verilator 5.044, Yosys/SymbiYosys 0.68, Z3 4.8.12 and Icarus/VVP 13.0. Consult
-`release/status.json` rather than copying these values into automation, because
-the status file is updated with each release candidate.
+The following are **verified versions**: they are the versions used to produce
+this release's acceptance evidence. They are not universal minimums, maximums,
+or a claim that adjacent upstream versions are incompatible.
+
+| Component | Verified version | Purpose |
+| --- | --- | --- |
+| Host | Linux x86-64 | Release and regression host |
+| CPython | 3.12.3 (package range `>=3.12,<3.13`) | Compiler, CLI and LSP runtime |
+| Verilator | 5.052 | Strict RTL lint and behavioral simulation |
+| Yosys | 0.69 | Generic synthesis and SMT preparation |
+| SymbiYosys (`sby`) | 0.69 | Formal job orchestration |
+| `yosys-smtbmc` | from verified Yosys installation | SMT model-checking driver |
+| Z3 | 4.8.12 | Verified external SMT solver |
+| Icarus Verilog / `vvp` | 14.0 | Selected event-driven simulations |
+
+The machine-readable authority is [`release/status.json`](../release/status.json).
+Consult it instead of copying this table into automation because it is updated
+with each release candidate. Other versions may work; validate them with the
+smoke tests relevant to the flow you intend to use. A detected executable is
+not, by itself, evidence that a formal or synthesis result is valid.
 
 Run a real formal smoke test:
 
@@ -166,13 +260,13 @@ ready/valid checking.
 
 ## Verification architecture and troubleshooting
 
-- M35 provides compiler-owned safety properties and source verification goals.
-- M36 compares supported selected implementations with the semantic reference.
-- M37 is the BackendArtifact and semantic-binding foundation used to connect
+- safety verification provides compiler-owned safety properties and source verification goals.
+- semantic-reference equivalence compares supported selected implementations with the semantic reference.
+- backend binding is the BackendArtifact and semantic-binding foundation used to connect
   formal observations to direct SystemVerilog.
-- M38 was the former Clash-to-direct-SV comparison. Clash is retired, so current
-  releases preserve historical M38 records only and do not execute M38.
-- M39 can require M36 evidence while selecting supported implementation
+- retired cross-backend equivalence was the former Clash-to-direct-SV comparison. Clash is retired, so current
+  releases preserve historical retired cross-backend equivalence records only and do not execute retired cross-backend equivalence.
+- formal-aware selection can require semantic-reference equivalence evidence while selecting supported implementation
   candidates.
 
 Formal execution is opt-in. `--check`, normal compilation and SystemVerilog

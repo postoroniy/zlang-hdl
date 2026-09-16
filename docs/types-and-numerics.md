@@ -22,8 +22,8 @@ terminator or length field and cannot be empty. They inherit vector indexing,
 equality, `length`, `generate`/`map`, homogeneous concatenation, pure functions,
 generic specialization, and typed compile-time constant parameters. Registers,
 FIFOs, synchronous memories, and ROMs store them with the same semantics as
-`vec<N,u8>`. When packed, the first character is the most-significant byte
-(`pack("AB") == 0x4142`). Unicode, interpolation, formatting, padding, and
+`vec<N,u8>`. When packed, the first character is the least-significant byte
+(`pack("AB") == 0x4241`). Unicode, interpolation, formatting, padding, and
 dynamic-length strings are not implicit operations.
 
 Tuples are structural ordered aggregates. Tuple types use `(T,U)` and tuple
@@ -353,8 +353,8 @@ out msb : bit = raw[23]
 Packed indices use conventional bit numbering: index zero is the least-
 significant bit, exactly as `[0:0]`. The selector must currently resolve at
 compile time, including inside `generate`; a runtime selector is rejected
-instead of being silently converted into a mux. Vector indexing is different:
-`vector[0]` is the first logical element and occupies the MSB packed region.
+instead of being silently converted into a mux. Vector element zero likewise
+occupies the least-significant packed element region.
 
 `concat(a,b,...)` accepts at least two operands. When every operand is a vector
 with the exact same element type it returns one longer vector, preserving source
@@ -427,9 +427,10 @@ and signed fixed-point values use their stored two's-complement pattern.
 Aggregate layout is deterministic and backend-independent:
 
 - struct field zero (declaration order) is at the MSB;
-- vector element zero is at the MSB;
-- tuple component `item0` is at the MSB;
-- nested structs, vectors, and structural tuples apply the same rule recursively.
+- vector element zero is at the LSB;
+- tuple component `item0` is at the LSB;
+- nested vectors and tuples apply the LSB-first rule recursively;
+- nested structs retain declaration-order/MSB-first field layout.
 
 The initialized `rom<T,N>` image format uses this same layout for each word.
 Images contain one exact-width binary word per line with address zero first;

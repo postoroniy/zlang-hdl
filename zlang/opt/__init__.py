@@ -27,6 +27,7 @@ from zlang.opt.identity import (
     canonical_ir_identity,
 )
 from zlang.opt.rewrite_model import (
+    CheckedValueCertificate,
     EquivalenceClass,
     SaturationResult,
     Term,
@@ -34,6 +35,7 @@ from zlang.opt.rewrite_model import (
     render_term,
     term_to_expression,
 )
+from zlang.opt.value_certificate import CHECKER_VERSION, ValueCertificateError
 from zlang.opt.saturation import SaturationError, saturate
 from zlang.opt.rewrite_spec import RewriteRegistration, RewriteRule
 
@@ -46,6 +48,8 @@ __all__ = [
     "EGraphNode",
     "EGraphProgram",
     "CanonicalizationError",
+    "CheckedValueCertificate",
+    "CHECKER_VERSION",
     "EffectKind",
     "EquivalenceMode",
     "EquivalenceClass",
@@ -60,6 +64,7 @@ __all__ = [
     "SaturationResult",
     "Signedness",
     "Term",
+    "ValueCertificateError",
     "equivalence_definition",
     "lower",
     "canonical_to_egraph",

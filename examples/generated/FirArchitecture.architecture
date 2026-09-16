@@ -4,7 +4,7 @@ objective: minimize lut
 search: source=1 value=1 architecture=3 reduction=16 legal=16 rejected=1
 search complete: no; search truncated at reduction expansion
 selected: source/dsp_mac identity=3fe143d16e30a6e7b3268da35d9ffbf48e48737b508bdd20f24f98c32bb4899a
-semantics: value=M29 exact typed value semantics; timing=same-cycle; protocol=not applicable
+semantics: value=architecture alternatives exact typed value semantics; timing=same-cycle; protocol=not applicable
 architecture intent: backend-independent metadata; physical DSP mapping is not claimed
 cost source: estimate_only; metrics retain per-field provenance
 formal: policy=off records=16

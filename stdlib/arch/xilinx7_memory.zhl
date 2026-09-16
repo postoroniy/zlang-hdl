@@ -8,4 +8,21 @@ architecture Xilinx7BRAM36SimpleDualPort {
     use_pipeline core_registered
 }
 
+// FIFO-only route: typed async_mem read_latency=1 at the RAM core (DO_REG=0).
+architecture Xilinx7AsyncFifoRAMB18 {
+    operation async_fifo_memory
+    require_resource RAMB18E1 1
+    latency 1
+    ii 1
+    use_pipeline core_registered
+}
+
+architecture Xilinx7AsyncFifoRAMB36 {
+    operation async_fifo_memory
+    require_resource RAMB36E1 1
+    latency 1
+    ii 1
+    use_pipeline core_registered
+}
+
 module Xilinx7MemoryArchitectureLibrary {}

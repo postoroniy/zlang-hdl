@@ -1,6 +1,6 @@
 """Typed IR for the bounded globally-stalled ready/valid pipeline slice.
 
-This relation is deliberately separate from M30 fixed-latency equivalence.  A
+This relation is deliberately separate from timing alignment fixed-latency equivalence.  A
 selected scalar implementation has a fixed *advance* latency, while wall-clock
 latency varies under downstream backpressure.
 """
@@ -103,7 +103,7 @@ class ElasticPipelineRegion:
     clock: str
     reset: str
     source_origin: SourceOrigin | None = field(default=None, compare=False)
-    # M39 route evidence is orchestration metadata, never elastic semantics.
+    # formal-aware selection route evidence is orchestration metadata, never elastic semantics.
     formal_records: tuple[object, ...] = field(default=(), compare=False)
 
     def __post_init__(self) -> None:

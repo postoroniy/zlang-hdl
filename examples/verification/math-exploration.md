@@ -91,7 +91,7 @@ bundle, structured report, cache, RTL, solver logs and counterexamples. It does
 not insert a test-only verifier or constrain inputs to selected test vectors.
 
 ```text
-Original canonical arithmetic  <->  selected direct-SV RTL   M36 / M39 gate
+Original canonical arithmetic  <->  selected direct-SV RTL   semantic-reference equivalence / formal-aware selection gate
 ```
 
 Comparison aligns each result with the original input sample at the selected
@@ -181,8 +181,8 @@ Exact source SHA256:
 `db002f4b7aaa492e673d9210f55eb060c5355045f849ff1be613845261534c14`.
 The same source snapshot produced the numerical, formal and timing evidence.
 This table records the pre-retirement dual-backend experiment. Current
-production verification executes only the direct-SV M36/M39 row; the Clash and
-M38 rows are historical evidence.
+production verification executes only the direct-SV semantic-reference equivalence/formal-aware selection row; the Clash and
+retired cross-backend equivalence rows are historical evidence.
 
 | Check | Recorded result |
 | --- | --- |
@@ -192,7 +192,7 @@ M38 rows are historical evidence.
 | Too-shallow pipeline comparison | depth 7 `unknown`, minimum meaningful depth 8 |
 | Output-bit-flip mutation | `failed`, counterexample at formal cycle 8 |
 | Missing-final-stage mutation | `failed`, counterexample at formal cycle 8 |
-| `MathArchitecture`: separate topology M39 check | `unknown` after 45 s and 120 s timeouts |
+| `MathArchitecture`: separate topology formal-aware selection check | `unknown` after 45 s and 120 s timeouts |
 
 The two mutation results demonstrate that checking arithmetic alone is insufficient:
 the formal comparison must preserve the originating sample and pipeline latency.
@@ -202,7 +202,7 @@ The separate `MathArchitecture` rank-1 `folded_p4` equivalence problem timed out
 while checking its first symbolic step. It passes the numerical/RTL tests and
 the timing experiment, but **does not have a successful formal equivalence
 result in this record**. The faster `MathExplore` proof is for its own selected
-candidate and must not be transferred to another topology. Required M39 policy
+candidate and must not be transferred to another topology. Required formal-aware selection policy
 correctly stops on the inconclusive result rather than accepting it or silently
 trying a different implementation:
 

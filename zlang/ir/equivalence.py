@@ -1,4 +1,4 @@
-"""Backend-independent selected-architecture equivalence IR (M36)."""
+"""Backend-independent selected-architecture equivalence IR (semantic-reference equivalence)."""
 
 from __future__ import annotations
 
@@ -74,7 +74,7 @@ class EquivalenceBinding:
 
     def __post_init__(self) -> None:
         if self.map_version < 2:
-            raise EquivalenceError("M36 binding maps require version 2 or newer")
+            raise EquivalenceError("semantic-reference equivalence binding maps require version 2 or newer")
         if not self.semantic_signal_id or not self.selected_ir_identity:
             raise EquivalenceError("equivalence bindings require semantic and selected identities")
         if self.width < 1:
@@ -155,7 +155,7 @@ class EquivalenceProperty:
         if self.reference_latency < 0 or self.implementation_latency < 0:
             raise EquivalenceError("equivalence latency cannot be negative")
         if self.reference_ii != 1 or self.implementation_ii != 1:
-            raise EquivalenceError("M36 equivalence requires II=1")
+            raise EquivalenceError("semantic-reference equivalence equivalence requires II=1")
         if self.latency_delta != self.implementation_latency - self.reference_latency:
             raise EquivalenceError("latency delta does not match timing records")
         if self.relation_kind is EquivalenceRelation.SAME_CYCLE_VALUE:
@@ -184,7 +184,7 @@ class EquivalenceProperty:
                 raise EquivalenceError(str(error)) from error
             if contract.power_up is not PowerUpPolicy.UNSPECIFIED:
                 raise EquivalenceError(
-                    "M36 executable equivalence does not support power_up reset"
+                    "semantic-reference equivalence executable equivalence does not support power_up reset"
                 )
             named_clocks = {
                 item
@@ -275,7 +275,7 @@ class EquivalenceResult:
 
 def stable_equivalence_id(reference_root: str, implementation_root: str, candidate_class: str) -> str:
     digest = hashlib.sha256(f"{reference_root}|{implementation_root}|{candidate_class}".encode()).hexdigest()[:12]
-    return f"m36.equiv.{candidate_class}.{digest}"
+    return f"semantic_equivalence.equiv.{candidate_class}.{digest}"
 
 
 def signedness(type_: HardwareType) -> str:

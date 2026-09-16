@@ -240,7 +240,7 @@ def test_constant_runtime_value_covers_legacy_pack_unpack_and_collection_nodes()
     assert constant_runtime_value(expr.Unpack(joined, SIntType(8))) == -93
     assert constant_runtime_value(
         expr.Bitcast(joined, VecType(2, u4))
-    ) == (0xA, 0x3)
+    ) == (0x3, 0xA)
 
     row_type = VecType(2, u4)
     flat_type = VecType(4, u4)

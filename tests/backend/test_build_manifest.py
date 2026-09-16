@@ -60,9 +60,9 @@ def _manifest(*, reverse: bool = False, origin_line: int = 1) -> WholeBuildManif
     evidence = (
         EvidenceRecord(
             "formal.top", "safety", "bounded_pass", "bmc", 8,
-            property_id="m35.top", candidate_identity=_hash("candidate"),
+            property_id="safety_verification.top", candidate_identity=_hash("candidate"),
             backend="systemverilog", artifact_hash=sv.content_hash,
-            engine="sby", solver="z3", route="m35",
+            engine="sby", solver="z3", route="safety_verification",
             details=(("family", "register"),), source_origin=_origin(origin_line, "guarantee"),
         ),
         EvidenceRecord("typed.top", "type_check", "typed_legal"),

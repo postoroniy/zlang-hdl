@@ -90,7 +90,7 @@ is not.
 
 This slice adds no new language syntax, temporal property, or backend dispatch.
 It does not implement tail bits, padding, puncturing, final-byte masks, packet
-identity, interleaving, mapping, IFFT, or a complete transmitter. Existing M35
+identity, interleaving, mapping, IFFT, or a complete transmitter. Existing safety verification
 register/FIFO/ready-valid/rule safety checks may be reused, but progress and
 deadlock freedom are validated behaviorally rather than by adding liveness
 infrastructure.

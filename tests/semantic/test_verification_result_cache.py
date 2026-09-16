@@ -43,8 +43,8 @@ _VERSIONS = (
 )
 
 
-def _m35_result_entries(cache: Path) -> tuple[Path, ...]:
-    return tuple((cache / "M35" / "results").glob("*.json"))
+def _safety_verification_result_entries(cache: Path) -> tuple[Path, ...]:
+    return tuple((cache / "safety verification" / "results").glob("*.json"))
 
 
 def _toolchain(monkeypatch, versions=_VERSIONS) -> None:
@@ -63,7 +63,7 @@ def test_decisive_result_cache_hit_bypasses_solver_and_strips_work_path(
 ) -> None:
     routed_job = replace(
         _job(),
-        route="m35_direct_sv",
+        route="safety_verification_direct_sv",
         backend="systemverilog",
         artifact_hash=_digest("artifact"),
         binding_identity=_digest("bindings"),
@@ -109,7 +109,7 @@ def test_decisive_result_cache_hit_bypasses_solver_and_strips_work_path(
     assert second.tool_versions[-1] == ("boolector", "Boolector new")
     assert first.results[0].work_directory is not None
     assert second.results[0].work_directory is None
-    entries = _m35_result_entries(cache)
+    entries = _safety_verification_result_entries(cache)
     assert len(entries) == 1
     envelope = json.loads(entries[0].read_text())
     assert envelope["schema"] == "zlang-verification-result-cache-v1"
@@ -146,7 +146,7 @@ def test_legacy_flat_result_cache_entry_is_read_without_solver(
     monkeypatch.setattr("zlang.verification_bundle.run_verilog_formal", run)
     cache = tmp_path / "cache"
     run_verification_bundle(tmp_path / "bundle", cache_directory=cache)
-    canonical = next(iter(_m35_result_entries(cache)))
+    canonical = next(iter(_safety_verification_result_entries(cache)))
     legacy = cache / canonical.name
     canonical.replace(legacy)
 
@@ -248,7 +248,7 @@ def test_staged_proof_reuses_bounded_and_proven_results(
 
     assert calls == [ProofMode.BMC, ProofMode.PROVE]
     assert discoveries == 2  # once per CompilationSession-style staged invocation
-    assert len(_m35_result_entries(cache)) == 2
+    assert len(_safety_verification_result_entries(cache)) == 2
 
 
 def test_unknown_timeout_result_is_never_cached(tmp_path: Path, monkeypatch) -> None:
@@ -331,7 +331,7 @@ def test_tampered_cache_hash_is_a_miss_and_is_atomically_repaired(
     monkeypatch.setattr("zlang.verification_bundle.run_verilog_formal", run)
     cache = tmp_path / "cache"
     run_verification_bundle(tmp_path / "bundle", cache_directory=cache)
-    entry = next(iter(_m35_result_entries(cache)))
+    entry = next(iter(_safety_verification_result_entries(cache)))
     tampered = json.loads(entry.read_text())
     tampered["result"]["depth"] = 99
     entry.write_text(json.dumps(tampered))
@@ -348,7 +348,7 @@ def test_tampered_cache_hash_is_a_miss_and_is_atomically_repaired(
 def test_cache_key_binds_route_config_and_only_relevant_tools(tmp_path: Path) -> None:
     routed_job = replace(
         _job(),
-        route="m35_direct_sv",
+        route="safety_verification_direct_sv",
         backend="systemverilog",
         artifact_hash=_digest("artifact"),
         binding_identity=_digest("bindings"),
@@ -456,7 +456,7 @@ def test_vacuous_unknown_is_not_cached_but_decisive_cover_is(
 
     assert safety_calls == 2
     assert cover_calls == 1
-    assert len(_m35_result_entries(cache)) == 1
+    assert len(_safety_verification_result_entries(cache)) == 1
 
 
 def test_standalone_cli_forwards_cache_directory(tmp_path: Path, monkeypatch, capsys) -> None:

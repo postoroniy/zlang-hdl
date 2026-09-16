@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
+import re
 import shutil
+import subprocess
 import tempfile
 
 import pytest
@@ -75,6 +78,16 @@ module WrapperInstanceCollision {
 """
 
 
+PACKED_ALIAS_COLLISION = """
+struct AliasResult { value : u8 }
+module PackedAliasCollision {
+    in zlang_packed_y : u8
+    out y : AliasResult
+    y = AliasResult { value = zlang_packed_y }
+}
+"""
+
+
 def _strict_lint(text: str, top: str) -> None:
     if shutil.which("verilator") is None:
         pytest.skip("Verilator is unavailable")
@@ -84,21 +97,24 @@ def _strict_lint(text: str, top: str) -> None:
         lint_with_verilator((rtl,), top)
 
 
-def test_user_struct_top_is_always_leaf_and_vectors_are_native_arrays() -> None:
+def test_user_struct_top_is_always_leaf_and_vectors_are_packed_arrays() -> None:
     module = compile_source(USER_STRUCT).ir
     artifact = emit_artifact(module)
 
-    assert "module UserStructTop_zlang_core (" in artifact.text
+    assert "module UserStructTop_zlang_core (" not in artifact.text
     assert "module UserStructTop (" in artifact.text
     public = artifact.text.split("module UserStructTop (", 1)[1]
     assert "input wire logic [7:0] request_address" in public
-    assert "input wire logic [3:0] request_lanes [0:1]" in public
+    assert "input wire logic [1:0][3:0] request_lanes" in public
     assert "output logic [7:0] response_address" in public
-    assert "output logic [3:0] response_lanes [0:1]" in public
-    assert ".request({request_address, request_lanes[0], request_lanes[1]})" in public
-    assert "assign response_address = zlang_top_core_response[15:8];" in public
-    assert "assign response_lanes[0] = zlang_top_core_response[7:4];" in public
-    assert "assign response_lanes[1] = zlang_top_core_response[3:0];" in public
+    assert "output logic [1:0][3:0] response_lanes" in public
+    assert "logic [15:0] zlang_packed_request;" in public
+    assert "logic [15:0] zlang_packed_response;" in public
+    assert "assign zlang_packed_request = {request_address, request_lanes};" in public
+    assert "assign zlang_packed_response = zlang_packed_request;" in public
+    assert "assign response_address = zlang_packed_response[15:8];" in public
+    assert "assign response_lanes = zlang_packed_response[7:0];" in public
+    assert "zlang_top_core" not in public
 
     restored = BackendArtifact.from_json(artifact.to_json())
     assert restored.artifact_hash == artifact.artifact_hash
@@ -109,6 +125,106 @@ def test_user_struct_top_is_always_leaf_and_vectors_are_native_arrays() -> None:
     }
     assert leaf_names == {"request_address", "request_lanes"}
     _strict_lint(artifact.text, "UserStructTop")
+
+
+@pytest.mark.skipif(shutil.which("yosys") is None, reason="Yosys is unavailable")
+def test_dynamic_placement_packed_array_top_synthesizes_with_yosys() -> None:
+    module = compile_source(
+        (ROOT / "examples" / "all_syntax.zhl").read_text(),
+        top="DynamicPlacement",
+    ).ir
+    artifact = emit_artifact(module)
+
+    assert "`ifdef" not in artifact.text
+    assert "`ifndef" not in artifact.text
+    assert "output logic [255:0][7:0] contents" in artifact.text
+    assert "logic [2047:0] zlang_packed_contents;" in artifact.text
+    assert "assign contents = zlang_packed_contents;" in artifact.text
+    assert "zlang_top_core" not in artifact.text
+    assert "_zlang_core" not in artifact.text
+
+    with tempfile.TemporaryDirectory() as temporary:
+        rtl = Path(temporary) / "DynamicPlacement.sv"
+        rtl.write_text(artifact.text)
+        result = subprocess.run(
+            (
+                "yosys", "-Q", "-p",
+                f"read_verilog -sv {rtl}; hierarchy -top DynamicPlacement; "
+                "synth -top DynamicPlacement -run coarse; check",
+            ),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    assert result.returncode == 0, result.stdout + result.stderr
+    _strict_lint(artifact.text, "DynamicPlacement")
+
+
+@pytest.mark.skipif(shutil.which("verilator") is None, reason="Verilator unavailable")
+def test_dynamic_placement_inline_boundary_preserves_runtime_indices(
+    tmp_path: Path,
+) -> None:
+    module = compile_source(
+        (ROOT / "examples" / "all_syntax.zhl").read_text(),
+        top="DynamicPlacement",
+    ).ir
+    rtl = tmp_path / "DynamicPlacement.sv"
+    rtl.write_text(emit_artifact(module).text)
+    bench = tmp_path / "tb.sv"
+    bench.write_text(r"""
+module tb;
+  logic clk = 0;
+  logic rst = 1;
+  logic write_enable = 0;
+  logic [7:0] value = 0;
+  logic [7:0] index = 0;
+  wire [255:0][7:0] contents;
+  always #5 clk = ~clk;
+  DynamicPlacement dut(.*);
+  task automatic write_and_check(
+      input logic [7:0] logical_index,
+      input logic [7:0] expected);
+    @(negedge clk);
+    index = logical_index;
+    value = expected;
+    write_enable = 1;
+    @(posedge clk);
+    #1;
+        if (contents[logical_index] !== expected)
+      $fatal(1, "packed-array index mismatch");
+  endtask
+  initial begin
+    repeat (2) @(posedge clk);
+    @(negedge clk);
+    rst = 0;
+    write_and_check(8'd0, 8'h12);
+    write_and_check(8'd255, 8'ha5);
+    write_and_check(8'd37, 8'h5c);
+    write_enable = 0;
+    if (contents[0] !== 8'h12 || contents[255] !== 8'ha5 ||
+        contents[37] !== 8'h5c)
+      $fatal(1, "packed-array boundary did not retain values");
+    $finish;
+  end
+endmodule
+""")
+    obj = tmp_path / "obj"
+    completed = subprocess.run(
+        (
+            "verilator", "--binary", "--timing", "-Wno-fatal",
+            "-Wno-DECLFILENAME", "-Wno-UNUSED", "-Wno-UNDRIVEN",
+            "--top-module", "tb", "--Mdir", str(obj), str(rtl), str(bench),
+        ),
+        capture_output=True,
+        text=True,
+        check=False,
+        env={**os.environ, "CCACHE_DISABLE": "1"},
+    )
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    executed = subprocess.run(
+        (str(obj / "Vtb"),), capture_output=True, text=True, check=False,
+    )
+    assert executed.returncode == 0, executed.stdout + executed.stderr
 
 
 def test_axi_lite_top_exposes_struct_payload_fields_not_packed_payloads() -> None:
@@ -125,7 +241,12 @@ def test_axi_lite_top_exposes_struct_payload_fields_not_packed_payloads() -> Non
     assert "output logic [31:0] axi_r_payload_data" in public
     assert "output logic [1:0] axi_r_payload_resp" in public
     assert "input wire logic [35:0] axi__w_payload" not in public
-    assert ".axi__w_payload({axi_w_payload_data, axi_w_payload_strb})" in public
+    assert (
+        "assign zlang_packed_axi__w_payload = "
+        "{axi_w_payload_data, axi_w_payload_strb};"
+        in public
+    )
+    assert ".axi__w_payload(zlang_packed_axi__w_payload)" in public
 
     bindings = {item.semantic_signal_id: item for item in artifact.bindings}
     assert bindings["aggregate:AxiCsrTop.axi.w.payload.data"].rtl_path == (
@@ -150,7 +271,7 @@ def test_public_names_colliding_after_sv_mangling_are_rejected() -> None:
         emit_artifact(module)
 
 
-def test_wrapper_temporary_is_allocated_away_from_public_leaf_names() -> None:
+def test_inline_packed_alias_is_allocated_away_from_public_leaf_names() -> None:
     module = compile_source(WRAPPER_TEMPORARY_COLLISION).ir
     artifact = emit_artifact(module)
     repeated = emit_artifact(module)
@@ -158,15 +279,10 @@ def test_wrapper_temporary_is_allocated_away_from_public_leaf_names() -> None:
 
     assert "input wire logic [7:0] zlang_top_core_y" in public
     assert "output logic [7:0] y_value" in public
-    temporary = next(
-        line.strip().removeprefix("logic [7:0] ").removesuffix(";")
-        for line in public.splitlines()
-        if line.strip().startswith("logic [7:0] zlang_top_core_y_")
-    )
-    assert temporary != "zlang_top_core_y"
-    assert "__" not in temporary
-    assert f".y({temporary})" in public
-    assert f"assign y_value = {temporary}[7:0];" in public
+    assert "logic [7:0] zlang_packed_y;" in public
+    assert "assign zlang_packed_y = {zlang_top_core_y};" in public
+    assert "assign y_value = zlang_packed_y;" in public
+    assert "_zlang_core" not in public
     assert repeated.text == artifact.text
     assert repeated.artifact_hash == artifact.artifact_hash
     _strict_lint(artifact.text, "WrapperTemporaryCollision")
@@ -183,18 +299,13 @@ def test_reserved_rv_roots_use_unmangled_public_flattened_names() -> None:
     assert "output logic [7:0] output_payload" in public
     assert "output logic output_valid" in public
     assert "input wire logic output_ready" in public
-    assert ".zlang_input_payload(input_payload)" in public
-    assert ".zlang_input_valid(input_valid)" in public
-    assert ".zlang_input_ready(zlang_top_core_zlang_input_ready)" in public
-    assert ".zlang_output_payload(zlang_top_core_zlang_output_payload)" in public
-    assert ".zlang_output_valid(zlang_top_core_zlang_output_valid)" in public
-    assert ".zlang_output_ready(output_ready)" in public
-    assert "assign input_ready = zlang_top_core_zlang_input_ready;" in public
-    assert (
-        "assign output_payload = zlang_top_core_zlang_output_payload[7:0];"
-        in public
-    )
-    assert "assign output_valid = zlang_top_core_zlang_output_valid;" in public
+    assert "assign zlang_packed_input_payload = input_payload;" in public
+    assert "assign zlang_packed_input_valid = input_valid;" in public
+    assert "assign zlang_packed_output_ready = output_ready;" in public
+    assert "assign input_ready = zlang_packed_input_ready;" in public
+    assert "assign output_payload = zlang_packed_output_payload;" in public
+    assert "assign output_valid = zlang_packed_output_valid;" in public
+    assert "zlang_top_core" not in public
 
     bindings = {item.semantic_signal_id: item for item in artifact.bindings}
     assert bindings["port:input.payload"].rtl_path == "input_payload"
@@ -206,22 +317,32 @@ def test_reserved_rv_roots_use_unmangled_public_flattened_names() -> None:
     _strict_lint(artifact.text, "ReservedReadyValidRoots")
 
 
-def test_wrapper_instance_is_allocated_away_from_public_leaf_names() -> None:
+def test_removed_wrapper_needs_no_instance_name_beside_colliding_port() -> None:
     module = compile_source(WRAPPER_INSTANCE_COLLISION).ir
     artifact = emit_artifact(module)
     repeated = emit_artifact(module)
     public = artifact.text.split("module WrapperInstanceCollision (", 1)[1]
 
     assert "input wire logic [7:0] zlang_top_core" in public
-    instance_line = next(
-        line.strip()
-        for line in public.splitlines()
-        if line.strip().startswith("WrapperInstanceCollision_zlang_core ")
-    )
-    instance_name = instance_line.split()[1]
-    assert instance_name.startswith("zlang_top_core_")
-    assert "__" not in instance_name
-    assert instance_name != "zlang_top_core"
+    assert "logic [7:0] zlang_packed_y;" in public
+    assert "assign zlang_packed_y = {zlang_top_core};" in public
+    assert "assign y_value = zlang_packed_y;" in public
+    assert "_zlang_core" not in public
     assert repeated.text == artifact.text
     assert repeated.artifact_hash == artifact.artifact_hash
     _strict_lint(artifact.text, "WrapperInstanceCollision")
+
+
+def test_inline_packed_alias_avoids_source_owned_collision_deterministically() -> None:
+    module = compile_source(PACKED_ALIAS_COLLISION).ir
+    artifact = emit_artifact(module)
+    repeated = emit_artifact(module)
+    match = re.search(r"logic \[7:0\] (zlang_packed_y_[0-9a-f]+);", artifact.text)
+
+    assert match is not None
+    alias = match.group(1)
+    assert f"assign {alias} = {{zlang_packed_y}};" in artifact.text
+    assert f"assign y_value = {alias};" in artifact.text
+    assert artifact.text == repeated.text
+    assert artifact.artifact_hash == repeated.artifact_hash
+    _strict_lint(artifact.text, "PackedAliasCollision")

@@ -3,7 +3,8 @@ from dataclasses import replace
 from pathlib import Path
 
 from zlang import compile_source
-from zlang.backend.manifest import BackendArtifact, publish_artifact
+from zlang.backend.manifest import BackendArtifact
+from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
 from zlang.ir import (
     Crossing,
     CrossingKind,
@@ -11,7 +12,6 @@ from zlang.ir import (
     build_top_aggregate_abi,
     build_top_physical_abi,
 )
-from zlang.ir.equivalence import BindingSide
 from zlang.opt import CanonicalizationError, lower, restore
 from zlang.semantic import SemanticError
 
@@ -181,12 +181,12 @@ class TopAggregateABITests(unittest.TestCase):
                 aggregate_protocol_connections=(delegation, delegation),
             ))
 
-    def test_manifest_v3_round_trip(self):
+    def test_manifest_inline_boundary_round_trip(self):
         module = compile_source(SOURCE).ir
-        artifact = publish_artifact(module, "top", backend="direct_systemverilog", selected_ir_identity="top-v3", side=BindingSide.IMPLEMENTATION)
-        self.assertEqual(artifact.manifest_version, 3)
+        artifact = emit_sv_artifact(module, selected_ir_identity="top-inline")
+        self.assertEqual(artifact.manifest_version, 12)
         restored = BackendArtifact.from_json(artifact.to_json())
-        self.assertEqual(restored.manifest_version, 3)
+        self.assertEqual(restored.manifest_version, 12)
         self.assertEqual(
             {binding.semantic_signal_id for binding in restored.bindings if binding.signal_kind == "payload"},
             {"aggregate:Top.bus.req.payload.addr", "aggregate:Top.bus.req.payload.data"},
@@ -239,7 +239,7 @@ class TopAggregateABITests(unittest.TestCase):
         self.assertEqual(values.array_dimensions, (2,))
         self.assertEqual(
             tuple((item.indices, item.msb, item.lsb) for item in values.packed_element_slices),
-            (((0,), 17, 10), ((1,), 8, 1)),
+            (((0,), 8, 1), ((1,), 17, 10)),
         )
         # A vector of structs becomes one typed array per field. Its packed
         # slices are intentionally non-contiguous in the private AoS core.
@@ -275,7 +275,7 @@ class TopAggregateABITests(unittest.TestCase):
         self.assertEqual(lanes.packed_root_external_name, "bus__status")
 
     def test_request_response_payload_structs_are_split_for_both_roles(self):
-        source = (ROOT / "examples/hierarchical_request_response_m40.zhl").read_text()
+        source = (ROOT / "examples/hierarchical_request_response.zhl").read_text()
         requester = build_top_physical_abi(
             compile_source(source, top="Requester").ir
         )

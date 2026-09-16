@@ -19,11 +19,11 @@ def test_removed_scalar_explore_does_not_enter_generic_function_context() -> Non
     calls: list[str] = []
 
     class Verifier:
-        formal_route = "M36_direct_systemverilog"
+        formal_route = "semantic_equivalence_direct_systemverilog"
 
         def cache_identity(self, candidate: object, config: object):
             return {
-                "property_identity": "m36.test.nested-explore",
+                "property_identity": "semantic_equivalence.test.nested-explore",
                 "reference_artifact_hash": "1" * 64,
                 "implementation_artifact_hash": "2" * 64,
                 "artifact_hash": "2" * 64,

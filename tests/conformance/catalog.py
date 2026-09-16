@@ -40,6 +40,7 @@ EXPECTED_LANGUAGE_TOUR_TOPS = (
     "ContractSyntax",
     "ExplorationSyntax",
     "PortedMemorySyntax",
+    "DynamicPlacement",
     "AsyncMemorySyntax",
     "AllSyntax",
 )

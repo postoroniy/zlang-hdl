@@ -2,7 +2,7 @@
 """Run bounded compiler-owned equivalence and isolated RTL mutation checks.
 
 This tutorial driver uses the existing CLI, immutable candidate replay inputs,
-and M36 executor. It does not add assumptions, alter selection, or modify the
+and semantic-reference equivalence executor. It does not add assumptions, alter selection, or modify the
 published bundle. Mutation files are deliberately broken, separate copies of
 the direct-SV implementation; the reference, miter and four-cycle contract stay
 unchanged. Bounded success is not an unbounded proof or FPGA timing evidence.

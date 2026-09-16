@@ -39,11 +39,14 @@ def test_backend_artifact_round_trip_is_byte_identical() -> None:
     ("mutate", "message"),
     (
         (lambda data: data.update(extra=True), "unsupported field"),
-        (
-            lambda data: data.update(
-                manifest_version=MANIFEST_VERSION,
-                companions=[],
-            ),
+            (
+                lambda data: (
+                    data.pop("physical_domains"),
+                    data.update(
+                        manifest_version=MANIFEST_VERSION,
+                        companions=[],
+                    ),
+                ),
             "requires manifest version 5",
         ),
         (lambda data: data.update(bindings={}), "bindings must be an array"),
@@ -94,7 +97,7 @@ def test_backend_artifact_rejects_non_object_root() -> None:
 
 def test_backend_artifact_rejects_unknown_future_version() -> None:
     data = json.loads(_artifact().to_json())
-    data["manifest_version"] = 11
+    data["manifest_version"] = 13
 
     with pytest.raises(ValueError, match="unsupported backend manifest version"):
         BackendArtifact.from_json(data)

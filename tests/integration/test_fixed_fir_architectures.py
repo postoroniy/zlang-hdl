@@ -71,8 +71,8 @@ def _bench(top: str, latency: int) -> str:
     return f"""
 module tb;
   logic clk=0, rst=1;
-  logic signed [11:0] samples [0:7];
-  logic signed [11:0] coefficients [0:7];
+  logic signed [7:0][11:0] samples;
+  logic signed [7:0][11:0] coefficients;
   wire signed [15:0] result;
   {top} dut(.clk,.rst,.samples,.coefficients,.result);
   task tick; begin #1 clk=1; #1; clk=0; #1; end endtask

@@ -128,6 +128,24 @@ class EGraphAdapterTests(unittest.TestCase):
         with self.assertRaises(SaturationError):
             saturate(malformed, root)
 
+    def test_carry_growing_add_with_stale_result_width_is_rejected(self) -> None:
+        compilation = compile_source(
+            "module Carry { in a:u16 in b:u16 in c:u16 out y:u18 y=a+b+c }"
+        )
+        root = compilation.optimization_ir.assignments[0].expression
+        expressions = list(compilation.optimization_ir.expressions)
+        add_id = expressions[root].operands[0]
+        expressions[add_id] = replace(
+            expressions[add_id],
+            type=UIntType(32),
+            metadata=pure_metadata(UIntType(32)),
+        )
+        malformed = replace(
+            compilation.optimization_ir, expressions=tuple(expressions)
+        )
+        with self.assertRaisesRegex(SaturationError, "exact numeric type"):
+            saturate(malformed, root)
+
 
 if __name__ == "__main__":
     unittest.main()

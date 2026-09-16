@@ -37,8 +37,8 @@ module GeneratedGenericRTL {
 
 COMPLEX_SUM_BENCH = r"""
 module tb;
-  logic signed [7:0] x_re [0:3];
-  logic signed [7:0] x_im [0:3];
+  logic signed [3:0][7:0] x_re;
+  logic signed [3:0][7:0] x_im;
   wire signed [9:0] y_re;
   wire signed [9:0] y_im;
   ComplexSumRTL dut(.x_re, .x_im, .y_re, .y_im);
@@ -57,7 +57,7 @@ endmodule
 
 GENERATED_GENERIC_BENCH = r"""
 module tb;
-  wire [3:0] y [0:3];
+  wire [3:0][3:0] y;
   GeneratedGenericRTL dut(.y);
   initial begin
     #1;

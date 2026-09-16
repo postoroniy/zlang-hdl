@@ -1,4 +1,4 @@
-"""Per-owner physical-domain applicability for the existing M39 route."""
+"""Per-owner physical-domain applicability for the existing formal-aware selection route."""
 
 from __future__ import annotations
 

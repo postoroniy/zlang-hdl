@@ -257,18 +257,18 @@ def _run_text_tuple_testbench(
 `default_nettype none
 module text_tuple_tb;
   logic [7:0] pair__item0;
-  logic [7:0] pair__item1 [0:1];
+  logic [1:0][7:0] pair__item1;
   logic [7:0] first;
-  logic [7:0] text [0:1];
+  logic [1:0][7:0] text;
   logic [7:0] literal__item0;
-  logic [7:0] literal__item1 [0:1];
+  logic [1:0][7:0] literal__item1;
   logic same_text;
   logic same_pair;
   logic different_pair;
   logic [23:0] raw_pair;
   logic [23:0] raw_in;
   logic [7:0] restored__item0;
-  logic [7:0] restored__item1 [0:1];
+  logic [1:0][7:0] restored__item1;
   logic signed [7:0] signed_pair__item0;
   logic signed [7:0] signed_pair__item1;
   logic signed [8:0] signed_sum;
@@ -296,7 +296,7 @@ module text_tuple_tb;
     pair__item0 = 8'h41;
     pair__item1[0] = 8'h42;
     pair__item1[1] = 8'h43;
-    raw_in = 24'h58595a;
+    raw_in = 24'h5a5958;
     signed_pair__item0 = -8'sd5;
     signed_pair__item1 = 8'sd7;
     #1;
@@ -306,7 +306,7 @@ module text_tuple_tb;
         literal__item1[1] !== 8'h4b)
       $fatal(1, "tuple literal mismatch");
     if (same_text !== 1'b0 || same_pair !== 1'b1 ||
-        different_pair !== 1'b0 || raw_pair !== 24'h414243)
+        different_pair !== 1'b0 || raw_pair !== 24'h434241)
       $fatal(1, "tuple equality/packing mismatch");
     if (restored__item0 !== 8'h58 || restored__item1[0] !== 8'h59 ||
         restored__item1[1] !== 8'h5a)
@@ -319,7 +319,7 @@ module text_tuple_tb;
     pair__item1[1] = 8'h4b;
     #1;
     if (same_text !== 1'b1 || same_pair !== 1'b0 ||
-        different_pair !== 1'b1 || raw_pair !== 24'h5a4f4b)
+        different_pair !== 1'b1 || raw_pair !== 24'h4b4f5a)
       $fatal(1, "second tuple vector mismatch");
     $finish;
   end

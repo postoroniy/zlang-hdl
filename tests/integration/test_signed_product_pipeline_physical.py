@@ -17,7 +17,7 @@ from zlang.costs import CandidateCost
 from zlang.fixed_point import quantize_rational
 from zlang.equivalence import formal_tools_available
 from zlang.formal_candidate import (
-    M36DirectSystemVerilogCandidateVerifier,
+    SemanticEquivalenceDirectSystemVerilogCandidateVerifier,
     PhysicalTargetFormalCandidate,
 )
 from zlang.formal_exploration import FormalExplorationConfig, FormalPolicy
@@ -73,7 +73,7 @@ CONFIGURATIONS = (
 
 
 class _BoundPhysicalVerifier:
-    formal_route = "M36_direct_systemverilog"
+    formal_route = "semantic_equivalence_direct_systemverilog"
 
     def __init__(self) -> None:
         self.calls: list[PhysicalTargetFormalCandidate] = []
@@ -81,7 +81,7 @@ class _BoundPhysicalVerifier:
     @staticmethod
     def _identity(candidate: PhysicalTargetFormalCandidate) -> dict[str, str]:
         return {
-            "property_identity": f"m36.physical.{candidate.implementation_identity}",
+            "property_identity": f"semantic_equivalence.physical.{candidate.implementation_identity}",
             "reference_artifact_hash": "a" * 64,
             "implementation_artifact_hash": "b" * 64,
             "artifact_hash": "b" * 64,
@@ -151,18 +151,23 @@ def test_target_planner_publishes_both_signed_fft_physical_candidate_families() 
     assert restored.implementation.physical_binding_identities
 
 
-def test_packaged_catalog_selects_fft_dsp_without_explicit_evidence_path() -> None:
+def test_packaged_catalog_selects_current_fft_dsp_without_explicit_path() -> None:
     for top in ("FFTComplexMultiplyRealAuto", "FFTComplexMultiplyImagAuto"):
         result = compile_source(SOURCE, top=top, target=TARGET)
         selected = result.target_planning_result.selected_candidate
+        assert not selected.graph.is_generic
         assert selected.graph.pipeline_configuration_identity.endswith(
             "multiply_registered"
         )
         assert selected.evidence is not None
+        assert (
+            selected.evidence.key.implementation_graph_identity
+            == selected.graph.identity
+        )
         assert selected.cost.fmax_est.source.value == "routed_measurement"
 
 
-def test_targeted_implement_m39_gates_one_complete_physical_candidate() -> None:
+def test_targeted_implement_formal_selection_gates_one_complete_physical_candidate() -> None:
     verifier = _BoundPhysicalVerifier()
     result = compile_source(
         SOURCE,
@@ -252,7 +257,7 @@ def test_exact_pipeline_is_target_planned_and_emits_real_dsp_boundaries(
     )
 
 
-def test_exact_pipeline_physical_graph_is_the_m36_implementation_artifact() -> None:
+def test_exact_pipeline_physical_graph_is_the_semantic_equivalence_implementation_artifact() -> None:
     result = compile_source(
         EXACT_SOURCE,
         top="ExactSignedProductPipeline",
@@ -275,7 +280,7 @@ def test_exact_pipeline_physical_graph_is_the_m36_implementation_artifact() -> N
             ii=graph.initiation_interval,
         ),
     )
-    verifier = M36DirectSystemVerilogCandidateVerifier(
+    verifier = SemanticEquivalenceDirectSystemVerilogCandidateVerifier(
         reference,
         candidate_class="pipeline",
         clock_domain_contract=result.ir.clock_domains[0],
@@ -298,7 +303,7 @@ def test_exact_pipeline_physical_graph_is_the_m36_implementation_artifact() -> N
     len(formal_tools_available()) != 3 or shutil.which("z3") is None,
     reason="Yosys/SymbiYosys/Z3 route unavailable",
 )
-def test_planning_phase_m39_checks_complete_dsp_graph_and_detects_mutations() -> None:
+def test_planning_phase_formal_selection_checks_complete_dsp_graph_and_detects_mutations() -> None:
     result = compile_source(
         SMALL_FORMAL_SOURCE,
         top="SmallExactSignedProductPipeline",
@@ -316,7 +321,7 @@ def test_planning_phase_m39_checks_complete_dsp_graph_and_detects_mutations() ->
     implementation = result.ir.assignments[0].expression
     reference = erase_pipeline_timing(implementation)
     graph = result.implementation_graph
-    verifier = M36DirectSystemVerilogCandidateVerifier(
+    verifier = SemanticEquivalenceDirectSystemVerilogCandidateVerifier(
         reference,
         candidate_class="pipeline",
         clock_domain_contract=result.ir.clock_domains[0],
@@ -361,7 +366,7 @@ def test_planning_phase_m39_checks_complete_dsp_graph_and_detects_mutations() ->
     len(formal_tools_available()) != 3 or shutil.which("z3") is None,
     reason="Yosys/SymbiYosys/Z3 route unavailable",
 )
-def test_planning_phase_m39_checks_the_selected_egraph_value_schedule() -> None:
+def test_planning_phase_formal_selection_checks_the_selected_egraph_value_schedule() -> None:
     result = compile_source(
         "module ShiftedFormal { clock clk reset rst in a:u4 out y:u8 "
         "y=pipeline(2){a*8} }",
@@ -388,7 +393,7 @@ def test_planning_phase_m39_checks_the_selected_egraph_value_schedule() -> None:
     len(formal_tools_available()) != 3 or shutil.which("z3") is None,
     reason="Yosys/SymbiYosys/Z3 route unavailable",
 )
-def test_physical_m36_detects_unsigned_dsp_sign_extension_mutation() -> None:
+def test_physical_semantic_equivalence_detects_unsigned_dsp_sign_extension_mutation() -> None:
     result = compile_source(
         "module UnsignedDSP { clock clk reset rst in a,b:u3 out y:u6 "
         "y=pipeline(3){a*b} }",
@@ -429,7 +434,7 @@ def test_physical_m36_detects_unsigned_dsp_sign_extension_mutation() -> None:
             ii=mutated_graph.initiation_interval,
         ),
     )
-    verifier = M36DirectSystemVerilogCandidateVerifier(
+    verifier = SemanticEquivalenceDirectSystemVerilogCandidateVerifier(
         erase_pipeline_timing(implementation),
         candidate_class="pipeline",
         clock_domain_contract=result.ir.clock_domains[0],
@@ -752,7 +757,9 @@ module IntegerProductSum {{
 
 
 @pytest.mark.parametrize("mode", ("real", "imag"))
-def test_measured_required_uses_routed_signed_product_evidence(mode: str) -> None:
+def test_measured_required_uses_current_routed_signed_product_evidence(
+    mode: str,
+) -> None:
     top = "FFTComplexMultiplyRealAuto" if mode == "real" else "FFTComplexMultiplyImagAuto"
     result = compile_source(
         SOURCE,
@@ -763,7 +770,11 @@ def test_measured_required_uses_routed_signed_product_evidence(mode: str) -> Non
     )
     selected = result.target_planning_result.selected_candidate
     assert not selected.graph.is_generic
-    assert selected.graph.pipeline_configuration_identity.endswith("multiply_registered")
+    assert selected.graph.pipeline_configuration_identity.endswith(
+        "multiply_registered"
+    )
+    assert selected.evidence is not None
+    assert selected.evidence.key.implementation_graph_identity == selected.graph.identity
     assert selected.cost.fmax_est.source.value == "routed_measurement"
     rejected = {
         item.name: item.rejection_reasons
@@ -774,6 +785,9 @@ def test_measured_required_uses_routed_signed_product_evidence(mode: str) -> Non
         if item.name == "Xilinx7SignedProductCascade/unregistered"
     )
     assert unregistered.evidence is not None
+    assert unregistered.evidence.key.implementation_graph_identity == (
+        unregistered.graph.identity
+    )
     assert any(
         str(unregistered.evidence.fmax_mhz) in reason
         for reason in rejected["Xilinx7SignedProductCascade/unregistered"]

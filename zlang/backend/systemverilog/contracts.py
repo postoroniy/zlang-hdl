@@ -1,7 +1,7 @@
 """Bindable SVA projection of the shared structured verification predicates.
 
 This compatibility artifact is intentionally not a second expression
-lowering. Executable meaning is generated once by M35's ``FormalPredicate``
+lowering. Executable meaning is generated once by safety verification's ``FormalPredicate``
 IR and rendered here through explicit semantic signal bindings.
 """
 
@@ -126,9 +126,10 @@ def emit_contracts(module: Module) -> str:
     # This compatibility artifact binds the selected public top directly.  A
     # packed semantic root is not a physical top port when the shared
     # TopPhysicalABI splits a struct/tuple into leaves or retains a vector as
-    # an unpacked array.  Backend formal artifacts expose an explicit packed
-    # observation port for those predicates; this backend-neutral sidecar must
-    # fail closed instead of guessing a private core name or emitting an
+    # a multidimensional packed array. Backend formal artifacts expose an
+    # explicit flat packed observation port for those predicates; this
+    # backend-neutral sidecar must
+    # fail closed instead of guessing an internal packed alias or emitting an
     # invalid ``bind`` connection.
     public_leaves = build_top_physical_abi(module).leaves
     leaves_by_root: dict[str, list[object]] = {}

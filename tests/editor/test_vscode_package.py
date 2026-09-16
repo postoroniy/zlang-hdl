@@ -343,6 +343,18 @@ class VSCodePackageTests(unittest.TestCase):
         self.assertIn("zlang.lsp.path", properties)
         self.assertNotIn("zlang.server.path", guide)
 
+    def test_installation_guide_has_managed_python_wsl_and_verified_tools(self) -> None:
+        guide = (ROOT / "docs" / "installing-toolchain.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("uv tool install --python 3.12", guide)
+        self.assertIn("uv venv --python 3.12", guide)
+        self.assertIn("## Windows through WSL2", guide)
+        self.assertIn("**verified versions**", guide)
+        for version in ("Verilator | 5.052", "Yosys | 0.69", "Z3 | 4.8.12"):
+            self.assertIn(version, guide)
+        self.assertNotIn("python3.12", guide)
+
     def test_source_derived_archive_is_accepted_and_hashed(self) -> None:
         path = self.archive(_source_members())
         report = audit_vsix(path)

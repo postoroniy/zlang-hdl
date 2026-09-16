@@ -386,7 +386,7 @@ class CoverResult:
 
 def _stable_id(family: str, name: str, detail: str) -> str:
     digest = hashlib.sha256(f"{family}|{name}|{detail}".encode()).hexdigest()[:12]
-    return f"m35.{family}.{name}.{digest}"
+    return f"safety_verification.{family}.{name}.{digest}"
 
 
 def _clock(module: Module) -> str:
@@ -815,7 +815,7 @@ def _semantic_predicate(expression: object) -> FormalPredicate:
             != getattr(expression.type, "fraction", 0)
         ):
             raise FormalError(
-                "quantized fixed-point contract expressions require M36 reference equivalence"
+                "quantized fixed-point contract expressions require semantic-reference equivalence reference equivalence"
             )
         return _resize(
             _semantic_predicate(expression.expression),
@@ -858,7 +858,7 @@ def _semantic_predicate(expression: object) -> FormalPredicate:
         )
     if isinstance(expression, ir_expr.TupleConstruct):
         return _packed_predicate_concat(
-            expression.elements,
+            tuple(reversed(expression.elements)),
             expected_width=ir_packing.packed_width(expression.type),
         )
     if isinstance(expression, ir_expr.Slice):
@@ -936,7 +936,7 @@ def _semantic_predicate(expression: object) -> FormalPredicate:
             widths = tuple(ir_packing.packed_width(item) for item in aggregate.elements)
         except ir_packing.PackingError as error:
             raise FormalError("formal tuple projection is not bit-packable") from error
-        lsb = sum(widths[expression.index + 1 :])
+        lsb = ir_packing.tuple_element_lsb(aggregate, expression.index)
         projected = _semantic_predicate(ir_expr.Slice(
             expression.expression,
             lsb + widths[expression.index] - 1,
@@ -957,7 +957,7 @@ def _semantic_predicate(expression: object) -> FormalPredicate:
             element_width = ir_packing.packed_width(aggregate.element_type)
         except ir_packing.PackingError as error:
             raise FormalError("formal vector projection is not bit-packable") from error
-        lsb = (aggregate.length - expression.index - 1) * element_width
+        lsb = ir_packing.vector_element_lsb(aggregate, expression.index)
         projected = _semantic_predicate(ir_expr.Slice(
             expression.expression,
             lsb + element_width - 1,
@@ -983,7 +983,7 @@ def _semantic_predicate(expression: object) -> FormalPredicate:
 
         # RuntimeIndex is admitted by semantic analysis only after its complete
         # selector range is proven inside the vector.  Preserve the language's
-        # MSB-first vector layout and lower the selection to the existing
+        # LSB-first indexed layout and lower the selection to the existing
         # same-cycle mux/equality predicate vocabulary.  No assertion is used
         # to justify the range proof and no default/clamp behavior is added.
         packed = _resize(
@@ -995,7 +995,7 @@ def _semantic_predicate(expression: object) -> FormalPredicate:
 
         def element(index: int) -> FormalPredicate:
             raw = packed
-            lsb = (aggregate.length - index - 1) * element_width
+            lsb = ir_packing.vector_element_lsb(aggregate, index)
             if lsb:
                 raw = _binary(
                     FormalBinaryOperator.SHIFT_RIGHT,
@@ -1044,9 +1044,9 @@ def _type_range(type_: object) -> str:
 
 
 def generate_properties(module: Module) -> FormalDesign:
-    """Generate the frozen M35 safety families from typed semantic IR."""
+    """Generate the frozen safety verification safety families from typed semantic IR."""
     # Multi-domain automatic state-property families remain outside the
-    # frozen M35 subset, but source goals in one exact supported domain may
+    # frozen safety verification subset, but source goals in one exact supported domain may
     # still observe that state.  Preserve the complete module for semantic
     # bindings while filtering only the automatic-property generation view.
     binding_module = module
@@ -1378,7 +1378,7 @@ def generate_properties(module: Module) -> FormalDesign:
                 )
                 reset_value = 0
                 # Applicability is a property of one concrete backend route,
-                # not of the backend-independent M35 property.  Receiver
+                # not of the backend-independent safety verification property.  Receiver
                 # occupancy is real implementation state and is already part
                 # of the frozen credit predicate.  Publish its semantic
                 # binding below and let each backend either connect it or
@@ -1901,7 +1901,7 @@ def generate_properties(module: Module) -> FormalDesign:
 
 
 def top_aggregate_ownership(module: Module) -> dict[str, Ownership]:
-    """Return M35 ownership for each projected top aggregate leaf."""
+    """Return safety verification ownership for each projected top aggregate leaf."""
     from zlang.ir.top_abi import build_top_aggregate_abi
     return {
         leaf.leaf_semantic_id: (
@@ -2196,7 +2196,7 @@ def mark_formal_domain_applicability(
     design: FormalDesign,
     module: Module,
 ) -> FormalDesign:
-    """Mark exact M35 clock/reset support independently for every source goal.
+    """Mark exact safety verification clock/reset support independently for every source goal.
 
     The checker supports every validated single-domain edge/polarity/assertion
     contract carried by :class:`ClockDomain`, including the frozen two-cycle
@@ -2444,7 +2444,7 @@ def connect_formal_design(design: FormalDesign, artifact: object) -> FormalDesig
 
     # This low-level connector is exported as part of ``zlang.ir`` as well as
     # through the compiler-owned wrapper.  Keep the physical-reset gate here so
-    # callers cannot bypass the frozen M35 clock/reset model by constructing
+    # callers cannot bypass the frozen safety verification clock/reset model by constructing
     # properties directly and then attaching a current BackendArtifact.  The
     # gate is evaluated for each exact goal domain below; unrelated domains do
     # not poison otherwise executable goals.
@@ -2740,7 +2740,7 @@ def connect_formal_design(design: FormalDesign, artifact: object) -> FormalDesig
             non_executable_reason=reason,
         )
     if len(connected_modules) > 1:
-        raise FormalError("one M35 harness cannot bind multiple root RTL modules")
+        raise FormalError("one safety verification harness cannot bind multiple root RTL modules")
 
     dut_ports: list[SignalBinding] = []
     for item in public:
@@ -2788,7 +2788,7 @@ def _predicate_report(design: FormalDesign, *, mode: ProofMode, depth: int) -> s
         or "backend formal artifact is not connected"
     )
     lines = [
-        "// ZLang M35 non-executable property report",
+        "// ZLang safety verification non-executable property report",
         f"// module={design.module_name} mode={mode.value} depth={depth}",
         f"// reason={design_reason}",
     ]
@@ -2945,7 +2945,7 @@ def render_bound_predicate(
     """Render one typed predicate using an explicit semantic binding map.
 
     This is the shared conservative SystemVerilog lowering used by connected
-    top-level and recursive M35 harnesses. Keeping it public prevents backend
+    top-level and recursive safety verification harnesses. Keeping it public prevents backend
     adapters from reconstructing executable meaning from legacy report text.
     Every observation must be present in ``bindings``; no RTL-name fallback or
     token guessing is performed.
@@ -3161,12 +3161,12 @@ def formal_harness_domain_rendering(
     used_names = {
         item.rtl_name for item in (*dut_ports, *observation_tokens.values())
     }
-    checker_top = top or f"{design.module_name}__m35_formal"
+    checker_top = top or f"{design.module_name}__safety_verification_formal"
     allocate_private_rtl_identifier(
-        "zlang_m35_past_valid",
+        "zlang_safety_verification_past_valid",
         semantic_identity=(
-            f"{checker_top}|m35|history-valid"
-            if cover else f"{design.module_name}|m35|history-valid"
+            f"{checker_top}|safety_verification|history-valid"
+            if cover else f"{design.module_name}|safety_verification|history-valid"
         ),
         used=used_names,
     )
@@ -3241,8 +3241,8 @@ def _connected_harness_prelude(
         item.rtl_name for item in (*dut_ports, *observation_tokens.values())
     }
     history_valid = allocate_private_rtl_identifier(
-        "zlang_m35_past_valid",
-        semantic_identity=f"{top}|m35|history-valid",
+        "zlang_safety_verification_past_valid",
+        semantic_identity=f"{top}|safety_verification|history-valid",
         used=used_names,
     )
     bindings = {item.semantic_signal_id: item for item in design.bindings}
@@ -3304,7 +3304,7 @@ def emit_harness(design: FormalDesign, *, mode: ProofMode = ProofMode.BMC, depth
                 )
     harness = _connected_harness_prelude(
         design,
-        top=f"{design.module_name}__m35_formal",
+        top=f"{design.module_name}__safety_verification_formal",
         properties=design.properties,
     )
     lines = harness.lines
@@ -3317,8 +3317,8 @@ def emit_harness(design: FormalDesign, *, mode: ProofMode = ProofMode.BMC, depth
     reset_history_valid = None
     if not legacy:
         reset_history_valid = allocate_private_rtl_identifier(
-            "zlang_m35_reset_past_valid",
-            semantic_identity=f"{design.module_name}|m35|reset-history-valid",
+            "zlang_safety_verification_reset_past_valid",
+            semantic_identity=f"{design.module_name}|safety_verification|reset-history-valid",
             used=used_names,
         )
         lines.append(f"  reg {reset_history_valid} = 1'b0;")
@@ -3383,7 +3383,7 @@ def cover_harness_top(design: FormalDesign, cover_id: str) -> str:
     if not cover_id:
         raise FormalError("cover harness requires a property id")
     digest = hashlib.sha256(cover_id.encode()).hexdigest()[:12]
-    return f"{design.module_name}__m35_cover_{digest}"
+    return f"{design.module_name}__safety_verification_cover_{digest}"
 
 
 def emit_cover_harness(
@@ -3502,8 +3502,8 @@ def emit_cover_harness(
     reset_history_valid = None
     if needs_past and not legacy:
         reset_history_valid = allocate_private_rtl_identifier(
-            "zlang_m35_reset_past_valid",
-            semantic_identity=f"{top}|m35|reset-history-valid",
+            "zlang_safety_verification_reset_past_valid",
+            semantic_identity=f"{top}|safety_verification|reset-history-valid",
             used=used_names,
         )
         lines.append(f"  reg {reset_history_valid} = 1'b0;")

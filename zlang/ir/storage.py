@@ -143,8 +143,8 @@ class Memory:
     def __post_init__(self) -> None:
         if not self.semantic_id:
             raise ValueError("memory semantic identity must not be empty")
-        if self.read_latency not in {0, 1}:
-            raise ValueError("memory read latency must be zero or one")
+        if not 0 <= self.read_latency <= 16:
+            raise ValueError("memory read latency must be in 0..16")
         if self.initial_value is not None and self.initial_value.type != self.element_type:
             raise ValueError("memory initial value must have the exact element type")
         for label, policy in (
@@ -197,8 +197,8 @@ class Memory:
                     raise ValueError("async memory requires exactly one write and one read port")
                 if len({port.domain for port in self.ports}) != 2:
                     raise ValueError("async memory ports must use different domains")
-                if self.read_latency != 1:
-                    raise ValueError("async memory requires read latency one")
+                if self.read_latency < 1:
+                    raise ValueError("async memory requires at least one read cycle")
             elif len({port.domain for port in self.ports}) != 1:
                 raise ValueError("ordinary ported memory requires one clock domain")
         elif self.async_memory or self.write_priority:

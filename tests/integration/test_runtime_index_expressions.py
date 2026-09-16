@@ -42,12 +42,12 @@ module RuntimeSelect {
 def _testbench() -> str:
     return r"""
 module tb;
-  logic [7:0] values [0:3];
+  logic [3:0][7:0] values;
   logic [2:0] raw_index;
   wire [7:0] y;
   RuntimeSelect dut(.values(values), .raw_index(raw_index), .y(y));
   initial begin
-    values = '{8'd10, 8'd20, 8'd30, 8'd40};
+    values = 32'h281e140a;
     raw_index = 0; #1; if (y !== 8'd10) $fatal(1, "index 0");
     raw_index = 1; #1; if (y !== 8'd20) $fatal(1, "index 1");
     raw_index = 2; #1; if (y !== 8'd30) $fatal(1, "index 2");
@@ -90,7 +90,7 @@ def test_direct_sv_runtime_expression_index_simulates(tmp_path: Path) -> None:
 
 
 
-def _m36_source(implementation: str):
+def _semantic_equivalence_source(implementation: str):
     module = compile_source(SOURCE).ir
     expression = module.assignments[0].expression
     reference = emit_reference_model(
@@ -98,7 +98,7 @@ def _m36_source(implementation: str):
         tuple((port.name, port.type) for port in module.inputs), expression,
     )
     property_ = make_equivalence_property(
-        expression, expression, candidate_class="m27",
+        expression, expression, candidate_class="guarded_rewrite",
         reference_root="runtime-index-reference",
         implementation_root="explicit-switch",
         inputs=tuple(f"port:{port.name}" for port in module.inputs),
@@ -133,10 +133,10 @@ module RuntimeSelect(
 );
   always_comb begin
     case (raw_index[1:0])
-      2'd0: y = values[31:24];
-      2'd1: y = values[23:16];
-      2'd2: y = values[15:8];
-      default: y = values[7:0];
+      2'd0: y = values[7:0];
+      2'd1: y = values[15:8];
+      2'd2: y = values[23:16];
+      default: y = values[31:24];
     endcase
   end
 endmodule
@@ -147,13 +147,36 @@ endmodule
     len(formal_tools_available()) != 3,
     reason="Yosys/SymbiYosys formal tools are unavailable",
 )
-def test_m36_runtime_select_matches_explicit_switch_with_real_solver() -> None:
-    property_, source = _m36_source(EXPLICIT_SWITCH)
+def test_semantic_equivalence_runtime_select_matches_explicit_switch_with_real_solver() -> None:
+    property_, source = _semantic_equivalence_source(EXPLICIT_SWITCH)
     result = run_equivalence_formal(
-        property_, source, top="m36_" + property_.id.replace(".", "_"),
+        property_, source, top="semantic_equivalence_" + property_.id.replace(".", "_"),
         mode=EquivalenceMode.PROVE, depth=4,
     )
     assert result.status is EquivalenceStatus.PROVEN
+
+
+@pytest.mark.skipif(
+    len(formal_tools_available()) != 3,
+    reason="Yosys/SymbiYosys formal tools are unavailable",
+)
+def test_semantic_equivalence_rejects_the_retired_msb_first_runtime_selector() -> None:
+    retired = EXPLICIT_SWITCH.replace(
+        "2'd0: y = values[7:0];\n"
+        "      2'd1: y = values[15:8];\n"
+        "      2'd2: y = values[23:16];\n"
+        "      default: y = values[31:24];",
+        "2'd0: y = values[31:24];\n"
+        "      2'd1: y = values[23:16];\n"
+        "      2'd2: y = values[15:8];\n"
+        "      default: y = values[7:0];",
+    )
+    property_, source = _semantic_equivalence_source(retired)
+    result = run_equivalence_formal(
+        property_, source, top="semantic_equivalence_" + property_.id.replace(".", "_"),
+        mode=EquivalenceMode.PROVE, depth=4,
+    )
+    assert result.status is EquivalenceStatus.FAILED
 
 
 def _cross_artifact(backend: str, module: str, body: str) -> BackendArtifact:

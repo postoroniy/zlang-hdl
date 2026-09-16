@@ -1,4 +1,4 @@
-"""Compiler-owned direct-SystemVerilog M36 evidence for selected candidates.
+"""Compiler-owned direct-SystemVerilog semantic-reference equivalence evidence for selected candidates.
 
 The source semantics and reference model remain backend-independent. This
 module prepares and executes the single production RTL leg.
@@ -35,7 +35,7 @@ from zlang.formal_artifact_provider import (
 )
 from zlang.formal_candidate import (
     FormalCandidateUnavailable,
-    M36DirectSystemVerilogCandidateVerifier,
+    SemanticEquivalenceDirectSystemVerilogCandidateVerifier,
     PreparedCandidateEquivalence,
     prepared_candidate_equivalence_from_data,
     prepared_candidate_equivalence_to_data,
@@ -71,7 +71,7 @@ from zlang.ir.formal_planning import (
 
 @dataclass(frozen=True)
 class PreparedCandidateEquivalenceSite:
-    """Prepared, solver-unexecuted direct-SV M36 plan for one site."""
+    """Prepared, solver-unexecuted direct-SV semantic-reference equivalence plan for one site."""
 
     selected: SelectedCandidateSite
     plan: CandidateEquivalencePlanReference
@@ -87,9 +87,9 @@ class PreparedCandidateEquivalenceSite:
             raise FormalOrchestrationError(
                 "prepared candidate plan references a different selected candidate"
             )
-        if self.property.id != self.plan.direct_systemverilog_m36.property_identity:
+        if self.property.id != self.plan.direct_systemverilog_semantic_equivalence.property_identity:
             raise FormalOrchestrationError(
-                "prepared candidate property differs from its typed M36 plan"
+                "prepared candidate property differs from its typed semantic-reference equivalence plan"
             )
         if self.property != self.direct_systemverilog.property:
             raise FormalOrchestrationError(
@@ -104,7 +104,7 @@ class PreparedCandidateEquivalenceSite:
 
 @dataclass(frozen=True)
 class FrozenCandidateEquivalenceSite:
-    """Immutable direct-SV M36 inputs for replay without source selection."""
+    """Immutable direct-SV semantic-reference equivalence inputs for replay without source selection."""
 
     plan: CandidateEquivalencePlanReference
     property: EquivalenceProperty
@@ -112,18 +112,18 @@ class FrozenCandidateEquivalenceSite:
 
     def __post_init__(self) -> None:
         prepared = self.direct_systemverilog
-        plan = self.plan.direct_systemverilog_m36
+        plan = self.plan.direct_systemverilog_semantic_equivalence
         if self.property.id != plan.property_identity:
             raise FormalOrchestrationError(
-                "frozen M36 property differs from its compiler plan"
+                "frozen semantic-reference equivalence property differs from its compiler plan"
             )
         if self.property.implementation_root != self.plan.candidate_identity:
             raise FormalOrchestrationError(
-                "frozen M36 property references a different selected candidate"
+                "frozen semantic-reference equivalence property references a different selected candidate"
             )
         if prepared.property != self.property or prepared.backend != "direct_systemverilog":
             raise FormalOrchestrationError(
-                "frozen M36 input is not the planned direct-SystemVerilog leg"
+                "frozen semantic-reference equivalence input is not the planned direct-SystemVerilog leg"
             )
         try:
             validate_prepared_equivalence_domains(
@@ -133,20 +133,20 @@ class FrozenCandidateEquivalenceSite:
             )
         except ValueError as error:
             raise FormalOrchestrationError(
-                f"frozen M36 physical domain is invalid: {error}"
+                f"frozen semantic-reference equivalence physical domain is invalid: {error}"
             ) from error
         if prepared.implementation_artifact is None or plan.route is None:
             raise FormalOrchestrationError(
-                "frozen direct-SystemVerilog M36 route is incomplete"
+                "frozen direct-SystemVerilog semantic-reference equivalence route is incomplete"
             )
         if plan.route.reference_identity != prepared.reference_artifact_hash:
             raise FormalOrchestrationError(
-                "frozen M36 reference hash differs from its plan"
+                "frozen semantic-reference equivalence reference hash differs from its plan"
             )
         if plan.route.artifacts != (
             formal_backend_artifact_ref(prepared.implementation_artifact),
         ):
-            raise FormalOrchestrationError("frozen M36 artifact differs from its plan")
+            raise FormalOrchestrationError("frozen semantic-reference equivalence artifact differs from its plan")
 
     def _payload_data(self) -> dict[str, object]:
         return {
@@ -194,14 +194,14 @@ class FrozenCandidateEquivalenceSite:
         return restored
 
 
-def _m36_plan(
+def _semantic_equivalence_plan(
     site: SelectedCandidateSite,
     property_: EquivalenceProperty,
     prepared: PreparedCandidateEquivalence,
 ) -> FormalGoalPlan:
     if prepared.implementation_artifact is None:
         raise FormalOrchestrationError(
-            "prepared direct-SystemVerilog M36 route has no implementation artifact"
+            "prepared direct-SystemVerilog semantic-reference equivalence route has no implementation artifact"
         )
     route = FormalExecutableRoute(
         FormalRouteKind.SEMANTIC_EQUIVALENCE,
@@ -212,14 +212,14 @@ def _m36_plan(
         *property_.inputs, property_.implementation_output,
     )))
     return FormalGoalPlan(
-        "goal:m36:" + stable_digest({
+        "goal:semantic_equivalence:" + stable_digest({
             "site": site.site.identity,
             "candidate": site.site.selected_candidate_identity,
             "backend": "direct_systemverilog",
             "property": property_.id,
         }),
         property_.id,
-        FormalPlanGoalKind.M36_EQUIVALENCE,
+        FormalPlanGoalKind.SEMANTIC_EQUIVALENCE,
         property_.implementation_clock,
         property_.implementation_reset,
         (),
@@ -232,7 +232,7 @@ def _m36_plan(
     )
 
 
-def _selected_m39_record(
+def _selected_formal_selection_record(
     compilation: object,
     site: SelectedCandidateSite,
     mode: EquivalenceMode,
@@ -253,7 +253,7 @@ def _selected_m39_record(
     )
     if len(matches) > 1:
         raise FormalOrchestrationError(
-            f"candidate site '{site.site.identity}' retains duplicate selected M39 records"
+            f"candidate site '{site.site.identity}' retains duplicate selected formal-aware selection records"
         )
     return matches[0] if matches else None
 
@@ -274,7 +274,7 @@ def _selected_owner_domain_for_reuse(
     return None if limitation is not None else domain
 
 
-def _m39_recipe_matches(
+def _formal_selection_recipe_matches(
     record: FormalExplorationRecord | None,
     prepared: PreparedCandidateEquivalence,
     selected: SelectedCandidateSite,
@@ -287,7 +287,7 @@ def _m39_recipe_matches(
         return False
     expected_mode = ProofMode.BMC if mode is EquivalenceMode.BMC else ProofMode.PROVE
     if not (
-        record.formal_route == "M36_direct_systemverilog"
+        record.formal_route == "semantic_equivalence_direct_systemverilog"
         and record.candidate_identity == prepared.property.implementation_root
         and record.policy is config.policy
         and record.mode is expected_mode
@@ -309,7 +309,7 @@ def _m39_recipe_matches(
         if record.policy is FormalPolicy.REQUIRED_PROVEN and mode is EquivalenceMode.BMC
         else record.policy
     )
-    verifier = M36DirectSystemVerilogCandidateVerifier(
+    verifier = SemanticEquivalenceDirectSystemVerilogCandidateVerifier(
         selected.reference_expression,
         candidate_class=selected.candidate_class,
         artifact_provider=provider,
@@ -332,7 +332,7 @@ def _m39_recipe_matches(
     return record.execution_recipe_identity == expected_recipe
 
 
-def _equivalence_from_m39(
+def _equivalence_from_formal_selection(
     record: FormalExplorationRecord,
     prepared: PreparedCandidateEquivalence,
 ) -> EquivalenceResult:
@@ -358,14 +358,14 @@ def _equivalence_from_m39(
     )
 
 
-def _m36_execution_recipe(
+def _semantic_equivalence_execution_recipe(
     prepared: PreparedCandidateEquivalence,
     config: FormalExplorationConfig,
     mode: EquivalenceMode,
     toolchain: FormalToolchainContext,
 ) -> dict[str, object]:
     return {
-        "schema": "zlang-candidate-m36-execution-v2",
+        "schema": "zlang-candidate-semantic_equivalence-execution-v2",
         "property": prepared.property_identity,
         "candidate": prepared.property.implementation_root,
         "backend": "direct_systemverilog",
@@ -384,16 +384,16 @@ def _m36_execution_recipe(
     }
 
 
-def _execute_m36(
+def _execute_semantic_equivalence(
     prepared: PreparedCandidateEquivalence,
     config: FormalExplorationConfig,
     mode: EquivalenceMode,
     provider: FormalArtifactProvider,
     toolchain: FormalToolchainContext,
 ) -> EquivalenceResult:
-    recipe = _m36_execution_recipe(prepared, config, mode, toolchain)
+    recipe = _semantic_equivalence_execution_recipe(prepared, config, mode, toolchain)
     return provider.get_or_prepare(
-        FormalArtifactNamespace.M36,
+        FormalArtifactNamespace.SEMANTIC_EQUIVALENCE,
         "candidate-equivalence-result-v2",
         recipe,
         lambda: run_equivalence_formal(
@@ -436,7 +436,7 @@ def _candidate_job_work_directory(
     if config.work_directory is None:
         return None
     identity = FormalArtifactRecipe(
-        FormalArtifactNamespace.M36, "candidate-equivalence-result-v2", recipe
+        FormalArtifactNamespace.SEMANTIC_EQUIVALENCE, "candidate-equivalence-result-v2", recipe
     ).digest
     return (
         Path(config.work_directory).resolve(strict=False)
@@ -450,7 +450,7 @@ def prepare_selected_candidate_equivalence(
     compiler_plan: CompilerFormalExecutionPlan,
     config: FormalExplorationConfig,
 ) -> tuple[CompilerFormalExecutionPlan, tuple[PreparedCandidateEquivalenceSite, ...]]:
-    """Prepare direct-SV M36 plans without running a solver."""
+    """Prepare direct-SV semantic-reference equivalence plans without running a solver."""
 
     if config.policy is FormalPolicy.OFF:
         return compiler_plan, ()
@@ -475,7 +475,7 @@ def prepare_selected_candidate_equivalence(
         domain, limitation = candidate_owner_formal_domain(
             getattr(compilation, "ir"), selected.site.owner_identity
         )
-        verifier = M36DirectSystemVerilogCandidateVerifier(
+        verifier = SemanticEquivalenceDirectSystemVerilogCandidateVerifier(
             selected.reference_expression,
             candidate_class=selected.candidate_class,
             artifact_provider=provider,
@@ -489,12 +489,12 @@ def prepare_selected_candidate_equivalence(
         property_ = prepared.property
         if not isinstance(property_, EquivalenceProperty):
             raise FormalOrchestrationError(
-                "candidate preparation did not return typed M36 property IR"
+                "candidate preparation did not return typed semantic-reference equivalence property IR"
             )
         plan = CandidateEquivalencePlanReference(
             selected.site.identity,
             selected.site.selected_candidate_identity,
-            _m36_plan(selected, property_, prepared),
+            _semantic_equivalence_plan(selected, property_, prepared),
             property_.implementation_output,
         )
         plans.append(plan)
@@ -554,23 +554,23 @@ def _execute_candidate_equivalence(
 
         def execute(mode: EquivalenceMode) -> EquivalenceResult:
             if compilation is not None and selected is not None:
-                retained = _selected_m39_record(compilation, selected, mode)
-                if _m39_recipe_matches(
+                retained = _selected_formal_selection_record(compilation, selected, mode)
+                if _formal_selection_recipe_matches(
                     retained, prepared, selected, config, mode, provider,
                     _selected_owner_domain_for_reuse(compilation, selected, prepared),
                 ):
                     assert retained is not None
                     if retained.work_directory is not None:
-                        work_directories[f"m36:{mode.value}"] = retained.work_directory
-                    return _equivalence_from_m39(retained, prepared)
+                        work_directories[f"semantic_equivalence:{mode.value}"] = retained.work_directory
+                    return _equivalence_from_formal_selection(retained, prepared)
             active = toolchain()
-            recipe = _m36_execution_recipe(prepared, config, mode, active)
+            recipe = _semantic_equivalence_execution_recipe(prepared, config, mode, active)
             directory = _candidate_job_work_directory(config, recipe=recipe)
             job_config = replace(config, work_directory=directory)
             with use_formal_toolchain(active):
-                result = _execute_m36(prepared, job_config, mode, provider, active)
+                result = _execute_semantic_equivalence(prepared, job_config, mode, provider, active)
             if directory is not None and directory.is_dir():
-                work_directories[f"m36:{mode.value}"] = str(directory)
+                work_directories[f"semantic_equivalence:{mode.value}"] = str(directory)
             return result
 
         bounded = execute(EquivalenceMode.BMC)

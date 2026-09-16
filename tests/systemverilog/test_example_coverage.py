@@ -48,7 +48,7 @@ CHILD_OR_TEMPLATE_ONLY = {
     ("fft/sdf_stage_numeric.zhl", "FFTSDFStageNumeric"): ChildExpectation(
         "unknown type 'S'", "FFTSDFStageNumericD4"
     ),
-    ("simple_dma_m40.zhl", "TransferEngine"): ChildExpectation(
+    ("simple_dma.zhl", "TransferEngine"): ChildExpectation(
         "request/response interfaces require a module clock and reset",
         "SimpleDMA",
     ),
@@ -175,9 +175,9 @@ def _direct_result(path: Path, top: str):
 @pytest.mark.parametrize(
     ("relative", "top"),
     (
-        ("hierarchical_request_response_m40.zhl", "Requester"),
-        ("hierarchical_request_response_m40.zhl", "Responder"),
-        ("simple_dma_m40.zhl", "MemoryModel"),
+        ("hierarchical_request_response.zhl", "Requester"),
+        ("hierarchical_request_response.zhl", "Responder"),
+        ("simple_dma.zhl", "MemoryModel"),
         ("multichannel_dma.zhl", "DMAMemoryModel"),
     ),
 )
@@ -227,4 +227,4 @@ def test_every_standalone_supported_example_root_passes_strict_lint(tmp_path: Pa
             f"{relative}::{top}\n{completed.stderr}"
         )
         checked += 1
-    assert checked == 170
+    assert checked == 171

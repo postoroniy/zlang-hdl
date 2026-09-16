@@ -492,7 +492,7 @@ print(json.dumps({
 
 def _sv_lane_values(samples: tuple[tuple[int, int], ...], lane: int) -> str:
     return "'{" + ", ".join(
-        f"16'h{sample[lane] & 0xFFFF:04x}" for sample in samples
+        f"16'h{sample[lane] & 0xFFFF:04x}" for sample in reversed(samples)
     ) + "}"
 
 
@@ -505,11 +505,13 @@ def _sv_output_checks(
     ]
     for index, (real, imag) in enumerate(samples):
         checks.append(
-            f"if (output_data_i[{index}] !== 16'h{real & 0xFFFF:04x}) "
+            f"if (output_data_i[{index}] !== "
+            f"16'h{real & 0xFFFF:04x}) "
             f'$fatal(1, "{label} real lane {index}");'
         )
         checks.append(
-            f"if (output_data_q[{index}] !== 16'h{imag & 0xFFFF:04x}) "
+            f"if (output_data_q[{index}] !== "
+            f"16'h{imag & 0xFFFF:04x}) "
             f'$fatal(1, "{label} imag lane {index}");'
         )
     return "\n    ".join(checks)
@@ -523,11 +525,11 @@ def _bench(size: int) -> str:
     return f"""
 module tb;
   logic input_new_message;
-  logic signed [15:0] input_data_i [0:{size - 1}];
-  logic signed [15:0] input_data_q [0:{size - 1}];
+  logic signed [{size - 1}:0][15:0] input_data_i;
+  logic signed [{size - 1}:0][15:0] input_data_q;
   wire output_new_message;
-  wire signed [15:0] output_data_i [0:{size - 1}];
-  wire signed [15:0] output_data_q [0:{size - 1}];
+  wire signed [{size - 1}:0][15:0] output_data_i;
+  wire signed [{size - 1}:0][15:0] output_data_q;
   IFFT{size}WholeVectorWitness dut(
     .input_new_message, .input_data_i, .input_data_q,
     .output_new_message, .output_data_i, .output_data_q

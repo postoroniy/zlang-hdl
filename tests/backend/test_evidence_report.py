@@ -58,8 +58,8 @@ ORIGIN = SourceOrigin(
     "a" * 64,
 )
 
-M39_BOUND = {
-    "property_identity": "m36.test.candidate",
+FORMAL_SELECTION_BOUND = {
+    "property_identity": "semantic_equivalence.test.candidate",
     "harness_hash": "2" * 64,
     "assumptions_identity": "3" * 64,
     "backend_identity": "4" * 64,
@@ -77,14 +77,14 @@ M39_BOUND = {
 
 def _formal_result() -> FormalResult:
     return FormalResult(
-        property_id="m35.fifo.bounds",
+        property_id="safety_verification.fifo.bounds",
         status=FormalStatus.FAILED,
         mode=ProofMode.BMC,
         engine="sby",
         solver="z3",
         depth=8,
         counterexample=Counterexample(
-            "m35.fifo.bounds", 3, (("fifo.count", "3"),), "trace"
+            "safety_verification.fifo.bounds", 3, (("fifo.count", "3"),), "trace"
         ),
         source_origin=ORIGIN,
         tool_versions=(("yosys", "0.68"), ("z3", "4.8.12")),
@@ -94,7 +94,7 @@ def _formal_result() -> FormalResult:
 
 def _equivalence_result() -> EquivalenceResult:
     return EquivalenceResult(
-        property_id="m36.eq.dot",
+        property_id="semantic_equivalence.eq.dot",
         status=EquivalenceStatus.BOUNDED_PASS,
         mode=EquivalenceMode.BMC,
         engine="sby",
@@ -114,28 +114,28 @@ def _equivalence_result() -> EquivalenceResult:
 
 
 def test_typed_adapters_preserve_formal_equivalence_and_artifact_metadata() -> None:
-    m35 = evidence_from_formal_result(
+    safety_verification = evidence_from_formal_result(
         _formal_result(), backend="direct_systemverilog", artifact_hash="f" * 64
     )
-    m36 = evidence_from_equivalence_result(_equivalence_result())
+    semantic_equivalence = evidence_from_equivalence_result(_equivalence_result())
 
-    assert (m35.status, m35.mode, m35.depth) == ("failed", "bmc", 8)
-    assert m35.property_id == "m35.fifo.bounds"
-    assert m35.backend == "direct_systemverilog"
-    assert m35.artifact_hash == "f" * 64
-    assert m35.source_origin == ORIGIN
-    assert m35.counterexample_digest is not None
-    m35_details = dict(m35.details)
-    assert json.loads(m35_details["counterexample_metadata"])["cycle"] == 3
-    assert json.loads(m35_details["tool_versions"]) == [
+    assert (safety_verification.status, safety_verification.mode, safety_verification.depth) == ("failed", "bmc", 8)
+    assert safety_verification.property_id == "safety_verification.fifo.bounds"
+    assert safety_verification.backend == "direct_systemverilog"
+    assert safety_verification.artifact_hash == "f" * 64
+    assert safety_verification.source_origin == ORIGIN
+    assert safety_verification.counterexample_digest is not None
+    safety_verification_details = dict(safety_verification.details)
+    assert json.loads(safety_verification_details["counterexample_metadata"])["cycle"] == 3
+    assert json.loads(safety_verification_details["tool_versions"]) == [
         ["yosys", "0.68"], ["z3", "4.8.12"]
     ]
 
-    assert (m36.status, m36.mode, m36.depth) == ("bounded_pass", "bmc", 12)
-    assert m36.reference_hash == "b" * 64
-    assert m36.artifact_hash == "c" * 64
-    assert m36.relation == "fixed_latency_value"
-    assert m36.candidate_identity == "candidate.dot.pipeline3"
+    assert (semantic_equivalence.status, semantic_equivalence.mode, semantic_equivalence.depth) == ("bounded_pass", "bmc", 12)
+    assert semantic_equivalence.reference_hash == "b" * 64
+    assert semantic_equivalence.artifact_hash == "c" * 64
+    assert semantic_equivalence.relation == "fixed_latency_value"
+    assert semantic_equivalence.candidate_identity == "candidate.dot.pipeline3"
 
     # Attribution never participates in the evidence identity.
     moved = replace(
@@ -149,10 +149,10 @@ def test_typed_adapters_preserve_formal_equivalence_and_artifact_metadata() -> N
     )
 
 
-def test_m39_not_run_and_executed_candidate_evidence_are_distinct() -> None:
+def test_formal_selection_not_run_and_executed_candidate_evidence_are_distinct() -> None:
     not_run = evidence_from_formal_exploration_record(
         FormalExplorationRecord(
-            "candidate.a", 1, "valid", "M36_direct_systemverilog", FormalPolicy.OFF,
+            "candidate.a", 1, "valid", "semantic_equivalence_direct_systemverilog", FormalPolicy.OFF,
             None, None, None, "not-run", True, "formal disabled",
         )
     )
@@ -162,18 +162,18 @@ def test_m39_not_run_and_executed_candidate_evidence_are_distinct() -> None:
 
     bounded = evidence_from_formal_exploration_record(
         FormalExplorationRecord(
-            "candidate.b", 2, "valid", "M36_direct_systemverilog",
+            "candidate.b", 2, "valid", "semantic_equivalence_direct_systemverilog",
             FormalPolicy.REQUIRED_BMC, ProofMode.BMC, 16,
             FormalStatus.BOUNDED_PASS, "executed", True,
             "bounded proof satisfied", "direct_systemverilog", "1" * 64,
-            **M39_BOUND,
+            **FORMAL_SELECTION_BOUND,
         )
     )
     assert (bounded.status, bounded.mode, bounded.depth) == (
         "bounded_pass", "bmc", 16
     )
-    assert bounded.route == "M36_direct_systemverilog"
-    assert bounded.property_id == "m36.test.candidate"
+    assert bounded.route == "semantic_equivalence_direct_systemverilog"
+    assert bounded.property_id == "semantic_equivalence.test.candidate"
     assert bounded.reference_hash == "5" * 64
     assert bounded.source_origin == ORIGIN
     assert "selected_origin" in dict(bounded.details)
@@ -184,7 +184,7 @@ def test_required_proven_bmc_and_prove_stages_remain_distinct_evidence() -> None
         candidate_identity="candidate.staged",
         rank=1,
         semantic_legality="valid",
-        formal_route="M36_direct_systemverilog",
+        formal_route="semantic_equivalence_direct_systemverilog",
         policy=FormalPolicy.REQUIRED_PROVEN,
         depth=12,
         cache_state="executed",
@@ -192,7 +192,7 @@ def test_required_proven_bmc_and_prove_stages_remain_distinct_evidence() -> None
         artifact_hash="1" * 64,
         engine="sby",
         solver="z3",
-        **M39_BOUND,
+        **FORMAL_SELECTION_BOUND,
     )
     bounded = evidence_from_formal_exploration_record(FormalExplorationRecord(
         mode=ProofMode.BMC,
@@ -212,19 +212,19 @@ def test_required_proven_bmc_and_prove_stages_remain_distinct_evidence() -> None
     assert (proven.status, proven.mode) == ("proven", "prove")
     assert bounded.evidence_id != proven.evidence_id
     report = build_evidence_report(
-        "m39.staged", (bounded, proven), format="json",
+        "formal_selection.staged", (bounded, proven), format="json",
     )
     assert set(report.record.evidence_ids) == {
         bounded.evidence_id, proven.evidence_id,
     }
 
 
-def test_m39_cache_hit_state_does_not_change_evidence_identity() -> None:
+def test_formal_selection_cache_hit_state_does_not_change_evidence_identity() -> None:
     common = dict(
         candidate_identity="candidate.cached",
         rank=1,
         semantic_legality="valid",
-        formal_route="M36_direct_systemverilog",
+        formal_route="semantic_equivalence_direct_systemverilog",
         policy=FormalPolicy.REQUIRED_BMC,
         mode=ProofMode.BMC,
         depth=8,
@@ -236,7 +236,7 @@ def test_m39_cache_hit_state_does_not_change_evidence_identity() -> None:
         engine="sby",
         solver="z3",
         proof_reason="solver completed",
-        **M39_BOUND,
+        **FORMAL_SELECTION_BOUND,
     )
     executed = evidence_from_formal_exploration_record(
         FormalExplorationRecord(cache_state="executed", **common)
@@ -253,7 +253,7 @@ def test_m39_cache_hit_state_does_not_change_evidence_identity() -> None:
 
 def test_property_or_harness_generation_is_not_a_proof() -> None:
     property_ = FormalProperty(
-        "m35.generated", PropertyKind.ASSERTION, "clk", "rst", "x == x",
+        "safety_verification.generated", PropertyKind.ASSERTION, "clk", "rst", "x == x",
         TemporalForm.SAME_CYCLE, Ownership.IMPLEMENTATION,
         source_origin=ORIGIN,
     )
@@ -307,17 +307,17 @@ def test_untyped_logs_and_malformed_candidate_records_are_rejected() -> None:
     with pytest.raises(EvidenceReportError, match="typed formal IR"):
         evidence_from_formal_exploration_record(
             FormalExplorationRecord(
-                "candidate", 1, "valid", "M36_direct_systemverilog", FormalPolicy.AVAILABLE,
+                "candidate", 1, "valid", "semantic_equivalence_direct_systemverilog", FormalPolicy.AVAILABLE,
                 ProofMode.BMC, 4, FormalStatus.FAILED, "executed", False,
                 "failed", backend="direct_systemverilog", artifact_hash="1" * 64,
-                counterexample={"cycle": 1}, **M39_BOUND,
+                counterexample={"cycle": 1}, **FORMAL_SELECTION_BOUND,
             )
         )
 
     with pytest.raises(EvidenceReportError, match="connected backend artifact"):
         evidence_from_formal_exploration_record(
             FormalExplorationRecord(
-                "candidate", 1, "valid", "M36_direct_systemverilog",
+                "candidate", 1, "valid", "semantic_equivalence_direct_systemverilog",
                 FormalPolicy.REQUIRED_BMC, ProofMode.BMC, 4,
                 FormalStatus.BOUNDED_PASS, "executed", True, "passed",
             )

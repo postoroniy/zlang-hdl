@@ -34,7 +34,7 @@ def alignment_delays(
     semantic_identity: str | None = None,
     source_origin: str | None = None,
 ) -> tuple[ImplementationDelay, ...]:
-    """Turn M30's minimum-latency alignment plan into explicit graph objects."""
+    """Turn timing alignment's minimum-latency alignment plan into explicit graph objects."""
     values = tuple(operands)
     nodes = tuple(node_identities)
     if len(values) != len(nodes):

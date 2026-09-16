@@ -256,7 +256,7 @@ def test_malformed_canonical_elastic_region_cannot_publish_an_artifact() -> None
         emit_sv_artifact(restore(corrupted))
 
 
-def test_elastic_region_keeps_m35_public_rv_safety_only() -> None:
+def test_elastic_region_keeps_safety_verification_public_rv_safety_only() -> None:
     properties = build_formal_design(_module()).properties
     assert tuple(item.generated_from for item in properties) == (
         "ready_valid:input",
@@ -267,13 +267,13 @@ def test_elastic_region_keeps_m35_public_rv_safety_only() -> None:
 
 
 
-def test_m39_available_skips_without_disqualifying_and_required_fails() -> None:
+def test_formal_selection_available_skips_without_disqualifying_and_required_fails() -> None:
     verifier_calls = 0
 
     def verifier(*args, **kwargs):
         nonlocal verifier_calls
         verifier_calls += 1
-        raise AssertionError("elastic M39 route must not execute M36")
+        raise AssertionError("elastic formal-aware selection route must not execute semantic-reference equivalence")
 
     available = CompilationSession(
         SOURCE,
@@ -290,7 +290,7 @@ def test_m39_available_skips_without_disqualifying_and_required_fails() -> None:
     assert verifier_calls == 0
 
     for policy in (FormalPolicy.REQUIRED_BMC, FormalPolicy.REQUIRED_PROVEN):
-        with pytest.raises(SemanticError, match="no M36 route"):
+        with pytest.raises(SemanticError, match="no semantic-reference equivalence route"):
             CompilationSession(
                 SOURCE,
                 formal_policy=policy,

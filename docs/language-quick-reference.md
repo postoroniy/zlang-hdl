@@ -103,6 +103,9 @@ and `SF_Sat8.8`.
   never changes operand widths.
 - Packed bit index zero is the LSB. `x[MSB:LSB]` uses an inclusive static slice;
   vector ranges `values[first..past_last]` are half-open.
+- Indexed aggregates are packed LSB-first: `vec`/`string` element zero and tuple
+  `item0` occupy the least-significant component recursively. First-declared
+  struct fields and tagged-union tags remain at the MSB.
 
 See [types and numerics](types-and-numerics.md) before changing a width or a
 fixed-point type.
@@ -154,8 +157,8 @@ qualifier but does not create a runtime namespace.
   are typed observations, not ordinary struct fields.
 - Use explicit `connect`/`source -> sink`, adapters, and CDC crossings. The
   compiler never inserts these silently.
-- Top-level structs and tuples become recursively named leaf ports; vectors stay
-  native unpacked arrays in the production direct-SystemVerilog ABI.
+- Top-level structs and tuples become recursively named leaf ports; vectors use
+  multidimensional packed arrays in the production direct-SystemVerilog ABI.
 
 Read [sequential state/storage](sequential-state-storage.md) and
 [hierarchy/protocols](hierarchy-protocols.md) before composing stateful children.
@@ -207,7 +210,7 @@ reachability; a missed cover is not an unreachability proof. BMC produces
 hardware or feed optimizer range inference.
 
 Do not add liveness, arbitrary SVA/SMT, temporal sequences, new observation
-families, or source-level M36/M38 controls. Use the existing
+families, or source-level semantic-reference equivalence/retired cross-backend equivalence controls. Use the existing
 [formal examples](../examples/verification/README.md) and compiler-owned routes.
 
 ## Commands and completion check
@@ -229,4 +232,4 @@ Before calling a source change complete:
 
 If a requested form is absent from this page, check the
 [syntax matrix](syntax-support-matrix.md) and [known limitations](known-limitations.md).
-Do not infer support from historical milestone or design-freeze examples.
+Do not infer support from dated design-freeze examples.

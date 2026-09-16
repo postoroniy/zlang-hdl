@@ -1,8 +1,7 @@
 # `zlang-lsp` Community language server
 
-`zlang-lsp` is the single Community ZLang HDL language server. Milestone 12
-leaves the Milestone 11 protocol surface unchanged: deterministic diagnostics,
-document symbols, semantic hover,
+`zlang-lsp` is the single Community ZLang HDL language server. Its protocol
+surface provides deterministic diagnostics, document symbols, semantic hover,
 compiler-resolved definition locations, semantic references, safe semantic
 rename, deterministic semantic completion, and compiler-resolved signature
 help, full-document semantic tokens, and compiler-owned diagnostic quick fixes.
@@ -251,14 +250,14 @@ second project analysis without turning an arbitrary parent shard into proof
 for a manually opened file. A changed destination, an unsaved buffer or a shard
 that did not analyze the selected module falls back to normal semantic analysis.
 
-Milestone 12 audited generated-RTL provenance without adding an LSP method or
-capability. Existing source maps are hash-bound and exact for their few mapped
+The generated-RTL provenance audit added no LSP method or capability. Existing
+source maps are hash-bound and exact for their few mapped
 generated lines, but they do not yet provide complete artifact discovery,
 current-editor-source staleness validation, or broad RTL coverage. The LSP does
 not load raw backend manifests, infer mappings from generated names, or generate
 RTL during navigation. See [Generated source maps](generated-source-maps.md).
 
-M13 adds a protocol-neutral
+generated-navigation bundle adds a protocol-neutral
 [validated generated-navigation bundle](generated-navigation-bundles.md) for
 explicit published artifact discovery, integrity, lineage, and source-snapshot
 freshness. No LSP method consumes the bundle yet, and advertised server
@@ -269,4 +268,4 @@ capabilities are unchanged.
 `codeAction/resolve`, fix-all/source/refactor actions, semantic-token
 range/delta requests, workspace symbols, generated-RTL navigation,
 formal/synthesis commands, AI-assisted workflows, CUDA, and `zinfer` are outside
-this milestone.
+the current public scope.

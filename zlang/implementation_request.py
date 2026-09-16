@@ -3,7 +3,7 @@
 This module is deliberately an adapter and data-model layer.  It does not run
 exploration, select a backend, or assign new semantics to legacy source forms.
 Profiles, explicit API/CLI options, and source policy are represented as typed
-contributions and merged before the existing M28/M34/M39 machinery consumes
+contributions and merged before the existing deterministic cost selection/bounded exploration/formal-aware selection machinery consumes
 them.
 """
 

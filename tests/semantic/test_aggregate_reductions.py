@@ -41,7 +41,7 @@ def test_complex_sum_retains_exact_overload_expansion_and_type() -> None:
         "Complex<fixed<38,30>>",
     }
     assert restore(lower(result.ir)) == result.ir
-    # M32 must not reassociate an overload-resolved nominal tree.
+    # exact reduction planning must not reassociate an overload-resolved nominal tree.
     assert expand_reduction(reduction) == ()
 
 

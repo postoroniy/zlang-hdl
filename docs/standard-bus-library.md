@@ -120,7 +120,7 @@ connections retain complementary protocol roles.
 That projection is now the only public ABI for both RTL backends. Struct-valued
 payloads are exposed as separate named fields such as
 `axi_w_payload_data` and `axi_w_payload_strb`; vector-valued leaves remain one
-native unpacked array port rather than a packed bus or one pin per element.
+multidimensional packed array port rather than a flat bus or one pin per element.
 Clash uses a generated typed SystemVerilog boundary around its packed core, and
 direct SystemVerilog uses the same `TopPhysicalABI` packing contract. Neither
 path contains an AXI/APB member-name table.
@@ -147,7 +147,7 @@ The first profiles use one clock/reset and one outstanding operation.
 `Axi4LiteToRegBus` independently buffers AW and W and joins them only after
 both transfers; AR returns one held R response. `ApbToRegBus` implements
 explicit setup/access behavior and holds controls stable while waiting for
-PREADY. Safety families reuse M35 property generation.
+PREADY. Safety families reuse safety verification property generation.
 
 For that slice, full AXI4, bursts, IDs, AXI-Stream, Wishbone, CDC, adapters, and
 DMA bus conversion were excluded. SimpleDMA remained on generic

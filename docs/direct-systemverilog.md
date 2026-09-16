@@ -66,7 +66,7 @@ backend never infers wrap, saturation, or rounding from source spelling.
   output from an instance array; every physical child remains independently
   instantiated and active;
 - the bounded single-input/single-output ready/valid `transform pipeline(auto)`
-  with one pure M31 product-reduction kernel and a compiler-owned global stall;
+  with one pure pipeline scheduling product-reduction kernel and a compiler-owned global stall;
 - ready/valid connections and finite connection FIFOs, including simultaneous
   push/pop and backpressure;
 - scalar ready/valid `async_fifo(N)` clock crossings and aggregate crossings
@@ -82,23 +82,28 @@ backend never infers wrap, saturation, or rounding from source spelling.
   buffers as represented in typed IR;
 - one mandatory public top ABI derived from `TopPhysicalABI`: structs are
   recursively exposed as named field leaves, tuples as deterministic `itemN`
-  leaves, while every `vec<N,T>` leaf is a native unpacked SystemVerilog array
-  (`T name [0:N-1]`); packed aggregate and vector representations exist only
-  behind the private generated core;
+  leaves, while every `vec<N,T>` leaf is a multidimensional packed
+  SystemVerilog array (`logic [N-1:0][W-1:0] name` for a `W`-bit element);
+  flat packed aggregate representations exist only as deterministic aliases
+  inside the selected top or inside compact child components;
 - source-authored AXI4-Lite, APB, AXI-Stream, Wishbone, RegBus, and CSR hierarchy
   used by the current standard-library and real-design examples;
 - hardware-connected CSR `ro`, `pulse`, and sticky-W1C behavior with the frozen
   software/hardware priority policy;
 - ready/valid-to-credit, credit-to-ready/valid, and per-VC credit source state
   machines from typed protocol/capacity metadata;
-- BackendArtifact v4 recursive instance/state locators and version-10 physical
+- BackendArtifact v4 recursive instance/state locators and version-10-or-newer physical
   domain contracts for non-default reset modes. Specialization
   identity is not used as physical instance identity.
 
 SystemVerilog reserved words are deterministically prefixed with `zlang_`.
 The collision check runs after that physical-name mapping, so two distinct
-semantic leaves can never silently become one RTL port. Public-wrapper helper
+semantic leaves can never silently become one RTL port. Inline-boundary helper
 signals are allocated outside the public namespace and remain deterministic.
+Packed dimensions use conventional descending ranges. ZLang element zero maps
+directly to physical packed index zero and the least-significant private slice.
+The generated artifact has one unconditional top definition and
+is accepted by both Yosys and Verilator without backend preprocessor branches.
 Unresolved locals are eliminated before backend lowering.  Unsupported IR
 shapes raise `SystemVerilogEmissionError`; no artifact is published after a
 failed emission.
@@ -111,7 +116,7 @@ register. Equality and inequality remain raw bit comparisons.
 Use the stable CLI option:
 
 ```sh
-.venv/bin/zlang examples/simple_dma_m40.zhl --top SimpleDMA \
+.venv/bin/zlang examples/simple_dma.zhl --top SimpleDMA \
   --systemverilog build/SimpleDMA.sv
 verilator --lint-only --top-module SimpleDMA build/SimpleDMA.sv
 ```
@@ -164,7 +169,7 @@ The bounded surface includes bit-packable user registers (including vector
 registers), writable-memory cells, and the persistent read-result latch of a
 one-cycle memory. Values up to 64 bits have convenience methods; arbitrary-
 width scalars and elements use exact 32-bit least-significant-word-first arrays.
-Vector element zero retains the canonical most-significant packed position.
+Vector element zero retains the canonical least-significant packed position.
 The persistent semantic simulator consumes the same catalog and keeps one state
 object per physical child instance.
 
@@ -212,7 +217,7 @@ the affected property reports `skipped` rather than fabricating a proof.
 ## Explicitly unsupported
 
 Full burst/ID AXI4, backend-specific CDC primitives,
-backend-by-region selection, hierarchical M36, and protocol-level M38
+backend-by-region selection, hierarchical semantic-reference equivalence, and protocol-level retired cross-backend equivalence
 remain outside this backend subset. Direct SV is the sole production backend.
 Compile-time indexed instance arrays are structurally unrolled from typed IR.
 Supported bounded profiles include scalar combinational/sequential

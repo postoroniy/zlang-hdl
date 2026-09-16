@@ -30,8 +30,8 @@ fn encoder_g1(stream : u30) -> bits<24> {
 fn interleave24(g0 : bits<24>, g1 : bits<24>) -> bits<48> {
     bitcast<bits<48>>(
         generate(i in 0..24) [
-            g0[i],
-            g1[i]
+            g1[23 - i],
+            g0[23 - i]
         ]
     )
 }

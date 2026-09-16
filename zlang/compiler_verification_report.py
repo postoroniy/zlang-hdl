@@ -1,7 +1,7 @@
 """Deterministic public report for one compiler-owned formal execution.
 
-The existing :class:`VerificationRunReport` remains the M35/source-contract
-execution product. This wrapper joins it to independently typed direct-SV M36
+The existing :class:`VerificationRunReport` remains the safety verification/source-contract
+execution product. This wrapper joins it to independently typed direct-SV semantic-reference equivalence
 candidate reports without conflating their result/status models.
 """
 
@@ -33,7 +33,7 @@ class CompilerVerificationReportError(ValueError):
 
 @dataclass(frozen=True)
 class CompilerVerificationReport:
-    """M35 execution plus exact selected-candidate direct-SV M36 evidence."""
+    """safety verification execution plus exact selected-candidate direct-SV semantic-reference equivalence evidence."""
 
     verification: VerificationRunReport
     formal_execution_plan: CompilerFormalExecutionPlan
@@ -46,7 +46,7 @@ class CompilerVerificationReport:
     def __post_init__(self) -> None:
         if not isinstance(self.verification, VerificationRunReport):
             raise CompilerVerificationReportError(
-                "compiler verification requires a typed M35 run report"
+                "compiler verification requires a typed safety verification run report"
             )
         if not isinstance(self.formal_execution_plan, CompilerFormalExecutionPlan):
             raise CompilerVerificationReportError(
@@ -210,7 +210,7 @@ class CompilerVerificationReport:
                 "candidate equivalence "
                 f"site={report.plan.site_identity} "
                 f"candidate={report.plan.candidate_identity} "
-                f"status={report.direct_systemverilog_m36.status.value} "
+                f"status={report.direct_systemverilog_semantic_equivalence.status.value} "
                 "backend=direct_systemverilog"
             )
             if report.tool_versions:

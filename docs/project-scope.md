@@ -19,8 +19,8 @@ open-source project. That scope includes:
   source mapping;
 - production direct-SystemVerilog emission, simulation, manifests, and local
   build tooling;
-- local safety verification (M35), semantic-reference equivalence (M36),
-  historical M38 records, formal-aware candidate selection (M39), and
+- local safety verification (safety verification), semantic-reference equivalence (semantic-reference equivalence),
+  historical retired cross-backend equivalence records, formal-aware candidate selection, and
   immutable verification bundles;
 - local implementation selection, including `implement`, `choice`, cost
   extraction, and local synthesis

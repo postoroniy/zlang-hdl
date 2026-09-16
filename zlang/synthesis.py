@@ -35,7 +35,7 @@ class YosysTarget:
 
     def __post_init__(self) -> None:
         if self.name != "generic-lut6" or self.lut_inputs != 6:
-            raise ValueError("Milestone 21 supports only the generic-lut6 target")
+            raise ValueError("target-independent synthesis supports only generic-lut6")
 
     @property
     def constraints(self) -> tuple[tuple[str, str], ...]:

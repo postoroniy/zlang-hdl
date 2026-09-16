@@ -90,8 +90,8 @@ def test_formal_preparation_recipes_bind_naming_version(monkeypatch):
     assert FormalArtifactRecipe("prepared", "route", previous).identity != FormalArtifactRecipe("prepared", "route", current).identity
     expression = result.ir.assignments[0].expression
     candidate = SimpleNamespace(expression=expression, implementation_identity="candidate", stages=())
-    verifier = candidate_module.M36DirectSystemVerilogCandidateVerifier(
-        expression, candidate_class="M27"
+    verifier = candidate_module.SemanticEquivalenceDirectSystemVerilogCandidateVerifier(
+        expression, candidate_class="guarded exact rewrite"
     )
     recipe = verifier.preparation_cache_recipe(candidate, candidate_module.FormalExplorationConfig())
     assert recipe["rtl_naming"] == RTL_NAMING_SCHEMA
@@ -118,10 +118,10 @@ def test_simulation_bundle_uses_containing_scope_and_rejects_old_schema():
         f"{root_path}.bank.{first}.count", f"{root_path}.bank.{second}.count",
     }
     assert bundle.schema == SYSTEMVERILOG_SIMULATION_STATE_SCHEMA
-    assert bundle.schema.endswith("-v2")
+    assert bundle.schema.endswith("-v4")
     assert SystemVerilogSimulationStateBundle.from_json(bundle.to_json()) == bundle
     with pytest.raises(SimulationStateError, match="schema"):
-        SystemVerilogSimulationStateBundle.from_data({**bundle.to_data(), "schema": "zlang-systemverilog-simulation-state-v1"})
+        SystemVerilogSimulationStateBundle.from_data({**bundle.to_data(), "schema": "zlang-systemverilog-simulation-state-v2"})
     with pytest.raises(SimulationStateError, match="naming schema"):
         build_systemverilog_simulation_state_bundle(compilation.ir, replace(artifact, naming_schema=None))
 
@@ -152,7 +152,7 @@ def test_vpi_scope_uses_physicalized_generic_helper_reservations():
 
 @pytest.mark.skipif(shutil.which("verilator") is None, reason="Verilator unavailable")
 def test_rr_observations_resolve_final_formal_and_generic_scopes(tmp_path: Path):
-    source = (Path(__file__).resolve().parents[2] / "examples/hierarchical_request_response_m40.zhl").read_text()
+    source = (Path(__file__).resolve().parents[2] / "examples/hierarchical_request_response.zhl").read_text()
     reserved_collision = source.replace("requester", "table").replace(
         "module HierarchicalRequestResponse {",
         "module HierarchicalRequestResponse { in zlang_table : bit",

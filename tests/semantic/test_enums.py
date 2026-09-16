@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from tests.case_matrix import check_cases
 from zlang.backend.manifest import BackendArtifact
 from zlang.backend.systemverilog import emit_artifact
 from zlang.compiler import compile_source
@@ -53,17 +54,16 @@ def test_enum_ordinals_width_and_qualified_members_are_exact() -> None:
     assert simulate(module) == {"idle": 0, "payload": 2, "error": 4}
 
 
-@pytest.mark.parametrize(
-    "members,width",
-    (("Only", 1), ("A B", 1), ("A B C", 2), ("A B C D", 2), ("A B C D E", 3)),
-)
-def test_enum_encoding_width_is_minimal_and_never_zero(
-    members: str, width: int
-) -> None:
-    module = _compile(
-        f"enum E {{ {members} }} module M {{ out y:E y=E.{members.split()[0]} }}"
-    )
-    assert module.enums[0].width == width
+def test_enum_encoding_width_is_minimal_and_never_zero() -> None:
+    def check(case: tuple[str, int]) -> None:
+        members, width = case
+        module = _compile(
+            f"enum E {{ {members} }} module M {{ out y:E y=E.{members.split()[0]} }}"
+        )
+        assert module.enums[0].width == width
+
+    cases = (("Only", 1), ("A B", 1), ("A B C", 2), ("A B C D", 2), ("A B C D E", 3))
+    check_cases(((case[0], case) for case in cases), check, matrix="enum_width")
 
 
 def test_enum_switch_is_exhaustive_and_lowers_to_ordinal_switch() -> None:
@@ -82,7 +82,9 @@ def test_enum_equality_and_inequality_are_nominal() -> None:
         "enum Phase { Idle Active } module M { out same:bit out different:bit "
         "same=Phase.Active==Phase.Active different=Phase.Idle!=Phase.Active }"
     )
-    assert all(assignment.expression.type == BitType() for assignment in module.assignments)
+    assert all(
+        assignment.expression.type == BitType() for assignment in module.assignments
+    )
     assert simulate(module) == {"same": 1, "different": 1}
 
 
@@ -135,65 +137,78 @@ def test_enum_survives_canonical_and_backend_artifact_round_trips() -> None:
     artifact = emit_artifact(module)
     round_trip = BackendArtifact.from_json(artifact.to_json())
     phase = next(
-        binding for binding in artifact.bindings
+        binding
+        for binding in artifact.bindings
         if binding.semantic_signal_id == "port:phase"
     )
     restored_phase = next(
-        binding for binding in round_trip.bindings if binding.semantic_signal_id == phase.semantic_signal_id
+        binding
+        for binding in round_trip.bindings
+        if binding.semantic_signal_id == phase.semantic_signal_id
     )
     assert phase.canonical_type == str(module.enums[0])
     assert phase.width == module.enums[0].width
     assert restored_phase == phase
 
 
-@pytest.mark.parametrize(
-    "source,message",
+INVALID_ENUM_FORMS = (
     (
-        (
-            "enum E { A A } module M { out y:E y=E.A }",
-            "duplicate member 'A' in enum 'E'",
-        ),
-        (
-            "enum E { A B } module M { out y:E y=E.C }",
-            "enum 'E' has no member 'C'",
-        ),
-        (
-            "enum E { A B C } module M { out y:u2 y=switch E.A { E.A=>0 E.B=>1 } }",
-            "missing enum member",
-        ),
-        (
-            "enum E { A B } module M { out y:u2 y=switch E.A { E.A=>0 E.A=>1 E.B=>2 } }",
-            "duplicate enum switch member",
-        ),
-        (
-            "enum E { A B } module M { out y:u2 y=switch E.A { 0=>0 1=>1 } }",
-            "enum switch key",
-        ),
-        (
-            "enum E { A B } enum F { A B } module M { out y:bit y=E.A==F.A }",
-            "matching nominal enum",
-        ),
-        (
-            "enum E { A B } module M { out y:E y=E.A+E.B }",
-            "arithmetic is not defined for enum",
-        ),
-        (
-            "enum E { A B } module M { out y:bit y=E.A<E.B }",
-            "ordered comparison is not defined for enum",
-        ),
-        (
-            "enum E { A B } module M { out y:u2 y=extend<2>(E.A) }",
-            "cannot resize enum",
-        ),
-        (
-            "enum E { A B } module M { in x:E out y:E y=x }",
-            "top-level .*input 'x' cannot expose .*type",
-        ),
+        "enum E { A A } module M { out y:E y=E.A }",
+        "duplicate member 'A' in enum 'E'",
+    ),
+    (
+        "enum E { A B } module M { out y:E y=E.C }",
+        "enum 'E' has no member 'C'",
+    ),
+    (
+        "enum E { A B C } module M { out y:u2 y=switch E.A { E.A=>0 E.B=>1 } }",
+        "missing enum member",
+    ),
+    (
+        "enum E { A B } module M { out y:u2 y=switch E.A { E.A=>0 E.A=>1 E.B=>2 } }",
+        "duplicate enum switch member",
+    ),
+    (
+        "enum E { A B } module M { out y:u2 y=switch E.A { 0=>0 1=>1 } }",
+        "enum switch key",
+    ),
+    (
+        "enum E { A B } enum F { A B } module M { out y:bit y=E.A==F.A }",
+        "matching nominal enum",
+    ),
+    (
+        "enum E { A B } module M { out y:E y=E.A+E.B }",
+        "arithmetic is not defined for enum",
+    ),
+    (
+        "enum E { A B } module M { out y:bit y=E.A<E.B }",
+        "ordered comparison is not defined for enum",
+    ),
+    (
+        "enum E { A B } module M { out y:u2 y=extend<2>(E.A) }",
+        "cannot resize enum",
+    ),
+    (
+        "enum E { A B } module M { in x:E out y:E y=x }",
+        "top-level .*input 'x' cannot expose .*type",
     ),
 )
-def test_invalid_enum_forms_fail_closed(source: str, message: str) -> None:
-    with pytest.raises(SemanticError, match=message):
-        _compile(source)
+
+
+def test_invalid_enum_forms_fail_closed() -> None:
+    def check(case: tuple[str, str]) -> None:
+        source, message = case
+        with pytest.raises(SemanticError, match=message):
+            _compile(source)
+
+    check_cases(
+        (
+            (f"invalid enum form {index}: {case[0]}", case)
+            for index, case in enumerate(INVALID_ENUM_FORMS)
+        ),
+        check,
+        matrix="enum_invalid",
+    )
 
 
 def test_numeric_switch_remains_compatible_and_requires_else() -> None:
@@ -216,9 +231,7 @@ def test_numeric_switch_remains_compatible_and_requires_else() -> None:
         ),
     ),
 )
-def test_enum_shares_the_nominal_type_namespace(
-    source: str, message: str
-) -> None:
+def test_enum_shares_the_nominal_type_namespace(source: str, message: str) -> None:
     with pytest.raises(SemanticError, match=message):
         _compile(source)
 
@@ -247,19 +260,18 @@ def test_enum_switch_rejects_wrong_enum_label_and_else_arm() -> None:
         )
 
 
-@pytest.mark.parametrize(
-    "expression,message",
-    (
+def test_enum_rejects_bitwise_shift_and_unary_arithmetic() -> None:
+    def check(case: tuple[str, str]) -> None:
+        expression, message = case
+        with pytest.raises(SemanticError, match=message):
+            _compile(f"enum E {{ A B }} module M {{ out y:E y={expression} }}")
+
+    cases = (
         ("E.A | E.B", "arithmetic is not defined for enum values"),
         ("E.A << 1", "arithmetic is not defined for enum values"),
         ("-E.A", "unary minus is not defined for enum"),
-    ),
-)
-def test_enum_rejects_bitwise_shift_and_unary_arithmetic(
-    expression: str, message: str
-) -> None:
-    with pytest.raises(SemanticError, match=message):
-        _compile(f"enum E {{ A B }} module M {{ out y:E y={expression} }}")
+    )
+    check_cases(((case[0], case) for case in cases), check, matrix="enum_ops")
 
 
 def test_child_enum_input_uses_the_parent_nominal_identity() -> None:

@@ -93,7 +93,7 @@ class NodeCategory(str, Enum):
     TRANSACTION = "transaction"
     ARCHITECTURE = "architecture"
 
-    # Internal compatibility aliases for Milestone 17-24 code. New reports and
+    # Internal compatibility aliases for older optimization consumers. New reports and
     # iteration use the five ZLang 0.2 category names above.
     SEQUENTIAL = "state"
     ARCHITECTURAL = "architecture"
@@ -714,7 +714,7 @@ class CanonicalModule:
     elastic_pipeline_regions: tuple[CanonicalElasticPipelineRegion, ...] = ()
     specialization_bindings: tuple[object, ...] = ()
     # Stored losslessly, but excluded from hardware canonical identity.  The
-    # overlay has its own verification identity and must not perturb M36.
+    # overlay has its own verification identity and must not perturb semantic-reference equivalence.
     verification_scopes: tuple[CanonicalVerificationScope, ...] = ()
     verification_expressions: tuple[CanonicalExpression, ...] = ()
 

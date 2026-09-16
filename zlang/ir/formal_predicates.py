@@ -1,4 +1,4 @@
-"""Small backend-independent value/predicate IR for frozen M35 properties.
+"""Small backend-independent value/predicate IR for frozen safety verification properties.
 
 The nodes in this module contain semantic observation IDs only.  They never
 contain RTL identifiers, and their serialized representation is deliberately
@@ -27,7 +27,7 @@ class FormalSignedness(str, Enum):
 
 
 class ObservationCycle(str, Enum):
-    """Sampling point supported by the frozen one-cycle M35 subset."""
+    """Sampling point supported by the frozen one-cycle safety verification subset."""
 
     CURRENT = "current"
     PREVIOUS = "previous"

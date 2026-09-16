@@ -6,9 +6,9 @@ policy, backend products, companion files, actual tool executions, generated
 reports, and typed evidence without making any of those records the source of
 language semantics.
 
-> Dated multi-backend and M38 examples below are historical schema evidence.
+> Dated multi-backend and retired cross-backend equivalence examples below are historical schema evidence.
 > Current builds contain only the direct-SystemVerilog production artifact;
-> current compiler execution does not prepare or run M38.
+> current compiler execution does not prepare or run retired cross-backend equivalence.
 
 The first schema is `zlang-whole-build-manifest-v1`. It is complementary to,
 not a replacement for, the per-backend `BackendArtifact` manifest.
@@ -121,14 +121,14 @@ The typed adapters preserve the applicable property ID, candidate identity,
 backend and artifact hash, reference hash, engine, solver, relation, proof route,
 mode, and depth:
 
-- M35 records safety-property execution or an explicit unexecuted property;
-- M36 records selected architecture versus semantic-reference equivalence;
-- historical M38 records retain an executed Clash/direct-SV artifact pair but
+- safety verification records safety-property execution or an explicit unexecuted property;
+- semantic-reference equivalence records selected architecture versus semantic-reference equivalence;
+- historical retired cross-backend equivalence records retain an executed Clash/direct-SV artifact pair but
   the current compiler does not create one;
-- M39 records formal candidate eligibility without promoting an unexecuted
+- formal-aware selection records formal candidate eligibility without promoting an unexecuted
   route into proof evidence.
 
-Positive M39 evidence requires a connected backend and artifact. The report
+Positive formal-aware selection evidence requires a connected backend and artifact. The report
 layer does not infer execution from cache metadata, registered rewrite rules,
 generated properties, an SBY file, or a solver executable being installed.
 
@@ -162,12 +162,12 @@ remain outside `run_identity`.
 
 A joint `--verify` plus non-`off` formal-policy run publishes
 `zlang-compiler-verification-report-v1`. That wrapper links the raw v7 report to
-the exact compiler execution plan and separately typed selected-candidate M36
+the exact compiler execution plan and separately typed selected-candidate semantic-reference equivalence
 reports. Candidate reports retain deterministic per-route work roots and
 the discovered tool snapshot when execution needed tool discovery; exact
-in-session M39 reuse also carries its recorded work root. Physical paths remain
+in-session formal-aware selection reuse also carries its recorded work root. Physical paths remain
 operational metadata outside every semantic, run, evidence, and cache identity.
-Persistent M39 cache payloads omit them rather than claiming that an old
+Persistent formal-aware selection cache payloads omit them rather than claiming that an old
 workspace is still available.
 
 Each safety/cover job is tied to one exact clock/reset pair. Multiple supported
@@ -182,10 +182,10 @@ first makes its dependent safety result vacuous/unknown and therefore blocks
 proof. The merged report retains both the bounded cover evidence and any proved
 safety results. This sequencing is part of execution, not bundle identity.
 
-A safety counterexample or an executed joint M36 counterexample is
-a verification failure. Missing/unknown/vacuous M35/source evidence or an
+A safety counterexample or an executed joint semantic-reference equivalence counterexample is
+a verification failure. Missing/unknown/vacuous safety verification/source evidence or an
 unsatisfied requested proof is incomplete. A bounded cover miss is non-failing,
-and unavailable advisory candidate evidence neither changes M39 eligibility nor
+and unavailable advisory candidate evidence neither changes formal-aware selection eligibility nor
 makes an otherwise complete joint run incomplete.
 
 Likewise, merely detecting Verilator, Yosys, SymbiYosys, or Z3 does not
@@ -197,8 +197,8 @@ build.
 
 ## Counterexample and source attribution
 
-Failed current M35 and M36 results retain their typed counterexample metadata
-and ZLang `SourceOrigin`. Historical M38 results remain readable. The evidence
+Failed current safety verification and semantic-reference equivalence results retain their typed counterexample metadata
+and ZLang `SourceOrigin`. Historical retired cross-backend equivalence results remain readable. The evidence
 identity contains a SHA-256 digest of the
 complete counterexample data, including the raw trace, while human/JSON report
 details include concise metadata such as the property, cycle, semantic signal,
@@ -240,23 +240,23 @@ of it.
 ## Current limitations
 
 - Formal execution is opt-in and has distinct triggers. A non-`off` policy alone
-  runs the existing selection-time M39-to-M36 route. `--verify` with policy
-  `off` executes M35/source safety and covers. Bundle-only publication creates
+  runs the existing selection-time formal-aware selection-to-semantic-reference equivalence route. `--verify` with policy
+  `off` executes safety verification/source safety and covers. Bundle-only publication creates
   immutable safety/cover inputs and the base compiler plan but does not prepare
-  or execute selected-candidate M36. Joint `--verify` plus a non-`off` policy
-  may execute the compatible selected-candidate direct-SV M36 route.
-- A base bundle replays only immutable M35/source safety and cover jobs. When
-  selected-candidate M36 routes were prepared for publication, their strict
+  or execute selected-candidate semantic-reference equivalence. Joint `--verify` plus a non-`off` policy
+  may execute the compatible selected-candidate direct-SV semantic-reference equivalence route.
+- A base bundle replays only immutable safety verification/source safety and cover jobs. When
+  selected-candidate semantic-reference equivalence routes were prepared for publication, their strict
   path-free typed inputs are stored as hash-validated companion records;
-  `zlang-verify` executes those frozen routes without source or M39 reselection.
+  `zlang-verify` executes those frozen routes without source or formal-aware selection reselection.
   Solver results remain external run evidence and are never embedded as trusted
   source facts.
-- This orchestration does not invent new M36 or M39 relations; all results still
+- This orchestration does not invent new semantic-reference equivalence or formal-aware selection relations; all results still
   use their existing typed compiler-owned routes and distinct status
-  vocabularies. Historical M38 records remain readable as dated evidence, but
-  the production compiler does not prepare or execute an M38 route.
+  vocabularies. Historical retired cross-backend equivalence records remain readable as dated evidence, but
+  the production compiler does not prepare or execute an retired cross-backend equivalence route.
 - A whole-build manifest does not establish protocol observational equivalence,
-  hierarchical M36/M38, liveness, CDC refinement, or any new formal relation.
+  hierarchical semantic-reference equivalence/retired cross-backend equivalence, liveness, CDC refinement, or any new formal relation.
 - Recursive register/FIFO/request-response/CSR goals require complete published
   observations. Typed hierarchy ownership identifies true root-environment
   assumptions and publishes one deduplicated feasibility cover per exact

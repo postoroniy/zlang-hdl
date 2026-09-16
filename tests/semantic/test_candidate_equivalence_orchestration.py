@@ -1,4 +1,4 @@
-"""Direct-SystemVerilog selected-candidate M36 orchestration tests."""
+"""Direct-SystemVerilog selected-candidate semantic-reference equivalence orchestration tests."""
 
 from __future__ import annotations
 
@@ -33,7 +33,7 @@ CANDIDATE = "selected:candidate"
 
 def _property() -> EquivalenceProperty:
     return EquivalenceProperty(
-        "m36.candidate", EquivalenceRelation.SAME_CYCLE_VALUE,
+        "semantic_equivalence.candidate", EquivalenceRelation.SAME_CYCLE_VALUE,
         "reference", CANDIDATE, BitType(), (), "port:result", "port:result",
         0, 0, 1, 1, None, None, None, None, 0,
         ComparisonWindow.same_cycle(),
@@ -57,7 +57,7 @@ def _prepared() -> PreparedCandidateEquivalence:
         "direct_systemverilog", "Implementation", BindingSide.IMPLEMENTATION
     )
     return PreparedCandidateEquivalence(
-        property_, "module m36_candidate; endmodule\n", "m36_candidate",
+        property_, "module semantic_equivalence_candidate; endmodule\n", "semantic_equivalence_candidate",
         reference.artifact_hash, implementation.artifact_hash, "d" * 64,
         property_.id, "e" * 64, "f" * 64, "direct_systemverilog",
         reference, implementation, (),
@@ -71,13 +71,13 @@ def _selected() -> SelectedCandidateSite:
         CandidateSiteKind.SOURCE_EXPLORE, "owner", "y", "source:expression",
         CANDIDATE, (rank,), CandidateRewriteKind.OUTPUT_ASSIGNMENT,
     )
-    return SelectedCandidateSite(site, candidate, object(), "m27")
+    return SelectedCandidateSite(site, candidate, object(), "guarded_rewrite")
 
 
 def test_direct_candidate_replay_is_strict_deterministic_and_path_free() -> None:
     selected = _selected()
     prepared = _prepared()
-    goal = orchestration._m36_plan(selected, prepared.property, prepared)
+    goal = orchestration._semantic_equivalence_plan(selected, prepared.property, prepared)
     plan = CandidateEquivalencePlanReference(
         selected.site.identity, CANDIDATE, goal, "port:result"
     )
@@ -108,7 +108,7 @@ def test_direct_replay_rejects_an_artifact_for_another_backend() -> None:
         prepared.implementation_artifact, prepared.input_semantic_ids,
         prepared.trace_metadata,
     )
-    goal = orchestration._m36_plan(selected, prepared.property, prepared)
+    goal = orchestration._semantic_equivalence_plan(selected, prepared.property, prepared)
     plan = CandidateEquivalencePlanReference(
         selected.site.identity, CANDIDATE, goal, "port:result"
     )

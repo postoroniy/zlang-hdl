@@ -8,6 +8,7 @@ path = [
   ".github/**",
   ".gitignore",
   "MANIFEST.in",
+  "Makefile",
   "*.toml",
   "*.md",
   "*.py",

@@ -18,7 +18,7 @@ from zlang.common import stable_digest, stable_json
 from zlang.ir.cdc import ResetReleaseMode
 from zlang.ir.hierarchy import build_hierarchy_index, specialization_fingerprint
 from zlang.ir.module import Module
-from zlang.ir.packing import is_bit_packable
+from zlang.ir.packing import PACKING_LAYOUT_SCHEMA, is_bit_packable
 from zlang.ir.runtime_values import runtime_value_fits
 from zlang.ir.type_codec import canonical_type_data, canonical_type_from_data
 from zlang.ir.types import HardwareType, VecType
@@ -26,7 +26,8 @@ from zlang.opt import OptimizationStage, canonical_ir_identity, lower
 from zlang.source import SourceOrigin
 
 
-SIMULATION_STATE_SCHEMA = "zlang-simulation-state-catalog-v1"
+SIMULATION_STATE_SCHEMA = "zlang-simulation-state-catalog-v2"
+SIMULATION_STATE_BINDING_SCHEMA = "zlang-simulation-state-binding-v2"
 
 
 class SimulationStateError(ValueError):
@@ -287,6 +288,7 @@ class SimulationStateCatalog:
     def _identity_payload(self) -> dict[str, object]:
         return {
             "schema": self.schema,
+            "packing_layout_schema": PACKING_LAYOUT_SCHEMA,
             "module": self.module,
             "selected_ir_identity": self.selected_ir_identity,
             "root_instance_identity": self.root_instance_identity,
@@ -519,7 +521,8 @@ def build_simulation_state_catalog(
                 else f"register:{register.name}"
             )
             binding_id = "simulation-state:" + stable_digest({
-                "schema": "zlang-simulation-state-binding-v1",
+                "schema": SIMULATION_STATE_BINDING_SCHEMA,
+                "packing_layout_schema": PACKING_LAYOUT_SCHEMA,
                 "selected_ir_identity": selected,
                 "instance_identity": instance_identity,
                 "local_semantic_id": local_id,
@@ -552,7 +555,8 @@ def build_simulation_state_catalog(
             type_ = VecType(memory.depth, memory.element_type)
             local_id = f"memory:{memory.semantic_id}:cells"
             binding_id = "simulation-state:" + stable_digest({
-                "schema": "zlang-simulation-state-binding-v1",
+                "schema": SIMULATION_STATE_BINDING_SCHEMA,
+                "packing_layout_schema": PACKING_LAYOUT_SCHEMA,
                 "selected_ir_identity": selected,
                 "instance_identity": instance_identity,
                 "local_semantic_id": local_id,
@@ -575,10 +579,11 @@ def build_simulation_state_catalog(
                 state_domain.reset,
                 memory.source_origin,
             ))
-            if memory.read_latency == 1:
+            if memory.read_latency >= 1:
                 read_local_id = f"memory:{memory.semantic_id}:read_data"
                 read_binding_id = "simulation-state:" + stable_digest({
-                    "schema": "zlang-simulation-state-binding-v1",
+                    "schema": SIMULATION_STATE_BINDING_SCHEMA,
+                    "packing_layout_schema": PACKING_LAYOUT_SCHEMA,
                     "selected_ir_identity": selected,
                     "instance_identity": instance_identity,
                     "local_semantic_id": read_local_id,

@@ -795,7 +795,7 @@ def test_standalone_and_composed_rule_dispatch_match_in_verilator(
             "GlobalMemory",
             (
                 "logic [7:0] zlang_table_cells [0:3];",
-                "integer zlang_memory_reset_index;",
+                "for (integer zlang_memory_reset_index = 0;",
             ),
         ),
         (

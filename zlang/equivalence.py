@@ -1,4 +1,4 @@
-"""M36 selected-architecture equivalence construction and deterministic emitters."""
+"""semantic-reference equivalence selected-architecture equivalence construction and deterministic emitters."""
 
 from __future__ import annotations
 
@@ -23,6 +23,7 @@ from zlang.formal_domain import (
 )
 from zlang.formal_trace import TraceBinding, originating_sample_cycle
 from zlang.ir import expressions as expr
+from zlang.ir import packing as ir_packing
 from zlang.ir.comparison_window import ComparisonWindow
 from zlang.ir.cdc import ClockDomain, PowerUpPolicy
 from zlang.ir.equivalence import (
@@ -46,12 +47,12 @@ from zlang.fixed_point import quantize_rational
 from zlang.timing import TimingInfo, timing_info
 
 
-_SUPPORTED_CLASSES = {"value", "m27", "m29", "m32", "m31", "pipeline"}
+_SUPPORTED_CLASSES = {"value", "guarded_rewrite", "architecture_alternatives", "exact_reduction", "pipeline_scheduler", "pipeline"}
 
 
 @dataclass(frozen=True)
 class MiterTraceMetadata:
-    """Exact checker-local signals published by one M36 miter emission.
+    """Exact checker-local signals published by one semantic-reference equivalence miter emission.
 
     These are physical names allocated beside the actual binding map.  They
     deliberately live outside :class:`EquivalenceProperty`: checker spelling
@@ -66,14 +67,14 @@ class MiterTraceMetadata:
     def __post_init__(self) -> None:
         required = (self.reference_output, self.implementation_output)
         if any(not isinstance(item, str) or not item for item in required):
-            raise EquivalenceError("M36 trace output names must be non-empty")
+            raise EquivalenceError("semantic-reference equivalence trace output names must be non-empty")
         optional = (self.reset, self.comparison_valid)
         if any(item is not None and (not isinstance(item, str) or not item)
                for item in optional):
-            raise EquivalenceError("M36 optional trace names must be non-empty")
+            raise EquivalenceError("semantic-reference equivalence optional trace names must be non-empty")
         if (self.reset is None) != (self.comparison_valid is None):
             raise EquivalenceError(
-                "M36 timed trace metadata requires reset and comparison-valid together"
+                "semantic-reference equivalence timed trace metadata requires reset and comparison-valid together"
             )
 
 
@@ -228,7 +229,7 @@ def _expr(value: expr.Expression) -> str:
             raise EquivalenceError("typed vector concat requires at least two operands")
         return "{" + ", ".join(
             f"{operand.type.width}'({_expr(operand)})"
-            for operand in value.operands
+            for operand in reversed(value.operands)
         ) + "}"
     if isinstance(value, expr.Reshape):
         return f"{value.type.width}'($unsigned({_expr(value.expression)}))"
@@ -254,13 +255,13 @@ def _expr(value: expr.Expression) -> str:
     if isinstance(value, expr.TupleConstruct):
         return "{" + ", ".join(
             f"{item.type.width}'({_expr(item)})"
-            for item in value.elements
+            for item in reversed(value.elements)
         ) + "}"
     if isinstance(value, expr.TupleProject):
         aggregate_type = value.expression.type
         if not isinstance(aggregate_type, TupleType):
             raise EquivalenceError("tuple projection base is not a tuple")
-        lsb = sum(item.width for item in aggregate_type.elements[value.index + 1:])
+        lsb = ir_packing.tuple_element_lsb(aggregate_type, value.index)
         projected = (
             f"{value.type.width}'(($unsigned({_expr(value.expression)})) >> {lsb})"
         )
@@ -291,7 +292,7 @@ def _expr(value: expr.Expression) -> str:
         vector = value.expression.type
         if not isinstance(vector, VecType):
             raise EquivalenceError("vector index base is not a vector")
-        lsb = (vector.length - value.index - 1) * vector.element_type.width
+        lsb = ir_packing.vector_element_lsb(vector, value.index)
         projected = (
             f"{value.type.width}'(($unsigned({_expr(value.expression)})) >> {lsb})"
         )
@@ -305,8 +306,8 @@ def _expr(value: expr.Expression) -> str:
             raise EquivalenceError("runtime index base is not a vector")
         element_width = value.type.width
         projected = (
-            f"{_expr(value.expression)}[((32'd{value.vector_length - 1} - "
-            f"32'({_expr(value.index)})) * 32'd{element_width}) +: "
+            f"{_expr(value.expression)}[(32'({_expr(value.index)}) * "
+            f"32'd{element_width}) +: "
             f"{element_width}]"
         )
         return (
@@ -316,12 +317,13 @@ def _expr(value: expr.Expression) -> str:
         )
     if isinstance(value, (expr.Generate, expr.Map)):
         return "{" + ", ".join(
-            f"{item.type.width}'({_expr(item)})" for item in value.elements
+            f"{item.type.width}'({_expr(item)})"
+            for item in reversed(value.elements)
         ) + "}"
     if isinstance(value, expr.Reduce):
         # Scalar representation reductions are deliberately expressed as an
         # explicit Bitcast-to-vec followed by the ordinary typed reduction.
-        # Lower that same tree in the independent M36 reference emitter rather
+        # Lower that same tree in the independent semantic-reference equivalence reference emitter rather
         # than introducing a second parity interpretation here.
         return _expr(lower_reduction(value))
     if isinstance(value, (expr.Delay, expr.Pipeline)):
@@ -353,7 +355,7 @@ def _materialize_reference_expression(
     expression: expr.Expression,
     definitions: tuple[object, ...],
 ) -> expr.Expression:
-    """Boundedly expose retained calls and functional regions for M36 RTL.
+    """Boundedly expose retained calls and functional regions for semantic-reference equivalence RTL.
 
     The semantic relation is unchanged: nominal reductions replay their frozen
     source-order plan, calls use their exact monomorphic definitions, and a
@@ -400,7 +402,7 @@ def _materialize_reference_expression(
         return visit(expression)
     except (CallableExpansionError, FunctionalLoweringError, ValueError) as error:
         raise EquivalenceError(
-            f"cannot materialize M36 reference expression: {error}"
+            f"cannot materialize semantic-reference equivalence reference expression: {error}"
         ) from error
 
 
@@ -580,15 +582,15 @@ def make_equivalence_property(reference: expr.Expression, implementation: expr.E
                               selected_origin=None,
                               clock_domain_contract: ClockDomain | None = None,
                               ) -> EquivalenceProperty:
-    """Validate a frozen candidate class and construct the separate M36 IR."""
+    """Validate a frozen candidate class and construct the separate semantic-reference equivalence IR."""
     if candidate_class not in _SUPPORTED_CLASSES:
-        raise EquivalenceError(f"unsupported M36 candidate class: {candidate_class}")
+        raise EquivalenceError(f"unsupported semantic-reference equivalence candidate class: {candidate_class}")
     if reference.type != implementation.type:
         raise EquivalenceError("equivalence canonical types differ")
     left = reference_timing or timing_info(reference)
     right = implementation_timing or timing_info(implementation)
     if left.ii != 1 or right.ii != 1:
-        raise EquivalenceError("M36 equivalence requires II=1")
+        raise EquivalenceError("semantic-reference equivalence equivalence requires II=1")
     delta = right.latency - left.latency
     if delta < 0:
         raise EquivalenceError("implementation latency cannot precede reference")
@@ -605,21 +607,21 @@ def make_equivalence_property(reference: expr.Expression, implementation: expr.E
             raise EquivalenceError(str(error)) from error
         if clock_domain_contract.power_up is not PowerUpPolicy.UNSPECIFIED:
             raise EquivalenceError(
-                "M36 executable equivalence does not support power_up reset"
+                "semantic-reference equivalence executable equivalence does not support power_up reset"
             )
         if relation is EquivalenceRelation.FIXED_LATENCY_VALUE and (
             clock_domain_contract.clock != left.clock_domain
             or clock_domain_contract.reset != left.reset_domain
         ):
             raise EquivalenceError(
-                "M36 physical clock/reset contract does not match candidate timing"
+                "semantic-reference equivalence physical clock/reset contract does not match candidate timing"
             )
     effective_contract = clock_domain_contract
     if (
         effective_contract is None
         and relation is EquivalenceRelation.FIXED_LATENCY_VALUE
     ):
-        # Backward-compatible M36 callers predate physical-domain metadata.
+        # Backward-compatible semantic-reference equivalence callers predate physical-domain metadata.
         # Their timed relation is exactly the legacy rising/synchronous/high
         # contract, so seal that contract explicitly rather than guessing at
         # miter emission time.
@@ -731,12 +733,12 @@ def emit_miter_with_metadata(
     }
     reference_value_name = allocate_private_rtl_identifier(
         "reference_value",
-        semantic_identity=f"{property_.id}|m36|reference-output",
+        semantic_identity=f"{property_.id}|semantic_equivalence|reference-output",
         used=used_names,
     )
     implementation_value_name = allocate_private_rtl_identifier(
         "implementation_value",
-        semantic_identity=f"{property_.id}|m36|implementation-output",
+        semantic_identity=f"{property_.id}|semantic_equivalence|implementation-output",
         used=used_names,
     )
     reference_history_name: str | None = None
@@ -744,15 +746,15 @@ def emit_miter_with_metadata(
     if property_.relation_kind is EquivalenceRelation.FIXED_LATENCY_VALUE:
         reference_history_name = allocate_private_rtl_identifier(
             "reference_history",
-            semantic_identity=f"{property_.id}|m36|reference-history",
+            semantic_identity=f"{property_.id}|semantic_equivalence|reference-history",
             used=used_names,
         )
         sample_valid_name = allocate_private_rtl_identifier(
             "sample_valid",
-            semantic_identity=f"{property_.id}|m36|comparison-valid",
+            semantic_identity=f"{property_.id}|semantic_equivalence|comparison-valid",
             used=used_names,
         )
-    lines = ["`default_nettype none", f"module m36_{property_.id.replace('.', '_')}("]
+    lines = ["`default_nettype none", f"module semantic_equivalence_{property_.id.replace('.', '_')}("]
     ports = [f"  input logic {clock_name}", f"  input logic {reset_name}"]
     for semantic in property_.inputs:
         r = ref[(BindingSide.REFERENCE, semantic)]
@@ -850,7 +852,7 @@ def emit_miter_with_metadata(
             # after edge E+N and therefore at the assertion sampling point of
             # edge E+N+1.  At that point valid[N-1] and history[N-1] both name
             # the same source sample.  valid[N] delayed the comparison by one
-            # additional cycle and made changing-input pipelines fail M36.
+            # additional cycle and made changing-input pipelines fail semantic-reference equivalence.
             f"{sample_valid_name}[{property_.latency_delta - 1}]) assert "
             f"({reference_history_name}[{property_.latency_delta - 1}] == "
             f"{implementation_value_name});"
@@ -896,18 +898,18 @@ def publish_bindings(module: Module, *, side: BindingSide, selected_ir_identity:
     """Create backend-published bindings from explicit semantic-to-RTL names."""
     if len(module.clock_domains) > 1:
         raise EquivalenceError(
-            "M36 executable equivalence supports exactly one clock/reset domain"
+            "semantic-reference equivalence executable equivalence supports exactly one clock/reset domain"
         )
     if any(
         domain.power_up is not PowerUpPolicy.UNSPECIFIED
         for domain in module.clock_domains
     ):
         raise EquivalenceError(
-            "M36 executable equivalence does not support power_up reset"
+            "semantic-reference equivalence executable equivalence does not support power_up reset"
         )
     if module.elastic_pipeline_regions:
         raise EquivalenceError(
-            "M36 fixed-latency equivalence does not support variable-latency "
+            "semantic-reference equivalence fixed-latency equivalence does not support variable-latency "
             "elastic pipeline(auto) regions"
         )
     protocol_ports = tuple(
@@ -920,16 +922,16 @@ def publish_bindings(module: Module, *, side: BindingSide, selected_ir_identity:
             f"{port.name} ({port.protocol.value})" for port in protocol_ports
         )
         raise EquivalenceError(
-            "M36 executable value equivalence does not support protocol-valued "
+            "semantic-reference equivalence executable value equivalence does not support protocol-valued "
             f"top ports: {rendered}"
         )
     if module.aggregate_protocol_endpoints or module.aggregate_protocol_connections:
         raise EquivalenceError(
-            "M36 executable value equivalence does not support aggregate "
+            "semantic-reference equivalence executable value equivalence does not support aggregate "
             "protocol endpoints or connections, including scalar-only members"
         )
     if not rtl_names:
-        raise EquivalenceError("backend must publish explicit RTL names for M36 bindings")
+        raise EquivalenceError("backend must publish explicit RTL names for semantic-reference equivalence bindings")
     result: list[EquivalenceBinding] = []
     for port in module.ports:
         semantic = f"port:{port.name}"
@@ -985,7 +987,7 @@ def run_equivalence_formal(property_: EquivalenceProperty, source: str, *, top: 
                            work_directory: Path | None = None,
                            trace_metadata: MiterTraceMetadata | None = None,
                            ) -> EquivalenceResult:
-    """Execute a published equivalence miter while preserving M36 statuses."""
+    """Execute a published equivalence miter while preserving semantic-reference equivalence statuses."""
     if (
         mode is EquivalenceMode.BMC
         and not property_.comparison_window.bmc_depth_reaches_comparison(depth)
@@ -1038,7 +1040,7 @@ def run_equivalence_formal(property_: EquivalenceProperty, source: str, *, top: 
         )
     ):
         raise EquivalenceError(
-            "same-cycle M36 trace metadata cannot publish timed reset/history signals"
+            "same-cycle semantic-reference equivalence trace metadata cannot publish timed reset/history signals"
         )
     elif (
         property_.relation_kind is EquivalenceRelation.FIXED_LATENCY_VALUE
@@ -1048,7 +1050,7 @@ def run_equivalence_formal(property_: EquivalenceProperty, source: str, *, top: 
         )
     ):
         raise EquivalenceError(
-            "fixed-latency M36 trace metadata requires reset/history signals"
+            "fixed-latency semantic-reference equivalence trace metadata requires reset/history signals"
         )
     proof_mode = ProofMode.BMC if mode is EquivalenceMode.BMC else ProofMode.PROVE
     trace_bindings = [

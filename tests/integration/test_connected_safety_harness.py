@@ -1,4 +1,4 @@
-"""Connected M35 property/harness execution through a real backend artifact."""
+"""Connected safety verification property/harness execution through a real backend artifact."""
 
 from dataclasses import replace
 from pathlib import Path
@@ -52,7 +52,7 @@ module ConnectedReadyValid {
 """
 
 SIMPLE_DMA = (
-    Path(__file__).resolve().parents[2] / "examples/simple_dma_m40.zhl"
+    Path(__file__).resolve().parents[2] / "examples/simple_dma.zhl"
 ).read_text()
 
 
@@ -118,8 +118,8 @@ def test_real_connected_pass_and_reset_mutation_counterexample() -> None:
     harness = emit_harness(design, depth=6)
     passed = run_verilog_formal(
         harness,
-        top="ConnectedCounter__m35_formal",
-        property_id="m35.connected.counter",
+        top="ConnectedCounter__safety_verification_formal",
+        property_id="safety_verification.connected.counter",
         depth=6,
         systemverilog=True,
     )
@@ -129,8 +129,8 @@ def test_real_connected_pass_and_reset_mutation_counterexample() -> None:
     assert mutated != harness
     failed = run_verilog_formal(
         mutated,
-        top="ConnectedCounter__m35_formal",
-        property_id="m35.connected.counter.reset-mutation",
+        top="ConnectedCounter__safety_verification_formal",
+        property_id="safety_verification.connected.counter.reset-mutation",
         depth=6,
         systemverilog=True,
     )
@@ -177,8 +177,8 @@ def test_connected_credit_sender_projections_are_driven_and_prove() -> None:
     assert all(item.non_executable_reason is None for item in design.properties)
     result = run_verilog_formal(
         emit_harness(design, depth=6),
-        top="ConnectedCreditSender__m35_formal",
-        property_id="m35.connected.credit-sender",
+        top="ConnectedCreditSender__safety_verification_formal",
+        property_id="safety_verification.connected.credit-sender",
         depth=6,
         systemverilog=True,
     )
@@ -201,8 +201,8 @@ def test_connected_ready_valid_uses_leaves_not_protocol_base_signals() -> None:
     assert all(item.non_executable_reason is None for item in design.properties)
     result = run_verilog_formal(
         emit_harness(design, depth=6),
-        top="ConnectedReadyValid__m35_formal",
-        property_id="m35.connected.ready-valid",
+        top="ConnectedReadyValid__safety_verification_formal",
+        property_id="safety_verification.connected.ready-valid",
         depth=6,
         systemverilog=True,
     )
@@ -235,8 +235,8 @@ def test_simple_dma_all_request_response_observations_prove_and_mutate() -> None
     harness = emit_harness(design, depth=8)
     passed = run_verilog_formal(
         harness,
-        top="SimpleDMA__m35_formal",
-        property_id="m35.connected.simple-dma-request-response",
+        top="SimpleDMA__safety_verification_formal",
+        property_id="safety_verification.connected.simple-dma-request-response",
         depth=8,
         systemverilog=True,
         source_origin=properties[0].source_origin,
@@ -259,8 +259,8 @@ def test_simple_dma_all_request_response_observations_prove_and_mutate() -> None
     )
     failed = run_verilog_formal(
         mutated,
-        top="SimpleDMA__m35_formal",
-        property_id="m35.connected.simple-dma-response-occupancy-mutation",
+        top="SimpleDMA__safety_verification_formal",
+        property_id="safety_verification.connected.simple-dma-response-occupancy-mutation",
         depth=8,
         systemverilog=True,
         source_origin=properties[0].source_origin,

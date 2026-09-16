@@ -1,4 +1,4 @@
-"""Strict, lossless JSON codecs for M36 semantic-reference results.
+"""Strict, lossless JSON codecs for semantic-reference equivalence semantic-reference results.
 
 The equivalence result IR deliberately remains owned by :mod:`zlang.ir`.  This
 module only supplies a versioned persistence boundary for compiler-owned proof
@@ -25,7 +25,7 @@ EQUIVALENCE_RESULT_CODEC_SCHEMA = 1
 
 
 class EquivalenceResultCodecError(ValueError):
-    """A serialized M36 result is malformed or internally inconsistent."""
+    """A serialized semantic-reference equivalence result is malformed or internally inconsistent."""
 
 
 def _mapping(value: object, description: str) -> Mapping[str, object]:
@@ -162,27 +162,27 @@ def _equivalence_counterexample_from_data(
 ) -> EquivalenceCounterexample | None:
     if value is None:
         return None
-    data = _mapping(value, "M36 counterexample")
+    data = _mapping(value, "semantic-reference equivalence counterexample")
     _exact_keys(
         data,
         {"property_id", "failure_cycle", "sample_cycle", "values", "raw_trace"},
-        "M36 counterexample",
+        "semantic-reference equivalence counterexample",
     )
     counterexample = EquivalenceCounterexample(
-        _string(data["property_id"], "M36 counterexample property identity", nonempty=True),
-        _optional_integer(data["failure_cycle"], "M36 counterexample failure cycle"),
-        _optional_integer(data["sample_cycle"], "M36 counterexample sample cycle"),
-        _values_from_data(data["values"], "M36 counterexample values"),
-        _optional_string(data["raw_trace"], "M36 counterexample raw trace"),
+        _string(data["property_id"], "semantic-reference equivalence counterexample property identity", nonempty=True),
+        _optional_integer(data["failure_cycle"], "semantic-reference equivalence counterexample failure cycle"),
+        _optional_integer(data["sample_cycle"], "semantic-reference equivalence counterexample sample cycle"),
+        _values_from_data(data["values"], "semantic-reference equivalence counterexample values"),
+        _optional_string(data["raw_trace"], "semantic-reference equivalence counterexample raw trace"),
     )
     if counterexample.property_id != property_id:
         raise EquivalenceResultCodecError(
-            "M36 counterexample property identity differs from its result"
+            "semantic-reference equivalence counterexample property identity differs from its result"
         )
     return counterexample
 
 
-_M36_FIELDS = {
+_SEMANTIC_EQUIVALENCE_FIELDS = {
     "schema_version",
     "kind",
     "property_id",
@@ -206,13 +206,13 @@ _M36_FIELDS = {
 
 
 def equivalence_result_to_data(result: EquivalenceResult) -> dict[str, object]:
-    """Encode one typed M36 result into the strict version-1 data schema."""
+    """Encode one typed semantic-reference equivalence result into the strict version-1 data schema."""
 
     if not isinstance(result, EquivalenceResult):
-        raise TypeError("M36 result codec requires EquivalenceResult")
+        raise TypeError("semantic-reference equivalence result codec requires EquivalenceResult")
     return {
         "schema_version": EQUIVALENCE_RESULT_CODEC_SCHEMA,
-        "kind": "m36_equivalence_result",
+        "kind": "semantic_equivalence_result",
         "property_id": result.property_id,
         "status": result.status.value,
         "mode": result.mode.value,
@@ -234,39 +234,39 @@ def equivalence_result_to_data(result: EquivalenceResult) -> dict[str, object]:
 
 
 def equivalence_result_from_data(value: object) -> EquivalenceResult:
-    """Decode and validate one strict version-1 M36 result mapping."""
+    """Decode and validate one strict version-1 semantic-reference equivalence result mapping."""
 
-    data = _mapping(value, "M36 result")
-    _exact_keys(data, _M36_FIELDS, "M36 result")
-    schema = _integer(data["schema_version"], "M36 result schema version")
+    data = _mapping(value, "semantic-reference equivalence result")
+    _exact_keys(data, _SEMANTIC_EQUIVALENCE_FIELDS, "semantic-reference equivalence result")
+    schema = _integer(data["schema_version"], "semantic-reference equivalence result schema version")
     if schema != EQUIVALENCE_RESULT_CODEC_SCHEMA:
         raise EquivalenceResultCodecError(
-            f"unsupported M36 result codec schema {schema}"
+            f"unsupported semantic-reference equivalence result codec schema {schema}"
         )
-    if data["kind"] != "m36_equivalence_result":
-        raise EquivalenceResultCodecError("M36 result has the wrong kind")
-    property_id = _string(data["property_id"], "M36 property identity", nonempty=True)
+    if data["kind"] != "semantic_equivalence_result":
+        raise EquivalenceResultCodecError("semantic-reference equivalence result has the wrong kind")
+    property_id = _string(data["property_id"], "semantic-reference equivalence property identity", nonempty=True)
     try:
         return EquivalenceResult(
             property_id,
-            _enum(EquivalenceStatus, data["status"], "M36 status"),
-            _enum(EquivalenceMode, data["mode"], "M36 mode"),
-            _optional_string(data["engine"], "M36 engine"),
-            _optional_string(data["solver"], "M36 solver"),
-            _optional_integer(data["depth"], "M36 depth"),
-            _enum(EquivalenceRelation, data["relation_kind"], "M36 relation"),
-            _integer(data["latency_delta"], "M36 latency delta"),
-            _string(data["backend"], "M36 backend", nonempty=True),
-            _string(data["reference_hash"], "M36 reference hash"),
-            _string(data["implementation_hash"], "M36 implementation hash"),
-            _integer(data["binding_map_version"], "M36 binding-map version"),
-            _string(data["candidate_identity"], "M36 candidate identity", nonempty=True),
-            _origin_from_data(data["source_origin"], "M36 source origin"),
-            _origin_from_data(data["selected_origin"], "M36 selected origin"),
+            _enum(EquivalenceStatus, data["status"], "semantic-reference equivalence status"),
+            _enum(EquivalenceMode, data["mode"], "semantic-reference equivalence mode"),
+            _optional_string(data["engine"], "semantic-reference equivalence engine"),
+            _optional_string(data["solver"], "semantic-reference equivalence solver"),
+            _optional_integer(data["depth"], "semantic-reference equivalence depth"),
+            _enum(EquivalenceRelation, data["relation_kind"], "semantic-reference equivalence relation"),
+            _integer(data["latency_delta"], "semantic-reference equivalence latency delta"),
+            _string(data["backend"], "semantic-reference equivalence backend", nonempty=True),
+            _string(data["reference_hash"], "semantic-reference equivalence reference hash"),
+            _string(data["implementation_hash"], "semantic-reference equivalence implementation hash"),
+            _integer(data["binding_map_version"], "semantic-reference equivalence binding-map version"),
+            _string(data["candidate_identity"], "semantic-reference equivalence candidate identity", nonempty=True),
+            _origin_from_data(data["source_origin"], "semantic-reference equivalence source origin"),
+            _origin_from_data(data["selected_origin"], "semantic-reference equivalence selected origin"),
             _equivalence_counterexample_from_data(
                 data["counterexample"], property_id=property_id
             ),
-            _optional_string(data["reason"], "M36 reason"),
+            _optional_string(data["reason"], "semantic-reference equivalence reason"),
         )
     except ValueError as error:
         if isinstance(error, EquivalenceResultCodecError):
@@ -282,7 +282,7 @@ def equivalence_result_from_json(text: str) -> EquivalenceResult:
     try:
         value = json.loads(text)
     except (TypeError, json.JSONDecodeError) as error:
-        raise EquivalenceResultCodecError("M36 result is not valid JSON") from error
+        raise EquivalenceResultCodecError("semantic-reference equivalence result is not valid JSON") from error
     return equivalence_result_from_data(value)
 
 

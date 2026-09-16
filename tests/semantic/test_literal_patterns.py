@@ -4,6 +4,7 @@ from dataclasses import replace
 
 import pytest
 
+from tests.case_matrix import check_cases
 from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
 from zlang.compiler import compile_source
 from zlang.ir import expressions as expr
@@ -25,37 +26,35 @@ def _analyze(source: str):
     return analyze(parse(source))
 
 
-@pytest.mark.parametrize(
-    ("value", "width"),
-    ((0, 1), (1, 1), (2, 2), (3, 2), (4, 3), (255, 8)),
-)
-def test_context_free_nonnegative_literals_use_minimum_unsigned_width(
-    value: int, width: int
-) -> None:
-    module = _analyze(f"module M {{ value={value} out y:u16 y=value }}")
-    local = module.locals[0]
-    assert local.type == UIntType(width)
-    assert local.expression == expr.Constant(
-        value,
-        UIntType(width),
-        origin=local.expression.origin,
-    )
+def test_context_free_nonnegative_literals_use_minimum_unsigned_width() -> None:
+    def check(case: tuple[int, int]) -> None:
+        value, width = case
+        module = _analyze(f"module M {{ value={value} out y:u16 y=value }}")
+        local = module.locals[0]
+        assert local.type == UIntType(width)
+        assert local.expression == expr.Constant(
+            value,
+            UIntType(width),
+            origin=local.expression.origin,
+        )
+
+    cases = ((0, 1), (1, 1), (2, 2), (3, 2), (4, 3), (255, 8))
+    check_cases(((str(case[0]), case) for case in cases), check, matrix="literal_unsigned")
 
 
-@pytest.mark.parametrize(
-    ("value", "width"),
-    ((-1, 1), (-2, 2), (-3, 3), (-4, 3), (-123, 8), (-128, 8), (-129, 9)),
-)
-def test_context_free_negative_literals_use_minimum_signed_width(
-    value: int, width: int
-) -> None:
-    module = _analyze(f"module M {{ value={value} out y:s16 y=value }}")
-    local = module.locals[0]
-    assert local.type == SIntType(width)
-    assert isinstance(local.expression, expr.Constant)
-    assert local.expression.value == value
-    assert local.expression.origin is not None
-    assert local.expression.origin.construct == f"literal {value}"
+def test_context_free_negative_literals_use_minimum_signed_width() -> None:
+    def check(case: tuple[int, int]) -> None:
+        value, width = case
+        module = _analyze(f"module M {{ value={value} out y:s16 y=value }}")
+        local = module.locals[0]
+        assert local.type == SIntType(width)
+        assert isinstance(local.expression, expr.Constant)
+        assert local.expression.value == value
+        assert local.expression.origin is not None
+        assert local.expression.origin.construct == f"literal {value}"
+
+    cases = ((-1, 1), (-2, 2), (-3, 3), (-4, 3), (-123, 8), (-128, 8), (-129, 9))
+    check_cases(((str(case[0]), case) for case in cases), check, matrix="literal_signed")
 
 
 def test_literal_only_compounds_preserve_typed_operator_widths() -> None:
@@ -72,7 +71,9 @@ def test_literal_only_compounds_preserve_typed_operator_widths() -> None:
     assert locals_by_name["negzero"] == expr.Constant(0, SIntType(1))
 
 
-def test_negative_direct_literals_are_contextual_in_operators_and_alternatives() -> None:
+def test_negative_direct_literals_are_contextual_in_operators_and_alternatives() -> (
+    None
+):
     module = _analyze(
         "module M { in x:fixed<8,4> in sx:s8 in choose:bit in selector:u1 "
         "plus=x+-1 reverse=-1+x equal=x==-1 "
@@ -95,22 +96,33 @@ def test_contextual_negative_literal_widens_without_unsigned_subtraction() -> No
     assert simulate(module) == {"y": -123}
 
 
-@pytest.mark.parametrize("spelling", ("123", "0x7b", "0b111_1011", "000123"))
-def test_positive_literal_radix_and_leading_zeros_do_not_change_identity(
-    spelling: str,
-) -> None:
-    module = _analyze(f"module M {{ value={spelling} }}")
-    assert module.locals[0].expression.type == UIntType(7)
-    assert module.locals[0].expression.value == 123
+def test_positive_literal_radix_and_leading_zeros_do_not_change_identity() -> None:
+    def check(spelling: str) -> None:
+        module = _analyze(f"module M {{ value={spelling} }}")
+        assert module.locals[0].expression.type == UIntType(7)
+        assert module.locals[0].expression.value == 123
+
+    check_cases(
+        ((spelling, spelling) for spelling in ("123", "0x7b", "0b111_1011", "000123")),
+        check,
+        matrix="literal_positive_radix",
+    )
 
 
-@pytest.mark.parametrize("spelling", ("-123", "-0x7b", "-0b111_1011", "-000123"))
-def test_negative_literal_radix_and_leading_zeros_do_not_change_identity(
-    spelling: str,
-) -> None:
-    module = _analyze(f"module M {{ value={spelling} }}")
-    assert module.locals[0].expression.type == SIntType(8)
-    assert module.locals[0].expression.value == -123
+def test_negative_literal_radix_and_leading_zeros_do_not_change_identity() -> None:
+    def check(spelling: str) -> None:
+        module = _analyze(f"module M {{ value={spelling} }}")
+        assert module.locals[0].expression.type == SIntType(8)
+        assert module.locals[0].expression.value == -123
+
+    check_cases(
+        (
+            (spelling, spelling)
+            for spelling in ("-123", "-0x7b", "-0b111_1011", "-000123")
+        ),
+        check,
+        matrix="literal_negative_radix",
+    )
 
 
 def test_contextual_negative_fixed_literal_is_exact_and_range_checked() -> None:
@@ -130,12 +142,19 @@ def test_contextual_negative_fixed_literal_is_exact_and_range_checked() -> None:
             _compile(f"module M {{ out y:fixed<8,4> y={value} }}")
 
 
-@pytest.mark.parametrize("target", ("bit", "u8", "bits<8>", "ufixed<8,4>"))
-def test_negative_literal_rejects_unsigned_and_raw_contexts(target: str) -> None:
-    with pytest.raises(
-        SemanticError, match="negative integer literal -1 cannot initialize unsigned/raw"
-    ):
-        _compile(f"module M {{ out y:{target} y=-1 }}")
+def test_negative_literal_rejects_unsigned_and_raw_contexts() -> None:
+    def check(target: str) -> None:
+        with pytest.raises(
+            SemanticError,
+            match="negative integer literal -1 cannot initialize unsigned/raw",
+        ):
+            _compile(f"module M {{ out y:{target} y=-1 }}")
+
+    check_cases(
+        ((target, target) for target in ("bit", "u8", "bits<8>", "ufixed<8,4>")),
+        check,
+        matrix="literal_unsigned_reject",
+    )
 
 
 def test_ordinary_zeros_and_ones_are_exact_width_raw_constants() -> None:
@@ -184,8 +203,7 @@ def test_width_patterns_reject_nonpositive_and_incompatible_targets() -> None:
 
 def test_concat_literal_widths_remain_exact() -> None:
     module = _compile(
-        "module M { out a:bits<2> out b:bits<3> "
-        "a=concat(0,1) b=concat(3,0) }"
+        "module M { out a:bits<2> out b:bits<3> a=concat(0,1) b=concat(3,0) }"
     )
     assignments = {item.target.name: item.expression for item in module.assignments}
     assert assignments["a"].type == BitsType(2)
@@ -211,7 +229,13 @@ def test_concat_width_failure_reports_each_exact_operand() -> None:
 
 
 def test_minimum_width_helpers_cover_twos_complement_boundaries() -> None:
-    assert [minimum_unsigned_width(value) for value in (0, 1, 2, 3, 4)] == [1, 1, 2, 2, 3]
+    assert [minimum_unsigned_width(value) for value in (0, 1, 2, 3, 4)] == [
+        1,
+        1,
+        2,
+        2,
+        3,
+    ]
     assert [minimum_signed_width(value) for value in (-1, -2, -3, -4, 0, 1)] == [
         1,
         2,
@@ -235,8 +259,7 @@ def test_literal_constants_round_trip_and_malformed_canonical_value_fails() -> N
     malformed_node = replace(
         node,
         attributes=tuple(
-            (name, 16 if name == "value" else value)
-            for name, value in node.attributes
+            (name, 16 if name == "value" else value) for name, value in node.attributes
         ),
     )
     malformed = replace(
@@ -245,7 +268,9 @@ def test_literal_constants_round_trip_and_malformed_canonical_value_fails() -> N
         + (malformed_node,)
         + canonical.expressions[index + 1 :],
     )
-    with pytest.raises(CanonicalizationError, match="value 16 does not fit exact type bits<4>"):
+    with pytest.raises(
+        CanonicalizationError, match="value 16 does not fit exact type bits<4>"
+    ):
         restore(malformed)
 
 

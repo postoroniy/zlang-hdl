@@ -1,6 +1,6 @@
-"""Deterministic compiler-owned catalog of retained M28/M39 candidate sites.
+"""Deterministic compiler-owned catalog of retained deterministic cost selection/formal-aware selection candidate sites.
 
-Semantic analysis owns candidate *generation* and static M28 ranking.  Formal
+Semantic analysis owns candidate *generation* and static deterministic cost selection ranking.  Formal
 execution belongs to compilation selection.  This module records the boundary
 between those phases without changing any candidate or proof semantics.
 """
@@ -52,7 +52,7 @@ def candidate_owner_formal_domain(
     monomorphic definition.
 
     Zero-domain combinational candidates retain the existing same-cycle route.
-    Multi-domain owners are outside the frozen M36/M39 subset and therefore fail
+    Multi-domain owners are outside the frozen semantic-reference equivalence/formal-aware selection subset and therefore fail
     closed before a verifier can be constructed.
     """
 
@@ -91,13 +91,13 @@ def candidate_owner_formal_domain(
         return None, None
     if len(domains) != 1:
         return None, (
-            "M36/M39 candidate equivalence requires exactly one physical "
+            "semantic-reference equivalence/formal-aware selection candidate equivalence requires exactly one physical "
             "clock/reset domain per candidate owner"
         )
     domain = domains[0]
     if domain.power_up is not PowerUpPolicy.UNSPECIFIED:
         return None, (
-            "M36/M39 candidate equivalence does not support power_up reset "
+            "semantic-reference equivalence/formal-aware selection candidate equivalence does not support power_up reset "
             "semantics"
         )
     return domain, None
@@ -134,8 +134,8 @@ class CandidateRewriteKind(str, Enum):
 
 
 @dataclass(frozen=True)
-class _M39Candidate:
-    """Small adapter from retained M29/M32 records to the frozen M39 gate."""
+class _FormalSelectionCandidate:
+    """Small adapter from retained architecture alternatives/exact reduction planning records to the frozen formal-aware selection gate."""
 
     expression: object
     semantic_identity: str
@@ -454,7 +454,7 @@ class CandidateSiteLedger:
 class SelectedCandidateSite:
     """One selected concrete candidate and its exact semantic reference.
 
-    The ledger intentionally serializes identities only.  Compiler-owned M36
+    The ledger intentionally serializes identities only.  Compiler-owned semantic-reference equivalence
     preparation also needs the already-typed expressions, so this ephemeral
     view joins those objects to the exact site using the same constructors as
     :func:`build_candidate_site_ledger`.  It is never serialized or inferred
@@ -562,7 +562,7 @@ def _pipeline_site(
             if elastic else CandidateRewriteKind.OUTPUT_ASSIGNMENT
         ),
         (
-            "variable-latency elastic pipelines have no M36 candidate route"
+            "variable-latency elastic pipelines have no semantic-reference equivalence candidate route"
             if elastic else None
         ),
         getattr(pipeline, "source_origin", None)
@@ -629,7 +629,7 @@ def _pipeline_is_canonical_implement(
 
     Canonical implementation regions retain a typed ``PipelineExploration`` so
     target planning and reports can inspect pipeline candidates.  The unified
-    M34 exploration result is nevertheless the one public M39/M36 candidate
+    bounded exploration exploration result is nevertheless the one public formal-aware selection/semantic-reference equivalence candidate
     site.  Older persisted modules may contain a standalone pipeline record;
     those remain formal sites when no matching unified result exists.
     """
@@ -700,7 +700,7 @@ def _choice_site(
 def _choice_candidate_space(choice: object):
     policy = choice.cost_policy
     if policy is None:
-        raise CandidateSiteError("explicit implementation choice is not an M39 site")
+        raise CandidateSiteError("explicit implementation choice is not an formal-aware selection site")
     source = stable_digest({
         "schema": "zlang-choice-source-v1",
         "alternatives": [
@@ -709,7 +709,7 @@ def _choice_candidate_space(choice: object):
         ],
     })
     wrapped = tuple(
-        _M39Candidate(
+        _FormalSelectionCandidate(
             alternative.expression,
             source,
             _candidate_identity(
@@ -719,7 +719,7 @@ def _choice_candidate_space(choice: object):
                 alternative.expression,
             ),
             candidate_cost_from_alternative(alternative),
-            "m29",
+            "architecture_alternatives",
             ("choice_auto", alternative.kind.value),
         )
         for alternative in choice.alternatives
@@ -750,7 +750,7 @@ def _architecture_candidate_space(architecture: object):
 
     source = expression_semantic_identity(architecture.source_expression)
     wrapped = tuple(
-        _M39Candidate(
+        _FormalSelectionCandidate(
             candidate.expression,
             source,
             _candidate_identity(
@@ -760,7 +760,7 @@ def _architecture_candidate_space(architecture: object):
                 candidate.expression,
             ),
             _architecture_cost(candidate),
-            "m32",
+            "exact_reduction",
             ("architecture_auto", candidate.name),
         )
         for candidate in architecture.candidates
@@ -845,7 +845,7 @@ def selected_candidate_sites(
 ) -> tuple[SelectedCandidateSite, ...]:
     """Return typed selected candidates joined to exact retained sites.
 
-    Only the frozen M36-eligible scalar candidate entry points are returned.
+    Only the frozen semantic-reference equivalence-eligible scalar candidate entry points are returned.
     Elastic/static/unsupported sites remain represented in
     :class:`CandidateSiteLedger` but deliberately have no executable candidate
     equivalence view.
@@ -901,13 +901,13 @@ def selected_candidate_sites(
                     current, assignment, owner_identity=owner_identity
                 )
                 wrapped, _ = _choice_candidate_space(choice)
-                chosen(site, wrapped, choice.alternatives[0].expression, "m29")
+                chosen(site, wrapped, choice.alternatives[0].expression, "architecture_alternatives")
         for architecture in current.architecture_explorations:
             site = _architecture_site(
                 current, architecture, owner_identity=owner_identity
             )
             wrapped, _ = _architecture_candidate_space(architecture)
-            chosen(site, wrapped, architecture.source_expression, "m32")
+            chosen(site, wrapped, architecture.source_expression, "exact_reduction")
         for pipeline in current.pipeline_explorations:
             if _pipeline_is_canonical_implement(
                 current, pipeline, unified_site_keys
@@ -919,7 +919,7 @@ def selected_candidate_sites(
                 current, pipeline, owner_identity=owner_identity
             )
             wrapped, _, _ = standalone_pipeline_candidate_space(pipeline)
-            chosen(site, wrapped, pipeline.source_expression, "m31")
+            chosen(site, wrapped, pipeline.source_expression, "pipeline_scheduler")
         for child in current.children:
             visit(child)
 
@@ -1062,9 +1062,9 @@ def gate_retained_explorations(
     *,
     backend: str = "direct_systemverilog",
 ) -> tuple[Module, tuple[ExplorationResult, ...]]:
-    """Apply the existing M39 gate after semantic typing to retained explores."""
+    """Apply the existing formal-aware selection gate after semantic typing to retained explores."""
 
-    from zlang.formal_candidate import M36DirectSystemVerilogCandidateVerifier
+    from zlang.formal_candidate import SemanticEquivalenceDirectSystemVerilogCandidateVerifier
     from zlang.formal_exploration import FormalPolicy, gate_candidates
 
     retained = tuple(results)
@@ -1087,7 +1087,7 @@ def gate_retained_explorations(
         selected_verifier = (
             verifier
             if verifier is not None and domain_limitation is None
-            else M36DirectSystemVerilogCandidateVerifier(
+            else SemanticEquivalenceDirectSystemVerilogCandidateVerifier(
                 result.request.root,
                 artifact_provider=getattr(config, "artifact_provider", None),
                 clock_domain_contract=domain,
@@ -1173,11 +1173,11 @@ def gate_structured_candidate_sites(
 
     ``choice`` remains a source construct, while architecture records can be
     restored from older semantic/evidence products. Both retain an exact typed
-    candidate table and output boundary; adapt them to the same frozen M39 rank
+    candidate table and output boundary; adapt them to the same frozen formal-aware selection rank
     gate and keep evidence outside canonical RTL identity.
     """
 
-    from zlang.formal_candidate import M36DirectSystemVerilogCandidateVerifier
+    from zlang.formal_candidate import SemanticEquivalenceDirectSystemVerilogCandidateVerifier
     from zlang.formal_exploration import FormalPolicy, gate_candidates
 
     if config.policy is FormalPolicy.OFF:
@@ -1202,9 +1202,9 @@ def gate_structured_candidate_sites(
         selected_verifier = (
             verifier
             if verifier is not None and domain_limitation is None
-            else M36DirectSystemVerilogCandidateVerifier(
+            else SemanticEquivalenceDirectSystemVerilogCandidateVerifier(
                 choice.alternatives[0].expression,
-                candidate_class="m29",
+                candidate_class="architecture_alternatives",
                 artifact_provider=getattr(config, "artifact_provider", None),
                 clock_domain_contract=domain,
                 unavailable_reason=domain_limitation,
@@ -1245,9 +1245,9 @@ def gate_structured_candidate_sites(
         selected_verifier = (
             verifier
             if verifier is not None and domain_limitation is None
-            else M36DirectSystemVerilogCandidateVerifier(
+            else SemanticEquivalenceDirectSystemVerilogCandidateVerifier(
                 architecture.source_expression,
-                candidate_class="m32",
+                candidate_class="exact_reduction",
                 artifact_provider=getattr(config, "artifact_provider", None),
                 clock_domain_contract=domain,
                 unavailable_reason=domain_limitation,
@@ -1309,7 +1309,7 @@ def candidate_formal_records(
     module: Module,
     exploration_results: Iterable[ExplorationResult] = (),
 ) -> tuple[object, ...]:
-    """Enumerate all retained M39 evidence in deterministic source order."""
+    """Enumerate all retained formal-aware selection evidence in deterministic source order."""
 
     records: list[object] = []
     retained = tuple(exploration_results)
@@ -1356,7 +1356,7 @@ def candidate_formal_record_sites(
     module: Module,
     exploration_results: Iterable[ExplorationResult] = (),
 ) -> tuple[tuple[CandidateSiteRecord, object], ...]:
-    """Associate retained M39 records with their exact typed candidate site.
+    """Associate retained formal-aware selection records with their exact typed candidate site.
 
     Candidate implementation identities are intentionally insufficient here:
     the same implementation can occur at two distinct semantic sites.  This

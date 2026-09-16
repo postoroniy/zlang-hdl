@@ -950,7 +950,7 @@ class ImplementationChoice(TracedExpression):
     proven_equivalences: tuple[ImplementationEquivalence, ...]
     type: HardwareType
     cost_policy: CostPolicy | None = None
-    # M39 evidence is selection metadata and is intentionally excluded from
+    # formal-aware selection evidence is selection metadata and is intentionally excluded from
     # expression equality/canonical hardware identity.
     formal_records: tuple[object, ...] = field(default=(), compare=False)
     formal_eligible: tuple[ImplementationKind, ...] = field(

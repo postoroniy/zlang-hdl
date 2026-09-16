@@ -248,7 +248,7 @@ def groups_conflict(
     """Return a potential, or for supplied predicates an active, conflict.
 
     The two-argument compatibility form deliberately retains the historical
-    conservative relation used by semantic validation and existing M35 code.
+    conservative relation used by semantic validation and existing safety verification code.
     Runtime scheduling passes exact activation values and ignores inactive
     effects.
     """

@@ -6,7 +6,7 @@ from zlang.opt import lower, restore
 from zlang.semantic import SemanticError, analyze
 
 
-class EquivM27Tests(unittest.TestCase):
+class GuardedEquivalenceTests(unittest.TestCase):
     def test_safe_rule_and_guard(self) -> None:
         module = analyze(parse(
             "equiv or_zero { x | zero<x> <=> x when unsigned(x) && width(x) == 8 } "

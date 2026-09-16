@@ -1,4 +1,4 @@
-"""Real compiler-owned M39/M36 direct-production smoke coverage."""
+"""Real compiler-owned formal-aware selection/semantic-reference equivalence direct-production smoke coverage."""
 
 from __future__ import annotations
 
@@ -55,7 +55,7 @@ module CandidatePipelineReplay {
     (
         (SOURCE, EquivalenceRelation.SAME_CYCLE_VALUE, 4),
         # ``implement`` is one unified site.  This source currently selects
-        # the legal same-cycle M29 realization; the retained M31 pipeline
+        # the legal same-cycle architecture alternatives realization; the retained pipeline scheduling pipeline
         # table is planner metadata, not a second equivalence site.
         (FIXED_LATENCY_SOURCE, EquivalenceRelation.SAME_CYCLE_VALUE, 8),
     ),
@@ -99,7 +99,7 @@ def test_immutable_candidate_bundle_replays_without_source_or_selection(
             orchestration,
             "run_equivalence_formal",
             lambda *_args, **_kwargs: pytest.fail(
-                "bundle publication must not execute M36"
+                "bundle publication must not execute semantic-reference equivalence"
             ),
         )
         publish_compilation_verification_bundle(
@@ -139,7 +139,7 @@ def test_immutable_candidate_bundle_replays_without_source_or_selection(
     monkeypatch.setattr(
         orchestration,
         "run_equivalence_formal",
-        lambda *_args, **_kwargs: pytest.fail("M36 replay missed its cache"),
+        lambda *_args, **_kwargs: pytest.fail("semantic-reference equivalence replay missed its cache"),
     )
     cached = orchestration.execute_frozen_candidate_equivalence(
         enriched, tuple(frozen), replay_config
@@ -177,7 +177,7 @@ def test_immutable_candidate_bundle_replays_without_source_or_selection(
         ),
     ),
 )
-def test_real_direct_candidate_evidence_reuses_m39_stage(
+def test_real_direct_candidate_evidence_reuses_formal_selection_stage(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     policy: FormalPolicy,
@@ -208,15 +208,15 @@ def test_real_direct_candidate_evidence_reuses_m39_stage(
     enriched, prepared = orchestration.prepare_selected_candidate_equivalence(
         compilation, plan, config
     )
-    original_execute_m36 = orchestration._execute_m36
+    original_execute_semantic_equivalence = orchestration._execute_semantic_equivalence
     executed_backends: list[tuple[str, str]] = []
 
-    def execute_m36(item, config, mode, provider, toolchain):
+    def execute_semantic_equivalence(item, config, mode, provider, toolchain):
         executed_backends.append((item.backend, mode.value))
         assert item.backend == "direct_systemverilog"
-        return original_execute_m36(item, config, mode, provider, toolchain)
+        return original_execute_semantic_equivalence(item, config, mode, provider, toolchain)
 
-    monkeypatch.setattr(orchestration, "_execute_m36", execute_m36)
+    monkeypatch.setattr(orchestration, "_execute_semantic_equivalence", execute_semantic_equivalence)
     reports = orchestration.execute_prepared_candidate_equivalence(
         compilation, enriched, prepared, config
     )
@@ -228,11 +228,11 @@ def test_real_direct_candidate_evidence_reuses_m39_stage(
     if policy is FormalPolicy.REQUIRED_PROVEN:
         assert reports[0].bounded_prerequisite is not None
     assert not reports[0].verification_failure
-    # Complete M39 reuse performs no second tool discovery or execution.
+    # Complete formal-aware selection reuse performs no second tool discovery or execution.
     assert reports[0].tool_versions == ()
-    expected_work_routes = {"m36:bmc"}
+    expected_work_routes = {"semantic_equivalence:bmc"}
     if policy is FormalPolicy.REQUIRED_PROVEN:
-        expected_work_routes.add("m36:prove")
+        expected_work_routes.add("semantic_equivalence:prove")
     assert {name for name, _ in reports[0].work_directories} == expected_work_routes
     assert all(Path(path).is_dir() for _, path in reports[0].work_directories)
     assert type(reports[0]).from_json(reports[0].to_json()) == reports[0]

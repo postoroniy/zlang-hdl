@@ -25,7 +25,7 @@ hashes in the release record after the corresponding checks complete.
   from public main before exporting the complete accepted compiler snapshot.
 - Validate the public allowlist, complete source/test/stdlib/fixture closure,
   deterministic manifest, links and source imports.
-- Exclude private development history, coordination files, machine paths,
+- Exclude private sources, coordination files, machine paths,
   credentials, scratch results and unreviewed design inputs.
 - Inspect source, history, wheel, sdist, documentation, workflow logs and
   downloadable artifacts for secrets and unintended private material.

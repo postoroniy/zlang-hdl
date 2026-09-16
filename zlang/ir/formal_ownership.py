@@ -1,6 +1,6 @@
 """Hierarchy-aware ownership for already-existing recursive assumptions.
 
-The source module that defines an M35 property sees only its local port
+The source module that defines an safety verification property sees only its local port
 direction.  After elaboration, however, a locally environment-owned input may
 be driven by a parent port, an internal sibling, or a connection-owned buffer.
 This module resolves that physical ownership from typed hierarchy metadata.  It
@@ -236,7 +236,7 @@ def _trace_protocol_leaf(
                 reason=(
                     "connection-owned buffering, adaptation, or crossing drives "
                     f"'{'.'.join(current_path)}.{current_port.name}.{current_signal}' "
-                    "without an existing exact M35 endpoint guarantee"
+                    "without an existing exact safety verification endpoint guarantee"
                 ),
             )
 
@@ -287,7 +287,7 @@ def _trace_protocol_leaf(
         return _LeafResolution(
             RecursiveAssumptionDisposition.INTERNAL_UNRESOLVED,
             reason=(
-                "internally driven protocol leaf has no exact existing M35 "
+                "internally driven protocol leaf has no exact existing safety verification "
                 f"guarantee: {'.'.join(sibling.physical_path)}.{sibling_port.name}"
             ),
         )

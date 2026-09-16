@@ -8,7 +8,7 @@ from zlang.parser import ParseError, parse
 from zlang.semantic.analyze import SemanticError
 
 
-class ExplorationM34Tests(unittest.TestCase):
+class BoundedExplorationTests(unittest.TestCase):
     def test_cli_writes_unified_implementation_report(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

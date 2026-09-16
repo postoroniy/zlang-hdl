@@ -80,10 +80,14 @@ def test_sequential_array_direct_sv_is_structural_and_deterministic() -> None:
     assert first.text.count("module StateLane_s") == 1
     assert first.text.count("StateLane_s") == 3  # definition plus two instances
     assert first.text.count("always_ff @(posedge clk)") == 1
-    assert "assign values = {lane_0_value, lane_1_value}" in first.text
+    assert (
+        "assign zlang_packed_values = {lane_1_value, lane_0_value}"
+        in first.text
+    )
+    assert "assign values = zlang_packed_values" in first.text
     assert " lane_0 (" in first.text and " lane_1 (" in first.text
-    assert ".enable(enables[1])" in first.text
-    assert ".enable(enables[0])" in first.text
+    assert ".enable(zlang_packed_enables[0])" in first.text
+    assert ".enable(zlang_packed_enables[1])" in first.text
 
     restored = BackendArtifact.from_json(first.to_json())
     assert restored.artifact_hash == first.artifact_hash
@@ -107,15 +111,13 @@ static void tick(VStateLaneArray& dut) {
   dut.clk = 0; dut.eval();
 }
 static void set_bits(VStateLaneArray& dut, unsigned value) {
-  dut.enables[0] = (value >> 1) & 1u;
-  dut.enables[1] = value & 1u;
+  dut.enables = value;
 }
 static void set_steps(VStateLaneArray& dut, unsigned value) {
-  dut.steps[0] = (value >> 8) & 0xffu;
-  dut.steps[1] = value & 0xffu;
+  dut.steps = value;
 }
 static int expect(VStateLaneArray& dut, unsigned value, int line) {
-  const unsigned actual = (unsigned(dut.values[0]) << 8) | dut.values[1];
+  const unsigned actual = dut.values;
   return actual == value ? 0 : line;
 }
 int main(int argc, char **argv) {
@@ -150,11 +152,10 @@ static void tick(VConstantStateLaneArray& dut) {
   dut.clk = 0; dut.eval(); dut.clk = 1; dut.eval(); dut.clk = 0; dut.eval();
 }
 static void set_enables(VConstantStateLaneArray& dut, unsigned value) {
-  dut.enables[0] = (value >> 1) & 1u;
-  dut.enables[1] = value & 1u;
+  dut.enables = value;
 }
 static unsigned values(VConstantStateLaneArray& dut) {
-  return (unsigned(dut.values[0]) << 8) | dut.values[1];
+  return dut.values;
 }
 int main(int argc, char **argv) {
   Verilated::commandArgs(argc, argv);

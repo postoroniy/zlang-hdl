@@ -493,6 +493,13 @@ belongs to the write domain and the read-result policy to the read domain.
 Direct use of foreign-domain controls is rejected; a pipeline register is not a
 CDC primitive.
 
+`async_mem` requires `read_latency` in `1..16`. The generic implementation
+captures the cell on the reader edge and, for latency greater than one, shifts
+the captured value through reader-domain output registers. This adds visible
+latency without changing the contents or crossing domains. `read_latency 0`
+is invalid for `async_mem`; it would be an unregistered cross-clock read, not a
+block-RAM read port.
+
 For coincident logical edges the simulator uses a pre-edge snapshot: `old`
 returns the prior cell, while `new` forwards the coincident write. This is a
 precise digital model, not an analog metastability or silicon timing guarantee.
@@ -538,10 +545,16 @@ supports one memory per module, alongside registers and scheduled FIFOs; two
 reads or two writes conflict and require existing explicit rule priority.
 
 The executable memory forms have scalar elements and power-of-two depth of at
-least two. A globally controlled memory accepts `read_latency 0` for a
-combinational read or `read_latency 1` for a registered result. Rule-owned
-memories remain exactly one-cycle because their read action is selected at an
-edge.
+least two. A globally controlled ordinary `mem` accepts `read_latency` in
+`0..16`: zero is a combinational read; each positive value is an exact number
+of domain-local read edges from address capture to the visible result.
+Rule-owned memories remain exactly one-cycle because their read action is
+selected at an edge. Zero-cycle ordinary `mem` is a generic combinational
+storage behavior, not a native synchronous BRAM claim. Native target binding
+requires an explicitly matching clocked-read capability. Until a target
+mapping proves its internal output-register configuration and any additional
+fabric stages, a requested latency greater than the advertised native latency
+uses generic storage under a preferred policy or fails under a required policy.
 
 Cell and visible read-result reset behavior may be selected independently:
 
@@ -604,6 +617,16 @@ expose common shapes while lowering through the same memory IR.
 `StorageAsyncFifo` similarly wraps the existing ready/valid `async_fifo(D)`
 crossing; a normal `fifo<T,N>` never becomes asynchronous.
 
+The FIFO crossing now decomposes into an internal typed `async_mem` with
+independent write/read clocks, `read_latency 1`, and a one-slot prefetch
+controller. It is not a second public memory declaration in the module.
+The selected AMD 7-Series `Xilinx7AsyncFifoRAMB18` or
+`Xilinx7AsyncFifoRAMB36` architecture binds only this internal FIFO memory
+to a matching independent-clock 1W1R RAM with `DO_REG=0`; unsupported
+width/depth/configuration fails under `required` policy and remains generic
+RTL under `preferred`. This route does not imply that arbitrary public
+`async_mem` has a native cross-clock collision guarantee.
+
 Target-memory closure remains separate. In particular, the existing promoted
 OpenRAM/target macro contract does not yet match this zero-latency,
 preserve-on-reset profile, so the witness makes no BRAM/SRAM inference, QoR, or
@@ -638,8 +661,9 @@ There is no hidden second output register.
 
 The production backend consumes one compiler-owned companion image. It contains one exact-
 width binary word per line, address zero first. Struct declaration field zero
-and vector element zero occupy the most-significant bits, recursively, while
-fixed-point values retain their raw signed or unsigned bit pattern. Direct
+occupies the most-significant bits; vector element zero and tuple item zero
+occupy the least-significant component bits recursively. Fixed-point values retain
+their raw signed or unsigned bit pattern. Direct
 SystemVerilog `$readmemb` consumes that image. The CLI publishes companions
 beside the selected output, and artifact metadata
 retains the initialization dependency, evaluator, content, and file hashes.

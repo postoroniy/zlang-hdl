@@ -46,10 +46,7 @@ def test_direct_sv_indexed_array_behaves_under_verilator(tmp_path: Path) -> None
 int main(int argc, char **argv) {
   Verilated::commandArgs(argc, argv);
   VIndexedInstanceArray dut;
-  dut.values[0] = 1;
-  dut.values[1] = 2;
-  dut.values[2] = 3;
-  dut.values[3] = 4;
+  dut.values = 0x04030201u;
   dut.eval();
   return dut.y == 5 ? 0 : 1;
 }

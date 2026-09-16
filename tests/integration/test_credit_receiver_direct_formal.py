@@ -1,4 +1,4 @@
-"""Direct-SV M35 closure for the existing credit-to-ready/valid adapter."""
+"""Direct-SV safety verification closure for the existing credit-to-ready/valid adapter."""
 
 from __future__ import annotations
 
@@ -181,8 +181,8 @@ def test_receiver_credit_five_properties_prove_and_count_mutation_fails() -> Non
     harness = emit_harness(connected, depth=8)
     passed = run_verilog_formal(
         harness,
-        top="CreditToRv__m35_formal",
-        property_id="m35.connected.credit-receiver",
+        top="CreditToRv__safety_verification_formal",
+        property_id="safety_verification.connected.credit-receiver",
         depth=8,
         systemverilog=True,
     )
@@ -195,8 +195,8 @@ def test_receiver_credit_five_properties_prove_and_count_mutation_fails() -> Non
     )
     failed = run_verilog_formal(
         mutated,
-        top="CreditToRv__m35_formal",
-        property_id="m35.connected.credit-receiver-count-mutation",
+        top="CreditToRv__safety_verification_formal",
+        property_id="safety_verification.connected.credit-receiver-count-mutation",
         depth=8,
         systemverilog=True,
     )

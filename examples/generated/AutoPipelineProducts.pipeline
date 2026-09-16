@@ -1,5 +1,5 @@
 module AutoPipelineProducts
-pipeline_model=zlang-pipeline-estimate-v1+m31-unified cost_source=structural_estimate measured=false
+pipeline_model=zlang-pipeline-estimate-v1+pipeline_scheduler-unified cost_source=structural_estimate measured=false
 exploration output=y result=u19 constraints=[latency<=3,throughput==1,dsp<=4,fmax>=100] bounded=true search_bound=1
   candidate name=linear_output_logic legal=true tree=linear registers=output multipliers=logic latency=1 initiation_interval=1 transformations=[preserve_linear_tree,register_output] estimated lut=313 ff=19 dsp=0 fmax_mhz=133 cost_source=estimate violations=[none]
   selected name=linear_output_logic reason=catalog_only_not_selected_for_emission best_candidate_in_explored_bounded_search maximize_fmax_est_then_latency emitted=false latency=1 initiation_interval=1 cost_source=estimate timed_equivalence=verified pipeline_plan_registers=1
