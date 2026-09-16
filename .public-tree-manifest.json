@@ -34,7 +34,7 @@
     {
       "mode": "0644",
       "path": ".github/dependabot.yml",
-      "sha256": "9b2d3fca48f05c0cafd2151235d5a3231c25c91b8b539cd4779e5f1765d9853a"
+      "sha256": "a1f184d5c285d600f5689714c7c9f41e5f42c39848e7e408762b4d1afb7ad4a1"
     },
     {
       "mode": "0644",
@@ -49,7 +49,7 @@
     {
       "mode": "0644",
       "path": ".github/workflows/codeql.yml",
-      "sha256": "5839d1a1a305d5dd90ad98e57d2b684d417c487c324a97396afd8805b68a58a5"
+      "sha256": "81863856969e4d2bf230d59c0828690319248a8ea8e7b85a09f37c928e892eaf"
     },
     {
       "mode": "0644",
@@ -2574,7 +2574,7 @@
     {
       "mode": "0644",
       "path": "tests/release/test_public_tree.py",
-      "sha256": "4c1e1d9074ebffdeae261954db78956b6ce8a42e4fc6deb7666087baf722c7c1"
+      "sha256": "7c9d10543fbc9eefb3304baa585a4f7118f702c2a88a42fafd510ba081797aa3"
     },
     {
       "mode": "0644",

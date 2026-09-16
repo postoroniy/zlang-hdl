@@ -387,6 +387,15 @@ def test_repository_workflows_use_only_immutable_external_actions() -> None:
     module._check_action_pins(texts)
 
 
+def test_codeql_steps_use_one_exact_action_version() -> None:
+    codeql = (ROOT / ".github/workflows/codeql.yml").read_text(encoding="utf-8")
+    action_revisions = re.findall(
+        r"github/codeql-action/(?:init|analyze)@([0-9a-f]{40})", codeql
+    )
+    assert len(action_revisions) == 2
+    assert len(set(action_revisions)) == 1
+
+
 def test_release_workflows_preserve_checkout_and_security_contracts() -> None:
     workflows = {
         path.name: path.read_text(encoding="utf-8")
