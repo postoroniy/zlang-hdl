@@ -5,7 +5,8 @@ documentation corrections, tests, and bounded compiler changes.
 
 ## Before opening a change
 
-- Search existing issues and the [current capability matrix](docs/current-language-status.md).
+- Search existing issues and the
+  [current capability matrix](docs/language-reference.md#reference-syntax-support-matrix).
 - Keep one pull request focused on one independently testable change.
 - Discuss broad language, IR, backend, or formal-semantics changes in an issue
   before implementation.
@@ -21,13 +22,12 @@ ZLang's supported development environment is Linux x86-64 with CPython
 requiring a version-suffixed Python command from the host:
 
 ```bash
-uv python install 3.12
-uv venv --python 3.12
+uv venv --python '>=3.12,<3.13'
 uv pip install -e '.[test]'
 .venv/bin/python -m pytest -q
 ```
 
-See the [installation guide](docs/installing-toolchain.md) for a conventional
+See the [installation guide](docs/language-reference.md#reference-installing-toolchain) for a conventional
 `venv`/pip alternative, WSL2 setup and optional external EDA tools.
 
 Focused tests should be run serially while debugging. The repository Makefile

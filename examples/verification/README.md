@@ -12,7 +12,7 @@ the compiler, Wi-Fi transmitter, or other example.
 Run commands from the repository root after installing ZLang in `.venv`.
 Put `yosys`, `sby`, `yosys-smtbmc`, and `z3` on `PATH`. These are real external
 tool runs, not mocked tests. The examples use the connected direct-SystemVerilog
-formal route; Clash is not required for these commands.
+formal route.
 
 `--check` only checks syntax and types; it does not run Z3. Verification
 declarations do not add gates or alter production RTL. `--verify` explicitly
@@ -204,5 +204,6 @@ Raw logs and VCDs stay in the work directory, outside the immutable bundle.
 Recorded 2026-09-08 with Yosys/SBY 0.68 and Z3 4.8.12. The tests require actual
 solver execution and check status, assumption scope, retained traces and replay;
 they do not accept tool absence as success. See
-[the formal guide](../../docs/optimization-formal.md) for reset assumptions,
-backend routing, semantic-reference equivalence/retired cross-backend equivalence/formal-aware selection and current applicability boundaries.
+[the formal guide](../../docs/language-reference.md#reference-optimization-formal)
+for reset assumptions, backend routing, semantic-reference equivalence,
+formal-aware selection, and current applicability boundaries.

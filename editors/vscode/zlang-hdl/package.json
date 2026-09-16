@@ -16,7 +16,7 @@
   },
   "homepage": "https://github.com/postoroniy/zlang-hdl",
   "engines": {
-    "vscode": "^1.85.0"
+    "vscode": "^1.138.0"
   },
   "main": "./extension.js",
   "categories": [
@@ -51,11 +51,15 @@
     "snippets/zlang-hdl.json"
   ],
   "scripts": {
-    "test": "node --check extension.js && node test/tokenize.test.cjs",
-    "package": "node test/package.cjs"
+    "test": "node --check extension.js && node test/tokenize.test.cjs && node test/bundle.test.cjs",
+    "package": "node test/package.cjs",
+    "test:host": "node test/run-host-smoke.cjs",
+    "check:latest-vscode": "node test/check-latest-vscode.cjs"
   },
   "devDependencies": {
+    "@vscode/test-electron": "3.1.0",
     "@vscode/vsce": "3.9.2",
+    "esbuild": "0.28.2",
     "vscode-oniguruma": "2.0.1",
     "vscode-textmate": "9.3.2"
   },
@@ -98,6 +102,6 @@
     }
   },
   "dependencies": {
-    "vscode-languageclient": "^9.0.1"
+    "vscode-languageclient": "10.1.1"
   }
 }

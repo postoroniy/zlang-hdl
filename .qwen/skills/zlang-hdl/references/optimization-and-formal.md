@@ -64,8 +64,6 @@ semantics, latency, II, shared DAG nodes, and reconvergent alignment.
 - semantic-reference equivalence compares a selected implementation against the compiler-owned semantic
   reference with exact timing windows where supported.
 - formal-aware selection gates candidate selection according to its explicit policy.
-- retired cross-backend equivalence/Clash cross-backend execution is retired. Historical retired cross-backend equivalence records are not
-  current evidence and must never gate selection.
 
 Source supports named same-cycle `assert`/`ensure`, scoped `contract`/`require`,
 bounded `cover`, and legacy `assume`/`guarantee`. Do not invent temporal syntax,
@@ -94,6 +92,5 @@ Never relabel BMC, representation invariants, compiler structural validation,
 estimated Fmax, or synthesis success as stronger evidence. Verification does not
 legalize unsafe hardware or feed range inference.
 
-Read `docs/optimization-formal.md`,
-`docs/egraph-optimization-infrastructure.md`, and the relevant
+Read the optimization and formal chapters in `docs/language-reference.md` and the relevant
 `examples/verification/` witness before changing these paths.

@@ -11,7 +11,7 @@ incompatible input explicitly.
 
 ## Unreleased
 
-## 0.1.0a8 — 2026-09-16
+## 0.1.0a8 — 2026-09-17
 
 ### Changed
 
@@ -97,14 +97,6 @@ incompatible input explicitly.
 
 ### Changed
 
-- Removed the retired Clash emitter, its hidden compatibility CLI, generated
-  Haskell artifacts, packaging surface, test suite, and tool discovery. Direct
-  SystemVerilog is now the only production RTL backend in both policy and code.
-- Retired executable retired cross-backend equivalence cross-backend comparison without reusing its name for
-  another relation. safety verification safety, direct-SV semantic-reference equivalence semantic-reference equivalence,
-  and formal-aware selection formal-aware selection remain supported.
-- Release acceptance now requires zero skipped tests and no GHC/Clash tooling.
-
 ## 0.1.0a5 — 2026-09-11
 
 ### Added
@@ -118,14 +110,6 @@ incompatible input explicitly.
 
 ### Changed
 
-- Direct SystemVerilog is the sole production RTL backend. The public Clash
-  output options and `zlang-compare-backends` command are retired; the legacy
-  emitter remains internal compatibility code only.
-- formal-aware selection and compiler-owned selected-candidate equivalence now use the direct-SV
-  semantic-reference equivalence route. retired cross-backend equivalence is retained only as unavailable historical schema data.
-- Exact `pipeline(N)` scheduling is deferred until target/profile planning,
-  preserving semantic latency while allowing real internal register cuts.
-
 ### Fixed
 
 - Formal observation outputs can be added to a staged direct-SV datapath
@@ -138,11 +122,6 @@ incompatible input explicitly.
 ## 0.1.0a4 — 2026-09-10
 
 ### Added
-
-- A concise language quick reference for coding agents and experienced users,
-  linked from the full guide and checked against the current compiler surface.
-- Shared compiler utilities for deterministic subprocess execution, backend
-  binding identities, pipeline constraints and generated Clash signal logic.
 
 ### Changed
 
@@ -158,13 +137,6 @@ incompatible input explicitly.
 
 ### Fixed
 
-- Candidate discovery and formal evidence now follow the exact selected
-  implementation identity, including bounded diagnostics for impossible
-  resource policies and source-independent evidence identities.
-- Clash catalog-only alternatives can no longer leak into selected generated
-  RTL, and explicit positive latency intent consistently gates pipeline
-  candidate generation.
-
 ## 0.1.0a3 — 2026-09-08
 
 Community alpha with mathematical/formal examples and a downloadable lexical
@@ -172,21 +144,6 @@ editor package. Compiler semantics, license terms and the Community Baseline
 remain unchanged; publication is subject to `RELEASING.md`.
 
 ### Added
-
-- A reproducible eight-product datapath tutorial comparing one-cycle, balanced
-  architecture and four-stage `explore` implementations. Recorded Vivado
-  out-of-context timing uses the same device and 10 ns constraint; it is not a
-  board-level timing guarantee.
-- Independent semantic-reference equivalence semantic-reference and retired cross-backend equivalence cross-backend bounded checks for
-  the pipelined example, plus deliberate arithmetic and latency mutations.
-  BMC remains bounded evidence; the separately timed-out formal-aware selection architecture route
-  remains explicitly `unknown`.
-- A static VS Code extension for `.zhl`, independently versioned 0.1.0, with
-  compiler-checked snippets, real TextMate/Oniguruma tests and three optional
-  highlighting styles. No LSP, compiler runtime or telemetry is included.
-- Audited VSIX and audit JSON assets in GitHub releases, covered by checksums
-  and exact-tag workflow attestation. Marketplace/Open VSX publication is not
-  part of this release.
 
 ### Fixed
 
@@ -217,26 +174,6 @@ First Community alpha release cut. The signed tag exists, but the GitHub
 Release was not published; the installer inventory gate is corrected in a2.
 
 ### Added
-
-- Initial experimental alpha of the ZLang HDL compiler.
-- Public release, security, contribution, support, and provenance policies.
-- The 2026-09 Community Baseline retains every included compiler capability.
-  Future CSR C/C++ and UVM helper generators are classified Enterprise, not
-  implemented additions; existing CSR and simulation exports remain Community.
-- Typed semantic and canonical IR, simulation, Clash and direct-SystemVerilog
-  backends, compiler-owned standard library, project locking, manifests, and
-  bounded optimization and verification workflows.
-- Real-design validation including DMA, standard-bus CSR paths, fixed-point FIR,
-  FFT512, and an attributed IEEE 802.11a transmitter project.
-- Four runnable formal examples and a tutorial covering invariant proofs,
-  a deliberately seeded rare-input counterexample, scoped assumptions,
-  bounded ready/valid safety, covers and immutable verification-bundle replay.
-- Source-authored bounded AXI burst reader/writer helpers, scalable replicated
-  two-read/one-write banked storage composition, and simulation-only state
-  preload/inspection by stable semantic identity (ZL-003, ZL-005, and ZL-006).
-- Source-authored, full-width AHB-Lite-to-RegBus support with the standard
-  pipelined address/data relationship, two-cycle ERROR responses, and an
-  active-low asynchronous-assert/synchronized-release reset contract.
 
 ### Changed
 

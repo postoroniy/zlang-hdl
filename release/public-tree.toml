@@ -1,4 +1,4 @@
-schema = 1
+schema = 2
 
 [projection]
 manifest = ".public-tree-manifest.json"
@@ -36,64 +36,19 @@ include = [
   "tools/**",
   "zlang/**",
 
-  # Only current product/user documentation is selected. Archived design notes
-  # remain outside the public snapshot.
-  "docs/80211a-controller-contract.md",
-  "docs/80211a-convolutional-encoder-contract.md",
-  "docs/80211a-ifft64-contract.md",
-  "docs/80211a-interleaver-contract.md",
-  "docs/80211a-mapper-contract.md",
-  "docs/80211a-transmitter-validation.md",
-  "docs/backends-tooling.md",
-  "docs/compositional-formal-binding.md",
-  "docs/current-language-status.md",
-  "docs/diagnostic-edit-projection.md",
-  "docs/direct-systemverilog.md",
-  "docs/dma-validation.md",
+  # The Community user-documentation surface is deliberately compact. Legal
+  # and edition policy remain separate; all language/tooling guidance is in the
+  # complete reference and its concise companion.
   "docs/editions.md",
-  "docs/egraph-optimization-infrastructure.md",
-  "docs/expressions-functions-generics.md",
-  "docs/fft512-validation.md",
-  "docs/fixed-fir-architecture-validation.md",
-  "docs/fixed-point-types.md",
-  "docs/generated-source-maps.md",
-  "docs/generated-navigation-bundles.md",
-  "docs/getting-started.md",
-  "docs/hierarchy-protocols.md",
-  "docs/high-level-target-aware-architecture-pipeline-planner.md",
-  "docs/implementation-profiles.md",
-  "docs/installing-toolchain.md",
-  "docs/language-guide.md",
+  "docs/language-reference.md",
   "docs/language-quick-reference.md",
+  "docs/ZLang-HDL-Language-Reference.pdf",
   "docs/licensing/COMMUNITY_BASELINE.md",
   "docs/licensing/GENERATED_OUTPUT_POLICY.md",
   "docs/licensing/IP_CLASSIFICATION.md",
   "docs/licensing/PUBLIC_RELEASE_CHECKLIST.md",
   "docs/licensing/README.md",
-  "docs/low-level-target-resource-library.md",
-  "docs/known-limitations.md",
-  "docs/named-module-interfaces.md",
-  "docs/optimization-formal.md",
-  "docs/parameterized-aggregate-protocol.md",
-  "docs/physical-clock-reset-contract.md",
-  "docs/platform-constraint-publication.md",
   "docs/project-scope.md",
-  "docs/projects-dependencies.md",
-  "docs/sequential-state-storage.md",
-  "docs/source-identity-migration.md",
-  "docs/standard-bus-library.md",
-  "docs/stdlib-and-real-design-validation.md",
-  "docs/stdlib.md",
-  "docs/storage-instance-arrays.md",
-  "docs/structured-diagnostics.md",
-  "docs/syntax-support-matrix.md",
-  "docs/tagged-unions.md",
-  "docs/target-platform-architecture-description.md",
-  "docs/testing.md",
-  "docs/tooling-integration-api.md",
-  "docs/types-and-numerics.md",
-  "docs/whole-build-manifests.md",
-  "docs/zlang-lsp.md",
   "docs/reproducers/**",
 ]
 
@@ -169,10 +124,9 @@ required = [
   "SECURITY.md",
   "SUPPORT.md",
   "TRADEMARKS.md",
-  "docs/getting-started.md",
-  "docs/installing-toolchain.md",
-  "docs/language-guide.md",
-  "docs/known-limitations.md",
+  "docs/language-reference.md",
+  "docs/language-quick-reference.md",
+  "docs/ZLang-HDL-Language-Reference.pdf",
   "docs/editions.md",
   "docs/licensing/COMMUNITY_BASELINE.md",
   "docs/licensing/GENERATED_OUTPUT_POLICY.md",
@@ -180,8 +134,6 @@ required = [
   "docs/licensing/PUBLIC_RELEASE_CHECKLIST.md",
   "docs/licensing/README.md",
   "docs/project-scope.md",
-  "docs/source-identity-migration.md",
-  "docs/syntax-support-matrix.md",
   "editors/vscode/zlang-hdl/package.json",
   "examples/all_syntax.zhl",
   "examples/projects/80211a_transmitter/LICENSE",
@@ -228,6 +180,14 @@ forbidden_regex = [
   "gh[oprsu]_[A-Za-z0-9]{30,}",
   "-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----",
 ]
+
+# Binary publication is path-exact rather than extension-wide. The PDF is a
+# reviewed release artifact; authoring templates and build collateral are not
+# part of the Community tree.
+binary_files = [
+  "docs/ZLang-HDL-Language-Reference.pdf",
+]
+binary_max_bytes = 20971520
 
 # Text/source formats admitted to the public projection.  Unknown binary files
 # fail closed and must be reviewed before they are added here.

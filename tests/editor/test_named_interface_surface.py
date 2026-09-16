@@ -18,7 +18,7 @@ def test_named_module_interface_is_registry_owned_and_documented() -> None:
         for item in CAPABILITY_REGISTRY.documentation
         if item.capability == "named-module-interfaces"
     )
-    assert requirement.document == "docs/named-module-interfaces.md"
+    assert requirement.document == "docs/language-reference.md"
     text = (ROOT / requirement.document).read_text()
     for marker in requirement.markers:
         assert marker in text
@@ -55,8 +55,8 @@ def test_editor_distinguishes_named_interfaces_from_aggregate_ports() -> None:
     assert "clock|reset|reg|fifo|memory|rom|interface|csr" in details
 
 
-def test_public_guide_links_named_interface_contract() -> None:
-    index = (ROOT / "docs" / "language-guide.md").read_text()
+def test_public_reference_contains_named_interface_contract() -> None:
+    index = (ROOT / "docs" / "language-reference.md").read_text()
     readme = (ROOT / "README.md").read_text()
-    assert "[Named module interfaces](named-module-interfaces.md)" in index
-    assert "docs/named-module-interfaces.md" in readme
+    assert "## Named module interfaces" in index
+    assert "docs/language-reference.md" in readme

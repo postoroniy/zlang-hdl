@@ -1,5 +1,5 @@
 {
-  "schema": 1,
+  "schema": 2,
   "release": {
     "channel": "alpha",
     "repository": "https://github.com/postoroniy/zlang-hdl",
@@ -11,8 +11,8 @@
     "architecture": "x86_64"
   },
   "validation": {
-    "minimum_tests_passed": 3327,
-    "minimum_tests_collected": 3327,
+    "minimum_tests_passed": 3331,
+    "minimum_tests_collected": 3331,
     "maximum_tests_skipped": 0,
     "example_corpus": {
       "source_files": 89,
@@ -29,6 +29,16 @@
     "vvp": "14.0",
     "yosys": "0.69",
     "z3": "4.8.12"
+  },
+  "documentation": {
+    "format": "PDF-1.5",
+    "pages": 93,
+    "pdf": "docs/ZLang-HDL-Language-Reference.pdf",
+    "pdf_sha256": "9a811afd5fb46f3f65327ede14397a7af328076dddebaa01a352b14ade78cbe1",
+    "sources": {
+      "docs/language-quick-reference.md": "adcc35580de824099243a80a1ccb385e24d5e8c4a563af07baa8ef85c73507b5",
+      "docs/language-reference.md": "8c754195052dfde1a1e9a54a85d37f816590e4f8cd2f9ea57d99a8fe78e4d615"
+    }
   },
   "generated_by": "tools/release_status.py"
 }

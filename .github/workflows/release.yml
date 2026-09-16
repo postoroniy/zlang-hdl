@@ -157,6 +157,9 @@ jobs:
       - name: Exercise real TextMate and Oniguruma tokenization
         working-directory: editors/vscode/zlang-hdl
         run: npm test
+      - name: Verify the checked editor host is still the latest stable release
+        working-directory: editors/vscode/zlang-hdl
+        run: npm run check:latest-vscode
       - name: Build and audit the exact-tag Community VSIX
         shell: bash
         run: |
@@ -165,6 +168,11 @@ jobs:
             > "$RUNNER_TEMP/zlang-hdl-0.1.0-vsix-audit.json"
           cp -- "$RUNNER_TEMP/zlang-hdl-0.1.0.vsix" \
             "$RUNNER_TEMP/zlang-hdl-0.1.0-vsix-audit.json" dist/
+      - name: Exercise the exact-tag VSIX on the pinned current stable host
+        working-directory: editors/vscode/zlang-hdl
+        run: >-
+          xvfb-run -a npm run test:host --
+          "$RUNNER_TEMP/zlang-hdl-0.1.0.vsix"
       - name: Retain accepted dependency audit evidence
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -177,13 +185,16 @@ jobs:
       - name: Build release SBOM and checksums after inventory acceptance
         shell: bash
         run: |
+          cp docs/ZLang-HDL-Language-Reference.pdf \
+            "dist/zlang-hdl-${GITHUB_REF_NAME}-language-reference.pdf"
           cyclonedx-py requirements dist/release-requirements.txt \
             --output-reproducible \
             --output-format JSON \
             --output-file "dist/zlang-hdl-${GITHUB_REF_NAME}.cdx.json"
           (cd dist && sha256sum zlang_hdl-*.whl zlang_hdl-*.tar.gz \
             zlang-hdl-*.cdx.json release-requirements.txt \
-            zlang-hdl-*.vsix zlang-hdl-*-vsix-audit.json | sort > SHA256SUMS)
+            zlang-hdl-*.vsix zlang-hdl-*-vsix-audit.json \
+            zlang-hdl-*-language-reference.pdf | sort > SHA256SUMS)
           (cd dist && sha256sum -c SHA256SUMS)
       - name: Attest release checksums
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2

@@ -2,6 +2,10 @@
 
 ## 0.1.0
 
+- Bundle the exact language-client runtime into one deterministic file instead
+  of shipping a copied dependency tree, reducing the VSIX to 13 files.
+- Require the current stable VS Code line (1.138.0 at this build) and test the
+  installed VSIX on that exact host with pinned editor tooling.
 - Package the existing `.zhl` lexical support and a thin standard-LSP client as
   a self-contained Community VSIX.
 - Add concise compiler-checked snippets and real TextMate tokenization tests.

@@ -65,7 +65,9 @@ semantic authority.
 ## Build and install locally
 
 From a repository checkout, use Node 22 and the checked-in dependency lockfile.
-Build tools are dev-only and are not shipped inside the VSIX.
+The extension supports the current stable VS Code release and later compatible
+1.x releases; the checked toolchain currently names VS Code 1.138.0. Build tools
+are dev-only and are not shipped inside the VSIX.
 
 ```sh
 cd editors/vscode/zlang-hdl
@@ -75,12 +77,12 @@ npm run package -- /tmp/zlang-hdl-vscode1.vsix
 ```
 
 Choose a new output filename; packaging refuses to overwrite an existing VSIX.
-The build uses the official pinned `@vscode/vsce` in an isolated staging
-directory containing the approved editor assets, the production
-`vscode-languageclient` runtime and copies of the repository's authoritative
-Apache-2.0 `LICENSE` and `NOTICE`. Development dependencies, tests, compiler
-artifacts and credentials are not shipped. It does not publish, create tags, or
-run the compiler.
+The build uses pinned `esbuild` and `@vscode/vsce` in an isolated staging
+directory. It emits one minified CommonJS runtime containing the exact locked
+`vscode-languageclient` closure, plus generated third-party license notices and
+the repository's authoritative Apache-2.0 `LICENSE` and `NOTICE`. It does not
+ship `node_modules`, a vendor tree, source maps, development dependencies,
+tests, compiler artifacts or credentials. It does not publish or create tags.
 
 From the repository root, inspect the actual package and install it:
 
@@ -107,15 +109,14 @@ Tests reuse `examples/all_syntax.zhl` and compiler-owned capability metadata.
 Real TextMate/Oniguruma tests cover nested generic calls, complete operators,
 contextual identifiers, comments, byte escapes and incomplete editor input.
 Python tests compile expanded snippets in their documented contexts. The VSIX
-audit verifies its exact inventory, the standard language-client runtime, and
-license bytes.
+audit verifies its exact 13-file inventory, bounded compressed and expanded
+sizes, the bundled language-client runtime, dependency notices and license bytes.
 CI performs these checks without publishing credentials.
 
-`test/host-smoke.cjs` is a dev-only VS Code extension-host test: after installing
-the VSIX into a fresh temporary profile, set `ZLANG_EDITOR_SMOKE_EXTENSION` to
-its installed directory and launch that directory with
-`--extensionDevelopmentPath`, `--extensionTestsPath` pointing to the test, and
-a fresh temporary workspace. It tests real file recognition, activation-ready
+`npm run test:host -- /absolute/package.vsix` is a dev-only extension-host gate.
+It downloads the exact stable version recorded in `editor-toolchain.json`,
+installs the VSIX into a fresh temporary profile and workspace, and rejects a
+different host version. It tests real file recognition, activation-ready
 F12 definition and Shift+F12 References, nested locked-project type/module navigation with unopened
 targets, comments, bracket indentation and registered snippet insertion.
 It is not included in the VSIX.

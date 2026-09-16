@@ -19,8 +19,8 @@ open-source project. That scope includes:
   source mapping;
 - production direct-SystemVerilog emission, simulation, manifests, and local
   build tooling;
-- local safety verification (safety verification), semantic-reference equivalence (semantic-reference equivalence),
-  historical retired cross-backend equivalence records, formal-aware candidate selection, and
+- local safety verification, semantic-reference equivalence,
+  formal-aware candidate selection, and
   immutable verification bundles;
 - local implementation selection, including `implement`, `choice`, cost
   extraction, and local synthesis
@@ -81,7 +81,8 @@ Source imports remain logical, and reproducibility comes from locked content
 and dependency identities rather than a particular hosting service. A future
 resolver or registry may populate the existing lock model, but ordinary
 compilation remains offline and the locked content identity remains
-authoritative. See [Projects and dependencies](projects-dependencies.md).
+authoritative. See
+[Projects and dependencies](language-reference.md#reference-projects-dependencies).
 
 ## Evaluation
 
@@ -94,4 +95,4 @@ agent-generated hardware.
 This scope statement is not a promise that any listed service will be offered,
 nor does it change the support status of a feature. Current executable support
 is documented by the capability registry, tests, and
-[known limitations](known-limitations.md).
+[known limitations](language-reference.md#reference-known-limitations).

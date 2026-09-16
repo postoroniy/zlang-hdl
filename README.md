@@ -17,15 +17,14 @@ architectural capability, not a claim about productivity or performance.
 The initial supported development and release environment is Linux x86-64 with
 CPython `>=3.12,<3.13`. You do not need that interpreter preinstalled: the
 recommended `uv` workflow can provision it for the project. Direct
-SystemVerilog is the sole supported production RTL backend;
-external synthesis and formal tools are optional unless their corresponding
-flow is requested. The retired Clash backend is not installed, discovered, or
-executed by the compiler or its regression suite.
+SystemVerilog is the sole supported production RTL backend. External synthesis
+and formal tools are optional unless their corresponding flow is requested.
 
 ## Quick start
 
 For a release wheel, editor setup, and the optional Verilator/Yosys/SBY/Z3
-toolchain, use the [complete installation guide](docs/installing-toolchain.md).
+toolchain, use the
+[complete Community language reference](docs/language-reference.md#reference-installing-toolchain).
 
 Clone the repository and let [`uv`](https://docs.astral.sh/uv/) provision the
 verified Python runtime and editable development environment:
@@ -33,8 +32,7 @@ verified Python runtime and editable development environment:
 ```bash
 git clone https://github.com/postoroniy/zlang-hdl.git
 cd zlang-hdl
-uv python install 3.12
-uv venv --python 3.12
+uv venv --python '>=3.12,<3.13'
 uv pip install -e '.[test]'
 ```
 
@@ -42,7 +40,7 @@ For an ordinary release-wheel installation, install the commands in an isolated
 environment:
 
 ```bash
-uv tool install --python 3.12 /path/to/zlang_hdl-VERSION-py3-none-any.whl
+uv tool install --python '>=3.12,<3.13' /path/to/zlang_hdl-VERSION-py3-none-any.whl
 ```
 
 See the complete guide for PATH setup, a pip/venv alternative, and WSL2
@@ -100,15 +98,14 @@ The validated language includes:
 - direct-SystemVerilog emission with source maps and versioned BackendArtifact
   manifests;
 - bounded equality saturation, implementation exploration, synthesis evidence,
-  safety verification safety checks, semantic-reference equivalence semantic-reference equivalence, formal-aware selection formal-aware
-  selection, and source-level verification goals. retired cross-backend equivalence records in dated reports
-  are historical evidence only; the production compiler does not execute retired cross-backend equivalence.
+  safety checks, semantic-reference equivalence, formal-aware selection, and
+  source-level verification goals.
 
 The executable [language tour](examples/all_syntax.zhl) is representative, not a
 complete support contract. Use the
-[current language status](docs/current-language-status.md),
-[syntax support matrix](docs/syntax-support-matrix.md), and
-[known limitations](docs/known-limitations.md) for the current, bounded surface.
+[language support matrix](docs/language-reference.md#reference-syntax-support-matrix)
+and [known limitations](docs/language-reference.md#reference-known-limitations)
+for the current, bounded surface.
 Qwen users can also rely on the tracked
 [ZLang HDL project skill](.qwen/skills/zlang-hdl/SKILL.md), which routes work to
 the same current guides and executable compiler contracts.
@@ -136,7 +133,7 @@ combination is supported or that measured FPGA timing is guaranteed.
 The current verified external-tool configuration is Verilator 5.052, Yosys
 0.69, SymbiYosys 0.69, Z3 4.8.12, and Icarus Verilog/VVP 14.0. These are
 evidence versions, not compatibility bounds; see the
-[installation guide](docs/installing-toolchain.md#verify-the-installation) and
+[installation chapter](docs/language-reference.md#reference-installing-toolchain-verify-the-installation) and
 machine-readable [`release/status.json`](release/status.json).
 
 Emit direct SystemVerilog:
@@ -169,22 +166,10 @@ BMC but fails at a deeper bound, with a source-attributed counterexample.
 
 ## Documentation
 
-- [Installation and external EDA tools](docs/installing-toolchain.md)
-- [Getting started](docs/getting-started.md)
-- [Language guide](docs/language-guide.md)
-- [Current language and implementation status](docs/current-language-status.md)
-- [Types and numerics](docs/types-and-numerics.md)
-- [Expressions, functions, and generics](docs/expressions-functions-generics.md)
-- [Sequential logic and storage](docs/sequential-state-storage.md)
-- [Hierarchy and protocols](docs/hierarchy-protocols.md)
-- [Named module interfaces](docs/named-module-interfaces.md)
-- [Standard library](docs/stdlib.md)
-- [Optimization and formal verification](docs/optimization-formal.md)
-- [Backends and tooling](docs/backends-tooling.md)
-- [Compiler tooling integration API](docs/tooling-integration-api.md)
-- [Projects and dependencies](docs/projects-dependencies.md)
+- [Complete Community language reference](docs/language-reference.md)
+- [Concise language quick reference](docs/language-quick-reference.md)
+- [Printable PDF reference](docs/ZLang-HDL-Language-Reference.pdf)
 - [Open-source project scope](docs/project-scope.md)
-- [Test strategy](docs/testing.md)
 
 The compiler-owned capability registry and release CI are authoritative for
 executable support. Documentation should describe semantics and boundaries
@@ -196,15 +181,14 @@ Run focused tests serially while debugging. Run the complete suite in parallel:
 
 ```bash
 .venv/bin/python -m pytest -q path/to/test_file.py
-.venv/bin/python -m pytest -n 8 --dist=loadscope -q
+.venv/bin/python -m pytest -n 16 --dist=loadscope -q
 .venv/bin/python -m compileall -q zlang tests
 git diff --check
 ```
 
 External-tool tests discover tools from explicit CLI options or `PATH`.
 Dedicated release jobs require pinned Verilator, Yosys, SymbiYosys,
-yosys-smtbmc, and Z3 versions and reject unexpected skips. GHC and Clash are
-not installation, development, CI, or release dependencies.
+yosys-smtbmc, and Z3 versions and reject unexpected skips.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the DCO, test expectations, and
 third-party provenance requirements. Community support is described in

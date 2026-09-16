@@ -6,16 +6,9 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vscode = require('vscode');
 
-// Development uses the normal npm resolution path.  The local package script
-// places production dependencies under ``vendor/node_modules`` so the VSIX
-// remains deterministic without shipping the repository's development tree.
-let languageClient;
-try {
-  languageClient = require('vscode-languageclient/node');
-} catch {
-  languageClient = require('./vendor/node_modules/vscode-languageclient/node');
-}
-const { LanguageClient, TransportKind } = languageClient;
+// Development resolves the pinned package normally.  Production packaging
+// bundles it into the single generated extension entrypoint.
+const { LanguageClient, TransportKind } = require('vscode-languageclient/node');
 
 const LANGUAGE_ID = 'zlang-hdl';
 const CONFIGURATION_SECTION = 'zlang.lsp';
@@ -101,7 +94,8 @@ function reportStartupError(error) {
 }
 
 async function activate(context) {
-  output = vscode.window.createOutputChannel('ZLang HDL');
+  // Language Client 10 consumes the structured LogOutputChannel surface.
+  output = vscode.window.createOutputChannel('ZLang HDL', { log: true });
   context.subscriptions.push(output);
   let command;
   try {
@@ -142,6 +136,7 @@ async function deactivate() {
   if (client === undefined) return undefined;
   const running = client;
   client = undefined;
+  if (!running.isRunning()) return undefined;
   return running.stop();
 }
 

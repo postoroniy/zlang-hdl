@@ -42,7 +42,7 @@ def _write_fixture(root: Path) -> None:
         ".github/workflows/ci.yml": f"steps:\n  - uses: {PINNED_CHECKOUT}\n",
         "private.txt": "not public\n",
         "release/public-tree.toml": """
-schema = 1
+schema = 2
 [projection]
 manifest = ".public-tree-manifest.json"
 repository = "https://github.com/postoroniy/zlang-hdl"
@@ -55,6 +55,8 @@ scan_exempt = ["release/public-tree.toml"]
 forbidden_substrings = ["/home/private/"]
 forbidden_regex = ["ghp_[A-Za-z0-9]{30,}"]
 text_extensions = ["", ".md", ".py", ".toml", ".yml", ".zhl"]
+binary_files = []
+binary_max_bytes = 20971520
 """.strip()
         + "\n",
     }
@@ -286,6 +288,7 @@ def test_release_status_checks_version_corpus_and_junit(tmp_path: Path) -> None:
     (tmp_path / "release").mkdir()
     (tmp_path / "examples").mkdir()
     (tmp_path / "tests/systemverilog").mkdir(parents=True)
+    (tmp_path / "docs").mkdir()
     (tmp_path / "pyproject.toml").write_text(
         '[project]\nname="fixture"\nversion="0.1.0a1"\n'
     )
@@ -296,8 +299,14 @@ def test_release_status_checks_version_corpus_and_junit(tmp_path: Path) -> None:
         "CHILD_OR_TEMPLATE_ONLY = {('top.zhl', 'Child'): object()}\n"
         "DIRECT_UNSUPPORTED: dict = {}\n"
     )
+    reference = b"# Language reference\n"
+    quick = b"# Quick reference\n"
+    pdf = b"%PDF-1.5\nfixture\n%%EOF\n"
+    (tmp_path / "docs/language-reference.md").write_bytes(reference)
+    (tmp_path / "docs/language-quick-reference.md").write_bytes(quick)
+    (tmp_path / "docs/ZLang-HDL-Language-Reference.pdf").write_bytes(pdf)
     status = {
-        "schema": 1,
+        "schema": 2,
         "release": {
             "channel": "alpha",
             "repository": "https://github.com/postoroniy/zlang-hdl",
@@ -308,10 +317,10 @@ def test_release_status_checks_version_corpus_and_junit(tmp_path: Path) -> None:
             "python": ">=3.12,<3.13",
             "architecture": "x86_64",
         },
-            "validation": {
-                "minimum_tests_passed": 2,
-                "minimum_tests_collected": 2,
-                "maximum_tests_skipped": 0,
+        "validation": {
+            "minimum_tests_passed": 2,
+            "minimum_tests_collected": 2,
+            "maximum_tests_skipped": 0,
             "example_corpus": {
                 "source_files": 1,
                 "module_roots": 2,
@@ -327,6 +336,16 @@ def test_release_status_checks_version_corpus_and_junit(tmp_path: Path) -> None:
             "vvp": "13.0",
             "yosys": "0.68",
             "z3": "4.8.12",
+        },
+        "documentation": {
+            "format": "PDF-1.5",
+            "pages": 1,
+            "pdf": "docs/ZLang-HDL-Language-Reference.pdf",
+            "pdf_sha256": hashlib.sha256(pdf).hexdigest(),
+            "sources": {
+                "docs/language-reference.md": hashlib.sha256(reference).hexdigest(),
+                "docs/language-quick-reference.md": hashlib.sha256(quick).hexdigest(),
+            },
         },
     }
     (tmp_path / "release/status.json").write_text(json.dumps(status))
@@ -481,10 +500,14 @@ def test_release_workflow_audits_editor_before_attestation_and_publication(
         "name: Require a fresh full locked editor advisory audit",
         "npm audit --package-lock-only --include=dev --include=optional --include=peer",
         "run: npm test",
+        "name: Verify the checked editor host is still the latest stable release",
+        "run: npm run check:latest-vscode",
         "name: Build and audit the exact-tag Community VSIX",
         'npm --prefix editors/vscode/zlang-hdl run package -- "$RUNNER_TEMP/zlang-hdl-0.1.0.vsix"',
         'python tests/editor/test_vscode_package.py "$RUNNER_TEMP/zlang-hdl-0.1.0.vsix"',
         'cp -- "$RUNNER_TEMP/zlang-hdl-0.1.0.vsix"',
+        "name: Exercise the exact-tag VSIX on the pinned current stable host",
+        "xvfb-run -a npm run test:host",
         "name: Retain accepted dependency audit evidence",
         "cyclonedx-py requirements dist/release-requirements.txt",
         "name: Attest release checksums",
@@ -569,6 +592,11 @@ def test_release_workflow_audits_editor_before_attestation_and_publication(
     assert "if-no-files-found: error" in evidence
     assert "retention-days: 30" in evidence
     assert "subject-checksums: dist/SHA256SUMS" in release
+    assert (
+        'cp docs/ZLang-HDL-Language-Reference.pdf \\\n'
+        '            "dist/zlang-hdl-${GITHUB_REF_NAME}-language-reference.pdf"'
+        in release
+    )
     assert "needs: [validate, eda]" in release
     assert release.count("--junitxml=build/release-") == 2
     assert not re.search(r"(?:vsce|ovsx|npm)\s+publish\b|VSCE_PAT|OVSX_PAT|NODE_AUTH_TOKEN", release)
@@ -591,6 +619,7 @@ def test_release_checksums_cover_editor_payloads_and_fail_if_either_is_missing(
         "release-requirements.txt",
         "zlang-hdl-0.1.0.vsix",
         "zlang-hdl-0.1.0-vsix-audit.json",
+        "zlang-hdl-v0.1.0a8-language-reference.pdf",
     )
     dist = tmp_path / "dist"
     dist.mkdir()
@@ -612,7 +641,7 @@ def test_release_checksums_cover_editor_payloads_and_fail_if_either_is_missing(
         )
     }
     assert recorded == expected
-    for name in payloads[-2:]:
+    for name in payloads[-3:]:
         path = dist / name
         content = path.read_bytes()
         path.unlink()
@@ -658,10 +687,11 @@ def test_repository_public_projection_is_closed_and_excludes_private_files() -> 
         path.relative_to(ROOT).as_posix()
         for path in module.validate_source(ROOT)
     }
-    assert "docs/known-limitations.md" in selected
+    assert "docs/language-reference.md" in selected
+    assert "docs/language-quick-reference.md" in selected
+    assert "docs/ZLang-HDL-Language-Reference.pdf" in selected
     assert "docs/project-scope.md" in selected
     assert "docs/editions.md" in selected
-    assert "docs/zlang-lsp.md" in selected
     assert "docs/licensing/COMMUNITY_BASELINE.md" in selected
     assert "docs/licensing/RELEASE_BOUNDARY_AUDIT.md" not in selected
     assert "TRADEMARKS.md" in selected
@@ -752,6 +782,88 @@ def test_public_docs_and_paths_have_no_numbered_development_labels() -> None:
     assert bad_paths == []
     assert bad_docs == []
     assert bad_source_labels == []
+
+
+def test_community_documentation_is_compact_reviewed_and_release_bound() -> None:
+    spec = importlib.util.spec_from_file_location("public_tree_docs", PUBLIC_TREE)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+
+    selected = {
+        path.relative_to(ROOT).as_posix()
+        for path in module.validate_source(ROOT)
+    }
+    primary_markdown = {
+        "docs/language-reference.md",
+        "docs/language-quick-reference.md",
+    }
+    assert primary_markdown <= selected
+    assert {path for path in selected if path.lower().endswith(".pdf")} == {
+        "docs/ZLang-HDL-Language-Reference.pdf"
+    }
+    assert not any(
+        path.lower().endswith((".tex", ".sty", ".cls"))
+        or "community-manual" in path
+        for path in selected
+    )
+
+    reference = (ROOT / "docs/language-reference.md").read_text(encoding="utf-8")
+    quick = (ROOT / "docs/language-quick-reference.md").read_text(encoding="utf-8")
+    for phrase in (
+        "Installation, WSL2, and external tools",
+        "Types, numerics, and packed representation",
+        "Sequential state, rules, pipelines, and storage",
+        "Hierarchy, protocols, and explicit CDC",
+        "Compiler tooling API",
+        "Language support matrix",
+        "Known limitations",
+    ):
+        assert phrase in reference
+    assert "concise source-authoring reference" in quick
+    assert "python3.12" not in reference
+
+    status = json.loads((ROOT / "release/status.json").read_text(encoding="utf-8"))
+    documentation = status["documentation"]
+    pdf = ROOT / documentation["pdf"]
+    payload = pdf.read_bytes()
+    assert payload.startswith(b"%PDF-1.5")
+    assert payload.rstrip().endswith(b"%%EOF")
+    assert len(payload) < 20 * 1024 * 1024
+    assert hashlib.sha256(payload).hexdigest() == documentation["pdf_sha256"]
+    assert documentation["pages"] == 93
+    assert documentation["sources"] == {
+        path: hashlib.sha256((ROOT / path).read_bytes()).hexdigest()
+        for path in sorted(primary_markdown)
+    }
+    for token in (
+        b"/JavaScript",
+        b"/JS",
+        b"/Launch",
+        b"/EmbeddedFile",
+        b"/RichMedia",
+        b"/OpenAction",
+        b"/AcroForm",
+    ):
+        assert token not in payload
+
+
+def test_community_pdf_active_content_is_rejected(tmp_path: Path) -> None:
+    spec = importlib.util.spec_from_file_location("public_tree_pdf", PUBLIC_TREE)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    config = module._load_config(ROOT, Path("release/public-tree.toml"))
+    pdf = tmp_path / "reference.pdf"
+    pdf.write_bytes(b"%PDF-1.5\n/OpenAction 1 0 R\n%%EOF\n")
+    with pytest.raises(module.ProjectionError, match="forbidden active content"):
+        module._check_binary(
+            pdf,
+            "docs/ZLang-HDL-Language-Reference.pdf",
+            config,
+        )
 
 
 def test_public_qwen_skill_is_current_and_community_only() -> None:
@@ -935,7 +1047,7 @@ def test_public_policy_documents_are_discoverable() -> None:
     for capability in (
         "direct-SystemVerilog",
         "local safety verification",
-        "historical retired cross-backend equivalence records",
+        "semantic-reference equivalence",
         "formal-aware candidate selection",
         "`implement`",
         "`choice`",
