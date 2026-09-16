@@ -8,7 +8,7 @@ description: Implement, review, debug, compile, optimize, and verify ZLang HDL p
 Use the checked-out compiler as executable authority. ZLang is an exact typed
 hardware language. Its semantics come from backend-independent typed IR, not
 from generated RTL or a historical design document. Direct SystemVerilog is the
-only production backend; Clash and executable M38 are retired.
+only production backend; Clash and executable retired cross-backend equivalence are retired.
 
 The productive loop is:
 
@@ -47,7 +47,7 @@ Use this order:
 
 `docs/language-guide.md` is an index, not a root-level file. Do not create a
 duplicate. `examples/all_syntax.zhl` is a representative language tour, not an
-exhaustive capability contract. Historical milestone/design-freeze prose does
+exhaustive capability contract. Historical development history/design-freeze prose does
 not override current executable behavior.
 
 Read only the reference relevant to the task:

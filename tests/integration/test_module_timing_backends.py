@@ -8,7 +8,10 @@ import subprocess
 import pytest
 
 from zlang.architecture import expand_architectures
-from zlang.backend.manifest import BackendArtifact, IMPLEMENTATION_MANIFEST_VERSION
+from zlang.backend.manifest import (
+    BackendArtifact,
+    INLINE_TOP_BOUNDARY_MANIFEST_VERSION,
+)
 from zlang.backend.naming import module_rtl_names
 from zlang.backend.systemverilog import emit_experimental
 from zlang.backend.systemverilog.target import emit_target_artifact
@@ -88,7 +91,7 @@ def test_timing_and_realization_backend_round_trip_in_artifact() -> None:
     artifact = emit_target_artifact(result.ir, result.implementation_graph)
     restored = BackendArtifact.from_json(artifact.to_json())
 
-    assert restored.manifest_version == IMPLEMENTATION_MANIFEST_VERSION
+    assert restored.manifest_version == INLINE_TOP_BOUNDARY_MANIFEST_VERSION
     assert restored.timing_contract == result.ir.timing_contract
     assert restored.output_timings == result.ir.output_timings
     assert restored.instance_output_timings == result.ir.instance_output_timings

@@ -317,8 +317,8 @@ def test_direct_sv_numerical_smoke(tmp_path: Path) -> None:
             (
                 "module tb;",
                 "logic [2:0] raw_rate; logic [47:0] word0, word1, word2, word3;",
-                "logic polarity; wire signed [15:0] frame_re [0:63]; "
-                "wire signed [15:0] frame_im [0:63];",
+                "logic polarity; wire signed [63:0][15:0] frame_re; "
+                "wire signed [63:0][15:0] frame_im;",
                 f"{FRAME_KERNEL} dut(.*);",
                 "initial begin",
                 f"raw_rate=2; word0=48'h{words[0]:012x}; word1=48'h{words[1]:012x};",

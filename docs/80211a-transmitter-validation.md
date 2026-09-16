@@ -69,7 +69,7 @@ zero unsupported; every standalone direct-SV root passes strict Verilator.
 
 At original consolidation acceptance, real simulator, Clash 1.11,
 direct-SV/Verilator, clean-wheel resolution,
-BackendArtifact round-trip, source bindings, and applicable existing M35
+BackendArtifact round-trip, source bindings, and applicable existing safety verification
 property/solver regressions pass. Two unchanged-snapshot complete repository
 runs report **2761 passed, 1 documented opt-in skip** in 822.24 s and 682.96 s.
 The historical second skip belonged to the deleted symbol-generator fixture;
@@ -141,7 +141,7 @@ semantic/canonical and strict direct-SV/Verilator checks pass; the final two-run
 repository gate is still pending, so the accepted regression baseline remains
 the one recorded in [Current language status](current-language-status.md).
 
-The controller's existing rule exclusivity/priority M35 properties now bind to
+The controller's existing rule exclusivity/priority safety verification properties now bind to
 formal-only accepted-fire observations derived from the resolved schedule.
 Production direct-SV and Clash RTL text/ABI/hashes remain unaffected. This is a
 closure of the existing rule family, not a new Wi-Fi-specific property.
@@ -229,7 +229,7 @@ Current size evidence (comments included) is:
 These are readability/build-size observations, not QoR. No LUT/FF/Fmax claim is
 made without identical synthesis and implementation constraints.
 
-The existing M35 generator produces seven connected FIFO/ready-valid safety
+The existing safety verification generator produces seven connected FIFO/ready-valid safety
 properties, and every required observation has a physical direct-SV binding.
 Real SBY/Yosys/Z3 execution of this unusually wide aggregate timed out at the
 fixed 120-second limit even at BMC depth two. The result is correctly
@@ -337,7 +337,7 @@ Current source/generated size evidence (comments included) is:
 These measurements describe source expansion and inspectability, not synthesis
 QoR.
 
-M35 generates nine connected register/FIFO/ready-valid safety properties, with
+safety verification generates nine connected register/FIFO/ready-valid safety properties, with
 every required direct-SV observation bound to a physical signal. Real
 SBY/Yosys/Z3 BMC at depth eight exceeded the 120-second budget and is therefore
 reported as structured `unknown`, never `bounded_pass` or `proven`. No property
@@ -499,12 +499,12 @@ complete-transmitter claim.
 The accepted encoder-focused suite is **10 passed**. It covers 384 deterministic
 kernel vectors, two independent 320-cycle scheduled-FIFO models, directed
 invalid/orphan admission, header retention, packet continuation, stalls, reset
-epochs, canonical/artifact identity, recursive bindings, existing M35 families,
+epochs, canonical/artifact identity, recursive bindings, existing safety verification families,
 and behavioral Verilator runs for both direct SV and real Clash 1.11. The
 affected Wi-Fi/backend/corpus suite is **41 passed**. The resulting direct-SV
 corpus is **70 files / 123 roots / 115 standalone / 8 child-only / 0
 unsupported**, and the complete eight-worker regression is **1735 passed, 1
-explicit opt-in FFT512 replay skip**. Of the join's existing M35 properties, 22
+explicit opt-in FFT512 replay skip**. Of the join's existing safety verification properties, 22
 are executable through current bindings; two rule-fire checks retain their
 explicit frozen-ABI non-executable diagnostic at this historical checkpoint.
 The 2026-09-01 concise-lowering follow-up above supersedes that transport
@@ -574,7 +574,7 @@ real framing boundary rather than being guessed by this module.
 No compiler primitive, ROM, memory, new syntax, or new formal observation
 family is required. The permutations use existing compile-time collection and
 bit-layout operations; stream state uses existing registers, FIFO actions,
-ready/valid semantics, and hierarchy. The applicable frozen M35 output contains
+ready/valid semantics, and hierarchy. The applicable frozen safety verification output contains
 21 register, FIFO, and ready/valid properties. Ordinary non-conflicting rules
 remain present in typed IR but do not fabricate rule-fire observations.
 
@@ -728,7 +728,7 @@ current functional-expression semantics are described in
 
 The reference slice is accepted: two complete eight-worker repository runs
 each report **1849 passed, 1 explicit opt-in FFT512 replay skip**. Existing
-scalar fixed-point M36/M38 real-solver smoke, Python `compileall`, and
+scalar fixed-point semantic-reference equivalence/retired cross-backend equivalence real-solver smoke, Python `compileall`, and
 staged/unstaged diff checks pass. This closes numerical-reference elaboration;
 it does not implement the production streaming SDF or transmitter framing.
 

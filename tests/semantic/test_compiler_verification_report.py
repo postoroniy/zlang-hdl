@@ -50,7 +50,7 @@ MODULE = "selected:" + "1" * 64
 CANDIDATE = "selected:" + "2" * 64
 REFERENCE = "3" * 64
 DIRECT = "5" * 64
-PROPERTY = "m36.report"
+PROPERTY = "semantic_equivalence.report"
 
 
 def _report(*, failed: bool = False) -> CompilerVerificationReport:
@@ -64,7 +64,7 @@ def _report(*, failed: bool = False) -> CompilerVerificationReport:
         "direct_systemverilog", DIRECT, "bindings:" + "7" * 64
     )
     goal = FormalGoalPlan(
-        "goal:m36:direct", PROPERTY, FormalPlanGoalKind.M36_EQUIVALENCE,
+        "goal:semantic_equivalence:direct", PROPERTY, FormalPlanGoalKind.SEMANTIC_EQUIVALENCE,
         None, None, (), ("port:a", "port:y"), CANDIDATE,
         ComparisonWindow.same_cycle(), 1,
         route=FormalExecutableRoute(
@@ -88,7 +88,7 @@ def _report(*, failed: bool = False) -> CompilerVerificationReport:
     )
     candidate = CandidateEquivalenceExecutionReport(plan_ref, result)
     safety = FormalGoalPlan(
-        "goal:m35:safety", "m35.safety", FormalPlanGoalKind.SAFETY,
+        "goal:safety_verification:safety", "safety_verification.safety", FormalPlanGoalKind.SAFETY,
         "clk", "rst", (), ("port:y",), MODULE,
         ComparisonWindow.same_cycle(), 1,
         skip_reason=FormalSkipReason(FormalSkipCode.BACKEND_UNAVAILABLE, "fixture"),
@@ -105,7 +105,7 @@ def _report(*, failed: bool = False) -> CompilerVerificationReport:
         "verification-bundle:" + "a" * 64, "ReportTop",
         VerificationRunConfig(depth=8),
         (VerificationJobResult(
-            "m35.safety", "safety", "bounded_pass", "bmc", "sby", "z3", 8,
+            "safety_verification.safety", "safety", "bounded_pass", "bmc", "sby", "z3", 8,
             tool_versions=versions,
         ),),
         versions,

@@ -97,8 +97,8 @@ def test_each_physical_pipeline_configuration_is_bit_exact(
             )
     bench = tmp_path / "tb.sv"
     bench.write_text(
-        "module tb; logic clk=0,rst=1; logic signed [11:0] samples[0:7]; "
-        "logic signed [11:0] coefficients[0:3]; "
+        "module tb; logic clk=0,rst=1; logic signed [7:0][11:0] samples; "
+        "logic signed [3:0][11:0] coefficients; "
         "wire signed [15:0] result; "
         f"{top} dut(.clk,.rst,.samples,.coefficients,.result); "
         "task tick; begin #1 clk=1; #1; clk=0; #1; end endtask "

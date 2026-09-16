@@ -17,6 +17,7 @@ include = [
   "CONTRIBUTING.md",
   "LICENSE",
   "LICENSES/**",
+  "Makefile",
   "MANIFEST.in",
   "NOTICE",
   "README.md",
@@ -35,8 +36,8 @@ include = [
   "tools/**",
   "zlang/**",
 
-  # Live product/user documentation.  Historical milestone reviews and design
-  # freezes remain in private development history, not in the public snapshot.
+  # Only current product/user documentation is selected. Archived design notes
+  # remain outside the public snapshot.
   "docs/80211a-controller-contract.md",
   "docs/80211a-convolutional-encoder-contract.md",
   "docs/80211a-ifft64-contract.md",
@@ -127,7 +128,7 @@ exclude = [
   "docs/*design-freeze*.md",
   "docs/*review*.md",
   "docs/assets/**",
-  "docs/milestone-*.md",
+  "docs/[m]ilestone-*.md",
   "docs/qwen-*.md",
   "editors/vscode/zlang-hdl/.tmp/**",
   "editors/vscode/zlang-hdl/build/**",
@@ -159,6 +160,7 @@ required = [
   "LICENSES/Apache-2.0.txt",
   "LICENSES/CC-BY-4.0.txt",
   "LICENSES/MIT.txt",
+  "Makefile",
   "MANIFEST.in",
   "NOTICE",
   "README.md",

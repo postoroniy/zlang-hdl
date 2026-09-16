@@ -57,7 +57,7 @@ def pipeline_constraints_from_unified(
 ) -> tuple[PipelineConstraint, ...]:
     """Project generic implementation constraints into the pipeline model.
 
-    ``PipelineConstraint`` is deliberately narrower than M28's generic cost
+    ``PipelineConstraint`` is deliberately narrower than deterministic cost selection's generic cost
     constraint set.  In particular, LUT/FF/BRAM bounds and lower-only latency
     bounds remain constraints on the outer candidate extraction.  They must not
     be indexed into the pipeline enum (which used to turn a perfectly valid
@@ -65,7 +65,7 @@ def pipeline_constraints_from_unified(
 
     A projection is made only when the relation has an exact representation in
     the pipeline generator.  The original unified constraints are still passed
-    to M28, so omitting a projection never relaxes a hard constraint.
+    to deterministic cost selection, so omitting a projection never relaxes a hard constraint.
     """
 
     projected: list[PipelineConstraint] = []
@@ -122,7 +122,7 @@ def pipeline_constraints_from_unified(
                 )
             )
         # LUT, FF, BRAM and all unsupported relations intentionally do not
-        # enter this narrower model.  M28 still evaluates them below.
+        # enter this narrower model.  deterministic cost selection still evaluates them below.
     return tuple(projected)
 
 
@@ -549,7 +549,7 @@ def render_pipeline_report(module: Module) -> str:
         return ""
     lines = [
         f"module {module.name}",
-        f"pipeline_model={PIPELINE_COST_MODEL}+m31-unified cost_source=structural_estimate measured=false",
+        f"pipeline_model={PIPELINE_COST_MODEL}+pipeline_scheduler-unified cost_source=structural_estimate measured=false",
     ]
     if fixed_plans:
         from zlang.pipeline_scheduling import render_fixed_pipeline_plan
@@ -677,7 +677,7 @@ def render_pipeline_report(module: Module) -> str:
             f"stall_policy={region.timing.stall_policy.value} "
             f"valid_ff_estimate={region.plan.valid_stage_count} "
             f"ready_control_lut_estimate={region.plan.ready_control_lut_estimate} "
-            "m30_relation=not_applicable m36=unsupported"
+            "timing_relation=not_applicable semantic_equivalence=unsupported"
         )
         selected = region.selected_candidate
         lines.append(
@@ -827,7 +827,7 @@ def _explore_fixed_output(
 
 
 def _legacy_positive_fixed_products(value: expr.Expression) -> tuple[expr.Binary, ...]:
-    """Preserve the pre-freeze positive M32 accumulator-resize recognition."""
+    """Preserve the pre-freeze positive exact reduction planning accumulator-resize recognition."""
 
     terms: list[expr.Expression] = []
 
@@ -887,9 +887,9 @@ def _flatten_products(expression: expr.Expression) -> tuple[expr.Binary, ...]:
         elif isinstance(node, (expr.Extend, expr.Truncate, expr.FixedConvert)) and isinstance(
             node.expression, expr.Binary
         ) and node.expression.operator is expr.BinaryOperator.MULTIPLY:
-            # M32 reduction candidates explicitly coerce every product to the
+            # exact reduction planning reduction candidates explicitly coerce every product to the
             # canonical accumulator width.  The product itself remains the
-            # full-precision value that M31 validates and rebuilds.
+            # full-precision value that pipeline scheduling validates and rebuilds.
             terms.append(node.expression)
         else:
             terms.append(node)

@@ -72,8 +72,8 @@ def test_fifo_instance_array_is_structural_deterministic_and_bound() -> None:
     assert first.text.count("logic [1:0] queue_count;") == 1
     assert " lane_0 (" in first.text
     assert " lane_1 (" in first.text
-    assert ".data(data[15:8])" in first.text
-    assert ".data(data[7:0])" in first.text
+    assert ".data(zlang_packed_data[15:8])" in first.text
+    assert ".data(zlang_packed_data[7:0])" in first.text
 
     restored = BackendArtifact.from_json(first.to_json())
     # Artifact JSON is a publication manifest and deliberately omits source
@@ -101,16 +101,16 @@ static void tick(VFifoLaneArray& dut) {
   dut.clk = 0; dut.eval(); dut.clk = 1; dut.eval(); dut.clk = 0; dut.eval();
 }
 static void set_data(VFifoLaneArray& dut, unsigned value) {
-  dut.data[0] = (value >> 8) & 0xffu; dut.data[1] = value & 0xffu;
+  dut.data = value;
 }
 static void set_push(VFifoLaneArray& dut, unsigned value) {
-  dut.push[0] = (value >> 1) & 1u; dut.push[1] = value & 1u;
+  dut.push = value;
 }
 static void set_pop(VFifoLaneArray& dut, unsigned value) {
-  dut.pop[0] = (value >> 1) & 1u; dut.pop[1] = value & 1u;
+  dut.pop = value;
 }
 static unsigned front(VFifoLaneArray& dut) {
-  return (unsigned(dut.front[0]) << 8) | dut.front[1];
+  return dut.front;
 }
 int main(int argc, char **argv) {
   Verilated::commandArgs(argc, argv);
@@ -165,19 +165,19 @@ int main(int argc, char **argv) {
 #include "verilated.h"
 static void tick(VMemoryLaneArray& d) { d.clk=0; d.eval(); d.clk=1; d.eval(); d.clk=0; d.eval(); }
 static void read_address(VMemoryLaneArray& d, unsigned value) {
-  d.read_address[0]=(value >> 1) & 1u; d.read_address[1]=value & 1u;
+  d.read_address=value;
 }
 static void write_enable(VMemoryLaneArray& d, unsigned value) {
-  d.write_enable[0]=(value >> 1) & 1u; d.write_enable[1]=value & 1u;
+  d.write_enable=value;
 }
 static void write_address(VMemoryLaneArray& d, unsigned value) {
-  d.write_address[0]=(value >> 1) & 1u; d.write_address[1]=value & 1u;
+  d.write_address=value;
 }
 static void write_data(VMemoryLaneArray& d, unsigned value) {
-  d.write_data[0]=(value >> 8) & 0xffu; d.write_data[1]=value & 0xffu;
+  d.write_data=value;
 }
 static unsigned read_data(VMemoryLaneArray& d) {
-  return (unsigned(d.read_data[0]) << 8) | d.read_data[1];
+  return d.read_data;
 }
 int main(int argc,char**argv) {
   Verilated::commandArgs(argc,argv); VMemoryLaneArray d;
@@ -199,10 +199,10 @@ int main(int argc,char**argv) {
 #include "verilated.h"
 static void tick(VRomLaneArray& d) { d.clk=0; d.eval(); d.clk=1; d.eval(); d.clk=0; d.eval(); }
 static void address(VRomLaneArray& d, unsigned value) {
-  d.address[0]=(value >> 1) & 1u; d.address[1]=value & 1u;
+  d.address=value;
 }
 static unsigned data(VRomLaneArray& d) {
-  return (unsigned(d.data[0]) << 8) | d.data[1];
+  return d.data;
 }
 int main(int argc,char**argv) {
   Verilated::commandArgs(argc,argv); VRomLaneArray d;

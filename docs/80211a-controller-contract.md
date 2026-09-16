@@ -8,7 +8,7 @@ has been retired; `src/controller.zhl` is the canonical IEEE framing unit.
 This unnumbered real-design slice ports only the packet/rate controller from the
 MIT-licensed Bluespec 802.11a transmitter at commit
 `d654bfd4c2ffabc61437c131770beff58dc55b04`. It does not claim full IEEE 802.11a
-compliance and does not start another numbered milestone.
+compliance or expand the public language surface.
 
 The historical controller has one packet-info method, one 24-bit data method,
 one header FIFO, one data FIFO, and packet-active state. Its valid header and
@@ -106,7 +106,7 @@ undefined or operationally useless in the historical implementation.
 
 An independent integer/cycle oracle, not generated IR, defines header bits,
 remaining-byte accounting, FIFO occupancy, ready/valid transfers, and reset.
-Simulator, direct SystemVerilog, and Clash must agree with it. Existing M35
+Simulator, direct SystemVerilog, and Clash must agree with it. Existing safety verification
 register/FIFO/ready-valid properties may be used without adding a new property
 family. The later convolutional encoder remains separately review-gated because
 its historical two-input merge can deadlock continuation data.

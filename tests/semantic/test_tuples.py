@@ -4,6 +4,7 @@ from dataclasses import replace
 
 import pytest
 
+from tests.case_matrix import check_cases
 from zlang.compiler import compile_source
 from zlang.ir import expressions as expr
 from zlang.ir.types import BitType, SIntType, TupleType, UIntType, VecType
@@ -17,7 +18,7 @@ def _compile(source: str):
     return compile_source(source).ir
 
 
-def test_tuple_context_inference_projection_equality_and_msb_packing() -> None:
+def test_tuple_context_inference_projection_equality_and_lsb_packing() -> None:
     module = _compile(
         "module TupleValues { in p:(u8,bit) out contextual:(u8,s8) "
         "out swapped:(bit,u8) out same:bit out raw:bits<9> "
@@ -31,32 +32,30 @@ def test_tuple_context_inference_projection_equality_and_msb_packing() -> None:
         "contextual": (1, -1),
         "swapped": (1, 0xA5),
         "same": 1,
-        "raw": 0x14B,
+        "raw": 0x1A5,
     }
 
 
 def test_uncontextual_tuple_literal_keeps_each_minimum_literal_type() -> None:
-    module = _compile(
-        "fn inferred(){(1,-1)} module Top{out y:(u1,s1) y=inferred()}"
-    )
+    module = _compile("fn inferred(){(1,-1)} module Top{out y:(u1,s1) y=inferred()}")
     definition = module.functions[0]
     assert definition.return_type == TupleType((UIntType(1), SIntType(1)))
 
 
-@pytest.mark.parametrize("arity", range(2, 9))
-def test_every_supported_tuple_arity_has_exact_order_and_packing(arity: int) -> None:
-    type_text = f"({','.join('u8' for _ in range(arity))})"
-    width = arity * 8
-    module = _compile(
-        f"module TupleArity {{ in value:{type_text} out raw:bits<{width}> "
-        "raw=pack(value) }"
-    )
-    value = tuple(range(1, arity + 1))
-    expected = 0
-    for item in value:
-        expected = (expected << 8) | item
-    assert module.inputs[0].type == TupleType(tuple(UIntType(8) for _ in value))
-    assert simulate(module, value=value) == {"raw": expected}
+def test_every_supported_tuple_arity_has_exact_order_and_packing() -> None:
+    def check(arity: int) -> None:
+        type_text = f"({','.join('u8' for _ in range(arity))})"
+        width = arity * 8
+        module = _compile(
+            f"module TupleArity {{ in value:{type_text} out raw:bits<{width}> "
+            "raw=pack(value) }"
+        )
+        value = tuple(range(1, arity + 1))
+        expected = sum(item << (index * 8) for index, item in enumerate(value))
+        assert module.inputs[0].type == TupleType(tuple(UIntType(8) for _ in value))
+        assert simulate(module, value=value) == {"raw": expected}
+
+    check_cases(((f"arity {arity}", arity) for arity in range(2, 9)), check, matrix="tuple_arity")
 
 
 def test_unpack_restores_an_exact_structural_tuple() -> None:
@@ -64,7 +63,7 @@ def test_unpack_restores_an_exact_structural_tuple() -> None:
         "module TupleUnpack { in raw:bits<9> out value:(u8,bit) "
         "value=unpack<(u8,bit)>(raw) }"
     )
-    assert simulate(module, raw=0x14B) == {"value": (0xA5, 1)}
+    assert simulate(module, raw=0x1A5) == {"value": (0xA5, 1)}
     assert restore(lower(module)) == module
 
 
@@ -155,9 +154,7 @@ def test_tuple_storage_protocol_and_string_memory_use_existing_generic_models() 
         ],
         reset=[True, False, False, False],
     )
-    assert [item["rd"] for item in trace] == [
-        [0, 0], [0, 0], [0, 0], [79, 75]
-    ]
+    assert [item["rd"] for item in trace] == [[0, 0], [0, 0], [0, 0], [79, 75]]
     tuple_memory_trace = simulate_cycles(
         tuple_memory,
         [
@@ -169,16 +166,17 @@ def test_tuple_storage_protocol_and_string_memory_use_existing_generic_models() 
         reset=[True, False, False, False],
     )
     assert [item["rd"] for item in tuple_memory_trace] == [
-        (0, 0), (0, 0), (0, 0), (0xA5, 1)
+        (0, 0),
+        (0, 0),
+        (0, 0),
+        (0xA5, 1),
     ]
     rom_trace = simulate_cycles(
         rom,
         [{"a": 0}, {"a": 1}, {"a": 0}, {"a": 0}],
         reset=[True, False, False, False],
     )
-    assert [item["q"] for item in rom_trace] == [
-        (0, 0), (0, 0), (2, 1), (1, 0)
-    ]
+    assert [item["q"] for item in rom_trace] == [(0, 0), (0, 0), (2, 1), (1, 0)]
     register_trace = simulate_cycles(
         register,
         [
@@ -188,9 +186,7 @@ def test_tuple_storage_protocol_and_string_memory_use_existing_generic_models() 
         ],
         reset=[True, False, False],
     )
-    assert [item["q"] for item in register_trace] == [
-        (0, 0), (0, 0), (0xA5, 1)
-    ]
+    assert [item["q"] for item in register_trace] == [(0, 0), (0, 0), (0xA5, 1)]
     fifo_trace = simulate_cycles(
         fifo,
         [
@@ -213,9 +209,7 @@ def test_tuple_fixed_delay_and_pipeline_use_recursive_zero_reset_values() -> Non
     )
     assert isinstance(module.assignments[0].expression, expr.Delay)
     assert isinstance(module.assignments[1].expression, expr.Pipeline)
-    assert module.assignments[0].expression.type == TupleType(
-        (UIntType(8), BitType())
-    )
+    assert module.assignments[0].expression.type == TupleType((UIntType(8), BitType()))
     trace = simulate_cycles(
         module,
         [
@@ -291,13 +285,11 @@ def test_in_order_request_response_accepts_exact_tuple_payloads() -> None:
             r"comparison is not defined for \(u8,bit\)",
         ),
         (
-            "operator + (a:(u8,bit),b:(u8,bit))->(u8,bit){a} "
-            "module M{out y:u1 y=0}",
+            "operator + (a:(u8,bit),b:(u8,bit))->(u8,bit){a} module M{out y:u1 y=0}",
             "must be owned by a nominal struct operand",
         ),
         (
-            "enum E{A B} module M{out y:bits<9> "
-            "p:(u8,E)=(1,E.A) y=pack(p)}",
+            "enum E{A B} module M{out y:bits<9> p:(u8,E)=(1,E.A) y=pack(p)}",
             "pack requires a recursively bit-packable non-enum value",
         ),
     ),
@@ -311,11 +303,7 @@ def test_tuple_unsupported_or_ambiguous_operations_fail_closed(
 
 @pytest.mark.parametrize("operator", ("+", "-", "*"))
 def test_tuple_operator_declarations_are_never_overloadable(operator: str) -> None:
-    parameters = (
-        "a:(u8,bit)"
-        if operator == "-"
-        else "a:(u8,bit),b:(u8,bit)"
-    )
+    parameters = "a:(u8,bit)" if operator == "-" else "a:(u8,bit),b:(u8,bit)"
     with pytest.raises(
         SemanticError,
         match="must be owned by a nominal struct operand",
@@ -333,7 +321,7 @@ def test_tuple_operator_declarations_are_never_overloadable(operator: str) -> No
         "module M{in p:(u8,bit) out y:u8 y=p[0]}",
     ),
 )
-def test_m26_scalar_egraph_rejects_tuple_roots_and_scalar_projections(
+def test_egraph_optimization_scalar_egraph_rejects_tuple_roots_and_scalar_projections(
     source: str,
 ) -> None:
     result = compile_source(source)
@@ -341,8 +329,7 @@ def test_m26_scalar_egraph_rejects_tuple_roots_and_scalar_projections(
     with pytest.raises(
         EGraphAdapterError,
         match=(
-            "scalar hardware types only|"
-            "outside the exact scalar e-graph operation set"
+            "scalar hardware types only|outside the exact scalar e-graph operation set"
         ),
     ):
         canonical_to_egraph(result.optimization_ir, root)

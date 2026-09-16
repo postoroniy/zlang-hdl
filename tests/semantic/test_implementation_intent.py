@@ -1,3 +1,9 @@
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+
 import pytest
 
 from zlang.ast import nodes as ast
@@ -141,7 +147,7 @@ def test_implement_pipeline_candidates_require_clocked_positive_latency() -> Non
 
 @pytest.mark.parametrize("metric,limit", (("lut", 1000), ("ff", 1000), ("bram", 1)))
 def test_positive_latency_projects_only_pipeline_metrics(metric: str, limit: int) -> None:
-    """Generic M28 bounds must survive without leaking into PipelineMetric."""
+    """Generic deterministic cost selection bounds must survive without leaking into PipelineMetric."""
 
     result = _compile(
         "module OuterBound { clock clk reset rst "
@@ -234,3 +240,32 @@ def test_malformed_implement_intent_is_rejected() -> None:
             "module Nested { in a:u8 out y:u8 "
             "y=(implement { a intent { minimize lut } }) + 0 }"
         )
+
+
+def test_math_architecture_candidate_is_hashseed_independent() -> None:
+    root = Path(__file__).resolve().parents[2]
+    script = (
+        "import json; from hashlib import sha256; from pathlib import Path; "
+        "from zlang.compiler import compile_file; "
+        "from zlang.backend.systemverilog import emit_experimental; "
+        "result=compile_file(Path('examples/verification/math_exploration.zhl'), "
+        "top='MathArchitecture'); "
+        "candidate=result.exploration_results[0].selected_candidate; "
+        "print(json.dumps([candidate.implementation_identity, candidate.stages, "
+        "sha256(emit_experimental(result.ir).encode()).hexdigest()]))"
+    )
+    outputs = []
+    for seed in map(str, range(64)):
+        environment = os.environ.copy()
+        environment["PYTHONHASHSEED"] = seed
+        completed = subprocess.run(
+            (sys.executable, "-c", script),
+            cwd=root,
+            env=environment,
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+        outputs.append(json.loads(completed.stdout))
+    assert all(output == outputs[0] for output in outputs)
+    assert outputs[0][1] == ["source", "dsp_mac"]

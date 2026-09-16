@@ -96,12 +96,12 @@ BIT_PACKABLE_OUTPUT_CASES = (
 def _harness() -> str:
     return r'''
 module tb;
-  logic [7:0] values [0:3];
+  logic [3:0][7:0] values;
   logic [1:0] select;
   wire [8:0] y;
   RuntimeSelectedLanes dut(.values(values), .select(select), .y(y));
   initial begin
-    values = '{8'd10, 8'd20, 8'd30, 8'd40};
+    values = 32'h281e140a;
     select = 0; #1; if (y !== 9'd11) $fatal(1, "lane 0");
     select = 1; #1; if (y !== 9'd21) $fatal(1, "lane 1");
     select = 2; #1; if (y !== 9'd31) $fatal(1, "lane 2");
@@ -144,10 +144,8 @@ static void tick(VRuntimeSelectedCounters& dut) {
 }
 static void set_inputs(VRuntimeSelectedCounters& dut, unsigned enables,
                        unsigned step0, unsigned step1) {
-  dut.enables[0] = (enables >> 1) & 1u;
-  dut.enables[1] = enables & 1u;
-  dut.steps[0] = step0;
-  dut.steps[1] = step1;
+  dut.enables = enables;
+  dut.steps = step0 | (step1 << 8);
 }
 int main(int argc, char **argv) {
   Verilated::commandArgs(argc, argv);
@@ -157,7 +155,7 @@ int main(int argc, char **argv) {
   dut.rst = 0; set_inputs(dut, 3, 5, 7); tick(dut);
   dut.select = 0; dut.eval(); if (dut.value != 5) return 2;
   dut.select = 1; dut.eval(); if (dut.value != 7) return 3;
-  set_inputs(dut, 2, 3, 0); tick(dut);
+  set_inputs(dut, 1, 3, 0); tick(dut);
   dut.select = 0; dut.eval(); if (dut.value != 8) return 4;
   dut.select = 1; dut.eval(); if (dut.value != 7) return 5;
   dut.rst = 1; tick(dut);

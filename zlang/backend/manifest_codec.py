@@ -13,6 +13,7 @@ import re
 from typing import Any
 
 from zlang.backend.naming import RTL_NAMING_SCHEMA
+from zlang.ir.packing import PACKING_LAYOUT_SCHEMA
 from zlang.ir.equivalence import (
     BindingSide,
     EquivalenceBinding,
@@ -24,6 +25,7 @@ from zlang.source import SourceOrigin
 _ARTIFACT_FIELDS = frozenset(
     {
         "manifest_version",
+        "packing_layout_schema",
         "naming_schema",
         "backend",
         "module",
@@ -140,6 +142,11 @@ def decode_artifact_payload(
     version = _strict_int(data["manifest_version"], "manifest_version")
     if version < minimum_version or version > maximum_version:
         raise ValueError(f"unsupported backend manifest version: {version}")
+    layout = data.get("packing_layout_schema")
+    if layout != PACKING_LAYOUT_SCHEMA:
+        raise ValueError(
+            "backend manifest packing layout schema is stale or unavailable"
+        )
     for field in ("backend", "module", "selected_ir_identity"):
         value = data[field]
         if not isinstance(value, str) or not value:
@@ -398,9 +405,13 @@ def validate_artifact_links(artifact: Any) -> None:
                 "backend physical domains require manifest version 10 or newer"
             )
     else:
-        if not physical_domains:
+        has_clocked_boundary = any(
+            binding.role in {SignalRole.CLOCK, SignalRole.RESET}
+            for binding in artifact.bindings
+        )
+        if has_clocked_boundary and not physical_domains:
             raise ValueError(
-                "backend manifest version 10 requires at least one physical domain"
+                "clocked backend manifest requires at least one physical domain"
             )
     domains_by_identity: dict[str, Any] = {}
     for domain in physical_domains:

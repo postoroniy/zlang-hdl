@@ -66,6 +66,19 @@ class EquivalenceClass:
 
 
 @dataclass(frozen=True)
+class CheckedValueCertificate:
+    """Compiler-checked local exact-value equality, independent of egglog IDs."""
+
+    checker_version: str
+    source_identity: str
+    selected_identity: str
+    normal_form_identity: str
+    active_rule_identities: tuple[str, ...]
+    source_steps: tuple[tuple[str, str, str], ...]
+    selected_steps: tuple[tuple[str, str, str], ...]
+
+
+@dataclass(frozen=True)
 class SaturationResult:
     root: NodeId
     equivalence_class: EquivalenceClass
@@ -79,6 +92,7 @@ class SaturationResult:
     registrations: tuple[RewriteRegistration, ...] = ()
     rejection_reasons: tuple[str, ...] = ()
     eclass_count: int = 1
+    certificates: tuple[CheckedValueCertificate, ...] = ()
 
     @property
     def original(self) -> Term:
@@ -115,6 +129,9 @@ def term_to_expression(term: Term) -> Expression:
         return node_id
 
     root = lower(term)
+    from zlang.opt.egraph import validate_scalar_pure_nodes
+
+    validate_scalar_pure_nodes(tuple(nodes), root)
     return restore_expression(tuple(nodes), root)
 
 
@@ -150,6 +167,13 @@ def render_saturation(result: SaturationResult) -> str:
         + ("; ".join(result.rejection_reasons) if result.rejection_reasons else "none")
     )
     lines.extend(
+        f"certificate {index} status=verified checker={item.checker_version} "
+        f"source={item.source_identity} selected={item.selected_identity} "
+        f"normal_form={item.normal_form_identity} steps="
+        f"{len(item.source_steps) + len(item.selected_steps)}"
+        for index, item in enumerate(result.certificates)
+    )
+    lines.extend(
         [
             f"eclass {result.equivalence_class.id} type={result.equivalence_class.type}",
             f"  original {render_term(terms[0])}",
@@ -181,6 +205,7 @@ def _render_value(value: object) -> str:
 
 
 __all__ = [
+    "CheckedValueCertificate",
     "EquivalenceClass",
     "SaturationResult",
     "Term",

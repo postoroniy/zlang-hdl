@@ -64,7 +64,8 @@ int main(int argc, char **argv) {
   for (unsigned value : values) {
     dut.raw = value;
     dut.eval();
-    const uint64_t expected = (uint64_t(value) << 1)
+    const uint32_t reordered = (value << 16U) | (value >> 16U);
+    const uint64_t expected = (uint64_t(reordered) << 1)
                             | (__builtin_popcount(value) & 1);
     if (dut.result != expected) return 1;
   }
@@ -139,7 +140,7 @@ def test_direct_sv_concise_bit_collections_are_bit_exact(tmp_path: Path) -> None
 
 
 
-def _m36_sources(module, implementation: str):
+def _semantic_equivalence_sources(module, implementation: str):
     expression = module.assignments[0].expression
     selected_identity = "selected:concise-bit-collections"
     reference = emit_reference_model(
@@ -193,11 +194,11 @@ def _m36_sources(module, implementation: str):
     len(formal_tools_available()) != 3,
     reason="Yosys/SymbiYosys formal tools are unavailable",
 )
-def test_m36_concise_collections_pass_and_parity_mutation_fails() -> None:
+def test_semantic_equivalence_concise_collections_pass_and_parity_mutation_fails() -> None:
     module = compile_source(SOURCE).ir
     implementation = emit_artifact(module).text
-    property_, source = _m36_sources(module, implementation)
-    top = "m36_" + property_.id.replace(".", "_")
+    property_, source = _semantic_equivalence_sources(module, implementation)
+    top = "semantic_equivalence_" + property_.id.replace(".", "_")
     correct = run_equivalence_formal(
         property_, source, top=top, mode=EquivalenceMode.BMC, depth=2
     )
@@ -205,7 +206,7 @@ def test_m36_concise_collections_pass_and_parity_mutation_fails() -> None:
 
     mutated = implementation.replace(" ^ ", " | ", 1)
     assert mutated != implementation
-    _, broken_source = _m36_sources(module, mutated)
+    _, broken_source = _semantic_equivalence_sources(module, mutated)
     failed = run_equivalence_formal(
         property_, broken_source, top=top, mode=EquivalenceMode.BMC, depth=2
     )

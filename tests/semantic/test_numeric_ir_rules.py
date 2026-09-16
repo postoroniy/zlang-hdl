@@ -4,6 +4,7 @@ from collections.abc import Callable
 
 import pytest
 
+from tests.case_matrix import check_cases
 from zlang.compiler import compile_source
 from zlang.ir import expressions as expr
 from zlang.ir.functional_regions import builtin_exact_add_result_type
@@ -31,49 +32,56 @@ from zlang.ir.types import (
 from zlang.semantic import SemanticError
 
 
-@pytest.mark.parametrize("left_width", range(1, 6))
-@pytest.mark.parametrize("right_width", range(1, 6))
-def test_integer_rules_are_exact_for_all_small_width_pairs(
-    left_width: int,
-    right_width: int,
-) -> None:
-    widest = max(left_width, right_width)
-    total = left_width + right_width
+def test_integer_rules_are_exact_for_all_small_width_pairs() -> None:
+    def check(pair: tuple[int, int]) -> None:
+        left_width, right_width = pair
+        widest = max(left_width, right_width)
+        total = left_width + right_width
 
-    unsigned_left = UIntType(left_width)
-    unsigned_right = UIntType(right_width)
-    assert addition_rule(unsigned_left, unsigned_right).result_type == UIntType(
-        widest + 1
-    )
-    # Unsigned subtraction is deliberately modular and does not add a sign bit.
-    assert subtraction_rule(
-        unsigned_left, unsigned_right
-    ).result_type == UIntType(widest)
-    assert multiplication_rule(
-        unsigned_left, unsigned_right
-    ).result_type == UIntType(total)
-    assert bitwise_rule(unsigned_left, unsigned_right).result_type == UIntType(
-        widest
-    )
-    assert comparison_rule(
-        unsigned_left, unsigned_right, equality=False
-    ).operand_type == UIntType(widest)
+        unsigned_left = UIntType(left_width)
+        unsigned_right = UIntType(right_width)
+        assert addition_rule(unsigned_left, unsigned_right).result_type == UIntType(
+            widest + 1
+        )
+        # Unsigned subtraction is deliberately modular and does not add a sign bit.
+        assert subtraction_rule(unsigned_left, unsigned_right).result_type == UIntType(
+            widest
+        )
+        assert multiplication_rule(
+            unsigned_left, unsigned_right
+        ).result_type == UIntType(total)
+        assert bitwise_rule(unsigned_left, unsigned_right).result_type == UIntType(
+            widest
+        )
+        assert comparison_rule(
+            unsigned_left, unsigned_right, equality=False
+        ).operand_type == UIntType(widest)
 
-    signed_left = SIntType(left_width)
-    signed_right = SIntType(right_width)
-    assert addition_rule(signed_left, signed_right).result_type == SIntType(
-        widest + 1
+        signed_left = SIntType(left_width)
+        signed_right = SIntType(right_width)
+        assert addition_rule(signed_left, signed_right).result_type == SIntType(
+            widest + 1
+        )
+        assert subtraction_rule(signed_left, signed_right).result_type == SIntType(
+            widest + 1
+        )
+        assert multiplication_rule(signed_left, signed_right).result_type == SIntType(
+            total
+        )
+        assert bitwise_rule(signed_left, signed_right).result_type == SIntType(widest)
+        assert comparison_rule(
+            signed_left, signed_right, equality=False
+        ).operand_type == SIntType(widest)
+
+    check_cases(
+        (
+            (f"u{left_width}/u{right_width}", (left_width, right_width))
+            for right_width in range(1, 6)
+            for left_width in range(1, 6)
+        ),
+        check,
+        matrix="numeric",
     )
-    assert subtraction_rule(signed_left, signed_right).result_type == SIntType(
-        widest + 1
-    )
-    assert multiplication_rule(signed_left, signed_right).result_type == SIntType(
-        total
-    )
-    assert bitwise_rule(signed_left, signed_right).result_type == SIntType(widest)
-    assert comparison_rule(
-        signed_left, signed_right, equality=False
-    ).operand_type == SIntType(widest)
 
 
 @pytest.mark.parametrize("fixed_type", (FixedType, UFixedType))
@@ -94,9 +102,7 @@ def test_fixed_rules_are_exhaustive_over_small_compatible_scales(
                     widest + 1,
                     fraction,
                 )
-                subtraction_width = widest + (
-                    1 if fixed_type is FixedType else 0
-                )
+                subtraction_width = widest + (1 if fixed_type is FixedType else 0)
                 assert subtraction_rule(left, right).result_type == fixed_type(
                     subtraction_width,
                     fraction,
@@ -216,7 +222,10 @@ def test_exact_reduction_compatibility_entry_point_uses_shared_addition() -> Non
         for right_width in range(1, 6):
             left = UIntType(left_width)
             right = UIntType(right_width)
-            assert builtin_exact_add_result_type(
-                left,
-                right,
-            ) == addition_rule(left, right).result_type
+            assert (
+                builtin_exact_add_result_type(
+                    left,
+                    right,
+                )
+                == addition_rule(left, right).result_type
+            )

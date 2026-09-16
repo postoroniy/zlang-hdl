@@ -9,7 +9,7 @@ from zlang.ir import expressions as ir_expr
 from zlang.opt.lowering import lower
 
 
-class CompositionM40Tests(unittest.TestCase):
+class HierarchyCompositionTests(unittest.TestCase):
     def test_instance_arrays_emit_after_compile_time_indexed_binding(self):
         module = analyze(parse(
             "module Child { in x:u8 out y:u8 y=x } "
@@ -163,7 +163,7 @@ class CompositionM40Tests(unittest.TestCase):
 
 
     def test_protocol_manifest_publishes_physical_handshake_bindings(self):
-        source = Path("examples/hierarchical_protocol_m40.zhl").read_text()
+        source = Path("examples/hierarchical_protocol.zhl").read_text()
         module = analyze(parse(source))
         artifact = emit_artifact(module, selected_ir_identity="protocol-top-v1")
         ids = {item.semantic_signal_id for item in artifact.bindings}

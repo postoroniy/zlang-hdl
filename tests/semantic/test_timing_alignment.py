@@ -12,7 +12,7 @@ from zlang.timing import (
 )
 
 
-class TimingM30Tests(unittest.TestCase):
+class TimingAlignmentTests(unittest.TestCase):
     def _expr(self, source):
         return compile_source(source).ir.assignments[0].expression
 

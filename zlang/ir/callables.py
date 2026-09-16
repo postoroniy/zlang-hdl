@@ -814,7 +814,7 @@ def expand_callable_calls(
         account()
         if isinstance(value, expr.Reduce):
             # ``Reduce.expanded`` is a frozen exact-overload implementation,
-            # not another high-level operand.  Consumers such as M32 and the
+            # not another high-level operand.  Consumers such as exact reduction planning and the
             # e-graph must continue to see the nominal reduction boundary and
             # must not accidentally inline or reinterpret that operator tree.
             # Parameter substitution has already crossed this field when the

@@ -16,25 +16,36 @@ documentation corrections, tests, and bounded compiler changes.
 
 ## Development setup
 
-ZLang's initial supported development environment is Linux x86-64 with Python
-3.12.
+ZLang's supported development environment is Linux x86-64 with CPython
+`>=3.12,<3.13`. The recommended `uv` workflow provisions that runtime without
+requiring a version-suffixed Python command from the host:
 
 ```bash
-python3.12 -m venv .venv
-.venv/bin/python -m pip install -e '.[test]'
+uv python install 3.12
+uv venv --python 3.12
+uv pip install -e '.[test]'
 .venv/bin/python -m pytest -q
 ```
 
-Focused tests should be run serially while debugging. The complete suite may be
-run in parallel:
+See the [installation guide](docs/installing-toolchain.md) for a conventional
+`venv`/pip alternative, WSL2 setup and optional external EDA tools.
+
+Focused tests should be run serially while debugging. The repository Makefile
+provides the canonical local gates:
 
 ```bash
-.venv/bin/python -m pytest -n 8 --dist=loadscope -q
-.venv/bin/python -m compileall -q zlang tests
-git diff --check
+make static
+make test-fast
+make test
 ```
 
-Tests requiring Clash, Verilator, Yosys, SymbiYosys, or Z3 must report tool
+`PYTHON` and `WORKERS` are overridable, for example
+`make test PYTHON=python WORKERS=4`. `make release-candidate` runs the license
+and dependency audits, pinned-tool check, two-pass zero-skip regression, editor
+tests and reproducible package build, but never creates a tag or publishes
+anything.
+
+Tests requiring Verilator, Yosys, SymbiYosys, Z3, or Icarus Verilog must report tool
 absence explicitly. Release and dedicated toolchain jobs require the pinned
 tools and do not accept an unexpected skip.
 

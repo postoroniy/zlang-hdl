@@ -17,6 +17,8 @@ rewrite shift_left_zero enabled=true fired=false direction=equality provenance=b
 rewrite shift_right_zero enabled=true fired=false direction=equality provenance=builtin:shift_right_zero guards=none
 rewrite truncate_identity enabled=true fired=false direction=equality provenance=builtin:truncate_identity guards=none
 rejections none
+certificate 0 status=verified checker=exact-local-value-v1 source=bacc1c9d100590c9cce63d90bdea3f8880294078b10366a1f1dfdabd8c867f86 selected=b87d171b64945f74a883a3586a36a3d6e645d34ec7933a84f2304f3500e3d73e normal_form=07756650cee9e7ed6e74c1ddeb85e3b979128e119babac424b850c5bce2ee85c steps=3
+certificate 1 status=verified checker=exact-local-value-v1 source=bacc1c9d100590c9cce63d90bdea3f8880294078b10366a1f1dfdabd8c867f86 selected=07756650cee9e7ed6e74c1ddeb85e3b979128e119babac424b850c5bce2ee85c normal_form=07756650cee9e7ed6e74c1ddeb85e3b979128e119babac424b850c5bce2ee85c steps=2
 eclass 0 type=u16
   original (binary:u16 operator=* operand_type=u16 (input:u8 name=x) (constant:u8 value=8))
   alternative 1 (binary:u16 operator=* operand_type=u16 (constant:u8 value=8) (input:u8 name=x))

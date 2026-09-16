@@ -37,9 +37,9 @@ SELECTED = SourceOrigin(
 )
 
 
-def _m36() -> EquivalenceResult:
+def _semantic_equivalence() -> EquivalenceResult:
     return EquivalenceResult(
-        property_id="m36.equiv.codec",
+        property_id="semantic_equivalence.equiv.codec",
         status=EquivalenceStatus.FAILED,
         mode=EquivalenceMode.BMC,
         engine="sby",
@@ -55,7 +55,7 @@ def _m36() -> EquivalenceResult:
         source_origin=SOURCE,
         selected_origin=SELECTED,
         counterexample=EquivalenceCounterexample(
-            "m36.equiv.codec",
+            "semantic_equivalence.equiv.codec",
             failure_cycle=9,
             sample_cycle=6,
             values=(
@@ -70,12 +70,12 @@ def _m36() -> EquivalenceResult:
 
 
 
-def test_m36_result_codec_is_lossless_and_deterministic() -> None:
-    result = _m36()
+def test_semantic_equivalence_result_codec_is_lossless_and_deterministic() -> None:
+    result = _semantic_equivalence()
     data = equivalence_result_to_data(result)
 
     assert data["schema_version"] == EQUIVALENCE_RESULT_CODEC_SCHEMA
-    assert data["kind"] == "m36_equivalence_result"
+    assert data["kind"] == "semantic_equivalence_result"
     assert equivalence_result_from_data(data) == result
 
     encoded = equivalence_result_to_json(result)
@@ -86,10 +86,10 @@ def test_m36_result_codec_is_lossless_and_deterministic() -> None:
 
 
 @pytest.mark.parametrize("depth", (None, 0, -1))
-def test_m36_codec_rejects_decisive_results_without_positive_depth(
+def test_semantic_equivalence_codec_rejects_decisive_results_without_positive_depth(
     depth: int | None,
 ) -> None:
-    data = equivalence_result_to_data(_m36())
+    data = equivalence_result_to_data(_semantic_equivalence())
     data["depth"] = depth
 
     with pytest.raises(
@@ -104,37 +104,37 @@ def test_m36_codec_rejects_decisive_results_without_positive_depth(
     (
         (
             equivalence_result_from_data,
-            lambda: equivalence_result_to_data(_m36()),
+            lambda: equivalence_result_to_data(_semantic_equivalence()),
             lambda value: value.update({"unexpected": 1}),
             "unexpected unexpected",
         ),
         (
             equivalence_result_from_data,
-            lambda: equivalence_result_to_data(_m36()),
+            lambda: equivalence_result_to_data(_semantic_equivalence()),
             lambda value: value.pop("solver"),
             "missing solver",
         ),
         (
             equivalence_result_from_data,
-            lambda: equivalence_result_to_data(_m36()),
+            lambda: equivalence_result_to_data(_semantic_equivalence()),
             lambda value: value.update({"status": "maybe"}),
-            "unsupported M36 status",
+            "unsupported semantic-reference equivalence status",
         ),
         (
             equivalence_result_from_data,
-            lambda: equivalence_result_to_data(_m36()),
+            lambda: equivalence_result_to_data(_semantic_equivalence()),
             lambda value: value.update({"depth": True}),
-            "M36 depth must be an integer",
+            "semantic-reference equivalence depth must be an integer",
         ),
         (
             equivalence_result_from_data,
-            lambda: equivalence_result_to_data(_m36()),
+            lambda: equivalence_result_to_data(_semantic_equivalence()),
             lambda value: value["source_origin"].update({"line": 3}),
             "unexpected line",
         ),
         (
             equivalence_result_from_data,
-            lambda: equivalence_result_to_data(_m36()),
+            lambda: equivalence_result_to_data(_semantic_equivalence()),
             lambda value: value["counterexample"].update({"property_id": "other"}),
             "counterexample property identity differs",
         ),

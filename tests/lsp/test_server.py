@@ -720,6 +720,39 @@ def test_syntax_diagnostics_and_stale_versions(tmp_path: Path) -> None:
     assert server.documents[uri].version == 5
 
 
+def test_syntax_diagnostic_marks_the_failing_line_instead_of_file_start(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "Top.zhl"
+    text = (
+        "module Top {\n"
+        "  in a : u8\n"
+        "  out y : u8\n"
+        "  y = a +\n"
+        "}\n"
+    )
+    source.write_text(text, encoding="utf-8")
+    response = LspServer().dispatch({
+        "jsonrpc": "2.0",
+        "method": "textDocument/didOpen",
+        "params": {
+            "textDocument": {
+                "uri": path_to_uri(source),
+                "version": 1,
+                "text": text,
+            },
+        },
+    })
+
+    diagnostic = response[0]["params"]["diagnostics"][0]
+    assert diagnostic["code"] == "ZL-PARSE-001"
+    assert diagnostic["range"] == {
+        "start": {"line": 4, "character": 0},
+        "end": {"line": 4, "character": 1},
+    }
+    assert diagnostic["data"]["construct"] == "syntax error"
+
+
 def test_full_text_protocol_rejects_range_changes(tmp_path: Path) -> None:
     source = tmp_path / "Top.zhl"
     source.write_text(VALID, encoding="utf-8")

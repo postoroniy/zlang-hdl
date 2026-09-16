@@ -1,4 +1,4 @@
-"""Exact per-goal clock/reset applicability for frozen M35 execution."""
+"""Exact per-goal clock/reset applicability for frozen safety verification execution."""
 
 from dataclasses import replace
 from pathlib import Path

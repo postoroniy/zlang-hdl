@@ -40,7 +40,17 @@ def test_json_parse_diagnostic_is_one_stable_object(tmp_path: Path) -> None:
         "severity": "error",
         "code": "ZL-PARSE-001",
         "message": payload["message"],
-        "primary": None,
+        "primary": {
+            "construct": "syntax error",
+            "digest": None,
+            "source_unit": None,
+            "span": {
+                "start_line": 1,
+                "start_column": 26,
+                "end_line": 1,
+                "end_column": 27,
+            },
+        },
         "notes": [],
         "fixes": [],
     }

@@ -1,10 +1,9 @@
 # Compiler-owned diagnostic edit projection
 
-Milestone 10 audited the existing diagnostic `fixes` surface and added a
-narrow, machine-applicable edit path below the LSP protocol boundary. That
-milestone added no LSP method or capability. Milestone 11 consumes the accepted
-projection mechanically as `textDocument/codeAction`; it does not add or infer
-fix semantics.
+The diagnostic-edit audit added a narrow, machine-applicable edit path below
+the LSP protocol boundary. It added no LSP method or capability. The LSP layer
+consumes the accepted projection mechanically as `textDocument/codeAction`;
+it does not add or infer fix semantics.
 
 ## Existing model and audit
 

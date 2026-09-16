@@ -104,6 +104,13 @@ class DocumentState:
     navigation_top: str | None = None
 
 
+def _request_position(params: object) -> tuple[int, int]:
+    """Return one validated zero-based LSP position."""
+
+    position = _mapping(params, "position")
+    return _integer(position, "line"), _integer(position, "character")
+
+
 def _utf16_units(value: str) -> int:
     """Return the LSP-default UTF-16 code-unit length of text."""
 
@@ -718,35 +725,28 @@ class LspServer:
             return [_error(request_id, -32601, f"method not found: {method}")]
         return []
 
-    def _document_symbols(self, params: object) -> list[dict[str, Any]]:
-        item = _mapping(params, "textDocument")
-        uri = _string(item, "uri")
-        # Keep URI validation identical to document open/close handling even
-        # when the document is not currently open.
-        uri_to_path(uri)
-        state = self.documents.get(uri)
-        if state is None:
-            raise LspProtocolError(
-                "documentSymbol requested for a document that is not open"
-            )
-        return [_symbol_to_lsp(symbol) for symbol in document_symbols(state.text)]
+    def _open_document(self, params: object, operation: str) -> DocumentState:
+        """Resolve one request to the exact in-memory document snapshot."""
 
-    def _hover(self, params: object) -> dict[str, Any] | None:
         item = _mapping(params, "textDocument")
         uri = _string(item, "uri")
         path = uri_to_path(uri)
         state = self.documents.get(uri)
         if state is None:
             raise LspProtocolError(
-                "hover requested for a document that is not open"
+                f"{operation} requested for a document that is not open"
             )
-        position = _mapping(params, "position")
-        line = _integer(position, "line")
-        character = _integer(position, "character")
-        # Resolve the path from the URI as a protocol validation step, while
-        # using the path captured at didOpen for the current editor snapshot.
         if path != state.path:
             raise LspProtocolError("document URI changed while it was open")
+        return state
+
+    def _document_symbols(self, params: object) -> list[dict[str, Any]]:
+        state = self._open_document(params, "documentSymbol")
+        return [_symbol_to_lsp(symbol) for symbol in document_symbols(state.text)]
+
+    def _hover(self, params: object) -> dict[str, Any] | None:
+        state = self._open_document(params, "hover")
+        line, character = _request_position(params)
         return _hover_to_lsp(
             hover_at(
                 state.path,
@@ -758,19 +758,8 @@ class LspServer:
         )
 
     def _definition(self, params: object) -> dict[str, Any] | None:
-        item = _mapping(params, "textDocument")
-        uri = _string(item, "uri")
-        path = uri_to_path(uri)
-        state = self.documents.get(uri)
-        if state is None:
-            raise LspProtocolError(
-                "definition requested for a document that is not open"
-            )
-        position = _mapping(params, "position")
-        line = _integer(position, "line")
-        character = _integer(position, "character")
-        if path != state.path:
-            raise LspProtocolError("document URI changed while it was open")
+        state = self._open_document(params, "definition")
+        line, character = _request_position(params)
         compiler_character = _lsp_character_to_compiler(
             state.text, line, character
         )
@@ -788,19 +777,8 @@ class LspServer:
         return _definition_to_lsp(definition)
 
     def _references(self, params: object) -> list[dict[str, Any]]:
-        item = _mapping(params, "textDocument")
-        uri = _string(item, "uri")
-        path = uri_to_path(uri)
-        state = self.documents.get(uri)
-        if state is None:
-            raise LspProtocolError(
-                "references requested for a document that is not open"
-            )
-        position = _mapping(params, "position")
-        line = _integer(position, "line")
-        character = _integer(position, "character")
-        if path != state.path:
-            raise LspProtocolError("document URI changed while it was open")
+        state = self._open_document(params, "references")
+        line, character = _request_position(params)
         compiler_character = _lsp_character_to_compiler(
             state.text, line, character
         )
@@ -827,18 +805,9 @@ class LspServer:
         ]
 
     def _rename(self, params: object) -> dict[str, Any] | None:
-        item = _mapping(params, "textDocument")
-        uri = _string(item, "uri")
-        path = uri_to_path(uri)
-        state = self.documents.get(uri)
-        if state is None:
-            raise LspProtocolError("rename requested for a document that is not open")
-        position = _mapping(params, "position")
-        line = _integer(position, "line")
-        character = _integer(position, "character")
+        state = self._open_document(params, "rename")
+        line, character = _request_position(params)
         new_name = _string(params, "newName")
-        if path != state.path:
-            raise LspProtocolError("document URI changed while it was open")
         edits = rename_at(
             state.path,
             state.text,
@@ -860,19 +829,8 @@ class LspServer:
         return {"changes": changes}
 
     def _completion(self, params: object) -> list[dict[str, Any]]:
-        item = _mapping(params, "textDocument")
-        uri = _string(item, "uri")
-        path = uri_to_path(uri)
-        state = self.documents.get(uri)
-        if state is None:
-            raise LspProtocolError(
-                "completion requested for a document that is not open"
-            )
-        position = _mapping(params, "position")
-        line = _integer(position, "line")
-        character = _integer(position, "character")
-        if path != state.path:
-            raise LspProtocolError("document URI changed while it was open")
+        state = self._open_document(params, "completion")
+        line, character = _request_position(params)
         return [
             _completion_to_lsp(item)
             for item in completion_at(
@@ -885,19 +843,8 @@ class LspServer:
         ]
 
     def _signature_help(self, params: object) -> dict[str, Any] | None:
-        item = _mapping(params, "textDocument")
-        uri = _string(item, "uri")
-        path = uri_to_path(uri)
-        state = self.documents.get(uri)
-        if state is None:
-            raise LspProtocolError(
-                "signatureHelp requested for a document that is not open"
-            )
-        position = _mapping(params, "position")
-        line = _integer(position, "line")
-        character = _integer(position, "character")
-        if path != state.path:
-            raise LspProtocolError("document URI changed while it was open")
+        state = self._open_document(params, "signatureHelp")
+        line, character = _request_position(params)
         return _signature_help_to_lsp(
             signature_help_at(
                 state.path,
@@ -909,16 +856,7 @@ class LspServer:
         )
 
     def _semantic_tokens_full(self, params: object) -> dict[str, list[int]]:
-        item = _mapping(params, "textDocument")
-        uri = _string(item, "uri")
-        path = uri_to_path(uri)
-        state = self.documents.get(uri)
-        if state is None:
-            raise LspProtocolError(
-                "semanticTokens/full requested for a document that is not open"
-            )
-        if path != state.path:
-            raise LspProtocolError("document URI changed while it was open")
+        state = self._open_document(params, "semanticTokens/full")
         return semantic_tokens_to_lsp(
             semantic_tokens(
                 state.path,
@@ -930,16 +868,7 @@ class LspServer:
         )
 
     def _code_actions(self, params: object) -> list[dict[str, Any]]:
-        item = _mapping(params, "textDocument")
-        uri = _string(item, "uri")
-        path = uri_to_path(uri)
-        state = self.documents.get(uri)
-        if state is None:
-            raise LspProtocolError(
-                "codeAction requested for a document that is not open"
-            )
-        if path != state.path:
-            raise LspProtocolError("document URI changed while it was open")
+        state = self._open_document(params, "codeAction")
         requested_range = _lsp_range(
             params.get("range") if isinstance(params, dict) else None
         )

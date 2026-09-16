@@ -123,7 +123,7 @@ def test_emission_claims_require_every_entity_exactly_once() -> None:
 
 def _request_response_hierarchy():
     return compile_source(
-        (ROOT / "examples/hierarchical_request_response_m40.zhl").read_text(),
+        (ROOT / "examples/hierarchical_request_response.zhl").read_text(),
     ).ir
 
 

@@ -3,10 +3,9 @@
 This is the current-facing status snapshot for the implemented language. It is
 maintained alongside the executable [syntax support matrix](syntax-support-matrix.md)
 and compiler-owned `zlang.public_capabilities.CAPABILITY_REGISTRY`.
-Milestone reports, design freezes, architecture reviews, QoR tables, and the
-coordination logs are historical evidence: their original scope, tool results,
-and test counts remain valid for the recorded slice but are not the current
-repository baseline.
+Dated design freezes, architecture reviews, QoR tables, and validation logs are
+historical evidence: their original scope, tool results, and test counts remain
+valid for the recorded work but are not the current repository baseline.
 
 Snapshot date: **2026-09-15**.
 
@@ -17,7 +16,7 @@ snapshot. Its current public behavior is documented in
 
 The superseding exact-reset formal-applicability slice is accepted in this
 snapshot. Existing formal routes now consume the physical contract already
-carried by `ClockDomain` and BackendArtifact v10; it adds no source syntax,
+carried by `ClockDomain` and BackendArtifact v10 or newer; it adds no source syntax,
 property/observation family, or new equivalence relation.
 
 The latest optimizer cleanup is also included. One shared capability/barrier
@@ -41,15 +40,15 @@ ordinary destination-domain value.
   versions are machine-readable in
   [`release/status.json`](../release/status.json). Release CI validates two
   complete eight-worker JUnit reports against that manifest. This includes
-  compiler-owned formal closure, concise lowering, specialization-safe M39,
+  compiler-owned formal closure, concise lowering, specialization-safe formal-aware selection,
   exact physical reset applicability, and real external-tool integrations.
 - Exhaustive release-owned example registry, as recorded by the release manifest:
-  **89 `.zhl` files / 187 module roots / 170
+  **89 `.zhl` files / 188 module roots / 171
   standalone roots / 17 child or template roots / 0 unsupported roots**.
 - Every standalone direct-SystemVerilog root emits a `BackendArtifact` and
   passes strict Verilator lint; child/template roots are exercised through a
   concrete parent.
-- The accepted tool host has Verilator 5.044, Yosys and SymbiYosys 0.68,
+- The accepted tool host has Verilator 5.052, Yosys 0.69 and SymbiYosys 0.69,
   `yosys-smtbmc`, and Z3 4.8.12. GHC and Clash are not installed or discovered
   by the compiler and are not test or release dependencies.
 - The complete 1,033-cycle FFT512 persistent-hierarchy replay runs by default,
@@ -125,23 +124,23 @@ tour, not an exhaustive language specification.
 
 ## Formal and optimization status
 
-- **M35** executes real safety checks for the supported register, enum,
+- **safety verification** executes real safety checks for the supported register, enum,
   FIFO, ready/valid, credit, CSR, request/response, and rule observations.
-- **M36** provides authoritative canonical-reference equivalence for the frozen
+- **semantic-reference equivalence** provides authoritative canonical-reference equivalence for the frozen
   scalar and fixed-latency II=1 candidate classes.
-- **M38** cross-backend equivalence is retired with Clash. Historical M38
-  records remain dated evidence only; current verification uses M35 safety and
-  M36 semantic-reference equivalence.
-- **M39** gates supported exploration candidates using `off`, `available`,
+- **retired cross-backend equivalence** cross-backend equivalence is retired with Clash. Historical retired cross-backend equivalence
+  records remain dated evidence only; current verification uses safety verification safety and
+  semantic-reference equivalence semantic-reference equivalence.
+- **formal-aware selection** gates supported exploration candidates using `off`, `available`,
   `required_bmc`, or `required_proven`, deterministic rank order, and a
   content-addressed proof cache.
-- Compiler-owned formal orchestration plans each M35 goal independently with
+- Compiler-owned formal orchestration plans each safety verification goal independently with
   its exact assumptions/domain/observations, uses the direct-SV route and the
   backend-independent semantic reference, retains explicit comparison windows
-  for M36, memoizes prepared artifacts in one compilation session, and can
+  for semantic-reference equivalence, memoizes prepared artifacts in one compilation session, and can
   reuse exact hash-validated prepared/result records from `--formal-cache`.
   `--formal-jobs` parallelizes bundled safety/cover jobs and independent
-  selected-candidate sites. Within one site, the direct-SV M36 leg and
+  selected-candidate sites. Within one site, the direct-SV semantic-reference equivalence leg and
   BMC-before-prove dependencies remain ordered.
 - Goal routing is clock/reset-domain local. Multiple supported synchronous
   domains can contribute independent jobs. In a single-domain module, existing
@@ -150,7 +149,7 @@ tour, not an exhaustive language specification.
   synchronized release, with `power_up unspecified`. An unsupported domain
   skips only its own goals. This does not add cross-domain temporal semantics
   or promote general multi-domain backend support.
-- Exact physical-domain identity is retained across BackendArtifact v10,
+- Exact physical-domain identity is retained across BackendArtifact v10 or newer,
   `FormalExecutionPlan` schema 2, bundle v4 / verification-IR snapshot v3 jobs,
   and run-report v7 results. Plan/job/result restoration rejects a mismatched
   contract or domain digest, and result/cache identities separate edge,
@@ -161,25 +160,25 @@ tour, not an exhaustive language specification.
   synchronized release it remains active for both release edges after raw pin
   deassertion.
 - The execution triggers are distinct. A non-`off` formal policy alone runs the
-  M39 selection-time M36 route. `--verify` with policy `off` runs M35/source
+  formal-aware selection selection-time semantic-reference equivalence route. `--verify` with policy `off` runs safety verification/source
   safety and covers. Bundle-only publication does not prepare or execute
-  selected-candidate M36. Joint `--verify` plus a non-`off` policy also runs
-  compatible direct-SV M36 evidence. When publication has
+  selected-candidate semantic-reference equivalence. Joint `--verify` plus a non-`off` policy also runs
+  compatible direct-SV semantic-reference equivalence evidence. When publication has
   prepared those exact selected-candidate routes, the immutable bundle carries
   strict path-free replay companions and `zlang-verify` can execute them later
-  without source compilation or M39 reselection. A base safety/cover bundle
+  without source compilation or formal-aware selection reselection. A base safety/cover bundle
   still contains no candidate route.
 - Raw safety/cover execution uses `zlang-verification-run-report-v7`; joint
   candidate execution uses `zlang-compiler-verification-report-v1` as a wrapper
-  that preserves the distinct M35 and M36 result types. Proof always
+  that preserves the distinct safety verification and semantic-reference equivalence result types. Proof always
   follows a clean safety BMC stage; covers run once and are not rerun.
 - Joint candidate reports retain deterministic per-route work roots and the
-  tool snapshot when execution discovers tools. Exact in-session M39 reuse
+  tool snapshot when execution discovers tools. Exact in-session formal-aware selection reuse
   carries its recorded root; persistent cache data excludes physical paths.
-- Historical M38 records are advisory and retired; M38 never gates M39.
-- An executed M36 counterexample fails joint verification. Unavailable
-  advisory candidate evidence does not change M39 eligibility or make an
-  otherwise complete run fail. Missing/unknown/vacuous M35/source evidence
+- Historical retired cross-backend equivalence records are advisory and retired; retired cross-backend equivalence never gates formal-aware selection.
+- An executed semantic-reference equivalence counterexample fails joint verification. Unavailable
+  advisory candidate evidence does not change formal-aware selection eligibility or make an
+  otherwise complete run fail. Missing/unknown/vacuous safety verification/source evidence
   remains explicitly incomplete.
 - BMC success is always `bounded_pass`; only a complete unbounded safety proof
   is `proven`. A cover miss is `bounded_unreached`, never a proof of
@@ -211,11 +210,11 @@ tour, not an exhaustive language specification.
   only because the environment contract was impossible.
 - Same-cycle source properties may use a runtime vector read only after the
   ordinary semantic range proof succeeds. The formal predicate preserves the
-  MSB-first packed vector layout and uses the existing mux/equality vocabulary;
+  LSB-first indexed-aggregate layout and uses the existing mux/equality vocabulary;
   an assertion never supplies the range proof.
 - One deliberately bounded whole-root equivalence helper covers exactly one
   combinational scalar child. It materializes the semantic value from typed
-  hierarchy and instance bindings, then obtains decisive direct-SV M36
+  hierarchy and instance bindings, then obtains decisive direct-SV semantic-reference equivalence
   evidence from separately namespaced
   formal-only artifacts. Production hierarchy is not flattened, and state,
   storage, protocols, arrays, aggregates, and nested hierarchy remain rejected.
@@ -223,12 +222,12 @@ tour, not an exhaustive language specification.
   state, protocols, or pipeline placement. Protocol-only `transform
   pipeline(auto)` uses the separate
   candidate/planner path; the bounded elastic transform has explicit
-  ready/valid stall semantics and no M36 claim.
+  ready/valid stall semantics and no semantic-reference equivalence claim.
 
 The formal-infrastructure freeze remains active. The bounded one-child value
-helper above reuses the existing same-cycle M36 relation and is not a
-general hierarchical refinement system. VC-credit accounting, executable M33
-buffered/variable-latency protocol equivalence, elastic M36, stateful or
+helper above reuses the existing same-cycle semantic-reference equivalence relation and is not a
+general hierarchical refinement system. VC-credit accounting, executable protocol equivalence
+buffered/variable-latency protocol equivalence, elastic semantic-reference equivalence, stateful or
 nested hierarchy, CDC refinement, liveness/fairness, hidden memory cells, and
 additional rule-fire families require a separate real-design freeze.
 
@@ -240,7 +239,7 @@ identity, **65 passed** for adjacent orchestration/replay, and **26 passed** for
 physical-manifest/async-reset coverage. The sets overlap and are not summed.
 `power_up reset`, multi-domain asynchronous reset, CDC/reset-refinement,
 elastic/variable-latency equivalence, target DSP/BRAM reset pins, general
-hierarchical M36/M38, and incomplete bindings remain explicit fail-closed
+hierarchical semantic-reference equivalence/retired cross-backend equivalence, and incomplete bindings remain explicit fail-closed
 boundaries.
 
 ## Standard library and real designs
@@ -280,11 +279,11 @@ asymmetric or unbounded multiport memories, asynchronous 2RW memories,
 full/partial writable-memory initialization images, automatic banking, implicit
 CDC/adapters, full AXI4 IDs/multiple outstanding/general burst attributes,
 arbitrary temporal/SVA/SMT source syntax,
-true liveness/fairness, or general hierarchical M36/M38. Exact narrower forms
+true liveness/fairness, or general hierarchical semantic-reference equivalence/retired cross-backend equivalence. Exact narrower forms
 listed in the support matrix remain supported.
 
-Work after the current numbered roadmap is tracked as bounded, evidence-driven
-unnumbered slices rather than creating another numbered milestone.
+Future work is tracked as bounded, evidence-driven slices with explicit
+acceptance criteria.
 
 ## Documentation authority
 

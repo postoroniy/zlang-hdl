@@ -48,9 +48,9 @@ class FormalArtifactNamespace(str, Enum):
     """Closed namespaces for the currently supported formal stack."""
 
     PREPARED = "prepared"
-    M35 = "M35"
-    M36 = "M36"
-    M39 = "M39"
+    SAFETY = "safety-verification"
+    SEMANTIC_EQUIVALENCE = "semantic-reference-equivalence"
+    FORMAL_SELECTION = "formal-aware-selection"
 
 
 FORMAL_ARTIFACT_NAMESPACES = frozenset(item.value for item in FormalArtifactNamespace)

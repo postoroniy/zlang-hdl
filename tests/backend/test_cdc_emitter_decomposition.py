@@ -44,8 +44,8 @@ EXPECTED_HASHES = {
         (
             "all_syntax.zhl",
             "AggregateProtocolSyntax",
-            "i__t_valid && i__t_ready",
-            "o__t_valid && o__t_ready",
+            "zlang_packed_i__t_valid && zlang_packed_i__t_ready",
+            "zlang_packed_o__t_valid && zlang_packed_o__t_ready",
         ),
     ),
 )

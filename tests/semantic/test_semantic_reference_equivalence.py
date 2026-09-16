@@ -18,7 +18,7 @@ from zlang.ir.formal import Counterexample, FormalResult, FormalStatus, ProofMod
 from zlang.timing import TimingInfo
 
 
-class EquivalenceM36Tests(unittest.TestCase):
+class SemanticEquivalenceTests(unittest.TestCase):
     def setUp(self):
         self.u8 = UIntType(8)
         self.x = InputRef("x", self.u8)
@@ -36,7 +36,7 @@ class EquivalenceM36Tests(unittest.TestCase):
         return BindingMap(tuple(entries))
 
     def test_same_cycle_reference_model_and_miter_are_deterministic(self):
-        prop = make_equivalence_property(self.x, self.x, candidate_class="m27", reference_root="r", implementation_root="i", inputs=("x",), reference_output="y", implementation_output="y")
+        prop = make_equivalence_property(self.x, self.x, candidate_class="guarded_rewrite", reference_root="r", implementation_root="i", inputs=("x",), reference_output="y", implementation_output="y")
         reference = emit_reference_model("Ref", "y", self.u8, (("x", self.u8),), self.x)
         first = emit_miter(prop, self.bindings(), reference_module="Ref", implementation_module="Impl")
         self.assertEqual(first, emit_miter(prop, self.bindings(), reference_module="Ref", implementation_module="Impl"))
@@ -105,15 +105,15 @@ class EquivalenceM36Tests(unittest.TestCase):
         self.assertNotIn("FunctionalRegion", reference)
         self.assertEqual(reference.count(" + "), 31)
 
-    def test_m29_and_m32_classes_are_same_cycle(self):
-        for candidate_class in ("m29", "m32", "value"):
+    def test_architecture_alternatives_and_exact_reduction_classes_are_same_cycle(self):
+        for candidate_class in ("architecture_alternatives", "exact_reduction", "value"):
             prop = make_equivalence_property(self.x, self.x, candidate_class=candidate_class, reference_root="r", implementation_root=candidate_class, inputs=("x",))
             self.assertEqual(prop.relation_kind, EquivalenceRelation.SAME_CYCLE_VALUE)
 
     def test_pipeline_delta_one_and_multi_stage_use_fill_history(self):
         for stages in (1, 3):
             implementation = Pipeline(stages, self.x, 1, self.u8)
-            prop = make_equivalence_property(self.x, implementation, candidate_class="m31", reference_root="r", implementation_root=f"p{stages}", inputs=("x",), reference_output="y", implementation_output="y", reference_timing=TimingInfo(0, 1, "clk", "rst"), implementation_timing=TimingInfo(stages, 1, "clk", "rst"))
+            prop = make_equivalence_property(self.x, implementation, candidate_class="pipeline_scheduler", reference_root="r", implementation_root=f"p{stages}", inputs=("x",), reference_output="y", implementation_output="y", reference_timing=TimingInfo(0, 1, "clk", "rst"), implementation_timing=TimingInfo(stages, 1, "clk", "rst"))
             self.assertEqual(prop.relation_kind, EquivalenceRelation.FIXED_LATENCY_VALUE)
             self.assertEqual(prop.latency_delta, stages)
             text = emit_miter(prop, self.bindings(selected=f"p{stages}"), reference_module="Ref", implementation_module="Impl")
@@ -125,7 +125,7 @@ class EquivalenceM36Tests(unittest.TestCase):
         prop = make_equivalence_property(
             self.x,
             implementation,
-            candidate_class="m31",
+            candidate_class="pipeline_scheduler",
             reference_root="r",
             implementation_root="p2",
             reference_timing=TimingInfo(0, 1, "clk", "rst"),
@@ -137,7 +137,7 @@ class EquivalenceM36Tests(unittest.TestCase):
 
         with patch("zlang.formal.run_verilog_formal") as solver:
             shallow = run_equivalence_formal(
-                prop, "unused", top="m36", depth=5
+                prop, "unused", top="semantic_equivalence", depth=5
             )
         solver.assert_not_called()
         self.assertEqual(shallow.status, EquivalenceStatus.UNKNOWN)
@@ -156,7 +156,7 @@ class EquivalenceM36Tests(unittest.TestCase):
                 ),
             ) as solver:
                 result = run_equivalence_formal(
-                    prop, "module m36; endmodule", top="m36", depth=depth
+                    prop, "module semantic_equivalence; endmodule", top="semantic_equivalence", depth=depth
                 )
             solver.assert_called_once()
             self.assertEqual(result.status, EquivalenceStatus.BOUNDED_PASS)
@@ -174,8 +174,8 @@ class EquivalenceM36Tests(unittest.TestCase):
         ) as solver:
             proven = run_equivalence_formal(
                 prop,
-                "module m36; endmodule",
-                top="m36",
+                "module semantic_equivalence; endmodule",
+                top="semantic_equivalence",
                 mode=EquivalenceMode.PROVE,
                 depth=1,
             )
@@ -194,7 +194,7 @@ class EquivalenceM36Tests(unittest.TestCase):
         prop = make_equivalence_property(
             self.x,
             implementation,
-            candidate_class="m31",
+            candidate_class="pipeline_scheduler",
             reference_root="r",
             implementation_root="p2-async-low",
             inputs=("x",),
@@ -239,7 +239,7 @@ class EquivalenceM36Tests(unittest.TestCase):
         prop = make_equivalence_property(
             self.x,
             implementation,
-            candidate_class="m31",
+            candidate_class="pipeline_scheduler",
             reference_root="r",
             implementation_root="p2-safe-async",
             inputs=("x",),
@@ -266,7 +266,7 @@ class EquivalenceM36Tests(unittest.TestCase):
 
         with patch("zlang.formal.run_verilog_formal") as solver:
             shallow = run_equivalence_formal(
-                prop, text, top="m36", depth=7
+                prop, text, top="semantic_equivalence", depth=7
             )
         solver.assert_not_called()
         self.assertEqual(shallow.status, EquivalenceStatus.UNKNOWN)
@@ -285,7 +285,7 @@ class EquivalenceM36Tests(unittest.TestCase):
             "zlang.formal.run_verilog_formal", return_value=proof
         ) as solver:
             result = run_equivalence_formal(
-                prop, text, top="m36", depth=8
+                prop, text, top="semantic_equivalence", depth=8
             )
         assert result.counterexample is not None
         # Reset release shifts the absolute witness window, but the originating
@@ -311,7 +311,7 @@ class EquivalenceM36Tests(unittest.TestCase):
         prop = make_equivalence_property(
             self.x,
             implementation,
-            candidate_class="m31",
+            candidate_class="pipeline_scheduler",
             reference_root="r",
             implementation_root="p2-collision",
             inputs=("x", "release_collision"),
@@ -392,7 +392,7 @@ class EquivalenceM36Tests(unittest.TestCase):
             result = run_equivalence_formal(
                 prop,
                 emission.source,
-                top="m36_collision",
+                top="semantic_equivalence_collision",
                 depth=8,
                 trace_metadata=emission.trace_metadata,
             )
@@ -412,7 +412,7 @@ class EquivalenceM36Tests(unittest.TestCase):
             make_equivalence_property(
                 self.x,
                 implementation,
-                candidate_class="m31",
+                candidate_class="pipeline_scheduler",
                 reference_root="r",
                 implementation_root="bad-domain",
                 reference_timing=TimingInfo(0, 1, "clk", "rst"),
@@ -423,7 +423,7 @@ class EquivalenceM36Tests(unittest.TestCase):
             make_equivalence_property(
                 self.x,
                 implementation,
-                candidate_class="m31",
+                candidate_class="pipeline_scheduler",
                 reference_root="r",
                 implementation_root="power-up",
                 reference_timing=TimingInfo(0, 1, "clk", "rst"),
@@ -528,7 +528,7 @@ class EquivalenceM36Tests(unittest.TestCase):
         prop = make_equivalence_property(
             self.x,
             implementation,
-            candidate_class="m31",
+            candidate_class="pipeline_scheduler",
             reference_root="r",
             implementation_root="p2",
             reference_timing=TimingInfo(0, 1, "clk", "rst"),
@@ -552,7 +552,7 @@ class EquivalenceM36Tests(unittest.TestCase):
             "zlang.formal.run_verilog_formal", return_value=proof
         ) as solver:
             result = run_equivalence_formal(
-                prop, "module m36; endmodule", top="m36", depth=6
+                prop, "module semantic_equivalence; endmodule", top="semantic_equivalence", depth=6
             )
 
         assert result.counterexample is not None
@@ -574,11 +574,11 @@ class EquivalenceM36Tests(unittest.TestCase):
     def test_pipeline_rejects_ii_clock_reset_and_negative_latency(self):
         implementation = Pipeline(1, self.x, 1, self.u8)
         with self.assertRaisesRegex(EquivalenceError, "II=1"):
-            make_equivalence_property(self.x, implementation, candidate_class="m31", reference_root="r", implementation_root="i", reference_timing=TimingInfo(0, 2, "clk", "rst"), implementation_timing=TimingInfo(1, 1, "clk", "rst"))
+            make_equivalence_property(self.x, implementation, candidate_class="pipeline_scheduler", reference_root="r", implementation_root="i", reference_timing=TimingInfo(0, 2, "clk", "rst"), implementation_timing=TimingInfo(1, 1, "clk", "rst"))
         with self.assertRaisesRegex(EquivalenceError, "matching clock/reset"):
-            make_equivalence_property(self.x, implementation, candidate_class="m31", reference_root="r", implementation_root="i", reference_timing=TimingInfo(0, 1, "a", "rst"), implementation_timing=TimingInfo(1, 1, "b", "rst"))
+            make_equivalence_property(self.x, implementation, candidate_class="pipeline_scheduler", reference_root="r", implementation_root="i", reference_timing=TimingInfo(0, 1, "a", "rst"), implementation_timing=TimingInfo(1, 1, "b", "rst"))
         with self.assertRaisesRegex(EquivalenceError, "precede"):
-            make_equivalence_property(implementation, self.x, candidate_class="m31", reference_root="r", implementation_root="i", reference_timing=TimingInfo(1, 1, "clk", "rst"), implementation_timing=TimingInfo(0, 1, "clk", "rst"))
+            make_equivalence_property(implementation, self.x, candidate_class="pipeline_scheduler", reference_root="r", implementation_root="i", reference_timing=TimingInfo(1, 1, "clk", "rst"), implementation_timing=TimingInfo(0, 1, "clk", "rst"))
 
     def test_binding_width_signedness_artifact_duplicate_and_missing_diagnostics(self):
         with self.assertRaisesRegex(EquivalenceError, "type/role mismatch"):
@@ -587,7 +587,7 @@ class EquivalenceM36Tests(unittest.TestCase):
             BindingMap(tuple(bad)).validate()
         with self.assertRaisesRegex(EquivalenceError, "type"):
             from zlang.ir.types import SIntType
-            make_equivalence_property(self.x, InputRef("x", SIntType(8)), candidate_class="m29", reference_root="r", implementation_root="i")
+            make_equivalence_property(self.x, InputRef("x", SIntType(8)), candidate_class="architecture_alternatives", reference_root="r", implementation_root="i")
         with self.assertRaisesRegex(EquivalenceError, "duplicate"):
             item = self.bindings().entries[0]
             BindingMap((item, item)).validate()
@@ -596,7 +596,7 @@ class EquivalenceM36Tests(unittest.TestCase):
             BindingMap(tuple(bad)).validate()
 
     def test_result_statuses_and_missing_solver(self):
-        prop = make_equivalence_property(self.x, self.x, candidate_class="m27", reference_root="r", implementation_root="i")
+        prop = make_equivalence_property(self.x, self.x, candidate_class="guarded_rewrite", reference_root="r", implementation_root="i")
         result = unavailable_result(prop, backend="direct_systemverilog", reason="solver unavailable", mode=EquivalenceMode.BMC, depth=10)
         self.assertEqual(result.status, EquivalenceStatus.SKIPPED)
         from zlang.ir.equivalence import classify_equivalence

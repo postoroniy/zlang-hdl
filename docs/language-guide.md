@@ -16,8 +16,8 @@ forms; the VS Code grammar is lexical assistance, not semantic validation.
 The [test strategy](testing.md) describes the one-item positive conformance
 gate, the broad real-tool smoke gate, and the separate complete regression.
 The dated [current language and implementation status](current-language-status.md)
-records the accepted regression/corpus/tool snapshot and explains how current
-guides relate to historical milestone and design-freeze evidence.
+records the accepted regression/corpus/tool snapshot and distinguishes current
+guidance from dated design-freeze evidence.
 
 For hands-on verification, use the
 [formal examples](../examples/verification/README.md): actual proofs,
@@ -29,7 +29,7 @@ For short-context coding assistants (including Qwen), start with the
 [concise source-authoring reference](language-quick-reference.md). It contains
 only current executable spellings, exact semantic rules, common failure modes,
 and validation commands. Read the topic guides below only when the task needs
-their additional detail; historical milestone documents are not language
+their additional detail; dated implementation records are not language
 instructions.
 
 The public repository also ships a project skill at
@@ -54,7 +54,7 @@ and routing layer over these guides, not a second language specification.
    aggregate standard buses, CSR, arbitration, and CDC.
 6. **[Optimization and formal verification](optimization-formal.md)** — canonical
    versus selected IR, choices, pipeline/architecture exploration, contracts,
-   M35/M36/M39 boundaries, retired historical M38 records, and proof status
+   safety verification/semantic-reference equivalence/formal-aware selection boundaries, retired historical retired cross-backend equivalence records, and proof status
    meanings. The [compiler responsibility split](egraph-optimization-infrastructure.md)
    distinguishes egglog, scheduling, resource matching, verification, and direct-SV.
 7. **[Backends, CLI, and tooling](backends-tooling.md)** — direct-SV production policy,
@@ -148,10 +148,11 @@ Compiler and editor integrations should also use the versioned
   part of the compiler, package, CLI, tests, CI, or release gate.
 - The production backend publishes one mandatory integration boundary:
   top-level struct fields and tuple `itemN` components are recursively named
-  leaf ports, while `vec<N,T>` values are native unpacked arrays (one array per
-  terminal field/component for vectors of structs or tuples).
-  Packed aggregate values are private core/component details, never an
-  alternate public ABI; see
+  leaf ports, while `vec<N,T>` values are multidimensional packed arrays (one
+  array per terminal field/component for vectors of structs or tuples).
+  Packed aggregate values are internal aliases or child-component details,
+  never an alternate public ABI. The selected top remains a single
+  SystemVerilog module; see
   [backend tooling](backends-tooling.md#public-rtl-boundary).
 
 ## Validated real-design map
@@ -188,7 +189,7 @@ transaction names as privileged backend behavior.
 ## Detailed implementation guides
 
 The topic guides and [current status](current-language-status.md) describe the
-public product surface. Historical milestone reports and internal design-review
+public product surface. Dated implementation reports and internal design-review
 records are intentionally not part of the slim public distribution. Current
 normative entry points include:
 
@@ -234,7 +235,7 @@ The current executable language intentionally does not claim:
 - automatic protocol adaptation, implicit CDC, full AXI4 bursts/IDs, package
   registries, mutable dependency revisions, or unlocked external imports;
 - liveness/eventuality/fairness, arbitrary temporal or solver-specific source
-  properties, general hierarchical M36/M38, or new recursive formal observation
+  properties, general hierarchical semantic-reference equivalence/retired cross-backend equivalence, or new recursive formal observation
   families; named same-cycle `assert`/`ensure`, scoped environment `require`, and
   bounded `cover` are supported;
 - automatic module substitution or backend selection by arbitrary IR region.

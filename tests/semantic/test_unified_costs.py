@@ -66,7 +66,7 @@ class UnifiedCostExtractionTests(unittest.TestCase):
         self.assertEqual(extract_best(candidates, CostMetric.DSP).selected, "small")
         self.assertEqual(extract_best(candidates, CostMetric.LATENCY).selected, "small")
 
-    def test_m26_eclass_uses_unified_extractor(self) -> None:
+    def test_egraph_optimization_eclass_uses_unified_extractor(self) -> None:
         compilation = compile_source("module M { in x:u8 out y:u8 y=x|0 }")
         root = compilation.optimization_ir.assignments[0].expression
         saturated = saturate(compilation.optimization_ir, root)

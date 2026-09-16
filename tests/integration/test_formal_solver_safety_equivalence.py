@@ -1,4 +1,4 @@
-"""Real M35/M36 solver coverage (skips only when the formal toolchain is absent)."""
+"""Real safety verification/semantic-reference equivalence solver coverage (skips only when the formal toolchain is absent)."""
 
 import unittest
 
@@ -10,7 +10,7 @@ from zlang.timing import TimingInfo
 from zlang.ir import Pipeline
 
 
-SAFE = """module m35(input clk, input [7:0] a, b);
+SAFE = """module safety_verification(input clk, input [7:0] a, b);
 wire [8:0] sum = a + b;
 always @(posedge clk) assert(sum == a + b);
 endmodule
@@ -18,8 +18,8 @@ endmodule
 
 
 class RealFormalValidationTests(unittest.TestCase):
-    def test_all_six_m35_targets_execute(self):
-        targets = tuple((f"m35.{family}.safe", "m35", SAFE) for family in
+    def test_all_six_safety_verification_targets_execute(self):
+        targets = tuple((f"safety_verification.{family}.safe", "safety_verification", SAFE) for family in
                         ("counter", "fifo", "ready_valid", "credit", "csr", "rules"))
         results = run_verilog_targets(targets, mode=ProofMode.BMC, depth=4)
         for result in results:
@@ -48,42 +48,42 @@ reg [1:0] credits; always @(posedge clk) begin if (rst) credits <= 0; else credi
                 self.assertIsNotNone(result.counterexample, name)
                 self.assertTrue(result.counterexample.raw_trace, name)
 
-    def test_m36_same_cycle_and_fixed_latency_real_execution(self):
+    def test_semantic_equivalence_same_cycle_and_fixed_latency_real_execution(self):
         u8 = UIntType(8)
         x = InputRef("x", u8)
-        source = """module m36(input clk, input [7:0] x);
+        source = """module semantic_equivalence(input clk, input [7:0] x);
 wire [7:0] reference_value = x; wire [7:0] implementation_value = x;
 always @(posedge clk) assert(reference_value == implementation_value);
 endmodule"""
-        for candidate_class in ("m27", "m29", "m32"):
+        for candidate_class in ("guarded_rewrite", "architecture_alternatives", "exact_reduction"):
             candidate = make_equivalence_property(
                 x, x, candidate_class=candidate_class, reference_root="r",
                 implementation_root=candidate_class)
-            result = run_equivalence_formal(candidate, source, top="m36", depth=4)
+            result = run_equivalence_formal(candidate, source, top="semantic_equivalence", depth=4)
             if result.status is not EquivalenceStatus.SKIPPED:
                 self.assertEqual(result.status, EquivalenceStatus.BOUNDED_PASS)
 
         pipeline = Pipeline(1, x, 1, u8)
         timed = make_equivalence_property(
-            x, pipeline, candidate_class="m31", reference_root="r", implementation_root="p",
+            x, pipeline, candidate_class="pipeline_scheduler", reference_root="r", implementation_root="p",
             reference_timing=TimingInfo(0, 1, "clk", "rst"),
             implementation_timing=TimingInfo(1, 1, "clk", "rst"))
-        timed_source = """module m36p(input clk, input rst, input [7:0] x);
+        timed_source = """module semantic_equivalence_proof(input clk, input rst, input [7:0] x);
 reg [7:0] history; reg valid; wire [7:0] implementation_value = history;
 always @(posedge clk) begin
   if (rst) begin history <= 0; valid <= 0; end
   else begin history <= x; valid <= 1; end
   if (!rst && valid) assert(history == implementation_value);
 end endmodule"""
-        result = run_equivalence_formal(timed, timed_source, top="m36p", depth=6)
+        result = run_equivalence_formal(timed, timed_source, top="semantic_equivalence_proof", depth=6)
         if result.status is not EquivalenceStatus.SKIPPED:
             self.assertEqual(result.status, EquivalenceStatus.BOUNDED_PASS)
 
-    def test_m36_wrong_latency_fails_and_reset_fill_is_checked(self):
+    def test_semantic_equivalence_wrong_latency_fails_and_reset_fill_is_checked(self):
         u8 = UIntType(8)
         x = InputRef("x", u8)
         timed = make_equivalence_property(
-            x, Pipeline(1, x, 1, u8), candidate_class="m31", reference_root="r", implementation_root="bad",
+            x, Pipeline(1, x, 1, u8), candidate_class="pipeline_scheduler", reference_root="r", implementation_root="bad",
             reference_timing=TimingInfo(0, 1, "clk", "rst"),
             implementation_timing=TimingInfo(1, 1, "clk", "rst"))
         source = """module badpipe(input clk, input rst, input [7:0] x);

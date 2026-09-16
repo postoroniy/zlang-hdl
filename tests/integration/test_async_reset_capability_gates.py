@@ -83,7 +83,7 @@ def _formal_artifact(module):
     )
 
 
-def test_m35_harness_uses_the_exact_safe_async_reset_contract() -> None:
+def test_safety_verification_harness_uses_the_exact_safe_async_reset_contract() -> None:
     module = _counter()
     design = build_formal_design(module)
     assert design.non_executable_reason is None
@@ -101,17 +101,17 @@ def test_m35_harness_uses_the_exact_safe_async_reset_contract() -> None:
     # State history is cleared through the effective reset epoch, while the
     # reset-epoch invariant needs an independent first-sample guard.  Otherwise
     # ``$past(reset_active) -> state == reset_value`` is vacuous forever.
-    assert "reg zlang_m35_reset_past_valid = 1'b0;" in harness
-    assert "zlang_m35_reset_past_valid <= 1'b1;" in harness
+    assert "reg zlang_safety_verification_reset_past_valid = 1'b0;" in harness
+    assert "zlang_safety_verification_reset_past_valid <= 1'b1;" in harness
     assert (
-        "if (zlang_m35_reset_past_valid) assert "
+        "if (zlang_safety_verification_reset_past_valid) assert "
         "((!($past(zlang_formal_reset_active))" in harness
     )
     assert "non-executable property report" not in harness
     assert "mode bmc" in emit_sby(connected)
 
 
-def test_low_level_m35_connector_rejects_an_exact_reset_contract_mismatch() -> None:
+def test_low_level_safety_verification_connector_rejects_an_exact_reset_contract_mismatch() -> None:
     legacy_module = CompilationSession(
         ASYNC_COUNTER.replace("async reset arst @clk", "reset arst"),
     ).selected_ir
@@ -140,7 +140,7 @@ def test_low_level_m35_connector_rejects_an_exact_reset_contract_mismatch() -> N
     rejected = connect_formal_design_low_level(already_guarded, legacy_artifact)
     assert rejected.connected_backend is None
     assert all(
-        "requires an exact non-default physical domain manifest"
+        "source and backend physical reset contracts do not match"
         in (item.non_executable_reason or "")
         for item in rejected.properties
     )
@@ -153,7 +153,7 @@ def test_low_level_m35_connector_rejects_an_exact_reset_contract_mismatch() -> N
 
 
 class _BoundAsyncVerifier:
-    formal_route = "M36_direct_systemverilog"
+    formal_route = "semantic_equivalence_direct_systemverilog"
 
     def __init__(self) -> None:
         self.calls: list[FormalPolicy] = []
@@ -162,7 +162,7 @@ class _BoundAsyncVerifier:
     def _identity(candidate: object) -> dict[str, str]:
         implementation = getattr(candidate, "implementation_identity")
         return {
-            "property_identity": f"m36.async.{implementation}",
+            "property_identity": f"semantic_equivalence.async.{implementation}",
             "reference_artifact_hash": "a" * 64,
             "implementation_artifact_hash": "b" * 64,
             "artifact_hash": "b" * 64,
@@ -189,7 +189,7 @@ class _BoundAsyncVerifier:
         }
 
 
-def test_m39_available_and_required_modes_use_the_async_m36_route() -> None:
+def test_formal_selection_available_and_required_modes_use_the_async_semantic_equivalence_route() -> None:
     verifier = _BoundAsyncVerifier()
 
     available = CompilationSession(
@@ -202,9 +202,9 @@ def test_m39_available_and_required_modes_use_the_async_m36_route() -> None:
     assert records[0].status is FormalStatus.BOUNDED_PASS
     assert records[0].eligible
     assert records[0].cache_state == "executed"
-    assert records[0].formal_route == "M36_direct_systemverilog"
+    assert records[0].formal_route == "semantic_equivalence_direct_systemverilog"
     assert all(item.status is None for item in records[1:])
-    # One canonical ``implement`` region has one M39 site; planner metadata
+    # One canonical ``implement`` region has one formal-aware selection site; planner metadata
     # is not re-proved as standalone pipeline sites.
     assert verifier.calls == [FormalPolicy.AVAILABLE]
 
@@ -235,7 +235,7 @@ def test_m39_available_and_required_modes_use_the_async_m36_route() -> None:
     ]
 
 
-def test_m39_external_regions_use_the_async_m36_route() -> None:
+def test_formal_selection_external_regions_use_the_async_semantic_equivalence_route() -> None:
 
     def contribution(policy: FormalPolicy) -> ImplementationContribution:
         return ImplementationContribution(
@@ -256,7 +256,7 @@ def test_m39_external_regions_use_the_async_m36_route() -> None:
     assert records[0].status is FormalStatus.BOUNDED_PASS
     assert records[0].eligible
     assert records[0].cache_state == "executed"
-    assert records[0].formal_route == "M36_direct_systemverilog"
+    assert records[0].formal_route == "semantic_equivalence_direct_systemverilog"
     assert verifier.calls == [FormalPolicy.AVAILABLE]
 
     required = _BoundAsyncVerifier()

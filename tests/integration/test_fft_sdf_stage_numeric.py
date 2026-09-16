@@ -358,7 +358,7 @@ def test_named_complex_quantization_has_one_typed_boundary_per_result() -> None:
     assert push_assignment.count("zlang_spec_") == 2
 
 
-def test_stage_m35_generation_and_unbound_execution_are_explicitly_skipped() -> None:
+def test_stage_safety_verification_generation_and_unbound_execution_are_explicitly_skipped() -> None:
     design = build_formal_design(_stage())
     families = {item.id.split(".")[1] for item in design.properties}
     assert {"register", "fifo", "ready_valid", "rules"} <= families

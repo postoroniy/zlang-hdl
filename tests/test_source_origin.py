@@ -191,10 +191,11 @@ def test_backend_artifact_reads_legacy_rendered_binding_origin() -> None:
         ],
     }
 
-    restored = BackendArtifact.from_json(payload)
-    assert restored.bindings[0].source_origin == SourceOrigin(
-        origin.span, origin.construct
-    )
+    with pytest.raises(
+        ValueError,
+        match="packing layout schema is stale or unavailable",
+    ):
+        BackendArtifact.from_json(payload)
 
 
 def _origins_in(value: object) -> tuple[SourceOrigin, ...]:

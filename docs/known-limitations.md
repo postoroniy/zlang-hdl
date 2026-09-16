@@ -1,12 +1,15 @@
 # Known limitations
 
-ZLang `0.1.0a7` is an experimental alpha release.  The compiler deliberately
+ZLang `0.1.0a8` is an experimental alpha release.  The compiler deliberately
 fails closed when a design falls outside a validated language/backend
 intersection: it must not publish RTL after silently dropping an IR entity.
 
 ## Supported platform
 
-- The release-supported host is Linux/POSIX x86-64 with Python 3.12.
+- The release-supported host is Linux/POSIX x86-64 with CPython
+  `>=3.12,<3.13`. `uv` may provision that runtime when the host distribution
+  does not provide it. WSL2 is a practical Linux environment on Windows, but
+  native Windows remains outside the release-tested platform.
 - Direct SystemVerilog is the sole stable supported production backend for the
   repository's validated corpus.  Passing that corpus is not a claim that every
   future combination of otherwise supported features is accepted.
@@ -43,10 +46,10 @@ intersection: it must not publish RTL after silently dropping an IR entity.
 
 - Bounded model checking is reported as `bounded_pass`, never as an unbounded
   proof.
-- M35 safety, M36 semantic-reference equivalence, and M39 formal-aware
+- safety verification safety, semantic-reference equivalence semantic-reference equivalence, and formal-aware selection formal-aware
   selection run only when the required observations,
   domains, reset contracts, artifacts, and external tools are connected.
-- M38 is retired with the production Clash backend. Historical M38 records
+- retired cross-backend equivalence is retired with the production Clash backend. Historical retired cross-backend equivalence records
   remain audit evidence, not a current execution route.
 - Unsupported routes are explicit `unknown` or `skipped`; they are not silently
   treated as success.

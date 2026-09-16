@@ -5,7 +5,7 @@ content-addressed verification inputs.  Solver choice, proof mode, depth,
 timeout, discovered tool versions, and results live in :class:`VerificationRunReport`
 and therefore never affect the immutable bundle identity.
 
-Safety jobs reuse the existing M35 runner while cover jobs use the bounded
+Safety jobs reuse the existing safety verification runner while cover jobs use the bounded
 reachability runner.  Unknown kinds fail closed as explicit skips.
 """
 
@@ -137,6 +137,28 @@ def _require_string(value: object, description: str) -> str:
     if any(ord(character) < 32 for character in value):
         raise VerificationBundleError(f"{description} must not contain control characters")
     return value
+
+
+def _optional_string_field(
+    data: Mapping[str, object], name: str, description: str
+) -> str | None:
+    value = data.get(name)
+    if value is not None and not isinstance(value, str):
+        raise VerificationBundleError(f"{description} {name} must be a string")
+    return value
+
+
+def _string_tuple_field(
+    data: Mapping[str, object], name: str, description: str
+) -> tuple[str, ...]:
+    value = data.get(name, [])
+    if not isinstance(value, list) or any(
+        not isinstance(item, str) for item in value
+    ):
+        raise VerificationBundleError(
+            f"{description} {name} must be an array of strings"
+        )
+    return tuple(value)
 
 
 def _require_integer(value: object, description: str, *, minimum: int = 0) -> int:
@@ -737,7 +759,7 @@ def _validate_verification_payload(
                         expected_reset,
                         local_requirements,
                     ) = scoped
-                # Recursive M35 scopes are instantiated from each child's
+                # Recursive safety verification scopes are instantiated from each child's
                 # frozen formal design.  Their assumptions are already
                 # concrete per physical instance and must not be silently
                 # augmented with an unrelated root-module contract merely
@@ -1111,24 +1133,6 @@ class VerificationJob:
         reason = data["reason"]
         if reason is not None and not isinstance(reason, str):
             raise VerificationBundleError("verification job reason must be a string")
-        def optional_string(name: str) -> str | None:
-            value = data.get(name)
-            if value is not None and not isinstance(value, str):
-                raise VerificationBundleError(
-                    f"verification job {name} must be a string"
-                )
-            return value
-
-        def string_tuple(name: str) -> tuple[str, ...]:
-            value = data.get(name, [])
-            if not isinstance(value, list) or any(
-                not isinstance(item, str) for item in value
-            ):
-                raise VerificationBundleError(
-                    f"verification job {name} must be an array of strings"
-                )
-            return tuple(value)
-
         return cls(
             _require_string(data["property_id"], "verification property ID"),
             _require_string(data["kind"], "verification job kind"),
@@ -1140,18 +1144,20 @@ class VerificationJob:
             data["executable"],  # type: ignore[arg-type]
             reason,
             _origin_from_data(data["source_origin"]),
-            optional_string("route"),
-            optional_string("backend"),
-            optional_string("artifact_hash"),
-            optional_string("binding_identity"),
-            optional_string("selected_ir_identity"),
-            optional_string("scope_id"),
-            string_tuple("assumption_ids"),
-            optional_string("clock_domain"),
-            optional_string("reset_domain"),
-            string_tuple("physical_instance_path"),
+            _optional_string_field(data, "route", "verification job"),
+            _optional_string_field(data, "backend", "verification job"),
+            _optional_string_field(data, "artifact_hash", "verification job"),
+            _optional_string_field(data, "binding_identity", "verification job"),
+            _optional_string_field(data, "selected_ir_identity", "verification job"),
+            _optional_string_field(data, "scope_id", "verification job"),
+            _string_tuple_field(data, "assumption_ids", "verification job"),
+            _optional_string_field(data, "clock_domain", "verification job"),
+            _optional_string_field(data, "reset_domain", "verification job"),
+            _string_tuple_field(data, "physical_instance_path", "verification job"),
             _clock_domain_from_job_data(data.get("clock_domain_contract")),
-            optional_string("physical_domain_identity"),
+            _optional_string_field(
+                data, "physical_domain_identity", "verification job"
+            ),
         )
 
 
@@ -1346,7 +1352,7 @@ class VerificationBundleManifest:
                     )
                 referenced.add(path)
         # Version-4 candidate replay records are companion metadata rather
-        # than M35 source/config inputs. Full bundle validation cross-links
+        # than safety verification source/config inputs. Full bundle validation cross-links
         # every such file through the verification-IR record after loading.
         unreferenced = sorted(
             path for path in set(files_by_path) - referenced
@@ -1546,7 +1552,7 @@ def _validate_candidate_replay_files(
 def load_candidate_equivalence_replay(
     bundle: LoadedVerificationBundle | Path,
 ) -> tuple[object, ...]:
-    """Load strict frozen M36 inputs without compiling source."""
+    """Load strict frozen semantic-reference equivalence inputs without compiling source."""
 
     loaded = load_verification_bundle(bundle) if isinstance(bundle, Path) else bundle
     payload = loaded.verification_ir.get("payload")
@@ -1851,7 +1857,7 @@ class VerificationRunConfig:
 
 @dataclass(frozen=True)
 class VerificationCounterexampleMetadata:
-    """Executor-owned interpretation of one M35 counterexample frame."""
+    """Executor-owned interpretation of one safety verification counterexample frame."""
 
     sample_cycle: int | None = None
     reset_state: str | None = None
@@ -2235,24 +2241,6 @@ class VerificationJobResult:
                 data, required=keys, description="verification job result"
             )
 
-        def optional_string(name: str) -> str | None:
-            value = data.get(name)
-            if value is not None and not isinstance(value, str):
-                raise VerificationBundleError(
-                    f"verification result {name} must be a string"
-                )
-            return value
-
-        def string_tuple(name: str) -> tuple[str, ...]:
-            value = data.get(name, [])
-            if not isinstance(value, list) or any(
-                not isinstance(item, str) for item in value
-            ):
-                raise VerificationBundleError(
-                    f"verification result {name} must be an array of strings"
-                )
-            return tuple(value)
-
         tool_values = data["tool_versions"]
         if not isinstance(tool_values, list):
             raise VerificationBundleError(
@@ -2369,28 +2357,44 @@ class VerificationJobResult:
             engine=_require_string(data["engine"], "verification result engine"),
             solver=_require_string(data["solver"], "verification result solver"),
             depth=_require_integer(data["depth"], "verification result depth", minimum=1),
-            reason=optional_string("reason"),
+            reason=_optional_string_field(data, "reason", "verification result"),
             counterexample=counterexample,  # type: ignore[arg-type]
             witness=witness,  # type: ignore[arg-type]
             source_origin=_origin_from_data(data["source_origin"]),
             tool_versions=tuple(versions),
-            work_directory=optional_string("work_directory"),
-            route=optional_string("route"),
-            backend=optional_string("backend"),
-            artifact_hash=optional_string("artifact_hash"),
-            binding_identity=optional_string("binding_identity"),
-            selected_ir_identity=optional_string("selected_ir_identity"),
-            scope_id=optional_string("scope_id"),
-            assumption_ids=string_tuple("assumption_ids"),
-            clock_domain=optional_string("clock_domain"),
-            reset_domain=optional_string("reset_domain"),
-            physical_instance_path=string_tuple("physical_instance_path"),
+            work_directory=_optional_string_field(
+                data, "work_directory", "verification result"
+            ),
+            route=_optional_string_field(data, "route", "verification result"),
+            backend=_optional_string_field(data, "backend", "verification result"),
+            artifact_hash=_optional_string_field(
+                data, "artifact_hash", "verification result"
+            ),
+            binding_identity=_optional_string_field(
+                data, "binding_identity", "verification result"
+            ),
+            selected_ir_identity=_optional_string_field(
+                data, "selected_ir_identity", "verification result"
+            ),
+            scope_id=_optional_string_field(data, "scope_id", "verification result"),
+            assumption_ids=_string_tuple_field(
+                data, "assumption_ids", "verification result"
+            ),
+            clock_domain=_optional_string_field(
+                data, "clock_domain", "verification result"
+            ),
+            reset_domain=_optional_string_field(
+                data, "reset_domain", "verification result"
+            ),
+            physical_instance_path=_string_tuple_field(
+                data, "physical_instance_path", "verification result"
+            ),
             counterexample_metadata=counterexample_metadata,
             clock_domain_contract=_clock_domain_from_job_data(
                 data.get("clock_domain_contract")
             ),
-            physical_domain_identity=optional_string(
-                "physical_domain_identity"
+            physical_domain_identity=_optional_string_field(
+                data, "physical_domain_identity", "verification result"
             ),
         )
 
@@ -2950,7 +2954,7 @@ def _vcd_snapshot(
     cycle: int | None,
     bindings: tuple[TraceBinding, ...],
 ) -> tuple[tuple[str, str], ...]:
-    """Compatibility wrapper around the shared M35/M36 decoder."""
+    """Compatibility wrapper around the shared safety verification/semantic-reference equivalence decoder."""
 
     return decode_vcd_trace(path, cycle=cycle, bindings=bindings).values
 
@@ -2975,7 +2979,7 @@ def _semantic_trace_snapshot(
     cycle: int | None,
     bindings: tuple[TraceBinding, ...],
 ) -> FormalTraceSnapshot:
-    """Decode one same-cycle M35 frame through the common trace utility."""
+    """Decode one same-cycle safety verification frame through the common trace utility."""
 
     if work_directory is None:
         return FormalTraceSnapshot(cycle, cycle, None, None, ())
@@ -3150,7 +3154,7 @@ def _load_verification_result_cache(
         loaded, job, config=config, tool_versions=tool_versions
     )
     key = stable_digest(identity)
-    canonical = cache_directory / "M35" / "results" / f"{key}.json"
+    canonical = cache_directory / "safety verification" / "results" / f"{key}.json"
     legacy = cache_directory / f"{key}.json"
     payload, diagnostic = load_json_object(canonical)
     if payload is None and diagnostic is None:
@@ -3269,7 +3273,7 @@ def _publish_verification_result_cache(
         )
     result_data = stored_result.to_data()
     publish_json_atomically(
-        cache_directory / "M35" / "results" / f"{key}.json",
+        cache_directory / "safety verification" / "results" / f"{key}.json",
         {
             "identity": dict(identity),
             "identity_hash": key,

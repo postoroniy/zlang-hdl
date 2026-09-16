@@ -16,7 +16,7 @@ from zlang.semantic import analyze
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def test_exact_complex_real_pipeline_uses_packaged_dsp48_evidence() -> None:
+def test_exact_complex_real_pipeline_uses_current_packaged_dsp48_evidence() -> None:
     source = (
         ROOT / "examples" / "fft" / "complex_multiply_pipeline_auto.zhl"
     ).read_text()
@@ -61,6 +61,12 @@ def test_exact_complex_real_pipeline_uses_packaged_dsp48_evidence() -> None:
     assert len(rejected) == 1
     assert rejected[0].name.endswith("/unregistered")
     assert any("fmax_est" in reason for reason in rejected[0].rejection_reasons)
+    assert all(candidate.evidence is not None for candidate in physical)
+    assert all(
+        candidate.evidence.key.implementation_graph_identity
+        == candidate.graph.identity
+        for candidate in physical
+    )
 
 
 def test_reusable_sdf_delay_depth_parameter_elaborates() -> None:

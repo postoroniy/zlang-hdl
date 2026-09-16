@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from zlang.common import stable_digest
+from zlang.ir.packing import PACKING_LAYOUT_SCHEMA
 from zlang.opt.ir import CanonicalModule, OptimizationStage
 from zlang.opt.render import render_identity
 
 
-CANONICAL_IR_IDENTITY_SCHEMA = "zlang-canonical-ir-content-v15"
+CANONICAL_IR_IDENTITY_SCHEMA = "zlang-canonical-ir-content-v16"
 
 
 def canonical_ir_identity(module: CanonicalModule) -> str:
@@ -25,6 +26,7 @@ def canonical_ir_identity(module: CanonicalModule) -> str:
     return prefix + ":" + stable_digest(
         {
             "schema": CANONICAL_IR_IDENTITY_SCHEMA,
+            "packing_layout_schema": PACKING_LAYOUT_SCHEMA,
             "stage": module.stage.value,
             "canonical_ir": render_identity(module),
         }

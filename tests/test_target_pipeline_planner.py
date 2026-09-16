@@ -3,7 +3,10 @@ from pathlib import Path
 
 import pytest
 
-from zlang.backend.manifest import BackendArtifact
+from zlang.backend.manifest import (
+    BackendArtifact,
+    INLINE_TOP_BOUNDARY_MANIFEST_VERSION,
+)
 from zlang.backend.systemverilog import emit_target_artifact
 from zlang.compiler import compile_source
 from zlang.costs import MetricSource
@@ -55,6 +58,46 @@ def test_default_qor_catalog_loads_fir_and_signed_product_evidence():
     }
 
 
+def test_packaged_qor_catalog_keys_match_current_emitted_graphs() -> None:
+    records = load_qor_evidence()
+    fir_template = "std.arch.xilinx7_fir.Xilinx7SymmetricDSPCascade"
+    signed_template = (
+        "std.arch.xilinx7_signed_product.Xilinx7SignedProductCascade"
+    )
+    packaged_fir = {
+        item.key.implementation_graph_identity
+        for item in records
+        if item.key.architecture_template_identity == fir_template
+    }
+    bounded = _compile()
+    exact = _compile(top="SymmetricFixedFIRAutoExact8")
+    current_fir = {
+        item.graph.identity
+        for item in bounded.target_planning_result.generated_candidates
+        if not item.graph.is_generic
+    }
+    current_fir.add(exact.target_planning_result.selected_candidate.graph.identity)
+    assert packaged_fir == current_fir
+
+    fft_source = (
+        ROOT / "examples/fft/complex_multiply_pipeline_auto.zhl"
+    ).read_text()
+    current_signed = set()
+    for top in ("FFTComplexMultiplyRealAuto", "FFTComplexMultiplyImagAuto"):
+        result = compile_source(fft_source, top=top, target=TARGET)
+        current_signed.update(
+            item.graph.identity
+            for item in result.target_planning_result.generated_candidates
+            if not item.graph.is_generic
+        )
+    packaged_signed = {
+        item.key.implementation_graph_identity
+        for item in records
+        if item.key.architecture_template_identity == signed_template
+    }
+    assert packaged_signed == current_signed
+
+
 def test_generic_candidate_uses_computed_structural_fmax_not_placeholder():
     result = _compile()
     generic = result.target_planning_result.generated_candidates[0]
@@ -83,9 +126,9 @@ def test_measured_bounded_contract_selects_lower_latency_100mhz_configuration():
     assert len(graph.dedicated_edges) == 3
     assert not graph.timing_dag.compensation_delays
     report = result.target_planner_report
-    assert "72.1 < 100" in report
-    assert "80.2 < 100" in report
-    assert "108.08 MHz (routed_measurement)" in report
+    assert "73.4322220590395 < 100" in report
+    assert "81.29420372327453 < 100" in report
+    assert "103.17787866281469 MHz (routed_measurement)" in report
 
 
 def test_candidate_set_is_generic_plus_four_resource_configurations():
@@ -107,7 +150,9 @@ def test_exact_latency_adds_only_explicit_compensation():
     assert selected.active_pipeline_sites == ("multiply", "accumulate_output")
     assert sum(item.cycles for item in selected.timing_dag.compensation_delays) == 5
     assert sum(item.ff_cost for item in selected.timing_dag.compensation_delays) == 80
-    assert result.target_planning_result.selected_candidate.cost.fmax_est.value == pytest.approx(106.1233)
+    assert result.target_planning_result.selected_candidate.cost.fmax_est.value == pytest.approx(
+        104.9538203190596
+    )
 
 
 def test_bounded_latency_does_not_add_compensation():
@@ -127,7 +172,7 @@ def test_timing_dag_keeps_dedicated_edges_and_resource_local_cuts():
     }
 
 
-def test_m30_alignment_becomes_explicit_deterministic_ff_cost():
+def test_timing_alignment_alignment_becomes_explicit_deterministic_ff_cost():
     a = expr.InputRef("a", UIntType(8))
     b = expr.Pipeline(2, expr.InputRef("b", UIntType(8)), 0, UIntType(8))
     first = alignment_delays((a, b), ("path-a", "path-b"), width=8,
@@ -212,7 +257,7 @@ def test_manifest_v7_retains_policy_timing_cost_evidence_and_backend():
     artifact = emit_target_artifact(result.ir, result.implementation_graph, simulation_model=True)
     restored = BackendArtifact.from_json(artifact.to_json())
     implementation = restored.implementation
-    assert restored.manifest_version == 7
+    assert restored.manifest_version == INLINE_TOP_BOUNDARY_MANIFEST_VERSION
     assert implementation.realization_backend == "direct_systemverilog"
     assert implementation.latency_knowledge == "known"
     assert implementation.policy_requirements == (

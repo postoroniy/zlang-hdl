@@ -105,10 +105,10 @@ module SignedRelationalWitness {
 """
 
 
-M36_SOURCE = """
+SEMANTIC_EQUIVALENCE_SOURCE = """
 struct SignedBox { value : s8 }
 
-module SignedProjectionM36 {
+module SignedProjectionSemanticEquivalence {
     in raw : bits<8>
     in threshold : s16
     out y : bit
@@ -346,8 +346,8 @@ def test_direct_sv_casts_typed_ordered_operands_and_matches_edges(
 
 
 
-def _m36_source(implementation: str) -> tuple[object, str, str]:
-    module = compile_source(M36_SOURCE).ir
+def _semantic_equivalence_source(implementation: str) -> tuple[object, str, str]:
+    module = compile_source(SEMANTIC_EQUIVALENCE_SOURCE).ir
     expression = module.assignments[0].expression
     identity = "selected:signed-projection-relational"
     reference = emit_reference_model(
@@ -391,7 +391,7 @@ def _m36_source(implementation: str) -> tuple[object, str, str]:
         reference_module="SignedProjectionReference",
         implementation_module=module.name,
     )
-    top = "m36_" + property_.id.replace(".", "_")
+    top = "semantic_equivalence_" + property_.id.replace(".", "_")
     return property_, reference + "\n" + implementation + "\n" + miter, top
 
 
@@ -399,15 +399,15 @@ def _m36_source(implementation: str) -> tuple[object, str, str]:
     len(formal_tools_available()) != 3,
     reason="Yosys/SymbiYosys formal tools are unavailable",
 )
-def test_m36_signed_projection_extend_passes_and_unsigned_mutation_fails() -> None:
-    module = compile_source(M36_SOURCE).ir
+def test_semantic_equivalence_signed_projection_extend_passes_and_unsigned_mutation_fails() -> None:
+    module = compile_source(SEMANTIC_EQUIVALENCE_SOURCE).ir
     implementation = emit_artifact(
         module, selected_ir_identity="selected:signed-projection-relational"
     ).text
     expected = "16'($signed(zlang_expr_0[7:0]))"
     assert expected in implementation
 
-    property_, source, top = _m36_source(implementation)
+    property_, source, top = _semantic_equivalence_source(implementation)
     correct = run_equivalence_formal(
         property_, source, top=top, mode=EquivalenceMode.BMC, depth=2
     )
@@ -419,7 +419,7 @@ def test_m36_signed_projection_extend_passes_and_unsigned_mutation_fails() -> No
         1,
     )
     assert mutated != implementation
-    _, bad_source, bad_top = _m36_source(mutated)
+    _, bad_source, bad_top = _semantic_equivalence_source(mutated)
     failed = run_equivalence_formal(
         property_, bad_source, top=bad_top, mode=EquivalenceMode.BMC, depth=2
     )

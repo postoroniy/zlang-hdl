@@ -26,7 +26,7 @@ SOURCE = (
 )
 
 
-def _m36(
+def _semantic_equivalence(
     module,
     implementation: str,
     implementation_module: str,
@@ -76,7 +76,7 @@ def _m36(
         implementation_module=implementation_module,
     )
     source = reference + "\n" + implementation + "\n" + miter
-    top = "m36_" + property_.id.replace(".", "_")
+    top = "semantic_equivalence_" + property_.id.replace(".", "_")
     return property_, source, top
 
 
@@ -84,12 +84,12 @@ def _m36(
     len(formal_tools_available()) != 3,
     reason="Yosys/SymbiYosys formal tools are unavailable",
 )
-def test_real_m36_fixed_reference_passes_and_rounding_mutation_fails() -> None:
+def test_real_semantic_equivalence_fixed_reference_passes_and_rounding_mutation_fails() -> None:
     module = compile_source(SOURCE).ir
     implementation = emit_artifact(
         module, selected_ir_identity="selected:fixed-review"
     ).text
-    property_, source, top = _m36(
+    property_, source, top = _semantic_equivalence(
         module, implementation, module.name, "direct_systemverilog"
     )
     correct = run_equivalence_formal(
@@ -99,7 +99,7 @@ def test_real_m36_fixed_reference_passes_and_rounding_mutation_fails() -> None:
 
     mutated = implementation.replace(" + 9'd1 + ", " + 9'd0 + ")
     assert mutated != implementation
-    _, bad_source, bad_top = _m36(
+    _, bad_source, bad_top = _semantic_equivalence(
         module, mutated, module.name, "direct_systemverilog"
     )
     failed = run_equivalence_formal(
@@ -159,9 +159,9 @@ assign y=($signed(p0) >>> 2)+($signed(p1) >>> 2); endmodule""",
     ),
     ids=("wrap-for-saturate", "saturation-off-by-one", "unsigned-sub-width", "missing-guard", "premature-quantize"),
 )
-def test_real_m36_fixed_mutation_matrix_fails(source: str, bad_rtl: str) -> None:
+def test_real_semantic_equivalence_fixed_mutation_matrix_fails(source: str, bad_rtl: str) -> None:
     module = compile_source(source).ir
-    property_, formal_source, top = _m36(
+    property_, formal_source, top = _semantic_equivalence(
         module, bad_rtl, module.name, "direct_systemverilog"
     )
     result = run_equivalence_formal(

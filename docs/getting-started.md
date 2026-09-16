@@ -21,12 +21,20 @@ with the unrelated language that already owns that extension.
 
 ## Install for development
 
-This alpha release supports Python 3.12. From the repository root:
+This alpha release requires CPython `>=3.12,<3.13`. The recommended `uv`
+workflow does not require a suitable Python interpreter to be installed first;
+`uv` can download and manage the verified runtime. From the repository root:
 
 ```sh
-python3 -m venv .venv
-.venv/bin/python -m pip install -e '.[test]'
+uv python install 3.12
+uv venv --python 3.12
+uv pip install -e '.[test]'
 ```
+
+If a compatible interpreter is already available, the complete installation
+guide also documents a conventional `venv`/pip path without relying on a
+version-specific executable name. Windows users should run the Linux flow
+inside WSL2 rather than installing the compiler into native Windows Python.
 
 The compiler and LSP do not require an EDA installation. Verilator, Yosys,
 SymbiYosys, `yosys-smtbmc`, Z3 and Icarus are optional external programs for
@@ -83,7 +91,7 @@ assert count_within @ clk { count <= DEPTH }
 cover reaches_full @ clk { count == DEPTH }
 ```
 
-Run the applicable existing M35 safety families plus source goals:
+Run the applicable existing safety verification safety families plus source goals:
 
 ```sh
 .venv/bin/zlang design.zhl --top Top --verify \
@@ -111,8 +119,8 @@ are retained in the external work directory; the immutable bundle is not
 modified. `--formal-jobs` parallelizes independent bundled safety/cover jobs
 and independent selected-candidate sites. Stages inside one candidate site
 remain ordered; plans, evidence, and report order remain deterministic.
-Candidate M36 jobs use deterministic subdirectories of that same external root;
-an exact in-session M39 reuse reports its retained root when one exists.
+Candidate semantic-reference equivalence jobs use deterministic subdirectories of that same external root;
+an exact in-session formal-aware selection reuse reports its retained root when one exists.
 Persistent proof-cache hits do not fabricate old workspace paths.
 
 Each verification goal is routed against its own declared clock/reset pair.
@@ -122,25 +130,25 @@ cross-domain temporal property or change the general backend domain boundary.
 
 The formal triggers are deliberately distinct:
 
-- a non-`off` `--formal-policy` without `--verify` runs only the existing M39
-  selection-time M36 gate;
-- `--verify` with policy `off` runs M35/source safety and covers;
+- a non-`off` `--formal-policy` without `--verify` runs only the existing formal-aware selection
+  selection-time semantic-reference equivalence gate;
+- `--verify` with policy `off` runs safety verification/source safety and covers;
 - `--verification-bundle` publishes the base safety/cover bundle and linking
-  plan but does not prepare or execute selected-candidate M36;
+  plan but does not prepare or execute selected-candidate semantic-reference equivalence;
 - `--verify` with a non-`off` policy additionally executes the compatible
-  selected-candidate direct-SV M36 route.
+  selected-candidate direct-SV semantic-reference equivalence route.
 
-When a joint compiler run has prepared selected-candidate M36 inputs, bundle
+When a joint compiler run has prepared selected-candidate semantic-reference equivalence inputs, bundle
 publication stores exact hash-validated replay companions. `zlang-verify`
-executes those frozen routes without recompiling source or rerunning M39
-selection. A base bundle continues to replay only its M35/source safety and
+executes those frozen routes without recompiling source or rerunning formal-aware selection
+selection. A base bundle continues to replay only its safety verification/source safety and
 cover jobs. A raw safety/cover run uses
 `zlang-verification-run-report-v7`; a run that produces candidate reports uses
 `zlang-compiler-verification-report-v1`, which wraps that raw report and keeps
-M36 results separately typed. A safety or M36 counterexample exits `1`;
+semantic-reference equivalence results separately typed. A safety or semantic-reference equivalence counterexample exits `1`;
 unavailable/unknown/vacuous safety evidence exits `2`. An unavailable advisory
 candidate route and an ordinary bounded cover miss do not themselves fail the
-command. Historical M38 records remain readable but are never executed by the
+command. Historical retired cross-backend equivalence records remain readable but are never executed by the
 production compiler. See
 [First-class verification goals and contracts](optimization-formal.md#first-class-verification-goals-and-contracts).
 

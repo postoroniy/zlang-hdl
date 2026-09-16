@@ -1,6 +1,6 @@
-"""Exact physical-domain validation for retained M36 backend artifacts.
+"""Exact physical-domain validation for retained semantic-reference equivalence backend artifacts.
 
-M36 replay is immutable only when its typed relation and both retained backend
+semantic-reference equivalence replay is immutable only when its typed relation and both retained backend
 artifacts agree about the sampled clock/reset contract.  This module keeps
 that check shared by the prepared-leg codec and the frozen-site validator; it
 does not add a new equivalence relation or infer any RTL names.
@@ -30,7 +30,7 @@ from zlang.ir.equivalence import (
 
 
 class EquivalenceArtifactDomainError(ValueError):
-    """A retained M36 artifact disagrees with its typed physical domain."""
+    """A retained semantic-reference equivalence artifact disagrees with its typed physical domain."""
 
 
 def _manifest_domain(record: PhysicalDomainManifest) -> ClockDomain:
@@ -95,9 +95,9 @@ def validate_equivalence_artifact_domain(
     side: BindingSide,
     label: str,
 ) -> None:
-    """Validate one retained artifact against the exact M36 domain contract.
+    """Validate one retained artifact against the exact semantic-reference equivalence domain contract.
 
-    Version-10 artifacts must publish one matching physical-domain record and
+    Version-10-or-newer artifacts must publish one matching physical-domain record and
     the record's paths must resolve to the exact public clock/reset bindings.
     Historical artifacts without a v10 record retain only their original
     synchronous, rising-edge, active-high meaning.
@@ -109,29 +109,29 @@ def validate_equivalence_artifact_domain(
         if records:
             raise EquivalenceArtifactDomainError(
                 f"{label} artifact publishes a physical clock/reset domain but "
-                "the M36 property has no sampled domain contract"
+                "the semantic-reference equivalence property has no sampled domain contract"
             )
         return
 
     expected.validate()
     expected_identity = clock_domain_contract_identity(expected)
     if records:
-        if artifact.manifest_version != PHYSICAL_DOMAIN_MANIFEST_VERSION:
+        if artifact.manifest_version < PHYSICAL_DOMAIN_MANIFEST_VERSION:
             raise EquivalenceArtifactDomainError(
                 f"{label} physical-domain artifact requires manifest version "
-                f"{PHYSICAL_DOMAIN_MANIFEST_VERSION}"
+                f"{PHYSICAL_DOMAIN_MANIFEST_VERSION} or newer"
             )
         if len(records) != 1:
             raise EquivalenceArtifactDomainError(
                 f"{label} artifact must publish exactly one physical domain for "
-                "the retained M36 relation"
+                "the retained semantic-reference equivalence relation"
             )
         record = records[0]
         actual = _manifest_domain(record)
         if actual != expected or record.identity != expected_identity:
             raise EquivalenceArtifactDomainError(
                 f"{label} artifact physical clock/reset contract disagrees with "
-                "the M36 property"
+                "the semantic-reference equivalence property"
             )
         if record.rtl_module != artifact.module:
             raise EquivalenceArtifactDomainError(
@@ -178,7 +178,7 @@ def validate_prepared_equivalence_domains(
     reference_artifact: BackendArtifact | None,
     implementation_artifact: BackendArtifact | None,
 ) -> None:
-    """Validate all retained artifacts of one prepared M36 leg."""
+    """Validate all retained artifacts of one prepared semantic-reference equivalence leg."""
 
     if reference_artifact is not None:
         validate_equivalence_artifact_domain(

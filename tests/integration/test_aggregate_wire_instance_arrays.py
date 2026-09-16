@@ -43,14 +43,14 @@ def test_direct_sv_lints_and_simulates_aggregate_leaves(tmp_path: Path) -> None:
     bench = tmp_path / "tb.sv"
     bench.write_text(r"""
 module tb;
-  logic [7:0] x [0:1];
-  logic [7:0] y_left [0:1];
-  logic [7:0] y_right [0:1];
+  logic [1:0][7:0] x;
+  logic [1:0][7:0] y_left;
+  logic [1:0][7:0] y_right;
   PairLaneArray dut(.*);
   initial begin
-    x[0]=8'h12; x[1]=8'h34; #1;
-    if (y_left[0]!=8'h12 || y_right[0]!=8'h12 ||
-        y_left[1]!=8'h34 || y_right[1]!=8'h34) $fatal(1,"aggregate order");
+    x[1]=8'h12; x[0]=8'h34; #1;
+    if (y_left[1]!=8'h12 || y_right[1]!=8'h12 ||
+        y_left[0]!=8'h34 || y_right[0]!=8'h34) $fatal(1,"aggregate order");
     $finish;
   end
 endmodule

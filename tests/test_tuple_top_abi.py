@@ -47,16 +47,16 @@ def test_nested_tuple_public_leaves_have_positional_names_and_exact_slices() -> 
         (leaf.packed_msb, leaf.packed_lsb)
         for leaf in leaves.values()
     ) == (
-        (12, 5),
-        (4, 4),
-        (3, 0),
-        (12, 5),
-        (4, 4),
-        (3, 0),
+        (7, 0),
+        (8, 8),
+        (12, 9),
+        (7, 0),
+        (8, 8),
+        (12, 9),
     )
 
 
-def test_vector_of_tuples_preserves_public_arrays_and_msb_first_aos_slices() -> None:
+def test_vector_of_tuples_preserves_public_arrays_and_lsb_first_aos_slices() -> None:
     source = """
     module TupleArrayABI {
         in p : vec<2,(u4,bit)>
@@ -81,10 +81,10 @@ def test_vector_of_tuples_preserves_public_arrays_and_msb_first_aos_slices() -> 
     assert tuple(
         (item.indices, item.msb, item.lsb)
         for item in first.packed_element_slices
-    ) == (((0,), 9, 6), ((1,), 4, 1))
+    ) == (((0,), 3, 0), ((1,), 8, 5))
     assert tuple(
         (item.indices, item.msb, item.lsb)
         for item in second.packed_element_slices
-    ) == (((0,), 5, 5), ((1,), 0, 0))
+    ) == (((0,), 4, 4), ((1,), 9, 9))
     assert first.packed_msb is first.packed_lsb is None
     assert second.packed_msb is second.packed_lsb is None

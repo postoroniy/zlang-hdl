@@ -1,13 +1,13 @@
-# Recursive M35 formal binding implementation
+# Recursive safety verification formal binding implementation
 
 > **Historical evidence:** this chronological implementation record predates
-> complete Clash/M38 retirement. Current executable M35 publication uses the
+> complete Clash/retired cross-backend equivalence retirement. Current executable safety verification publication uses the
 > production direct-SystemVerilog artifact only.
 
 Status: the bounded register, FIFO, in-order request/response, and CSR semantic
 state families are implemented for both backend manifests where their exact
 observations are published. Missing observations still produce explicit skips;
-arrays and hierarchical M36/M38 remain outside the slice. A later concrete
+arrays and hierarchical semantic-reference equivalence/retired cross-backend equivalence remain outside the slice. A later concrete
 Wi-Fi controller requirement connected the already-existing rule exclusivity
 and priority properties to formal-only accepted-fire observations in both
 backends. That closure leaves production RTL unchanged and does not create a
@@ -23,11 +23,11 @@ typed/elaborated hierarchy
         -> RecursiveFormalDesign
         -> BackendArtifact v4 recursive manifest
         -> backend formal observation artifact
-        -> one whole-top M35 harness
+        -> one whole-top safety verification harness
 ```
 
 `RecursiveFormalDesign` records component contracts, physical instance nodes,
-specialization identities, semantic object references, concrete M35 properties,
+specialization identities, semantic object references, concrete safety verification properties,
 aggregate member paths, domains, and source origins. The property identity is
 derived from source property, module/source hash, specialization, physical
 instance identity, and recursive schema. Same-specialization siblings are
@@ -53,7 +53,7 @@ returns `skipped` for any required observation that is not connected, and never
 claims a proof from incomplete instrumentation. RTL names are backend locators
 only and are never parsed back into semantic hierarchy.
 
-The first execution strategy is a whole-top harness. Hierarchical M36,
+The first execution strategy is a whole-top harness. Hierarchical semantic-reference equivalence,
 compositional theorem decomposition, direct-SystemVerilog emission, liveness,
 CDC, memory refinement, and bus-specific formal paths remain excluded.
 
@@ -87,7 +87,7 @@ fixture.
 ## Clash nested FIFO slice
 
 The same structured component ABI now transports nested FIFO semantic state.
-The observation inventory is deliberately limited to the existing M35-visible
+The observation inventory is deliberately limited to the existing safety verification-visible
 objects: committed `count`, accepted `push`/`pop`, `empty`, `full`, and `front`.
 The Clash mapping binds semantic `push` and `pop` to the implementation's
 accepted `enqueue` and `dequeue` signals. Request attempts, `count_next`, FIFO
@@ -110,7 +110,7 @@ with an attributed counterexample while `fifo0` remains bounded-pass.
 
 Direct-SV now emits the same scalar-controlled FIFO child through its generic
 composed storage path. The existing recursive FIFO observation family is
-therefore published for that artifact too; this is reuse of the frozen M35
+therefore published for that artifact too; this is reuse of the frozen safety verification
 family, not a new formal abstraction. Request/response, CSR-derived state, and
 rule-fire observations retain their separately documented applicability and
 execute only when every required binding is published.
@@ -136,7 +136,7 @@ request occupancy without changing outstanding, responder acceptance increments
 outstanding, response buffering does not decrement it, requester consumption
 does decrement it, and simultaneous acceptance/consumption preserves the count.
 Reset clears all three committed quantities and starts a new transaction epoch.
-All five exact recursive request/response M35 properties pass through SBY/Z3.
+All five exact recursive request/response safety verification properties pass through SBY/Z3.
 A child1-only mutation that suppresses the connection ledger's accepted-request
 increment fails with an attributed counterexample while child0 remains
 bounded-pass.  Mutating requester/responder child-local bookkeeping is not a
@@ -153,13 +153,13 @@ observations and the parent-owned outstanding ledger, so the supported recursive
 request/response properties execute through both backends.
 
 CSR and rule-fire transport were closed by later bounded real-design slices.
-Arrays that do not publish complete observations and hierarchical M36/M38 remain
+Arrays that do not publish complete observations and hierarchical semantic-reference equivalence/retired cross-backend equivalence remain
 outside the current formal boundary.
 The completion regression is 625/625 tests.
 
 ## CSR semantic-state follow-on
 
-Recursive M35 now addresses CSR storage by instantiated `CsrFieldIdentity` and
+Recursive safety verification now addresses CSR storage by instantiated `CsrFieldIdentity` and
 resolves it through `CsrFieldStateBinding.implementation_state_id`; it never
 searches for `rw_state`, `w1c_state`, `pulse_state`, or an RTL spelling. The
 formal-only component projection carries committed state, accepted decoded
@@ -173,7 +173,7 @@ The completion regression is 639/639 tests.
 
 ## Structured-predicate correctness repair
 
-Executable M35 properties now use the versioned structured predicate IR. The
+Executable safety verification properties now use the versioned structured predicate IR. The
 human-readable `expression` field is no longer parsed by either recursive
 runner. Each observation is resolved by exact semantic ID, width, signedness,
 clock domain, reset domain, and a backend-published locator. Protocol aggregate
@@ -192,5 +192,5 @@ real SBY/Z3.
 The structured-predicate repair was accepted at 1177 tests; the live repository
 baseline is recorded in the README and backend-tooling guide. The
 formal-infrastructure freeze remains in force: additional rule-fire or state
-observation families, hierarchical M36/M38, and compositional theorem machinery
+observation families, hierarchical semantic-reference equivalence/retired cross-backend equivalence, and compositional theorem machinery
 require a concrete real-design correctness need.

@@ -326,8 +326,8 @@ def test_global_mask_supports_signed_raw_representation_and_reset() -> None:
             [ord("X"), ord("Y")],
             [ord("M"), ord("N")],
             [[0, 0], [0, 0], [ord("A"), ord("B")],
-             [ord("A"), ord("Y")], [ord("M"), ord("Y")],
-             [ord("M"), ord("Y")]],
+             [ord("X"), ord("B")], [ord("X"), ord("N")],
+             [ord("X"), ord("N")]],
         ),
         (
             "string<2>", "read_first",
@@ -336,7 +336,7 @@ def test_global_mask_supports_signed_raw_representation_and_reset() -> None:
             [ord("X"), ord("Y")],
             [ord("M"), ord("N")],
             [[0, 0], [0, 0], [0, 0], [ord("A"), ord("B")],
-             [ord("A"), ord("Y")], [ord("M"), ord("Y")]],
+             [ord("X"), ord("B")], [ord("X"), ord("N")]],
         ),
         (
             "(u8,u8)", "write_first",
@@ -345,7 +345,7 @@ def test_global_mask_supports_signed_raw_representation_and_reset() -> None:
             (0xAB, 0xCD),
             (0xEE, 0xFF),
             [(0, 0), (0, 0), (0x12, 0x34),
-             (0x12, 0xCD), (0xEE, 0xCD), (0xEE, 0xCD)],
+             (0xAB, 0x34), (0xAB, 0xFF), (0xAB, 0xFF)],
         ),
         (
             "(u8,u8)", "read_first",
@@ -354,7 +354,7 @@ def test_global_mask_supports_signed_raw_representation_and_reset() -> None:
             (0xAB, 0xCD),
             (0xEE, 0xFF),
             [(0, 0), (0, 0), (0, 0), (0x12, 0x34),
-             (0x12, 0xCD), (0xEE, 0xCD)],
+             (0xAB, 0x34), (0xAB, 0xFF)],
         ),
     ),
 )

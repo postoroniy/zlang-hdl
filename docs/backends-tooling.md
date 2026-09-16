@@ -24,23 +24,25 @@ ordinary `.zhl` library modules, not AXI/APB-specific backend dispatch.
 For one non-default physical domain, direct SystemVerilog consumes the typed
 [clock/reset contract](physical-clock-reset-contract.md). Concise `async reset`
 creates one root-owned asynchronous-assert/two-edge-synchronous-release
-conditioner and emits the two `ASYNC_REG` stages. BackendArtifact version 10
-binds the external clock/reset ports to that exact contract; legacy synchronous
-artifacts retain their prior version and text.
+conditioner and emits the two `ASYNC_REG` stages. BackendArtifact version 11
+binds the inline top boundary and every clocked direct-SV artifact publishes
+its exact external clock/reset-domain contract.
 
 ## Public RTL boundary
 
 The selected ZLang top has one physical direct-SV ABI. `TopPhysicalABI`
 recursively exposes struct fields and tuple components as named leaves and
-preserves vectors as native unpacked SystemVerilog arrays. Tuple components use
+preserves vectors as multidimensional packed SystemVerilog arrays. Tuple components use
 deterministic `itemN` path segments. There is no packed/leaf mode and no
 compatibility switch. Scalar and protocol ownership, field paths, array shapes,
 packing slices, clock/reset domains, and manifest identities all come from the
 same typed projection.
 
-Direct SystemVerilog emits a private packed `<Top>__zlang_core` only when a
-boundary conversion is needed. Direct-SV uses the
-typed packing metadata and does not parse or rename generated RTL.
+Direct SystemVerilog emits the selected top as exactly one module. When a
+boundary conversion is needed, deterministic `zlang_packed_*` aliases and
+their typed pack/unpack assignments live inside that module. Child components
+retain their compact packed ABI. Direct-SV uses typed packing metadata and
+never parses or renames generated RTL.
 
 The versioned [whole-build manifest](whole-build-manifests.md) joins locked
 sources, high-level/selected IR identities, independently planned backend
@@ -84,19 +86,19 @@ zlang SOURCE [options]
 | `--evidence-report PATH` | Write deterministic typed semantic/timing/formal evidence. |
 | `--evidence-format text\|json` | Select the evidence report representation. |
 | `--build-manifest PATH` | Write the validated whole-build manifest after backend publication. |
-| `--verify` | Publish a per-goal routed verification bundle and execute its executable safety and bounded-cover jobs. With a non-`off` formal policy, also execute selected-candidate M36 evidence when supported. |
-| `--verification-bundle DIR` | Publish the immutable, hash-validated bundle for later replay. A base publication contains safety/cover jobs; a joint prepared plan may also include exact selected-candidate M36 companions. Publication itself executes neither route. |
-| `--verification-report PATH` | Write the raw safety/cover run report, or the joint compiler wrapper when candidate M36 also ran. |
+| `--verify` | Publish a per-goal routed verification bundle and execute its executable safety and bounded-cover jobs. With a non-`off` formal policy, also execute selected-candidate semantic-reference equivalence evidence when supported. |
+| `--verification-bundle DIR` | Publish the immutable, hash-validated bundle for later replay. A base publication contains safety/cover jobs; a joint prepared plan may also include exact selected-candidate semantic-reference equivalence companions. Publication itself executes neither route. |
+| `--verification-report PATH` | Write the raw safety/cover run report, or the joint compiler wrapper when candidate semantic-reference equivalence also ran. |
 | `--verification-work-dir DIR` | Retain generated SBY inputs, solver logs, and traces for `--verify` outside the immutable bundle. |
 | `--verification-format text\|json` | Select verification report rendering. |
 | `--verify-require checked\|proven` | Require bounded safety checking or a complete proof; bounded evidence never satisfies `proven`. |
 | `--implementation-policy-report PATH` | Write normalized source/profile policy and semantic regions. |
 | `--backend-implementation-report PATH` | Write the direct-SV implementation plan status. |
-| `--formal-harness PATH`, `--formal-sby PATH` | Generate the existing M35 checker/SymbiYosys inputs; generation alone is not proof execution. |
-| `--formal-depth N` | Set bounded depth for M35/M39 and for joint candidate M36 execution. |
-| `--formal-policy off\|available\|required_bmc\|required_proven` | Select the frozen M39 candidate eligibility policy. |
-| `--formal-max-candidates N` | Bound selection-phase M39 execution. |
-| `--formal-timeout SECONDS`, `--formal-cache DIR` | Set the formal timeout and the shared namespaced prepared/M35/M36/M39 cache. |
+| `--formal-harness PATH`, `--formal-sby PATH` | Generate the existing safety verification checker/SymbiYosys inputs; generation alone is not proof execution. |
+| `--formal-depth N` | Set bounded depth for safety verification/formal-aware selection and for joint candidate semantic-reference equivalence execution. |
+| `--formal-policy off\|available\|required_bmc\|required_proven` | Select the frozen formal-aware selection candidate eligibility policy. |
+| `--formal-max-candidates N` | Bound selection-phase formal-aware selection execution. |
+| `--formal-timeout SECONDS`, `--formal-cache DIR` | Set the formal timeout and the shared namespaced prepared/safety verification/semantic-reference equivalence/formal-aware selection cache. |
 | `--formal-jobs N` | Execute independent verification-bundle safety/cover jobs and independent selected-candidate sites concurrently. Stages within one candidate site remain ordered; report order remains deterministic. |
 | `--synthesis-report PATH`, `--synthesis-cache DIR` | Publish/cache optional measured Yosys candidate evidence. |
 | `--synthesis-target generic-lut6` | Select the current bounded Yosys characterization target. |
@@ -111,7 +113,7 @@ Artifact/report sinks suppress implicit backend stdout. With no explicit sink,
 the CLI emits direct SystemVerilog to stdout. Diagnostics always use stderr and
 a nonzero exit status on failure. See [structured diagnostics](structured-diagnostics.md) and
 [generated source maps](generated-source-maps.md).
-Target and M39 details are in the
+Target and formal-aware selection details are in the
 [target-aware planner](high-level-target-aware-architecture-pipeline-planner.md)
 and [optimization/formal guide](optimization-formal.md).
 
@@ -153,25 +155,25 @@ or non-regular destinations. See the complete
 | `--evidence-report` | Typed evidence with exact `typed_legal`, timing, bounded, proof, failure, skip, and not-run status. |
 | `--build-manifest` | Deterministic build join over sources, canonical identities, products, tools, reports, and evidence. |
 | `--verification-bundle` | Immutable manifest, verification IR, implementation/source map, and executable or explicitly skipped per-safety/per-cover jobs. |
-| `--verification-report` | Raw v7 safety/cover results, or the joint v1 compiler wrapper with separately typed candidate M36 evidence. |
+| `--verification-report` | Raw v7 safety/cover results, or the joint v1 compiler wrapper with separately typed candidate semantic-reference equivalence evidence. |
 | `--simulation-state-bundle` | Simulation-only typed state manifest and generated Verilator VPI C++ header, hash-bound to an unchanged direct-SV artifact. |
 
 Formal execution follows an exact trigger matrix:
 
 - with none of `--verify`, `--verification-bundle`, or a non-`off` formal
   policy, compiler orchestration schedules no formal work;
-- a non-`off` policy alone runs the selection-time M39-to-direct-SV-M36 route;
+- a non-`off` policy alone runs the selection-time formal-aware selection-to-direct-SV-semantic-reference equivalence route;
   it does not prepare a second candidate-equivalence job;
-- `--verify` with policy `off` runs only executable M35/source safety and cover
+- `--verify` with policy `off` runs only executable safety verification/source safety and cover
   jobs;
 - `--verification-bundle` publishes immutable safety/cover inputs and the base
   compiler linking plan, but does not execute or prepare selected-candidate
-  M36, even if a non-`off` policy is also supplied. Publication does not run a
+  semantic-reference equivalence, even if a non-`off` policy is also supplied. Publication does not run a
   solver;
-- `--verify` with a non-`off` policy enriches that plan and executes M35/source
-  jobs plus the compatible selected-candidate direct-SV M36 route.
+- `--verify` with a non-`off` policy enriches that plan and executes safety verification/source
+  jobs plus the compatible selected-candidate direct-SV semantic-reference equivalence route.
 
-The linking plan references exact M35/source jobs and M39 candidate records by
+The linking plan references exact safety verification/source jobs and formal-aware selection candidate records by
 semantic site and rank while retaining their separate result vocabularies.
 Selected-candidate plans are added only by the joint `--verify` trigger, and
 their execution results live in the external compiler verification report and
@@ -195,7 +197,7 @@ zlang-verify build/verify --mode bmc --depth 20 \
 ```
 
 Replay validates every content hash before execution. It executes bundled
-M35/source safety and cover jobs, and the frozen selected-candidate M36 inputs
+safety verification/source safety and cover jobs, and the frozen selected-candidate semantic-reference equivalence inputs
 when a joint compiler run published those companions. It does not
 recompile the source or rerun candidate selection to reconstruct absent legs.
 The [arithmetic exploration example](../examples/verification/math-exploration.md)
@@ -204,8 +206,8 @@ timeout, tool versions, logs, and results belong to execution and do not mutate
 the bundle. `zlang-verify` defaults its work directory to the sibling
 `build/verify.work`; `zlang --verify` uses `--verification-work-dir` when
 provided. A work directory inside the bundle is rejected. A safety
-counterexample, or any actually executed joint M36 counterexample, exits
-`1`. Unavailable, unknown, vacuous, or insufficient M35/source proof evidence
+counterexample, or any actually executed joint semantic-reference equivalence counterexample, exits
+`1`. Unavailable, unknown, vacuous, or insufficient safety verification/source proof evidence
 exits `2`; unavailable advisory candidate evidence does not by itself make a
 joint report incomplete. A normal `bounded_unreached` cover result does not fail
 the command. See [Optimization and formal verification](optimization-formal.md)
@@ -229,10 +231,10 @@ raw log text do not participate in the run identity.
 
 When joint selected-candidate evidence executes, the public JSON result is
 `zlang-compiler-verification-report-v1`. It wraps the raw v7 safety/cover report,
-the exact compiler linking plan, and the separately typed M36 candidate report.
-Candidate reports retain deterministic per-route M36 work directories and
+the exact compiler linking plan, and the separately typed semantic-reference equivalence candidate report.
+Candidate reports retain deterministic per-route semantic-reference equivalence work directories and
 the discovered tool snapshot when those routes execute. Exact in-session reuse
-of an M39 result also retains its recorded work root. Persistent M39 cache
+of an formal-aware selection result also retains its recorded work root. Persistent formal-aware selection cache
 payloads deliberately exclude physical paths, so a cache hit does not claim
 that a stale workspace still exists. Paths remain operational metadata outside
 semantic, evidence, run, and proof-cache identities.
@@ -244,7 +246,7 @@ when a compatible BackendArtifact exists, and a complete direct-SV route.
 Bundle v4 jobs and run-report v7 results repeat that identity;
 strict restoration rejects a corrupt digest or plan/job/result disagreement. A
 harness never combines backend signal sets. Prepared routes,
-M35 jobs, M36 products, and M39 records use separate content-addressed
+safety verification jobs, semantic-reference equivalence products, and formal-aware selection records use separate content-addressed
 cache namespaces; only decisive results are reusable. The current orchestration
 and caching rules are documented in
 [Optimization and formal verification](optimization-formal.md).

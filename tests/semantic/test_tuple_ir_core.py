@@ -64,7 +64,7 @@ def test_structural_tuple_type_codec_width_and_bounded_arity() -> None:
         )
 
 
-def test_tuple_runtime_domain_zero_and_msb_first_packing_are_exact() -> None:
+def test_tuple_runtime_domain_zero_and_lsb_first_packing_are_exact() -> None:
     type_ = TupleType((U4, SIntType(4), BitType()))
     value = (0xA, -2, 1)
     assert runtime_value_fits(value, type_)
@@ -72,8 +72,8 @@ def test_tuple_runtime_domain_zero_and_msb_first_packing_are_exact() -> None:
     assert not runtime_value_fits((0xA, 14, 1), type_)
     assert zero_runtime_value(type_) == (0, 0, 0)
     assert is_bit_packable(type_)
-    assert pack_runtime(type_, value) == 0b1010_1110_1
-    assert unpack_runtime(type_, 0b1010_1110_1) == value
+    assert pack_runtime(type_, value) == 0b1_1110_1010
+    assert unpack_runtime(type_, 0b1_1110_1010) == value
 
     enum = EnumType("Mode", ("A", "B"), "test::Mode")
     assert not is_bit_packable(TupleType((U4, enum)))

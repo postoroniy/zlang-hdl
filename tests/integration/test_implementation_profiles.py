@@ -68,7 +68,7 @@ evidence-policy = "estimate_only"
     assert "backend systemverilog: selected" in first.backend_implementation_report
 
 
-def test_region_selector_is_exact_and_profile_constraint_executes_m34(
+def test_region_selector_is_exact_and_profile_constraint_executes_bounded_exploration(
     tmp_path: Path,
 ) -> None:
     manifest, top = _project(

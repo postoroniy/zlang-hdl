@@ -137,7 +137,7 @@ class PipelinePlan:
     scheduled_value_graph: ScheduledValueGraph | None = None
     selected_value_identity: str | None = None
     rewrite_certificate: tuple[str, ...] = ()
-    # The semantic source is retained only so M36 can compare the final
+    # The semantic source is retained only so semantic-reference equivalence can compare the final
     # physical candidate against the expression written by the user.  It is
     # intentionally excluded from dataclass equality/repr; the stable source
     # identity above is authoritative for caches and manifests.
@@ -246,7 +246,7 @@ class PipelineExploration:
     candidates: tuple[PipelineCandidate, ...]
     selected: str
     search_bound: int
-    # M39 execution evidence is orchestration metadata, not pipeline semantics.
+    # formal-aware selection execution evidence is orchestration metadata, not pipeline semantics.
     # Excluding it from equality keeps canonical IR/proof identity independent
     # from cache hits, tool availability, and solver runtime.
     formal_records: tuple[object, ...] = field(default=(), compare=False)

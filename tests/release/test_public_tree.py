@@ -576,9 +576,9 @@ def test_release_checksums_cover_editor_payloads_and_fail_if_either_is_missing(
     body = textwrap.dedent(step.split("        run: |\n", 1)[1])
     checksum_script = "(cd dist && sha256sum" + body.split("(cd dist && sha256sum", 1)[1]
     payloads = (
-        "zlang_hdl-0.1.0a7-py3-none-any.whl",
-        "zlang_hdl-0.1.0a7.tar.gz",
-        "zlang-hdl-v0.1.0a7.cdx.json",
+        "zlang_hdl-0.1.0a8-py3-none-any.whl",
+        "zlang_hdl-0.1.0a8.tar.gz",
+        "zlang-hdl-v0.1.0a8.cdx.json",
         "release-requirements.txt",
         "zlang-hdl-0.1.0.vsix",
         "zlang-hdl-0.1.0-vsix-audit.json",
@@ -676,7 +676,9 @@ def test_repository_public_projection_is_closed_and_excludes_private_files() -> 
     )
     assert not any(path.startswith("examples/comparisons/") for path in selected)
     assert not any("design-freeze" in path for path in selected)
-    assert not any(path.startswith("docs/milestone-") for path in selected)
+    assert not any(
+        path.startswith("docs/" + "mile" + "stone-") for path in selected
+    )
     for root in (
         ".qwen/skills/zlang-hdl",
         "docs/reproducers",
@@ -690,8 +692,57 @@ def test_repository_public_projection_is_closed_and_excludes_private_files() -> 
             path.relative_to(ROOT).as_posix()
             for path in source_files
             if path.is_relative_to(ROOT / root)
+            and not module._matches(
+                path.relative_to(ROOT).as_posix(), config.exclude
+            )
         }
         assert expected <= selected
+
+
+def test_public_docs_and_paths_have_no_numbered_development_labels() -> None:
+    spec = importlib.util.spec_from_file_location("public_tree_history_labels", PUBLIC_TREE)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+
+    selected = tuple(module.validate_source(ROOT))
+    numbered_label = re.compile(r"(?i)\b" + "M" + r"[0-9]{1,3}\b")
+    history_word = re.compile(r"(?i)\b" + "mile" + r"stones?\b")
+    path_label = re.compile(r"(?i)(?:^|[/_.-])m[0-9]{1,3}(?:[/_.-]|$)")
+    retired_numbers = "26|27|28|29|30|31|32|33|34|35|36|37|38|39|40|41"
+    snake_stage_label = re.compile(
+        r"(?i)(?:^|_)" + "m" + rf"(?:{retired_numbers})(?=_|$)"
+    )
+    camel_stage_label = re.compile(
+        r"(?<!BRA)" + "M" + rf"(?:{retired_numbers})(?:\b|(?=[A-Z_]))"
+    )
+
+    bad_paths = [
+        path.relative_to(ROOT).as_posix()
+        for path in selected
+        if path_label.search(path.relative_to(ROOT).as_posix())
+        or history_word.search(path.relative_to(ROOT).as_posix())
+    ]
+    bad_docs: list[str] = []
+    bad_source_labels: list[str] = []
+    for path in selected:
+        if path.name == "package-lock.json":
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            continue
+        if path.suffix.lower() == ".md" and (
+            numbered_label.search(text) or history_word.search(text)
+        ):
+            bad_docs.append(path.relative_to(ROOT).as_posix())
+        if snake_stage_label.search(text) or camel_stage_label.search(text):
+            bad_source_labels.append(path.relative_to(ROOT).as_posix())
+
+    assert bad_paths == []
+    assert bad_docs == []
+    assert bad_source_labels == []
 
 
 def test_public_qwen_skill_is_current_and_community_only() -> None:
@@ -875,7 +926,7 @@ def test_public_policy_documents_are_discoverable() -> None:
     for capability in (
         "direct-SystemVerilog",
         "local safety verification",
-        "historical M38 records",
+        "historical retired cross-backend equivalence records",
         "formal-aware candidate selection",
         "`implement`",
         "`choice`",

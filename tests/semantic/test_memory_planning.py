@@ -123,6 +123,41 @@ module NativeAsync {
         )
 
 
+def test_bram_never_claims_zero_cycle_read_or_unadvertised_extra_latency() -> None:
+    source = """
+module NativeLatency {
+  clock clk reset rst
+  in we:bit in wa:u2 in wd:u8 in ra:u2 out q:u8
+  memory m:mem<u8,4> { read_latency LAT collision old }
+  m.write_enable=we m.write_address=wa m.write_data=wd
+  m.read_address=ra q=m.read_data
+}
+"""
+    capabilities = {
+        "port_modes": "simple_dual",
+        "clock_modes": "common",
+        "synchronous_read": "true",
+        "read_latencies": "0.1.2",
+        "same_clock_collision": "read_first",
+    }
+    zero = compile_source(source.replace("LAT", "0")).ir.memories[0]
+    two = compile_source(source.replace("LAT", "2")).ir.memories[0]
+    for memory in (zero, two):
+        with pytest.raises(MemoryPlanningError, match="no exact target resource"):
+            plan_memory_implementation(
+                memory,
+                target_capabilities=capabilities,
+                target_policy=MemoryTargetPolicy.REQUIRED,
+            )
+        plan = plan_memory_implementation(
+            memory,
+            target_capabilities=capabilities,
+            target_policy=MemoryTargetPolicy.PREFERRED,
+        )
+        assert plan.implementation is MemoryImplementationKind.LEGACY_1R1W
+        assert plan.cost_source == "structural_estimate"
+
+
 def test_plan_identity_is_domain_sensitive_and_deterministic() -> None:
     first = plan_memory_implementation(
         compile_source(

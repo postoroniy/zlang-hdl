@@ -110,11 +110,11 @@ endmodule
         self._run_sv_tb("fixed_polyphase_fir.zhl", "FixedPointPolyphaseFIR", r"""
 module tb;
   logic clk=0, rst=1;
-  logic signed [11:0] samples0 [0:7];
-  logic signed [11:0] samples1 [0:7];
-  logic signed [11:0] samples2 [0:7];
-  logic signed [11:0] samples3 [0:7];
-  logic signed [11:0] coefficients [0:7];
+  logic signed [7:0][11:0] samples0;
+  logic signed [7:0][11:0] samples1;
+  logic signed [7:0][11:0] samples2;
+  logic signed [7:0][11:0] samples3;
+  logic signed [7:0][11:0] coefficients;
   wire signed [26:0] result_phase0,result_phase1,result_phase2,result_phase3;
   FixedPointPolyphaseFIR dut(.*);
   task tick; begin #1 clk=1; #1 clk=0; end endtask

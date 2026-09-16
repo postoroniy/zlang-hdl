@@ -215,6 +215,10 @@ def test_formal_rule_fire_matches_state_across_all_reset_profiles(artifacts, tmp
     obj = tmp_path / "obj"
     build = subprocess.run(
         ["verilator", "--binary", "--timing", "-Wall", "-Wno-DECLFILENAME",
+         # This standard reset-release synchronizer intentionally asserts
+         # asynchronously and deasserts synchronously.  Verilator 5.052 flags
+         # that topology as SYNCASYNCNET despite its ASYNC_REG attribution.
+         "-Wno-SYNCASYNCNET",
          "-Wno-UNUSEDSIGNAL", "-Wno-UNUSEDPARAM", "-Wno-PINCONNECTEMPTY",
          "--top-module", "tb", "--Mdir", str(obj), str(rtl), str(tb)],
         capture_output=True, text=True, timeout=120,

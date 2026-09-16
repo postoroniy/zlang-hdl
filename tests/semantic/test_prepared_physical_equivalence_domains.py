@@ -1,4 +1,4 @@
-"""Strict physical-domain validation for immutable prepared M36 legs."""
+"""Strict physical-domain validation for immutable prepared semantic-reference equivalence legs."""
 
 from __future__ import annotations
 
@@ -6,7 +6,11 @@ import json
 
 import pytest
 
-from zlang.backend.manifest import BackendArtifact, publish_artifact
+from zlang.backend.manifest import (
+    BackendArtifact,
+    INLINE_TOP_BOUNDARY_MANIFEST_VERSION,
+    publish_artifact,
+)
 from zlang.formal_candidate import (
     PreparedCandidateEquivalence,
     prepared_candidate_equivalence_from_data,
@@ -40,7 +44,7 @@ CANDIDATE = "selected:physical-domain-candidate"
 
 def _property(domain: ClockDomain) -> EquivalenceProperty:
     return EquivalenceProperty(
-        "m36.physical-domain",
+        "semantic_equivalence.physical-domain",
         EquivalenceRelation.FIXED_LATENCY_VALUE,
         "reference:physical-domain",
         CANDIDATE,
@@ -60,7 +64,7 @@ def _property(domain: ClockDomain) -> EquivalenceProperty:
         ComparisonWindow.reset_fill(
             1, reset_release_cycles=domain.reset_release_cycles
         ),
-        candidate_class="m31",
+        candidate_class="pipeline_scheduler",
         clock_domain_contract=domain,
     )
 
@@ -106,8 +110,8 @@ def _bundle(domain: ClockDomain) -> PreparedCandidateEquivalence:
     property_ = _property(domain)
     return PreparedCandidateEquivalence(
         property_,
-        "module m36_physical_domain; endmodule\n",
-        "m36_physical_domain",
+        "module semantic_equivalence_physical_domain; endmodule\n",
+        "semantic_equivalence_physical_domain",
         reference.artifact_hash,
         implementation.artifact_hash,
         "d" * 64,
@@ -151,7 +155,7 @@ def _synchronized_domain() -> ClockDomain:
     )
 
 
-def test_prepared_m36_round_trip_retains_exact_v10_domain_and_paths() -> None:
+def test_prepared_semantic_equivalence_round_trip_retains_current_domain_and_paths() -> None:
     bundle = _bundle(_synchronized_domain())
     restored = prepared_candidate_equivalence_from_data(
         prepared_candidate_equivalence_to_data(bundle)
@@ -162,7 +166,7 @@ def test_prepared_m36_round_trip_retains_exact_v10_domain_and_paths() -> None:
         restored.implementation_artifact,
     ):
         assert artifact is not None
-        assert artifact.manifest_version == 10
+        assert artifact.manifest_version == INLINE_TOP_BOUNDARY_MANIFEST_VERSION
         record = artifact.physical_domains[0]
         bindings = {item.role.value: item for item in artifact.bindings}
         assert record.rtl_clock_path == bindings["clock"].rtl_path
@@ -207,7 +211,7 @@ def test_prepared_m36_round_trip_retains_exact_v10_domain_and_paths() -> None:
     ),
     ids=("edge", "polarity", "mode", "release", "power_up"),
 )
-def test_prepared_m36_rejects_exact_contract_corruption(
+def test_prepared_semantic_equivalence_rejects_exact_contract_corruption(
     actual: ClockDomain,
 ) -> None:
     expected = _synchronized_domain()
@@ -217,7 +221,7 @@ def test_prepared_m36_rejects_exact_contract_corruption(
         prepared_candidate_equivalence_from_data(data)
 
 
-def test_prepared_m36_rejects_physical_manifest_path_corruption() -> None:
+def test_prepared_semantic_equivalence_rejects_physical_manifest_path_corruption() -> None:
     data = prepared_candidate_equivalence_to_data(_bundle(_synchronized_domain()))
     implementation = data["implementation_artifact"]
     assert isinstance(implementation, dict)
@@ -233,46 +237,24 @@ def test_prepared_m36_rejects_physical_manifest_path_corruption() -> None:
         prepared_candidate_equivalence_from_data(data)
 
 
-def test_legacy_prepared_artifacts_are_accepted_only_for_legacy_domain() -> None:
+def test_single_domain_shorthand_publishes_an_explicit_current_domain() -> None:
     legacy = ClockDomain("clk", "rst")
     data = prepared_candidate_equivalence_to_data(_bundle(legacy))
     restored = prepared_candidate_equivalence_from_data(data)
     assert restored.reference_artifact is not None
-    assert restored.reference_artifact.manifest_version < 10
-    assert restored.reference_artifact.physical_domains == ()
-
-    non_default = ClockDomain(
-        "clk",
-        "rst",
-        reset_mode=ResetMode.ASYNCHRONOUS,
-        reset_polarity=ResetPolarity.ACTIVE_HIGH,
+    assert restored.reference_artifact.manifest_version == (
+        INLINE_TOP_BOUNDARY_MANIFEST_VERSION
     )
-    property_data = data["property"]
-    assert isinstance(property_data, dict)
-    property_data["clock_domain_contract"] = {
-        "clock": "clk",
-        "reset": "rst",
-        "edge": "rising",
-        "reset_mode": "asynchronous",
-        "reset_polarity": "active_high",
-        "power_up": "unspecified",
-        "reset_release_mode": "native",
-        "reset_release_cycles": 0,
-    }
-    # The changed contract remains a valid fixed-latency relation, but cannot
-    # be reconstructed from a pre-v10 backend artifact.
-    assert _property(non_default).comparison_window.to_data() == property_data[
-        "comparison_window"
-    ]
-    with pytest.raises(ValueError, match="legacy artifact cannot represent"):
-        prepared_candidate_equivalence_from_data(data)
+    assert len(restored.reference_artifact.physical_domains) == 1
+    assert restored.reference_artifact.physical_domains[0].clock == "clk"
+    assert restored.reference_artifact.physical_domains[0].reset == "rst"
 
 
-def test_legacy_binding_names_must_match_the_exact_property_domain() -> None:
+def test_direct_binding_names_must_match_the_exact_property_domain() -> None:
     expected = ClockDomain("clk", "rst")
     data = prepared_candidate_equivalence_to_data(_bundle(expected))
     _replace_implementation_domain(data, ClockDomain("other_clk", "other_rst"))
-    with pytest.raises(ValueError, match="no exact clock binding"):
+    with pytest.raises(ValueError, match="physical clock/reset contract disagrees"):
         prepared_candidate_equivalence_from_data(data)
 
 

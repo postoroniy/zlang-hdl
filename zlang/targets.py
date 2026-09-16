@@ -11,6 +11,7 @@ from typing import Iterable
 from zlang.ast import nodes as ast
 from zlang.ir import expressions as expr
 from zlang.ir.module import Assignment, Module, NextAssignment, Register
+from zlang.ir.pipelines import PipelinePlan
 from zlang.ir.target import (
     ArchitectureTemplate,
     DedicatedPhysicalEdge,
@@ -40,6 +41,8 @@ from zlang.ir.scheduled import (
 )
 from zlang.ir.traversal import walk_expression
 from zlang.stdlib import available_stdlib_modules, resolve_stdlib
+from zlang.async_fifo import build_async_fifo_physical_plan
+from zlang.source import SourceOrigin
 
 
 class ArchitectureSelectionMode(str, Enum):
@@ -348,7 +351,9 @@ def load_architecture_templates(*, operation: str | None = None) -> tuple[Archit
 
 
 def generic_implementation_graph(module: Module, target: TargetInstance | None = None) -> ImplementationGraph:
-    semantic = sha256(_semantic_payload(module).encode()).hexdigest()
+    semantic = sha256(repr((
+        "zlang-generic-module-physical-v1", _generic_physical_payload(module)
+    )).encode()).hexdigest()
     latency_knowledge, latency = _module_implementation_latency(module)
     return ImplementationGraph(
         semantic_region_identity=semantic,
@@ -370,7 +375,7 @@ def _module_implementation_latency(module: Module) -> tuple[str, int]:
     """Translate semantic output timing into the integer graph compatibility ABI.
 
     ``ImplementationGraph.latency`` predates public module timing and is an
-    integer consumed by M28/M31 cost code.  Preserve that field while carrying
+    integer consumed by deterministic cost selection/pipeline scheduling cost code.  Preserve that field while carrying
     the knowledge class separately, so an unknown stateful output is never
     described as a proven zero-cycle result.
     """
@@ -480,6 +485,8 @@ def select_implementation_graph(
 
 def _map_manual(module, target, family, resources, template,
                 policy=ArchitectureSelectionMode.REQUIRED) -> ImplementationGraph:
+    if template.operation == "async_fifo_memory":
+        return _map_async_fifo_memory(module, target, family, resources, template, policy)
     if template.operation == "synchronous_memory":
         return _map_synchronous_memory(module, target, family, resources, template, policy)
     if template.operation != "symmetric_fir_cascade":
@@ -610,6 +617,139 @@ def _map_manual(module, target, family, resources, template,
             f"{resource.identity}.{selected_pipeline.name}" if selected_pipeline else None
         ),
         active_pipeline_sites=selected_pipeline.sites if selected_pipeline else (),
+        physical_binding_identities=tuple(
+            f"{resource.identity}:{item.backend}:{item.emitter}"
+            for item in resource.physical_bindings
+        ),
+    )
+
+
+def _map_async_fifo_memory(module, target, family, resources, template, policy):
+    """Bind only the compiler-owned 1W1R FIFO storage, never a public async_mem.
+
+    Full tracks the *consumed* Gray pointer, including a prefetched but stalled
+    beat.  The writer therefore cannot reach the address of a live output
+    beat.  A stale synchronized read pointer only reduces available capacity.
+    This is a digital structural certificate, not an MTBF or silicon proof.
+    """
+
+    crossings = tuple(
+        item for item in module.connections
+        if item.crossing is not None and item.crossing.kind.value == "async_fifo"
+    )
+    if len(crossings) != 1 or len(module.connections) != 1 or module.memories:
+        raise TargetArchitectureError(
+            "native FIFO-memory binding requires one isolated explicit async_fifo "
+            "crossing and no separate semantic memory"
+        )
+    try:
+        plan = build_async_fifo_physical_plan(module, crossings[0])
+    except ValueError as error:
+        raise TargetArchitectureError(str(error)) from error
+    if template.resource_count != 1 or template.initiation_interval != 1:
+        raise TargetArchitectureError(
+            "native FIFO-memory binding requires one spatial RAM and II=1"
+        )
+    matches = tuple(item for item in resources if item.name == template.resource_name)
+    if len(matches) != 1:
+        raise TargetArchitectureError(
+            f"architecture '{template.identity}' requires unavailable resource "
+            f"'{template.resource_name}'"
+        )
+    resource = matches[0]
+    validate_inventory(target, ((resource.identity, 1),))
+    capabilities = dict(resource.capabilities)
+    if (
+        family.name != "Xilinx7Series"
+        or resource.name not in {"RAMB18E1", "RAMB36E1"}
+        or capabilities.get("synchronous_read") != "true"
+        or capabilities.get("output_register") != "optional"
+        or not any(
+            item.backend == "systemverilog"
+            and item.emitter == "xilinx_bram_inference"
+            and item.primitive == resource.name
+            for item in resource.physical_bindings
+        )
+    ):
+        raise TargetArchitectureError(
+            f"resource '{resource.identity}' is not the bounded AMD 7-Series "
+            "RAMB18E1/RAMB36E1 FIFO-memory route"
+        )
+    validate_memory_configuration(
+        resource, width=plan.memory.element_type.width,
+        depth=plan.depth, port_mode="simple_dual",
+    )
+    configuration = validate_pipeline_configuration(
+        resource, template.pipeline_configuration or "core_registered",
+    )
+    if configuration.name != "core_registered" or configuration.latency != 0:
+        raise TargetArchitectureError(
+            "the first native FIFO-memory route requires DO_REG=0 and one "
+            "destination-clock read cycle"
+        )
+    latency = plan.memory.read_latency + configuration.latency
+    if template.latency != latency:
+        raise TargetArchitectureError(
+            f"architecture '{template.identity}' latency {template.latency} "
+            f"does not match FIFO memory latency {latency}"
+        )
+    node = ResourceInstance(
+        "fifo_memory0", resource.identity, resource.operation,
+        (
+            *configuration.physical_settings,
+            ("pipeline_configuration", configuration.name),
+            ("dorega", 0),
+            ("depth", plan.depth),
+            ("width", plan.memory.element_type.width),
+            ("fifo_prefetch_policy", plan.prefetch_policy),
+            ("fifo_memory", 1),
+        ),
+        tuple(
+            mapping
+            for port in plan.memory.ports
+            for mapping in (
+                SemanticPortMapping(
+                    f"{port.name}.address",
+                    f"memory:{plan.memory.semantic_id}:port:{port.name}:address",
+                    port.address,
+                ),
+                SemanticPortMapping(
+                    f"{port.name}.enable",
+                    f"memory:{plan.memory.semantic_id}:port:{port.name}:enable",
+                    port.read_enable or port.write_enable,
+                ),
+                SemanticPortMapping(
+                    f"{port.name}.data",
+                    f"memory:{plan.memory.semantic_id}:port:{port.name}:data",
+                    port.write_data,
+                ),
+            )
+        ),
+    )
+    return ImplementationGraph(
+        semantic_region_identity=plan.identity,
+        architecture_template_identity=template.identity,
+        target_identity=target.identity, target_hash=target.source_hash,
+        resource_definition_hashes=((resource.identity, resource.source_hash),),
+        resources=(node,), dedicated_edges=(), latency=latency,
+        initiation_interval=1,
+        realization_backend="direct_systemverilog",
+        latency_knowledge=TimingKnowledge.KNOWN.value,
+        legality_evidence=(
+            "typed 1W1R async_mem; write/read clocks independent; read_latency=1",
+            "DO_REG=0; one destination-domain registered read boundary",
+            "consumed-pointer full guard prevents enabled same-address "
+            "cross-clock collision, including prefetched/stalled beat",
+            "Gray synchronizers are two-stage; digital structural model only",
+        ),
+        architecture_template_hash=template.source_hash,
+        target_family_identity=family.identity,
+        target_dependency_hashes=target.dependency_hashes,
+        architecture_dependency_hashes=template.dependency_hashes,
+        selection_policy=ArchitectureSelectionMode(policy).value,
+        target_part=target.part,
+        pipeline_configuration_identity=f"{resource.identity}.{configuration.name}",
+        active_pipeline_sites=configuration.sites,
         physical_binding_identities=tuple(
             f"{resource.identity}:{item.backend}:{item.emitter}"
             for item in resource.physical_bindings
@@ -1664,6 +1804,13 @@ def _flatten_add(value: expr.Expression) -> tuple[expr.Expression, ...]:
 
 
 def _expression_identity(value: expr.Expression) -> str:
+    """Historical resource-port identity, not the scheduled value DAG key.
+
+    Existing measured DSP graph keys use this serializer.  Scheduled
+    operation joins deliberately recompute the typed value identity from the
+    retained expression rather than comparing these two hash namespaces.
+    """
+
     return sha256(_semantic_payload(value).encode()).hexdigest()
 
 
@@ -1685,7 +1832,7 @@ def _semantic_field_names(type_: type) -> tuple[str, ...]:
 
 
 def _semantic_payload(value) -> str:
-    """Render the historical semantic payload with cached field schemas."""
+    """Render the historical resource payload with cached field schemas."""
 
     if isinstance(value, tuple):
         return "(" + ",".join(_semantic_payload(item) for item in value) + ")"
@@ -1696,6 +1843,67 @@ def _semantic_payload(value) -> str:
         )
         return f"{type(value).__module__}.{type(value).__name__}({body})"
     return repr(value)
+
+
+def _generic_physical_payload(value: object) -> object:
+    """Typed generic hardware content without catalog or cost annotations.
+
+    The selected assignment remains in Module; unused exploration catalogs
+    and verification declarations do not.  An explicitly scheduled pipeline
+    contributes its physical graph key instead of its estimated stage costs.
+    This is intentionally a new namespace, not the historical DSP port key.
+    """
+
+    if isinstance(value, SourceOrigin):
+        return ("source_origin", "omitted")
+    if isinstance(value, Enum):
+        return (type(value).__module__, type(value).__qualname__, value.value)
+    if isinstance(value, PipelinePlan):
+        if value.scheduled_value_graph is not None:
+            return ("scheduled_pipeline", value.scheduled_value_graph.identity)
+        return (
+            "legacy_pipeline", value.stage_boundaries,
+            value.inserted_registers, value.alignment_delays,
+            value.requested_latency, value.initiation_interval,
+        )
+    if isinstance(value, tuple):
+        return tuple(_generic_physical_payload(item) for item in value)
+    if isinstance(value, list):
+        return tuple(_generic_physical_payload(item) for item in value)
+    if isinstance(value, dict):
+        pairs = tuple(
+            (_generic_physical_payload(key), _generic_physical_payload(item))
+            for key, item in value.items()
+        )
+        return tuple(sorted(pairs, key=repr))
+    if isinstance(value, (set, frozenset)):
+        return tuple(sorted(
+            (_generic_physical_payload(item) for item in value), key=repr
+        ))
+    if is_dataclass(value) and not isinstance(value, type):
+        excluded = {
+            "origin", "origins", "source_origin", "source_identity",
+            "source_hash", "source_path", "formal_records",
+            "formal_eligible", "estimate", "measurement", "cost_policy",
+        }
+        if isinstance(value, Module):
+            excluded.update({
+                "pipeline_explorations", "architecture_explorations",
+                "equivalences", "verification_scopes",
+            })
+        return (
+            type(value).__module__, type(value).__qualname__,
+            tuple(
+                (item.name, _generic_physical_payload(getattr(value, item.name)))
+                for item in fields(value) if item.name not in excluded
+            ),
+        )
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    raise TypeError(
+        "generic module physical identity cannot serialize "
+        f"{type(value).__module__}.{type(value).__qualname__}"
+    )
 
 
 __all__ = [

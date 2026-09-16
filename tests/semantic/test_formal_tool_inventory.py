@@ -87,7 +87,7 @@ def test_partial_inventory_records_probe_failure_as_available() -> None:
     )
 
 
-def test_existing_m35_and_m36_discovery_surfaces_remain_compatible() -> None:
+def test_existing_safety_verification_and_semantic_equivalence_discovery_surfaces_remain_compatible() -> None:
     def formal_locate(name):
         return f"/tools/{name}" if name in {"yosys", "z3"} else None
 
@@ -131,7 +131,7 @@ def test_truthy_path_compatibility_is_explicit() -> None:
     assert truthy.available == ()
 
 
-def test_m35_inventory_versions_yosys_smtbmc_explicitly() -> None:
+def test_safety_verification_inventory_versions_yosys_smtbmc_explicitly() -> None:
     available = {"yosys", "sby", "yosys-smtbmc", "z3"}
     with patch(
         "zlang.formal.shutil.which",

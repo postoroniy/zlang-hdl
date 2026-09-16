@@ -197,7 +197,7 @@ def render_architecture_report(module: Module) -> str:
         selected = exploration.selected_candidate
         lines.append(
             f"  selected name={selected.name} kind={selected.kind.value} "
-            "reason=m28_maximize_estimated_frequency_with_deterministic_tie_break "
+            "reason=cost_selection_maximize_estimated_frequency_with_deterministic_tie_break "
             f"parallelism={selected.parallelism} "
             f"add_depth={selected.add_depth} "
             f"equivalence={selected.equivalence.value}"

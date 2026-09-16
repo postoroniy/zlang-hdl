@@ -68,17 +68,17 @@ def _mapping(value: object) -> dict[str, object]:
 
 def test_recipe_identity_is_deterministic_and_namespaced() -> None:
     first = FormalArtifactRecipe(
-        FormalArtifactNamespace.M36,
+        FormalArtifactNamespace.SEMANTIC_EQUIVALENCE,
         "reference-miter-v1",
         {"candidate": "c", "route": {"backend": "direct_systemverilog", "depth": 8}},
     )
     reordered = FormalArtifactRecipe(
-        "M36",
+        "semantic-reference-equivalence",
         "reference-miter-v1",
         {"route": {"depth": 8, "backend": "direct_systemverilog"}, "candidate": "c"},
     )
     other_namespace = FormalArtifactRecipe(
-        "M39",
+        "formal-aware-selection",
         "reference-miter-v1",
         {"candidate": "c", "route": {"backend": "direct_systemverilog", "depth": 8}},
     )
@@ -86,7 +86,7 @@ def test_recipe_identity_is_deterministic_and_namespaced() -> None:
     assert first.identity == reordered.identity
     assert first.identity != other_namespace.identity
     assert FORMAL_ARTIFACT_NAMESPACES == {
-        "prepared", "M35", "M36", "M39"
+        "prepared", "safety-verification", "semantic-reference-equivalence", "formal-aware-selection"
     }
     detached = first.inputs
     detached["candidate"] = "mutated"
@@ -145,7 +145,7 @@ def test_codec_backed_entry_is_atomic_and_hash_corruption_is_a_miss(
 
     first_provider = FormalArtifactProvider(cache_root)
     recipe = first_provider.recipe(
-        "M39",
+        "formal-aware-selection",
         "proof-bundle-recipe-v1",
         {"candidate": "candidate-1", "mode": "bmc"},
     )
@@ -159,7 +159,7 @@ def test_codec_backed_entry_is_atomic_and_hash_corruption_is_a_miss(
     assert path is not None and path.is_file()
     envelope = json.loads(path.read_text(encoding="utf-8"))
     assert envelope["schema"] == FORMAL_ARTIFACT_CACHE_SCHEMA
-    assert envelope["namespace"] == "M39"
+    assert envelope["namespace"] == "formal-aware-selection"
     assert envelope["recipe_identity"] == recipe.identity
     assert not tuple(path.parent.glob(f".{path.name}.*.tmp"))
 
@@ -197,7 +197,7 @@ def test_codec_backed_entry_is_atomic_and_hash_corruption_is_a_miss(
 
 
 
-def test_retained_m39_workspace_is_unique_to_exact_property_recipe(
+def test_retained_formal_selection_workspace_is_unique_to_exact_property_recipe(
     tmp_path: Path,
 ) -> None:
     property_ = EquivalenceProperty(
@@ -243,21 +243,21 @@ def test_retained_m39_workspace_is_unique_to_exact_property_recipe(
     )
     candidate = SimpleNamespace()
 
-    first_path = candidate_module._m39_work_directory(
+    first_path = candidate_module._formal_selection_work_directory(
         candidate,
         "same-selected-candidate",
         first,
         config,
         candidate_module.ProofMode.BMC,
     )
-    repeated_path = candidate_module._m39_work_directory(
+    repeated_path = candidate_module._formal_selection_work_directory(
         candidate,
         "same-selected-candidate",
         first,
         config,
         candidate_module.ProofMode.BMC,
     )
-    second_path = candidate_module._m39_work_directory(
+    second_path = candidate_module._formal_selection_work_directory(
         candidate,
         "same-selected-candidate",
         second,
@@ -267,7 +267,7 @@ def test_retained_m39_workspace_is_unique_to_exact_property_recipe(
 
     assert first_path == repeated_path
     assert first_path != second_path
-    assert first_path.parent == (tmp_path / "work" / "m39").resolve()
+    assert first_path.parent == (tmp_path / "work" / "formal_selection").resolve()
     assert second_path.parent == first_path.parent
 
 
@@ -287,7 +287,7 @@ def test_unknown_timeout_and_environment_skip_are_not_memoized(
 
     for _ in range(2):
         assert provider.get_or_prepare(
-            "M35",
+            "safety-verification",
             "timeout-result-v1",
             {"goal": "g"},
             timeout,
@@ -295,7 +295,7 @@ def test_unknown_timeout_and_environment_skip_are_not_memoized(
             decode=_mapping,
         )["status"] == "unknown"
         assert provider.get_or_prepare(
-            "M39",
+            "formal-aware-selection",
             "environment-result-v1",
             {"goal": "g"},
             skipped,
@@ -316,9 +316,9 @@ def test_provider_memory_is_bounded_by_lru_capacity() -> None:
         calls[name] += 1
         return {"name": name}
 
-    provider.get_or_prepare("M35", "goal-v1", {"id": "a"}, lambda: prepare("a"))
-    provider.get_or_prepare("M35", "goal-v1", {"id": "b"}, lambda: prepare("b"))
-    provider.get_or_prepare("M35", "goal-v1", {"id": "a"}, lambda: prepare("a"))
+    provider.get_or_prepare("safety-verification", "goal-v1", {"id": "a"}, lambda: prepare("a"))
+    provider.get_or_prepare("safety-verification", "goal-v1", {"id": "b"}, lambda: prepare("b"))
+    provider.get_or_prepare("safety-verification", "goal-v1", {"id": "a"}, lambda: prepare("a"))
 
     assert calls == {"a": 2, "b": 1}
     assert provider.entry_count == 1
@@ -340,7 +340,7 @@ def test_compilation_session_owns_provider_and_explicit_cache_root(
     )
 
 
-def test_repeated_publication_reuses_direct_route_and_exact_m35_checker(
+def test_repeated_publication_reuses_direct_route_and_exact_safety_verification_checker(
     tmp_path: Path,
     monkeypatch,
 ) -> None:

@@ -126,7 +126,7 @@ def test_bitcast_legacy_spelling_and_raw_boundary_normalize_to_bitcast() -> None
         "c": -128,
         "d": -128,
         "e": 0xA5,
-        "bitvec": [1, 0, 0, 0, 0, 0, 0, 0],
+        "bitvec": [0, 0, 0, 0, 0, 0, 0, 1],
         "pair_raw": 0xA5,
         "pair_again": {"hi": 0x8, "lo": 0x0},
         "fixed_bits": 0xFE,
@@ -134,14 +134,14 @@ def test_bitcast_legacy_spelling_and_raw_boundary_normalize_to_bitcast() -> None
     }
 
 
-def test_bitcast_vector_representation_uses_element_zero_at_msb() -> None:
+def test_bitcast_vector_representation_uses_element_zero_at_lsb() -> None:
     module = _compile(
         "module CastVector { in values:vec<2,u4> out raw:bits<8> "
         "out again:vec<2,u4> raw_value=bitcast<bits<8>>(values) "
         "raw=raw_value again=bitcast<vec<2,u4>>(raw_value) }"
     )
     assert simulate(module, values=[0xA, 0x5]) == {
-        "raw": 0xA5,
+        "raw": 0x5A,
         "again": [0xA, 0x5],
     }
 
@@ -160,7 +160,7 @@ def test_packed_bits_use_lsb_zero_single_bit_indexing() -> None:
     assert simulate(module, raw=0x96) == {
         "lsb": 0,
         "msb": 1,
-        "reversed": 0x69,
+        "reversed": 0x96,
     }
     assert restore(lower(module, stage=OptimizationStage.HIGH_LEVEL)) == module
 

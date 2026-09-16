@@ -9,7 +9,7 @@ canonical typed value IR
   -> exact typed egglog alternatives
   -> deterministic scalar DAG scheduling
   -> target resource matching
-  -> ScheduledValueGraph -> M39/M36/direct SystemVerilog
+  -> ScheduledValueGraph -> formal-aware selection/semantic-reference equivalence/direct SystemVerilog
 ```
 
 Egglog changes only pure zero-latency values. It does not insert registers or

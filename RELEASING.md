@@ -21,7 +21,7 @@ GitHub alpha; publishing to PyPI or a container registry is a separate decision.
   wheel and sdist must contain the root `LICENSE` and `NOTICE`; examples, tests,
   internal release policy, and their nested notices are intentionally not part
   of those runtime archives.
-- Confirm that no private development history, host-specific path, credential,
+- Confirm that no private source, host-specific path, credential,
   scratch artifact, or internal coordination document is present.
 - Review the public repository description, topics, and detected license. Do not
   publish a homepage or documentation domain until that domain is controlled by
@@ -43,6 +43,22 @@ GitHub alpha; publishing to PyPI or a container registry is a separate decision.
   must not run pull-request code.
 
 ## Acceptance gate
+
+The canonical local preflight is:
+
+```bash
+make release-candidate
+```
+
+It is intentionally non-publishing and fails when its output directory already
+exists, so stale artifacts cannot satisfy a new run. Override `PYTHON`,
+`WORKERS`, `BUILD_ROOT`, or `TAG` explicitly when reproducing another
+environment. Packaging is performed from a fresh allow-listed public export,
+not the checkout's potentially stale `build/` tree. Local license, dependency
+and tool-inventory gates inspect that same exported Community surface rather
+than private/excluded source files. The hosted workflow still performs the
+source-bound attestation,
+dependency/SBOM audit and GitHub publication steps described below.
 
 Run the repository's fast and pinned-tool CI on the exact release commit. The
 release candidate must include:
@@ -106,8 +122,10 @@ Validate the immutable public checkout before installing build dependencies.
 Installed npm tooling and generated package environments are not public source;
 validate a fresh clean export when rechecking the publication manifest.
 
-Install the release tools in the active Python 3.12 environment, then build from
-a clean checkout with a fixed `SOURCE_DATE_EPOCH`:
+Install the release tools in an active compatible environment
+(`CPython >=3.12,<3.13`; `uv` may provision it as documented in
+[`docs/installing-toolchain.md`](docs/installing-toolchain.md)), then build from a
+clean checkout with a fixed `SOURCE_DATE_EPOCH`:
 
 ```bash
 .venv/bin/python -m pip install --upgrade pip==26.2.1

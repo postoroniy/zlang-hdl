@@ -48,7 +48,7 @@ def test_strings_inherit_vector_concat_index_equality_length_and_packing() -> No
         "first": 0x41,
         "same": 1,
         "count": 3,
-        "packed": 0x4142,
+        "packed": 0x4241,
     }
     values = {item.target.name: item.expression for item in module.assignments}
     assert isinstance(values["joined"], expr.VectorConcat)

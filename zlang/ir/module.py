@@ -107,7 +107,7 @@ def default_selected_ir_identity(module: object) -> str:
 
 
 class EquivalenceGuardKind(str, Enum):
-    """The frozen, compile-time-only M27 guard predicate set."""
+    """The frozen, compile-time-only guarded exact rewrite guard predicate set."""
 
     UNSIGNED = "unsigned"
     SIGNED = "signed"
@@ -121,7 +121,7 @@ class EquivalenceGuardKind(str, Enum):
 
 @dataclass(frozen=True)
 class EquivalenceGuardPredicate:
-    """One validated M27 guard atom.
+    """One validated guarded exact rewrite guard atom.
 
     Source guard text is deliberately not retained as semantic data.  The
     analyzer validates arity, bound variables, and the optional integer value
@@ -443,7 +443,7 @@ def validate_elastic_module_regions(
             "elastic pipeline module must expose exactly two ready/valid ports"
         )
     # A formal-only artifact may append explicit output wire projections for
-    # existing M35 observations.  Those do not alter the production protocol
+    # existing safety verification observations.  Those do not alter the production protocol
     # ABI; no other extra runtime/protocol port is admissible here.
     endpoint_names = {region.source_endpoint, region.destination_endpoint}
     if any(

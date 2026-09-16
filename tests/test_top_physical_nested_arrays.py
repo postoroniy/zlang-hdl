@@ -1,11 +1,17 @@
-"""Focused evidence for nested native-array public top boundaries."""
+"""Focused evidence for nested packed-array public top boundaries."""
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
+import shutil
+import subprocess
 
+import pytest
 
 from zlang import compile_source
 from zlang.backend.manifest import BackendArtifact
+from zlang.backend.systemverilog import emit_artifact
 
 
 NESTED_SOURCE = """
@@ -75,7 +81,7 @@ def _bindings(artifact: BackendArtifact) -> dict[str, object]:
     }
 
 
-def test_nested_vector_and_vec_struct_layout_is_msb_first() -> None:
+def test_nested_vectors_are_lsb_first_while_struct_fields_remain_msb_first() -> None:
     module = compile_source(NESTED_SOURCE).ir
     leaves = {
         leaf.leaf_semantic_id: leaf for leaf in module.top_physical_abi.leaves
@@ -88,8 +94,8 @@ def test_nested_vector_and_vec_struct_layout_is_msb_first() -> None:
         (item.indices, item.msb, item.lsb)
         for item in matrix.packed_element_slices
     ) == (
-        ((0, 0), 41, 38), ((0, 1), 37, 34), ((0, 2), 33, 30),
-        ((1, 0), 29, 26), ((1, 1), 25, 22), ((1, 2), 21, 18),
+        ((0, 0), 21, 18), ((0, 1), 25, 22), ((0, 2), 29, 26),
+        ((1, 0), 33, 30), ((1, 1), 37, 34), ((1, 2), 41, 38),
     )
     lane_data = leaves["port:x.lanes.data"]
     lane_valid = leaves["port:x.lanes.valid"]
@@ -97,11 +103,11 @@ def test_nested_vector_and_vec_struct_layout_is_msb_first() -> None:
     assert tuple(
         (item.indices, item.msb, item.lsb)
         for item in lane_data.packed_element_slices
-    ) == (((0,), 17, 10), ((1,), 8, 1))
+    ) == (((0,), 8, 1), ((1,), 17, 10))
     assert tuple(
         (item.indices, item.msb, item.lsb)
         for item in lane_valid.packed_element_slices
-    ) == (((0,), 9, 9), ((1,), 0, 0))
+    ) == (((0,), 0, 0), ((1,), 9, 9))
 
 
 
@@ -112,26 +118,62 @@ def test_nested_vector_and_vec_struct_layout_is_msb_first() -> None:
 
 NESTED_BENCH = r"""
 module tb;
-  logic [3:0] x_matrix [0:1] [0:2];
-  logic [7:0] x_lanes_data [0:1];
-  logic x_lanes_valid [0:1];
-  wire [3:0] y_matrix [0:1] [0:2];
-  wire [7:0] y_lanes_data [0:1];
-  wire y_lanes_valid [0:1];
+  logic [1:0][2:0][3:0] x_matrix;
+  logic [1:0][7:0] x_lanes_data;
+  logic [1:0] x_lanes_valid;
+  wire [1:0][2:0][3:0] y_matrix;
+  wire [1:0][7:0] y_lanes_data;
+  wire [1:0] y_lanes_valid;
   NestedArrayTop dut(.*);
   initial begin
-    x_matrix[0][0]=1;x_matrix[0][1]=2;x_matrix[0][2]=3;
-    x_matrix[1][0]=4;x_matrix[1][1]=5;x_matrix[1][2]=6;
-    x_lanes_data[0]=8'h12;x_lanes_valid[0]=1;
-    x_lanes_data[1]=8'ha5;x_lanes_valid[1]=0;
+    x_matrix[1][2]=1;x_matrix[1][1]=2;x_matrix[1][0]=3;
+    x_matrix[0][2]=4;x_matrix[0][1]=5;x_matrix[0][0]=6;
+    x_lanes_data[1]=8'h12;x_lanes_valid[1]=1;
+    x_lanes_data[0]=8'ha5;x_lanes_valid[0]=0;
     #1;
-    if (y_matrix[0][0]!==1 || y_matrix[0][1]!==2 || y_matrix[0][2]!==3 ||
-        y_matrix[1][0]!==4 || y_matrix[1][1]!==5 || y_matrix[1][2]!==6)
+    if (y_matrix[1][2]!==1 || y_matrix[1][1]!==2 || y_matrix[1][0]!==3 ||
+        y_matrix[0][2]!==4 || y_matrix[0][1]!==5 || y_matrix[0][0]!==6)
       $fatal(1,"nested vector ordering");
-    if (y_lanes_data[0]!==8'h12 || y_lanes_valid[0]!==1 ||
-        y_lanes_data[1]!==8'ha5 || y_lanes_valid[1]!==0)
+    if (y_lanes_data[1]!==8'h12 || y_lanes_valid[1]!==1 ||
+        y_lanes_data[0]!==8'ha5 || y_lanes_valid[0]!==0)
       $fatal(1,"vector-of-struct ordering");
     $finish;
   end
 endmodule
 """
+
+
+@pytest.mark.skipif(shutil.which("verilator") is None, reason="Verilator unavailable")
+def test_nested_vec_struct_inline_boundary_preserves_exact_slices(
+    tmp_path: Path,
+) -> None:
+    module = compile_source(NESTED_SOURCE).ir
+    artifact = emit_artifact(module)
+    assert artifact.text.count("module NestedArrayTop (") == 1
+    assert "NestedArrayTop_zlang_core" not in artifact.text
+    assert "assign zlang_packed_x[17:10] = x_lanes_data[1];" in artifact.text
+    assert "assign zlang_packed_x[9] = x_lanes_valid[1];" in artifact.text
+    assert "assign zlang_packed_x[8:1] = x_lanes_data[0];" in artifact.text
+    assert "assign zlang_packed_x[0] = x_lanes_valid[0];" in artifact.text
+
+    rtl = tmp_path / "NestedArrayTop.sv"
+    bench = tmp_path / "tb.sv"
+    rtl.write_text(artifact.text)
+    bench.write_text(NESTED_BENCH)
+    obj = tmp_path / "obj"
+    compiled = subprocess.run(
+        (
+            "verilator", "--binary", "--timing", "-Wno-fatal",
+            "-Wno-DECLFILENAME", "-Wno-UNUSED", "-Wno-UNDRIVEN",
+            "--top-module", "tb", "--Mdir", str(obj), str(rtl), str(bench),
+        ),
+        capture_output=True,
+        text=True,
+        check=False,
+        env={**os.environ, "CCACHE_DISABLE": "1"},
+    )
+    assert compiled.returncode == 0, compiled.stdout + compiled.stderr
+    executed = subprocess.run(
+        (str(obj / "Vtb"),), capture_output=True, text=True, check=False,
+    )
+    assert executed.returncode == 0, executed.stdout + executed.stderr

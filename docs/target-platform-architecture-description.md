@@ -113,7 +113,7 @@ use is never presented as a Vivado measurement.
 ## Boundaries
 
 The generic direct-SystemVerilog implementation remains available when no
-primitive graph is selected. Existing M36 can validate the
+primitive graph is selected. Existing semantic-reference equivalence can validate the
 semantic fixed-point region, but its reference emitter does not model vendor
 primitives. Physical evidence therefore consists of the exact semantic oracle,
 Verilator execution of the separate resource behavior model, and real Vivado

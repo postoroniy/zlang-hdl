@@ -13,7 +13,7 @@ from zlang.protocols import (
 )
 
 
-class ProtocolM33Tests(unittest.TestCase):
+class ProtocolEquivalenceTests(unittest.TestCase):
     def rv(self, domain="clk"):
         return ProtocolEndpoint(InterfaceProtocol.READY_VALID, "u2", "forward", domain, "rst")
 

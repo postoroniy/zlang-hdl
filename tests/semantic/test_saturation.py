@@ -1,5 +1,7 @@
+from dataclasses import replace
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 
 from zlang.compiler import compile_source
 from zlang.ir.expressions import BinaryOperator
@@ -11,9 +13,14 @@ from zlang.opt import (
     lower,
     render_saturation,
     saturate,
+    Term,
     term_to_expression,
 )
-from zlang.opt.ir import ExpressionOp, Observation
+from zlang.opt.ir import ExpressionOp, NodeCategory, Observation
+import zlang.opt.saturation as saturation_module
+from zlang.opt.value_certificate import (
+    ValueCertificateError, verify_checked_value_certificate,
+)
 from zlang.parser import parse
 from zlang.semantic import analyze
 
@@ -22,6 +29,72 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class EqualitySaturationSemanticTests(unittest.TestCase):
+    def test_no_rule_five_product_graph_round_trips_exactly(self) -> None:
+        source = "module Products { " + " ".join(
+            f"in a{index},b{index}:u16" for index in range(5)
+        ) + " out y:u36 y=" + "+".join(
+            f"a{index}*b{index}" for index in range(5)
+        ) + " }"
+        compilation = compile_source(source)
+        root = compilation.optimization_ir.assignments[0].expression
+        with patch.object(saturation_module, "_compile_egg_rewrites", return_value=((), ())):
+            result = saturate(compilation.optimization_ir, root)
+        self.assertEqual(result.equivalence_class.terms, (result.original,))
+        self.assertFalse(result.rejection_reasons)
+        self.assertEqual(term_to_expression(result.original).type, UIntType(36))
+
+    def test_well_typed_but_inequivalent_extracted_term_is_rejected(self) -> None:
+        compilation = compile_source("module Forged { in x:u8 out y:u8 y=x|0 }")
+        root = compilation.optimization_ir.assignments[0].expression
+        original = saturation_module._term_from_root(
+            compilation.optimization_ir.expressions, root,
+        )
+        x = original.operands[0]
+        one = Term(
+            NodeCategory.VALUE, ExpressionOp.CONSTANT, UIntType(8),
+            attributes=(("value", 1),),
+        )
+        forged = Term(
+            NodeCategory.VALUE, ExpressionOp.BINARY, UIntType(8), (x, one),
+            (("operator", BinaryOperator.BIT_XOR), ("operand_type", UIntType(8))),
+        )
+        with patch.object(
+            saturation_module, "_extract_root_graph", return_value=(original, forged),
+        ):
+            result = saturate(compilation.optimization_ir, root)
+        self.assertEqual(result.alternatives, ())
+        self.assertTrue(any(
+            "no exact local-rewrite proof" in reason
+            for reason in result.rejection_reasons
+        ))
+
+    def test_checked_certificate_replay_rejects_tampering(self) -> None:
+        compilation = compile_source("module Certified { in x:u8 out y:u8 y=x|0 }")
+        root = compilation.optimization_ir.assignments[0].expression
+        result = saturate(compilation.optimization_ir, root)
+        self.assertEqual(len(result.certificates), 1)
+        certificate = result.certificates[0]
+        compiled, _ = saturation_module._compile_egg_rewrites(
+            compilation.optimization_ir.equivalences, result.original,
+        )
+        with self.assertRaisesRegex(ValueCertificateError, "identity"):
+            verify_checked_value_certificate(
+                replace(certificate, checker_version="forged"),
+                result.original,
+                result.alternatives[0],
+                tuple(item.spec for item in compiled),
+                compilation.optimization_ir.equivalences,
+            )
+
+    def test_fixed_raw_conversion_contracts_remain_admissible_barriers(self) -> None:
+        to_raw = compile_source(
+            "module ToRaw { in x:fixed<8,4> out y:s8 y=fixed_to_raw(x) }"
+        )
+        root = to_raw.optimization_ir.assignments[0].expression
+        result = saturate(to_raw.optimization_ir, root)
+        self.assertEqual(result.original.op, ExpressionOp.FIXED_CONVERT)
+        self.assertEqual(result.alternatives, ())
+
     def test_unsigned_power_of_two_multiply_uses_exact_widen_then_shift(self) -> None:
         compilation = compile_source(
             (ROOT / "examples/shift_multiply.zhl").read_text()
@@ -94,7 +167,7 @@ class EqualitySaturationSemanticTests(unittest.TestCase):
                     )
                 )
 
-    def test_retained_generic_call_is_boundedly_expanded_before_m26(self) -> None:
+    def test_retained_generic_call_is_boundedly_expanded_before_egraph_optimization(self) -> None:
         compilation = compile_source("""
             fn identity<type T>(x : T) { x }
             module ThroughCall {

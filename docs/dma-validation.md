@@ -1,6 +1,6 @@
-# SimpleDMA M40 validation
+# SimpleDMA hierarchical composition validation
 
-> **Document status:** this is a chronological M40 composition log. Early
+> **Document status:** this is a chronological hierarchical composition composition log. Early
 > “known boundary” and “next slice” paragraphs intentionally record what was
 > missing at that checkpoint; many were closed by later unnumbered hierarchy,
 > protocol, instance-array, and backend slices. Use the
@@ -15,11 +15,11 @@ protocol boundaries. This does not change SimpleDMA semantics; future
 memory-facing integration can use the same role-derived leaf directions and
 manifest bindings without a bus-specific backend.
 
-This document records the first real-design validation of the completed M40
+This document records the first real-design validation of the completed hierarchical composition
 subset. The target began with `AddressGen`, `RequestBuilder`, and the
 hierarchical `SimpleDMA` parent. It now includes a mixed scalar/protocol
 `TransferEngine` and a direct depth-two request FIFO connection in
-`examples/simple_dma_m40.zhl`.
+`examples/simple_dma.zhl`.
 
 ## Design slice
 
@@ -68,7 +68,7 @@ Verilator lint independently. `SimpleDMA<8>` now also passes real Clash Verilog
 generation and Verilator lint. A Verilator executable testbench drives reset and
 one request and checks the packed struct fields; it exits successfully.
 
-The repository's existing M35/M36 solver-backed checks remain green (4 tests in
+The repository's existing safety verification/semantic-reference equivalence solver-backed checks remain green (4 tests in
 the formal integration smoke suite). They validate the shared formal foundation,
 but do not claim a parent DMA proof while the parent RTL artifact is unavailable.
 
@@ -91,7 +91,7 @@ IR and `ElaboratedInstance` retain those concrete names. Existing explicit
 clock/reset declarations remain accepted. Real Clash Verilog generation and
 Verilator lint pass for the concise source.
 
-The existing real-solver M35/M36 integration suite was rerun while validating
+The existing real-solver safety verification/semantic-reference equivalence integration suite was rerun while validating
 this change. Its failure-first mutation classification is green, including the
 wrong-arithmetic and wrong-latency regressions; the hierarchy code does not
 participate in those fixtures.
@@ -124,10 +124,10 @@ payload, valid, ready, and FIFO-state bindings with semantic identities.
 hierarchical equations. The semantic, Clash-source, and manifest tests pass.
 Using the repository Clash 1.11.0 executable, real Verilog generation,
 Verilator lint, and a clock/reset simulation all pass; the simulation observes
-the producer value `7` after reset. M35 formal mutation classification remains
+the producer value `7` after reset. safety verification formal mutation classification remains
 failure-first and its focused solver suite is unchanged.
 
-The next concrete blocker is applying the existing ready/valid and FIFO M35
+The next concrete blocker is applying the existing ready/valid and FIFO safety verification
 properties directly to the composed parent (the current simulation covers the
 traffic path, reset, and preserved FIFO state but is not a generated formal
 harness). No protocol adapter, CDC, AXI, package, blackbox, or cross-module
@@ -231,7 +231,7 @@ formatting.
 The checked-in example is 44 lines versus 55 lines in the pre-refinement
 version (20% fewer source lines) while retaining the same elaborated behavior.
 
-## Historical M40 checkpoint status
+## Historical hierarchical composition checkpoint status
 
 Parsing, type checking, specialization, struct construction, register/rule
 semantics, source-origin retention, inherited domains, concise instance
@@ -241,8 +241,8 @@ stateful hierarchy emit real Clash/Verilog and publish stable bindings; Clash
 1.11 and Verilator execution pass. The full repository baseline is now green.
 Nested protocol forms beyond the one-endpoint-per-child slice, adapters,
 instance arrays, and cross-module optimization remain concrete follow-up gaps.
-No packages, blackboxes, AXI, CDC, descriptors, or new milestone were
-introduced.
+No packages, blackboxes, AXI, CDC, descriptors, or unrelated compiler
+capabilities were introduced.
 
 ### 9. Regression baseline restored
 
@@ -250,13 +250,13 @@ The pipeline golden mismatch was an emitter-only ordering regression: the
 `pipeline(auto)` annotation had moved after `createDomain` even though semantic
 and selected pipeline results were unchanged. The annotation is again emitted
 in its established position. The runtime-index negative case was stale under
-M40: `u1` indexes `vec<2,T>` exactly, so the test now uses `u2` against
+hierarchical composition: `u1` indexes `vec<2,T>` exactly, so the test now uses `u2` against
 `vec<3,T>`, whose encoded value 3 is out of range. The complete repository
 regression is green after these corrections (`539` tests passed).
 
 ### 10. Hierarchical request/response composition
 
-`hierarchical_request_response_m40.zhl` uses the existing `request_response`
+`hierarchical_request_response.zhl` uses the existing `request_response`
 declaration with `max_outstanding 1` and `ordering in_order`. Requester and
 responder ownership is inferred from existing channel assignments; no role or
 transport syntax was added. A logical connection lowers to two explicit
@@ -274,14 +274,14 @@ second counter); no parent `Signal` is captured. Real Clash 1.11
 Verilog generation emits separate requester/responder components and Verilator
 lint passes. The executable simulation exercises reset, request stall and
 acceptance, response hold under backpressure, and response acceptance.
-M33/M35 generic ready/valid and FIFO checks remain applicable; a dedicated
+protocol equivalence/safety verification generic ready/valid and FIFO checks remain applicable; a dedicated
 request/response automatic-property family is not yet present, so no stronger
 formal claim is made. The shared-buffer-depth bug is fixed: `request_buffer N`
 and `response_buffer N` are independent channel metadata, and generic `buffer N`
 is rejected as ambiguous on request/response connections. Manifests publish
 separate request/response FIFO state identities.
 
-`examples/simple_dma_m40.zhl` now makes `TransferEngine` the requester of a
+`examples/simple_dma.zhl` now makes `TransferEngine` the requester of a
 `request_response<MemRequest,MemResponse>` endpoint and connects it directly to
 the stateful `MemoryModel` responder. No ready/valid adapter is inserted. Real
 Clash 1.11 generation and Verilator lint/build/simulation pass for SimpleDMA<8>,
@@ -316,7 +316,7 @@ request, and decrements outstanding only when the requester consumes a
 response. The parent owns this single counter, so the closed bundled Clash
 child ABI remains unchanged and cannot diverge from buffered accounting.
 
-`TransferEngine<AW>` and `MemoryModel` in `simple_dma_m40.zhl` now use
+`TransferEngine<AW>` and `MemoryModel` in `simple_dma.zhl` now use
 `max_outstanding 2`, with `request_buffer 4` and `response_buffer 2` on the
 hierarchical connection. The stateful engine is emitted as a reusable bundled
 mealy component; its register/rule state remains in the child while protocol
@@ -324,7 +324,7 @@ accounting remains in the parent. Real Clash 1.11 generation, Verilator lint,
 and the SimpleDMA simulation pass. Formal IR generation includes bounded
 outstanding, no-response-without-acceptance, in-order, conservation, and reset
 epoch property families; external proof execution remains subject to the
-existing M35 harness/tool availability.
+existing safety verification harness/tool availability.
 
 Zero/non-positive capacities and out-of-order ordering are rejected, generic
 `buffer` remains ambiguous and rejected, and no transaction IDs or adapters
@@ -365,7 +365,7 @@ Clash designs, and pass Verilator reset simulation. SimpleDMA remains on the
 generic request/response memory path; no AXI conversion was introduced.
 
 The CSR validation slice now exercises the source-authoritative path with RW,
-sticky W1C, and pulse state in `RegBusCSRTarget`. M35 bindings preserve the
+sticky W1C, and pulse state in `RegBusCSRTarget`. safety verification bindings preserve the
 frontend, RegBus, CSR state, instance, specialization, and aggregate member
 identities. `zlang/standard_bus.py` is used only for trace comparison; it is not
 called by production compilation. Real Clash/Verilator hierarchy tests and
@@ -400,10 +400,10 @@ no DMA or bus-specific backend workaround was introduced.
 
 ### 15. Recursive formal binding
 
-The unnumbered recursive M35 formal infrastructure is documented in
+The unnumbered recursive safety verification formal infrastructure is documented in
 [compositional-formal-binding.md](compositional-formal-binding.md).
 It preserves nested DMA/CSR semantic instance identities and aggregate member
-paths in a v4 manifest. This does not yet claim hierarchical M36 or M38
+paths in a v4 manifest. This does not yet claim hierarchical semantic-reference equivalence or retired cross-backend equivalence
 equivalence; that remains an explicit boundary.
 
 ### 16. Direct-SystemVerilog composition validation
@@ -419,7 +419,7 @@ push/pop behavior.
 Real Verilator simulation passes for producer→FIFO→consumer stalls,
 hierarchical request/response acceptance, and SimpleDMA reset/start/request
 buffering/completion.  AXI/APB source-authored tops and every other accepted
-example pass Verilator lint.  Real M35-oriented direct-RTL checks pass for
+example pass Verilator lint.  Real safety verification-oriented direct-RTL checks pass for
 state/rules, FIFO/ready-valid, CSR W1C, and request/response acceptance; six
 deliberate implementation mutations fail with solver counterexamples.
 

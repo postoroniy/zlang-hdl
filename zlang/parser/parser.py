@@ -171,7 +171,7 @@ from zlang.ast.nodes import (
     VectorTypeName,
     VectorLiteralExpr,
 )
-from zlang.source import SourceSpan
+from zlang.source import SourceOrigin, SourceSpan
 from zlang.diagnostics import DiagnosticError
 
 
@@ -3144,8 +3144,30 @@ def parse(source: str) -> Module:
         tree = _get_parser().parse(source)
     except UnexpectedInput as error:
         context = error.get_context(source).strip()
+        start_line = max(1, error.line)
+        start_column = max(1, error.column)
+        source_lines = source.splitlines()
+        selected_line = (
+            source_lines[start_line - 1]
+            if start_line <= len(source_lines)
+            else ""
+        )
+        end_column = (
+            start_column + 1
+            if start_column <= len(selected_line)
+            else start_column
+        )
         raise ParseError(
-            f"syntax error at line {error.line}, column {error.column}: {context}"
+            f"syntax error at line {error.line}, column {error.column}: {context}",
+            primary=SourceOrigin(
+                SourceSpan(
+                    start_line,
+                    start_column,
+                    start_line,
+                    end_column,
+                ),
+                "syntax error",
+            ),
         ) from error
     try:
         result = _AstBuilder(source).transform(tree)

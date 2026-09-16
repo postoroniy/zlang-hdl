@@ -1,4 +1,4 @@
-"""Backend-published, artifact-bound signal manifests (M37)."""
+"""Backend-published, artifact-bound signal manifests (backend binding)."""
 
 from __future__ import annotations
 
@@ -22,6 +22,7 @@ from zlang.backend.manifest_codec import (
 from zlang.ir.equivalence import BindingMap, BindingSide, EquivalenceBinding, SignalRole, signedness
 from zlang.ir.formal_observations import request_response_observation_id
 from zlang.ir.physical_types import physical_width
+from zlang.ir.packing import PACKING_LAYOUT_SCHEMA
 from zlang.ir.interfaces import InterfaceProtocol
 from zlang.ir.cdc import (
     ClockDomain,
@@ -60,6 +61,8 @@ TIMING_MANIFEST_VERSION = 7
 DEPENDENCY_MANIFEST_VERSION = 8
 MODULE_SIGNATURE_MANIFEST_VERSION = 9
 PHYSICAL_DOMAIN_MANIFEST_VERSION = 10
+INLINE_TOP_BOUNDARY_MANIFEST_VERSION = 12
+PACKING_LAYOUT_MANIFEST_VERSION = 12
 
 
 def backend_binding_identity(artifact: "BackendArtifact") -> str:
@@ -562,7 +565,8 @@ class BackendArtifact:
         """Identity of emitted RTL in its exact locked semantic context."""
 
         payload: dict[str, object] = {
-            "schema": "zlang-backend-build-v1",
+            "schema": "zlang-backend-build-v2",
+            "packing_layout_schema": PACKING_LAYOUT_SCHEMA,
             "backend": self.backend,
             "module": self.module,
             "selected_ir_identity": self.selected_ir_identity,
@@ -590,6 +594,7 @@ class BackendArtifact:
         validate_artifact_links(self)
         entries = [binding_to_data(item) for item in self.bindings]
         payload: dict[str, Any] = {"manifest_version": self.manifest_version,
+                           "packing_layout_schema": PACKING_LAYOUT_SCHEMA,
                            "backend": self.backend, "module": self.module,
                            "selected_ir_identity": self.selected_ir_identity,
                            "artifact_hash": self.artifact_hash,
@@ -790,11 +795,11 @@ class BackendArtifact:
 
     @classmethod
     def from_json(cls, payload: str | bytes | dict[str, object]) -> "BackendArtifact":
-        """Read v2 and v3 manifests without reconstructing semantic paths."""
+        """Restore a supported manifest without reconstructing semantic paths."""
         data = decode_artifact_payload(
             payload,
             minimum_version=MANIFEST_VERSION,
-            maximum_version=PHYSICAL_DOMAIN_MANIFEST_VERSION,
+            maximum_version=PACKING_LAYOUT_MANIFEST_VERSION,
         )
         version = int(data["manifest_version"])
         bindings = [
@@ -1016,10 +1021,15 @@ def publish_artifact(module: Module, text: str, *, backend: str,
     )
     names = dict(rtl_names or {})
     top_abi = module.top_aggregate_abi
-    publishes_physical_domains = len(module.clock_domains) > 1 or any(
-        not domain.is_legacy_default for domain in module.clock_domains
-    )
+    # Packing-layout-v2 artifacts are current physical contracts.  Once an
+    # artifact is clocked, even the historical single-domain shorthand must
+    # publish the exact domain rather than relying on an implicit legacy
+    # interpretation that cannot safely share proof/cache identities.
+    publishes_physical_domains = bool(module.clock_domains)
     artifact_version = max(
+        PACKING_LAYOUT_MANIFEST_VERSION,
+        INLINE_TOP_BOUNDARY_MANIFEST_VERSION
+        if backend == "direct_systemverilog" else MANIFEST_VERSION,
         DEPENDENCY_MANIFEST_VERSION if (
             module.root_module_identity is not None
             or module.dependency_closure is not None
@@ -1172,7 +1182,6 @@ def publish_artifact(module: Module, text: str, *, backend: str,
                 physical_available=False,
             ))
         for leaf in top_abi.leaves:
-            aggregate_clock = aggregate.domain or module.clock
             bindings.append(EquivalenceBinding(
                 artifact_version, side, leaf.leaf_semantic_id,
                 selected_ir_identity, module.name,
@@ -1187,6 +1196,7 @@ def publish_artifact(module: Module, text: str, *, backend: str,
     else:
         for aggregate in module.aggregate_protocol_endpoints:
             aggregate_id = f"aggregate:{module.name}.{aggregate.name}"
+            aggregate_clock = aggregate.domain or module.clock
             aggregate_width = sum(_width(member.payload_type) for member in aggregate.members)
             bindings.append(EquivalenceBinding(
                 artifact_version, side, aggregate_id, selected_ir_identity, module.name,
@@ -1245,7 +1255,7 @@ def publish_artifact(module: Module, text: str, *, backend: str,
         for suffix in ("request_occupancy", "response_occupancy", "waiting_response"):
             if suffix == "waiting_response":
                 # Waiting-response state is an implementation/equivalence
-                # locator, not one of the frozen M35 RR observations.
+                # locator, not one of the frozen safety verification RR observations.
                 semantic_id = f"{descriptor.semantic_id}:{suffix}"
             else:
                 semantic_id = request_response_observation_id(
@@ -1277,7 +1287,7 @@ def publish_artifact(module: Module, text: str, *, backend: str,
     # component roots may remain packed, but a split public root is not a real
     # top-level signal and must never be advertised as one.  Conversely every
     # typed leaf names the actual public RTL port, including user structs and
-    # native unpacked vector arrays.
+    # multidimensional packed vector arrays.
     physical_leaves = tuple(module.top_physical_abi.leaves)
     leaves_by_semantic = {
         leaf.leaf_semantic_id: leaf for leaf in physical_leaves
@@ -1547,6 +1557,7 @@ __all__ = [
     "ImplementationResourceManifest", "IMPLEMENTATION_MANIFEST_VERSION",
     "COMPANION_MANIFEST_VERSION", "TIMING_MANIFEST_VERSION",
     "DEPENDENCY_MANIFEST_VERSION", "MODULE_SIGNATURE_MANIFEST_VERSION",
+    "INLINE_TOP_BOUNDARY_MANIFEST_VERSION", "PACKING_LAYOUT_MANIFEST_VERSION",
     "PHYSICAL_DOMAIN_MANIFEST_VERSION", "PhysicalDomainManifest",
     "InstanceManifest", "MANIFEST_VERSION", "RECURSIVE_MANIFEST_VERSION",
     "ModuleSignatureManifest", "RecursiveBindingManifest",

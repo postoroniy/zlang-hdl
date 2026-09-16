@@ -46,17 +46,17 @@ int main(int argc, char **argv) {
   d.fire=0; d.index=0; d.value=0; d.rst=1; tick(d);
   if (!state(d, 0x00000000, 0)) return 1;
   d.rst=0; d.fire=1; d.index=2; d.value=11; tick(d);
-  if (!state(d, 0x00000b00, 0)) return 2;
+  if (!state(d, 0x000b0000, 0)) return 2;
   d.index=0; d.value=0xaa; tick(d);
-  if (!state(d, 0xaa000b00, 0)) return 3;
+  if (!state(d, 0x000b00aa, 0)) return 3;
   d.fire=0; d.index=2; d.value=0; tick(d);
-  if (!state(d, 0xaa000b00, 0)) return 4;
+  if (!state(d, 0x000b00aa, 0)) return 4;
   d.fire=1; d.index=2; d.value=17; tick(d);
-  if (!state(d, 0xaa001100, 11)) return 5;
+  if (!state(d, 0x001100aa, 11)) return 5;
   d.rst=1; d.fire=1; d.index=1; d.value=9; tick(d);
   if (!state(d, 0x00000000, 0)) return 6;
   d.rst=0; tick(d);
-  return state(d, 0x00090000, 0) ? 0 : 7;
+  return state(d, 0x00000900, 0) ? 0 : 7;
 }
 '''
 
@@ -102,32 +102,32 @@ int main(int argc, char **argv) {
 
   // The write uses the pre-edge cursor (0), then the cursor becomes 2.
   d.rst=0; d.fire=1; d.next_tag=2; d.value=0x11; tick(d);
-  if (!state(d, 0x11000000, 0x00)) return 2;
+  if (!state(d, 0x00000011, 0x00)) return 2;
 
   // The next write therefore targets element 2, independently of next_tag=1.
   d.next_tag=1; d.value=0x22; tick(d);
-  if (!state(d, 0x11002200, 0x00)) return 3;
+  if (!state(d, 0x00220011, 0x00)) return 3;
 
   d.fire=0; d.next_tag=0; d.value=0; tick(d);
-  if (!state(d, 0x11002200, 0x00)) return 4;
+  if (!state(d, 0x00220011, 0x00)) return 4;
 
   // Holding next_tag at 1 makes the newly written element directly observable.
   d.fire=1; d.next_tag=1; d.value=0x33; tick(d);
-  if (!state(d, 0x11332200, 0x33)) return 5;
+  if (!state(d, 0x00223311, 0x33)) return 5;
 
   d.next_tag=3; d.value=0x44; tick(d);
-  if (!state(d, 0x11442200, 0x00)) return 6;
+  if (!state(d, 0x00224411, 0x00)) return 6;
   d.next_tag=3; d.value=0x55; tick(d);
-  if (!state(d, 0x11442255, 0x55)) return 7;
+  if (!state(d, 0x55224411, 0x55)) return 7;
 
   d.rst=1; d.fire=1; d.next_tag=2; d.value=0xff; tick(d);
   if (!state(d, 0x00000000, 0x00)) return 8;
 
   // The first post-reset write again uses the reset cursor value (0).
   d.rst=0; d.fire=1; d.next_tag=0; d.value=0x66; tick(d);
-  if (!state(d, 0x66000000, 0x66)) return 9;
+  if (!state(d, 0x00000066, 0x66)) return 9;
   d.fire=0; tick(d);
-  return state(d, 0x66000000, 0x66) ? 0 : 10;
+  return state(d, 0x00000066, 0x66) ? 0 : 10;
 }
 '''
 

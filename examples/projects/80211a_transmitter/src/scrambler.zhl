@@ -22,7 +22,7 @@ module IeeeDataScrambler24 {
     ]
     // The generated sequence is transmitted MSB-first: f23 .. f0.
     feedback = generate(i in 0..24)
-        parity(s0 & feedback_taps[23 - i])
+        parity(s0 & feedback_taps[i])
     feedback_mask : bits<24> = feedback
     next_state : u7 = feedback_mask[23:17]
     scrambled = input.payload.data ^ feedback_mask

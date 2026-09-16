@@ -91,7 +91,7 @@ two-edge release hold, and restart on the third edge in 24 real-RTL profiles.
 
 | Active clock edge | Reset assertion | External polarity | Release | Existing formal routes |
 | --- | --- | --- | --- | --- |
-| rising or falling | synchronous | active-high or active-low | native | M35/source safety and cover; existing bindable recursive M35; same-cycle and fixed-latency II=1 direct-SV M36; applicable M39 policies |
+| rising or falling | synchronous | active-high or active-low | native | safety verification/source safety and cover; existing bindable recursive safety verification; same-cycle and fixed-latency II=1 direct-SV semantic-reference equivalence; applicable formal-aware selection policies |
 | rising or falling | asynchronous | active-high or active-low | native | the same bounded routes, for a single physical domain |
 | rising or falling | asynchronous | active-high or active-low | synchronized, exactly two active edges | the same bounded routes, for a single physical domain |
 
@@ -144,10 +144,10 @@ semantics are not supported.
 synthesizable initialization mechanism is frozen. DSP48 physical reset pins,
 elastic or variable-latency `pipeline(auto)` equivalence, CDC/reset-refinement
 proofs, and target BRAM reset pins remain fail closed. So do multi-domain
-asynchronous formal execution, general hierarchical M36, and every route with missing
+asynchronous formal execution, general hierarchical semantic-reference equivalence, and every route with missing
 or incompatible domain manifests, bindings, assumptions, or observations.
-M39 `available` records unavailable evidence without changing eligibility;
-required policies fail unless the existing exact M36 route executes at the
+formal-aware selection `available` records unavailable evidence without changing eligibility;
+required policies fail unless the existing exact semantic-reference equivalence route executes at the
 requested level. No new formal property, observation, or equivalence family is
 introduced.
 

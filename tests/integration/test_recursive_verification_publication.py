@@ -1,7 +1,7 @@
-"""Compiler-bundle publication for existing recursive M35 properties.
+"""Compiler-bundle publication for existing recursive safety verification properties.
 
 These tests intentionally exercise the public compilation/publication path,
-not the lower-level recursive-formal backend helpers.  Descendant M35
+not the lower-level recursive-formal backend helpers.  Descendant safety verification
 properties already exist in ``RecursiveFormalDesign``; the compiler bundle
 must publish each concrete property exactly once with its physical instance
 scope and an all-or-nothing observation route.

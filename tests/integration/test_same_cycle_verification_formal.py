@@ -97,7 +97,7 @@ def test_real_solver_passes_concat_and_finds_swapped_field_mutation(tmp_path) ->
     )
     passed = run_verilog_formal(
         emit_harness(connected, depth=4),
-        top="SameCyclePredicateSurface__m35_formal",
+        top="SameCyclePredicateSurface__safety_verification_formal",
         property_id="same-cycle.structured.pass",
         depth=4,
         systemverilog=True,
@@ -119,7 +119,7 @@ def test_real_solver_passes_concat_and_finds_swapped_field_mutation(tmp_path) ->
     )
     failed = run_verilog_formal(
         emit_harness(mutated_connected, depth=4),
-        top="SameCyclePredicateSurface__m35_formal",
+        top="SameCyclePredicateSurface__safety_verification_formal",
         property_id=mutated_property.id,
         depth=4,
         systemverilog=True,
@@ -146,7 +146,7 @@ def test_real_solver_checks_range_proven_runtime_index(tmp_path) -> None:
     )
     passed = run_verilog_formal(
         emit_harness(connected, depth=4),
-        top="RuntimePredicate__m35_formal",
+        top="RuntimePredicate__safety_verification_formal",
         property_id=property_.id,
         depth=4,
         systemverilog=True,
@@ -167,7 +167,7 @@ def test_real_solver_checks_range_proven_runtime_index(tmp_path) -> None:
     )
     failed = run_verilog_formal(
         emit_harness(mutated, depth=4),
-        top="RuntimePredicate__m35_formal",
+        top="RuntimePredicate__safety_verification_formal",
         property_id=mutated_property.id,
         depth=4,
         systemverilog=True,

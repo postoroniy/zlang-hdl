@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[2]
     ("source", "top"),
     (
         (ROOT / "examples" / "alu.zhl", "ALU"),
-        (ROOT / "examples" / "hierarchical_protocol_m40.zhl", "ProtocolTop"),
+        (ROOT / "examples" / "hierarchical_protocol.zhl", "ProtocolTop"),
     ),
 )
 def test_generic_cli_renders_one_artifact_and_reuses_its_text_and_hash(

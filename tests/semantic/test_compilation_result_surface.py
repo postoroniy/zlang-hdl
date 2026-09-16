@@ -43,21 +43,28 @@ module ScalarRom<D=4> {
 # entities now also retain their resolved physical clock-domain ownership in
 # the eager result surface; canonical schema v14 additionally retains the
 # domain of each child-output value. Each value below was independently compiled twice
-# before being locked.
+# before being locked. The generic implementation graph now uses a versioned
+# physical Module projection rather than hashing unused exploration catalogs,
+# cost feedback and source provenance. This intentionally changes the eager
+# graph-key surface for every case below; the values were compiled twice again
+# before recapture, without changing value semantics or generated RTL. The
+# formal-artifact namespace cleanup replaces historical development labels with
+# descriptive semantic names; because those names are identity-bearing, every
+# eager result below was compiled twice again before this recapture.
 EXPECTED = {
-    "add": "74093c35c7bfd566484b131f0c31b769192c51349775a068094d59c51d3e1b70",
-    "stateful_protocol": "08eb7c05972028f90c79cf66a9ea71f3257a7c5c60e0fd29d3b4aa66aefea9f7",
-    "fixed_dsp": "11282ec29ae710ef9ed768494c399775b708f22650050533fe44b6bd853b016a",
-    "csr": "85797a67a97c652e101d04b3830b54bd1a2c1cafbbe675457d78d81c050c3e9d",
-    "hierarchy": "06f3e1560bf38c7cbb038c768e0f65f32764d3e374bbe611704e4e91a1bee61b",
+    "add": "91d0de6db433e96372a664d6a2a0d7e97394495bc1047cd60b10ddedd1824717",
+    "stateful_protocol": "e409feafc0bbe25a25141ffeada82dd2fdfef41e89439348eaa6f326ad86bb24",
+    "fixed_dsp": "97c893de9105ede0a9c8336047e1d883982d0df464c12f16788fadcc77e0f004",
+    "csr": "223dd1762346c87b23eb99f99256107587979f114a97dded6e7534945a383281",
+    "hierarchy": "ed232bcb46b32761fefd3041ff036dfdb2190ab56af99a898557d6c647c83e1d",
     # Companion filenames now use exact typed ROM contents/layout rather than
     # source provenance, so equivalent spellings retain one physical image.
-    "rom": "fd53bac5688437e8d015596e41c3f55110bd23fd1f923b71bf172e44a82a0c24",
+    "rom": "569e7792f7cf98d297c4763a1a9824238afe24f725f8e316212cd2653a47165b",
     # The concise Wi-Fi source refactor uses slices, shared raw views, vector
     # generation and struct update while retaining the public ABI and IEEE
     # behavior.  This source/dependency-sensitive eager-result snapshot was
     # independently compiled twice before being locked here.
-    "wifi": "0117a5c170e2bb8ac8034071d075052ce1309c11a9b5bf06c194b1ddd500c09d",
+    "wifi": "63b3c5594245179fa3c62f80f00824cac768f198a4a0bf03661bf39403161e95",
 }
 
 
@@ -75,7 +82,7 @@ def _compile_case(name: str):
         return compile_file(ROOT / "examples/control_csr.zhl")
     if name == "hierarchy":
         return compile_source(
-            (ROOT / "examples/m40_composition.zhl").read_text(),
+            (ROOT / "examples/hierarchy_composition.zhl").read_text(),
             top="Composition",
         )
     if name == "rom":

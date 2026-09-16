@@ -111,6 +111,7 @@ class CdcBehaviorTests(unittest.TestCase):
                 rv(),
                 rv(0, 0, 1),
                 rv(0, 0, 1),
+                rv(0, 0, 1),
                 rv(),
                 rv(),
                 rv(),
@@ -125,25 +126,27 @@ class CdcBehaviorTests(unittest.TestCase):
                 {DESTINATION},
                 {DESTINATION},
                 {DESTINATION},
+                {SOURCE, DESTINATION},
                 {SOURCE},
                 {SOURCE},
                 set(),
             ],
-            [{SOURCE, DESTINATION}, *([set()] * 11)],
+            [{SOURCE, DESTINATION}, *([set()] * 12)],
         )
 
         self.assertEqual(results[5]["source"]["ready"], 0)
         self.assertEqual(
-            [results[index]["destination"]["payload"] for index in (7, 8)],
+            [results[index]["destination"]["payload"] for index in (8, 9)],
             [1, 2],
         )
         self.assertEqual(
-            [results[index]["destination"]["transfer"] for index in (7, 8)],
+            [results[index]["destination"]["transfer"] for index in (8, 9)],
             [1, 1],
         )
         self.assertEqual(results[9]["source"]["ready"], 0)
         self.assertEqual(results[10]["source"]["ready"], 0)
-        self.assertEqual(results[11]["source"]["ready"], 1)
+        self.assertEqual(results[11]["source"]["ready"], 0)
+        self.assertEqual(results[12]["source"]["ready"], 1)
 
     def test_endpoint_resets_must_be_coordinated(self) -> None:
         with self.assertRaisesRegex(ProtocolViolation, "asserted together"):

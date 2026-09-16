@@ -115,7 +115,7 @@ only and do not embed producing source contents. They validate caller-supplied
 source text/digests but do not locate workspaces or manage unsaved overlays.
 
 Source-map coverage remains the bounded line-only coverage documented in
-[Generated source maps](generated-source-maps.md). M13 adds no generated
+[Generated source maps](generated-source-maps.md). generated-navigation bundle adds no generated
 columns, recursive line mappings, virtual documents, artifact index, implicit
 compilation, or source-to-generated query. **There is no LSP generated-RTL
 navigation yet.**

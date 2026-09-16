@@ -185,34 +185,33 @@ def test_each_physical_child_has_an_independent_simulator_ledger() -> None:
 BENCH = r"""
 module tb;
   logic clk=0, rst=1;
-  logic [7:0] request_data [0:1];
-  logic issue [0:1], accept [0:1], consume [0:1], produce [0:1];
-  logic [7:0] response_data [0:1];
-  wire [7:0] responses [0:1];
-  wire accepted [0:1];
+  logic [1:0][7:0] request_data;
+  logic [1:0] issue, accept, consume, produce;
+  logic [1:0][7:0] response_data;
+  wire [1:0][7:0] responses;
+  wire [1:0] accepted;
   RequestResponseArrayTop dut(.*);
   task tick; begin #1 clk=1; #1 clk=0; end endtask
   initial begin
-    request_data[0]=8'h10; request_data[1]=8'h20;
-    response_data[0]=8'ha0; response_data[1]=8'hb0;
-    issue[0]=0; issue[1]=0; accept[0]=0; accept[1]=0;
-    consume[0]=0; consume[1]=0; produce[0]=0; produce[1]=0;
-    tick; if(accepted[0] || accepted[1]) $fatal(1,"reset transfer");
-    rst=0; issue[0]=1; issue[1]=1; accept[0]=1; accept[1]=0;
-    #1; if(!accepted[0] || accepted[1]) $fatal(1,"lane isolation"); tick;
-    #1; if(!accepted[0] || accepted[1]) $fatal(1,"lane0 second request"); tick;
-    #1; if(accepted[0]) $fatal(1,"lane0 outstanding limit");
-    accept[1]=1; #1; if(!accepted[1]) $fatal(1,"lane1 independent ledger"); tick;
-    issue[0]=0; issue[1]=0; produce[0]=1; produce[1]=1;
-    consume[0]=0; consume[1]=1; #1;
-    if(responses[0]!==8'ha0 || responses[1]!==8'hb0)
+    request_data[1]=8'h10; request_data[0]=8'h20;
+    response_data[1]=8'ha0; response_data[0]=8'hb0;
+    issue=0; accept=0; consume=0; produce=0;
+    tick; if(accepted[1] || accepted[0]) $fatal(1,"reset transfer");
+    rst=0; issue=2'b11; accept[1]=1; accept[0]=0;
+    #1; if(!accepted[1] || accepted[0]) $fatal(1,"lane isolation"); tick;
+    #1; if(!accepted[1] || accepted[0]) $fatal(1,"lane0 second request"); tick;
+    #1; if(accepted[1]) $fatal(1,"lane0 outstanding limit");
+    accept[0]=1; #1; if(!accepted[0]) $fatal(1,"lane1 independent ledger"); tick;
+    issue=0; produce=2'b11;
+    consume[1]=0; consume[0]=1; #1;
+    if(responses[1]!==8'ha0 || responses[0]!==8'hb0)
       $fatal(1,"response payload");
     tick;
-    consume[0]=1; tick;
-    rst=1; issue[0]=1; accept[0]=1; tick;
-    if(accepted[0] || accepted[1]) $fatal(1,"mid-stream reset");
-    rst=0; produce[0]=0; produce[1]=0; accept[0]=1;
-    tick; if(!accepted[0]) $fatal(1,"new reset epoch");
+    consume[1]=1; tick;
+    rst=1; issue[1]=1; accept[1]=1; tick;
+    if(accepted[1] || accepted[0]) $fatal(1,"mid-stream reset");
+    rst=0; produce=0; accept[1]=1;
+    tick; if(!accepted[1]) $fatal(1,"new reset epoch");
     $finish;
   end
 endmodule

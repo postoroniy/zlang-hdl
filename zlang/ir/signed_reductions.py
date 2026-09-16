@@ -101,25 +101,33 @@ def selection_expression_semantic_identity(value: expr.Expression) -> str:
     a planner catalog regenerated with a fresh allocator.
     """
 
-    if isinstance(value, expr.Pipeline):
-        value = replace(
-            value,
-            instance=0,
-            expression=selection_expression(value.expression),
-        )
-    return expression_semantic_identity(value)
+    return expression_semantic_identity(selection_expression(value))
 
 
 def selection_expression(value: expr.Expression) -> expr.Expression:
     """Normalize allocation-only pipeline IDs recursively."""
 
-    if isinstance(value, expr.Pipeline):
-        return replace(
-            value,
-            instance=0,
-            expression=selection_expression(value.expression),
-        )
-    return value
+    def normalize(node: object) -> object:
+        if isinstance(node, tuple):
+            updated = tuple(normalize(item) for item in node)
+            return (
+                node if all(before is after for before, after in zip(node, updated))
+                else updated
+            )
+        if not is_dataclass(node) or isinstance(node, type):
+            return node
+        updates = {
+            item.name: normalized
+            for item in fields(node)
+            if item.name not in {"origin", "source_origin", "pipeline_plan"}
+            if (normalized := normalize(getattr(node, item.name)))
+            is not getattr(node, item.name)
+        }
+        if isinstance(node, (expr.Pipeline, expr.Delay)) and node.instance != 0:
+            updates["instance"] = 0
+        return replace(node, **updates) if updates else node
+
+    return normalize(value)  # type: ignore[return-value]
 
 
 def recognize_signed_product_reduction(
@@ -276,6 +284,12 @@ def _semantic_payload(value) -> str:
                 "source_origin",
                 "formal_records",
                 "formal_eligible",
+                # Physical placement and cost feedback are not typed value
+                # semantics.  The selected expression and timing contract
+                # remain in the enclosing Pipeline/ImplementationChoice.
+                "pipeline_plan",
+                "estimate",
+                "measurement",
             }
         )
         return f"{type(value).__module__}.{type(value).__name__}({body})"

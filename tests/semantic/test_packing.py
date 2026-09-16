@@ -6,8 +6,24 @@ from zlang.backend.manifest import BackendArtifact
 from zlang.backend.systemverilog import emit_artifact
 from zlang.compiler import compile_source
 from zlang.ir import expressions as expr
-from zlang.ir.packing import pack_runtime, unpack_runtime
-from zlang.ir.types import BitsType, FixedType, SIntType, VecType
+from zlang.ir.packing import (
+    PACKING_LAYOUT_SCHEMA,
+    pack_runtime,
+    tuple_element_lsb,
+    unpack_runtime,
+    vector_element_lsb,
+)
+from zlang.ir.types import (
+    BitType,
+    BitsType,
+    FixedType,
+    SIntType,
+    StructField,
+    StructType,
+    TupleType,
+    UIntType,
+    VecType,
+)
 from zlang.opt import OptimizationStage, lower, restore
 from zlang.semantic import SemanticError
 from zlang.simulate import simulate
@@ -81,7 +97,7 @@ def test_packing_types_nodes_origins_and_runtime_layout_are_exact() -> None:
         "upper": 0xA,
         "pair_bits": 0xC2,
         "pair_out": {"hi": 0xC, "lo": 0x2},
-        "sample_bits": 0x3D,
+        "sample_bits": 0xD3,
         "samples_out": [0x3, 0xD],
         "signed_bits": 0xFF,
         "signed_out": -1,
@@ -90,16 +106,46 @@ def test_packing_types_nodes_origins_and_runtime_layout_are_exact() -> None:
     }
 
 
-def test_shared_runtime_layout_is_field_zero_and_element_zero_at_msb() -> None:
+def test_shared_runtime_layout_keeps_struct_msb_and_vector_zero_at_lsb() -> None:
     module = _compile(PACKING_SOURCE)
     pair = next(type_ for type_ in module.structs if type_.name == "Pair")
     samples = VecType(2, next(field.type for field in pair.fields if field.name == "hi"))
     assert pack_runtime(pair, {"hi": 0xA, "lo": 0x5}) == 0xA5
     assert unpack_runtime(pair, 0xA5) == {"hi": 0xA, "lo": 0x5}
-    assert pack_runtime(samples, [0x1, 0xE]) == 0x1E
-    assert unpack_runtime(samples, 0x1E) == [0x1, 0xE]
+    assert pack_runtime(samples, [0x1, 0xE]) == 0xE1
+    assert unpack_runtime(samples, 0xE1) == [0x1, 0xE]
     assert unpack_runtime(SIntType(8), 0xFF) == -1
     assert unpack_runtime(FixedType(8, 4), 0x80) == -128
+
+
+def test_indexed_aggregate_layout_is_recursive_lsb_first_and_exhaustive() -> None:
+    assert PACKING_LAYOUT_SCHEMA == "zlang-packed-layout-lsb-indexed-v2"
+    byte = UIntType(8)
+    string = VecType(2, byte)
+    tuple_type = TupleType((BitType(), UIntType(2), BitType()))
+    nested = VecType(2, VecType(2, BitType()))
+    mixed = StructType(
+        "Mixed",
+        (
+            StructField("header", UIntType(2)),
+            StructField("items", nested),
+        ),
+    )
+
+    assert vector_element_lsb(string, 0) == 0
+    assert vector_element_lsb(string, 1) == 8
+    assert tuple_element_lsb(tuple_type, 0) == 0
+    assert tuple_element_lsb(tuple_type, 1) == 1
+    assert tuple_element_lsb(tuple_type, 2) == 3
+    assert pack_runtime(string, [ord("A"), ord("B")]) == 0x4241
+    assert pack_runtime(nested, [[0, 1], [1, 0]]) == 0b0110
+    # Struct declaration order remains MSB-first while its vector field is
+    # recursively LSB-first.
+    assert pack_runtime(mixed, {"header": 0b10, "items": [[0, 1], [1, 0]]}) == 0b100110
+
+    for type_ in (tuple_type, nested, mixed):
+        for raw in range(1 << type_.width):
+            assert pack_runtime(type_, unpack_runtime(type_, raw)) == raw
 
 
 def test_packing_survives_canonical_and_artifact_round_trips() -> None:

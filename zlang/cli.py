@@ -94,7 +94,7 @@ from zlang.formal_orchestration import (
     CandidateEquivalenceExecutionReport,
     CompilerFormalExecutionPlan,
     FormalOrchestrationError,
-    collect_m39_evidence,
+    collect_formal_selection_evidence,
     validate_legacy_formal_view,
 )
 from zlang.formal_exploration import FormalExplorationConfig, FormalPolicy
@@ -714,12 +714,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         type=Path,
         help="write the direct-SystemVerilog implementation planning result",
     )
-    parser.add_argument("--formal-harness", type=Path, help="write the M35 formal checker harness")
-    parser.add_argument("--formal-sby", type=Path, help="write the M35 SymbiYosys configuration")
+    parser.add_argument("--formal-harness", type=Path, help="write the safety verification formal checker harness")
+    parser.add_argument("--formal-sby", type=Path, help="write the safety verification SymbiYosys configuration")
     parser.add_argument("--formal-depth", type=int, default=32, help="bounded formal depth")
     parser.add_argument("--formal-policy", choices=tuple(item.value for item in FormalPolicy),
                         default=None,
-                        help="M39 formal exploration eligibility policy")
+                        help="formal-aware selection formal exploration eligibility policy")
     parser.add_argument("--formal-max-candidates", type=int, default=8,
                         help="maximum candidates to execute formal proofs for")
     parser.add_argument("--formal-timeout", type=int, default=120,
@@ -1519,7 +1519,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     result.ir,
                     selected_ir_identity=result.selected_ir_identity,
                 ))
-            records.extend(collect_m39_evidence(result))
+            records.extend(collect_formal_selection_evidence(result))
             if arguments.formal_harness is not None:
                 records.extend(
                     evidence_for_unexecuted_property(property_)
@@ -1683,7 +1683,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
             not_run_evidence_ids = tuple(
                 item.evidence_id for item in evidence_records
-                if item.status == "not_run" and item.claim == "m35.safety_property"
+                if item.status == "not_run" and item.claim == "safety_verification.safety_property"
             )
             report_specs = (
                 ("contracts_sva", "contracts", None, ()),

@@ -484,6 +484,21 @@ module PortedMemorySyntax {
     b_result = table.b.data
 }
 
+module DynamicPlacement {
+    clock clk reset rst
+    in write_enable : bit
+    in value : u8
+    in index : u8
+    out contents : vec<256, u8>
+
+    reg buffer : vec<256, u8> = generate(i in 0..256){0}
+
+    when write_enable {
+        buffer[index]<- value
+    }
+    contents = buffer
+}
+
 module AsyncMemorySyntax {
     clock write_clk
     reset write_rst @write_clk
@@ -499,7 +514,7 @@ module AsyncMemorySyntax {
         write_port wr @write_clk
         read_port rd @read_clk
         init 0x5a
-        read_latency 1
+        read_latency 2
         collision old
         reset { contents preserve read_data clear }
     }

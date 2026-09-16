@@ -39,7 +39,7 @@ def _formal_source(implementation: str):
         tuple((port.name, port.type) for port in module.inputs), expression,
     )
     property_ = make_equivalence_property(
-        expression, expression, candidate_class="m31",
+        expression, expression, candidate_class="pipeline_scheduler",
         reference_root="signed-product-reference",
         implementation_root="direct_systemverilog",
         inputs=tuple(f"port:{port.name}" for port in module.inputs),
@@ -62,7 +62,7 @@ def _formal_source(implementation: str):
         reference_module="SignedProductReference",
         implementation_module=module.name,
     )
-    top = "m36_" + property_.id.replace(".", "_")
+    top = "semantic_equivalence_" + property_.id.replace(".", "_")
     return property_, reference + "\n" + implementation + "\n" + miter, top
 
 

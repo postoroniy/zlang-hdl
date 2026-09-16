@@ -1,4 +1,4 @@
-"""Generic, bounded reduction architecture expansion for M32."""
+"""Generic, bounded reduction architecture expansion for exact reduction planning."""
 
 from __future__ import annotations
 
@@ -82,7 +82,7 @@ def recognize_reduction(value: expr.Expression) -> tuple[ReductionSemantics, tup
     """Recognize high-level Reduce/Dot and their scalar sum fallback."""
     if isinstance(value, expr.Reduce) and value.operator is expr.ReductionOperator.ADD:
         # Exact-overload nominal reductions retain a frozen balanced expansion.
-        # M32 must not reassociate or reinterpret that operator tree.
+        # exact reduction planning must not reassociate or reinterpret that operator tree.
         if value.expanded is not None or isinstance(value.type, StructType):
             return None
         elements = collection_elements(value.collection)
@@ -150,7 +150,7 @@ def extract_best_reduction(candidates, objective="lut", constraints=(), source_p
 
 
 def reduction_cost(candidate: ReductionArchitectureCandidate):
-    """Return the shared M28 structural estimate for one reduction candidate."""
+    """Return the shared deterministic cost selection structural estimate for one reduction candidate."""
     from zlang.costs import CandidateCost
     width = candidate.semantics.result_type.width
     lut = candidate.semantics.count * width + candidate.reduction_depth * width

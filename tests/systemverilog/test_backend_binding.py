@@ -11,7 +11,7 @@ from zlang.compiler import compile_source
 ROOT = Path(__file__).resolve().parents[2]
 
 
-class M37BackendTests(unittest.TestCase):
+class BackendBindingTests(unittest.TestCase):
     def compile(self, name):
         return compile_source((ROOT / "examples" / name).read_text())
 
@@ -58,7 +58,8 @@ class M37BackendTests(unittest.TestCase):
         text = emit_experimental(result.ir)
         self.assertIn("logic [15:0] queue_front;", text)
         self.assertIn("assign queue_front = queue_storage[queue_rd];", text)
-        self.assertIn("assign tx_payload = {", text)
+        self.assertIn("assign zlang_packed_tx_payload = {", text)
+        self.assertIn("assign tx_payload = zlang_packed_tx_payload;", text)
         self.assertNotIn("assign tx_payload = queue_storage", text)
         verilator = shutil.which("verilator")
         if verilator:

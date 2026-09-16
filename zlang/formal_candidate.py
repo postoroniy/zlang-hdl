@@ -1,7 +1,7 @@
-"""Compiler-owned M39 adapter for the frozen M36 RTL proof routes.
+"""Compiler-owned formal-aware selection adapter for the frozen semantic-reference equivalence RTL proof routes.
 
 The adapter deliberately builds a small, backend-independent value module for
-one already-typed candidate.  It does not add a new equivalence relation: M36
+one already-typed candidate.  It does not add a new equivalence relation: semantic-reference equivalence
 still owns the reference model, binding validation, latency alignment, miter,
 and result semantics.
 """
@@ -75,7 +75,7 @@ from zlang.timing import TimingInfo, timing_info, validate_timed_candidate
 
 
 class FormalCandidateUnavailable(FormalExplorationError):
-    """The frozen candidate cannot reach the production M36 route."""
+    """The frozen candidate cannot reach the production semantic-reference equivalence route."""
 
 
 @dataclass(frozen=True)
@@ -93,12 +93,12 @@ class PhysicalTargetFormalCandidate:
 
 @dataclass(frozen=True)
 class PreparedCandidateEquivalence:
-    """One completely prepared existing M36 candidate/backend route.
+    """One completely prepared existing semantic-reference equivalence candidate/backend route.
 
     This is a compiler preparation product, not a new equivalence relation.  It
-    retains the two artifacts which the historical M39-only adapter used to
+    retains the two artifacts which the historical formal-aware selection-only adapter used to
     discard after building its miter.  Retaining those typed artifacts lets the
-    compiler evidence path retain the direct-SV M36 leg for deterministic replay.
+    compiler evidence path retain the direct-SV semantic-reference equivalence leg for deterministic replay.
 
     The trailing optional fields preserve the private ``_ProofBundle`` test
     construction API while callers migrate to this public product.
@@ -165,17 +165,17 @@ def _proof_bundle_fingerprint(
     return result
 
 
-def _m39_work_directory(
+def _formal_selection_work_directory(
     candidate: object,
     candidate_key: str,
     bundle: PreparedCandidateEquivalence,
     config: FormalExplorationConfig,
     expected_mode: ProofMode,
 ) -> Path:
-    """Return a retained workspace unique to the exact M39 proof recipe."""
+    """Return a retained workspace unique to the exact formal-aware selection proof recipe."""
 
     work_identity = stable_digest({
-        "schema": "zlang-m39-work-v1",
+        "schema": "zlang-formal_selection-work-v1",
         "candidate": candidate_key,
         # The same selected implementation expression may occur at two
         # independent sites with different semantic references.  Keep their
@@ -196,10 +196,10 @@ def _m39_work_directory(
         "solver": config.solver,
     })
     if config.work_directory is None:
-        return Path(tempfile.mkdtemp(prefix="zlang-m39-proof-"))
+        return Path(tempfile.mkdtemp(prefix="zlang-formal_selection-proof-"))
     return (
         Path(config.work_directory).resolve(strict=False)
-        / "m39"
+        / "formal_selection"
         / work_identity
     )
 
@@ -208,7 +208,7 @@ def _origin_from_data(value: object) -> SourceOrigin | None:
     if value is None:
         return None
     if not isinstance(value, dict):
-        raise ValueError("prepared M36 source origin must be an object")
+        raise ValueError("prepared semantic-reference equivalence source origin must be an object")
     return SourceOrigin.from_data(value)
 
 
@@ -243,7 +243,7 @@ def _property_data(property_: EquivalenceProperty) -> dict[str, object]:
 
 def _property_from_data(value: object) -> EquivalenceProperty:
     if not isinstance(value, dict):
-        raise ValueError("prepared M36 property must be an object")
+        raise ValueError("prepared semantic-reference equivalence property must be an object")
     expected = {
         "id", "relation_kind", "reference_root", "implementation_root",
         "canonical_type", "inputs", "reference_output", "implementation_output",
@@ -254,23 +254,23 @@ def _property_from_data(value: object) -> EquivalenceProperty:
         "clock_domain_contract",
     }
     if set(value) != expected:
-        raise ValueError("prepared M36 property fields are invalid")
+        raise ValueError("prepared semantic-reference equivalence property fields are invalid")
     inputs = value["inputs"]
     window = value["comparison_window"]
     if not isinstance(inputs, list) or not all(isinstance(item, str) for item in inputs):
-        raise ValueError("prepared M36 inputs must be strings")
+        raise ValueError("prepared semantic-reference equivalence inputs must be strings")
     if not isinstance(window, dict) or set(window) != {
         "kind", "fill_cycles", "reset_release_cycles",
         "first_comparison_cycle", "minimum_bmc_depth",
     }:
-        raise ValueError("prepared M36 comparison window is invalid")
+        raise ValueError("prepared semantic-reference equivalence comparison window is invalid")
     typed_window = ComparisonWindow(
         ComparisonWindowKind(str(window["kind"])),
         int(window["fill_cycles"]),
         int(window["reset_release_cycles"]),
     )
     if window != typed_window.to_data():
-        raise ValueError("prepared M36 comparison window metadata is stale")
+        raise ValueError("prepared semantic-reference equivalence comparison window metadata is stale")
     return EquivalenceProperty(
         str(value["id"]),
         EquivalenceRelation(str(value["relation_kind"])),
@@ -307,13 +307,13 @@ def _artifact_from_data(value: object) -> BackendArtifact | None:
     if value is None:
         return None
     if not isinstance(value, dict) or set(value) != {"manifest", "text"}:
-        raise ValueError("prepared M36 artifact payload is invalid")
+        raise ValueError("prepared semantic-reference equivalence artifact payload is invalid")
     text = value["text"]
     if not isinstance(text, str):
-        raise ValueError("prepared M36 artifact text must be a string")
+        raise ValueError("prepared semantic-reference equivalence artifact text must be a string")
     artifact = replace(BackendArtifact.from_json(value["manifest"]), text=text)
     if artifact_hash(text) != artifact.artifact_hash:
-        raise ValueError("prepared M36 artifact text hash does not match its manifest")
+        raise ValueError("prepared semantic-reference equivalence artifact text hash does not match its manifest")
     return artifact
 
 
@@ -336,18 +336,18 @@ def _trace_metadata_from_data(value: object) -> MiterTraceMetadata | None:
         "comparison_valid",
     }
     if not isinstance(value, dict) or set(value) != expected:
-        raise ValueError("prepared M36 trace metadata is invalid")
+        raise ValueError("prepared semantic-reference equivalence trace metadata is invalid")
     reference = value["reference_output"]
     implementation = value["implementation_output"]
     reset = value["reset"]
     comparison_valid = value["comparison_valid"]
     if not isinstance(reference, str) or not isinstance(implementation, str):
-        raise ValueError("prepared M36 output trace names must be strings")
+        raise ValueError("prepared semantic-reference equivalence output trace names must be strings")
     if reset is not None and not isinstance(reset, str):
-        raise ValueError("prepared M36 reset trace name must be a string")
+        raise ValueError("prepared semantic-reference equivalence reset trace name must be a string")
     if comparison_valid is not None and not isinstance(comparison_valid, str):
         raise ValueError(
-            "prepared M36 comparison-valid trace name must be a string"
+            "prepared semantic-reference equivalence comparison-valid trace name must be a string"
         )
     return MiterTraceMetadata(
         reference, implementation, reset, comparison_valid,
@@ -426,45 +426,45 @@ def _decode_prepared_candidate(value: object) -> PreparedCandidateEquivalence:
 def prepared_candidate_equivalence_to_data(
     value: PreparedCandidateEquivalence,
 ) -> dict[str, object]:
-    """Encode one already-prepared M36 leg for immutable replay.
+    """Encode one already-prepared semantic-reference equivalence leg for immutable replay.
 
     The provider cache and verification bundles deliberately share this exact
     codec. Publishing it does not expose candidate selection or introduce a
     new relation: it serializes only the artifacts and miter already required
-    by the existing M36 runner.
+    by the existing semantic-reference equivalence runner.
     """
 
     if not isinstance(value.property, EquivalenceProperty):
-        raise ValueError("prepared candidate requires typed M36 property IR")
+        raise ValueError("prepared candidate requires typed semantic-reference equivalence property IR")
     return _encode_prepared_candidate(value)
 
 
 def prepared_candidate_equivalence_from_data(
     value: object,
 ) -> PreparedCandidateEquivalence:
-    """Strictly restore one already-prepared M36 leg."""
+    """Strictly restore one already-prepared semantic-reference equivalence leg."""
 
     result = _decode_prepared_candidate(value)
     if not isinstance(result.property, EquivalenceProperty):
-        raise ValueError("prepared candidate requires typed M36 property IR")
+        raise ValueError("prepared candidate requires typed semantic-reference equivalence property IR")
     if result.reference_artifact is None or result.implementation_artifact is None:
-        raise ValueError("replayable M36 candidate requires both exact artifacts")
+        raise ValueError("replayable semantic-reference equivalence candidate requires both exact artifacts")
     if result.reference_artifact_hash != result.reference_artifact.artifact_hash:
-        raise ValueError("prepared M36 reference artifact hash is inconsistent")
+        raise ValueError("prepared semantic-reference equivalence reference artifact hash is inconsistent")
     if (
         result.implementation_artifact_hash
         != result.implementation_artifact.artifact_hash
     ):
-        raise ValueError("prepared M36 implementation artifact hash is inconsistent")
+        raise ValueError("prepared semantic-reference equivalence implementation artifact hash is inconsistent")
     if result.backend != result.implementation_artifact.backend:
-        raise ValueError("prepared M36 backend differs from its implementation artifact")
+        raise ValueError("prepared semantic-reference equivalence backend differs from its implementation artifact")
     if (
         result.property.implementation_root
         != result.implementation_artifact.selected_ir_identity
     ):
-        raise ValueError("prepared M36 candidate identity differs from its artifact")
+        raise ValueError("prepared semantic-reference equivalence candidate identity differs from its artifact")
     if not result.source or not result.top or not result.harness_hash:
-        raise ValueError("prepared M36 source, top, and harness hash are required")
+        raise ValueError("prepared semantic-reference equivalence source, top, and harness hash are required")
     validate_prepared_equivalence_domains(
         result.property,
         result.reference_artifact,
@@ -481,27 +481,27 @@ class _PipelineFormalCandidate:
     implementation_identity: str
     cost: CandidateCost
     timing_relation: object | None = None
-    candidate_class: str = "m31"
+    candidate_class: str = "pipeline_scheduler"
 
 
 def _candidate_class(candidate: object) -> str:
     explicit = getattr(candidate, "candidate_class", None)
-    if explicit in {"value", "m27", "m29", "m31", "m32", "pipeline"}:
+    if explicit in {"value", "guarded_rewrite", "architecture_alternatives", "pipeline_scheduler", "exact_reduction", "pipeline"}:
         return str(explicit)
     stages = tuple(str(item) for item in getattr(candidate, "stages", ()))
     if any("pipeline" in item for item in stages):
-        return "m31"
+        return "pipeline_scheduler"
     if any("reduction" in item for item in stages):
-        return "m32"
+        return "exact_reduction"
     if getattr(candidate, "architecture", None) is not None:
-        return "m29"
+        return "architecture_alternatives"
     if any(item == "value" for item in stages):
-        return "m27"
+        return "guarded_rewrite"
     return "value"
 
 
 def candidate_equivalence_class(candidate: object) -> str:
-    """Return the frozen M36 candidate family used by M39 preparation."""
+    """Return the frozen semantic-reference equivalence candidate family used by formal-aware selection preparation."""
 
     return _candidate_class(candidate)
 
@@ -515,8 +515,8 @@ def _input_refs(expression: object) -> dict[str, object]:
     return exploration_input_refs(expression)
 
 
-class _M36CandidateVerifierBase:
-    """Shared preparation for the production direct-SystemVerilog M36 route."""
+class _SemanticEquivalenceCandidateVerifierBase:
+    """Shared preparation for the production direct-SystemVerilog semantic-reference equivalence route."""
 
     def __init__(
         self,
@@ -544,7 +544,7 @@ class _M36CandidateVerifierBase:
     def _key(self, candidate: object) -> str:
         return str(getattr(candidate, "implementation_identity", "")) or stable_digest(
             {
-                "schema": "zlang-m39-candidate-fallback-v1",
+                "schema": "zlang-formal_selection-candidate-fallback-v1",
                 "expression": expression_semantic_identity(candidate.expression),
             }
         )
@@ -555,14 +555,14 @@ class _M36CandidateVerifierBase:
         candidate: object,
         config: FormalExplorationConfig,
     ) -> PreparedCandidateEquivalence:
-        """Prepare the production direct-SystemVerilog M36 leg."""
+        """Prepare the production direct-SystemVerilog semantic-reference equivalence leg."""
 
         if self.unavailable_reason is not None:
             raise FormalCandidateUnavailable(self.unavailable_reason)
         implementation = getattr(candidate, "expression", None)
         if implementation is None:
             raise FormalCandidateUnavailable(
-                "M36 candidate has no typed implementation expression"
+                "semantic-reference equivalence candidate has no typed implementation expression"
             )
         dependency_identity = (
             config.dependency_identity
@@ -574,10 +574,21 @@ class _M36CandidateVerifierBase:
             "manifest_version": MANIFEST_VERSION,
         }
         recipe = {
-            "schema": "zlang-m36-candidate-backend-preparation-v1",
+            "schema": "zlang-semantic_equivalence-candidate-backend-preparation-v1",
             "rtl_naming": RTL_NAMING_SCHEMA,
             "backend": "direct_systemverilog",
             "candidate": self._key(candidate),
+            # Value-proof policy is intentionally separate from physical
+            # candidate identity.  A checker/schema change invalidates formal
+            # cache reuse without pretending the emitted hardware changed.
+            "value_equality_certificate": {
+                "relation": getattr(candidate, "value_relation", None),
+                "provenance": tuple(
+                    item
+                    for item in getattr(candidate, "provenance", ())
+                    if item.startswith("checked-value:")
+                ),
+            },
             "candidate_semantics": expression_semantic_identity(implementation),
             "reference_semantics": expression_semantic_identity(
                 self.reference_expression
@@ -593,11 +604,11 @@ class _M36CandidateVerifierBase:
         if physical_graph is not None:
             if not isinstance(physical_graph, ImplementationGraph):
                 raise FormalCandidateUnavailable(
-                    "M36 physical candidate has an invalid implementation graph"
+                    "semantic-reference equivalence physical candidate has an invalid implementation graph"
                 )
             recipe["physical_graph_identity"] = physical_graph.identity
         return self.artifact_provider.get_or_prepare(
-            FormalArtifactNamespace.M36,
+            FormalArtifactNamespace.SEMANTIC_EQUIVALENCE,
             "direct-systemverilog-candidate-equivalence-preparation-v1",
             recipe,
             lambda: self._prepare_candidate_equivalence(candidate, config),
@@ -614,7 +625,7 @@ class _M36CandidateVerifierBase:
     ) -> PreparedCandidateEquivalence:
         if config.engine != "sby":
             raise FormalCandidateUnavailable(
-                "M36 direct-SystemVerilog route supports only the configured "
+                "semantic-reference equivalence direct-SystemVerilog route supports only the configured "
                 "'sby' engine"
             )
 
@@ -624,28 +635,28 @@ class _M36CandidateVerifierBase:
         physical_module = getattr(candidate, "module", None)
         if (physical_graph is None) != (physical_module is None):
             raise FormalCandidateUnavailable(
-                "M36 physical candidate requires both module and implementation graph"
+                "semantic-reference equivalence physical candidate requires both module and implementation graph"
             )
         if physical_graph is not None and (
             not isinstance(physical_graph, ImplementationGraph)
             or not isinstance(physical_module, Module)
         ):
             raise FormalCandidateUnavailable(
-                "M36 physical candidate metadata has invalid typed objects"
+                "semantic-reference equivalence physical candidate metadata has invalid typed objects"
             )
         if implementation.type != reference.type:
             raise FormalCandidateUnavailable(
-                "M36 candidate/reference canonical types differ"
+                "semantic-reference equivalence candidate/reference canonical types differ"
             )
         if isinstance(implementation.type, (StructType, TupleType, VecType)):
             raise FormalCandidateUnavailable(
-                "M36 formal-aware exploration currently requires a scalar result"
+                "semantic-reference equivalence formal-aware exploration currently requires a scalar result"
             )
         inputs = _input_refs(implementation)
         reference_inputs = _input_refs(reference)
         if inputs != reference_inputs:
             raise FormalCandidateUnavailable(
-                "M36 candidate/reference input bindings differ"
+                "semantic-reference equivalence candidate/reference input bindings differ"
             )
 
         implementation_latency = timing_info(implementation).latency
@@ -654,7 +665,7 @@ class _M36CandidateVerifierBase:
         if timed and physical_module is not None:
             if len(physical_module.clock_domains) != 1:
                 raise FormalCandidateUnavailable(
-                    "M36 physical candidate requires exactly one clock/reset domain"
+                    "semantic-reference equivalence physical candidate requires exactly one clock/reset domain"
                 )
             physical_domain = physical_module.clock_domains[0]
             physical_domain.validate()
@@ -663,7 +674,7 @@ class _M36CandidateVerifierBase:
                 and physical_domain != self.clock_domain_contract
             ):
                 raise FormalCandidateUnavailable(
-                    "M36 physical candidate clock/reset domain differs from the "
+                    "semantic-reference equivalence physical candidate clock/reset domain differs from the "
                     "requested proof contract"
                 )
         proof_domain = physical_domain or self.clock_domain_contract
@@ -683,18 +694,18 @@ class _M36CandidateVerifierBase:
             )
             if len(matches) != 1:
                 raise FormalCandidateUnavailable(
-                    "M36 physical candidate requires one exact output assignment"
+                    "semantic-reference equivalence physical candidate requires one exact output assignment"
                 )
             output_name = matches[0].target.name
         occupied = set(inputs)
         while physical_graph is None and output_name in occupied:
             output_name += "_"
         prefix = stable_digest({
-            "schema": "zlang-m39-module-name-v1",
+            "schema": "zlang-formal_selection-module-name-v1",
             "candidate": self._key(candidate),
         })[:12]
-        implementation_module = f"ZLangM39ImplSv_{prefix}"
-        reference_module = f"ZLangM39Ref_{prefix}"
+        implementation_module = f"ZLangFormalSelectionImplSv_{prefix}"
+        reference_module = f"ZLangFormalSelectionRef_{prefix}"
         ports = tuple(
             Port(PortDirection.INPUT, name, type_)
             for name, type_ in sorted(inputs.items())
@@ -735,7 +746,7 @@ class _M36CandidateVerifierBase:
             )
         except (SystemVerilogEmissionError, ValueError) as error:
             raise FormalCandidateUnavailable(
-                "M36 direct-SystemVerilog proof route could not emit candidate "
+                "semantic-reference equivalence direct-SystemVerilog proof route could not emit candidate "
                 f"RTL: {error}"
             ) from error
 
@@ -818,7 +829,7 @@ class _M36CandidateVerifierBase:
         source = "\n".join((reference_rtl, implementation_artifact.text, miter))
         assumptions_identity = stable_digest(
             {
-                "schema": "zlang-m39-m36-assumptions-v1",
+                "schema": "zlang-formal_selection-semantic_equivalence-assumptions-v1",
                 "relation": property_.relation_kind.value,
                 "latency_delta": property_.latency_delta,
                 "comparison_window": property_.comparison_window.to_data(),
@@ -830,14 +841,14 @@ class _M36CandidateVerifierBase:
         return PreparedCandidateEquivalence(
             property_,
             source,
-            "m36_" + property_.id.replace(".", "_"),
+            "semantic_equivalence_" + property_.id.replace(".", "_"),
             reference_artifact.artifact_hash,
             implementation_artifact.artifact_hash,
             artifact_hash(miter),
             property_.id,
             assumptions_identity,
             stable_digest({
-                "schema": "zlang-m36-direct-systemverilog-artifact-route-v1",
+                "schema": "zlang-semantic_equivalence-direct-systemverilog-artifact-route-v1",
                 "rtl_build_identity": implementation_artifact.build_identity,
                 "reference_build_identity": reference_artifact.build_identity,
                 "manifest_version": implementation_artifact.manifest_version,
@@ -851,15 +862,15 @@ class _M36CandidateVerifierBase:
 
 
 
-class M36DirectSystemVerilogCandidateVerifier(_M36CandidateVerifierBase):
-    """M39 adapter for the production direct-SystemVerilog route.
+class SemanticEquivalenceDirectSystemVerilogCandidateVerifier(_SemanticEquivalenceCandidateVerifierBase):
+    """formal-aware selection adapter for the production direct-SystemVerilog route.
 
     This is the only compiler-owned RTL equivalence adapter.  It preserves the
     backend-independent reference model and publishes a direct-SV implementation
     artifact with exact bindings.
     """
 
-    formal_route = "M36_direct_systemverilog"
+    formal_route = "semantic_equivalence_direct_systemverilog"
 
     def preparation_cache_recipe(
         self,
@@ -878,7 +889,7 @@ class M36DirectSystemVerilogCandidateVerifier(_M36CandidateVerifierBase):
         )
         physical_graph = getattr(candidate, "implementation_graph", None)
         return {
-            "schema": "zlang-m36-direct-systemverilog-proof-bundle-v1",
+            "schema": "zlang-semantic_equivalence-direct-systemverilog-proof-bundle-v1",
             "rtl_naming": RTL_NAMING_SCHEMA,
             "candidate": self._key(candidate),
             "candidate_semantics": expression_semantic_identity(implementation),
@@ -957,7 +968,7 @@ class M36DirectSystemVerilogCandidateVerifier(_M36CandidateVerifierBase):
             use_formal_toolchain(context)
             if context is not None else nullcontext()
         )
-        work_directory = _m39_work_directory(
+        work_directory = _formal_selection_work_directory(
             candidate,
             self._key(candidate),
             bundle,
@@ -1026,7 +1037,7 @@ def _validate_candidate_artifact(
         if unavailable:
             details.append("not physically published " + ", ".join(unavailable))
         raise FormalCandidateUnavailable(
-            "M36 candidate artifact bindings are incomplete: " + "; ".join(details)
+            "semantic-reference equivalence candidate artifact bindings are incomplete: " + "; ".join(details)
         )
 
 
@@ -1038,11 +1049,11 @@ def gate_standalone_pipelines(
     canonical_site_keys: Iterable[tuple[str, str | None, str]] = (),
     backend: str = "direct_systemverilog",
 ) -> Module:
-    """Apply the frozen M39 gate to ordinary implementation regions.
+    """Apply the frozen formal-aware selection gate to ordinary implementation regions.
 
-    Canonical ``implement`` regions are gated while their M28 candidate set is
+    Canonical ``implement`` regions are gated while their deterministic cost selection candidate set is
     available.  The retained ``PipelineExploration`` records are an internal
-    candidate table, so this adapter recreates the same M28 ranking and
+    candidate table, so this adapter recreates the same deterministic cost selection ranking and
     rewires only the selected output assignment.
     """
 
@@ -1059,7 +1070,7 @@ def gate_standalone_pipelines(
     assignments = list(module.assignments)
     # A canonical ``implement`` region publishes one unified ExplorationResult.
     # Its PipelineExploration entries are planner/report metadata only and must
-    # not be sent through the standalone M39 route a second time.  Persisted
+    # not be sent through the standalone formal-aware selection route a second time.  Persisted
     # standalone pipeline records (which predate ``implement``) retain the
     # legacy route and are gated below.
     canonical_keys = frozenset(canonical_site_keys)
@@ -1087,9 +1098,9 @@ def gate_standalone_pipelines(
         selected_verifier = (
             verifier
             if verifier is not None and domain_limitation is None
-            else M36DirectSystemVerilogCandidateVerifier(
+            else SemanticEquivalenceDirectSystemVerilogCandidateVerifier(
                 exploration.source_expression,
-                candidate_class="m31",
+                candidate_class="pipeline_scheduler",
                 artifact_provider=getattr(config, "artifact_provider", None),
                 clock_domain_contract=domain,
                 unavailable_reason=domain_limitation,
@@ -1133,9 +1144,9 @@ def gate_standalone_pipelines(
 
 
 def standalone_pipeline_candidate_space(exploration: object):
-    """Reconstruct the exact frozen M28 space for one retained pipeline site.
+    """Reconstruct the exact frozen deterministic cost selection space for one retained pipeline site.
 
-    Both the selection-phase M39 adapter and ``CandidateSiteLedger`` consume
+    Both the selection-phase formal-aware selection adapter and ``CandidateSiteLedger`` consume
     this helper.  Keeping one implementation prevents candidate ranks from
     drifting between evidence publication and the actual gate.
     """
@@ -1149,7 +1160,7 @@ def standalone_pipeline_candidate_space(exploration: object):
             candidate.expression,
             expression_semantic_identity(exploration.source_expression),
             stable_digest({
-                "schema": "zlang-m39-pipeline-candidate-v1",
+                "schema": "zlang-formal_selection-pipeline-candidate-v1",
                 "source": expression_semantic_identity(
                     exploration.source_expression
                 ),
@@ -1191,7 +1202,7 @@ def standalone_pipeline_candidate_space(exploration: object):
 __all__ = [
     "candidate_equivalence_class",
     "FormalCandidateUnavailable",
-    "M36DirectSystemVerilogCandidateVerifier",
+    "SemanticEquivalenceDirectSystemVerilogCandidateVerifier",
     "PhysicalTargetFormalCandidate",
     "PreparedCandidateEquivalence",
     "prepared_candidate_equivalence_from_data",

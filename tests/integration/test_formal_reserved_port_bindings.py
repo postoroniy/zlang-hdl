@@ -70,7 +70,7 @@ def test_reserved_public_ports_pass_and_mutation_fails_with_real_solver(
     )
     passed = run_verilog_formal(
         emit_harness(connected, depth=4),
-        top="ReservedFormalPorts__m35_formal",
+        top="ReservedFormalPorts__safety_verification_formal",
         property_id=property_.id,
         depth=4,
         systemverilog=True,
@@ -93,7 +93,7 @@ def test_reserved_public_ports_pass_and_mutation_fails_with_real_solver(
     )
     failed = run_verilog_formal(
         emit_harness(mutated_connected, depth=4),
-        top="ReservedFormalPorts__m35_formal",
+        top="ReservedFormalPorts__safety_verification_formal",
         property_id=mutated_property.id,
         depth=4,
         systemverilog=True,

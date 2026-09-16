@@ -178,7 +178,7 @@ def _mapper_cycle(*, valid: int = 0, ready: int = 1) -> dict[str, object]:
     }
 
 
-def test_clocked_ifft_boundary_derives_directional_m35_rv_contracts() -> None:
+def test_clocked_ifft_boundary_derives_directional_safety_verification_rv_contracts() -> None:
     compilation = _compile(IFFT_TOP)
     assert [child.name for child in compilation.ir.children] == [
         "IeeeIFFTFramedInputBoundary",
@@ -200,7 +200,7 @@ def test_clocked_ifft_boundary_derives_directional_m35_rv_contracts() -> None:
     # Aggregate public-port and endpoint identities intentionally alias the
     # same physical leaves.  The harness declares/connects each leaf once.
     harness = emit_harness(connected, depth=6)
-    harness_only = harness[harness.index(f"module {IFFT_TOP}__m35_formal") :]
+    harness_only = harness[harness.index(f"module {IFFT_TOP}__safety_verification_formal") :]
     assert harness_only.count(".input_valid(input_valid)") == 1
     assert harness_only.count(".input_ready(input_ready)") == 1
     assert harness_only.count(".output_valid(output_valid)") == 1
@@ -219,7 +219,7 @@ def test_non_wifi_hierarchical_rv_uses_one_canonical_physical_harness_port() -> 
     )
 
     harness = emit_harness(connected, depth=4)
-    harness_only = harness[harness.index("module RvHierarchy__m35_formal") :]
+    harness_only = harness[harness.index("module RvHierarchy__safety_verification_formal") :]
     assert harness_only.count(".input_valid(input_valid)") == 1
     assert harness_only.count(".input_ready(input_ready)") == 1
     assert harness_only.count(".output_valid(output_valid)") == 1
@@ -549,7 +549,7 @@ def test_wifi_verification_wrappers_emit_deterministic_strict_sv(
 def test_real_ifft_boundary_safety_and_payload_stability_mutation() -> None:
     _, connected = _connected(IFFT_TOP)
     harness = emit_harness(connected, depth=6)
-    top = f"{IFFT_TOP}__m35_formal"
+    top = f"{IFFT_TOP}__safety_verification_formal"
     passed = run_verilog_formal(
         harness,
         top=top,
@@ -608,7 +608,7 @@ def test_real_mapper_state_mutation_has_goal_source_attribution() -> None:
     )
     assert prop.source_origin == goal.source_origin
     harness = emit_harness(connected, depth=5)
-    top = f"{MAPPER_STATE_TOP}__m35_formal"
+    top = f"{MAPPER_STATE_TOP}__safety_verification_formal"
 
     passed = run_verilog_formal(
         harness,

@@ -16,11 +16,14 @@ from zlang.backend.companions import collect_rom_companions
 from zlang.backend.systemverilog.sequential import clock_event, reset_asserted
 from zlang.backend.systemverilog.emitter import (
     SystemVerilogEmissionError,
+    _build_top_boundary_plan,
     _expression,
     _emit_memory,
-    _emit_public_leaf_boundary,
+    _emit_target_async_fifo,
     _identifier,
+    _module,
     _physical_port_declarations,
+    _top_boundary_scope,
     emit_artifact as emit_generic_artifact,
 )
 from zlang.ir import expressions as expr
@@ -103,36 +106,38 @@ def emit_target(module: Module, graph: ImplementationGraph, *, simulation_model:
             )
         node_definitions[node.identity] = definition
         emitters.add(binding)
-    if emitters == {"dsp48e1_explicit"}:
-        # Signed-product graphs carry one explicit accumulator mode per
-        # resource instance. This is a graph/configuration property, not a
-        # source-name or RTL-text heuristic. Keep the older symmetric FIR
-        # emitter unchanged and use the ordered-cascade emitter for FFT paths.
-        if graph.resources and all(
-            "accumulator_mode" in dict(item.configuration)
-            for item in graph.resources
-        ):
-            packed = _emit_signed_product_dsp48e1_graph(
-                module, graph, node_definitions, simulation_model
-            )
+    boundary = _build_top_boundary_plan(module)
+    with _top_boundary_scope(boundary):
+        if emitters == {"dsp48e1_explicit"}:
+            # Signed-product graphs carry one explicit accumulator mode per
+            # resource instance. This is a graph/configuration property, not a
+            # source-name or RTL-text heuristic. Keep the older symmetric FIR
+            # emitter unchanged and use the ordered-cascade emitter for FFT paths.
+            if graph.resources and all(
+                "accumulator_mode" in dict(item.configuration)
+                for item in graph.resources
+            ):
+                packed = _emit_signed_product_dsp48e1_graph(
+                    module, graph, node_definitions, simulation_model
+                )
+            else:
+                packed = _emit_dsp48e1_graph(
+                    module, graph, node_definitions, simulation_model
+                )
+        elif emitters == {"xilinx_bram_inference"} and len(graph.resources) == 1:
+            if dict(graph.resources[0].configuration).get("fifo_memory") == 1:
+                packed = _emit_target_async_fifo(module)
+            else:
+                packed = (
+                    "`default_nettype none\n"
+                    + _emit_memory(module, ram_style="block")
+                    + "`default_nettype wire\n"
+                )
         else:
-            packed = _emit_dsp48e1_graph(
-                module, graph, node_definitions, simulation_model
+            raise SystemVerilogEmissionError(
+                "selected resource graph mixes unsupported physical emitters"
             )
-    elif emitters == {"xilinx_bram_inference"} and len(graph.resources) == 1:
-        packed = (
-            "`default_nettype none\n"
-            + _emit_memory(module, ram_style="block")
-            + "`default_nettype wire\n"
-        )
-    else:
-        raise SystemVerilogEmissionError(
-            "selected resource graph mixes unsupported physical emitters"
-        )
-    # Physical-resource selection changes only the private implementation.
-    # The selected public top obeys the same mandatory TopPhysicalABI leaf and
-    # native-array boundary as the ordinary direct-SystemVerilog emitter.
-    return _emit_public_leaf_boundary(module, packed)
+    return packed
 
 
 def _mapping(node: ResourceInstance, port: str):
@@ -403,13 +408,7 @@ def _emit_signed_product_dsp48e1_graph(module, graph, definitions, simulation_mo
             "  end",
             f"  assign {_identifier(output)} = {names[-1]};",
         ))
-    top = "\n".join((
-        f"module {_identifier(module.name)} (",
-        ",\n".join(f"  {item}" for item in ports),
-        ");",
-        *lines,
-        "endmodule",
-    ))
+    top = _module(module, ports, lines).rstrip()
     model = _dsp48e1_simulation_model() + "\n" if simulation_model else ""
     return f"`default_nettype none\n{model}{top}\n`default_nettype wire\n"
 
@@ -539,13 +538,7 @@ def _emit_dsp48e1_graph(module, graph, definitions, simulation_model):
             "  end",
             f"  assign {_identifier(output)} = {names[-1]};",
         ))
-    top = "\n".join((
-        f"module {_identifier(module.name)} (",
-        ",\n".join(f"  {item}" for item in ports),
-        ");",
-        *lines,
-        "endmodule",
-    ))
+    top = _module(module, ports, lines).rstrip()
     model = _dsp48e1_simulation_model() + "\n" if simulation_model else ""
     return f"`default_nettype none\n{model}{top}\n`default_nettype wire\n"
 

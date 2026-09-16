@@ -51,7 +51,7 @@ fragments are constructed; until then, absence of an entry means “unknown,” 
 
 ## Generated-RTL navigation audit
 
-The Community LSP M12 audit does not add an editor navigation API. The current
+The Community LSP source-map audit audit does not add an editor navigation API. The current
 source-map evidence is safe for exact diagnostic attribution, but it is not yet
 complete enough to be presented as general bidirectional generated-RTL
 navigation.
@@ -81,7 +81,7 @@ The existing ownership and records are:
 | Multiple output assignments | **Unmapped** by the current bounded builder |
 | State/register declarations and sequential blocks | **Unmapped** |
 | Functions/helpers and generated temporary signals | **Unmapped** |
-| Protocol lowering and public aggregate wrappers | **Unmapped** |
+| Protocol lowering and compiler-generated inline aggregate boundary bridges | **Unmapped**; each bridge is derived from the corresponding typed leaf origin, but no generated-line entry is published yet |
 | Child modules, instances, and recursive hierarchy | **Unmapped as generated lines**; recursive manifest identities/bindings remain available separately |
 | Formal/backend scaffolding and helper code | **Unmapped** |
 
@@ -120,7 +120,7 @@ selected-IR identity. A changed `.sv` file is rejected by existing consumers.
 
 Each mapped `SourceOrigin` normally carries the digest of the source snapshot
 that produced it, so a future query can reject changed editor text for that
-entry. The M13 bundle loader now validates caller-supplied current source text
+entry. The generated-navigation bundle bundle loader now validates caller-supplied current source text
 or digest against complete bundle-level snapshots, including the root when a
 map has zero entries. There is still no source-to-generated location query or
 LSP method.
@@ -128,7 +128,7 @@ LSP method.
 The sidecar itself contains no physical `.sv` path. The CLI writes generated
 RTL and a sidecar only when explicitly requested; `BackendArtifact` and
 `GeneratedSourceMap` can otherwise exist only in memory. A whole-build manifest
-can bind published products by logical path and content hash. The separate M13
+can bind published products by logical path and content hash. The separate generated-navigation bundle
 bundle now gives future tooling one explicit relocatable publication root and a
 fail-closed loader; navigation must still never generate RTL implicitly.
 

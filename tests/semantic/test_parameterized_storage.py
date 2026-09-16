@@ -69,7 +69,7 @@ def test_parameterized_storage_canonical_round_trip_is_concrete() -> None:
     assert restore(canonical).fifos[0].depth == 8
 
 
-def test_parameterized_fifo_m35_bounds_use_resolved_depth() -> None:
+def test_parameterized_fifo_safety_verification_bounds_use_resolved_depth() -> None:
     module = analyze(parse(f"module Delay<DEPTH=8>{{{FIFO_BODY}}}"))
     design = build_formal_design(module)
     fifo_properties = [

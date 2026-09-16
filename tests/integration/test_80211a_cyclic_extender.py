@@ -225,6 +225,10 @@ def _rtl_records(
         "logic signed [15:0] input_payload_im; logic input_valid;",
         "wire input_ready; wire signed [15:0] output_payload_re; "
         "wire signed [15:0] output_payload_im; wire output_valid; logic output_ready;",
+        "wire signed [31:0] displayed_output_payload_re = "
+        "{{16{output_payload_re[15]}}, output_payload_re};",
+        "wire signed [31:0] displayed_output_payload_im = "
+        "{{16{output_payload_im[15]}}, output_payload_im};",
         f"{TOP} dut(.clk(clk), .rst(rst),",
         "  .input_payload_re(input_payload_re), .input_payload_im(input_payload_im), "
         ".input_valid(input_valid),",
@@ -243,7 +247,7 @@ def _rtl_records(
                 f"input_payload_im=16'h{packed & 0xffff:04x};",
                 "#1;",
                 f'$display("REC {index} %0d %0d %0d %0d", input_ready, output_valid, '
-                "$signed(output_payload_re), $signed(output_payload_im));",
+                "displayed_output_payload_re, displayed_output_payload_im);",
                 "#1 clk=1; #1 clk=0;",
             )
         )

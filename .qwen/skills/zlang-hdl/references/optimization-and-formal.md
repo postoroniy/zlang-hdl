@@ -14,7 +14,7 @@ typed value IR
   -> generic/resource covering
   -> target-aware exact-N scheduler
   -> deterministic candidate extraction
-  -> optional M39/M36 gate
+  -> optional formal-aware selection/semantic-reference equivalence gate
   -> direct SystemVerilog
 ```
 
@@ -60,17 +60,17 @@ semantics, latency, II, shared DAG nodes, and reconvergent alignment.
 
 ## Formal model
 
-- M35/source goals cover existing bindable safety properties and bounded cover.
-- M36 compares a selected implementation against the compiler-owned semantic
+- safety verification/source goals cover existing bindable safety properties and bounded cover.
+- semantic-reference equivalence compares a selected implementation against the compiler-owned semantic
   reference with exact timing windows where supported.
-- M39 gates candidate selection according to its explicit policy.
-- M38/Clash cross-backend execution is retired. Historical M38 records are not
+- formal-aware selection gates candidate selection according to its explicit policy.
+- retired cross-backend equivalence/Clash cross-backend execution is retired. Historical retired cross-backend equivalence records are not
   current evidence and must never gate selection.
 
 Source supports named same-cycle `assert`/`ensure`, scoped `contract`/`require`,
 bounded `cover`, and legacy `assume`/`guarantee`. Do not invent temporal syntax,
 liveness, fairness, arbitrary SVA/SMT, new observation families, or source-level
-M36 controls.
+semantic-reference equivalence controls.
 
 ```sh
 .venv/bin/zlang design.zhl --top Top --verify \

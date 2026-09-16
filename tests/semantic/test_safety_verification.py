@@ -18,7 +18,7 @@ from zlang.ir.expressions import InputRef
 from zlang.ir.module import Rule, RulePriority
 
 
-class FormalM35Tests(unittest.TestCase):
+class SafetyVerificationTests(unittest.TestCase):
     def module(self):
         bit = BitType()
         u2 = UIntType(2)
@@ -187,7 +187,7 @@ class FormalM35Tests(unittest.TestCase):
         from zlang.ir.formal import emit_harness
         harness = emit_harness(design, mode=ProofMode.BMC, depth=4)
         self.assertIn("non-executable property report", harness)
-        self.assertIn("m35.", harness)
+        self.assertIn("safety_verification.", harness)
         self.assertIn("depth=4", harness)
         with self.assertRaisesRegex(FormalError, "connected backend"):
             emit_sby(design, depth=4)

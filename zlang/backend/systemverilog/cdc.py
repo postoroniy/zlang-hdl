@@ -5,9 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable
 
+from zlang.async_fifo import build_async_fifo_physical_plan
 from zlang.ir.cdc import CrossingKind
 from zlang.ir.interfaces import InterfaceProtocol
 from zlang.ir.module import Module
+from zlang.ir.storage import Memory
 from zlang.ir.types import BitType, HardwareType
 
 
@@ -23,6 +25,7 @@ class CDCRendering:
     clock_event: Callable[[Module, str], str]
     reset_asserted: Callable[[Module, str], str]
     module: Callable[[Module, list[str], list[str]], str]
+    ported_memory: Callable[[Module, Memory], tuple[list[str], list[str]]]
 
 
 def _connection(module: Module, kind: CrossingKind, rendering: CDCRendering):
@@ -261,9 +264,26 @@ def _emit_async_fifo(module: Module, rendering: CDCRendering) -> str:
         raise rendering.error(
             "direct async_fifo CDC requires typed ready/valid endpoints and domains"
         )
-    depth = crossing.depth
-    address_width = (depth - 1).bit_length()
-    pointer_width = address_width + 1
+    try:
+        physical = build_async_fifo_physical_plan(module, connection)
+    except ValueError as error:
+        raise rendering.error(str(error)) from error
+    address_width = physical.address_width
+    pointer_width = physical.pointer_width
+    memory_declarations, memory_logic = rendering.ported_memory(
+        module, physical.memory
+    )
+    state_declarations = [
+        (
+            '  (* ASYNC_REG = "TRUE" *) '
+            if "sync" in item.name else "  "
+        )
+        + (
+            f"logic [{item.width - 1}:0] {item.name};"
+            if item.width > 1 else f"logic {item.name};"
+        )
+        for item in physical.registers
+    ]
     payload_width = rendering.packed_width(source.type)
     identifier = rendering.identifier
     src = identifier(source.name)
@@ -272,11 +292,14 @@ def _emit_async_fifo(module: Module, rendering: CDCRendering) -> str:
     src_reset = rendering.reset_asserted(module, source_domain.clock)
     dst_clock_event = rendering.clock_event(module, destination_domain.clock)
     dst_reset = rendering.reset_asserted(module, destination_domain.clock)
-    inverted_read_pointer = (
-        f"{{~zlang_read_gray_sync2[{pointer_width - 1}:"
-        f"{pointer_width - 2}], "
-        f"zlang_read_gray_sync2[{pointer_width - 3}:0]}}"
-    )
+    controller_symbols = {
+        "zlang_source_valid": f"{src}_valid",
+        "zlang_destination_ready": f"{dst}_ready",
+        "zlang_source_reset": src_reset,
+        "zlang_destination_reset": dst_reset,
+        "zlang_source_ready": f"{src}_ready",
+        "zlang_destination_valid": f"{dst}_valid",
+    }
     ports = [
         *_ports(module, rendering),
         rendering.logic_port("input", f"{src}_payload", source.type),
@@ -287,31 +310,24 @@ def _emit_async_fifo(module: Module, rendering: CDCRendering) -> str:
         f"input wire logic {dst}_ready",
     ]
     lines = [
-        f"  logic [{payload_width - 1}:0] zlang_storage [0:{depth - 1}];",
-        f"  logic [{pointer_width - 1}:0] zlang_write_binary, zlang_write_gray;",
-        f"  logic [{pointer_width - 1}:0] zlang_read_binary, zlang_read_gray;",
+        f"  // async_fifo_physical={physical.identity} storage=typed_async_mem",
+        *memory_declarations,
+        *state_declarations,
         f"  logic [{pointer_width - 1}:0] zlang_write_binary_next, zlang_write_gray_next;",
         f"  logic [{pointer_width - 1}:0] zlang_read_binary_next, zlang_read_gray_next;",
-        f"  (* ASYNC_REG = \"TRUE\" *) logic [{pointer_width - 1}:0] "
-        "zlang_read_gray_sync1, zlang_read_gray_sync2;",
-        f"  (* ASYNC_REG = \"TRUE\" *) logic [{pointer_width - 1}:0] "
-        "zlang_write_gray_sync1, zlang_write_gray_sync2;",
-        "  logic zlang_full, zlang_empty;",
+        f"  logic [{address_width - 1}:0] zlang_fifo_write_address;",
+        f"  logic [{address_width - 1}:0] zlang_fifo_fetch_address;",
+        f"  logic [{payload_width - 1}:0] zlang_fifo_input_payload;",
         "  logic zlang_push, zlang_pop;",
-        f"  assign zlang_push = {src}_valid && {src}_ready;",
-        f"  assign zlang_pop = {dst}_valid && {dst}_ready;",
-        f"  assign zlang_write_binary_next = zlang_write_binary + "
-        f"{pointer_width}'(zlang_push);",
-        "  assign zlang_write_gray_next = "
-        "(zlang_write_binary_next >> 1) ^ zlang_write_binary_next;",
-        f"  assign zlang_read_binary_next = zlang_read_binary + "
-        f"{pointer_width}'(zlang_pop);",
-        "  assign zlang_read_gray_next = "
-        "(zlang_read_binary_next >> 1) ^ zlang_read_binary_next;",
-        f"  assign {src}_ready = !{src_reset} && !zlang_full;",
-        f"  assign {dst}_valid = !{dst_reset} && !zlang_empty;",
-        f"  assign {dst}_payload = "
-        f"zlang_storage[zlang_read_binary[{address_width - 1}:0]];",
+        "  logic zlang_fifo_prefetch, zlang_full_next;",
+        "  logic zlang_unread_current, zlang_unread_next;",
+        f"  assign zlang_fifo_input_payload = {src}_payload;",
+        f"  assign zlang_fifo_write_address = "
+        f"zlang_write_binary[{address_width - 1}:0];",
+        f"  assign zlang_fifo_fetch_address = "
+        f"zlang_read_binary_next[{address_width - 1}:0];",
+        *physical.controller.render_sv(controller_symbols),
+        f"  assign {dst}_payload = fifo_storage_rd_read_data;",
         f"  always_ff @({src_clock_event}) begin",
         f"    if ({src_reset}) begin",
         "      zlang_write_binary <= '0;",
@@ -324,9 +340,7 @@ def _emit_async_fifo(module: Module, rendering: CDCRendering) -> str:
         "      zlang_read_gray_sync2 <= zlang_read_gray_sync1;",
         "      zlang_write_binary <= zlang_write_binary_next;",
         "      zlang_write_gray <= zlang_write_gray_next;",
-        f"      zlang_full <= (zlang_write_gray_next == {inverted_read_pointer});",
-        f"      if (zlang_push) zlang_storage[zlang_write_binary[{address_width - 1}:0]] "
-        f"<= {src}_payload;",
+        "      zlang_full <= zlang_full_next;",
         "    end",
         "  end",
         f"  always_ff @({dst_clock_event}) begin",
@@ -335,15 +349,17 @@ def _emit_async_fifo(module: Module, rendering: CDCRendering) -> str:
         "      zlang_read_gray <= '0;",
         "      zlang_write_gray_sync1 <= '0;",
         "      zlang_write_gray_sync2 <= '0;",
-        "      zlang_empty <= 1'b1;",
+        "      zlang_output_valid <= 1'b0;",
         "    end else begin",
         "      zlang_write_gray_sync1 <= zlang_write_gray;",
         "      zlang_write_gray_sync2 <= zlang_write_gray_sync1;",
         "      zlang_read_binary <= zlang_read_binary_next;",
         "      zlang_read_gray <= zlang_read_gray_next;",
-        "      zlang_empty <= (zlang_read_gray_next == zlang_write_gray_sync2);",
+        "      if (zlang_fifo_prefetch) zlang_output_valid <= 1'b1;",
+        "      else if (zlang_pop) zlang_output_valid <= 1'b0;",
         "    end",
         "  end",
+        *memory_logic,
     ]
     return rendering.module(module, ports, lines)
 

@@ -67,7 +67,7 @@ class ArchitectureExploration:
     search_bound: int
     budget_pruned: int
     constraint_pruned: int
-    # Compiler-owned M39 evidence; never architecture or RTL semantics.
+    # Compiler-owned formal-aware selection evidence; never architecture or RTL semantics.
     formal_records: tuple[object, ...] = field(default=(), compare=False)
 
     @property

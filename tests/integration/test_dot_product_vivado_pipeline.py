@@ -72,7 +72,7 @@ def test_direct_sv_dot_pipeline_is_bit_exact(tmp_path: Path, latency: int) -> No
             lines.append(f"if (y !== 19'd{expected[index]}) $fatal(1,\"vector {index}: %0d\",y);")
     bench = tmp_path / "tb.sv"
     bench.write_text(
-        "module tb; logic clk=0,rst=1; logic [7:0] a[0:7],b[0:7]; wire [18:0] y; "
+        "module tb; logic clk=0,rst=1; logic [7:0][7:0] a,b; wire [18:0] y; "
         f"{top} dut(.clk,.rst,.a,.b,.y); "
         "task tick; begin #1 clk=1; #1; clk=0; #1; end endtask "
         f"initial begin tick; rst=0; {''.join(lines)} $finish; end endmodule\n"

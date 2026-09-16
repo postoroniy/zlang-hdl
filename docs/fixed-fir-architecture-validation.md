@@ -133,27 +133,29 @@ conversion to `fixed<16,14>`. Vivado 2024.2 used the same
 
 | Implementation | DSP | LUT | FF | BRAM | Latency | II | Fmax MHz | WNS ns | Vivado s | RTL bytes/lines |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| source-described DSP48E1 cascade | 4 | 234 | 16 | 0 | 1 | 1 | 72.10 | -3.869 | 312.1 | 7195/203 |
-| unchanged generic direct-SV | 8 | 149 | 16 | 0 | 1 | 1 | 53.86 | -8.567 | 93.3 | 2641/21 |
+| source-described DSP48E1 cascade | 4 | 239 | 16 | 0 | 1 | 1 | 72.674 | -3.760 | 51.8 | 8303/209 |
+| generic direct-SV | 8 | 133 | 16 | 0 | 1 | 1 | 52.214 | -9.152 | 59.3 | 3768/27 |
 
 The LUT count is the runner's post-route `REF_NAME =~ LUT*` count, matching the
 method used by the earlier table; Vivado's Slice LUT utilization row reports
-204 for the target graph. The target graph deliberately values exact resource
+207 for the target graph. The target graph deliberately values exact resource
 realization over RTL compactness in this first experiment.
 
 Vivado preserved four `DSP48E1` cells in `PCIN+D+A*B` mode. The routed critical
 path shows the physical chain at adjacent sites
-`DSP48_X5Y36 → DSP48_X5Y37 → DSP48_X5Y38 → DSP48_X5Y39`, traversing
+`DSP48_X3Y42 → DSP48_X3Y43 → DSP48_X3Y44 → DSP48_X3Y45`, traversing
 `dsp0_primitive/PCOUT` through `dsp2_primitive/PCOUT` and ending at
 `dsp3_primitive/P`. This is physical evidence for the three selected dedicated
 cascade edges, not an inference from the intended-resource manifest.
 
 The target resource model and exact functional oracle agree in Verilator for
 zero, mixed-sign, maximum positive, and saturation vectors at latency one.
-Generic semantic simulation, generic direct-SV, and generic Clash remain
-independently available. Current M36 fixed-region checks validate the semantic
-calculation but do not model a vendor primitive, so no primitive-level formal
-claim is made.
+Generic semantic simulation and generic direct-SV remain independently
+available. Current semantic-reference equivalence fixed-region checks validate the semantic calculation
+but do not model a vendor primitive, so no primitive-level formal claim is made.
+
+The table was rerouted after the LSB-first indexed-aggregate ABI migration; it
+does not carry forward the pre-migration physical graph measurements.
 
 ## Transformation recommendation
 
@@ -162,7 +164,7 @@ supports later consideration of balanced reduction, explicit register cuts,
 and a multiplier-bank/DSP-boundary shape, while preserving one immovable
 post-accumulation quantization boundary.
 
-Before admitting those transformations into M29/M32, repeat on a newer Xilinx
+Before admitting those transformations into architecture alternatives/exact reduction planning, repeat on a newer Xilinx
 family and a non-Xilinx target and tighten constraints around each measured Fmax.
 Any optimizer must prove fixed
 type/scale, latency, II, and the single final `FixedConvert`; it must never move
@@ -186,9 +188,11 @@ pipeline(auto, latency<=8, ii==1, fmax>=100) { ... }
 ```
 
 It creates one generic candidate and exactly the four configurations published
-by the DSP resource. Routed-required evaluation rejects the unregistered
-72.10 MHz and multiply-only 80.20 MHz candidates. The remaining configurations
-both have recorded 108.08 MHz timing and equal measured resource cost, so M28's
+by the DSP resource. After the LSB-first indexed-aggregate ABI migration, all
+five planner graphs were rerouted rather than re-keying old measurements.
+Routed-required evaluation rejects the unregistered 73.432 MHz and
+multiply-only 81.294 MHz candidates. The remaining configurations both have
+recorded 103.178 MHz timing and equal measured resource cost, so deterministic cost selection's
 ordinary deterministic latency tie-break selects multiply plus terminal output
 at useful latency three. No configuration name appears in ranking logic.
 
@@ -196,12 +200,12 @@ Vivado 2024.2 place/route on `xc7z030ffg676-1` with a 10 ns constraint measured:
 
 | User latency contract | Useful sites | Compensation | DSP | LUT | FF | Routed Fmax | WNS |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `latency<=8` | multiply + terminal output | 0 | 4 | 233 | 16 | 108.085 MHz | +0.748 ns |
-| `latency==8` | multiply + terminal output | 5 cycles | 4 | 249 | 37 | 106.123 MHz | +0.577 ns |
+| `latency<=8` | multiply + terminal output | 0 | 4 | 239 | 16 | 103.178 MHz | +0.308 ns |
+| `latency==8` | multiply + terminal output | 5 cycles | 4 | 255 | 37 | 104.954 MHz | +0.472 ns |
 
 Both use four adjacent DSP48E1 cells and the expected physical configuration:
 MREG on all four resources and PREG only on the terminal resource. The exact
 graph has its own implementation hash and routed evidence record; it does not
 reuse the latency-three measurement. Both pass bit-exact Verilator simulation at
-their declared observable latency. Generic Clash generation remains valid with
-no target selected.
+their declared observable latency. Targetless compilation remains available
+through the generic direct-SystemVerilog schedule.

@@ -9,8 +9,7 @@ import pytest
 
 from zlang.backend.manifest import (
     BackendArtifact,
-    DEPENDENCY_MANIFEST_VERSION,
-    MANIFEST_VERSION,
+    INLINE_TOP_BOUNDARY_MANIFEST_VERSION,
 )
 from zlang.backend.systemverilog import emit_artifact
 from zlang.compiler import compile_file, compile_source
@@ -97,7 +96,7 @@ def test_backend_build_identity_includes_closure_but_rtl_hash_does_not() -> None
     assert first.artifact_hash == changed.artifact_hash
     assert first.selected_ir_identity != changed.selected_ir_identity
     assert first.build_identity != changed.build_identity
-    assert first.manifest_version == DEPENDENCY_MANIFEST_VERSION
+    assert first.manifest_version == INLINE_TOP_BOUNDARY_MANIFEST_VERSION
 
     payload = json.loads(first.to_json())
     assert payload["root_module_identity"] == first.root_module_identity.to_data()
@@ -114,14 +113,14 @@ def test_backend_build_identity_includes_closure_but_rtl_hash_does_not() -> None
         BackendArtifact.from_json(payload)
 
 
-def test_legacy_module_and_v2_artifact_defaults_remain_unchanged() -> None:
+def test_projectless_module_uses_current_direct_sv_manifest() -> None:
     module = _module(project=False)
     artifact = emit_artifact(module)
 
     assert dependency_context_identity(module) is None
     assert default_selected_ir_identity(module) == "selected:Pass"
     assert artifact.selected_ir_identity == "selected:Pass"
-    assert artifact.manifest_version == MANIFEST_VERSION
+    assert artifact.manifest_version == INLINE_TOP_BOUNDARY_MANIFEST_VERSION
     assert BackendArtifact.from_json(artifact.to_json()).dependency_closure is None
 
 

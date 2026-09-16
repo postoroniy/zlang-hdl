@@ -1,4 +1,4 @@
-"""M30 timing-aware value relations, kept separate from value equality."""
+"""timing alignment timing-aware value relations, kept separate from value equality."""
 
 from __future__ import annotations
 
@@ -169,7 +169,7 @@ class TimedEquivalenceGraph:
 def _latency(value: expr.Expression, *, module=None) -> int:
     """Return the exact structural latency embedded in a typed value graph.
 
-    M30 originally only inspected a timing node at the expression root.  That
+    timing alignment originally only inspected a timing node at the expression root.  That
     made a conversion or arithmetic node around ``delay``/``pipeline`` erase
     the latency, and it also meant target graphs silently reported zero.  Walk
     the already-typed expression graph instead.  Alignment legality remains a
@@ -178,7 +178,7 @@ def _latency(value: expr.Expression, *, module=None) -> int:
 
     Instance outputs use the module-published timing record when a module is
     available.  The optional context keeps the historical public API usable by
-    the M30 value-equivalence helpers.
+    the timing alignment value-equivalence helpers.
     """
     if isinstance(value, expr.Delay):
         return _latency(value.expression, module=module) + value.cycles

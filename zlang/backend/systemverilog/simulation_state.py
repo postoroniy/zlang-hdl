@@ -26,7 +26,7 @@ from zlang.simulation_state import (
 )
 
 
-SYSTEMVERILOG_SIMULATION_STATE_SCHEMA = "zlang-systemverilog-simulation-state-v2"
+SYSTEMVERILOG_SIMULATION_STATE_SCHEMA = "zlang-systemverilog-simulation-state-v4"
 
 
 @dataclass(frozen=True)
@@ -46,7 +46,7 @@ class SystemVerilogStateLocator:
             "packed_width": self.packed_width,
             "element_width": self.element_width,
             "length": self.length,
-            "element_zero_is_msb": True,
+            "element_zero_is_lsb": True,
             "readable": True,
             "writable": True,
             "raw_word_bits": 32,
@@ -59,15 +59,15 @@ class SystemVerilogStateLocator:
             raise SimulationStateError("SystemVerilog state locator must be an object")
         expected = {
             "binding_id", "vpi_path", "object_kind", "packed_width",
-            "element_width", "length", "element_zero_is_msb", "readable",
+            "element_width", "length", "element_zero_is_lsb", "readable",
             "writable", "raw_word_bits", "raw_word_order",
         }
         if set(value) != expected:
             raise SimulationStateError(
                 "SystemVerilog state locator fields do not match the v1 schema"
             )
-        if value["element_zero_is_msb"] is not True:
-            raise SimulationStateError("simulation vector element zero must occupy the MSB")
+        if value["element_zero_is_lsb"] is not True:
+            raise SimulationStateError("simulation vector element zero must occupy the LSB")
         if value["readable"] is not True or value["writable"] is not True:
             raise SimulationStateError("simulation state locator must be read/write")
         if (
@@ -418,7 +418,7 @@ class StateAccess {{
       return read_packed_words(
           resolve_element(item, index), 0, item.element_width);
     }}
-    const unsigned lsb = item.packed_width - (index + 1U) * item.element_width;
+    const unsigned lsb = index * item.element_width;
     return read_packed_words(resolve(item), lsb, item.element_width);
   }}
 
@@ -432,7 +432,7 @@ class StateAccess {{
           resolve_element(item, index), 0, item.element_width, words);
       return;
     }}
-    const unsigned lsb = item.packed_width - (index + 1U) * item.element_width;
+    const unsigned lsb = index * item.element_width;
     write_packed_words(resolve(item), lsb, item.element_width, words);
   }}
 

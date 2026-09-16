@@ -1,4 +1,4 @@
-"""Name resolution and type checking for the Milestone 0 language."""
+"""Name resolution and type checking for ZLang HDL."""
 
 from __future__ import annotations
 
@@ -1025,7 +1025,7 @@ def _resolved_module_parameter_records(
     """Freeze the exact compile-time specialization arguments once.
 
     Candidate-site ownership and the final typed ``Module.parameters`` must use
-    the same payload.  Keeping that payload in one helper prevents M39 from
+    the same payload.  Keeping that payload in one helper prevents formal-aware selection from
     falling back to a source-module name when two child specializations coexist.
     """
 
@@ -2864,7 +2864,7 @@ class _ExpressionContext:
     formal_verifier: object | None = None
     # Candidate generation is semantic work; formal execution is not.  Keep
     # every retained expression-local exploration in the compilation-owned
-    # sink so the later selection phase can apply M39 without re-analysis.
+    # sink so the later selection phase can apply formal-aware selection without re-analysis.
     exploration_results: list[object] | None = None
     candidate_site_owner: str | None = None
     next_delay_instance: int = 0
@@ -7786,7 +7786,7 @@ def analyze(
         }:
             raise SemanticError(
                 "packet and virtual-channel credit ports require their "
-                "Milestone 15 explicit composition forms"
+                "explicit composition forms"
             )
         if source.name in connected_sources or destination.name in connected_destinations:
             raise SemanticError("an interface may participate in only one connection")
@@ -8190,9 +8190,9 @@ def analyze(
                 f"memory '{declaration.name}' depth must be a power of two "
                 "and at least 2"
             )
-        if declaration.read_latency not in {0, 1}:
+        if not 0 <= declaration.read_latency <= 16:
             raise SemanticError(
-                f"memory '{declaration.name}' read_latency must be 0 or 1"
+                f"memory '{declaration.name}' read_latency must be in 0..16"
             )
         element_type = type_resolver.resolve(declaration.element_type)
         if not ir_packing.is_bit_packable(element_type):
@@ -8212,9 +8212,10 @@ def analyze(
                     f"memory '{declaration.name}' has duplicate port names"
                 )
             if declaration.async_memory:
-                if declaration.read_latency != 1:
+                if declaration.read_latency < 1:
                     raise SemanticError(
-                        f"async memory '{declaration.name}' requires read_latency 1"
+                        f"async memory '{declaration.name}' requires read_latency >= 1; "
+                        "latency-zero asynchronous BRAM reads are not supported"
                     )
                 kinds = tuple(port.kind for port in declaration.ports)
                 if (
@@ -11110,7 +11111,7 @@ def analyze(
             raise SemanticError(str(error)) from error
         # Elastic bookkeeping is real implementation state: one valid bit per
         # advance stage plus the bounded ready/advance control.  Preserve the
-        # unchanged M31/M28 rank while publishing the complete estimate.  The
+        # unchanged pipeline scheduling/deterministic cost selection rank while publishing the complete estimate.  The
         # added control cost is common to every candidate, and valid FF cost is
         # a function of latency which is already an earlier deterministic
         # tie-break dimension.
@@ -11157,7 +11158,7 @@ def analyze(
             )
         ):
             raise SemanticError(
-                "elastic pipeline requires an M31 selected Pipeline-only plan"
+                "elastic pipeline requires an pipeline scheduling selected Pipeline-only plan"
             )
         stage_instances = tuple(sorted((node.instance, node.stages) for node in staged))
         if len(stage_instances) != len({instance for instance, _ in stage_instances}):
@@ -12374,7 +12375,7 @@ def analyze(
                 if pipeline_candidates:
                     if pipeline_candidates:
                         # The target planner consumes the typed pipeline
-                        # candidate set even when the generic M34 extractor
+                        # candidate set even when the generic bounded exploration extractor
                         # selected the source/value candidate.  `implement`
                         # is one unified policy region, so target-aware
                         # planning must not disappear merely because its
@@ -13461,7 +13462,7 @@ def _validate_elastic_kernel_capture(
 ) -> None:
     """Enforce the frozen pure single-payload capture boundary.
 
-    M31 may insert ``Pipeline`` nodes after this check.  Those nodes are the
+    pipeline scheduling may insert ``Pipeline`` nodes after this check.  Those nodes are the
     only state the elastic region is allowed to own; arbitrary source state or
     ready/valid control cannot be hidden in the selected scalar graph.
     """
@@ -13501,10 +13502,10 @@ def _validate_elastic_kernel_capture(
 
 
 def _analyze_equivalences(declarations: tuple[ast.EquivDecl, ...]) -> list[ir_module.EquivalenceRule]:
-    """Validate the deliberately small M27 rule language.
+    """Validate the deliberately small guarded exact rewrite rule language.
 
     Rules are structural declarations, not ordinary module expressions: their
-    unbound names are pattern variables and only the safe M26 families are
+    unbound names are pattern variables and only the safe e-graph optimization families are
     admitted.  This keeps arithmetic and effectful nodes out of the e-graph.
     """
     result: list[ir_module.EquivalenceRule] = []
@@ -13605,7 +13606,7 @@ def _analyze_equivalences(declarations: tuple[ast.EquivDecl, ...]) -> list[ir_mo
         pattern = pattern_kind(declaration.left, declaration.right)
         if pattern is None or pattern[0] not in allowed:
             raise SemanticError(
-                f"equiv '{declaration.name}' is not an approved pure, exact-width M26 rewrite; "
+                f"equiv '{declaration.name}' is not an approved pure, exact-width e-graph optimization rewrite; "
                 "arithmetic identities are not accepted"
             )
         kind, bindings, operator = pattern
@@ -17946,7 +17947,7 @@ def _check_implementation_choice(
     if any(computation != computations[0] for computation in computations[1:]):
         raise SemanticError(
             "implementation alternatives are not mathematically equivalent; "
-            "Milestone 19 requires identical typed multiply-add computations"
+            "multiply-add architectures require identical typed computations"
         )
     latencies = {
         alternative.kind.value: alternative.semantics.latency
@@ -18901,7 +18902,7 @@ def _validate_verification_expression(
             raise SemanticError(
                 f"verification clause '{clause_name}' cannot use quantized "
                 "fixed-point conversion; compare an already quantized signal "
-                "or use the existing M36 reference-equivalence route",
+                "or use the existing semantic-reference equivalence reference-equivalence route",
                 code="ZL-VERIFY-PREDICATE",
                 primary=expression.origin,
             )

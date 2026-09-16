@@ -9,6 +9,44 @@ change incompatibly when the release notes identify the change. Versioned IR,
 artifact, lock, manifest, and verification schemas continue to reject
 incompatible input explicitly.
 
+## Unreleased
+
+## 0.1.0a8 — 2026-09-16
+
+### Changed
+
+- Parser failures now retain a structured source span, so VS Code underlines
+  the actual failing line instead of placing an otherwise correct diagnostic at
+  the beginning of the file.
+- Refreshed the verified open-source EDA matrix to Verilator 5.052, Yosys and
+  SymbiYosys 0.69, and Icarus Verilog/VVP 14.0. Memory reset iterators are now
+  block-local SystemVerilog loop variables, formal-aware selection freezes one tool-version
+  snapshot per compiler configuration, and strict reset-synchronizer tests use
+  one documented Verilator warning waiver without changing generated RTL.
+- Consolidated LSP request/document validation, verification-bundle field
+  decoding and safety verification/semantic-reference equivalence counterexample serialization behind single typed
+  helpers. The independent numerical test oracles remain separate by design.
+- Formal and optimization concepts now use descriptive names such as safety
+  verification, semantic-reference equivalence and formal-aware selection in
+  documentation, diagnostics, reports, cache namespaces and public test names.
+  Older identity-bearing cache records fail closed under the renamed namespaces.
+- Added non-publishing Makefile gates for static checks, focused/full tests,
+  two-pass zero-skip release regression, exact-public-tree audits, pinned EDA
+  inventory, editor tests and reproducible packaging. Packages are built from
+  a fresh allow-listed Community export, preventing stale checkout `build/`
+  files or private sources from entering wheel/sdist artifacts.
+- **Breaking packed-ABI change:** indexed aggregates are now canonical
+  LSB-first. `vec<N,T>[0]`, tuple `item0`, and `string<N>[0]` occupy the
+  least-significant packed component, recursively; consequently
+  `pack("AB") == 0x4241`. Raw bit numbering, `concat(high, low)`, first-declared
+  struct fields at the MSB, and tagged-union tags at the MSB are unchanged.
+  Manifests, physical/proof identities, simulation-state catalogs and cached
+  artifacts from the previous packing schema are rejected rather than reused.
+- Packaged AMD 7-Series FIR and signed-product DSP48E1 QoR was rerouted with
+  Vivado 2024.2 against the new physical identities. The evidence generator now
+  emits exact graph-keyed planner records, and `measured_required` again selects
+  the verified DSP candidates without borrowing pre-migration measurements.
+
 ## 0.1.0a7 — 2026-09-15
 
 ### Added
@@ -39,7 +77,7 @@ incompatible input explicitly.
 ### Changed
 
 - Consolidated duplicated source-origin codecs, signed DSP width calculation,
-  constant-term extraction and M36 expression traversal into shared compiler
+  constant-term extraction and semantic-reference equivalence expression traversal into shared compiler
   utilities without changing their serialized or arithmetic semantics.
 - Scheduled-value and physical candidate identities now include resolved clock
   ownership. Existing packaged DSP48 QoR records were deterministically re-keyed
@@ -62,9 +100,9 @@ incompatible input explicitly.
 - Removed the retired Clash emitter, its hidden compatibility CLI, generated
   Haskell artifacts, packaging surface, test suite, and tool discovery. Direct
   SystemVerilog is now the only production RTL backend in both policy and code.
-- Retired executable M38 cross-backend comparison without reusing its name for
-  another relation. M35 safety, direct-SV M36 semantic-reference equivalence,
-  and M39 formal-aware selection remain supported.
+- Retired executable retired cross-backend equivalence cross-backend comparison without reusing its name for
+  another relation. safety verification safety, direct-SV semantic-reference equivalence semantic-reference equivalence,
+  and formal-aware selection formal-aware selection remain supported.
 - Release acceptance now requires zero skipped tests and no GHC/Clash tooling.
 
 ## 0.1.0a5 — 2026-09-11
@@ -83,8 +121,8 @@ incompatible input explicitly.
 - Direct SystemVerilog is the sole production RTL backend. The public Clash
   output options and `zlang-compare-backends` command are retired; the legacy
   emitter remains internal compatibility code only.
-- M39 and compiler-owned selected-candidate equivalence now use the direct-SV
-  M36 route. M38 is retained only as unavailable historical schema data.
+- formal-aware selection and compiler-owned selected-candidate equivalence now use the direct-SV
+  semantic-reference equivalence route. retired cross-backend equivalence is retained only as unavailable historical schema data.
 - Exact `pipeline(N)` scheduling is deferred until target/profile planning,
   preserving semantic latency while allowing real internal register cuts.
 
@@ -139,9 +177,9 @@ remain unchanged; publication is subject to `RELEASING.md`.
   architecture and four-stage `explore` implementations. Recorded Vivado
   out-of-context timing uses the same device and 10 ns constraint; it is not a
   board-level timing guarantee.
-- Independent M36 semantic-reference and M38 cross-backend bounded checks for
+- Independent semantic-reference equivalence semantic-reference and retired cross-backend equivalence cross-backend bounded checks for
   the pipelined example, plus deliberate arithmetic and latency mutations.
-  BMC remains bounded evidence; the separately timed-out M39 architecture route
+  BMC remains bounded evidence; the separately timed-out formal-aware selection architecture route
   remains explicitly `unknown`.
 - A static VS Code extension for `.zhl`, independently versioned 0.1.0, with
   compiler-checked snippets, real TextMate/Oniguruma tests and three optional

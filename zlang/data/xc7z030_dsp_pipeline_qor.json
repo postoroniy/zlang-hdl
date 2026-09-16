@@ -4,106 +4,106 @@
       "bram": 0,
       "dsp": 4,
       "ff": 16,
-      "fmax_mhz": 72.1,
+      "fmax_mhz": 73.4322220590395,
       "key": {
         "architecture_template_identity": "std.arch.xilinx7_fir.Xilinx7SymmetricDSPCascade",
         "backend": "direct_systemverilog",
         "clock_period_ns": 10.0,
-        "implementation_graph_identity": "048d46cae275035a7ce0232361439021575e4be02108cf854a54013d7c3f415f",
+        "implementation_graph_identity": "966155dc9a31162386bc5b98a840bc706bc3c6ab9b601e647976b1c4139c6f0d",
         "pipeline_configuration_identity": "std.target.xilinx.series7.DSP48E1.unregistered",
         "target_identity": "std.target.xilinx.xc7z030.xc7z030ffg676_1",
         "target_part": "xc7z030ffg676-1",
         "tool": "Vivado",
         "tool_version": "2024.2"
       },
-      "lut": 234,
-      "provenance": "manual DSP48E1 pipeline validation, routed checkpoint",
+      "lut": 239,
+      "provenance": "target-aware FIR auto-candidate routed validation",
       "stage": "routed_measurement",
-      "wns_ns": -3.869
+      "wns_ns": -3.618
     },
     {
       "bram": 0,
       "dsp": 4,
       "ff": 16,
-      "fmax_mhz": 80.2,
+      "fmax_mhz": 81.29420372327453,
       "key": {
         "architecture_template_identity": "std.arch.xilinx7_fir.Xilinx7SymmetricDSPCascade",
         "backend": "direct_systemverilog",
         "clock_period_ns": 10.0,
-        "implementation_graph_identity": "0912a3261ccb9ce57962c20a261a93a5841b0b36d0999f94fe5b0272e61d36b0",
+        "implementation_graph_identity": "fc62d05293f3f90cd5a134fba5854e54ea88e94ee5ac5748556b0e101e5a0a13",
         "pipeline_configuration_identity": "std.target.xilinx.series7.DSP48E1.multiply_registered",
         "target_identity": "std.target.xilinx.xc7z030.xc7z030ffg676_1",
         "target_part": "xc7z030ffg676-1",
         "tool": "Vivado",
         "tool_version": "2024.2"
       },
-      "lut": 233,
-      "provenance": "manual DSP48E1 pipeline validation, routed checkpoint",
+      "lut": 240,
+      "provenance": "target-aware FIR auto-candidate routed validation",
       "stage": "routed_measurement",
-      "wns_ns": -2.469
+      "wns_ns": -2.301
     },
     {
       "bram": 0,
       "dsp": 4,
       "ff": 16,
-      "fmax_mhz": 108.08,
+      "fmax_mhz": 103.17787866281469,
       "key": {
         "architecture_template_identity": "std.arch.xilinx7_fir.Xilinx7SymmetricDSPCascade",
         "backend": "direct_systemverilog",
         "clock_period_ns": 10.0,
-        "implementation_graph_identity": "0ae4282ee3e6063d6dd5889dbba69a5196f85adf7aa90114501f3f05667ec17a",
+        "implementation_graph_identity": "ba374b088a11adfc3bc73a4ef7f36d9e6caaff83055f824ee72f2c54827b03ef",
         "pipeline_configuration_identity": "std.target.xilinx.series7.DSP48E1.multiply_output_registered",
         "target_identity": "std.target.xilinx.xc7z030.xc7z030ffg676_1",
         "target_part": "xc7z030ffg676-1",
         "tool": "Vivado",
         "tool_version": "2024.2"
       },
-      "lut": 233,
-      "provenance": "manual DSP48E1 pipeline validation, routed checkpoint",
+      "lut": 239,
+      "provenance": "target-aware FIR auto-candidate routed validation",
       "stage": "routed_measurement",
-      "wns_ns": 0.748
+      "wns_ns": 0.308
     },
     {
       "bram": 0,
       "dsp": 4,
       "ff": 16,
-      "fmax_mhz": 108.08,
+      "fmax_mhz": 103.17787866281469,
       "key": {
         "architecture_template_identity": "std.arch.xilinx7_fir.Xilinx7SymmetricDSPCascade",
         "backend": "direct_systemverilog",
         "clock_period_ns": 10.0,
-        "implementation_graph_identity": "30323acfcbc4217c0841a604c01b2f57ea19f1ef1c506dea2e475e2c0be6b168",
+        "implementation_graph_identity": "206e3870f843d62094408844a7336b2a6cbf215bab091ba03a26c4766de383e2",
         "pipeline_configuration_identity": "std.target.xilinx.series7.DSP48E1.fully_pipelined",
         "target_identity": "std.target.xilinx.xc7z030.xc7z030ffg676_1",
         "target_part": "xc7z030ffg676-1",
         "tool": "Vivado",
         "tool_version": "2024.2"
       },
-      "lut": 233,
-      "provenance": "manual DSP48E1 pipeline validation, routed checkpoint",
+      "lut": 239,
+      "provenance": "target-aware FIR auto-candidate routed validation",
       "stage": "routed_measurement",
-      "wns_ns": 0.748
+      "wns_ns": 0.308
     },
     {
       "bram": 0,
       "dsp": 4,
       "ff": 37,
-      "fmax_mhz": 106.12331529236974,
+      "fmax_mhz": 104.9538203190596,
       "key": {
         "architecture_template_identity": "std.arch.xilinx7_fir.Xilinx7SymmetricDSPCascade",
         "backend": "direct_systemverilog",
         "clock_period_ns": 10.0,
-        "implementation_graph_identity": "49cd09f22feaf4407fc4bae0fce3e32cb35b3aa3200c3366d9e93467cd17cea1",
+        "implementation_graph_identity": "4151183cf298aecf1f9e3ac60ec677fcfb5f5717dbc96f6b63d645baeb41dff8",
         "pipeline_configuration_identity": "std.target.xilinx.series7.DSP48E1.multiply_output_registered",
         "target_identity": "std.target.xilinx.xc7z030.xc7z030ffg676_1",
         "target_part": "xc7z030ffg676-1",
         "tool": "Vivado",
         "tool_version": "2024.2"
       },
-      "lut": 249,
+      "lut": 255,
       "provenance": "high-level exact-latency auto-pipeline routed validation",
       "stage": "routed_measurement",
-      "wns_ns": 0.577
+      "wns_ns": 0.472
     }
   ],
   "schema": "zlang-target-qor-v2"

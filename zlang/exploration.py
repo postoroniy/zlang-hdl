@@ -1,4 +1,4 @@
-"""Backend-independent, bounded exploration orchestration for M34.
+"""Backend-independent, bounded exploration orchestration for bounded exploration.
 
 This module coordinates the already-frozen value, architecture, reduction,
 timing, pipeline, and cost layers.  It does not create new equivalence rules.
@@ -55,7 +55,7 @@ class ExplorationContext:
     result_type: object
     allocate_instance: Callable[[], int]
     # A complete output exploration has a stable rewrite boundary.  Retaining
-    # that boundary lets compiler orchestration apply M39 after semantic
+    # that boundary lets compiler orchestration apply formal-aware selection after semantic
     # typing, without re-running the analyzer with a live verifier.
     site_owner: str | None = None
     site_kind: str = "source_explore"
@@ -75,7 +75,7 @@ class ExplorationRequest:
     equivalences: tuple[object, ...] = ()
     formal_config: object | None = None
     formal_verifier: Callable[[Any, object], Any] | None = None
-    # Direct API callers may request M39 during exploration rather than through
+    # Direct API callers may request formal-aware selection during exploration rather than through
     # CompilationSession selection.  Carry the already-typed physical contract
     # explicitly so that path never fabricates a legacy reset domain.
     clock_domain_contract: ClockDomain | None = None
@@ -240,7 +240,7 @@ def _general_pipeline_latencies(request: ExplorationRequest) -> tuple[int, ...]:
     Scalar ``implement`` only enables pipeline candidates after the source has
     supplied a positive latency constraint.  Exact constraints therefore map
     to one latency, bounded ranges retain both endpoints, and an open upper
-    bound receives a deliberately small finite search horizon.  The M28
+    bound receives a deliberately small finite search horizon.  The deterministic cost selection
     constraint evaluator remains authoritative for candidate legality.
     """
 
@@ -283,7 +283,7 @@ def explore(
     request: ExplorationRequest,
     context: ExplorationContext | None = None,
 ) -> ExplorationResult:
-    """Run one staged pass and delegate final filtering to M28."""
+    """Run one staged pass and delegate final filtering to deterministic cost selection."""
 
     request.validate()
     allowed = set(request.allowed) - set(request.avoided)
@@ -304,7 +304,7 @@ def explore(
     candidates = [source]
     counts: list[tuple[str, int]] = [("source", 1)]
 
-    # M26/M27 exact, type-preserving alternatives are always safe defaults.
+    # e-graph optimization/guarded exact rewrite exact, type-preserving alternatives are always safe defaults.
     value_candidates, value_truncated, value_rejections = _value_candidates(request)
     candidates = _deduplicate([*candidates, *value_candidates])
     rejected.extend(value_rejections)
@@ -330,8 +330,8 @@ def explore(
                         (*parent.stages, architecture.implementation.value),
                         architecture_cost(architecture),
                         architecture=architecture,
-                        value_relation="M29 exact typed value semantics",
-                        provenance=(*parent.provenance, "M29 architecture"),
+                        value_relation="architecture alternatives exact typed value semantics",
+                        provenance=(*parent.provenance, "architecture alternatives architecture"),
                     )
                 )
         candidates, truncated = _bounded_deduplicate(
@@ -371,8 +371,8 @@ def explore(
                          reduction.implementation_policy),
                         reduction_cost(reduction),
                         architecture=reduction,
-                        value_relation="M32 exact canonical reduction semantics",
-                        provenance=(*parent.provenance, "M32 reduction"),
+                        value_relation="exact reduction planning exact canonical reduction semantics",
+                        provenance=(*parent.provenance, "exact reduction planning reduction"),
                     )
                 )
         candidates, truncated = _bounded_deduplicate(
@@ -389,7 +389,7 @@ def explore(
             raise ValueError("explore pipeline source must be combinational")
         # Project the generic implementation policy through one shared,
         # fail-closed conversion boundary.  The pipeline model intentionally
-        # covers only timing/throughput/DSP/frequency; M28 retains ownership of
+        # covers only timing/throughput/DSP/frequency; deterministic cost selection retains ownership of
         # LUT/FF/BRAM and lower-only latency constraints.
         from zlang.pipelines import (
             PipelineExplorationError,
@@ -483,7 +483,7 @@ def explore(
                         timing_relation=relation,
                         architecture=pipeline,
                         value_relation=parent.value_relation,
-                        provenance=(*parent.provenance, "M31 pipeline/M30 timing"),
+                        provenance=(*parent.provenance, "pipeline scheduling pipeline/timing alignment timing"),
                     )
                 )
         candidates, truncated = _bounded_deduplicate(
@@ -520,9 +520,9 @@ def explore(
             and request.formal_config.policy.value != "off"
         ):
             from zlang.formal_candidate import (
-                M36DirectSystemVerilogCandidateVerifier,
+                SemanticEquivalenceDirectSystemVerilogCandidateVerifier,
             )
-            verifier = M36DirectSystemVerilogCandidateVerifier(
+            verifier = SemanticEquivalenceDirectSystemVerilogCandidateVerifier(
                 request.root,
                 artifact_provider=getattr(
                     request.formal_config,
@@ -687,8 +687,15 @@ def _value_candidates(
             max_terms=request.bounds.max_value_alternatives,
         )
         candidates = []
+        certificates = {
+            certificate.selected_identity: certificate
+            for certificate in saturation.certificates
+        }
+        from hashlib import sha256
+        from zlang.opt import render_term
         for term in saturation.alternatives:
             expression = term_to_expression(term)
+            certificate = certificates[sha256(render_term(term).encode()).hexdigest()]
             if request.root.origin is not None:
                 expression = replace(expression, origin=request.root.origin)
             candidates.append(
@@ -696,8 +703,14 @@ def _value_candidates(
                     expression,
                     ("value",),
                     estimate_expression_cost(expression),
-                    value_relation="M26/M27 same-cycle exact typed equality",
-                    provenance=("egglog M26/M27",),
+                    value_relation=(
+                        "compiler checked exact typed equality; "
+                        f"certificate={certificate.checker_version}"
+                    ),
+                    provenance=(
+                        "egglog candidate",
+                        f"checked-value:{certificate.normal_form_identity}",
+                    ),
                 )
             )
         return candidates, saturation.truncated, []

@@ -158,17 +158,17 @@ power-on reset, and implicit reset crossing remain fail-closed.
 The selected top always exposes integration-friendly typed leaves. Struct
 fields and structural tuple components, including those inside protocol
 payloads, become individually named ports; tuple paths use `item0`, `item1`,
-and so on. A vector leaf remains one native unpacked SystemVerilog array, for
-example `vec<8,u8>` becomes `logic [7:0] samples [0:7]`; it is neither an
-anonymous 64-bit public bus nor eight separately named ports. Nested
+and so on. A vector leaf remains one multidimensional packed SystemVerilog
+array; for example `vec<8,u8>` becomes `logic [7:0][7:0] samples`. It is
+neither an anonymous 64-bit public bus nor eight separately named ports. Nested
 `vec<Struct>` values become one array per struct field, and `vec<Tuple>` values
 become one array per tuple component.
 
-Direct-SystemVerilog RTL uses this public `TopPhysicalABI`. Packed values are
-allowed only in the private core and child
-component ABIs. The conversion follows the canonical packing order with
-element zero in the most-significant region. There is no source annotation or
-compiler option selecting another public ABI.
+Direct-SystemVerilog RTL uses this public `TopPhysicalABI`. The conversion
+follows the canonical packing order with element zero in the least-significant
+region: for a descending packed vector dimension, source element zero maps to
+physical index `0`. There is no source annotation, compiler option, or
+backend-specific preprocessor branch selecting another public ABI.
 
 ## Ready/valid
 
@@ -320,6 +320,14 @@ rule Observe @clk_b when enable_b { seen <- 1 }
 An aggregate with exactly one forward ready/valid member may use the same
 `async_fifo` crossing; its complete payload is atomic. Both domains must
 participate in a coordinated reset episode.
+
+The physical direct-SV FIFO uses one compiler-owned 1W1R `async_mem` with a
+one-cycle registered read, two-stage Gray-pointer synchronizers, and one
+prefetched output beat. A stalled beat holds both payload and `valid`; the
+read/consumed pointer advances only on transfer, so that beat still occupies
+capacity. Continuous accepted beats can transfer at II=1 without an extra
+output bubble. The synchronizers model digital CDC behavior, not analog
+metastability or an MTBF guarantee.
 
 The ordinary `std.storage.core.StorageAsyncFifo<T,D>` wrapper exposes this same
 crossing as a reusable module with explicit writer and reader clock/reset

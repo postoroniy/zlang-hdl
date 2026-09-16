@@ -34,15 +34,15 @@ typed value IR
     -> typed computation DAG
     -> bounded generic/resource covering
     -> target-aware exact-N fixed-latency scheduling
-    -> M28 deterministic cost extraction
-    -> optional M39 authoritative M36 semantic-reference proof gate
+    -> deterministic cost selection deterministic cost extraction
+    -> optional formal-aware selection authoritative semantic-reference equivalence semantic-reference proof gate
 ```
 
 > **Current backend policy (2026-09):** Direct SystemVerilog is the only
-> production RTL backend. Clash/M38 material below is dated historical evidence
+> production RTL backend. Clash/retired cross-backend equivalence material below is dated historical evidence
 > and is not executable by the current compiler.
 
-M30 supplies validated latency/II relations for eligible candidates. That
+timing alignment supplies validated latency/II relations for eligible candidates. That
 metadata validation is not, by itself, a formal proof.
 
 The [arithmetic exploration tutorial](../examples/verification/math-exploration.md)
@@ -150,20 +150,20 @@ input -> output {
 ```
 
 This bounded form accepts one ready/valid input and output in one synchronous
-domain and a pure existing M31 product-reduction kernel. The selected plan owns
+domain and a pure existing pipeline scheduling product-reduction kernel. The selected plan owns
 one global-clock-enable stall policy: all data registers and its valid chain advance
 together only when the output is empty or ready. Its contract is therefore
 `minimum_unstalled_latency=L`, `ii_no_stall=1`, capacity `L`, and explicitly
-variable wall-clock latency under backpressure. It is not an M30 fixed-latency
+variable wall-clock latency under backpressure. It is not an timing alignment fixed-latency
 relation. User registers, rules, storage, protocol-control captures, adapters,
 crossings, and independently elastic stages are rejected in this first slice.
 
 Direct SystemVerilog lowering is the production route. A preferred physical-
 resource request may report a generic fallback; a required physical route fails
 until every selected resource site explicitly advertises a compatible common
-clock-enable/stall input. Existing M35 ready/valid stability remains
-applicable. M36 is supported where direct-SV bindings exist; M38 is retired.
-M39 `available` records an explicit skipped route and required proof policies
+clock-enable/stall input. Existing safety verification ready/valid stability remains
+applicable. semantic-reference equivalence is supported where direct-SV bindings exist; retired cross-backend equivalence is retired.
+formal-aware selection `available` records an explicit skipped route and required proof policies
 fail closed.
 
 Target and resource descriptions under `std.target.*` and `std.arch.*` are
@@ -245,7 +245,7 @@ to recover their meaning.
 
 Verification declarations have a separate identity and do not change
 production RTL text/hashes, high-level or selected hardware identities,
-optimization, the current M36 relation, historical M38 records, or M39 cache
+optimization, the current semantic-reference equivalence relation, historical retired cross-backend equivalence records, or formal-aware selection cache
 semantics.
 
 The simulation `VerificationMonitor` samples after combinational settle and
@@ -255,7 +255,7 @@ violations and gate their dependent goals. Cover records only its first witness
 cycle; a missing simulation witness is not a failure.
 
 `--contracts-sva` emits supported bindable safety goals through the same
-structured predicate meaning as M35. Missing observations remain explicitly
+structured predicate meaning as safety verification. Missing observations remain explicitly
 non-executable rather than falling back to a second expression walker.
 
 Each non-empty assumption set has a feasibility cover. A compile-time false
@@ -263,9 +263,9 @@ requirement is rejected; a dynamically unwitnessed requirement makes dependent
 safety success `unknown` with a vacuity diagnostic rather than a pass.
 
 Executable formal routes consume the exact typed physical-domain contract.
-With `power_up unspecified`, M35/source safety and cover, existing bindable
-recursive M35 observations, fixed-latency II=1 M36, and the
-corresponding M39 policies support rising/falling edges, synchronous or raw
+With `power_up unspecified`, safety verification/source safety and cover, existing bindable
+recursive safety verification observations, fixed-latency II=1 semantic-reference equivalence, and the
+corresponding formal-aware selection policies support rising/falling edges, synchronous or raw
 asynchronous assertion, both polarities, and the existing two-active-edge
 synchronized release. Asynchronous formal execution remains single-domain;
 multiple synchronous domains may still produce independent goal-local jobs.
@@ -307,10 +307,10 @@ immutable source bundle identity; the replay tool regenerates
 execution-specific SBY configuration.
 
 The immutable inputs currently use bundle schema v4 and verification-IR
-snapshot v3. M35/source execution uses run-report schema v7, which adds a deterministic
+snapshot v3. safety verification/source execution uses run-report schema v7, which adds a deterministic
 run identity, strict route provenance, staged BMC/prove evidence, and per-job
 work/tool attribution. Joint compiler execution wraps that raw report and
-candidate M36 evidence in `zlang-compiler-verification-report-v1`. Retained VCD frames are mapped
+candidate semantic-reference equivalence evidence in `zlang-compiler-verification-report-v1`. Retained VCD frames are mapped
 through the bundle bindings to semantic signal IDs for source-facing witness
 and counterexample values. Work paths and raw logs remain reproducibility data,
 not semantic or run identity.
@@ -327,16 +327,16 @@ and `skipped`. `bounded_pass` is never proof. Cover has a distinct vocabulary:
 `bounded_unreached` is neither `proven` nor `unreachable`, and an ordinary cover
 miss does not make the command fail.
 
-Exit status `0` means the requested safety level was satisfied. An M35/source
-counterexample or an executed M36 counterexample returns `1`.
-M35 unknown/skipped/vacuous execution, tool/configuration failure, or a
+Exit status `0` means the requested safety level was satisfied. An safety verification/source
+counterexample or an executed semantic-reference equivalence counterexample returns `1`.
+safety verification unknown/skipped/vacuous execution, tool/configuration failure, or a
 requested proof with only bounded evidence returns `2`. A cover miss alone is
-not a failure, and unavailable advisory candidate evidence does not alter M39
+not a failure, and unavailable advisory candidate evidence does not alter formal-aware selection
 eligibility.
 
 Verification-bundle construction uses a typed compiler-owned execution plan.
 Current production execution is direct-SystemVerilog plus the independent
-semantic reference. Clash/M38 routes described in older records are retained
+semantic reference. Clash/retired cross-backend equivalence routes described in older records are retained
 only as historical compatibility evidence.
 Every goal records its exact `ClockDomain`, BackendArtifact physical-domain
 identity when an artifact exists, complete scoped assumptions, required
@@ -361,43 +361,43 @@ routes.
 
 The exact source, IR, binding, simulation, vacuity, bundle, and result contract,
 including shared planning, routing, caching, and comparison-window rules, is
-documented in this guide. Older triangular M38 evidence remains historical.
+documented in this guide. Older triangular retired cross-backend equivalence evidence remains historical.
 
 ## Formal layers
 
-- **M35 safety properties** originate from backend-independent semantic/selected
+- **safety verification safety properties** originate from backend-independent semantic/selected
   IR and execute only when required observations have explicit backend bindings.
-- **M36** compares supported same-cycle or fixed-latency II=1 selected
+- **semantic-reference equivalence** compares supported same-cycle or fixed-latency II=1 selected
   implementations against an independent semantic reference.
-- **M38** cross-backend comparison is retired with Clash. Historical reports are
+- **retired cross-backend equivalence** cross-backend comparison is retired with Clash. Historical reports are
   preserved for audit but are not current evidence.
-- **M39** can gate deterministic candidate selection with policy `off`,
+- **formal-aware selection** can gate deterministic candidate selection with policy `off`,
   `available`, `required_bmc`, or `required_proven`. The compiler-owned route
-  materializes the frozen M36 canonical reference, compiles the selected typed
+  materializes the frozen semantic-reference equivalence canonical reference, compiles the selected typed
   candidate through direct SystemVerilog, validates explicit bindings, emits the latency-aware
   miter, and executes SBY/yosys-smtbmc. This applies to canonical `implement`
-  regions in the existing M36 subset. Each region publishes the same structured
-  M39 records into CLI evidence and whole-build manifests.
+  regions in the existing semantic-reference equivalence subset. Each region publishes the same structured
+  formal-aware selection records into CLI evidence and whole-build manifests.
 
 Variable-latency elastic ready/valid transforms are deliberately outside the
-M36 fixed-latency relation. They never enter that route by treating their
+semantic-reference equivalence fixed-latency relation. They never enter that route by treating their
 minimum unstalled latency as wall-clock latency.
 
-`available` executes only the candidate selected by unchanged one-based M28
+`available` executes only the candidate selected by unchanged one-based deterministic cost selection
 rank and records its result without changing static eligibility, including when
 the advisory run finds a counterexample. Required policies walk the same exact
 rank: a failed candidate is excluded and the next is tried; unknown/timeout
 stops selection with attempted-record diagnostics. `required_proven` retains a
-separate BMC stage before its prove attempt. Historical M38 evidence never
-participates in M39 eligibility.
+separate BMC stage before its prove attempt. Historical retired cross-backend equivalence evidence never
+participates in formal-aware selection eligibility.
 
-Decisive M39 results are route-bound data, not trusted callback booleans. The
+Decisive formal-aware selection results are route-bound data, not trusted callback booleans. The
 property, harness, assumptions, backend route, semantic-reference artifact,
 implementation artifact, engine, mode, and depth must all match the
 cache identity before a candidate can become eligible. Exact reuse additionally
 matches stage policy, timeout, tool snapshot, dependencies, and compiler schema.
 Failed results require typed counterexample metadata; non-failed results reject
-it. Decisive M36 evidence requires a positive depth. Missing
+it. Decisive semantic-reference equivalence evidence requires a positive depth. Missing
 `yosys-smtbmc` is reported like any
 other genuinely unavailable formal tool and never becomes false success.
 An `unknown` result or timeout in a required mode terminates the selection: the
@@ -409,34 +409,34 @@ it is not an unbounded proof. Only `proven` satisfies `required_proven`.
 
 Semantic analysis creates candidate spaces but runs no backend or solver. A
 compiler-owned candidate-site ledger carries stable site identity and exact
-rank into the selection phase, where `--formal-policy` executes the M39 route.
+rank into the selection phase, where `--formal-policy` executes the formal-aware selection route.
 Bundle-only publication records one strict compiler-owned linking plan over the
-exact verification goal plan, candidate-site ledger, and retained M39 records.
+exact verification goal plan, candidate-site ledger, and retained formal-aware selection records.
 Joint `--verify` with a non-off policy enriches that immutable plan with the
-selected-candidate M36 plan before execution; candidate results are emitted
+selected-candidate semantic-reference equivalence plan before execution; candidate results are emitted
 afterward in the combined report/evidence. Bundle publication may additionally
-freeze the exact selected-candidate M36 inputs as hash-validated, path-free
+freeze the exact selected-candidate semantic-reference equivalence inputs as hash-validated, path-free
 companions; `zlang-verify` then executes those inputs without source compilation
-or M39 reselection. Base bundles contain no candidate replay inputs.
+or formal-aware selection reselection. Base bundles contain no candidate replay inputs.
 The common evidence report validates those links without merging result types.
 Repeated candidate implementations are associated by semantic site and rank,
 not by candidate identity alone. With policy `off`, the ledger remains visible
-but there are no M39 attempt/evidence records.
+but there are no formal-aware selection attempt/evidence records.
 Candidate execution uses deterministic recipe-addressed work roots below the
-external verification work directory. An exact in-session M39 reuse retains its
-recorded work root; persistent M39 cache data deliberately excludes physical
+external verification work directory. An exact in-session formal-aware selection reuse retains its
+recorded work root; persistent formal-aware selection cache data deliberately excludes physical
 paths, so a cache hit never claims that an old workspace still exists. These
 paths and the discovered candidate tool snapshot are operational report data,
 not proof, cache, or compiler-verification-report identity. Parallel sites with
 an identical proof recipe share the same provider-owned workspace and retain
 the same complete attribution.
-`--formal-harness` and `--formal-sby` remain separate M35 artifact-generation
+`--formal-harness` and `--formal-sby` remain separate safety verification artifact-generation
 options; writing either file alone is not proof execution. An incomplete or
 mixed-route compatibility view is rejected with guidance to use a verification
 bundle rather than silently choosing one backend.
 
 The current product-validation phase freezes new recursive observation families,
-hierarchical M36/M38, further rule-fire observation families, and compositional
+hierarchical semantic-reference equivalence/retired cross-backend equivalence, further rule-fire observation families, and compositional
 proof machinery unless a real design demonstrates a concrete correctness
 requirement. Existing rule exclusivity/priority properties now consume formal-
 only accepted-fire observations derived from the typed resolved schedule; the
@@ -452,11 +452,11 @@ feasibility cover, so dependent safety evidence is vacuity-checked.
 
 Range-proven runtime vector selection is available to the existing same-cycle
 predicate IR. One separate compiler-owned helper can derive whole-root
-same-cycle M36 evidence for exactly one pure scalar child by following typed
+same-cycle semantic-reference equivalence evidence for exactly one pure scalar child by following typed
 hierarchy bindings and producing formal-only Yosys namespaces. It does
 not flatten production RTL and does not authorize state, protocols, storage,
 arrays, nesting, or aggregate boundaries. Protocol-valued and aggregate-
-protocol top boundaries fail closed in the scalar M36 entry points.
+protocol top boundaries fail closed in the scalar semantic-reference equivalence entry points.
 
 See [Current language status](current-language-status.md) and
 [Known limitations](known-limitations.md) for the accepted matrix and remaining

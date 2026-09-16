@@ -1,4 +1,4 @@
-"""M39 formal eligibility, deterministic scheduling, and proof caching."""
+"""formal-aware selection formal eligibility, deterministic scheduling, and proof caching."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from typing import Any, Callable, Mapping
 from zlang.common import stable_digest
 from zlang.common.content_cache import load_json_object, publish_json_atomically
 from zlang.formal import tool_versions
+from zlang.formal_counterexample_codec import counterexample_to_data
 from zlang.formal_artifact_provider import (
     FormalArtifactNamespace,
     FormalArtifactProvider,
@@ -24,8 +25,8 @@ from zlang.source import SourceOrigin, source_origin_to_data
 
 
 _CACHE_RESULT_SCHEMA = "zlang-formal-proof-cache-result-v3"
-_PREPARATION_INDEX_SCHEMA = "zlang-m39-preparation-index-v1"
-_RESULT_CACHE_NAMESPACE = Path(FormalArtifactNamespace.M39.value) / "results"
+_PREPARATION_INDEX_SCHEMA = "zlang-formal_selection-preparation-index-v1"
+_RESULT_CACHE_NAMESPACE = Path(FormalArtifactNamespace.FORMAL_SELECTION.value) / "results"
 CACHE_STATE_NOT_RUN = "not-run"
 _CACHEABLE_FORMAL_STATUSES = frozenset({
     FormalStatus.BOUNDED_PASS,
@@ -75,6 +76,15 @@ class FormalExplorationConfig:
         compare=False,
         repr=False,
     )
+    # External tools are part of the proof recipe, but probing a long-lived
+    # configuration more than once would let an installation change halfway
+    # through one compiler run.  The first exact route probe therefore freezes
+    # its version tuple for the lifetime of this config.  The cache is
+    # operational state and deliberately excluded from config equality and
+    # identities.
+    _tool_version_snapshots: dict[
+        tuple[str, ...], tuple[tuple[str, str], ...]
+    ] = field(default_factory=dict, compare=False, repr=False)
     # Execution workspace is operational metadata.  It must not participate in
     # candidate, property, proof-cache, or implementation identities.
     work_directory: Path | None = field(
@@ -127,8 +137,8 @@ class FormalExplorationRecord:
     # Operational evidence location.  It is deliberately excluded from every
     # semantic/proof identity and from the persistent proof-cache payload.
     work_directory: str | None = None
-    # Exact M39 execution recipe (proof key plus preparation/compiler recipe).
-    # Candidate M36 orchestration may reuse a retained result only when this
+    # Exact formal-aware selection execution recipe (proof key plus preparation/compiler recipe).
+    # Candidate semantic-reference equivalence orchestration may reuse a retained result only when this
     # identity matches its current timeout, tools, dependencies, and schemas.
     execution_recipe_identity: str | None = None
 
@@ -219,14 +229,21 @@ def _formal_tool_versions(
     config: FormalExplorationConfig,
     requested_tools: tuple[str, ...],
 ) -> tuple[tuple[str, str], ...]:
+    cached = config._tool_version_snapshots.get(requested_tools)
+    if cached is not None:
+        return cached
     resolver = config.tool_resolver
     resolve = getattr(resolver, "formal_context", None)
     if callable(resolve):
         context = resolve(engine=config.engine, solver=config.solver)
         versions = tuple(getattr(context, "versions", ()))
         allowed = set(requested_tools)
-        return tuple(item for item in versions if item[0] in allowed)
-    return tool_versions(requested_tools)
+        discovered = tuple(item for item in versions if item[0] in allowed)
+    else:
+        discovered = tool_versions(requested_tools)
+    # setdefault also makes concurrent callers agree on the first complete
+    # snapshot even if two probes overlap an external tool replacement.
+    return config._tool_version_snapshots.setdefault(requested_tools, discovered)
 
 
 _CONNECTED_CACHE_IDENTITY_FIELDS = frozenset({
@@ -294,7 +311,7 @@ def _preparation_recipe(
         )
     try:
         return FormalArtifactRecipe(
-            FormalArtifactNamespace.M39,
+            FormalArtifactNamespace.FORMAL_SELECTION,
             "connected-proof-preparation-index-v1",
             value,
         )
@@ -308,8 +325,8 @@ def _execution_recipe_identity(
     proof_key: str,
     preparation_recipe: FormalArtifactRecipe | None,
 ) -> str:
-    return "m39-execution:" + stable_digest({
-        "schema": "zlang-m39-execution-recipe-v1",
+    return "formal_selection-execution:" + stable_digest({
+        "schema": "zlang-formal_selection-execution-recipe-v1",
         "proof_key": proof_key,
         "preparation_recipe": (
             None if preparation_recipe is None else preparation_recipe.identity
@@ -323,7 +340,7 @@ def formal_execution_recipe_identity(
     verifier: object | None,
     cache_identity: Mapping[str, str],
 ) -> str:
-    """Return the exact recipe identity retained on one M39 result record."""
+    """Return the exact recipe identity retained on one formal-aware selection result record."""
 
     preparation_recipe = _preparation_recipe(candidate, config, verifier)
     proof_key = _proof_key_for_identity(candidate, config, cache_identity)
@@ -352,7 +369,7 @@ def _preparation_index_path(
     )
     return (
         root
-        / FormalArtifactNamespace.M39.value
+        / FormalArtifactNamespace.FORMAL_SELECTION.value
         / "preparation-index"
         / f"{recipe.digest}.json"
     )
@@ -511,13 +528,13 @@ class _CachedProof:
             (Counterexample, EquivalenceCounterexample),
         ):
             raise FormalExplorationError(
-                "formal proof cache requires a typed M35 or M36 counterexample"
+                "formal proof cache requires a typed safety verification or semantic-reference equivalence counterexample"
             )
         if (self.counterexample is not None) != (
             self.status is FormalStatus.FAILED
         ):
             raise FormalExplorationError(
-                "failed M39 proof requires exactly one counterexample"
+                "failed formal-aware selection proof requires exactly one counterexample"
             )
         if self.status is FormalStatus.BOUNDED_PASS and self.mode is not ProofMode.BMC:
             raise FormalExplorationError("cached bounded_pass requires BMC mode")
@@ -526,7 +543,7 @@ class _CachedProof:
         if self.status is FormalStatus.FAILED:
             if not isinstance(self.counterexample, EquivalenceCounterexample):
                 raise FormalExplorationError(
-                    "failed M39 proof requires typed M36 counterexample metadata"
+                    "failed formal-aware selection proof requires typed semantic-reference equivalence counterexample metadata"
                 )
         if self.status in {
             FormalStatus.BOUNDED_PASS,
@@ -535,7 +552,7 @@ class _CachedProof:
         }:
             if self.backend != "direct_systemverilog":
                 raise FormalExplorationError(
-                    "decisive M39 proof evidence requires a supported M36 RTL backend"
+                    "decisive formal-aware selection proof evidence requires a supported semantic-reference equivalence RTL backend"
                 )
             for label, value in (
                 ("property identity", self.property_identity),
@@ -547,7 +564,7 @@ class _CachedProof:
             ):
                 if not value:
                     raise FormalExplorationError(
-                        f"decisive M39 proof evidence requires {label}"
+                        f"decisive formal-aware selection proof evidence requires {label}"
                     )
             for label, value in (
                 ("harness hash", self.harness_hash),
@@ -558,18 +575,18 @@ class _CachedProof:
             ):
                 if re.fullmatch(r"[0-9a-f]{64}", value or "") is None:
                     raise FormalExplorationError(
-                        f"decisive M39 proof {label} must be a SHA-256 digest"
+                        f"decisive formal-aware selection proof {label} must be a SHA-256 digest"
                     )
             if self.artifact_hash != self.implementation_artifact_hash:
                 raise FormalExplorationError(
-                    "M39 artifact hash does not match the implementation artifact"
+                    "formal-aware selection artifact hash does not match the implementation artifact"
                 )
             if (
                 isinstance(self.counterexample, EquivalenceCounterexample)
                 and self.counterexample.property_id != self.property_identity
             ):
                 raise FormalExplorationError(
-                    "M39 counterexample property does not match proof identity"
+                    "formal-aware selection counterexample property does not match proof identity"
                 )
 
     def to_data(self) -> dict[str, object]:
@@ -674,28 +691,12 @@ def _value_pairs(value: object) -> tuple[tuple[str, str], ...]:
 def _counterexample_to_data(
     value: Counterexample | EquivalenceCounterexample | None,
 ) -> dict[str, object] | None:
-    if value is None:
-        return None
-    if isinstance(value, Counterexample):
-        return {
-            "kind": "m35",
-            "property_id": value.property_id,
-            "cycle": value.cycle,
-            "values": [list(item) for item in value.values],
-            "raw_trace": value.raw_trace,
-        }
-    if isinstance(value, EquivalenceCounterexample):
-        return {
-            "kind": "m36",
-            "property_id": value.property_id,
-            "failure_cycle": value.failure_cycle,
-            "sample_cycle": value.sample_cycle,
-            "values": [list(item) for item in value.values],
-            "raw_trace": value.raw_trace,
-        }
-    raise FormalExplorationError(
-        "formal proof cache requires typed M35 or M36 counterexample metadata"
-    )
+    try:
+        return counterexample_to_data(value)
+    except TypeError as error:
+        raise FormalExplorationError(
+            "formal proof cache requires typed safety verification or semantic-reference equivalence counterexample metadata"
+        ) from error
 
 
 def _counterexample_from_data(value: object):
@@ -711,21 +712,21 @@ def _counterexample_from_data(value: object):
         raise FormalExplorationError("cached counterexample property_id is invalid")
     values = _value_pairs(value.get("values"))
     raw_trace = _optional_string(value.get("raw_trace"), "counterexample raw_trace")
-    if kind == "m35":
+    if kind == "safety_verification":
         expected = {"kind", "property_id", "cycle", "values", "raw_trace"}
         if set(value) != expected:
-            raise FormalExplorationError("cached M35 counterexample fields are invalid")
+            raise FormalExplorationError("cached safety verification counterexample fields are invalid")
         return Counterexample(
             property_id, _integer_or_none(value.get("cycle"), "cycle"), values,
             raw_trace,
         )
-    if kind == "m36":
+    if kind == "semantic_equivalence":
         expected = {
             "kind", "property_id", "failure_cycle", "sample_cycle", "values",
             "raw_trace",
         }
         if set(value) != expected:
-            raise FormalExplorationError("cached M36 counterexample fields are invalid")
+            raise FormalExplorationError("cached semantic-reference equivalence counterexample fields are invalid")
         return EquivalenceCounterexample(
             property_id,
             _integer_or_none(value.get("failure_cycle"), "failure_cycle"),
@@ -856,12 +857,12 @@ def _proof_from_verifier(
         )
         if missing_identity:
             raise FormalExplorationError(
-                "decisive M39 verifier result has no bound cache identity for: "
+                "decisive formal-aware selection verifier result has no bound cache identity for: "
                 + ", ".join(missing_identity)
             )
-        if route != "M36_direct_systemverilog":
+        if route != "semantic_equivalence_direct_systemverilog":
             raise FormalExplorationError(
-                "decisive M39 proof evidence requires a supported M36 RTL route"
+                "decisive formal-aware selection proof evidence requires a supported semantic-reference equivalence RTL route"
             )
         if depth != config.bmc_depth:
             raise FormalExplorationError(
@@ -1120,7 +1121,7 @@ def _execute_stage(
                 "backend": "direct_systemverilog" if unavailable_reason else None,
                 "reason": (
                     unavailable_reason
-                    or "M36 semantic-reference proof route is not bound"
+                    or "semantic-reference equivalence semantic-reference proof route is not bound"
                 ),
             }
         try:
@@ -1239,8 +1240,8 @@ def _inconclusive(status: FormalStatus) -> bool:
 def gate_candidates(candidates: tuple[Any, ...], evaluations: tuple[Any, ...],
                     config: FormalExplorationConfig,
                     verifier: Callable[[Any, FormalExplorationConfig], Any] | None = None,
-                    *, route: str = "M36_direct_systemverilog") -> FormalGateResult:
-    """Verify candidates in exact M28 rank order; never schedule all eagerly."""
+                    *, route: str = "semantic_equivalence_direct_systemverilog") -> FormalGateResult:
+    """Verify candidates in exact deterministic cost selection rank order; never schedule all eagerly."""
     ranked = sorted((item for item in evaluations if item.legal), key=lambda item: item.objective_key)
     route = str(getattr(verifier, "formal_route", route))
     if config.policy is FormalPolicy.OFF:
@@ -1256,11 +1257,11 @@ def gate_candidates(candidates: tuple[Any, ...], evaluations: tuple[Any, ...],
         FormalPolicy.REQUIRED_PROVEN,
     }:
         raise FormalExplorationError(
-            "required formal policy has no connected M36 verifier route"
+            "required formal policy has no connected semantic-reference equivalence verifier route"
         )
 
     # ``available`` is observational only: execute BMC for the exact rank-1
-    # candidate and preserve the unchanged M28-eligible set regardless of the
+    # candidate and preserve the unchanged deterministic cost selection-eligible set regardless of the
     # result.  Later candidates are explicitly not run.
     if config.policy is FormalPolicy.AVAILABLE:
         selected = [item.candidate for item in ranked]

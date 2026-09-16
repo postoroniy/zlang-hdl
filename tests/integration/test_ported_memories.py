@@ -48,7 +48,7 @@ module DualPort {{
 """
 
 
-def _async_memory_source(collision: str = "old") -> str:
+def _async_memory_source(collision: str = "old", read_latency: int = 1) -> str:
     return f"""
 module AsyncMemory {{
   clock write_clk reset write_rst @write_clk
@@ -61,7 +61,7 @@ module AsyncMemory {{
   memory table:async_mem<u8,4> {{
     write_port wr @write_clk
     read_port rd @read_clk
-    read_latency 1
+    read_latency {read_latency}
     collision {collision}
     reset {{ contents preserve read_data clear }}
   }}
@@ -344,6 +344,62 @@ def test_async_coincident_edge_collision_model(collision: str, expected: int) ->
     assert results[1]["read_data"] == expected
 
 
+@pytest.mark.parametrize("read_latency", [2, 3])
+def test_async_read_latency_is_exact_destination_cycles(
+    read_latency: int, tmp_path: Path,
+) -> None:
+    module = compile_source(_async_memory_source(read_latency=read_latency)).ir
+    sample = {
+        "write_enable": 0,
+        "write_address": 0,
+        "write_data": 0,
+        "read_address": 2,
+    }
+    inputs = [
+        {**sample, "write_enable": 1, "write_address": 2, "write_data": 7},
+        *([sample] * (read_latency + 1)),
+    ]
+    edges = [{"write_clk"}, *([{"read_clk"}] * read_latency), set()]
+    results = simulate_multiclock_steps(module, inputs, edges)
+    assert [item["read_data"] for item in results] == [
+        *([0] * (read_latency + 1)),
+        7,
+    ]
+    text = emit_experimental(module)
+    assert f"table_rd_read_stage_{read_latency - 2}" in text
+    assert "zlang_table_rd_read_data <= zlang_table_rd_read_stage_" in text
+    rtl = tmp_path / "AsyncMemory.sv"
+    rtl.write_text(text)
+    lint_with_verilator((rtl,), "AsyncMemory")
+
+
+def test_same_clock_generic_read_latency_two_registers_result(
+    tmp_path: Path,
+) -> None:
+    source = """
+module MemoryTwoCycles {
+  clock clk reset rst
+  in we:bit in wa:u2 in wd:u8 in ra:u2 out q:u8
+  memory table:mem<u8,4> { read_latency 2 collision old }
+  table.write_enable=we table.write_address=wa table.write_data=wd
+  table.read_address=ra q=table.read_data
+}
+"""
+    module = compile_source(source).ir
+    sample = {"we": 0, "wa": 0, "wd": 0, "ra": 2}
+    results = simulate_storage_cycles(
+        module,
+        [{**sample, "we": 1, "wa": 2, "wd": 9}, sample, sample, sample],
+    )
+    assert [item["q"] for item in results] == [0, 0, 0, 9]
+    text = emit_experimental(module)
+    assert "table_read_stage_0" in text
+    assert "zlang_table_read_data <= zlang_table_read_stage_0" in text
+    rtl = tmp_path / "MemoryTwoCycles.sv"
+    rtl.write_text(text)
+    lint_with_verilator((rtl,), "MemoryTwoCycles")
+
+
 def test_async_memory_emits_one_writer_and_one_reader_process() -> None:
     module = compile_source(_async_memory_source()).ir
     text = emit_experimental(module)
@@ -513,7 +569,7 @@ def test_multidomain_stdlib_wrappers_are_ordinary_hierarchy(
         ),
         (
             "write_port wr @a read_port rd @b read_latency 0 collision old",
-            "read_latency 1",
+            "read_latency >= 1",
         ),
     ],
 )

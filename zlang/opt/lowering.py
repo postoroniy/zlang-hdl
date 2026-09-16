@@ -772,7 +772,7 @@ def lower_expression_graph(
     """Lower one semantic expression with the module's typed environment.
 
     Consumers that deliberately transform one semantic root, such as bounded
-    callable expansion before M26, can reuse the canonical expression builder
+    callable expansion before e-graph optimization, can reuse the canonical expression builder
     without manufacturing a synthetic module or depending on its private
     implementation class.
     """
@@ -1466,10 +1466,10 @@ def restore(module: CanonicalModule) -> Module:
                     or kinds.count(MemoryPortKind.WRITE) != 1
                     or kinds.count(MemoryPortKind.READ) != 1
                     or len({port.domain for port in memory.ports}) != 2
-                    or memory.read_latency != 1
+                    or memory.read_latency < 1
                 ):
                     raise CanonicalizationError(
-                        "canonical async memory requires distinct one-write/one-read ports and latency one"
+                        "canonical async memory requires distinct one-write/one-read ports and at least one read cycle"
                     )
             elif len({port.domain for port in memory.ports}) != 1:
                 raise CanonicalizationError(
@@ -1489,9 +1489,9 @@ def restore(module: CanonicalModule) -> Module:
             raise CanonicalizationError(
                 "canonical global masked memory requires a write-mask expression"
             )
-        if memory.read_latency not in {0, 1}:
+        if not 0 <= memory.read_latency <= 16:
             raise CanonicalizationError(
-                "canonical memory read latency must be zero or one"
+                "canonical memory read latency must be in 0..16"
             )
         if scheduled and memory.read_latency == 0:
             raise CanonicalizationError(

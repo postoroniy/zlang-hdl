@@ -1,10 +1,12 @@
 """Backend-independent bit packing and slicing conventions.
 
-This module is the single definition of ZLang aggregate bit order.  Struct
-field zero and vector element zero occupy the most-significant portion of the
-packed value.  Nominal enums are deliberately excluded from this first
-packing slice; accepting their ordinal representation requires a separate
-language decision.
+This module is the single definition of ZLang aggregate bit order.  Indexed
+aggregates are LSB-first: vector element zero and tuple item zero occupy the
+least-significant portion of the packed value.  Struct fields retain the
+SystemVerilog packed-struct convention where the first declared field is most
+significant.  Nominal enums are deliberately excluded from this first packing
+slice; accepting their ordinal representation requires a separate language
+decision.
 """
 
 from __future__ import annotations
@@ -30,6 +32,9 @@ from zlang.ir.runtime_values import TaggedUnionValue
 
 class PackingError(ValueError):
     """A type, runtime value, or bit range violates the packing contract."""
+
+
+PACKING_LAYOUT_SCHEMA = "zlang-packed-layout-lsb-indexed-v2"
 
 
 _PACKABLE_SCALARS = (
@@ -71,6 +76,35 @@ def packed_width(type_: HardwareType) -> int:
     if width < 1:
         raise PackingError("a packed type must have positive width")
     return width
+
+
+def vector_element_lsb(type_: VecType, index: int) -> int:
+    """Return the LSB of ``type_[index]`` in the canonical packed value."""
+
+    if isinstance(index, bool) or not isinstance(index, int):
+        raise PackingError("a vector index must be an integer")
+    if not 0 <= index < type_.length:
+        raise PackingError(
+            f"vector index {index} is outside 0..{type_.length - 1}"
+        )
+    element_width = type_.element_type.width
+    if element_width < 1:
+        raise PackingError("a vector element must have positive packed width")
+    return index * element_width
+
+
+def tuple_element_lsb(type_: TupleType, index: int) -> int:
+    """Return the LSB of ``item index`` in the canonical packed tuple."""
+
+    if isinstance(index, bool) or not isinstance(index, int):
+        raise PackingError("a tuple index must be an integer")
+    if not 0 <= index < len(type_.elements):
+        raise PackingError(
+            f"tuple index {index} is outside 0..{len(type_.elements) - 1}"
+        )
+    if any(item.width < 1 for item in type_.elements):
+        raise PackingError("a tuple element must have positive packed width")
+    return sum(item.width for item in type_.elements[:index])
 
 
 def bit_mask(width: int) -> int:
@@ -154,10 +188,12 @@ def pack_runtime(type_: HardwareType, value: object) -> int:
                 f"{len(type_.elements)} elements"
             )
         packed = 0
-        for element_type, element in zip(type_.elements, value, strict=True):
-            packed = (
-                packed << packed_width(element_type)
-            ) | pack_runtime(element_type, element)
+        for index, (element_type, element) in enumerate(
+            zip(type_.elements, value, strict=True)
+        ):
+            packed |= pack_runtime(element_type, element) << tuple_element_lsb(
+                type_, index
+            )
         return packed
     if isinstance(type_, VecType):
         if (
@@ -169,11 +205,10 @@ def pack_runtime(type_: HardwareType, value: object) -> int:
                 f"value for '{type_}' must contain exactly {type_.length} elements"
             )
         packed = 0
-        element_width = packed_width(type_.element_type)
-        for element in value:
-            packed = (packed << element_width) | pack_runtime(
+        for index, element in enumerate(value):
+            packed |= pack_runtime(
                 type_.element_type, element
-            )
+            ) << vector_element_lsb(type_, index)
         return packed
     raise PackingError(f"type '{type_}' is not bit-packable")
 
@@ -206,11 +241,11 @@ def unpack_runtime(type_: HardwareType, value: int) -> object:
         return result
     if isinstance(type_, TupleType):
         result: list[object] = []
-        shift = width
-        for element_type in type_.elements:
+        for index, element_type in enumerate(type_.elements):
             element_width = packed_width(element_type)
-            shift -= element_width
-            element_raw = (value >> shift) & bit_mask(element_width)
+            element_raw = (
+                value >> tuple_element_lsb(type_, index)
+            ) & bit_mask(element_width)
             result.append(unpack_runtime(element_type, element_raw))
         return tuple(result)
     if isinstance(type_, VecType):
@@ -218,7 +253,7 @@ def unpack_runtime(type_: HardwareType, value: int) -> object:
         return [
             unpack_runtime(
                 type_.element_type,
-                (value >> ((type_.length - index - 1) * element_width))
+                (value >> vector_element_lsb(type_, index))
                 & bit_mask(element_width),
             )
             for index in range(type_.length)

@@ -1,4 +1,4 @@
-"""Fail-closed direct SystemVerilog emission for the supported-secondary subset.
+"""Fail-closed direct SystemVerilog emission for the production backend.
 
 The backend consumes typed semantic IR, emits only validated shapes, and reports
 unsupported regions before publishing a BackendArtifact.
@@ -6,14 +6,18 @@ unsupported regions before publishing a BackendArtifact.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, fields, is_dataclass, replace
 from enum import Enum
 import hashlib
 import re
-from typing import Callable
+from typing import Callable, Iterator
 
+from zlang.common import stable_digest
 from zlang.ir import csr as ir_csr
 from zlang.ir import expressions as expr
+from zlang.ir import packing as ir_packing
 from zlang.ir.arbitration import ArbitrationPolicy, GrantScope
 from zlang.ir.callables import (
     CallableReachabilityError,
@@ -189,6 +193,66 @@ class SystemVerilogEmissionError(DiagnosticError):
             fixes=fixes,
         )
         self.semantic_path = semantic_path
+
+
+@dataclass(frozen=True)
+class TopBoundaryPlan:
+    """One inline public boundary for the selected direct-SV top.
+
+    Component modules retain their compact packed ABI.  Only the selected top
+    uses this plan: public aggregate leaves remain real module ports while the
+    existing body consumes deterministic private packed aliases in the same
+    module.  No wrapper module or hierarchy instance is involved.
+    """
+
+    module_name: str
+    public_ports: tuple[str, ...]
+    base_aliases: tuple[tuple[str, str], ...]
+    declarations: tuple[str, ...]
+    input_bridges: tuple[str, ...]
+    output_bridges: tuple[str, ...]
+
+    @property
+    def identity(self) -> str:
+        """Stable physical identity of the validated inline boundary."""
+
+        return stable_digest({
+            "schema": "zlang-direct-sv-top-boundary-v2",
+            "packing_layout_schema": ir_packing.PACKING_LAYOUT_SCHEMA,
+            "module": self.module_name,
+            "public_ports": list(self.public_ports),
+            "base_aliases": [list(item) for item in self.base_aliases],
+            "declarations": list(self.declarations),
+            "input_bridges": list(self.input_bridges),
+            "output_bridges": list(self.output_bridges),
+        })
+
+    @property
+    def physical_module_name(self) -> str:
+        return rtl_identifier(self.module_name)
+
+    def alias(self, source_name: str) -> str | None:
+        return next(
+            (physical for source, physical in self.base_aliases
+             if source == source_name),
+            None,
+        )
+
+
+_CURRENT_TOP_BOUNDARY: ContextVar[TopBoundaryPlan | None] = ContextVar(
+    "zlang_systemverilog_top_boundary", default=None,
+)
+
+
+@contextmanager
+def _top_boundary_scope(
+    plan: TopBoundaryPlan | None,
+) -> Iterator[None]:
+    token = _CURRENT_TOP_BOUNDARY.set(plan)
+    try:
+        yield
+    finally:
+        _CURRENT_TOP_BOUNDARY.reset(token)
 
 
 @dataclass(frozen=True)
@@ -419,14 +483,11 @@ def _emit_named_design(
     _formal_buffer_counts: tuple[FormalBufferCountProjection, ...] = (),
     _formal_adapter_counts: tuple[FormalAdapterCountProjection, ...] = (),
 ) -> str:
-    """Emit one supported design with an always-leaf public top boundary.
+    """Emit one design with its public aggregate ABI in the selected top.
 
     Component modules intentionally retain the compiler's compact packed ABI.
-    When the selected top contains an aggregate endpoint or a struct-valued
-    port, the packed implementation is renamed to a backend-private core and a
-    deterministic public wrapper exposes the typed leaves.  This keeps the
-    hierarchy efficient without making users reconstruct ZLang's packing
-    convention when integrating the generated IP.
+    The selected top alone exposes typed public leaves and owns the exact
+    pack/unpack bridges required to connect them to its internal packed roots.
     """
 
     # Generic specialization identities deliberately retain exact dependency
@@ -441,16 +502,18 @@ def _emit_named_design(
     _validate_state_storage_rtl_namespace(
         physical_module, hierarchy_cache=hierarchy_cache
     )
+    boundary = _build_top_boundary_plan(
+        physical_module, leaves=tuple(public_abi.leaves),
+    )
     packed = _emit_packed(
         physical_module,
         external_mappings=external_mappings,
         formal_buffer_counts=_formal_buffer_counts,
         formal_adapter_counts=_formal_adapter_counts,
         hierarchy_cache=hierarchy_cache,
+        top_boundary=boundary,
     )
-    return _emit_public_leaf_boundary(
-        physical_module, packed, leaves=tuple(public_abi.leaves)
-    )
+    return packed
 
 
 def _validate_state_storage_rtl_namespace(
@@ -572,7 +635,6 @@ def _validate_state_storage_rtl_namespace(
                         f"{name}_{rtl_identifier(port.name)}_read_data",
                         f"memory '{memory.name}' port '{port.name}' read data",
                     )
-            claim(f"{name}_reset_index", f"memory '{memory.name}' reset iterator")
         else:
             claim(
                 rtl_memory_cells_identifier(memory.name),
@@ -585,11 +647,9 @@ def _validate_state_storage_rtl_namespace(
         if memory.scheduled:
             for suffix in (
                 "read_fire", "write_fire", "read_address", "write_address",
-                "write_data", "reset_index",
+                "write_data",
             ):
                 claim(f"{name}_{suffix}", f"memory '{memory.name}' {suffix}")
-        elif not memory.ported:
-            claim("zlang_memory_reset_index", "memory reset iterator")
         if memory.write_mask_width is not None:
             for suffix in ("write_mask", "write_mask_expanded", "write_merged"):
                 claim(f"{name}_{suffix}", f"memory '{memory.name}' {suffix}")
@@ -934,6 +994,7 @@ def _emit_packed(
     formal_buffer_counts: tuple[FormalBufferCountProjection, ...] = (),
     formal_adapter_counts: tuple[FormalAdapterCountProjection, ...] = (),
     hierarchy_cache: HierarchyTraversalCache | None = None,
+    top_boundary: TopBoundaryPlan | None = None,
 ) -> str:
     """Emit one supported typed module as direct synthesizable SystemVerilog."""
 
@@ -987,7 +1048,8 @@ def _emit_packed(
             ModuleFeatureGroup.AGGREGATE_PROTOCOL_CONNECTIONS,
             *_STATE_GROUPS,
         )
-        body = _emit_cdc_subsystem(module, _cdc_rendering(module))
+        with _top_boundary_scope(top_boundary):
+            body = _emit_cdc_subsystem(module, _cdc_rendering(module))
         return "`default_nettype none\n" + body + "`default_nettype wire\n"
     if any(connection.adapter is not None for connection in module.connections):
         _account_emission_plan(
@@ -997,9 +1059,10 @@ def _emit_packed(
             ModuleFeatureGroup.CONNECTIONS,
             ModuleFeatureGroup.CREDIT_PORTS,
         )
-        body = _emit_connection_adapter(
-            module, formal_adapter_counts=formal_adapter_counts
-        )
+        with _top_boundary_scope(top_boundary):
+            body = _emit_connection_adapter(
+                module, formal_adapter_counts=formal_adapter_counts
+            )
         return "`default_nettype none\n" + body + "`default_nettype wire\n"
     if module.elastic_pipeline_regions:
         _account_emission_plan(
@@ -1008,7 +1071,8 @@ def _emit_packed(
             ModuleFeatureGroup.PROTOCOL_PORTS,
             ModuleFeatureGroup.ELASTIC_PIPELINE_REGIONS,
         )
-        body = _emit_elastic_pipeline(module)
+        with _top_boundary_scope(top_boundary):
+            body = _emit_elastic_pipeline(module)
         return "`default_nettype none\n" + body + "`default_nettype wire\n"
     if (
         not module.csr_blocks
@@ -1036,11 +1100,12 @@ def _emit_packed(
     ):
         _account_emission_plan(module, "composed", *_COMPOSED_GROUPS)
         mapping_index = _external_mapping_index(module, external_mappings)
-        body = _emit_composed_design(
-            module, mapping_index,
-            formal_buffer_counts=formal_buffer_counts,
-            hierarchy_cache=hierarchy_cache,
-        )
+        with _top_boundary_scope(top_boundary):
+            body = _emit_composed_design(
+                module, mapping_index,
+                formal_buffer_counts=formal_buffer_counts,
+                hierarchy_cache=hierarchy_cache,
+            )
         return (
             "`default_nettype none\n"
             + _external_sources(mapping_index)
@@ -1050,122 +1115,127 @@ def _emit_packed(
     if module.external_contract is not None:
         _account_emission_plan(module, "external_wrapper")
         mapping_index = _external_mapping_index(module, external_mappings)
-        body = _emit_external_wrapper(
-            module,
-            _identifier(module.name),
-            mapping_index[module.external_contract.semantic_identity],
-        )
+        with _top_boundary_scope(top_boundary):
+            body = _emit_external_wrapper(
+                module,
+                rtl_identifier(module.name),
+                mapping_index[module.external_contract.semantic_identity],
+            )
         return (
             "`default_nettype none\n"
             + _external_sources(mapping_index)
             + body
             + "`default_nettype wire\n"
         )
-    if module.csr_blocks:
-        _account_emission_plan(
-            module,
-            "csr_composed_state",
-            *_STATE_GROUPS,
-            ModuleFeatureGroup.CSR_BLOCKS,
-            ModuleFeatureGroup.PROTOCOL_PORTS,
-        )
-        body = _emit_csr(module)
-    elif module.request_responses:
-        _account_emission_plan(
-            module,
-            "request_response",
-            ModuleFeatureGroup.REQUEST_RESPONSE_INTERFACES,
-            *_STATE_GROUPS,
-        )
-        body = _emit_request_response(module)
-    elif _requires_unified_state(module):
-        _account_emission_plan(
-            module, "unified_state",
-            *_STATE_GROUPS,
-            *_STORAGE_GROUPS,
-            ModuleFeatureGroup.PROTOCOL_PORTS,
-        )
-        body = _emit_unified_state_module(module)
-    elif module.roms:
-        _account_emission_plan(module, "rom", ModuleFeatureGroup.ROMS)
-        body = _emit_rom_module(module)
-    elif module.memories:
-        _account_emission_plan(module, "memory", ModuleFeatureGroup.MEMORIES)
-        body = _emit_memory(module)
-    elif module.fifos:
-        _account_emission_plan(
-            module,
-            "fifo",
-            ModuleFeatureGroup.FIFOS,
-            ModuleFeatureGroup.PROTOCOL_PORTS,
-        )
-        body = _emit_fifo(module)
-    elif module.arbiters:
-        _account_emission_plan(
-            module,
-            "packet_arbiter",
-            ModuleFeatureGroup.ARBITERS,
-            ModuleFeatureGroup.PROTOCOL_PORTS,
-        )
-        body = _emit_packet_arbiter(module)
-    elif any(
-        port.protocol is InterfaceProtocol.VC_CREDIT for port in module.ports
-    ):
-        _account_emission_plan(
-            module,
-            "vc_credit",
-            ModuleFeatureGroup.PROTOCOL_PORTS,
-            ModuleFeatureGroup.VC_CREDIT_PORTS,
-        )
-        body = _emit_vc_credit(module)
-    elif any(port.protocol is InterfaceProtocol.CREDIT for port in module.ports):
-        _account_emission_plan(
-            module,
-            "credit",
-            ModuleFeatureGroup.PROTOCOL_PORTS,
-            ModuleFeatureGroup.CREDIT_PORTS,
-        )
-        body = _emit_credit(module)
-    elif any(
-        port.protocol is InterfaceProtocol.READY_VALID for port in module.ports
-    ):
-        _account_emission_plan(
-            module,
-            "ready_valid",
-            ModuleFeatureGroup.PROTOCOL_PORTS,
-            ModuleFeatureGroup.HIERARCHICAL_PROTOCOL_ENDPOINTS,
-            ModuleFeatureGroup.AGGREGATE_PROTOCOL_ENDPOINTS,
-            ModuleFeatureGroup.CONNECTIONS,
-            ModuleFeatureGroup.AGGREGATE_PROTOCOL_CONNECTIONS,
-        )
-        body = _emit_ready_valid(module)
-    elif module.rules:
-        _account_emission_plan(
-            module,
-            "rules",
-            *_STATE_GROUPS,
-        )
-        body = _emit_rules(module)
-    elif module.is_sequential:
-        _account_emission_plan(
-            module,
-            "sequential",
-            ModuleFeatureGroup.REGISTERS,
-            ModuleFeatureGroup.NEXT_ASSIGNMENTS,
-        )
-        has_staging = any(
-            isinstance(value, (expr.Delay, expr.Pipeline))
-            for assignment in module.assignments
-            for value in _walk_expression(assignment.expression)
-        )
-        body = _emit_pipeline(module) if has_staging else _emit_combinational(module)
-    else:
-        _account_emission_plan(
-            module,
-            "combinational",
-            ModuleFeatureGroup.CONNECTIONS,
-        )
-        body = _emit_combinational(module)
+    with _top_boundary_scope(top_boundary):
+        if module.csr_blocks:
+            _account_emission_plan(
+                module,
+                "csr_composed_state",
+                *_STATE_GROUPS,
+                ModuleFeatureGroup.CSR_BLOCKS,
+                ModuleFeatureGroup.PROTOCOL_PORTS,
+            )
+            body = _emit_csr(module)
+        elif module.request_responses:
+            _account_emission_plan(
+                module,
+                "request_response",
+                ModuleFeatureGroup.REQUEST_RESPONSE_INTERFACES,
+                *_STATE_GROUPS,
+            )
+            body = _emit_request_response(module)
+        elif _requires_unified_state(module):
+            _account_emission_plan(
+                module, "unified_state",
+                *_STATE_GROUPS,
+                *_STORAGE_GROUPS,
+                ModuleFeatureGroup.PROTOCOL_PORTS,
+            )
+            body = _emit_unified_state_module(module)
+        elif module.roms:
+            _account_emission_plan(module, "rom", ModuleFeatureGroup.ROMS)
+            body = _emit_rom_module(module)
+        elif module.memories:
+            _account_emission_plan(module, "memory", ModuleFeatureGroup.MEMORIES)
+            body = _emit_memory(module)
+        elif module.fifos:
+            _account_emission_plan(
+                module,
+                "fifo",
+                ModuleFeatureGroup.FIFOS,
+                ModuleFeatureGroup.PROTOCOL_PORTS,
+            )
+            body = _emit_fifo(module)
+        elif module.arbiters:
+            _account_emission_plan(
+                module,
+                "packet_arbiter",
+                ModuleFeatureGroup.ARBITERS,
+                ModuleFeatureGroup.PROTOCOL_PORTS,
+            )
+            body = _emit_packet_arbiter(module)
+        elif any(
+            port.protocol is InterfaceProtocol.VC_CREDIT for port in module.ports
+        ):
+            _account_emission_plan(
+                module,
+                "vc_credit",
+                ModuleFeatureGroup.PROTOCOL_PORTS,
+                ModuleFeatureGroup.VC_CREDIT_PORTS,
+            )
+            body = _emit_vc_credit(module)
+        elif any(port.protocol is InterfaceProtocol.CREDIT for port in module.ports):
+            _account_emission_plan(
+                module,
+                "credit",
+                ModuleFeatureGroup.PROTOCOL_PORTS,
+                ModuleFeatureGroup.CREDIT_PORTS,
+            )
+            body = _emit_credit(module)
+        elif any(
+            port.protocol is InterfaceProtocol.READY_VALID for port in module.ports
+        ):
+            _account_emission_plan(
+                module,
+                "ready_valid",
+                ModuleFeatureGroup.PROTOCOL_PORTS,
+                ModuleFeatureGroup.HIERARCHICAL_PROTOCOL_ENDPOINTS,
+                ModuleFeatureGroup.AGGREGATE_PROTOCOL_ENDPOINTS,
+                ModuleFeatureGroup.CONNECTIONS,
+                ModuleFeatureGroup.AGGREGATE_PROTOCOL_CONNECTIONS,
+            )
+            body = _emit_ready_valid(module)
+        elif module.rules:
+            _account_emission_plan(
+                module,
+                "rules",
+                *_STATE_GROUPS,
+            )
+            body = _emit_rules(module)
+        elif module.is_sequential:
+            _account_emission_plan(
+                module,
+                "sequential",
+                ModuleFeatureGroup.REGISTERS,
+                ModuleFeatureGroup.NEXT_ASSIGNMENTS,
+            )
+            has_staging = any(
+                isinstance(value, (expr.Delay, expr.Pipeline))
+                for assignment in module.assignments
+                for value in _walk_expression(assignment.expression)
+            )
+            body = (
+                _emit_pipeline(module)
+                if has_staging else _emit_combinational(module)
+            )
+        else:
+            _account_emission_plan(
+                module,
+                "combinational",
+                ModuleFeatureGroup.CONNECTIONS,
+            )
+            body = _emit_combinational(module)
     return "`default_nettype none\n" + body + "`default_nettype wire\n"
 
 
@@ -1346,7 +1416,7 @@ def _clock_reset_port_declarations(module: Module) -> list[str]:
 
 
 def _public_leaf_port_declaration(leaf: object) -> str:
-    """Render one public top leaf, preserving vectors as native SV arrays."""
+    """Render one public top leaf, preserving vectors as packed SV arrays."""
 
     direction = (
         "input" if leaf.direction is PortDirection.INPUT else "output"
@@ -1357,12 +1427,12 @@ def _public_leaf_port_declaration(leaf: object) -> str:
     element = leaf.element_type
     signed = " signed" if isinstance(element, (SIntType, FixedType)) else ""
     net = " wire" if direction == "input" else ""
-    dimensions = " ".join(
-        f"[0:{length - 1}]" for length in leaf.array_dimensions
+    dimensions = "".join(
+        f"[{length - 1}:0]" for length in leaf.array_dimensions
     )
     return (
-        f"{direction}{net} logic{signed} {_range(_width(element))}{name} "
-        f"{dimensions}"
+        f"{direction}{net} logic{signed} {dimensions}"
+        f"{_range(_width(element))}{name}"
     )
 
 
@@ -1373,14 +1443,38 @@ def _public_leaf_elements(leaf: object) -> tuple[tuple[object, str], ...]:
     return tuple(
         (
             item,
-            name + "".join(f"[{index}]" for index in item.indices),
+            name + "".join(
+                f"[{index}]"
+                for length, index in zip(
+                    leaf.array_dimensions, item.indices, strict=True,
+                )
+            ),
         )
         for item in leaf.packed_element_slices
     )
 
 
+def _top_boundary_source_base(leaf: object) -> str:
+    """Return the source-owned base which names one compact packed root."""
+
+    if leaf.category in {"clock", "reset"}:
+        return str(leaf.external_name)
+    if leaf.category == "port":
+        return str(leaf.member_path[0])
+    if leaf.category == "request_response":
+        return str(leaf.member_path[0])
+    if leaf.category == "aggregate":
+        endpoint, member, *_ = leaf.member_path
+        return f"{endpoint}__{member}"
+    if leaf.packed_root_external_name:
+        return str(leaf.packed_root_external_name)
+    raise SystemVerilogEmissionError(
+        f"public top ABI leaf '{leaf.leaf_semantic_id}' has no packed root base"
+    )
+
+
 def _top_core_signal(module: Module, leaf: object) -> str:
-    """Map one typed physical-ABI root to the existing private component port."""
+    """Map one typed physical-ABI root to its containing-module signal."""
 
     if not leaf.packed_root_external_name:
         raise SystemVerilogEmissionError(
@@ -1407,18 +1501,6 @@ def _top_core_signal(module: Module, leaf: object) -> str:
     return _identifier(leaf.packed_root_external_name)
 
 
-def _needs_public_leaf_boundary(module: Module, leaves: tuple[object, ...]) -> bool:
-    """Return whether the compact implementation ABI differs from the public one."""
-
-    return any(
-        leaf.array_dimensions
-        or _identifier(leaf.external_name)
-        != _top_core_signal(module, leaf)
-        for leaf in leaves
-        if leaf.signal_kind not in {"clock", "reset"}
-    )
-
-
 def _validate_public_leaf_identifiers(leaves: tuple[object, ...]) -> None:
     """Reject public names which collide after physical HDL mangling.
 
@@ -1441,170 +1523,212 @@ def _validate_public_leaf_identifiers(leaves: tuple[object, ...]) -> None:
         )
 
 
-def _allocate_public_wrapper_identifier(
-    preferred: str,
-    semantic_identity: str,
-    used: set[str],
-) -> str:
-    """Allocate one deterministic wrapper-private HDL identifier."""
-
-    return allocate_private_rtl_identifier(
-        preferred, semantic_identity=semantic_identity, used=used,
+def _root_slices(group: list[object]) -> tuple[object, ...]:
+    return tuple(
+        sorted(
+            (
+                element
+                for leaf in group
+                for element in leaf.packed_element_slices
+            ),
+            key=lambda item: (item.lsb, item.msb),
+        )
     )
 
 
-def _public_core_instance_name(module: Module, leaves: tuple[object, ...]) -> str:
-    """Return the exact private core instance name used by the public wrapper."""
+def _validate_top_boundary_root(root: str, group: list[object]) -> None:
+    """Prove that public leaves cover one compact root exactly once."""
 
-    public_names = {_identifier(leaf.external_name) for leaf in leaves}
-    return _allocate_public_wrapper_identifier(
-        "zlang_top_core", f"instance:{module.name}", public_names
+    first = group[0]
+    if first.packed_root_type is None:
+        raise SystemVerilogEmissionError(
+            f"public top ABI root '{root}' has no packed type"
+        )
+    if any(
+        leaf.direction is not first.direction
+        or leaf.packed_root_type != first.packed_root_type
+        or _top_boundary_source_base(leaf)
+        != _top_boundary_source_base(first)
+        for leaf in group
+    ):
+        raise SystemVerilogEmissionError(
+            f"public top ABI root '{root}' has inconsistent leaf metadata"
+        )
+    slices = _root_slices(group)
+    width = _width(first.packed_root_type)
+    if not slices or slices[0].lsb != 0 or slices[-1].msb != width - 1:
+        raise SystemVerilogEmissionError(
+            f"public top ABI root '{root}' does not cover its exact packed width"
+        )
+    cursor = 0
+    for item in slices:
+        if item.lsb != cursor:
+            raise SystemVerilogEmissionError(
+                f"public top ABI root '{root}' has overlapping or missing slices"
+            )
+        cursor = item.msb + 1
+    if cursor != width:
+        raise SystemVerilogEmissionError(
+            f"public top ABI root '{root}' does not cover its exact packed width"
+        )
+
+
+def _leaf_is_contiguous(leaf: object) -> bool:
+    slices = tuple(sorted(
+        leaf.packed_element_slices, key=lambda item: item.msb, reverse=True,
+    ))
+    return bool(slices) and all(
+        left.lsb == right.msb + 1
+        for left, right in zip(slices, slices[1:])
     )
 
 
-def _public_core_module_name(module: Module) -> str:
-    """Name the packed implementation below a public leaf wrapper."""
-
-    return f"{_identifier(module.name)}_zlang_core"
-
-
-def physical_state_root_path(module: Module) -> tuple[str, ...]:
-    """Return the typed VPI root which owns selected-top architectural state.
-
-    This is a backend-published physical locator, not a reconstruction from
-    generated text.  The public leaf wrapper, when present, owns no ZLang
-    state; the private packed core below it does.
-    """
-
-    leaves = tuple(build_top_physical_abi(module).leaves)
-    top_name = _identifier(module.name)
-    if not _needs_public_leaf_boundary(module, leaves):
-        return ("TOP", top_name)
-    return ("TOP", top_name, _public_core_instance_name(module, leaves))
+def _leaf_input_value(leaf: object) -> str:
+    name = rtl_identifier(leaf.external_name)
+    if not leaf.array_dimensions or _leaf_is_contiguous(leaf):
+        return name
+    return "{" + ", ".join(
+        value
+        for _item, value in sorted(
+            _public_leaf_elements(leaf),
+            key=lambda pair: pair[0].msb,
+            reverse=True,
+        )
+    ) + "}"
 
 
-def _emit_public_leaf_boundary(
+def _build_top_boundary_plan(
     module: Module,
-    packed_text: str,
     *,
     leaves: tuple[object, ...] | None = None,
-) -> str:
-    """Replace a packed selected top by its deterministic public leaf wrapper."""
+) -> TopBoundaryPlan:
+    """Build the selected top's inline leaf/packed-array boundary."""
 
-    if leaves is None:
-        leaves = tuple(build_top_physical_abi(module).leaves)
-        _validate_public_leaf_identifiers(leaves)
-    if not _needs_public_leaf_boundary(module, leaves):
-        return packed_text
-
-    top_name = _identifier(module.name)
-    core_name = _public_core_module_name(module)
-    definition = f"module {top_name} ("
-    if packed_text.count(definition) != 1:
-        raise SystemVerilogEmissionError(
-            f"cannot identify unique selected top module '{top_name}' for its public ABI"
-        )
-    packed_text = packed_text.replace(
-        definition, f"module {core_name} (", 1
+    selected_leaves = leaves or tuple(build_top_physical_abi(module).leaves)
+    _validate_public_leaf_identifiers(selected_leaves)
+    public_ports = tuple(
+        _public_leaf_port_declaration(leaf) for leaf in selected_leaves
     )
-
-    public_names: set[str] = set()
-    public_ports: list[str] = []
-    for leaf in leaves:
-        name = _identifier(leaf.external_name)
-        public_names.add(name)
-        public_ports.append(_public_leaf_port_declaration(leaf))
-    wrapper_identifiers = set(public_names)
-    instance_name = _public_core_instance_name(module, leaves)
-
     roots: dict[str, list[object]] = {}
     root_order: list[str] = []
-    for leaf in leaves:
+    for leaf in selected_leaves:
+        if leaf.signal_kind in {"clock", "reset"}:
+            continue
         root = leaf.packed_root_semantic_id
+        if root is None:
+            raise SystemVerilogEmissionError(
+                f"public top ABI leaf '{leaf.leaf_semantic_id}' has no packed root"
+            )
         if root not in roots:
             roots[root] = []
             root_order.append(root)
         roots[root].append(leaf)
+    for root, group in roots.items():
+        _validate_top_boundary_root(root, group)
 
-    declarations: list[str] = []
-    connections: list[str] = []
-    assignments: list[str] = []
+    bases_requiring_alias: set[str] = set()
     for root in root_order:
         group = roots[root]
         first = group[0]
-        core_signal = _top_core_signal(module, first)
-        ordered = sorted(
-            group,
-            key=lambda item: max(
-                element.msb for element in item.packed_element_slices
-            ),
-            reverse=True,
+        direct = (
+            len(group) == 1
+            and not first.array_dimensions
+            and first.leaf_semantic_id == root
+            and rtl_identifier(first.external_name)
+            == _top_core_signal(module, first)
         )
-        if first.direction is PortDirection.INPUT:
-            elements = [
-                element
-                for item in group
-                for element in _public_leaf_elements(item)
-            ]
-            parts = [
-                value
-                for _slice_, value in sorted(
-                    elements, key=lambda pair: pair[0].msb, reverse=True
-                )
-            ]
-            value = parts[0] if len(parts) == 1 else "{" + ", ".join(parts) + "}"
-            connections.append(f".{core_signal}({value})")
-            continue
+        if not direct:
+            bases_requiring_alias.add(_top_boundary_source_base(first))
 
-        root_width = _width(first.packed_root_type)
-        temporary = _allocate_public_wrapper_identifier(
-            f"zlang_top_core_{core_signal}", root, wrapper_identifiers
+    used = set(module_rtl_names(module).allocated_names)
+    used.update(rtl_identifier(leaf.external_name) for leaf in selected_leaves)
+    aliases: dict[str, str] = {}
+    for base in sorted(bases_requiring_alias):
+        aliases[base] = allocate_private_rtl_identifier(
+            f"zlang_packed_{base}",
+            semantic_identity=f"top-boundary:{module.name}:{base}",
+            used=used,
         )
-        signed = " signed" if isinstance(
-            first.packed_root_type, (SIntType, FixedType)
-        ) else ""
-        declarations.append(
-            f"  logic{signed} {_range(root_width)}{temporary};"
-        )
-        connections.append(f".{core_signal}({temporary})")
 
-        def root_slice(msb: int, lsb: int) -> str:
-            if root_width == 1 and msb == 0 and lsb == 0:
-                return temporary
-            return _slice(temporary, msb, lsb)
-
-        for leaf in ordered:
-            name = _identifier(leaf.external_name)
-            elements = _public_leaf_elements(leaf)
-            if not leaf.array_dimensions:
-                item, _ = elements[0]
-                assignments.append(
-                    f"  assign {name} = "
-                    f"{root_slice(item.msb, item.lsb)};"
-                )
-                continue
-            for item, target in elements:
-                assignments.append(
-                    f"  assign {target} = {root_slice(item.msb, item.lsb)};"
-                )
-
-    instance = (
-        f"  {core_name} {instance_name} (\n    "
-        + ",\n    ".join(connections)
-        + "\n  );"
-    )
-    wrapper = _named_module(
-        top_name,
+    partial = TopBoundaryPlan(
+        module.name,
         public_ports,
-        [*declarations, instance, *assignments],
+        tuple(sorted(aliases.items())),
+        (), (), (),
     )
-    marker = "`default_nettype wire\n"
-    position = packed_text.rfind(marker)
-    if position < 0:
-        raise SystemVerilogEmissionError(
-            "generated direct-SystemVerilog artifact is missing its nettype boundary"
-        )
-    return packed_text[:position] + wrapper + packed_text[position:]
+    declarations: list[str] = []
+    input_bridges: list[str] = []
+    output_bridges: list[str] = []
+    with _top_boundary_scope(partial):
+        for root in root_order:
+            group = roots[root]
+            first = group[0]
+            base = _top_boundary_source_base(first)
+            if base not in aliases:
+                continue
+            signal = _top_core_signal(module, first)
+            root_width = _width(first.packed_root_type)
+            signed = " signed" if isinstance(
+                first.packed_root_type, (SIntType, FixedType)
+            ) else ""
+            declarations.append(
+                f"  logic{signed} {_range(root_width)}{signal};"
+            )
+            ordered = sorted(
+                group,
+                key=lambda leaf: max(
+                    item.msb for item in leaf.packed_element_slices
+                ),
+                reverse=True,
+            )
+            if first.direction is PortDirection.INPUT:
+                if all(_leaf_is_contiguous(leaf) for leaf in ordered):
+                    parts = [_leaf_input_value(leaf) for leaf in ordered]
+                    value = parts[0] if len(parts) == 1 else (
+                        "{" + ", ".join(parts) + "}"
+                    )
+                    input_bridges.append(f"  assign {signal} = {value};")
+                else:
+                    for leaf in ordered:
+                        for item, source in _public_leaf_elements(leaf):
+                            input_bridges.append(
+                                f"  assign {_slice(signal, item.msb, item.lsb)} "
+                                f"= {source};"
+                            )
+                continue
+
+            for leaf in ordered:
+                name = rtl_identifier(leaf.external_name)
+                elements = _public_leaf_elements(leaf)
+                if _leaf_is_contiguous(leaf):
+                    msb = max(item.msb for item, _target in elements)
+                    lsb = min(item.lsb for item, _target in elements)
+                    value = (
+                        signal
+                        if msb == root_width - 1 and lsb == 0
+                        else _slice(signal, msb, lsb)
+                    )
+                    output_bridges.append(
+                        f"  assign {name} = {value};"
+                    )
+                    continue
+                for item, target in elements:
+                    output_bridges.append(
+                        f"  assign {target} = "
+                        f"{_slice(signal, item.msb, item.lsb)};"
+                    )
+    return replace(
+        partial,
+        declarations=tuple(declarations),
+        input_bridges=tuple(input_bridges),
+        output_bridges=tuple(output_bridges),
+    )
+
+
+def physical_state_root_path(module: Module) -> tuple[str, ...]:
+    """Return the selected top's direct architectural-state VPI root."""
+
+    return ("TOP", rtl_identifier(module.name))
 
 
 def _request_response_tracker_name(descriptor: object, module: Module) -> str:
@@ -1717,6 +1841,7 @@ def _composed_rendering(
         physical=SVPhysicalSyntax(
             error=SystemVerilogEmissionError,
             identifier=_identifier,
+            component_identifier=rtl_identifier,
             instance_identifier=_instance_identifier,
             packed_width=_width,
             packed_range=_range,
@@ -1758,6 +1883,7 @@ def _composed_rendering(
                     module.external_contract.semantic_identity
                 ],
             ),
+            suspend_top_boundary=lambda: _top_boundary_scope(None),
         ),
         formal_buffer_counts=formal_buffer_counts,
     )
@@ -1789,7 +1915,9 @@ def _rv_fifo_helper(
         name, width, depth, module, expose_count=expose_count,
         allow_full_replace=allow_full_replace,
     )
-def _cdc_rendering(module: Module | None = None) -> CDCRendering:
+def _cdc_rendering(
+    module: Module | None = None, *, ram_style: str | None = None,
+) -> CDCRendering:
     def emit_module(
         typed_module: Module,
         ports: list[str],
@@ -1851,6 +1979,19 @@ def _cdc_rendering(module: Module | None = None) -> CDCRendering:
             typed_module, _identifier, clock
         ),
         emit_module,
+        lambda typed_module, memory: _ported_memory_fragments(
+            typed_module, memory, _expression, ram_style=ram_style
+        ),
+    )
+
+
+def _emit_target_async_fifo(module: Module) -> str:
+    """Emit the selected typed FIFO decomposition with inferred block storage."""
+
+    return (
+        "`default_nettype none\n"
+        + _emit_cdc_subsystem(module, _cdc_rendering(module, ram_style="block"))
+        + "`default_nettype wire\n"
     )
 
 
@@ -1861,6 +2002,19 @@ def _named_module(
     *,
     typed_module: Module | None = None,
 ) -> str:
+    boundary = _CURRENT_TOP_BOUNDARY.get()
+    if boundary is not None and name == boundary.physical_module_name:
+        if boundary.base_aliases:
+            ports = list(boundary.public_ports)
+        bridge_prefix = (
+            ("  // Compiler-generated inline top boundary.",)
+            if boundary.declarations
+            or boundary.input_bridges
+            or boundary.output_bridges
+            else ()
+        )
+        lines = [*bridge_prefix, *boundary.declarations,
+                 *boundary.input_bridges, *lines, *boundary.output_bridges]
     declarations = ",\n".join(f"  {port}" for port in ports)
     helpers = _function_definitions(typed_module) if typed_module is not None else []
     conditioner = (
@@ -1945,7 +2099,6 @@ def _ported_memory_fragments(
             f"  {style}logic [{width - 1}:0] {cells} [0:{memory.depth - 1}];"
             for cells in cell_arrays
         ),
-        f"  integer {name}_reset_index;",
     ]
     logic: list[str] = [
         f"  // memory_plan={implementation.implementation.value} "
@@ -1958,7 +2111,8 @@ def _ported_memory_fragments(
         logic.append("  initial begin")
         for cells in cell_arrays:
             logic.extend((
-                f"    for ({name}_reset_index = 0; {name}_reset_index < {memory.depth}; "
+                f"    for (integer {name}_reset_index = 0; "
+                f"{name}_reset_index < {memory.depth}; "
                 f"{name}_reset_index = {name}_reset_index + 1)",
                 f"      {cells}[{name}_reset_index] = {initial_word};",
             ))
@@ -1983,6 +2137,11 @@ def _ported_memory_fragments(
         )
         higher.append(port)
     for port in readable:
+        if memory.read_latency > 1:
+            declarations.extend(
+                f"  logic [{width - 1}:0] {name}_{_identifier(port.name)}_read_stage_{index};"
+                for index in range(memory.read_latency - 1)
+            )
         declarations.append(
             f"  logic [{width - 1}:0] {name}_{_identifier(port.name)}_read_data;"
         )
@@ -2027,7 +2186,8 @@ def _ported_memory_fragments(
         if memory.contents_reset is MemoryResetPolicy.CLEAR:
             for cells in cell_arrays:
                 logic.extend((
-                    f"{indent}for ({name}_reset_index = 0; {name}_reset_index < {memory.depth}; "
+                    f"{indent}for (integer {name}_reset_index = 0; "
+                    f"{name}_reset_index < {memory.depth}; "
                     f"{name}_reset_index = {name}_reset_index + 1)",
                     f"{indent}  {cells}[{name}_reset_index] <= {initial_word};",
                 ))
@@ -2046,12 +2206,20 @@ def _ported_memory_fragments(
         for port in domain_ports:
             target = f"{name}_{_identifier(port.name)}_read_data"
             if memory.read_data_reset is MemoryResetPolicy.CLEAR:
+                for index in range(memory.read_latency - 1):
+                    logic.append(
+                        f"{indent}{name}_{_identifier(port.name)}_read_stage_{index} <= '0;"
+                    )
                 logic.append(f"{indent}{target} <= '0;")
 
     def append_reads(domain_ports, indent: str) -> None:
         for port in domain_ports:
             assert port.read_enable is not None
-            target = f"{name}_{_identifier(port.name)}_read_data"
+            prefix = f"{name}_{_identifier(port.name)}"
+            target = (
+                f"{prefix}_read_stage_0"
+                if memory.read_latency > 1 else f"{prefix}_read_data"
+            )
             read_cells = cells_by_read_port[port.name]
             collisions = [
                 (writer, f"({effective_enable[writer.name]} && "
@@ -2077,16 +2245,32 @@ def _ported_memory_fragments(
                     f"{target} <= {read_cells}[{render(port.address)}];"
                 )
 
+    def append_read_shifts(domain_ports, indent: str) -> None:
+        if memory.read_latency <= 1:
+            return
+        for port in domain_ports:
+            prefix = f"{name}_{_identifier(port.name)}"
+            for index in range(1, memory.read_latency - 1):
+                logic.append(
+                    f"{indent}{prefix}_read_stage_{index} <= "
+                    f"{prefix}_read_stage_{index - 1};"
+                )
+            logic.append(
+                f"{indent}{prefix}_read_data <= "
+                f"{prefix}_read_stage_{memory.read_latency - 2};"
+            )
+
     read_domains = tuple(dict.fromkeys(port.domain for port in readable))
     common_registered = (
         not memory.async_memory
-        and memory.read_latency == 1
+        and memory.read_latency >= 1
         and writer_domain is not None
         and read_domains == (writer_domain,)
     )
     native_true_dual = (
         ram_style == "block"
         and common_registered
+        and memory.read_latency == 1
         and len(memory.ports) == 2
         and all(port.kind is MemoryPortKind.READ_WRITE for port in memory.ports)
     )
@@ -2125,6 +2309,7 @@ def _ported_memory_fragments(
         logic.append("    end else begin")
         append_writes("      ")
         append_reads(readable, "      ")
+        append_read_shifts(readable, "      ")
         logic.extend(("    end", "  end"))
         return declarations, logic
 
@@ -2169,6 +2354,7 @@ def _ported_memory_fragments(
         append_read_reset(domain_ports, "      ")
         logic.append("    end else begin")
         append_reads(domain_ports, "      ")
+        append_read_shifts(domain_ports, "      ")
         logic.extend(("    end", "  end"))
     return declarations, logic
 
@@ -2201,9 +2387,9 @@ def _emit_memory(module: Module, *, ram_style: str | None = None) -> str:
             f"memory '{memory.name}' has no resolved clock domain"
         )
     memory_clock = memory.domain
-    if memory.read_latency not in (0, 1):
+    if not 0 <= memory.read_latency <= 16:
         raise SystemVerilogEmissionError(
-            "direct SystemVerilog memory emission requires read_latency 0 or 1"
+            "direct SystemVerilog memory emission requires read_latency in 0..16"
         )
     width = _width(memory.element_type)
     name = _identifier(memory.name)
@@ -2217,7 +2403,15 @@ def _emit_memory(module: Module, *, ram_style: str | None = None) -> str:
     declarations = [
         f"  {style}logic [{width - 1}:0] {cells_name} [0:{memory.depth - 1}];",
         f"  logic [{width - 1}:0] {read_data_name};",
+        *(
+            f"  logic [{width - 1}:0] {name}_read_stage_{index};"
+            for index in range(memory.read_latency - 1)
+        ),
     ]
+    read_capture = (
+        f"{name}_read_stage_0"
+        if memory.read_latency > 1 else read_data_name
+    )
     combinational: list[str] = []
     if memory.write_mask is not None:
         lanes = memory.write_mask_width
@@ -2239,7 +2433,6 @@ def _emit_memory(module: Module, *, ram_style: str | None = None) -> str:
             f"({name}_cells[{_expression(memory.write_address)}] & ~{name}_write_mask_expanded) | "
             f"({_expression(memory.write_data)} & {name}_write_mask_expanded);",
         ))
-    declarations.append("  integer zlang_memory_reset_index;")
     if memory.read_latency == 0:
         read_value = f"{name}_cells[{_expression(memory.read_address)}]"
         if memory.collision is MemoryCollision.WRITE_FIRST:
@@ -2266,22 +2459,26 @@ def _emit_memory(module: Module, *, ram_style: str | None = None) -> str:
         memory.initial_value is not None
         or memory.contents_reset is MemoryResetPolicy.PRESERVE
         or (
-            memory.read_latency == 1
+            memory.read_latency >= 1
             and memory.read_data_reset is MemoryResetPolicy.PRESERVE
         )
     ):
         initialization.append("  initial begin")
         if (
-            memory.read_latency == 1
+            memory.read_latency >= 1
             and memory.read_data_reset is MemoryResetPolicy.PRESERVE
         ):
             initialization.append(f"    {name}_read_data = '0;")
+            initialization.extend(
+                f"    {name}_read_stage_{index} = '0;"
+                for index in range(memory.read_latency - 1)
+            )
         if (
             memory.contents_reset is MemoryResetPolicy.PRESERVE
             or memory.initial_value is not None
         ):
             initialization.extend((
-                f"    for (zlang_memory_reset_index = 0; "
+                f"    for (integer zlang_memory_reset_index = 0; "
                 f"zlang_memory_reset_index < {memory.depth}; "
                 "zlang_memory_reset_index = zlang_memory_reset_index + 1)",
                 f"      {name}_cells[zlang_memory_reset_index] = {initial_word};",
@@ -2296,11 +2493,15 @@ def _emit_memory(module: Module, *, ram_style: str | None = None) -> str:
         f"@({_clock_event(module, _identifier, memory_clock)}) begin",
         f"    if ({_reset_asserted(module, _identifier, memory_clock)}) begin",
     ]
-    if memory.read_latency == 1 and memory.read_data_reset is MemoryResetPolicy.CLEAR:
+    if memory.read_latency >= 1 and memory.read_data_reset is MemoryResetPolicy.CLEAR:
         lines.append(f"      {name}_read_data <= '0;")
+        lines.extend(
+            f"      {name}_read_stage_{index} <= '0;"
+            for index in range(memory.read_latency - 1)
+        )
     if memory.contents_reset is MemoryResetPolicy.CLEAR:
         lines.append(
-            f"      for (zlang_memory_reset_index = 0; "
+            f"      for (integer zlang_memory_reset_index = 0; "
             f"zlang_memory_reset_index < {memory.depth}; "
             "zlang_memory_reset_index = zlang_memory_reset_index + 1) "
         )
@@ -2321,19 +2522,28 @@ def _emit_memory(module: Module, *, ram_style: str | None = None) -> str:
         f"      if ({_expression(memory.write_enable)}) {name}_cells[{_expression(memory.write_address)}] <= "
         f"{name + '_write_merged' if memory.write_mask is not None else _expression(memory.write_data)};",
     ))
-    if memory.read_latency == 1 and memory.collision is MemoryCollision.WRITE_FIRST:
+    if memory.read_latency >= 1 and memory.collision is MemoryCollision.WRITE_FIRST:
         lines.append(
             f"      if ({_expression(memory.write_enable)} && "
             f"({_expression(memory.read_address)} == {_expression(memory.write_address)})) "
-            f"{name}_read_data <= "
+            f"{read_capture} <= "
             f"{name + '_write_merged' if memory.write_mask is not None else _expression(memory.write_data)};"
         )
         lines.append(
-            f"      else {name}_read_data <= {name}_cells[{_expression(memory.read_address)}];"
+            f"      else {read_capture} <= {name}_cells[{_expression(memory.read_address)}];"
         )
-    elif memory.read_latency == 1:
+    elif memory.read_latency >= 1:
         lines.append(
-            f"      {name}_read_data <= {name}_cells[{_expression(memory.read_address)}];"
+            f"      {read_capture} <= {name}_cells[{_expression(memory.read_address)}];"
+        )
+    if memory.read_latency > 1:
+        lines.extend(
+            f"      {name}_read_stage_{index} <= {name}_read_stage_{index - 1};"
+            for index in range(1, memory.read_latency - 1)
+        )
+        lines.append(
+            f"      {name}_read_data <= "
+            f"{name}_read_stage_{memory.read_latency - 2};"
         )
     lines.extend(("    end", "  end"))
     for assignment in module.assignments:
@@ -2637,7 +2847,6 @@ def _append_unified_state(
             f"  logic {name}_read_fire, {name}_write_fire;",
             f"  logic [{address_width - 1}:0] {name}_read_address, {name}_write_address;",
             f"  logic {_range(width)}{name}_write_data;",
-            f"  integer {name}_reset_index;",
         ))
         if memory.write_mask_width is not None:
             declarations.extend((
@@ -2840,7 +3049,8 @@ def _append_unified_state(
                 if memory.initial_value is not None else "'0"
             )
             logic.extend((
-                f"    for ({name}_reset_index = 0; {name}_reset_index < "
+                f"    for (integer {name}_reset_index = 0; "
+                f"{name}_reset_index < "
                 f"{memory.depth}; {name}_reset_index = {name}_reset_index + 1)",
                 f"      {name}_cells[{name}_reset_index] = {initial_word};",
             ))
@@ -2893,7 +3103,8 @@ def _append_unified_state(
                     if memory.initial_value is not None else "'0"
                 )
                 logic.append(
-                    f"      for ({name}_reset_index = 0; {name}_reset_index < "
+                    f"      for (integer {name}_reset_index = 0; "
+                    f"{name}_reset_index < "
                     f"{memory.depth}; {name}_reset_index = {name}_reset_index + 1) "
                     f"{name}_cells[{name}_reset_index] <= {initial_word};"
                 )
@@ -3020,7 +3231,11 @@ def _append_unified_state(
                 f"{render(action.operands[0])} : ({value})"
             )
         logic.append(f"  assign {_identifier(output.name)} = {value};")
-        emitted_scalar_outputs.add(output.name)
+        # ``_assignment_name`` is boundary-aware and therefore returns the
+        # physical packed-root alias for aggregate top outputs.  Keep this set
+        # in that same namespace; mixing the semantic source name here emitted
+        # the direct output assignment a second time after boundary inlining.
+        emitted_scalar_outputs.add(_identifier(output.name))
     for assignment in module.assignments:
         name = _assignment_name(assignment)
         if name in emitted_scalar_outputs or name in excluded_assignment_names:
@@ -3085,16 +3300,12 @@ def emit_artifact(module: Module, *, selected_ir_identity: str | None = None,
             entry.physical_path: module_rtl_names(entry.module)
             for entry in naming_hierarchy.entries
         }
-        # The public leaf wrapper owns no packed signals or architectural
-        # state.  Production locators use the same state root as VPI, while
-        # retaining paths relative to the artifact's public top.  Formal-only
-        # observation ports have their own top-level publication route.
+        # The selected public top owns both boundary bridges and architectural
+        # state. Production locators therefore begin directly at that module.
+        # Formal-only observation ports have their own publication route.
         state_root = physical_state_root_path(naming_hierarchy.root.module)
         core_path = state_root[2:]
-        root_rtl_module = (
-            _public_core_module_name(naming_hierarchy.root.module)
-            if core_path else _identifier(module.name)
-        )
+        root_rtl_module = rtl_identifier(module.name)
         digest = hashlib.sha256(text.encode()).hexdigest()
         bound = []
         for item in recursive_design.bindings:
@@ -3160,8 +3371,8 @@ def _top_physical_rtl_names(module: Module) -> dict[str, str]:
                 f"port:{port.name}.return": f"{base}_return",
                 f"port:{port.name}.return_vc": f"{base}_return_vc",
             })
-    # The complete public TopPhysicalABI is authoritative.  Legacy protocol
-    # spellings above describe the private packed core and may differ when a
+    # The complete public TopPhysicalABI is authoritative. Legacy protocol
+    # spellings above describe internal packed roots and may differ when a
     # reserved root such as ``input`` is flattened into a public leaf such as
     # ``input_payload``.
     names.update({
@@ -3336,7 +3547,7 @@ def _formal_rule_fire_reset(
 def _formal_local_expression(
     module: Module, semantic_id: str, *, defer_rule_reset: bool = False,
 ) -> expr.Expression | None:
-    """Return the typed expression for one already-frozen M35 observation."""
+    """Return the typed expression for one already-frozen safety verification observation."""
 
     if module.resolved_transition is not None:
         group = next((
@@ -3903,14 +4114,14 @@ def emit_formal_artifact(module: Module, recursive_design: object, *,
         _formal_buffer_counts=formal_buffer_counts,
         _formal_adapter_counts=formal_adapter_counts,
     )
-    wrapper_name = _identifier(formal_module.name)
+    formal_module_name = _identifier(formal_module.name)
     digest = hashlib.sha256(text.encode()).hexdigest()
     bound = []
     for item in recursive_design.bindings:
         locator = None
         if item.semantic_binding_id in available:
             locator = BackendPhysicalLocator(
-                "direct_systemverilog", digest, wrapper_name,
+                "direct_systemverilog", digest, formal_module_name,
                 (), item.ref.local_semantic_id,
                 top_tokens[item.semantic_binding_id],
             )
@@ -3927,8 +4138,8 @@ def emit_formal_artifact(module: Module, recursive_design: object, *,
     )
     # ``publish_artifact`` also carries production-only internal equivalence
     # locators (for example the parent RR ledger).  Those signals may appear in
-    # the formal implementation text, but they are not public wrapper ports and
-    # must never be instantiated as such by the M35 harness.  Formal-only
+    # the formal implementation text, but they are not public observation ports and
+    # must never be instantiated as such by the safety verification harness.  Formal-only
     # observations are published separately through ``formal_observations``.
     public_ids = {
         "clock",
@@ -3947,18 +4158,18 @@ def emit_formal_artifact(module: Module, recursive_design: object, *,
     # ``publish_artifact`` starts from the semantic module so that all public
     # and recursive identities remain those of the production design.  This
     # artifact's physical implementation, however, is the closed formal
-    # wrapper above.  Keep the formal-only physical ABI truthful even when a
+    # module above. Keep the formal-only physical ABI truthful even when a
     # property needs only clock/reset (and therefore has no observation port
-    # from which the connector could otherwise identify the wrapper).
+    # from which the connector could otherwise identify the formal module).
     artifact = replace(
         artifact,
-        module=wrapper_name,
+        module=formal_module_name,
         bindings=tuple(
-            replace(item, rtl_module=wrapper_name)
+            replace(item, rtl_module=formal_module_name)
             for item in artifact.bindings
         ),
         physical_domains=tuple(
-            replace(item, rtl_module=wrapper_name)
+            replace(item, rtl_module=formal_module_name)
             for item in artifact.physical_domains
         ),
     )
@@ -5461,7 +5672,13 @@ def _emit_request_response(module: Module) -> str:
         if isinstance(assignment.target, Port)
         and isinstance(assignment.expression, expr.RequestResponseRef)
     )
-    name = interface.name
+    name = _identifier(interface.name)
+    request_payload_signal = f"{name}_request_payload"
+    request_valid_signal = f"{name}_request_valid"
+    request_ready_signal = f"{name}_request_ready"
+    response_payload_signal = f"{name}_response_payload"
+    response_valid_signal = f"{name}_response_valid"
+    response_ready_signal = f"{name}_response_ready"
     count_width = max(1, interface.max_outstanding.bit_length())
     id_width = _width(interface.id_type)
     request_payload_value = _expression(request_payload.expression)
@@ -5469,7 +5686,7 @@ def _emit_request_response(module: Module) -> str:
         request_payload_value, interface.request_type, interface.match_by
     )
     response_id = _struct_field_expression(
-        f"{name}_response_payload", interface.response_type, interface.match_by
+        response_payload_signal, interface.response_type, interface.match_by
     )
     ports = [
         f"input logic {module.clock}",
@@ -5496,8 +5713,9 @@ def _emit_request_response(module: Module) -> str:
         "  integer zlang_next;",
         "  integer zlang_state;",
         "  logic zlang_inserted;",
-        f"  assign {name}_request_payload = {request_payload_value};",
-        f"  assign {response_output.target.name} = {name}_response_payload;",
+        f"  assign {request_payload_signal} = {request_payload_value};",
+        f"  assign {_identifier(response_output.target.name)} = "
+        f"{response_payload_signal};",
         "  always_comb begin",
         f"    {name}_request_id_present = 1'b0;",
         f"    {name}_response_id_present = 1'b0;",
@@ -5508,23 +5726,23 @@ def _emit_request_response(module: Module) -> str:
         f"{name}_response_id_present = 1'b1;",
         "    end",
         f"    {name}_duplicate = {_reset_deasserted(module, _identifier)} && "
-        f"{_expression(request_valid.expression)} && {name}_request_ready && "
+        f"{_expression(request_valid.expression)} && {request_ready_signal} && "
         f"({name}_outstanding < {count_width}'d{max_count}) && "
         f"{name}_request_id_present;",
         f"    {name}_missing = {_reset_deasserted(module, _identifier)} && "
-        f"{_expression(response_ready.expression)} && {name}_response_valid && "
+        f"{_expression(response_ready.expression)} && {response_valid_signal} && "
         f"({name}_outstanding != '0) && !{name}_response_id_present;",
         "  end",
-        f"  assign {name}_request_valid = {_reset_deasserted(module, _identifier)} && "
+        f"  assign {request_valid_signal} = {_reset_deasserted(module, _identifier)} && "
         f"({name}_outstanding < {count_width}'d{max_count}) && !{name}_duplicate "
         f"&& {_expression(request_valid.expression)};",
-        f"  assign {name}_response_ready = {_reset_deasserted(module, _identifier)} && "
+        f"  assign {response_ready_signal} = {_reset_deasserted(module, _identifier)} && "
         f"({name}_outstanding != '0) && !{name}_missing "
         f"&& {_expression(response_ready.expression)};",
-        f"  assign {name}_request_transfer = {name}_request_valid && "
-        f"{name}_request_ready;",
-        f"  assign {name}_response_transfer = {name}_response_valid && "
-        f"{name}_response_ready;",
+        f"  assign {name}_request_transfer = {request_valid_signal} && "
+        f"{request_ready_signal};",
+        f"  assign {name}_response_transfer = {response_valid_signal} && "
+        f"{response_ready_signal};",
         "  always_comb begin",
         f"    {name}_ids_valid_next = {name}_ids_valid;",
         f"    for (zlang_next = 0; zlang_next < {max_count}; zlang_next = zlang_next + 1) "
@@ -5589,6 +5807,12 @@ def _emit_in_order_request_response(
         )
 
     name = _identifier(interface.name)
+    request_payload_signal = f"{name}_request_payload"
+    request_valid_signal = f"{name}_request_valid"
+    request_ready_signal = f"{name}_request_ready"
+    response_payload_signal = f"{name}_response_payload"
+    response_valid_signal = f"{name}_response_valid"
+    response_ready_signal = f"{name}_response_ready"
     requester = interface.role is RequestResponseRole.REQUESTER
     count_width = max(1, interface.max_outstanding.bit_length())
     maximum = interface.max_outstanding
@@ -5648,19 +5872,19 @@ def _emit_in_order_request_response(
             RequestResponseChannel.RESPONSE, ReadyValidSignal.READY
         )
         rr_logic.extend((
-            f"  assign {name}_request_payload = {request_payload};",
-            f"  assign {name}_request_valid = "
+            f"  assign {request_payload_signal} = {request_payload};",
+            f"  assign {request_valid_signal} = "
             f"{_reset_deasserted(module, _identifier)} && "
             f"({name}_outstanding < {count_width}'d{maximum}) && "
             f"({request_valid});",
             f"  assign {name}_request_transfer = "
-            f"{name}_request_valid && {name}_request_ready;",
-            f"  assign {name}_response_ready = "
+            f"{request_valid_signal} && {request_ready_signal};",
+            f"  assign {response_ready_signal} = "
             f"{_reset_deasserted(module, _identifier)} && "
             f"({name}_outstanding != '0 || {name}_request_transfer) && "
             f"({response_ready});",
             f"  assign {name}_response_transfer = "
-            f"{name}_response_valid && {name}_response_ready;",
+            f"{response_valid_signal} && {response_ready_signal};",
         ))
     else:
         request_ready = owned(
@@ -5673,19 +5897,19 @@ def _emit_in_order_request_response(
             RequestResponseChannel.RESPONSE, ReadyValidSignal.VALID
         )
         rr_logic.extend((
-            f"  assign {name}_request_ready = "
+            f"  assign {request_ready_signal} = "
             f"{_reset_deasserted(module, _identifier)} && "
             f"({name}_outstanding < {count_width}'d{maximum}) && "
             f"({request_ready});",
             f"  assign {name}_request_transfer = "
-            f"{name}_request_valid && {name}_request_ready;",
-            f"  assign {name}_response_payload = {response_payload};",
-            f"  assign {name}_response_valid = "
+            f"{request_valid_signal} && {request_ready_signal};",
+            f"  assign {response_payload_signal} = {response_payload};",
+            f"  assign {response_valid_signal} = "
             f"{_reset_deasserted(module, _identifier)} && "
             f"({name}_outstanding != '0 || {name}_request_transfer) && "
             f"({response_valid});",
             f"  assign {name}_response_transfer = "
-            f"{name}_response_valid && {name}_response_ready;",
+            f"{response_valid_signal} && {response_ready_signal};",
         ))
 
     rr_logic.extend((
@@ -6018,7 +6242,7 @@ def _expression(expression: expr.Expression) -> str:
     if isinstance(expression, expr.TupleConstruct):
         return "{" + ", ".join(
             f"{_width(value.type)}'({_expression(value)})"
-            for value in expression.elements
+            for value in reversed(expression.elements)
         ) + "}"
     if isinstance(expression, expr.TupleProject):
         tuple_type = expression.expression.type
@@ -6026,9 +6250,7 @@ def _expression(expression: expr.Expression) -> str:
             raise SystemVerilogEmissionError(
                 "tuple projection requires a structural tuple"
             )
-        lsb = sum(
-            _width(item) for item in tuple_type.elements[expression.index + 1:]
-        )
+        lsb = ir_packing.tuple_element_lsb(tuple_type, expression.index)
         msb = lsb + _width(tuple_type.elements[expression.index]) - 1
         projected = _slice(_expression(expression.expression), msb, lsb)
         if isinstance(expression.type, (SIntType, FixedType)):
@@ -6039,7 +6261,7 @@ def _expression(expression: expr.Expression) -> str:
         if not isinstance(vector, VecType):
             raise SystemVerilogEmissionError("vector index requires a vector")
         element_width = _width(vector.element_type)
-        lsb = (vector.length - expression.index - 1) * element_width
+        lsb = ir_packing.vector_element_lsb(vector, expression.index)
         msb = lsb + element_width - 1
         return _slice(_expression(expression.expression), msb, lsb)
     if isinstance(expression, expr.RuntimeIndex):
@@ -6049,10 +6271,7 @@ def _expression(expression: expr.Expression) -> str:
         element_width = _width(vector.element_type)
         rendered_vector = _expression(expression.expression)
         rendered_index = _expression(expression.index)
-        base = (
-            f"((32'd{vector.length - 1} - 32'({rendered_index})) * "
-            f"32'd{element_width})"
-        )
+        base = f"(32'({rendered_index}) * 32'd{element_width})"
         return f"{rendered_vector}[{base} +: {element_width}]"
     if isinstance(expression, expr.VectorUpdate):
         vector = expression.expression.type
@@ -6063,10 +6282,7 @@ def _expression(expression: expr.Expression) -> str:
         rendered_vector = _expression(expression.expression)
         rendered_index = _expression(expression.index)
         rendered_value = _expression(expression.value)
-        base = (
-            f"((32'd{vector.length - 1} - 32'({rendered_index})) * "
-            f"32'd{element_width})"
-        )
+        base = f"(32'({rendered_index}) * 32'd{element_width})"
         element_mask = f"{total_width}'h{((1 << element_width) - 1):x}"
         cleared = (
             f"({total_width}'($unsigned({rendered_vector})) & "
@@ -6097,7 +6313,7 @@ def _expression(expression: expr.Expression) -> str:
             )
         return "{" + ", ".join(
             f"{_width(operand.type)}'({_expression(operand)})"
-            for operand in expression.operands
+            for operand in reversed(expression.operands)
         ) + "}"
     if isinstance(expression, expr.Reshape):
         width = _width(expression.type)
@@ -6128,16 +6344,15 @@ def _expression(expression: expr.Expression) -> str:
             )
         return "{" + ", ".join(
             _expression(element)
-            for element in materialize_functional_region(expression)
+            for element in reversed(materialize_functional_region(expression))
         ) + "}"
     if isinstance(expression, (expr.Generate, expr.Map)):
         if isinstance(expression.type, VecType):
-            # Generate/map are semantically unrolled vectors by this stage;
-            # preserve their packed element structure instead of treating the
-            # vector as a reduction.  The element order matches the canonical
-            # Canonical Vec layout used by VectorIndex.
+            # Generate/map are semantically unrolled vectors by this stage.
+            # SystemVerilog concatenations list the MSB first, whereas ZLang
+            # indexed aggregates place element zero at the LSB.
             return "{" + ", ".join(
-                _expression(element) for element in expression.elements
+                _expression(element) for element in reversed(expression.elements)
             ) + "}"
         return _balanced_expression(expression.elements)
     if isinstance(expression, expr.Call):
@@ -6302,24 +6517,21 @@ def _rename_parameter_refs(
 
 
 def _module(module: Module, ports: list[str], lines: list[str]) -> str:
-    declarations = ",\n".join(f"  {port}" for port in ports)
-    body = "\n".join(
-        line
-        for line in (
-            *_function_definitions(module),
-            *_reset_conditioner_lines(module, _identifier),
-            *lines,
-        )
-        if line
+    boundary = _CURRENT_TOP_BOUNDARY.get()
+    name = (
+        boundary.physical_module_name
+        if boundary is not None and boundary.module_name == module.name
+        else rtl_identifier(module.name)
     )
-    return (
-        f"module {_identifier(module.name)} (\n{declarations}\n);\n"
-        f"  // Generated from backend-independent typed ZLang IR.\n"
-        f"{body}\nendmodule\n"
-    )
+    return _named_module(name, ports, lines, typed_module=module)
 
 
 def _identifier(name: str) -> str:
+    boundary = _CURRENT_TOP_BOUNDARY.get()
+    if boundary is not None:
+        alias = boundary.alias(name)
+        if alias is not None:
+            return alias
     return rtl_identifier(name)
 
 

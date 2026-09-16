@@ -806,7 +806,7 @@ def _root_assumptions_by_domain(
 ) -> dict[tuple[str, str | None], tuple[FormalProperty, ...]]:
     """Return exact root-environment assumptions grouped by sampled domain.
 
-    Automatic M35 protocol assumptions live in ``FormalDesign`` rather than in
+    Automatic safety verification protocol assumptions live in ``FormalDesign`` rather than in
     the source verification overlay.  They still form part of the exact
     environment for every root goal in that domain and therefore need the same
     declared membership as source-authored module requirements.
@@ -859,7 +859,7 @@ def _scope_payload(result: CompilationResult) -> list[dict[str, object]]:
     ]
 
     # Source-authored module requirements are already present above.  Automatic
-    # root M35 assumptions are not overlay declarations, so publish them in one
+    # root safety verification assumptions are not overlay declarations, so publish them in one
     # compiler-owned module-global scope per exact domain.  If that scope already
     # exists, extend it without duplicating the source requirement record.
     module_scope_by_domain = {
@@ -917,7 +917,7 @@ def _scope_payload(result: CompilationResult) -> list[dict[str, object]]:
 
 
 def _recursive_scope_payload(result: CompilationResult) -> list[dict[str, object]]:
-    """Describe descendant-instance M35 scopes without inventing properties."""
+    """Describe descendant-instance safety verification scopes without inventing properties."""
 
     design = result.recursive_formal_design
     if design is None:
@@ -1145,7 +1145,7 @@ def _exact_goal_bindings(
     return tuple(by_id[item] for item in sorted(required))
 
 
-def _m35_goal_recipe(
+def _safety_verification_goal_recipe(
     result: CompilationResult,
     route: _PreparedFormalRoute,
     prop: object,
@@ -1154,7 +1154,7 @@ def _m35_goal_recipe(
     cover: bool,
 ) -> dict[str, object]:
     return {
-        "schema": "zlang-m35-exact-goal-recipe-v2",
+        "schema": "zlang-safety_verification-exact-goal-recipe-v2",
         "selected_ir_identity": result.selected_ir_identity,
         "route": _prepared_route_fingerprint(route),
         "goal": _formal_property_recipe_payload(prop),
@@ -1162,11 +1162,11 @@ def _m35_goal_recipe(
             _formal_property_recipe_payload(item) for item in assumptions
         ],
         "cover": cover,
-        "harness_schema": "zlang-m35-structured-harness-v2",
+        "harness_schema": "zlang-safety_verification-structured-harness-v2",
     }
 
 
-def _prepare_m35_goal(
+def _prepare_safety_verification_goal(
     route: _PreparedFormalRoute,
     prop: object,
     assumptions: tuple[object, ...],
@@ -1204,7 +1204,7 @@ def _prepare_m35_goal(
     )
     checker_top = (
         cover_harness_top(selected, prop.id)
-        if cover else f"{selected.module_name}__m35_formal"
+        if cover else f"{selected.module_name}__safety_verification_formal"
     )
     published_bindings = (
         *exact_bindings,
@@ -1240,7 +1240,7 @@ def _prepare_m35_goal(
     )
 
 
-def _m35_goal_fingerprint(goal: _PreparedFormalGoal) -> dict[str, object]:
+def _safety_verification_goal_fingerprint(goal: _PreparedFormalGoal) -> dict[str, object]:
     return {
         "route": goal.route.identity,
         "binding_identity": goal.binding_identity,
@@ -1287,11 +1287,11 @@ def _recursive_goal_design(
     FormalSkipCode | None,
     str | None,
 ]:
-    """Connect one existing recursive M35 property to one backend only.
+    """Connect one existing recursive safety verification property to one backend only.
 
     Recursive semantic predicates already use concrete observation identities.
     This adapter resolves those identities exclusively through the v4 backend
-    manifests and then reuses the ordinary structured M35 harness emitter.  It
+    manifests and then reuses the ordinary structured safety verification harness emitter.  It
     never derives a locator from an RTL/instance name.
     """
 
@@ -1498,7 +1498,7 @@ def publish_compilation_verification_bundle(
         PreparedCandidateEquivalenceSite, ...
     ] = (),
 ) -> VerificationBundleManifest:
-    """Plan every current M35/source goal and publish immutable routes.
+    """Plan every current safety verification/source goal and publish immutable routes.
 
     Each goal is connected to one direct-SystemVerilog artifact. Missing
     observations or assumptions produce an explicit non-executable plan.
@@ -1891,7 +1891,7 @@ def publish_compilation_verification_bundle(
                 blockers.append((
                     assumption,
                     "internally driven automatic requirement has no published "
-                    "exact M35 source-endpoint guarantee",
+                    "exact safety verification source-endpoint guarantee",
                 ))
                 continue
             blockers.append((
@@ -2146,7 +2146,7 @@ def publish_compilation_verification_bundle(
         required_observations = tuple(sorted(required))
         top = (
             cover_harness_top(source_design, prop.id)
-            if cover else f"{source_design.module_name}__m35_formal"
+            if cover else f"{source_design.module_name}__safety_verification_formal"
         )
         if missing_assumptions:
             message = (
@@ -2264,22 +2264,22 @@ def publish_compilation_verification_bundle(
             return
 
         prepared_goal = provider.get_or_prepare(
-            FormalArtifactNamespace.M35,
+            FormalArtifactNamespace.SAFETY,
             "exact-property-harness-v1",
-            _m35_goal_recipe(
+            _safety_verification_goal_recipe(
                 result,
                 chosen,
                 prop,
                 harness_assumptions,
                 cover=cover,
             ),
-            lambda: _prepare_m35_goal(
+            lambda: _prepare_safety_verification_goal(
                 chosen,
                 prop,
                 harness_assumptions,
                 cover=cover,
             ),
-            fingerprint=_m35_goal_fingerprint,
+            fingerprint=_safety_verification_goal_fingerprint,
         )
         goal_plans.append(FormalGoalPlan(
             prop.id,
@@ -2346,7 +2346,7 @@ def publish_compilation_verification_bundle(
             ),
         ))
 
-        # Automatic M35 environment assumptions are ordinary root-domain
+        # Automatic safety verification environment assumptions are ordinary root-domain
         # requirements.  Like first-class and recursive requirements, every
         # non-empty exact set needs one independent feasibility query so a
         # bounded safety pass cannot be reported through a vacuous harness.
@@ -2354,7 +2354,7 @@ def publish_compilation_verification_bundle(
         if (
             cover
             or not harness_assumptions
-            or not any(item.id.startswith("m35.") for item in harness_assumptions)
+            or not any(item.id.startswith("safety_verification.") for item in harness_assumptions)
         ):
             return
         if any(item.predicate is None for item in harness_assumptions):
@@ -2398,15 +2398,15 @@ def publish_compilation_verification_bundle(
         root_feasibility_properties[cover_id] = feasibility
         root_vacuity_dependencies[prop.id] = cover_id
         prepared_cover = provider.get_or_prepare(
-            FormalArtifactNamespace.M35,
+            FormalArtifactNamespace.SAFETY,
             "exact-property-harness-v1",
-            _m35_goal_recipe(
+            _safety_verification_goal_recipe(
                 result, chosen, feasibility, (), cover=True
             ),
-            lambda: _prepare_m35_goal(
+            lambda: _prepare_safety_verification_goal(
                 chosen, feasibility, (), cover=True
             ),
-            fingerprint=_m35_goal_fingerprint,
+            fingerprint=_safety_verification_goal_fingerprint,
         )
         goal_plans.append(FormalGoalPlan(
             cover_id,
@@ -2472,10 +2472,10 @@ def publish_compilation_verification_bundle(
         ))
 
     def add_recursive_goal(concrete: object) -> None:
-        """Publish one already-existing descendant M35 property.
+        """Publish one already-existing descendant safety verification property.
 
         This is an orchestration adapter only: the property and all semantic
-        observation identities were produced by the frozen recursive M35 IR.
+        observation identities were produced by the frozen recursive safety verification IR.
         Each candidate backend must connect the complete set independently.
         """
 
@@ -2538,7 +2538,7 @@ def publish_compilation_verification_bundle(
         required_observations = tuple(sorted(required))
         fallback_top = (
             f"{result.ir.name}__recursive_"
-            f"{concrete.concrete_property_id[:12]}__m35_formal"
+            f"{concrete.concrete_property_id[:12]}__safety_verification_formal"
         )
         if ownership_blocker is not None:
             message = (
@@ -2666,7 +2666,7 @@ def publish_compilation_verification_bundle(
 
         trace_bindings = _checker_reset_trace_bindings(
             connected_design,
-            top=f"{connected_design.module_name}__m35_formal",
+            top=f"{connected_design.module_name}__safety_verification_formal",
         )
         published_bindings = (*exact_bindings, *trace_bindings)
         binding_identity = _binding_identity(published_bindings)
@@ -2730,7 +2730,7 @@ def publish_compilation_verification_bundle(
         jobs.append(VerificationJob(
             concrete.concrete_property_id,
             "safety",
-            f"{connected_design.module_name}__m35_formal",
+            f"{connected_design.module_name}__safety_verification_formal",
             (
                 chosen.implementation_path,
                 harness_path,
@@ -3069,8 +3069,8 @@ def publish_compilation_verification_bundle(
             != base_compiler_execution_plan.candidate_site_ledger
             or compiler_execution_plan.formal_policy
             is not base_compiler_execution_plan.formal_policy
-            or compiler_execution_plan.m39_attempts
-            != base_compiler_execution_plan.m39_attempts
+            or compiler_execution_plan.formal_selection_attempts
+            != base_compiler_execution_plan.formal_selection_attempts
         ):
             raise FormalOrchestrationError(
                 "published compiler formal plan differs from this compilation"

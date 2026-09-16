@@ -70,9 +70,14 @@ def test_unified_state_materializes_runtime_selected_struct_once() -> None:
     # The aggregate vector selection is a single typed temporary.  Field
     # projection is then a legal slice of that temporary, never a second slice
     # applied to the dynamic indexed part-select expression.
-    dynamic_selects = [line for line in rtl.splitlines() if "values[" in line]
+    dynamic_selects = [
+        line for line in rtl.splitlines()
+        if "zlang_expr_" in line and "zlang_packed_values[" in line
+    ]
     assert len(dynamic_selects) == 1
-    match = re.search(r"assign (\w+) = values\[", dynamic_selects[0])
+    match = re.search(
+        r"assign (\w+) = zlang_packed_values\[", dynamic_selects[0]
+    )
     assert match is not None
     temporary = match.group(1)
     assert f"{temporary}[15:8]" in rtl
@@ -101,12 +106,14 @@ def test_dynamic_select_materializes_compound_prefix_once() -> None:
 
     assert first == second
     assert first.count("logic [31:0] zlang_expr_0;") == 1
-    assert first.count("assign zlang_expr_0 = frame[34:3];") == 1
+    assert first.count(
+        "assign zlang_expr_0 = zlang_packed_frame[34:3];"
+    ) == 1
     assert (
-        "assign y = zlang_expr_0[((32'd3 - 32'(index)) * 32'd8) +: 8];"
+        "assign y = zlang_expr_0[(32'(index) * 32'd8) +: 8];"
         in first
     )
-    assert "frame[34:3][" not in first
+    assert "zlang_packed_frame[34:3][" not in first
 
 
 @pytest.mark.skipif(shutil.which("verilator") is None, reason="Verilator unavailable")
@@ -117,13 +124,16 @@ def test_dynamic_select_compound_prefix_is_bit_exact_in_verilator(tmp_path) -> N
     bench.write_text(
         """
 module tb;
-  logic [7:0] frame_samples [0:3];
+  logic [3:0][7:0] frame_samples;
   logic [2:0] frame_tag;
   logic [1:0] index;
   wire [7:0] y;
   CompoundRuntimePrefix dut (.*);
   initial begin
-    frame_samples = '{8'h11, 8'h22, 8'h33, 8'h44};
+    frame_samples[0] = 8'h11;
+    frame_samples[1] = 8'h22;
+    frame_samples[2] = 8'h33;
+    frame_samples[3] = 8'h44;
     frame_tag = 3'b101;
     index = 0; #1; if (y !== 8'h11) $fatal(1, "index 0");
     index = 1; #1; if (y !== 8'h22) $fatal(1, "index 1");

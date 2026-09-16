@@ -67,8 +67,8 @@ module SignedRightShiftWitness {
 """
 
 
-M36_SOURCE = """
-module SignedShiftM36 {
+SEMANTIC_EQUIVALENCE_SOURCE = """
+module SignedShiftSemanticEquivalence {
     in a : s64
     in amount : u6
     out y : s64
@@ -193,8 +193,8 @@ def test_direct_systemverilog_uses_typed_shift_and_matches_signed_edges(
 
 
 
-def _m36_source(implementation: str) -> tuple[object, str, str]:
-    module = compile_source(M36_SOURCE).ir
+def _semantic_equivalence_source(implementation: str) -> tuple[object, str, str]:
+    module = compile_source(SEMANTIC_EQUIVALENCE_SOURCE).ir
     expression = module.assignments[0].expression
     selected = "selected:signed-right-shift"
     reference = emit_reference_model(
@@ -238,7 +238,7 @@ def _m36_source(implementation: str) -> tuple[object, str, str]:
         reference_module="SignedShiftReference",
         implementation_module=module.name,
     )
-    top = "m36_" + property_.id.replace(".", "_")
+    top = "semantic_equivalence_" + property_.id.replace(".", "_")
     return property_, reference + "\n" + implementation + "\n" + miter, top
 
 
@@ -246,14 +246,14 @@ def _m36_source(implementation: str) -> tuple[object, str, str]:
     len(formal_tools_available()) != 3,
     reason="Yosys/SymbiYosys formal tools are unavailable",
 )
-def test_m36_signed_shift_reference_passes_and_logical_mutation_fails() -> None:
-    module = compile_source(M36_SOURCE).ir
+def test_semantic_equivalence_signed_shift_reference_passes_and_logical_mutation_fails() -> None:
+    module = compile_source(SEMANTIC_EQUIVALENCE_SOURCE).ir
     implementation = emit_artifact(
         module, selected_ir_identity="selected:signed-right-shift"
     ).text
     assert ">>>" in implementation
 
-    property_, correct_source, top = _m36_source(implementation)
+    property_, correct_source, top = _semantic_equivalence_source(implementation)
     assert "assign y" in correct_source and ">>>" in correct_source
     correct = run_equivalence_formal(
         property_, correct_source, top=top, mode=EquivalenceMode.BMC, depth=2
@@ -262,7 +262,7 @@ def test_m36_signed_shift_reference_passes_and_logical_mutation_fails() -> None:
 
     mutated_implementation = implementation.replace(">>>", ">>", 1)
     assert mutated_implementation != implementation
-    property_, mutated_source, top = _m36_source(mutated_implementation)
+    property_, mutated_source, top = _semantic_equivalence_source(mutated_implementation)
     mutated = run_equivalence_formal(
         property_, mutated_source, top=top, mode=EquivalenceMode.BMC, depth=2
     )

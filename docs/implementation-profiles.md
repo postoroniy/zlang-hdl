@@ -66,7 +66,7 @@ the same target, transform set, objective, constraint, evidence policy, formal
 policy, or architecture are rejected with both origins in the diagnostic.
 
 For an ordinary typed scalar output, profile transforms/constraints/objectives
-run through the existing bounded M34 explorer. Canonical `implement` regions
+run through the existing bounded bounded exploration explorer. Canonical `implement` regions
 have already run during semantic analysis, so their retained candidate table is
 compared but never run a second time. Retained legacy records are handled the
 same way for replay only; no new transform or equivalence rule is introduced.

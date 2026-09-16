@@ -172,7 +172,7 @@ def apply_external_region_exploration(
     formal_config=None,
     formal_verifier=None,
 ) -> tuple[Module, tuple[ExplorationResult, ...]]:
-    """Execute profile/API M34 policy only for plain selected wire regions.
+    """Execute profile/API bounded exploration policy only for plain selected wire regions.
 
     Canonical source regions have already executed in semantic analysis. Their
     retained candidate tables are not run a second time; this path is only for

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from tests.case_matrix import check_cases
 from zlang.ast import CharLiteralExpr, StringLiteralExpr, TypeName, VectorTypeName
 from zlang.parser import ParseError, parse
 
@@ -25,11 +26,11 @@ def test_char_and_string_types_and_literals_have_explicit_syntax_nodes() -> None
 
 def test_byte_literal_escapes_and_comment_markers_are_lexically_atomic() -> None:
     syntax = parse(
-        r'''module Escapes {
+        r"""module Escapes {
             out chars:vec<8,char> out slash:string<2> out block:string<2>
             chars=['\0','\n','\r','\t','\\','\'','\"','\xff']
             slash="//" block="/*"
-        }'''
+        }"""
     )
 
     vector, slash, block = (item.expression for item in syntax.assignments)
@@ -47,77 +48,85 @@ def test_byte_literal_escapes_and_comment_markers_are_lexically_atomic() -> None
     assert block.values == (47, 42)
 
 
-@pytest.mark.parametrize(
-    ("escape", "expected"),
-    (
-        (r"\0", 0),
-        (r"\n", 10),
-        (r"\r", 13),
-        (r"\t", 9),
-        (r"\\", 92),
-        (r"\'", 39),
-        (r'\"', 34),
-        (r"\x00", 0),
-        (r"\x7f", 127),
-        (r"\xff", 255),
-        (r"\xFF", 255),
-    ),
+DOCUMENTED_ESCAPES = (
+    (r"\0", 0),
+    (r"\n", 10),
+    (r"\r", 13),
+    (r"\t", 9),
+    (r"\\", 92),
+    (r"\'", 39),
+    (r"\"", 34),
+    (r"\x00", 0),
+    (r"\x7f", 127),
+    (r"\xff", 255),
+    (r"\xFF", 255),
 )
-def test_every_documented_escape_is_accepted_by_string_literals(
-    escape: str, expected: int
-) -> None:
-    syntax = parse(
-        f'module EscapedString {{ out value:string<1> value="{escape}" }}'
+
+
+def test_every_documented_escape_is_accepted_by_string_literals() -> None:
+    def check(case: tuple[str, int]) -> None:
+        escape, expected = case
+        syntax = parse(
+            f'module EscapedString {{ out value:string<1> value="{escape}" }}'
+        )
+        expression = syntax.assignments[0].expression
+        assert isinstance(expression, StringLiteralExpr)
+        assert expression.values == (expected,)
+
+    check_cases(((case[0], case) for case in DOCUMENTED_ESCAPES), check, matrix="parser_escapes")
+
+
+def test_printable_ascii_boundaries_are_accepted() -> None:
+    def check(literal: str) -> None:
+        type_ = "char" if literal.startswith("'") else "string<1>"
+        parse(f"module Boundary {{ out value:{type_} value={literal} }}")
+
+    check_cases(((literal, literal) for literal in ("' '", "'~'", '" "', '"~"')), check, matrix="parser_printable")
+
+
+MALFORMED_HEX_AND_CONTROL = (
+    r"'\x0'",
+    r"'\xGG'",
+    r'"\x0"',
+    r'"\xGG"',
+    "'\t'",
+    '"\t"',
+    "'\x01'",
+    '"\x01"',
+    "'\x1f'",
+    '"\x1f"',
+    "'\x7f'",
+    '"\x7f"',
+)
+
+
+def test_malformed_hex_and_raw_control_boundaries_are_parse_errors() -> None:
+    def check(literal: str) -> None:
+        with pytest.raises(ParseError):
+            parse(f"module Bad {{ out y:u8 y={literal} }}")
+
+    check_cases(
+        ((repr(literal), literal) for literal in MALFORMED_HEX_AND_CONTROL), check,
+        matrix="parser_malformed_hex",
     )
-    expression = syntax.assignments[0].expression
-    assert isinstance(expression, StringLiteralExpr)
-    assert expression.values == (expected,)
 
 
-@pytest.mark.parametrize("literal", ("' '", "'~'", '" "', '"~"'))
-def test_printable_ascii_boundaries_are_accepted(literal: str) -> None:
-    type_ = "char" if literal.startswith("'") else "string<1>"
-    parse(f"module Boundary {{ out value:{type_} value={literal} }}")
-
-
-@pytest.mark.parametrize(
-    "literal",
-    (
-        r"'\x0'",
-        r"'\xGG'",
-        r'"\x0"',
-        r'"\xGG"',
-        "'\t'",
-        '"\t"',
-        "'\x01'",
-        '"\x01"',
-        "'\x1f'",
-        '"\x1f"',
-        "'\x7f'",
-        '"\x7f"',
-    ),
+MALFORMED_OR_NON_ASCII = (
+    "''",
+    "'AB'",
+    r"'\q'",
+    "'é'",
+    '"é"',
+    '"line\nbreak"',
 )
-def test_malformed_hex_and_raw_control_boundaries_are_parse_errors(
-    literal: str,
-) -> None:
-    with pytest.raises(ParseError):
-        parse(f"module Bad {{ out y:u8 y={literal} }}")
 
 
-@pytest.mark.parametrize(
-    "literal",
-    (
-        "''",
-        "'AB'",
-        r"'\q'",
-        "'é'",
-        '"é"',
-        '"line\nbreak"',
-    ),
-)
-def test_malformed_or_non_ascii_byte_literals_are_parse_errors(literal: str) -> None:
-    with pytest.raises(ParseError):
-        parse(f"module Bad {{ out y:u8 y={literal} }}")
+def test_malformed_or_non_ascii_byte_literals_are_parse_errors() -> None:
+    def check(literal: str) -> None:
+        with pytest.raises(ParseError):
+            parse(f"module Bad {{ out y:u8 y={literal} }}")
+
+    check_cases(((repr(literal), literal) for literal in MALFORMED_OR_NON_ASCII), check, matrix="parser_malformed_nonascii")
 
 
 def test_bare_or_zero_length_string_types_are_rejected() -> None:

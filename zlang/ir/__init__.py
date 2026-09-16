@@ -122,6 +122,7 @@ from zlang.ir.scheduled import (
     ScheduledValueResourceBinding,
 )
 from zlang.ir.packing import (
+    PACKING_LAYOUT_SCHEMA,
     PackingError,
     bit_mask,
     concat_runtime,
@@ -131,7 +132,9 @@ from zlang.ir.packing import (
     require_bit_packable,
     slice_runtime,
     slice_width,
+    tuple_element_lsb,
     unpack_runtime,
+    vector_element_lsb,
 )
 from zlang.ir.state import (
     ActionGroup,
@@ -496,6 +499,7 @@ __all__ = [
     "ExactReductionOperator",
     "ExactReductionPlan",
     "PackingError",
+    "PACKING_LAYOUT_SCHEMA",
     "bit_mask",
     "concat_runtime",
     "is_bit_packable",
@@ -504,7 +508,9 @@ __all__ = [
     "require_bit_packable",
     "slice_runtime",
     "slice_width",
+    "tuple_element_lsb",
     "unpack_runtime",
+    "vector_element_lsb",
     "build_exact_reduction_plan",
     "compile_time_range",
     "evaluate_compile_time",

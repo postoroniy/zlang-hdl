@@ -126,13 +126,13 @@ class DirectSystemVerilogFormalTests(unittest.TestCase):
             self.assertTrue(result.counterexample.raw_trace)
         return result.status
 
-    def test_emitted_m35_safety_families_execute(self) -> None:
+    def test_emitted_safety_verification_safety_families_execute(self) -> None:
         targets = (
             (emitted("rule_counter.zhl"), RULE_HARNESS, "DirectRuleFormal", "direct.rules"),
             (emitted("counter.zhl"), COUNTER_HARNESS, "DirectStateFormal", "direct.state"),
             (emitted("rv_buffer.zhl"), FIFO_HARNESS, "DirectFifoFormal", "direct.fifo_ready_valid"),
             (emitted("control_csr.zhl"), CSR_HARNESS, "DirectCsrFormal", "direct.csr"),
-            (emitted("hierarchical_request_response_m40.zhl", top="HierarchicalRequestResponse"),
+            (emitted("hierarchical_request_response.zhl", top="HierarchicalRequestResponse"),
              RR_HARNESS, "DirectRrFormal", "direct.request_response"),
         )
         for rtl, harness, top, property_id in targets:
@@ -147,7 +147,7 @@ class DirectSystemVerilogFormalTests(unittest.TestCase):
         counter = emitted("counter.zhl")
         fifo = emitted("rv_buffer.zhl")
         csr = emitted("control_csr.zhl")
-        rr = emitted("hierarchical_request_response_m40.zhl", top="HierarchicalRequestResponse")
+        rr = emitted("hierarchical_request_response.zhl", top="HierarchicalRequestResponse")
         mutations = (
             (rule.replace("count} + {{1{1'b0}}, 8'd1", "count} - {{1{1'b0}}, 8'd1"),
              RULE_HARNESS, "DirectRuleFormal", "arithmetic"),
