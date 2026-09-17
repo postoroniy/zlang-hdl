@@ -613,13 +613,13 @@ def test_release_checksums_cover_editor_payloads_and_fail_if_either_is_missing(
     body = textwrap.dedent(step.split("        run: |\n", 1)[1])
     checksum_script = "(cd dist && sha256sum" + body.split("(cd dist && sha256sum", 1)[1]
     payloads = (
-        "zlang_hdl-0.1.0a8-py3-none-any.whl",
-        "zlang_hdl-0.1.0a8.tar.gz",
-        "zlang-hdl-v0.1.0a8.cdx.json",
+        "zlang_hdl-0.1.0a9-py3-none-any.whl",
+        "zlang_hdl-0.1.0a9.tar.gz",
+        "zlang-hdl-v0.1.0a9.cdx.json",
         "release-requirements.txt",
         "zlang-hdl-0.1.0.vsix",
         "zlang-hdl-0.1.0-vsix-audit.json",
-        "zlang-hdl-v0.1.0a8-language-reference.pdf",
+        "zlang-hdl-v0.1.0a9-language-reference.pdf",
     )
     dist = tmp_path / "dist"
     dist.mkdir()
