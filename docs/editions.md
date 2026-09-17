@@ -1,34 +1,14 @@
-# ZLang HDL editions
+# ZLang HDL Community edition
 
-The **2026-09 Community Baseline** retains the complete compiler functionality
-included in that release. Community is suitable for commercial as well as
-non-commercial hardware development under its applicable licenses; it is not
-a hobby-only or deliberately restricted edition.
+This repository publishes the ZLang HDL Community compiler and its documented
+tooling under Apache-2.0, with the exceptions recorded in
+[REUSE.toml](../REUSE.toml) and [NOTICE](../NOTICE).
 
-The [baseline policy](licensing/COMMUNITY_BASELINE.md) is approved. The exact
-release snapshot/tag is still subject to release acceptance and publication.
+The [Community baseline](licensing/COMMUNITY_BASELINE.md) identifies the
+released snapshot and its production-backend policy. The capability registry,
+language reference and executable release tests define the exact supported
+surface; edition wording does not extend those technical claims.
 
-| Capability | Edition / status |
-|---|---|
-| Baseline language, stdlib, simulator and direct-SystemVerilog | Community; production capabilities retained |
-| First-class single/multi-clock state, exact `pipeline(N)` scheduling and explicit CDC primitives | Community; language/compiler correctness infrastructure retained |
-| Local formal verification, equivalence, caches, bundles and exploration | Community; existing capabilities retained |
-| CSR hardware behavior, RTL, JSON and Markdown | Community; existing capabilities retained |
-| Verilator state-access C++ header and simulation tooling | Community; existing capabilities retained |
-| New CSR C/C++ software helper generator | Enterprise; classified, not implemented |
-| New SystemVerilog UVM helper generator | Enterprise; classified, not implemented |
-| New managed/distributed workflows, organizational policy and services | Potential future Enterprise additions; individually scoped |
-
-Enterprise can add functionality developed after the baseline. Later work is
-not automatically Enterprise: each new feature is classified before
-implementation, while fixes to Community functionality stay Community.
-
-Future Enterprise generators can use the public CSR schema and artifacts.
-Community compilation, local verification and existing exports must work without
-an Enterprise installation or service. No Enterprise download, CLI command,
-pricing, license or availability is announced here.
-
-The compiler remains Apache-2.0; separately identified files retain their own
-licenses, including the MIT Wi-Fi reference project. Design/IP licensing and
-generated-output obligations are separate from the edition name. See
-[NOTICE](../NOTICE) and [contribution policy](../CONTRIBUTING.md).
+No additional product edition, entitlement mechanism, restricted compiler
+feature or service dependency is required to use the functionality in this
+repository.

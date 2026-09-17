@@ -12,12 +12,12 @@ FAST_TEST_PATHS := \
 	tests/parser tests/semantic tests/conformance tests/editor \
 	tests/packaging tests/release
 
-.PHONY: help public-check static audit release-tools test-fast test \
+.PHONY: help source-check static audit release-tools test-fast test \
 	test-release-twice editor-test package release-candidate
 
 help:
 	@printf '%s\n' \
-		'make public-check       validate the public projection and release metadata' \
+		'make source-check       validate the clean Community source and release metadata' \
 		'make static             run Ruff, compileall, and diff checks' \
 		'make audit              run REUSE and Python dependency audits' \
 		'make release-tools      validate the pinned external-tool inventory' \
@@ -28,12 +28,9 @@ help:
 		'make package            build one sdist and two byte-identical wheels' \
 		'make release-candidate  run the local non-publishing release gate'
 
-public-check:
-	public_root="$$(mktemp -d "$${TMPDIR:-/tmp}/zlang-public-check.XXXXXX")"
-	trap 'rm -rf -- "$$public_root"' EXIT
-	$(PYTHON) tools/public_tree.py export --source . --destination "$$public_root"
-	$(PYTHON) "$$public_root/tools/public_tree.py" check-export --source "$$public_root"
-	$(PYTHON) "$$public_root/tools/release_status.py" check --root "$$public_root" --tag "$(TAG)"
+source-check:
+	test -z "$$(git status --porcelain)"
+	$(PYTHON) tools/release_status.py check --root . --tag "$(TAG)"
 
 static:
 	$(PYTHON) -m ruff check zlang tests tools
@@ -42,18 +39,12 @@ static:
 	git diff --cached --check
 
 audit:
-	public_root="$$(mktemp -d "$${TMPDIR:-/tmp}/zlang-public-audit.XXXXXX")"
-	trap 'rm -rf -- "$$public_root"' EXIT
-	$(PYTHON) tools/public_tree.py export --source . --destination "$$public_root"
-	$(PYTHON) -m reuse --root "$$public_root" lint
-	$(PYTHON) -m pip_audit "$$public_root" --progress-spinner off
+	$(PYTHON) -m reuse --root . lint
+	$(PYTHON) -m pip_audit . --progress-spinner off
 
 release-tools:
-	public_root="$$(mktemp -d "$${TMPDIR:-/tmp}/zlang-public-tools.XXXXXX")"
-	trap 'rm -rf -- "$$public_root"' EXIT
-	$(PYTHON) tools/public_tree.py export --source . --destination "$$public_root"
-	$(PYTHON) "$$public_root/tools/release_status.py" check \
-		--root "$$public_root" --check-tools --tag "$(TAG)"
+	$(PYTHON) tools/release_status.py check \
+		--root . --check-tools --tag "$(TAG)"
 
 test-fast:
 	$(PYTHON) -m pytest -n "$(WORKERS)" --dist=loadscope -q $(FAST_TEST_PATHS)
@@ -62,16 +53,12 @@ test:
 	$(PYTHON) -m pytest -n "$(WORKERS)" --dist=loadscope -q
 
 test-release-twice:
-	public_root="$$(mktemp -d "$${TMPDIR:-/tmp}/zlang-public-tests.XXXXXX")"
-	trap 'rm -rf -- "$$public_root"' EXIT
 	python_bin="$(PYTHON)"
 	if [[ "$$python_bin" == */* ]]; then
 		python_bin="$$(cd "$$(dirname "$$python_bin")" && pwd)/$$(basename "$$python_bin")"
 	fi
 	report_root="$$(pwd)/build"
 	mkdir -p "$$report_root"
-	$(PYTHON) tools/public_tree.py export --source . --destination "$$public_root"
-	cd "$$public_root"
 	"$$python_bin" -m pytest -p tools.pytest_no_skips \
 		-n "$(WORKERS)" --dist=loadscope -q --junitxml="$$report_root/release-1.xml"
 	"$$python_bin" tools/release_status.py check \
@@ -95,7 +82,7 @@ package:
 	source_root="$$(mktemp -d "$${TMPDIR:-/tmp}/zlang-release-source.XXXXXX")"
 	trap 'rm -rf -- "$$source_root"' EXIT
 	mkdir -p "$(BUILD_ROOT)/first" "$(BUILD_ROOT)/second" "$(DIST_DIR)"
-	$(PYTHON) tools/public_tree.py export --source . --destination "$$source_root"
+	git archive --format=tar HEAD | tar -xf - -C "$$source_root"
 	$(PYTHON) -m build "$$source_root" --no-isolation --sdist --outdir "$(BUILD_ROOT)/first"
 	$(PYTHON) -m build "$$source_root" --no-isolation --wheel --outdir "$(BUILD_ROOT)/first"
 	$(PYTHON) -m build "$$source_root" --no-isolation --wheel --outdir "$(BUILD_ROOT)/second"
@@ -108,4 +95,4 @@ package:
 
 # This target prepares and validates local candidate artifacts. It deliberately
 # does not create commits/tags, upload artifacts, or publish a GitHub release.
-release-candidate: public-check static audit release-tools test-release-twice editor-test package
+release-candidate: source-check static audit release-tools test-release-twice editor-test package

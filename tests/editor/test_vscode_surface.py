@@ -58,7 +58,6 @@ def test_lsp_client_bootstrap_is_standard_and_semantics_free() -> None:
     assert "TransportKind.stdio" in client
     assert "zlang.lsp.path" in client
     assert "sh -c" not in client and "bash -c" not in client
-    assert "zlang-agent" not in client and "Ollama" not in client
     assert "textDocument/" not in client
     assert "async function activate(context)" in client
     assert "await client.start()" in client

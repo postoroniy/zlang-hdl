@@ -4,11 +4,6 @@ ZLang HDL is an experimental hardware description language and compiler focused 
 strong types, explicit cycle semantics, reusable protocols, deterministic
 artifacts, and verification-aware implementation selection.
 
-Typed intermediate representations, deterministic identities, structured
-diagnostics, manifests, and evidence reports also make compiler workflows
-suitable for reviewable automation and software-agent integration. This is an
-architectural capability, not a claim about productivity or performance.
-
 > **Alpha software:** the first public release is intended for evaluation and
 > real-design feedback. Source syntax, the provisional Python API, and
 > non-versioned tooling may change before 1.0. Unsupported combinations fail
@@ -169,7 +164,6 @@ BMC but fails at a deeper bound, with a source-attributed counterexample.
 - [Complete Community language reference](docs/language-reference.md)
 - [Concise language quick reference](docs/language-quick-reference.md)
 - [Printable PDF reference](docs/ZLang-HDL-Language-Reference.pdf)
-- [Open-source project scope](docs/project-scope.md)
 
 The compiler-owned capability registry and release CI are authoritative for
 executable support. Documentation should describe semantics and boundaries
@@ -206,14 +200,11 @@ If ZLang HDL is useful to you, you can voluntarily support its continued develop
 ZLang HDL is licensed under the [Apache License 2.0](LICENSE).
 Copyright 2026 Viacheslav Vinogradov.
 
-The [2026-09 Community Baseline](docs/licensing/COMMUNITY_BASELINE.md) retains
-every capability included in that release, including the language, compiler,
-backends, local verification and exploration. Future Enterprise additions start
-after the baseline: CSR C/C++ software helper generation and SystemVerilog UVM
-helper generation are classified Enterprise, but are not implemented yet.
-Existing CSR RTL/JSON/Markdown and Verilator C++ state access remain Community.
-See the [editions](docs/editions.md), [project scope](docs/project-scope.md) and
-[name and branding policy](TRADEMARKS.md).
+The Community repository contains the complete compiler, standard library,
+local verification flows, examples, tests, and editor integration documented
+here. The [Community baseline](docs/licensing/COMMUNITY_BASELINE.md) identifies
+the published snapshot and production-backend policy. See also the
+[Community edition](docs/editions.md) and [name and branding policy](TRADEMARKS.md).
 
 The [licensing guide](docs/licensing/README.md) distinguishes compiler licensing,
 reference-design provenance and obligations for included generated material.

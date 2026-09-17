@@ -79,11 +79,10 @@ marks; see [NOTICE](../../NOTICE) and [TRADEMARKS.md](../../TRADEMARKS.md).
 
 ## Future additions and release review
 
-Keep existing reference designs under their recorded licenses. Do not move
-previously licensed material into an exclusive commercial category merely
-because it has potential commercial value. The
-[Community Baseline](COMMUNITY_BASELINE.md) retains current functionality;
-future Enterprise features and independently supplied IP are separately scoped.
+Keep existing reference designs under their recorded licenses. Independently
+supplied IP remains separately scoped and requires its own redistribution
+review. The [Community baseline](COMMUNITY_BASELINE.md) records the released
+compiler surface without changing those separate licenses.
 
 Before introducing third-party or commercial material, record its source,
 revision, applicable license, copyright/attribution, modifications, intended

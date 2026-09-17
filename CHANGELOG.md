@@ -11,18 +11,39 @@ incompatible input explicitly.
 
 ## Unreleased
 
+## 0.1.0a10 — 2026-09-17
+
+Documentation and release-governance correction with no compiler semantic or
+RTL behavior change.
+
+### Changed
+
+- Corrected the Community baseline to identify published `v0.1.0a9`, name
+  direct SystemVerilog as the sole production backend, and record Clash only as
+  a retired pre-baseline experiment.
+- Removed internal source-projection, release-checklist and future-product
+  collateral from the Community repository while retaining the concise
+  language references and reviewed PDF.
+- Made future GitHub releases use the exact matching `CHANGELOG.md` section as
+  curated release notes instead of an automatically generated pull-request
+  list.
+
 ## 0.1.0a9 — 2026-09-17
+
+Community alpha focused on a consolidated language reference, a lean current
+VS Code/LSP distribution, and stronger reproducible release evidence. Compiler
+language and RTL semantics are unchanged from `0.1.0a8`.
 
 ### Changed
 
 - Consolidated the Community documentation into the maintained language
   reference, quick reference, and one reviewed 93-page PDF with the ZLang HDL
-  cover on its title page. PDF build collateral remains outside the public
-  projection.
+  cover on its title page. PDF build collateral is not included in the
+  repository.
 - Reduced the VS Code package to a deterministic 13-file runtime bundle,
   required the current supported VS Code line, and exercised Definition and
   References through the installed VSIX host.
-- Tightened the exact-public-tree, release metadata, reproducible-package,
+- Tightened the source-tree, release metadata, reproducible-package,
   dependency, and hosted editor gates used to publish Community artifacts.
 
 ## 0.1.0a8 — 2026-09-16
@@ -45,7 +66,7 @@ incompatible input explicitly.
   documentation, diagnostics, reports, cache namespaces and public test names.
   Older identity-bearing cache records fail closed under the renamed namespaces.
 - Added non-publishing Makefile gates for static checks, focused/full tests,
-  two-pass zero-skip release regression, exact-public-tree audits, pinned EDA
+  two-pass zero-skip release regression, exact source-tree audits, pinned EDA
   inventory, editor tests and reproducible packaging. Packages are built from
   a fresh allow-listed Community export, preventing stale checkout `build/`
   files or private sources from entering wheel/sdist artifacts.
@@ -84,9 +105,8 @@ incompatible input explicitly.
   real installed-editor navigation acceptance.
 - A tracked Community-only Qwen project skill with concise routing for `.zhl`
   authoring, compiler work, direct-SystemVerilog integration, optimization,
-  formal verification, and standards-based conversion. The public projection
-  requires the skill and its references while keeping it independent from the
-  compiler and editor packages.
+  formal verification, and standards-based conversion. The skill and its
+  references remain independent from the compiler and editor packages.
 
 ### Changed
 
@@ -154,22 +174,21 @@ incompatible input explicitly.
 ## 0.1.0a3 — 2026-09-08
 
 Community alpha with mathematical/formal examples and a downloadable lexical
-editor package. Compiler semantics, license terms and the Community Baseline
-remain unchanged; publication is subject to `RELEASING.md`.
+editor package. Compiler semantics and license terms remain unchanged.
 
 ### Added
 
 ### Fixed
 
-- Refresh the immutable public-tree manifest for the pinned `setup-node` v7
+- Refresh source validation for the pinned `setup-node` v7
   Dependabot update, preserving the selected Node.js 22.23.2 toolchain.
 - Gate editor release packaging on a fresh advisory audit of all locked npm
   build dependencies as well as static package/license validation.
 
 ## 0.1.0a2 — 2026-09-08
 
-Corrective Community alpha release cut; publication remains subject to every
-gate in `RELEASING.md`. All compiler capabilities and fixes below are retained.
+Corrective Community alpha release cut. All compiler capabilities and fixes
+below are retained.
 
 ### Fixed
 

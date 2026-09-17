@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
-      - name: Check out public snapshot
+      - name: Check out Community source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -26,10 +26,6 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      - name: Validate immutable public checkout
-        run: |
-          python tools/public_tree.py check-source --source .
-          python tools/public_tree.py check-export --source .
       - name: Install exact test tooling and ZLang HDL
         run: >-
           python -m pip install --disable-pip-version-check
@@ -41,7 +37,7 @@ jobs:
           setuptools==84.0.0
           twine==6.2.0
           wheel==0.46.3
-      - name: Validate public source projection and release status
+      - name: Validate release status
         run: |
           python tools/release_status.py check --root .
       - name: Static correctness
@@ -64,17 +60,11 @@ jobs:
         run: |
           python -m build
           python -m twine check dist/*
-      - name: Verify compact snapshot is self-contained
-        run: |
-          public_dir="$(mktemp -d)"
-          python tools/public_tree.py export --source . --destination "$public_dir"
-          python "$public_dir/tools/public_tree.py" check-export --source "$public_dir"
-
   lexical-editor:
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     steps:
-      - name: Check out public snapshot
+      - name: Check out Community source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -82,10 +72,6 @@ jobs:
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
-      - name: Validate immutable public checkout before editor tooling
-        run: |
-          python tools/public_tree.py check-source --source .
-          python tools/public_tree.py check-export --source .
       - name: Install the Community language server for host testing
         run: python -m pip install --disable-pip-version-check -e .
       - name: Set up pinned Node.js
@@ -112,8 +98,6 @@ jobs:
         run: >-
           xvfb-run -a npm run test:host --
           "$RUNNER_TEMP/zlang-hdl-0.1.0.vsix"
-      - name: Verify editor tooling remains outside the public projection
-        run: python tools/public_tree.py check-source --source .
       - name: Retain the successfully audited Community VSIX
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

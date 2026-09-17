@@ -285,9 +285,10 @@ def audit_vsix(path: Path) -> dict:
     for name, version in RUNTIME_PACKAGES.items():
         _require(f"{name}@{version}" in notices, f"notice omits {name}@{version}")
     text = b"\n".join(members[name] for name in names if name.endswith((".js", ".json", ".md")))
-    _require(b"/home/slava" not in text and b"zlang-agent" not in text
-             and b"Ollama" not in text and b"CUDA" not in text,
-             "private path or Enterprise/AI reference shipped")
+    _require(
+        re.search(rb"/home/[A-Za-z0-9._-]+/", text) is None,
+        "host-specific path shipped",
+    )
     return {
         "extension_id": "postoroniy.zlang-hdl", "version": "0.1.0",
         "file_count": len(members), "files": sorted(members),

@@ -67,4 +67,4 @@ generated-helper license. Do not extrapolate future terms to existing output.
    affected material. Do not invent a license label or strip existing notices.
 
 See [IP classification](IP_CLASSIFICATION.md) for the repository's reference
-designs and fixtures, and [RELEASING.md](../../RELEASING.md) for release checks.
+designs and fixtures.

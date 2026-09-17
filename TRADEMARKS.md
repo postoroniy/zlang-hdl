@@ -34,7 +34,7 @@ official status, or endorsement by the ZLang HDL project or its maintainers.
 Please obtain written permission before using the ZLang HDL name or any project
 logo as the primary brand for a separate product, hosted service, company, or
 organization. In particular, do not use names such as "Official ZLang",
-"ZLang Enterprise", "ZLang Professional", or "ZLang Cloud" for an unrelated
+"ZLang Premium", "ZLang Professional", or "ZLang Cloud" for an unrelated
 or modified offering in a way that could imply it is produced or endorsed by
 this project.
 
