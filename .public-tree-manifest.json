@@ -109,7 +109,7 @@
     {
       "mode": "0644",
       "path": "CHANGELOG.md",
-      "sha256": "04ea5787d94d1845547ad58a791e3c57d360cf3eb8621005aabf4f4f038fde96"
+      "sha256": "b92a329f7571092d80c1217e7ea548a13b997152b94d5b38d59f0276236dac1d"
     },
     {
       "mode": "0644",
@@ -189,7 +189,7 @@
     {
       "mode": "0644",
       "path": "docs/ZLang-HDL-Language-Reference.pdf",
-      "sha256": "9a811afd5fb46f3f65327ede14397a7af328076dddebaa01a352b14ade78cbe1"
+      "sha256": "bb4691dde16239715a1842e8a525386b1136e68fa68b25f4a29c977a76b70423"
     },
     {
       "mode": "0644",
@@ -204,7 +204,7 @@
     {
       "mode": "0644",
       "path": "docs/language-reference.md",
-      "sha256": "8c754195052dfde1a1e9a54a85d37f816590e4f8cd2f9ea57d99a8fe78e4d615"
+      "sha256": "d755b1f2cfa6c2c48abdb45c8721bdf0808f0b8b506b95865634ca8aab479f75"
     },
     {
       "mode": "0644",
@@ -994,7 +994,7 @@
     {
       "mode": "0644",
       "path": "release/status.json",
-      "sha256": "8cf7abd616ce2af8120b8e2814dd77325741e9ce22a508051f52cef2ed6cd1b8"
+      "sha256": "e0791207925ceae900eb07020ec036279e9a3f68843cefb4ce64b391dcbeb0cb"
     },
     {
       "mode": "0644",
@@ -2089,7 +2089,7 @@
     {
       "mode": "0644",
       "path": "tests/packaging/test_stdlib_packaging.py",
-      "sha256": "6fbed3190acd3f5be185afc5e16e4d2ea4200e55ab1d1d61105be0afe3e9ab30"
+      "sha256": "3de20afc1b375f77d57a637272a81d0631bc4bfe70867b3103ffcea6407746ca"
     },
     {
       "mode": "0644",
@@ -2369,7 +2369,7 @@
     {
       "mode": "0644",
       "path": "tests/release/test_public_tree.py",
-      "sha256": "d2e79e89ccd59331c12030fcf0a189920a2d12bc44f9bae43d5c6639aefce32f"
+      "sha256": "3b6e3225d717aa1a488d005c132f205c0073b70092d1ecd753e248d6b197a541"
     },
     {
       "mode": "0644",
@@ -3279,7 +3279,7 @@
     {
       "mode": "0644",
       "path": "tests/test_release_surface.py",
-      "sha256": "b241c16dfe42d0e9c6d659981dc17bbb690e133e342cdc6b368095b318e50a7c"
+      "sha256": "ca90f209df219d766c06a189b184b4ee4a1d5682619b39ccde0e774969bbeb57"
     },
     {
       "mode": "0644",
@@ -3449,7 +3449,7 @@
     {
       "mode": "0644",
       "path": "zlang/_version.py",
-      "sha256": "3c378a880cac6a1107dd28654aca6022bfbe22df63d08c02aee111b7343d283a"
+      "sha256": "599e103c4b570a3d71b820212fffad8ae017bca5b583dabf3e5afd1b91f731a1"
     },
     {
       "mode": "0644",

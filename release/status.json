@@ -3,7 +3,7 @@
   "release": {
     "channel": "alpha",
     "repository": "https://github.com/postoroniy/zlang-hdl",
-    "version": "0.1.0a8"
+    "version": "0.1.0a9"
   },
   "platform": {
     "operating_system": "Linux",
@@ -34,10 +34,10 @@
     "format": "PDF-1.5",
     "pages": 93,
     "pdf": "docs/ZLang-HDL-Language-Reference.pdf",
-    "pdf_sha256": "9a811afd5fb46f3f65327ede14397a7af328076dddebaa01a352b14ade78cbe1",
+    "pdf_sha256": "bb4691dde16239715a1842e8a525386b1136e68fa68b25f4a29c977a76b70423",
     "sources": {
       "docs/language-quick-reference.md": "adcc35580de824099243a80a1ccb385e24d5e8c4a563af07baa8ef85c73507b5",
-      "docs/language-reference.md": "8c754195052dfde1a1e9a54a85d37f816590e4f8cd2f9ea57d99a8fe78e4d615"
+      "docs/language-reference.md": "d755b1f2cfa6c2c48abdb45c8721bdf0808f0b8b506b95865634ca8aab479f75"
     }
   },
   "generated_by": "tools/release_status.py"

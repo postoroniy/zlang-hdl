@@ -11,7 +11,21 @@ incompatible input explicitly.
 
 ## Unreleased
 
-## 0.1.0a8 — 2026-09-17
+## 0.1.0a9 — 2026-09-17
+
+### Changed
+
+- Consolidated the Community documentation into the maintained language
+  reference, quick reference, and one reviewed 93-page PDF with the ZLang HDL
+  cover on its title page. PDF build collateral remains outside the public
+  projection.
+- Reduced the VS Code package to a deterministic 13-file runtime bundle,
+  required the current supported VS Code line, and exercised Definition and
+  References through the installed VSIX host.
+- Tightened the exact-public-tree, release metadata, reproducible-package,
+  dependency, and hosted editor gates used to publish Community artifacts.
+
+## 0.1.0a8 — 2026-09-16
 
 ### Changed
 
