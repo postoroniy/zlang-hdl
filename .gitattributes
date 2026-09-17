@@ -12,6 +12,6 @@
 *.toml text
 *.yml text
 *.yaml text
+*.pdf binary
 
 examples/generated/** linguist-generated=true
-

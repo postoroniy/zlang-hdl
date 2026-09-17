@@ -9,7 +9,7 @@ Qwen should use the tracked project skill at
 page remains the concise language authority shared by humans and assistants.
 
 For an unfamiliar construct, consult the
-[syntax support matrix](syntax-support-matrix.md). For exact width tables and
+[syntax support matrix](language-reference.md#reference-syntax-support-matrix). For exact width tables and
 backend limits, follow the linked topic guide rather than guessing syntax.
 
 ## Non-negotiable rules
@@ -107,7 +107,7 @@ and `SF_Sat8.8`.
   `item0` occupy the least-significant component recursively. First-declared
   struct fields and tagged-union tags remain at the MSB.
 
-See [types and numerics](types-and-numerics.md) before changing a width or a
+See [types and numerics](language-reference.md#reference-types-and-numerics) before changing a width or a
 fixed-point type.
 
 ## Aggregates and functions
@@ -160,8 +160,8 @@ qualifier but does not create a runtime namespace.
 - Top-level structs and tuples become recursively named leaf ports; vectors use
   multidimensional packed arrays in the production direct-SystemVerilog ABI.
 
-Read [sequential state/storage](sequential-state-storage.md) and
-[hierarchy/protocols](hierarchy-protocols.md) before composing stateful children.
+Read [sequential state/storage](language-reference.md#reference-sequential-state-storage) and
+[hierarchy/protocols](language-reference.md#reference-hierarchy-protocols) before composing stateful children.
 
 ## Functional datapath and implementation intent
 
@@ -190,7 +190,7 @@ candidates require a valid clock/reset context. `choice` is reserved for
 user-authored equivalent alternatives. Egglog supplies only frozen pure scalar
 value rewrites; it does not schedule pipelines or state.
 
-See [optimization and formal](optimization-formal.md) before adding or changing
+See [optimization and formal](language-reference.md#reference-optimization-formal) before adding or changing
 an implementation policy.
 
 ## Verification
@@ -210,7 +210,7 @@ reachability; a missed cover is not an unreachability proof. BMC produces
 hardware or feed optimizer range inference.
 
 Do not add liveness, arbitrary SVA/SMT, temporal sequences, new observation
-families, or source-level semantic-reference equivalence/retired cross-backend equivalence controls. Use the existing
+families or source-level semantic-reference equivalence controls. Use the existing
 [formal examples](../examples/verification/README.md) and compiler-owned routes.
 
 ## Commands and completion check
@@ -231,5 +231,6 @@ Before calling a source change complete:
    task.
 
 If a requested form is absent from this page, check the
-[syntax matrix](syntax-support-matrix.md) and [known limitations](known-limitations.md).
+[syntax matrix](language-reference.md#reference-syntax-support-matrix) and
+[known limitations](language-reference.md#reference-known-limitations).
 Do not infer support from dated design-freeze examples.

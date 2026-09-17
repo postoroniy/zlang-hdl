@@ -70,10 +70,9 @@ boundaries remain explicit numerical intent.
 - Ready/valid backpressure holds payload and metadata. Reset starts a new packet
   epoch and discards incomplete work.
 
-The detailed numerical contract is in
-[the IFFT64 contract](../../../docs/80211a-ifft64-contract.md). Full conversion
-evidence and historical BSV discrepancies are retained in
-[the validation report](../../../docs/80211a-transmitter-validation.md).
+The numerical contract is executable in the project source and reference
+vectors. The complete compiler and numeric semantics are documented in the
+[Community language reference](../../../docs/language-reference.md).
 
 ## Build and check
 

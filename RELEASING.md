@@ -118,13 +118,22 @@ separately installed `zlang-lsp`; it does not contain the Python compiler/server
 The editor version remains independent of the compiler alpha version. Attaching
 the VSIX to this GitHub release does not publish it to Marketplace or Open VSX.
 
+The release also carries the reviewed Community language-reference PDF from
+`docs/ZLang-HDL-Language-Reference.pdf`, renamed with the release tag in the
+download payload. Its exact PDF and Markdown-source digests are recorded in
+`release/status.json`; the release workflow copies these already-reviewed bytes
+and does not rebuild the document. PDF authoring templates, TeX dependencies,
+rendered page images, and other build collateral remain host-local. The PDF is
+covered by `SHA256SUMS` and attestation, but is deliberately absent from the
+runtime wheel, source distribution, and VSIX.
+
 Validate the immutable public checkout before installing build dependencies.
 Installed npm tooling and generated package environments are not public source;
 validate a fresh clean export when rechecking the publication manifest.
 
 Install the release tools in an active compatible environment
 (`CPython >=3.12,<3.13`; `uv` may provision it as documented in
-[`docs/installing-toolchain.md`](docs/installing-toolchain.md)), then build from a
+[installation chapter](docs/language-reference.md#reference-installing-toolchain)), then build from a
 clean checkout with a fixed `SOURCE_DATE_EPOCH`:
 
 ```bash
@@ -149,8 +158,9 @@ the checkout.
    candidate wheel. The current setuptools sdist contains generated timestamps,
    so it is rebuilt and content-validated but is not claimed byte-reproducible.
 4. Publish a GitHub release containing wheel, source distribution, the lexical
-   editor VSIX and its audit JSON, `SHA256SUMS`, SBOM, provenance attestation,
-   and release notes. VSIX ZIP bytes are not claimed reproducible: verify the
+   editor VSIX and its audit JSON, the reviewed language-reference PDF,
+   `SHA256SUMS`, SBOM, provenance attestation, and release notes. VSIX ZIP bytes
+   are not claimed reproducible: verify the
    actual hosted artifact's hash, exact-tag audit rerun and GitHub source-bound
    attestation before publication.
 5. Verify the published artifacts in a fresh environment.

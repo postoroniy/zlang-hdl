@@ -74,11 +74,5 @@ For project work, inspect `zlang.toml`/`zlang.lock` and pass `--project` or
 `--profile` when the design requires them. Compilation is offline/non-mutating;
 dependency fetching belongs to an explicit lock update, not ordinary compile.
 
-Read these authoritative topic guides as needed:
-
-- `docs/types-and-numerics.md`
-- `docs/expressions-functions-generics.md`
-- `docs/sequential-state-storage.md`
-- `docs/hierarchy-protocols.md`
-- `docs/projects-dependencies.md`
-- `docs/direct-systemverilog.md`
+Read the authoritative `docs/language-reference.md` and use its table of
+contents to select the relevant language, project, or RTL chapter.

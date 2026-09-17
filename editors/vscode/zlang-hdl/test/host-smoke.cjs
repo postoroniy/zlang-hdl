@@ -7,10 +7,12 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const vscode = require('vscode');
+const toolchain = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../editor-toolchain.json'), 'utf8'));
 
 const extensionId = 'postoroniy.zlang-hdl';
 const languageId = 'zlang-hdl';
 const snippetName = 'Clocked module';
+const hostSmokeTimeoutMs = 120_000;
 
 function inside(parent, candidate) {
   const relative = path.relative(parent, candidate);
@@ -42,6 +44,8 @@ async function replace(editor, text) {
 
 async function checkHost() {
   console.log(`ZLang editor host smoke: VS Code ${vscode.version}`);
+  assert.equal(vscode.version, toolchain.vscodeStable.version,
+    'host smoke must run on the exact current stable VS Code version');
   const expectedPath = process.env.ZLANG_EDITOR_SMOKE_EXTENSION;
   assert.ok(expectedPath && path.isAbsolute(expectedPath),
     'ZLANG_EDITOR_SMOKE_EXTENSION must identify the absolute installed VSIX directory');
@@ -58,14 +62,20 @@ async function checkHost() {
   assert.equal(extension.id, extensionId);
   const manifest = extension.packageJSON;
   assert.equal(manifest.version, '0.1.0');
-  assert.equal(manifest.main, './extension.js');
+  assert.equal(manifest.main, './dist/extension.js');
+  assert.equal(manifest.engines.vscode, `^${toolchain.vscodeStable.version}`);
   assert.equal(Object.hasOwn(manifest, 'activationEvents'), false);
-  assert.deepEqual(manifest.dependencies, { 'vscode-languageclient': '^9.0.1' });
+  assert.deepEqual(manifest.dependencies, { 'vscode-languageclient': toolchain.vscodeLanguageClient });
   assert.equal(fs.existsSync(path.join(installedPath, 'node_modules')), false,
-    'Development node_modules must not be shipped');
-  assert.equal(fs.existsSync(path.join(
-    installedPath, 'vendor', 'node_modules', 'vscode-languageclient', 'lib', 'node', 'main.js')),
-  true, 'Production language-client runtime is missing');
+    'node_modules must not be shipped');
+  assert.equal(fs.existsSync(path.join(installedPath, 'vendor')), false,
+    'legacy vendor dependency trees must not be shipped');
+  assert.equal(fs.existsSync(path.join(installedPath, 'extension.js')), false,
+    'the unbundled source entrypoint must not be shipped');
+  assert.equal(fs.lstatSync(path.join(installedPath, 'dist', 'extension.js')).isFile(), true,
+    'bundled runtime is missing');
+  assert.equal(fs.lstatSync(path.join(installedPath, 'THIRD_PARTY_NOTICES.txt')).isFile(), true,
+    'third-party notices are missing');
   const language = manifest.contributes.languages.find((item) => item.id === languageId);
   assert.ok(language, 'Missing installed language contribution');
   assert.deepEqual(language.extensions, ['.zhl']);
@@ -97,7 +107,7 @@ async function checkHost() {
     assert.notEqual(documents[suffix].languageId, languageId, `Unexpected .${suffix} association`);
   }
 
-  const editor = await vscode.window.showTextDocument(documents.zhl, { preview: false });
+  let editor = await vscode.window.showTextDocument(documents.zhl, { preview: false });
   editor.options = { insertSpaces: true, tabSize: 4 };
   const configuration = vscode.workspace.getConfiguration('editor', documents.zhl.uri);
   await configuration.update('autoIndent', 'full', vscode.ConfigurationTarget.WorkspaceFolder);
@@ -212,7 +222,9 @@ async function checkHost() {
 
   // Navigation providers may change VS Code's active editor; restore the
   // scratch UI fixture before exercising typing and snippet commands.
-  await vscode.window.showTextDocument(document, { preview: false });
+  editor = await vscode.window.showTextDocument(document, { preview: false });
+  assert.equal(vscode.window.activeTextEditor, editor,
+    'scratch fixture must be the active editor before editor commands run');
 
   await replace(editor, 'in x : u8');
   editor.selection = new vscode.Selection(0, 0, 0, document.lineAt(0).text.length);
@@ -281,7 +293,9 @@ exports.run = async function run() {
     await Promise.race([
       checkHost(),
       new Promise((_, reject) => {
-        timer = setTimeout(() => reject(new Error('Editor host smoke exceeded 45 seconds')), 45000);
+        timer = setTimeout(() => reject(new Error(
+          `Editor host smoke exceeded ${hostSmokeTimeoutMs / 1000} seconds`,
+        )), hostSmokeTimeoutMs);
       }),
     ]);
   } finally {

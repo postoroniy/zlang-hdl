@@ -108,6 +108,7 @@ def test_wheel_contains_and_resolves_every_shipped_stdlib_module(tmp_path: Path)
 
     expected = _stdlib_members(source)
     with zipfile.ZipFile(wheels[0]) as archive:
+        wheel_members = tuple(archive.namelist())
         metadata_name = next(
             name for name in archive.namelist()
             if name.endswith(".dist-info/METADATA")
@@ -116,11 +117,13 @@ def test_wheel_contains_and_resolves_every_shipped_stdlib_module(tmp_path: Path)
         packaged = tuple(
             sorted(
                 name.split(".data/data/", 1)[1]
-                for name in archive.namelist()
+                for name in wheel_members
                 if ".data/data/stdlib/" in name and name.endswith(".zhl")
             )
         )
     assert packaged == expected
+    assert not any(name.lower().endswith(".pdf") for name in wheel_members)
+    assert not any("/docs/" in name for name in wheel_members)
     assert "stdlib/math/complex.zhl" in packaged
     assert "stdlib/stream/core.zhl" in packaged
     assert "stdlib/stream/serialization.zhl" in packaged
@@ -169,6 +172,8 @@ def test_wheel_contains_and_resolves_every_shipped_stdlib_module(tmp_path: Path)
     assert any(name.endswith("/NOTICE") for name in sdist_members)
     assert any(name.endswith("/stdlib/math/complex.zhl") for name in sdist_members)
     assert not any("/tests/" in name for name in sdist_members)
+    assert not any("/docs/" in name for name in sdist_members)
+    assert not any(name.lower().endswith(".pdf") for name in sdist_members)
 
     installed = tmp_path / "installed"
     install = subprocess.run(

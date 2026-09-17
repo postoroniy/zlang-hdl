@@ -1,0 +1,10 @@
+{
+  "schema": 1,
+  "vscodeStable": {
+    "version": "1.138.0",
+    "commit": "7debcd0e2acdea1c52de81bf9ee1620444407dda"
+  },
+  "vscodeLanguageClient": "10.1.1",
+  "esbuild": "0.28.2",
+  "vscodeTestElectron": "3.1.0"
+}

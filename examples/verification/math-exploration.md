@@ -180,15 +180,12 @@ all-path `results.json`; future fresh runs query register-only paths directly.
 Exact source SHA256:
 `db002f4b7aaa492e673d9210f55eb060c5355045f849ff1be613845261534c14`.
 The same source snapshot produced the numerical, formal and timing evidence.
-This table records the pre-retirement dual-backend experiment. Current
-production verification executes only the direct-SV semantic-reference equivalence/formal-aware selection row; the Clash and
-retired cross-backend equivalence rows are historical evidence.
+Current production verification executes the direct-SV semantic-reference and
+formal-aware selection routes.
 
 | Check | Recorded result |
 | --- | --- |
-| `MathExplore`: canonical reference ↔ Clash | `bounded_pass depth=10` |
 | `MathExplore`: canonical reference ↔ direct-SV | `bounded_pass depth=10` |
-| `MathExplore`: Clash ↔ direct-SV | `bounded_pass depth=10` |
 | Too-shallow pipeline comparison | depth 7 `unknown`, minimum meaningful depth 8 |
 | Output-bit-flip mutation | `failed`, counterexample at formal cycle 8 |
 | Missing-final-stage mutation | `failed`, counterexample at formal cycle 8 |

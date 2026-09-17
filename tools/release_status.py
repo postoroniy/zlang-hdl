@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import hashlib
 import json
 from pathlib import Path
 import re
@@ -18,10 +19,55 @@ import xml.etree.ElementTree as ET
 
 DEFAULT_STATUS = Path("release/status.json")
 CORPUS_TEST = Path("tests/systemverilog/test_example_coverage.py")
+COMMUNITY_PDF = Path("docs/ZLang-HDL-Language-Reference.pdf")
+COMMUNITY_PDF_SOURCES = (
+    Path("docs/language-reference.md"),
+    Path("docs/language-quick-reference.md"),
+)
 
 
 class StatusError(RuntimeError):
     pass
+
+
+def _sha256(path: Path) -> str:
+    try:
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+    except OSError as exc:
+        raise StatusError(f"cannot read {path}: {exc}") from exc
+
+
+def _check_documentation(root: Path, documentation: object) -> None:
+    if not isinstance(documentation, dict):
+        raise StatusError("release status is missing documentation metadata")
+    expected_keys = {"format", "pages", "pdf", "pdf_sha256", "sources"}
+    if set(documentation) != expected_keys:
+        raise StatusError("documentation metadata has unexpected or missing fields")
+    if documentation.get("pdf") != COMMUNITY_PDF.as_posix():
+        raise StatusError("documentation.pdf must name the reviewed Community PDF")
+    pdf = root / COMMUNITY_PDF
+    try:
+        payload = pdf.read_bytes()
+    except OSError as exc:
+        raise StatusError(f"cannot read {pdf}: {exc}") from exc
+    if not payload.startswith(b"%PDF-1.5") or not payload.rstrip().endswith(b"%%EOF"):
+        raise StatusError("Community reference is not the reviewed PDF 1.5 envelope")
+    if len(payload) > 20 * 1024 * 1024:
+        raise StatusError("Community reference PDF exceeds the 20 MiB release bound")
+    if documentation.get("pdf_sha256") != hashlib.sha256(payload).hexdigest():
+        raise StatusError("Community reference PDF digest is stale")
+    if documentation.get("format") != "PDF-1.5":
+        raise StatusError("documentation format must be PDF-1.5")
+    pages = documentation.get("pages")
+    if not isinstance(pages, int) or pages <= 0:
+        raise StatusError("documentation page count must be a positive integer")
+    sources = documentation.get("sources")
+    expected_sources = {path.as_posix() for path in COMMUNITY_PDF_SOURCES}
+    if not isinstance(sources, dict) or set(sources) != expected_sources:
+        raise StatusError("documentation sources must be the two public Markdown guides")
+    for source in COMMUNITY_PDF_SOURCES:
+        if sources[source.as_posix()] != _sha256(root / source):
+            raise StatusError(f"documentation source digest is stale: {source}")
 
 
 def _load_json(path: Path) -> dict:
@@ -156,14 +202,15 @@ def validate(
     root = root.resolve()
     path = status_path if status_path.is_absolute() else root / status_path
     status = _load_json(path)
-    if status.get("schema") != 1:
-        raise StatusError("release status schema must be 1")
+    if status.get("schema") != 2:
+        raise StatusError("release status schema must be 2")
     release = status.get("release")
     validation = status.get("validation")
     platform = status.get("platform")
     tools = status.get("eda_toolchain")
     if not all(isinstance(item, dict) for item in (release, validation, platform, tools)):
         raise StatusError("release status is missing required object sections")
+    _check_documentation(root, status.get("documentation"))
     pyproject = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
     project_version = _project_version(root, pyproject)
     if release.get("version") != project_version:

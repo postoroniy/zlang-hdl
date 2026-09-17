@@ -33,8 +33,9 @@ into those Python distributions.
 
 Dependency declarations, REUSE checks, artifact hashes and SBOMs support release
 review. They do not independently establish authorship, patent clearance or
-permission to redistribute material imported from another project. GHC and
-Clash are not compiler, package, CI, or release dependencies.
+permission to redistribute material imported from another project. External
+toolchains are not compiler, package, CI, or release dependencies unless a
+corresponding validation flow is requested.
 
 These documents explain project policy and the inspected distribution paths.
 They do not change any license, grant rights over third-party material, or

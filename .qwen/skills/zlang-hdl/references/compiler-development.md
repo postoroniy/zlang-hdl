@@ -60,10 +60,9 @@ compile: negative diagnostics, mutations, reset/stall traces, proof-status
 classification, packaging, and numerical boundaries need independent tests.
 
 Do not add a skip to hide a regression, treat missing production tools as
-success, run retired Clash tests, or claim release acceptance from a focused
+success, or claim release acceptance from a focused
 suite. Preserve unrelated dirty/untracked work and generated artifacts outside
 tracked source.
 
-Read `docs/testing.md`, `docs/compiler-library-audit.md`,
-`docs/backends-tooling.md`, and `docs/tooling-integration-api.md` when those
-surfaces are touched.
+Read the testing, backend, and tooling chapters in
+`docs/language-reference.md` when those surfaces are touched.

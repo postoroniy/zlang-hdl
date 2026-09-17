@@ -51,6 +51,8 @@ class ProjectionConfig:
     forbidden_substrings: tuple[str, ...]
     forbidden_regex: tuple[re.Pattern[str], ...]
     text_extensions: frozenset[str]
+    binary_files: tuple[str, ...]
+    binary_max_bytes: int
 
 
 def _relative(path: Path, root: Path) -> str:
@@ -67,8 +69,8 @@ def _load_config(source: Path, config_path: Path) -> ProjectionConfig:
         raw = tomllib.loads(path.read_text(encoding="utf-8"))
     except (OSError, tomllib.TOMLDecodeError) as exc:
         raise ProjectionError(f"cannot load projection config {path}: {exc}") from exc
-    if raw.get("schema") != 1:
-        raise ProjectionError("public-tree.toml schema must be 1")
+    if raw.get("schema") != 2:
+        raise ProjectionError("public-tree.toml schema must be 2")
     projection = raw.get("projection")
     content = raw.get("content")
     if not isinstance(projection, dict) or not isinstance(content, dict):
@@ -113,6 +115,20 @@ def _load_config(source: Path, config_path: Path) -> ProjectionConfig:
         )
     if not isinstance(repository, str) or not repository.startswith("https://github.com/"):
         raise ProjectionError("projection.repository must be a GitHub HTTPS URL")
+    binary_files = strings(content, "binary_files")
+    for binary in binary_files:
+        binary_path = PurePosixPath(binary)
+        if (
+            binary_path.is_absolute()
+            or binary_path.as_posix() != binary
+            or any(part in ("", ".", "..") for part in binary_path.parts)
+            or "\\" in binary
+        ):
+            raise ProjectionError(f"binary_files contains unsafe path: {binary!r}")
+    binary_max_bytes = content.get("binary_max_bytes")
+    if not isinstance(binary_max_bytes, int) or binary_max_bytes <= 0:
+        raise ProjectionError("binary_max_bytes must be a positive integer")
+
     return ProjectionConfig(
         path=path,
         manifest=manifest,
@@ -127,6 +143,8 @@ def _load_config(source: Path, config_path: Path) -> ProjectionConfig:
         text_extensions=frozenset(
             strings(content, "text_extensions", allow_empty_items=True)
         ),
+        binary_files=binary_files,
+        binary_max_bytes=binary_max_bytes,
     )
 
 
@@ -195,6 +213,33 @@ def _decode_text(path: Path, relative: str, config: ProjectionConfig) -> str:
         return path.read_text(encoding="utf-8")
     except UnicodeDecodeError as exc:
         raise ProjectionError(f"public file is not UTF-8 text: {relative}") from exc
+
+
+def _check_binary(path: Path, relative: str, config: ProjectionConfig) -> None:
+    if relative not in config.binary_files:
+        raise ProjectionError(f"unreviewed binary/file format in public tree: {relative}")
+    size = path.stat().st_size
+    if size <= 0 or size > config.binary_max_bytes:
+        raise ProjectionError(
+            f"public binary size is outside the reviewed bound: {relative} ({size} bytes)"
+        )
+    data = path.read_bytes()
+    if not data.startswith(b"%PDF-") or not data.rstrip().endswith(b"%%EOF"):
+        raise ProjectionError(f"reviewed PDF has an invalid envelope: {relative}")
+    forbidden = (
+        b"/JavaScript",
+        b"/JS",
+        b"/Launch",
+        b"/EmbeddedFile",
+        b"/RichMedia",
+        b"/OpenAction",
+        b"/AcroForm",
+    )
+    active = [token.decode("ascii") for token in forbidden if token in data]
+    if active:
+        raise ProjectionError(
+            f"reviewed PDF contains forbidden active content {active!r}: {relative}"
+        )
 
 
 def _check_required(selected: set[str], source: Path, config: ProjectionConfig) -> None:
@@ -386,9 +431,26 @@ def validate_source(source: Path, config_path: Path = DEFAULT_CONFIG) -> tuple[P
     selected = {_relative(path, source) for path in selected_paths}
     _check_required(selected, source, config)
     _check_closure_roots(all_files, selected, source, config)
-    text_by_path = {
-        _relative(path, source): _decode_text(path, _relative(path, source), config)
+    selected_binaries = {
+        relative
         for path in selected_paths
+        if (relative := _relative(path, source)) in config.binary_files
+    }
+    if selected_binaries != set(config.binary_files):
+        raise ProjectionError(
+            "reviewed binary allow-list does not match selected public binaries"
+        )
+    pdfs = {relative for relative in selected_binaries if relative.endswith(".pdf")}
+    if config.binary_files and pdfs != {"docs/ZLang-HDL-Language-Reference.pdf"}:
+        raise ProjectionError("Community public tree must contain exactly one reviewed PDF")
+    for path in selected_paths:
+        relative = _relative(path, source)
+        if relative in selected_binaries:
+            _check_binary(path, relative, config)
+    text_by_path = {
+        relative: _decode_text(path, relative, config)
+        for path in selected_paths
+        if (relative := _relative(path, source)) not in selected_binaries
     }
     _check_content(text_by_path, config)
     _check_markdown_links(text_by_path, selected, source)
