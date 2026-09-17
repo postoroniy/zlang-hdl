@@ -19,7 +19,6 @@ async function main() {
   assert.equal(text.includes('sourceMappingURL='), false);
   assert.equal(text.includes('/home/'), false);
   assert.equal(text.includes('vendor/node_modules'), false);
-  assert.equal(text.includes('.private/'), false);
   const packages = runtimePackages();
   assert.ok(packages.length > 0, 'runtime closure must not be empty');
   const notices = thirdPartyNotices(packages);

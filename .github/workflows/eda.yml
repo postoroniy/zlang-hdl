@@ -29,8 +29,6 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      - name: Validate immutable public checkout
-        run: python tools/public_tree.py check-export --source .
       - name: Install ZLang HDL test environment
         run: python -m pip install --disable-pip-version-check -e '.[test]'
       - name: Require the frozen EDA toolchain

@@ -1,6 +1,6 @@
 # ZLang HDL Community Language Reference
 
-Version 0.1.0a9
+Version 0.1.0a10
 
 This is the complete user-facing reference for the ZLang HDL Community compiler.
 The backend-independent typed IR defines language semantics, and direct
@@ -3094,8 +3094,7 @@ while busy. No compiler, simulator, or backend dispatches on AXI names.
 This profile deliberately omits IDs, WSTRB, burst-kind, lock, cache, protection,
 QoS, region and user fields, multiple outstanding transactions, UB-DMA burst
 chunking, command-descriptor decoding, fences, CDC, or implicit adaptation. Its
-accepted semantic boundary is recorded in the private ZTPU AXI burst design
-freeze; the public contract is the bounded profile stated above.
+accepted semantic boundary is the bounded profile stated above.
 
 <a id="reference-standard-bus-library-historical-migration-record"></a>
 ### Historical migration record
@@ -5107,8 +5106,8 @@ identity/occurrence records.  The previously eager records were therefore
 its candidate/detail builders), and `signature_help_calls`.  All are now
 allocated only when their corresponding need is present.
 
-The API is intentionally generic. It does not expose private product features,
-session state, autonomous behavior or a plugin-specific command surface.
+The API is intentionally generic. It does not expose session state, autonomous
+behavior or a plugin-specific command surface.
 
 <a id="reference-tooling-integration-api-diagnostic-edits"></a>
 ### Diagnostic edits
@@ -6358,7 +6357,7 @@ tour, not a substitute for that phase-specific capability record.
 ## Known limitations
 
 
-ZLang `0.1.0a9` is an experimental alpha release.  The compiler deliberately
+ZLang `0.1.0a10` is an experimental alpha release.  The compiler deliberately
 fails closed when a design falls outside a validated language/backend
 intersection: it must not publish RTL after silently dropping an IR entity.
 

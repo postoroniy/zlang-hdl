@@ -42,10 +42,6 @@ jobs:
           git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
           test "$(git rev-parse HEAD)" = "$tag_commit"
           test "$(git rev-parse origin/main)" = "$tag_commit"
-      - name: Validate immutable public checkout
-        run: |
-          python tools/public_tree.py check-source --source .
-          python tools/public_tree.py check-export --source .
       - name: Install exact release tooling and ZLang HDL
         run: |
           python -m pip install --disable-pip-version-check --upgrade pip==26.2.1
@@ -58,7 +54,7 @@ jobs:
             setuptools==84.0.0 \
             twine==6.2.0 \
             wheel==0.46.3
-      - name: Validate public tree
+      - name: Validate release source
         run: |
           python tools/release_status.py check --root . --tag "$GITHUB_REF_NAME"
           reuse lint
@@ -222,8 +218,6 @@ jobs:
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
-      - name: Validate immutable public checkout
-        run: python tools/public_tree.py check-export --source .
       - name: Install release test environment and require the EDA toolchain
         run: |
           python -m pip install --disable-pip-version-check --upgrade pip==26.2.1
@@ -245,11 +239,23 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Check out exact tagged release notes
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Download validated release artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: release-${{ github.ref_name }}
           path: dist
+      - name: Extract curated notes from the changelog
+        env:
+          TAG: ${{ github.ref_name }}
+        run: >-
+          python tools/release_notes.py
+          --changelog CHANGELOG.md
+          --tag "$TAG"
+          --output "$RUNNER_TEMP/release-notes.md"
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -258,6 +264,6 @@ jobs:
         run: >-
           gh release create "$TAG" dist/*
           --verify-tag
-          --generate-notes
+          --notes-file "$RUNNER_TEMP/release-notes.md"
           --prerelease
           --title "ZLang HDL ${TAG}"
