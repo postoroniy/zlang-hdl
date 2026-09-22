@@ -8,6 +8,30 @@ struct AxiBurstAddress<AW=32> {
     size : u3
 }
 
+// A full-width one-beat address.  The payload is meaningful only when valid
+// is set; unsupported geometry or an unaligned address must be rejected
+// before asserting AR/AWVALID.
+struct AxiSingleBeatAddressResult<AW=32> {
+    payload : AxiBurstAddress<AW>
+    valid : bit
+}
+
+fn axi_single_beat_address<AW,DW>(address : uint<AW>)
+    -> AxiSingleBeatAddressResult<AW> {
+    alignment_mask = extend<AW>((DW / 8) - 1)
+    size_code = extend<3>(floor_log2(DW / 8))
+    geometry_valid = (DW >= 8) & (DW <= 1024) &
+        is_power_of_two(DW) & is_power_of_two(DW / 8)
+    AxiSingleBeatAddressResult {
+        payload = AxiBurstAddress {
+            addr = address
+            len = 0
+            size = size_code
+        }
+        valid = geometry_valid & ((address & alignment_mask) == 0)
+    }
+}
+
 struct AxiBurstReadData<DW=32> {
     data : uint<DW>
     last : bit
@@ -223,6 +247,106 @@ where AW >= 1 && AW >= floor_log2(DW / 8) &&
                 }
             }
         }
+        Response {
+            when axi.b.transfer -> Done {
+                failed <- failed | (axi.b.payload.resp != 0)
+            }
+        }
+        Done { -> Idle {} }
+    }
+}
+
+// One full-width read, with the same counted RLAST/RRESP checks as the burst
+// reader.  The fixed length is a source-level specialization, not a new bus.
+module AXI4SingleBeatReader<AW=32,DW=32>
+where AW >= 1 && AW >= floor_log2(DW / 8) &&
+      DW >= 8 && DW <= 1024 &&
+      is_power_of_two(DW) && is_power_of_two(DW / 8) {
+    clock clk reset rst
+    in start : bit
+    in address : uint<AW>
+    out busy : bit
+    out done : bit
+    out error : bit
+    out data : rv<uint<DW>>
+    interface axi : AXI4BurstReadSubset<AW,DW>.master @clk
+
+    reader : AXI4BurstReader<AW,DW,9> {
+        start
+        base_addr=address
+        length=1
+    }
+    axi -> reader.axi
+    reader.data -> data
+    busy = reader.busy
+    done = reader.done
+    error = reader.error
+}
+
+enum AxiSingleBeatWritePhase {
+    Idle
+    Send
+    Response
+    Done
+}
+
+// AW and W may each be accepted first.  Both payloads are snapshotted on
+// start and held until their own handshakes; B is accepted only after both.
+module AXI4SingleBeatWriter<AW=32,DW=32>
+where AW >= 1 && AW >= floor_log2(DW / 8) &&
+      DW >= 8 && DW <= 1024 &&
+      is_power_of_two(DW) && is_power_of_two(DW / 8) {
+    clock clk reset rst
+    in start : bit
+    in address : uint<AW>
+    in data : uint<DW>
+    out busy : bit
+    out done : bit
+    out error : bit
+    interface axi : AXI4BurstWriteSubset<AW,DW>.master @clk
+
+    reg address_q : AxiBurstAddress<AW> = AxiBurstAddress {
+        addr = 0 len = 0 size = 0
+    }
+    reg data_q : uint<DW> = 0
+    reg aw_done : bit = 0
+    reg w_done : bit = 0
+    reg failed : bit = 0
+
+    command = axi_single_beat_address<AW,DW>(address)
+    both_done : bit = (aw_done | axi.aw.transfer) &
+                      (w_done | axi.w.transfer)
+
+    busy = (phase == AxiSingleBeatWritePhase.Send) |
+           (phase == AxiSingleBeatWritePhase.Response)
+    done = phase == AxiSingleBeatWritePhase.Done
+    error = failed
+
+    axi.aw.valid = (phase == AxiSingleBeatWritePhase.Send) & !aw_done
+    axi.aw.payload = address_q
+    axi.w.valid = (phase == AxiSingleBeatWritePhase.Send) & !w_done
+    axi.w.payload = AxiBurstWriteData { data = data_q last = 1 }
+    axi.b.ready = phase == AxiSingleBeatWritePhase.Response
+
+    when phase == AxiSingleBeatWritePhase.Send {
+        aw_done <- aw_done | axi.aw.transfer
+        w_done <- w_done | axi.w.transfer
+    }
+
+    fsm phase : AxiSingleBeatWritePhase = Idle {
+        Idle {
+            priority {
+                when start & command.valid -> Send {
+                    address_q <- command.payload
+                    data_q <- data
+                    aw_done <- 0
+                    w_done <- 0
+                    failed <- 0
+                }
+                when start -> Done { failed <- 1 }
+            }
+        }
+        Send { when both_done -> Response {} }
         Response {
             when axi.b.transfer -> Done {
                 failed <- failed | (axi.b.payload.resp != 0)

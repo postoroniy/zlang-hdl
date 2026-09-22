@@ -23,6 +23,11 @@ from zlang.ir.equivalence import BindingMap, BindingSide, EquivalenceBinding, Si
 from zlang.ir.formal_observations import request_response_observation_id
 from zlang.ir.physical_types import physical_width
 from zlang.ir.packing import PACKING_LAYOUT_SCHEMA
+from zlang.ir.normalization import NORMALIZATION_SCHEMA
+from zlang.backend.expression_materialization import (
+    DIRECT_SV_DAG_SCHEMA,
+    FUNCTIONAL_REGION_EMISSION_SCHEMA,
+)
 from zlang.ir.interfaces import InterfaceProtocol
 from zlang.ir.cdc import (
     ClockDomain,
@@ -565,8 +570,11 @@ class BackendArtifact:
         """Identity of emitted RTL in its exact locked semantic context."""
 
         payload: dict[str, object] = {
-            "schema": "zlang-backend-build-v2",
+            "schema": "zlang-backend-build-v4",
             "packing_layout_schema": PACKING_LAYOUT_SCHEMA,
+            "selected_value_normalization_schema": NORMALIZATION_SCHEMA,
+            "functional_region_emission_schema": FUNCTIONAL_REGION_EMISSION_SCHEMA,
+            "direct_sv_dag_schema": DIRECT_SV_DAG_SCHEMA,
             "backend": self.backend,
             "module": self.module,
             "selected_ir_identity": self.selected_ir_identity,

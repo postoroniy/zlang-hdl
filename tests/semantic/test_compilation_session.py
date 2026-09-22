@@ -20,6 +20,7 @@ from zlang.compiler import (
     compile_file_snapshot,
     compile_source,
 )
+from zlang.ir import expressions as ir_expr
 from zlang.source_identity import SourceExtensionError
 from zlang.semantic import SemanticError
 
@@ -113,6 +114,21 @@ def test_products_and_failures_are_memoized_once_per_session(monkeypatch) -> Non
     assert broken.failed_products == ("syntax", "semantic")
 
 
+def test_inline_locals_preserves_shared_expression_dag() -> None:
+    module = compile_source(
+        "module Shared { in a,b:u8 out y:u11 "
+        "combined:u9=a+b y=extend<10>(combined)+extend<10>(combined) }"
+    ).ir
+
+    inlined = session_module.inline_locals(module)
+    addition = inlined.assignments[0].expression
+
+    assert isinstance(addition, ir_expr.Add)
+    assert isinstance(addition.left, ir_expr.Extend)
+    assert isinstance(addition.right, ir_expr.Extend)
+    assert addition.left.expression is addition.right.expression
+
+
 def test_sessions_snapshot_options_and_do_not_share_state() -> None:
     evidence = [object()]
     first = CompilationSession(SOURCE, target_evidence=evidence)
@@ -129,6 +145,22 @@ def test_sessions_snapshot_options_and_do_not_share_state() -> None:
     assert first.computed_products == ("syntax", "semantic")
     assert second.computed_products == ("syntax", "semantic")
     assert first._values is not second._values
+
+
+def test_session_snapshot_reuses_computed_phase_objects_without_new_demands() -> None:
+    session = CompilationSession(SOURCE)
+    semantic = session.semantic_ir
+
+    snapshot = session.snapshot()
+
+    assert snapshot.computed_products == ("syntax", "semantic")
+    assert snapshot.syntax is session.syntax
+    assert snapshot.semantic is semantic
+    assert snapshot.selected is None
+    assert snapshot.planned is None
+    assert snapshot.simulation_plan is None
+    assert snapshot.semantic_identity is not None
+    assert session.computed_products == ("syntax", "semantic")
 
 
 def test_stdlib_physical_inputs_survive_semantic_failure() -> None:

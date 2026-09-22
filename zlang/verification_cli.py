@@ -57,9 +57,13 @@ def _write_atomically(path: Path, content: str) -> None:
                 pass
 
 
-def main(argv: Sequence[str] | None = None) -> int:
+def main(
+    argv: Sequence[str] | None = None,
+    *,
+    prog: str = "zlang-verify",
+) -> int:
     parser = argparse.ArgumentParser(
-        prog="zlang-verify",
+        prog=prog,
         description="Validate and replay an immutable ZLang verification bundle",
     )
     parser.add_argument(
@@ -160,7 +164,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         VerificationBundleError,
         OSError,
     ) as error:
-        print(f"zlang-verify: error: {error}", file=sys.stderr)
+        print(f"{prog}: error: {error}", file=sys.stderr)
         return 2
     print(rendered, end="")
     return report.exit_code

@@ -11,9 +11,13 @@ from zlang._version import __version__
 from zlang.workspace import WorkspaceError, update_project_lock
 
 
-def main(argv: Sequence[str] | None = None) -> int:
+def main(
+    argv: Sequence[str] | None = None,
+    *,
+    prog: str = "zlang-lock",
+) -> int:
     parser = argparse.ArgumentParser(
-        prog="zlang-lock",
+        prog=prog,
         description="Resolve and pin ZLang project dependencies",
     )
     parser.add_argument(
@@ -34,12 +38,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         lock = update_project_lock(arguments.project)
     except WorkspaceError as error:
-        print(f"zlang-lock: error: {error}", file=sys.stderr)
+        print(f"{prog}: error: {error}", file=sys.stderr)
         return 1
     if arguments.verbose:
         modules = sum(len(package.modules) for package in lock.packages)
         print(
-            f"zlang-lock: ok: {len(lock.packages)} package(s), "
+            f"{prog}: ok: {len(lock.packages)} package(s), "
             f"{modules} module(s), identity {lock.identity}"
         )
     return 0

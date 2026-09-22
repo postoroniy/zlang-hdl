@@ -17,6 +17,46 @@ protocol RegBus<AW=32,DW=32> {
     channel response : rv<RegResponse<DW>> responder -> requester
 }
 
+// One generic registered transport boundary for a canonical CSR access ABI.
+// The bank remains an ordinary compiler-owned CSR module; this adapter owns
+// only request capture and the exactly-one-response-phase protocol timing.
+module RegisteredCSRTarget<AW=32,DW=32> {
+    clock clk
+    reset rst
+    interface regbus : RegBus<AW,DW>.responder @clk
+
+    out csr_addr : uint<AW>
+    out csr_write : bit
+    out csr_wdata : uint<DW>
+    out csr_read : bit
+    in csr_rdata : uint<DW>
+    in csr_ready : bit
+
+    reg pending : bit = 0
+    reg pending_addr : uint<AW> = 0
+    reg pending_write : bit = 0
+    reg pending_wdata : uint<DW> = 0
+
+    accept = regbus.request.transfer
+    pending <- mux(accept, 1,
+                   mux(regbus.response.transfer, 0, pending))
+    pending_addr <- mux(accept, regbus.request.payload.addr, pending_addr)
+    pending_write <- mux(accept, regbus.request.payload.write, pending_write)
+    pending_wdata <- mux(accept, regbus.request.payload.wdata, pending_wdata)
+
+    csr_addr = pending_addr
+    csr_write = pending & pending_write
+    csr_wdata = pending_wdata
+    csr_read = pending & ~pending_write
+
+    regbus.request.ready = ~pending
+    regbus.response.valid = pending
+    regbus.response.payload = RegResponse {
+        rdata = csr_rdata
+        error = pending & ~csr_ready
+    }
+}
+
 // The core CSR declaration is the sole authority for the fixture's address,
 // reset, and access behavior.  Its canonical access ports are supplied by the
 // compiler's generic CSR composition ABI when this module is instantiated.

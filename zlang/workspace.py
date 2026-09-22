@@ -1,9 +1,10 @@
 """Read-only project loading and explicit dependency-lock updates.
 
-Ordinary compilation calls :func:`load_project_workspace`; that path performs
-no writes and never invokes Git.  :func:`update_project_lock` is the sole
-fetching/mutating operation and publishes the lock only after the complete
-package graph and every source module validate.
+Ordinary compilation calls :func:`load_project_workspace`; that path does not
+change project sources or invoke Git. It may publish bounded, content-addressed
+parse metadata beneath the user's cache directory. :func:`update_project_lock`
+is the sole fetching/project-mutating operation and publishes the lock only
+after the complete package graph and every source module validate.
 """
 
 from __future__ import annotations
@@ -15,7 +16,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
-from typing import Iterable
+from typing import Iterable, Mapping
 
 from zlang.common.graph import DependencyCycle, dependency_postorder
 from zlang.dependencies import (
@@ -27,12 +28,16 @@ from zlang.dependencies import (
     LockedModule,
     LockedPackage,
 )
+from zlang.diagnostics import DiagnosticError
 from zlang.module_resolver import (
     IndexedModuleResolver,
     ModuleResolutionError,
     ResolvedModuleSource,
+    annotate_source,
+    attach_source_identity,
     load_indexed_module,
 )
+from zlang.parser import parse
 from zlang.project import (
     LockedExternalMapping,
     LockedExternalSource,
@@ -46,6 +51,19 @@ from zlang.source_identity import SOURCE_GLOB, SOURCE_SUFFIX
 
 class WorkspaceError(ValueError):
     """A project cannot be locked or compiled reproducibly."""
+
+
+def source_path_for_logical_unit(
+    root_modules: Iterable[object],
+    dependency_modules: Iterable[object],
+    logical_path: str,
+) -> Path | None:
+    """Resolve a logical module through one validated workspace inventory."""
+
+    for module in (*tuple(root_modules), *tuple(dependency_modules)):
+        if getattr(module, "logical_path", None) == logical_path:
+            return Path(getattr(module, "source_path")).resolve()
+    return None
 
 
 @dataclass(frozen=True)
@@ -72,6 +90,21 @@ class ProjectWorkspace:
     @property
     def identity(self) -> str:
         return self.dependency_closure.identity
+
+    def source_path_for_unit(self, logical_path: str) -> Path | None:
+        """Return the locked physical source for one logical module.
+
+        Project compilation, CLI diagnostics, and editor tooling must project
+        compiler-owned logical source identities through the same immutable
+        workspace.  Keeping this lookup on the workspace avoids each consumer
+        growing a subtly different root/dependency scan.
+        """
+
+        return source_path_for_logical_unit(
+            self.root_modules,
+            self.dependency_modules,
+            logical_path,
+        )
 
     def root_identity_for(self, source: Path | str) -> DependencyModuleIdentity:
         requested = Path(source).resolve(strict=True)
@@ -242,48 +275,6 @@ def _logical_module(package: str, relative: Path) -> str:
     return ".".join((package, *components))
 
 
-def _annotate_source(record: ResolvedModuleSource) -> ResolvedModuleSource:
-    """Attach logical identity to declarations without changing source syntax."""
-
-    module = record.ast
-    identity = record.logical_path
-    digest = record.digest
-
-    def annotate_unit(unit):
-        return replace(
-            unit,
-            source_identity=identity,
-            type_aliases=tuple(
-                replace(item, source_identity=identity)
-                for item in unit.type_aliases
-            ),
-            source_hash=digest,
-            enums=tuple(
-                replace(item, source_identity=identity) for item in unit.enums
-            ),
-            structs=tuple(
-                replace(item, source_identity=identity) for item in unit.structs
-            ),
-            functions=tuple(
-                replace(item, source_identity=identity) for item in unit.functions
-            ),
-            operators=tuple(
-                replace(item, source_identity=identity) for item in unit.operators
-            ),
-            module_interfaces=tuple(
-                replace(item, source_identity=identity)
-                for item in unit.module_interfaces
-            ),
-        )
-
-    annotated = annotate_unit(module)
-    annotated = replace(
-        annotated,
-        submodules=tuple(annotate_unit(child) for child in module.submodules),
-    )
-    return replace(record, ast=annotated)
-
-
 def _safe_source_directory(manifest: ProjectManifest) -> Path:
     try:
         package_root = manifest.project_root.resolve(strict=True)
@@ -347,6 +338,7 @@ def _index_package(
     package_identity: str,
     package_revision: str | None = None,
     expected: tuple[LockedModule, ...] | None = None,
+    source_overlays: Mapping[Path, str] | None = None,
 ) -> tuple[tuple[ResolvedModuleSource, ...], tuple[LockedModule, ...]]:
     source_root = _safe_source_directory(manifest)
     discovered: dict[str, tuple[Path, Path]] = {}
@@ -406,28 +398,74 @@ def _index_package(
 
     records: list[ResolvedModuleSource] = []
     locked: list[LockedModule] = []
+    overlays = {
+        Path(path).expanduser().resolve(): text
+        for path, text in (source_overlays or {}).items()
+    }
     for logical in sorted(discovered):
-        relative, _ = discovered[logical]
+        relative, resolved = discovered[logical]
         expected_module = expected_by_name.get(logical) if expected_by_name else None
-        try:
-            record = load_indexed_module(
+        overlay = overlays.get(resolved)
+        if overlay is None:
+            try:
+                record = load_indexed_module(
+                    logical,
+                    source_root=source_root,
+                    relative_path=relative.as_posix(),
+                    expected_digest=(expected_module.digest if expected_module else None),
+                    package_identity=package_identity,
+                    package_revision=package_revision,
+                    defer_cached_ast=True,
+                )
+            except ModuleResolutionError as error:
+                raise WorkspaceError(str(error)) from error
+        else:
+            if not isinstance(overlay, str):
+                raise TypeError("source overlay text must be a string")
+            digest = hashlib.sha256(overlay.encode("utf-8")).hexdigest()
+            try:
+                parsed = parse(overlay)
+            except DiagnosticError as error:
+                diagnostic = error.diagnostic
+                primary = diagnostic.primary
+                if primary is not None:
+                    primary = replace(
+                        primary,
+                        source_unit=logical,
+                        digest=digest,
+                    )
+                raise type(error)(
+                    diagnostic.message,
+                    code=diagnostic.code,
+                    primary=primary,
+                    notes=diagnostic.notes,
+                    fixes=diagnostic.fixes,
+                    machine_fixes=error.machine_fixes,
+                ) from error
+            parsed = attach_source_identity(parsed, logical, digest)
+            record = ResolvedModuleSource(
                 logical,
-                source_root=source_root,
-                relative_path=relative.as_posix(),
-                expected_digest=(expected_module.digest if expected_module else None),
-                package_identity=package_identity,
-                package_revision=package_revision,
+                resolved,
+                source_root,
+                parsed,
+                digest,
+                tuple(item.path for item in parsed.imports),
+                package_identity,
+                package_revision,
+                False,
             )
-        except ModuleResolutionError as error:
-            raise WorkspaceError(str(error)) from error
-        record = _annotate_source(record)
+        record = annotate_source(record)
         module_lock = LockedModule(
             logical,
             relative.as_posix(),
             record.digest,
             tuple(record.dependencies),
         )
-        if expected_module is not None and module_lock != expected_module:
+        if (
+            expected_module is not None
+            and overlay is None
+            and module_lock != expected_module
+        ):
             raise WorkspaceError(
                 f"locked module metadata is dirty for '{logical}'"
             )
@@ -599,10 +637,13 @@ def _validate_module_graph(
                     f"module '{record.logical_path}' imports package "
                     f"'{imported_owner}' without declaring it as a dependency"
                 )
-        try:
-            resolver.resolve(record.dependencies, importer=record.logical_path)
-        except ModuleResolutionError as error:
-            raise WorkspaceError(str(error)) from error
+    try:
+        resolver.resolve(
+            (record.logical_path for record in (*root_records, *dependency_records)),
+            materialize=False,
+        )
+    except ModuleResolutionError as error:
+        raise WorkspaceError(str(error)) from error
     return resolver
 
 
@@ -610,8 +651,9 @@ def load_project_workspace(
     source: Path | str,
     *,
     project: Path | str | None = None,
+    source_overlays: Mapping[Path, str] | None = None,
 ) -> ProjectWorkspace | None:
-    """Load one project without writes/fetches, or return no-project mode."""
+    """Load one project without source writes or fetches, or return no-project mode."""
 
     try:
         manifest = discover_project_manifest(source, explicit=project)
@@ -657,6 +699,7 @@ def load_project_workspace(
     root_records, _ = _index_package(
         manifest,
         package_identity=manifest.resolution_digest,
+        source_overlays=source_overlays,
     )
     dependency_records: list[ResolvedModuleSource] = []
     identities: list[DependencyModuleIdentity] = []

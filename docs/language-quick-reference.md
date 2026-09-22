@@ -1,21 +1,20 @@
 # ZLang HDL concise source-authoring reference
 
-Use this page as the first context document when writing or reviewing ZLang HDL
-with a coding assistant such as Qwen. It describes current executable source,
-not historical proposals. The compiler's typed IR defines semantics; generated
-SystemVerilog is not a second language specification. In a repository checkout,
-Qwen should use the tracked project skill at
-[`../.qwen/skills/zlang-hdl/SKILL.md`](../.qwen/skills/zlang-hdl/SKILL.md); this
-page remains the concise language authority shared by humans and assistants.
+This page is a concise guide to current executable ZLang HDL source, not a
+historical proposal. The compiler's typed IR defines semantics; generated
+SystemVerilog is not a second language specification.
 
 For an unfamiliar construct, consult the
-[syntax support matrix](language-reference.md#reference-syntax-support-matrix). For exact width tables and
-backend limits, follow the linked topic guide rather than guessing syntax.
+[syntax support matrix](language-reference.md#reference-syntax-support-matrix) and
+[known limitations](language-reference.md#reference-known-limitations). For exact
+width tables and backend limits, follow the linked topic guide.
 
 ## Non-negotiable rules
 
 - Source files use `.zhl`. The old `.zl` suffix is rejected.
 - Run `zlang SOURCE --check`; highlighting is lexical and is not validation.
+- Native simulation needs a matching platform wheel; `--engine reference` uses
+  the independent Python simulator.
 - Hardware assignments are concurrent. `=` drives the current cycle and `<-`
   schedules next state at the active clock edge.
 - Assignment types are exact. There is no implicit resize, signedness change,
@@ -97,6 +96,8 @@ and `SF_Sat8.8`.
 - Use `extend<N>` and `truncate<N>` for width changes.
 - Use `quantize<T>` for explicit fixed-point rounding/overflow. Do not move a
   quantization boundary into products or reductions.
+- Compile-time `pi`, `sin`, `cos`, `log2`, `log`, `exp`, and `sqrt` generate
+  constants only; non-integral results require explicit `quantize<T>`.
 - Use `bitcast<T>` only for equal-width representation changes. `pack`/`unpack`
   are supported low-level compatibility forms.
 - `concat(a,b,...)` places the first operand at the MSB. Destination context
@@ -158,7 +159,7 @@ qualifier but does not create a runtime namespace.
 - Use explicit `connect`/`source -> sink`, adapters, and CDC crossings. The
   compiler never inserts these silently.
 - Top-level structs and tuples become recursively named leaf ports; vectors use
-  multidimensional packed arrays in the production direct-SystemVerilog ABI.
+  multidimensional packed arrays in the production Direct-SV ABI.
 
 Read [sequential state/storage](language-reference.md#reference-sequential-state-storage) and
 [hierarchy/protocols](language-reference.md#reference-hierarchy-protocols) before composing stateful children.
@@ -218,19 +219,10 @@ families or source-level semantic-reference equivalence controls. Use the existi
 ```sh
 zlang source.zhl --check
 zlang source.zhl --top Top --systemverilog build/Top.sv
+zlang source.zhl --top Top --target sky130-fd-sc-hd --systemverilog build/Top.sv
 zlang source.zhl --top Top --verify
+zlang sim source.zhl --top Top --engine native --clock clk --cycles 100
+zlang verify build/verify --mode bmc --depth 20 --work-dir build/verify-work
+zlang lock update --project zlang.toml
+zlang lsp
 ```
-
-Before calling a source change complete:
-
-1. compile the exact top with `--check`;
-2. run focused parser/semantic/canonical/simulator tests;
-3. exercise production direct-SV with strict Verilator;
-4. run applicable existing formal tests without inventing new claims;
-5. run the repository regression and `git diff --check` required by the active
-   task.
-
-If a requested form is absent from this page, check the
-[syntax matrix](language-reference.md#reference-syntax-support-matrix) and
-[known limitations](language-reference.md#reference-known-limitations).
-Do not infer support from dated design-freeze examples.

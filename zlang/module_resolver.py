@@ -14,17 +14,55 @@ while allowing ``compile_file`` to inject an immutable project index later.
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from collections import OrderedDict
 import hashlib
 from pathlib import Path, PurePosixPath
 import re
+from threading import Lock
 from typing import Iterable, Protocol, runtime_checkable
 
 from zlang.common.graph import DependencyCycle, dependency_postorder
 from zlang.parser import parse
 from zlang.source_identity import SOURCE_SUFFIX
+from zlang.workspace_parse_cache import load_parse_index, publish_parse_index
 
 
 _COMPONENT = re.compile(r"[A-Za-z][A-Za-z0-9_]*\Z")
+_PARSED_SOURCE_MAX_ENTRIES = 64
+_PARSED_SOURCE_MAX_BYTES = 2 * 1024 * 1024
+_PARSED_SOURCE_CACHE: OrderedDict[tuple[str, str], tuple[object, int]] = OrderedDict()
+_PARSED_SOURCE_CACHE_BYTES = 0
+_PARSED_SOURCE_CACHE_LOCK = Lock()
+
+
+def _cached_parsed_source(logical_path: str, digest: str) -> object | None:
+    with _PARSED_SOURCE_CACHE_LOCK:
+        item = _PARSED_SOURCE_CACHE.get((logical_path, digest))
+        if item is not None:
+            _PARSED_SOURCE_CACHE.move_to_end((logical_path, digest))
+            return item[0]
+    return None
+
+
+def _remember_parsed_source(
+    logical_path: str, digest: str, parsed: object, source_bytes: int
+) -> None:
+    global _PARSED_SOURCE_CACHE_BYTES
+    if source_bytes > _PARSED_SOURCE_MAX_BYTES:
+        return
+    key = (logical_path, digest)
+    with _PARSED_SOURCE_CACHE_LOCK:
+        previous = _PARSED_SOURCE_CACHE.pop(key, None)
+        if previous is not None:
+            _PARSED_SOURCE_CACHE_BYTES -= previous[1]
+        _PARSED_SOURCE_CACHE[key] = (parsed, source_bytes)
+        _PARSED_SOURCE_CACHE_BYTES += source_bytes
+        while (
+            len(_PARSED_SOURCE_CACHE) > _PARSED_SOURCE_MAX_ENTRIES
+            or _PARSED_SOURCE_CACHE_BYTES > _PARSED_SOURCE_MAX_BYTES
+        ):
+            _, (_, removed_bytes) = _PARSED_SOURCE_CACHE.popitem(last=False)
+            _PARSED_SOURCE_CACHE_BYTES -= removed_bytes
 
 
 class ModuleResolutionError(ValueError):
@@ -50,7 +88,7 @@ class ModuleResolver(Protocol):
         self,
         imports: Iterable[str],
         *,
-        importer: str | None = None,
+        importer: str | None = None,  # noqa: ARG002 -- resolver protocol keyword
     ) -> tuple[ModuleSourceRecord, ...]: ...
 
 
@@ -78,6 +116,13 @@ class ResolvedModuleSource:
     dependencies: tuple[str, ...]
     package_identity: str | None = None
     package_revision: str | None = None
+    # Editor tooling may replace a root-package source with an exact immutable
+    # in-memory snapshot.  Such records retain the physical path for source
+    # projection, but their digest is validated by the snapshot owner rather
+    # than by rereading the file on every resolver access.
+    validate_physical_digest: bool = True
+    pending_source: bytes | None = None
+    cached_imports: bool = False
 
     @property
     def path(self) -> str:
@@ -120,6 +165,42 @@ def attach_source_identity(module: object, logical_path: str, digest: str) -> ob
     )
 
 
+def annotate_source(record: ResolvedModuleSource) -> ResolvedModuleSource:
+    """Attach logical identity to declarations without changing source syntax."""
+
+    module = record.ast
+    if module is None:
+        return record
+    identity = record.logical_path
+    digest = record.digest
+
+    def annotate_unit(unit):
+        return replace(
+            unit,
+            source_identity=identity,
+            type_aliases=tuple(
+                replace(item, source_identity=identity) for item in unit.type_aliases
+            ),
+            source_hash=digest,
+            enums=tuple(replace(item, source_identity=identity) for item in unit.enums),
+            structs=tuple(replace(item, source_identity=identity) for item in unit.structs),
+            functions=tuple(replace(item, source_identity=identity) for item in unit.functions),
+            operators=tuple(replace(item, source_identity=identity) for item in unit.operators),
+            module_interfaces=tuple(
+                replace(item, source_identity=identity) for item in unit.module_interfaces
+            ),
+        )
+
+    annotated = annotate_unit(module)
+    return replace(
+        record,
+        ast=replace(
+            annotated,
+            submodules=tuple(annotate_unit(child) for child in module.submodules),
+        ),
+    )
+
+
 def validate_logical_module_path(path: str) -> tuple[str, ...]:
     """Validate and return components of one public dotted module identity."""
 
@@ -142,6 +223,7 @@ def load_indexed_module(
     expected_digest: str | None = None,
     package_identity: str | None = None,
     package_revision: str | None = None,
+    defer_cached_ast: bool = False,
 ) -> ResolvedModuleSource:
     """Load one exact module-index entry with traversal/symlink containment.
 
@@ -191,7 +273,29 @@ def load_indexed_module(
             f"locked module '{logical_path}' is dirty: expected sha256:"
             f"{expected_digest}, found sha256:{digest}"
         )
-    parsed = attach_source_identity(parse(text), logical_path, digest)
+    parsed = _cached_parsed_source(logical_path, digest)
+    if parsed is None and defer_cached_ast:
+        cached_imports = load_parse_index(logical_path, digest)
+        if cached_imports is not None:
+            return ResolvedModuleSource(
+                logical_path,
+                source,
+                root,
+                None,
+                digest,
+                cached_imports,
+                package_identity,
+                package_revision,
+                True,
+                payload,
+                True,
+            )
+    if parsed is None:
+        parsed = attach_source_identity(parse(text), logical_path, digest)
+        _remember_parsed_source(logical_path, digest, parsed, len(payload))
+        publish_parse_index(
+            logical_path, digest, tuple(item.path for item in parsed.imports)
+        )
     dependencies = tuple(item.path for item in parsed.imports)
     return ResolvedModuleSource(
         logical_path,
@@ -236,23 +340,57 @@ def _validated_record(record: ModuleSourceRecord) -> ModuleSourceRecord:
             raise ModuleResolutionError(
                 f"source for logical module '{logical}' escapes package root '{root_value}'"
             ) from None
-    try:
-        digest = hashlib.sha256(source_path.read_bytes()).hexdigest()
-    except OSError as error:
-        raise ModuleResolutionError(
-            f"source for logical module '{logical}' is unavailable: {source_path}"
-        ) from error
-    if digest != record.digest:
-        raise ModuleResolutionError(
-            f"locked module '{logical}' is dirty: expected sha256:{record.digest}, "
-            f"found sha256:{digest}"
-        )
-    parsed_imports = tuple(item.path for item in record.ast.imports)
-    if parsed_imports != tuple(record.dependencies):
-        raise ModuleResolutionError(
-            f"module index dependency mismatch for '{logical}'"
-        )
+    if getattr(record, "validate_physical_digest", True):
+        try:
+            digest = hashlib.sha256(source_path.read_bytes()).hexdigest()
+        except OSError as error:
+            raise ModuleResolutionError(
+                f"source for logical module '{logical}' is unavailable: {source_path}"
+            ) from error
+        if digest != record.digest:
+            raise ModuleResolutionError(
+                f"locked module '{logical}' is dirty: expected sha256:{record.digest}, "
+                f"found sha256:{digest}"
+            )
+    if record.ast is None:
+        if not getattr(record, "cached_imports", False) or record.pending_source is None:
+            raise ModuleResolutionError(f"module index has no parsed source for '{logical}'")
+    else:
+        parsed_imports = tuple(item.path for item in record.ast.imports)
+        if parsed_imports != tuple(record.dependencies):
+            raise ModuleResolutionError(
+                f"module index dependency mismatch for '{logical}'"
+            )
     return record
+
+
+def _materialize_record(record: ModuleSourceRecord) -> ModuleSourceRecord:
+    if record.ast is not None:
+        return record
+    if not isinstance(record, ResolvedModuleSource) or record.pending_source is None:
+        raise ModuleResolutionError(
+            f"module index has no parsed source for '{record.logical_path}'"
+        )
+    parsed = _cached_parsed_source(record.logical_path, record.digest)
+    if parsed is None:
+        try:
+            text = record.pending_source.decode("utf-8")
+            parsed = attach_source_identity(parse(text), record.logical_path, record.digest)
+        except UnicodeDecodeError as error:
+            raise ModuleResolutionError(
+                f"cached source for '{record.logical_path}' is not UTF-8"
+            ) from error
+    actual_imports = tuple(item.path for item in parsed.imports)
+    if actual_imports != record.dependencies:
+        raise ModuleResolutionError(
+            f"cached module index dependency mismatch for '{record.logical_path}'"
+        )
+    _remember_parsed_source(
+        record.logical_path, record.digest, parsed, len(record.pending_source)
+    )
+    return annotate_source(
+        replace(record, ast=parsed, pending_source=None, cached_imports=False)
+    )
 
 
 class StdlibModuleResolver:
@@ -262,7 +400,7 @@ class StdlibModuleResolver:
         self,
         imports: Iterable[str],
         *,
-        importer: str | None = None,
+        importer: str | None = None,  # noqa: ARG002 -- resolver protocol keyword
     ) -> tuple[ModuleSourceRecord, ...]:
         # Import lazily to keep stdlib parsing as the sole owner of its physical
         # checkout/install root policy and avoid an import cycle.
@@ -363,7 +501,8 @@ class IndexedModuleResolver:
         self,
         imports: Iterable[str],
         *,
-        importer: str | None = None,
+        importer: str | None = None,  # noqa: ARG002 -- resolver protocol keyword
+        materialize: bool = True,
     ) -> tuple[ModuleSourceRecord, ...]:
         loaded: dict[str, ModuleSourceRecord] = {}
 
@@ -379,7 +518,9 @@ class IndexedModuleResolver:
             ordered = dependency_postorder(imports, dependencies)
         except DependencyCycle as error:
             raise ModuleResolutionError(f"logical import cycle: {error}") from error
-        return tuple(loaded[logical] for logical in ordered)
+        if not materialize:
+            return tuple(loaded[logical] for logical in ordered)
+        return tuple(_materialize_record(loaded[logical]) for logical in ordered)
 
 
 __all__ = [
@@ -391,6 +532,7 @@ __all__ = [
     "ResolvedModuleSource",
     "StdlibModuleResolver",
     "attach_source_identity",
+    "annotate_source",
     "load_indexed_module",
     "validate_logical_module_path",
 ]

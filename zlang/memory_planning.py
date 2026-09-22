@@ -4,12 +4,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from hashlib import sha256
-import json
 from typing import Mapping
 
+from zlang.common import canonical_identity
 from zlang.ir.storage import Memory, MemoryPortKind
 from zlang.ir.signed_reductions import expression_semantic_identity
+from zlang.ir.type_codec import canonical_type_data
+
+
+MEMORY_IMPLEMENTATION_PLAN_IDENTITY_SCHEMA = (
+    "zlang-memory-implementation-plan-v2"
+)
+MEMORY_RECIPE_IDENTITY_SCHEMA = "zlang-memory-recipe-v2"
 
 
 class MemoryPlanningError(ValueError):
@@ -53,7 +59,6 @@ class MemoryImplementationPlan:
     @property
     def identity(self) -> str:
         payload = {
-            "schema": "zlang-memory-implementation-plan-v1",
             "memory_semantic_id": self.memory_semantic_id,
             "memory_recipe_identity": self.memory_recipe_identity,
             "logical_shape": self.logical_shape,
@@ -70,10 +75,7 @@ class MemoryImplementationPlan:
             "target_resource_identity": self.target_resource_identity,
             "notes": self.notes,
         }
-        encoded = json.dumps(
-            payload, sort_keys=True, separators=(",", ":")
-        ).encode("utf-8")
-        return sha256(encoded).hexdigest()
+        return canonical_identity(MEMORY_IMPLEMENTATION_PLAN_IDENTITY_SCHEMA, payload)
 
 
 def _logical_shape(memory: Memory) -> tuple[str, int, int, int]:
@@ -91,28 +93,32 @@ def _logical_shape(memory: Memory) -> tuple[str, int, int, int]:
 
 
 def _memory_recipe_identity(memory: Memory) -> str:
-    payload = (
-        "zlang-memory-recipe-v1",
-        memory.semantic_id,
-        repr(memory.element_type),
-        memory.depth,
-        memory.read_latency,
-        memory.collision.value,
-        memory.contents_reset.value,
-        memory.read_data_reset.value,
-        memory.domain,
-        memory.async_memory,
-        memory.write_priority,
-        (
+    payload = {
+        "async_memory": memory.async_memory,
+        "collision": memory.collision.value,
+        "contents_reset": memory.contents_reset.value,
+        "depth": memory.depth,
+        "domain": memory.domain,
+        "element_type": canonical_type_data(memory.element_type),
+        "initial_value": (
             expression_semantic_identity(memory.initial_value)
             if memory.initial_value is not None else None
         ),
-        tuple(
-            (port.semantic_id, port.name, port.kind.value, port.domain)
+        "ports": tuple(
+            {
+                "domain": port.domain,
+                "kind": port.kind.value,
+                "name": port.name,
+                "semantic_id": port.semantic_id,
+            }
             for port in memory.ports
         ),
-    )
-    return sha256(repr(payload).encode("utf-8")).hexdigest()
+        "read_data_reset": memory.read_data_reset.value,
+        "read_latency": memory.read_latency,
+        "semantic_id": memory.semantic_id,
+        "write_priority": memory.write_priority,
+    }
+    return canonical_identity(MEMORY_RECIPE_IDENTITY_SCHEMA, payload)
 
 
 def _native_capable(

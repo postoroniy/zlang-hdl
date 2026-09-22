@@ -7,7 +7,7 @@ from enum import Enum
 from pathlib import Path
 from collections.abc import Mapping
 
-from zlang.common import stable_json
+from zlang.common import stable_digest, stable_json
 from zlang.opt.ir import CanonicalModule, NodeCategory
 from zlang.source import SourceOrigin
 
@@ -130,7 +130,9 @@ def render_identity(module: CanonicalModule) -> str:
     separate semantic inputs and remain included.
     """
 
-    return stable_json(_identity_value(module))
+    graph: dict[str, object] = {}
+    root = _identity_value(module, graph=graph, memo={}, active=set())
+    return stable_json({"root": root, "nodes": sorted(graph.items())})
 
 
 _ORIGIN_FIELDS = frozenset(
@@ -148,64 +150,123 @@ _ORIGIN_FIELDS = frozenset(
         # source assertions must not invalidate selected-hardware/semantic-reference equivalence keys.
         "verification_scopes",
         "verification_expressions",
+        # Compilation-local DAG accounting/provenance is diagnostic host
+        # evidence, never canonical language semantics.
+        "semantic_expression_arena_statistics",
+        "semantic_expression_provenance",
+        "selected_value_normalization_statistics",
     }
 )
 
 
-def _identity_value(value: object) -> object:
-    """Convert canonical IR values into a strict JSON-compatible tree."""
+def _identity_value(
+    value: object,
+    *,
+    graph: dict[str, object],
+    memo: dict[int, str],
+    active: set[int],
+) -> object:
+    """Encode a canonical object graph without expanding shared expression DAGs.
+
+    References use content digests, not traversal-order IDs, so structurally
+    equivalent graphs retain the same identity even when object sharing differs.
+    The complete node payloads remain in the rendered graph for strict
+    round-trip comparison; a digest collision is rejected explicitly.
+    """
 
     if isinstance(value, SourceOrigin):
         # Defensive for origins stored outside the conventional field names.
         return {"$source_origin": "omitted"}
+    if not isinstance(value, Enum) and (
+        value is None or isinstance(value, (str, int, float, bool))
+    ):
+        return value
+    object_id = id(value)
+    if object_id in memo:
+        return {"$ref": memo[object_id]}
+    if object_id in active:
+        raise TypeError("canonical IR identity contains an object cycle")
+    active.add(object_id)
     if isinstance(value, Enum):
-        return {
+        payload = {
             "$enum": f"{type(value).__module__}.{type(value).__qualname__}",
             "value": value.value,
         }
-    if is_dataclass(value) and not isinstance(value, type):
-        return {
+    elif is_dataclass(value) and not isinstance(value, type):
+        payload = {
             "$type": f"{type(value).__module__}.{type(value).__qualname__}",
             "fields": [
                 [
                     item.name,
-                    _identity_field_value(item.name, getattr(value, item.name)),
+                    _identity_field_value(
+                        item.name,
+                        getattr(value, item.name),
+                        graph=graph,
+                        memo=memo,
+                        active=active,
+                    ),
                 ]
                 for item in fields(value)
                 if item.name not in _ORIGIN_FIELDS
             ],
         }
-    if isinstance(value, Mapping):
+    elif isinstance(value, Mapping):
         entries = [
-            (_identity_value(key), _identity_value(item))
+            (
+                _identity_value(key, graph=graph, memo=memo, active=active),
+                _identity_value(item, graph=graph, memo=memo, active=active),
+            )
             for key, item in value.items()
         ]
         entries.sort(key=lambda pair: stable_json(pair[0]))
-        return {"$mapping": [[key, item] for key, item in entries]}
-    if isinstance(value, (tuple, list)):
-        return [_identity_value(item) for item in value]
-    if isinstance(value, (set, frozenset)):
-        items = [_identity_value(item) for item in value]
+        payload = {"$mapping": [[key, item] for key, item in entries]}
+    elif isinstance(value, (tuple, list)):
+        payload = {
+            "$sequence": type(value).__name__,
+            "items": [
+                _identity_value(item, graph=graph, memo=memo, active=active)
+                for item in value
+            ],
+        }
+    elif isinstance(value, (set, frozenset)):
+        items = [
+            _identity_value(item, graph=graph, memo=memo, active=active)
+            for item in value
+        ]
         items.sort(key=stable_json)
-        return {"$set": items}
-    if isinstance(value, Path):
-        return {"$path": value.as_posix()}
-    if value is None or isinstance(value, (str, int, float, bool)):
-        return value
-    raise TypeError(
-        "canonical IR identity cannot serialize "
-        f"{type(value).__module__}.{type(value).__qualname__}"
-    )
+        payload = {"$set": items}
+    elif isinstance(value, Path):
+        payload = {"$path": value.as_posix()}
+    else:
+        raise TypeError(
+            "canonical IR identity cannot serialize "
+            f"{type(value).__module__}.{type(value).__qualname__}"
+        )
+    active.remove(object_id)
+    digest = stable_digest(payload)
+    previous = graph.get(digest)
+    if previous is not None and previous != payload:
+        raise TypeError("canonical IR identity content-digest collision")
+    graph[digest] = payload
+    memo[object_id] = digest
+    return {"$ref": digest}
 
 
-def _identity_field_value(name: str, value: object) -> object:
+def _identity_field_value(
+    name: str,
+    value: object,
+    *,
+    graph: dict[str, object],
+    memo: dict[int, str],
+    active: set[int],
+) -> object:
     if name == "declaration_identity" and isinstance(value, str):
         source, separator, declaration = value.partition("::")
         if separator and Path(source).is_absolute():
             # Preserve the nominal declaration kind/name without letting a
             # checkout location become its semantic content identity.
             value = "$source::" + declaration
-    return _identity_value(value)
+    return _identity_value(value, graph=graph, memo=memo, active=active)
 
 
 def _render_value(value: object) -> str:

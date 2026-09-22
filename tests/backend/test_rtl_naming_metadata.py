@@ -24,6 +24,8 @@ from zlang.backend.systemverilog.simulation_state import (
     build_systemverilog_simulation_state_bundle,
 )
 from zlang.compiler import compile_source
+from zlang.parser import parse
+from zlang.semantic import analyze
 from zlang.formal import build_recursive_formal_design
 from zlang.formal_artifact_provider import FormalArtifactRecipe
 import zlang.formal_candidate as candidate_module
@@ -138,8 +140,7 @@ def test_vpi_scope_uses_physicalized_generic_helper_reservations():
         e=identity(step) slot:GenericChild { step } y=slot.y
     }
     """
-    probe = compile_source(source)
-    physical = _physicalize_generic_callables(probe.ir)
+    physical = _physicalize_generic_callables(analyze(parse(source)))
     helper = next(f.name for f in physical.callable_definitions if f.name.startswith("zlang_spec_"))
     result = compile_source(source.replace("slot", helper))
     artifact = emit_artifact(result.ir, selected_ir_identity=result.selected_ir_identity)
@@ -161,7 +162,7 @@ def test_rr_observations_resolve_final_formal_and_generic_scopes(tmp_path: Path)
         "module HierarchicalRequestResponse {",
         "module HierarchicalRequestResponse { out echo:bit = identity(fire)",
     )
-    probe = _physicalize_generic_callables(compile_source(generic).ir)
+    probe = _physicalize_generic_callables(analyze(parse(generic)))
     helper = next(f.name for f in probe.callable_definitions if f.name.startswith("zlang_spec_"))
     generic_collision = generic.replace("requester", helper)
     for index, variant in enumerate((reserved_collision, generic_collision)):

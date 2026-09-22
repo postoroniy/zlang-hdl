@@ -1,0 +1,23 @@
+// Runtime barrel shift. W is swept by the structural benchmark runner.
+module BarrelShifterWitness<W=16> {
+    in data : bits<W>
+    in shift : u9
+    out shifted_left : bits<W>
+    out shifted_right : bits<W>
+
+    shifted_left = data << shift
+    shifted_right = data >> shift
+}
+
+// A natural staged form used as a structural comparison, not as a replacement.
+module BarrelShifterStaged16 {
+    in data : bits<16>
+    in shift : bits<4>
+    out shifted : bits<16>
+
+    stage0 = shift[0] ? data << 1 : data
+    stage1 = shift[1] ? stage0 << 2 : stage0
+    stage2 = shift[2] ? stage1 << 4 : stage1
+    stage3 = shift[3] ? stage2 << 8 : stage2
+    shifted = stage3
+}

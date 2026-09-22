@@ -23,7 +23,13 @@ build/
 dist/
 htmlcov/
 site/
+/target/
+/native-runtime/target/
+/native-runtime/dist/
 *.egg-info/
+zlang/_zlang_jit.*.so
+_zlang_native_sim.*.so
+zlang/_zlang_native_sim.*.so
 __pycache__/
 *.py[cod]
 *.swp

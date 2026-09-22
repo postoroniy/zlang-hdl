@@ -502,7 +502,7 @@
     "keywords": {
       "patterns": [
         {"name": "keyword.declaration.zlang", "match": "\\b(?:import|module|extern|model|struct|enum|union|type|fn|operator|equiv|protocol|role|channel|member|resource|target|device|architecture)\\b"},
-        {"name": "storage.modifier.hardware.zlang", "match": "\\b(?:clock|reset|async|inst|connect|interface|reg|fifo|memory|rom|csr|sticky|rule|priority|arbiter|timing|fsm)\\b"},
+        {"name": "storage.modifier.hardware.zlang", "match": "\\b(?:clock|reset|async|inst|connect|interface|reg|fifo|memory|rom|csr|group|split|stride|order|sticky|rule|priority|arbiter|timing|fsm)\\b"},
         {"name": "keyword.control.zlang", "match": "\\b(?:if|else|when|switch|match|hold|with)\\b"},
         {"name": "keyword.control.exploration.zlang", "match": "\\b(?:choice|explore|allow|avoid|minimize|maximize|transform)\\b"},
         {"name": "keyword.control.verification.zlang", "match": "\\b(?:assume|guarantee|disable|iff)\\b"},
@@ -522,7 +522,7 @@
       "patterns": [
         {"name": "support.function.builtin.conversion.zlang", "match": "\\b(?:truncate|extend|quantize|pack|unpack|bitcast|reshape|enum_encode|enum_valid|enum_decode|fixed_raw|fixed_to_raw|fixed_truncate_wrap|fixed_truncate_saturate|fixed_round_even_wrap|fixed_round_even_saturate)(?=\\s*(?:<[^<>\\n]+>)?\\s*\\()"},
         {"name": "support.function.builtin.hardware.zlang", "match": "\\b(?:mux|concat|parity|generate|map|sum|reduce|dot|repeat|delay|pipeline)(?=\\s*(?:<[^<>\\n]+>)?\\s*\\()"},
-        {"name": "support.function.builtin.compile-time.zlang", "match": "\\b(?:length|floor_log2|ceil_log2|index_width|is_power_of_two|pi|sin|cos|log2|log)(?=\\s*(?:<[^<>\\n]+>)?\\s*\\()"},
+        {"name": "support.function.builtin.compile-time.zlang", "match": "\\b(?:length|floor_log2|ceil_log2|index_width|is_power_of_two|pi|sin|cos|log2|log|exp|sqrt)(?=\\s*(?:<[^<>\\n]+>)?\\s*\\()"},
         {"name": "support.function.guard.zlang", "match": "\\b(?:unsigned|signed|bits|bit|width|same_type|constant|power_of_two)(?=\\s*\\()"}
       ]
     },
@@ -560,7 +560,7 @@
     },
     "modes": {
       "patterns": [
-        {"name": "constant.language.access.zlang", "match": "\\b(?:rw|ro|wo|w1c|pulse|reserved)\\b"},
+        {"name": "constant.language.access.zlang", "match": "\\b(?:rw|ro|wo|w1c|pulse|reserved|on_read|on_write|low_first|high_first)\\b"},
         {"name": "constant.language.protocol.zlang", "match": "\\b(?:in_order|out_of_order|fixed_priority|round_robin|beat|packet|sync_level|pulse_toggle|handshake|async_fifo|rv_to_credit|credit_to_rv|read_first|write_first|old|new|no_change|hardware|software)\\b"},
         {"name": "constant.language.storage.zlang", "match": "\\b(?:clear|preserve)\\b"},
         {"name": "constant.language.architecture.zlang", "match": "\\b(?:mul_add|multiply_add|dsp_mac|optional_yosys|reduction|reassociate|pipeline|adapter|auto)\\b"},

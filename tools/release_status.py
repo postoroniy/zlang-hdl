@@ -40,9 +40,38 @@ def _sha256(path: Path) -> str:
 def _check_documentation(root: Path, documentation: object) -> None:
     if not isinstance(documentation, dict):
         raise StatusError("release status is missing documentation metadata")
-    expected_keys = {"format", "pages", "pdf", "pdf_sha256", "sources"}
+    expected_keys = {
+        "builder_sha256",
+        "cover_sha256",
+        "examples",
+        "format",
+        "pages",
+        "pdf",
+        "pdf_sha256",
+        "source_date_epoch",
+        "sources",
+        "syntax_grammar_sha256",
+    }
     if set(documentation) != expected_keys:
         raise StatusError("documentation metadata has unexpected or missing fields")
+    examples = documentation.get("examples")
+    expected_example_keys = {
+        "json_blocks",
+        "linked_sources",
+        "python_blocks",
+        "referenced_tops",
+        "shell_blocks",
+        "standalone_compiled",
+        "syntax_fragments",
+        "toml_blocks",
+        "zlang_fences",
+    }
+    if not isinstance(examples, dict) or set(examples) != expected_example_keys:
+        raise StatusError("documentation example validation metadata is malformed")
+    if any(not isinstance(value, int) or value < 0 for value in examples.values()):
+        raise StatusError("documentation example validation counts must be non-negative")
+    if examples["zlang_fences"] <= 0 or examples["linked_sources"] <= 0:
+        raise StatusError("documentation example validation is unexpectedly empty")
     if documentation.get("pdf") != COMMUNITY_PDF.as_posix():
         raise StatusError("documentation.pdf must name the reviewed Community PDF")
     pdf = root / COMMUNITY_PDF
@@ -58,6 +87,27 @@ def _check_documentation(root: Path, documentation: object) -> None:
         raise StatusError("Community reference PDF digest is stale")
     if documentation.get("format") != "PDF-1.5":
         raise StatusError("documentation format must be PDF-1.5")
+    for field, path in (
+        ("builder_sha256", Path("tools/build_community_pdf.py")),
+        (
+            "syntax_grammar_sha256",
+            Path("editors/vscode/zlang-hdl/syntaxes/zlang.tmLanguage.json"),
+        ),
+    ):
+        # The Community snapshot ships the reviewed PDF and its digest, but
+        # intentionally omits the host-only LaTeX/Pandoc build collateral.
+        if field == "builder_sha256" and not (root / path).exists():
+            continue
+        if documentation.get(field) != _sha256(root / path):
+            raise StatusError(f"documentation {field} is stale")
+    cover_sha256 = documentation.get("cover_sha256")
+    if not isinstance(cover_sha256, str) or re.fullmatch(
+        r"[0-9a-f]{64}", cover_sha256
+    ) is None:
+        raise StatusError("documentation cover digest is malformed")
+    source_date_epoch = documentation.get("source_date_epoch")
+    if not isinstance(source_date_epoch, int) or source_date_epoch <= 0:
+        raise StatusError("documentation source-date epoch must be a positive integer")
     pages = documentation.get("pages")
     if not isinstance(pages, int) or pages <= 0:
         raise StatusError("documentation page count must be a positive integer")
@@ -124,6 +174,19 @@ def _project_version(root: Path, pyproject: dict) -> str | None:
     direct = project.get("version")
     if isinstance(direct, str):
         return direct
+    if pyproject.get("build-system", {}).get("build-backend") == "maturin":
+        cargo_path = root / "Cargo.toml"
+        if not cargo_path.is_file():
+            return None
+        cargo = tomllib.loads(cargo_path.read_text(encoding="utf-8"))
+        cargo_version = cargo.get("package", {}).get("version")
+        if not isinstance(cargo_version, str):
+            return None
+        conversions = (("-alpha.", "a"), ("-beta.", "b"), ("-rc.", "rc"))
+        for source, replacement in conversions:
+            if source in cargo_version:
+                return cargo_version.replace(source, replacement)
+        return cargo_version
     dynamic = pyproject.get("tool", {}).get("setuptools", {}).get("dynamic", {})
     attribute = dynamic.get("version", {}).get("attr")
     if not isinstance(attribute, str) or "." not in attribute:
@@ -207,8 +270,12 @@ def validate(
     release = status.get("release")
     validation = status.get("validation")
     platform = status.get("platform")
+    native_runtime = status.get("native_runtime")
     tools = status.get("eda_toolchain")
-    if not all(isinstance(item, dict) for item in (release, validation, platform, tools)):
+    if not all(
+        isinstance(item, dict)
+        for item in (release, validation, platform, native_runtime, tools)
+    ):
         raise StatusError("release status is missing required object sections")
     _check_documentation(root, status.get("documentation"))
     pyproject = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
@@ -232,6 +299,15 @@ def validate(
         "architecture": "x86_64",
     }:
         raise StatusError("release platform contract has changed without review")
+    if native_runtime != {
+        "version": project_version,
+        "abi": "cp312-abi3",
+        "source_distribution": False,
+        "platforms": [
+            "manylinux_2_28_x86_64",
+        ],
+    }:
+        raise StatusError("native runtime release contract has changed without review")
     actual_corpus = _example_counts(root)
     if validation.get("example_corpus") != actual_corpus:
         raise StatusError(

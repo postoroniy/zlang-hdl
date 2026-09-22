@@ -3,21 +3,29 @@
   "release": {
     "channel": "alpha",
     "repository": "https://github.com/postoroniy/zlang-hdl",
-    "version": "0.1.0a10"
+    "version": "0.1.0a11"
   },
   "platform": {
     "operating_system": "Linux",
     "python": ">=3.12,<3.13",
     "architecture": "x86_64"
   },
+  "native_runtime": {
+    "version": "0.1.0a11",
+    "abi": "cp312-abi3",
+    "source_distribution": false,
+    "platforms": [
+      "manylinux_2_28_x86_64"
+    ]
+  },
   "validation": {
-    "minimum_tests_passed": 3311,
-    "minimum_tests_collected": 3311,
+    "minimum_tests_passed": 3768,
+    "minimum_tests_collected": 3768,
     "maximum_tests_skipped": 0,
     "example_corpus": {
-      "source_files": 89,
-      "module_roots": 188,
-      "standalone_supported": 171,
+      "source_files": 108,
+      "module_roots": 212,
+      "standalone_supported": 195,
       "child_or_template_only": 17,
       "direct_unsupported": 0
     }
@@ -31,14 +39,29 @@
     "z3": "4.8.12"
   },
   "documentation": {
+    "builder_sha256": "64a938f641837be905378f09e1bc4fd4bd0f950575aad659e26d1605375107ba",
+    "cover_sha256": "22c31a7a75b6db59293b6bf334d1499c891fb03ec5e45b5afac471116ab0d5d2",
+    "examples": {
+      "linked_sources": 20,
+      "json_blocks": 1,
+      "python_blocks": 1,
+      "referenced_tops": 4,
+      "shell_blocks": 39,
+      "standalone_compiled": 18,
+      "syntax_fragments": 105,
+      "toml_blocks": 3,
+      "zlang_fences": 123
+    },
     "format": "PDF-1.5",
-    "pages": 95,
+    "pages": 85,
     "pdf": "docs/ZLang-HDL-Language-Reference.pdf",
-    "pdf_sha256": "46cd497df79c799fbf0abd84d0bae76b65dab6852004a6c7e11fed6f2788d08a",
+    "pdf_sha256": "ddc24d915f3d571de315ab4fb0c78e691814ca2f2caca0ade558dda82047ae6e",
+    "syntax_grammar_sha256": "4c093ec5f5f2b4a3c5422216a27951c8b25d3e41ef362b6f3a8869d764cf80cb",
     "sources": {
-      "docs/language-quick-reference.md": "adcc35580de824099243a80a1ccb385e24d5e8c4a563af07baa8ef85c73507b5",
-      "docs/language-reference.md": "10feb14d05c7b382bfaa23b5d9cc39a724a91a9d795801f052a34944525bd3cb"
-    }
+      "docs/language-quick-reference.md": "7d38ef04cc16f0edeb54258976560b5f96ac266c8ed70b570225b5a4d590dd50",
+      "docs/language-reference.md": "0120237662ca5ea72f07d69aaab9b9e04b2f5d9144d35eec96e0c08016843264"
+    },
+    "source_date_epoch": 1789792159
   },
   "generated_by": "tools/release_status.py"
 }

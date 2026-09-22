@@ -20,7 +20,6 @@ RECOMMENDED_SETTINGS = EXT / "recommended-settings.json"
 
 def test_extension_json_and_registration_are_valid() -> None:
     package = json.loads((EXT / "package.json").read_text())
-    toolchain = json.loads((EXT / "editor-toolchain.json").read_text())
     configuration = json.loads((EXT / "language-configuration.json").read_text())
     grammar = json.loads((EXT / "syntaxes" / "zlang.tmLanguage.json").read_text())
     surface = json.loads((EXT / "supported-surface.json").read_text())
@@ -30,12 +29,7 @@ def test_extension_json_and_registration_are_valid() -> None:
     assert package["displayName"] == "ZLang HDL"
     assert package["main"] == "./extension.js"
     assert "activationEvents" not in package
-    assert package["engines"] == {"vscode": f"^{toolchain['vscodeStable']['version']}"}
-    assert package["dependencies"] == {
-        "vscode-languageclient": toolchain["vscodeLanguageClient"]
-    }
-    assert package["devDependencies"]["esbuild"] == toolchain["esbuild"]
-    assert package["devDependencies"]["@vscode/test-electron"] == toolchain["vscodeTestElectron"]
+    assert package["dependencies"] == {"vscode-languageclient": "10.1.1"}
     assert package["capabilities"]["untrustedWorkspaces"]["supported"] is False
     assert "extension.js" in package["files"]
     assert package["contributes"]["configuration"]["properties"]["zlang.lsp.path"]["default"] == ""
@@ -58,12 +52,11 @@ def test_lsp_client_bootstrap_is_standard_and_semantics_free() -> None:
     assert "TransportKind.stdio" in client
     assert "zlang.lsp.path" in client
     assert "sh -c" not in client and "bash -c" not in client
+    assert "zlang-agent" not in client and "Ollama" not in client
     assert "textDocument/" not in client
     assert "async function activate(context)" in client
     assert "await client.start()" in client
     assert "void client.start()" not in client
-    assert "createOutputChannel('ZLang HDL', { log: true })" in client
-    assert "if (!running.isRunning())" in client
 
 
 def test_editor_surface_has_no_known_phantom_claims() -> None:

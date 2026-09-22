@@ -11,6 +11,7 @@ from zlang.ir.expressions import (
     FunctionalCaptureRef,
     FunctionalRegion,
     FunctionalTableLookup,
+    FunctionalValue,
     InputRef,
     ParameterRef,
     ReadyValidRef,
@@ -21,7 +22,7 @@ from zlang.ir.expressions import (
     VectorIndex,
 )
 from zlang.ir.interfaces import ReadyValidSignal
-from zlang.ir.functional import compact_functional_elements
+from zlang.ir.functional import compact_functional_elements, materialize_functional_region
 from zlang.ir.functional_regions import (
     CompileTimeBinderRef,
     CompileTimeExpr,
@@ -31,11 +32,13 @@ from zlang.ir.functional_regions import (
     ExactReductionOperation,
     ExactReductionPlan,
     FunctionalRegionKind,
+    FunctionalSpecializationCertificate,
     FunctionalTable,
     build_exact_reduction_plan,
     compile_time_range,
     evaluate_compile_time,
 )
+from zlang.ir.signed_reductions import expression_semantic_identity
 from zlang.ir.module import (
     Assignment,
     Function,
@@ -104,6 +107,54 @@ def test_compile_time_binder_expression_has_stable_bounded_integer_semantics() -
     assert evaluate_compile_time(expression, {binder.identity: 4}) == 13
     with pytest.raises(ValueError, match="escaped domain"):
         evaluate_compile_time(expression, {binder.identity: 6})
+
+
+def test_functional_value_round_trips_and_materializes_as_exact_constant() -> None:
+    binder = CompileTimeBinderRef("fixture:value", "i", 0, 4)
+    value = FunctionalValue(CompileTimeExpr.ref(binder), UIntType(2))
+    certificate = FunctionalSpecializationCertificate(
+        "fixture:lifted",
+        (),
+        (),
+        (("K", CompileTimeExpr.ref(binder)),),
+        binder.identity,
+        (),
+        UIntType(2),
+        expression_semantic_identity(value),
+        4,
+    )
+    region = FunctionalRegion(
+        FunctionalRegionKind.GENERATE,
+        binder,
+        value,
+        (),
+        (),
+        VecType(4, UIntType(2)),
+        (certificate,),
+    )
+    nodes, root = lower_expression_graph(Module("Fixture", (), ()), region)
+    restored = restore_expression(nodes, root)
+    assert restored == region
+    assert [item.value for item in materialize_functional_region(region)] == [
+        0,
+        1,
+        2,
+        3,
+    ]
+    malformed_node = replace(
+        nodes[root],
+        attributes=tuple(
+            (name, "0" * 64)
+            if name == "certificate_template_identity"
+            else (name, current)
+            for name, current in nodes[root].attributes
+        ),
+    )
+    with pytest.raises(
+        CanonicalizationError,
+        match="certificate template identity does not match",
+    ):
+        restore_expression((*nodes[:root], malformed_node), root)
 
 
 def test_functional_region_round_trips_and_reduces_lazily() -> None:

@@ -13,13 +13,14 @@ from decimal import (
 import decimal
 from fractions import Fraction
 from functools import lru_cache
+from math import isqrt
 import sys
 from typing import Callable
 
 from zlang.fixed_point import apply_overflow, quantize_rational
 
 
-SCHEMA_VERSION = "zlang-ct-real-v2"
+SCHEMA_VERSION = "zlang-ct-real-v3"
 DECIMAL_VERSION = getattr(decimal, "__version__", "stdlib")
 PYTHON_DECIMAL_IDENTITY = (
     "python",
@@ -239,6 +240,41 @@ def log(base: CompileTimeReal, value: CompileTimeReal) -> CompileTimeReal:
     )
 
 
+def exp(value: CompileTimeReal) -> CompileTimeReal:
+    """Return the deterministic compile-time exponential of ``value``."""
+
+    if value.rational == 0:
+        return CompileTimeReal.rational_value(Fraction(1))
+    return CompileTimeReal(
+        ("exp", value.identity),
+        lambda precision: _exp_decimal(
+            value.evaluate(precision + EVALUATION_GUARD_DIGITS),
+            precision,
+        ),
+    )
+
+
+def sqrt(value: CompileTimeReal) -> CompileTimeReal:
+    """Return the non-negative compile-time square root of ``value``."""
+
+    _reject_negative(value, "sqrt")
+    if value.rational is not None:
+        numerator = isqrt(value.rational.numerator)
+        denominator = isqrt(value.rational.denominator)
+        if (
+            numerator * numerator == value.rational.numerator
+            and denominator * denominator == value.rational.denominator
+        ):
+            return CompileTimeReal.rational_value(Fraction(numerator, denominator))
+    return CompileTimeReal(
+        ("sqrt", value.identity),
+        lambda precision: _sqrt_decimal(
+            value.evaluate(precision + EVALUATION_GUARD_DIGITS),
+            precision,
+        ),
+    )
+
+
 def quantize_to_raw(
     value: CompileTimeReal,
     *,
@@ -300,6 +336,11 @@ def quantize_to_raw(
 def _reject_non_positive(value: CompileTimeReal, name: str) -> None:
     if value.rational is not None and value.rational <= 0:
         raise CompileTimeRealError(f"{name} requires a positive argument")
+
+
+def _reject_negative(value: CompileTimeReal, name: str) -> None:
+    if value.rational is not None and value.rational < 0:
+        raise CompileTimeRealError(f"{name} requires a non-negative argument")
 
 
 def _reject_invalid_base(base: CompileTimeReal) -> None:
@@ -486,6 +527,30 @@ def _log_decimal(value: Decimal, precision: int) -> Decimal:
             return +value.ln()
         except InvalidOperation as error:
             raise CompileTimeRealError("log requires a positive argument") from error
+
+
+def _exp_decimal(value: Decimal, precision: int) -> Decimal:
+    with localcontext() as ctx:
+        ctx.prec = precision + EVALUATION_GUARD_DIGITS
+        try:
+            return +value.exp()
+        except decimal.DecimalException as error:
+            raise CompileTimeRealError(
+                "exp result is outside the bounded compile-time real evaluator"
+            ) from error
+
+
+def _sqrt_decimal(value: Decimal, precision: int) -> Decimal:
+    if value < 0:
+        raise CompileTimeRealError("sqrt requires a non-negative argument")
+    with localcontext() as ctx:
+        ctx.prec = precision + EVALUATION_GUARD_DIGITS
+        try:
+            return +value.sqrt()
+        except InvalidOperation as error:
+            raise CompileTimeRealError(
+                "sqrt requires a non-negative argument"
+            ) from error
 
 
 def _decimal_floor_int(value: Decimal) -> int:

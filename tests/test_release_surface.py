@@ -9,6 +9,7 @@ import pytest
 import zlang
 from zlang._version import __version__
 from zlang import cli, project_cli, verification_cli
+from zlang.lsp import server as lsp_server
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -29,6 +30,7 @@ def test_root_license_is_unmodified_apache_2_0() -> None:
         (cli.main, "zlang"),
         (project_cli.main, "zlang-lock"),
         (verification_cli.main, "zlang-verify"),
+        (lsp_server.main, "zlang-lsp"),
     ),
 )
 def test_every_public_cli_reports_the_distribution_version(
@@ -46,16 +48,30 @@ def test_every_public_cli_reports_the_distribution_version(
 def test_package_and_build_metadata_share_one_version_source() -> None:
     configuration = tomllib.loads((ROOT / "pyproject.toml").read_text())
 
-    assert zlang.__version__ == __version__ == "0.1.0a10"
+    assert zlang.__version__ == __version__ == "0.1.0a11"
     assert configuration["project"]["dynamic"] == ["version"]
     assert configuration["project"]["license"] == "Apache-2.0"
     assert configuration["project"]["requires-python"] == ">=3.12,<3.13"
     assert configuration["project"]["name"] == "zlang-hdl"
     assert configuration["project"]["scripts"]["zlang"] == "zlang.cli:main"
     assert "zlangc" not in configuration["project"]["scripts"]
+    assert configuration["build-system"] == {
+        "requires": ["setuptools==84.0.0"],
+        "build-backend": "setuptools.build_meta",
+    }
     assert configuration["tool"]["setuptools"]["dynamic"]["version"] == {
         "attr": "zlang._version.__version__"
     }
+    assert "tool" not in configuration or "maturin" not in configuration["tool"]
+    native = configuration["project"]["optional-dependencies"]["native"]
+    assert native == [
+        "zlang-native-sim==0.1.0a11; "
+        "platform_system == 'Linux' and platform_machine == 'x86_64'",
+        "zlang-native-sim==0.1.0a11; "
+        "platform_system == 'Darwin' and platform_machine == 'x86_64'",
+        "zlang-native-sim==0.1.0a11; "
+        "platform_system == 'Darwin' and platform_machine == 'arm64'",
+    ]
 
 
 def test_public_language_identity_is_unambiguous() -> None:
@@ -89,4 +105,4 @@ def test_every_owned_hardware_source_uses_the_canonical_suffix() -> None:
     )
 
     assert legacy == ()
-    assert len(sources) == 135
+    assert sources

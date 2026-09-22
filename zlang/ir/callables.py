@@ -484,8 +484,16 @@ def callable_uses(value: object) -> tuple[CallableUse, ...]:
     """
 
     result: list[CallableUse] = []
+    visited: dict[int, object] = {}
 
     def visit(current: object) -> None:
+        if isinstance(current, (tuple, list, dict)) or (
+            is_dataclass(current) and not isinstance(current, type)
+        ):
+            previous = visited.get(id(current))
+            if previous is current:
+                return
+            visited[id(current)] = current
         if isinstance(current, expr.Call):
             result.append(CallableUse(current.function, current.callee_identity))
         if isinstance(current, expr.Reduce) and current.plan is not None:

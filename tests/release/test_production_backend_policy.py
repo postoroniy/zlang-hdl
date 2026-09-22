@@ -52,9 +52,7 @@ def test_release_policy_and_default_ci_have_no_retired_backend_escape_hatch() ->
         path.read_text(encoding="utf-8")
         for path in sorted((ROOT / ".github" / "workflows").glob("*.yml"))
     ).lower()
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8").lower()
     assert "clash" not in workflows
-    release = (ROOT / ".github" / "workflows" / "release.yml").read_text(
-        encoding="utf-8"
-    ).lower()
-    assert release.count("-p tools.pytest_no_skips") == 2
-    assert "compatibility tests may skip" not in release
+    assert "test-release-twice:" in makefile
+    assert makefile.count("-p tools.pytest_no_skips") == 2

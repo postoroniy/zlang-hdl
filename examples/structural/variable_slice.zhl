@@ -1,0 +1,9 @@
+// A 512-bit logical source represented as sixteen 32-bit words. The selected
+// fixed-width field is runtime addressed.
+module VariableSliceWitness<N=16,IW=4> {
+    in source : vec<N,u32>
+    in index : uint<IW>
+    out field : u32
+
+    field = source[index]
+}

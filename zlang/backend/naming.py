@@ -25,7 +25,7 @@ from zlang.ir.top_abi import build_top_physical_abi
 from zlang.ir.traversal import ExpressionTraversalPolicy, expression_children
 
 
-RTL_NAMING_SCHEMA = "zlang-hierarchy-local-names-v2"
+RTL_NAMING_SCHEMA = "zlang-hierarchy-local-names-v4"
 Identifier = Callable[[str], str]
 
 

@@ -100,7 +100,7 @@ class PublicCapabilityRegistry:
 
 
 CAPABILITY_REGISTRY = PublicCapabilityRegistry(
-    schema_version=27,
+    schema_version=29,
     keywords=(
         "import", "module", "extern", "model", "struct", "enum", "union", "type", "fn", "operator", "equiv",
         "protocol", "role", "channel", "member", "resource", "target", "device",
@@ -115,7 +115,8 @@ CAPABILITY_REGISTRY = PublicCapabilityRegistry(
         "wire", "rv", "credit", "packet", "vc_credit", "request_response",
         "max_outstanding", "ordering", "match_by", "buffer", "request_buffer",
         "response_buffer", "adapter", "crossing", "async_fifo", "arbiter", "policy",
-        "grant", "disable", "iff", "csr", "sticky", "rule", "when", "priority",
+        "grant", "disable", "iff", "csr", "group", "split", "stride", "order",
+        "sticky", "rule", "when", "priority",
         "fsm", "hold",
         "fifo", "memory", "mem", "async_mem", "rom", "read_latency", "init",
         "collision", "read_port", "write_port", "read_write_port",
@@ -140,12 +141,13 @@ CAPABILITY_REGISTRY = PublicCapabilityRegistry(
         "fixed_truncate_wrap",
         "fixed_truncate_saturate", "fixed_round_even_wrap",
         "fixed_round_even_saturate", "length", "floor_log2", "ceil_log2", "index_width",
-        "is_power_of_two", "pi", "sin", "cos", "log2", "log", "mux",
+        "is_power_of_two", "pi", "sin", "cos", "log2", "log", "exp", "sqrt", "mux",
         "generate", "map", "sum", "reduce", "dot", "repeat", "delay", "pipeline",
         "unsigned", "signed", "width", "same_type", "constant", "power_of_two",
     ),
     modes=(
-        "rw", "ro", "wo", "w1c", "pulse", "reserved", "in_order", "out_of_order",
+        "rw", "ro", "wo", "w1c", "pulse", "reserved", "on_read", "on_write",
+        "low_first", "high_first", "in_order", "out_of_order",
         "fixed_priority", "round_robin", "beat", "packet", "sync_level",
         "pulse_toggle", "handshake", "async_fifo", "rv_to_credit", "credit_to_rv",
         "read_first", "write_first", "old", "new", "no_change", "clear",
@@ -165,14 +167,14 @@ CAPABILITY_REGISTRY = PublicCapabilityRegistry(
     capabilities=(
         PublicCapability(
             "scalar-datapath", "pure value", "supported", "supported",
-            "supported", "supported", "semantic-reference equivalence semantic-reference relations",
+            "supported", "supported", "semantic-reference equivalence relations",
             CapabilityWitness("examples/all_syntax.zhl", "ScalarSyntax"),
             ("runtime division and general Boolean &&/|| are not hardware operators",),
         ),
         PublicCapability(
             "exact-literals-and-packed-constants", "pure value", "supported",
             "supported", "supported", "supported",
-            "semantic-reference equivalence semantic-reference relations where eligible",
+            "semantic-reference equivalence relations where eligible",
             CapabilityWitness("examples/all_syntax.zhl", "AllSyntax"),
             (
                 "compound expressions are never resized by context; zeros<N> "
@@ -390,18 +392,19 @@ CAPABILITY_REGISTRY = PublicCapabilityRegistry(
             ),
         ),
         PublicCapability(
-            "csr", "one resolved domain per shared access bank", "supported", "supported",
+            "csr", "one resolved domain per shared access bank", "bounded", "supported",
             "supported", "supported", "existing safety verification CSR family",
             CapabilityWitness("examples/all_syntax.zhl", "CsrSyntax"),
             (
-                "source-authored bounded register-bank model; blocks sharing one "
-                "canonical access ABI must share one domain",
+                "source-authored bounded register-bank model with storage-independent "
+                "access observations, inline groups and exact 64-bit split views; blocks "
+                "sharing one canonical access ABI must share one domain",
             ),
         ),
         PublicCapability(
             "contracts", "verification", "supported", "supported",
             "artifact generation", "artifact generation",
-            "safety verification safety and bounded cover execution when bound",
+            "safety verification and bounded cover execution when bound",
             CapabilityWitness(
                 "editors/vscode/zlang-hdl/examples/verification.zhl",
                 "VerificationUxSyntax",
@@ -517,166 +520,101 @@ CAPABILITY_REGISTRY = PublicCapabilityRegistry(
     ),
     documentation=(
         DocumentationRequirement(
-            "modules",
-            "docs/language-reference.md",
-            ("Modules may have compile-time", "`in`/`out`"),
-        ),
-        DocumentationRequirement("scalars", "docs/language-reference.md", ("`bit`", "`uint<N>`")),
-        DocumentationRequirement("fixed-point", "docs/language-reference.md", ("`fixed<W,F>`", "`SF8.8`")),
-        DocumentationRequirement(
-            "aggregates",
-            "docs/language-reference.md",
-            (
-                "`vec<N,T>`",
-                "structs",
-                "completed = packet with { last = 1 }",
-                "Exhaustive `Struct { field, ... } = value`",
-                "`repeat(value)`",
-            ),
+            "modules", "docs/language-reference.md", ('<a id="reference-getting-started-a-first-module"></a>',)
         ),
         DocumentationRequirement(
-            "packing",
-            "docs/language-reference.md",
-            ("`raw[MSB:LSB]`", "`concat(a,b,...)`", "`reshape<T>(value)`"),
+            "scalars", "docs/language-reference.md", ('<a id="reference-types-and-numerics-scalar-families"></a>',)
         ),
         DocumentationRequirement(
-            "exact-literals-and-packed-constants",
-            "docs/language-reference.md",
-            ("smallest exact hardware type", "zeros<24>", "ones<24>"),
+            "fixed-point", "docs/language-reference.md", ('<a id="reference-types-and-numerics-fixed-point"></a>',)
         ),
         DocumentationRequirement(
-            "characters-strings-tuples",
-            "docs/language-reference.md",
-            (
-                "`char` is a source alias for canonical `u8`",
-                "`string<N>` is a source alias",
-                "canonical `vec<N,u8>`",
-                "Tuple types use `(T,U)`",
-            ),
-        ),
-        DocumentationRequirement("enums", "docs/language-reference.md", ("enum State { Idle Header Payload Done }", "exhaustive enum `switch`")),
-        DocumentationRequirement(
-            "tagged-unions",
-            "docs/language-reference.md",
-            ("union Message {", "exhaustive `match` expression"),
+            "aggregates", "docs/language-reference.md", ('<a id="reference-types-and-numerics-vectors-and-structs"></a>',)
         ),
         DocumentationRequirement(
-            "functions",
-            "docs/language-reference.md",
-            ("Functions are top-level, pure, and combinational", "ordinary and generic functions"),
-        ),
-        DocumentationRequirement("expressions", "docs/language-reference.md", ("`?:`", "`switch`")),
-        DocumentationRequirement("functional-datapath", "docs/language-reference.md", ("`generate`", "`dot`")),
-        DocumentationRequirement("compile-time", "docs/language-reference.md", ("compile-time `if`", "Compile-time evaluation is bounded and deterministic")),
-        DocumentationRequirement(
-            "typed-static-parameters",
-            "docs/language-reference.md",
-            ("Typed constants", "operation : fn(A) -> B", "named"),
+            "packing", "docs/language-reference.md", ('<a id="reference-types-and-numerics-slicing-concatenation-and-representation"></a>',)
         ),
         DocumentationRequirement(
-            "state",
-            "docs/language-reference.md",
-            (
-                "Runtime-indexed vector register updates",
-                "`else when`",
-                "one rule-fire identity, and one `ActionGroup`",
-                "does not fall back",
-                "`priority`",
-                "`fsm phase = TxPhase.Idle`",
-            ),
+            "exact-literals-and-packed-constants", "docs/language-reference.md", ('<a id="reference-types-and-numerics-integer-width-rules"></a>',)
         ),
         DocumentationRequirement(
-            "runtime-atomic-actions",
-            "docs/language-reference.md",
-            (
-                "Every guard and operand reads the same pre-edge snapshot",
-                "one outer `Rule`",
-                "one `ActionGroup`",
-                "not fall back to an `else` branch",
-                "Scalar output writes are scheduling resources",
-                "compile-time `if`",
-            ),
+            "characters-strings-tuples", "docs/language-reference.md", ('<a id="reference-types-and-numerics-characters-fixed-strings-and-tuples"></a>',)
         ),
         DocumentationRequirement(
-            "module-timing",
-            "docs/language-reference.md",
-            ("`timing { latency N ii 1 }`", "immutable public behavior"),
+            "enums", "docs/language-reference.md", ('<a id="reference-types-and-numerics-nominal-enums"></a>',)
         ),
         DocumentationRequirement(
-            "physical-clock-reset",
-            "docs/language-reference.md",
-            (
-                "`ClockDomain`",
-                "async reset",
-                "two active clock edges",
-                "mode asynchronous",
-            ),
+            "tagged-unions", "docs/language-reference.md", ('<a id="reference-tagged-unions"></a>',)
         ),
         DocumentationRequirement(
-            "named-module-interfaces",
-            "docs/language-reference.md",
-            ("`module M : Ifc`", "exact, behavior-free module", "automatic substitution"),
+            "functions", "docs/language-reference.md", ('<a id="reference-expressions-functions-generics-pure-functions"></a>',)
         ),
         DocumentationRequirement(
-            "typed-external-modules",
-            "docs/language-reference.md",
-            ("`extern module VendorAdd : AddIfc { model add_model }`", "ExternalPhysicalMapping"),
+            "expressions", "docs/language-reference.md", ('<a id="reference-expressions-functions-generics-operators-and-selection"></a>',)
         ),
         DocumentationRequirement(
-            "storage",
-            "docs/language-reference.md",
-            (
-                "`fifo<T,N>`",
-                "declare up to eight named",
-                "The mask type is exactly `bits<ceil(element_width / 8)>`",
-                "Cell and visible read-result reset behavior may be selected independently",
-            ),
+            "functional-datapath", "docs/language-reference.md", ('<a id="reference-expressions-functions-generics-functional-datapath"></a>',)
         ),
         DocumentationRequirement(
-            "generic-rom-and-table-gather",
-            "docs/language-reference.md",
-            ("`StorageRom`", "`StorageGeneratedRom`", "`table_gather<T,N,IW>`"),
-        ),
-        DocumentationRequirement("protocols", "docs/language-reference.md", ("Credit and request/response", "ready/valid")),
-        DocumentationRequirement(
-            "ahb-lite-stdlib",
-            "docs/language-reference.md",
-            ("`std.bus.ahb_lite`", "two-cycle ERROR", "aligned, full-bus-width"),
+            "compile-time", "docs/language-reference.md", ('<a id="reference-expressions-functions-generics-compile-time-functions-and-selection"></a>',)
         ),
         DocumentationRequirement(
-            "composition",
-            "docs/language-reference.md",
-            ("option-free path", "crossings remain explicit", "`connect`, not scalar binding syntax"),
+            "typed-static-parameters", "docs/language-reference.md", ('<a id="reference-expressions-functions-generics-typed-constants-and-statically-selected-functions"></a>',)
         ),
         DocumentationRequirement(
-            "instance-arrays",
-            "docs/language-reference.md",
-            (
-                "aggregate scalar outputs",
-                "scheduled-FIFO profile",
-                "an outer one-dimensional array",
-                "first-level request/response profile",
-                "selected = lane[select].output",
-            ),
+            "state", "docs/language-reference.md", ('<a id="reference-sequential-state-storage-registers-and-next-state"></a>',)
         ),
         DocumentationRequirement(
-            "elastic-ready-valid-pipeline",
-            "docs/language-reference.md",
-            ("transform pipeline(auto", "global-clock-enable", "variable wall-clock"),
+            "runtime-atomic-actions", "docs/language-reference.md", ('<a id="reference-sequential-state-storage-guarded-atomic-actions"></a>',)
         ),
-        DocumentationRequirement("csr", "docs/language-reference.md", ("CSR source describes", "`w1c`")),
         DocumentationRequirement(
-            "contracts",
-            "docs/language-reference.md",
-            (
-                "Standalone safety and bounded-reachability goals are named",
-                "Related requirements and goals can share a contract scope",
-                "Legacy `assume` normalizes",
-            ),
+            "module-timing", "docs/language-reference.md", ('<a id="reference-sequential-state-storage-exact-module-timing-contracts"></a>',)
         ),
-        DocumentationRequirement("rewrites", "docs/language-reference.md", ("`equiv`",)),
-        DocumentationRequirement("exploration", "docs/language-reference.md", ("`implement`, `choice`",)),
-        DocumentationRequirement("compile-time-math", "docs/language-reference.md", ("`pi()`, `sin(x)`, `cos(x)`",)),
+        DocumentationRequirement(
+            "physical-clock-reset", "docs/language-reference.md", ('<a id="reference-physical-clock-reset-contract"></a>',)
+        ),
+        DocumentationRequirement(
+            "named-module-interfaces", "docs/language-reference.md", ('<a id="reference-named-module-interfaces"></a>',)
+        ),
+        DocumentationRequirement(
+            "typed-external-modules", "docs/language-reference.md", ('<a id="reference-hierarchy-protocols-typed-external-modules"></a>',)
+        ),
+        DocumentationRequirement(
+            "storage", "docs/language-reference.md", ('<a id="reference-sequential-state-storage-writable-memories"></a>',)
+        ),
+        DocumentationRequirement(
+            "generic-rom-and-table-gather", "docs/language-reference.md", ('<a id="reference-sequential-state-storage-initialized-synchronous-roms"></a>',)
+        ),
+        DocumentationRequirement(
+            "protocols", "docs/language-reference.md", ('<a id="reference-hierarchy-protocols-ready-valid"></a>',)
+        ),
+        DocumentationRequirement(
+            "ahb-lite-stdlib", "docs/language-reference.md", ('<a id="reference-standard-bus-library"></a>',)
+        ),
+        DocumentationRequirement(
+            "composition", "docs/language-reference.md", ('<a id="reference-hierarchy-protocols-modules-and-instances"></a>',)
+        ),
+        DocumentationRequirement(
+            "instance-arrays", "docs/language-reference.md", ('<a id="reference-storage-instance-arrays"></a>',)
+        ),
+        DocumentationRequirement(
+            "elastic-ready-valid-pipeline", "docs/language-reference.md", ('<a id="reference-optimization-formal"></a>',)
+        ),
+        DocumentationRequirement(
+            "csr", "docs/language-reference.md", ('<a id="reference-hierarchy-protocols-csr-blocks"></a>',)
+        ),
+        DocumentationRequirement(
+            "contracts", "docs/language-reference.md", ('<a id="reference-optimization-formal-first-class-verification-goals-and-contracts"></a>',)
+        ),
+        DocumentationRequirement(
+            "rewrites", "docs/language-reference.md", ('<a id="reference-egraph-optimization-infrastructure"></a>',)
+        ),
+        DocumentationRequirement(
+            "exploration", "docs/language-reference.md", ('<a id="reference-optimization-formal-one-implementation-policy-path"></a>',)
+        ),
+        DocumentationRequirement(
+            "compile-time-math", "docs/language-reference.md", ('<a id="reference-stdlib-fixed-point-math"></a>',)
+        ),
     ),
 )
 

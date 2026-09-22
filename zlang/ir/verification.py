@@ -238,6 +238,8 @@ def verification_module_identity(module: object) -> str:
     excluded = {
         "origin", "origins", "source_origin", "source_identity", "source_hash",
         "source_path", "verification_scopes",
+        "semantic_expression_arena_statistics", "semantic_expression_provenance",
+        "selected_value_normalization_statistics",
     }
 
     def clean(value: object) -> object:

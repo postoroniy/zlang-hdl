@@ -23,7 +23,6 @@ class ExpressionTraversalPolicy(str, Enum):
 
     STRUCTURAL = "structural"
     SELECTED_IMPLEMENTATION = "selected_implementation"
-    EXECUTABLE = "executable"
 
 
 _LEAF_TYPES = (
@@ -40,6 +39,7 @@ _LEAF_TYPES = (
     expr.RomRef,
     expr.Constant,
     expr.FunctionalCaptureRef,
+    expr.FunctionalValue,
     expr.FunctionalTableLookup,
     expr.InstanceOutputRef,
 )
@@ -157,43 +157,23 @@ def expression_children(
     if isinstance(expression, (expr.Generate, expr.Map)):
         return expression.elements
     if isinstance(expression, expr.FunctionalRegion):
-        if policy is ExpressionTraversalPolicy.EXECUTABLE:
-            # Import lazily: functional lowering itself depends on the
-            # expression definitions and must not participate in traversal
-            # module initialization.
-            from zlang.ir.functional import materialize_functional_region
-
-            return materialize_functional_region(expression)
         return (
             expression.template,
             *(value for table in expression.tables for value in table.values),
             *(value for _, value in expression.captures),
         )
     if isinstance(expression, expr.Dot):
-        if policy in {
-            ExpressionTraversalPolicy.SELECTED_IMPLEMENTATION,
-            ExpressionTraversalPolicy.EXECUTABLE,
-        }:
+        if policy is ExpressionTraversalPolicy.SELECTED_IMPLEMENTATION:
             return expression.products
         return (expression.left, expression.right, *expression.products)
     if isinstance(expression, expr.Reduce):
-        if policy is ExpressionTraversalPolicy.EXECUTABLE:
-            if expression.expanded is not None:
-                return (expression.expanded,)
-            if expression.plan is not None:
-                from zlang.ir.functional import materialize_exact_reduction
-
-                return (materialize_exact_reduction(expression),)
         return (
             (expression.collection, expression.expanded)
             if expression.expanded is not None
             else (expression.collection,)
         )
     if isinstance(expression, expr.ImplementationChoice):
-        if policy in {
-            ExpressionTraversalPolicy.SELECTED_IMPLEMENTATION,
-            ExpressionTraversalPolicy.EXECUTABLE,
-        }:
+        if policy is ExpressionTraversalPolicy.SELECTED_IMPLEMENTATION:
             return (expression.selected_alternative.expression,)
         return tuple(
             alternative.expression for alternative in expression.alternatives

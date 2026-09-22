@@ -1,15 +1,37 @@
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import dataclass, replace
+from copy import deepcopy
 from pathlib import Path
 
 from zlang.compiler import compile_file, compile_source
 from zlang.ir.expressions import ImplementationKind
 from zlang.opt import canonical_ir_identity
 from zlang.opt.ir import ExpressionOp
+from zlang.opt.render import render_identity
 
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+@dataclass(frozen=True)
+class _SharedIdentityNode:
+    left: object
+    right: object
+
+
+def test_canonical_identity_renders_shared_dag_once_per_unique_node() -> None:
+    base = compile_source("module IdentityDag { in x:u8 out y:u8=x }").optimization_ir
+    root: object = "leaf"
+    for _ in range(14):
+        root = _SharedIdentityNode(root, root)
+    graph = replace(base, locals=(root,))
+    serialized = render_identity(graph)
+    assert len(serialized) < 40_000
+    assert render_identity(deepcopy(graph)) == serialized
+    assert canonical_ir_identity(deepcopy(graph)) == canonical_ir_identity(graph)
+    changed = replace(graph, locals=(_SharedIdentityNode(root, "different"),))
+    assert canonical_ir_identity(changed) != canonical_ir_identity(graph)
 
 
 def test_identity_ignores_source_origin_relocation_and_whitespace() -> None:

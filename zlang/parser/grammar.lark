@@ -90,7 +90,7 @@ callable_parameter_types: type_name ("," type_name)*
             | ADD_OP NUMBER -> signed_parameter_number
             | NAME -> parameter_name
 
-?module_item: port_decl | interface_decl | connect_decl | connection_chain_decl | bare_connect_decl | arbiter_decl | contract_decl | verification_goal_decl | verification_scope_decl | csr_decl | rule_decl | anonymous_rule_decl | rule_priority | priority_block | fsm_decl | fifo_decl | memory_decl | rom_decl | module_timing_decl | struct_destructure_decl | tuple_destructure_decl | assignment | instance_decl | generic_decl | generate_instances | compile_time_if_decl | clock_decl | reset_decl | async_reset_decl | register_decl | next_assignment
+?module_item: port_decl | interface_decl | connect_decl | connection_chain_decl | bare_connect_decl | arbiter_decl | contract_decl | verification_goal_decl | verification_scope_decl | csr_group_decl | csr_decl | rule_decl | anonymous_rule_decl | rule_priority | priority_block | fsm_decl | fifo_decl | memory_decl | rom_decl | module_timing_decl | struct_destructure_decl | tuple_destructure_decl | assignment | instance_decl | generic_decl | generate_instances | compile_time_if_decl | clock_decl | reset_decl | async_reset_decl | register_decl | next_assignment
 module_timing_decl: _TIMING "{" module_timing_item* "}"
 ?module_timing_item: _LATENCY NUMBER -> module_timing_latency
                    | _II NUMBER -> module_timing_ii
@@ -206,9 +206,17 @@ verification_scope_decl: _VERIFICATION_CONTRACT NAME [_AT NAME] "{" verification
 verification_requirement_decl: _VERIFICATION_REQUIRE NAME "{" source_expr "}"
 verification_scoped_goal_decl: VERIFICATION_SCOPED_GOAL_KIND NAME "{" source_expr "}"
 assignment_target: NAME ("." NAME)*
-csr_decl: _CSR NAME _AT NUMBER [_AT NAME] "{" csr_register* "}"
-csr_register: NAME _AT NUMBER "{" csr_field* "}"
+// A CSR block base is an elaboration-time integer, just like a storage depth.
+// Keeping the same bounded expression vocabulary lets one reusable CSR module
+// specialize its absolute map without turning addresses into runtime values.
+csr_group_decl: _CSR _GROUP NAME "{" csr_register* "}"
+csr_decl: _CSR NAME _AT storage_depth [_AT NAME] "{" csr_block_item* "}"
+?csr_block_item: csr_register | csr_group_use | csr_split_register
+csr_group_use: NAME ":" NAME "[" storage_depth "]" _AT storage_depth _STRIDE storage_depth
+csr_split_register: NAME _AT NUMBER _SPLIT "<" WIDTH ">" NAME type_name CSR_ACCESS ["=" NUMBER] _ORDER CSR_SPLIT_ORDER
+csr_register: NAME _AT NUMBER "{" (csr_field | csr_event)* "}"
 csr_field: NAME type_name [csr_position] CSR_ACCESS ["=" NUMBER] [csr_binding]
+csr_event: NAME type_name [csr_position] CSR_EVENT _ARROW signal_ref
 csr_position: _AT NUMBER [":" NUMBER]
 ?csr_binding: _NEXT_ASSIGN signal_ref -> csr_status_binding
             | _NEXT_ASSIGN _STICKY "(" signal_ref ")" [_PRIORITY CSR_PRIORITY] -> csr_sticky_binding
@@ -519,6 +527,8 @@ ORDERING.3: /in_order(?![A-Za-z0-9_])/ | /out_of_order(?![A-Za-z0-9_])/
 ADAPTER.3: /rv_to_credit(?![A-Za-z0-9_])/ | /credit_to_rv(?![A-Za-z0-9_])/
 CSR_ACCESS.3: /(?:rw|ro|wo|w1c|pulse|reserved)(?![A-Za-z0-9_])/
 CSR_PRIORITY.3: /hardware(?![A-Za-z0-9_])/ | /software(?![A-Za-z0-9_])/
+CSR_EVENT.3: /(?:on_read|on_write)(?![A-Za-z0-9_])/
+CSR_SPLIT_ORDER.3: /(?:low_first|high_first)(?![A-Za-z0-9_])/
 MEMORY_COLLISION.3: /read_first(?![A-Za-z0-9_])/ | /write_first(?![A-Za-z0-9_])/ | /old(?![A-Za-z0-9_])/ | /new(?![A-Za-z0-9_])/ | /no_change(?![A-Za-z0-9_])/
 MEMORY_PORT_KIND.3: /read_write_port(?![A-Za-z0-9_])/ | /read_port(?![A-Za-z0-9_])/ | /write_port(?![A-Za-z0-9_])/
 MEMORY_RESET_POLICY.3: /clear(?![A-Za-z0-9_])/ | /preserve(?![A-Za-z0-9_])/
@@ -643,6 +653,10 @@ _IFF.3: /iff(?![A-Za-z0-9_])/
 _CSR.3: /csr(?![A-Za-z0-9_])/
 _AT.4: "@"
 _STICKY.3: /sticky(?![A-Za-z0-9_])/
+_GROUP.3: /group(?![A-Za-z0-9_])/
+_STRIDE.3: /stride(?![A-Za-z0-9_])/
+_SPLIT.3: /split(?![A-Za-z0-9_])/
+_ORDER.3: /order(?![A-Za-z0-9_])/
 _PRIORITY.3: /priority(?![A-Za-z0-9_])/
 _FSM.3: /fsm(?![A-Za-z0-9_])/
 _HOLD.3: /hold(?![A-Za-z0-9_])/

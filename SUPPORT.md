@@ -19,12 +19,11 @@ Before reporting a compiler problem, include:
 - operating system and Python version;
 - a minimal `.zhl` reproducer;
 - the complete command and structured diagnostic;
-- external tool versions when Verilator, Yosys, SBY, or a solver is
+- external tool versions when Clash, Verilator, Yosys, SBY, or a solver is
   involved.
 
-The [language support matrix](docs/language-reference.md#reference-syntax-support-matrix),
-[known limitations](docs/language-reference.md#reference-known-limitations), and
-[direct-SystemVerilog chapter](docs/language-reference.md#reference-direct-systemverilog)
-describe supported and fail-closed behavior. A documented unsupported feature is not necessarily a
+The [language support matrix](docs/language-reference.md#reference-syntax-support-matrix)
+and [compiler reference](docs/language-reference.md) describe supported and
+fail-closed behavior. A documented unsupported feature is not necessarily a
 bug, but a concrete real-design reproducer is useful evidence for prioritizing
 future work.

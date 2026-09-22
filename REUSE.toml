@@ -2,6 +2,7 @@ version = 1
 
 [[annotations]]
 path = [
+  ".public-tree-manifest.json",
   ".qwen/**",
   ".gitattributes",
   ".github/**",
@@ -11,12 +12,14 @@ path = [
   "*.toml",
   "*.md",
   "*.py",
+  "benchmarks/native_jit/large_combinational.zhl",
   "NOTICE",
   "REUSE.toml",
   "docs/**",
   "editors/**",
   "examples/**",
   "release/**",
+  "native-runtime/**",
   "stdlib/**",
   "tests/**",
   "tools/**",

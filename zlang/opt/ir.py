@@ -215,6 +215,7 @@ class ExpressionOp(str, Enum):
     TUPLE_CONSTRUCT = "tuple_construct"
     TUPLE_PROJECT = "tuple_project"
     FUNCTIONAL_CAPTURE = "functional_capture"
+    FUNCTIONAL_VALUE = "functional_value"
     FUNCTIONAL_TABLE_LOOKUP = "functional_table_lookup"
     FUNCTIONAL_REGION = "functional_region"
     INSTANCE_OUTPUT = "instance_output"

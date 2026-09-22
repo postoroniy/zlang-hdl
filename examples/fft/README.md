@@ -327,6 +327,9 @@ RTL and passes strict Verilator lint. The production Verilator test matches all
 512 outputs against the independent oracle. It also resets a partial stream
 and holds the first clean-epoch output stable through five cycles of
 backpressure; the complete post-reset stream remains lossless and ordered.
+The retired Clash 1.11 compatibility run previously agreed with this oracle;
+it is historical evidence rather than a current feature or release gate.
+
 The persistent backend-independent hierarchy simulator now completes the same
 1,033-cycle continuous replay routinely. On the validation host it takes about
 11 seconds and peaks at roughly 84 MiB RSS. The replay accepts all 1,023 input

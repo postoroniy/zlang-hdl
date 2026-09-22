@@ -15,6 +15,7 @@ from zlang.ir.target import ImplementationDelay, ImplementationGraph, TimingDAG
 from zlang.ir.types import FixedType, UIntType
 from zlang.costs import MetricSource
 from zlang.compiler import compile_source
+from zlang.compilation_session import CompilationSession
 from zlang.formal_counterexample_codec import counterexample_to_data
 from zlang.ir.equivalence import EquivalenceCounterexample
 from zlang.ir.formal import Counterexample
@@ -24,6 +25,7 @@ from zlang.target_planner import (
     _compatible_evidence,
 )
 from zlang.targets import generic_implementation_graph
+from zlang.opt import lower
 
 
 def test_counterexample_codec_preserves_exact_closed_union_shapes() -> None:
@@ -91,6 +93,44 @@ def test_selection_identity_normalizes_nested_allocation_ids() -> None:
     assert selection_expression_semantic_identity(left) == (
         selection_expression_semantic_identity(right)
     )
+
+
+def test_value_identity_is_independent_of_python_dag_sharing() -> None:
+    word = UIntType(8)
+    shared = expr.InputRef("a", word)
+    shared_value = expr.Add(shared, shared, UIntType(9))
+    duplicated_value = expr.Add(
+        expr.InputRef("a", word),
+        expr.InputRef("a", word),
+        UIntType(9),
+    )
+    assert expression_semantic_identity(shared_value) == (
+        expression_semantic_identity(duplicated_value)
+    )
+
+
+def test_frontend_identity_and_round_trip_are_bounded_by_unique_dag_nodes() -> None:
+    rounds = 64
+    source = "\n".join(
+        [
+            "module SharedDag {",
+            "in seed:u32",
+            "out result:u32",
+            "state_00:u32=seed",
+        ]
+        + [
+            f"state_{index:02d}:u32=truncate<32>((state_{index - 1:02d}^"
+            f"(state_{index - 1:02d}>>7))+0x9e3779b9)"
+            for index in range(1, rounds + 1)
+        ]
+        + [f"result=state_{rounds:02d}", "}"]
+    )
+    module = CompilationSession(source, top="SharedDag").planning.module
+    canonical = lower(module)
+
+    # Every round adds a bounded number of unique nodes even though its fully
+    # expanded expression tree has more than 2**64 logical paths.
+    assert len(canonical.expressions) < rounds * 8
 
 
 def test_scheduled_physical_identity_ignores_estimate_and_provenance() -> None:

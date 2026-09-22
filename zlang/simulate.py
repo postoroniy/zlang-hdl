@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Iterator, Mapping
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 
 from zlang.async_fifo import build_async_fifo_physical_plan
@@ -77,6 +79,83 @@ from zlang.source import SourceOrigin
 
 class SimulationError(ValueError):
     """Input values do not match a module's interface."""
+
+
+@dataclass
+class _EvaluationMemo:
+    """One bounded cache for a pure expression-evaluation scope.
+
+    Expression nodes form a DAG, but the reference evaluator historically
+    followed every incoming edge recursively.  Keep results by object identity
+    and environment identity so shared nodes are evaluated once without ever
+    reusing a function body or functional-region template under different
+    bindings.  Retaining both objects in the cache also prevents Python object
+    ID reuse while the scope is alive.
+    """
+
+    environments: dict[
+        int,
+        tuple[
+            dict[str, object],
+            dict[int, tuple[expr.Expression, object]],
+        ],
+    ]
+    active: set[tuple[int, int]]
+    root_environment: dict[str, object] | None
+    environment_depths: dict[int, int]
+
+    def enter(
+        self,
+        values: dict[str, object],
+    ) -> dict[int, tuple[expr.Expression, object]]:
+        identity = id(values)
+        if self.root_environment is None:
+            self.root_environment = values
+        self.environment_depths[identity] = (
+            self.environment_depths.get(identity, 0) + 1
+        )
+        existing = self.environments.get(identity)
+        if existing is None:
+            cache: dict[int, tuple[expr.Expression, object]] = {}
+            self.environments[identity] = (values, cache)
+            return cache
+        retained_values, cache = existing
+        if retained_values is not values:
+            raise SimulationError("reference simulator environment identity collision")
+        return cache
+
+    def leave(self, values: dict[str, object]) -> None:
+        identity = id(values)
+        depth = self.environment_depths[identity] - 1
+        if depth:
+            self.environment_depths[identity] = depth
+            return
+        del self.environment_depths[identity]
+        if values is not self.root_environment:
+            # Function-call and FunctionalRegion environments are ephemeral.
+            # Releasing them bounds retained memory by the root DAG rather
+            # than by the number of dynamic calls or binder iterations.
+            del self.environments[identity]
+
+
+_CURRENT_EVALUATION_MEMO: ContextVar[_EvaluationMemo | None] = ContextVar(
+    "zlang_reference_simulator_evaluation_memo",
+    default=None,
+)
+
+
+@contextmanager
+def _evaluation_scope() -> Iterator[None]:
+    """Share one DAG memo across nested evaluation calls in a stable scope."""
+
+    if _CURRENT_EVALUATION_MEMO.get() is not None:
+        yield
+        return
+    token = _CURRENT_EVALUATION_MEMO.set(_EvaluationMemo({}, set(), None, {}))
+    try:
+        yield
+    finally:
+        _CURRENT_EVALUATION_MEMO.reset(token)
 
 
 def _verification_origin_text(origin: SourceOrigin | None) -> str:
@@ -186,7 +265,7 @@ class VerificationMonitor:
         self,
         values: Mapping[str, object],
         cycle: int,
-        reset_active: bool = False,
+        reset_active: bool = False,  # noqa: ARG002 -- simulator preview protocol
         *,
         clock: str | None = None,
     ) -> VerificationSampleResult:
@@ -532,12 +611,15 @@ def simulate(module: Module, **input_values: object) -> dict[str, object]:
                 "unresolved combinational hierarchy dependency: "
                 + ", ".join(unresolved)
             )
-    return {
-        assignment.target.name: _evaluate(
-            assignment.expression, values, functions
-        )
-        for assignment in module.assignments
-    }
+    # All output expressions observe one immutable settled environment.  Share
+    # their evaluation memo so a common DAG producer is computed only once.
+    with _evaluation_scope():
+        return {
+            assignment.target.name: _evaluate(
+                assignment.expression, values, functions
+            )
+            for assignment in module.assignments
+        }
 
 
 def simulate_cycles(
@@ -1887,7 +1969,7 @@ class _PersistentCombinationalSimulationState:
     def preview(
         self,
         inputs: dict[str, object],
-        reset_active: bool = False,
+        reset_active: bool = False,  # noqa: ARG002 -- simulation-state protocol
         *,
         external_values: dict[str, object] | None = None,
     ) -> dict[str, object]:
@@ -3346,19 +3428,22 @@ class _PersistentStorageSimulationState:
                 if memory.write_mask is not None else write_data
             )
             if memory.read_latency >= 1:
-                if (
-                    write_enable
-                    and read_address == write_address
-                    and memory.collision.value == "write_first"
-                ):
+                collision = write_enable and read_address == write_address
+                if collision and memory.collision is MemoryCollision.WRITE_FIRST:
                     next_read_data = merged_write
+                elif collision and memory.collision is MemoryCollision.NO_CHANGE:
+                    next_read_data = memory_read_data[memory.name]
                 else:
                     next_read_data = cells[read_address]
                 if memory.read_latency > 1:
                     stages = memory_read_stages[memory.name]
                     next_memory_read_data[memory.name] = stages[-1]
                     next_memory_read_stages[memory.name][1:] = stages[:-1]
-                    next_memory_read_stages[memory.name][0] = next_read_data
+                    if not (
+                        collision
+                        and memory.collision is MemoryCollision.NO_CHANGE
+                    ):
+                        next_memory_read_stages[memory.name][0] = next_read_data
                 else:
                     next_memory_read_data[memory.name] = next_read_data
             if write_enable:
@@ -4218,6 +4303,20 @@ def simulate_csr_cycles(
                     ):
                         key = f"{block.name}.{register.name}.{field.name}"
                         cycle_result[field.binding.signal] = state[key]
+                register_hit = (
+                    address == block.base_address + register.offset
+                )
+                for event in register.events:
+                    if event.kind is ir_csr.CsrEventKind.WRITE:
+                        event_value = (
+                            (int(inputs["wdata"]) >> event.lsb)
+                            & ((1 << event.canonical_type.width) - 1)
+                            if register_hit and inputs["write"]
+                            else 0
+                        )
+                    else:
+                        event_value = int(bool(register_hit and inputs["read"]))
+                    cycle_result[event.signal] = event_value
         verification_values: dict[str, object] = dict(inputs)
         verification_values.update(current_state)
         _sample_module_verification(
@@ -5418,6 +5517,43 @@ def _evaluate(
     values: dict[str, object],
     functions: dict[str, Function],
 ) -> object:
+    memo = _CURRENT_EVALUATION_MEMO.get()
+    if memo is None:
+        with _evaluation_scope():
+            return _evaluate(expression, values, functions)
+
+    environment_identity = id(values)
+    node_identity = id(expression)
+    cache = memo.enter(values)
+    try:
+        cached = cache.get(node_identity)
+        if cached is not None:
+            retained_expression, result = cached
+            if retained_expression is not expression:
+                raise SimulationError(
+                    "reference simulator expression identity collision"
+                )
+            return result
+
+        active_key = (environment_identity, node_identity)
+        if active_key in memo.active:
+            raise SimulationError("cyclic expression DAG in reference simulator")
+        memo.active.add(active_key)
+        try:
+            result = _evaluate_uncached(expression, values, functions)
+        finally:
+            memo.active.remove(active_key)
+        cache[node_identity] = (expression, result)
+        return result
+    finally:
+        memo.leave(values)
+
+
+def _evaluate_uncached(
+    expression: expr.Expression,
+    values: dict[str, object],
+    functions: dict[str, Function],
+) -> object:
     if isinstance(expression, (expr.InputRef, expr.ParameterRef, expr.RegisterRef)):
         return values[expression.name]
     if isinstance(expression, expr.InstanceOutputRef):
@@ -5649,6 +5785,14 @@ def _evaluate(
                 f"functional capture '{expression.display_name}' is not bound"
             )
         return values[key]
+    if isinstance(expression, expr.FunctionalValue):
+        try:
+            return evaluate_compile_time(
+                expression.expression,
+                _functional_binder_values(values),
+            )
+        except ValueError as error:
+            raise SimulationError(str(error)) from error
     if isinstance(expression, expr.FunctionalTableLookup):
         key = f"{_FUNCTIONAL_TABLE_PREFIX}{expression.table_name}"
         table = values.get(key)

@@ -351,11 +351,10 @@ def test_named_complex_quantization_has_one_typed_boundary_per_result() -> None:
     push_assignment = next(
         line for line in rtl.splitlines() if "assign feedback_push_data =" in line
     )
-    # Retained calls pass the live operands to two shared monomorphic helpers
-    # (complex subtraction, then final quantization).  The conversion body is
-    # no longer cloned into this rule assignment.
+    # The single-use subtraction is inlined while the shared final
+    # quantization remains one monomorphic helper call.
     assert "feedback_front" in push_assignment
-    assert push_assignment.count("zlang_spec_") == 2
+    assert push_assignment.count("zlang_spec_") == 1
 
 
 def test_stage_safety_verification_generation_and_unbound_execution_are_explicitly_skipped() -> None:

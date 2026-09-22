@@ -70,7 +70,7 @@ class DirectSystemVerilogEmitterTests(unittest.TestCase):
         self.assertEqual(generated.count("tap = "), 1)
         self.assertEqual(generated.count("tap(zlang_packed_samples["), 2)
 
-    def test_nested_pure_function_helpers_are_emitted_once_and_lint(self) -> None:
+    def test_single_use_nested_pure_functions_are_inlined_and_lint(self) -> None:
         source = """
 fn bump(x : u8) -> u8 {
     truncate<8>(x + 1)
@@ -95,17 +95,10 @@ module NestedSwitchCall {
         generated = emit_experimental(result.ir)
 
         self.assertIn("module NestedSwitchCall", generated)
-        self.assertEqual(generated.count("function automatic logic [7:0] bump("), 1)
-        self.assertEqual(
-            generated.count("function automatic logic [7:0] choose_bump("), 1
-        )
-        # Function arguments keep their source stem with a compact arg_ prefix
-        # so ordinary source names cannot become SystemVerilog keywords.
-        self.assertIn(
-            "choose_bump = ((arg_select)", generated
-        )
-        self.assertIn("bump(arg_x)", generated)
-        self.assertIn("assign y = choose_bump(select, value);", generated)
+        self.assertNotIn("function automatic", generated)
+        self.assertNotIn("bump(", generated)
+        self.assertNotIn("choose_bump(", generated)
+        self.assertIn("assign y = ((select)", generated)
         self.assertIn(" + ", generated)
         self.assertIn(" ? ", generated)
 

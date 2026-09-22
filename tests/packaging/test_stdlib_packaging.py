@@ -40,9 +40,8 @@ def _build_python() -> str | None:
                 candidate,
                 "-c",
                 (
-                    "import pip, setuptools, setuptools.build_meta; "
-                    "major=int(setuptools.__version__.split('.', 1)[0]); "
-                    "raise SystemExit(0 if major >= 77 else 1)"
+                    "import build, pip, setuptools; "
+                    "raise SystemExit(0)"
                 ),
             ],
             capture_output=True,
@@ -56,7 +55,7 @@ def _build_python() -> str | None:
 def test_wheel_contains_and_resolves_every_shipped_stdlib_module(tmp_path: Path) -> None:
     build_python = _build_python()
     if build_python is None:
-        pytest.skip("a local Python with setuptools.build_meta is unavailable")
+        pytest.skip("a local Python with build and setuptools is unavailable")
 
     source = tmp_path / "source"
     source.mkdir()
@@ -84,21 +83,15 @@ def test_wheel_contains_and_resolves_every_shipped_stdlib_module(tmp_path: Path)
     build = subprocess.run(
         [
             build_python,
-            "-c",
-            textwrap.dedent(
-                """
-                import os
-                from setuptools.build_meta import build_wheel
-                os.chdir(os.environ["ZLANG_WHEEL_SOURCE"])
-                print(build_wheel(os.environ["ZLANG_WHEEL_DIST"]))
-                """
-            ),
+            "-m",
+            "build",
+            "--wheel",
+            "--no-isolation",
+            "--outdir",
+            str(wheel_dir),
+            str(source),
         ],
-        env={
-            **os.environ,
-            "ZLANG_WHEEL_SOURCE": str(source),
-            "ZLANG_WHEEL_DIST": str(wheel_dir),
-        },
+        env=os.environ,
         capture_output=True,
         text=True,
     )
@@ -110,20 +103,21 @@ def test_wheel_contains_and_resolves_every_shipped_stdlib_module(tmp_path: Path)
     with zipfile.ZipFile(wheels[0]) as archive:
         wheel_members = tuple(archive.namelist())
         metadata_name = next(
-            name for name in archive.namelist()
+            name for name in wheel_members
             if name.endswith(".dist-info/METADATA")
         )
         metadata = archive.read(metadata_name).decode("utf-8")
         packaged = tuple(
             sorted(
-                name.split(".data/data/", 1)[1]
+                "stdlib/" + name.split(".data/data/stdlib/", 1)[1]
                 for name in wheel_members
                 if ".data/data/stdlib/" in name and name.endswith(".zhl")
             )
         )
+    assert not any(name.endswith(".rs") for name in wheel_members)
+    assert not any("Cargo.toml" in name or "Cargo.lock" in name for name in wheel_members)
+    assert not any("native-runtime" in name for name in wheel_members)
     assert packaged == expected
-    assert not any(name.lower().endswith(".pdf") for name in wheel_members)
-    assert not any("/docs/" in name for name in wheel_members)
     assert "stdlib/math/complex.zhl" in packaged
     assert "stdlib/stream/core.zhl" in packaged
     assert "stdlib/stream/serialization.zhl" in packaged
@@ -135,7 +129,7 @@ def test_wheel_contains_and_resolves_every_shipped_stdlib_module(tmp_path: Path)
     assert "stdlib/bus/ahb_lite.zhl" in packaged
     assert "stdlib/autodiscovery/deep/nested.zhl" in packaged
     assert "Requires-Python: <3.13,>=3.12\n" in metadata
-    assert "Version: 0.1.0a10\n" in metadata
+    assert "Version: 0.1.0a11\n" in metadata
     assert "License-Expression: Apache-2.0\n" in metadata
     assert "License-File: LICENSE\n" in metadata
     assert "License-File: NOTICE\n" in metadata
@@ -145,21 +139,15 @@ def test_wheel_contains_and_resolves_every_shipped_stdlib_module(tmp_path: Path)
     sdist_build = subprocess.run(
         [
             build_python,
-            "-c",
-            textwrap.dedent(
-                """
-                import os
-                from setuptools.build_meta import build_sdist
-                os.chdir(os.environ["ZLANG_WHEEL_SOURCE"])
-                print(build_sdist(os.environ["ZLANG_SDIST_DIST"]))
-                """
-            ),
+            "-m",
+            "build",
+            "--sdist",
+            "--no-isolation",
+            "--outdir",
+            str(sdist_dir),
+            str(source),
         ],
-        env={
-            **os.environ,
-            "ZLANG_WHEEL_SOURCE": str(source),
-            "ZLANG_SDIST_DIST": str(sdist_dir),
-        },
+        env=os.environ,
         capture_output=True,
         text=True,
     )
@@ -172,8 +160,9 @@ def test_wheel_contains_and_resolves_every_shipped_stdlib_module(tmp_path: Path)
     assert any(name.endswith("/NOTICE") for name in sdist_members)
     assert any(name.endswith("/stdlib/math/complex.zhl") for name in sdist_members)
     assert not any("/tests/" in name for name in sdist_members)
-    assert not any("/docs/" in name for name in sdist_members)
-    assert not any(name.lower().endswith(".pdf") for name in sdist_members)
+    assert not any(name.endswith(".rs") for name in sdist_members)
+    assert not any("/Cargo.toml" in name or "/Cargo.lock" in name for name in sdist_members)
+    assert not any("/native-runtime/" in name for name in sdist_members)
 
     installed = tmp_path / "installed"
     install = subprocess.run(
@@ -279,7 +268,7 @@ def test_wheel_contains_and_resolves_every_shipped_stdlib_module(tmp_path: Path)
         assert version_result.returncode == 0, (
             version_result.stdout + version_result.stderr
         )
-        assert version_result.stdout == f"{program} 0.1.0a10\n"
+        assert version_result.stdout == f"{program} 0.1.0a11\n"
     lock_result = subprocess.run(
         [
             sys.executable, "-m", "zlang.project_cli", "update",

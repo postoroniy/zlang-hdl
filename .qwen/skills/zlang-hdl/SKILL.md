@@ -1,6 +1,6 @@
 ---
 name: zlang-hdl
-description: Implement, review, debug, compile, optimize, and verify ZLang HDL projects and compiler changes. Use for .zhl source, stdlib, direct SystemVerilog, formal verification, implementation intent, DSP/pipeline planning, or standards-based hardware conversion. Do not use this skill to invent syntax or treat estimates and bounded checks as proof.
+description: Implement, review, debug, compile, optimize, and verify ZLang HDL projects and compiler changes. Use for .zhl source, stdlib, direct SystemVerilog, formal verification, implementation intent, DSP/pipeline planning, or standards-based hardware conversion. Do not use this skill to invent syntax, revive Clash, or treat estimates and bounded checks as proof.
 ---
 
 # ZLang HDL
@@ -8,7 +8,7 @@ description: Implement, review, debug, compile, optimize, and verify ZLang HDL p
 Use the checked-out compiler as executable authority. ZLang is an exact typed
 hardware language. Its semantics come from backend-independent typed IR, not
 from generated RTL or a historical design document. Direct SystemVerilog is the
-only production backend.
+only production backend; Clash and executable retired cross-backend equivalence are retired.
 
 The productive loop is:
 
@@ -40,13 +40,13 @@ Use this order:
 
 1. the user's current request and applicable `AGENTS.md`;
 2. grammar, typed semantics, validators, and passing tests in this checkout;
-3. `zlang/public_capabilities.py` and `docs/language-reference.md`;
-4. `docs/language-quick-reference.md`;
+3. `zlang/public_capabilities.py` and `docs/syntax-support-matrix.md`;
+4. `docs/language-quick-reference.md` and the relevant topic guide;
 5. compiling examples and source-authored `stdlib/**/*.zhl`;
 6. editor grammar only for lexical behavior.
 
-`docs/language-reference.md` is the complete Community guide. Do not create a
-duplicate topic guide. `examples/all_syntax.zhl` is a representative language tour, not an
+`docs/language-guide.md` is an index, not a root-level file. Do not create a
+duplicate. `examples/all_syntax.zhl` is a representative language tour, not an
 exhaustive capability contract. Historical development history/design-freeze prose does
 not override current executable behavior.
 
@@ -102,8 +102,8 @@ Use the repository environment and explicit top:
   --systemverilog build/ExactTop.sv --verilator-lint --verbose
 ```
 
-The command is `zlang`, not `zlangc`. A backend failure or missing tool is never
-a successful result.
+The command is `zlang`, not `zlangc`. There is no supported Clash/Haskell output
+path. A backend failure or missing tool is never a successful result.
 
 ## Non-negotiable semantic guardrails
 

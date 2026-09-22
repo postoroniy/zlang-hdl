@@ -20,6 +20,7 @@ from zlang.ir.functional_regions import (
     ExactReductionOperator,
     ExactReductionPlan,
     FunctionalRegionKind,
+    FunctionalSpecializationCertificate,
     FunctionalTable,
     compile_time_range,
 )
@@ -384,6 +385,30 @@ class FunctionalCaptureRef(TracedExpression):
 
 
 @dataclass(frozen=True)
+class FunctionalValue(TracedExpression):
+    """One fixed-width hardware value derived from a region binder.
+
+    Unlike :class:`Constant`, this value is not known until the owning
+    ``FunctionalRegion`` is instantiated.  It is nevertheless compile-time
+    only: the binder never becomes a hardware input or state element.
+    """
+
+    expression: CompileTimeExpr
+    type: HardwareType
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.expression, CompileTimeExpr):
+            raise ValueError("functional value requires a compile-time expression")
+        if not isinstance(self.type, (UIntType, BitsType)):
+            raise ValueError("functional value must have an unsigned integral type")
+        minimum, maximum = compile_time_range(self.expression)
+        if minimum < 0 or maximum >= (1 << self.type.width):
+            raise ValueError(
+                f"functional value range {minimum}..{maximum} does not fit {self.type}"
+            )
+
+
+@dataclass(frozen=True)
 class FunctionalTableLookup(TracedExpression):
     """Typed lookup selected exclusively by compile-time binder arithmetic."""
 
@@ -589,6 +614,7 @@ class FunctionalRegion(TracedExpression):
     tables: tuple[FunctionalTable, ...]
     captures: tuple[tuple[FunctionalCaptureRef, Expression], ...]
     type: HardwareType
+    certificates: tuple[FunctionalSpecializationCertificate, ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.kind, FunctionalRegionKind):
@@ -604,6 +630,33 @@ class FunctionalRegion(TracedExpression):
             raise ValueError("functional region vector length does not match binder domain")
         if self.template.type != self.type.element_type:
             raise ValueError("functional region template type does not match vector element")
+        if any(
+            not isinstance(item, FunctionalSpecializationCertificate)
+            for item in self.certificates
+        ):
+            raise ValueError("functional region certificate has an invalid type")
+        for certificate in self.certificates:
+            certificate_binders = _functional_binders(
+                tuple(value for _, value in certificate.lifted_arguments)
+            )
+            certificate_binder_ids = set(certificate_binders)
+            if (
+                not certificate_binders
+                or certificate.owner_binder_identity != self.binder.identity
+                or self.binder.identity not in certificate_binder_ids
+            ):
+                raise ValueError(
+                    "functional specialization certificate does not belong to "
+                    "the region binder"
+                )
+            expected_virtual = 1
+            for owned_binder in certificate_binders.values():
+                expected_virtual *= owned_binder.stop - owned_binder.start
+            if certificate.virtual_instances != expected_virtual:
+                raise ValueError(
+                    "functional specialization certificate virtual count does "
+                    "not match the region"
+                )
         table_names = tuple(table.name for table in self.tables)
         if len(table_names) != len(set(table_names)):
             raise ValueError("functional region table names must be unique")
@@ -699,6 +752,31 @@ def _functional_binder_identities(value: object) -> set[str]:
     def walk(item: object) -> None:
         if isinstance(item, CompileTimeBinderRef):
             result.add(item.identity)
+            return
+        if isinstance(item, FunctionalRegion):
+            return
+        if isinstance(item, tuple):
+            for child in item:
+                walk(child)
+            return
+        if is_dataclass(item) and not isinstance(item, type):
+            for field_ in fields(item):
+                if field_.name in {"type", "origin"}:
+                    continue
+                walk(getattr(item, field_.name))
+
+    walk(value)
+    return result
+
+
+def _functional_binders(value: object) -> dict[str, CompileTimeBinderRef]:
+    """Collect stable binder records, stopping at nested region ownership."""
+
+    result: dict[str, CompileTimeBinderRef] = {}
+
+    def walk(item: object) -> None:
+        if isinstance(item, CompileTimeBinderRef):
+            result.setdefault(item.identity, item)
             return
         if isinstance(item, FunctionalRegion):
             return
@@ -1000,6 +1078,7 @@ Expression = (
     | UnionTag
     | UnionField
     | FunctionalCaptureRef
+    | FunctionalValue
     | FunctionalTableLookup
     | VectorIndex
     | RuntimeIndex

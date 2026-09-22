@@ -807,3 +807,20 @@ def test_project_snapshot_preserves_workspace_resolution_and_rejects_root_change
             source_digest=snapshot_digest,
             project=project,
         )
+
+    editor_text = snapshot_text.replace("import std.bus.reg ", "", 1)
+    editor_digest = hashlib.sha256(editor_text.encode("utf-8")).hexdigest()
+    editor_overlay = compile_file_snapshot(
+        source,
+        editor_text,
+        source_digest=editor_digest,
+        project=project,
+        allow_unsaved_root=True,
+    )
+    assert editor_overlay.ir.name == "Top"
+    assert editor_overlay.ir.root_module_identity is not None
+    assert editor_overlay.ir.root_module_identity.digest == editor_digest
+    assert editor_overlay.ir.dependency_closure is not None
+    assert "std.bus.reg" not in {
+        item.logical_path for item in editor_overlay.ir.dependency_closure.modules
+    }

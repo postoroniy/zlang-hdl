@@ -64,6 +64,35 @@ module UserPipeDelegationTop {
     sink : UserSink
     bus -> sink.bus
 }
+
+module UserPipeReverseDelegationTop {
+    clock clk reset rst
+    interface bus : UserPipe.consumer @clk
+    sink : UserSink
+    sink.bus -> bus
+}
+
+module UserPipeDoubleDelegationTop {
+    clock clk reset rst
+    interface bus : UserPipe.consumer @clk
+    sink : UserSink
+    bus -> sink.bus
+    sink.bus -> bus
+}
+
+module UserSource {
+    clock clk reset rst
+    interface bus : UserPipe.producer @clk
+    bus.t.valid = 0
+    bus.t.payload = 0
+}
+
+module UserPipeWrongRoleTop {
+    clock clk reset rst
+    interface bus : UserPipe.consumer @clk
+    source : UserSource
+    source.bus -> bus
+}
 """
 
 
@@ -138,10 +167,13 @@ def _writer_cycle(
     }
 
 
-def test_aggregate_delegation_simulation_is_protocol_generic() -> None:
+@pytest.mark.parametrize(
+    "top", ("UserPipeDelegationTop", "UserPipeReverseDelegationTop")
+)
+def test_aggregate_delegation_simulation_is_protocol_generic(top: str) -> None:
     module = compile_source(
         GENERIC_DELEGATION_SOURCE,
-        top="UserPipeDelegationTop",
+        top=top,
     ).ir
     assert simulate_cycles(
         module,
@@ -154,6 +186,23 @@ def test_aggregate_delegation_simulation_is_protocol_generic() -> None:
         {"bus__t": {"ready": 1, "transfer": 1}},
         {"bus__t": {"ready": 1, "transfer": 0}},
     ]
+    rtl = emit_sv_artifact(module).text
+    assert f"module {top} (" in rtl
+    assert f"{top}_zlang_core" not in rtl
+
+
+@pytest.mark.parametrize(
+    ("top", "message"),
+    (
+        ("UserPipeDoubleDelegationTop", "duplicate aggregate protocol delegation"),
+        ("UserPipeWrongRoleTop", "same role"),
+    ),
+)
+def test_aggregate_delegation_rejects_invalid_endpoint(
+    top: str, message: str
+) -> None:
+    with pytest.raises(SemanticError, match=message):
+        compile_source(GENERIC_DELEGATION_SOURCE, top=top)
 
 
 @pytest.mark.parametrize(("address_width", "data_width"), ((1, 32), (64, 24)))

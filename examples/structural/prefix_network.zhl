@@ -1,0 +1,14 @@
+// Overlapping prefix reductions intentionally expose repeated substructure.
+module PrefixNetworkWitness<N=16> {
+    in flags : vec<N,bit>
+    out prefix_or : vec<N,bit>
+    out prefix_count : vec<N,u8>
+
+    prefix_or = generate(i in 0..N)
+        reduce(|, generate(j in 0..N)
+            (flags[j] & (extend<8>(j) <= extend<8>(i))))
+    prefix_count = generate(i in 0..N)
+        truncate<8>(reduce(+, generate(j in 0..N)
+            mux(extend<8>(j) <= extend<8>(i),
+                mux(flags[j], extend<8>(1), extend<8>(0)), 0)))
+}

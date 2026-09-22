@@ -39,6 +39,45 @@ class FunctionalRegionKind(str, Enum):
     MAP = "map"
 
 
+FUNCTIONAL_SPECIALIZATION_CERTIFICATE_SCHEMA = (
+    "zlang-functional-specialization-certificate-v2"
+)
+
+
+@dataclass(frozen=True)
+class FunctionalSpecializationCertificate:
+    """Compiler-owned evidence that a generic varied only as a value.
+
+    The certificate does not claim value equivalence by itself.  It freezes
+    the exact typed body admitted by semantic checking so restoration can
+    reject a stale or structurally incompatible symbolic specialization.
+    """
+
+    declaration_identity: str
+    dependency_identity: tuple[tuple[str, str], ...]
+    invariant_arguments: tuple[tuple[str, str], ...]
+    lifted_arguments: tuple[tuple[str, CompileTimeExpr], ...]
+    owner_binder_identity: str
+    parameter_types: tuple[HardwareType, ...]
+    return_type: HardwareType
+    body_identity: str
+    virtual_instances: int
+    schema: str = FUNCTIONAL_SPECIALIZATION_CERTIFICATE_SCHEMA
+
+    def __post_init__(self) -> None:
+        if self.schema != FUNCTIONAL_SPECIALIZATION_CERTIFICATE_SCHEMA:
+            raise ValueError("unsupported functional specialization certificate schema")
+        if not self.declaration_identity or not self.body_identity:
+            raise ValueError("functional specialization certificate identity is empty")
+        names = tuple(name for name, _ in self.lifted_arguments)
+        if not names or len(names) != len(set(names)):
+            raise ValueError("functional specialization lifted arguments are invalid")
+        if not self.owner_binder_identity:
+            raise ValueError("functional specialization owner binder is empty")
+        if self.virtual_instances < 1:
+            raise ValueError("functional specialization virtual count must be positive")
+
+
 @dataclass(frozen=True)
 class CompileTimeBinderRef:
     """One stable compile-time iterator and its complete half-open domain."""
@@ -581,6 +620,8 @@ __all__ = [
     "ExactReductionPlan",
     "FunctionalTable",
     "FunctionalRegionKind",
+    "FUNCTIONAL_SPECIALIZATION_CERTIFICATE_SCHEMA",
+    "FunctionalSpecializationCertificate",
     "builtin_exact_add_result_type",
     "build_exact_reduction_plan",
     "compile_time_range",

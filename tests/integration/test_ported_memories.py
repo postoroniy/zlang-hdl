@@ -344,7 +344,7 @@ def test_async_coincident_edge_collision_model(collision: str, expected: int) ->
     assert results[1]["read_data"] == expected
 
 
-@pytest.mark.parametrize("read_latency", [2, 3])
+@pytest.mark.parametrize("read_latency", [2, 3, 16])
 def test_async_read_latency_is_exact_destination_cycles(
     read_latency: int, tmp_path: Path,
 ) -> None:
@@ -373,28 +373,29 @@ def test_async_read_latency_is_exact_destination_cycles(
     lint_with_verilator((rtl,), "AsyncMemory")
 
 
-def test_same_clock_generic_read_latency_two_registers_result(
-    tmp_path: Path,
+@pytest.mark.parametrize("read_latency", [2, 16])
+def test_same_clock_generic_read_latency_register_chain_result(
+    read_latency: int, tmp_path: Path,
 ) -> None:
-    source = """
-module MemoryTwoCycles {
+    source = f"""
+module MemoryTwoCycles {{
   clock clk reset rst
   in we:bit in wa:u2 in wd:u8 in ra:u2 out q:u8
-  memory table:mem<u8,4> { read_latency 2 collision old }
+  memory table:mem<u8,4> {{ read_latency {read_latency} collision old }}
   table.write_enable=we table.write_address=wa table.write_data=wd
   table.read_address=ra q=table.read_data
-}
+}}
 """
     module = compile_source(source).ir
     sample = {"we": 0, "wa": 0, "wd": 0, "ra": 2}
     results = simulate_storage_cycles(
         module,
-        [{**sample, "we": 1, "wa": 2, "wd": 9}, sample, sample, sample],
+        [{**sample, "we": 1, "wa": 2, "wd": 9}, *([sample] * (read_latency + 1))],
     )
-    assert [item["q"] for item in results] == [0, 0, 0, 9]
+    assert [item["q"] for item in results] == [*([0] * (read_latency + 1)), 9]
     text = emit_experimental(module)
-    assert "table_read_stage_0" in text
-    assert "zlang_table_read_data <= zlang_table_read_stage_0" in text
+    assert f"table_read_stage_{read_latency - 2}" in text
+    assert "zlang_table_read_data <= zlang_table_read_stage_" in text
     rtl = tmp_path / "MemoryTwoCycles.sv"
     rtl.write_text(text)
     lint_with_verilator((rtl,), "MemoryTwoCycles")

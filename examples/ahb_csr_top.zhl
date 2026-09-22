@@ -56,9 +56,9 @@ module AhbRegBusCSRTarget {
     regbus.request.ready = mux(response_pending, 0, 1)
     regbus.response.valid = response_pending
     regbus.response.payload = RegResponse { rdata=bank.rdata error=0 }
-    rw_value = bank.csr_field_0_0_0_state
-    w1c_value = bank.csr_field_0_1_0_state
-    pulse = bank.csr_field_0_2_0_state
+    rw_value = bank.registers.RW.value
+    w1c_value = bank.registers.W1C.value
+    pulse = bank.registers.PULSE.value
     done = regbus.request.transfer
 }
 

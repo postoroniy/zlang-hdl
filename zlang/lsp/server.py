@@ -8,17 +8,24 @@ mapping from compiler diagnostics and tooling projections to LSP values.
 
 from __future__ import annotations
 
+import argparse
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 import hashlib
 import json
 from pathlib import Path
+import queue
 import sys
+import threading
+import time
 from typing import Any, BinaryIO, TextIO
 from urllib.parse import unquote, urlparse
 from urllib.request import url2pathname
 
 from zlang._version import __version__
 from zlang.tooling import (
+    EditorDocumentSnapshot,
+    EditorWorkspaceSnapshot,
     ToolingDiagnostic,
     ToolingDefinition,
     ToolingError,
@@ -48,6 +55,7 @@ SERVER_NAME = "zlang-lsp"
 JSON_RPC_VERSION = "2.0"
 TEXT_DOCUMENT_SYNC_FULL = 1
 CODE_ACTION_QUICKFIX = "quickfix"
+DIAGNOSTIC_DEBOUNCE_SECONDS = 0.250
 
 # LSP SymbolKind values, kept in one table so source categories do not leak
 # numeric protocol constants through the compiler/tooling projection.
@@ -102,6 +110,47 @@ class DocumentState:
     text: str
     path: Path
     navigation_top: str | None = None
+
+
+class _DiagnosticScheduler:
+    """Replaceable monotonic diagnostic deadlines, independent of wall time."""
+
+    def __init__(
+        self,
+        clock: Callable[[], float],
+        delay: float = DIAGNOSTIC_DEBOUNCE_SECONDS,
+    ) -> None:
+        self._clock = clock
+        self._delay = delay
+        self._deadlines: dict[str, float] = {}
+
+    def replace(self, uris: Iterable[str]) -> None:
+        deadline = self._clock() + self._delay
+        for uri in uris:
+            self._deadlines[uri] = deadline
+
+    def cancel(self, uri: str) -> None:
+        self._deadlines.pop(uri, None)
+
+    def due(self) -> tuple[str, ...]:
+        now = self._clock()
+        result = tuple(sorted(
+            uri for uri, deadline in self._deadlines.items()
+            if deadline <= now
+        ))
+        for uri in result:
+            self._deadlines.pop(uri, None)
+        return result
+
+    def drain(self) -> tuple[str, ...]:
+        result = tuple(sorted(self._deadlines))
+        self._deadlines.clear()
+        return result
+
+    def timeout(self) -> float | None:
+        if not self._deadlines:
+            return None
+        return max(0.0, min(self._deadlines.values()) - self._clock())
 
 
 def _request_position(params: object) -> tuple[int, int]:
@@ -540,6 +589,14 @@ def _publish(uri: str, diagnostics: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _message(method: str, message: str) -> dict[str, Any]:
+    return {
+        "jsonrpc": JSON_RPC_VERSION,
+        "method": method,
+        "params": {"type": 1, "message": message},
+    }
+
+
 def _response(request_id: Any, result: Any = None) -> dict[str, Any]:
     return {"jsonrpc": JSON_RPC_VERSION, "id": request_id, "result": result}
 
@@ -555,13 +612,53 @@ def _error(request_id: Any, code: int, message: str) -> dict[str, Any]:
 class LspServer:
     """Stateful dispatcher for the bounded Community LSP surface."""
 
-    def __init__(self, *, log: TextIO | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        log: TextIO | None = None,
+        _clock: Callable[[], float] = time.monotonic,
+    ) -> None:
         self.documents: dict[str, DocumentState] = {}
         self.tooling_session = ToolingSession()
         self._pending_navigation_tops: dict[Path, str] = {}
         self.shutdown_requested = False
         self.exit_requested = False
         self._log = log if log is not None else sys.stderr
+        self._clock = _clock
+        self._reported_environment_errors: set[str] = set()
+
+    def _environment_failure_messages(
+        self,
+        error: BaseException,
+    ) -> list[dict[str, Any]]:
+        message = str(error)
+        print(f"{SERVER_NAME}: {message}", file=self._log)
+        if message in self._reported_environment_errors:
+            return []
+        self._reported_environment_errors.add(message)
+        return [
+            _message("window/logMessage", message),
+            _message("window/showMessage", message),
+        ]
+
+    def _neutral_tooling_failure(
+        self,
+        request_id: object,
+        error: ToolingError,
+        result: object,
+    ) -> list[dict[str, Any]]:
+        return [
+            *self._environment_failure_messages(error),
+            _response(request_id, result),
+        ]
+
+    def _sync_editor_workspace(self) -> EditorWorkspaceSnapshot:
+        snapshot = EditorWorkspaceSnapshot(tuple(
+            EditorDocumentSnapshot(state.path, state.text, state.version)
+            for state in self.documents.values()
+        ))
+        self.tooling_session.set_editor_workspace(snapshot)
+        return snapshot
 
     @property
     def capabilities(self) -> dict[str, Any]:
@@ -646,7 +743,9 @@ class LspServer:
                 result = self._hover(params)
             except LspProtocolError as error:
                 return [_error(request_id, -32602, str(error))]
-            except (ToolingError, OSError, ValueError) as error:
+            except ToolingError as error:
+                return self._neutral_tooling_failure(request_id, error, None)
+            except (OSError, ValueError) as error:
                 return [_error(request_id, -32603, str(error))]
             return [_response(request_id, result)]
         if method == "textDocument/definition":
@@ -656,7 +755,9 @@ class LspServer:
                 result = self._definition(params)
             except LspProtocolError as error:
                 return [_error(request_id, -32602, str(error))]
-            except (ToolingError, OSError, ValueError) as error:
+            except ToolingError as error:
+                return self._neutral_tooling_failure(request_id, error, None)
+            except (OSError, ValueError) as error:
                 return [_error(request_id, -32603, str(error))]
             return [_response(request_id, result)]
         if method == "textDocument/references":
@@ -666,7 +767,9 @@ class LspServer:
                 result = self._references(params)
             except LspProtocolError as error:
                 return [_error(request_id, -32602, str(error))]
-            except (ToolingError, OSError, ValueError) as error:
+            except ToolingError as error:
+                return self._neutral_tooling_failure(request_id, error, [])
+            except (OSError, ValueError) as error:
                 return [_error(request_id, -32603, str(error))]
             return [_response(request_id, result)]
         if method == "textDocument/rename":
@@ -678,7 +781,9 @@ class LspServer:
                 return [_error(request_id, -32602, str(error))]
             except ToolingRenameError as error:
                 return [_error(request_id, -32602, str(error))]
-            except (ToolingError, OSError, ValueError) as error:
+            except ToolingError as error:
+                return self._neutral_tooling_failure(request_id, error, None)
+            except (OSError, ValueError) as error:
                 return [_error(request_id, -32603, str(error))]
             return [_response(request_id, result)]
         if method == "textDocument/completion":
@@ -688,7 +793,9 @@ class LspServer:
                 result = self._completion(params)
             except LspProtocolError as error:
                 return [_error(request_id, -32602, str(error))]
-            except (ToolingError, OSError, ValueError) as error:
+            except ToolingError as error:
+                return self._neutral_tooling_failure(request_id, error, [])
+            except (OSError, ValueError) as error:
                 return [_error(request_id, -32603, str(error))]
             return [_response(request_id, result)]
         if method == "textDocument/signatureHelp":
@@ -698,7 +805,9 @@ class LspServer:
                 result = self._signature_help(params)
             except LspProtocolError as error:
                 return [_error(request_id, -32602, str(error))]
-            except (ToolingError, OSError, ValueError) as error:
+            except ToolingError as error:
+                return self._neutral_tooling_failure(request_id, error, None)
+            except (OSError, ValueError) as error:
                 return [_error(request_id, -32603, str(error))]
             return [_response(request_id, result)]
         if method == "textDocument/semanticTokens/full":
@@ -708,7 +817,11 @@ class LspServer:
                 result = self._semantic_tokens_full(params)
             except LspProtocolError as error:
                 return [_error(request_id, -32602, str(error))]
-            except (ToolingError, OSError, ValueError) as error:
+            except ToolingError as error:
+                return self._neutral_tooling_failure(
+                    request_id, error, {"data": []}
+                )
+            except (OSError, ValueError) as error:
                 return [_error(request_id, -32603, str(error))]
             return [_response(request_id, result)]
         if method == "textDocument/codeAction":
@@ -718,7 +831,9 @@ class LspServer:
                 result = self._code_actions(params)
             except LspProtocolError as error:
                 return [_error(request_id, -32602, str(error))]
-            except (ToolingError, OSError, ValueError) as error:
+            except ToolingError as error:
+                return self._neutral_tooling_failure(request_id, error, [])
+            except (OSError, ValueError) as error:
                 return [_error(request_id, -32603, str(error))]
             return [_response(request_id, result)]
         if has_id:
@@ -745,6 +860,7 @@ class LspServer:
         return [_symbol_to_lsp(symbol) for symbol in document_symbols(state.text)]
 
     def _hover(self, params: object) -> dict[str, Any] | None:
+        self._sync_editor_workspace()
         state = self._open_document(params, "hover")
         line, character = _request_position(params)
         return _hover_to_lsp(
@@ -758,6 +874,7 @@ class LspServer:
         )
 
     def _definition(self, params: object) -> dict[str, Any] | None:
+        self._sync_editor_workspace()
         state = self._open_document(params, "definition")
         line, character = _request_position(params)
         compiler_character = _lsp_character_to_compiler(
@@ -777,6 +894,7 @@ class LspServer:
         return _definition_to_lsp(definition)
 
     def _references(self, params: object) -> list[dict[str, Any]]:
+        self._sync_editor_workspace()
         state = self._open_document(params, "references")
         line, character = _request_position(params)
         compiler_character = _lsp_character_to_compiler(
@@ -805,6 +923,7 @@ class LspServer:
         ]
 
     def _rename(self, params: object) -> dict[str, Any] | None:
+        self._sync_editor_workspace()
         state = self._open_document(params, "rename")
         line, character = _request_position(params)
         new_name = _string(params, "newName")
@@ -829,6 +948,7 @@ class LspServer:
         return {"changes": changes}
 
     def _completion(self, params: object) -> list[dict[str, Any]]:
+        self._sync_editor_workspace()
         state = self._open_document(params, "completion")
         line, character = _request_position(params)
         return [
@@ -843,6 +963,7 @@ class LspServer:
         ]
 
     def _signature_help(self, params: object) -> dict[str, Any] | None:
+        self._sync_editor_workspace()
         state = self._open_document(params, "signatureHelp")
         line, character = _request_position(params)
         return _signature_help_to_lsp(
@@ -856,6 +977,7 @@ class LspServer:
         )
 
     def _semantic_tokens_full(self, params: object) -> dict[str, list[int]]:
+        self._sync_editor_workspace()
         state = self._open_document(params, "semanticTokens/full")
         return semantic_tokens_to_lsp(
             semantic_tokens(
@@ -868,6 +990,7 @@ class LspServer:
         )
 
     def _code_actions(self, params: object) -> list[dict[str, Any]]:
+        self._sync_editor_workspace()
         state = self._open_document(params, "codeAction")
         requested_range = _lsp_range(
             params.get("range") if isinstance(params, dict) else None
@@ -934,7 +1057,12 @@ class LspServer:
         )
         return actions
 
-    def _did_open(self, params: object) -> list[dict[str, Any]]:
+    def _did_open(
+        self,
+        params: object,
+        *,
+        publish: bool = True,
+    ) -> list[dict[str, Any]]:
         try:
             item = _mapping(params, "textDocument")
             uri = _string(item, "uri")
@@ -955,9 +1083,15 @@ class LspServer:
             self._pending_navigation_tops.pop(path.resolve(), None),
         )
         self.documents[uri] = state
-        return [self._publish_document(state)]
+        self._sync_editor_workspace()
+        return self._publish_document(state) if publish else []
 
-    def _did_change(self, params: object) -> list[dict[str, Any]]:
+    def _did_change(
+        self,
+        params: object,
+        *,
+        publish: bool = True,
+    ) -> list[dict[str, Any]]:
         try:
             item = _mapping(params, "textDocument")
             uri = _string(item, "uri")
@@ -992,7 +1126,8 @@ class LspServer:
         self.tooling_session.invalidate(current.path)
         state = DocumentState(uri, version, text, current.path)
         self.documents[uri] = state
-        return [self._publish_document(state)]
+        self._sync_editor_workspace()
+        return self._publish_document(state) if publish else []
 
     def _did_close(self, params: object) -> list[dict[str, Any]]:
         try:
@@ -1001,6 +1136,7 @@ class LspServer:
         except LspProtocolError as error:
             return [_publish("", [_server_diagnostic("ZL-LSP-CLOSE-001", str(error))])]
         self.documents.pop(uri, None)
+        self._sync_editor_workspace()
         # Closing a VS Code preview removes only the editor-owned buffer.  Keep
         # the bounded semantic/symbol LRU entry: its key includes the exact
         # text digest and every reuse revalidates the source/dependency
@@ -1008,7 +1144,7 @@ class LspServer:
         # the same unchanged mapper/IFFT file on every visit.
         return [_publish(uri, [])]
 
-    def _publish_document(self, state: DocumentState) -> dict[str, Any]:
+    def _publish_document(self, state: DocumentState) -> list[dict[str, Any]]:
         digest = hashlib.sha256(state.text.encode("utf-8")).hexdigest()
         try:
             # A definition-aware shard exists only after successful semantic
@@ -1026,57 +1162,218 @@ class LspServer:
                     required_module=state.navigation_top,
                 )
             if symbol_proof is not None:
-                return _publish(state.uri, [])
+                return [_publish(state.uri, [])]
+            if self.tooling_session.trivia_diagnostic_proof(state.path, state.text):
+                return [_publish(state.uri, [])]
             record = check_snapshot(
                 state.path,
                 state.text,
                 source_digest=digest,
+                top=state.navigation_top,
                 _session=self.tooling_session,
             )
         except ToolingError as error:
-            return _publish(
-                state.uri,
-                [_server_diagnostic("ZL-LSP-CHECK-001", str(error))],
-            )
+            return [
+                _publish(state.uri, []),
+                *self._environment_failure_messages(error),
+            ]
         except (OSError, ValueError) as error:
             # Path/project failures are explicit environment limitations.  Do
             # not present them as a successful semantic check.
-            return _publish(
-                state.uri,
-                [_server_diagnostic("ZL-LSP-CHECK-002", str(error))],
-            )
+            return [
+                _publish(state.uri, []),
+                *self._environment_failure_messages(error),
+            ]
         except Exception as error:  # pragma: no cover - defensive process boundary
             print(
                 f"{SERVER_NAME}: compiler integration failure: {type(error).__name__}",
                 file=self._log,
             )
-            return _publish(state.uri, [_server_diagnostic(
-                "ZL-LSP-CHECK-003",
-                "compiler integration failed; see the language-server log",
-            )])
-        return _publish(
-            state.uri,
-            [
-                diagnostic_to_lsp(item, state.text)
-                for item in record.diagnostics
-                # Generic module declarations are checked for each concrete
-                # specialization.  Opening the unspecialized library source is
-                # an editor navigation action, not an invalid hardware build.
-                if not is_unspecialized_generic_diagnostic(state.text, item)
-            ],
-        )
+            return [
+                _publish(state.uri, []),
+                _message(
+                    "window/logMessage",
+                    "compiler integration failed; see the language-server log",
+                ),
+            ]
+        grouped: dict[str, list[dict[str, Any]]] = {state.uri: []}
+        for item in record.diagnostics:
+            target = state
+            unit = item.primary.source_unit if item.primary is not None else None
+            if unit is not None:
+                path = self.tooling_session.source_path_for_unit(state.path, unit)
+                if path is not None:
+                    target = next(
+                        (
+                            candidate
+                            for candidate in self.documents.values()
+                            if candidate.path == path
+                        ),
+                        state,
+                    )
+            # Generic module declarations are checked for each concrete
+            # specialization.  Opening the unspecialized library source is an
+            # editor navigation action, not an invalid hardware build.
+            if is_unspecialized_generic_diagnostic(target.text, item):
+                continue
+            grouped.setdefault(target.uri, []).append(
+                diagnostic_to_lsp(item, target.text)
+            )
+        return [
+            _publish(uri, grouped[uri])
+            for uri in sorted(grouped, key=lambda uri: (uri != state.uri, uri))
+        ]
 
     def run(self, input_stream: BinaryIO, output_stream: BinaryIO) -> int:
-        """Run the standard Content-Length framed JSON-RPC loop."""
+        """Run framed JSON-RPC with serial compiler ownership and debounce."""
+
+        inbound: queue.Queue[tuple[str, object | None]] = queue.Queue()
+        latest: dict[str, tuple[int | None, str] | None] = {}
+        latest_lock = threading.Lock()
+
+        def observe(message: object) -> None:
+            if not isinstance(message, dict):
+                return
+            method = message.get("method")
+            params = message.get("params")
+            if not isinstance(params, dict):
+                return
+            item = params.get("textDocument")
+            if not isinstance(item, dict) or not isinstance(item.get("uri"), str):
+                return
+            uri = item["uri"]
+            if method == "textDocument/didClose":
+                with latest_lock:
+                    latest[uri] = None
+                return
+            text: object | None = None
+            if method == "textDocument/didOpen":
+                text = item.get("text")
+            elif method == "textDocument/didChange":
+                changes = params.get("contentChanges")
+                if isinstance(changes, list) and len(changes) == 1:
+                    change = changes[0]
+                    if isinstance(change, dict):
+                        text = change.get("text")
+            if isinstance(text, str):
+                version = item.get("version")
+                version = version if isinstance(version, int) else None
+                with latest_lock:
+                    latest[uri] = (
+                        version,
+                        hashlib.sha256(text.encode("utf-8")).hexdigest(),
+                    )
+
+        def reader() -> None:
+            while True:
+                try:
+                    message = read_message(input_stream)
+                except LspProtocolError as error:
+                    inbound.put(("error", error))
+                    return
+                if message is None:
+                    inbound.put(("eof", None))
+                    return
+                observe(message)
+                inbound.put(("message", message))
+
+        threading.Thread(
+            target=reader,
+            name="zlang-lsp-reader",
+            daemon=True,
+        ).start()
+        scheduler = _DiagnosticScheduler(self._clock)
+        reached_eof = False
+
+        def current_identity(state: DocumentState) -> tuple[int | None, str]:
+            return (
+                state.version,
+                hashlib.sha256(state.text.encode("utf-8")).hexdigest(),
+            )
+
+        def publish_if_current(uri: str) -> None:
+            state = self.documents.get(uri)
+            if state is None:
+                return
+            expected = current_identity(state)
+            outbound = self._publish_document(state)
+            with latest_lock:
+                observed = latest.get(uri, expected)
+            current = self.documents.get(uri)
+            if (
+                observed == expected
+                and current is not None
+                and current_identity(current) == expected
+            ):
+                for message in outbound:
+                    write_message(output_stream, message)
+
+        def flush_pending() -> None:
+            for uri in scheduler.drain():
+                publish_if_current(uri)
 
         while not self.exit_requested:
+            for uri in scheduler.due():
+                publish_if_current(uri)
+            if reached_eof:
+                flush_pending()
+                break
             try:
-                message = read_message(input_stream)
-            except LspProtocolError as error:
-                write_message(output_stream, _error(None, -32700, str(error)))
+                kind, payload = inbound.get(timeout=scheduler.timeout())
+            except queue.Empty:
+                continue
+            if kind == "error":
+                assert isinstance(payload, LspProtocolError)
+                write_message(output_stream, _error(None, -32700, str(payload)))
                 break
-            if message is None:
-                break
+            if kind == "eof":
+                reached_eof = True
+                continue
+            message = payload
+            if not isinstance(message, dict):
+                for outbound in self.dispatch(message):
+                    write_message(output_stream, outbound)
+                continue
+            method = message.get("method")
+            params = message.get("params", {})
+            if method == "textDocument/didOpen":
+                for outbound in self._did_open(params, publish=False):
+                    write_message(output_stream, outbound)
+                uri = _best_effort_uri(params)
+                if uri in self.documents:
+                    state = self.documents[uri]
+                    paths = set(
+                        self._sync_editor_workspace().overlays_for(state.path)
+                    )
+                    scheduler.replace(
+                        candidate.uri
+                        for candidate in self.documents.values()
+                        if candidate.path in paths
+                    )
+                continue
+            if method == "textDocument/didChange":
+                for outbound in self._did_change(params, publish=False):
+                    write_message(output_stream, outbound)
+                uri = _best_effort_uri(params)
+                if uri in self.documents:
+                    state = self.documents[uri]
+                    paths = set(
+                        self._sync_editor_workspace().overlays_for(state.path)
+                    )
+                    scheduler.replace(
+                        candidate.uri
+                        for candidate in self.documents.values()
+                        if candidate.path in paths
+                    )
+                continue
+            if method == "textDocument/didClose":
+                uri = _best_effort_uri(params)
+                scheduler.cancel(uri)
+                for outbound in self._did_close(params):
+                    write_message(output_stream, outbound)
+                continue
+            if method == "shutdown":
+                flush_pending()
             for outbound in self.dispatch(message):
                 write_message(output_stream, outbound)
         return 0 if self.shutdown_requested else 1
@@ -1178,7 +1475,33 @@ def run_server() -> int:
     return LspServer().run(sys.stdin.buffer, sys.stdout.buffer)
 
 
-def main() -> int:
+def main(
+    argv: Sequence[str] | None = None,
+    *,
+    prog: str = SERVER_NAME,
+) -> int:
+    effective_argv = list(sys.argv[1:] if argv is None else argv)
+    if effective_argv:
+        parser = argparse.ArgumentParser(
+            prog=prog,
+            description="Run the ZLang HDL language server over stdio",
+        )
+        parser.add_argument(
+            "--version",
+            action="version",
+            version=f"%(prog)s {__version__}",
+        )
+        # vscode-languageclient appends this conventional marker when a
+        # command is launched with TransportKind.stdio.  The server has only
+        # ever used stdio, so the option deliberately changes no behavior;
+        # accepting it is nevertheless part of the executable contract with
+        # the installed VS Code client.
+        parser.add_argument(
+            "--stdio",
+            action="store_true",
+            help=argparse.SUPPRESS,
+        )
+        parser.parse_args(effective_argv)
     return run_server()
 
 

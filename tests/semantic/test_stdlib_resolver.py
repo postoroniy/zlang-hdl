@@ -2,6 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+import site
 
 from zlang.backend.manifest import BackendArtifact, publish_artifact
 from zlang.parser import parse
@@ -15,6 +16,16 @@ from zlang.stdlib import (
 
 
 class StdlibResolverTests(unittest.TestCase):
+    def test_user_install_data_root_is_available_when_user_site_is_enabled(self):
+        from zlang.stdlib import _stdlib_roots
+
+        with patch.object(site, "ENABLE_USER_SITE", True), patch.object(
+            site, "getuserbase", return_value="/tmp/zlang-user-base"
+        ):
+            self.assertIn(Path("/tmp/zlang-user-base/stdlib"), _stdlib_roots())
+        with patch.object(site, "ENABLE_USER_SITE", False):
+            self.assertNotIn(Path(site.getuserbase()) / "stdlib", _stdlib_roots())
+
     def test_discovers_every_recursive_library_family(self):
         available = available_stdlib_modules()
         self.assertTrue({

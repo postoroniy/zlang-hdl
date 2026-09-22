@@ -21,34 +21,37 @@ VERILATOR = shutil.which("verilator")
 
 # Captured after the always-leaf public-top ABI, explicit internal-driver
 # normalization, connection-owned request/response admission/accounting, and
-# inline selected-top boundary and hierarchy-local naming schema v2 (public
-# ports remain unchanged).
+# inline selected-top boundary, hierarchy-local naming schema v2, and exact
+# selected-value normalization schema v3, functional-region emission schema
+# v3, Direct-SV DAG schema v1, and hierarchy-local naming schema v3.  The
+# AXI/CSR case now retains shared nodes
+# once while inlining single-use nodes; the other RTL bodies remain unchanged.
 # They cover ready/valid hierarchy (including legal full-buffer simultaneous
-# pop/push), unbuffered request/response, directional request/response FIFOs
-# with a stateful mixed-port child, and source-authored aggregate bus/CSR
-# hierarchy.
+# pop/push and reset-suppressed public handshakes), unbuffered
+# request/response, directional request/response FIFOs with a stateful
+# mixed-port child, and source-authored aggregate bus/CSR hierarchy.
 EXPECTED_ARTIFACTS = {
     ("hierarchical_protocol.zhl", "ProtocolTop"): (
-        "6e6c27cf50bd5126097daed621d04d1e07b3bd55824b2fb708d31982fdc54a80",
-        "c7a1b5054f9f28ab2f05d31fb85d896067c8c514a22e15f6bf56c36423136abd",
+        "67ebdf5d5e204ace5eddf737c6cf5c6804ea3503d87f5353e15b7c7b1b89e238",
+        "05833fb5301789a6603dc4d482b7987418c625ee11114ec2b4b09e0fd1e78bb7",
         19,
     ),
     ("hierarchical_request_response.zhl", "HierarchicalRequestResponse"): (
         "2fb5e7ce3a95471fded0bf9500c2c4314ee16edcf64e1ff53f37454317031706",
-        "e032af175b863dc8fb4f9a9182643aa919649410a0399a03967a3a546fa01ca1",
+        "d05b060352e3f6731e551ef0c17d4cc3f083e85e564c1ae87cee03aab1323995",
         27,
     ),
     ("simple_dma.zhl", "SimpleDMA"): (
         # Request/response buffers retain their frozen conservative admission
         # rule and therefore use the explicitly distinct helper family after
         # ordinary ready/valid FIFOs gained full pop/push replacement.
-        "51ba8bf730454115e500cc28af83b6981bdeedb221c04af274eaa9727d8344c9",
-        "21780b9b39988716c6c68d798279202c3b8a65e7cbed513ce7564b90e5c0bd91",
+        "02c43b29110ea89358a40c6513cb4c0f2db64cd95cc442da099fdd4f317b92fd",
+        "be82555d4f91901664fd5be024c11b56c023e6fc8a6d42c841c25f673e61cf8e",
         29,
     ),
     ("axi_csr_top.zhl", "AxiCsrTop"): (
-        "5aff4cf6d89db8ac8d7e93093828979e27fac30c882c1449c9aee1a3bad1564b",
-        "60c1182e80d36b630ef95023a72939ad5bc715d8575c3f8c01cd3b35fff9acd0",
+        "ce6becd67a964adb44c5c0f965d2262893215d72a1c3db51474bfd25728bd3f9",
+        "b55f487eff1af135a5e2eb7761a79306f6bd252e4f413e99ad1c55ac541ff9f1",
         77,
     ),
 }

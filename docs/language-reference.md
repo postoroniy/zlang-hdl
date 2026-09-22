@@ -1,10 +1,10 @@
 # ZLang HDL Community Language Reference
 
-Version 0.1.0a10
+Version 0.1.0a11
 
 This is the complete user-facing reference for the ZLang HDL Community compiler.
-The backend-independent typed IR defines language semantics, and direct
-SystemVerilog is the supported production RTL path. Unsupported combinations
+The backend-independent typed IR defines language semantics, and Direct
+SystemVerilog (Direct-SV) is the supported production RTL path. Unsupported combinations
 fail closed rather than publishing guessed hardware.
 
 This reference covers installation, language semantics, compilation, editor
@@ -15,6 +15,7 @@ authoring. The PDF edition appends that quick reference to this document.
 ## Contents
 
 - [Installation, WSL2, and external tools](#reference-installing-toolchain)
+- [Native simulation](#reference-native-simulation)
 - [Getting started](#reference-getting-started)
 - [Types, numerics, and packed representation](#reference-types-and-numerics)
 - [Expressions, functions, and generics](#reference-expressions-functions-generics)
@@ -34,7 +35,7 @@ authoring. The PDF edition appends that quick reference to this document.
 - [Target resources](#reference-low-level-target-resource-library)
 - [Target-aware architecture and pipeline planning](#reference-high-level-target-aware-architecture-pipeline-planner)
 - [Platform constraints](#reference-platform-constraint-publication)
-- [Direct SystemVerilog](#reference-direct-systemverilog)
+- [Direct-SV](#reference-direct-systemverilog)
 - [Compiler tooling API](#reference-tooling-integration-api)
 - [Language Server Protocol and VS Code](#reference-zlang-lsp)
 - [Structured diagnostics](#reference-structured-diagnostics)
@@ -42,7 +43,7 @@ authoring. The PDF edition appends that quick reference to this document.
 - [Generated navigation bundles](#reference-generated-navigation-bundles)
 - [Whole-build manifests and evidence](#reference-whole-build-manifests)
 - [Storage-owning instance arrays](#reference-storage-instance-arrays)
-- [Source identity migration](#reference-source-identity-migration)
+- [Source and product identity](#reference-source-identity-migration)
 - [Language support matrix](#reference-syntax-support-matrix)
 - [Known limitations](#reference-known-limitations)
 
@@ -50,13 +51,14 @@ authoring. The PDF edition appends that quick reference to this document.
 ## Installation, WSL2, and external tools
 
 
-ZLang HDL supports Linux x86-64 with CPython `>=3.12,<3.13` for the current
-alpha release. You do not need to find a distribution package for that exact
-runtime: the recommended `uv` workflow can download and manage it independently
-of the system Python. Parsing, semantic checking and direct-SystemVerilog
-generation need only the Python package. Verilator, Yosys, SymbiYosys and a
-solver are external programs used only when their corresponding lint,
-synthesis or formal flow is requested.
+ZLang HDL supports CPython `>=3.12,<3.13`. The source compiler is release-tested
+on Linux x86-64. Native-simulation wheels are supplied for Linux x86-64
+(including WSL2). macOS native wheels are not part of this release. You do not
+need to find a distribution package for that exact Python runtime: the recommended `uv`
+workflow can download and manage it independently of the system Python.
+Parsing, semantic checking and Direct-SV generation need only the
+Python package. Verilator, Yosys, SymbiYosys and a solver are external programs
+used only when their corresponding lint, synthesis or formal flow is requested.
 
 The exact versions used by release acceptance are recorded in
 [`release/status.json`](../release/status.json). Other versions may work, but
@@ -78,10 +80,13 @@ as an isolated command-line tool. `uv` provisions the requested interpreter if
 it is not already present:
 
 ```sh
-uv tool install --python '>=3.12,<3.13' /path/to/zlang_hdl-VERSION-py3-none-any.whl
+uv tool install --python '>=3.12,<3.13' \
+  --with /path/to/zlang_native_sim-VERSION-cp312-abi3-PLATFORM.whl \
+  /path/to/zlang_hdl-VERSION-py3-none-any.whl
 zlang --version
-zlang-lock --version
-zlang-verify --version
+zlang lock --version
+zlang verify --version
+zlang lsp --version
 ```
 
 If `uv` reports that its tool directory is not on `PATH`, run `uv tool
@@ -97,10 +102,15 @@ git clone https://github.com/postoroniy/zlang-hdl.git
 cd zlang-hdl
 uv venv --python '>=3.12,<3.13'
 uv pip install -e '.[test]'
+source .venv/bin/activate
+zlang --version
 ```
 
-The remainder of this guide uses `.venv/bin/zlang` so commands work in an
-editable checkout. With a `uv tool` installation, omit the `.venv/bin/` prefix.
+The commands below use `zlang` directly: it is on `PATH` after `uv tool
+install`, or after activating the checkout's virtual environment with
+`source .venv/bin/activate` in a Bash/Zsh terminal. Alternatively, in the
+checkout use `uv run --no-sync zlang ...` without activating it. Open a new
+terminal and activate the environment again when returning to the checkout.
 
 <a id="reference-installing-toolchain-conventional-venv-and-pip-alternative"></a>
 ### Conventional venv and pip alternative
@@ -112,14 +122,19 @@ command:
 ```sh
 python3 -c 'import sys; assert (3, 12) <= sys.version_info < (3, 13), sys.version'
 python3 -m venv .venv
-.venv/bin/python -m pip install --upgrade pip
-.venv/bin/python -m pip install /path/to/zlang_hdl-VERSION-py3-none-any.whl
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install \
+  /path/to/zlang_native_sim-VERSION-cp312-abi3-PLATFORM.whl \
+  /path/to/zlang_hdl-VERSION-py3-none-any.whl
+zlang --version
 ```
 
-For an editable development checkout, replace the final line with:
+For an editable development checkout, replace the two-wheel installation
+command with:
 
 ```sh
-.venv/bin/python -m pip install -e '.[test]'
+python -m pip install -e '.[test]'
 ```
 
 This fallback needs a compatible interpreter and `venv` support from the host.
@@ -149,13 +164,14 @@ executables all see the same Linux paths.
 Inside a development checkout, these forms are equivalent:
 
 ```sh
-.venv/bin/zlang examples/add.zhl --check
+source .venv/bin/activate
+zlang examples/add.zhl --check
 uv run --no-sync zlang examples/add.zhl --check
 ```
 
 `uv run --no-sync` uses the already-created project environment without
-changing dependencies. The direct executable form is preferable in scripts
-because it makes the selected environment explicit.
+changing dependencies. In scripts, either activate the environment first or
+use `uv run --no-sync`; do not depend on a user's interactive shell state.
 
 <a id="reference-installing-toolchain-check-and-run-zlang"></a>
 ### Check and run ZLang
@@ -163,9 +179,10 @@ because it makes the selected environment explicit.
 Check the installed commands:
 
 ```sh
-.venv/bin/zlang --version
-.venv/bin/zlang-lock --version
-.venv/bin/zlang-verify --version
+zlang --version
+zlang lock --version
+zlang verify --version
+zlang lsp --version
 ```
 
 `zlang-lsp` is a JSON-RPC stdio server and is normally started by the bundled
@@ -178,25 +195,37 @@ at the environment's executable when automatic discovery is not appropriate:
 }
 ```
 
-Check a design and emit production direct SystemVerilog without installing any
+The extension path remains the standalone `zlang-lsp` compatibility executable
+because a VS Code executable setting cannot contain subcommand arguments. For
+manual launches and other clients, `zlang lsp` is the canonical command.
+
+Check a design and emit production Direct-SV without installing any
 external EDA program:
 
 ```sh
-.venv/bin/zlang examples/add.zhl --check
+zlang examples/add.zhl --check
 mkdir -p build
-.venv/bin/zlang examples/add.zhl --systemverilog build/Add.sv
+zlang examples/add.zhl --systemverilog build/Add.sv
 ```
 
 <a id="reference-installing-toolchain-choose-which-external-tools-you-need"></a>
 ### Choose which external tools you need
 
-| Task | Required external programs |
-| --- | --- |
-| Parse, type-check, emit SystemVerilog, use LSP | None |
-| Strict RTL lint and selected RTL simulation | `verilator` |
-| Generic synthesis | `yosys` |
-| Formal BMC, proof and cover | `yosys`, `sby`, `yosys-smtbmc`, and `z3` |
-| Selected event-driven simulation tests | `iverilog` and `vvp` |
+Only a compatible Python runtime and the `zlang-hdl` package are mandatory for
+checking source and emitting SystemVerilog. `uv` is an optional installer: it
+can obtain that Python runtime, but ZLang does not need `uv` after installation.
+Install other tools only for the workflows you actually use:
+
+| Workflow | Additional requirement | If it is missing |
+| --- | --- | --- |
+| `zlang SOURCE --check` and SystemVerilog emission | None beyond Python and `zlang-hdl` | Neither Verilator nor Yosys is needed; a missing compiler package or incompatible Python prevents `zlang` from starting. |
+| `zlang sim` (default native engine) | Matching `zlang-native-sim` wheel for the host | Native execution fails explicitly; `zlang sim --engine reference` remains available from the base package. |
+| VS Code diagnostics and navigation | Bundled extension plus `zlang-lsp` from the base package | Compiler CLI still works, but editor integration does not start. |
+| Strict RTL lint or Verilator execution | `verilator` | RTL can still be emitted; lint and Verilator simulation cannot run. |
+| Generic synthesis | `yosys` | RTL can still be emitted; synthesis cannot run. |
+| Formal BMC, proof, or cover | `yosys`, `sby`, `yosys-smtbmc`, and the `z3` executable | Checking and RTL emission still work; requested formal jobs cannot complete. |
+| Icarus-based test or simulation flow | `iverilog` and `vvp` | Only that selected flow is unavailable. |
+| `zlang lock update` with Git dependencies | `git` and access to the pinned revision during update | Path-only projects and locked offline compilation still work; fetching a Git dependency does not. |
 
 `yosys-smtbmc` is the Yosys SMT model-checking driver. It is the executable
 sometimes informally shortened to “BMC”; there is no ZLang dependency named
@@ -225,9 +254,8 @@ export PATH="/absolute/path/to/oss-cad-suite/bin:$PATH"
 
 Use an absolute installation path. Do not copy individual binaries out of the
 suite because Yosys and SymbiYosys also use adjacent data and support files.
-See the upstream
-OSS CAD Suite installation instructions
-for supported archives and platform details.
+See the upstream OSS CAD Suite release page linked above for supported
+archives and platform details.
 
 Install Verilator separately when it is not supplied by the selected suite. A
 distribution package is convenient:
@@ -275,31 +303,17 @@ z3 --version
 iverilog -V
 ```
 
-The following are **verified versions**: they are the versions used to produce
-this release's acceptance evidence. They are not universal minimums, maximums,
-or a claim that adjacent upstream versions are incompatible.
-
-| Component | Verified version | Purpose |
-| --- | --- | --- |
-| Host | Linux x86-64 | Release and regression host |
-| CPython | 3.12.3 (package range `>=3.12,<3.13`) | Compiler, CLI and LSP runtime |
-| Verilator | 5.052 | Strict RTL lint and behavioral simulation |
-| Yosys | 0.69 | Generic synthesis and SMT preparation |
-| SymbiYosys (`sby`) | 0.69 | Formal job orchestration |
-| `yosys-smtbmc` | from verified Yosys installation | SMT model-checking driver |
-| Z3 | 4.8.12 | Verified external SMT solver |
-| Icarus Verilog / `vvp` | 14.0 | Selected event-driven simulations |
-
-The machine-readable authority is [`release/status.json`](../release/status.json).
-Consult it instead of copying this table into automation because it is updated
-with each release candidate. Other versions may work; validate them with the
-smoke tests relevant to the flow you intend to use. A detected executable is
-not, by itself, evidence that a formal or synthesis result is valid.
+The release-tested external-tool versions are recorded only in the
+[release status](../release/status.json) under `eda_toolchain`; the supported
+Python range is recorded under `platform.python`. These are evidence for that
+release, not universal tool-version requirements. Other versions may work;
+validate them for the flow you intend to use. Finding an executable on `PATH`
+is not, by itself, evidence that a formal or synthesis result is valid.
 
 Run a real formal smoke test:
 
 ```sh
-.venv/bin/zlang examples/verification/bounded_counter.zhl \
+zlang examples/verification/bounded_counter.zhl \
   --verify --verify-require proven \
   --formal-depth 16 --formal-timeout 45 \
   --verification-bundle build/verify/counter \
@@ -310,7 +324,7 @@ Run a real formal smoke test:
 Expected exit status is zero. The `capacity` assertion should be `proven`, the
 `reaches_capacity` cover should be `witnessed`, and `exceeds_capacity` should be
 `bounded_unreached`. A bounded cover miss is not a proof of unreachability.
-See the runnable formal examples for a
+See the [runnable formal examples](../examples/verification/README.md) for a
 deliberate counterexample, scoped assumptions, immutable bundle replay and
 ready/valid checking.
 
@@ -326,6 +340,66 @@ If a tool is not found, run the version commands above in the same environment
 that starts ZLang. If a proof is `unknown`, inspect the retained report and
 solver logs under `--verification-work-dir`; increasing depth or timeout does
 not turn an unsupported binding or reset model into an executable property.
+
+<a id="reference-native-simulation"></a>
+## Native simulation
+
+The default simulation engine compiles a bounded primitive bit-vector plan to
+native machine code with Cranelift. It does not generate SystemVerilog and does
+not invoke Verilator, a C/C++ compiler, or an external HDL simulator. The
+independent Python reference engine remains available as an explicit oracle:
+
+```python
+from zlang import sim
+
+program = sim.compile("examples/counter.zhl", top="Counter", engine="native")
+instance = program.create()
+instance.tick("clk")
+print(instance.get("y"))
+instance.close()
+
+reference = sim.load(
+    "examples/counter.zhl", top="Counter", engine="reference"
+)
+```
+
+The command-line interface supports the same explicit engine choice:
+
+```sh
+zlang sim examples/counter.zhl --top Counter --engine native \
+  --clock clk --cycles 100 --json
+zlang sim examples/multi_clock_stateful.zhl --top MultiClockStateful \
+  --engine native --events events.jsonl --trace build/trace.vcd
+```
+
+One instance is not thread-safe; independent instances may run concurrently.
+`eval()` changes no architectural state. `edge_many()` computes all next-state
+values from one pre-edge snapshot and commits atomically. Synchronous resets
+act on their domain edge, while supported asynchronous assertion acts
+immediately. Values are exact-width and are never silently truncated.
+
+<!-- native-simulation-limits:start -->
+Compilation fails closed when the primitive plan exceeds 32,768 nodes,
+32,768 cumulative packed node limbs, 16 MiB, an 8,192-bit packed value,
+a 512-bit arithmetic operand or a 512-bit memory cell.
+<!-- native-simulation-limits:end -->
+There is no silent
+fallback from `jit` to the reference or RTL engines. Unsupported external
+stateful/protocol models remain unsupported instead of acquiring
+simulator-specific behavior.
+
+The native executor is distributed only as audited `cp312-abi3` binary wheels:
+
+- `manylinux_2_28_x86_64`, used by Linux x86-64 and WSL2.
+
+The independent Python reference simulator remains available on supported
+Python platforms without a native wheel.
+
+The public source archive contains no Rust source, Cargo manifest/lockfile, Rust
+toolchain file, or native build output. The binary wheels carry Apache-2.0
+license and notice files, an exact locked third-party inventory, and a CycloneDX
+SBOM. The public compiler retains the versioned primitive-plan/packing/ABI
+contract and the independent reference executor needed to validate behavior.
 
 <a id="reference-getting-started"></a>
 ## Getting started
@@ -369,7 +443,7 @@ release-tested versions and a real formal smoke test.
 Check a source file without creating backend artifacts:
 
 ```sh
-.venv/bin/zlang examples/all_syntax.zhl --check
+zlang examples/all_syntax.zhl --check
 ```
 
 Without `--top`, `--check` validates every declared module. With `--top NAME`,
@@ -394,16 +468,16 @@ Hardware assignments are concurrent. Source order does not turn `=` into
 software-style sequencing. `=` drives a combinational value; `<-` schedules a
 register's next value at its clock edge.
 
-Generate direct SystemVerilog and lint it:
+Generate Direct-SV and lint it:
 
 ```sh
-.venv/bin/zlang examples/extended_add.zhl \
+zlang examples/extended_add.zhl \
   --systemverilog build/ExtendedAdd.sv
 verilator --lint-only --top-module ExtendedAdd build/ExtendedAdd.sv
 ```
 
 An explicit artifact path keeps stdout empty. Use `--verbose` for success
-messages on stderr. A bare invocation emits the production direct SystemVerilog
+messages on stderr. A bare invocation emits the production Direct-SV
 artifact to stdout; use `--check` for semantic validation without emission.
 
 <a id="reference-getting-started-check-named-verification-goals"></a>
@@ -416,10 +490,10 @@ assert count_within @ clk { count <= DEPTH }
 cover reaches_full @ clk { count == DEPTH }
 ```
 
-Run the applicable existing safety verification safety families plus source goals:
+Run the applicable verification jobs and source goals:
 
 ```sh
-.venv/bin/zlang design.zhl --top Top --verify \
+zlang design.zhl --top Top --verify \
   --formal-jobs 4 \
   --verification-report build/verification.txt \
   --verification-work-dir build/verification-work
@@ -428,9 +502,9 @@ Run the applicable existing safety verification safety families plus source goal
 Or publish a hash-validated bundle and replay it without recompiling source:
 
 ```sh
-.venv/bin/zlang design.zhl --top Top \
+zlang design.zhl --top Top \
   --verification-bundle build/verify
-.venv/bin/zlang-verify build/verify --mode bmc --depth 20 \
+zlang verify build/verify --mode bmc --depth 20 \
   --work-dir build/verify-work
 ```
 
@@ -455,13 +529,13 @@ cross-domain temporal property or change the general backend domain boundary.
 
 The formal triggers are deliberately distinct:
 
-- a non-`off` `--formal-policy` without `--verify` runs only the existing formal-aware selection
-  selection-time semantic-reference equivalence gate;
+- a non-`off` `--formal-policy` without `--verify` runs only the
+  formal-aware semantic-reference equivalence gate used during selection;
 - `--verify` with policy `off` runs safety verification/source safety and covers;
 - `--verification-bundle` publishes the base safety/cover bundle and linking
   plan but does not prepare or execute selected-candidate semantic-reference equivalence;
 - `--verify` with a non-`off` policy additionally executes the compatible
-  selected-candidate direct-SV semantic-reference equivalence route.
+  selected-candidate Direct-SV semantic-reference equivalence route.
 
 <a id="reference-getting-started-source-files"></a>
 ### Source files
@@ -491,7 +565,7 @@ module Example {
 Select a top explicitly when a file contains several modules:
 
 ```sh
-.venv/bin/zlang design.zhl --top Example --check
+zlang design.zhl --top Example --check
 ```
 
 Names are case-sensitive. There are no semicolons. Line comments use `//`.
@@ -528,12 +602,13 @@ flat `vec<N,bit>` are the documented representation-only exception; use
 - [Sequential logic, rules, and storage](#reference-sequential-state-storage)
 - [Hierarchy, protocols, and composition](#reference-hierarchy-protocols)
 - [Optimization and formal verification](#reference-optimization-formal)
-- Backends, CLI, and tooling
+- [Direct-SV](#reference-direct-systemverilog),
+  [CLI](#reference-installing-toolchain-check-and-run-zlang), and
+  [tooling](#reference-tooling-integration-api)
 - [Standard library](#reference-stdlib)
 - [Reproducible projects and dependencies](#reference-projects-dependencies)
 - [Named module interfaces](#reference-named-module-interfaces)
-- Validated real designs
-- Complete language guide index
+- [Validated real designs](#reference-direct-systemverilog-exhaustive-example-matrix)
 
 <a id="reference-types-and-numerics"></a>
 ## Types, numerics, and packed representation
@@ -579,7 +654,7 @@ Tuple arity is 2 through 8. Projection is a zero-based integer literal and flat
 destructuring introduces exhaustive immutable bindings. Nested tuple values are
 legal, but nested/wildcard patterns, runtime tuple selection, tuple update,
 arithmetic, and ordering are not. Exact `==`/`!=` is structural. Component zero
-occupies the most-significant packed region; `pack`/`bitcast` require every
+occupies the least-significant packed region; `pack`/`bitcast` require every
 component to satisfy the ordinary non-enum packing rules.
 
 `char` is indistinguishable from `u8` during overload resolution, and
@@ -637,7 +712,7 @@ in the encoding, so invalid raw bits never become an invalid nominal value.
 These operations perform no resize and accept no signed/integer substitute.
 
 Enums may appear in locals, outputs, registers/rules, structs, and vectors. A
-top-level enum input is intentionally rejected in this first slice because an
+top-level enum input is rejected because an
 external invalid bit pattern would violate the nominal value invariant. General
 `unpack<Enum>` is likewise deferred. Exhaustive selection is described under
 [operators and selection](#reference-expressions-functions-generics-operators-and-selection).
@@ -792,10 +867,27 @@ y = quantize<SF_Sat8.8>(value) {
 }
 ```
 
-Supported rounding modes are `toward_zero`, `floor`, `away_zero`, and
-`nearest_even`. Conversion order is exact rescale, rounding, then overflow.
-`fixed_raw(0x0C22)` creates a target-context raw pattern; `fixed_to_raw` exposes
-the stored integer.
+The rounding mode is mandatory; there is no implicit rounding default.
+
+| `round` mode | Discarded fractional part |
+| --- | --- |
+| `toward_zero` | Truncate toward zero. |
+| `floor` | Round toward negative infinity. |
+| `away_zero` | Round away from zero if any fractional part remains. |
+| `nearest_even` | Round to nearest; on an exact tie choose the even stored integer. |
+
+| Form | Target and overflow behavior |
+| --- | --- |
+| `quantize(value, MODE)` | Target comes from an unambiguous fixed-point assignment/return context; overflow defaults to that target type's policy. |
+| `quantize(value) { round MODE overflow POLICY }` | Contextual target; both clauses are required. |
+| `quantize<T>(value) { round MODE overflow POLICY }` | Explicit fixed-point target; both clauses are required. |
+
+`POLICY` is `wrap` (modular truncation to the target bit width) or `saturate`
+(clamp to the target's minimum/maximum). Ordinary `fixed`/`ufixed` targets
+default to `wrap`; `fixed_sat`/`ufixed_sat` targets default to `saturate` only
+in the short two-argument form. The block's explicit policy takes precedence.
+Conversion order is exact rescale, rounding, then overflow. `fixed_raw(0x0C22)`
+creates a target-context raw pattern; `fixed_to_raw` exposes the stored integer.
 
 An exact fixed-point `dot(a,b)` retains the full accumulator. If the destination
 reduces fractional precision, give one post-accumulation rounding mode:
@@ -818,9 +910,9 @@ An explicitly typed boundary can use a non-empty vector literal or contextual
 replication:
 
 ```zlang
-pair    : vec<2,u8> = [left, right]
-zeros   : vec<4,u8> = repeat(0)
-zeros_2 : vec<4,u8> = repeat<4>(0)
+pair          : vec<2,u8> = [left, right]
+zero_values   : vec<4,u8> = repeat(0)
+zero_values_2 : vec<4,u8> = repeat<4>(0)
 ```
 
 Every element must have the exact contextual element type. `repeat(value)`
@@ -897,8 +989,8 @@ out lsb : bit = raw[0]
 out msb : bit = raw[23]
 ```
 
-Packed indices use conventional bit numbering: index zero is the least-
-significant bit, exactly as `[0:0]`. The selector must currently resolve at
+Packed indices use conventional bit numbering: index zero is the
+least-significant bit, exactly as `[0:0]`. The selector must currently resolve at
 compile time, including inside `generate`; a runtime selector is rejected
 instead of being silently converted into a mux. Vector element zero likewise
 occupies the least-significant packed element region.
@@ -982,15 +1074,15 @@ Aggregate layout is deterministic and backend-independent:
 The initialized `rom<T,N>` image format uses this same layout for each word.
 Images contain one exact-width binary word per line with address zero first;
 they do not inherit host byte order. Consequently simulator values and
-direct-SV `$readmemb` agree on nested aggregate and fixed-point ROM contents.
+Direct-SV `$readmemb` agree on nested aggregate and fixed-point ROM contents.
 See [Initialized synchronous ROMs](#reference-sequential-state-storage-initialized-synchronous-roms).
 
 Scalar numeric/raw types and recursively bit-packable structs, vectors, and
 structural tuples are accepted. Nominal enums, including an aggregate containing
 an enum, are intentionally rejected by `bitcast`, `pack`, and `unpack`. Enum
 ordinal storage remains available through ordinary typed values and `reshape`,
-but raw construction could create an invalid ordinal and therefore requires a
-future reviewed validity policy.
+but raw construction could create an invalid ordinal; no validity policy for
+that conversion is defined.
 
 At explicitly typed assignment/storage boundaries, ZLang may insert an
 equal-width raw bitcast only when either source or target is `bits<N>` or flat
@@ -1107,8 +1199,8 @@ tuple component order/arity, or element types are errors.
 Vector literals and replication use their explicit destination type:
 
 ```zlang
-pair  : vec<2,u8> = [left, right]
-zeros : vec<4,u8> = repeat(0)
+pair        : vec<2,u8> = [left, right]
+zero_values : vec<4,u8> = repeat(0)
 ```
 
 `repeat<N>(value)` may state the compile-time length explicitly. The contextual
@@ -1197,6 +1289,7 @@ runtime hardware.
 Module and generic-function specializations may carry required named
 compile-time constants and pure function references:
 
+<!-- zlang-example: syntax-only; generic template requires specialization -->
 ```zlang
 fn widen(x : u8) -> u9 { extend<9>(x) }
 
@@ -1232,8 +1325,7 @@ Type and integer shape parameters resolve before constant/function parameters.
 The compiler retains a typed binding record containing the canonical constant
 value or exact callable identity, dependency closure, evaluator schema, and
 content digest. Source spelling is absent from semantic, artifact, and cache
-identity. Defaults for constant/function parameters are intentionally not part
-of this first bounded slice.
+identity. Defaults for constant/function parameters are unsupported.
 
 <a id="reference-expressions-functions-generics-compile-time-functions-and-selection"></a>
 ### Compile-time functions and selection
@@ -1244,11 +1336,13 @@ compiler-owned, not stdlib overloads:
 - `length(vector)`;
 - `floor_log2(n)`, `ceil_log2(n)`, `index_width(n)`,
   `is_power_of_two(n)`;
-- `pi()`, `sin(x)`, `cos(x)`, `log2(x)`, and `log(base,x)`.
+- `pi()`, `sin(x)`, `cos(x)`, `log2(x)`, `log(base,x)`, `exp(x)`, and
+  `sqrt(x)`.
 
 Real intrinsics use a versioned decimal evaluator rather than host binary
 floating point. A non-integral real enters hardware only through explicit
-fixed-point quantization.
+fixed-point quantization. `1 / sqrt(x)` is the compile-time reciprocal square
+root form used when generating seed or approximation tables.
 
 `index_width(n)` is the storage width for an index into `n` elements:
 `max(1, ceil_log2(n))`. Its argument must be a positive compile-time integer
@@ -1256,7 +1350,9 @@ expression. Integer parameter defaults are resolved in declaration order and
 may reference only earlier parameters:
 
 ```zlang
-module Table<N=8,IW=index_width(N)> { ... }
+module Table<N=8,IW=index_width(N)> {
+    // Ports and implementation omitted.
+}
 ```
 
 A forward reference such as `module Bad<IW=index_width(N),N=8>` is rejected.
@@ -1355,7 +1451,7 @@ retains its own source origin.
 The accepted whole-vector IFFT64 reference exercises an outer 64-lane
 `generate`, 64 exact products per lane, nominal complex reduction, and one final
 quantization. N=64 is validated through semantic analysis, canonical round-trip,
-and the simulator; N=8/N=16 exercise direct SystemVerilog and Verilator.
+and the simulator; N=8/N=16 exercise Direct-SV and Verilator.
 This evidence does not claim full 4096-multiplier N=64 RTL or a production
 streaming architecture. See the
 802.11a validation report
@@ -1397,8 +1493,8 @@ flat   : vec<8,u8> = reshape(matrix)
 Slices use inclusive compile-time `[MSB:LSB]` bounds. A single packed-bit
 selection `raw[index]` returns `bit`, uses conventional LSB-zero numbering,
 and currently requires a compile-time-proven index. Vector sequence indexing
-uses the same low-first convention: `vec` element zero occupies the least-
-significant packed element region. Scalar `concat` places its
+uses the same low-first convention: `vec` element zero occupies the
+least-significant packed element region. Scalar `concat` places its
 first operand at the MSB; homogeneous-vector `concat` preserves collection
 order and returns a vector. `reshape` changes only nested vector shape.
 `bitcast<T>` uses the canonical layout described in
@@ -1438,9 +1534,9 @@ A direct integer literal may use a concrete formal argument type after explicit
 generic arguments or non-literal arguments have fixed that type:
 
 ```zlang
-same<T=u16>(1)
-combine(1, existing_u16)
-combine(existing_u16, 1)
+first  = same<T=u16>(1)
+second = combine(1, existing_u16)
+third  = combine(existing_u16, 1)
 ```
 
 If a type is inferable only from literals, each literal first receives its own
@@ -1456,7 +1552,7 @@ are retained once as deterministic monomorphic callable definitions. Each use
 site is a typed `Call` carrying the exact callee identity, signature, result
 type, and its own source origin. Analyses that require concrete arithmetic use
 the shared bounded call-expansion service; nominal reductions remain opaque to
-exact reduction planning and the frozen e-graph rewrite set. Direct SystemVerilog emits one
+exact reduction planning and the frozen e-graph rewrite set. Direct-SV emits one
 `function automatic` per specialization rather than cloning the body at every
 call site.
 
@@ -1475,8 +1571,8 @@ Generics and nominal reductions do not imply rescaling, rounding, saturation,
 or casts.
 
 Traits, runtime polymorphism, generic methods, function-name overloading,
-higher-order functions, recursion extensions, and implicit conversions remain
-outside the current slice.
+higher-order functions, recursion extensions, and implicit conversions are
+unsupported.
 
 <a id="reference-sequential-state-storage"></a>
 ## Sequential state, rules, pipelines, and storage
@@ -1588,7 +1684,7 @@ phase <- switch phase {
 }
 ```
 
-The semantic simulator and direct SystemVerilog share the declaration-order
+The semantic simulator and Direct-SV share the declaration-order
 ordinal encoding. The source-authored APB bridge in
 [`stdlib/bus/apb.zhl`](../stdlib/bus/apb.zhl) uses an enum for its internal phase
 without exposing it through the external bus ABI.
@@ -1716,7 +1812,7 @@ place and balance those internal cuts. Timeless values may join a known path;
 joins outside that graph still require equal known latency.
 
 Registers, rules, FIFO/memory/ROM observations, protocols, and uncontracted
-child outputs are `unknown` for this first public contract. A positive latency
+child outputs are `unknown` under the current bounded contract. A positive latency
 requires exactly one clock/reset domain. Only `ii 1` is accepted. A contracted
 child adds its declared latency to the common known latency of its bound scalar
 inputs; an unaligned parent join is rejected instead of silently balanced.
@@ -1902,6 +1998,23 @@ Within a masked rule-owned memory, the compatible two-operand form
 `table.write(address, data)` means an all-lanes write. The mask does not add a
 read enable, another port, a new clock domain, or target-specific BRAM mapping.
 
+`read_latency` counts active edges in the memory's read domain between a
+captured address and the visible result. These are compiler/simulator/Direct-SV
+contracts, not promises that a particular FPGA RAM primitive will be inferred:
+
+| Storage form | Accepted `read_latency` | Tested behavior and physical boundary |
+| --- | --- | --- |
+| Globally controlled `mem`, including named same-clock ports | `0..16` | `0` is combinational; `1` is registered; `2..16` add exact read-domain register stages. Cycle tests cover `0`, `1`, `2`, and the upper bound `16`; Direct-SV is linted. |
+| Rule-owned legacy `mem` | Exactly `1` | A selected read action captures at an edge and holds its result otherwise; rule/storage simulations and Direct-SV tests cover it. |
+| `async_mem` 1W1R | `1..16` | Reader-domain registered output; cycle tests cover `1`, `2`, `3`, and `16`, including unrelated clocks. Generic Direct-SV supports `old`; stronger cross-clock collision claims need exact target evidence. |
+| Immutable `rom` | Exactly `1` | Synchronous table read; compile, simulation, and Direct-SV tests cover it. |
+| Internal memory of `async_fifo` | Fixed `1` | The FIFO prefetch controller accounts for the registered read; this is not a user-settable FIFO latency. |
+
+The current explicit Xilinx 7-Series synchronous-memory physical route accepts
+only `read_latency 1` and matching reset, mask, port, and collision capability.
+Other legal latencies can use generic RTL under a preferred policy; a required
+native route rejects them. `read_latency 0` never claims synchronous BRAM.
+
 <a id="reference-sequential-state-storage-named-same-clock-ports"></a>
 #### Named same-clock ports
 
@@ -1945,7 +2058,7 @@ generic/register-array hardware writes that value to every cell on reset. With
 RAM maps it to bitstream initialization and does not pretend that a runtime
 reset rewrites the array. Omitting `init` retains the exact zero value used by
 the existing reset/initialization policies. Full per-address images remain the
-role of immutable `rom` in this slice.
+role of immutable `rom` in the current language contract.
 
 The bounded implementation planner first uses an exact target resource. A
 `1W+nR` shape otherwise becomes coherent replicated 1R1W storage; other
@@ -1995,7 +2108,7 @@ block-RAM read port.
 For coincident logical edges the simulator uses a pre-edge snapshot: `old`
 returns the prior cell, while `new` forwards the coincident write. This is a
 precise digital model, not an analog metastability or silicon timing guarantee.
-Portable generic direct-SystemVerilog publishes `old`; stricter or other
+Portable generic Direct-SV publishes `old`; stricter or other
 collision claims require an exact target capability. Asynchronous 2RW,
 mixed-width ports, ECC, and dual-clock ROM remain deferred.
 
@@ -2036,8 +2149,9 @@ Global controls and rule actions cannot be mixed. The bounded scheduled form
 supports one memory per module, alongside registers and scheduled FIFOs; two
 reads or two writes conflict and require existing explicit rule priority.
 
-The executable memory forms have scalar elements and power-of-two depth of at
-least two. A globally controlled ordinary `mem` accepts `read_latency` in
+Executable memory elements may be recursively bit-packable non-enum aggregates,
+as well as scalars; depth is a power of two and at least two. A globally
+controlled ordinary `mem` accepts `read_latency` in
 `0..16`: zero is a combinational read; each positive value is an exact number
 of domain-local read edges from address capture to the visible result.
 Rule-owned memories remain exactly one-cycle because their read action is
@@ -2067,10 +2181,10 @@ suppresses writes and scheduled actions. At latency zero, `read_data clear`
 masks the combinational result while reset is asserted; `read_data preserve`
 leaves the addressed preserved cell visible. At latency one, the corresponding
 policy clears or holds the result register. `read_first` observes the old cell
-before a coincident write edge; `write_first` observes the fully byte-mask-
-merged write word.
+before a coincident write edge; `write_first` observes the fully
+byte-mask-merged write word.
 
-The simulator and generic direct-SystemVerilog initialize executable preserved
+The simulator and generic Direct-SV initialize executable preserved
 memory state to its declared uniform `init` word, or zero when omitted, but
 runtime reset does not recreate that initialization under `contents preserve`.
 The Xilinx same-clock true-dual mapping therefore requires preserved contents;
@@ -2082,7 +2196,7 @@ Bounded named-port selection is described above. Simulation-only
 tests may instead publish a selected-IR-bound state catalog and Verilator VPI
 companion with `--simulation-state-bundle`; that tooling neither adds hardware
 ports nor changes memory reset semantics. The
-[writable-memory contract](#writable-memories) and public
+[writable-memory contract](#reference-sequential-state-storage-writable-memories) and public
 [simulation-state access](#reference-direct-systemverilog-simulation-only-architectural-state-access)
 sections define the two distinct boundaries.
 
@@ -2101,7 +2215,7 @@ specialization, two combinational read results, and one logical write port.
 The concrete witness contains 256 32-bit words, split into four banks of 64
 words. Its runtime reset suppresses writes and preserves both cells and
 combinational read data; executable simulation begins from deterministic zero
-contents. The semantic simulator and direct SystemVerilog agree on full and
+contents. The semantic simulator and Direct-SV agree on full and
 per-byte writes, independent reads, same-address `read_first` behavior, reset,
 and replica coherence. This is source composition, not a new memory semantic or
 backend name-based rewrite. The ordinary stdlib modules
@@ -2124,7 +2238,7 @@ Target-memory closure remains separate. In particular, the existing promoted
 OpenRAM/target macro contract does not yet match this zero-latency,
 preserve-on-reset profile, so the witness makes no BRAM/SRAM inference, QoR, or
 physical-macro claim. A byte-addressed external wrapper and target-specific
-latency/collision adaptation belong to later ZTPU integration work.
+latency/collision adaptation are not currently supported by this mapping.
 
 <a id="reference-sequential-state-storage-initialized-synchronous-roms"></a>
 ### Initialized synchronous ROMs
@@ -2153,12 +2267,12 @@ result is zero. Reset never changes the immutable contents; after reset, the
 first non-reset result corresponds to the preceding accepted non-reset address.
 There is no hidden second output register.
 
-The production backend consumes one compiler-owned companion image. It contains one exact-
-width binary word per line, address zero first. Struct declaration field zero
+The production backend consumes one compiler-owned companion image. It contains
+one exact-width binary word per line, address zero first. Struct declaration field zero
 occupies the most-significant bits; vector element zero and tuple item zero
 occupy the least-significant component bits recursively. Fixed-point values retain
-their raw signed or unsigned bit pattern. Direct
-SystemVerilog `$readmemb` consumes that image. The CLI publishes companions
+their raw signed or unsigned bit pattern. Direct-SV `$readmemb` consumes that
+image. The CLI publishes companions
 beside the selected output, and artifact metadata
 retains the initialization dependency, evaluator, content, and file hashes.
 Missing or colliding companion files fail closed.
@@ -2194,8 +2308,8 @@ fail-closed. See
 
 
 ZLang's backend-independent `ClockDomain` records the complete physical
-contract of one clock and its reset. Legacy declarations remain exact aliases
-for the original behavior:
+contract of one clock and its reset. Concise declarations retain the default
+reset contract:
 
 ```zlang
 clock clk
@@ -2254,7 +2368,7 @@ they do not reinterpret the physical pin as active-high.
 <a id="reference-physical-clock-reset-contract-backend-lowering"></a>
 ### Backend lowering
 
-Direct SystemVerilog emits a deterministic two-register synchronizer marked
+Direct-SV emits a deterministic two-register synchronizer marked
 with `ASYNC_REG` for the concise form. The top-level domain owns it and routes
 one conditioned reset through register/rule, FIFO, memory, CSR, protocol, and
 child state. A hierarchy does not create one synchronizer per sibling. A
@@ -2266,30 +2380,26 @@ models immediate assertion at the sampled boundary and the exact two-edge
 release hold. Assertion between active edges is additionally checked in RTL
 simulation.
 
-BackendArtifact physical-domain manifest version 10 records the contract
-identity, external RTL clock/reset paths, edge, assertion mode, polarity,
+The generated implementation artifact records the contract identity, external
+RTL clock/reset paths, edge, assertion mode, polarity,
 release policy/cycles, power-up policy, and source origin. Component and
-physical-instance records reference that identity. Default legacy artifacts
-retain their previous schema and generated text.
+physical-instance records reference that identity.
 
 <a id="reference-physical-clock-reset-contract-formal-applicability"></a>
 ### Formal applicability
 
-Executable formal work now consumes this exact contract instead of assuming a
-rising, synchronous, active-high domain. With `power_up unspecified`, the
-supported matrix is:
+Executable formal work consumes the exact declared contract. With
+`power_up unspecified`, the supported combinations are described below.
 
-Formal-only accepted `rule.fire` projections use this same effective reset and
-polarity, not a raw active-high input assumption. The projection is resolved in
-the final formal component scope; descendants consume the conditioned native
-reset. The 2026-09-06 correction covers assertion/reassertion, the complete
-two-edge release hold, and restart on the third edge in 24 real-RTL profiles.
-
-| Active clock edge | Reset assertion | External polarity | Release | Existing formal routes |
-| --- | --- | --- | --- | --- |
-| rising or falling | synchronous | active-high or active-low | native | safety verification/source safety and cover; existing bindable recursive safety verification; same-cycle and fixed-latency II=1 direct-SV semantic-reference equivalence; applicable formal-aware selection policies |
-| rising or falling | asynchronous | active-high or active-low | native | the same bounded routes, for a single physical domain |
-| rising or falling | asynchronous | active-high or active-low | synchronized, exactly two active edges | the same bounded routes, for a single physical domain |
+Formal-only accepted `rule.fire` projections use the effective reset and
+polarity, not a raw active-high input assumption. Descendants consume the
+conditioned native reset. Rising and falling active edges, active-high and
+active-low pins, and synchronous or asynchronous assertion are supported. An
+asynchronous reset may use native or exactly two active edges of synchronized
+release. Applicable routes are source safety/cover, bindable recursive safety,
+same-cycle or fixed-latency II=1 Direct-SV semantic-reference equivalence, and
+formal-aware selection. Asynchronous formal execution is limited to one
+physical domain.
 
 Multiple supported synchronous domains may still produce independent
 goal-local jobs. Asynchronous execution is deliberately single-domain; this
@@ -2297,19 +2407,9 @@ does not define a cross-domain reset relation. Same-cycle pure candidate
 equivalence remains reset-independent, while fixed-latency comparison uses the
 declared active edge and release window.
 
-The identity chain is explicit and checked end to end:
-
-- `ClockDomain` contributes clock/reset names, edge, assertion mode, polarity,
-  release mode/cycles, and power-up policy to the versioned
-  `zlang-physical-domain-contract-v1` digest;
-- BackendArtifact v10 publishes the same digest as its physical-domain
-  identity together with the external RTL port locators;
-- `FormalGoalPlan` schema 2 stores the exact typed contract and, when an
-  artifact exists, that physical-domain identity as part of `plan_identity`;
-- verification bundle v4 / verification-IR snapshot v3 carries those fields in
-  each executable or skipped `VerificationJob`;
-- run-report v7 repeats them in every job result, and strict restoration rejects
-  plan/job/result disagreement or a corrupted contract digest.
+The compiler carries the same typed clock/reset contract from the selected
+design through RTL bindings, formal jobs and their results. Restoration rejects
+missing, corrupted or mismatched contracts rather than guessing a reset mode.
 
 Prepared-artifact, bundle, harness, result-cache, and evidence recipes therefore
 separate otherwise identical goals that use different edges, assertion modes,
@@ -2348,28 +2448,6 @@ required policies fail unless the existing exact semantic-reference equivalence 
 requested level. No new formal property, observation, or equivalence family is
 introduced.
 
-<a id="reference-physical-clock-reset-contract-original-slice-validation-record"></a>
-### Original-slice validation record
-
-The accepted implementation exercises ordinary registers/rules, FIFO and
-ready/valid, memory, CSR, request/response, and nested hierarchy through the
-simulator, direct SystemVerilog, and strict Verilator. Tests
-cover assertion between edges, two release edges, third-edge restart,
-reassertion, both polarities, falling-edge release, exact hierarchy rejection,
-manifest round-trip, and the original fail-closed formal/target boundary. The
-original combined focused gate reports **217 passed**. Two unchanged-snapshot full regressions report
-**2871 passed, 1 documented opt-in skip** in 729.66 s and 974.48 s.
-These figures are the acceptance record for the reset slice, not the live
-repository baseline; see Current language status
-for the current regression and corpus snapshot.
-
-The superseding formal-applicability focused gates report **53 passed** for
-exact plan/job/result identity and bundle round-trip, **65 passed** for adjacent
-orchestration/replay, and **26 passed** for physical-manifest/async-reset
-coverage. These gates overlap and are therefore not summed. Full-regression
-acceptance is intentionally recorded only when the repository-wide run is
-complete.
-
 <a id="reference-hierarchy-protocols"></a>
 ## Hierarchy, protocols, and explicit CDC
 
@@ -2383,6 +2461,7 @@ inferred by guessing generated RTL names.
 
 Modules may have compile-time type and value parameters:
 
+<!-- zlang-example: syntax-only; generic template requires specialization -->
 ```zlang
 module Engine<type T, DEPTH=4> {
     in  value : T
@@ -2475,9 +2554,8 @@ generate(i in 0..N) {
 Every physical element retains its own outstanding ledger and reset epoch.
 Out-of-order matching, an additional protocol on the same child, nested or
 transitive request/response arrays, and unindexed endpoint references fail
-closed. This profile is covered by compiler/backend tests and the executable
-capability-registry witness
-`tests/fixtures/hierarchy/request_response_instance_array.zhl`.
+closed. This profile has an executable capability-registry witness and is
+covered by compiler, simulator, and backend validation.
 
 Legacy globally controlled storage still cannot be combined with user
 registers/rules. Credit and other non-RV protocols, CSR or storage below a
@@ -2502,6 +2580,7 @@ Explicit `inst` remains the escape hatch for namespace ambiguity.
 A bounded scalar-wire component may declare backend-independent behavior with
 an ordinary pure ZLang model:
 
+<!-- zlang-example: syntax-only; interface and model are defined separately -->
 ```zlang
 extern module VendorAdd : AddIfc { model add_model }
 ```
@@ -2511,24 +2590,27 @@ The concise source form is
 
 The applied interface and model produce one exact semantic signature. Physical
 SystemVerilog is supplied separately through a hash-validated
-`ExternalPhysicalMapping`; inline HDL never defines ZLang semantics. The first
-release supports non-parameterized, clockless scalar inputs and one scalar
-output in direct SystemVerilog. State, protocols, arrays, and generic external
+`ExternalPhysicalMapping`; inline HDL never defines ZLang semantics. The
+supported form has non-parameterized, clockless scalar inputs and one scalar
+output in Direct-SV. State, protocols, arrays, and generic external
 components fail closed.
 
 <a id="reference-hierarchy-protocols-clock-and-reset-boundary"></a>
 ### Clock and reset boundary
 
 Legacy `clock clk` plus synchronous active-high `reset rst` works through the
-production direct-SystemVerilog backend. A single-domain parent may supply that exact domain to a child only
+production Direct-SV backend. A single-domain parent may supply that exact domain to a child only
 when the mapping is unambiguous; this is domain inheritance, not implicit CDC.
 One non-default falling-edge, asynchronous, or active-low physical contract is
-typed and emitted by direct SystemVerilog. Concise
+typed and emitted by Direct-SV. Concise
 `async reset` adds one root-owned two-edge release conditioner and passes the
 conditioned reset through the closed child ABI; the raw asynchronous
 compatibility form remains distinct. Instance arrays require one compatible
-inherited domain unless they are purely combinational. Multi-domain async reset,
-power-on reset, and implicit reset crossing remain fail-closed.
+inherited domain unless they are purely combinational. Multiple independently
+conditioned asynchronous domains are supported in Direct-SV. Every domain of a
+stateful child must match exactly one parent physical clock/reset contract;
+no implicit reset crossing is inserted. Multi-domain asynchronous formal
+execution, power-on reset, and implicit reset crossing remain fail-closed.
 
 <a id="reference-hierarchy-protocols-public-top-abi"></a>
 ### Public top ABI
@@ -2542,7 +2624,7 @@ neither an anonymous 64-bit public bus nor eight separately named ports. Nested
 `vec<Struct>` values become one array per struct field, and `vec<Tuple>` values
 become one array per tuple component.
 
-Direct-SystemVerilog RTL uses this public `TopPhysicalABI`. The conversion
+Direct-SV RTL uses this public `TopPhysicalABI`. The conversion
 follows the canonical packing order with element zero in the least-significant
 region: for a descending packed vector dimension, source element zero maps to
 physical index `0`. There is no source annotation, compiler option, or
@@ -2666,6 +2748,56 @@ Hardware status uses `<-`, commands use `->`, and sticky events make simultaneou
 hardware/software priority explicit. RTL, JSON, and Markdown are derived from
 the same typed model.
 
+Omitted bits are implicitly reserved. A storage-independent access event may
+observe the same bits as their single owning field:
+
+```zlang
+module CsrAccessEventExample {
+    clock clk reset rst
+    in fault_status : bits<32>
+    out fault_clear : bits<2>
+    csr registers @0 {
+        FAULT @0x470 {
+            value bits<32> @31:0 ro <- fault_status
+            clear bits<2> @1:0 on_write -> fault_clear
+        }
+    }
+}
+```
+
+The event is address-qualified by the compiler and owns no state. Stored,
+external-status, and event observations are available through typed child
+namespaces `state`, `status`, and `events`.
+
+Repeated layouts flatten into one bank and one decoder:
+
+```zlang
+module CsrGroupExample {
+    clock clk reset rst
+    csr group Window { CONTROL @0 { enable bit @0 rw = 0 } }
+    csr control @0 { windows : Window[13] @0x210 stride 4 }
+}
+```
+
+Group counts are bounded to 1..64 and a bank to 256 expanded registers. A
+logical 64-bit value may retain two independently writable 32-bit software
+registers:
+
+```zlang
+module CsrSplitExample {
+    clock clk reset rst
+    csr registers @0 {
+        INPUT_BASE @0x18 split<32> value u64 rw = 0 order low_first
+    }
+}
+```
+
+This does not imply byte strobes or an atomic two-word write. Typed command
+capture and registered RegBus timing are ordinary source modules:
+`StorageSnapshot<T,reset_value>` in `std.storage.core` and
+`RegisteredCSRTarget<AW,DW>` in `std.bus.reg`; the compiler has no special case
+for either module name.
+
 In a multi-clock module the bank declares its owner after its base address:
 
 ```zlang
@@ -2705,7 +2837,7 @@ An aggregate with exactly one forward ready/valid member may use the same
 `async_fifo` crossing; its complete payload is atomic. Both domains must
 participate in a coordinated reset episode.
 
-The physical direct-SV FIFO uses one compiler-owned 1W1R `async_mem` with a
+The physical Direct-SV FIFO uses one compiler-owned 1W1R `async_mem` with a
 one-cycle registered read, two-stage Gray-pointer synchronizers, and one
 prefetched output beat. A stalled beat holds both payload and `valid`; the
 read/consumed pointer advances only on transfer, so that beat still occupies
@@ -2791,6 +2923,7 @@ contract present on only one side.
 
 Named parameters and concrete type parameters are supported:
 
+<!-- zlang-example: syntax-only; generic template requires specialization -->
 ```zlang
 interface TransformIfc<type T, N=4> {
     in  x : vec<N,T>
@@ -2848,12 +2981,12 @@ runtime dispatch.
 
 The applied `ModuleSignature` is backend-independent semantic/build metadata.
 It survives canonical round trips, while the implementation body continues
-through the production direct-SystemVerilog path. Merely adding an
+through the production Direct-SV path. Merely adding an
 equivalent interface declaration does not authorize a backend to change RTL or
 timing.
 
 <a id="reference-named-module-interfaces-first-slice-boundaries"></a>
-### First-slice boundaries
+### Current boundaries
 
 The current bounded surface intentionally does not support:
 
@@ -2902,7 +3035,7 @@ Variant order defines ordinal tag codes. The tag width is
 payload is as wide as the largest variant. Fields occupy it from most to least
 significant in declaration order; a shorter payload has zero low-order padding.
 
-The first supported slice admits only flat `bit`, `bits<N>`, `uN`/`uint<N>`,
+The supported field types are flat `bit`, `bits<N>`, `uN`/`uint<N>`,
 `sN`/`sint<N>`, `fixed`, and `ufixed` fields. A fieldless value uses the concise
 constructor `Message.Idle`; `Message.Idle {}` remains an equivalent explicit
 spelling.
@@ -2918,7 +3051,7 @@ binders cannot rename, omit, repeat, or shadow an existing value.
 Matching is pure and zero-latency. Semantic lowering retains a typed
 `UnionConstruct`, `UnionTag`, and `UnionField`, then expresses selection with the
 ordinary typed `Switch`. The simulator carries an immutable nominal runtime
-value. Direct SystemVerilog carries the exact frozen packed bits.
+value. Direct-SV carries the exact frozen packed bits.
 Registers and internal scalar child ports may use union values.
 
 <a id="reference-tagged-unions-deliberate-boundaries"></a>
@@ -2960,8 +3093,8 @@ physical backward-ready propagation; plain members are ordinary scalar wires.
 Top-level aggregate endpoints additionally have a backend-independent
 `TopAggregateABI` projection. It recursively flattens ready/valid payload
 structs, derives physical direction from source/sink ownership, and keeps
-aggregate/member identities separate from generated names. Direct
-SystemVerilog consumes that projection without protocol-specific source-name
+aggregate/member identities separate from generated names. Direct-SV consumes
+that projection without protocol-specific source-name
 guessing.
 
 `connect left.bus -> right.bus` checks protocol identity, specialization,
@@ -2970,7 +3103,7 @@ hierarchical connections.  Aggregate buffering, adapters, and CDC are
 deliberately rejected; they must be expressed on a leaf connection in a later
 library design.
 
-The direct-SystemVerilog backend consumes the same closed child component ABI
+The Direct-SV backend consumes the same closed child component ABI
 as other hierarchical protocol children. A child receives every scalar dependency and
 protocol backward signal explicitly and returns forward values plus scalar
 outputs.  No aggregate or RTL name is reconstructed by textual substitution.
@@ -2979,20 +3112,16 @@ signal bindings, so formal/source attribution remains stable.
 
 Generic value parameters support exact positive width arithmetic (`+`, `-`,
 `*`, and exact `/`).  Type parameters are bound at an aggregate use site.  The
-initial slice is structural: it intentionally does not implement AXI/APB
-transaction state machines, adapters, packages, CDC, or automatic protocol
-conversion.
+aggregate connection is structural: it does not implement AXI/APB transaction
+state machines, adapters, packages, CDC, or automatic protocol conversion.
 
-Validation: the in-repository TinyBus producer/consumer hierarchy (two
-ready/valid channels plus a reverse scalar member) elaborates into three leaf
-connections and passes Verilator 5.044 lint on generated direct-SystemVerilog
-RTL.
+The TinyBus producer/consumer example (two ready/valid channels plus a reverse
+scalar member) elaborates into three typed leaf connections and passes the
+release-tested Direct-SV lint gate.
 
-The standard-bus source migration validates a stateful child with multiple
-independent ready/valid channels through direct SystemVerilog and Verilator. The formerly
-missing top-level aggregate exposure is also implemented: an unconnected
-aggregate bus on the selected top is projected through the shared
-`TopPhysicalABI` into typed public leaves. This is generic
+Stateful children with multiple independent ready/valid channels are supported
+in Direct-SV. An unconnected aggregate bus on the selected top is
+projected through the shared `TopPhysicalABI` into typed public leaves. This is generic
 schema/ownership lowering, not an AXI semantic exception. Arrays, partial
 aggregate exposure, and unsupported protocol kinds remain fail-closed as listed
 in the live [syntax matrix](#reference-syntax-support-matrix).
@@ -3085,7 +3214,7 @@ that transaction epoch.
 
 The concrete `AW=64,DW=32` reader/writer witness passes semantic and canonical
 round trips, deterministic artifact checks, bounded simulator traces, and
-direct-SystemVerilog/Verilator. Validation
+Direct-SV/Verilator. Validation
 includes 1- and 256-beat requests, invalid 0
 and 257 lengths, misalignment, independent channel stalls, stable owned
 payloads, RLAST/RRESP/BRESP failures, reset in active phases, and ignored starts
@@ -3096,79 +3225,27 @@ QoS, region and user fields, multiple outstanding transactions, UB-DMA burst
 chunking, command-descriptor decoding, fences, CDC, or implicit adaptation. Its
 accepted semantic boundary is the bounded profile stated above.
 
-<a id="reference-standard-bus-library-historical-migration-record"></a>
-### Historical migration record
+### AXI4-Lite, APB, and RegBus
 
-The remainder of this section records the order in which the source-authoritative
-bus boundary was reached. Statements such as “out of scope” below describe the
-named historical slice, not the current support table above. Current project
-imports and backend coverage are documented in
-[Projects and dependencies](#reference-projects-dependencies) and
-[Direct SystemVerilog](#reference-direct-systemverilog).
+`std.bus.reg`, `std.bus.axi_lite`, and `std.bus.apb` are ordinary imported
+library sources. The compiler checks structural protocol roles, typed
+ready/valid members, ownership, and domains; transaction state machines belong
+to library modules. `RegBus<32,32>` is the typed CSR boundary.
 
-The implementation now projects explicitly declared top-level aggregate
-interfaces through that generic ABI. AXI and APB use ordinary source modules;
-their public names are generic paths (`axi_aw_valid`, `apb_psel`, and so on),
-not compiler-owned bus pin tables. Top-to-child exposure is an explicit
-same-role delegation (`connect axi -> frontend.axi`), while child-to-child
-connections retain complementary protocol roles.
+The AXI4-Lite and APB profiles use one clock/reset and one outstanding
+operation. `Axi4LiteToRegBus` buffers AW and W independently and joins them
+after both transfers; AR returns one held R response. `ApbToRegBus` implements
+setup/access phases and holds controls stable while waiting for PREADY.
+Top-level aggregate endpoints expose typed public leaves (for example,
+`axi_aw_valid` and `apb_psel`); `connect axi -> frontend.axi` delegates a
+same-role endpoint to a child.
 
-The generic prerequisite for this migration is the semantic model for
-parameterized structs/protocols, role-qualified
-aggregate endpoints, member ownership, connection expansion, hierarchy,
-backend ABI, manifests, and formal integration. No implementation is included
-in this review.
-
-At that point the compiler shipped a narrow source resolver for `std.bus.reg`,
-`std.bus.axi_lite`, and `std.bus.apb`. The source files now live at
-`stdlib/bus/reg.zhl`, `stdlib/bus/axi_lite.zhl`, and `stdlib/bus/apb.zhl`.
-Source-level filesystem/revision syntax remained unsupported. Imported source
-modules received a stable logical identity and SHA-256 content hash; later
-work added the separate pinned path/Git project resolver.
-
-The compiler understands generic structural protocol schemas (roles, typed
-ready/valid members, ownership, and optional domains). AXI-Lite and APB
-channel structure, buffering, phase machines, and contracts belong to normal
-library components. `RegBus<32,32>` is the backend-independent CSR boundary.
-
-The first profiles use one clock/reset and one outstanding operation.
-`Axi4LiteToRegBus` independently buffers AW and W and joins them only after
-both transfers; AR returns one held R response. `ApbToRegBus` implements
-explicit setup/access behavior and holds controls stable while waiting for
-PREADY. Safety families reuse safety verification property generation.
-
-For that slice, full AXI4, bursts, IDs, AXI-Stream, Wishbone, CDC, adapters, and
-DMA bus conversion were excluded. SimpleDMA remained on generic
-request/response.
-
-Yosys formal front-end preparation also succeeds for each generated RTL
-module. The library formal attachment is ready for a source-level child
-hierarchy; runtime trace simulation remains covered by the backend-independent
-step models until the CSR target is connected through ZLang elaboration.
-
-The Python models in `zlang/standard_bus.py` remain independent verification
-oracles and are intentionally retained.
-
-The generic parameterized aggregate endpoint slice is now available for future
-stdlib refinement. It elaborates role-qualified members and exact parameter
-widths from ordinary `.zhl` source; it does not add bus transaction behavior.
-
-The source `RegBusCSRTarget` now includes a small real CSR fixture used by both
-frontends: an RW location at offset 0, a sticky W1C location at offset 4, and a
-one-cycle pulse location at offset 8. The target is ordinary ZLang state and
-rules, so generic hierarchy emits the state rather than calling a bus-specific
-model. The frozen CSR model remains the semantic oracle for reset, sticky
-precedence, W1C clearing, and pulse duration. The source hierarchy and
-generated RTL are covered by existing transaction/reset checks, while
-failure-first SBY mutation classification is covered by the formal integration
-suite. The later generic recursive formal instrumentation now validates the
-published RW/W1C/pulse CSR state through generated AXI4-Lite and APB formal tops;
-all nine semantic leaves are connected without bus-name dispatch. Its generic,
-bus-independent architecture is documented in
-compositional-formal-binding.md and the
-current compositional formal-binding guide.
-Properties requiring an unpublished hidden observation still skip explicitly.
-Liveness, broader recursive observation families, and full AXI remain excluded.
+`RegBusCSRTarget` is ordinary source-authored state with RW, sticky W1C, and
+one-cycle pulse registers. Its response data and valid bit are held until a
+response transfer. Formal attachment requires exact published observations:
+properties needing hidden or unsupported state are explicitly skipped or
+rejected under the selected policy. Full AXI4 is outside these library profiles;
+the separate bounded AXI burst subset is described above.
 
 <a id="reference-stdlib"></a>
 ## Standard library
@@ -3191,20 +3268,20 @@ directory name and is not a Python or user-package import.
 | `std.coding` / `std.coding.core` | Parity, bit reversal, checked polynomial-tap LFSR step, and exact convolution helpers |
 | `std.bus.reg` | RegBus and the source-authoritative CSR target |
 | `std.bus.axi_lite` | AXI4-Lite protocol and RegBus frontend |
-| `std.bus.axi_burst` | Bounded no-ID AXI burst profile, read/write views, and single-outstanding helpers |
+| `std.bus.axi_burst` | Bounded no-ID AXI burst profile, read/write views, and single-outstanding burst/single-beat helpers |
 | `std.bus.apb` | APB protocol and RegBus frontend |
 | `std.bus.ahb_lite` | Standards-correct bounded AHB-Lite protocol and RegBus frontend |
 | `std.bus.axi_stream` | AXI4-Stream beat/profile and backpressure-preserving pipe |
 | `std.bus.wishbone` | Wishbone B4 Classic and RegBus frontend |
 | `std.target.generic` | Resource-free generic target identity |
 | `std.target.asic.generic` | Generic ASIC cell/resource capability profile |
+| `std.target.asic.sky130` | SKY130 `sky130_fd_sc_hd` standard-cell synthesis profile |
 | `std.target.intel.cyclone_v` | Bounded Cyclone-V target/resource inventory |
 | `std.target.xilinx.series7` | Bounded source-described Series-7 DSP48E1 profile |
 | `std.target.xilinx.xc7z030` | XC7Z030 part and bounded resource inventory |
 | `std.arch.xilinx7_fir` | Manual four-resource symmetric-FIR cascade template |
 | `std.arch.xilinx7_memory` | Bounded Series-7 storage/resource mapping descriptions |
 | `std.arch.xilinx7_signed_product` | Signed product-reduction architecture descriptions |
-| `std.target.toy_asic`, `std.arch.toy` | Vendor-neutral target/architecture IR fixtures |
 
 Imports are resolved transitively, cycles are rejected, and logical path plus
 SHA-256 content hash participate in canonical/backend artifact identity.
@@ -3221,9 +3298,18 @@ full-width incrementing transaction at a time, with 1-256-beat counting,
 independent channel backpressure, checked `RLAST`, counted `WLAST`, and
 deterministic boolean error latching for nonzero `RRESP`/`BRESP`. The validated
 `AW=64,DW=32` witness passes semantic/canonical restoration, deterministic
-backend emission, simulator traces, and direct-SystemVerilog/Verilator. IDs, write strobes,
+backend emission, simulator traces, and Direct-SV/Verilator. IDs, write strobes,
 burst-kind and other full-AXI sidebands, multiple outstanding transactions,
 UB-DMA chunking, and fences remain outside this bounded profile.
+
+For one full-width beat, `axi_single_beat_address<AW,DW>` constructs
+`AxiBurstAddress<AW>` with `len=0` and the matching `size`, plus a validity bit
+for geometry and alignment. `AXI4SingleBeatReader` preserves the burst
+reader's one-beat RLAST/RRESP checks; `AXI4SingleBeatWriter` snapshots AW and W
+payloads and allows either channel to transfer first. Both retain the
+one-outstanding `busy`/`done`/`error` convention. See
+[`examples/axi_single_beat.zhl`](../examples/axi_single_beat.zhl).
+These helpers do not add IDs, WSTRB, or implicit bus adaptation.
 
 `std.bus.ahb_lite` follows the AHB-Lite address/data pipeline and two-cycle
 ERROR response rather than the historical ZTPU model's same-cycle AHB-like
@@ -3237,7 +3323,7 @@ release; the example carries that exact contract through the CSR hierarchy.
 
 `std.math.complex` is ordinary source-authoritative ZLang. It has no bus or
 stream dependency and uses only generic structs/functions and nominal operator
-declarations; semantic analysis and the direct-SystemVerilog backend have no
+declarations; semantic analysis and the Direct-SV backend have no
 Complex special case.
 Mixed fixed-point multiplication retains its full exact width and scale, and
 the caller places every quantization boundary explicitly. In particular, the
@@ -3279,8 +3365,8 @@ output : AXIStreamOf<Complex<fixed<18,16>>>.source @clk
 ```
 
 `AXIStream<32>` has `data/keep/strb/last`; `AXIStreamOf<T>` transports exactly
-one typed `T` per transfer. A future physical wrapper may serialize `T` to a
-chosen TDATA layout without changing its semantic payload identity.
+one typed `T` per transfer. It does not by itself specify an external AXI
+TDATA serialization for arbitrary `T`.
 
 Generic stream composition uses `std.stream.core`, independently of AXI:
 
@@ -3337,7 +3423,7 @@ inst generated : StorageGeneratedRom<
 ```
 
 Both wrappers elaborate to the existing typed `Rom` IR with concrete immutable
-contents and the deterministic companion image used by direct SystemVerilog.
+contents and the deterministic companion image used by Direct-SV.
 `StorageRom` accepts a fully evaluated exact `vec<N,T>` constant;
 `StorageGeneratedRom` invokes a statically selected pure zero-argument producer
 during elaboration. Constants and producers are specialization parameters, not
@@ -3356,9 +3442,9 @@ does not claim bijection: duplicate and omitted elements remain legal. The
 cannot carry a `where` clause because function constraints are not yet syntax.
 
 The current language deliberately prevents several tempting but invalid
-"generic" wrappers. A target-independent `reg vec<N,T>` cannot be initialized
-without either an explicit caller-provided value or a future `default<T>`
-contract, so the shipped reusable reorder/ping-pong banks use an explicit
+"generic" wrappers. A target-independent `reg vec<N,T>` requires an explicit
+initializer; `default<T>` is not supported. The shipped reusable
+reorder/ping-pong banks therefore use an explicit
 `bits<W>` representation boundary. A generic runtime gather now
 retains the conservative element-type range through a table-loaded index, but
 it does not prove that a table is a mathematical permutation. The negative
@@ -3439,11 +3525,15 @@ source-root = "src"
 
 [dependencies]
 acme = { path = "../acme-dsp" }
-bus_models = {
-  git = "https://example.invalid/hardware/bus-models.git",
-  rev = "0123456789abcdef0123456789abcdef01234567"
-}
+
+[dependencies.bus_models]
+git = "https://example.invalid/hardware/bus-models.git"
+rev = "0123456789abcdef0123456789abcdef01234567"
 ```
+
+Unlike internal artifact schema versions, the `schema` field above is required
+user-written project metadata: it tells `zlang lock update` how to interpret
+the manifest. Use the value shown for the current project format.
 
 Package and module identities contain logical names and content digests, not
 absolute checkout or cache paths. A file `filters.zhl` directly below package
@@ -3460,7 +3550,7 @@ and abbreviated revisions are deliberately rejected because they are mutable.
 Dependency resolution and fetching are explicit:
 
 ```sh
-zlang-lock update --project zlang.toml
+zlang lock update --project zlang.toml
 ```
 
 The command validates the complete transitive graph before publishing a
@@ -3482,11 +3572,21 @@ Resolution rejects:
 The lock is written only after the entire graph validates. Failed updates leave
 the previously accepted lock usable.
 
+| Scenario | What to do | Without it |
+| --- | --- | --- |
+| Standalone source or compiler-shipped `std.*` imports | Compile directly; no project lock is needed. | No consequence. |
+| Project with local path packages | Run `zlang lock update` after declaring dependencies and whenever their source or resolution fields change. Keep `zlang.lock` with the project. | Compilation rejects a missing or stale lock; it never silently uses changed dependency files. |
+| Project with pinned Git packages | Run `zlang lock update` while Git/network access is available; retain the exact revision and local cache for later offline builds. | Ordinary compilation does not fetch; missing cache or changed revision fails. |
+| CI or another machine | Supply the project manifest, its lock, exact path sources and cached Git revisions (or update the lock before the offline build). | A lock file alone does not provide Git source bytes; compilation fails closed. |
+
+`zlang lock update` resolves dependencies; it is not a package installer or a
+step required for every single-file invocation.
+
 Bounded scalar `extern module` implementations may also be declared under
 `[external-mappings.NAME]` and selected by a profile's
 `external-mappings = ["NAME"]`.  The lock records every HDL source path and
 SHA-256.  Paths are project-relative, must remain inside the project, and may
-not be symlinks.  This is a physical direct-SystemVerilog input: it does not
+not be symlinks.  This is a physical Direct-SV input: it does not
 replace the pure ZLang model or enter semantic IR.
 
 <a id="reference-projects-dependencies-offline-compilation"></a>
@@ -3531,7 +3631,7 @@ for another.
 <a id="reference-projects-dependencies-deliberate-boundaries"></a>
 ### Deliberate boundaries
 
-This first project slice has no registry or semantic-version solver, editable
+The current project model has no registry or semantic-version solver, editable
 global packages, implicit network access, Git submodules/LFS/subdirectories,
 wildcard imports, member renaming, or re-export. Implementation profiles are a
 separate compiler-policy layer and do not change dependency resolution identity.
@@ -3539,11 +3639,8 @@ Path dependencies declared by a Git package are also deferred in this bounded
 slice; use another pinned Git dependency instead of reaching outside a fetched
 checkout.
 
-A future optional resolver or package registry may populate the same lock
-model. It must not become an implicit compilation-time network dependency:
-ordinary compilation remains offline, and the resolved module contents and
-their recorded digests remain the authoritative dependency identity regardless
-of where the content was obtained.
+Ordinary compilation remains offline; resolved module contents and their
+recorded digests are the authoritative dependency identity.
 
 <a id="reference-optimization-formal"></a>
 ## Optimization and formal verification
@@ -3557,7 +3654,7 @@ architecture representation. Metadata includes canonical type, width,
 signedness, latency, initiation interval, domain, purity/effects, source origin,
 and separate estimated/measured cost evidence.
 
-The pure e-graph layer uses the pinned `egglog==13.2.0` engine for a bounded,
+The pure e-graph layer uses the dependency-pinned egglog engine for a bounded,
 type-safe scalar rewrite subset. It covers exact integer/fixed arithmetic,
 bitwise/shift, compare/mux, resize and wiring nodes. Fixed conversion is an
 opaque quantization boundary. Reassociation of ordinary carry-growing adds,
@@ -3580,14 +3677,14 @@ typed value IR
     -> typed computation DAG
     -> bounded generic/resource covering
     -> target-aware exact-N fixed-latency scheduling
-    -> deterministic cost selection deterministic cost extraction
-    -> optional formal-aware selection authoritative semantic-reference equivalence semantic-reference proof gate
+    -> deterministic cost selection
+    -> optional formal-aware semantic-reference proof gate
 ```
 
-timing alignment supplies validated latency/II relations for eligible candidates. That
-metadata validation is not, by itself, a formal proof.
+Timing alignment validates latency/II for eligible candidates. That validation
+is not, by itself, a formal proof.
 
-The arithmetic exploration tutorial
+The [arithmetic exploration tutorial](../examples/verification/math-exploration.md)
 demonstrates an exact eight-product expression, topology-only selection versus
 an internally registered pipeline, real latency-aware equivalence/mutations,
 and independent FPGA timing measurement. Solver success and estimated frequency
@@ -3621,19 +3718,35 @@ The remaining source forms are:
   ready/valid transform.
 
 The scalar spellings `architecture(auto)`, `pipeline(auto)`, and `explore` are
-retired and fail with migration diagnostics. Use:
+retired and fail with migration diagnostics.
 
-```zlang
-y = implement {
-    dot(a, b)
-    intent {
-        latency <= 4
-        ii == 1
-        dsp <= 8
-        minimize lut
-    }
-}
-```
+| `intent` metric | Accepted condition | Meaning / limit |
+| --- | --- | --- |
+| `lut`, `ff`, `dsp`, `bram` | `<=`, `>=`, `==` nonnegative integer | Hard estimated resource bound; not proof of physical usage. |
+| `latency` | `<=`, `>=`, `==` nonnegative integer | Observable sample latency; positive bounds can enable legal clocked pipeline candidates. |
+| `ii` | `<=`, `>=`, `==` positive integer | Initiation interval of an existing candidate. `throughput` is a compatibility alias in implementation profiles. |
+| `fmax` / `fmax_est` | `<=`, `>=`, `==` positive MHz value | Estimated frequency bound; target evidence rules still apply. |
+| `minimize` | `lut`, `ff`, `dsp`, `bram`, `latency` | One objective; omitted objective defaults to `minimize lut`. |
+| `maximize` | `fmax_est` (or `fmax`) | One frequency objective; `maximize` cannot target resource/latency metrics. |
+
+An `intent` needs at least one clause; there can be at most one constraint per
+metric and one objective. Constraints filter candidates, then the objective
+ranks survivors. Unsupported metrics, contradictory contributions and an empty
+candidate set are errors, not relaxed requests. `ii == 4` does **not** cause
+four-cycle sharing of one DSP: current scalar source/pipeline candidates have
+II=1. `ii <= 4` may therefore select an II=1 candidate without reducing DSP
+count. To request a smaller DSP estimate, use a `dsp` bound/objective and
+inspect the selection report; no automatic variable-II time multiplexing is
+implemented.
+
+| Tested path | II statement | What it does **not** imply |
+| --- | --- | --- |
+| Scalar `implement` source, reduction/DSP and legal fixed pipeline alternatives | Current selectable alternatives have `ii=1`; selection tests check the reported interval and constraints. | No automatic multi-cycle DSP reuse or routed Fmax guarantee. |
+| `transform pipeline(auto, ...)` on the supported ready/valid kernel | One beat per unstalled edge after fill; stall holds the entire pipeline. Simulation and Verilator tests cover bubbles/backpressure. | No beat-per-edge promise while `ready=0`, and no independent per-stage elasticity. |
+
+An II metric is a candidate contract, not a request to synthesize a new
+time-multiplexed architecture. For actual resource use and timing, inspect the
+emitted implementation and downstream synthesis/routed reports.
 
 Hard constraints are never silently relaxed. Estimated cost and measured
 synthesis evidence stay distinct. Automatic protocol adaptation, CDC insertion,
@@ -3693,14 +3806,26 @@ input -> output {
 }
 ```
 
-This bounded form accepts one ready/valid input and output in one synchronous
-domain and a pure existing pipeline scheduling product-reduction kernel. The selected plan owns
-one global-clock-enable stall policy: all data registers and its valid chain advance
-together only when the output is empty or ready. Its contract is therefore
-`minimum_unstalled_latency=L`, `ii_no_stall=1`, capacity `L`, and explicitly
-variable wall-clock latency under backpressure. It is not an timing alignment fixed-latency
-relation. User registers, rules, storage, protocol-control captures, adapters,
-crossings, and independently elastic stages are rejected in this first slice.
+This form **works** for the tested
+[`ElasticPipelineAuto`](../examples/elastic_pipeline_auto.zhl) example: semantic
+simulation checks first beat, bubbles, reset and global stall, and generated
+SystemVerilog is exercised with Verilator. It accepts one ready/valid input and
+output in one synchronous domain and a pure supported product-reduction kernel.
+All data registers and the valid chain share one global clock enable: they
+advance only when the output is empty or ready.
+
+| Property | Supported contract |
+| --- | --- |
+| Unstalled latency | Selected fixed value `L`. |
+| Unstalled initiation interval | `1` (`ii_no_stall=1`). |
+| Capacity | `L` beats. |
+| Backpressure | Wall-clock latency may grow; output data/valid hold under stall. |
+| Not supported | Independently elastic stages, user registers/rules/storage, CDC, adapters or protocol-control captures inside the kernel. |
+
+This is a bounded protocol transformation, **not** a general automatic
+pipeline/retiming feature. Physical DSP binding additionally needs a target
+resource compatible with the transform's clock-enable/stall behavior;
+`preferred` may use generic RTL and `required` rejects an unsupported binding.
 
 Target and resource descriptions under `std.target.*` and `std.arch.*` are
 compiler-shipped source. Functional modules do not name vendor registers or
@@ -3814,7 +3939,7 @@ to the legacy reset model.
 <a id="reference-optimization-formal-execution-and-immutable-bundles"></a>
 #### Execution and immutable bundles
 
-Start with the runnable verification tutorial
+Start with the [runnable verification tutorial](../examples/verification/README.md)
 for a proved state invariant, an intentionally rare overflow counterexample,
 scoped assumptions and RV stall checking. It includes the important case where
 shallow BMC passes a broken design and deeper replay finds the defect.
@@ -3822,7 +3947,7 @@ shallow BMC passes a broken design and deeper replay finds the defect.
 ```sh
 zlang design.zhl --verify
 zlang design.zhl --verification-bundle build/verify
-zlang-verify build/verify
+zlang verify build/verify
 ```
 
 `--verification-report PATH` plus `--verification-format text|json` publishes a
@@ -3839,11 +3964,10 @@ versions, logs, and results belong to replay execution rather than the
 immutable source bundle identity; the replay tool regenerates
 execution-specific SBY configuration.
 
-The immutable inputs currently use bundle schema v4 and verification-IR
-snapshot v3. safety verification/source execution uses run-report schema v7, which adds a deterministic
-run identity, strict route provenance, staged BMC/prove evidence, and per-job
-work/tool attribution. Joint compiler execution wraps that raw report and
-candidate semantic-reference equivalence evidence in `zlang-compiler-verification-report-v1`. Retained VCD frames are mapped
+The immutable bundle and separate run report retain deterministic identity,
+route provenance, staged BMC/prove evidence and per-job work/tool attribution.
+Joint compiler execution also links candidate semantic-reference equivalence
+evidence. Retained VCD frames are mapped
 through the bundle bindings to semantic signal IDs for source-facing witness
 and counterexample values. Work paths and raw logs remain reproducibility data,
 not semantic or run identity.
@@ -3860,9 +3984,9 @@ and `skipped`. `bounded_pass` is never proof. Cover has a distinct vocabulary:
 `bounded_unreached` is neither `proven` nor `unreachable`, and an ordinary cover
 miss does not make the command fail.
 
-Exit status `0` means the requested safety level was satisfied. An safety verification/source
-counterexample or an executed semantic-reference equivalence counterexample returns `1`.
-safety verification unknown/skipped/vacuous execution, tool/configuration failure, or a
+Exit status `0` means the requested safety level was satisfied. A safety or source
+counterexample, or an executed semantic-reference equivalence counterexample, returns `1`.
+Unknown, skipped, or vacuous verification; tool/configuration failure; or a
 requested proof with only bounded evidence returns `2`. A cover miss alone is
 not a failure, and unavailable advisory candidate evidence does not alter formal-aware selection
 eligibility.
@@ -3899,7 +4023,7 @@ Joint `--verify` with a non-off policy enriches that immutable plan with the
 selected-candidate semantic-reference equivalence plan before execution; candidate results are emitted
 afterward in the combined report/evidence. Bundle publication may additionally
 freeze the exact selected-candidate semantic-reference equivalence inputs as hash-validated, path-free
-companions; `zlang-verify` then executes those inputs without source compilation
+companions; `zlang verify` then executes those inputs without source compilation
 or formal-aware selection reselection. Base bundles contain no candidate replay inputs.
 The common evidence report validates those links without merging result types.
 Repeated candidate implementations are associated by semantic site and rank,
@@ -3918,7 +4042,7 @@ options; writing either file alone is not proof execution. An incomplete or
 mixed-route compatibility view is rejected with guidance to use a verification
 bundle rather than silently choosing one backend.
 
-The later bounded applicability closure also transports observations already
+The current bounded applicability also transports observations already
 required by existing properties: parent request/response outstanding and
 directional-buffer counts, receiver-credit adapter occupancy, and direct
 same-domain internal ready/valid guarantees. These are formal-only typed ABI
@@ -3931,10 +4055,11 @@ predicate IR. One separate compiler-owned helper can derive whole-root
 same-cycle semantic-reference equivalence evidence for exactly one pure scalar child by following typed
 hierarchy bindings and producing formal-only Yosys namespaces. It does
 not flatten production RTL and does not authorize state, protocols, storage,
-arrays, nesting, or aggregate boundaries. Protocol-valued and aggregate-
-protocol top boundaries fail closed in the scalar semantic-reference equivalence entry points.
+arrays, nesting, or aggregate boundaries. Protocol-valued and
+aggregate-protocol top boundaries fail closed in the scalar semantic-reference
+equivalence entry points.
 
-See Current language status and
+See the [language support matrix](#reference-syntax-support-matrix) and
 [Known limitations](#reference-known-limitations) for the accepted matrix and remaining
 semantic boundaries.
 
@@ -3944,7 +4069,7 @@ semantic boundaries.
 Useful current outputs include high-level and selected optimization IR,
 saturation, implementation, cost, pipeline, architecture, exploration,
 synthesis, artifact manifests, and structured formal results. See
-Backends, CLI, and tooling for CLI paths and
+[Check and run ZLang](#reference-installing-toolchain-check-and-run-zlang) for commands and
 feature-specific design records for the exact schema.
 
 <a id="reference-egraph-optimization-infrastructure"></a>
@@ -3960,7 +4085,7 @@ canonical typed value IR
   -> exact typed egglog alternatives
   -> deterministic scalar DAG scheduling
   -> target resource matching
-  -> ScheduledValueGraph -> formal-aware selection/semantic-reference equivalence/direct SystemVerilog
+  -> ScheduledValueGraph -> formal-aware selection/semantic-reference equivalence/Direct-SV
 ```
 
 Egglog changes only pure zero-latency values. It does not insert registers or
@@ -3969,12 +4094,10 @@ but does not invent algebraic equalities. Resource matchers bind already typed
 operations or subgraphs to source-described resources. `ScheduledValueGraph`
 is the authoritative physical bridge consumed by verification and RTL emission.
 
-The production rewrite path has one engine: pinned `egglog==13.2.0`. The old
-recursive Python saturation engine has been removed. Stable terms/results and
-rendering live in `opt/rewrite_model.py`; rule identity/provenance lives in
-`opt/rewrite_spec.py`; guard evaluation lives in `opt/rewrite_guards.py`; the
-canonical adapter remains in `opt/egraph.py`; egglog execution and bounded
-extraction remain in `opt/saturation.py`.
+The production rewrite path has one bounded egglog engine; extracted
+alternatives are admitted only after exact typed validation and a checked
+value-equivalence certificate. The package dependency declares its pinned
+version. Internal module filenames are not part of the language contract.
 
 The optimizer is fail-closed. An operation needs an explicit capability for
 e-graph admission or scalar scheduling. Width, truncation, bit reinterpretation,
@@ -3984,7 +4107,7 @@ requested transformation. Target resource interest is annotation only and does
 not change value identity.
 
 Current resource matching supports the accepted Xilinx 7-Series DSP48E1 subset.
-Future resource families implement the same matcher contract; they do not add
+Other resource families must satisfy the same matcher contract; they do not add
 vendor tests to the general scheduler or algebraic rules to egglog.
 
 Target-independent architecture-interest labels describe shapes such as
@@ -4038,7 +4161,7 @@ zlang src/fir.zhl --profile release --systemverilog build/Fir.sv
 A profile may select pinned scalar external-module implementations with
 `external-mappings = ["vendor-add"]`.  Mapping declarations live in the
 top-level `external-mappings` tables of `zlang.toml`; their source files and
-hashes are fixed by `zlang.lock`.  They affect direct-SV artifact text, never
+hashes are fixed by `zlang.lock`.  They affect Direct-SV artifact text, never
 the backend-independent model or implementation-policy identity.
 
 Only the selected profile is parsed strictly. This permits a project to carry
@@ -4059,8 +4182,8 @@ digests.
 Region identity is derived from the logical module specialization, typed public
 output binding, canonical expression identity, and exact result type. Source
 paths, spans, physical instances, and generated RTL names are excluded.
-Stale and duplicate identities fail explicitly. The first slice is root-module
-only and scalar-only; recursive/profile-selected protocol regions are deferred.
+Stale and duplicate identities fail explicitly. Profile-selected regions are
+root-module-only and scalar-only; recursive protocol regions are unsupported.
 
 <a id="reference-implementation-profiles-normalization-and-conflicts"></a>
 ### Normalization and conflicts
@@ -4074,7 +4197,7 @@ the same target, transform set, objective, constraint, evidence policy, formal
 policy, or architecture are rejected with both origins in the diagnostic.
 
 For an ordinary typed scalar output, profile transforms/constraints/objectives
-run through the existing bounded bounded exploration explorer. Canonical `implement` regions
+run through bounded exploration. Canonical `implement` regions
 have already run during semantic analysis, so their retained candidate table is
 compared but never run a second time. Retained legacy records are handled the
 same way for replay only; no new transform or equivalence rule is introduced.
@@ -4083,12 +4206,20 @@ An exact module `timing` block is immutable public behavior. Profile bounds may
 equal or contain that exact latency/II, but cannot weaken or contradict it.
 
 <a id="reference-implementation-profiles-backend-plans"></a>
-### Backend plans
+### Reading the backend selection report
 
-`--backend-implementation-report` contains one stable `systemverilog` slot. It
-is `selected`, `generic_fallback`, `unsupported`, or `not_requested`. A
-preferred unsupported physical route may fall back to a technology-independent
-graph. A required route fails compilation.
+`--backend-implementation-report PATH` writes a JSON explanation of what the
+Direct-SV backend could actually emit for the requested physical
+implementation. This is **not** another source-language plan or an additional
+backend. Inspect it when a target/profile request does not produce the resource
+you expected.
+
+| Report status | Meaning |
+| --- | --- |
+| `selected` | Requested physical implementation was selected and emitted. |
+| `generic_fallback` | `preferred` route was unavailable; generic RTL was emitted instead. |
+| `unsupported` | Requested physical route is unsupported; `required` fails compilation. |
+| `not_requested` | No physical implementation route was requested. |
 
 Current boundaries are deliberate: one backend is selected per named profile,
 II is limited to existing semantics, and profiles cannot introduce protocol,
@@ -4099,20 +4230,13 @@ already support.
 ## Target platform descriptions
 
 
-This original four-DSP slice has now been generalized by the
-[low-level target/resource library](#reference-low-level-target-resource-library).
-The historical measurements below remain valid for the unregistered profile;
-the current library uses generic pipeline-site names and implementation
-manifest version 7. The later
-[target-aware planner](#reference-high-level-target-aware-architecture-pipeline-planner)
-adds bounded automatic selection; the manual flow below remains a reproducible
-explicit-selection witness rather than the complete current planner surface.
-
 ZLang keeps functional behavior, implementation architecture, and physical
-target data separate. The first bounded implementation maps the ordinary
+target data separate. Explicit selection maps the ordinary
 functional [symmetric FIR example](../examples/symmetric_fixed_fir.zhl) to four
 DSP48E1 resources on `xc7z030ffg676-1`. Without an explicit selection, the same
-source continues through the generic direct-SV path.
+source continues through the generic Direct-SV path. Bounded automatic
+selection is described under
+[target-aware planning](#reference-high-level-target-aware-architecture-pipeline-planner).
 
 <a id="reference-target-platform-architecture-description-compiler-shipped-source-descriptions"></a>
 ### Compiler-shipped source descriptions
@@ -4124,8 +4248,9 @@ Target data is ordinary compiler-shipped ZLang source:
 - `std.target.xilinx.xc7z030` defines the device part, inventory, and cascade
   capacity;
 - `std.arch.xilinx7_fir` defines the one manual symmetric-FIR template;
-- `std.target.toy_asic` and `std.arch.toy` prove that the core records are not
-  FPGA- or Xilinx-specific.
+- `std.target.asic.sky130` describes the real `sky130_fd_sc_hd` standard-cell
+  library boundary and proves that the core records are not FPGA- or
+  Xilinx-specific.
 
 The core parser and IR understand generic resources, typed ports, operation and
 width limits, register sites, dedicated links, inventories, targets, and
@@ -4133,11 +4258,19 @@ architecture requirements. The names `DSP48E1`, `PCIN`, and `PCOUT`, and the
 physical SystemVerilog binding all originate in the library definitions - not in
 functional ZLang or semantic branches.
 
+The SKY130 profile intentionally emits ordinary RTL for downstream
+Liberty-based mapping. It records the documented
+[`dfxtp_1`](https://skywater-pdk.readthedocs.io/en/main/contents/libraries/sky130_fd_sc_hd/cells/dfxtp/README.html),
+[`dfrtp_1`](https://skywater-pdk.readthedocs.io/en/main/contents/libraries/sky130_fd_sc_hd/cells/dfrtp/README.html),
+and `dlclkp_1` cell identities, but does not claim a hard multiplier, SRAM,
+PLL, fixed device inventory, timing closure, or silicon signoff. Those inputs
+are PDK/project/flow-specific and must be supplied by the implementation flow.
+
 An exact source-level `timing { latency N ii 1 }` block is public module
 behavior, not target-selection policy. Generic implementation graphs publish
 their derived `timeless`/`known`/`unknown` timing class and are explicitly
 backend-independent. A selected physical graph carries its realization backend
-so a direct-SystemVerilog resource plan cannot be attributed to another
+so a Direct-SV resource plan cannot be attributed to another
 physical implementation. Target
 selection must preserve any exact public module latency.
 
@@ -4151,7 +4284,7 @@ positions; this is deliberately not a complete floorplan model.
 ### Manual selection
 
 ```bash
-.venv/bin/zlang examples/symmetric_fixed_fir.zhl \
+zlang examples/symmetric_fixed_fir.zhl \
   --target xc7z030ffg676-1 \
   --target-architecture Xilinx7SymmetricDSPCascade \
   --target-architecture-mode required \
@@ -4162,9 +4295,9 @@ positions; this is deliberately not a complete floorplan model.
 `required` turns every target, shape, width, inventory, dedicated-link, or
 backend failure into a diagnostic. `preferred` returns the generic graph on a
 mapping failure. `generic` and omission of target options preserve the existing
-generic implementation. This original command performs explicit selection;
+generic implementation. This command performs explicit selection;
 bounded automatic target-aware selection is documented separately in the
-[high-level planner guide](#reference-high-level-target-aware-architecture-pipeline-planner).
+[Target-aware architecture and pipeline planning](#reference-high-level-target-aware-architecture-pipeline-planner).
 
 <a id="reference-target-platform-architecture-description-the-selected-graph"></a>
 ### The selected graph
@@ -4192,7 +4325,7 @@ dsp0.PCOUT -> dsp1.PCIN -> dsp2.PCIN -> dsp3.PCIN
 
 Each node maps the left/right sample expressions to A/D, the shared coefficient
 to B, and its predecessor/result identities to PCIN/P/PCOUT. Every internal DSP
-register site is explicitly zero in this first profile. The ordinary semantic
+register site is explicitly zero in this configuration. The ordinary semantic
 output register provides latency 1; II is 1. The complete 48-bit cascade result
 then crosses the single original quantization boundary. No intermediate is
 narrowed.
@@ -4200,23 +4333,22 @@ narrowed.
 <a id="reference-target-platform-architecture-description-backend-and-manifest"></a>
 ### Backend and manifest
 
-The direct-SV emitter consumes the selected graph; it does not rediscover a FIR.
+The Direct-SV emitter consumes the selected graph; it does not rediscover a FIR.
 Its source-selected physical binding instantiates four Series-7 `DSP48E1`
 primitives with `INMODE=00100`, `OPMODE=0010101`, `USE_DPORT=TRUE`, direct A/B,
 and all selected internal register stages disabled. Actual `PCOUT` ports drive
 the next primitives' actual `PCIN` ports. A distinct behavioral resource model
 is used only for Verilator simulation.
 
-BackendArtifact manifest version 5 retains the v4 semantic bindings and adds
-target/family/template identities and hashes, dependency hashes, selection
-policy, resource configuration and semantic mappings, dedicated edges,
-latency/II, intended counts, and the emitted artifact hash. Intended resource
-use is never presented as a Vivado measurement.
+The versioned implementation manifest retains semantic bindings and
+target/family/template identities, dependency hashes, selection policy,
+resource configuration, dedicated edges, latency/II, intended counts, and the
+emitted artifact hash. Intended resource use is not a vendor measurement.
 
 <a id="reference-target-platform-architecture-description-boundaries"></a>
 ### Boundaries
 
-The generic direct-SystemVerilog implementation remains available when no
+The generic Direct-SV implementation remains available when no
 primitive graph is selected. Existing semantic-reference equivalence can validate the
 semantic fixed-point region, but its reference emitter does not model vendor
 primitives. Physical evidence therefore consists of the exact semantic oracle,
@@ -4224,8 +4356,8 @@ Verilator execution of the separate resource behavior model, and real Vivado
 synthesis/place/route of the primitive artifact. No primitive-level formal
 infrastructure was added.
 
-Automatic target exploration was outside this original manual slice. The later
-planner covers only its documented symmetric-FIR and signed-product regions;
+The automatic planner covers only its documented symmetric-FIR and
+signed-product regions;
 general placement/graph covering, DSP48E2, Intel physical emission, automatic
 storage/clock-resource mapping, and new formal machinery remain outside the
 current bounded support.
@@ -4234,15 +4366,13 @@ current bounded support.
 ## Target resources
 
 
-This document records the implemented unnumbered low-level substrate.
 This low-level layer describes legal resources and physical bindings; it does
 not itself select a design. The separate accepted
 [high-level target-aware planner](#reference-high-level-target-aware-architecture-pipeline-planner)
 automatically selects the bounded symmetric-FIR and signed-product candidates
 documented there. Bounded ported-memory planning can match an exact advertised
 memory shape, replicate 1R1W resources for 1W+nR, or use a bounded register/mux
-fallback. Automatic banking and clock-resource planning remain outside the
-supported slice.
+fallback. Automatic banking and clock-resource planning remain unsupported.
 
 <a id="reference-low-level-target-resource-library-implemented-model"></a>
 ### Implemented model
@@ -4260,122 +4390,72 @@ resource declarations; resolving project packages is deliberately deferred.
 The generic library contains ordinary-RTL descriptions for logic, registers,
 multiplier/add/MAC, FIFO storage, RAM/ROM, clock/control abstractions, and carry.
 Selecting `generic`, or compiling without a target, leaves typed semantic IR
-and direct-SV semantics unchanged.
+and Direct-SV semantics unchanged.
 
 <a id="reference-low-level-target-resource-library-dsp48e1-manual-pipeline-validation"></a>
-### DSP48E1 manual pipeline validation
+### DSP48E1 pipeline binding
 
-The existing four-DSP symmetric FIR is now mapped through source-defined
-`DSP48E1` data.  Its semantic sites are:
+The bounded symmetric FIR maps through source-described `DSP48E1` resources.
+Its semantic sites are:
 
 ```text
 input_preadd -> multiply -> accumulate_output
 ```
 
-The physical binding maps these to A/B/D registers, MREG, and terminal PREG;
-those physical names do not occur in an architecture template or functional
-module.  Four templates manually select four legal configurations.  Separate
-ZLang sources provide matching total latency contracts, and the behavioral
-DSP model passes the same bit-exact vectors for all four at II=1.
-
-Vivado 2024.2 routed results on `xc7z030ffg676-1`, 10 ns constraint:
-
-| Configuration | Active sites | Latency | DSP config A/B/D/M/P | DSP | LUT | FF | WNS ns | Fmax MHz | Critical path |
-| --- | --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | --- |
-| unregistered | none | 1 | all `0/0/0/0/0` | 4 | 239 | 16 | -3.760 | 72.674 | input through 4 DSP + carry/quantize |
-| multiply registered | multiply | 2 | all `0/0/0/1/0` | 4 | 240 | 16 | -1.940 | 83.752 | MREG through 3 DSP + carry/quantize |
-| multiply + output | multiply, accumulate_output | 3 | MREG all, PREG terminal | 4 | 239 | 16 | +0.308 | 103.178 | registered result to output |
-| fully pipelined | input_preadd, multiply, accumulate_output | 4 | A/B/D/M all, P terminal | 4 | 239 | 16 | +0.308 | 103.178 | registered result to output |
-
-All four cascades occupy four adjacent DSP48 sites.  The two configurations
-with terminal PREG cross 100 MHz; merely enabling MREG does not.  Fully
-pipelined and multiply+output have identical routed timing in this design,
-showing that the terminal accumulation boundary, not blindly adding every
-input register, is the decisive cut for this constraint.
-
-These rows were rerouted after the LSB-first packing migration. The
-`tools/dsp48e1_pipeline_qor.py` runner checks the selected graph latency,
-emits explicit primitives, queries actual A/B/D/M/P settings and locations,
-and records routed QoR.  These are manual measurements, not planner costs.
+The physical binding maps them to A/B/D registers, MREG, and terminal PREG.
+Only configurations with compatible typed latency, II, and target capabilities
+are eligible. Routed measurements, if requested by policy, must match the exact
+physical graph and constraints. Separate target-resource validation records
+contain measured configurations;
+their QoR numbers are not portable language semantics or implicit guarantees
+for a different design.
 
 <a id="reference-low-level-target-resource-library-signed-product-cascade-validation"></a>
-### Signed-product cascade validation
+### Signed-product cascade
 
 The same source-defined DSP48E1 binding now also covers the ordered
 `SignedProductReduction` graph used by the FFT scalar real and imaginary
-components.  The direct-SV emitter consumes the per-resource
+components.  The Direct-SV emitter consumes the per-resource
 `accumulator_plus_product`/`accumulator_minus_product` configuration and emits
 ALUMODE controls without rewriting the finite-width expression.  The final
 fixed-point conversion remains one typed boundary after the cascade.
 
-Eight real/imag variants were rerouted on the same target and constraint after
-the LSB-first indexed-aggregate ABI change invalidated their physical graph
-identities. Each
-uses two DSP48E1, 227 LUT, 18 FF and zero BRAM.  Unregistered real/imag forms
-reach 79.183/83.612 MHz; multiply-registered forms both reach 105.585 MHz;
-multiply-output and fully-pipelined forms both reach 106.157 MHz.  Their
-latencies are respectively 1/2/3/4 and II is 1.  Full rows, DSP register
-properties, locations and graph identities are in
-`zlang/data/xc7z030_signed_product_qor.json`; rerun them with
-`tools/signed_product_pipeline_qor.py`.  Its explicit `--evidence-output`
-option writes planner-ready evidence from the graph that was actually routed;
-old measurements are never re-keyed onto a changed graph.
+Routed evidence, graph identities, and tool invocations belong in separate
+target-resource validation records.
+Evidence for another packed ABI, target, constraint, or graph is not reused.
 
 <a id="reference-low-level-target-resource-library-ramb36-validation"></a>
 ### RAMB36 validation
 
 `examples/target_bram_memory.zhl` is an ordinary 1024x36, one-cycle,
-read-first synchronous memory with independent read/write addresses.  Generic
-direct-SV emits ordinary RAM RTL.  Manual `Xilinx7BRAM36SimpleDualPort`
-selection consumes one RAMB36 capability and emits the same semantic template
-with a block-memory physical binding.
+read-first synchronous memory with independent read/write addresses. Generic
+Direct-SV emits ordinary RAM RTL. The manual binding
+`Xilinx7BRAM36SimpleDualPort` consumes one RAMB36 capability and emits the
+same semantic template with block-memory physical binding.
 
-Both variants pass Verilator write/read behavior.  Vivado reports:
-
-| Implementation | RAMB36E1 | RAMB18E1 |
-| --- | ---: | ---: |
-| generic RTL inference | 1 | 0 |
-| selected RAMB36 binding | 1 | 0 |
-
-An initial write-first cross-port fixture measured zero BRAM and 768 distributed
-RAM LUTs.  Vivado reported the block style infeasible because the ZLang
-write-first bypass across independent addresses is not the selected primitive's
-simple-dual-port collision contract.  The validation fixture therefore uses
-the already-defined read-first semantics; the compiler did not weaken or
-silently reinterpret the original mode.
+The binding requires the resource's exact read-first collision contract;
+write-first bypass across independent addresses is not silently reinterpreted
+as a simple-dual-port primitive. Generic RTL may still be selected under an
+appropriate fallback policy. Resource inference measurements belong to target
+validation reports rather than the language contract.
 
 Named true-dual selection is a distinct RTL shape. Generic same-clock
 multiport storage retains one deterministic process, but the selected Xilinx
 2RW route requires `contents preserve` and emits one physical process per
-port. A 1024x9 fixture with uniform `init 0x12` was synthesized by Vivado
-2024.2 for `xc7z030ffg676-1`; Vivado explicitly recognized a true-dual RAM
-template and produced one RAMB18E1 (17 LUT / 20 FF around the RAM for reset,
-enable, and same-address priority logic). The corresponding generic
-independent-clock 1W1R structural witness also produced one RAMB18E1. That
-inference result does not upgrade its cross-clock collision model to an exact
-vendor guarantee.
+port. A uniform `init VALUE` is preserved as a power-up/bitstream
+initialization under that reset policy. Native inference of a resource in a
+particular synthesis run does not upgrade a cross-clock collision model to an
+exact vendor guarantee.
 
 The manually selected FIFO-only architectures `Xilinx7AsyncFifoRAMB18` and
 `Xilinx7AsyncFifoRAMB36` require the compiler-owned registered-read
 `async_fifo` decomposition, an independent-clock 1W1R port shape, exactly
 one read cycle and `DO_REG=0`. They do not select a public `async_mem`.
 Its physical plan owns ordered, width-aware pointer, Gray, full, ready/valid
-and prefetch equations. The direct-SV emitter renders those equations and the
-digital simulator evaluates the same equations; neither keeps an independent
-combinational FIFO-controller recipe.
-Vivado 2024.2 synthesis of a 1024×9 FIFO on `xc7z030ffg676-1`, with
-asynchronous 10/7-ns clock groups, measured:
-
-| FIFO RTL shape | LUT | FF | RAMB18E1 | Read-clock WNS | Write-clock WNS |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| prior combinational array read | 275 | 100 | 0 | 3.937 ns | 6.830 ns |
-| typed `async_mem` registered read + prefetch | 38 | 90 | 1 | 2.533 ns | 6.934 ns |
-
-These are post-synthesis, unplaced numbers from the prior emitted RTL shape
-and the new selected RTL, not post-route Fmax or silicon behavior. The new
-binding substantially reduces LUT usage and infers block RAM; it does not
-improve the read-domain critical path in this witness. Physical clock/reset
-and metastability requirements remain implementation responsibilities.
+and prefetch equations. The Direct-SV emitter renders those equations and the
+digital simulator evaluates the same equations. Separate target-resource
+validation records hold synthesis observations; physical clock/reset and
+metastability requirements remain implementation responsibilities.
 
 The live resource capability schema now distinguishes `simple_dual`,
 same-clock `true_dual`, and independent-clock `1W1R`; it also separates
@@ -4383,7 +4463,7 @@ same-clock from cross-clock collision guarantees. A legacy `true_dual` flag is
 not sufficient evidence for an asynchronous collision contract. The current
 7-Series data intentionally advertises no exact cross-clock old/new guarantee,
 so strict target-required `async_mem` publication fails closed while generic
-direct-SV remains an explicitly labelled structural digital model.
+Direct-SV remains an explicitly labelled structural digital model.
 
 <a id="reference-low-level-target-resource-library-intel-and-asic-status"></a>
 ### Intel and ASIC status
@@ -4393,11 +4473,25 @@ accumulation, chain connectivity, generic pipeline sites/configurations, M10K
 port/width modes, ALM/FF distinctions, and a fractional PLL resource.  The same
 generic legality checks used for RAMB/MMCM validate M10K/PLL requests.
 
-Quartus is not installed.  The Intel physical binding is recorded but direct-SV
-fails closed with `unsupported`; no primitive, synthesis, or QoR claim is made.
-ASIC multiplier/SRAM/PLL/standard-cell fixtures prove that no FPGA family enum
-is required by the IR.  Their physical macros likewise remain project/backend
-work.
+Intel primitive emission is unsupported: a selected Intel physical binding
+fails closed with `unsupported`. The current release publishes no Quartus-backed
+synthesis or QoR validation for this target.
+The compiler-shipped `sky130_fd_sc_hd` profile identifies the real high-density
+standard-cell library plus its documented positive-edge DFF, active-low-reset
+DFF, and integrated clock-gate cells. Direct-SV remains generic RTL for
+downstream Liberty mapping. SKY130 SRAMs, PLLs, die-area inventory, PVT corner,
+timing closure, and physical signoff are deliberately not fabricated by the
+compiler; project macro libraries and the ASIC implementation flow own them.
+
+Emit technology-neutral RTL carrying the SKY130 target identity with:
+
+```bash
+zlang design.zhl --top Top --target sky130-fd-sc-hd \
+  --systemverilog build/Top.sv
+```
+
+The downstream synthesis/P&R invocation must still supply the selected
+`sky130_fd_sc_hd` Liberty, LEF and process configuration.
 
 <a id="reference-low-level-target-resource-library-clock-resource-blocker"></a>
 ### Clock-resource blocker
@@ -4406,12 +4500,12 @@ The target libraries can describe clock input/output ranges, output counts,
 phase capability, and lock/reset metadata.  Current functional ZLang clock
 domains do not express a frequency/phase relationship from which a truthful
 PLL/MMCM configuration could be derived.  Physical clock emission therefore
-remains unsupported.  A later review must add a generic clock requirement
-model before any primitive is emitted; raw PLL generics will not be exposed in
+remains unsupported: there is no source-level frequency/phase requirement
+from which to select a configuration. Raw PLL generics are not exposed in
 normal modules.
 
 <a id="reference-low-level-target-resource-library-backendartifact-implementation-manifest-v7"></a>
-### BackendArtifact implementation manifest v7
+### Implementation artifact contents
 
 Implementation manifests now retain selected pipeline configuration, active
 semantic sites, physical-binding identities, and separate intended, emitted,
@@ -4420,29 +4514,12 @@ bindings remain independent.  Current compiler-produced artifacts populate
 intended/emitted counts after successful physical emission; external vendor
 tools own measured counts and routed timing.
 
-<a id="reference-low-level-target-resource-library-reproduction"></a>
-### Reproduction
-
-```bash
-.venv/bin/python -m pytest -q \
-  tests/test_low_level_resources.py \
-  tests/test_target_architecture.py \
-  tests/integration/test_xilinx_dsp_pipeline_configs.py \
-  tests/integration/test_target_bram.py
-
-.venv/bin/python tools/dsp48e1_pipeline_qor.py \
-  --output /tmp/zlang-dsp-pipelines --vivado /path/to/vivado
-
-.venv/bin/python tools/target_bram_vendor_qor.py \
-  --output /tmp/zlang-bram --vivado /path/to/vivado
-```
-
 Automatic target-aware planning is enabled only for the reviewed symmetric-FIR
 and ordered signed-product reduction regions documented in the
-[high-level planner guide](#reference-high-level-target-aware-architecture-pipeline-planner).
+[Target-aware architecture and pipeline planning](#reference-high-level-target-aware-architecture-pipeline-planner).
 General `explore`, BRAM/clock selection, and arbitrary resource ranking remain
 disabled. The accepted boundary is documented in the
-[high-level planner guide](#reference-high-level-target-aware-architecture-pipeline-planner).
+[Target-aware architecture and pipeline planning](#reference-high-level-target-aware-architecture-pipeline-planner).
 
 <a id="reference-high-level-target-aware-architecture-pipeline-planner"></a>
 ## Target-aware architecture and pipeline planning
@@ -4522,7 +4599,7 @@ stable semantic/implementation identities. It records resource combinational
 segments, selected resource-local cuts, the three dedicated cascade edges,
 fabric boundaries, final fixed quantization and output boundary.
 
-timing alignment alignment produces explicit `alignment` delay objects. Exact external
+Timing alignment produces explicit `alignment` delay objects. Exact external
 latency produces separate `compensation` objects. Both record cycles, width and
 fabric FF cost in the graph and manifest. They are never reconstructed from RTL
 names.
@@ -4533,98 +4610,53 @@ For the selected useful latency-three implementation:
 - `latency==8` adds one explicit five-cycle output compensation delay;
 - resource-local useful sites remain unchanged.
 
-The direct-SV emitter consumes this graph. The base output boundary and five
+The Direct-SV emitter consumes this graph. The base output boundary and five
 compensation cycles form the required output register chain; source
 `pipeline(N)` latency is not added again.
 
 <a id="reference-high-level-target-aware-architecture-pipeline-planner-evidence-and-extraction"></a>
-### Evidence and extraction
+### How target evidence affects selection
 
-Evidence distinguishes:
+This topic belongs here only as a practical distinction: an estimated resource
+cost is not a measured FPGA result, and an estimated Fmax is not routed timing.
 
-- `structural_estimate`;
-- `synthesis_measurement`;
-- `routed_measurement`.
+| Evidence kind | What it establishes |
+| --- | --- |
+| `structural_estimate` | Compiler estimate from the selected structure; no vendor run. |
+| `synthesis_measurement` | Result after synthesis, not placed/routed timing closure. |
+| `routed_measurement` | Measured result after implementation/routing for matching target and constraints. |
 
 `measured_required` accepts only compatible routed evidence for an Fmax
 constraint. Structural latency/II remain authoritative and are not erased by
 that policy. Compatibility includes target/part, architecture, complete graph
 hash, pipeline configuration, backend, clock constraint and tool/version.
 
-The shipped Vivado 2024.2 records are data in
-`zlang/data/xc7z030_dsp_pipeline_qor.json` and
-`zlang/data/xc7z030_signed_product_qor.json`; ranking contains no
-configuration-name special case. deterministic cost selection applies hard constraints and the existing
-`minimize lut` default. Its deterministic latency tie-break selects the
-lower-latency candidate when measured costs tie. With measured-required evidence
-and the frozen 100 MHz constraint, the signed real/imag witnesses select the
-two-cycle `multiply_registered` configuration.
-
-The selected bounded report is equivalent to:
-
-```text
-target: xc7z030ffg676-1
-requirements: latency <= 8, ii == 1, fmax >= 100
-rejected unregistered: routed 73.432 MHz < 100
-rejected multiply-only: routed 81.294 MHz < 100
-selected symmetric cascade / multiply+terminal-output
-resources: DSP=4 LUT=239 FF=16
-latency=3 II=1 routed Fmax=103.178 MHz
-```
-
-The packaged records were regenerated by routing the current emitted graphs
-after the LSB-first packing migration; old graph identities are not relabelled
-as current measurements.
-
-<a id="reference-high-level-target-aware-architecture-pipeline-planner-backendartifact-implementation-manifest-v7"></a>
-### BackendArtifact implementation manifest v7
-
-The implementation manifest retains normalized user constraints, objective and
-metric sources, selected template/target/graph/configuration, generic pipeline
-sites, resources, dedicated edges, complete timing DAG, alignment and
-compensation objects, latency/II, evidence identity and implementation artifact
-hash. JSON round-trip uses implementation manifest version 7; older optional
-fields retain validated compatibility defaults.
+Packaged routed evidence is bound to the matching part, constraints, physical
+graph, pipeline configuration, backend and tool recipe; a different graph's
+measurement cannot be reused as proof of this one. The optional
+`--implementation-manifest PATH` records the selected configuration, resource
+and timing decisions and their provenance for inspection or replay. Internal
+JSON schema numbers are compatibility details, not language features or knobs
+users should set.
 
 <a id="reference-high-level-target-aware-architecture-pipeline-planner-current-boundary"></a>
 ### Current boundary
 
 Automatic target planning is intentionally limited to the symmetric-FIR and
-signed-product direct-SV regions above. BRAM, PLL/MMCM, Intel physical planning,
+signed-product Direct-SV regions above. BRAM, PLL/MMCM, Intel physical planning,
 arbitrary graph covering, II-changing sharing, and automatic fixed
-transformations are not enabled. Generic direct SystemVerilog remains the
+transformations are not enabled. Generic Direct-SV remains the
 fallback implementation. Existing formal infrastructure is unchanged and no
 primitive-level proof claim is made.
-
-Reproduce physical validation with:
-
-```bash
-.venv/bin/python tools/target_auto_fir_qor.py \
-  --output /tmp/zlang-target-auto-fir \
-  --vivado /path/to/Vivado/2024.2/bin/vivado
-```
 
 <a id="reference-platform-constraint-publication"></a>
 ## Platform constraints
 
 
-Status: implemented. This work does not change ZLang source semantics.
-
 <a id="reference-platform-constraint-publication-decision"></a>
-### Decision
+### Clock constraints
 
-The current synchronous `Memory` is already a one-read/one-write simple
-dual-port resource: one read and one write may be accepted on the same edge.
-A genuinely distinct same-domain true-dual-port memory would require two
-symmetric read/write ports and a frozen same-address dual-write contract. No
-current real-design validation requires more than one read or one write per
-cycle, so that slice is rescheduled until a concrete design supplies evidence.
-Byte masks, initialized writable memory, independent memory clocks and automatic
-BRAM mapping remain separate concerns.
-
-Physical clock publication is justified now because the existing QoR helpers
-otherwise duplicate handwritten `create_clock` commands. A selected project
-profile may therefore add exactly one explicitly named clock period:
+A selected project profile can publish one explicitly named clock period:
 
 ```toml
 [profiles.release.platform.clocks.clk]
@@ -4636,15 +4668,12 @@ period is physical build configuration: it is not semantic IR, is not inferred
 from `fmax`, and is not merged into `ImplementationRequest`.
 
 The CLI publishes a constraint only together with exactly one backend artifact.
-The following commands are schematic and assume a project-local `top.zhl` plus
-the `release` profile shown above:
+The following command assumes a project-local `top.zhl` and the `release`
+profile shown above:
 
 ```text
-zlang top.zhl --profile release --systemverilog top.sv \
-  --constraints-xdc top.xdc
-
-zlang top.zhl --profile release -o Top.hs \
-  --constraints-sdc top.sdc
+zlang top.zhl --profile release --systemverilog build/Top.sv \
+  --constraints-xdc build/Top.xdc --constraints-sdc build/Top.sdc
 ```
 
 The compiler resolves the RTL port through the artifact's typed `CLOCK` binding,
@@ -4654,22 +4683,24 @@ never through generated-name guessing. XDC and SDC initially contain only:
 create_clock -name clk -period 10 [get_ports {clk}]
 ```
 
-Each version-2 constraint artifact retains its backend hash, selected-IR
+Each generated constraint artifact retains its backend hash, selected-IR
 identity, clock edge, and complete reset mode/polarity/release-cycle/power-up
 metadata. For a non-default contract, publication also requires an exact
-version-10 physical-domain record in the BackendArtifact; stale or mismatched
+physical-domain record in the implementation artifact; stale or mismatched
 reset semantics are rejected. Whole-build manifests
 publish the file as a backend companion and include the platform profile and
 constraint identities. XDC/SDC output is deterministic and atomically published
 without following symlinks.
 
 No reset false path is emitted: asynchronous-reset recovery/removal timing must
-not be hidden. Generated clocks, multiple clock domains, pin/package/IO
-properties, input/output delays, CDC constraints and formal properties are
-outside this bounded slice.
+not be hidden. This constraint publication supports only the exact single-clock
+profile shown here. Multiple clock domains are supported in language semantics
+and Direct-SV emission, but generated clocks, multi-clock XDC/SDC publication,
+pin/package/IO properties, input/output delays, CDC constraints, and formal
+properties are not emitted by this facility.
 
 <a id="reference-direct-systemverilog"></a>
-## Direct SystemVerilog
+## Direct-SV
 
 
 The backend consumes typed semantic IR.  It never dispatches on AXI, APB, or
@@ -4681,8 +4712,7 @@ Ordinary scalar register/rule components share the standalone/composed dispatch
 and register contributor. Independent rules do not require global scheduler
 enumeration merely because a module is instantiated as a child. Hierarchy
 validation is cached only within one emission; protocol/storage effects and
-conflicting multi-effect rules keep their existing exact paths. ZL-017's composed
-AHB/queued Q16 witness now emits in about 16.4 seconds on the recorded host.
+conflicting multi-effect rules keep their existing exact paths.
 Generated private names now use a shared hierarchy-local allocation plan:
 `cfg_ready`, `lane_0`, `lane_0_value`, `result_pipe_s1`, and short specialized
 definitions such as `Counter_s1a2b3c4d`. Source names win over generated helpers;
@@ -4696,7 +4726,7 @@ Formal-only `rule.fire` now uses the same effective reset and polarity as
 production state, including the two-edge synchronized release and conditioned
 child reset. Real RTL covers both polarities, both active edges and nested
 hierarchy. Its separate global-guard enumeration scalability limitation remains:
-large independent-rule formal projections still require a future bounded fix.
+large independent-rule formal projections remain outside the scalable supported subset.
 
 Fixed-point ports and expressions use the canonical scaled-integer types behind
 `fixed`/`ufixed`, concise `SF`/`UF`, and `_Sat` formats. Same-scale target
@@ -4707,8 +4737,8 @@ backend never infers wrap, saturation, or rounding from source spelling.
 ### Supported composition subset
 
 - scalar and packed struct/vector/tuple datapaths, `char`/`string<N>` aliases,
-  immutable locals, muxes, field/projection access, compile-time and proven
-  runtime packed-bit indexing with LSB-zero semantics, exact-width `bitcast`,
+  immutable locals, muxes, field/projection access, compile-time packed-bit
+  indexing and range-proven runtime vector indexing with LSB-zero semantics, exact-width `bitcast`,
   homogeneous vector `concat`, compile-time `reshape`, reductions, fixed-point
   arithmetic/conversion, and selected or nested fixed-latency scalar pipelines
   with II=1;
@@ -4754,8 +4784,8 @@ backend never infers wrap, saturation, or rounding from source spelling.
   software/hardware priority policy;
 - ready/valid-to-credit, credit-to-ready/valid, and per-VC credit source state
   machines from typed protocol/capacity metadata;
-- BackendArtifact v4 recursive instance/state locators and version-10-or-newer physical
-  domain contracts for non-default reset modes. Specialization
+- recursive instance/state locators and exact physical-domain contracts for
+  non-default reset modes. Specialization
   identity is not used as physical instance identity.
 
 SystemVerilog reserved words are deterministically prefixed with `zlang_`.
@@ -4778,20 +4808,20 @@ register. Equality and inequality remain raw bit comparisons.
 Use the stable CLI option:
 
 ```sh
-.venv/bin/zlang examples/simple_dma.zhl --top SimpleDMA \
+zlang examples/simple_dma.zhl --top SimpleDMA \
   --systemverilog build/SimpleDMA.sv
 verilator --lint-only --top-module SimpleDMA build/SimpleDMA.sv
 ```
 
 `--experimental-systemverilog` remains an exact compatibility alias. Both
 options are explicit artifact sinks: they write only the requested SV file and
-leave stdout empty. A bare `zlang SOURCE` invocation emits the production direct
-SystemVerilog artifact to stdout. Diagnostics remain on stderr.
+leave stdout empty. A bare `zlang SOURCE` invocation emits the production
+Direct-SV artifact to stdout. Diagnostics remain on stderr.
 
 Use `--verbose` when an explicit success confirmation is useful:
 
 ```sh
-.venv/bin/zlang design.zhl --systemverilog design.sv --verbose
+zlang design.zhl --systemverilog design.sv --verbose
 ```
 
 This keeps stdout artifact-safe and reports the selected top and written paths
@@ -4799,7 +4829,7 @@ on stderr. To validate parsing, top selection, and semantic analysis without
 publishing any backend artifact, use:
 
 ```sh
-.venv/bin/zlang design.zhl --check
+zlang design.zhl --check
 ```
 
 `--check` prints a one-line success result and returns zero. Without `--top` it
@@ -4812,11 +4842,11 @@ cannot be combined with artifact output options.
 <a id="reference-direct-systemverilog-simulation-only-architectural-state-access"></a>
 ### Simulation-only architectural state access
 
-A direct-SV build may publish a separate Verilator VPI companion without
+A Direct-SV build may publish a separate Verilator VPI companion without
 adding ports or changing the production RTL:
 
 ```sh
-.venv/bin/zlang design.zhl \
+zlang design.zhl \
   --systemverilog build/design.sv \
   --simulation-state-bundle build/state-access
 ```
@@ -4830,8 +4860,8 @@ before access.
 
 The bounded surface includes bit-packable user registers (including vector
 registers), writable-memory cells, and the persistent read-result latch of a
-one-cycle memory. Values up to 64 bits have convenience methods; arbitrary-
-width scalars and elements use exact 32-bit least-significant-word-first arrays.
+one-cycle memory. Values up to 64 bits have convenience methods; arbitrary-width
+scalars and elements use exact 32-bit least-significant-word-first arrays.
 Vector element zero retains the canonical least-significant packed position.
 The persistent semantic simulator consumes the same catalog and keeps one state
 object per physical child instance.
@@ -4845,27 +4875,24 @@ W1C behavior, and request/response acceptance.  Arithmetic, state-transition,
 FIFO-accounting, response-accounting, W1C, and priority mutations all fail with
 counterexample metadata.
 
-The first-class verification-bundle path also accepts direct-SV designs with
+The first-class verification-bundle path also accepts Direct-SV designs with
 initialized ROM. Exact memory images are published below
 `implementation/companions/` and listed as hash-validated inputs for every SBY
 job that consumes them. Generated solver configuration, logs, and VCDs are
-retained outside the immutable bundle; run-report v7 maps sampled physical VCD
+retained outside the immutable bundle; the run report maps sampled physical VCD
 signals back to semantic binding IDs for witnesses and counterexamples.
 
-Direct SV is the executable bundle route. If its formal emission cannot bind a
+Direct-SV is the executable bundle route. If its formal emission cannot bind a
 required observation, the goal is explicitly skipped or rejected according to
 policy. Unsupported aggregate/protocol shapes report a non-executable reason;
 no generated-name reconstruction or alternate backend substitution is used.
 
-Transaction-level RTL simulation found and fixed one source-library issue:
-`RegBusCSRTarget` previously asserted its response only in the request-transfer
-cycle, before the AXI-Lite/APB frontend entered its response phase.  The
-ordinary `.zhl` target now stores response data and holds `response.valid` until
-`response.transfer`.  Both source-authored AXI-Lite and APB paths complete real
-Verilator write transactions through RegBus after this fix.
+`RegBusCSRTarget` stores response data and holds `response.valid` until
+`response.transfer`. Source-authored AXI-Lite and APB frontends can therefore
+complete write transactions through the typed RegBus boundary.
 
-The v4 manifest publishes recursive physical locators only for signals actually
-present in emitted RTL. Current direct-SV formal emission publishes the typed
+The implementation artifact publishes recursive physical locators only for signals actually
+present in emitted RTL. Current Direct-SV formal emission publishes the typed
 accepted-request, directional-buffer occupancy, response-consumption, and
 parent-owned outstanding-ledger observations used by the supported recursive
 request/response properties. Register, FIFO, CSR, and rule-fire observations
@@ -4892,154 +4919,25 @@ generic child templates that still require parent specialization remain
 validated through their concrete parents.
 
 <a id="reference-direct-systemverilog-exhaustive-example-matrix"></a>
-### Exhaustive example matrix
+### Example and structural coverage
 
-The direct-SV regression recursively discovers every `.zhl` file and every
-declared module root under `examples/`. There are no emission-error skips. Each
-root is classified as standalone-supported, child/template-only, or explicitly
-unsupported; an unclassified new root is tested as standalone-supported.
+The release checks every standalone-supported example root through Direct-SV
+emission and strict Verilator lint. Child/template roots require a concrete
+specialization or parent. These tests are evidence for the shipped examples, not
+a language allow-list; unsupported new combinations fail closed. Current corpus
+counts and tool versions are published in
+[release status](../release/status.json).
 
-The local snapshot including the arithmetic/exploration tutorial contains **87 `.zhl` files / 181 module roots / 164
-standalone roots / 17 child or template roots / 0 unsupported roots**. The
-registry test remains authoritative when examples change; these numbers are an
-evidence snapshot rather than a hard-coded allow-list.
+The streaming FFT and IEEE 802.11a transmitter examples exercise typed
+hierarchy, ROMs, fixed-point datapaths, protocols and state. Their RTL is built
+through the same generic backend path as other designs, without module-name
+dispatch. Selected examples also have independent cycle-level oracle checks.
 
-The intentionally incorrect `RareOverflowBug` is valid synthesizable hardware:
-it must emit/lint successfully, while its separate verification test requires
-a counterexample. Emission support is not a claim that user assertions hold.
-
-The executable registry reports the current source/root totals during test
-collection. Every discovered standalone-supported root emits a BackendArtifact
-and passes strict Verilator lint; child/template-only roots are exercised
-through a concrete parent or specialization, and no current root requires an
-explicit unsupported classification. This avoids turning a documentation count
-into a second registry whenever project source units are consolidated.
-
-The child/template registry retains only generic stateful/DMA/FFT children that
-still require a concrete specialization or parent ABI, plus canonical Wi-Fi
-helpers whose standalone top would expose a nominal enum through an external
-raw ABI. Each has one named raw/concrete parent witness. The executable registry in
-`tests/systemverilog/test_example_coverage.py` is authoritative; adding a new
-root without an explicit child reason makes it standalone-supported by default.
-
-Every currently discovered non-child root is standalone-supported; new roots
-enter that class automatically and must emit and lint rather than being
-silently skipped. This closes the current example corpus, not every possible IR
-shape: unsupported future constructs still fail closed at capability checking.
-Publication additionally requires the shared exact-once
-`ModuleFeatureInventory` check described in
-backend tooling; a renderer
-cannot silently omit or double-own a selected IR entity and still return an
-artifact.
-
-The additional streaming roots include the staged `FFT4SDFReference` through
-`FFT512SDFReference` hierarchy. Direct SV emits one distinct specialization per
-stage and deterministic ROM companions at the corresponding depths; FFT512
-publishes all nine companions and passes complete oracle-backed RTL simulation.
-The persistent backend-independent simulator also runs the same 1,033-cycle
-replay by default in about 11 seconds and roughly 84 MiB RSS. Its 512 outputs
-match direct-SV RTL against the frozen oracle. This validates the
-functional hierarchy, not automatic DSP mapping or physical QoR.
-
-`examples/projects/80211a_transmitter` is the first complete converted-IP
-project in the corpus. Its executable source is consolidated into the canonical
-`data_types`, `controller`, `scrambler`, `conv_encoder`, `interleaver`,
-`mapper`, `ifft_library`, `cyclic_extender`, `ifft`, and `transmitter` units.
-`Ieee80211aTransmitter` is the stable top; temporary compatibility and
-implementation-prefixed roots have been retired from the source tree.
-
-The earlier conversion slices exposed reusable direct-SV fixes: typed FIFO
-read-side projections, consistent port-name mangling in RTL and manifests,
-exact packed slicing, keyword-safe helper names, recursive closed ready/valid
-children, and deterministic materialization of shared expressions. Those
-findings remain recorded in the Wi-Fi validation report, but the old roots are
-not alternate executable profiles.
-
-The canonical hierarchy exercises packet framing, a stateful scrambler, K=7
-encoding, corrected IEEE R1/R2/R4 interleaving, BPSK/QPSK/16-QAM mapping,
-pilot state, exact widened DIF-SDF arithmetic, natural-order reorder, and an
-80-sample cyclic prefix. It uses only generic typed hierarchy, ready/valid,
-rules, vectors, ROM companions, fixed-point operations, and source-level
-helpers. No Wi-Fi module-name dispatch or backend-only permutation/IFFT logic
-exists.
-
-The compact whole-vector IFFT64 reference is deliberately not added as a full
-N=64 RTL corpus root. Its N=64 path is semantic/canonical/simulator evidence;
-N=8 and N=16 use the same typed `FunctionalRegion` and exact reduction plan as
-physical direct-SV/Verilator witnesses. The backend does not contain an
-IFFT, Complex, or Wi-Fi-specific lowering rule.
-
-The canonical hierarchy is a streaming inverse DIF-SDF design rather
-than that whole-vector reference. It composes IEEE-authoritative framing,
-scrambling, convolutional coding, corrected R1/R2/R4 interleaving, mapping,
-D32/D16/D8/D4/D2/D1, natural-order reorder, and an 80-sample cyclic prefix.
-`Ieee80211aTransmitter` passes a complete 903-cycle direct-SV/Verilator packet
-replay against the independent oracle. The implementation uses generic typed
-hierarchy rather than Wi-Fi-specific backend behavior.
-
-Strict lint keeps only non-correctness waivers for declaration filenames and
-unused/undriven test-fixture signals. Width, latch, driver, and structural
-warnings remain fatal. In particular, all fixed-point conversion constants are
-emitted at the exact conversion work width. Writable memories lower their typed
-zero/one-cycle read, collision, byte-mask, cell-reset and read-result-reset
-profile directly; the omitted profile retains the legacy one-cycle clear/clear
-text. Named same-clock generic ports emit one deterministic cell-owning
-process; an exact selected Xilinx true-dual binding emits one process per
-physical port and requires reset-preserved cells so BRAM inference remains
-truthful. Optional uniform `init VALUE` drives generic clear-on-reset contents
-or preserved FPGA power-up contents according to the source reset policy.
-Bounded 1W+nR fallback emits coherent replicated arrays. `async_mem` emits
-distinct writer/read-result processes, with exactly one cell writer and exact
-domain-local resets. Generic async RTL is labelled structural rather than a
-vendor collision guarantee.
-
-<a id="reference-direct-systemverilog-internal-combinational-driver-style"></a>
-### Internal combinational-driver style
-
-Compiler-generated internal combinational values use a declare-first form:
-
-```systemverilog
-logic zlang_push, zlang_pop;
-assign zlang_push = input_valid && input_ready;
-assign zlang_pop = output_valid && output_ready;
-```
-
-The production emitter does not combine declaration and drive as
-`wire name = expression`. Exact packed widths and signedness remain on the
-`logic` declaration. A simple single-driver equation uses continuous `assign`;
-`always_comb` is reserved for grouped logic that requires defaults, branching,
-or multiple related procedural assignments. ANSI input/output net declarations,
-parameters, formal initial-state variables, testbenches, and user-supplied
-external SystemVerilog are not rewritten by this backend style rule.
-
-The example registry checks this invariant across every emitted standalone
-root. Additional focused witnesses cover optional FIFO observations, masked
-memory writes, packet arbitration, hierarchical FIFO helpers, CDC, and the
-simulation-only DSP48E1 helper.
-
-<a id="reference-direct-systemverilog-validation-record"></a>
-### Validation record
-
-The current acceptance tool versions and zero-skip release minimum are recorded
-in [`release/status.json`](../release/status.json). The FFT512
-backend-independent replay is now a
-routine bounded test rather than an opt-in skip.
-Historical per-slice counts remain in their validation records; they are not
-the current baseline.
-The representative `examples/all_syntax.zhl` language-tour backend audit checks
-every declared top separately; exhaustive direct-SV root coverage remains the
-separate registry described above:
-
-- direct SystemVerilog emits and passes strict Verilator lint for all 29 tops;
-- `CdcSyntax` and the single-channel aggregate `AXIStream` crossing use the
-  same typed Gray-pointer async-FIFO semantics;
-- nested rule expressions containing `delay`/`pipeline`, fixed saturation,
-  packet arbitration, and clocked contracts have dedicated regressions;
-- fixed-priority and round-robin packet arbitration, plus nested state staging,
-  execute in real Verilator simulations.
-
-The wider streaming, fixed-point, DMA, and Wishbone tops remain lint-clean in
-direct SV. Python `compileall` and `git diff --check` also pass.
+Generated RTL uses exact packed widths and single-driver combinational
+assignments. Procedural combinational blocks are used where defaults or
+branching require them; strict lint treats width, latch, driver and structural
+warnings as failures. A target binding is claimed only when the selected
+physical capability proves its clock, latency, collision and reset contract.
 
 <a id="reference-tooling-integration-api"></a>
 ## Compiler tooling API
@@ -5051,7 +4949,7 @@ compiler-aware tools that must not depend on parser, workspace or semantic IR
 implementation modules.
 
 Consumers must check `TOOLING_API_SCHEMA`; the package version alone is not a
-compatibility guarantee. The version-1 API publishes immutable records for:
+compatibility guarantee. The API publishes immutable records for:
 
 - compiler, source-suffix and capability identity;
 - source declarations and direct-import resolution;
@@ -5075,39 +4973,15 @@ environment or malformed-project failure that prevents a trustworthy record
 raises `ToolingError`.
 
 <a id="reference-tooling-integration-api-demand-driven-observational-analysis"></a>
-### Demand-driven observational analysis
+### Request-scoped analysis
 
-The semantic checker separates language correctness from optional editor
-observations.  `check_file_snapshot()` accepts the compiler-owned
-`zlang.analysis_needs.AnalysisNeeds` bitmask; the default is `NONE`, so a
-normal compiler check does not construct editor records.  The tooling
-projections request only what they consume:
-
-| query | demanded records |
-| --- | --- |
-| `definition_at`, `references_at`, `rename_at`, `semantic_tokens` | `DEFINITIONS` |
-| `completion_at` | `DEFINITIONS + COMPLETION` |
-| `signature_help_at` | `SIGNATURE_HELP` |
-| `hover_at`, `check_snapshot` | none |
-
-`DEFINITIONS` covers the shared compiler identity/occurrence records used by
-definition, references, rename and semantic-token projections.  Completion
-scope/candidate/detail collection is therefore not entered by a
-definition-only request.  The needs mask controls observational sinks only;
-typed semantic checking, canonical IR and all backend products remain
-unchanged. There is no process-global semantic cache or incremental analysis
-layer; the normalized persistent symbol cache is described below.
-
-The audit found no separate eager record for hover: hover projects the already
-required AST/typed IR product.  Likewise, references, rename and semantic
-tokens do not need independent collectors; they project the definition
-identity/occurrence records.  The previously eager records were therefore
-`definition_resolutions`/`definition_declarations`, `completion_scopes` (and
-its candidate/detail builders), and `signature_help_calls`.  All are now
-allocated only when their corresponding need is present.
-
-The API is intentionally generic. It does not expose session state, autonomous
-behavior or a plugin-specific command surface.
+Tooling queries request only the compiler observations needed for that query;
+they do not emit RTL or perform formal execution. A bounded compilation session
+may reuse analysis products after validating the exact project and editor
+snapshot. Definition, References, rename and semantic tokens use the same
+compiler-owned identity and occurrence records; no result is inferred from
+matching source text. See [Language Server Protocol and VS Code](#reference-zlang-lsp) for editor
+behavior and the API description above for integration details.
 
 <a id="reference-tooling-integration-api-diagnostic-edits"></a>
 ### Diagnostic edits
@@ -5148,9 +5022,8 @@ Consequently `zlang.tooling` does not expose raw `BackendArtifact` or source-map
 objects and does not generate RTL on a tooling request. The exact capability
 and prerequisite are recorded in [Generated source maps](#reference-generated-source-maps).
 
-generated-navigation bundle adds the protocol-neutral
-`zlang.generated_navigation_bundle.load_generated_navigation_bundle()`
-boundary. It validates one explicit relocatable publication directory, exact
+The public `load_generated_navigation_bundle()` API validates one explicit
+relocatable publication directory, exact
 generated/backend-manifest/source-map hashes, lineage, and complete producing
 source snapshot identities. The returned immutable record can classify current
 source text or digest as `match`, `stale`, or `unknown_source`. This is artifact
@@ -5322,66 +5195,19 @@ assign numeric LSP legend indices. Malformed or semantically invalid source
 returns an empty tuple; project/environment failures remain `ToolingError`.
 
 <a id="reference-tooling-integration-api-reusable-tooling-and-symbol-sessions"></a>
-### Reusable tooling and symbol sessions
+### Reusable tooling sessions
 
-`ToolingSession` is the bounded, request-driven cache used by the LSP for
-repeated tooling queries. It stores immutable `SemanticCheckResult` products
-for at most eight root-document contexts; standalone tooling calls remain
-unchanged when no session is supplied. A context key contains the resolved
-root path, the SHA-256 digest of the exact in-memory source text (plus any
-non-matching caller assertion), project/profile/top selection, the tooling API
-and compiler versions, and the requested `AnalysisNeeds` tracked on the
-cached entry.
+A `ToolingSession` can reuse immutable semantic and symbol results for repeated
+editor requests. Reuse requires matching compiler/schema, selected root and
+profile, exact editor text, and the content of the locked dependency closure.
+Unsaved buffers stay in memory; saved project symbols may be cached on disk.
+Neither a matching name nor a timestamp alone is validity evidence. Corrupt or
+stale entries are ignored and checked again by the compiler.
 
-The semantic cache reuses an entry only when its recorded needs are a superset
-of the request. A weaker request is a hit; a stronger request rechecks with the
-safe union of needs and replaces the entry. The compiler's
-`PhysicalCompilationInputs.all_paths` provide the authoritative locked root,
-dependency, manifest, lock, standard-library and external-source closure.
-Session-local file signatures are checked on each request and content hashes
-are recomputed only after a signature change, so changed dependencies cannot
-reuse a stale result without introducing directory polling or a workspace
-index. The session only memoizes the existing locked workspace projection; it
-does not create a new workspace-wide semantic index.
-
-Definition and References have a second, normalized cache whose entries retain
-only deduplicated `DefinitionTarget`/`DefinitionResolution` origins and stable
-declaration identities. Each loaded shard builds a source-line interval index
-for cursor lookup and a declaration-to-occurrences index for References. It
-does not retain source text, AST, typed IR or generated artifacts. The in-memory
-limit is 64 shards or 64 MiB and remains useful after the eight-entry semantic
-LRU evicts a root.
-
-Because a shard is published only after a successful definition-aware compiler
-analysis, an exact content/recipe hit may also serve semantic tokens and prove
-that the identical root snapshot has no diagnostics. The LSP can reuse a parent
-root shard after module-definition navigation only for the exact selected
-module, logical source unit and source digest recorded by the compiler. It does
-not use this path for arbitrary manually opened files.
-
-For saved locked-project roots, the same normalized payload is published
-atomically below `$XDG_CACHE_HOME/zlang-hdl/lsp/symbol-v1/` (or
-`~/.cache/zlang-hdl/lsp/symbol-v1/`). A new `ToolingSession`, including one in a
-restarted LSP process, may reuse it only after validating the schema,
-compiler/capability identity, root/profile/top recipe, manifest and lock, and
-the exact content hashes of its logical project/dependency/stdlib units.
-Physical paths are reconstructed through the current resolver and never stored
-in JSON. Unsaved and standalone documents remain memory-only. Corrupt,
-oversized or symlink shards are discarded or ignored and the compiler path is
-used normally.
-
-`ZLANG_LSP_SYMBOL_CACHE` selects `persistent` (default), `memory`, or `off`.
-TTL is never validity evidence: access time is used only for daily-throttled
-usage updates and 30-day/count/size garbage collection (512 shards/256 MiB).
-Timestamp-only changes preserve a hit when bytes match, while a changed used
-dependency, manifest, lock, schema or compiler identity misses. An unrelated
-project file does not participate in the shard's physical input set.
-`didChange` and replacement `didOpen` explicitly invalidate the affected
-in-memory root. `didClose` drops the editor buffer but retains bounded
-content-addressed semantic and symbol entries; all later reuse still validates
-the current bytes and environment. No background work, source-text/regex result fallback,
-incremental compiler, optimizer, backend, synthesis or formal phase is
-involved.
+The cache is an optimization, not an alternative language analysis. It never
+stores source bodies or generated RTL and does not grant unsupported navigation
+or change diagnostics. The user-facing cache switch is described under
+[Cache configuration](#reference-zlang-lsp-cache-configuration).
 
 <a id="reference-zlang-lsp"></a>
 ## Language Server Protocol and VS Code
@@ -5398,8 +5224,11 @@ projections after full-document opens and changes.
 Start it as a standard LSP process:
 
 ```sh
-.venv/bin/zlang-lsp
+zlang lsp
 ```
+
+`zlang-lsp` remains an installed compatibility executable for editor settings
+that accept a program path but cannot express subcommand arguments.
 
 The process reads and writes standard Content-Length framed JSON-RPC messages.
 It supports local `file://` URIs for existing `.zhl` files. The server does not
@@ -5407,10 +5236,6 @@ write editor buffers to temporary source files; project-backed snapshots must
 therefore remain compatible with the existing compiler/tooling workspace
 identity rules. Unsupported remote, virtual, and non-local document URIs are
 reported explicitly.
-
-The project has no existing JSON-RPC/LSP dependency. This slice therefore uses
-the Python standard library for the small Content-Length framing and dispatch
-surface instead of adding a general RPC framework or a large LSP dependency.
 
 <a id="reference-zlang-lsp-supported-now"></a>
 ### Supported now
@@ -5508,10 +5333,9 @@ The server converts VS Code's incoming UTF-16 character offsets to compiler
 code-point columns before semantic span containment; outbound locations use the
 inverse conversion.
 
-The VS Code client awaits complete `LanguageClient.start()` registration in
-its extension activation promise. This guarantees that an immediate first F12
-request is not dispatched before the server's definition provider exists; it
-does not add any extension-side symbol lookup or project semantics.
+The extension completes language-client registration before advertising
+navigation support, so an immediate first F12 request is supported. It does
+not perform extension-side symbol lookup.
 
 Generic declarations are semantically checked for their concrete
 specializations. When a generic-only library file is opened directly, the
@@ -5551,8 +5375,8 @@ an unsaved declaration snapshot is never mixed with disk roots.
 Rename uses `zlang.tooling.rename_at()` and the same compiler-owned identity and
 occurrence records. It edits only exact parser-owned identifier spans, always
 including the declaration, and rechecks the edited in-memory root source with
-the semantic checker to reject collisions or retargeted references. The first
-slice supports local ports, immutable values, functions, and function
+the semantic checker to reject collisions or retargeted references. Rename
+supports local ports, immutable values, functions, and function
 parameters. Cross-file edits and declarations without exact editable spans are
 rejected; there is no textual or same-spelling fallback.
 
@@ -5595,57 +5419,24 @@ returned. Compiler-native spans are converted to LSP UTF-16 positions without
 changing replacement text. Prose-only diagnostic suggestions never become
 executable actions.
 
-The server owns one bounded `zlang.tooling.ToolingSession` for the lifetime of
-its open-document manager. Its heavy semantic LRU retains at most eight typed
-snapshots. Definition and References additionally use a normalized symbol-only
-cache: up to 64 shards/64 MiB in memory and, for exact saved project snapshots,
-up to 512 shards/256 MiB on disk. A shard contains only deduplicated declaration
-and occurrence origins, stable declaration IDs and content identities; loading
-it builds line-interval and declaration-to-occurrences indexes. A validated
-successful shard may also supply semantic-token records and prove that
-diagnostics were already checked for the identical root snapshot. It contains
-no source body, AST, typed IR, generated artifact or absolute physical path.
+<a id="reference-zlang-lsp-cache-configuration"></a>
+### Cache configuration
 
-Persistent shards live below
-`$XDG_CACHE_HOME/zlang-hdl/lsp/symbol-v1/`, falling back to
-`~/.cache/zlang-hdl/lsp/symbol-v1/`. Set `ZLANG_LSP_SYMBOL_CACHE=memory` to
-disable disk writes, or `off` to use only the eight-entry semantic LRU;
-`persistent` is the default. Publication uses a private temporary file and
-atomic rename. Cache corruption, unsafe symlinks and read-only filesystems fall
-back to ordinary semantic analysis rather than breaking navigation.
+The LSP reuses exact validated semantic and symbol results, including after
+reopening an unchanged saved project file. Changes to editor text, selected
+module, manifest, lock or any used dependency invalidate affected results;
+unsaved buffers are memory-only. A cache miss runs normal semantic analysis.
+Set `ZLANG_LSP_SYMBOL_CACHE=memory` to disable disk caching or `off` to
+disable symbol shards; `persistent` is the default. Cache corruption or a
+read-only cache location cannot turn a valid source into a navigation failure.
 
-Correctness never depends on age. Reuse requires the exact compiler/tooling
-schema and version, root text digest, selected profile/top, nearest project
-manifest and lock identities, and the content digests of the transitive project
-and stdlib sources used by the symbol records. A timestamp-only change is
-accepted after hashing; an unrelated project-source edit is irrelevant.
-`didChange` and a replacement `didOpen` immediately invalidate the old
-in-memory root snapshot. `didClose` removes the editor buffer but retains its
-bounded content-addressed LRU entries: reopening an unchanged VS Code preview
-revalidates source/dependency metadata and reuses them, while changed bytes or
-dependencies miss safely. Unsaved and standalone buffers are memory-only.
-Disk access time is updated at most daily; entries older than 30 days and then
-least-recently-used entries beyond the count/byte limits are garbage-collected.
-The session performs no background refresh, project-global source scan,
-incremental compilation, backend or formal work.
-
-For module-definition navigation, VS Code normally opens the destination file
-and immediately requests diagnostics and semantic tokens. The server carries
-the selected module name across that one navigation. It may reuse the parent
-shard for the destination only when compiler records declare that exact module
-in the exact logical source unit with the current on-disk digest. This avoids a
-second project analysis without turning an arbitrary parent shard into proof
-for a manually opened file. A changed destination, an unsaved buffer or a shard
-that did not analyze the selected module falls back to normal semantic analysis.
-
-The generated-RTL provenance audit added no LSP method or capability. Existing
-source maps are hash-bound and exact for their few mapped
+Existing source maps are hash-bound and exact for their few mapped
 generated lines, but they do not yet provide complete artifact discovery,
 current-editor-source staleness validation, or broad RTL coverage. The LSP does
 not load raw backend manifests, infer mappings from generated names, or generate
 RTL during navigation. See [Generated source maps](#reference-generated-source-maps).
 
-generated-navigation bundle adds a protocol-neutral
+The generated-navigation bundle provides a protocol-neutral
 [validated generated-navigation bundle](#reference-generated-navigation-bundles) for
 explicit published artifact discovery, integrity, lineage, and source-snapshot
 freshness. No LSP method consumes the bundle yet, and advertised server
@@ -5656,17 +5447,18 @@ capabilities are unchanged.
 
 `codeAction/resolve`, fix-all/source/refactor actions, semantic-token
 range/delta requests, workspace symbols, generated-RTL navigation,
-formal/synthesis commands, AI-assisted workflows, CUDA, and `zinfer` are outside
-the current public scope.
+formal/synthesis commands, and other unlisted capabilities are outside the
+current public scope.
 
 <a id="reference-structured-diagnostics"></a>
 ## Structured diagnostics
 
 
-Every compiler error retains its historical human-readable message and may also
+Every compiler error retains its human-readable message and may also
 carry a stable diagnostic code, one primary `SourceOrigin`, notes, and suggested
-fixes. A complete origin contains the logical source unit, the source SHA-256,
-the half-open source span, and the construct being diagnosed. Compiler-shipped
+fixes. `SourceOrigin` always has a half-open source span and construct; its
+logical source unit and lowercase SHA-256 digest are optional in the base record.
+A *complete* origin has all four fields. Compiler-shipped
 declarations use logical units such as `std.math.complex`; ordinary CLI inputs
 use the path supplied to `zlang`.
 
@@ -5676,10 +5468,10 @@ Text remains the default and is compatible with existing scripts:
 zlang design.zhl --check
 ```
 
-The `fixes` values in the version-1 diagnostic are human-readable suggestions,
+The `fixes` values in the structured diagnostic are human-readable suggestions,
 not source edits. Machine-applicable edits have a separate compiler-owned
 metadata and tooling projection described in
-Compiler-owned diagnostic edit projection;
+[compiler-owned diagnostic edits](#reference-tooling-integration-api-diagnostic-edits);
 consumers must never derive edits from these strings.
 
 Machine consumers select one deterministic JSON object:
@@ -5688,7 +5480,7 @@ Machine consumers select one deterministic JSON object:
 zlang design.zhl --check --diagnostic-format json
 ```
 
-The version-1 object has `schema`, `severity`, `code`, `message`, `primary`,
+The JSON object has `schema`, `severity`, `code`, `message`, `primary`,
 `notes`, and `fixes`. Older exception-string users continue to receive the same
 `str(error)`. Categories initially carrying specific codes include parsing,
 imports, width assignment, timing alignment, domain crossing, protocol
@@ -5706,14 +5498,16 @@ diagnostic is left unchanged.
 
 
 ZLang backends can publish a deterministic JSON sidecar alongside an immutable
-`BackendArtifact`.  The sidecar is backend-independent: each entry connects an
-inclusive generated line range and semantic identity to the complete typed
-`SourceOrigin` (`source_unit`, digest, span, and construct).  It also records the
+`BackendArtifact`. The sidecar is backend-independent: each published entry
+connects an inclusive generated line range and semantic identity to a complete
+typed `SourceOrigin` (source unit, digest, span, and construct). The base
+origin record permits an absent source unit or digest, but such an incomplete
+record cannot establish fresh cross-file attribution. The sidecar also records the
 backend, module, selected-IR identity, and generated artifact SHA-256, so a map
 cannot silently be applied to different generated text.
 
-The schema is version 1 and is implemented by
-`zlang.backend.source_map.GeneratedSourceMap`. Direct SystemVerilog offers
+The sidecar format is implemented by
+`zlang.backend.source_map.GeneratedSourceMap`. Direct-SV offers
 `emit_artifact_with_source_map`; this returns the unchanged production artifact
 plus its sidecar model. `write_sidecar` writes canonical, sorted JSON. The CLI
 exposes the same model for one explicit production output:
@@ -5740,15 +5534,15 @@ helper/state-machine lines retain the original tool diagnostic unchanged.
 <a id="reference-generated-source-maps-exactness-boundary"></a>
 ### Exactness boundary
 
-The first bounded implementation maps only a simple top-level output assignment
+The current generated-source-map implementation maps only a simple top-level output assignment
 when all of the following are true:
 
-- the typed output expression retains a `SourceOrigin`;
+- the typed output expression retains a complete `SourceOrigin`;
 - the `BackendArtifact` publishes the matching semantic output binding;
 - the emitter's generated assignment statement is uniquely identifiable; and
 - the generated text hashes to the artifact identity.
 
-Direct SystemVerilog maps a unique `assign <published-token> = ...` statement.
+Direct-SV maps a unique `assign <published-token> = ...` statement.
 Ambiguous, sequential, multi-output, hierarchical, protocol, and backend-generated helper
 lines remain deliberately unmapped.  No mapping is inferred from similar source
 and RTL names. Later emitter refactoring may attach exact origins while
@@ -5756,126 +5550,34 @@ fragments are constructed; until then, absence of an entry means “unknown,” 
 “same as the nearest mapped line.”
 
 <a id="reference-generated-source-maps-generated-rtl-navigation-audit"></a>
-### Generated-RTL navigation audit
+### Generated-RTL navigation boundary
 
-The Community LSP source-map audit audit does not add an editor navigation API. The current
-source-map evidence is safe for exact diagnostic attribution, but it is not yet
-complete enough to be presented as general bidirectional generated-RTL
-navigation.
+A generated source map gives exact generated **line** ranges, not columns. Only
+a unique top-level output assignment with a retained complete compiler
+`SourceOrigin` is currently mapped; the final output assignment of an eligible
+pipeline may also qualify. Module declarations, internal state, helpers,
+protocol bridges and hierarchy are otherwise unmapped. An origin's span and
+construct are always present; its logical source unit and digest are optional
+in the base record, but a complete mapped origin has all four.
 
-The existing ownership and records are:
-
-- `GeneratedLineRange` is a one-based inclusive generated **line** range. It
-  contains no generated columns.
-- `GeneratedSourceMapEntry` joins that range to one semantic identity and one
-  full `SourceOrigin`. The source origin contains a one-based half-open source
-  span, logical source unit, construct label, and optional source SHA-256.
-- `GeneratedSourceMap` identifies one backend/module/selected-IR/artifact-hash
-  tuple. Schema version 1 sorts entries canonically and preserves overlapping
-  proven entries; `entries_for_line()` returns every entry covering a line.
-- `BackendArtifact` owns the emitted text, its SHA-256, selected-IR identity,
-  signal bindings, recursive component/instance/binding manifests, companion
-  files, timing, dependency, signature, physical-domain, and implementation
-  metadata. Those bindings are not generated line locations.
-
-<a id="reference-generated-source-maps-proven-granularity"></a>
-#### Proven granularity
-
-| Emitted category | Current mapping precision |
-| --- | --- |
-| One unique direct-SystemVerilog top-level output assignment in a module with exactly one assignment and one output | **Exact generated line**, with the typed expression's authoritative source origin |
-| Pipeline result's final unique output assignment when it meets that same restriction | **Exact final assignment line only**; internal pipeline registers and sequential block are unmapped |
-| Module and port declarations | **Unmapped** |
-| Multiple output assignments | **Unmapped** by the current bounded builder |
-| State/register declarations and sequential blocks | **Unmapped** |
-| Functions/helpers and generated temporary signals | **Unmapped** |
-| Protocol lowering and compiler-generated inline aggregate boundary bridges | **Unmapped**; each bridge is derived from the corresponding typed leaf origin, but no generated-line entry is published yet |
-| Child modules, instances, and recursive hierarchy | **Unmapped as generated lines**; recursive manifest identities/bindings remain available separately |
-| Formal/backend scaffolding and helper code | **Unmapped** |
-
-The current builder has no construct-level or coarse navigation entries: an
-entry is an exact generated statement line, otherwise it is omitted. Source
-spans may identify an expression rather than an identifier token, and must not
-be described as exact identifier navigation.
-
-The recursive manifest schemas have optional `source_origin` fields, but the
-current direct-SystemVerilog hierarchy publication does not populate them for
-ordinary component instances or recursive signal bindings. Even when populated,
-their physical signal paths would still not prove generated text line ranges.
-
-<a id="reference-generated-source-maps-directional-capability"></a>
-#### Directional capability
-
-Generated-to-source lookup is bounded but authoritative after a consumer has
-already obtained the matching map and generated text: verify the generated
-text SHA-256 against `artifact_hash`, call `entries_for_line()`, and preserve
-all returned origins. Zero entries means unmapped. Multiple entries are an
-explicit ambiguity; existing external-diagnostic attribution fails closed
-unless they reduce to one complete semantic origin. `source_unit` and digest
-participate in that decision; equal rendered spans from distinct source
-snapshots are not merged.
-
-Source-to-generated lookup has no supported query API. A consumer can observe
-source origins in entries, but the schema has no source index, physical source
-path, generated artifact path, or artifact-discovery contract. One source
-construct may eventually map to multiple generated ranges, so a future API
-must preserve a collection rather than select a first match.
-
-<a id="reference-generated-source-maps-artifact-identity-and-staleness"></a>
-#### Artifact identity and staleness
-
-The generated side is strongly bound: `artifact_hash` is the SHA-256 of the
-exact generated text, and the map also repeats backend, module, and
-selected-IR identity. A changed `.sv` file is rejected by existing consumers.
-
-Each mapped `SourceOrigin` normally carries the digest of the source snapshot
-that produced it, so a future query can reject changed editor text for that
-entry. The generated-navigation bundle bundle loader now validates caller-supplied current source text
-or digest against complete bundle-level snapshots, including the root when a
-map has zero entries. There is still no source-to-generated location query or
-LSP method.
-
-The sidecar itself contains no physical `.sv` path. The CLI writes generated
-RTL and a sidecar only when explicitly requested; `BackendArtifact` and
-`GeneratedSourceMap` can otherwise exist only in memory. A whole-build manifest
-can bind published products by logical path and content hash. The separate generated-navigation bundle
-bundle now gives future tooling one explicit relocatable publication root and a
-fail-closed loader; navigation must still never generate RTL implicitly.
-
-The serialized `BackendArtifact` manifest intentionally does not embed the RTL
-text: restoration retains the hash and binding metadata with an empty `text`
-field. A consumer must therefore obtain and hash the separately published RTL
-file. `BackendBuildRecord` can identify the RTL and source-map publications by
-content hash and relocatable logical path inside a validated whole-build file
-map, but no tooling API currently owns that physical-path resolution.
-
-Generated coordinates make no character-encoding promise because version 1
-contains no generated columns or lengths. Source coordinates remain compiler
-native one-based code-point spans. Artifact hashes are computed from the
-in-memory generated text encoded as UTF-8 by Python's default `str.encode()`;
-future LSP UTF-16 conversion remains a protocol-layer concern.
-
-<a id="reference-generated-source-maps-published-provenance-prerequisite"></a>
-#### Published provenance prerequisite
-
-The versioned, hash-validated
-[generated-navigation bundle](#reference-generated-navigation-bundles) now binds a
-relocatable generated file, this exact sidecar, the canonical backend manifest,
-and complete source snapshot identities, including the root when this map has
-zero entries. A later reviewed slice may project protocol-neutral source to
-generated locations over a validated loaded bundle. Generated line coverage
-remains independent and can be expanded only at emitter-owned fragment
-construction points; names, comments, or proximity are never substitutes for
-provenance.
+A consumer must first verify the generated text against the artifact SHA-256.
+Zero matching entries means “unmapped”; multiple distinct complete origins are
+ambiguous and must not be guessed from names or proximity. The bundle can
+validate source-snapshot freshness, but there is no supported
+source-to-generated query or LSP navigation method. Generated coordinates are
+one-based lines; source spans use compiler-native code-point columns, converted
+to UTF-16 only by an LSP client boundary. See the
+[generated-navigation bundle](#reference-generated-navigation-bundles) for
+publication and integrity details.
 
 <a id="reference-generated-navigation-bundles"></a>
 ## Generated navigation bundles
 
 
 ZLang can publish a small, relocatable Community artifact bundle that binds one
-already-generated direct-SystemVerilog file to its exact generated source map,
+already-generated Direct-SV file to its exact generated source map,
 backend manifest, and producing source snapshots. The bundle is an integrity
-and provenance boundary for future tooling. **It does not provide an LSP
+and provenance boundary for tooling. **It does not provide an LSP
 navigation method.**
 
 Publish it during the normal compiler invocation:
@@ -5893,7 +5595,7 @@ bundle always contains its own exact generated file, generated source map, and
 serialized `BackendArtifact`; it never invokes a second backend render.
 
 <a id="reference-generated-navigation-bundles-why-this-is-a-separate-v1-contract"></a>
-### Why this is a separate v1 contract
+### Why generated navigation uses a separate bundle
 
 Before this contract, `BackendArtifact`, `BackendBuildRecord`, and
 `WholeBuildManifest` already carried backend/module/selected-IR identities,
@@ -5903,9 +5605,8 @@ origins. Those records did not provide a single persisted path from which a
 consumer could locate the arbitrarily placed physical RTL and sidecar, and the
 whole-build root publication did not retain the compiler logical source unit.
 
-Changing the established whole-build v1 schema would disrupt unrelated build
-consumers. `zlang-generated-navigation-bundle-v1` is therefore a narrow
-publication contract. It reuses the canonical serialized `BackendArtifact` as
+The navigation bundle is a narrow publication contract that avoids changing
+unrelated whole-build consumers. It reuses the canonical serialized `BackendArtifact` as
 the lineage owner instead of duplicating its hierarchy, implementation, timing,
 module-signature, and dependency structures.
 
@@ -5921,8 +5622,8 @@ generated/source-map.json
 manifest/backend-artifact.json
 ```
 
-`manifest.json` has schema `zlang-generated-navigation-bundle-v1` and schema
-version `1`. It contains:
+`manifest.json` identifies its own format for strict compatibility checks. It
+contains:
 
 - `bundle_identity`: SHA-256 of the canonical identity payload;
 - `generated_artifact`: a `PublishedFile` logical path, SHA-256, kind, and size;
@@ -5960,7 +5661,7 @@ from a module. Loading validates:
 - presence, regular-file status, exact sizes, and SHA-256 of all child files;
 - canonical backend-manifest and source-map serialization;
 - generated bytes against the backend artifact hash;
-- direct-SystemVerilog backend, module, selected-IR, and source-map lineage;
+- Direct-SV backend, module, selected-IR, and source-map lineage;
 - exact source snapshot agreement with backend dependency provenance;
 - complete `source_unit` and digest identity for every mapped source origin.
 
@@ -5987,7 +5688,7 @@ editor text is checked separately because it can change after loading.
 ### Relocatability and limitations
 
 The complete directory can be moved or copied and loaded at its new location.
-No original absolute path is required. Current bundles are direct-SystemVerilog
+No original absolute path is required. Current bundles are Direct-SV
 only and do not embed producing source contents. They validate caller-supplied
 source text/digests but do not locate workspaces or manage unsaved overlays.
 
@@ -6024,7 +5725,7 @@ spans and other attribution-only metadata. An optional canonical content hash
 may accompany either reference. The high-level and selected identities are not
 backend artifacts, RTL hashes, or synthesis-plan identities.
 
-The production direct-SystemVerilog backend is planned from the selected-IR
+The production Direct-SV backend is planned from the selected-IR
 identity. Its record keeps these identities separate:
 
 - the normalized backend plan identity;
@@ -6033,7 +5734,7 @@ identity. Its record keeps these identities separate:
 - an optional physical implementation-graph identity;
 - an optional source-map hash.
 
-This distinction prevents a physical direct-SystemVerilog resource plan from
+This distinction prevents a physical Direct-SV resource plan from
 being mistaken for the selected semantic design. Backend states are explicit: `selected`,
 `generic_fallback`, `unsupported`, `failed`, or `not_requested`. A selected or
 fallback build must publish an artifact, its manifest version, and at least one
@@ -6075,7 +5776,7 @@ enter semantic, artifact, cache, or whole-build identity.
 
 Companions remain associated with the backend product that needs them. For
 example, an initialized ROM image is not hidden inside the RTL identity: the
-image is a separate content-addressed companion validated beside direct-SV
+image is a separate content-addressed companion validated beside Direct-SV
 `$readmemb` output.
 
 The CLI acquires the root source once as raw UTF-8 bytes. Semantic compilation
@@ -6139,14 +5840,14 @@ The first-class verification UX adds an immutable bundle boundary rather than
 changing that rule. `--verification-bundle` publishes hash-validated structured
 verification IR, implementation/source-map inputs, and separate safety/cover
 jobs. Exact ROM images are immutable `companion` inputs to every job that uses
-them. `zlang-verify` or `zlang --verify` creates a run report only after real
+them. `zlang verify` or `zlang --verify` creates a run report only after real
 execution. Solver, engine, depth, timeout, logs, tool versions, witnesses, and
 counterexamples are run data and are not folded into the bundle's source
 identity. A bounded cover miss is `bounded_unreached`, never proof of
 unreachability.
 
-Bundle schema v4 and verification-IR snapshot v3 describe the immutable input.
-Raw run-report schema v7 separately records `run_identity`, exact execution
+The bundle describes immutable inputs. A separate run report records
+`run_identity`, exact execution
 configuration, retained bounded-stage results, tool versions, and a work
 directory for each safety/cover job. Generated SBY configuration,
 stdout/stderr, timeout diagnostics, and VCDs live outside the bundle below
@@ -6154,8 +5855,8 @@ stdout/stderr, timeout diagnostics, and VCDs live outside the bundle below
 the immutable binding table into semantic signal/value pairs; paths and raw logs
 remain outside `run_identity`.
 
-A joint `--verify` plus non-`off` formal-policy run publishes
-`zlang-compiler-verification-report-v1`. That wrapper links the raw v7 report to
+A joint `--verify` plus non-`off` formal-policy run publishes a compiler report
+that links the raw execution report to
 the exact compiler execution plan and separately typed selected-candidate semantic-reference equivalence
 reports. Candidate reports retain deterministic per-route work roots and
 the discovered tool snapshot when execution needed tool discovery; exact
@@ -6263,7 +5964,7 @@ The child must retain the existing storage-array contract: scalar wire ports,
 one inherited clock/reset domain, and no nested instances. Multiple scalar
 outputs are allowed. Each array element has a distinct physical instance
 identity and storage state; all elements share the one deterministic
-specialization identity. The direct-SystemVerilog backend consumes
+specialization identity. The Direct-SV backend consumes
 `ElaboratedInstance` bindings directly and emits one reusable component plus one
 application/instance per physical element.
 
@@ -6285,54 +5986,44 @@ remain rejected because they do not yet have a frozen protocol/storage contract.
 
 The two-lane synchronous-memory witness checks independent cells and addresses,
 write-first same-address collision behavior, registered read output, and reset
-clearing both cells and read state.  It passes strict Verilator behavior through
-both backends.
+clearing both cells and read state. It passes strict Direct-SV/Verilator
+behavior.
 
 The [`ZtpuBankedMemory`](../examples/ztpu_banked_memory.zhl) witness elaborates
 two four-element arrays into eight independently identified physical memory
 children with one shared specialization. Runtime output projection selects the
 addressed bank separately for each read port; decoded writes are broadcast to
-the matching bank in both replicas. The semantic simulator and both RTL
-backends agree on masked writes, independent reads, `read_first` collisions,
-reset suppression/preservation, and post-reset contents. BackendArtifact v4
-records every leaf path and no fictitious dynamic instance. Hidden cells gain
+the matching bank in both replicas. The semantic simulator and Direct-SV/Verilator
+agree on masked writes, independent reads, `read_first` collisions,
+reset suppression/preservation, and post-reset contents. The versioned
+BackendArtifact records every leaf path and no fictitious dynamic instance.
+Hidden cells gain
 no new formal observation family.
 
 <a id="reference-source-identity-migration"></a>
-## Source identity migration
+## Source and product identity
 
 
-The public product name is **ZLang HDL**. Its canonical filesystem and tooling
-identity is:
+The public product name is **ZLang HDL**. Its distribution and repository are
+`zlang-hdl`; the compiler command is `zlang`, the source suffix is `.zhl`, the
+VS Code language ID is `zlang-hdl`, and the MIME type is `text/x-zlang-hdl`.
 
-| Surface | Identity |
-|---|---|
-| Distribution and repository | `zlang-hdl` |
-| Compiler command | `zlang` |
-| Source suffix | `.zhl` |
-| VS Code language id | `zlang-hdl` |
-| MIME type | `text/x-zlang-hdl` |
-
-The former `.zl` suffix is not a compatibility alias. Physical compiler inputs
-using it fail with diagnostic `ZL-SOURCE-EXTENSION` and must be renamed. This
-strict boundary avoids collision with the unrelated `zlangdevs/zlang` project,
-which already uses `.zl`.
+The `.zl` suffix is not a compatibility alias. Physical compiler inputs using
+it fail with diagnostic `ZL-SOURCE-EXTENSION`; use `.zhl`.
 
 Logical imports do not contain a source suffix. For example,
 `import std.math.fixed` resolves to `stdlib/math/fixed.zhl`, while project and
 locked-package imports use their logical module identities.
 
-The dependency-lock schema is version 2 after this migration. Older locks are
-rejected and must be regenerated with `zlang-lock update`; this prevents a lock
-that names the former physical suffix from being accepted under a new source
-identity. Source, build, and proof caches miss safely because their dependency
-and source-unit identities include the migrated paths.
+Older dependency locks are rejected by the current versioned lock schema;
+regenerate them with `zlang lock update`. Source, build, and proof caches are
+bound to dependency and source-unit identities, and stale inputs miss safely.
 
 The short prose name **ZLang** remains valid after the product has been
 introduced. The Python package `zlang`, `zlang.toml`, `zlang.lock`, the
 compiler-owned `.zlang/` state directory, environment variables prefixed
 `ZLANG_`, generated HDL identifiers, and the TextMate scope `source.zlang` are
-intentional internal identities and were not renamed.
+intentional product identities.
 
 <a id="reference-syntax-support-matrix"></a>
 ## Language support matrix
@@ -6340,29 +6031,114 @@ intentional internal identities and were not renamed.
 
 Canonical implementation-selection markers: `implement`, `choice`.
 
-Implementation selection uses the canonical `implement` form for compiler-
-discovered candidates and `choice` for user-supplied alternatives. The retired
+Implementation selection uses the canonical `implement` form for
+compiler-discovered candidates and `choice` for user-supplied alternatives. The retired
 scalar `pipeline(auto)`, `architecture(auto)`, and `explore` spellings are
 migration diagnostics; only protocol `transform pipeline(auto, ...)` remains
 source syntax.
 
 `zlang.public_capabilities.CAPABILITY_REGISTRY` is the machine-readable source
 for public capability context, semantic status, backend-independent IR,
-simulator/direct-SV/formal coverage, executable witness, and current
-limitations. Registry tests compile
-every advertised witness. `examples/all_syntax.zhl` is a representative language
+simulator/Direct-SV/formal coverage, executable witness, and current
+limitations. The advertised witnesses are compiled by the public capability
+gate. `examples/all_syntax.zhl` is a representative language
 tour, not a substitute for that phase-specific capability record.
+
+The following language/backend view is generated from that registry.
+`bounded` means the detailed limits in this reference and the capability
+record still apply; “supported” is not a promise for every composition.
+`Simulation` is the registry's current generic simulator field, not a separate
+native-JIT guarantee. Native execution fails explicitly for unsupported plans;
+see [Native simulation](#reference-native-simulation). Formal entries name
+the specific eligible relations rather than promising arbitrary proof.
+
+<!-- capability-matrix:start -->
+### Language and execution
+
+| Capability | Language | Simulation | Direct-SV |
+| --- | --- | --- | --- |
+| `scalar-datapath` | supported | supported | supported |
+| `exact-literals-and-packed-constants` | supported | supported | supported |
+| `fixed-point` | supported | supported | supported |
+| `aggregates` | supported | supported | supported |
+| `characters-strings-tuples` | bounded | supported | supported |
+| `tagged-unions` | bounded | supported | supported |
+| `functional-datapath` | supported | supported | supported |
+| `compile-time-generation` | supported | not applicable | supported after specialization |
+| `concise-exact-lowering` | supported | supported | supported |
+| `typed-static-parameters` | bounded | not applicable | supported after specialization |
+| `generic-rom-and-table-gather` | bounded | supported | supported |
+| `sequential-state` | supported | supported | supported |
+| `physical-clock-reset` | bounded | supported | supported |
+| `multi-clock-stateful-logic` | bounded | supported | supported |
+| `encoded-enums-and-fsm` | supported | supported | supported |
+| `vector-state-update` | bounded | supported | supported |
+| `fifo-storage` | supported | supported | supported |
+| `writable-memory` | bounded | supported | supported |
+| `ready-valid` | supported | supported | supported |
+| `credit` | supported | supported | supported |
+| `request-response` | supported | supported | supported |
+| `aggregate-protocols` | bounded | supported | supported |
+| `ahb-lite-stdlib` | bounded | supported | supported |
+| `cdc` | bounded | supported | supported |
+| `csr` | bounded | supported | supported |
+| `contracts` | supported | supported | artifact generation |
+| `exploration` | bounded | not applicable | selected candidates |
+| `elastic-ready-valid-pipeline` | bounded | supported | supported |
+| `combinational-instance-arrays` | bounded | supported | supported |
+| `runtime-instance-output-projection` | bounded | supported | supported |
+| `sequential-instance-arrays` | bounded | supported | supported |
+| `storage-instance-arrays` | bounded | supported | supported |
+| `ready-valid-instance-arrays` | bounded | supported | supported |
+| `request-response-instance-arrays` | bounded | supported | supported |
+
+### Formal coverage
+
+| Capability | Formal coverage |
+| --- | --- |
+| `scalar-datapath` | semantic-reference equivalence relations |
+| `exact-literals-and-packed-constants` | semantic-reference equivalence relations where eligible |
+| `fixed-point` | bounded semantic-reference equivalence relations |
+| `aggregates` | value relations only where bindable |
+| `characters-strings-tuples` | existing scalar/packed relations where eligible |
+| `tagged-unions` | no dedicated formal family |
+| `functional-datapath` | scalar/fixed relations where eligible |
+| `compile-time-generation` | not applicable |
+| `concise-exact-lowering` | inherits the properties of the normalized typed IR |
+| `typed-static-parameters` | identity/cache participation; no new property family |
+| `generic-rom-and-table-gather` | existing storage safety only |
+| `sequential-state` | existing safety verification register/rule families retain one outer rule-fire observation |
+| `physical-clock-reset` | existing formal routes support exact rising/falling, synchronous/raw-asynchronous, polarity, and synchronized-release contracts when power_up is unspecified |
+| `multi-clock-stateful-logic` | source goals use exact per-goal domains; automatic state families remain bounded |
+| `encoded-enums-and-fsm` | no enum/FSM-specific property family |
+| `vector-state-update` | register safety where observable |
+| `fifo-storage` | existing safety verification FIFO family |
+| `writable-memory` | no memory-specific safety verification family |
+| `ready-valid` | existing safety verification ready/valid family |
+| `credit` | existing safety verification sender/receiver credit family when the exact counter is bound |
+| `request-response` | existing safety verification ledger and directional-buffer safety family |
+| `aggregate-protocols` | no general aggregate property family |
+| `ahb-lite-stdlib` | existing register/state and ready-valid properties where bindable |
+| `cdc` | no CDC proof family |
+| `csr` | existing safety verification CSR family |
+| `contracts` | safety verification and bounded cover execution when bound |
+| `exploration` | formal-aware selection `available` is advisory; required policies require connected semantic-reference equivalence |
+| `elastic-ready-valid-pipeline` | existing safety verification ready/valid stability only; semantic-reference equivalence unsupported |
+| `combinational-instance-arrays` | no hierarchical semantic-reference equivalence |
+| `runtime-instance-output-projection` | no hierarchical semantic-reference equivalence |
+| `sequential-instance-arrays` | no new recursive observation family |
+| `storage-instance-arrays` | no hidden-cell observations |
+| `ready-valid-instance-arrays` | existing applicable safety only |
+| `request-response-instance-arrays` | existing applicable safety only |
+<!-- capability-matrix:end -->
 
 <a id="reference-known-limitations"></a>
 ## Known limitations
 
 
-ZLang `0.1.0a10` is an experimental alpha release.  The compiler deliberately
+ZLang `0.1.0a11` is an experimental alpha release.  The compiler deliberately
 fails closed when a design falls outside a validated language/backend
 intersection: it must not publish RTL after silently dropping an IR entity.
-
-<a id="reference-known-limitations-supported-platform"></a>
-### Supported platform
 
 <a id="reference-known-limitations-language-and-backend-boundaries"></a>
 ### Language and backend boundaries
@@ -6380,11 +6156,11 @@ intersection: it must not publish RTL after silently dropping an IR entity.
   across a CDC boundary are not implemented. Ordinary global memory control is
   still not composable with unrelated user register/rule state in the same
   module; use hierarchy until that unified-state slice is implemented.
-- The direct-SV production intersection is authoritative. Unsupported
+- The Direct-SV production intersection is authoritative. Unsupported
   combinations must produce a structured diagnostic rather than partial RTL.
 - The Python API is provisional.  The command-line interface and versioned
   artifact/lock/bundle schemas are the intended integration surfaces.
-- Simulation-only architectural state access is currently a generic direct-SV/
+- Simulation-only architectural state access is currently a generic Direct-SV/
   Verilator facility for one exact clock/reset domain. It does not expose
   backend-created FIFO, CSR, protocol, CDC, or target-mapped state and
   must not be confused with synthesizable memory initialization.

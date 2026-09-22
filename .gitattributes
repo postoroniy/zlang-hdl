@@ -12,6 +12,10 @@
 *.toml text
 *.yml text
 *.yaml text
-*.pdf binary
 
 examples/generated/** linguist-generated=true
+
+# Preserve imported private 802.11ad reference sources byte-for-byte.  Their
+# upstream formatting intentionally contains trailing spaces and blank EOF
+# lines, so repository-wide whitespace checks must not rewrite the reference.
+examples/projects/80211ad_phylayer/ref/802.11ad/** whitespace=-blank-at-eol,-blank-at-eof

@@ -238,6 +238,59 @@ def test_real_cardinals_and_integral_logs_escape_only_as_exact_integers() -> Non
     assert assignments["e"].value == 1
 
 
+def test_exp_and_sqrt_quantize_to_fixed_constants() -> None:
+    result = analyze(parse(
+        "module G { "
+        "out e:UF4.12 = quantize<UF4.12>(exp(1))"
+        "{round nearest_even overflow saturate} "
+        "out root:UF2.14 = quantize<UF2.14>(sqrt(2))"
+        "{round nearest_even overflow saturate} "
+        "out reciprocal_root:UF2.14 = quantize<UF2.14>(1 / sqrt(2))"
+        "{round nearest_even overflow saturate} "
+        "}"
+    ))
+    assignments = {item.target.name: item.expression for item in result.assignments}
+    assert assignments["e"].value == 11134
+    assert assignments["root"].value == 23170
+    assert assignments["reciprocal_root"].value == 11585
+    assert all(
+        isinstance(assignments[name], ir_expr.Constant)
+        for name in ("e", "root", "reciprocal_root")
+    )
+
+
+def test_exp_zero_and_exact_rational_sqrt_escape_as_exact_integers() -> None:
+    result = analyze(parse(
+        "module G { "
+        "out e:u1 = exp(0) "
+        "out root:u3 = sqrt(4) "
+        "out fraction:UF2.4 = quantize<UF2.4>(sqrt(1 / 4))"
+        "{round nearest_even overflow saturate} "
+        "}"
+    ))
+    assignments = {item.target.name: item.expression for item in result.assignments}
+    assert assignments["e"].value == 1
+    assert assignments["root"].value == 2
+    assert assignments["fraction"].value == 8
+
+
+def test_exact_real_intrinsics_are_valid_module_parameter_expressions() -> None:
+    module = compile_source(
+        "module G<A=sin(0),B=log2(8),C=sqrt(4),D=exp(0)> { "
+        "out a:bit=A out b:u2=B out c:u2=C out d:u1=D }"
+    ).ir
+    assignments = {item.target.name: item.expression for item in module.assignments}
+    assert {name: value.value for name, value in assignments.items()} == {
+        "a": 0,
+        "b": 3,
+        "c": 2,
+        "d": 1,
+    }
+
+    with pytest.raises(SemanticError, match="non-integral compile-time real"):
+        compile_source("module Bad<W=sqrt(2)> { out y:uint<W> y=0 }")
+
+
 def test_negative_integral_real_intrinsic_uses_minimum_signed_width() -> None:
     result = analyze(parse("module G { value=cos(pi()) out y:s1 y=value }"))
     assert result.locals[0].expression == ir_expr.Constant(
@@ -261,7 +314,16 @@ def test_real_intrinsic_domain_and_runtime_operand_diagnostics() -> None:
         ("module G { out y:SF2.14 y=quantize<SF2.14>(log2(0)){round floor overflow wrap} }", "positive"),
         ("module G { out y:SF2.14 y=quantize<SF2.14>(log(1,8)){round floor overflow wrap} }", "base"),
         ("module G { out y:SF2.14 y=quantize<SF2.14>(log(2,0)){round floor overflow wrap} }", "positive"),
+        ("module G { out y:SF2.14 y=quantize<SF2.14>(sqrt(-1)){round floor overflow wrap} }", "non-negative"),
         ("module G { in x:SF2.14 out y:SF2.14 y=quantize<SF2.14>(sin(x)){round nearest_even overflow wrap} }", "runtime value 'x'"),
+        ("module G { in x:SF2.14 out y:SF2.14 y=quantize<SF2.14>(exp(x)){round nearest_even overflow wrap} }", "runtime value 'x'"),
+    ):
+        with pytest.raises(SemanticError, match=pattern):
+            compile_source(source)
+
+    for source, pattern in (
+        ("module G { out y:u1 y=exp() }", "expects one argument"),
+        ("module G { out y:u1 y=sqrt(1,2) }", "expects one argument"),
     ):
         with pytest.raises(SemanticError, match=pattern):
             compile_source(source)
@@ -278,7 +340,7 @@ def test_real_evaluator_identity_is_stable_and_versioned() -> None:
     assert isinstance(second, ir_expr.Constant)
     assert first.value == second.value == 8192
     schema, dependency, runtime = ct_real.dependency_identity()
-    assert schema == "zlang-ct-real-v2"
+    assert schema == "zlang-ct-real-v3"
     assert dependency == "stdlib-decimal"
     assert runtime[0] == "python"
 

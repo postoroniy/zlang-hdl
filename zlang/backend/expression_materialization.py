@@ -9,20 +9,23 @@ render SystemVerilog and therefore cannot change semantics.
 
 from __future__ import annotations
 
-from collections import Counter
 from dataclasses import dataclass, fields, is_dataclass, replace
+from collections.abc import Iterator
 from typing import Callable, Iterable, Mapping
 
 from zlang.ir import expressions as expr
-from zlang.ir.functional import (
-    materialize_exact_reduction,
-    materialize_functional_region,
-)
+from zlang.ir.expression_graph import ExpressionDagIndex
+from zlang.ir.functional import materialize_exact_reduction
 from zlang.ir.module import Module
+from zlang.ir.signed_reductions import expression_merkle_identity
 from zlang.ir.traversal import (
     ExpressionTraversalPolicy,
     expression_children as typed_expression_children,
 )
+
+
+FUNCTIONAL_REGION_EMISSION_SCHEMA = "zlang-direct-sv-functional-region-v3"
+DIRECT_SV_DAG_SCHEMA = "zlang-direct-sv-dag-v1"
 
 
 @dataclass(frozen=True)
@@ -33,23 +36,131 @@ class MaterializedExpression:
     name: str
 
 
+@dataclass(frozen=True)
+class DirectSvDagNode:
+    """One pure node in the backend-owned exact expression DAG."""
+
+    expression: expr.Expression
+    identity: str
+    fanout: int
+    size: int
+    scope: str
+    temporary: str | None = None
+
+
+@dataclass(frozen=True)
+class DirectSvDagPlan:
+    """Deterministic dependency-first sharing plan for one procedural scope."""
+
+    nodes: tuple[DirectSvDagNode, ...]
+    materialized: tuple[MaterializedExpression, ...]
+    schema: str = DIRECT_SV_DAG_SCHEMA
+
+
+class ExpressionAliasMap:
+    """Identity-keyed aliases that never hash recursive expression dataclasses.
+
+    Frozen expression records inherit structural ``__hash__`` and ``__eq__``.
+    Using a deeply shared DAG node as an ordinary ``dict`` key can therefore
+    revisit its complete logical expansion.  Backend alias lookup is semantic,
+    so store the stable expression identity instead and cache it by object ID.
+    """
+
+    def __init__(
+        self, items: Iterable[tuple[expr.Expression, str]] = ()
+    ) -> None:
+        self._names: dict[str, str] = {}
+        self._identity_cache: dict[int, tuple[expr.Expression, str]] = {}
+        self._payload_cache: dict[int, str] = {}
+        self.update(items)
+
+    def identity(self, value: expr.Expression) -> str:
+        return _cached_expression_identity(
+            value, self._identity_cache, self._payload_cache
+        )
+
+    def __contains__(self, value: object) -> bool:
+        return isinstance(value, expr.Expression) and self.identity(value) in self._names
+
+    def __getitem__(self, value: expr.Expression) -> str:
+        return self._names[self.identity(value)]
+
+    def __setitem__(self, value: expr.Expression, name: str) -> None:
+        identity = self.identity(value)
+        previous = self._names.get(identity)
+        if previous is not None and previous != name:
+            raise ValueError(
+                "one semantic expression cannot have conflicting backend aliases"
+            )
+        self._names[identity] = name
+
+    def update(self, items: Iterable[tuple[expr.Expression, str]]) -> None:
+        for value, name in items:
+            self[value] = name
+
+    def values(self) -> Iterator[str]:
+        return iter(self._names.values())
+
+
+def _cached_expression_identity(
+    value: expr.Expression,
+    identity_cache: dict[int, tuple[expr.Expression, str]],
+    payload_cache: dict[int, str],
+) -> str:
+    cached = identity_cache.get(id(value))
+    if cached is not None and cached[0] is value:
+        return cached[1]
+    identity = expression_merkle_identity(value, payload_cache)
+    identity_cache[id(value)] = (value, identity)
+    return identity
+
+
 def expression_children(value: expr.Expression) -> tuple[expr.Expression, ...]:
     """Return executable child expressions without double-counting plans."""
 
+    if isinstance(value, expr.FunctionalRegion):
+        # A FunctionalRegion is an executable *template*, not an eagerly
+        # replicated expression tree.  Backend materialization may share its
+        # runtime captures, but selecting a node from one virtual iteration as
+        # a module temporary would both escape the binder and force the very
+        # textual expansion that the compact IR is meant to prevent.
+        return tuple(captured for _, captured in value.captures)
+
+    if isinstance(value, expr.Reduce) and (
+        value.expanded is not None or value.plan is not None
+    ):
+        expanded = (
+            value.expanded
+            if value.expanded is not None
+            else materialize_exact_reduction(value)
+        )
+        assert expanded is not None
+        return (expanded,)
+
+    if isinstance(value, expr.ImplementationChoice):
+        return (value.selected_alternative.expression,)
+
     return typed_expression_children(
         value,
-        policy=ExpressionTraversalPolicy.EXECUTABLE,
+        policy=ExpressionTraversalPolicy.SELECTED_IMPLEMENTATION,
     )
 
 
 def walk_expression(value: expr.Expression) -> Iterable[expr.Expression]:
-    yield value
-    for child in expression_children(value):
-        yield from walk_expression(child)
+    """Walk one executable DAG in deterministic preorder exactly once."""
+
+    yield from ExpressionDagIndex(
+        (value,), children=expression_children
+    ).preorder()
 
 
 def expression_size(value: expr.Expression) -> int:
-    return 1 + sum(expression_size(child) for child in expression_children(value))
+    # Preserve the historical logical-occurrence metric while computing it
+    # once per unique DAG node.  Shared subtrees therefore no longer cause
+    # recursive host work proportional to their expanded tree.
+    return ExpressionDagIndex(
+        (value,), children=expression_children
+    ).logical_occurrences()
 
 
 def module_expression_roots(
@@ -134,32 +245,89 @@ def module_expression_roots(
 def plan_materialization(
     roots: Iterable[expr.Expression],
     *,
-    preferred_names: Mapping[expr.Expression, str] | None = None,
+    preferred_names: (
+        Iterable[tuple[expr.Expression, str]]
+        | Mapping[expr.Expression, str]
+        | None
+    ) = None,
     reserved_names: Iterable[str] = (),
     generated_prefix: str = "zlang_expr_",
     minimum_shared_size: int = 4,
+    scope: str = "module",
 ) -> tuple[MaterializedExpression, ...]:
     """Choose shared/expensive exact expressions in deterministic DFS order."""
+
+    return build_direct_sv_dag_plan(
+        roots,
+        preferred_names=preferred_names,
+        reserved_names=reserved_names,
+        generated_prefix=generated_prefix,
+        minimum_shared_size=minimum_shared_size,
+        scope=scope,
+    ).materialized
+
+
+def build_direct_sv_dag_plan(
+    roots: Iterable[expr.Expression],
+    *,
+    preferred_names: (
+        Iterable[tuple[expr.Expression, str]]
+        | Mapping[expr.Expression, str]
+        | None
+    ) = None,
+    reserved_names: Iterable[str] = (),
+    generated_prefix: str = "zlang_expr_",
+    minimum_shared_size: int = 4,
+    scope: str = "module",
+) -> DirectSvDagPlan:
+    """Build a bounded DAG plan without expanding logical expression paths.
+
+    Fanout counts incoming DAG edges and root uses.  Recursion visits every
+    object once, so a heavily shared semantic graph remains linear in its
+    number of unique nodes.  Module and FunctionalRegion callers build
+    separate plans; this is the backend's explicit scope boundary.
+    """
 
     if minimum_shared_size < 1:
         raise ValueError("minimum shared expression size must be positive")
 
-    preferred = dict(preferred_names or {})
-    occurrences: Counter[expr.Expression] = Counter()
-    order: list[expr.Expression] = []
-    aggregate_field_selections: set[expr.Expression] = set()
-    dynamic_index_prefixes: set[expr.Expression] = set()
-    sizes: dict[expr.Expression, int] = {}
+    if preferred_names is None:
+        preferred_items: tuple[tuple[expr.Expression, str], ...] = ()
+    elif isinstance(preferred_names, Mapping):
+        preferred_items = tuple(preferred_names.items())
+    else:
+        preferred_items = tuple(preferred_names)
+    preferred_by_identity = {
+        expression_merkle_identity(expression): name
+        for expression, name in preferred_items
+    }
+    identities: dict[int, tuple[expr.Expression, str]] = {}
+    representatives: dict[str, expr.Expression] = {}
+    fanout: dict[str, int] = {}
+    dependency_order: list[expr.Expression] = []
+    aggregate_field_selections: set[str] = set()
+    dynamic_index_prefixes: set[str] = set()
+    sizes: dict[str, int] = {}
+    payload_cache: dict[int, str] = {}
+
+    def identity_of(value: expr.Expression) -> str:
+        return _cached_expression_identity(value, identities, payload_cache)
 
     def size_of(value: expr.Expression) -> int:
-        cached = sizes.get(value)
+        identity = identity_of(value)
+        cached = sizes.get(identity)
         if cached is not None:
             return cached
         result = 1 + sum(size_of(child) for child in expression_children(value))
-        sizes[value] = result
+        sizes[identity] = result
         return result
 
     def visit(value: expr.Expression) -> None:
+        identity = identity_of(value)
+        fanout[identity] = fanout.get(identity, 0) + 1
+        if identity in representatives:
+            return
+        representatives[identity] = value
         if isinstance(value, expr.RuntimeIndex) and not isinstance(
             value.expression,
             (
@@ -180,44 +348,43 @@ def plan_materialization(
             # as that select's prefix (Synth 8-2599).  Retain the exact typed
             # vector as one backend-local value so every emitter can render a
             # simple reference without changing index order or element width.
-            dynamic_index_prefixes.add(value.expression)
+            dynamic_index_prefixes.add(identity_of(value.expression))
         if (
             isinstance(value, expr.FieldAccess)
             and isinstance(value.expression, expr.RuntimeIndex)
         ):
-            aggregate_field_selections.add(value.expression)
+            aggregate_field_selections.add(identity_of(value.expression))
         if (
             isinstance(value, (expr.FieldAccess, expr.VectorIndex, expr.RuntimeIndex))
             and isinstance(value.expression, (expr.Unpack, expr.Bitcast, expr.Reshape))
         ):
-            aggregate_field_selections.add(value.expression)
-        occurrences[value] += 1
-        if occurrences[value] == 1:
-            order.append(value)
+            aggregate_field_selections.add(identity_of(value.expression))
         for child in expression_children(value):
             visit(child)
+        dependency_order.append(value)
 
     for root in roots:
         visit(root)
 
     expensive_conversion_inputs = {
-        value.expression
-        for value in order
+        identity_of(value.expression)
+        for value in dependency_order
         if isinstance(value, expr.FixedConvert)
         and size_of(value.expression) >= 8
     }
 
     selected: list[expr.Expression] = []
-    for value in order:
+    for value in dependency_order:
         size = size_of(value)
         used_repeatedly = (
-            occurrences[value] > 1 and size >= minimum_shared_size
+            fanout[identity_of(value)] > 1 and size >= minimum_shared_size
         )
-        feeds_expensive_conversion = value in expensive_conversion_inputs
+        identity = identity_of(value)
+        feeds_expensive_conversion = identity in expensive_conversion_inputs
         if (
-            value in preferred
-            or value in aggregate_field_selections
-            or value in dynamic_index_prefixes
+            identity in preferred_by_identity
+            or identity in aggregate_field_selections
+            or identity in dynamic_index_prefixes
             or used_repeatedly
             or feeds_expensive_conversion
         ):
@@ -240,7 +407,8 @@ def plan_materialization(
     materialized: list[MaterializedExpression] = []
     generated_index = 0
     for value in selected:
-        name = preferred.get(value)
+        identity = identity_of(value)
+        name = preferred_by_identity.get(identity)
         if name is None:
             while True:
                 name = f"{generated_prefix}{generated_index}"
@@ -251,7 +419,23 @@ def plan_materialization(
             continue
         used_names.add(name)
         materialized.append(MaterializedExpression(value, name))
-    return tuple(materialized)
+    names_by_identity = {
+        identity_of(item.expression): item.name for item in materialized
+    }
+    return DirectSvDagPlan(
+        nodes=tuple(
+            DirectSvDagNode(
+                expression=value,
+                identity=identity_of(value),
+                fanout=fanout[identity_of(value)],
+                size=size_of(value),
+                scope=scope,
+                temporary=names_by_identity.get(identity_of(value)),
+            )
+            for value in dependency_order
+        ),
+        materialized=tuple(materialized),
+    )
 
 
 def dependency_ordered_materialization(
@@ -269,75 +453,91 @@ def dependency_ordered_materialization(
     """
 
     planned = tuple(materialized)
-    by_expression = {item.expression: item for item in planned}
-    state: dict[expr.Expression, int] = {}
+    identity_cache: dict[int, tuple[expr.Expression, str]] = {}
+    payload_cache: dict[int, str] = {}
+
+    def identity_of(value: expr.Expression) -> str:
+        return _cached_expression_identity(value, identity_cache, payload_cache)
+
+    by_identity = {identity_of(item.expression): item for item in planned}
+    state: dict[str, int] = {}
     ordered: list[MaterializedExpression] = []
 
-    def dependencies(value: expr.Expression) -> tuple[expr.Expression, ...]:
-        found: list[expr.Expression] = []
-        seen: set[expr.Expression] = set()
+    def dependencies(value: expr.Expression) -> tuple[str, ...]:
+        found: list[str] = []
+        seen: set[str] = set()
 
         def visit(current: expr.Expression) -> None:
             for child in expression_children(current):
-                if child in seen:
+                child_identity = identity_of(child)
+                if child_identity in seen:
                     continue
-                seen.add(child)
-                if child in by_expression:
-                    found.append(child)
+                seen.add(child_identity)
+                if child_identity in by_identity:
+                    found.append(child_identity)
                 else:
                     visit(child)
 
         visit(value)
         return tuple(found)
 
-    def visit(value: expr.Expression) -> None:
-        status = state.get(value, 0)
+    def visit(identity: str) -> None:
+        status = state.get(identity, 0)
         if status == 2:
             return
         if status == 1:
             raise ValueError(
                 "materialized expression dependency graph contains a cycle"
             )
-        state[value] = 1
-        for dependency in dependencies(value):
+        state[identity] = 1
+        item = by_identity[identity]
+        for dependency in dependencies(item.expression):
             visit(dependency)
-        state[value] = 2
-        ordered.append(by_expression[value])
+        state[identity] = 2
+        ordered.append(item)
 
     for item in planned:
-        visit(item.expression)
+        visit(identity_of(item.expression))
     return tuple(ordered)
 
 
 def replace_materialized(
     value: expr.Expression,
-    aliases: Mapping[expr.Expression, str],
+    aliases: ExpressionAliasMap | Mapping[expr.Expression, str],
     *,
     keep: expr.Expression | None = None,
+    rewrite_region_owned: bool = False,
 ) -> expr.Expression:
     """Replace planned subgraphs with exact-width typed local references."""
 
-    if value != keep and value in aliases:
-        return expr.InputRef(aliases[value], value.type, origin=value.origin)
+    alias_index = (
+        aliases
+        if isinstance(aliases, ExpressionAliasMap)
+        else ExpressionAliasMap(aliases.items())
+    )
+    keep_identity = alias_index.identity(keep) if keep is not None else None
+    if alias_index.identity(value) != keep_identity and value in alias_index:
+        return expr.InputRef(alias_index[value], value.type, origin=value.origin)
 
-    # Compact functional/reduction regions intentionally keep their expanded
-    # executable graph outside dataclass fields.  Materialization planning
-    # walks that graph via :func:`expression_children`; rewriting must expose
-    # the identical graph as well or an alias selected from a region body would
-    # never reach the backend renderer.  These replacements are backend-local
-    # views only: the semantic/canonical IR remains compact and unchanged.
-    if isinstance(value, expr.FunctionalRegion):
-        elements = tuple(
-            replace_materialized(element, aliases, keep=keep)
-            for element in materialize_functional_region(value)
-        )
-        return expr.Generate(
-            index=value.binder.display_name,
-            start=value.binder.start,
-            stop=value.binder.stop,
-            elements=elements,
-            type=value.type,
-            origin=value.origin,
+    # Preserve a compact region and rewrite only its runtime captures.  The
+    # region-owned template/table graph is rendered under its loop binder by
+    # statement-based backends and cannot legally refer to a module-scoped
+    # materialization alias.
+    if isinstance(value, expr.FunctionalRegion) and not rewrite_region_owned:
+        return replace(
+            value,
+            captures=tuple(
+                (
+                    reference,
+                    replace_materialized(
+                        captured,
+                        alias_index,
+                        keep=keep,
+                        rewrite_region_owned=rewrite_region_owned,
+                    ),
+                )
+                for reference, captured in value.captures
+            ),
         )
     if isinstance(value, expr.Reduce) and (
         value.expanded is not None or value.plan is not None
@@ -348,20 +548,31 @@ def replace_materialized(
             else materialize_exact_reduction(value)
         )
         assert expanded is not None
-        return replace_materialized(expanded, aliases, keep=keep)
+        return replace_materialized(
+            expanded,
+            alias_index,
+            keep=keep,
+            rewrite_region_owned=rewrite_region_owned,
+        )
     if isinstance(value, expr.ImplementationChoice):
         # Rendering and executable traversal observe only the selected
         # alternative.  Rewriting unused alternatives can demand aliases for
         # state that the backend correctly never allocated.
         return replace_materialized(
             value.selected_alternative.expression,
-            aliases,
+            alias_index,
             keep=keep,
+            rewrite_region_owned=rewrite_region_owned,
         )
 
     def rewrite(item: object) -> object:
         if isinstance(item, expr.Expression):
-            return replace_materialized(item, aliases, keep=keep)
+            return replace_materialized(
+                item,
+                alias_index,
+                keep=keep,
+                rewrite_region_owned=rewrite_region_owned,
+            )
         if isinstance(item, tuple):
             return tuple(rewrite(child) for child in item)
         if is_dataclass(item) and not isinstance(item, type):
@@ -371,7 +582,7 @@ def replace_materialized(
                     continue
                 current = getattr(item, field.name)
                 replacement = rewrite(current)
-                if replacement != current:
+                if replacement is not current:
                     updates[field.name] = replacement
             return replace(item, **updates) if updates else item
         return item
@@ -382,6 +593,6 @@ def replace_materialized(
             continue
         current = getattr(value, field.name)
         replacement = rewrite(current)
-        if replacement != current:
+        if replacement is not current:
             updates[field.name] = replacement
     return replace(value, **updates) if updates else value

@@ -20,6 +20,38 @@ class ReadyValidSignal(str, Enum):
     TRANSFER = "transfer"
 
 
+def ready_valid_field_name(
+    endpoint: str, signal: ReadyValidSignal | str,
+) -> str:
+    """Compiler-owned scalar identity for a typed ready/valid signal."""
+
+    value = signal.value if isinstance(signal, ReadyValidSignal) else signal
+    return f"$zlang_protocol:{endpoint}:{value}"
+
+
+def parse_ready_valid_field_name(
+    name: str,
+) -> tuple[str, ReadyValidSignal] | None:
+    """Decode one exact private signal identity; reject malformed names."""
+
+    if not name.startswith("$zlang_protocol:"):
+        return None
+    endpoint, separator, field = name.removeprefix(
+        "$zlang_protocol:"
+    ).rpartition(":")
+    if not separator or not endpoint or ":" in endpoint:
+        return None
+    try:
+        signal = ReadyValidSignal(field)
+    except ValueError:
+        return None
+    if signal is ReadyValidSignal.TRANSFER:
+        return None
+    if ready_valid_field_name(endpoint, signal) != name:
+        return None
+    return endpoint, signal
+
+
 class CreditSignal(str, Enum):
     PAYLOAD = "payload"
     SEND = "send"

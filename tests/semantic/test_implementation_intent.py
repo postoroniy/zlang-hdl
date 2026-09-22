@@ -242,6 +242,15 @@ def test_malformed_implement_intent_is_rejected() -> None:
         )
 
 
+def test_ii_bound_does_not_create_time_multiplexed_candidate() -> None:
+    source = "module Interval { in a:u8 out y:u8 y=implement { a intent { %s minimize lut } } }"
+    bounded = _compile(source % "ii <= 4")
+    selected = bounded.exploration_results[0].selected_candidate
+    assert selected.cost.ii.value == 1
+    with pytest.raises(SemanticError, match="no implementation satisfies constraints"):
+        _compile(source % "ii == 4")
+
+
 def test_math_architecture_candidate_is_hashseed_independent() -> None:
     root = Path(__file__).resolve().parents[2]
     script = (

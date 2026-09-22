@@ -107,7 +107,7 @@ from zlang.compiler_verification_report import CompilerVerificationReport
 from zlang.targets import ArchitectureSelectionMode
 from zlang.costs import SourcePolicy
 from zlang.diagnostics import Diagnostic, DiagnosticError, diagnostic_from_exception
-from zlang.workspace import WorkspaceError
+from zlang.workspace import WorkspaceError, load_project_workspace
 from zlang.project import ProjectLock, ProjectManifest
 from zlang.platform_constraints import (
     ConstraintArtifact,
@@ -438,25 +438,69 @@ def _print_cli_diagnostic(
     diagnostic_format: str,
     *,
     legacy_message: str | None = None,
+    source: Path | None = None,
+    project: Path | None = None,
 ) -> None:
-    """Write one diagnostic without changing legacy text presentation."""
+    """Write one diagnostic with a compiler-owned code and source location."""
 
-    if diagnostic_format == "json":
-        diagnostic = _fallback_diagnostic(error)
-        if legacy_message is not None:
-            diagnostic = Diagnostic(
-                diagnostic.code,
-                legacy_message,
-                diagnostic.primary,
-                diagnostic.notes,
-                diagnostic.fixes,
-            )
-        print(diagnostic.to_json(), file=sys.stderr)
-    else:
-        print(
-            f"{CLI_NAME}: error: {legacy_message if legacy_message is not None else error}",
-            file=sys.stderr,
+    diagnostic = _fallback_diagnostic(error)
+    if legacy_message is not None:
+        diagnostic = Diagnostic(
+            diagnostic.code,
+            legacy_message,
+            diagnostic.primary,
+            diagnostic.notes,
+            diagnostic.fixes,
         )
+    if diagnostic_format == "json":
+        print(diagnostic.to_json(), file=sys.stderr)
+        return
+
+    location = _cli_diagnostic_location(
+        diagnostic,
+        source=source,
+        project=project,
+    )
+    prefix = f"{CLI_NAME}: "
+    if location is not None:
+        prefix += f"{location}: "
+    print(
+        f"{prefix}error[{diagnostic.code}]: {diagnostic.message}",
+        file=sys.stderr,
+    )
+
+
+def _cli_diagnostic_location(
+    diagnostic: Diagnostic,
+    *,
+    source: Path | None,
+    project: Path | None,
+) -> str | None:
+    """Resolve a logical compiler origin to a physical CLI source location."""
+
+    origin = diagnostic.primary
+    if origin is None:
+        return None
+    source_path = source
+    source_unit = origin.source_unit
+    if source_path is not None and source_unit not in {None, source_path.name}:
+        resolved_source: Path | None = None
+        try:
+            workspace = load_project_workspace(source_path, project=project)
+        except (OSError, ValueError):
+            workspace = None
+        if workspace is not None:
+            resolved_source = workspace.source_path_for_unit(source_unit)
+        source_path = resolved_source
+    rendered_source = (
+        str(source_path)
+        if source_path is not None
+        else (source_unit or "<unknown-source>")
+    )
+    return (
+        f"{rendered_source}:{origin.span.start_line}:"
+        f"{origin.span.start_column}"
+    )
 
 
 def _query_tool_version(executable: str, argument: str) -> str:
@@ -516,44 +560,86 @@ def _report_format(path: Path, *, fallback: str = "text") -> str:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    effective_argv = list(sys.argv[1:] if argv is None else argv)
+    if effective_argv and effective_argv[0] == "sim":
+        from zlang.sim_cli import main as simulation_main
+
+        return simulation_main(effective_argv[1:])
+    if effective_argv and effective_argv[0] == "verify":
+        from zlang.verification_cli import main as verification_main
+
+        return verification_main(effective_argv[1:], prog="zlang verify")
+    if effective_argv and effective_argv[0] == "lock":
+        from zlang.project_cli import main as project_main
+
+        return project_main(effective_argv[1:], prog="zlang lock")
+    if effective_argv and effective_argv[0] == "lsp":
+        from zlang.lsp.server import main as lsp_main
+
+        return lsp_main(effective_argv[1:], prog="zlang lsp")
     parser = argparse.ArgumentParser(
         prog=CLI_NAME,
-        description=f"Compile {PUBLIC_LANGUAGE_NAME} and emit selected backend artifacts"
+        usage=(
+            "%(prog)s SOURCE [OPTIONS]\n"
+            "       %(prog)s sim SOURCE [SIMULATION OPTIONS]\n"
+            "       %(prog)s verify BUNDLE [VERIFICATION OPTIONS]\n"
+            "       %(prog)s lock update [PROJECT OPTIONS]\n"
+            "       %(prog)s lsp"
+        ),
+        description=f"Compile or check {PUBLIC_LANGUAGE_NAME} source",
+        epilog=(
+            "subcommands:\n"
+            "  zlang sim SOURCE --top TOP --clock CLK --cycles N\n"
+            "  zlang verify BUNDLE --mode bmc --depth 20\n"
+            "  zlang lock update --project zlang.toml\n"
+            "  zlang lsp\n"
+            "  Run 'zlang sim --help' or 'zlang COMMAND --help' for a "
+            "subcommand's complete interface.\n\n"
+            "common examples:\n"
+            "  zlang design.zhl --check\n"
+            "  zlang design.zhl --top Top --systemverilog build/Top.sv\n"
+            "  zlang sim design.zhl --top Top --clock clk --cycles 100 --json"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
         "--version",
         action="version",
         version=f"%(prog)s {__version__}",
     )
-    parser.add_argument("--top", help="select a top module from a multi-module source")
-    parser.add_argument(
+    source_options = parser.add_argument_group("source selection")
+    source_options.add_argument(
+        "--top", help="select a top module from a multi-module source"
+    )
+    source_options.add_argument(
         "--project",
         type=Path,
         help="use this zlang.toml (or containing directory) instead of parent discovery",
     )
-    parser.add_argument(
+    source_options.add_argument(
         "--profile",
         help="select one strict implementation profile from zlang.toml",
     )
-    parser.add_argument(
+    source_options.add_argument(
         "--diagnostic-format",
         choices=("text", "json"),
         default="text",
         help="render compiler diagnostics as compatible text or stable JSON",
     )
     parser.add_argument("source", type=Path, help=f"input {SOURCE_SUFFIX} file")
-    parser.add_argument(
+    primary_actions = parser.add_argument_group("primary actions")
+    primary_actions.add_argument(
         "--check",
         action="store_true",
         help="check syntax and semantics without emitting an artifact",
     )
-    parser.add_argument(
+    primary_actions.add_argument(
         "-v",
         "--verbose",
         action="store_true",
         help="report successful compilation and explicitly written artifacts",
     )
-    parser.add_argument(
+    primary_actions.add_argument(
         "--systemverilog",
         type=Path,
         help="write direct SystemVerilog for the supported backend subset",
@@ -561,9 +647,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--experimental-systemverilog",
         type=Path,
-        help="compatibility alias for --systemverilog",
+        help=argparse.SUPPRESS,
     )
-    parser.add_argument(
+    rtl_options = parser.add_argument_group("SystemVerilog and implementation tools")
+    rtl_options.add_argument(
         "--simulation-state-bundle",
         type=Path,
         help=(
@@ -571,49 +658,54 @@ def main(argv: Sequence[str] | None = None) -> int:
             "(requires --systemverilog)"
         ),
     )
-    parser.add_argument(
+    rtl_options.add_argument(
         "--constraints-xdc",
         type=Path,
         help="publish a typed single-domain XDC create_clock constraint",
     )
-    parser.add_argument(
+    rtl_options.add_argument(
         "--constraints-sdc",
         type=Path,
         help="publish a typed single-domain SDC create_clock constraint",
     )
-    parser.add_argument(
+    rtl_options.add_argument(
         "--verilator-lint",
         action="store_true",
         help="lint generated SystemVerilog with Verilator (requires --systemverilog)",
     )
-    parser.add_argument("--verilator", help="explicit Verilator executable")
-    parser.add_argument("--yosys", help="explicit Yosys executable")
-    parser.add_argument(
+    rtl_options.add_argument("--verilator", help="explicit Verilator executable")
+    rtl_options.add_argument("--yosys", help="explicit Yosys executable")
+    implementation_options = parser.add_argument_group("implementation selection")
+    implementation_options.add_argument(
         "--target",
-        help="select a compiler-shipped target instance (for example xc7z030ffg676-1)",
+        help=(
+            "select a compiler-shipped target instance (for example "
+            "xc7z030ffg676-1 or sky130-fd-sc-hd)"
+        ),
     )
-    parser.add_argument(
+    implementation_options.add_argument(
         "--target-architecture",
         help="manually select one source-described architecture template",
     )
-    parser.add_argument(
+    implementation_options.add_argument(
         "--target-architecture-mode",
         choices=tuple(item.value for item in ArchitectureSelectionMode),
         default=None,
         help="generic, preferred fallback, or required manual target architecture",
     )
-    parser.add_argument(
+    implementation_options.add_argument(
         "--target-evidence-policy",
         choices=tuple(item.value for item in SourcePolicy),
         default=None,
         help="estimate_only, measured_preferred, or routed-Fmax measured_required",
     )
-    parser.add_argument(
+    build_artifacts = parser.add_argument_group("build artifacts")
+    build_artifacts.add_argument(
         "--implementation-manifest",
         type=Path,
         help="write the versioned selected-resource BackendArtifact manifest",
     )
-    parser.add_argument(
+    build_artifacts.add_argument(
         "--source-map",
         type=Path,
         help=(
@@ -621,7 +713,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "explicit direct-SystemVerilog output"
         ),
     )
-    parser.add_argument(
+    build_artifacts.add_argument(
         "--generated-navigation-bundle",
         type=Path,
         help=(
@@ -629,102 +721,104 @@ def main(argv: Sequence[str] | None = None) -> int:
             "bundle (requires --systemverilog)"
         ),
     )
-    parser.add_argument(
+    build_artifacts.add_argument(
         "--evidence-report",
         type=Path,
         help="write deterministic typed build evidence",
     )
-    parser.add_argument(
+    build_artifacts.add_argument(
         "--evidence-format",
         choices=("text", "json"),
         default="json",
         help="format selected by --evidence-report (default: json)",
     )
-    parser.add_argument(
+    build_artifacts.add_argument(
         "--build-manifest",
         type=Path,
         help="write a deterministic whole-build manifest after validating outputs",
     )
-    parser.add_argument(
+    build_artifacts.add_argument(
         "--csr-markdown",
         type=Path,
         help="write CSR Markdown documentation (requires a CSR block)",
     )
-    parser.add_argument(
+    build_artifacts.add_argument(
         "--csr-json",
         type=Path,
         help="write the software-readable CSR JSON map (requires a CSR block)",
     )
-    parser.add_argument(
+    build_artifacts.add_argument(
         "--contracts-sva",
         type=Path,
         help="write bindable SystemVerilog assume/assert contracts",
     )
-    parser.add_argument(
+    inspection_options = parser.add_argument_group("compiler inspection reports")
+    inspection_options.add_argument(
         "--high-level-ir",
         type=Path,
         help="write canonical IR before implementation-cost extraction",
     )
-    parser.add_argument(
+    inspection_options.add_argument(
         "--optimization-ir",
         type=Path,
         help="write the normalized canonical optimization IR",
     )
-    parser.add_argument(
+    inspection_options.add_argument(
         "--saturation-report",
         type=Path,
         help="write bounded equality-saturation alternatives for one output",
     )
-    parser.add_argument(
+    inspection_options.add_argument(
         "--saturate-output",
         help="wire output to inspect (requires --saturation-report)",
     )
-    parser.add_argument(
+    inspection_options.add_argument(
         "--implementation-report",
         type=Path,
         help="write explicit implementation applicability and timing metadata",
     )
-    parser.add_argument(
+    inspection_options.add_argument(
         "--cost-report",
         type=Path,
         help="write estimated candidate costs, constraints, and extraction choice",
     )
-    parser.add_argument(
+    inspection_options.add_argument(
         "--pipeline-report",
         type=Path,
         help="write automatic pipeline candidates, constraints, and selection",
     )
-    parser.add_argument(
+    inspection_options.add_argument(
         "--architecture-report",
         type=Path,
         help="write bounded FIR architecture candidates, pruning, and selection",
     )
-    parser.add_argument(
+    inspection_options.add_argument(
         "--exploration-report",
         type=Path,
         help="write unified explore candidate, rejection, and selection details",
     )
-    parser.add_argument(
+    inspection_options.add_argument(
         "--implementation-policy-report",
         type=Path,
         help="write the normalized profile/source/CLI implementation policy",
     )
-    parser.add_argument(
+    inspection_options.add_argument(
         "--backend-implementation-report",
         type=Path,
         help="write the direct-SystemVerilog implementation planning result",
     )
-    parser.add_argument("--formal-harness", type=Path, help="write the safety verification formal checker harness")
-    parser.add_argument("--formal-sby", type=Path, help="write the safety verification SymbiYosys configuration")
-    parser.add_argument("--formal-depth", type=int, default=32, help="bounded formal depth")
-    parser.add_argument("--formal-policy", choices=tuple(item.value for item in FormalPolicy),
+    formal_options = parser.add_argument_group("formal verification")
+    formal_options.add_argument("--formal-harness", type=Path, help="write the safety verification formal checker harness")
+    formal_options.add_argument("--formal-sby", type=Path, help="write the safety verification SymbiYosys configuration")
+    formal_options.add_argument("--formal-depth", type=int, default=32, help="bounded formal depth")
+    formal_options.add_argument("--formal-policy", choices=tuple(item.value for item in FormalPolicy),
                         default=None,
                         help="formal-aware selection formal exploration eligibility policy")
-    parser.add_argument("--formal-max-candidates", type=int, default=8,
+    formal_options.add_argument("--formal-max-candidates", type=int, default=8,
                         help="maximum candidates to execute formal proofs for")
-    parser.add_argument("--formal-timeout", type=int, default=120,
+    formal_options.add_argument("--formal-timeout", type=int, default=120,
                         help="per-candidate formal timeout in seconds")
-    parser.add_argument(
+    formal_options.add_argument(
         "--formal-jobs",
         type=int,
         default=1,
@@ -733,60 +827,61 @@ def main(argv: Sequence[str] | None = None) -> int:
             "sites to run concurrently"
         ),
     )
-    parser.add_argument(
+    formal_options.add_argument(
         "--formal-cache",
         type=Path,
         help="versioned formal proof and verification-result cache directory",
     )
-    parser.add_argument(
+    formal_options.add_argument(
         "--verify",
         action="store_true",
         help="execute connected safety checks and bounded cover goals",
     )
-    parser.add_argument(
+    formal_options.add_argument(
         "--verification-bundle",
         type=Path,
         help="publish an immutable replayable verification bundle",
     )
-    parser.add_argument(
+    formal_options.add_argument(
         "--verification-report",
         type=Path,
         help="write the --verify result report",
     )
-    parser.add_argument(
+    formal_options.add_argument(
         "--verification-work-dir",
         type=Path,
         help="retain solver configurations, logs, and traces for --verify",
     )
-    parser.add_argument(
+    formal_options.add_argument(
         "--verification-format",
         choices=("text", "json"),
         default=None,
         help="verification report format (default: text)",
     )
-    parser.add_argument(
+    formal_options.add_argument(
         "--verify-require",
         choices=("checked", "proven"),
         default=None,
         help="required safety evidence: bounded checked or unbounded proven",
     )
-    parser.add_argument(
+    synthesis_options = parser.add_argument_group("measured synthesis")
+    synthesis_options.add_argument(
         "--synthesis-report",
         type=Path,
         help="write cached Yosys measurements and feedback selection",
     )
-    parser.add_argument(
+    synthesis_options.add_argument(
         "--synthesis-cache",
         type=Path,
         help="cache directory for normalized-candidate Yosys measurements",
     )
-    parser.add_argument(
+    synthesis_options.add_argument(
         "--synthesis-target",
         choices=("generic-lut6",),
         default="generic-lut6",
         help="Yosys characterization target",
     )
-    arguments = parser.parse_args(argv)
+    arguments = parser.parse_args(effective_argv)
     if arguments.check and has_explicit_artifact_sink(arguments):
         parser.error("--check cannot be combined with artifact output options")
     if arguments.check and arguments.verify:
@@ -913,7 +1008,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             except (ParseError, SemanticError, TopSelectionError) as error:
                 if arguments.check and len(compile_tops) > 1:
                     raise SemanticError(
-                        f"while checking module '{compile_top}': {error}"
+                        f"while checking module '{compile_top}': {error}",
+                        code=error.code,
+                        primary=error.primary,
+                        notes=error.notes,
+                        fixes=error.fixes,
+                        machine_fixes=error.machine_fixes,
                     ) from error
                 raise
         assert result is not None
@@ -924,6 +1024,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             legacy_message=(
                 f"cannot read source file '{arguments.source.name}': invalid UTF-8"
             ),
+            source=arguments.source,
+            project=arguments.project,
         )
         return 1
     except OSError as error:
@@ -934,6 +1036,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             legacy_message=(
                 f"cannot read source file '{arguments.source.name}': {detail}"
             ),
+            source=arguments.source,
+            project=arguments.project,
         )
         return 1
     except (
@@ -945,7 +1049,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         # Keep the Python API typed, but make source failures concise and
         # artifact-safe at the CLI boundary.  argparse usage errors below
         # intentionally retain exit status 2.
-        _print_cli_diagnostic(error, arguments.diagnostic_format)
+        _print_cli_diagnostic(
+            error,
+            arguments.diagnostic_format,
+            source=arguments.source,
+            project=arguments.project,
+        )
         return 1
     try:
         _preflight_compilation_input_paths(arguments, result)

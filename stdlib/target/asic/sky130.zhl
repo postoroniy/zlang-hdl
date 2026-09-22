@@ -1,0 +1,75 @@
+// SKY130 high-density standard-cell synthesis profile.
+//
+// Ordinary Direct-SV remains generic RTL and is mapped by the downstream ASIC
+// flow against the sky130_fd_sc_hd Liberty/LEF views.  Only cells documented by
+// that library are named here.  The standard-cell library does not provide a
+// hard multiplier, SRAM or PLL, so those resources must come from an explicit
+// project macro library rather than being invented by this target.
+resource Sky130HdStandardCellLogic {
+    class standard_cell_logic
+    operation combinational_logic
+    capability characterized_library true
+    capability library sky130_fd_sc_hd
+    capability implementation liberty_mapped
+    binding systemverilog generic_rtl
+}
+
+resource Sky130HdFlipFlop {
+    port clk input unsigned 1
+    port d input unsigned 1
+    port q output unsigned 1
+    class register
+    operation register
+    capability library sky130_fd_sc_hd
+    capability cell sky130_fd_sc_hd__dfxtp_1
+    capability edge rising
+    capability reset none
+    pipeline_site storage location output latency 1 ii 1 local true delay_ps 0
+    pipeline_config registered latency 1 ii 1 enable storage
+    binding systemverilog generic_rtl
+    physical_primitive sky130_fd_sc_hd__dfxtp_1
+    physical_site storage Q
+}
+
+resource Sky130HdResetFlipFlop {
+    port clk input unsigned 1
+    port reset_b input unsigned 1
+    port d input unsigned 1
+    port q output unsigned 1
+    class register
+    operation register
+    capability library sky130_fd_sc_hd
+    capability cell sky130_fd_sc_hd__dfrtp_1
+    capability edge rising
+    capability reset asynchronous_active_low
+    pipeline_site storage location output latency 1 ii 1 local true delay_ps 0
+    pipeline_config registered latency 1 ii 1 enable storage
+    binding systemverilog generic_rtl
+    physical_primitive sky130_fd_sc_hd__dfrtp_1
+    physical_site storage Q
+}
+
+resource Sky130HdClockGate {
+    class clock_control
+    operation clock_enable
+    capability library sky130_fd_sc_hd
+    capability cell sky130_fd_sc_hd__dlclkp_1
+    capability glitch_free true
+    binding systemverilog unsupported
+    physical_primitive sky130_fd_sc_hd__dlclkp_1
+}
+
+target Sky130FdScHd {
+    provides Sky130HdStandardCellLogic
+    provides Sky130HdFlipFlop
+    provides Sky130HdResetFlipFlop
+    provides Sky130HdClockGate
+}
+
+// A standard-cell target has no fixed cell inventory: die area and project
+// constraints bound utilization in synthesis/place-and-route.
+device sky130_fd_sc_hd : Sky130FdScHd {
+    part sky130_fd_sc_hd
+}
+
+module Sky130FdScHdTargetLibrary {}

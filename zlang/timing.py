@@ -62,7 +62,12 @@ def timing_info(
     ii=1,
 ) -> TimingInfo:
     """Compute existing ZLang latency without changing compilation semantics."""
-    return TimingInfo(_latency(value, module=module), ii, clock_domain, reset_domain)
+    return TimingInfo(
+        _latency(value, module=module, memo={}),
+        ii,
+        clock_domain,
+        reset_domain,
+    )
 
 
 def relate_timing(lhs, rhs, lhs_timing: TimingInfo | None = None,
@@ -82,8 +87,8 @@ def relate_timing(lhs, rhs, lhs_timing: TimingInfo | None = None,
     if left.latency == right.latency:
         return TimingRelation(TimingRelationKind.SAME_CYCLE, lhs, rhs, 0, "same-cycle value equivalence")
     if left.latency < right.latency:
-        return TimingRelation(TimingRelationKind.TIMED_EQUIVALENT, lhs, rhs, right.latency - left.latency, _proof(lhs, rhs))
-    return TimingRelation(TimingRelationKind.TIMED_EQUIVALENT, rhs, lhs, left.latency - right.latency, _proof(rhs, lhs))
+        return TimingRelation(TimingRelationKind.TIMED_EQUIVALENT, lhs, rhs, right.latency - left.latency, _proof(rhs))
+    return TimingRelation(TimingRelationKind.TIMED_EQUIVALENT, rhs, lhs, left.latency - right.latency, _proof(lhs))
 
 
 def validate_timed_candidate(original, candidate, *, original_timing=None,
@@ -166,7 +171,12 @@ class TimedEquivalenceGraph:
                               (first.delta or 0) + (second.delta or 0), "composition")
 
 
-def _latency(value: expr.Expression, *, module=None) -> int:
+def _latency(
+    value: expr.Expression,
+    *,
+    module=None,
+    memo: dict[int, tuple[expr.Expression, int]] | None = None,
+) -> int:
     """Return the exact structural latency embedded in a typed value graph.
 
     timing alignment originally only inspected a timing node at the expression root.  That
@@ -180,10 +190,23 @@ def _latency(value: expr.Expression, *, module=None) -> int:
     available.  The optional context keeps the historical public API usable by
     the timing alignment value-equivalence helpers.
     """
+    if memo is None:
+        memo = {}
+    cached = memo.get(id(value))
+    if cached is not None and cached[0] is value:
+        return cached[1]
     if isinstance(value, expr.Delay):
-        return _latency(value.expression, module=module) + value.cycles
+        latency = (
+            _latency(value.expression, module=module, memo=memo) + value.cycles
+        )
+        memo[id(value)] = (value, latency)
+        return latency
     if isinstance(value, expr.Pipeline):
-        return _latency(value.expression, module=module) + value.stages
+        latency = (
+            _latency(value.expression, module=module, memo=memo) + value.stages
+        )
+        memo[id(value)] = (value, latency)
+        return latency
     if isinstance(value, expr.InstanceOutputRef) and module is not None:
         matches = tuple(
             item.timing
@@ -194,14 +217,21 @@ def _latency(value: expr.Expression, *, module=None) -> int:
             timing = matches[0]
             if getattr(timing.knowledge, "value", timing.knowledge) == "known":
                 assert timing.latency is not None
+                memo[id(value)] = (value, timing.latency)
                 return timing.latency
             # Timeless values impose no cycle of their own.  Unknown values
             # cannot be represented by the legacy integer-only TimingInfo;
             # semantic module timing records retain that distinction.
+            memo[id(value)] = (value, 0)
             return 0
 
     children = tuple(_expression_children(value))
-    return max((_latency(child, module=module) for child in children), default=0)
+    latency = max(
+        (_latency(child, module=module, memo=memo) for child in children),
+        default=0,
+    )
+    memo[id(value)] = (value, latency)
+    return latency
 
 
 def _expression_children(value: expr.Expression):
@@ -241,7 +271,7 @@ def _timed_key(value) -> str:
     return f"{_value_identity(value)}@{_latency(value)}"
 
 
-def _proof(lhs, rhs) -> str:
+def _proof(rhs) -> str:
     if isinstance(rhs, expr.Delay) or isinstance(rhs, expr.Pipeline):
         return "explicit_delay" if isinstance(rhs, expr.Delay) else "fixed_pipeline"
     return "value_equivalence_lift"
