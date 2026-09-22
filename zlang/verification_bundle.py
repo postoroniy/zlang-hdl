@@ -67,8 +67,8 @@ VERIFICATION_IR_SCHEMA = "zlang-verification-ir-snapshot-v3"
 VERIFICATION_IR_SCHEMA_VERSION = 3
 VERIFICATION_RUN_REPORT_SCHEMA = "zlang-verification-run-report-v7"
 VERIFICATION_RUN_REPORT_SCHEMA_VERSION = 7
-VERIFICATION_RESULT_CACHE_SCHEMA = "zlang-verification-result-cache-v1"
-VERIFICATION_RESULT_CACHE_SCHEMA_VERSION = 1
+VERIFICATION_RESULT_CACHE_SCHEMA = "zlang-verification-result-cache-v2"
+VERIFICATION_RESULT_CACHE_SCHEMA_VERSION = 2
 
 _HASH = re.compile(r"[0-9a-f]{64}")
 _IDENTITY = re.compile(r"(?:[a-z][a-z0-9_.-]*:)?[0-9a-f]{64}")
@@ -3544,6 +3544,7 @@ def _run_verification_bundle_unlocked(
             work_directory=job_work_directory,
             auxiliary_files=auxiliary_files,
             toolchain=toolchain,
+            counterexample_pre_edge=True,
             diagnostic_sources=diagnostic_sources,
         )
         if formal_result.property_id != job.property_id:
@@ -3571,7 +3572,10 @@ def _run_verification_bundle_unlocked(
                 f"verification job '{job.property_id}' changed tool inventory"
             )
         trace_snapshot = None
-        if formal_result.counterexample is not None:
+        if (
+            formal_result.counterexample is not None
+            and formal_result.counterexample.cycle is not None
+        ):
             trace_snapshot = _semantic_trace_snapshot(
                 job_work_directory,
                 cycle=formal_result.counterexample.cycle,

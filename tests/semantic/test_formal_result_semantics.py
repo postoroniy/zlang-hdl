@@ -9,6 +9,7 @@ from zlang.backend.systemverilog import emit_artifact_with_source_map
 from zlang.common.tool_inventory import ToolInventory
 from zlang.compiler import compile_source
 from zlang.formal import FormalToolchainContext, run_verilog_formal
+from zlang.formal_trace import TraceBinding
 from zlang.ir.formal import (
     Counterexample,
     FormalError,
@@ -71,6 +72,8 @@ def _run_with(
     *,
     status: tuple[str, int, int] | None,
     traces: tuple[Path, ...] = (),
+    counterexample_pre_edge: bool = False,
+    trace_bindings: tuple[TraceBinding, ...] = (),
 ):
     parsed = (
         (None, "SymbiYosys status artifact is missing")
@@ -88,6 +91,8 @@ def _run_with(
     ):
         return run_verilog_formal(
             "module top; endmodule", top="top", property_id="p", depth=2,
+            counterexample_pre_edge=counterexample_pre_edge,
+            trace_bindings=trace_bindings,
         )
 
 
@@ -113,6 +118,65 @@ def test_explicit_failure_is_failed_even_when_output_mentions_pass() -> None:
     assert result.status is FormalStatus.FAILED
     assert result.counterexample is not None
     assert "Status returned by engine: FAIL" in (result.counterexample.raw_trace or "")
+
+
+def test_clocked_failure_uses_pre_edge_frame_not_sby_tail(
+    tmp_path: Path,
+) -> None:
+    trace = tmp_path / "trace.vcd"
+    trace.write_text("""$var integer 32 ! smt_step $end
+$var wire 4 n4 count $end
+$enddefinitions $end
+#0
+b0000 !
+b0000 n4
+#10
+b1011 !
+b1010 n4
+#20
+b1100 !
+b0000 n4
+#30
+b1101 !
+""", encoding="ascii")
+    result = _run_with(
+        CompletedProcess(
+            ("sby",), 2,
+            stdout="SBY summary: failed assertion top.check at top.v:1 step 12\n",
+            stderr="",
+        ),
+        status=("FAIL", 2, 0),
+        traces=(trace,),
+        counterexample_pre_edge=True,
+        trace_bindings=(TraceBinding("register:count", "count", 4),),
+    )
+    assert result.counterexample is not None
+    assert result.counterexample.cycle == 11
+    assert dict(result.counterexample.values)["register:count"] == "0b1010"
+
+
+def test_clocked_failure_without_unique_step_does_not_guess_values(
+    tmp_path: Path,
+) -> None:
+    trace = tmp_path / "trace.vcd"
+    trace.write_text("""$var integer 32 ! smt_step $end
+$var wire 4 n4 count $end
+$enddefinitions $end
+#0
+b0000 !
+b1010 n4
+""", encoding="ascii")
+    result = _run_with(
+        CompletedProcess(("sby",), 2, stdout="DONE (FAIL, rc=2)\n", stderr=""),
+        status=("FAIL", 2, 0),
+        traces=(trace,),
+        counterexample_pre_edge=True,
+        trace_bindings=(TraceBinding("register:count", "count", 4),),
+    )
+    assert result.status is FormalStatus.FAILED
+    assert result.counterexample is not None
+    assert result.counterexample.cycle is None
+    assert result.counterexample.values == ()
 
 
 def test_log_text_cannot_replace_missing_authoritative_status() -> None:
