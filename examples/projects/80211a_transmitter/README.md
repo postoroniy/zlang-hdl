@@ -70,9 +70,8 @@ boundaries remain explicit numerical intent.
 - Ready/valid backpressure holds payload and metadata. Reset starts a new packet
   epoch and discards incomplete work.
 
-The numerical contract is executable in the project source and reference
-vectors. The complete compiler and numeric semantics are documented in the
-[Community language reference](../../../docs/language-reference.md).
+The IFFT64 numerical contract and end-to-end conversion are exercised by the
+project's compiler, simulation, and direct-SystemVerilog validation tests.
 
 ## Build and check
 

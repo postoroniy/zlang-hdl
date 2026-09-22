@@ -627,19 +627,83 @@ class CsrFieldDecl:
     origin: SourceSpan | None = field(default=None, compare=False)
 
 
+class CsrEventKind(str, Enum):
+    READ = "on_read"
+    WRITE = "on_write"
+
+
+@dataclass(frozen=True)
+class CsrEventDecl:
+    """A non-owning observation of one CSR access.
+
+    Event declarations deliberately do not occupy register bits.  Their range
+    only selects the value reported for the qualified transaction, so one
+    storage field and any number of observers may cover the same bits.
+    """
+
+    name: str
+    type_name: TypeSyntax
+    kind: CsrEventKind
+    signal: str
+    msb: int | None = None
+    lsb: int | None = None
+    origin: SourceSpan | None = field(default=None, compare=False)
+
+
 @dataclass(frozen=True)
 class CsrRegisterDecl:
     name: str
     offset: int
     fields: tuple[CsrFieldDecl, ...]
+    events: tuple[CsrEventDecl, ...] = ()
+    origin: SourceSpan | None = field(default=None, compare=False)
+    projection_path: tuple[str, ...] = field(default=(), compare=False)
+
+
+@dataclass(frozen=True)
+class CsrGroupDecl:
+    name: str
+    registers: tuple[CsrRegisterDecl, ...]
+    origin: SourceSpan | None = field(default=None, compare=False)
+
+
+@dataclass(frozen=True)
+class CsrGroupUseDecl:
+    name: str
+    group_name: str
+    count: int | str
+    base_offset: int | str
+    stride: int | str
+    origin: SourceSpan | None = field(default=None, compare=False)
+
+
+class CsrSplitOrder(str, Enum):
+    LOW_FIRST = "low_first"
+    HIGH_FIRST = "high_first"
+
+
+@dataclass(frozen=True)
+class CsrSplitRegisterDecl:
+    name: str
+    offset: int
+    chunk_width: int
+    field_name: str
+    type_name: TypeSyntax
+    access: CsrAccess
+    reset: int = 0
+    order: CsrSplitOrder = CsrSplitOrder.LOW_FIRST
     origin: SourceSpan | None = field(default=None, compare=False)
 
 
 @dataclass(frozen=True)
 class CsrBlockDecl:
     name: str
-    base_address: int
+    # Literal bases remain integers. Parameterized modules retain the bounded
+    # compile-time expression until semantic specialization resolves it.
+    base_address: int | str
     registers: tuple[CsrRegisterDecl, ...]
+    group_uses: tuple[CsrGroupUseDecl, ...] = ()
+    split_registers: tuple[CsrSplitRegisterDecl, ...] = ()
     domain: str | None = None
     origin: SourceSpan | None = field(default=None, compare=False)
 
@@ -1500,6 +1564,7 @@ class Module:
     connections: tuple[ConnectionDecl, ...] = ()
     connection_chains: tuple[ConnectionChainDecl, ...] = ()
     csr_blocks: tuple[CsrBlockDecl, ...] = ()
+    csr_groups: tuple[CsrGroupDecl, ...] = ()
     rules: tuple[RuleDecl | AnonymousRuleDecl, ...] = ()
     rule_priorities: tuple[RulePriority, ...] = ()
     fsms: tuple[FsmDecl, ...] = ()

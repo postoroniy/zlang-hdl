@@ -11,6 +11,7 @@ import json
 from typing import Mapping
 
 from zlang.common import stable_json
+from zlang.common.serialization import ObjectReader
 from zlang.ir.equivalence import (
     EquivalenceCounterexample,
     EquivalenceMode,
@@ -18,7 +19,7 @@ from zlang.ir.equivalence import (
     EquivalenceResult,
     EquivalenceStatus,
 )
-from zlang.source import SourceOrigin, SourceSpan, source_origin_to_data
+from zlang.source import SourceOrigin, source_origin_to_data
 
 
 EQUIVALENCE_RESULT_CODEC_SCHEMA = 1
@@ -28,12 +29,12 @@ class EquivalenceResultCodecError(ValueError):
     """A serialized semantic-reference equivalence result is malformed or internally inconsistent."""
 
 
+def _reader(value: object, description: str) -> ObjectReader:
+    return ObjectReader(value, description, EquivalenceResultCodecError)
+
+
 def _mapping(value: object, description: str) -> Mapping[str, object]:
-    if not isinstance(value, Mapping) or any(
-        not isinstance(key, str) for key in value
-    ):
-        raise EquivalenceResultCodecError(f"{description} must be a JSON object")
-    return value  # type: ignore[return-value]
+    return _reader(value, description).mapping()
 
 
 def _exact_keys(
@@ -55,30 +56,19 @@ def _exact_keys(
 
 
 def _string(value: object, description: str, *, nonempty: bool = False) -> str:
-    if not isinstance(value, str) or (nonempty and not value):
-        qualifier = "non-empty " if nonempty else ""
-        raise EquivalenceResultCodecError(
-            f"{description} must be a {qualifier}string"
-        )
-    return value
+    return _reader(value, description).string(nonempty=nonempty)
 
 
 def _optional_string(value: object, description: str) -> str | None:
-    if value is None:
-        return None
-    return _string(value, description)
+    return _reader(value, description).optional_string()
 
 
 def _integer(value: object, description: str) -> int:
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise EquivalenceResultCodecError(f"{description} must be an integer")
-    return value
+    return _reader(value, description).integer()
 
 
 def _optional_integer(value: object, description: str) -> int | None:
-    if value is None:
-        return None
-    return _integer(value, description)
+    return _reader(value, description).optional_integer()
 
 
 def _enum(enum_type: type, value: object, description: str):
@@ -106,18 +96,9 @@ def _origin_from_data(value: object, description: str) -> SourceOrigin | None:
         {"start_line", "start_column", "end_line", "end_column"},
         f"{description} span",
     )
-    coordinates = tuple(
-        _integer(span_data[name], f"{description} span {name}")
-        for name in ("start_line", "start_column", "end_line", "end_column")
-    )
-    construct = _string(data["construct"], f"{description} construct", nonempty=True)
-    source_unit = _optional_string(data["source_unit"], f"{description} source unit")
-    digest = _optional_string(data["digest"], f"{description} digest")
     try:
-        return SourceOrigin(
-            SourceSpan(*coordinates), construct, source_unit, digest
-        )
-    except ValueError as error:
+        return SourceOrigin.from_data(data)
+    except (TypeError, ValueError) as error:
         raise EquivalenceResultCodecError(str(error)) from error
 
 

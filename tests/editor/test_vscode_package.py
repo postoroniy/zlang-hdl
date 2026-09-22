@@ -380,9 +380,12 @@ class VSCodePackageTests(unittest.TestCase):
         self.assertIn("uv tool install --python '>=3.12,<3.13'", guide)
         self.assertIn("uv venv --python '>=3.12,<3.13'", guide)
         self.assertIn("## Windows through WSL2", guide)
-        self.assertIn("**verified versions**", guide)
-        for version in ("Verilator | 5.052", "Yosys | 0.69", "Z3 | 4.8.12"):
-            self.assertIn(version, guide)
+        self.assertIn("[`release/status.json`](../release/status.json)", guide)
+        status = json.loads((ROOT / "release/status.json").read_text(encoding="utf-8"))
+        self.assertEqual(
+            {tool: status["eda_toolchain"][tool] for tool in ("verilator", "yosys", "z3")},
+            {"verilator": "5.052", "yosys": "0.69", "z3": "4.8.12"},
+        )
         self.assertNotIn("python3.12", guide)
 
     def test_source_derived_archive_is_accepted_and_hashed(self) -> None:

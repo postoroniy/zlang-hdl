@@ -146,7 +146,7 @@ def extract_best(
     selected = min(legal, key=lambda item: item.objective_key)
     return ExtractionResult(selected.candidate, selected.cost, objective,
                             normalized_constraints, policy, tuple(evaluations),
-                            _selection_reason(selected, objective))
+                            _selection_reason(objective))
 
 
 def extract_best_eclass(
@@ -262,7 +262,7 @@ def _known(value: int | float | None) -> float:
     return inf if value is None else float(value)
 
 
-def _selection_reason(selected: CandidateEvaluation, objective: expr.CostMetric) -> str:
+def _selection_reason(objective: expr.CostMetric) -> str:
     return f"selected by {'maximize' if objective is expr.CostMetric.FMAX_EST else 'minimize'} {objective.value} with deterministic tie-break"
 
 

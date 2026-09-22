@@ -45,7 +45,7 @@ from zlang.tooling import (
     signature_help_at,
     semantic_tokens,
 )
-from zlang.workspace import update_project_lock
+from zlang.workspace import WorkspaceError, update_project_lock
 from zlang.semantic import SemanticError
 
 
@@ -361,7 +361,7 @@ def test_definition_projection_resolves_80211a_module_instance_targets(
     cold_elapsed = time.perf_counter() - cold_started
 
     assert calls == 1
-    assert len(tuple((tmp_path / "cache").rglob("*.json"))) == 1
+    assert len(tuple((tmp_path / "cache/zlang-hdl/lsp").rglob("*.json"))) == 1
     result = session.semantic_snapshot(
         source,
         text,
@@ -706,6 +706,33 @@ def test_tooling_session_reuses_and_upgrades_semantic_snapshots(
     assert calls == 3
 
 
+def test_tooling_session_retries_one_physical_snapshot_race(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import zlang.tooling as tooling
+
+    source = tmp_path / "Top.zhl"
+    text = "module Top { out y:u8 y=1 }\n"
+    source.write_text(text, encoding="utf-8")
+    original = tooling.check_file_snapshot
+    calls = 0
+
+    def raced(*args: object, **kwargs: object) -> object:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise WorkspaceError(
+                "root source 'Top' changed after its compilation snapshot"
+            )
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(tooling, "check_file_snapshot", raced)
+    result = ToolingSession().semantic_snapshot(source, text)
+    assert result.ir.name == "Top"
+    assert calls == 2
+
+
 def test_tooling_session_invalidation_for_changed_root_and_dependency(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -903,7 +930,7 @@ def test_unsaved_and_corrupt_symbol_cache_fail_safe(
     assert definition_at(
         standalone, unsaved, 1, position, _session=ToolingSession()
     )
-    assert not tuple(cache_root.rglob("*.json"))
+    assert not tuple((cache_root / "zlang-hdl/lsp").rglob("*.json"))
 
     root = _project(tmp_path)
     top = root / "src/top.zhl"
@@ -911,7 +938,7 @@ def test_unsaved_and_corrupt_symbol_cache_fail_safe(
     update_project_lock(root / "zlang.toml")
     position = saved.splitlines()[1].index("inc")
     assert definition_at(top, saved, 1, position, _session=ToolingSession())
-    shard = next(iter(cache_root.rglob("*.json")))
+    shard = next(iter((cache_root / "zlang-hdl/lsp").rglob("*.json")))
     shard.write_text("{broken", encoding="utf-8")
     original = tooling.check_file_snapshot
     calls = 0
@@ -955,7 +982,7 @@ def test_symbol_cache_modes_and_recipe_identity(
     assert definition_at(top, text, 0, position, _session=session)
     assert definition_at(top, text, 0, position, _session=session)
     assert calls == 2
-    assert not tuple(cache_root.rglob("*.json"))
+    assert not tuple((cache_root / "zlang-hdl/lsp").rglob("*.json"))
 
     monkeypatch.setenv("ZLANG_LSP_SYMBOL_CACHE", "persistent")
     first = ToolingSession()
@@ -1089,7 +1116,6 @@ def test_symbol_cache_concurrent_publication_is_atomic_and_deterministic(
             project=None,
             profile=None,
             top=None,
-            session=session,
         )
 
     with ThreadPoolExecutor(max_workers=2) as executor:

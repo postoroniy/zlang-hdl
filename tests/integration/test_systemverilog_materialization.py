@@ -9,10 +9,16 @@ import subprocess
 
 import pytest
 
+from zlang.backend.expression_materialization import build_direct_sv_dag_plan
 from zlang.backend.systemverilog import emit_experimental
+from zlang.backend.systemverilog import emitter as sv_emitter
 from zlang.compiler import _inline_locals
+from zlang.ir import expressions as expr
+from zlang.ir.types import UIntType, VecType
 from zlang.parser import parse
 from zlang.semantic import analyze
+from tools.benchmark_frontend_scalability import mixer_source
+from zlang.compiler import create_file_compilation_session
 
 
 SOURCE = """
@@ -114,6 +120,125 @@ def test_dynamic_select_materializes_compound_prefix_once() -> None:
         in first
     )
     assert "zlang_packed_frame[34:3][" not in first
+
+
+def test_runtime_select_from_compound_vector_avoids_postfix_part_select() -> None:
+    byte = UIntType(8)
+    vector = expr.Generate(
+        "i",
+        0,
+        4,
+        tuple(expr.Constant(value, byte) for value in range(4)),
+        VecType(4, byte),
+    )
+    selected = expr.RuntimeIndex(
+        vector,
+        expr.InputRef("index", UIntType(2)),
+        4,
+        expr.ValueRange(0, 3),
+        byte,
+    )
+
+    rendered = sv_emitter._expression(selected)
+
+    assert "}[" not in rendered
+    assert rendered.startswith("8'(($unsigned({")
+    assert ">> ((32'(index) * 32'd8))" in rendered
+
+
+def test_direct_sv_dag_plan_materializes_one_shared_producer() -> None:
+    type8 = UIntType(8)
+    type16 = UIntType(16)
+    shared = expr.Binary(
+        expr.BinaryOperator.MULTIPLY,
+        expr.InputRef("a", type8),
+        expr.InputRef("b", type8),
+        type8,
+        type16,
+    )
+    root = expr.Add(
+        shared,
+        shared,
+        UIntType(17),
+    )
+
+    plan = build_direct_sv_dag_plan((root,), minimum_shared_size=2)
+    shared_node = next(node for node in plan.nodes if node.expression is shared)
+
+    assert shared_node.fanout == 2
+    assert shared_node.temporary == "zlang_expr_0"
+    assert tuple(item.expression for item in plan.materialized).count(shared) == 1
+
+
+def test_shared_mixer_dag_emits_linearly_without_logical_path_expansion(
+    tmp_path,
+) -> None:
+    source = tmp_path / "shared_mixer.zhl"
+    source.write_text(mixer_source(64))
+    module = create_file_compilation_session(
+        source, top="FrontendSharedDagScalability"
+    ).planning.module
+
+    rtl = emit_experimental(module)
+
+    assert len(rtl.encode("utf-8")) < 16_384
+    assert max(len(line.encode("utf-8")) for line in rtl.splitlines()) < 256
+    assert rtl.count("assign zlang_expr_") >= 60
+
+
+@pytest.mark.skipif(shutil.which("yosys") is None, reason="Yosys unavailable")
+def test_runtime_select_from_compound_vector_is_yosys_accepted(tmp_path) -> None:
+    byte = UIntType(8)
+    vector = expr.Generate(
+        "i",
+        0,
+        4,
+        tuple(expr.Constant(value, byte) for value in range(4)),
+        VecType(4, byte),
+    )
+    selected = expr.RuntimeIndex(
+        vector,
+        expr.InputRef("index", UIntType(2)),
+        4,
+        expr.ValueRange(0, 3),
+        byte,
+    )
+    rtl = tmp_path / "CompoundSelect.sv"
+    rtl.write_text(
+        "module CompoundSelect(input logic [1:0] index, output logic [7:0] y);\n"
+        f"  assign y = {sv_emitter._expression(selected)};\n"
+        "endmodule\n"
+    )
+
+    result = subprocess.run(
+        (
+            "yosys",
+            "-q",
+            "-p",
+            "read_verilog -sv " + str(rtl)
+            + "; hierarchy -check -top CompoundSelect; proc; check",
+        ),
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr or result.stdout
+
+
+def test_large_vector_literal_is_split_before_frontend_token_limits() -> None:
+    bit = UIntType(1)
+    generated = expr.Generate(
+        "i",
+        0,
+        5000,
+        tuple(expr.Constant(index & 1, bit) for index in range(5000)),
+        VecType(5000, bit),
+    )
+
+    rendered = sv_emitter._expression(generated)
+
+    assert "\n" in rendered
+    assert max(map(len, rendered.splitlines())) < 16_384
 
 
 @pytest.mark.skipif(shutil.which("verilator") is None, reason="Verilator unavailable")

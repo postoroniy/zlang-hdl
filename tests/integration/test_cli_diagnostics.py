@@ -5,6 +5,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from zlang.workspace import update_project_lock
+
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -70,7 +72,7 @@ def test_json_semantic_diagnostic_carries_code_origin_and_fix(tmp_path: Path) ->
     assert payload["fixes"] == ["use an explicit exact-width conversion"]
 
 
-def test_text_format_remains_byte_compatible(tmp_path: Path) -> None:
+def test_text_format_default_and_explicit_are_byte_compatible(tmp_path: Path) -> None:
     source = tmp_path / "bad_width.zhl"
     source.write_text("module Bad { in a:u8 out y:u8 y=a+a }")
     default = subprocess.run(
@@ -86,8 +88,83 @@ def test_text_format_remains_byte_compatible(tmp_path: Path) -> None:
     assert explicit.stdout == default.stdout == ""
     assert explicit.stderr == default.stderr
     assert explicit.stderr == (
-        "zlang: error: cannot assign u9 expression to u8 output 'y'\n"
+        f"zlang: {source}:1:33: error[ZL-WIDTH-ASSIGNMENT]: "
+        "cannot assign u9 expression to u8 output 'y'\n"
     )
+
+
+def test_text_parse_diagnostic_reports_physical_file_line_and_column(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "bad_parse.zhl"
+    source.write_text("module Bad {\n  out y:u8\n  y =\n}\n")
+
+    result = _run(source)
+
+    assert result.returncode == 1
+    assert result.stderr.startswith(
+        f"zlang: {source}:4:1: error[ZL-PARSE-001]: syntax error at line 4, column 1:"
+    )
+
+
+def test_transitive_project_diagnostic_reports_imported_file_and_exact_span(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "project"
+    sources = project / "src"
+    sources.mkdir(parents=True)
+    (project / "zlang.toml").write_text(
+        'schema=1\n[project]\nname="demo"\nversion="1"\nsource-root="src"\n'
+    )
+    leaf = sources / "leaf.zhl"
+    leaf.write_text(
+        "module Leaf {\n"
+        "  in a:u8\n"
+        "  out y:u8\n"
+        "  y = missing\n"
+        "}\n"
+    )
+    helper = sources / "helper.zhl"
+    helper.write_text(
+        "import demo.leaf\n"
+        "module Helper {\n"
+        "  in a:u8\n"
+        "  out y:u8\n"
+        "  child : Leaf\n"
+        "  a -> child.a\n"
+        "  child.y -> y\n"
+        "}\n"
+    )
+    top = sources / "top.zhl"
+    top.write_text(
+        "import demo.helper\n"
+        "module Top {\n"
+        "  in a:u8\n"
+        "  out y:u8\n"
+        "  child : Helper\n"
+        "  a -> child.a\n"
+        "  child.y -> y\n"
+        "}\n"
+    )
+    update_project_lock(project / "zlang.toml")
+
+    text = _run(top)
+    structured = _run(top, "json")
+
+    assert text.returncode == structured.returncode == 1
+    assert text.stderr == (
+        f"zlang: {leaf}:4:7: error[ZL-SEMANTIC-001]: "
+        "unknown input 'missing'\n"
+    )
+    payload = json.loads(structured.stderr)
+    assert payload["code"] == "ZL-SEMANTIC-001"
+    assert payload["primary"]["source_unit"] == "demo.leaf"
+    assert payload["primary"]["span"] == {
+        "start_line": 4,
+        "start_column": 7,
+        "end_line": 4,
+        "end_column": 14,
+    }
 
 
 def test_json_top_selection_and_io_errors_have_stable_codes(tmp_path: Path) -> None:

@@ -19,6 +19,11 @@ def emit_csr_json(module: Module) -> str:
                 "registers": [
                     {
                         "name": register.name,
+                        **(
+                            {"logical_path": list(register.projection_path)}
+                            if register.projection_path
+                            else {}
+                        ),
                         "offset": register.offset,
                         "address": block.base_address + register.offset,
                         "fields": [
@@ -48,8 +53,40 @@ def emit_csr_json(module: Module) -> str:
                             }
                             for field in register.fields
                         ],
+                        "events": [
+                            {
+                                "name": event.name,
+                                "kind": event.kind.value,
+                                "type": str(event.canonical_type),
+                                "msb": event.msb,
+                                "lsb": event.lsb,
+                                "signal": event.signal,
+                            }
+                            for event in register.events
+                        ],
                     }
                     for register in block.registers
+                ],
+                "split_views": [
+                    {
+                        "name": view.name,
+                        "field": view.field_name,
+                        "type": str(view.canonical_type),
+                        "order": "low_first" if view.low_first else "high_first",
+                        "physical_registers": [
+                            next(
+                                register.name
+                                for register in block.registers
+                                if any(field.identity == view.low_field_id for field in register.fields)
+                            ),
+                            next(
+                                register.name
+                                for register in block.registers
+                                if any(field.identity == view.high_field_id for field in register.fields)
+                            ),
+                        ],
+                    }
+                    for view in block.split_views
                 ],
             }
             for block in module.csr_blocks
@@ -77,9 +114,14 @@ def emit_csr_markdown(module: Module) -> str:
         )
         for register in block.registers:
             address = block.base_address + register.offset
+            logical_name = (
+                ".".join(register.projection_path)
+                if register.projection_path
+                else register.name
+            )
             lines.extend(
                 (
-                    f"### {register.name}",
+                    f"### {logical_name}",
                     "",
                     f"Offset `0x{register.offset:02x}`, address `0x{address:08x}`.",
                     "",
@@ -119,5 +161,25 @@ def emit_csr_markdown(module: Module) -> str:
                     )
                     row += f" {hardware} | {priority} |"
                 lines.append(row)
+            if register.events:
+                lines.extend(("", "Access events:", ""))
+                for event in register.events:
+                    bits = (
+                        str(event.lsb)
+                        if event.msb == event.lsb
+                        else f"{event.msb}:{event.lsb}"
+                    )
+                    lines.append(
+                        f"- `{event.name}`: `{event.kind.value}` bits {bits} -> "
+                        f"`{event.signal}`"
+                    )
+            lines.append("")
+        if block.split_views:
+            lines.extend(("### Logical split values", ""))
+            for view in block.split_views:
+                lines.append(
+                    f"- `{view.name}.{view.field_name}`: `{view.canonical_type}` "
+                    f"(`{'low_first' if view.low_first else 'high_first'}`)"
+                )
             lines.append("")
     return "\n".join(lines)

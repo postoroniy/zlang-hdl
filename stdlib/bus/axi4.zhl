@@ -1,0 +1,717 @@
+// AMBA AXI4 memory-mapped transport.  These are source-owned protocol types;
+// no compiler or backend recognizes AXI names.  Optional USER fields have a
+// separate profile because a missing signal is not a zero-width signal.
+
+struct Axi4Address<AW=32,IW=4> {
+    id : bits<IW>
+    addr : uint<AW>
+    len : u8
+    size : u3
+    burst : bits<2>
+    lock : bit
+    cache : bits<4>
+    prot : bits<3>
+    qos : bits<4>
+    region : bits<4>
+}
+
+struct Axi4WriteData<DW=32> {
+    data : bits<DW>
+    strb : bits<DW/8>
+    last : bit
+}
+
+struct Axi4WriteResponse<WIW=4> {
+    id : bits<WIW>
+    resp : bits<2>
+}
+
+struct Axi4ReadData<DW=32,RIW=4> {
+    id : bits<RIW>
+    data : bits<DW>
+    resp : bits<2>
+    last : bit
+}
+
+protocol AXI4<AW=32,DW=32,RIW=4,WIW=4> {
+    role master
+    role slave
+    channel aw : rv<Axi4Address<AW,WIW>> master -> slave
+    channel w : rv<Axi4WriteData<DW>> master -> slave
+    channel b : rv<Axi4WriteResponse<WIW>> slave -> master
+    channel ar : rv<Axi4Address<AW,RIW>> master -> slave
+    channel r : rv<Axi4ReadData<DW,RIW>> slave -> master
+}
+
+protocol AXI4Read<AW=32,DW=32,RIW=4> {
+    role master
+    role slave
+    channel ar : rv<Axi4Address<AW,RIW>> master -> slave
+    channel r : rv<Axi4ReadData<DW,RIW>> slave -> master
+}
+
+protocol AXI4Write<AW=32,DW=32,WIW=4> {
+    role master
+    role slave
+    channel aw : rv<Axi4Address<AW,WIW>> master -> slave
+    channel w : rv<Axi4WriteData<DW>> master -> slave
+    channel b : rv<Axi4WriteResponse<WIW>> slave -> master
+}
+
+struct Axi4AddressUser<AW=32,IW=4,UW=1> {
+    id : bits<IW>
+    addr : uint<AW>
+    len : u8
+    size : u3
+    burst : bits<2>
+    lock : bit
+    cache : bits<4>
+    prot : bits<3>
+    qos : bits<4>
+    region : bits<4>
+    user : bits<UW>
+}
+
+struct Axi4WriteDataUser<DW=32,UW=1> {
+    data : bits<DW>
+    strb : bits<DW/8>
+    last : bit
+    user : bits<UW>
+}
+
+struct Axi4WriteResponseUser<WIW=4,UW=1> {
+    id : bits<WIW>
+    resp : bits<2>
+    user : bits<UW>
+}
+
+struct Axi4ReadDataUser<DW=32,RIW=4,UW=1> {
+    id : bits<RIW>
+    data : bits<DW>
+    resp : bits<2>
+    last : bit
+    user : bits<UW>
+}
+
+protocol AXI4WithUser<AW=32,DW=32,RIW=4,WIW=4,AWUW=1,WUW=1,BUW=1,ARUW=1,RUW=1> {
+    role master
+    role slave
+    channel aw : rv<Axi4AddressUser<AW,WIW,AWUW>> master -> slave
+    channel w : rv<Axi4WriteDataUser<DW,WUW>> master -> slave
+    channel b : rv<Axi4WriteResponseUser<WIW,BUW>> slave -> master
+    channel ar : rv<Axi4AddressUser<AW,RIW,ARUW>> master -> slave
+    channel r : rv<Axi4ReadDataUser<DW,RIW,RUW>> slave -> master
+}
+
+protocol AXI4ReadWithUser<AW=32,DW=32,RIW=4,ARUW=1,RUW=1> {
+    role master
+    role slave
+    channel ar : rv<Axi4AddressUser<AW,RIW,ARUW>> master -> slave
+    channel r : rv<Axi4ReadDataUser<DW,RIW,RUW>> slave -> master
+}
+
+protocol AXI4WriteWithUser<AW=32,DW=32,WIW=4,AWUW=1,WUW=1,BUW=1> {
+    role master
+    role slave
+    channel aw : rv<Axi4AddressUser<AW,WIW,AWUW>> master -> slave
+    channel w : rv<Axi4WriteDataUser<DW,WUW>> master -> slave
+    channel b : rv<Axi4WriteResponseUser<WIW,BUW>> slave -> master
+}
+
+// The two response bits are transported without reinterpretation by the
+// channel and the transaction adapters.  EXOKAY is not interchangeable with
+// OKAY on an exclusive read or a successful conditional write.
+fn axi4_response_is_error(resp : bits<2>) -> bit {
+    (resp == 2) | (resp == 3)
+}
+
+// Type-generic controllers retain the exact transport payload (including
+// USER), while this projection supplies only the standard address fields to
+// the common legality predicates.  Missing/wrong fields fail specialization.
+fn axi4_transport_address<type A,AW,IW>(request : A)
+    -> Axi4Address<AW,IW> {
+    Axi4Address {
+        id=request.id addr=request.addr len=request.len size=request.size
+        burst=request.burst lock=request.lock cache=request.cache
+        prot=request.prot qos=request.qos region=request.region
+    }
+}
+
+// WSTRB may be sparse or entirely zero.  Only lanes outside the transfer's
+// legal byte window are forbidden; no helper silently rewrites WDATA/WSTRB.
+fn axi4_write_strobe_valid<AW,DW>(address : uint<AW>, size : u3,
+                                  strobe : bits<DW/8>) -> bit {
+    lane = extend<80>(address) & ((DW / 8) - 1)
+    bytes = truncate<80>(extend<80>(1) << size)
+    end_lane = truncate<80>((lane & ~truncate<80>(bytes - 1)) + bytes)
+    mask = bitcast<bits<DW/8>>(
+        generate(i in 0..DW/8)
+            ((extend<80>(i) >= lane) & (extend<80>(i) < end_lane))
+    )
+    (DW >= 8) & (DW <= 1024) & is_power_of_two(DW) &
+        (size <= floor_log2(DW / 8)) & ((strobe & ~mask) == 0)
+}
+
+fn axi4_burst_shape_valid<DW>(length : u8, size : u3, burst : bits<2>) -> bit {
+    geometry = (DW >= 8) & (DW <= 1024) & is_power_of_two(DW)
+    legal_size = size <= floor_log2(DW / 8)
+    fixed = burst == 0
+    incr = burst == 1
+    wrap = burst == 2
+    short_burst = length < 16
+    wrap_length = (length == 1) | (length == 3) |
+                  (length == 7) | (length == 15)
+    geometry & legal_size &
+        ((fixed & short_burst) | incr | (wrap & wrap_length))
+}
+
+// AW is 1..64.  Widening to 80 bits prevents address and length overflow from
+// making an illegal transaction appear to fit within the address bus or page.
+// WRAP uses its aligned window; an unaligned INCR advances from the first
+// aligned transfer boundary.  Shifts (not variable division) calculate the
+// legal power-of-two beat and wrap sizes.
+fn axi4_address_valid<AW,DW,IW>(request : Axi4Address<AW,IW>) -> bit {
+    wide_addr = extend<80>(request.addr)
+    bytes = truncate<80>(extend<80>(1) << request.size)
+    count = truncate<80>(extend<80>(request.len) + 1)
+    aligned = wide_addr & ~truncate<80>(bytes - 1)
+    wrap_bytes = truncate<80>(count << request.size)
+    incr_last = truncate<80>(aligned + wrap_bytes - 1)
+    wrap_base = wide_addr & ~truncate<80>(wrap_bytes - 1)
+    wrap_last = truncate<80>(wrap_base + wrap_bytes - 1)
+    fixed_last = truncate<80>(aligned + bytes - 1)
+    last = mux(request.burst == 2, wrap_last,
+               mux(request.burst == 0, fixed_last, incr_last))
+    wrap_aligned = (wide_addr - aligned) == 0
+    address_limit = truncate<80>(extend<80>(1) << AW)
+    (AW >= 1) & (AW <= 64) & (IW >= 1) & (IW <= 32) &
+        axi4_burst_shape_valid<DW>(request.len, request.size, request.burst) &
+        ((request.burst != 2) | wrap_aligned) &
+        ((last >> 12) == (wide_addr >> 12)) &
+        (last < address_limit)
+}
+
+// Beat zero may be unaligned.  Subsequent INCR beats start on the transfer
+// boundary; WRAP advances modulo its naturally aligned burst window.
+fn axi4_beat_address<AW,IW>(request : Axi4Address<AW,IW>, index : u9)
+    -> uint<AW> {
+    address = extend<80>(request.addr)
+    bytes = truncate<80>(extend<80>(1) << request.size)
+    aligned = address & ~truncate<80>(bytes - 1)
+    span = truncate<80>((extend<80>(request.len) + 1) << request.size)
+    base = address & ~truncate<80>(span - 1)
+    incr = truncate<80>(aligned + (extend<80>(index) << request.size))
+    wrapped = truncate<80>(base +
+        ((address - base + (extend<80>(index) << request.size)) &
+         truncate<80>(span - 1)))
+    truncate<AW>(mux(index == 0, address,
+                     mux(request.burst == 0, address,
+                         mux(request.burst == 2, wrapped, incr))))
+}
+
+// A legal exclusive request also has an aligned, power-of-two transfer span
+// of at most 128 bytes and at most 16 beats.  Pair matching and reservation
+// invalidation are stateful backend responsibilities, not this pure predicate.
+fn axi4_exclusive_address_valid<AW,DW,IW>(request : Axi4Address<AW,IW>) -> bit {
+    count = truncate<16>(extend<16>(request.len) + 1)
+    span = truncate<16>(count << request.size)
+    address = extend<80>(request.addr)
+    span_mask = extend<80>(truncate<16>(span - 1))
+    request.lock & axi4_address_valid<AW=AW,DW=DW,IW=IW>(request) &
+        (count <= 16) & (span <= 128) & (span != 0) &
+        ((span & truncate<16>(span - 1)) == 0) &
+        ((address & span_mask) == 0)
+}
+
+// A slot records the older outstanding slots with the same ID.  This bounded
+// predecessor relation permits repeated IDs without a wrapping sequence
+// counter: only the oldest live matching slot may consume an R beat.
+// Different IDs remain independently eligible for interleaved R beats.
+module AXI4ReadManagerCore<type A,type R,AW=32,DW=32,RIW=4,D=4>
+where AW >= 1 && AW <= 64 && RIW >= 1 && RIW <= 32 &&
+      DW >= 8 && DW <= 1024 && is_power_of_two(DW) &&
+      D >= 2 && is_power_of_two(D) {
+    clock clk reset rst
+    in command : rv<A>
+    out data : rv<R>
+    out protocol_error : bit
+    out axi_ar : rv<A>
+    in axi_r : rv<R>
+
+    reg occupied : vec<D,bit> = generate(i in 0..D) 0
+    reg ids : vec<D,bits<RIW>> = generate(i in 0..D) 0
+    reg remaining : vec<D,u9> = generate(i in 0..D) 0
+    reg older : vec<D,vec<D,bit>> = generate(i in 0..D)
+        generate(j in 0..D) 0
+    reg failed : bit = 0
+
+    free = generate(i in 0..D)
+        (~occupied[i] & ~reduce(|, generate(j in 0..D)
+            ((j < i) & ~occupied[j])))
+    has_free = reduce(|, free)
+    matching = generate(i in 0..D)
+        (occupied[i] & (ids[i] == axi_r.payload.id) &
+         ~reduce(|, generate(j in 0..D) (older[i][j] & occupied[j])))
+    has_match = reduce(|, matching)
+    address = axi4_transport_address<A=A,AW=AW,IW=RIW>(command.payload)
+    legal_request = axi4_address_valid<AW=AW,DW=DW,IW=RIW>(address) &
+        (~command.payload.lock |
+         axi4_exclusive_address_valid<AW=AW,DW=DW,IW=RIW>(address))
+    issue = has_free & legal_request
+    final_beat = reduce(|, generate(i in 0..D)
+        (matching[i] & (remaining[i] == 1)))
+    retiring = generate(i in 0..D)
+        (axi_r.transfer & matching[i] & (remaining[i] == 1))
+
+    axi_ar.valid = command.valid & issue
+    axi_ar.payload = command.payload
+    // Invalid commands are consumed and reported locally, never driven onto
+    // the AXI address bus (and never left blocking upstream indefinitely).
+    command.ready = ~legal_request | (has_free & axi_ar.ready)
+    data.valid = axi_r.valid & has_match
+    data.payload = axi_r.payload
+    axi_r.ready = data.ready & has_match
+    protocol_error = failed
+
+    occupied <- generate(i in 0..D)
+        mux(axi_ar.transfer & free[i], 1,
+            mux(axi_r.transfer & matching[i] & (remaining[i] == 1),
+                0, occupied[i]))
+    ids <- generate(i in 0..D)
+        mux(axi_ar.transfer & free[i], command.payload.id, ids[i])
+    remaining <- generate(i in 0..D)
+        mux(axi_ar.transfer & free[i],
+            truncate<9>(extend<9>(command.payload.len) + 1),
+            mux(axi_r.transfer & matching[i],
+                truncate<9>(remaining[i] - 1), remaining[i]))
+    older <- generate(i in 0..D)
+        generate(j in 0..D)
+            mux(axi_ar.transfer & free[i],
+                occupied[j] & (ids[j] == command.payload.id) & ~retiring[j],
+                older[i][j] & ~retiring[j])
+    when axi_r.valid | command.transfer {
+        failed <- failed | (command.transfer & ~legal_request) |
+                  (axi_r.valid & ~has_match) |
+                  (axi_r.transfer & (axi_r.payload.last != final_beat))
+    }
+}
+
+module AXI4ReadManager<AW=32,DW=32,RIW=4,D=4>
+where AW >= 1 && AW <= 64 && RIW >= 1 && RIW <= 32 &&
+      DW >= 8 && DW <= 1024 && is_power_of_two(DW) &&
+      D >= 2 && is_power_of_two(D) {
+    clock clk reset rst
+    in command : rv<Axi4Address<AW,RIW>>
+    out data : rv<Axi4ReadData<DW,RIW>>
+    out protocol_error : bit
+    interface axi : AXI4Read<AW,DW,RIW>.master @clk
+
+    reg occupied : vec<D,bit> = generate(i in 0..D) 0
+    reg ids : vec<D,bits<RIW>> = generate(i in 0..D) 0
+    reg remaining : vec<D,u9> = generate(i in 0..D) 0
+    reg older : vec<D,vec<D,bit>> = generate(i in 0..D)
+        generate(j in 0..D) 0
+    reg failed : bit = 0
+
+    free = generate(i in 0..D)
+        (~occupied[i] & ~reduce(|, generate(j in 0..D)
+            ((j < i) & ~occupied[j])))
+    has_free = reduce(|, free)
+    matching = generate(i in 0..D)
+        (occupied[i] & (ids[i] == axi.r.payload.id) &
+         ~reduce(|, generate(j in 0..D) (older[i][j] & occupied[j])))
+    has_match = reduce(|, matching)
+    legal_request = axi4_address_valid<AW=AW,DW=DW,IW=RIW>(command.payload) &
+        (~command.payload.lock |
+         axi4_exclusive_address_valid<AW=AW,DW=DW,IW=RIW>(command.payload))
+    issue = has_free & legal_request
+    final_beat = reduce(|, generate(i in 0..D)
+        (matching[i] & (remaining[i] == 1)))
+    retiring = generate(i in 0..D)
+        (axi.r.transfer & matching[i] & (remaining[i] == 1))
+
+    axi.ar.valid = command.valid & issue
+    axi.ar.payload = command.payload
+    command.ready = ~legal_request | (has_free & axi.ar.ready)
+    data.valid = axi.r.valid & has_match
+    data.payload = axi.r.payload
+    axi.r.ready = data.ready & has_match
+    protocol_error = failed
+
+    occupied <- generate(i in 0..D)
+        mux(axi.ar.transfer & free[i], 1,
+            mux(axi.r.transfer & matching[i] & (remaining[i] == 1),
+                0, occupied[i]))
+    ids <- generate(i in 0..D)
+        mux(axi.ar.transfer & free[i], command.payload.id, ids[i])
+    remaining <- generate(i in 0..D)
+        mux(axi.ar.transfer & free[i],
+            truncate<9>(extend<9>(command.payload.len) + 1),
+            mux(axi.r.transfer & matching[i],
+                truncate<9>(remaining[i] - 1), remaining[i]))
+    older <- generate(i in 0..D)
+        generate(j in 0..D)
+            mux(axi.ar.transfer & free[i],
+                occupied[j] & (ids[j] == command.payload.id) & ~retiring[j],
+                older[i][j] & ~retiring[j])
+    when axi.r.valid | command.transfer {
+        failed <- failed | (command.transfer & ~legal_request) |
+                  (axi.r.valid & ~has_match) |
+                  (axi.r.transfer & (axi.r.payload.last != final_beat))
+    }
+}
+
+module AXI4ReadManagerWithUser<AW=32,DW=32,RIW=4,ARUW=1,RUW=1,D=4>
+where AW >= 1 && AW <= 64 && RIW >= 1 && RIW <= 32 &&
+      DW >= 8 && DW <= 1024 && is_power_of_two(DW) &&
+      ARUW >= 1 && RUW >= 1 && D >= 2 && is_power_of_two(D) {
+    clock clk reset rst
+    in command : rv<Axi4AddressUser<AW,RIW,ARUW>>
+    out data : rv<Axi4ReadDataUser<DW,RIW,RUW>>
+    out protocol_error : bit
+    interface axi : AXI4ReadWithUser<AW,DW,RIW,ARUW,RUW>.master @clk
+    core : AXI4ReadManagerCore<Axi4AddressUser<AW,RIW,ARUW>,Axi4ReadDataUser<DW,RIW,RUW>,AW,DW,RIW,D>
+    command -> core.command
+    core.data -> data
+    axi.ar.payload = core.axi_ar.payload
+    axi.ar.valid = core.axi_ar.valid
+    core.axi_ar.ready = axi.ar.ready
+    core.axi_r.payload = axi.r.payload
+    core.axi_r.valid = axi.r.valid
+    axi.r.ready = core.axi_r.ready
+    protocol_error = core.protocol_error
+}
+
+// AW and W are independent: a stalled AW never suppresses WVALID.  Only one
+// write-data stream is active at a time (AXI4 has no WID/interleaving), while
+// up to D completed streams may await B, including repeated IDs.  The upstream
+// write-beat producer owns payload stability under stall.  A response with an
+// unknown or unfinished ID is rejected and latched as a protocol error.
+module AXI4WriteManager<AW=32,DW=32,WIW=4,D=4>
+where AW >= 1 && AW <= 64 && WIW >= 1 && WIW <= 32 &&
+      DW >= 8 && DW <= 1024 && is_power_of_two(DW) &&
+      D >= 2 && is_power_of_two(D) {
+    clock clk reset rst
+    in command : rv<Axi4Address<AW,WIW>>
+    in write : rv<Axi4WriteData<DW>>
+    out completion : rv<Axi4WriteResponse<WIW>>
+    out protocol_error : bit
+    interface axi : AXI4Write<AW,DW,WIW>.master @clk
+
+    reg occupied : vec<D,bit> = generate(i in 0..D) 0
+    reg sending : vec<D,bit> = generate(i in 0..D) 0
+    reg aw_sent : vec<D,bit> = generate(i in 0..D) 0
+    reg remaining : vec<D,u9> = generate(i in 0..D) 0
+    reg beat_index : vec<D,u9> = generate(i in 0..D) 0
+    reg older : vec<D,vec<D,bit>> = generate(i in 0..D)
+        generate(j in 0..D) 0
+    reg requests : vec<D,Axi4Address<AW,WIW>> = generate(i in 0..D)
+        Axi4Address { id=0 addr=0 len=0 size=0 burst=1 lock=0
+                      cache=0 prot=0 qos=0 region=0 }
+    reg failed : bit = 0
+
+    free = generate(i in 0..D)
+        (~occupied[i] & ~reduce(|, generate(j in 0..D)
+            ((j < i) & ~occupied[j])))
+    has_free = reduce(|, free)
+    active = reduce(|, sending)
+    legal_request = axi4_address_valid<AW=AW,DW=DW,IW=WIW>(command.payload) &
+        (~command.payload.lock |
+         axi4_exclusive_address_valid<AW=AW,DW=DW,IW=WIW>(command.payload))
+    selected_request = reduce(|, generate(i in 0..D)
+        mux(sending[i], bitcast<bits<AW+WIW+29>>(requests[i]),
+            bitcast<bits<AW+WIW+29>>(Axi4Address {
+                id=0 addr=0 len=0 size=0 burst=1 lock=0
+                cache=0 prot=0 qos=0 region=0
+            })))
+    // Selection is a one-hot OR of the registered active slot.  No priority
+    // reordering or runtime array index is introduced for its payload.
+    active_request = bitcast<Axi4Address<AW,WIW>>(selected_request)
+    active_index = reduce(|, generate(i in 0..D)
+        mux(sending[i], beat_index[i], extend<9>(0)))
+    beat_address = axi4_beat_address<AW=AW,IW=WIW>(
+        active_request, active_index)
+    address_pending = reduce(|, generate(i in 0..D)
+        (sending[i] & ~aw_sent[i]))
+    data_pending = reduce(|, generate(i in 0..D)
+        (sending[i] & (remaining[i] != 0)))
+    final_beat = reduce(|, generate(i in 0..D)
+        (sending[i] & (remaining[i] == 1)))
+    response_match = generate(i in 0..D)
+        (occupied[i] & ~sending[i] &
+         (requests[i].id == axi.b.payload.id) &
+         ~reduce(|, generate(j in 0..D) (older[i][j] & occupied[j])))
+    has_response = reduce(|, response_match)
+    retiring = generate(i in 0..D) (axi.b.transfer & response_match[i])
+
+    command.ready = ~active & has_free
+    accept = command.transfer & legal_request
+    axi.aw.valid = address_pending
+    axi.aw.payload = active_request
+    axi.w.valid = data_pending & write.valid
+    axi.w.payload = write.payload
+    write.ready = data_pending & axi.w.ready
+    completion.valid = axi.b.valid & has_response
+    completion.payload = axi.b.payload
+    axi.b.ready = completion.ready & has_response
+    protocol_error = failed
+
+    occupied <- generate(i in 0..D)
+        mux(accept & free[i], 1,
+            mux(axi.b.transfer & response_match[i], 0, occupied[i]))
+    requests <- generate(i in 0..D)
+        mux(accept & free[i], command.payload, requests[i])
+    older <- generate(i in 0..D)
+        generate(j in 0..D)
+            mux(accept & free[i],
+                occupied[j] & (requests[j].id == command.payload.id) &
+                    ~retiring[j],
+                older[i][j] & ~retiring[j])
+    remaining <- generate(i in 0..D)
+        mux(accept & free[i],
+            truncate<9>(extend<9>(command.payload.len) + 1),
+            mux(axi.w.transfer & sending[i] & (remaining[i] != 0),
+                truncate<9>(remaining[i] - 1), remaining[i]))
+    beat_index <- generate(i in 0..D)
+        mux(accept & free[i], 0,
+            mux(axi.w.transfer & sending[i],
+                truncate<9>(beat_index[i] + 1), beat_index[i]))
+    aw_sent <- generate(i in 0..D)
+        mux(accept & free[i], 0,
+            aw_sent[i] | (axi.aw.transfer & sending[i]))
+    sending <- generate(i in 0..D)
+        mux(accept & free[i], 1,
+            sending[i] & ~((aw_sent[i] | axi.aw.transfer) &
+                           ((remaining[i] == 0) |
+                            (axi.w.transfer & final_beat))))
+    when axi.w.transfer | axi.b.valid | command.transfer {
+        failed <- failed | (command.transfer & ~legal_request) |
+            (axi.b.valid & ~has_response) |
+            (axi.w.transfer & ((write.payload.last != final_beat) |
+             ~axi4_write_strobe_valid<AW=AW,DW=DW>(
+                 beat_address, active_request.size, write.payload.strb)))
+    }
+}
+
+// The USER write profile shares one payload-type-parametric transaction
+// engine.  PW is checked by every bitcast at specialization, so an incorrect
+// caller cannot silently drop a USER bit.  The established no-USER manager
+// remains source-compatible with legacy cycle-simulator callers.
+module AXI4WriteManagerCore<type A,type W,type B,AW,DW,WIW,PW,D=4>
+where AW >= 1 && AW <= 64 && WIW >= 1 && WIW <= 32 &&
+      DW >= 8 && DW <= 1024 && is_power_of_two(DW) &&
+      D >= 2 && is_power_of_two(D) {
+    clock clk reset rst
+    in command : rv<A>
+    in write : rv<W>
+    out completion : rv<B>
+    out protocol_error : bit
+    out axi_aw : rv<A>
+    out axi_w : rv<W>
+    in axi_b : rv<B>
+
+    reg occupied : vec<D,bit> = generate(i in 0..D) 0
+    reg sending : vec<D,bit> = generate(i in 0..D) 0
+    reg aw_sent : vec<D,bit> = generate(i in 0..D) 0
+    reg remaining : vec<D,u9> = generate(i in 0..D) 0
+    reg beat_index : vec<D,u9> = generate(i in 0..D) 0
+    reg older : vec<D,vec<D,bit>> = generate(i in 0..D)
+        generate(j in 0..D) 0
+    reg requests : vec<D,A> = generate(i in 0..D)
+        bitcast<A>(zeros<PW>)
+    reg failed : bit = 0
+
+    free = generate(i in 0..D)
+        (~occupied[i] & ~reduce(|, generate(j in 0..D)
+            ((j < i) & ~occupied[j])))
+    has_free = reduce(|, free)
+    active = reduce(|, sending)
+    command_address = axi4_transport_address<A=A,AW=AW,IW=WIW>(
+        command.payload)
+    legal_request = axi4_address_valid<AW=AW,DW=DW,IW=WIW>(
+        command_address) &
+        (~command.payload.lock |
+         axi4_exclusive_address_valid<AW=AW,DW=DW,IW=WIW>(
+             command_address))
+    selected_bits = reduce(|, generate(i in 0..D)
+        mux(sending[i], bitcast<bits<PW>>(requests[i]), zeros<PW>))
+    active_request = bitcast<A>(selected_bits)
+    active_address = axi4_transport_address<A=A,AW=AW,IW=WIW>(
+        active_request)
+    active_index = reduce(|, generate(i in 0..D)
+        mux(sending[i], beat_index[i], extend<9>(0)))
+    beat_address = axi4_beat_address<AW=AW,IW=WIW>(
+        active_address, active_index)
+    address_pending = reduce(|, generate(i in 0..D)
+        (sending[i] & ~aw_sent[i]))
+    data_pending = reduce(|, generate(i in 0..D)
+        (sending[i] & (remaining[i] != 0)))
+    final_beat = reduce(|, generate(i in 0..D)
+        (sending[i] & (remaining[i] == 1)))
+    response_match = generate(i in 0..D)
+        (occupied[i] & ~sending[i] &
+         (requests[i].id == axi_b.payload.id) &
+         ~reduce(|, generate(j in 0..D) (older[i][j] & occupied[j])))
+    has_response = reduce(|, response_match)
+    retiring = generate(i in 0..D) (axi_b.transfer & response_match[i])
+
+    command.ready = ~active & has_free
+    accept = command.transfer & legal_request
+    axi_aw.valid = address_pending
+    axi_aw.payload = active_request
+    axi_w.valid = data_pending & write.valid
+    axi_w.payload = write.payload
+    write.ready = data_pending & axi_w.ready
+    completion.valid = axi_b.valid & has_response
+    completion.payload = axi_b.payload
+    axi_b.ready = completion.ready & has_response
+    protocol_error = failed
+
+    occupied <- generate(i in 0..D)
+        mux(accept & free[i], 1,
+            mux(axi_b.transfer & response_match[i], 0, occupied[i]))
+    requests <- generate(i in 0..D)
+        mux(accept & free[i], command.payload, requests[i])
+    older <- generate(i in 0..D)
+        generate(j in 0..D)
+            mux(accept & free[i],
+                occupied[j] & (requests[j].id == command.payload.id) &
+                    ~retiring[j],
+                older[i][j] & ~retiring[j])
+    remaining <- generate(i in 0..D)
+        mux(accept & free[i],
+            truncate<9>(extend<9>(command.payload.len) + 1),
+            mux(axi_w.transfer & sending[i] & (remaining[i] != 0),
+                truncate<9>(remaining[i] - 1), remaining[i]))
+    beat_index <- generate(i in 0..D)
+        mux(accept & free[i], 0,
+            mux(axi_w.transfer & sending[i],
+                truncate<9>(beat_index[i] + 1), beat_index[i]))
+    aw_sent <- generate(i in 0..D)
+        mux(accept & free[i], 0,
+            aw_sent[i] | (axi_aw.transfer & sending[i]))
+    sending <- generate(i in 0..D)
+        mux(accept & free[i], 1,
+            sending[i] & ~((aw_sent[i] | axi_aw.transfer) &
+                           ((remaining[i] == 0) |
+                            (axi_w.transfer & final_beat))))
+    when axi_w.transfer | axi_b.valid | command.transfer {
+        failed <- failed | (command.transfer & ~legal_request) |
+            (axi_b.valid & ~has_response) |
+            (axi_w.transfer & ((write.payload.last != final_beat) |
+             ~axi4_write_strobe_valid<AW=AW,DW=DW>(
+                 beat_address, active_request.size, write.payload.strb)))
+    }
+}
+
+module AXI4WriteManagerWithUser<AW=32,DW=32,WIW=4,
+                                 AWUW=1,WUW=1,BUW=1,D=4>
+where AW >= 1 && AW <= 64 && WIW >= 1 && WIW <= 32 &&
+      DW >= 8 && DW <= 1024 && is_power_of_two(DW) &&
+      AWUW >= 1 && WUW >= 1 && BUW >= 1 &&
+      D >= 2 && is_power_of_two(D) {
+    clock clk reset rst
+    in command : rv<Axi4AddressUser<AW,WIW,AWUW>>
+    in write : rv<Axi4WriteDataUser<DW,WUW>>
+    out completion : rv<Axi4WriteResponseUser<WIW,BUW>>
+    out protocol_error : bit
+    interface axi : AXI4WriteWithUser<AW,DW,WIW,AWUW,WUW,BUW>.master @clk
+    core : AXI4WriteManagerCore<Axi4AddressUser<AW,WIW,AWUW>,Axi4WriteDataUser<DW,WUW>,Axi4WriteResponseUser<WIW,BUW>,AW,DW,WIW,AW+WIW+29+AWUW,D>
+    command -> core.command
+    write -> core.write
+    core.completion -> completion
+    axi.aw.payload = core.axi_aw.payload
+    axi.aw.valid = core.axi_aw.valid
+    core.axi_aw.ready = axi.aw.ready
+    axi.w.payload = core.axi_w.payload
+    axi.w.valid = core.axi_w.valid
+    core.axi_w.ready = axi.w.ready
+    core.axi_b.payload = axi.b.payload
+    core.axi_b.valid = axi.b.valid
+    axi.b.ready = core.axi_b.ready
+    protocol_error = core.protocol_error
+}
+
+// A five-channel manager is composition of independently backpressured read
+// and write engines.  Its child signal bindings are ordinary static-protocol
+// projections; no AXI-specific compiler route is involved.
+module AXI4Manager<AW=32,DW=32,RIW=4,WIW=4,D=4>
+where AW >= 1 && AW <= 64 && RIW >= 1 && RIW <= 32 &&
+      WIW >= 1 && WIW <= 32 && DW >= 8 && DW <= 1024 &&
+      is_power_of_two(DW) && D >= 2 && is_power_of_two(D) {
+    clock clk reset rst
+    in read_command : rv<Axi4Address<AW,RIW>>
+    out read_data : rv<Axi4ReadData<DW,RIW>>
+    in write_command : rv<Axi4Address<AW,WIW>>
+    in write_data : rv<Axi4WriteData<DW>>
+    out write_completion : rv<Axi4WriteResponse<WIW>>
+    out protocol_error : bit = reader.protocol_error | writer.protocol_error
+    interface axi : AXI4<AW,DW,RIW,WIW>.master @clk
+
+    reader : AXI4ReadManager<AW,DW,RIW,D>
+    writer : AXI4WriteManager<AW,DW,WIW,D>
+    read_command -> reader.command
+    reader.data -> read_data
+    write_command -> writer.command
+    write_data -> writer.write
+    writer.completion -> write_completion
+
+    axi.ar.payload = reader.axi.ar.payload
+    axi.ar.valid = reader.axi.ar.valid
+    reader.axi.ar.ready = axi.ar.ready
+    reader.axi.r.payload = axi.r.payload
+    reader.axi.r.valid = axi.r.valid
+    axi.r.ready = reader.axi.r.ready
+
+    axi.aw.payload = writer.axi.aw.payload
+    axi.aw.valid = writer.axi.aw.valid
+    writer.axi.aw.ready = axi.aw.ready
+    axi.w.payload = writer.axi.w.payload
+    axi.w.valid = writer.axi.w.valid
+    writer.axi.w.ready = axi.w.ready
+    writer.axi.b.payload = axi.b.payload
+    writer.axi.b.valid = axi.b.valid
+    axi.b.ready = writer.axi.b.ready
+}
+
+module AXI4ManagerWithUser<AW=32,DW=32,RIW=4,WIW=4,
+                            AWUW=1,WUW=1,BUW=1,ARUW=1,RUW=1,D=4>
+where AW >= 1 && AW <= 64 && RIW >= 1 && RIW <= 32 &&
+      WIW >= 1 && WIW <= 32 && DW >= 8 && DW <= 1024 &&
+      is_power_of_two(DW) && AWUW >= 1 && WUW >= 1 &&
+      BUW >= 1 && ARUW >= 1 && RUW >= 1 &&
+      D >= 2 && is_power_of_two(D) {
+    clock clk reset rst
+    in read_command : rv<Axi4AddressUser<AW,RIW,ARUW>>
+    out read_data : rv<Axi4ReadDataUser<DW,RIW,RUW>>
+    in write_command : rv<Axi4AddressUser<AW,WIW,AWUW>>
+    in write_data : rv<Axi4WriteDataUser<DW,WUW>>
+    out write_completion : rv<Axi4WriteResponseUser<WIW,BUW>>
+    out protocol_error : bit = reader.protocol_error | writer.protocol_error
+    interface axi : AXI4WithUser<AW,DW,RIW,WIW,AWUW,WUW,BUW,ARUW,RUW>.master @clk
+
+    reader : AXI4ReadManagerWithUser<AW,DW,RIW,ARUW,RUW,D>
+    writer : AXI4WriteManagerWithUser<AW,DW,WIW,AWUW,WUW,BUW,D>
+    read_command -> reader.command
+    reader.data -> read_data
+    write_command -> writer.command
+    write_data -> writer.write
+    writer.completion -> write_completion
+
+    axi.ar.payload = reader.axi.ar.payload
+    axi.ar.valid = reader.axi.ar.valid
+    reader.axi.ar.ready = axi.ar.ready
+    reader.axi.r.payload = axi.r.payload
+    reader.axi.r.valid = axi.r.valid
+    axi.r.ready = reader.axi.r.ready
+
+    axi.aw.payload = writer.axi.aw.payload
+    axi.aw.valid = writer.axi.aw.valid
+    writer.axi.aw.ready = axi.aw.ready
+    axi.w.payload = writer.axi.w.payload
+    axi.w.valid = writer.axi.w.valid
+    writer.axi.w.ready = axi.w.ready
+    writer.axi.b.payload = axi.b.payload
+    writer.axi.b.valid = axi.b.valid
+    axi.b.ready = writer.axi.b.ready
+}

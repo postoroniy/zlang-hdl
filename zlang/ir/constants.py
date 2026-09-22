@@ -66,6 +66,11 @@ def _constant_runtime_value(
             raise ConstantExpressionError(
                 f"functional capture '{expression.display_name}' is not bound"
             ) from error
+    if isinstance(expression, expr.FunctionalValue):
+        try:
+            return evaluate_compile_time(expression.expression, binder_values)
+        except ValueError as error:
+            raise ConstantExpressionError(str(error)) from error
     if isinstance(expression, expr.FunctionalTableLookup):
         table = tables.get(expression.table_name)
         if table is None or table.type != expression.type:

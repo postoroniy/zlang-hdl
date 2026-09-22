@@ -88,6 +88,8 @@ from zlang.opt.ir import (
 )
 from zlang.ir.functional import FunctionalLoweringError, vector_leaf_shape
 from zlang.ir.functional_regions import FunctionalTable
+from zlang.ir.signed_reductions import expression_semantic_identity
+from zlang.ir.expression_arena import ExpressionProvenanceTable
 from zlang.ir.hierarchy import (
     HierarchyError,
     validate_hierarchical_connections,
@@ -118,6 +120,7 @@ class _ExpressionBuilder:
     def __init__(self, module: Module) -> None:
         self.nodes: list[CanonicalExpression] = []
         self._interned: dict[tuple[object, ...], NodeId] = {}
+        self._lowered_objects: dict[tuple[int, str], NodeId] = {}
         self._default_domain = module.clock
         self._port_domains = {port.name: port.domain for port in module.ports}
         self._register_domains = {
@@ -130,8 +133,25 @@ class _ExpressionBuilder:
         self._rom_latencies = {
             rom.name: rom.read_latency for rom in module.roms
         }
+        provenance = module.semantic_expression_provenance
+        self._semantic_provenance = (
+            provenance
+            if isinstance(provenance, ExpressionProvenanceTable)
+            else None
+        )
+
+    def _origins(self, expression: expr.Expression) -> tuple[object, ...]:
+        if self._semantic_provenance is not None:
+            origins = self._semantic_provenance.origins(expression)
+            if origins:
+                return origins
+        return (expression.origin,) if expression.origin is not None else ()
 
     def lower(self, expression: expr.Expression, scope: str = "module") -> NodeId:
+        object_key = (id(expression), scope)
+        cached_object = self._lowered_objects.get(object_key)
+        if cached_object is not None:
+            return cached_object
         category, op, operands, attributes = self._describe(expression, scope)
         metadata = self._metadata(expression, op, operands)
         # A retained call is one compact use-site of a shared callable body.
@@ -152,14 +172,16 @@ class _ExpressionBuilder:
         )
         if key in self._interned:
             node_id = self._interned[key]
-            if (
-                expression.origin is not None
-                and expression.origin not in self.nodes[node_id].origins
-            ):
+            merged_origins = tuple(dict.fromkeys((
+                *self.nodes[node_id].origins,
+                *self._origins(expression),
+            )))
+            if merged_origins != self.nodes[node_id].origins:
                 self.nodes[node_id] = replace(
                     self.nodes[node_id],
-                    origins=(*self.nodes[node_id].origins, expression.origin),
+                    origins=merged_origins,
                 )
+            self._lowered_objects[object_key] = node_id
             return node_id
         node_id = len(self.nodes)
         node = CanonicalExpression(
@@ -170,10 +192,11 @@ class _ExpressionBuilder:
             operands=operands,
             attributes=attributes,
             metadata=metadata,
-            origins=(expression.origin,) if expression.origin is not None else (),
+            origins=self._origins(expression),
         )
         self.nodes.append(node)
         self._interned[key] = node_id
+        self._lowered_objects[object_key] = node_id
         return node_id
 
     def _describe(
@@ -391,6 +414,12 @@ class _ExpressionBuilder:
                 identity=expression.identity,
                 display_name=expression.display_name,
             )
+        if isinstance(expression, expr.FunctionalValue):
+            return self._leaf(
+                NodeCategory.VALUE,
+                ExpressionOp.FUNCTIONAL_VALUE,
+                expression=expression.expression,
+            )
         if isinstance(expression, expr.FunctionalTableLookup):
             value_range = expression.value_range
             return self._leaf(
@@ -527,6 +556,12 @@ class _ExpressionBuilder:
                 binder=expression.binder,
                 table_layout=table_layout,
                 capture_layout=capture_layout,
+                certificates=expression.certificates,
+                certificate_template_identity=(
+                    expression_semantic_identity(expression.template)
+                    if expression.certificates
+                    else None
+                ),
             )
         if isinstance(expression, expr.Map):
             return self._compound(
@@ -780,6 +815,20 @@ def lower_expression_graph(
     builder = _ExpressionBuilder(module)
     root = builder.lower(expression, scope)
     return tuple(builder.nodes), root
+
+
+def _without_expression_host_evidence(module: Module) -> Module:
+    """Remove compilation-local DAG evidence from retained semantic children."""
+
+    return replace(
+        module,
+        children=tuple(
+            _without_expression_host_evidence(child) for child in module.children
+        ),
+        semantic_expression_arena_statistics=None,
+        semantic_expression_provenance=None,
+        selected_value_normalization_statistics=None,
+    )
 
 
 def lower(
@@ -1167,7 +1216,9 @@ def lower(
         instances=module.instances,
         parameters=module.parameters,
         instance_bindings=module.instance_bindings,
-        children=module.children,
+        children=tuple(
+            _without_expression_host_evidence(child) for child in module.children
+        ),
         elaborated_instances=module.elaborated_instances,
         protocol_endpoints=module.protocol_endpoints,
         hierarchical_connections=module.hierarchical_connections,
@@ -2452,6 +2503,17 @@ class _ExpressionRestorer:
                 attribute("display_name"),
                 node.type,
             )
+        elif op is ExpressionOp.FUNCTIONAL_VALUE:
+            if operands:
+                raise CanonicalizationError(
+                    f"canonical functional value %{node_id} must be a leaf"
+                )
+            try:
+                restored = expr.FunctionalValue(attribute("expression"), node.type)
+            except ValueError as error:
+                raise CanonicalizationError(
+                    f"canonical functional value %{node_id} is invalid: {error}"
+                ) from error
         elif op is ExpressionOp.FUNCTIONAL_TABLE_LOOKUP:
             if operands:
                 raise CanonicalizationError(
@@ -2713,7 +2775,18 @@ class _ExpressionRestorer:
                     tuple(tables),
                     captures,
                     node.type,
+                    attribute("certificates"),
                 )
+                certificate_template_identity = dict(node.attributes).get(
+                    "certificate_template_identity"
+                )
+                if restored.certificates and certificate_template_identity != (
+                    expression_semantic_identity(restored.template)
+                ):
+                    raise ValueError(
+                        "functional specialization certificate template identity "
+                        "does not match its region"
+                    )
             except ValueError as error:
                 raise CanonicalizationError(
                     f"canonical functional region %{node_id} is invalid: {error}"
@@ -2804,7 +2877,6 @@ class _ExpressionRestorer:
                 domain=dict(node.attributes).get("domain"),
             )
             if pipeline_plan is not None and pipeline_plan.scheduler != "legacy":
-                from zlang.ir.signed_reductions import expression_semantic_identity
                 from zlang.pipeline_scheduling import erase_pipeline_timing
                 from zlang.timing import timing_info
 

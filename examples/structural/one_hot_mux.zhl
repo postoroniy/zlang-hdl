@@ -1,0 +1,17 @@
+// Correct for arbitrary select bits: simultaneous selections are OR-combined.
+// multiple_selected reports violation of the zero-or-one-selected precondition.
+module OneHotMuxWitness<N=16> {
+    in values : vec<N,u16>
+    in select : vec<N,bit>
+    out selected_or : u16
+    out any_selected : bit
+    out multiple_selected : bit
+
+    selected_or = reduce(|, generate(i in 0..N)
+        mux(select[i], values[i], 0))
+    any_selected = reduce(|, select)
+    collisions = generate(i in 0..N)
+        (select[i] & reduce(|, generate(j in 0..N)
+            (select[j] & (extend<8>(j) < extend<8>(i)))))
+    multiple_selected = reduce(|, collisions)
+}

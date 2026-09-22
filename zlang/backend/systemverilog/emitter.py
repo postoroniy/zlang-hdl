@@ -28,6 +28,7 @@ from zlang.ir.interfaces import (
     CreditSignal,
     InterfaceProtocol,
     ReadyValidSignal,
+    parse_ready_valid_field_name,
     RequestResponseChannel,
     RequestResponseOrdering,
     RequestResponseRole,
@@ -42,6 +43,7 @@ from zlang.ir.module import (
     Rule,
     default_selected_ir_identity,
 )
+from zlang.ir.normalization import normalize_selected_values
 from zlang.ir.storage import (
     FifoSignal,
     MemoryCollision,
@@ -77,6 +79,8 @@ from zlang.ir.types import (
 from zlang.backend.companions import collect_rom_companions, companion_for_rom
 from zlang.backend.external import ExternalMappingError, ExternalPhysicalMapping
 from zlang.backend.expression_materialization import (
+    ExpressionAliasMap,
+    FUNCTIONAL_REGION_EMISSION_SCHEMA,
     MaterializedExpression as _MaterializedExpression,
     dependency_ordered_materialization,
     expression_children as _expression_children,
@@ -153,8 +157,13 @@ from zlang.ir.hierarchy import (
 )
 from zlang.ir.functional import (
     lower_reduction,
-    materialize_functional_region,
 )
+from zlang.ir.functional_regions import (
+    CompileTimeBinderRef,
+    CompileTimeExpr,
+    CompileTimeOperator,
+)
+from zlang.ir.signed_reductions import expression_semantic_identity
 from zlang.ir.recursive_formal import BackendPhysicalLocator
 from zlang.memory_planning import (
     MemoryImplementationKind,
@@ -253,6 +262,110 @@ def _top_boundary_scope(
         yield
     finally:
         _CURRENT_TOP_BOUNDARY.reset(token)
+
+
+@dataclass(frozen=True)
+class FunctionalRegionEmissionPlan:
+    """Stable statement-level lowering plan for one compact region."""
+
+    identity: str
+    result_name: str
+    loop_variable: str
+    element_width: int
+    table_temporaries: tuple[tuple[expr.FunctionalTableLookup, str], ...]
+    expression_temporaries: tuple[_MaterializedExpression, ...]
+    reduction_temporaries: tuple["_FunctionalReductionEmissionPlan", ...] = ()
+    scatter: "_FunctionalScatterEmissionPlan | None" = None
+    schema: str = FUNCTIONAL_REGION_EMISSION_SCHEMA
+
+
+@dataclass(frozen=True)
+class FunctionalRegionCompositionNode:
+    """One region and its exact lexical dependencies."""
+
+    region: expr.FunctionalRegion
+    identity: str
+    dependencies: tuple[str, ...]
+    free_binders: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class FunctionalRegionCompositionPlan:
+    """Stable dependency-first plan for nested compact regions."""
+
+    nodes: tuple[FunctionalRegionCompositionNode, ...]
+    schema: str = FUNCTIONAL_REGION_EMISSION_SCHEMA
+
+
+@dataclass(frozen=True)
+class _FunctionalReductionEmissionPlan:
+    """One exact associative bitwise reduction over a compact child region."""
+
+    reduction: expr.Reduce
+    accumulator: str
+    loop_variable: str
+    table_temporaries: tuple[tuple[expr.FunctionalTableLookup, str], ...]
+    children: tuple["_FunctionalReductionEmissionPlan", ...]
+
+
+@dataclass(frozen=True)
+class _FunctionalScatterDimension:
+    region: expr.FunctionalRegion
+    loop_variable: str
+    table_temporaries: tuple[tuple[expr.FunctionalTableLookup, str], ...]
+
+
+@dataclass(frozen=True)
+class _FunctionalScatterEntry:
+    enable: expr.Expression
+    address: expr.Expression
+    value: expr.Expression
+
+
+@dataclass(frozen=True)
+class _FunctionalScatterEmissionPlan:
+    """Invert an exact destination decode into candidate-addressed writes."""
+
+    dimensions: tuple[_FunctionalScatterDimension, ...]
+    entries: tuple[_FunctionalScatterEntry, ...]
+    enable_temporary: str
+    address_temporary: str
+    value_temporary: str
+
+
+@dataclass(frozen=True)
+class _FunctionalExpressionContext:
+    binders: tuple[tuple[str, str], ...]
+    captures: tuple[tuple[str, expr.Expression], ...]
+    table_temporaries: tuple[tuple[expr.FunctionalTableLookup, str], ...]
+
+    def binder(self, identity: str) -> str | None:
+        return next((name for key, name in self.binders if key == identity), None)
+
+    def capture(self, identity: str) -> expr.Expression | None:
+        return next((value for key, value in self.captures if key == identity), None)
+
+    def table_temporary(self, lookup: expr.FunctionalTableLookup) -> str | None:
+        return next(
+            (name for candidate, name in self.table_temporaries if candidate == lookup),
+            None,
+        )
+
+
+_CURRENT_FUNCTIONAL_EXPRESSION: ContextVar[_FunctionalExpressionContext | None] = (
+    ContextVar("zlang_systemverilog_functional_expression", default=None)
+)
+
+
+@contextmanager
+def _functional_expression_scope(
+    context: _FunctionalExpressionContext,
+) -> Iterator[None]:
+    token = _CURRENT_FUNCTIONAL_EXPRESSION.set(context)
+    try:
+        yield
+    finally:
+        _CURRENT_FUNCTIONAL_EXPRESSION.reset(token)
 
 
 @dataclass(frozen=True)
@@ -495,7 +608,9 @@ def _emit_named_design(
     # physical helper names, otherwise a spelling-only dependency edit changes
     # byte-identical RTL.  Render from an ephemeral copy whose generic callable
     # names are derived from the exact typed body/signature instead.
-    physical_module = _physicalize_generic_callables(module)
+    physical_module = _physicalize_generic_callables(
+        normalize_selected_values(module, prune_callables=False)
+    )
     hierarchy_cache = HierarchyTraversalCache()
     public_abi = build_top_physical_abi(physical_module)
     _validate_public_leaf_identifiers(tuple(public_abi.leaves))
@@ -820,39 +935,53 @@ def _physicalize_generic_callables(module: Module) -> Module:
     if not physical:
         return module
 
+    rewritten_objects: dict[int, object] = {}
+
     def rewrite(value: object) -> object:
+        cache_key = id(value)
+        cached = rewritten_objects.get(cache_key)
+        if cached is not None:
+            return cached
         if isinstance(value, expr.Call):
             arguments = tuple(rewrite(item) for item in value.arguments)
             identity = value.callee_identity or ""
             replacement = physical.get(identity)
             if replacement is None:
-                return replace(value, arguments=arguments)
-            return replace(
-                value,
-                function=f"zlang_spec_{replacement}",
-                arguments=arguments,
-                callee_identity=replacement,
-            )
+                result = replace(value, arguments=arguments)
+            else:
+                result = replace(
+                    value,
+                    function=f"zlang_spec_{replacement}",
+                    arguments=arguments,
+                    callee_identity=replacement,
+                )
+            rewritten_objects[cache_key] = result
+            return result
         if isinstance(value, Function):
             body = rewrite(value.body)
             identity = value.callee_identity
             replacement = physical.get(identity)
             if replacement is None:
-                return replace(value, body=body)
-            metadata = value.metadata
-            return replace(
-                value,
-                name=f"zlang_spec_{replacement}",
-                body=body,
-                callee_identity=replacement,
-                metadata=(
-                    replace(metadata, specialization_identity=replacement)
-                    if metadata is not None
-                    else None
-                ),
-            )
+                result = replace(value, body=body)
+            else:
+                metadata = value.metadata
+                result = replace(
+                    value,
+                    name=f"zlang_spec_{replacement}",
+                    body=body,
+                    callee_identity=replacement,
+                    metadata=(
+                        replace(metadata, specialization_identity=replacement)
+                        if metadata is not None
+                        else None
+                    ),
+                )
+            rewritten_objects[cache_key] = result
+            return result
         if isinstance(value, tuple):
-            return tuple(rewrite(item) for item in value)
+            result = tuple(rewrite(item) for item in value)
+            rewritten_objects[cache_key] = result
+            return result
         if is_dataclass(value) and not isinstance(value, type):
             field_names = {item.name for item in fields(value)}
             updates = {
@@ -869,7 +998,9 @@ def _physicalize_generic_callables(module: Module) -> Module:
                 if replacement is not None:
                     updates["function"] = f"zlang_spec_{replacement}"
                     updates["callee_identity"] = replacement
-            return replace(value, **updates) if updates else value
+            result = replace(value, **updates) if updates else value
+            rewritten_objects[cache_key] = result
+            return result
         return value
 
     rewritten = rewrite(module)
@@ -1473,7 +1604,7 @@ def _top_boundary_source_base(leaf: object) -> str:
     )
 
 
-def _top_core_signal(module: Module, leaf: object) -> str:
+def _top_boundary_signal(leaf: object) -> str:
     """Map one typed physical-ABI root to its containing-module signal."""
 
     if not leaf.packed_root_external_name:
@@ -1635,7 +1766,7 @@ def _build_top_boundary_plan(
             and not first.array_dimensions
             and first.leaf_semantic_id == root
             and rtl_identifier(first.external_name)
-            == _top_core_signal(module, first)
+            == _top_boundary_signal(first)
         )
         if not direct:
             bases_requiring_alias.add(_top_boundary_source_base(first))
@@ -1666,7 +1797,7 @@ def _build_top_boundary_plan(
             base = _top_boundary_source_base(first)
             if base not in aliases:
                 continue
-            signal = _top_core_signal(module, first)
+            signal = _top_boundary_signal(first)
             root_width = _width(first.packed_root_type)
             signed = " signed" if isinstance(
                 first.packed_root_type, (SIntType, FixedType)
@@ -1746,8 +1877,17 @@ def _instance_expression(
 
     def walk(value):
         if isinstance(value, expr.InstanceOutputRef):
+            protocol_field = parse_ready_valid_field_name(value.port)
             return expr.InputRef(
-                local_names.child_signal(value.instance, value.port),
+                (
+                    local_names.child_signal(
+                        value.instance,
+                        protocol_field[0],
+                        protocol_field[1].value,
+                    )
+                    if protocol_field is not None
+                    else local_names.child_signal(value.instance, value.port)
+                ),
                 value.type, origin=value.origin,
             )
         if (
@@ -1791,26 +1931,47 @@ def _materialization_plan(
 ) -> tuple[_MaterializedExpression, ...]:
     names = names or module_rtl_names(module)
     roots = _module_expression_roots(module, names)
-    preferred = {
-        _instance_expression(module, local.expression, names): _identifier(local.name)
+    preferred = tuple(
+        (_instance_expression(module, local.expression, names), _identifier(local.name))
         for local in module.locals
         if not local.compile_time
-    }
+    )
     reserved_names = {
         _identifier(item.name) for item in (*module.ports, *module.registers, *module.locals)
     }
     reserved_names.update(item.physical_name for item in names.entries)
-    return plan_materialization(
+    planned = list(plan_materialization(
         roots,
         preferred_names=preferred,
         reserved_names=reserved_names,
-    )
+    ))
+    planned_regions = {
+        item.expression for item in planned if isinstance(item.expression, expr.FunctionalRegion)
+    }
+    used_names = reserved_names | {item.name for item in planned}
+    for root in roots:
+        for region in _functional_region_objects(root):
+            if region in planned_regions:
+                continue
+            identity = expression_semantic_identity(region)
+            name = allocate_private_rtl_identifier(
+                f"region_{identity[:10]}",
+                semantic_identity=(
+                    f"{FUNCTIONAL_REGION_EMISSION_SCHEMA}:module:{identity}"
+                ),
+                used=used_names,
+            )
+            planned.append(_MaterializedExpression(region, name))
+            planned_regions.add(region)
+    return tuple(planned)
 
 
 def _materialized_emission(module: Module):
     names = module_rtl_names(module)
     materialized = _materialization_plan(module, names)
-    aliases = {item.expression: item.name for item in materialized}
+    aliases = ExpressionAliasMap(
+        (item.expression, item.name) for item in materialized
+    )
 
     def render(value: expr.Expression, *, keep: expr.Expression | None = None) -> str:
         physical = _instance_expression(module, value, names)
@@ -1824,9 +1985,39 @@ def _materialized_emission(module: Module):
             f"  logic{signed} {_range(_width(item.expression.type))}{item.name};"
         )
     for item in materialized:
-        assignments.append(
-            f"  assign {item.name} = {render(item.expression, keep=item.expression)};"
-        )
+        if isinstance(item.expression, expr.FunctionalRegion):
+            region = _replace_materialized(
+                item.expression,
+                aliases,
+                keep=item.expression,
+                rewrite_region_owned=True,
+            )
+            assert isinstance(region, expr.FunctionalRegion)
+            replication = _functional_region_replication(region)
+            if replication is not None:
+                assignments.append(f"  assign {item.name} = {replication};")
+                continue
+            plan = _functional_region_plan(
+                region,
+                item.name,
+                reserved_names=tuple(
+                    entry.name for entry in materialized
+                ),
+            )
+            region_declarations, region_statements = _functional_region_rendering(
+                region,
+                plan,
+                declaration_indent="  ",
+                statement_indent="    ",
+            )
+            declarations.extend(region_declarations)
+            assignments.extend(
+                ("  always_comb begin", *region_statements, "  end")
+            )
+        else:
+            assignments.append(
+                f"  assign {item.name} = {render(item.expression, keep=item.expression)};"
+            )
     return declarations, assignments, render
 
 
@@ -1871,6 +2062,7 @@ def _composed_rendering(
             emit_unified_state=_emit_unified_state_module,
             emit_rules=_emit_rules,
             emit_elastic_pipeline=_emit_elastic_pipeline,
+            emit_cdc_child=_emit_composed_cdc_child,
             emit_csr_child=_emit_composed_csr_child,
             named_module=_emit_composed_named_module,
             requires_unified_state=_requires_unified_state,
@@ -1891,6 +2083,10 @@ def _composed_rendering(
 
 def _emit_composed_csr_child(module: Module) -> str:
     return _emit_csr(module, expose_internal_abi=True)
+
+
+def _emit_composed_cdc_child(module: Module) -> str:
+    return _emit_cdc_subsystem(module, _cdc_rendering(module))
 
 
 def _emit_composed_named_module(
@@ -4179,12 +4375,6 @@ def emit_formal_artifact(module: Module, recursive_design: object, *,
     return artifact
 
 
-def _module_at_path(module: Module, path: tuple[str, ...]) -> Module:
-    """Return one exact typed module or fail; never return an ancestor."""
-
-    return _validated_hierarchy(module).at(tuple(path)).module
-
-
 def _csr_observation_token(module: Module, semantic_id: str) -> str | None:
     for block in module.csr_blocks:
         for binding in block.state_bindings:
@@ -4195,6 +4385,22 @@ def _csr_observation_token(module: Module, semantic_id: str) -> str | None:
                 return ir_csr.csr_write_hit_port_name(binding)
             if semantic_id == binding.write_value_id:
                 return ir_csr.csr_write_value_port_name(binding)
+        for observation in block.access_observations:
+            if semantic_id == observation.read_hit_id:
+                return ir_csr.csr_read_hit_port_name(observation)
+            if semantic_id == observation.write_hit_id:
+                return ir_csr.csr_observation_write_hit_port_name(observation)
+            if semantic_id == observation.write_value_id:
+                return ir_csr.csr_observation_write_value_port_name(observation)
+            if semantic_id == observation.value_id:
+                return ir_csr.csr_observation_value_port_name(observation)
+        for register in block.registers:
+            for event in register.events:
+                if semantic_id == event.semantic_value_id:
+                    return ir_csr.csr_event_port_name(event)
+        for view in block.split_views:
+            if semantic_id == view.semantic_value_id:
+                return ir_csr.csr_split_port_name(block, view)
     return None
 
 
@@ -4353,10 +4559,10 @@ def _emit_pipeline(module: Module) -> str:
         raise SystemVerilogEmissionError(
             "direct sequential datapath emission requires a typed pipeline or delay"
         )
-    aliases = {
-        node: _staged_signal_name(node, _staged_count(node))
+    aliases = ExpressionAliasMap(
+        (node, _staged_signal_name(node, _staged_count(node)))
         for node in staged.values()
-    }
+    )
     physical_roots = tuple(
         _replace_staged_expressions(node.expression, aliases)
         for node in staged.values()
@@ -4373,9 +4579,9 @@ def _emit_pipeline(module: Module) -> str:
         # physical combinational value rather than being copied into siblings.
         minimum_shared_size=2,
     )
-    materialized_aliases = {
-        item.expression: item.name for item in stage_materialized
-    }
+    materialized_aliases = ExpressionAliasMap(
+        (item.expression, item.name) for item in stage_materialized
+    )
 
     def render(value: expr.Expression) -> str:
         physical = _replace_staged_expressions(value, aliases)
@@ -4593,7 +4799,7 @@ def _collect_staged_expressions(
 
 def _replace_staged_expressions(
     value: expr.Expression,
-    aliases: dict[expr.Delay | expr.Pipeline, str],
+    aliases: ExpressionAliasMap,
 ) -> expr.Expression:
     return _replace_materialized(value, aliases)
 
@@ -4638,12 +4844,13 @@ def _emit_ready_valid(module: Module) -> str:
                     f"input logic {name}_ready",
                 )
             )
+    declarations, materialized, render = _materialized_emission(module)
     lines = [
         f"  assign {_assignment_name(assignment)} = "
-        f"{_expression(assignment.expression)};"
+        f"{render(assignment.expression)};"
         for assignment in module.assignments
     ]
-    return _module(module, ports, lines)
+    return _module(module, ports, [*declarations, *materialized, *lines])
 
 
 def _emit_credit(module: Module) -> str:
@@ -5109,7 +5316,7 @@ def _embedded_staging_emission(
             "staged hierarchical component requires clock and reset"
         )
 
-    aliases: dict[expr.Expression, str] = {}
+    aliases = ExpressionAliasMap()
     declarations: list[str] = []
     resets: dict[str, list[str]] = {}
     updates: dict[str, list[str]] = {}
@@ -5158,11 +5365,54 @@ def _embedded_staging_emission(
             "  end",
         ))
 
+    # Rules and sequential modules historically used this staging renderer
+    # directly instead of the ordinary combinational materialization path.
+    # Compact functional regions are nevertheless ordinary combinational
+    # values and must have the same statement-owned lowering in every route,
+    # including register reset values.
+    region_logic: list[str] = []
+    region_items = tuple(
+        item
+        for item in _materialization_plan(module, local_names)
+        if isinstance(item.expression, expr.FunctionalRegion)
+    )
+    region_names = tuple(item.name for item in region_items)
+    for item in region_items:
+        declarations.append(
+            f"  logic {_range(_width(item.expression.type))}{item.name};"
+        )
+        region = _replace_materialized(
+            item.expression,
+            aliases,
+            keep=item.expression,
+            rewrite_region_owned=True,
+        )
+        assert isinstance(region, expr.FunctionalRegion)
+        replication = _functional_region_replication(region)
+        if replication is not None:
+            region_logic.append(f"  assign {item.name} = {replication};")
+            aliases[item.expression] = item.name
+            continue
+        plan = _functional_region_plan(
+            region,
+            item.name,
+            reserved_names=region_names,
+        )
+        region_declarations, region_statements = _functional_region_rendering(
+            region,
+            plan,
+            declaration_indent="  ",
+            statement_indent="    ",
+        )
+        declarations.extend(region_declarations)
+        region_logic.extend(("  always_comb begin", *region_statements, "  end"))
+        aliases[item.expression] = item.name
+
     def render(value: expr.Expression) -> str:
         physical = _instance_expression(module, value, local_names)
         return _expression(_replace_materialized(physical, aliases))
 
-    return declarations, sequential, render
+    return declarations, [*region_logic, *sequential], render
 
 
 def _append_rule_state(
@@ -5411,16 +5661,29 @@ def _emit_packet_arbiter(module: Module) -> str:
 
 
 def _emit_csr(module: Module, *, expose_internal_abi: bool = False) -> str:
-    if len(module.csr_blocks) != 1:
-        raise SystemVerilogEmissionError(
-            "direct CSR emission requires one block"
-        )
-    block = module.csr_blocks[0]
-    if block.domain is None or block.reset is None:
+    blocks = module.csr_blocks
+    if not blocks:
+        raise SystemVerilogEmissionError("direct CSR emission requires a block")
+    if any(block.domain is None or block.reset is None for block in blocks):
         raise SystemVerilogEmissionError(
             "direct CSR emission requires an explicitly resolved physical domain"
         )
-    csr_clock = block.domain
+    physical_domains = {(block.domain, block.reset) for block in blocks}
+    if len(physical_domains) != 1:
+        raise SystemVerilogEmissionError(
+            "direct CSR emission requires all blocks to share one physical domain"
+        )
+    csr_clock = blocks[0].domain
+    assert csr_clock is not None
+    access_observations = {
+        block.name: ir_csr.derived_access_observations(
+            block,
+            module_identity=module.name,
+            block_ordinal=index,
+            clock_domain=block.domain,
+        )
+        for index, block in enumerate(blocks)
+    }
     access = module.csr_access
     if access is None:
         raise SystemVerilogEmissionError("typed CSR access interface is missing")
@@ -5438,17 +5701,51 @@ def _emit_csr(module: Module, *, expose_internal_abi: bool = False) -> str:
             *(
                 _logic_port("output", ir_csr.csr_state_port_name(binding),
                             binding.canonical_type)
-                for binding in block.state_bindings
+                for block in blocks for binding in block.state_bindings
             ),
             *(
-                _logic_port("output", ir_csr.csr_write_hit_port_name(binding),
+                _logic_port("output", ir_csr.csr_read_hit_port_name(binding),
                             BitType())
-                for binding in block.state_bindings
+                for block in blocks
+                for binding in access_observations[block.name]
             ),
             *(
-                _logic_port("output", ir_csr.csr_write_value_port_name(binding),
+                _logic_port(
+                    "output",
+                    ir_csr.csr_observation_write_hit_port_name(binding),
+                    BitType(),
+                )
+                for block in blocks
+                for binding in access_observations[block.name]
+            ),
+            *(
+                _logic_port(
+                    "output",
+                    ir_csr.csr_observation_write_value_port_name(binding),
+                    binding.canonical_type,
+                )
+                for block in blocks
+                for binding in access_observations[block.name]
+            ),
+            *(
+                _logic_port(
+                    "output",
+                    ir_csr.csr_observation_value_port_name(binding),
+                    binding.canonical_type,
+                )
+                for block in blocks
+                for binding in access_observations[block.name]
+            ),
+            *(
+                _logic_port("output", ir_csr.csr_event_port_name(binding),
                             binding.canonical_type)
-                for binding in block.state_bindings
+                for block in blocks for register in block.registers
+                for binding in register.events
+            ),
+            *(
+                _logic_port("output", ir_csr.csr_split_port_name(block, view),
+                            view.canonical_type)
+                for block in blocks for view in block.split_views
             ),
         ]
     ports = [
@@ -5468,32 +5765,27 @@ def _emit_csr(module: Module, *, expose_internal_abi: bool = False) -> str:
         *internal_ports,
     ]
     stored = tuple(
-        (register, field)
+        (block, register, field)
+        for block in blocks
         for register in block.registers
         for field in register.fields
-        if field.access
-        in {
-            ir_csr.CsrAccess.READ_WRITE,
-            ir_csr.CsrAccess.WRITE_ONLY,
-            ir_csr.CsrAccess.WRITE_ONE_TO_CLEAR,
-            ir_csr.CsrAccess.PULSE,
-        }
+        if ir_csr.access_owns_state(field.access)
     )
     lines = [
         *(
             f"  logic {_range(field.width)}{_csr_field_name(block, register, field)};"
-            for register, field in stored
+            for block, register, field in stored
         ),
         f"  always_ff @({_clock_event(module, _identifier, csr_clock)}) begin",
         f"    if ({_reset_asserted(module, _identifier, csr_clock)}) begin",
         *(
             f"      {_csr_field_name(block, register, field)} <= "
             f"{field.width}'d{field.reset};"
-            for register, field in stored
+            for block, register, field in stored
         ),
         "    end else begin",
     ]
-    for register, field in stored:
+    for block, register, field in stored:
         address = block.base_address + register.offset
         name = _csr_field_name(block, register, field)
         hit = (
@@ -5532,37 +5824,38 @@ def _emit_csr(module: Module, *, expose_internal_abi: bool = False) -> str:
     ))
     lines.append(f"    if ({access.read_port}) begin")
     lines.append(f"      case ({access.address_port})")
-    for register in block.registers:
-        address = block.base_address + register.offset
-        lines.append(f"        32'h{address:08x}: begin")
-        for field in register.fields:
-            if field.access not in {
-                ir_csr.CsrAccess.READ_WRITE,
-                ir_csr.CsrAccess.READ_ONLY,
-                ir_csr.CsrAccess.WRITE_ONE_TO_CLEAR,
-            }:
-                continue
-            if (
-                field.access is ir_csr.CsrAccess.READ_ONLY
-                and field.binding is not None
-                and field.binding.kind is ir_csr.CsrBindingKind.STATUS
-            ):
-                value = _identifier(field.binding.signal)
-            elif field.access is ir_csr.CsrAccess.READ_ONLY:
-                value = f"{field.width}'d{field.reset}"
-            else:
-                value = _csr_field_name(block, register, field)
-            lines.append(
-                f"          {access.read_data_port}[{field.msb}:{field.lsb}] = {value};"
-            )
-        lines.append("        end")
+    for block in blocks:
+        for register in block.registers:
+            address = block.base_address + register.offset
+            lines.append(f"        32'h{address:08x}: begin")
+            for field in register.fields:
+                if field.access not in {
+                    ir_csr.CsrAccess.READ_WRITE,
+                    ir_csr.CsrAccess.READ_ONLY,
+                    ir_csr.CsrAccess.WRITE_ONE_TO_CLEAR,
+                }:
+                    continue
+                if (
+                    field.access is ir_csr.CsrAccess.READ_ONLY
+                    and field.binding is not None
+                    and field.binding.kind is ir_csr.CsrBindingKind.STATUS
+                ):
+                    value = _identifier(field.binding.signal)
+                elif field.access is ir_csr.CsrAccess.READ_ONLY:
+                    value = f"{field.width}'d{field.reset}"
+                else:
+                    value = _csr_field_name(block, register, field)
+                lines.append(
+                    f"          {access.read_data_port}[{field.msb}:{field.lsb}] = {value};"
+                )
+            lines.append("        end")
     lines.extend((
         f"        default: {access.read_data_port} = 32'b0;",
         "      endcase", "    end",
     ))
     addresses = " || ".join(
         f"addr == 32'h{block.base_address + register.offset:08x}"
-        for register in block.registers
+        for block in blocks for register in block.registers
     )
     lines.extend(
         (
@@ -5570,7 +5863,7 @@ def _emit_csr(module: Module, *, expose_internal_abi: bool = False) -> str:
             "  end",
         )
     )
-    for register, field in stored:
+    for block, register, field in stored:
         if (
             field.binding is not None
             and field.binding.kind is ir_csr.CsrBindingKind.COMMAND
@@ -5580,26 +5873,75 @@ def _emit_csr(module: Module, *, expose_internal_abi: bool = False) -> str:
                 f"{_csr_field_name(block, register, field)};"
             )
     fields_by_identity = {
-        field.identity: (register, field)
+        field.identity: (block, register, field)
+        for block in blocks
         for register in block.registers
         for field in register.fields
     }
-    for binding in block.state_bindings if expose_internal_abi else ():
-        register, field = fields_by_identity[binding.csr_field_id]
-        address = block.base_address + register.offset
-        base = ir_csr.csr_state_port_name(binding)
-        lines.append(
-            f"  assign {base} = "
-            f"{_csr_field_name(block, register, field)};"
-        )
-        lines.append(
-            f"  assign {ir_csr.csr_write_hit_port_name(binding)} = {access.write_port} && "
-            f"{access.address_port} == 32'h{address:08x};"
-        )
-        lines.append(
-            f"  assign {ir_csr.csr_write_value_port_name(binding)} = "
-            f"{_slice(access.write_data_port, field.msb, field.lsb)};"
-        )
+    if expose_internal_abi:
+        for block in blocks:
+            for binding in block.state_bindings:
+                _, register, field = fields_by_identity[binding.csr_field_id]
+                lines.append(
+                    f"  assign {ir_csr.csr_state_port_name(binding)} = "
+                    f"{_csr_field_name(block, register, field)};"
+                )
+            for observation in access_observations[block.name]:
+                _, register, field = fields_by_identity[observation.csr_field_id]
+                address = block.base_address + register.offset
+                if (
+                    field.access is ir_csr.CsrAccess.READ_ONLY
+                    and field.binding is not None
+                    and field.binding.kind is ir_csr.CsrBindingKind.STATUS
+                ):
+                    observed_value = _identifier(field.binding.signal)
+                elif field.access is ir_csr.CsrAccess.READ_ONLY:
+                    observed_value = f"{field.width}'d{field.reset}"
+                else:
+                    observed_value = _csr_field_name(block, register, field)
+                lines.extend((
+                    f"  assign {ir_csr.csr_read_hit_port_name(observation)} = "
+                    f"{access.read_port} && {access.address_port} == 32'h{address:08x};",
+                    f"  assign {ir_csr.csr_observation_write_hit_port_name(observation)} = "
+                    f"{access.write_port} && {access.address_port} == 32'h{address:08x};",
+                    f"  assign {ir_csr.csr_observation_write_value_port_name(observation)} = "
+                    f"{_slice(access.write_data_port, field.msb, field.lsb)};",
+                    f"  assign {ir_csr.csr_observation_value_port_name(observation)} = "
+                    f"{observed_value};",
+                ))
+            for view in block.split_views:
+                _, low_register, low_field = fields_by_identity[view.low_field_id]
+                _, high_register, high_field = fields_by_identity[view.high_field_id]
+                lines.append(
+                    f"  assign {ir_csr.csr_split_port_name(block, view)} = "
+                    f"{{{_csr_field_name(block, high_register, high_field)}, "
+                    f"{_csr_field_name(block, low_register, low_field)}}};"
+                )
+    for block in blocks:
+        for register in block.registers:
+            address = block.base_address + register.offset
+            for event in register.events:
+                hit_port = (
+                    access.write_port
+                    if event.kind is ir_csr.CsrEventKind.WRITE
+                    else access.read_port
+                )
+                hit = (
+                    f"({hit_port} && {access.address_port} == "
+                    f"32'h{address:08x})"
+                )
+                if event.kind is ir_csr.CsrEventKind.WRITE:
+                    selected = _slice(
+                        access.write_data_port, event.msb, event.lsb
+                    )
+                    value = f"({hit} ? {selected} : '0)"
+                else:
+                    value = hit
+                lines.append(f"  assign {_identifier(event.signal)} = {value};")
+                if expose_internal_abi:
+                    lines.append(
+                        f"  assign {ir_csr.csr_event_port_name(event)} = {value};"
+                    )
     has_user_transition = bool(
         module.registers or module.next_assignments or module.rules
     )
@@ -5961,6 +6303,57 @@ def _emit_in_order_request_response(
     return _module(module, _physical_port_declarations(module), lines)
 
 
+def _compile_time_expression(expression: int | CompileTimeExpr) -> str:
+    """Render exact binder arithmetic using Python-compatible floor semantics."""
+
+    if isinstance(expression, int) and not isinstance(expression, bool):
+        return str(expression)
+    if not isinstance(expression, CompileTimeExpr):
+        raise SystemVerilogEmissionError(
+            "functional compile-time value is not an integer expression"
+        )
+    operator = expression.operator
+    if operator is CompileTimeOperator.LITERAL:
+        value = expression.operands[0]
+        assert isinstance(value, int)
+        return str(value)
+    if operator is CompileTimeOperator.BINDER:
+        binder = expression.operands[0]
+        context = _CURRENT_FUNCTIONAL_EXPRESSION.get()
+        rendered = None if context is None else context.binder(binder.identity)
+        if rendered is None:
+            raise SystemVerilogEmissionError(
+                f"functional binder '{binder.display_name}' escaped its region"
+            )
+        return rendered
+    operands = tuple(
+        _compile_time_expression(
+            CompileTimeExpr.ref(item)
+            if isinstance(item, CompileTimeBinderRef)
+            else item
+        )
+        for item in expression.operands
+    )
+    if operator is CompileTimeOperator.ADD:
+        return f"(({operands[0]}) + ({operands[1]}))"
+    if operator is CompileTimeOperator.SUBTRACT:
+        return f"(({operands[0]}) - ({operands[1]}))"
+    if operator is CompileTimeOperator.MULTIPLY:
+        return f"(({operands[0]}) * ({operands[1]}))"
+    if operator is CompileTimeOperator.NEGATE:
+        return f"(-({operands[0]}))"
+    quotient = f"(({operands[0]}) / ({operands[1]}))"
+    remainder = f"(({operands[0]}) % ({operands[1]}))"
+    floor = (
+        f"({quotient} - ((({remainder}) != 0 && "
+        f"((({operands[0]}) < 0) != (({operands[1]}) < 0))) ? 1 : 0))"
+    )
+    if operator is CompileTimeOperator.FLOOR_DIVIDE:
+        return floor
+    assert operator is CompileTimeOperator.MODULO
+    return f"(({operands[0]}) - (({floor}) * ({operands[1]})))"
+
+
 def _expression(expression: expr.Expression) -> str:
     if isinstance(expression, (expr.InputRef, expr.ParameterRef, expr.RegisterRef)):
         return _identifier(expression.name)
@@ -6012,6 +6405,25 @@ def _expression(expression: expr.Expression) -> str:
             expression.value,
             signed=isinstance(expression.type, (SIntType, FixedType)),
         )
+    if isinstance(expression, expr.FunctionalCaptureRef):
+        context = _CURRENT_FUNCTIONAL_EXPRESSION.get()
+        captured = None if context is None else context.capture(expression.identity)
+        if captured is None:
+            raise SystemVerilogEmissionError(
+                f"functional capture '{expression.display_name}' escaped its region"
+            )
+        return _expression(captured)
+    if isinstance(expression, expr.FunctionalValue):
+        value = _compile_time_expression(expression.expression)
+        return f"{_width(expression.type)}'($unsigned({value}))"
+    if isinstance(expression, expr.FunctionalTableLookup):
+        context = _CURRENT_FUNCTIONAL_EXPRESSION.get()
+        temporary = None if context is None else context.table_temporary(expression)
+        if temporary is None:
+            raise SystemVerilogEmissionError(
+                f"functional table lookup '{expression.table_name}' escaped its region"
+            )
+        return temporary
     if isinstance(expression, expr.EnumEncode):
         width = expression.type.width
         return f"{width}'($unsigned({_expression(expression.expression)}))"
@@ -6238,12 +6650,14 @@ def _expression(expression: expr.Expression) -> str:
             expression.field,
         )
     if isinstance(expression, expr.StructConstruct):
-        return "{" + ", ".join(_expression(value) for _, value in expression.fields) + "}"
+        return "{" + _comma_join(
+            tuple(_expression(value) for _, value in expression.fields)
+        ) + "}"
     if isinstance(expression, expr.TupleConstruct):
-        return "{" + ", ".join(
+        return "{" + _comma_join(tuple(
             f"{_width(value.type)}'({_expression(value)})"
             for value in reversed(expression.elements)
-        ) + "}"
+        )) + "}"
     if isinstance(expression, expr.TupleProject):
         tuple_type = expression.expression.type
         if not isinstance(tuple_type, TupleType):
@@ -6261,9 +6675,16 @@ def _expression(expression: expr.Expression) -> str:
         if not isinstance(vector, VecType):
             raise SystemVerilogEmissionError("vector index requires a vector")
         element_width = _width(vector.element_type)
-        lsb = ir_packing.vector_element_lsb(vector, expression.index)
-        msb = lsb + element_width - 1
-        return _slice(_expression(expression.expression), msb, lsb)
+        rendered_vector = _expression(expression.expression)
+        if isinstance(expression.index, int):
+            lsb = ir_packing.vector_element_lsb(vector, expression.index)
+            msb = lsb + element_width - 1
+            return _slice(rendered_vector, msb, lsb)
+        rendered_index = _compile_time_expression(expression.index)
+        base = f"(32'({rendered_index}) * 32'd{element_width})"
+        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", rendered_vector):
+            return f"{rendered_vector}[{base} +: {element_width}]"
+        return f"{element_width}'(($unsigned({rendered_vector})) >> ({base}))"
     if isinstance(expression, expr.RuntimeIndex):
         vector = expression.expression.type
         if not isinstance(vector, VecType):
@@ -6272,7 +6693,15 @@ def _expression(expression: expr.Expression) -> str:
         rendered_vector = _expression(expression.expression)
         rendered_index = _expression(expression.index)
         base = f"(32'({rendered_index}) * 32'd{element_width})"
-        return f"{rendered_vector}[{base} +: {element_width}]"
+        # Yosys does not accept an indexed part-select whose base is a compound
+        # expression (notably a concatenation), even though Verilator does.
+        # Keep the compact indexed select for a plain packed signal and lower a
+        # compound base to the equivalent unsigned shift plus sized truncation.
+        # This also avoids creating a backend-only temporary for expressions
+        # nested inside specialized callable bodies.
+        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", rendered_vector):
+            return f"{rendered_vector}[{base} +: {element_width}]"
+        return f"{element_width}'(($unsigned({rendered_vector})) >> ({base}))"
     if isinstance(expression, expr.VectorUpdate):
         vector = expression.expression.type
         if not isinstance(vector, VecType):
@@ -6302,19 +6731,19 @@ def _expression(expression: expr.Expression) -> str:
             raise SystemVerilogEmissionError(
                 "typed concat requires at least two operands"
             )
-        return "{" + ", ".join(
+        return "{" + _comma_join(tuple(
             f"{_width(operand.type)}'({_expression(operand)})"
             for operand in expression.operands
-        ) + "}"
+        )) + "}"
     if isinstance(expression, expr.VectorConcat):
         if len(expression.operands) < 2:
             raise SystemVerilogEmissionError(
                 "typed vector concat requires at least two operands"
             )
-        return "{" + ", ".join(
+        return "{" + _comma_join(tuple(
             f"{_width(operand.type)}'({_expression(operand)})"
             for operand in reversed(expression.operands)
-        ) + "}"
+        )) + "}"
     if isinstance(expression, expr.Reshape):
         width = _width(expression.type)
         return f"{width}'($unsigned({_expression(expression.expression)}))"
@@ -6338,25 +6767,22 @@ def _expression(expression: expr.Expression) -> str:
     if isinstance(expression, expr.Reduce):
         return _expression(lower_reduction(expression))
     if isinstance(expression, expr.FunctionalRegion):
-        if not isinstance(expression.type, VecType):
-            raise SystemVerilogEmissionError(
-                "functional region result must be a vector"
-            )
-        return "{" + ", ".join(
-            _expression(element)
-            for element in reversed(materialize_functional_region(expression))
-        ) + "}"
+        raise SystemVerilogEmissionError(
+            "functional region requires statement-based emission"
+        )
     if isinstance(expression, (expr.Generate, expr.Map)):
         if isinstance(expression.type, VecType):
             # Generate/map are semantically unrolled vectors by this stage.
             # SystemVerilog concatenations list the MSB first, whereas ZLang
             # indexed aggregates place element zero at the LSB.
-            return "{" + ", ".join(
+            return "{" + _comma_join(tuple(
                 _expression(element) for element in reversed(expression.elements)
-            ) + "}"
+            )) + "}"
         return _balanced_expression(expression.elements)
     if isinstance(expression, expr.Call):
-        arguments = ", ".join(_expression(item) for item in expression.arguments)
+        arguments = _comma_join(tuple(
+            _expression(item) for item in expression.arguments
+        ))
         return f"{_identifier(expression.function)}({arguments})"
     if isinstance(expression, expr.ImplementationChoice):
         return _expression(expression.selected_alternative.expression)
@@ -6378,6 +6804,13 @@ def _balanced_expression(elements: tuple[expr.Expression, ...]) -> str:
     return f"({_balanced_expression(elements[:middle])} + {_balanced_expression(elements[middle:])})"
 
 
+def _comma_join(items: tuple[str, ...]) -> str:
+    """Keep ordinary RTL compact while bounding lexer work for giant DAGs."""
+
+    separator = ",\n" if sum(len(item) for item in items) > 16_384 else ", "
+    return separator.join(items)
+
+
 def _resize(expression: expr.Expression, width: int) -> str:
     return render_typed_resize(
         _expression(expression),
@@ -6394,6 +6827,1180 @@ def _typed_functions(module: Module) -> tuple[object, ...]:
         return reachable_module_callables(module)
     except CallableReachabilityError as error:
         raise SystemVerilogEmissionError(str(error)) from error
+
+
+def _functional_region_objects(value: object) -> tuple[expr.FunctionalRegion, ...]:
+    """Return compact regions in deterministic dependency-first order.
+
+    A region template may itself consume another compact region.  Walk every
+    owned field and append the owner only after its dependencies so no nested
+    region can leak into the scalar expression renderer.
+    """
+
+    return tuple(
+        node.region for node in _functional_region_composition_plan(value).nodes
+    )
+
+
+def _functional_region_composition_plan(
+    value: object,
+) -> FunctionalRegionCompositionPlan:
+    """Build the lexical region DAG without expanding virtual elements."""
+
+    ordered: list[FunctionalRegionCompositionNode] = []
+    state: dict[int, tuple[expr.FunctionalRegion, int]] = {}
+    visited_expressions: dict[
+        tuple[int, bool], expr.Expression
+    ] = {}
+
+    def free_binders(item: object, bound: frozenset[str]) -> frozenset[str]:
+        if isinstance(item, CompileTimeBinderRef):
+            return frozenset() if item.identity in bound else frozenset((item.identity,))
+        if isinstance(item, expr.FunctionalRegion):
+            owned = bound | frozenset((item.binder.identity,))
+            template = free_binders(item.template, owned)
+            tables = frozenset().union(
+                *(
+                    free_binders(table.values, owned)
+                    for table in item.tables
+                ),
+                frozenset(),
+            )
+            captures = frozenset().union(
+                *(
+                    free_binders(captured, bound)
+                    for _, captured in item.captures
+                ),
+                frozenset(),
+            )
+            return template | tables | captures
+        if isinstance(item, tuple):
+            return frozenset().union(
+                *(free_binders(child, bound) for child in item),
+                frozenset(),
+            )
+        if is_dataclass(item) and not isinstance(item, type):
+            return frozenset().union(
+                *(
+                    free_binders(getattr(item, descriptor.name), bound)
+                    for descriptor in fields(item)
+                    if descriptor.name not in {"type", "origin", "source_origin"}
+                ),
+                frozenset(),
+            )
+        return frozenset()
+
+    def dependencies(
+        item: object,
+        *,
+        owner: expr.FunctionalRegion,
+        region_template: bool = False,
+    ) -> tuple[expr.FunctionalRegion, ...]:
+        result: list[expr.FunctionalRegion] = []
+        seen: set[int] = set()
+        seen_expressions: dict[tuple[int, bool], expr.Expression] = {}
+
+        def collect(current: object, *, template: bool) -> None:
+            if isinstance(current, expr.FunctionalRegion):
+                if current is owner or id(current) in seen:
+                    return
+                seen.add(id(current))
+                result.append(current)
+                return
+            if isinstance(current, expr.Expression):
+                key = (id(current), template)
+                previous = seen_expressions.get(key)
+                if previous is current:
+                    return
+                seen_expressions[key] = current
+                if (
+                    template
+                    and isinstance(current, expr.Reduce)
+                    and isinstance(current.collection, expr.FunctionalRegion)
+                    and current.operator
+                    in {
+                        expr.ReductionOperator.ADD,
+                        expr.ReductionOperator.BIT_AND,
+                        expr.ReductionOperator.BIT_OR,
+                        expr.ReductionOperator.BIT_XOR,
+                    }
+                ):
+                    return
+                for child in _expression_children(current):
+                    collect(child, template=template)
+                return
+            if isinstance(current, tuple):
+                for child in current:
+                    collect(child, template=template)
+
+        collect(item, template=region_template)
+        return tuple(result)
+
+    def visit(item: object, *, region_template: bool = False) -> None:
+        if isinstance(item, expr.FunctionalRegion):
+            status = state.get(id(item))
+            if status is not None and status[0] is item:
+                if status[1] == 1:
+                    raise SystemVerilogEmissionError(
+                        "functional region dependency graph contains a cycle"
+                    )
+                return
+            state[id(item)] = (item, 1)
+            children = dependencies(
+                item.template,
+                owner=item,
+                region_template=True,
+            )
+            children += tuple(
+                child
+                for table in item.tables
+                for child in dependencies(table.values, owner=item)
+            )
+            children += tuple(
+                child
+                for _, captured in item.captures
+                for child in dependencies(captured, owner=item)
+            )
+            unique_children: list[expr.FunctionalRegion] = []
+            child_ids: set[int] = set()
+            for child in children:
+                if id(child) not in child_ids:
+                    child_ids.add(id(child))
+                    unique_children.append(child)
+                    visit(child)
+            identity = expression_semantic_identity(item)
+            ordered.append(
+                FunctionalRegionCompositionNode(
+                    region=item,
+                    identity=identity,
+                    dependencies=tuple(
+                        expression_semantic_identity(child)
+                        for child in unique_children
+                    ),
+                    free_binders=tuple(sorted(free_binders(item, frozenset()))),
+                )
+            )
+            state[id(item)] = (item, 2)
+            return
+        if isinstance(item, expr.Expression):
+            expression_key = (id(item), region_template)
+            previous = visited_expressions.get(expression_key)
+            if previous is item:
+                return
+            visited_expressions[expression_key] = item
+            if (
+                region_template
+                and isinstance(item, expr.Reduce)
+                and isinstance(item.collection, expr.FunctionalRegion)
+                and item.operator
+                in {
+                    expr.ReductionOperator.ADD,
+                    expr.ReductionOperator.BIT_AND,
+                    expr.ReductionOperator.BIT_OR,
+                    expr.ReductionOperator.BIT_XOR,
+                }
+            ):
+                # The owning region renders this reduction under its current
+                # binder scope.  It is not an independently hoistable node.
+                return
+            for child in _expression_children(item):
+                visit(child, region_template=region_template)
+            return
+        if isinstance(item, tuple):
+            for child in item:
+                visit(child)
+
+    visit(value)
+    return FunctionalRegionCompositionPlan(tuple(ordered))
+
+
+def _functional_table_lookups(value: object) -> tuple[expr.FunctionalTableLookup, ...]:
+    found: list[expr.FunctionalTableLookup] = []
+    seen: set[expr.FunctionalTableLookup] = set()
+
+    def visit(item: object) -> None:
+        if isinstance(item, expr.FunctionalTableLookup):
+            if item not in seen:
+                seen.add(item)
+                found.append(item)
+            return
+        if isinstance(item, expr.FunctionalRegion):
+            return
+        if isinstance(item, expr.Expression):
+            for child in _expression_children(item):
+                visit(child)
+            # Compile-time VectorIndex indices are not Expression children.
+            if isinstance(item, expr.VectorIndex) and isinstance(
+                item.index, CompileTimeExpr
+            ):
+                visit(item.index)
+            return
+        if isinstance(item, tuple):
+            for child in item:
+                visit(child)
+            return
+        if is_dataclass(item) and not isinstance(item, type):
+            for descriptor in fields(item):
+                if descriptor.name not in {"type", "origin", "source_origin"}:
+                    visit(getattr(item, descriptor.name))
+
+    visit(value)
+    return tuple(found)
+
+
+def _functional_binder_dependent(value: object, identity: str) -> bool:
+    if isinstance(value, CompileTimeBinderRef):
+        return value.identity == identity
+    if isinstance(value, expr.FunctionalRegion):
+        # A nested region owns its template binder, but its closed-over values
+        # can still depend on the enclosing region.  Treating every nested
+        # region as invariant incorrectly selects replication/materialization
+        # and loses the explicit outer lowering boundary.
+        return _functional_binder_dependent(
+            value.template, identity
+        ) or any(
+            _functional_binder_dependent(item, identity)
+            for table in value.tables
+            for item in table.values
+        ) or any(
+            _functional_binder_dependent(captured, identity)
+            for _, captured in value.captures
+        )
+    if isinstance(value, tuple):
+        return any(_functional_binder_dependent(item, identity) for item in value)
+    if is_dataclass(value) and not isinstance(value, type):
+        return any(
+            _functional_binder_dependent(getattr(value, descriptor.name), identity)
+            for descriptor in fields(value)
+            if descriptor.name not in {"type", "origin", "source_origin"}
+        )
+    return False
+
+
+def _compact_bitwise_reductions(value: object) -> tuple[expr.Reduce, ...]:
+    """Find outermost compact reductions that have an exact loop lowering."""
+
+    found: list[expr.Reduce] = []
+    seen: set[expr.Reduce] = set()
+
+    def visit(item: object) -> None:
+        if (
+            isinstance(item, expr.Reduce)
+            and isinstance(item.collection, expr.FunctionalRegion)
+            and item.operator
+            in {
+                expr.ReductionOperator.ADD,
+                expr.ReductionOperator.BIT_AND,
+                expr.ReductionOperator.BIT_OR,
+                expr.ReductionOperator.BIT_XOR,
+            }
+        ):
+            if item not in seen:
+                seen.add(item)
+                found.append(item)
+            return
+        if isinstance(item, expr.FunctionalRegion):
+            return
+        if isinstance(item, tuple):
+            for child in item:
+                visit(child)
+            return
+        if is_dataclass(item) and not isinstance(item, type):
+            for descriptor in fields(item):
+                if descriptor.name not in {"type", "origin", "source_origin"}:
+                    visit(getattr(item, descriptor.name))
+
+    visit(value)
+    return tuple(found)
+
+
+def _contains_compact_bitwise_reduction(value: object) -> bool:
+    return bool(_compact_bitwise_reductions(value))
+
+
+def _functional_reduction_plan(
+    reduction: expr.Reduce,
+    *,
+    owner_identity: str,
+    ordinal: int,
+    used: set[str],
+) -> _FunctionalReductionEmissionPlan:
+    region = reduction.collection
+    assert isinstance(region, expr.FunctionalRegion)
+    identity = expression_semantic_identity(reduction)
+    accumulator = allocate_private_rtl_identifier(
+        f"region_reduce_{identity[:10]}",
+        semantic_identity=f"{owner_identity}:reduction:{ordinal}:{identity}:value",
+        used=used,
+    )
+    loop_variable = allocate_private_rtl_identifier(
+        f"region_reduce_i_{identity[:10]}",
+        semantic_identity=f"{owner_identity}:reduction:{ordinal}:{identity}:binder",
+        used=used,
+    )
+    table_temporaries: list[tuple[expr.FunctionalTableLookup, str]] = []
+    for table_ordinal, lookup in enumerate(
+        _functional_table_lookups(region.template)
+    ):
+        name = allocate_private_rtl_identifier(
+            f"region_reduce_table_{identity[:10]}_{table_ordinal}",
+            semantic_identity=(
+                f"{owner_identity}:reduction:{ordinal}:{identity}:"
+                f"table:{lookup.table_name}"
+            ),
+            used=used,
+        )
+        table_temporaries.append((lookup, name))
+    children = tuple(
+        _functional_reduction_plan(
+            child,
+            owner_identity=f"{owner_identity}:reduction:{ordinal}:{identity}",
+            ordinal=child_ordinal,
+            used=used,
+        )
+        for child_ordinal, child in enumerate(
+            _compact_bitwise_reductions(region.template)
+        )
+    )
+    return _FunctionalReductionEmissionPlan(
+        reduction,
+        accumulator,
+        loop_variable,
+        tuple(table_temporaries),
+        children,
+    )
+
+
+def _resolve_functional_scatter_captures(
+    value: object,
+    captures: dict[str, expr.Expression],
+    *,
+    resolving: frozenset[str] = frozenset(),
+) -> object:
+    """Inline a closed region capture graph for structural recognition."""
+
+    if isinstance(value, expr.FunctionalCaptureRef):
+        if value.identity in resolving:
+            raise SystemVerilogEmissionError(
+                f"functional capture '{value.display_name}' is recursive"
+            )
+        captured = captures.get(value.identity)
+        if captured is None or captured.type != value.type:
+            raise SystemVerilogEmissionError(
+                f"functional capture '{value.display_name}' is not bound exactly"
+            )
+        return _resolve_functional_scatter_captures(
+            captured,
+            captures,
+            resolving=resolving | {value.identity},
+        )
+    if isinstance(value, tuple):
+        return tuple(
+            _resolve_functional_scatter_captures(
+                item, captures, resolving=resolving
+            )
+            for item in value
+        )
+    if is_dataclass(value) and not isinstance(value, type):
+        updates = {
+            descriptor.name: _resolve_functional_scatter_captures(
+                getattr(value, descriptor.name),
+                captures,
+                resolving=resolving,
+            )
+            for descriptor in fields(value)
+            if descriptor.init
+            and descriptor.name not in {"type", "origin", "source_origin"}
+        }
+        return replace(value, **updates) if updates else value
+    return value
+
+
+def _functional_scatter_shape(
+    region: expr.FunctionalRegion,
+) -> tuple[
+    tuple[expr.FunctionalRegion, ...],
+    tuple[_FunctionalScatterEntry, ...],
+] | None:
+    """Recognize an exact OR-of-addressed-candidates destination decode."""
+
+    dimensions: list[expr.FunctionalRegion] = []
+    current: expr.Expression = region.template
+    leaves: tuple[expr.Expression, ...] | None = None
+    while isinstance(current, expr.Reduce) and (
+        current.operator is expr.ReductionOperator.BIT_OR
+    ):
+        if isinstance(current.collection, expr.FunctionalRegion):
+            child = current.collection
+            dimensions.append(child)
+            current = child.template
+            continue
+        if isinstance(current.collection, (expr.Generate, expr.Map)):
+            leaves = current.collection.elements
+        break
+    if leaves is None:
+        leaves = (current,)
+    if not leaves or any(not isinstance(leaf, expr.Mux) for leaf in leaves):
+        return None
+
+    captures = {
+        reference.identity: value
+        for owner in (region, *dimensions)
+        for reference, value in owner.captures
+    }
+    if not isinstance(region.type.element_type, (BitType, BitsType, UIntType)):
+        return None
+
+    def match(leaf: expr.Expression) -> _FunctionalScatterEntry | None:
+        assert isinstance(leaf, expr.Mux)
+        try:
+            resolved = tuple(
+                _resolve_functional_scatter_captures(item, captures)
+                for item in (leaf.condition, leaf.when_true, leaf.when_false)
+            )
+        except (TypeError, ValueError, SystemVerilogEmissionError):
+            return None
+        if not all(isinstance(item, expr.Expression) for item in resolved):
+            return None
+        condition, when_true, when_false = resolved
+        assert isinstance(condition, expr.Expression)
+        assert isinstance(when_true, expr.Expression)
+        assert isinstance(when_false, expr.Expression)
+        if not isinstance(when_false, expr.Constant) or when_false.value != 0:
+            return None
+        if when_true.type != region.type.element_type:
+            return None
+
+        factors: list[expr.Expression] = []
+
+        def flatten_and(value: expr.Expression) -> None:
+            if (
+                isinstance(value, expr.Binary)
+                and value.operator is expr.BinaryOperator.BIT_AND
+                and isinstance(value.type, BitType)
+            ):
+                flatten_and(value.left)
+                flatten_and(value.right)
+                return
+            factors.append(value)
+
+        flatten_and(condition)
+        destination: expr.FunctionalValue | None = None
+        address: expr.Expression | None = None
+        equality_index: int | None = None
+        for index, factor in enumerate(factors):
+            if not (
+                isinstance(factor, expr.Binary)
+                and factor.operator is expr.BinaryOperator.EQUAL
+            ):
+                continue
+            for candidate_destination, candidate_address in (
+                (factor.left, factor.right),
+                (factor.right, factor.left),
+            ):
+                if not isinstance(candidate_destination, expr.FunctionalValue):
+                    continue
+                compile_time = candidate_destination.expression
+                if not (
+                    isinstance(compile_time, CompileTimeExpr)
+                    and compile_time.operator is CompileTimeOperator.BINDER
+                    and isinstance(compile_time.operands[0], CompileTimeBinderRef)
+                    and compile_time.operands[0].identity == region.binder.identity
+                ):
+                    continue
+                destination = candidate_destination
+                address = candidate_address
+                equality_index = index
+                break
+            if destination is not None:
+                break
+        if destination is None or address is None or equality_index is None:
+            return None
+        if region.binder.start != 0 or destination.type != address.type:
+            return None
+        if not isinstance(address.type, (BitsType, UIntType)):
+            return None
+        if any(
+            _functional_binder_dependent(item, region.binder.identity)
+            for item in (address, when_true)
+        ):
+            return None
+
+        enabled_factors = tuple(
+            factor
+            for index, factor in enumerate(factors)
+            if index != equality_index
+        )
+        if not enabled_factors:
+            enabled: expr.Expression = expr.Constant(1, BitType())
+        else:
+            enabled = enabled_factors[0]
+            for factor in enabled_factors[1:]:
+                if not isinstance(factor.type, BitType):
+                    return None
+                enabled = expr.Binary(
+                    expr.BinaryOperator.BIT_AND,
+                    enabled,
+                    factor,
+                    BitType(),
+                    BitType(),
+                )
+        if _functional_binder_dependent(enabled, region.binder.identity):
+            return None
+        return _FunctionalScatterEntry(enabled, address, when_true)
+
+    entries = tuple(match(leaf) for leaf in leaves)
+    if any(entry is None for entry in entries):
+        return None
+    return tuple(dimensions), tuple(
+        entry for entry in entries if entry is not None
+    )
+
+
+def _functional_scatter_plan(
+    region: expr.FunctionalRegion,
+    *,
+    owner_identity: str,
+    used: set[str],
+) -> _FunctionalScatterEmissionPlan | None:
+    shape = _functional_scatter_shape(region)
+    if shape is None:
+        return None
+    regions, entries = shape
+    dimensions = [
+        _FunctionalScatterDimension(
+            child,
+            allocate_private_rtl_identifier(
+                f"region_scatter_i_{ordinal}",
+                semantic_identity=(
+                    f"{owner_identity}:scatter:{ordinal}:{child.binder.identity}"
+                ),
+                used=used,
+            ),
+            (),
+        )
+        for ordinal, child in enumerate(regions)
+    ]
+    tables = {
+        table.name: table for child in (region, *regions) for table in child.tables
+    }
+    table_temporaries: list[tuple[expr.FunctionalTableLookup, str]] = []
+    for ordinal, lookup in enumerate(
+        dict.fromkeys(
+            lookup
+            for entry in entries
+            for root in (entry.enable, entry.address, entry.value)
+            for lookup in _functional_table_lookups(root)
+        )
+    ):
+        if lookup.table_name not in tables:
+            return None
+        temporary = allocate_private_rtl_identifier(
+            f"region_scatter_table_{ordinal}",
+            semantic_identity=(
+                f"{owner_identity}:scatter:table:{ordinal}:{lookup.table_name}"
+            ),
+            used=used,
+        )
+        table_temporaries.append((lookup, temporary))
+    if table_temporaries and not dimensions:
+        return None
+    if dimensions:
+        dimensions[-1] = replace(
+            dimensions[-1], table_temporaries=tuple(table_temporaries)
+        )
+    return _FunctionalScatterEmissionPlan(
+        tuple(dimensions),
+        entries,
+        allocate_private_rtl_identifier(
+            "region_scatter_enable",
+            semantic_identity=f"{owner_identity}:scatter:enable",
+            used=used,
+        ),
+        allocate_private_rtl_identifier(
+            "region_scatter_address",
+            semantic_identity=f"{owner_identity}:scatter:address",
+            used=used,
+        ),
+        allocate_private_rtl_identifier(
+            "region_scatter_value",
+            semantic_identity=f"{owner_identity}:scatter:value",
+            used=used,
+        ),
+    )
+
+
+def _functional_region_plan(
+    region: expr.FunctionalRegion,
+    result_name: str,
+    *,
+    reserved_names: tuple[str, ...] = (),
+) -> FunctionalRegionEmissionPlan:
+    identity = stable_digest(
+        {
+            "schema": FUNCTIONAL_REGION_EMISSION_SCHEMA,
+            "expression": expression_semantic_identity(region),
+            "result": result_name,
+        }
+    )
+    prefix = identity[:10]
+    used = set(reserved_names) | {result_name}
+    scatter = _functional_scatter_plan(
+        region,
+        owner_identity=identity,
+        used=used,
+    )
+    if scatter is not None:
+        return FunctionalRegionEmissionPlan(
+            identity=identity,
+            result_name=result_name,
+            loop_variable="",
+            element_width=_width(region.type.element_type),
+            table_temporaries=(),
+            expression_temporaries=(),
+            scatter=scatter,
+        )
+    loop_variable = allocate_private_rtl_identifier(
+        f"region_i_{prefix}",
+        semantic_identity=f"{identity}:binder:{region.binder.identity}",
+        used=used,
+    )
+    reduction_temporaries = tuple(
+        _functional_reduction_plan(
+            reduction,
+            owner_identity=identity,
+            ordinal=ordinal,
+            used=used,
+        )
+        for ordinal, reduction in enumerate(
+            _compact_bitwise_reductions(region.template)
+        )
+    )
+    materialized = [
+        item
+        for item in plan_materialization(
+            (region.template,),
+            reserved_names=tuple(used),
+            generated_prefix=f"zlang_region_expr_{prefix}_",
+            scope=f"functional_region:{identity}",
+        )
+        if not _contains_compact_bitwise_reduction(item.expression)
+    ]
+    used.update(item.name for item in materialized)
+    selected = ExpressionAliasMap(
+        (item.expression, item.name) for item in materialized
+    )
+    scalar_leaves = (
+        expr.Constant,
+        expr.InputRef,
+        expr.ParameterRef,
+        expr.RegisterRef,
+        expr.InstanceOutputRef,
+        expr.FunctionalCaptureRef,
+        expr.FunctionalValue,
+        expr.FunctionalTableLookup,
+    )
+
+    def partition(value: expr.Expression, *, root: bool = False) -> int:
+        if value in selected:
+            return 1
+        effective_size = 1 + sum(
+            partition(child) for child in _expression_children(value)
+        )
+        # Bound every procedural RHS independently of expression sharing.  A
+        # small structural threshold is deliberate: exact-width casts and
+        # signed comparisons can render far wider than their IR node count.
+        if (
+            not root
+            and effective_size > 16
+            and not isinstance(value, scalar_leaves)
+            and not _contains_compact_bitwise_reduction(value)
+        ):
+            temporary = allocate_private_rtl_identifier(
+                f"region_expr_{prefix}",
+                semantic_identity=(
+                    f"{identity}:expression:{expression_semantic_identity(value)}"
+                ),
+                used=used,
+            )
+            materialized.append(_MaterializedExpression(value, temporary))
+            selected[value] = temporary
+            return 1
+        return effective_size
+
+    partition(region.template, root=True)
+    table_temporaries: list[tuple[expr.FunctionalTableLookup, str]] = []
+    for index, lookup in enumerate(_functional_table_lookups(region.template)):
+        temporary = allocate_private_rtl_identifier(
+            f"region_table_{prefix}_{index}",
+            semantic_identity=(
+                f"{identity}:table:{lookup.table_name}:"
+                f"{expression_semantic_identity(lookup)}"
+            ),
+            used=used,
+        )
+        table_temporaries.append((lookup, temporary))
+    return FunctionalRegionEmissionPlan(
+        identity=identity,
+        result_name=result_name,
+        loop_variable=loop_variable,
+        element_width=_width(region.type.element_type),
+        table_temporaries=tuple(table_temporaries),
+        expression_temporaries=tuple(materialized),
+        reduction_temporaries=reduction_temporaries,
+    )
+
+
+def _functional_region_rendering(
+    region: expr.FunctionalRegion,
+    plan: FunctionalRegionEmissionPlan,
+    *,
+    declaration_indent: str,
+    statement_indent: str,
+) -> tuple[list[str], list[str]]:
+    """Render declarations and procedural statements for one region plan."""
+
+    if plan.scatter is not None:
+        return _functional_scatter_rendering(
+            region,
+            plan,
+            declaration_indent=declaration_indent,
+            statement_indent=statement_indent,
+        )
+
+    table_by_name = {table.name: table for table in region.tables}
+    context = _FunctionalExpressionContext(
+        binders=((region.binder.identity, plan.loop_variable),),
+        captures=tuple(
+            (reference.identity, value) for reference, value in region.captures
+        ),
+        table_temporaries=plan.table_temporaries,
+    )
+    declarations = [f"{declaration_indent}integer {plan.loop_variable};"]
+    for lookup, temporary in plan.table_temporaries:
+        signed = " signed" if isinstance(lookup.type, (SIntType, FixedType)) else ""
+        declarations.append(
+            f"{declaration_indent}logic{signed} {_range(_width(lookup.type))}{temporary};"
+        )
+    for item in plan.expression_temporaries:
+        signed = (
+            " signed" if isinstance(item.expression.type, (SIntType, FixedType)) else ""
+        )
+        declarations.append(
+            f"{declaration_indent}logic{signed} "
+            f"{_range(_width(item.expression.type))}{item.name};"
+        )
+    for reduction in plan.reduction_temporaries:
+        declarations.extend(
+            _functional_reduction_declarations(reduction, declaration_indent)
+        )
+
+    aliases = ExpressionAliasMap(
+        (item.expression, item.name) for item in plan.expression_temporaries
+    )
+    aliases.update(
+        (item.reduction, item.accumulator)
+        for item in plan.reduction_temporaries
+    )
+    invariant: list[str] = []
+    dependent: list[str] = []
+    with _functional_expression_scope(context):
+        for item in dependency_ordered_materialization(
+            plan.expression_temporaries
+        ):
+            rewritten = _replace_materialized(
+                item.expression,
+                aliases,
+                keep=item.expression,
+            )
+            assignment = f"{item.name} = {_expression(rewritten)};"
+            target = (
+                dependent
+                if _functional_binder_dependent(
+                    item.expression, region.binder.identity
+                )
+                else invariant
+            )
+            target.append(assignment)
+
+        statements = [
+            *(f"{statement_indent}{line}" for line in invariant),
+            f"{statement_indent}{plan.result_name} = '0;",
+            f"{statement_indent}for ({plan.loop_variable} = {region.binder.start}; "
+            f"{plan.loop_variable} < {region.binder.stop}; "
+            f"{plan.loop_variable} = {plan.loop_variable} + 1) begin",
+        ]
+        inner = statement_indent + "  "
+        for lookup, temporary in plan.table_temporaries:
+            table = table_by_name.get(lookup.table_name)
+            if table is None:
+                raise SystemVerilogEmissionError(
+                    f"functional table '{lookup.table_name}' is not declared"
+                )
+            statements.append(
+                f"{inner}case ({_compile_time_expression(lookup.index)})"
+            )
+            for offset, value in enumerate(table.values):
+                statements.append(
+                    f"{inner}  {table.start + offset}: {temporary} = "
+                    f"{_expression(value)};"
+                )
+            statements.extend(
+                (f"{inner}  default: {temporary} = '0;", f"{inner}endcase")
+            )
+        for reduction in plan.reduction_temporaries:
+            statements.extend(
+                _functional_reduction_statements(reduction, inner)
+            )
+        statements.extend(f"{inner}{line}" for line in dependent)
+        rewritten_template = _replace_materialized(region.template, aliases)
+        base = (
+            f"(({plan.loop_variable} - {region.binder.start}) * "
+            f"{plan.element_width})"
+        )
+        statements.append(
+            f"{inner}{plan.result_name}[{base} +: {plan.element_width}] = "
+            f"{_expression(rewritten_template)};"
+        )
+        statements.append(f"{statement_indent}end")
+    return declarations, statements
+
+
+def _functional_scatter_rendering(
+    region: expr.FunctionalRegion,
+    plan: FunctionalRegionEmissionPlan,
+    *,
+    declaration_indent: str,
+    statement_indent: str,
+) -> tuple[list[str], list[str]]:
+    scatter = plan.scatter
+    assert scatter is not None
+    first_entry = scatter.entries[0]
+    if any(
+        entry.address.type != first_entry.address.type
+        or entry.value.type != first_entry.value.type
+        for entry in scatter.entries[1:]
+    ):
+        raise SystemVerilogEmissionError(
+            "functional scatter entries do not share exact address/value types"
+        )
+    declarations: list[str] = []
+    table_by_name = {
+        table.name: table
+        for owner in (region, *(dimension.region for dimension in scatter.dimensions))
+        for table in owner.tables
+    }
+    for dimension in scatter.dimensions:
+        declarations.append(
+            f"{declaration_indent}integer {dimension.loop_variable};"
+        )
+        for lookup, temporary in dimension.table_temporaries:
+            signed = (
+                " signed"
+                if isinstance(lookup.type, (SIntType, FixedType))
+                else ""
+            )
+            declarations.append(
+                f"{declaration_indent}logic{signed} "
+                f"{_range(_width(lookup.type))}{temporary};"
+            )
+    declarations.extend(
+        (
+            f"{declaration_indent}logic {scatter.enable_temporary};",
+            f"{declaration_indent}logic "
+            f"{_range(_width(first_entry.address.type))}{scatter.address_temporary};",
+            f"{declaration_indent}logic "
+            f"{_range(_width(first_entry.value.type))}{scatter.value_temporary};",
+        )
+    )
+
+    statements = [f"{statement_indent}{plan.result_name} = '0;"]
+
+    def render_entry(entry: _FunctionalScatterEntry, indent: str) -> None:
+        statements.extend(
+            (
+                f"{indent}{scatter.enable_temporary} = "
+                f"{_expression(entry.enable)};",
+                f"{indent}{scatter.address_temporary} = "
+                f"{_expression(entry.address)};",
+                f"{indent}{scatter.value_temporary} = "
+                f"{_expression(entry.value)};",
+            )
+        )
+        address = scatter.address_temporary
+        enabled = scatter.enable_temporary
+        value = scatter.value_temporary
+        address_width = _width(entry.address.type)
+        guard = (
+            "1'b1"
+            if region.type.length >= 1 << address_width
+            else f"($unsigned({address}) < {address_width}'d{region.type.length})"
+        )
+        base = f"($unsigned({address}) * {plan.element_width})"
+        destination = f"{plan.result_name}[{base} +: {plan.element_width}]"
+        statements.extend(
+            (
+                f"{indent}if (({enabled}) && ({guard})) begin",
+                f"{indent}  {destination} = "
+                f"{plan.element_width}'($unsigned({destination})) | "
+                f"{plan.element_width}'($unsigned({value}));",
+                f"{indent}end",
+            )
+        )
+
+    def render_dimension(
+        ordinal: int,
+        indent: str,
+        parent: _FunctionalExpressionContext,
+    ) -> None:
+        dimension = scatter.dimensions[ordinal]
+        owned = dimension.region
+        context = _FunctionalExpressionContext(
+            binders=(
+                *parent.binders,
+                (owned.binder.identity, dimension.loop_variable),
+            ),
+            captures=(
+                *((reference.identity, value) for reference, value in owned.captures),
+                *parent.captures,
+            ),
+            table_temporaries=(
+                *dimension.table_temporaries,
+                *parent.table_temporaries,
+            ),
+        )
+        statements.extend(
+            (
+                f"{indent}for ({dimension.loop_variable} = {owned.binder.start}; "
+                f"{dimension.loop_variable} < {owned.binder.stop}; "
+                f"{dimension.loop_variable} = "
+                f"{dimension.loop_variable} + 1) begin",
+            )
+        )
+        inner = indent + "  "
+        with _functional_expression_scope(context):
+            for lookup, temporary in dimension.table_temporaries:
+                table = table_by_name.get(lookup.table_name)
+                if table is None:
+                    raise SystemVerilogEmissionError(
+                        f"functional table '{lookup.table_name}' is not declared"
+                    )
+                statements.append(
+                    f"{inner}case ({_compile_time_expression(lookup.index)})"
+                )
+                for offset, value in enumerate(table.values):
+                    statements.append(
+                        f"{inner}  {table.start + offset}: {temporary} = "
+                        f"{_expression(value)};"
+                    )
+                statements.extend(
+                    (f"{inner}  default: {temporary} = '0;", f"{inner}endcase")
+                )
+            if ordinal + 1 < len(scatter.dimensions):
+                render_dimension(ordinal + 1, inner, context)
+            else:
+                for entry in scatter.entries:
+                    render_entry(entry, inner)
+        statements.append(f"{indent}end")
+
+    root_context = _FunctionalExpressionContext((), (), ())
+    if scatter.dimensions:
+        render_dimension(0, statement_indent, root_context)
+    else:
+        with _functional_expression_scope(root_context):
+            for entry in scatter.entries:
+                render_entry(entry, statement_indent)
+    return declarations, statements
+
+
+def _functional_reduction_declarations(
+    plan: _FunctionalReductionEmissionPlan,
+    indent: str,
+) -> list[str]:
+    signed = (
+        " signed"
+        if isinstance(plan.reduction.type, (SIntType, FixedType))
+        else ""
+    )
+    declarations = [
+        f"{indent}logic{signed} {_range(_width(plan.reduction.type))}"
+        f"{plan.accumulator};",
+        f"{indent}integer {plan.loop_variable};",
+    ]
+    for lookup, temporary in plan.table_temporaries:
+        table_signed = (
+            " signed" if isinstance(lookup.type, (SIntType, FixedType)) else ""
+        )
+        declarations.append(
+            f"{indent}logic{table_signed} {_range(_width(lookup.type))}{temporary};"
+        )
+    for child in plan.children:
+        declarations.extend(_functional_reduction_declarations(child, indent))
+    return declarations
+
+
+def _functional_reduction_statements(
+    plan: _FunctionalReductionEmissionPlan,
+    indent: str,
+) -> list[str]:
+    reduction = plan.reduction
+    region = reduction.collection
+    assert isinstance(region, expr.FunctionalRegion)
+    parent = _CURRENT_FUNCTIONAL_EXPRESSION.get()
+    if parent is None:
+        raise SystemVerilogEmissionError(
+            "functional reduction requires an enclosing region context"
+        )
+    table_by_name = {table.name: table for table in region.tables}
+    context = _FunctionalExpressionContext(
+        binders=(*parent.binders, (region.binder.identity, plan.loop_variable)),
+        captures=(
+            *((reference.identity, value) for reference, value in region.captures),
+            *parent.captures,
+        ),
+        table_temporaries=(*plan.table_temporaries, *parent.table_temporaries),
+    )
+    identity = (
+        "'1"
+        if reduction.operator is expr.ReductionOperator.BIT_AND
+        else "'0"
+    )
+    lines = [
+        f"{indent}{plan.accumulator} = {identity};",
+        f"{indent}for ({plan.loop_variable} = {region.binder.start}; "
+        f"{plan.loop_variable} < {region.binder.stop}; "
+        f"{plan.loop_variable} = {plan.loop_variable} + 1) begin",
+    ]
+    inner = indent + "  "
+    with _functional_expression_scope(context):
+        for lookup, temporary in plan.table_temporaries:
+            table = table_by_name.get(lookup.table_name)
+            if table is None:
+                raise SystemVerilogEmissionError(
+                    f"functional table '{lookup.table_name}' is not declared"
+                )
+            lines.append(f"{inner}case ({_compile_time_expression(lookup.index)})")
+            for offset, value in enumerate(table.values):
+                lines.append(
+                    f"{inner}  {table.start + offset}: {temporary} = "
+                    f"{_expression(value)};"
+                )
+            lines.extend(
+                (f"{inner}  default: {temporary} = '0;", f"{inner}endcase")
+            )
+        for child in plan.children:
+            lines.extend(_functional_reduction_statements(child, inner))
+        aliases = {
+            child.reduction: child.accumulator for child in plan.children
+        }
+        template = _replace_materialized(region.template, aliases)
+        if reduction.operator is expr.ReductionOperator.ADD:
+            combined = expr.Add(
+                expr.InputRef(plan.accumulator, reduction.type),
+                template,
+                reduction.type,
+            )
+        else:
+            operator = {
+                expr.ReductionOperator.BIT_AND: expr.BinaryOperator.BIT_AND,
+                expr.ReductionOperator.BIT_OR: expr.BinaryOperator.BIT_OR,
+                expr.ReductionOperator.BIT_XOR: expr.BinaryOperator.BIT_XOR,
+            }[reduction.operator]
+            combined = expr.Binary(
+                operator,
+                expr.InputRef(plan.accumulator, reduction.type),
+                template,
+                reduction.type,
+                reduction.type,
+            )
+        lines.append(f"{inner}{plan.accumulator} = {_expression(combined)};")
+    lines.append(f"{indent}end")
+    return lines
+
+
+def _functional_region_replication(
+    region: expr.FunctionalRegion,
+) -> str | None:
+    """Render a binder-independent region as one packed replication."""
+
+    if _functional_binder_dependent(region.template, region.binder.identity):
+        return None
+    if _functional_table_lookups(region.template):
+        return None
+    context = _FunctionalExpressionContext(
+        binders=(),
+        captures=tuple(
+            (reference.identity, value) for reference, value in region.captures
+        ),
+        table_temporaries=(),
+    )
+    with _functional_expression_scope(context):
+        element = _expression(region.template)
+    length = region.binder.stop - region.binder.start
+    return "{" + f"{length}{{{_width(region.type.element_type)}'({element})}}" + "}"
+
+
+def _function_region_emission(
+    body: expr.Expression,
+    *,
+    reserved_names: tuple[str, ...],
+) -> tuple[expr.Expression, list[str], list[str]]:
+    """Materialize every region nested in one function body.
+
+    A FunctionalRegion is a statement-owned value even when it appears below
+    a mux, call argument, or aggregate constructor.  Function emission cannot
+    delegate those nodes to the scalar expression renderer, so give each one
+    a stable local and emit its procedural producer before the final result.
+    """
+
+    regions = _functional_region_objects(body)
+    if not regions:
+        return body, [], []
+    used = set(reserved_names)
+    aliases = ExpressionAliasMap()
+    for region in regions:
+        identity = expression_semantic_identity(region)
+        aliases[region] = allocate_private_rtl_identifier(
+            f"zlang_fn_region_{identity[:10]}",
+            semantic_identity=(
+                f"{FUNCTIONAL_REGION_EMISSION_SCHEMA}:function:{identity}"
+            ),
+            used=used,
+        )
+    declarations = [
+        f"    logic{(' signed' if isinstance(region.type, (SIntType, FixedType)) else '')} "
+        f"{_range(_width(region.type))}{aliases[region]};"
+        for region in regions
+    ]
+    statements: list[str] = []
+    for region in regions:
+        rewritten = _replace_materialized(
+            region,
+            aliases,
+            keep=region,
+            rewrite_region_owned=True,
+        )
+        assert isinstance(rewritten, expr.FunctionalRegion)
+        result_name = aliases[region]
+        replication = _functional_region_replication(rewritten)
+        if replication is not None:
+            statements.append(f"    {result_name} = {replication};")
+            continue
+        plan = _functional_region_plan(
+            rewritten,
+            result_name,
+            reserved_names=tuple((*reserved_names, *aliases.values())),
+        )
+        owned_declarations, owned_statements = _functional_region_rendering(
+            rewritten,
+            plan,
+            declaration_indent="    ",
+            statement_indent="    ",
+        )
+        declarations.extend(owned_declarations)
+        statements.extend(owned_statements)
+    rewritten_body = _replace_materialized(body, aliases)
+    return rewritten_body, declarations, statements
 
 
 def _function_definitions(module: Module) -> list[str]:
@@ -6441,12 +8048,55 @@ def _function_definitions(module: Module) -> list[str]:
             else ""
         )
         renamed_body = _rename_parameter_refs(function.body, parameter_names)
+        if isinstance(renamed_body, expr.FunctionalRegion):
+            replication = _functional_region_replication(renamed_body)
+            if replication is not None:
+                definitions.append(
+                    f"  function automatic logic{return_signed} "
+                    f"{_range(_width(function.return_type))}{name}("
+                    f"{declaration});\n"
+                    f"{identity_note}"
+                    f"    {name} = {replication};\n"
+                    "  endfunction"
+                )
+                continue
+            region_plan = _functional_region_plan(
+                renamed_body,
+                name,
+                reserved_names=tuple((*parameter_names.values(), name, *used)),
+            )
+            region_declarations, region_statements = _functional_region_rendering(
+                renamed_body,
+                region_plan,
+                declaration_indent="    ",
+                statement_indent="    ",
+            )
+            region_block = "\n".join(
+                (*region_declarations, *region_statements)
+            )
+            definitions.append(
+                f"  function automatic logic{return_signed} "
+                f"{_range(_width(function.return_type))}{name}("
+                f"{declaration});\n"
+                f"{identity_note}"
+                f"{region_block}\n"
+                "  endfunction"
+            )
+            continue
+        renamed_body, region_declarations, region_statements = (
+            _function_region_emission(
+                renamed_body,
+                reserved_names=tuple((*parameter_names.values(), name, *used)),
+            )
+        )
         materialized = plan_materialization(
             (renamed_body,),
             reserved_names=(*parameter_names.values(), name),
             generated_prefix="zlang_fn_expr_",
         )
-        aliases = {item.expression: item.name for item in materialized}
+        aliases = ExpressionAliasMap(
+            (item.expression, item.name) for item in materialized
+        )
 
         # Function statements execute procedurally, so exact typed dependencies
         # must be assigned before the expression that consumes them.  Global
@@ -6473,7 +8123,14 @@ def _function_definitions(module: Module) -> list[str]:
                 f"    {item.name} = {_expression(rewritten)};"
             )
         rewritten_body = _replace_materialized(renamed_body, aliases)
-        local_block = "\n".join((*function_locals, *function_assignments))
+        local_block = "\n".join(
+            (
+                *region_declarations,
+                *function_locals,
+                *region_statements,
+                *function_assignments,
+            )
+        )
         if local_block:
             local_block += "\n"
         definitions.append(

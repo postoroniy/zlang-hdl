@@ -4,7 +4,7 @@ ZLang HDL is an experimental hardware description language and compiler focused 
 strong types, explicit cycle semantics, reusable protocols, deterministic
 artifacts, and verification-aware implementation selection.
 
-> **Alpha software:** the first public release is intended for evaluation and
+> **Alpha software:** this release is intended for evaluation and
 > real-design feedback. Source syntax, the provisional Python API, and
 > non-versioned tooling may change before 1.0. Unsupported combinations fail
 > closed rather than publishing guessed RTL.
@@ -12,14 +12,16 @@ artifacts, and verification-aware implementation selection.
 The initial supported development and release environment is Linux x86-64 with
 CPython `>=3.12,<3.13`. You do not need that interpreter preinstalled: the
 recommended `uv` workflow can provision it for the project. Direct
-SystemVerilog is the sole supported production RTL backend. External synthesis
-and formal tools are optional unless their corresponding flow is requested.
+SystemVerilog is the sole supported production RTL backend;
+external synthesis and formal tools are optional unless their corresponding
+flow is requested. The retired Clash backend is not installed, discovered, or
+executed by the compiler or its regression suite.
 
 ## Quick start
 
 For a release wheel, editor setup, and the optional Verilator/Yosys/SBY/Z3
 toolchain, use the
-[complete Community language reference](docs/language-reference.md#reference-installing-toolchain).
+[installation chapter](docs/language-reference.md#reference-installing-toolchain).
 
 Clone the repository and let [`uv`](https://docs.astral.sh/uv/) provision the
 verified Python runtime and editable development environment:
@@ -35,11 +37,15 @@ For an ordinary release-wheel installation, install the commands in an isolated
 environment:
 
 ```bash
-uv tool install --python '>=3.12,<3.13' /path/to/zlang_hdl-VERSION-py3-none-any.whl
+uv tool install --python '>=3.12,<3.13' \
+  --with /path/to/zlang_native_sim-VERSION-cp312-abi3-PLATFORM.whl \
+  /path/to/zlang_hdl-VERSION-py3-none-any.whl
 ```
 
-See the complete guide for PATH setup, a pip/venv alternative, and WSL2
-instructions.
+The native wheel must match the operating system and CPU; WSL2 uses the Linux
+x86-64 wheel. Omit `--with` to install the portable compiler and select
+`--engine reference` for simulation. See the installation chapter for PATH,
+pip/venv and WSL2 details.
 
 Check a design without emitting RTL:
 
@@ -53,6 +59,16 @@ Emit direct SystemVerilog:
 mkdir -p build
 .venv/bin/zlang examples/add.zhl --systemverilog build/Add.sv --verbose
 ```
+
+Run a persistent native simulation directly from ZLang source:
+
+```bash
+.venv/bin/zlang sim examples/counter.zhl \
+  --top Counter --clock clk --cycles 100 --json
+```
+
+Use `zlang sim --help` for input assignment, JSONL multi-clock events, VCD
+tracing, and the independent reference executor.
 
 With Verilator installed, a strict lint smoke is:
 
@@ -144,11 +160,16 @@ Create and replay an immutable verification bundle:
   --top ContractedAdd \
   --verification-bundle build/verify
 
-.venv/bin/zlang-verify build/verify \
+.venv/bin/zlang verify build/verify \
   --mode bmc \
   --depth 20 \
   --report build/verification-report.json
 ```
+
+`zlang` is the unified command surface: use `zlang sim`, `zlang verify`,
+`zlang lock`, and `zlang lsp`. The installed `zlang-verify`, `zlang-lock`, and
+`zlang-lsp` executables remain compatibility aliases for scripts and editor
+configuration.
 
 Bounded model checking is reported as `bounded_pass`, never promoted to
 `proven`. Missing tools, bindings, reset semantics, or unsupported routes remain
@@ -182,7 +203,8 @@ git diff --check
 
 External-tool tests discover tools from explicit CLI options or `PATH`.
 Dedicated release jobs require pinned Verilator, Yosys, SymbiYosys,
-yosys-smtbmc, and Z3 versions and reject unexpected skips.
+yosys-smtbmc, and Z3 versions and reject unexpected skips. GHC and Clash are
+not installation, development, CI, or release dependencies.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the DCO, test expectations, and
 third-party provenance requirements. Community support is described in

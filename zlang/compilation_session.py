@@ -12,7 +12,7 @@ import hashlib
 from pathlib import Path
 from threading import RLock
 from types import SimpleNamespace
-from typing import Callable, Iterable, Mapping
+from typing import Callable, Generic, Iterable, Mapping, TypeVar, cast
 
 from zlang.architectures import render_architecture_report
 from zlang.analysis_needs import AnalysisNeeds
@@ -80,13 +80,20 @@ from zlang.ir.module import Module as IrModule, dependency_context_identity
 from zlang.ir.signed_reductions import (
     selection_expression_semantic_identity,
 )
-from zlang.opt import CanonicalModule, OptimizationStage, lower, restore
+from zlang.opt import (
+    CanonicalModule,
+    OptimizationStage,
+    canonical_ir_identity,
+    lower,
+    restore,
+)
+from zlang.opt.render import render_identity as render_canonical_identity
 from zlang.parser import parse
 from zlang.pipelines import render_pipeline_report
 from zlang.semantic import SemanticError, analyze
 from zlang.definition_resolution import DefinitionResolution, DefinitionTarget
 from zlang.target_planner import TargetPlanningResult
-from zlang.targets import ArchitectureSelectionMode, select_implementation_graph
+from zlang.targets import ArchitectureSelectionMode
 from zlang.stdlib import track_resolved_stdlib_source_paths
 from zlang.signature_help_resolution import SignatureHelpCall
 
@@ -103,6 +110,28 @@ _UNSUPPORTED_RESET_FORMAL_REASON = (
     "formal-aware selection authoritative semantic-reference equivalence route requires one physical domain with "
     "power_up unspecified"
 )
+
+
+def _canonical_round_trip_matches(
+    expected: CanonicalModule,
+    restored: CanonicalModule,
+) -> bool:
+    """Compare canonical semantics without recursively expanding a typed DAG.
+
+    ``restore`` necessarily reconstructs diagnostic provenance from the
+    canonical expression table.  Re-lowering can therefore merge a different
+    (but equivalent) set of source occurrences into a node.  The old typed-IR
+    dataclass equality already ignored that provenance, but recursively walked
+    every incoming expression edge and expanded a shared DAG as a tree.
+
+    The canonical identity renderer is the complete, origin-insensitive
+    semantic representation used by build identities.  Both inputs are flat
+    node tables, so this comparison is bounded by unique canonical nodes.
+    Comparing the rendered bytes rather than only their digest also keeps this
+    a strict round-trip validation rather than a hash-collision assumption.
+    """
+
+    return render_canonical_identity(expected) == render_canonical_identity(restored)
 
 
 def _nondefault_reset_formal_record(
@@ -267,8 +296,12 @@ def _attach_unified_pipeline_formal_records(
                         else candidate
                         for candidate in pipeline.candidates
                     )
-                    if candidates != pipeline.candidates:
-                        pipeline = replace(pipeline, candidates=candidates)
+                    # Avoid dataclass equality here: candidate expressions are
+                    # shared DAGs and recursive equality expands them as trees.
+                    # Replacing this tiny catalog tuple is deterministic and
+                    # cheaper than asking whether the selected value object is
+                    # structurally equal to its predecessor.
+                    pipeline = replace(pipeline, candidates=candidates)
                 # A planner catalog is allowed to carry evidence only when
                 # its exact selected expression is the one emitted by the
                 # unified implementation result.  Matching only the region
@@ -360,91 +393,33 @@ def _with_elastic_formal_records(
     return _map_modules(module, transform)
 
 
-def _with_pipeline_reset_skip_records(
-    module: IrModule,
-    config: FormalExplorationConfig,
-    *,
-    reason: str = _UNSUPPORTED_RESET_FORMAL_REASON,
-) -> IrModule:
-    def transform(item: IrModule) -> IrModule:
-        pipelines = tuple(
-            replace(
-                pipeline,
-                formal_records=(_nondefault_reset_formal_record(
-                    pipeline.selected,
-                    config,
-                    pipeline.source_expression.origin,
-                    reason=reason,
-                ),),
-            )
-            for pipeline in item.pipeline_explorations
-        )
-        return replace(item, pipeline_explorations=pipelines)
-
-    return _map_modules(module, transform)
-
-
-def _with_structured_reset_skip_records(
-    module: IrModule,
-    config: FormalExplorationConfig,
-    *,
-    reason: str = _UNSUPPORTED_RESET_FORMAL_REASON,
-) -> IrModule:
-    """Attach explicit non-default-reset skips to choice/architecture sites."""
-
-    def transform(item: IrModule) -> IrModule:
-        ledger = build_candidate_site_ledger(item)
-        identities = {
-            (site.kind.value, site.output): site.selected_candidate_identity
-            for site in ledger.sites
-            if site.owner_identity == module_candidate_owner_identity(item)
-        }
-        assignments = tuple(
-            replace(
-                assignment,
-                expression=replace(
-                    assignment.expression,
-                    formal_records=(_nondefault_reset_formal_record(
-                        identities[("choice_auto", assignment.target.name)],
-                        config,
-                        assignment.expression.origin,
-                        reason=reason,
-                    ),),
-                ),
-            )
-            if assignment.signal is None
-            and assignment.channel is None
-            and isinstance(assignment.expression, ir_expr.ImplementationChoice)
-            and assignment.expression.cost_policy is not None
-            else assignment
-            for assignment in item.assignments
-        )
-        architectures = tuple(
-            replace(
-                exploration,
-                formal_records=(_nondefault_reset_formal_record(
-                    identities[("architecture_auto", exploration.output)],
-                    config,
-                    exploration.source_expression.origin,
-                    reason=reason,
-                ),),
-            )
-            for exploration in item.architecture_explorations
-        )
-        return replace(
-            item,
-            assignments=assignments,
-            architecture_explorations=architectures,
-        )
-
-    return _map_modules(module, transform)
-
-
 def _restore_selection_formal_records(
     reference: IrModule,
     restored: IrModule,
 ) -> IrModule:
     """Reconnect compare-false orchestration evidence after canonical restore."""
+
+    def has_records(item: IrModule) -> bool:
+        return bool(
+            any(
+                assignment.expression.formal_records
+                or assignment.expression.formal_eligible
+                for assignment in item.assignments
+                if assignment.signal is None
+                and assignment.channel is None
+                and isinstance(
+                    assignment.expression,
+                    ir_expr.ImplementationChoice,
+                )
+            )
+            or any(value.formal_records for value in item.pipeline_explorations)
+            or any(value.formal_records for value in item.elastic_pipeline_regions)
+            or any(value.formal_records for value in item.architecture_explorations)
+            or any(has_records(child) for child in item.children)
+        )
+
+    if not has_records(reference):
+        return restored
 
     reference_choices = {
         assignment.target.name: (
@@ -690,8 +665,14 @@ def _gate_physical_target_candidates(
         else erase_pipeline_timing(source_assignment.expression)
     )
     selected_value = erase_pipeline_timing(source_assignment.expression)
-    if selected_quantization is not None and reference != selected_quantization:
-        if selected_value != selected_quantization:
+    if (
+        selected_quantization is not None
+        and selection_expression_semantic_identity(reference)
+        != selection_expression_semantic_identity(selected_quantization)
+    ):
+        if selection_expression_semantic_identity(
+            selected_value
+        ) != selection_expression_semantic_identity(selected_quantization):
             raise SemanticError(
                 "physical formal-aware selection selected value does not match the target region",
                 code="ZL-FORMAL-PHYSICAL-CANDIDATE",
@@ -806,29 +787,83 @@ class _ReportProduct:
     exploration: str
 
 
+_Product = TypeVar("_Product")
+
+
+@dataclass(frozen=True)
+class CompilationProductKey(Generic[_Product]):
+    """Typed identity for one node in the compilation demand graph."""
+
+    name: str
+
+    def __post_init__(self) -> None:
+        if not self.name:
+            raise ValueError("compilation product name must not be empty")
+
+
+SYNTAX_PRODUCT = CompilationProductKey[AstModule]("syntax")
+SEMANTIC_PRODUCT = CompilationProductKey[_AnalysisProduct]("semantic")
+CONFIGURED_SEMANTIC_PRODUCT = CompilationProductKey[_AnalysisProduct](
+    "configured_semantic"
+)
+SELECTION_PRODUCT = CompilationProductKey[_SelectionProduct]("selection")
+FORMAL_PRODUCT = CompilationProductKey[_FormalProduct]("formal")
+PLANNING_PRODUCT = CompilationProductKey[_PlanningProduct]("planning")
+SIMULATION_PLAN_PRODUCT = CompilationProductKey[object]("simulation_plan")
+TARGET_INSTANCE_PRODUCT = CompilationProductKey[object | None]("target_instance")
+DOCUMENT_PRODUCT = CompilationProductKey[_DocumentProduct]("documents")
+REPORT_PRODUCT = CompilationProductKey[_ReportProduct]("reports")
+MATERIALIZED_PRODUCT = CompilationProductKey[CompilationResult]("materialized")
+
+
+_TYPED_PRODUCT_DEPENDENCIES: Mapping[
+    CompilationProductKey[object], tuple[CompilationProductKey[object], ...]
+] = {
+    SYNTAX_PRODUCT: (),
+    SEMANTIC_PRODUCT: (SYNTAX_PRODUCT,),
+    CONFIGURED_SEMANTIC_PRODUCT: (SYNTAX_PRODUCT,),
+    SELECTION_PRODUCT: (CONFIGURED_SEMANTIC_PRODUCT,),
+    FORMAL_PRODUCT: (SELECTION_PRODUCT,),
+    PLANNING_PRODUCT: (SELECTION_PRODUCT,),
+    SIMULATION_PLAN_PRODUCT: (PLANNING_PRODUCT,),
+    TARGET_INSTANCE_PRODUCT: (SELECTION_PRODUCT,),
+    DOCUMENT_PRODUCT: (SELECTION_PRODUCT,),
+    REPORT_PRODUCT: (SELECTION_PRODUCT, PLANNING_PRODUCT),
+    MATERIALIZED_PRODUCT: (
+        SYNTAX_PRODUCT,
+        SELECTION_PRODUCT,
+        FORMAL_PRODUCT,
+        PLANNING_PRODUCT,
+        TARGET_INSTANCE_PRODUCT,
+        DOCUMENT_PRODUCT,
+        REPORT_PRODUCT,
+    ),
+}
+
+
 # This table documents the stable orchestration DAG.  Conditional reuse (the
 # configured semantic product aliases the check product when formal policy is
 # off) never adds an undeclared downstream dependency.
 COMPILATION_PRODUCT_DEPENDENCIES: Mapping[str, tuple[str, ...]] = {
-    "syntax": (),
-    "semantic": ("syntax",),
-    "configured_semantic": ("syntax",),
-    "selection": ("configured_semantic",),
-    "formal": ("selection",),
-    "planning": ("selection",),
-    "target_instance": ("selection",),
-    "documents": ("selection",),
-    "reports": ("selection", "planning"),
-    "materialized": (
-        "syntax",
-        "selection",
-        "formal",
-        "planning",
-        "target_instance",
-        "documents",
-        "reports",
-    ),
+    key.name: tuple(dependency.name for dependency in dependencies)
+    for key, dependencies in _TYPED_PRODUCT_DEPENDENCIES.items()
 }
+
+
+@dataclass(frozen=True)
+class CompilationSnapshot:
+    """Read-only view of products already computed by one session."""
+
+    source_identity: str
+    computed_products: tuple[str, ...]
+    syntax: AstModule | None
+    semantic: IrModule | None
+    selected: IrModule | None
+    planned: IrModule | None
+    simulation_plan: object | None
+    semantic_identity: str | None
+    selected_identity: str | None
+    planned_identity: str | None
 
 
 class CompilationSession:
@@ -927,9 +962,9 @@ class CompilationSession:
             allow_external_enum_inputs=allow_external_enum_inputs,
         )
 
-        self._values: dict[str, object] = {}
-        self._failures: dict[str, Exception] = {}
-        self._evaluating: set[str] = set()
+        self._values: dict[CompilationProductKey[object], object] = {}
+        self._failures: dict[CompilationProductKey[object], Exception] = {}
+        self._evaluating: set[CompilationProductKey[object]] = set()
         self._lock = RLock()
         self._physical_inputs = physical_inputs or PhysicalCompilationInputs()
         self._formal_artifact_provider = FormalArtifactProvider(
@@ -999,7 +1034,7 @@ class CompilationSession:
         """Products successfully computed so far, in dependency-table order."""
 
         return tuple(
-            name for name in COMPILATION_PRODUCT_DEPENDENCIES if name in self._values
+            key.name for key in _TYPED_PRODUCT_DEPENDENCIES if key in self._values
         )
 
     @property
@@ -1007,33 +1042,93 @@ class CompilationSession:
         """Products whose original exception is cached by this session."""
 
         return tuple(
-            name for name in COMPILATION_PRODUCT_DEPENDENCIES if name in self._failures
+            key.name for key in _TYPED_PRODUCT_DEPENDENCIES if key in self._failures
         )
 
-    def _demand(self, name: str, builder: Callable[[], object]):
-        if name not in COMPILATION_PRODUCT_DEPENDENCIES:
-            raise KeyError(f"unknown compilation product '{name}'")
+    def snapshot(self) -> CompilationSnapshot:
+        """Return exact object references for products computed so far.
+
+        The method never demands another session product. Canonical identities
+        are derived only for already-retained phase objects.
+        """
+
         with self._lock:
-            if name in self._values:
-                return self._values[name]
-            if name in self._failures:
-                raise self._failures[name]
-            if name in self._evaluating:
-                raise RuntimeError(f"compilation product dependency cycle at '{name}'")
-            self._evaluating.add(name)
+            syntax = cast(AstModule | None, self._values.get(SYNTAX_PRODUCT))
+            analysis = cast(
+                _AnalysisProduct | None, self._values.get(SEMANTIC_PRODUCT)
+            )
+            selection = cast(
+                _SelectionProduct | None, self._values.get(SELECTION_PRODUCT)
+            )
+            planning = cast(
+                _PlanningProduct | None, self._values.get(PLANNING_PRODUCT)
+            )
+            simulation_plan = self._values.get(SIMULATION_PLAN_PRODUCT)
+            semantic_identity = (
+                canonical_ir_identity(
+                    lower(analysis.module, stage=OptimizationStage.HIGH_LEVEL)
+                )
+                if analysis is not None
+                else None
+            )
+            selected_identity = (
+                canonical_ir_identity(selection.optimization_ir)
+                if selection is not None
+                else None
+            )
+            planned_identity = (
+                canonical_ir_identity(
+                    lower(
+                        planning.module,
+                        stage=OptimizationStage.SELECTED_ARCHITECTURE,
+                    )
+                )
+                if planning is not None
+                else None
+            )
+            return CompilationSnapshot(
+                source_identity=hashlib.sha256(self.source.encode()).hexdigest(),
+                computed_products=self.computed_products,
+                syntax=syntax,
+                semantic=None if analysis is None else analysis.module,
+                selected=None if selection is None else selection.module,
+                planned=None if planning is None else planning.module,
+                simulation_plan=simulation_plan,
+                semantic_identity=semantic_identity,
+                selected_identity=selected_identity,
+                planned_identity=planned_identity,
+            )
+
+    def _demand(
+        self,
+        key: CompilationProductKey[_Product],
+        builder: Callable[[], _Product],
+    ) -> _Product:
+        if key not in _TYPED_PRODUCT_DEPENDENCIES:
+            raise KeyError(f"unknown compilation product '{key.name}'")
+        with self._lock:
+            if key in self._values:
+                return cast(_Product, self._values[key])
+            if key in self._failures:
+                raise self._failures[key]
+            if key in self._evaluating:
+                raise RuntimeError(
+                    f"compilation product dependency cycle at '{key.name}'"
+                )
+            self._evaluating.add(key)
             try:
                 value = builder()
             except Exception as error:
-                self._failures[name] = error
+                self._failures[key] = error
                 raise
             finally:
-                self._evaluating.remove(name)
-            self._values[name] = value
+                self._evaluating.remove(key)
+            self._values[key] = value
             return value
 
     @property
     def syntax(self) -> AstModule:
-        return self._demand("syntax", self._build_syntax)
+        return self._demand(SYNTAX_PRODUCT, self._build_syntax)
 
     def _build_syntax(self) -> AstModule:
         syntax = parse(self.source)
@@ -1113,7 +1208,7 @@ class CompilationSession:
             backend="direct_systemverilog",
         )
 
-    def _analyze(self, *, check_only: bool) -> _AnalysisProduct:
+    def _analyze(self) -> _AnalysisProduct:
         exploration_results: list[ExplorationResult] = []
         definition_resolutions: list[DefinitionResolution] | None = (
             [] if self._analysis_needs.wants(AnalysisNeeds.DEFINITIONS) else None
@@ -1179,35 +1274,35 @@ class CompilationSession:
     def semantic_ir(self) -> IrModule:
         """Typed semantic IR without formal execution or later products."""
 
-        product = self._demand("semantic", lambda: self._analyze(check_only=True))
+        product = self._demand(SEMANTIC_PRODUCT, self._analyze)
         return product.module
 
     @property
     def semantic_definition_resolutions(self) -> tuple[DefinitionResolution, ...]:
         """Compiler-owned definition records for editor tooling only."""
 
-        product = self._demand("semantic", lambda: self._analyze(check_only=True))
+        product = self._demand(SEMANTIC_PRODUCT, self._analyze)
         return product.definition_resolutions
 
     @property
     def semantic_definition_declarations(self) -> tuple[DefinitionTarget, ...]:
         """Compiler-owned declaration targets for editor tooling only."""
 
-        product = self._demand("semantic", lambda: self._analyze(check_only=True))
+        product = self._demand(SEMANTIC_PRODUCT, self._analyze)
         return product.definition_declarations
 
     @property
     def semantic_completion_scopes(self) -> tuple[CompletionScope, ...]:
         """Compiler-owned visible-scope records for editor completion."""
 
-        product = self._demand("semantic", lambda: self._analyze(check_only=True))
+        product = self._demand(SEMANTIC_PRODUCT, self._analyze)
         return product.completion_scopes
 
     @property
     def semantic_signature_help_calls(self) -> tuple[SignatureHelpCall, ...]:
         """Compiler-owned resolved calls for editor signature help."""
 
-        product = self._demand("semantic", lambda: self._analyze(check_only=True))
+        product = self._demand(SEMANTIC_PRODUCT, self._analyze)
         return product.signature_help_calls
 
     def check(self) -> IrModule:
@@ -1219,7 +1314,7 @@ class CompilationSession:
     def semantic_candidate_site_ledger(self) -> CandidateSiteLedger:
         """OFF-policy candidate catalog without selection or verifier work."""
 
-        product = self._demand("semantic", lambda: self._analyze(check_only=True))
+        product = self._demand(SEMANTIC_PRODUCT, self._analyze)
         return self._candidate_site_ledger(
             product.module, product.exploration_results
         )
@@ -1249,14 +1344,16 @@ class CompilationSession:
         # Compatibility product name retained for the stable demand graph.
         # It is now an alias of the one OFF-policy semantic analysis; all
         # configured formal work happens in ``_build_selection``.
-        return self._demand("semantic", lambda: self._analyze(check_only=True))
+        return self._demand(SEMANTIC_PRODUCT, self._analyze)
 
     @property
     def _selection(self) -> _SelectionProduct:
-        return self._demand("selection", self._build_selection)
+        return self._demand(SELECTION_PRODUCT, self._build_selection)
 
     def _build_selection(self) -> _SelectionProduct:
-        analysis = self._demand("configured_semantic", self._configured_analysis)
+        analysis = self._demand(
+            CONFIGURED_SEMANTIC_PRODUCT, self._configured_analysis
+        )
         semantic_ir = analysis.module
         exploration_results = analysis.exploration_results
         configured_formal = self._formal_config(check_only=False)
@@ -1392,7 +1489,18 @@ class CompilationSession:
         exploration_results = (*exploration_results, *external_explorations)
         high_level_ir = lower(backend_ir, stage=OptimizationStage.HIGH_LEVEL)
         source_typed_ir = restore(high_level_ir)
-        if source_typed_ir != backend_ir:
+        # Semantic IR is a DAG.  Dataclass equality recursively follows every
+        # incoming edge and therefore turns shared expressions into their
+        # exponentially large tree expansion.  Validate the round trip in the
+        # flat canonical representation instead, where node references are
+        # integer IDs and comparison is bounded by unique DAG size.
+        if not _canonical_round_trip_matches(
+            high_level_ir,
+            lower(
+                source_typed_ir,
+                stage=OptimizationStage.HIGH_LEVEL,
+            ),
+        ):
             raise RuntimeError("canonical optimization IR did not restore semantic IR")
         source_typed_ir = _restore_selection_formal_records(
             backend_ir, source_typed_ir
@@ -1403,7 +1511,13 @@ class CompilationSession:
             stage=OptimizationStage.SELECTED_ARCHITECTURE,
         )
         typed_ir = restore(optimization_ir)
-        if typed_ir != extraction.module:
+        if not _canonical_round_trip_matches(
+            optimization_ir,
+            lower(
+                typed_ir,
+                stage=OptimizationStage.SELECTED_ARCHITECTURE,
+            ),
+        ):
             raise RuntimeError("extracted optimization IR did not restore semantic IR")
         # Solver/cache records are orchestration evidence and intentionally do
         # not participate in canonical IR identity.  Restore them recursively
@@ -1451,7 +1565,7 @@ class CompilationSession:
 
     @property
     def formal_products(self) -> _FormalProduct:
-        return self._demand("formal", self._build_formal)
+        return self._demand(FORMAL_PRODUCT, self._build_formal)
 
     def _build_formal(self) -> _FormalProduct:
         design = build_formal_design(self.selected_ir)
@@ -1465,7 +1579,40 @@ class CompilationSession:
 
     @property
     def planning(self) -> _PlanningProduct:
-        return self._demand("planning", self._build_planning)
+        return self._demand(PLANNING_PRODUCT, self._build_planning)
+
+    @property
+    def simulation_plan(self):
+        """Return the deterministic plan for the exact post-scheduling module."""
+
+        return self._demand(SIMULATION_PLAN_PRODUCT, self._build_simulation_plan)
+
+    def cached_simulation_plan(self):
+        """Inspect or seed a strictly restored plan without demanding lowering.
+
+        A caller may supply a validated plan only after demanding the planned
+        module and checking its exact compilation recipe externally.
+        """
+
+        with self._lock:
+            return self._values.get(SIMULATION_PLAN_PRODUCT)
+
+    def accept_simulation_plan(self, plan):
+        from zlang.simulation_plan import SimulationPlan
+
+        if not isinstance(plan, SimulationPlan):
+            raise TypeError("restored simulation plan must be strictly decoded")
+        checked = SimulationPlan.from_bytes(plan.canonical_bytes)
+        if checked.identity != plan.identity:
+            raise ValueError("restored simulation plan identity changed")
+        if checked.payload["module"] != self.planning.module.name:
+            raise ValueError("restored simulation plan top does not match planning")
+        return self._demand(SIMULATION_PLAN_PRODUCT, lambda: checked)
+
+    def _build_simulation_plan(self):
+        from zlang.simulation_plan import build_simulation_plan
+
+        return build_simulation_plan(self.planning.module)
 
     @property
     def backend_implementation_plans(self) -> BackendImplementationPlanningResult:
@@ -1547,13 +1694,10 @@ class CompilationSession:
             graph = (
                 target_result.selected_graph
                 if target_result is not None
-                else select_implementation_graph(
-                    planned_module,
-                    target=request.target,
-                    architecture=request.architecture.identity,
-                    mode=request.architecture.mode,
-                )
+                else plans.selected_graph
             )
+            if graph is None:
+                raise AssertionError("selected SystemVerilog plan has no graph")
         else:
             graph = plans.plan_for(request.backend.kind).graph
         return _PlanningProduct(
@@ -1566,7 +1710,7 @@ class CompilationSession:
 
     @property
     def target_instance(self):
-        return self._demand("target_instance", self._build_target_instance)
+        return self._demand(TARGET_INSTANCE_PRODUCT, self._build_target_instance)
 
     def _build_target_instance(self):
         request = self._selection.implementation_request
@@ -1578,7 +1722,7 @@ class CompilationSession:
 
     @property
     def documents(self) -> _DocumentProduct:
-        return self._demand("documents", self._build_documents)
+        return self._demand(DOCUMENT_PRODUCT, self._build_documents)
 
     def _build_documents(self) -> _DocumentProduct:
         module = self.selected_ir
@@ -1591,7 +1735,7 @@ class CompilationSession:
 
     @property
     def reports(self) -> _ReportProduct:
-        return self._demand("reports", self._build_reports)
+        return self._demand(REPORT_PRODUCT, self._build_reports)
 
     def _build_reports(self) -> _ReportProduct:
         selection = self._selection
@@ -1626,7 +1770,7 @@ class CompilationSession:
     def materialize(self) -> CompilationResult:
         """Demand every product needed by the eager compatibility facade."""
 
-        return self._demand("materialized", self._build_materialized)
+        return self._demand(MATERIALIZED_PRODUCT, self._build_materialized)
 
     def _build_materialized(self) -> CompilationResult:
         selection = self._selection
@@ -1684,17 +1828,39 @@ def inline_locals(module: IrModule) -> IrModule:
     if not module.locals:
         return (
             replace(module, children=children)
-            if children != module.children
+            if any(
+                updated is not original
+                for updated, original in zip(
+                    children, module.children, strict=True
+                )
+            )
             else module
         )
     values = {local.name: local.expression for local in module.locals}
+    local_cache: dict[str, object] = {}
+    node_cache: dict[int, object] = {}
 
     def walk(value):
         if isinstance(value, ir_expr.InputRef) and value.name in values:
-            return walk(values[value.name])
+            cached_local = local_cache.get(value.name)
+            if cached_local is not None:
+                return cached_local
+            expanded_local = walk(values[value.name])
+            local_cache[value.name] = expanded_local
+            return expanded_local
         if isinstance(value, tuple):
-            return tuple(walk(item) for item in value)
+            cache_key = id(value)
+            cached_node = node_cache.get(cache_key)
+            if cached_node is not None:
+                return cached_node
+            expanded_tuple = tuple(walk(item) for item in value)
+            node_cache[cache_key] = expanded_tuple
+            return expanded_tuple
         if is_dataclass(value):
+            cache_key = id(value)
+            cached_node = node_cache.get(cache_key)
+            if cached_node is not None:
+                return cached_node
             updates = {}
             for item in fields(value):
                 current = getattr(value, item.name)
@@ -1707,9 +1873,11 @@ def inline_locals(module: IrModule) -> IrModule:
                 else:
                     updates[item.name] = current
             try:
-                return replace(value, **updates)
+                expanded_value = replace(value, **updates)
             except (TypeError, ValueError):
-                return value
+                expanded_value = value
+            node_cache[cache_key] = expanded_value
+            return expanded_value
         return value
 
     return replace(
@@ -1774,8 +1942,10 @@ def inline_locals(module: IrModule) -> IrModule:
 
 __all__ = [
     "COMPILATION_PRODUCT_DEPENDENCIES",
+    "CompilationProductKey",
     "CompilationSession",
     "CompilationSessionOptions",
+    "CompilationSnapshot",
     "SessionTopSelectionError",
     "inline_locals",
 ]

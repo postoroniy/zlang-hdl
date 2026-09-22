@@ -31,10 +31,7 @@ class RuleSemanticTests(unittest.TestCase):
                         first == second or closure[first, second] or closure[second, first],
                     )
                 expected_cycle = any(closure[node, node] for node in nodes)
-                # The retained helper signature does not restrict traversal to
-                # `names`; the semantic caller separately validates all edges.
-                for names in (set(nodes), {"a"}, set()):
-                    self.assertEqual(_has_priority_cycle(names, edges), expected_cycle)
+                self.assertEqual(_has_priority_cycle(edges), expected_cycle)
 
     def test_rules_guards_actions_and_priority_reach_typed_ir(self) -> None:
         module = analyze(parse((ROOT / "examples/rule_counter.zhl").read_text()))

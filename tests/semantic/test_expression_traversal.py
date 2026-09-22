@@ -6,14 +6,20 @@ import pytest
 
 from zlang.compiler import compile_source
 from zlang.ir import expressions as expr
+from zlang.ir.functional import materialize_functional_region
+from zlang.ir.functional_regions import (
+    CompileTimeBinderRef,
+    CompileTimeExpr,
+    FunctionalRegionKind,
+)
 from zlang.ir.traversal import (
     ExpressionTraversalError,
-    ExpressionTraversalPolicy,
     SUPPORTED_EXPRESSION_TYPES,
     expression_children,
     walk_expression,
 )
 from zlang.simulate import simulate_cycles
+from zlang.ir.types import UIntType, VecType
 
 
 def test_expression_traversal_covers_the_closed_expression_union() -> None:
@@ -57,19 +63,17 @@ def test_nested_enum_conversions_publish_and_advance_all_delays() -> None:
     ]
 
 
-def test_executable_policy_materializes_compact_functional_region() -> None:
-    expression = compile_source(
-        """
-module ExecutableTraversal {
-    in a : vec<2,u4>
-    out y : vec<2,u5>
-    y = generate(i in 0..2) { a[i] + a[i] }
-}
-""",
-    ).ir.assignments[0].expression
-    children = expression_children(
-        expression,
-        policy=ExpressionTraversalPolicy.EXECUTABLE,
+def test_executable_materialization_is_owned_by_functional_lowering() -> None:
+    u4 = UIntType(4)
+    binder = CompileTimeBinderRef("fixture:traversal", "i", 0, 16)
+    expression = expr.FunctionalRegion(
+        FunctionalRegionKind.GENERATE,
+        binder,
+        expr.FunctionalValue(CompileTimeExpr.ref(binder), u4),
+        (),
+        (),
+        VecType(16, u4),
     )
-    assert len(children) == 2
-    assert all(isinstance(child, expr.Add) for child in children)
+    children = materialize_functional_region(expression)
+    assert len(children) == 16
+    assert all(isinstance(child, expr.Constant) for child in children)

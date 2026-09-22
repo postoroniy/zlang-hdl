@@ -27,7 +27,7 @@ request attribution.
 
 ZLang HDL source files, project manifests, verification bundles, generated HDL, and
 third-party dependencies should be treated as untrusted input unless their
-origin is known. The compiler invokes external tools such as Verilator,
+origin is known. The compiler invokes external tools such as Clash, Verilator,
 Yosys, SymbiYosys, and solvers; neither ZLang nor those tool invocations are a
 security sandbox. Run untrusted designs and verification bundles in an isolated
 environment with appropriate resource limits.

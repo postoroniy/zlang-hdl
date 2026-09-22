@@ -29,8 +29,13 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      - name: Install ZLang HDL test environment
-        run: python -m pip install --disable-pip-version-check -e '.[test]'
+      - name: Install ZLang HDL and the compatible prebuilt native runtime
+        run: |
+          python -m pip install --disable-pip-version-check -e '.[test]' \
+            release/native-wheels/*manylinux_2_28_x86_64.whl
+          python tools/audit_native_binary.py \
+            --expected-version "$(python -c 'from zlang._version import __version__; print(__version__)')" \
+            release/native-wheels/*manylinux_2_28_x86_64.whl
       - name: Require the frozen EDA toolchain
         run: |
           python tools/release_status.py check --root . --check-tools

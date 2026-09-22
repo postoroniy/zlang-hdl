@@ -12,11 +12,13 @@ from dataclasses import dataclass, fields, is_dataclass
 from enum import Enum
 from pathlib import Path
 
-from zlang.common import stable_digest, stable_json
+from zlang.common import stable_digest
 from zlang.ir.interfaces import (
     InterfaceProtocol,
+    ReadyValidSignal,
     RequestResponseChannel,
     RequestResponseRole,
+    ready_valid_field_name,
 )
 from zlang.ir.module import (
     AggregateProtocolEndpoint,
@@ -27,6 +29,7 @@ from zlang.ir.module import (
     ProtocolEndpoint,
     ProtocolMember,
 )
+from zlang.ir.types import BitType
 
 
 class HierarchyError(ValueError):
@@ -100,6 +103,8 @@ class HierarchyTraversalCache:
 _SPECIALIZATION_ORIGIN_FIELDS = frozenset({
     "origin", "origins", "source_origin", "source_identity", "source_hash",
     "source_path", "root_module_identity", "dependency_closure",
+    "semantic_expression_arena_statistics", "semantic_expression_provenance",
+    "selected_value_normalization_statistics",
 })
 
 _SPECIALIZATION_APPLICATION_FIELDS = frozenset({
@@ -123,66 +128,117 @@ _SPECIALIZATION_VISIBLE_CATALOG_FIELDS = frozenset({
 })
 
 
-def _specialization_value(value: object) -> object:
-    """Return source- and application-independent typed semantic content."""
+def _specialization_field_value(name: str, value: object) -> object:
+    if name == "declaration_identity" and isinstance(value, str):
+        source, separator, declaration = value.partition("::")
+        if separator and Path(source).is_absolute():
+            value = "$source::" + declaration
+    return value
+
+
+def _specialization_parts(value: object) -> tuple[str, tuple[tuple[str, object], ...]]:
+    """Describe one local node without recursively expanding its children."""
 
     if isinstance(value, Enum):
-        return {
-            "$enum": f"{type(value).__module__}.{type(value).__qualname__}",
-            "value": value.value,
-        }
+        return (
+            f"enum:{type(value).__module__}.{type(value).__qualname__}",
+            (("value", value.value),),
+        )
     if is_dataclass(value) and not isinstance(value, type):
         excluded = set(_SPECIALIZATION_ORIGIN_FIELDS)
         if isinstance(value, Module):
             excluded.update(_SPECIALIZATION_APPLICATION_FIELDS)
             excluded.update(_SPECIALIZATION_VISIBLE_CATALOG_FIELDS)
-        # A ROM semantic ID historically contains its source-unit identity;
-        # immutable contents, type, depth, address behavior, and content hash
-        # below are the actual reusable specialization semantics.
         if type(value).__module__ == "zlang.ir.storage" and type(value).__name__ == "Rom":
             excluded.add("semantic_id")
-        return {
-            "$type": f"{type(value).__module__}.{type(value).__qualname__}",
-            "fields": [
-                [
-                    item.name,
-                    _specialization_field_value(
-                        item.name, getattr(value, item.name)
-                    ),
-                ]
+        return (
+            f"dataclass:{type(value).__module__}.{type(value).__qualname__}",
+            tuple(
+                (item.name, _specialization_field_value(
+                    item.name, getattr(value, item.name)
+                ))
                 for item in fields(value)
                 if item.name not in excluded
-            ],
-        }
+            ),
+        )
     if isinstance(value, Mapping):
-        entries = [
-            (_specialization_value(key), _specialization_value(item))
-            for key, item in value.items()
-        ]
-        entries.sort(key=lambda pair: stable_json(pair[0]))
-        return {"$mapping": [[key, item] for key, item in entries]}
+        return "mapping", tuple(
+            ("entry", (key, item)) for key, item in value.items()
+        )
     if isinstance(value, (tuple, list)):
-        return [_specialization_value(item) for item in value]
+        return type(value).__name__, tuple(
+            ("item", item) for item in value
+        )
     if isinstance(value, (set, frozenset)):
-        items = [_specialization_value(item) for item in value]
-        items.sort(key=stable_json)
-        return {"$set": items}
+        return "set", tuple(("item", item) for item in value)
     if isinstance(value, Path):
-        return {"$path": "omitted"}
+        return "path", (("value", "omitted"),)
     if value is None or isinstance(value, (str, int, float, bool)):
-        return value
+        return f"scalar:{type(value).__name__}", (("value", value),)
     raise TypeError(
         "typed specialization fingerprint cannot serialize "
         f"{type(value).__module__}.{type(value).__qualname__}"
     )
 
 
-def _specialization_field_value(name: str, value: object) -> object:
-    if name == "declaration_identity" and isinstance(value, str):
-        source, separator, declaration = value.partition("::")
-        if separator and Path(source).is_absolute():
-            value = "$source::" + declaration
-    return _specialization_value(value)
+def _specialization_digest(value: object) -> str:
+    """Hash semantic content in O(unique DAG nodes), independent of sharing.
+
+    A full nested JSON rendering turns shared expressions into an exponential
+    tree.  Each local node instead commits to its children's content digests.
+    Object IDs are only compilation-local memo keys and never enter the hash.
+    """
+
+    memo: dict[int, tuple[object, str]] = {}
+    active: set[int] = set()
+    stack: list[tuple[object, bool]] = [(value, False)]
+    while stack:
+        current, ready = stack.pop()
+        key = id(current)
+        cached = memo.get(key)
+        if cached is not None and cached[0] is current:
+            continue
+        kind, parts = _specialization_parts(current)
+        if not ready:
+            if key in active:
+                raise HierarchyError(
+                    "typed specialization contains a cyclic content graph"
+                )
+            active.add(key)
+            stack.append((current, True))
+            children = (
+                ()
+                if kind.startswith("scalar:") or kind == "path"
+                else tuple(item for pair in parts for item in pair[1])
+                if kind == "mapping" else tuple(item for _, item in parts)
+            )
+            for child in reversed(children):
+                child_cached = memo.get(id(child))
+                if child_cached is None or child_cached[0] is not child:
+                    stack.append((child, False))
+            continue
+        if kind == "mapping":
+            content = [
+                (memo[id(key_item)][1], memo[id(item)][1])
+                for _, (key_item, item) in parts
+            ]
+            content.sort()
+        elif kind == "set":
+            content = sorted(memo[id(item)][1] for _, item in parts)
+        elif kind.startswith("scalar:") or kind == "path":
+            content = parts
+        else:
+            content = [
+                (name, memo[id(item)][1]) for name, item in parts
+            ]
+        digest = stable_digest({
+            "schema": "zlang-typed-specialization-node-v1",
+            "kind": kind,
+            "content": content,
+        })
+        memo[key] = (current, digest)
+        active.remove(key)
+    return memo[id(value)][1]
 
 
 def specialization_fingerprint(module: Module) -> str:
@@ -215,9 +271,9 @@ def specialization_fingerprint(module: Module) -> str:
         ) from error
 
     return stable_digest({
-        "schema": "zlang-typed-module-specialization-v2",
-        "content": _specialization_value(module),
-        "reachable_callables": _specialization_value(reachable_callables),
+        "schema": "zlang-typed-module-specialization-v3",
+        "content": _specialization_digest(module),
+        "reachable_callables": _specialization_digest(reachable_callables),
     })
 
 
@@ -798,6 +854,7 @@ def validate_instance_port_bindings(
                     )
 
         scalar_drivers: set[tuple[str, str]] = set()
+        protocol_drivers: set[tuple[str, str, ReadyValidSignal]] = set()
         for binding in current.instance_bindings:
             child = children.get(binding.instance)
             if child is None:
@@ -809,25 +866,67 @@ def validate_instance_port_bindings(
                 (item for item in child.ports if item.name == binding.port),
                 None,
             )
+            protocol_signal = None
+            if port is None and binding.port.startswith("$zlang_protocol:"):
+                encoded = binding.port.removeprefix("$zlang_protocol:")
+                endpoint_name, separator, signal_name = encoded.rpartition(":")
+                if separator:
+                    port = next(
+                        (item for item in child.ports if item.name == endpoint_name),
+                        None,
+                    )
+                    try:
+                        protocol_signal = ReadyValidSignal(signal_name)
+                    except ValueError:
+                        protocol_signal = None
+                    if (
+                        port is None
+                        or port.protocol is not InterfaceProtocol.READY_VALID
+                        or protocol_signal is ReadyValidSignal.TRANSFER
+                        or protocol_signal is None
+                        or binding.port != ready_valid_field_name(
+                            endpoint_name, protocol_signal
+                        )
+                    ):
+                        port = None
             if port is None:
                 raise HierarchyError(
                     f"scalar instance binding '{binding.instance}.{binding.port}' "
                     "does not name a child port"
                 )
-            if port.direction is not PortDirection.INPUT:
-                raise HierarchyError(
-                    f"scalar instance binding '{binding.instance}.{binding.port}' "
-                    "does not name a child input"
+            if protocol_signal is None:
+                if port.direction is not PortDirection.INPUT:
+                    raise HierarchyError(
+                        f"scalar instance binding '{binding.instance}.{binding.port}' "
+                        "does not name a child input"
+                    )
+                if port.protocol is not InterfaceProtocol.WIRE:
+                    raise HierarchyError(
+                        f"scalar instance binding '{binding.instance}.{binding.port}' "
+                        "does not name a wire input"
+                    )
+            else:
+                writable = (
+                    protocol_signal is ReadyValidSignal.READY
+                    if port.direction is PortDirection.OUTPUT
+                    else protocol_signal in {
+                        ReadyValidSignal.PAYLOAD, ReadyValidSignal.VALID
+                    }
                 )
-            if port.protocol is not InterfaceProtocol.WIRE:
+                if not writable:
+                    raise HierarchyError(
+                        f"child protocol signal '{binding.instance}.{binding.port}' "
+                        "is not a child input"
+                    )
+            expected_type = (
+                port.type
+                if protocol_signal in {None, ReadyValidSignal.PAYLOAD}
+                else BitType()
+            )
+            if binding.expression.type != expected_type:
                 raise HierarchyError(
                     f"scalar instance binding '{binding.instance}.{binding.port}' "
-                    "does not name a wire input"
-                )
-            if binding.expression.type != port.type:
-                raise HierarchyError(
-                    f"scalar instance binding '{binding.instance}.{binding.port}' "
-                    f"has type {binding.expression.type}, expected {port.type}"
+                    f"has type {binding.expression.type}, expected {expected_type}"
                 )
             key = (binding.instance, binding.port)
             if key in scalar_drivers:
@@ -841,6 +940,58 @@ def validate_instance_port_bindings(
                     "a scalar binding and hierarchical connection"
                 )
             scalar_drivers.add(key)
+            if protocol_signal is not None:
+                protocol_drivers.add(
+                    (binding.instance, port.name, protocol_signal)
+                )
+
+        for connection in current.hierarchical_connections:
+            if (
+                connection.source.protocol is not InterfaceProtocol.READY_VALID
+                or connection.destination.protocol is not InterfaceProtocol.READY_VALID
+            ):
+                continue
+            for endpoint, signals in (
+                (connection.source, (ReadyValidSignal.READY,)),
+                (connection.destination,
+                 (ReadyValidSignal.PAYLOAD, ReadyValidSignal.VALID)),
+            ):
+                if endpoint.owner not in children:
+                    continue
+                for signal in signals:
+                    if (endpoint.owner, endpoint.name, signal) in protocol_drivers:
+                        raise HierarchyError(
+                            f"child protocol signal '{endpoint.owner}."
+                            f"{endpoint.name}.{signal.value}' has both a binding "
+                            "and a hierarchical connection"
+                        )
+
+        for connection in current.aggregate_protocol_connections:
+            if not connection.delegation:
+                continue
+            child_owner, child_name = connection.destination.split(".", 1)
+            child = children[child_owner]
+            aggregate = next(
+                item for item in child.aggregate_protocol_endpoints
+                if item.name == child_name
+            )
+            for member in aggregate.members:
+                port_name = f"{child_name}__{member.name}"
+                port = next(item for item in child.ports if item.name == port_name)
+                if port.protocol is not InterfaceProtocol.READY_VALID:
+                    continue
+                incoming = (
+                    (ReadyValidSignal.PAYLOAD, ReadyValidSignal.VALID)
+                    if port.direction is PortDirection.INPUT
+                    else (ReadyValidSignal.READY,)
+                )
+                for signal in incoming:
+                    if (child_owner, port_name, signal) in protocol_drivers:
+                        raise HierarchyError(
+                            f"child protocol signal '{child_owner}.{port_name}."
+                            f"{signal.value}' has both a binding and aggregate "
+                            "delegation"
+                        )
 
         for owner, child in children.items():
             for port in child.inputs:

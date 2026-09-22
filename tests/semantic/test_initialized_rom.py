@@ -53,7 +53,7 @@ def test_scalar_rom_semantics_identity_contents_and_origin() -> None:
     assert rom.semantic_id.startswith("rom:")
     assert len(rom.initialization_identity) == 64
     assert len(rom.content_hash) == 64
-    assert rom.evaluator_schema == "zlang-ct-v1"
+    assert rom.evaluator_schema == "zlang-ct-v2"
     assert rom.source_origin is not None
     assignment = module.assignments[0]
     assert isinstance(assignment.expression, expr.RomRef)

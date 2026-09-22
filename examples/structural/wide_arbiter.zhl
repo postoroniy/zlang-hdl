@@ -1,0 +1,33 @@
+// Combinational fixed-priority grant. Request zero has highest priority.
+module WideArbiterWitness<N=16,IW=4> {
+    in requests : vec<N,bit>
+    out grants : vec<N,bit>
+    out any_grant : bit
+    out selected : uint<IW>
+
+    grant_vector = generate(i in 0..N)
+        (requests[i] & ~reduce(|, generate(j in 0..N)
+            (requests[j] & (extend<IW>(j) < extend<IW>(i)))))
+    grants = grant_vector
+    any_grant = reduce(|, grant_vector)
+    selected = reduce(|, generate(i in 0..N)
+        mux(grant_vector[i], extend<IW>(i), 0))
+}
+
+// Stateful round-robin arbitration is currently expressed naturally for
+// protocol endpoints rather than a parameterized vector of wire requests.
+module RoundRobinProtocolWitness {
+    clock clk
+    reset rst
+
+    in source0 : packet<u8>
+    in source1 : packet<u8>
+    in source2 : packet<u8>
+    in source3 : packet<u8>
+    out sink : packet<u8>
+
+    arbiter [source0, source1, source2, source3] -> sink {
+        policy round_robin
+        grant packet
+    }
+}

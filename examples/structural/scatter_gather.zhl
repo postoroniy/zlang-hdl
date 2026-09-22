@@ -1,0 +1,14 @@
+// Gather permits repeated indexes. Scatter collision semantics are explicit OR:
+// every enabled source targeting a destination contributes to that byte.
+module ScatterGatherWitness<N=8,IW=3> {
+    in input : vec<N,u8>
+    in index : vec<N,uint<IW>>
+    in enable : vec<N,bit>
+    out gathered : vec<N,u8>
+    out scattered_or : vec<N,u8>
+
+    gathered = generate(i in 0..N) input[index[i]]
+    scattered_or = generate(dst in 0..N)
+        reduce(|, generate(src in 0..N)
+            mux(enable[src] & (index[src] == extend<IW>(dst)), input[src], 0))
+}

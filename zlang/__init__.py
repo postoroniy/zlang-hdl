@@ -41,6 +41,7 @@ from zlang.formal_artifact_provider import (
     FormalArtifactProvider,
     FormalArtifactRecipe,
 )
+from zlang import sim
 
 __all__ = [
     "__version__",
@@ -73,4 +74,5 @@ __all__ = [
     "compile_source",
     "create_file_compilation_session",
     "create_file_compilation_session_snapshot",
+    "sim",
 ]

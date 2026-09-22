@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
+from typing import Mapping
 
 from zlang.costs import SourcePolicy
 from zlang.analysis_needs import AnalysisNeeds
@@ -152,9 +153,18 @@ def create_file_compilation_session_snapshot(
     source_digest: str | None = None,
     project: Path | str | None = None,
     profile: str | None = None,
+    allow_unsaved_root: bool = False,
+    source_overlays: Mapping[Path | str, str] | None = None,
     **options,
 ) -> CompilationSession:
-    """Create a lazy session from one exact decoded file snapshot."""
+    """Create a lazy session from one exact decoded file snapshot.
+
+    ``allow_unsaved_root`` and ``source_overlays`` are reserved for editor
+    tooling.  Overlays apply only to root-package sources selected by the
+    discovered project; locked dependencies and external inputs remain
+    filesystem-backed.  Ordinary compiler callers retain fail-closed disk
+    identity checks by default.
+    """
 
     if not isinstance(source_text, str):
         raise TypeError("source snapshot must be decoded UTF-8 text")
@@ -168,7 +178,19 @@ def create_file_compilation_session_snapshot(
     else:
         source_digest = snapshot_digest
     resolved_source = source_path.expanduser().resolve(strict=True)
-    workspace = load_project_workspace(resolved_source, project=project)
+    normalized_overlays = {
+        Path(path).expanduser().resolve(strict=True): text
+        for path, text in (source_overlays or {}).items()
+    }
+    if any(not isinstance(text, str) for text in normalized_overlays.values()):
+        raise TypeError("source overlay text must be a string")
+    if allow_unsaved_root:
+        normalized_overlays[resolved_source] = source_text
+    workspace = load_project_workspace(
+        resolved_source,
+        project=project,
+        source_overlays=normalized_overlays,
+    )
     contributions = tuple(options.pop("implementation_contributions", ()))
     if workspace is None:
         if profile is not None:
@@ -214,6 +236,14 @@ def create_file_compilation_session_snapshot(
                 item.source_path for item in workspace.dependency_modules
             ),
             external_sources=workspace.external_source_paths,
+            editor_source_overlays=tuple(
+                (path, hashlib.sha256(text.encode("utf-8")).hexdigest())
+                for path, text in normalized_overlays.items()
+                if any(
+                    item.source_path.resolve() == path
+                    for item in workspace.root_modules
+                )
+            ),
         ),
         **options,
     )
@@ -256,6 +286,7 @@ def check_file_snapshot(
     project: Path | str | None = None,
     profile: str | None = None,
     analysis_needs: AnalysisNeeds = AnalysisNeeds.NONE,
+    incremental_workspace=None,
     **options,
 ) -> SemanticCheckResult:
     """Check one exact file snapshot without planning or backend products.
@@ -277,21 +308,24 @@ def check_file_snapshot(
         analysis_needs |= AnalysisNeeds.DEFINITIONS | AnalysisNeeds.COMPLETION
     if options.pop("collect_signature_help", False):
         analysis_needs |= AnalysisNeeds.SIGNATURE_HELP
-    session = create_file_compilation_session_snapshot(
-        source,
-        source_text,
-        source_digest=source_digest,
-        project=project,
-        profile=profile,
-        analysis_needs=analysis_needs,
-        **options,
-    )
+    if incremental_workspace is None:
+        session = create_file_compilation_session_snapshot(
+            source, source_text, source_digest=source_digest,
+            project=project, profile=profile, analysis_needs=analysis_needs,
+            **options,
+        )
+    else:
+        session = incremental_workspace.file_snapshot(
+            source, source_text, source_digest=source_digest,
+            project=project, profile=profile, analysis_needs=analysis_needs,
+            **options,
+        )
     try:
         module = session.check()
         syntax = session.syntax
     except SessionTopSelectionError as error:
         raise TopSelectionError(str(error)) from error
-    return SemanticCheckResult(
+    result = SemanticCheckResult(
         ast=syntax,
         ir=module,
         physical_inputs=session.physical_inputs,
@@ -300,3 +334,6 @@ def check_file_snapshot(
         completion_scopes=session.semantic_completion_scopes,
         signature_help_calls=session.semantic_signature_help_calls,
     )
+    if incremental_workspace is not None:
+        incremental_workspace.refresh(session)
+    return result

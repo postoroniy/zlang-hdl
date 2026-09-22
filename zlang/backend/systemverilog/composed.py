@@ -12,11 +12,14 @@ from contextlib import AbstractContextManager
 from dataclasses import dataclass, replace
 from typing import Callable
 
+from zlang.ir import expressions as ir_expr
 from zlang.ir.expressions import Expression
 from zlang.ir.hierarchy import HierarchyIndex
 from zlang.ir.interfaces import (
     InterfaceProtocol,
     RequestResponseChannel,
+    parse_ready_valid_field_name,
+    ready_valid_field_name,
 )
 from zlang.ir.module import (
     Assignment,
@@ -27,6 +30,8 @@ from zlang.ir.module import (
     Rule,
 )
 from zlang.ir.types import HardwareType
+from zlang.ir.traversal import walk_expression
+from zlang.backend.expression_materialization import module_expression_roots
 from zlang.backend.naming import (
     ComponentNamePlan,
     build_component_name_plan,
@@ -96,6 +101,7 @@ class ComposedLeafServices:
     emit_unified_state: Callable[[Module], str]
     emit_rules: Callable[[Module], str]
     emit_elastic_pipeline: Callable[[Module], str]
+    emit_cdc_child: Callable[[Module], str]
     emit_csr_child: Callable[[Module], str]
     named_module: Callable[[str, list[str], list[str], Module], str]
     requires_unified_state: Callable[[Module], bool]
@@ -290,6 +296,20 @@ def emit_composed_design(module: Module, rendering: ComposedRendering) -> str:
             # wires the canonical scalar access ABI.
             definitions.append(
                 services.emit_csr_child(
+                    replace(emitted_current, name=name)
+                )
+            )
+        elif (
+            any(
+                connection.crossing is not None
+                for connection in emitted_current.connections
+            )
+            and not emitted_current.elaborated_instances
+        ):
+            # A typed CDC child owns synchronizer/storage state.  It cannot be
+            # rendered as the ordinary combinational hierarchy shell.
+            definitions.append(
+                services.emit_cdc_child(
                     replace(emitted_current, name=name)
                 )
             )
@@ -857,6 +877,41 @@ def _emit_composed_component(
                         rendering,
                     )
                 ] = destination_valid if signal == "valid" else f"{down}_{signal}"
+            source_payload = _external_protocol_signal(
+                module, connection.source, "payload", identifier,
+            )
+            source_valid = _external_protocol_signal(
+                module, connection.source, "valid", identifier,
+            )
+            source_ready = _external_protocol_signal(
+                module, connection.source, "ready", identifier,
+            )
+            if source_payload is not None:
+                assert source_valid is not None and source_ready is not None
+                logic.extend((
+                    f"  assign {up}_payload = {source_payload};",
+                    f"  assign {up}_valid = {source_valid};",
+                    f"  assign {source_ready} = {up}_ready;",
+                ))
+            destination_payload = _external_protocol_signal(
+                module, connection.destination, "payload", identifier,
+            )
+            destination_ready = _external_protocol_signal(
+                module, connection.destination, "ready", identifier,
+            )
+            destination_external_valid = _external_protocol_signal(
+                module, connection.destination, "valid", identifier,
+            )
+            if destination_payload is not None:
+                assert (
+                    destination_ready is not None
+                    and destination_external_valid is not None
+                )
+                logic.extend((
+                    f"  assign {destination_payload} = {down}_payload;",
+                    f"  assign {destination_external_valid} = {destination_valid};",
+                    f"  assign {down}_ready = {destination_ready};",
+                ))
             allow_full_replace = rr_info is None
             helper_family = (
                 "ZLangRvFifo"
@@ -1078,7 +1133,25 @@ def _emit_composed_component(
     bindings = {
         (item.instance, item.port): item.expression
         for item in module.instance_bindings
+        if parse_ready_valid_field_name(item.port) is None
     }
+    protocol_bindings = {
+        (item.instance, item.port): item.expression
+        for item in module.instance_bindings
+        if parse_ready_valid_field_name(item.port) is not None
+    }
+    if len(bindings) + len(protocol_bindings) != len(module.instance_bindings):
+        raise physical.error("composed child bindings have duplicate targets")
+    referenced_protocol_outputs = set()
+    for root in module_expression_roots(module):
+        for value in walk_expression(root):
+            if not isinstance(value, ir_expr.InstanceOutputRef):
+                continue
+            projection = parse_ready_valid_field_name(value.port)
+            if projection is not None:
+                referenced_protocol_outputs.add(
+                    (value.instance, projection[0], projection[1].value)
+                )
     for index, elaborated in enumerate(module.elaborated_instances):
         child = module.children[index]
         owner = elaborated.instance.name
@@ -1155,6 +1228,51 @@ def _emit_composed_component(
                 signal = connection_signals.get(
                     (owner, port_name, signal_name)
                 )
+                scalar_name = ready_valid_field_name(port.name, signal_name)
+                bound = protocol_bindings.get((owner, scalar_name))
+                if signal is not None and bound is not None:
+                    raise physical.error(
+                        f"child protocol signal '{owner}.{port.name}."
+                        f"{signal_name}' has multiple drivers"
+                    )
+                child_output = (
+                    signal_name in {"payload", "valid"}
+                    if port.direction is PortDirection.OUTPUT
+                    else signal_name == "ready"
+                )
+                if signal is None and bound is not None:
+                    if child_output:
+                        raise physical.error(
+                            f"child-owned signal '{owner}.{port.name}."
+                            f"{signal_name}' cannot be bound"
+                        )
+                    signal = render(bound)
+                if signal is None and child_output:
+                    signal = local_names.child_signal(owner, port.name, signal_name)
+                    width = (
+                        packed_width(port.type)
+                        if signal_name == "payload" else 1
+                    )
+                    declarations.append(
+                        f"  logic {packed_range(width)}{signal};"
+                    )
+                elif (
+                    child_output
+                    and (owner, port.name, signal_name)
+                    in referenced_protocol_outputs
+                ):
+                    alias = local_names.child_signal(
+                        owner, port.name, signal_name
+                    )
+                    if alias != signal:
+                        width = (
+                            packed_width(port.type)
+                            if signal_name == "payload" else 1
+                        )
+                        declarations.append(
+                            f"  logic {packed_range(width)}{alias};"
+                        )
+                        logic.append(f"  assign {alias} = {signal};")
                 if signal is None:
                     raise physical.error(
                         f"child protocol signal "
@@ -1224,6 +1342,11 @@ def rv_fifo_helper(
     helper_module = (
         native_release_module(module) if module is not None else None
     )
+    reset_deasserted_expression = (
+        f"!({reset_asserted(helper_module, helper_identifier)})"
+        if helper_module is not None
+        else "!rst"
+    )
 
     return "\n".join((
         f"module {name}(",
@@ -1244,12 +1367,14 @@ def rv_fifo_helper(
         "  assign push = in_valid && in_ready;",
         "  assign pop = out_valid && out_ready;",
         (
-            f"  assign in_ready = (count < {count_width}'d{depth}) || "
-            "(out_valid && out_ready);"
+            f"  assign in_ready = {reset_deasserted_expression} && "
+            f"((count < {count_width}'d{depth}) || "
+            "(out_valid && out_ready));"
             if allow_full_replace else
-            f"  assign in_ready = count < {count_width}'d{depth};"
+            f"  assign in_ready = {reset_deasserted_expression} && "
+            f"(count < {count_width}'d{depth});"
         ),
-        "  assign out_valid = count != '0;",
+        f"  assign out_valid = {reset_deasserted_expression} && (count != '0);",
         "  assign out_payload = storage[rd];",
         *(("  assign formal_count = count;",) if expose_count else ()),
         (

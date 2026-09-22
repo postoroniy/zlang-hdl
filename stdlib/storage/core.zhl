@@ -19,6 +19,23 @@ module StorageDelay2<type T> {
     output = delay<2>(input)
 }
 
+// A protocol-neutral atomic capture primitive.  CSR command snapshots are
+// ordinary typed state: connect a compiler-qualified bank event to `capture`
+// and a structural state view to `input`; no CSR-specific scheduler exists.
+module StorageSnapshot<type T,reset_value:fn()->T> {
+    clock clk
+    reset rst
+    in input : T
+    in capture : bit
+    out output : T
+
+    reg captured : T = reset_value()
+    when capture {
+        captured <- input
+    }
+    output = captured
+}
+
 module StorageQueue<type T,D=2,CW=2> {
     clock clk
     reset rst

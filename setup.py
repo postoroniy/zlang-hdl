@@ -1,11 +1,4 @@
-"""Setuptools bridge for recursively installed ZLang standard-library sources.
-
-The compiler intentionally resolves ``std.foo.bar`` from the installed physical
-layout ``<prefix>/stdlib/foo/bar.zhl``.  ``data_files`` preserves that layout, but
-setuptools' declarative file patterns are not recursive.  Build the directory
-map from the source tree so a new nested stdlib family requires no packaging
-metadata edit.
-"""
+"""Setuptools bridge for recursively installed ZLang standard-library sources."""
 
 from __future__ import annotations
 

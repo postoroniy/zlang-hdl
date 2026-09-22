@@ -112,6 +112,7 @@ class BackendImplementationPlanningResult:
 
     plans: tuple[BackendImplementationPlan, ...]
     target_planning_result: TargetPlanningResult | None = None
+    selected_graph: ImplementationGraph | None = None
 
     def __post_init__(self) -> None:
         expected = tuple(item for item in _BACKEND_ORDER)
@@ -237,7 +238,11 @@ def plan_backend_implementations(
             physical_intent=physical_intent,
             planning_error=planning_error,
         ))
-    result = BackendImplementationPlanningResult(tuple(plans), physical_result)
+    result = BackendImplementationPlanningResult(
+        tuple(plans),
+        physical_result,
+        selected,
+    )
     failed = tuple(
         item for item in result.plans
         if item.requirement is BackendPlanRequirement.REQUIRED

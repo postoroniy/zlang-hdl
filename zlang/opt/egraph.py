@@ -220,10 +220,6 @@ def render_egraph(program: EGraphProgram) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _require_scalar_pure_root(module: CanonicalModule, root: NodeId) -> None:
-    validate_scalar_pure_nodes(module.expressions, root)
-
-
 def validate_scalar_pure_nodes(
     expressions: tuple[CanonicalExpression, ...],
     root: NodeId,

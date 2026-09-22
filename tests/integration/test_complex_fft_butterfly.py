@@ -47,8 +47,9 @@ def test_complex_butterfly_direct_sv_is_lint_clean_and_materialized() -> None:
     module = compile_source(SOURCE, top="ComplexFFTButterfly").ir
     text = emit_experimental(module)
     assert len(text) < 20_000
-    assert "function automatic" in text
-    assert "zlang_spec_" in text
+    assert "function automatic" not in text
+    assert "zlang_spec_" not in text
+    assert "logic signed [34:0] zlang_expr_" in text
     with tempfile.TemporaryDirectory() as temporary:
         rtl = Path(temporary) / "ComplexFFTButterfly.sv"
         rtl.write_text(text)

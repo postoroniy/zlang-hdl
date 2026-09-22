@@ -1,0 +1,369 @@
+// USER-bearing backend streams retain every source-side attribute.  These
+// bounded controllers are ZLang source, with no AXI-specific compiler route.
+import std.bus.axi4
+
+struct Axi4BackendReadRequestUser<AW=32,RIW=4,ARUW=1,SW=2> {
+    slot : bits<SW>
+    address : Axi4AddressUser<AW,RIW,ARUW>
+}
+
+struct Axi4BackendReadBeatUser<DW=32,RUW=1,SW=2> {
+    slot : bits<SW>
+    data : bits<DW>
+    resp : bits<2>
+    last : bit
+    user : bits<RUW>
+}
+
+module AXI4ReadSubordinateWithUser<AW=32,DW=32,RIW=4,
+                                    ARUW=1,RUW=1,D=4,SW=2>
+where AW >= 1 && AW <= 64 && RIW >= 1 && RIW <= 32 &&
+      DW >= 8 && DW <= 1024 && is_power_of_two(DW) &&
+      ARUW >= 1 && RUW >= 1 && D >= 2 && is_power_of_two(D) &&
+      SW == floor_log2(D) {
+    clock clk reset rst
+    interface axi : AXI4ReadWithUser<AW,DW,RIW,ARUW,RUW>.slave @clk
+    out backend_request : rv<Axi4BackendReadRequestUser<AW,RIW,ARUW,SW>>
+    in backend_beat : rv<Axi4BackendReadBeatUser<DW,RUW,SW>>
+    out protocol_error : bit
+
+    reg occupied : vec<D,bit> = generate(i in 0..D) 0
+    reg invalid : vec<D,bit> = generate(i in 0..D) 0
+    reg ids : vec<D,bits<RIW>> = generate(i in 0..D) 0
+    reg remaining : vec<D,u9> = generate(i in 0..D) 0
+    reg older : vec<D,vec<D,bit>> = generate(i in 0..D)
+        generate(j in 0..D) 0
+    reg output_valid : bit = 0
+    reg output_slot : bits<SW> = 0
+    reg output_payload : Axi4ReadDataUser<DW,RIW,RUW> = Axi4ReadDataUser {
+        id=0 data=0 resp=0 last=0 user=0
+    }
+    reg failed : bit = 0
+
+    free = generate(i in 0..D)
+        (~occupied[i] & ~reduce(|, generate(j in 0..D)
+            ((j < i) & ~occupied[j])))
+    has_free = reduce(|, free)
+    free_slot = reduce(|, generate(i in 0..D)
+        mux(free[i], bitcast<bits<SW>>(truncate<SW>(i)), zeros<SW>))
+    request_address = axi4_transport_address<A=Axi4AddressUser<AW,RIW,ARUW>,AW=AW,IW=RIW>(axi.ar.payload)
+    legal = axi4_address_valid<AW=AW,DW=DW,IW=RIW>(request_address) &
+        (~axi.ar.payload.lock |
+         axi4_exclusive_address_valid<AW=AW,DW=DW,IW=RIW>(request_address))
+    backend_request.valid = axi.ar.valid & has_free & legal
+    backend_request.payload = Axi4BackendReadRequestUser {
+        slot=free_slot address=axi.ar.payload
+    }
+    axi.ar.ready = has_free & (~legal | backend_request.ready)
+
+    eligible = generate(i in 0..D)
+        (occupied[i] & (remaining[i] != 0) &
+         ~reduce(|, generate(j in 0..D) (older[i][j] & occupied[j])))
+    invalid_candidate = generate(i in 0..D) (eligible[i] & invalid[i])
+    invalid_selected = generate(i in 0..D)
+        (invalid_candidate[i] & ~reduce(|, generate(j in 0..D)
+            ((j < i) & invalid_candidate[j])))
+    has_invalid = reduce(|, invalid_selected)
+    selected_invalid_slot = reduce(|, generate(i in 0..D)
+        mux(invalid_selected[i],
+            bitcast<bits<SW>>(truncate<SW>(i)), zeros<SW>))
+    selected_invalid_id = reduce(|, generate(i in 0..D)
+        mux(invalid_selected[i], ids[i], zeros<RIW>))
+    selected_invalid_last = reduce(|, generate(i in 0..D)
+        (invalid_selected[i] & (remaining[i] == 1)))
+    backend_selected = generate(i in 0..D)
+        (eligible[i] & ~invalid[i] &
+         (backend_beat.payload.slot == bitcast<bits<SW>>(truncate<SW>(i))))
+    has_backend_slot = reduce(|, backend_selected)
+    selected_backend_id = reduce(|, generate(i in 0..D)
+        mux(backend_selected[i], ids[i], zeros<RIW>))
+    selected_backend_last = reduce(|, generate(i in 0..D)
+        (backend_selected[i] & (remaining[i] == 1)))
+    can_fill = ~output_valid | axi.r.ready
+    fill_invalid = can_fill & has_invalid
+    fill_backend = can_fill & ~has_invalid &
+                   backend_beat.valid & has_backend_slot
+    fill = fill_invalid | fill_backend
+    backend_beat.ready = can_fill & ~has_invalid & has_backend_slot
+
+    axi.r.valid = output_valid
+    axi.r.payload = output_payload
+    protocol_error = failed
+    retiring = generate(i in 0..D)
+        (axi.r.transfer & output_payload.last &
+         (output_slot == bitcast<bits<SW>>(truncate<SW>(i))))
+    occupied <- generate(i in 0..D)
+        mux(axi.ar.transfer & free[i], 1,
+            mux(retiring[i], 0, occupied[i]))
+    invalid <- generate(i in 0..D)
+        mux(axi.ar.transfer & free[i], ~legal,
+            mux(retiring[i], 0, invalid[i]))
+    ids <- generate(i in 0..D)
+        mux(axi.ar.transfer & free[i], axi.ar.payload.id, ids[i])
+    remaining <- generate(i in 0..D)
+        mux(axi.ar.transfer & free[i],
+            truncate<9>(extend<9>(axi.ar.payload.len) + 1),
+            mux((fill_invalid & invalid_selected[i]) |
+                (fill_backend & backend_selected[i]),
+                truncate<9>(remaining[i] - 1), remaining[i]))
+    older <- generate(i in 0..D)
+        generate(j in 0..D)
+            mux(axi.ar.transfer & free[i],
+                occupied[j] & (ids[j] == axi.ar.payload.id) & ~retiring[j],
+                older[i][j] & ~retiring[j])
+    output_valid <- mux(fill, 1,
+                        mux(axi.r.transfer, 0, output_valid))
+    output_slot <- mux(fill_invalid, selected_invalid_slot,
+                       mux(fill_backend, backend_beat.payload.slot,
+                           output_slot))
+    output_payload <- mux(fill_invalid,
+        Axi4ReadDataUser { id=selected_invalid_id data=0 resp=3
+                           last=selected_invalid_last user=0 },
+        mux(fill_backend,
+            Axi4ReadDataUser {
+                id=selected_backend_id data=backend_beat.payload.data
+                resp=mux(backend_beat.payload.resp == 1,
+                         zeros<2>, backend_beat.payload.resp)
+                last=selected_backend_last user=backend_beat.payload.user
+            }, output_payload))
+    when axi.ar.transfer | backend_beat.valid {
+        failed <- failed | (axi.ar.transfer & ~legal) |
+                  (backend_beat.valid & ~has_backend_slot) |
+                  (fill_backend &
+                   (backend_beat.payload.last != selected_backend_last))
+    }
+}
+
+struct Axi4BackendWriteRequestUser<AW=32,WIW=4,AWUW=1,SW=2> {
+    slot : bits<SW>
+    address : Axi4AddressUser<AW,WIW,AWUW>
+}
+
+struct Axi4BackendWriteBeatUser<DW=32,WUW=1,SW=2> {
+    slot : bits<SW>
+    data : bits<DW>
+    strb : bits<DW/8>
+    last : bit
+    user : bits<WUW>
+}
+
+struct Axi4BackendWriteResultUser<BUW=1,SW=2> {
+    slot : bits<SW>
+    resp : bits<2>
+    user : bits<BUW>
+}
+
+module AXI4WriteSubordinateWithUser<AW=32,DW=32,WIW=4,
+                                     AWUW=1,WUW=1,BUW=1,D=4,SW=2>
+where AW >= 1 && AW <= 64 && WIW >= 1 && WIW <= 32 &&
+      DW >= 8 && DW <= 1024 && is_power_of_two(DW) &&
+      AWUW >= 1 && WUW >= 1 && BUW >= 1 &&
+      D >= 2 && is_power_of_two(D) && SW == floor_log2(D) {
+    clock clk reset rst
+    interface axi : AXI4WriteWithUser<AW,DW,WIW,AWUW,WUW,BUW>.slave @clk
+    out backend_request : rv<Axi4BackendWriteRequestUser<AW,WIW,AWUW,SW>>
+    out backend_beat : rv<Axi4BackendWriteBeatUser<DW,WUW,SW>>
+    in backend_result : rv<Axi4BackendWriteResultUser<BUW,SW>>
+    out protocol_error : bit
+
+    reg occupied : vec<D,bit> = generate(i in 0..D) 0
+    reg invalid : vec<D,bit> = generate(i in 0..D) 0
+    reg completed : vec<D,bit> = generate(i in 0..D) 0
+    reg requests : vec<D,Axi4AddressUser<AW,WIW,AWUW>> = generate(i in 0..D)
+        Axi4AddressUser { id=0 addr=0 len=0 size=0 burst=1 lock=0
+                          cache=0 prot=0 qos=0 region=0 user=0 }
+    reg remaining : vec<D,u9> = generate(i in 0..D) 0
+    reg beat_index : vec<D,u9> = generate(i in 0..D) 0
+    reg older_data : vec<D,vec<D,bit>> = generate(i in 0..D)
+        generate(j in 0..D) 0
+    reg older_id : vec<D,vec<D,bit>> = generate(i in 0..D)
+        generate(j in 0..D) 0
+    reg output_valid : bit = 0
+    reg output_slot : bits<SW> = 0
+    reg output_payload : Axi4WriteResponseUser<WIW,BUW> =
+        Axi4WriteResponseUser { id=0 resp=0 user=0 }
+    reg failed : bit = 0
+
+    free = generate(i in 0..D)
+        (~occupied[i] & ~reduce(|, generate(j in 0..D)
+            ((j < i) & ~occupied[j])))
+    has_free = reduce(|, free)
+    free_slot = reduce(|, generate(i in 0..D)
+        mux(free[i], bitcast<bits<SW>>(truncate<SW>(i)), zeros<SW>))
+    request_address = axi4_transport_address<A=Axi4AddressUser<AW,WIW,AWUW>,AW=AW,IW=WIW>(axi.aw.payload)
+    legal = axi4_address_valid<AW=AW,DW=DW,IW=WIW>(request_address) &
+        (~axi.aw.payload.lock |
+         axi4_exclusive_address_valid<AW=AW,DW=DW,IW=WIW>(request_address))
+    backend_request.valid = axi.aw.valid & has_free & legal
+    backend_request.payload = Axi4BackendWriteRequestUser {
+        slot=free_slot address=axi.aw.payload
+    }
+    axi.aw.ready = has_free & (~legal | backend_request.ready)
+
+    pending = generate(i in 0..D)
+        (occupied[i] & (remaining[i] != 0) &
+         ~reduce(|, generate(j in 0..D)
+             (older_data[i][j] & occupied[j] & (remaining[j] != 0))))
+    has_pending = reduce(|, pending)
+    selected_slot = reduce(|, generate(i in 0..D)
+        mux(pending[i], bitcast<bits<SW>>(truncate<SW>(i)), zeros<SW>))
+    selected_bits = reduce(|, generate(i in 0..D)
+        mux(pending[i], bitcast<bits<AW+WIW+29+AWUW>>(requests[i]),
+            zeros<AW+WIW+29+AWUW>))
+    selected_request = bitcast<Axi4AddressUser<AW,WIW,AWUW>>(
+        selected_bits)
+    selected_address = axi4_transport_address<A=Axi4AddressUser<AW,WIW,AWUW>,AW=AW,IW=WIW>(selected_request)
+    selected_index = reduce(|, generate(i in 0..D)
+        mux(pending[i], beat_index[i], extend<9>(0)))
+    selected_invalid = reduce(|, generate(i in 0..D)
+        (pending[i] & invalid[i]))
+    selected_last = reduce(|, generate(i in 0..D)
+        (pending[i] & (remaining[i] == 1)))
+    axi.w.ready = has_pending & (selected_invalid | backend_beat.ready)
+    backend_beat.valid = axi.w.valid & has_pending & ~selected_invalid
+    backend_beat.payload = Axi4BackendWriteBeatUser {
+        slot=selected_slot data=axi.w.payload.data
+        strb=axi.w.payload.strb last=selected_last
+        user=axi.w.payload.user
+    }
+    finished_data = generate(i in 0..D)
+        (axi.w.transfer & pending[i] & selected_last)
+
+    response_eligible = generate(i in 0..D)
+        (occupied[i] & completed[i] &
+         ~(output_valid &
+           (output_slot == bitcast<bits<SW>>(truncate<SW>(i)))) &
+         ~reduce(|, generate(j in 0..D)
+             (older_id[i][j] & occupied[j])))
+    invalid_candidate = generate(i in 0..D)
+        (response_eligible[i] & invalid[i])
+    invalid_selected = generate(i in 0..D)
+        (invalid_candidate[i] & ~reduce(|, generate(j in 0..D)
+            ((j < i) & invalid_candidate[j])))
+    has_invalid = reduce(|, invalid_selected)
+    selected_invalid_slot = reduce(|, generate(i in 0..D)
+        mux(invalid_selected[i],
+            bitcast<bits<SW>>(truncate<SW>(i)), zeros<SW>))
+    selected_invalid_id = reduce(|, generate(i in 0..D)
+        mux(invalid_selected[i], requests[i].id, zeros<WIW>))
+    backend_selected = generate(i in 0..D)
+        (response_eligible[i] & ~invalid[i] &
+         (backend_result.payload.slot ==
+          bitcast<bits<SW>>(truncate<SW>(i))))
+    has_backend_slot = reduce(|, backend_selected)
+    selected_backend_id = reduce(|, generate(i in 0..D)
+        mux(backend_selected[i], requests[i].id, zeros<WIW>))
+    can_fill = ~output_valid | axi.b.ready
+    fill_invalid = can_fill & has_invalid
+    fill_backend = can_fill & ~has_invalid &
+                   backend_result.valid & has_backend_slot
+    fill = fill_invalid | fill_backend
+    backend_result.ready = can_fill & ~has_invalid & has_backend_slot
+
+    axi.b.valid = output_valid
+    axi.b.payload = output_payload
+    protocol_error = failed
+    retiring = generate(i in 0..D)
+        (axi.b.transfer &
+         (output_slot == bitcast<bits<SW>>(truncate<SW>(i))))
+
+    occupied <- generate(i in 0..D)
+        mux(axi.aw.transfer & free[i], 1,
+            mux(retiring[i], 0, occupied[i]))
+    invalid <- generate(i in 0..D)
+        mux(axi.aw.transfer & free[i], ~legal,
+            mux(retiring[i], 0, invalid[i]))
+    completed <- generate(i in 0..D)
+        mux(axi.aw.transfer & free[i], 0,
+            mux(retiring[i], 0, completed[i] | finished_data[i]))
+    requests <- generate(i in 0..D)
+        mux(axi.aw.transfer & free[i], axi.aw.payload, requests[i])
+    remaining <- generate(i in 0..D)
+        mux(axi.aw.transfer & free[i],
+            truncate<9>(extend<9>(axi.aw.payload.len) + 1),
+            mux(axi.w.transfer & pending[i],
+                truncate<9>(remaining[i] - 1), remaining[i]))
+    beat_index <- generate(i in 0..D)
+        mux(axi.aw.transfer & free[i], 0,
+            mux(axi.w.transfer & pending[i],
+                truncate<9>(beat_index[i] + 1), beat_index[i]))
+    older_data <- generate(i in 0..D)
+        generate(j in 0..D)
+            mux(axi.aw.transfer & free[i],
+                occupied[j] & (remaining[j] != 0) & ~finished_data[j],
+                older_data[i][j] & ~finished_data[j])
+    older_id <- generate(i in 0..D)
+        generate(j in 0..D)
+            mux(axi.aw.transfer & free[i],
+                occupied[j] & (requests[j].id == axi.aw.payload.id) &
+                    ~retiring[j],
+                older_id[i][j] & ~retiring[j])
+    output_valid <- mux(fill, 1,
+                        mux(axi.b.transfer, 0, output_valid))
+    output_slot <- mux(fill_invalid, selected_invalid_slot,
+                       mux(fill_backend, backend_result.payload.slot,
+                           output_slot))
+    output_payload <- mux(fill_invalid,
+        Axi4WriteResponseUser { id=selected_invalid_id resp=3 user=0 },
+        mux(fill_backend,
+            Axi4WriteResponseUser {
+                id=selected_backend_id
+                resp=mux(backend_result.payload.resp == 1,
+                         zeros<2>, backend_result.payload.resp)
+                user=backend_result.payload.user
+            }, output_payload))
+    when axi.aw.transfer | axi.w.transfer | backend_result.valid {
+        failed <- failed | (axi.aw.transfer & ~legal) |
+                  (backend_result.valid & ~has_backend_slot) |
+                  (axi.w.transfer &
+                   ((axi.w.payload.last != selected_last) |
+                    ~axi4_write_strobe_valid<AW=AW,DW=DW>(
+                        axi4_beat_address<AW=AW,IW=WIW>(
+                            selected_address, selected_index),
+                        selected_request.size, axi.w.payload.strb)))
+    }
+}
+
+module AXI4SubordinateWithUser<AW=32,DW=32,RIW=4,WIW=4,
+                                AWUW=1,WUW=1,BUW=1,ARUW=1,RUW=1,
+                                D=4,SW=2>
+where AW >= 1 && AW <= 64 && RIW >= 1 && RIW <= 32 &&
+      WIW >= 1 && WIW <= 32 && DW >= 8 && DW <= 1024 &&
+      is_power_of_two(DW) && AWUW >= 1 && WUW >= 1 &&
+      BUW >= 1 && ARUW >= 1 && RUW >= 1 &&
+      D >= 2 && is_power_of_two(D) && SW == floor_log2(D) {
+    clock clk reset rst
+    interface axi : AXI4WithUser<AW,DW,RIW,WIW,AWUW,WUW,BUW,ARUW,RUW>.slave @clk
+    out backend_read_request : rv<Axi4BackendReadRequestUser<AW,RIW,ARUW,SW>>
+    in backend_read_beat : rv<Axi4BackendReadBeatUser<DW,RUW,SW>>
+    out backend_write_request : rv<Axi4BackendWriteRequestUser<AW,WIW,AWUW,SW>>
+    out backend_write_beat : rv<Axi4BackendWriteBeatUser<DW,WUW,SW>>
+    in backend_write_result : rv<Axi4BackendWriteResultUser<BUW,SW>>
+    out protocol_error : bit = reader.protocol_error | writer.protocol_error
+
+    reader : AXI4ReadSubordinateWithUser<AW,DW,RIW,ARUW,RUW,D,SW>
+    writer : AXI4WriteSubordinateWithUser<AW,DW,WIW,AWUW,WUW,BUW,D,SW>
+
+    reader.axi.ar.payload = axi.ar.payload
+    reader.axi.ar.valid = axi.ar.valid
+    axi.ar.ready = reader.axi.ar.ready
+    axi.r.payload = reader.axi.r.payload
+    axi.r.valid = reader.axi.r.valid
+    reader.axi.r.ready = axi.r.ready
+
+    writer.axi.aw.payload = axi.aw.payload
+    writer.axi.aw.valid = axi.aw.valid
+    axi.aw.ready = writer.axi.aw.ready
+    writer.axi.w.payload = axi.w.payload
+    writer.axi.w.valid = axi.w.valid
+    axi.w.ready = writer.axi.w.ready
+    axi.b.payload = writer.axi.b.payload
+    axi.b.valid = writer.axi.b.valid
+    writer.axi.b.ready = axi.b.ready
+
+    reader.backend_request -> backend_read_request
+    backend_read_beat -> reader.backend_beat
+    writer.backend_request -> backend_write_request
+    writer.backend_beat -> backend_write_beat
+    backend_write_result -> writer.backend_result
+}

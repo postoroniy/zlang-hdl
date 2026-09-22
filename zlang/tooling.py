@@ -7,7 +7,7 @@ workspace, or semantic implementation objects.  External tooling may depend on
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, fields, is_dataclass
+from dataclasses import dataclass, field, fields, is_dataclass, replace
 import hashlib
 import json
 import os
@@ -45,7 +45,12 @@ from zlang.semantic import SemanticError
 from zlang.signature_help_resolution import SignatureHelpCall
 from zlang.source import SourceOrigin
 from zlang.source_identity import SOURCE_SUFFIX
-from zlang.workspace import WorkspaceError, load_project_workspace
+from zlang.source_rebinding import TriviaRebinding
+from zlang.workspace import (
+    WorkspaceError,
+    load_project_workspace,
+    source_path_for_logical_unit,
+)
 
 
 TOOLING_API_SCHEMA = 1
@@ -63,7 +68,7 @@ SYMBOL_CACHE_SCHEMA = 1
 # from the stable on-disk table schema.  Incrementing this value makes shards
 # produced before newly supported semantic occurrences unreachable without
 # renaming the public ``symbol-v1`` cache namespace.
-_SYMBOL_CACHE_ANALYSIS_SCHEMA = 5
+_SYMBOL_CACHE_ANALYSIS_SCHEMA = 6
 
 _SYMBOL_MEMORY_MAX_ENTRIES = 64
 _SYMBOL_MEMORY_MAX_BYTES = 64 * 1024 * 1024
@@ -77,12 +82,96 @@ _REFERENCE_MAX_PROJECT_ROOTS = 128
 _REFERENCE_MAX_PROJECT_CANDIDATES = 128
 
 
+def _is_snapshot_race(error: BaseException) -> bool:
+    message = str(error).lower()
+    return "changed after" in message or " is dirty" in message
+
+
 class ToolingError(ValueError):
     """The tooling request could not produce a trustworthy immutable record."""
 
 
 class ToolingRenameError(ToolingError):
     """A rename request was rejected by compiler-owned safety rules."""
+
+
+@dataclass(frozen=True)
+class EditorDocumentSnapshot:
+    """One exact open editor buffer used by compiler-backed tooling."""
+
+    path: Path
+    text: str
+    version: int | None = None
+    digest: str = field(init=False)
+
+    def __post_init__(self) -> None:
+        path = Path(self.path).expanduser().resolve(strict=True)
+        if not isinstance(self.text, str):
+            raise TypeError("editor document text must be a string")
+        object.__setattr__(self, "path", path)
+        object.__setattr__(
+            self,
+            "digest",
+            hashlib.sha256(self.text.encode("utf-8")).hexdigest(),
+        )
+
+
+@dataclass(frozen=True)
+class EditorWorkspaceSnapshot:
+    """Atomic immutable view of every open ZLang document."""
+
+    documents: tuple[EditorDocumentSnapshot, ...]
+
+    def __post_init__(self) -> None:
+        ordered = tuple(sorted(self.documents, key=lambda item: item.path.as_posix()))
+        if len({item.path for item in ordered}) != len(ordered):
+            raise ValueError("editor workspace document paths must be unique")
+        object.__setattr__(self, "documents", ordered)
+
+    def overlays_for(self, source: Path) -> dict[Path, str]:
+        """Return root-package overlays for the source's nearest project."""
+
+        resolved = Path(source).expanduser().resolve(strict=True)
+        try:
+            manifest = discover_project_manifest(resolved)
+        except ProjectModelError as error:
+            raise ToolingError(str(error)) from error
+        if manifest is None:
+            return {
+                item.path: item.text
+                for item in self.documents
+                if item.path == resolved
+            }
+        manifest_path = manifest.path.resolve(strict=True)
+        source_root = manifest.source_directory.resolve(strict=True)
+        result: dict[Path, str] = {}
+        for item in self.documents:
+            try:
+                item.path.relative_to(source_root)
+            except ValueError:
+                continue
+            try:
+                owner = discover_project_manifest(item.path)
+            except ProjectModelError as error:
+                raise ToolingError(str(error)) from error
+            if owner is not None and owner.path.resolve(strict=True) == manifest_path:
+                result[item.path] = item.text
+        return result
+
+    def identity_for(self, source: Path) -> tuple[tuple[str, str], ...]:
+        identities: list[tuple[str, str]] = []
+        for path, text in sorted(
+            self.overlays_for(source).items(),
+            key=lambda item: item[0].as_posix(),
+        ):
+            digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+            try:
+                saved = _digest_file(path) == digest
+            except OSError:
+                saved = False
+            if not saved:
+                identities.append((path.as_posix(), digest))
+        return tuple(identities)
 
 
 @dataclass(frozen=True)
@@ -94,6 +183,7 @@ class _ToolingSnapshotEntry:
     result: object
     environment_signature: tuple[object, ...]
     environment_fingerprint: tuple[object, ...]
+    root_inventory: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -198,6 +288,28 @@ class _ToolingSymbolEntry:
     result: _SymbolSnapshot
     environment_signature: tuple[object, ...]
     environment_fingerprint: tuple[object, ...]
+    root_inventory: tuple[str, ...] = ()
+
+
+def _symbol_root_inventory(inputs: _SymbolPhysicalInputs) -> tuple[str, ...]:
+    if inputs.project_manifest is None:
+        return ()
+    manifest = discover_project_manifest(
+        inputs.project_manifest, explicit=inputs.project_manifest
+    )
+    if manifest is None:
+        raise ToolingError("symbol cache project manifest disappeared")
+    root = manifest.source_directory.resolve(strict=True)
+    return tuple(sorted(
+        path.relative_to(root).as_posix() for path in root.rglob("*.zhl")
+    ))
+
+
+def _inventory_matches(entry: _ToolingSnapshotEntry | _ToolingSymbolEntry) -> bool:
+    try:
+        return entry.root_inventory == _symbol_root_inventory(entry.result.physical_inputs)
+    except (OSError, ProjectModelError, ToolingError, ValueError):
+        return False
 
 
 def _digest_file(path: Path) -> str:
@@ -309,7 +421,13 @@ def _normalized_symbol_payload(
     path_by_unit: dict[str | None, Path | None] = {}
     digest_by_unit: dict[str | None, str | None] = {}
     normalized_origins: dict[tuple[object, ...], SourceOrigin] = {}
-    root_unit = _root_logical_source(source, result.physical_inputs, session)
+    root_unit = _root_logical_source(source, session)
+    overlay_digests = {
+        Path(path).expanduser().resolve(): digest
+        for path, digest in getattr(
+            result.physical_inputs, "editor_source_overlays", ()
+        )
+    }
 
     def normalize_origin(origin: SourceOrigin) -> SourceOrigin:
         coordinate = _declaration_coordinate_key(origin)
@@ -323,9 +441,14 @@ def _normalized_symbol_payload(
             )
             resolved_path = path_by_unit[unit]
             digest_by_unit[unit] = (
-                _digest_file(resolved_path)
+                overlay_digests.get(resolved_path.resolve())
                 if resolved_path is not None
-                else None
+                and resolved_path.resolve() in overlay_digests
+                else (
+                    _digest_file(resolved_path)
+                    if resolved_path is not None
+                    else None
+                )
             )
         path = path_by_unit[unit]
         is_root = (
@@ -500,7 +623,6 @@ def _normalized_symbol_payload(
 
 
 def _resolve_symbol_unit_paths(
-    source: Path,
     units: tuple[str, ...],
     workspace: object,
 ) -> dict[str, Path] | None:
@@ -557,7 +679,6 @@ def _load_persistent_symbol_snapshot(
     project: Path | str | None,
     profile: str | None,
     top: str | None,
-    session: ToolingSession,
 ) -> _SymbolSnapshot | None:
     context = _symbol_lookup_context(
         source,
@@ -634,7 +755,7 @@ def _load_persistent_symbol_snapshot(
                 raise ValueError("duplicate symbol cache dependency")
             dependencies[unit] = digest
         source_paths = _resolve_symbol_unit_paths(
-            source, tuple(sorted(dependencies)), workspace
+            tuple(sorted(dependencies)), workspace
         )
         if source_paths is None or any(
             _digest_file(source_paths[unit]) != digest
@@ -777,7 +898,6 @@ def _publish_persistent_symbol_snapshot(
     project: Path | str | None,
     profile: str | None,
     top: str | None,
-    session: ToolingSession,
 ) -> None:
     context = _symbol_lookup_context(
         source,
@@ -843,12 +963,16 @@ class ToolingSession:
     The cache is deliberately owned by a tooling/LSP session rather than by
     the compiler process.  Entries are immutable semantic products, keyed by
     the exact root text plus the locked physical workspace snapshot.  No
-    background refresh, global index, or incremental compiler state is kept.
+    background refresh or global index is kept; the compiler-owned process-local
+    session retains exact products for compatible snapshots.
     """
 
     _MAX_ENTRIES = 8
 
     def __init__(self) -> None:
+        from zlang.incremental_workspace import IncrementalWorkspaceSession
+
+        self._incremental_workspace = IncrementalWorkspaceSession()
         self._entries: OrderedDict[tuple[object, ...], _ToolingSnapshotEntry] = (
             OrderedDict()
         )
@@ -859,7 +983,14 @@ class ToolingSession:
         self._symbol_entries: OrderedDict[
             tuple[object, ...], _ToolingSymbolEntry
         ] = OrderedDict()
+        self._trivia_symbols: OrderedDict[
+            Path, tuple[str, _ToolingSymbolEntry]
+        ] = OrderedDict()
+        self._trivia_checks: OrderedDict[
+            Path, tuple[str, _ToolingSnapshotEntry]
+        ] = OrderedDict()
         self._symbol_bytes = 0
+        self._editor_workspace = EditorWorkspaceSnapshot(())
         requested_mode = os.environ.get(
             "ZLANG_LSP_SYMBOL_CACHE", "persistent"
         ).strip().lower()
@@ -899,6 +1030,7 @@ class ToolingSession:
         project: Path | str | None,
         profile: str | None,
         top: str | None,
+        editor_identity: tuple[tuple[str, str], ...] = (),
     ) -> tuple[object, ...]:
         # Always derive the content identity from the exact in-memory text.
         # ``source_digest`` is a caller-provided snapshot assertion (and is
@@ -928,7 +1060,61 @@ class ToolingSession:
             top,
             TOOLING_API_SCHEMA,
             __version__,
+            editor_identity,
         )
+
+    def set_editor_workspace(self, snapshot: EditorWorkspaceSnapshot) -> None:
+        """Select one immutable open-document view for subsequent requests."""
+
+        if not isinstance(snapshot, EditorWorkspaceSnapshot):
+            raise TypeError("editor workspace must be an EditorWorkspaceSnapshot")
+        self._editor_workspace = snapshot
+
+    def editor_text_for(self, source: Path | str) -> str | None:
+        """Return exact open-buffer text for ``source``, when available."""
+
+        path = Path(source).expanduser().resolve()
+        for document in self._editor_workspace.documents:
+            if document.path == path:
+                return document.text
+        return None
+
+    def source_path_for_unit(
+        self,
+        source: Path | str,
+        source_unit: str,
+    ) -> Path | None:
+        """Resolve one compiler logical unit within the source's project."""
+
+        try:
+            # Prefer the atomic editor view.  This route deliberately does not
+            # parse bytes from disk: an imported open buffer may currently be
+            # malformed, or an autosave may have replaced its physical bytes,
+            # while the compiler diagnostic still carries the exact logical
+            # unit that must receive the marker.
+            manifest = discover_project_manifest(Path(source))
+            if manifest is not None:
+                source_root = manifest.source_directory.resolve(strict=True)
+                for document in self._editor_workspace.documents:
+                    try:
+                        relative = document.path.relative_to(source_root)
+                    except ValueError:
+                        continue
+                    if relative.suffix != SOURCE_SUFFIX:
+                        continue
+                    logical = ".".join(
+                        (manifest.package, *relative.with_suffix("").parts)
+                    )
+                    if logical == source_unit:
+                        return document.path
+
+            location = discover_project(source)
+            if location is None:
+                return None
+            index = self._workspace_index_for(location.manifest_path)
+            return index.source_path_for_unit(source_unit)
+        except (ToolingError, OSError, ValueError):
+            return None
 
     @staticmethod
     def _file_fingerprint(path: Path) -> tuple[object, ...]:
@@ -955,26 +1141,50 @@ class ToolingSession:
 
     @classmethod
     def _environment_signature(cls, physical_inputs: object) -> tuple[object, ...]:
+        overlays = {
+            Path(path).expanduser().resolve(): digest
+            for path, digest in getattr(
+                physical_inputs, "editor_source_overlays", ()
+            )
+        }
         paths = tuple(
             Path(path).expanduser().resolve()
             for path in getattr(physical_inputs, "all_paths", ())
+            if Path(path).expanduser().resolve() not in overlays
         )
-        return tuple(cls._file_signature(path) for path in paths)
+        return (
+            *tuple(cls._file_signature(path) for path in paths),
+            *(('editor', path.as_posix(), digest) for path, digest in sorted(
+                overlays.items(), key=lambda item: item[0].as_posix()
+            )),
+        )
 
     @classmethod
     def _environment_fingerprint(
         cls,
         physical_inputs: object,
     ) -> tuple[object, ...]:
+        overlays = {
+            Path(path).expanduser().resolve(): digest
+            for path, digest in getattr(
+                physical_inputs, "editor_source_overlays", ()
+            )
+        }
         paths = tuple(
             Path(path).expanduser().resolve()
             for path in getattr(physical_inputs, "all_paths", ())
+            if Path(path).expanduser().resolve() not in overlays
         )
         # ``PhysicalCompilationInputs`` is the compiler's authoritative locked
         # dependency/source closure.  Fingerprint those paths only: no
         # directory scans, polling, or speculative workspace discovery is
         # performed by the cache.
-        return tuple(cls._file_fingerprint(path) for path in paths)
+        return (
+            *tuple(cls._file_fingerprint(path) for path in paths),
+            *(('editor', path.as_posix(), digest) for path, digest in sorted(
+                overlays.items(), key=lambda item: item[0].as_posix()
+            )),
+        )
 
     def semantic_snapshot(
         self,
@@ -991,6 +1201,7 @@ class ToolingSession:
 
         requested = AnalysisNeeds(analysis_needs)
         path = Path(source).expanduser().resolve()
+        editor_identity = self._editor_workspace.identity_for(path)
         context_key = self._context_key(
             path,
             source_text,
@@ -998,6 +1209,7 @@ class ToolingSession:
             project=project,
             profile=profile,
             top=top,
+            editor_identity=editor_identity,
         )
         entry = self._entries.get(context_key)
         if entry is not None:
@@ -1005,7 +1217,8 @@ class ToolingSession:
                 entry.result.physical_inputs
             )
             if (
-                entry.environment_signature == current_signature
+                _inventory_matches(entry)
+                and entry.environment_signature == current_signature
                 and entry.needs & requested == requested
             ):
                 if requested.wants(AnalysisNeeds.DEFINITIONS):
@@ -1027,9 +1240,10 @@ class ToolingSession:
                     entry.result,
                     current_signature,
                     entry.environment_fingerprint,
+                    entry.root_inventory,
                 )
                 self._entries[context_key] = refreshed
-                if entry.needs & requested == requested:
+                if _inventory_matches(entry) and entry.needs & requested == requested:
                     if requested.wants(AnalysisNeeds.DEFINITIONS):
                         self._remember_symbol_snapshot(
                             path, source_text, entry.result, context_key
@@ -1039,22 +1253,38 @@ class ToolingSession:
             self._workspace_indexes.clear()
             requested |= entry.needs
 
-        result = check_file_snapshot(
-            path,
-            source_text,
-            source_digest=source_digest,
-            project=project,
-            profile=profile,
-            top=top,
-            analysis_needs=requested,
-            allow_external_enum_inputs=True,
-        )
+        overlays = self._editor_workspace.overlays_for(path)
+        for attempt in range(2):
+            try:
+                result = check_file_snapshot(
+                    path,
+                    source_text,
+                    source_digest=source_digest,
+                    project=project,
+                    profile=profile,
+                    top=top,
+                    analysis_needs=requested,
+                    allow_external_enum_inputs=True,
+                    allow_unsaved_root=True,
+                    source_overlays=overlays,
+                    incremental_workspace=self._incremental_workspace,
+                )
+                break
+            except (ModuleResolutionError, WorkspaceError) as error:
+                if attempt or not _is_snapshot_race(error):
+                    raise
+                # A physical input was replaced between discovery and locked
+                # snapshot validation.  Rebuild the workspace once from the
+                # same immutable editor overlay; a second race propagates as a
+                # neutral LSP environment failure instead of stale results.
+                self._workspace_indexes.clear()
         stored = _ToolingSnapshotEntry(
             context_key,
             requested,
             result,
             self._environment_signature(result.physical_inputs),
             self._environment_fingerprint(result.physical_inputs),
+            _symbol_root_inventory(result.physical_inputs),
         )
         self._entries[context_key] = stored
         self._entries.move_to_end(context_key)
@@ -1063,6 +1293,39 @@ class ToolingSession:
         if requested.wants(AnalysisNeeds.DEFINITIONS):
             self._remember_symbol_snapshot(path, source_text, result, context_key)
         return result
+
+    def trivia_diagnostic_proof(self, source: Path, source_text: str) -> bool:
+        """Reuse an earlier *clean* check without returning stale typed IR."""
+
+        path = Path(source).expanduser().resolve()
+        previous = self._trivia_checks.get(path)
+        if previous is None:
+            return False
+        old_text, entry = previous
+        if entry.context_key[6] is not None:
+            # didChange clears a navigation-only selected top.  A proof for
+            # that child is not a proof that the default public top is valid.
+            return False
+        inputs = entry.result.physical_inputs
+        editor_identity = self._editor_workspace.identity_for(path)
+        old_editor = tuple(item for item in entry.context_key[-1]
+                           if item[0] != path.as_posix())
+        new_editor = tuple(item for item in editor_identity
+                           if item[0] != path.as_posix())
+        if old_editor != new_editor:
+            return False
+        try:
+            old_other = tuple(item for item in entry.environment_fingerprint
+                              if item[0] != path.as_posix())
+            new_other = tuple(item for item in self._environment_fingerprint(inputs)
+                              if item[0] != path.as_posix())
+            return (
+                old_other == new_other
+                and entry.root_inventory == _symbol_root_inventory(inputs)
+                and TriviaRebinding.between(old_text, source_text) is not None
+            )
+        except (OSError, ProjectModelError, ToolingError, ValueError):
+            return False
 
     def symbol_snapshot(
         self,
@@ -1078,6 +1341,7 @@ class ToolingSession:
         if self._symbol_mode == "off":
             return None
         path = Path(source).expanduser().resolve()
+        editor_identity = self._editor_workspace.identity_for(path)
         context_key = self._context_key(
             path,
             source_text,
@@ -1085,8 +1349,12 @@ class ToolingSession:
             project=project,
             profile=profile,
             top=top,
+            editor_identity=editor_identity,
         )
         entry = self._symbol_entries.get(context_key)
+        if entry is not None and not _inventory_matches(entry):
+            self._drop_symbol_entry(context_key)
+            entry = None
         if entry is not None:
             signature = self._environment_signature(entry.result.physical_inputs)
             if signature == entry.environment_signature:
@@ -1101,12 +1369,19 @@ class ToolingSession:
                     entry.result,
                     signature,
                     fingerprint,
+                    entry.root_inventory,
                 )
                 self._symbol_entries[context_key] = refreshed
                 self._symbol_entries.move_to_end(context_key)
                 return entry.result
             self._drop_symbol_entry(context_key)
-        if self._symbol_mode != "persistent":
+        rebased = self._rebind_trivia_symbols(
+            path, source_text, context_key, editor_identity
+        )
+        if rebased is not None:
+            self._insert_symbol_entry(context_key, rebased)
+            return rebased
+        if self._symbol_mode != "persistent" or editor_identity:
             return None
         snapshot = _load_persistent_symbol_snapshot(
             path,
@@ -1114,12 +1389,69 @@ class ToolingSession:
             project=project,
             profile=profile,
             top=top,
-            session=self,
         )
         if snapshot is None:
             return None
-        self._insert_symbol_entry(context_key, snapshot)
+        try:
+            self._insert_symbol_entry(context_key, snapshot)
+        except (OSError, ProjectModelError, ToolingError):
+            return None
         return snapshot
+
+    def _rebind_trivia_symbols(
+        self,
+        source: Path,
+        source_text: str,
+        context_key: tuple[object, ...],
+        editor_identity: tuple[tuple[str, str], ...],
+    ) -> _SymbolSnapshot | None:
+        previous = self._trivia_symbols.get(source)
+        if previous is None:
+            return None
+        old_text, entry = previous
+        old_key = entry.context_key
+        if any(old_key[index] != context_key[index] for index in (0, 4, 5, 6, 7, 8)):
+            return None
+        remaining_old = tuple(item for item in old_key[-1] if item[0] != source.as_posix())
+        remaining_new = tuple(item for item in editor_identity if item[0] != source.as_posix())
+        if remaining_old != remaining_new:
+            return None
+        inputs = entry.result.physical_inputs
+        try:
+            current = self._environment_fingerprint(inputs)
+            old_other = tuple(item for item in entry.environment_fingerprint if item[0] != source.as_posix())
+            new_other = tuple(item for item in current if item[0] != source.as_posix())
+            if old_other != new_other or entry.root_inventory != _symbol_root_inventory(inputs):
+                return None
+            mapping = TriviaRebinding.between(old_text, source_text)
+            if mapping is None:
+                return None
+            root_units = {
+                unit for unit, path in inputs.source_unit_paths if path == source
+            }
+            old_digest = hashlib.sha256(old_text.encode("utf-8")).hexdigest()
+
+            def origin(value: SourceOrigin) -> SourceOrigin:
+                if value.source_unit is None and inputs.project_manifest is not None:
+                    raise ValueError("project symbol origin has no source unit")
+                if value.source_unit not in root_units and value.source_unit is not None:
+                    return value
+                if value.digest != old_digest:
+                    raise ValueError("symbol origin is not bound to the old root snapshot")
+                updated = mapping.origin(value)
+                if updated is None:
+                    raise ValueError("symbol span is not anchored to a parser token")
+                return updated
+
+            resolutions = tuple(replace(item,
+                occurrence=origin(item.occurrence), target=origin(item.target))
+                for item in entry.result.definition_resolutions)
+            declarations = tuple(replace(item, target=origin(item.target))
+                                 for item in entry.result.definition_declarations)
+            return _SymbolSnapshot(inputs, resolutions, declarations,
+                                   entry.result.serialized_size)
+        except (OSError, ProjectModelError, ToolingError, ValueError):
+            return None
 
     def symbol_snapshot_covering(
         self,
@@ -1151,6 +1483,9 @@ class ToolingSession:
             entry = self._symbol_entries.get(context_key)
             if entry is None:
                 continue
+            if not _inventory_matches(entry):
+                self._drop_symbol_entry(context_key)
+                continue
             signature = self._environment_signature(entry.result.physical_inputs)
             if signature != entry.environment_signature:
                 fingerprint = self._environment_fingerprint(
@@ -1164,6 +1499,7 @@ class ToolingSession:
                     entry.result,
                     signature,
                     fingerprint,
+                    entry.root_inventory,
                 )
                 self._symbol_entries[context_key] = entry
 
@@ -1173,7 +1509,7 @@ class ToolingSession:
                 if candidate.resolve() == path
             }
             if entry.result.physical_inputs.root_source.resolve() == path:
-                root_unit = _root_logical_source(path, entry.result.physical_inputs, self)
+                root_unit = _root_logical_source(path, self)
                 if root_unit is not None:
                     units.add(root_unit)
             if not units:
@@ -1222,6 +1558,7 @@ class ToolingSession:
             snapshot,
             self._environment_signature(snapshot.physical_inputs),
             self._environment_fingerprint(snapshot.physical_inputs),
+            _symbol_root_inventory(snapshot.physical_inputs),
         )
         self._symbol_entries[context_key] = entry
         self._symbol_entries.move_to_end(context_key)
@@ -1250,15 +1587,22 @@ class ToolingSession:
             snapshot, payload = _normalized_symbol_payload(source, result, self)
             self._insert_symbol_entry(context_key, snapshot)
             if self._symbol_mode == "persistent":
-                _publish_persistent_symbol_snapshot(
-                    source,
-                    source_text,
-                    payload,
-                    project=context_key[4],
-                    profile=context_key[5],
-                    top=context_key[6],
-                    session=self,
+                overlays = getattr(
+                    result.physical_inputs, "editor_source_overlays", ()
                 )
+                saved = all(
+                    _digest_file(Path(path)) == digest
+                    for path, digest in overlays
+                )
+                if saved:
+                    _publish_persistent_symbol_snapshot(
+                        source,
+                        source_text,
+                        payload,
+                        project=context_key[4],
+                        profile=context_key[5],
+                        top=context_key[6],
+                    )
         except (AttributeError, KeyError, OSError, TypeError, ValueError):
             # Navigation remains available from the just-produced semantic
             # result even when the optional cache cannot normalize or publish.
@@ -1268,11 +1612,40 @@ class ToolingSession:
         """Drop all snapshots rooted at one document path."""
 
         path = Path(source).expanduser().resolve()
-        for key in tuple(self._entries):
-            if key[0] == path:
+        old_text = self.editor_text_for(path)
+        if old_text is not None:
+            for key, entry in reversed(tuple(self._entries.items())):
+                if key[0] == path and key[1] == hashlib.sha256(
+                    old_text.encode("utf-8")
+                ).hexdigest():
+                    self._trivia_checks[path] = (old_text, entry)
+                    self._trivia_checks.move_to_end(path)
+                    while len(self._trivia_checks) > self._MAX_ENTRIES:
+                        self._trivia_checks.popitem(last=False)
+                    break
+            for key, entry in reversed(tuple(self._symbol_entries.items())):
+                if key[0] == path and key[1] == hashlib.sha256(
+                    old_text.encode("utf-8")
+                ).hexdigest():
+                    self._trivia_symbols[path] = (old_text, entry)
+                    self._trivia_symbols.move_to_end(path)
+                    while len(self._trivia_symbols) > self._MAX_ENTRIES:
+                        self._trivia_symbols.popitem(last=False)
+                    break
+        for key, entry in tuple(self._entries.items()):
+            inputs = getattr(entry.result, "physical_inputs", None)
+            paths = {
+                Path(item).expanduser().resolve()
+                for item in getattr(inputs, "all_paths", ())
+            }
+            if key[0] == path or path in paths:
                 del self._entries[key]
-        for key in tuple(self._symbol_entries):
-            if key[0] == path:
+        for key, entry in tuple(self._symbol_entries.items()):
+            paths = {
+                Path(item).expanduser().resolve()
+                for item in getattr(entry.result.physical_inputs, "all_paths", ())
+            }
+            if key[0] == path or path in paths:
                 self._drop_symbol_entry(key)
         for key in tuple(self._navigation_regions):
             if key[0] == path:
@@ -1282,8 +1655,11 @@ class ToolingSession:
     def clear(self) -> None:
         """Release all session-owned snapshots."""
 
+        self._incremental_workspace.clear()
         self._entries.clear()
         self._symbol_entries.clear()
+        self._trivia_symbols.clear()
+        self._trivia_checks.clear()
         self._symbol_bytes = 0
         self._navigation_regions.clear()
         self._workspace_indexes.clear()
@@ -1338,6 +1714,13 @@ class WorkspaceIndex:
     source_directory: Path
     root_modules: tuple[WorkspaceModule, ...]
     dependency_modules: tuple[WorkspaceModule, ...]
+
+    def source_path_for_unit(self, logical_path: str) -> Path | None:
+        return source_path_for_logical_unit(
+            self.root_modules,
+            self.dependency_modules,
+            logical_path,
+        )
 
     def dependency_closure(self, logical_path: str) -> tuple[str, ...]:
         records = {
@@ -2031,6 +2414,7 @@ def _semantic_snapshot(
         top=top,
         analysis_needs=analysis_needs,
         allow_external_enum_inputs=True,
+        allow_unsaved_root=True,
     )
 
 
@@ -2068,7 +2452,6 @@ def _definition_snapshot(
 
 def _root_logical_source(
     source: Path,
-    physical_inputs: object,
     session: ToolingSession | None = None,
 ) -> str | None:
     """Return the locked logical identity for the current root when known."""
@@ -2108,7 +2491,7 @@ def _source_path_for_origin(
         return Path(cached_paths[unit]).resolve()
     root = getattr(physical_inputs, "root_source", None)
     if root is not None and Path(root).resolve() == source.resolve():
-        root_unit = _root_logical_source(source, physical_inputs, session)
+        root_unit = _root_logical_source(source, session)
         if root_unit == unit or (
             root_unit is None
             and unit in {source.name, source.as_posix(), str(source.resolve())}
@@ -2122,9 +2505,9 @@ def _source_path_for_origin(
                 if session is not None
                 else workspace_index(location.manifest_path)
             )
-            for module in (*index.root_modules, *index.dependency_modules):
-                if module.logical_path == unit:
-                    return module.source_path.resolve()
+            candidate = index.source_path_for_unit(unit)
+            if candidate is not None:
+                return candidate
             # ``WorkspaceIndex`` intentionally exposes project/dependency
             # modules only.  Declaration targets may also live in the exact
             # stdlib closure retained by ``PhysicalCompilationInputs``.  Ask
@@ -2163,7 +2546,7 @@ def _definition_from_result(
     character: int,
     session: ToolingSession | None = None,
 ) -> ToolingDefinition | None:
-    root_unit = _root_logical_source(source, result.physical_inputs, session)
+    root_unit = _root_logical_source(source, session)
     candidates: list[tuple[tuple[int, int, int], DefinitionResolution]] = []
     indexed = getattr(result, "occurrences_by_line", None)
     resolutions = (
@@ -2557,7 +2940,7 @@ def _completion_from_result(
 ) -> tuple[ToolingCompletion, ...]:
     """Select the most specific compiler-recorded scope at a position."""
 
-    root_unit = _root_logical_source(source, result.physical_inputs, session)
+    root_unit = _root_logical_source(source, session)
     candidates: list[tuple[tuple[int, int, int], CompletionScope]] = []
     for index, scope in enumerate(result.completion_scopes):
         origin = _origin_from_source(scope.origin)
@@ -2678,7 +3061,7 @@ def _signature_help_from_result(
 ) -> ToolingSignatureHelp | None:
     """Project the most-specific compiler-resolved call at a position."""
 
-    root_unit = _root_logical_source(source, result.physical_inputs, session)
+    root_unit = _root_logical_source(source, session)
     candidates: list[tuple[tuple[int, int, int, int, int], SignatureHelpCall]] = []
     for index, call in enumerate(result.signature_help_calls):
         origin = _origin_from_source(call.call_origin)
@@ -2796,7 +3179,7 @@ def _semantic_tokens_from_result(
 ) -> tuple[ToolingSemanticToken, ...]:
     """Project exact root-document declarations and resolved occurrences."""
 
-    root_unit = _root_logical_source(source, result.physical_inputs, session)
+    root_unit = _root_logical_source(source, session)
     root_names = {source.name, source.as_posix(), str(source.resolve())}
 
     def belongs_to_root(origin: object) -> bool:
@@ -3097,7 +3480,7 @@ def _reference_target_from_result(
 ) -> object | None:
     """Resolve the target identity under a cursor using compiler records."""
 
-    root_unit = _root_logical_source(source, result.physical_inputs, session)
+    root_unit = _root_logical_source(source, session)
     candidates: list[tuple[tuple[int, int, int], object]] = []
     occurrence_index = getattr(result, "occurrences_by_line", None)
     resolutions = (
@@ -3153,28 +3536,6 @@ def _reference_target_from_result(
     if declaration_candidates:
         return min(declaration_candidates, key=lambda item: item[0])[1]
     return None
-
-
-def _references_from_result(
-    source: Path,
-    result: object,
-    line: int,
-    character: int,
-    include_declaration: bool,
-    session: ToolingSession | None = None,
-) -> tuple[ToolingReference, ...]:
-    target = _reference_target_from_result(
-        source, result, line, character, session
-    )
-    if target is None:
-        return ()
-    return _references_for_target(
-        source,
-        result,
-        target,
-        include_declaration,
-        session,
-    )
 
 
 def _references_for_target(
@@ -3491,10 +3852,20 @@ def references_at(
         resolved = item.source_path.resolve()
         lines = source_cache.get(resolved)
         if lines is None:
-            try:
-                lines = tuple(resolved.read_text(encoding="utf-8").splitlines())
-            except OSError:
-                return False
+            editor_text = (
+                None
+                if _session is None
+                else _session.editor_text_for(resolved)
+            )
+            if editor_text is not None:
+                lines = tuple(editor_text.splitlines())
+            else:
+                try:
+                    lines = tuple(
+                        resolved.read_text(encoding="utf-8").splitlines()
+                    )
+                except OSError:
+                    return False
             source_cache[resolved] = lines
         origin = item.origin
         if (
@@ -3619,7 +3990,6 @@ def _rename_target_metadata(
 
 def _rename_edits_from_result(
     source: Path,
-    source_text: str,
     result: object,
     line: int,
     character: int,
@@ -3693,7 +4063,6 @@ def _rename_edits_from_result(
 def _validate_renamed_semantics(
     source: Path,
     source_text: str,
-    result: object,
     original_target: object,
     edits: tuple[ToolingRenameEdit, ...],
     new_name: str,
@@ -3810,7 +4179,7 @@ def rename_at(
     ) as error:
         raise ToolingError(str(error)) from error
     edits = _rename_edits_from_result(
-        path, source_text, result, line, character, new_name, _session
+        path, result, line, character, new_name, _session
     )
     if edits is None:
         return None
@@ -3822,7 +4191,6 @@ def rename_at(
     _validate_renamed_semantics(
         path,
         source_text,
-        result,
         target,
         edits,
         new_name,
@@ -4130,10 +4498,7 @@ def check_snapshot(
     ) as error:
         diagnostic = getattr(error, "diagnostic", None)
         if not isinstance(diagnostic, Diagnostic):
-            diagnostic = Diagnostic(
-                "ZL-TOOLING-001",
-                "semantic validation failed without a structured compiler diagnostic",
-            )
+            raise ToolingError(str(error)) from error
         return SemanticCheckRecord(
             "failed",
             _phase(error),
@@ -4204,6 +4569,8 @@ __all__ = [
     "TOOLING_SIGNATURE_HELP_SCHEMA",
     "TOOLING_SEMANTIC_TOKEN_SCHEMA",
     "TOOLING_DIAGNOSTIC_EDIT_SCHEMA",
+    "EditorDocumentSnapshot",
+    "EditorWorkspaceSnapshot",
     "ProjectLocation",
     "ResolvedImport",
     "SemanticCheckRecord",

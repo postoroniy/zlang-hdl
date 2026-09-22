@@ -97,6 +97,20 @@ def _instantiate_functional_value(
                 f"functional capture '{value.display_name}' is not bound exactly"
             )
         return capture
+    if isinstance(value, expr.FunctionalValue):
+        binder_identities = _compile_time_binder_identities(value.expression)
+        if not binder_identities <= binder_values.keys():
+            partially_bound = _substitute_compile_time_bindings(
+                value.expression, binder_values
+            )
+            if isinstance(partially_bound, int):
+                return expr.Constant(partially_bound, value.type, origin=value.origin)
+            return replace(value, expression=partially_bound)
+        try:
+            resolved = evaluate_compile_time(value.expression, binder_values)
+        except ValueError as error:
+            raise FunctionalLoweringError(str(error)) from error
+        return expr.Constant(resolved, value.type, origin=value.origin)
     if isinstance(value, expr.FunctionalTableLookup):
         table = tables.get(value.table_name)
         if table is None or table.type != value.type:
@@ -138,8 +152,48 @@ def _instantiate_functional_value(
             raise FunctionalLoweringError(str(error)) from error
         return replace(value, expression=expression, index=index)
     if isinstance(value, expr.FunctionalRegion):
-        raise FunctionalLoweringError(
-            "nested functional regions require an explicit outer lowering boundary"
+        # Instantiate only the nested region's closed-over environment.  Its
+        # template and binder remain owned by the nested lowering boundary;
+        # substituting them here would conflate independent iterator domains.
+        nested_captures = tuple(
+            (
+                reference,
+                _instantiate_functional_value(
+                    captured,
+                    binder_values=binder_values,
+                    captures=captures,
+                    tables=tables,
+                ),
+            )
+            for reference, captured in value.captures
+        )
+        nested_tables = tuple(
+            replace(
+                table,
+                values=tuple(
+                    _instantiate_functional_value(
+                        item,
+                        binder_values=binder_values,
+                        captures=captures,
+                        tables=tables,
+                    )
+                    for item in table.values
+                ),
+            )
+            for table in value.tables
+        )
+        nested_template = _instantiate_nested_region_environments(
+            value.template,
+            binder_values=binder_values,
+            captures=captures,
+            tables=tables,
+        )
+        assert isinstance(nested_template, expr.Expression)
+        return replace(
+            value,
+            template=nested_template,
+            captures=nested_captures,
+            tables=nested_tables,
         )
     if isinstance(value, tuple):
         return tuple(
@@ -171,6 +225,81 @@ def _instantiate_functional_value(
                 f"cannot instantiate functional {type(value).__name__}: {error}"
             ) from error
     return value
+
+
+def _instantiate_nested_region_environments(
+    value: object,
+    *,
+    binder_values: dict[str, int],
+    captures: dict[str, expr.Expression],
+    tables: dict[str, FunctionalTable],
+) -> object:
+    """Push an outer binding through templates to descendant region closures."""
+
+    if isinstance(value, expr.FunctionalRegion):
+        return _instantiate_functional_value(
+            value,
+            binder_values=binder_values,
+            captures=captures,
+            tables=tables,
+        )
+    if isinstance(value, tuple):
+        return tuple(
+            _instantiate_nested_region_environments(
+                item,
+                binder_values=binder_values,
+                captures=captures,
+                tables=tables,
+            )
+            for item in value
+        )
+    if is_dataclass(value) and not isinstance(value, type):
+        updates = {
+            item.name: _instantiate_nested_region_environments(
+                getattr(value, item.name),
+                binder_values=binder_values,
+                captures=captures,
+                tables=tables,
+            )
+            for item in fields(value)
+            if item.init and item.name not in {"type", "origin"}
+        }
+        return replace(value, **updates) if updates else value
+    return value
+
+
+def _compile_time_binder_identities(value: object) -> set[str]:
+    if isinstance(value, CompileTimeBinderRef):
+        return {value.identity}
+    if isinstance(value, CompileTimeExpr):
+        return set().union(
+            *(_compile_time_binder_identities(item) for item in value.operands)
+        )
+    return set()
+
+
+def _substitute_compile_time_bindings(
+    value: int | CompileTimeExpr,
+    bindings: dict[str, int],
+) -> int | CompileTimeExpr:
+    """Partially bind a compile-time expression without losing its domain."""
+
+    if isinstance(value, int):
+        return value
+    if value.operator.value == "binder":
+        binder = value.operands[0]
+        assert isinstance(binder, CompileTimeBinderRef)
+        return bindings.get(binder.identity, value)
+    operands = tuple(
+        _substitute_compile_time_bindings(item, bindings)
+        if isinstance(item, (int, CompileTimeExpr))
+        else item
+        for item in value.operands
+    )
+    rebuilt = replace(value, operands=operands)
+    if not _compile_time_binder_identities(rebuilt):
+        return evaluate_compile_time(rebuilt, {})
+    return rebuilt
 
 
 def vector_leaf_shape(type_: HardwareType) -> tuple[int, HardwareType]:
@@ -251,6 +380,7 @@ def compact_functional_elements(
     tables: list[FunctionalTable] = []
     captures: list[tuple[expr.FunctionalCaptureRef, expr.Expression]] = []
     inlined: list[str] = []
+    purity_memo: dict[int, bool] = {}
 
     def resolve(call: expr.Call) -> object | None:
         if call.callee_identity is not None:
@@ -283,6 +413,7 @@ def compact_functional_elements(
                 expr.RomRef,
                 expr.InstanceOutputRef,
                 expr.FunctionalCaptureRef,
+                expr.FunctionalValue,
                 expr.FunctionalTableLookup,
                 expr.Delay,
                 expr.Pipeline,
@@ -309,7 +440,7 @@ def compact_functional_elements(
 
     def capture(value: expr.Expression) -> expr.FunctionalCaptureRef:
         for reference, existing in captures:
-            if existing == value:
+            if existing is value or existing == value:
                 return reference
         ordinal = len(captures)
         reference = expr.FunctionalCaptureRef(
@@ -347,7 +478,10 @@ def compact_functional_elements(
         first = values[0]
         if any(type(value) is not type(first) or value.type != first.type for value in values):
             return None
-        if any(not _pure_functional_expression(value) for value in values):
+        if any(
+            not _pure_functional_expression(value, purity_memo)
+            for value in values
+        ):
             return None
         if isinstance(first, expr.Constant):
             constants = tuple(value for value in values if isinstance(value, expr.Constant))
@@ -490,14 +624,23 @@ def _expression_children(value: expr.Expression) -> tuple[expr.Expression, ...]:
     return typed_expression_children(value)
 
 
-def _pure_functional_expression(value: expr.Expression) -> bool:
+def _pure_functional_expression(
+    value: expr.Expression,
+    memo: dict[int, bool] | None = None,
+) -> bool:
+    if memo is None:
+        memo = {}
+    cache_key = id(value)
+    cached = memo.get(cache_key)
+    if cached is not None:
+        return cached
     # A ready/valid payload is an ordinary current-cycle combinational value.
     # Capturing it does not give a compact functional region ownership of the
     # handshake: valid, ready, and transfer remain protocol observations and
     # therefore stay outside this pure value-only representation.
     if isinstance(value, expr.ReadyValidRef):
-        return value.signal is ReadyValidSignal.PAYLOAD
-    if isinstance(
+        result = value.signal is ReadyValidSignal.PAYLOAD
+    elif isinstance(
         value,
         (
             expr.RegisterRef,
@@ -513,8 +656,14 @@ def _pure_functional_expression(value: expr.Expression) -> bool:
             expr.ImplementationChoice,
         ),
     ):
-        return False
-    return all(_pure_functional_expression(child) for child in _expression_children(value))
+        result = False
+    else:
+        result = all(
+            _pure_functional_expression(child, memo)
+            for child in _expression_children(value)
+        )
+    memo[cache_key] = result
+    return result
 
 
 def lower_reduction(reduction: expr.Reduce) -> expr.Expression:

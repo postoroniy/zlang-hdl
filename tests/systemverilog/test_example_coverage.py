@@ -227,4 +227,4 @@ def test_every_standalone_supported_example_root_passes_strict_lint(tmp_path: Pa
             f"{relative}::{top}\n{completed.stderr}"
         )
         checked += 1
-    assert checked == 171
+    assert checked == 195

@@ -12,6 +12,7 @@ from dataclasses import dataclass
 import hashlib
 from pathlib import Path
 import re
+import site
 import sys
 from typing import Iterable, Iterator
 
@@ -22,10 +23,19 @@ from zlang.source_identity import SOURCE_GLOB, SOURCE_SUFFIX
 
 
 _COMPONENT = re.compile(r"[A-Za-z][A-Za-z0-9_]*\Z")
-_ROOTS = (
-    Path(__file__).resolve().parent.parent / "stdlib",
-    Path(sys.prefix) / "stdlib",
-)
+
+
+def _stdlib_roots() -> tuple[Path, ...]:
+    roots = [
+        Path(__file__).resolve().parent.parent / "stdlib",
+        Path(sys.prefix) / "stdlib",
+    ]
+    if site.ENABLE_USER_SITE:
+        roots.append(Path(site.getuserbase()) / "stdlib")
+    return tuple(roots)
+
+
+_ROOTS = _stdlib_roots()
 _RESOLVED_SOURCE_PATHS: ContextVar[set[Path] | None] = ContextVar(
     "zlang_resolved_stdlib_source_paths", default=None,
 )

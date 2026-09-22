@@ -351,9 +351,12 @@ def load_architecture_templates(*, operation: str | None = None) -> tuple[Archit
 
 
 def generic_implementation_graph(module: Module, target: TargetInstance | None = None) -> ImplementationGraph:
-    semantic = sha256(repr((
-        "zlang-generic-module-physical-v1", _generic_physical_payload(module)
-    )).encode()).hexdigest()
+    semantic = sha256(
+        (
+            "zlang-generic-module-physical-v2:"
+            + _generic_physical_digest(module)
+        ).encode()
+    ).hexdigest()
     latency_knowledge, latency = _module_implementation_latency(module)
     return ImplementationGraph(
         semantic_region_identity=semantic,
@@ -1845,65 +1848,114 @@ def _semantic_payload(value) -> str:
     return repr(value)
 
 
-def _generic_physical_payload(value: object) -> object:
-    """Typed generic hardware content without catalog or cost annotations.
+def _generic_physical_digest(value: object) -> str:
+    """Return a stable physical digest without expanding a shared DAG.
 
-    The selected assignment remains in Module; unused exploration catalogs
-    and verification declarations do not.  An explicitly scheduled pipeline
-    contributes its physical graph key instead of its estimated stage costs.
-    This is intentionally a new namespace, not the historical DSP port key.
+    The historical serializer returned a recursively nested Python tuple.  A
+    semantic node with multiple consumers was consequently copied into that
+    tuple once per logical path, so merely asking for a generic implementation
+    identity could consume quadratic time and memory.  This serializer hashes
+    each object once and lets parents refer to child content digests.  The
+    result remains independent of Python object identities and source spans.
     """
 
-    if isinstance(value, SourceOrigin):
-        return ("source_origin", "omitted")
-    if isinstance(value, Enum):
-        return (type(value).__module__, type(value).__qualname__, value.value)
-    if isinstance(value, PipelinePlan):
-        if value.scheduled_value_graph is not None:
-            return ("scheduled_pipeline", value.scheduled_value_graph.identity)
-        return (
-            "legacy_pipeline", value.stage_boundaries,
-            value.inserted_registers, value.alignment_delays,
-            value.requested_latency, value.initiation_interval,
-        )
-    if isinstance(value, tuple):
-        return tuple(_generic_physical_payload(item) for item in value)
-    if isinstance(value, list):
-        return tuple(_generic_physical_payload(item) for item in value)
-    if isinstance(value, dict):
-        pairs = tuple(
-            (_generic_physical_payload(key), _generic_physical_payload(item))
-            for key, item in value.items()
-        )
-        return tuple(sorted(pairs, key=repr))
-    if isinstance(value, (set, frozenset)):
-        return tuple(sorted(
-            (_generic_physical_payload(item) for item in value), key=repr
-        ))
-    if is_dataclass(value) and not isinstance(value, type):
-        excluded = {
-            "origin", "origins", "source_origin", "source_identity",
-            "source_hash", "source_path", "formal_records",
-            "formal_eligible", "estimate", "measurement", "cost_policy",
-        }
-        if isinstance(value, Module):
-            excluded.update({
-                "pipeline_explorations", "architecture_explorations",
-                "equivalences", "verification_scopes",
-            })
-        return (
-            type(value).__module__, type(value).__qualname__,
-            tuple(
-                (item.name, _generic_physical_payload(getattr(value, item.name)))
-                for item in fields(value) if item.name not in excluded
-            ),
-        )
-    if value is None or isinstance(value, (str, int, float, bool)):
-        return value
-    raise TypeError(
-        "generic module physical identity cannot serialize "
-        f"{type(value).__module__}.{type(value).__qualname__}"
-    )
+    memo: dict[int, tuple[object, str]] = {}
+
+    def digest(item: object) -> str:
+        if item is None or isinstance(item, (str, int, float, bool)):
+            return sha256(repr(("scalar", item)).encode()).hexdigest()
+        if isinstance(item, SourceOrigin):
+            return sha256(b"source_origin:omitted").hexdigest()
+        if isinstance(item, Enum):
+            return sha256(
+                repr(
+                    (
+                        "enum",
+                        type(item).__module__,
+                        type(item).__qualname__,
+                        item.value,
+                    )
+                ).encode()
+            ).hexdigest()
+
+        cached = memo.get(id(item))
+        if cached is not None and cached[0] is item:
+            return cached[1]
+
+        if isinstance(item, PipelinePlan):
+            if item.scheduled_value_graph is not None:
+                payload: object = (
+                    "scheduled_pipeline",
+                    item.scheduled_value_graph.identity,
+                )
+            else:
+                payload = (
+                    "legacy_pipeline",
+                    item.stage_boundaries,
+                    item.inserted_registers,
+                    item.alignment_delays,
+                    item.requested_latency,
+                    item.initiation_interval,
+                )
+        elif isinstance(item, tuple):
+            payload = ("tuple", tuple(digest(value) for value in item))
+        elif isinstance(item, list):
+            payload = ("list", tuple(digest(value) for value in item))
+        elif isinstance(item, dict):
+            pairs = tuple(
+                sorted(
+                    ((digest(key), digest(value)) for key, value in item.items()),
+                )
+            )
+            payload = ("dict", pairs)
+        elif isinstance(item, (set, frozenset)):
+            payload = ("set", tuple(sorted(digest(value) for value in item)))
+        elif is_dataclass(item) and not isinstance(item, type):
+            excluded = {
+                "origin",
+                "origins",
+                "source_origin",
+                "source_identity",
+                "source_hash",
+                "source_path",
+                "formal_records",
+                "formal_eligible",
+                "estimate",
+                "measurement",
+                "cost_policy",
+                "semantic_expression_arena_statistics",
+                "semantic_expression_provenance",
+                "selected_value_normalization_statistics",
+            }
+            if isinstance(item, Module):
+                excluded.update(
+                    {
+                        "pipeline_explorations",
+                        "architecture_explorations",
+                        "equivalences",
+                        "verification_scopes",
+                    }
+                )
+            payload = (
+                "dataclass",
+                type(item).__module__,
+                type(item).__qualname__,
+                tuple(
+                    (field.name, digest(getattr(item, field.name)))
+                    for field in fields(item)
+                    if field.name not in excluded
+                ),
+            )
+        else:
+            raise TypeError(
+                "generic module physical identity cannot serialize "
+                f"{type(item).__module__}.{type(item).__qualname__}"
+            )
+        result = sha256(repr(payload).encode()).hexdigest()
+        memo[id(item)] = (item, result)
+        return result
+
+    return digest(value)
 
 
 __all__ = [

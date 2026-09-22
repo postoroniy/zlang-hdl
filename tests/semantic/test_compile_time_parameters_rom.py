@@ -90,7 +90,7 @@ def test_callable_parameter_lowers_to_exact_concrete_calls() -> None:
     assert binding.return_type == target.return_type
     assert binding.callee_identity == target.callee_identity
     assert binding.callee_identity == definition.body.callee_identity
-    assert binding.evaluator_schema == "zlang-ct-v1"
+    assert binding.evaluator_schema == "zlang-ct-v2"
     assert restore(lower(module)) == module
 
 
@@ -344,7 +344,7 @@ def test_canonical_binding_identity_rejects_coordinated_value_hash_and_argument_
         replace(record, arguments=arguments, bindings=(changed,))
 
 
-def test_unused_constant_binding_still_changes_semantic_and_artifact_identity() -> None:
+def test_unused_constant_binding_changes_provenance_but_not_physical_bytes() -> None:
     template = """
         fn identity_with_image<type T,N,image:vec<N,T>>(x:T) { x }
         module Top { in x:u8 out y:u8
@@ -361,7 +361,9 @@ def test_unused_constant_binding_still_changes_semantic_and_artifact_identity() 
     changed_artifact = emit_sv_artifact(
         changed.ir, selected_ir_identity=changed.selected_ir_identity
     )
-    assert first_artifact.artifact_hash != changed_artifact.artifact_hash
+    assert first_artifact.selected_ir_identity != changed_artifact.selected_ir_identity
+    assert first_artifact.text == changed_artifact.text
+    assert first_artifact.artifact_hash == changed_artifact.artifact_hash
 
 
 def test_recursive_cycle_through_callable_parameter_is_rejected() -> None:

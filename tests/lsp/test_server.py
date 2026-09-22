@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 from io import BytesIO
+import hashlib
 from pathlib import Path
+import subprocess
+import sys
 
 import pytest
 
@@ -11,6 +14,8 @@ from zlang.lsp.server import (
     LspServer,
     SEMANTIC_TOKEN_MODIFIERS,
     SEMANTIC_TOKEN_TYPES,
+    DIAGNOSTIC_DEBOUNCE_SECONDS,
+    _DiagnosticScheduler,
     _fix_to_code_action,
     origin_to_range,
     path_to_uri,
@@ -26,6 +31,7 @@ from zlang.tooling import (
     ToolingSemanticToken,
     check_snapshot,
 )
+from zlang.workspace_parse_cache import load_parse_index
 
 
 VALID = "module Top { out y:u8 y=1 }\n"
@@ -45,6 +51,67 @@ def _messages(payload: bytes) -> list[object]:
 
 def _request(stream: BytesIO, message: object) -> None:
     write_message(stream, message)
+
+
+def test_stdio_transport_argument_starts_a_real_json_rpc_process() -> None:
+    """Match the argv that vscode-languageclient uses in production."""
+
+    payload = BytesIO()
+    _request(payload, {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {},
+    })
+    _request(payload, {
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "shutdown",
+        "params": None,
+    })
+    _request(payload, {
+        "jsonrpc": "2.0",
+        "method": "exit",
+        "params": None,
+    })
+    completed = subprocess.run(
+        (
+            sys.executable,
+            "-c",
+            (
+                "from zlang.lsp.server import main; "
+                "raise SystemExit(main(['--stdio']))"
+            ),
+        ),
+        input=payload.getvalue(),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+        timeout=10,
+    )
+
+    assert completed.returncode == 0, completed.stderr.decode("utf-8")
+    assert completed.stderr == b""
+    messages = _messages(completed.stdout)
+    assert [message["id"] for message in messages] == [1, 2]
+    assert messages[0]["result"]["serverInfo"]["name"] == "zlang-lsp"
+    assert messages[1]["result"] is None
+
+
+def test_diagnostic_scheduler_replaces_deadlines_with_an_injected_clock() -> None:
+    now = 10.0
+    scheduler = _DiagnosticScheduler(lambda: now)
+    scheduler.replace(("first",))
+    assert scheduler.due() == ()
+    assert scheduler.timeout() == pytest.approx(DIAGNOSTIC_DEBOUNCE_SECONDS)
+
+    now += 0.100
+    scheduler.replace(("first", "second"))
+    now += 0.249
+    assert scheduler.due() == ()
+    now += 0.001
+    assert scheduler.due() == ("first", "second")
+    assert scheduler.timeout() is None
 
 
 def test_uri_round_trip_handles_escaping(tmp_path: Path) -> None:
@@ -697,6 +764,53 @@ def test_definition_target_reuses_parent_symbol_shard_for_open_and_tokens(
     assert calls == 3
 
 
+def test_trivia_edit_reuses_clean_diagnostic_proof_but_invalid_edit_rechecks(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    import zlang.tooling as tooling
+
+    source = tmp_path / "Top.zhl"
+    source.write_text(VALID)
+    uri = path_to_uri(source)
+    original = tooling.check_file_snapshot
+    calls = 0
+
+    def observed(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(tooling, "check_file_snapshot", observed)
+    server = LspServer()
+    server.dispatch({
+        "jsonrpc": "2.0", "method": "textDocument/didOpen",
+        "params": {"textDocument": {"uri": uri, "version": 1, "text": VALID}},
+    })
+    assert calls == 1
+    trivia = "// note 😀\n" + VALID
+    response = server.dispatch({
+        "jsonrpc": "2.0", "method": "textDocument/didChange",
+        "params": {"textDocument": {"uri": uri, "version": 2},
+                   "contentChanges": [{"text": trivia}]},
+    })
+    assert response[0]["params"]["diagnostics"] == []
+    assert server.documents[uri].version == 2
+    assert calls == 1
+    same_bytes = server.dispatch({
+        "jsonrpc": "2.0", "method": "textDocument/didChange",
+        "params": {"textDocument": {"uri": uri, "version": 3},
+                   "contentChanges": [{"text": trivia}]},
+    })
+    assert same_bytes[0]["params"]["diagnostics"] == []
+    assert server.documents[uri].version == 3 and calls == 1
+    server.dispatch({
+        "jsonrpc": "2.0", "method": "textDocument/didChange",
+        "params": {"textDocument": {"uri": uri, "version": 4},
+                   "contentChanges": [{"text": SYNTAX_INVALID}]},
+    })
+    assert calls == 2
+
+
 def test_syntax_diagnostics_and_stale_versions(tmp_path: Path) -> None:
     source = tmp_path / "Top.zhl"
     source.write_text(SYNTAX_INVALID, encoding="utf-8")
@@ -829,9 +943,9 @@ def test_framed_json_rpc_document_symbol_request(tmp_path: Path) -> None:
     assert LspServer().run(incoming, outgoing) == 0
     messages = _messages(outgoing.getvalue())
     assert messages[0]["id"] == 1
-    assert messages[1]["method"] == "textDocument/publishDiagnostics"
-    assert messages[2]["id"] == 2
-    assert messages[2]["result"][0]["name"] == "Top"
+    assert messages[1]["id"] == 2
+    assert messages[1]["result"][0]["name"] == "Top"
+    assert messages[2]["method"] == "textDocument/publishDiagnostics"
     assert messages[3] == {"jsonrpc": "2.0", "id": 3, "result": None}
 
 
@@ -863,10 +977,67 @@ def test_framed_json_rpc_hover_request(tmp_path: Path) -> None:
     assert LspServer().run(incoming, outgoing) == 0
     messages = _messages(outgoing.getvalue())
     assert messages[0]["id"] == 1
-    assert messages[1]["method"] == "textDocument/publishDiagnostics"
-    assert messages[2]["id"] == 2
-    assert messages[2]["result"]["contents"]["value"].startswith("a : u8")
+    assert messages[1]["id"] == 2
+    assert messages[1]["result"]["contents"]["value"].startswith("a : u8")
+    assert messages[2]["method"] == "textDocument/publishDiagnostics"
     assert messages[3] == {"jsonrpc": "2.0", "id": 3, "result": None}
+
+
+def test_framed_live_change_burst_compiles_only_the_latest_version(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import zlang.tooling as tooling
+
+    source = tmp_path / "Top.zhl"
+    source.write_text(VALID, encoding="utf-8")
+    uri = path_to_uri(source)
+    original = tooling.check_file_snapshot
+    compilations = 0
+
+    def observed(*args: object, **kwargs: object) -> object:
+        nonlocal compilations
+        compilations += 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(tooling, "check_file_snapshot", observed)
+    incoming = BytesIO()
+    _request(incoming, {"jsonrpc": "2.0", "id": 1, "method": "initialize"})
+    _request(incoming, {
+        "jsonrpc": "2.0",
+        "method": "textDocument/didOpen",
+        "params": {"textDocument": {
+            "uri": uri,
+            "version": 1,
+            "text": VALID,
+        }},
+    })
+    for version, text in (
+        (2, "module Top {"),
+        (3, "module Top { out y:u8"),
+        (4, VALID),
+    ):
+        _request(incoming, {
+            "jsonrpc": "2.0",
+            "method": "textDocument/didChange",
+            "params": {
+                "textDocument": {"uri": uri, "version": version},
+                "contentChanges": [{"text": text}],
+            },
+        })
+    _request(incoming, {"jsonrpc": "2.0", "id": 2, "method": "shutdown"})
+    _request(incoming, {"jsonrpc": "2.0", "method": "exit"})
+    incoming.seek(0)
+    outgoing = BytesIO()
+    assert LspServer().run(incoming, outgoing) == 0
+    messages = _messages(outgoing.getvalue())
+    published = [
+        item for item in messages
+        if item.get("method") == "textDocument/publishDiagnostics"
+    ]
+    assert len(published) == 1
+    assert published[0]["params"] == {"uri": uri, "diagnostics": []}
+    assert compilations == 1
 
 
 def test_definition_request_resolves_port_from_current_unsaved_text(
@@ -1176,6 +1347,310 @@ def test_framed_definition_resolves_nested_project_from_parent_workspace(
     assert definition_compilations == 1
 
 
+def test_nested_project_unsaved_instance_spelling_uses_editor_snapshot(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Explicit ``inst`` and concise declarations are equivalent in live buffers."""
+
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+    source = Path(
+        "examples/projects/80211a_transmitter/src/transmitter.zhl"
+    ).resolve()
+    disk_text = source.read_text(encoding="utf-8")
+    text = disk_text.replace(
+        "    packet_mapper : IeeePacketMapper64",
+        "    inst packet_mapper : IeeePacketMapper64",
+        1,
+    )
+    assert text != disk_text
+    uri = path_to_uri(source)
+    server = LspServer()
+
+    opened = server.dispatch({
+        "jsonrpc": "2.0",
+        "method": "textDocument/didOpen",
+        "params": {
+            "textDocument": {
+                "uri": uri,
+                "version": 1,
+                "text": text,
+            },
+        },
+    })
+    assert opened[0]["params"]["diagnostics"] == []
+
+    lines = text.splitlines()
+    declaration_line = next(
+        index for index, value in enumerate(lines)
+        if "IeeePacketMapper64" in value
+    )
+    completion = server.dispatch({
+        "jsonrpc": "2.0",
+        "id": 50,
+        "method": "textDocument/completion",
+        "params": {
+            "textDocument": {"uri": uri},
+            "position": {
+                "line": declaration_line,
+                "character": len(lines[declaration_line]),
+            },
+        },
+    })
+    assert completion == [{"jsonrpc": "2.0", "id": 50, "result": []}]
+
+    definition = server.dispatch({
+        "jsonrpc": "2.0",
+        "id": 51,
+        "method": "textDocument/definition",
+        "params": {
+            "textDocument": {"uri": uri},
+            "position": {
+                "line": declaration_line,
+                "character": lines[declaration_line].index("IeeePacketMapper64")
+                + len("IeeePacketMapper64"),
+            },
+        },
+    })
+    location = definition[0]["result"]
+    assert location["uri"] == path_to_uri(source.parent / "mapper.zhl")
+    assert location["range"]["start"] == {"line": 357, "character": 7}
+
+    concise = server.dispatch({
+        "jsonrpc": "2.0",
+        "method": "textDocument/didChange",
+        "params": {
+            "textDocument": {"uri": uri, "version": 2},
+            "contentChanges": [{"text": disk_text}],
+        },
+    })
+    assert concise[0]["params"]["diagnostics"] == []
+    concise_lines = disk_text.splitlines()
+    concise_line = next(
+        index for index, value in enumerate(concise_lines)
+        if "IeeePacketMapper64" in value
+    )
+    concise_completion = server.dispatch({
+        "jsonrpc": "2.0",
+        "id": 52,
+        "method": "textDocument/completion",
+        "params": {
+            "textDocument": {"uri": uri},
+            "position": {
+                "line": concise_line,
+                "character": len(concise_lines[concise_line]),
+            },
+        },
+    })
+    assert concise_completion == [
+        {"jsonrpc": "2.0", "id": 52, "result": []}
+    ]
+
+    invalid = disk_text.replace("packet_mapper.command", "missing.command", 1)
+    changed = server.dispatch({
+        "jsonrpc": "2.0",
+        "method": "textDocument/didChange",
+        "params": {
+            "textDocument": {"uri": uri, "version": 3},
+            "contentChanges": [{"text": invalid}],
+        },
+    })
+    diagnostic = changed[0]["params"]["diagnostics"][0]
+    invalid_lines = invalid.splitlines()
+    error_line = next(
+        index for index, value in enumerate(invalid_lines)
+        if "command -> missing.command" in value
+    )
+    start = invalid_lines[error_line].index("missing")
+    assert diagnostic["code"] == "ZL-SEMANTIC-001"
+    assert diagnostic["message"] == (
+        "unknown hierarchical protocol instance 'missing'"
+    )
+    assert diagnostic["range"] == {
+        "start": {"line": error_line, "character": start},
+        "end": {"line": error_line, "character": start + len("missing")},
+    }
+    assert source.read_text(encoding="utf-8") == disk_text
+
+
+def test_open_project_dependency_and_root_share_one_unsaved_snapshot(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from zlang.workspace import update_project_lock
+
+    cache_root = tmp_path / "cache"
+    monkeypatch.setenv("XDG_CACHE_HOME", str(cache_root))
+    project = tmp_path / "demo"
+    sources = project / "src"
+    sources.mkdir(parents=True)
+    (project / "zlang.toml").write_text(
+        'schema=1\n[project]\nname="demo"\nversion="1"\nsource-root="src"\n',
+        encoding="utf-8",
+    )
+    declarations = sources / "types.zhl"
+    root = sources / "top.zhl"
+    declarations.write_text("struct Shared { value:u8 }\n", encoding="utf-8")
+    root.write_text(
+        "import demo.types\nmodule Top { in x:Shared out y:u8 y=x.value }\n",
+        encoding="utf-8",
+    )
+    update_project_lock(project / "zlang.toml")
+
+    declarations_text = "struct Renamed { value:u8 }\n"
+    root_text = (
+        "import demo.types\n"
+        "module Top { in x:Renamed out y:u8 y=x.value }\n"
+    )
+    declarations_uri = path_to_uri(declarations)
+    root_uri = path_to_uri(root)
+    server = LspServer()
+    opened_declarations = server.dispatch({
+        "jsonrpc": "2.0",
+        "method": "textDocument/didOpen",
+        "params": {"textDocument": {
+            "uri": declarations_uri,
+            "version": 1,
+            "text": declarations_text,
+        }},
+    })
+    assert opened_declarations[0]["params"]["diagnostics"] == []
+    opened_root = server.dispatch({
+        "jsonrpc": "2.0",
+        "method": "textDocument/didOpen",
+        "params": {"textDocument": {
+            "uri": root_uri,
+            "version": 1,
+            "text": root_text,
+        }},
+    })
+    assert opened_root[0]["params"]["diagnostics"] == []
+
+    line = 1
+    character = root_text.splitlines()[line].index("Renamed")
+    definition = server.dispatch({
+        "jsonrpc": "2.0",
+        "id": 90,
+        "method": "textDocument/definition",
+        "params": {
+            "textDocument": {"uri": root_uri},
+            "position": {"line": line, "character": character},
+        },
+    })
+    assert definition[0]["result"] == {
+        "uri": declarations_uri,
+        "range": {
+            "start": {"line": 0, "character": 7},
+            "end": {"line": 0, "character": 14},
+        },
+    }
+    assert declarations.read_text(encoding="utf-8").startswith("struct Shared")
+    assert "Shared" in root.read_text(encoding="utf-8")
+
+    references = server.dispatch({
+        "jsonrpc": "2.0",
+        "id": 901,
+        "method": "textDocument/references",
+        "params": {
+            "textDocument": {"uri": root_uri},
+            "position": {"line": line, "character": character},
+            "context": {"includeDeclaration": True},
+        },
+    })[0]["result"]
+    assert {(item["uri"], item["range"]["start"]["line"]) for item in references} == {
+        (declarations_uri, 0),
+        (root_uri, 1),
+    }
+
+    invalid_declarations = "struct Renamed { value: }\n"
+    changed = server.dispatch({
+        "jsonrpc": "2.0",
+        "method": "textDocument/didChange",
+        "params": {
+            "textDocument": {"uri": declarations_uri, "version": 2},
+            "contentChanges": [{"text": invalid_declarations}],
+        },
+    })
+    assert changed[0]["params"]["uri"] == declarations_uri
+    assert changed[0]["params"]["diagnostics"][0]["code"] == "ZL-PARSE-001"
+    assert changed[0]["params"]["diagnostics"][0]["range"]["start"] != {
+        "line": 0,
+        "character": 0,
+    }
+
+    routed = server._publish_document(server.documents[root_uri])
+    assert routed[0] == {
+        "jsonrpc": "2.0",
+        "method": "textDocument/publishDiagnostics",
+        "params": {"uri": root_uri, "diagnostics": []},
+    }
+    assert routed[1]["params"]["uri"] == declarations_uri
+    assert routed[1]["params"]["diagnostics"][0]["code"] == "ZL-PARSE-001"
+    completion = server.dispatch({
+        "jsonrpc": "2.0",
+        "id": 91,
+        "method": "textDocument/completion",
+        "params": {
+            "textDocument": {"uri": root_uri},
+            "position": {"line": line, "character": character},
+        },
+    })
+    assert completion[-1] == {"jsonrpc": "2.0", "id": 91, "result": []}
+    assert not tuple((cache_root / "zlang-hdl/lsp").rglob("*.json"))
+    assert load_parse_index(
+        "demo.top", hashlib.sha256(root_text.encode()).hexdigest()
+    ) is None
+    assert load_parse_index(
+        "demo.types", hashlib.sha256(invalid_declarations.encode()).hexdigest()
+    ) is None
+
+
+def test_workspace_failure_is_not_a_fake_source_diagnostic(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "broken"
+    sources = project / "src"
+    sources.mkdir(parents=True)
+    (project / "zlang.toml").write_text(
+        'schema=1\n[project]\nname="broken"\nversion="1"\nsource-root="src"\n',
+        encoding="utf-8",
+    )
+    source = sources / "top.zhl"
+    source.write_text(VALID, encoding="utf-8")
+    uri = path_to_uri(source)
+    server = LspServer()
+    messages = server.dispatch({
+        "jsonrpc": "2.0",
+        "method": "textDocument/didOpen",
+        "params": {"textDocument": {
+            "uri": uri,
+            "version": 1,
+            "text": VALID,
+        }},
+    })
+    assert messages[0] == {
+        "jsonrpc": "2.0",
+        "method": "textDocument/publishDiagnostics",
+        "params": {"uri": uri, "diagnostics": []},
+    }
+    assert [item["method"] for item in messages[1:]] == [
+        "window/logMessage",
+        "window/showMessage",
+    ]
+    assert all("zlang.lock" in item["params"]["message"] for item in messages[1:])
+
+    completion = server.dispatch({
+        "jsonrpc": "2.0",
+        "id": 92,
+        "method": "textDocument/completion",
+        "params": {
+            "textDocument": {"uri": uri},
+            "position": {"line": 0, "character": 0},
+        },
+    })
+    assert completion == [{"jsonrpc": "2.0", "id": 92, "result": []}]
+
+
 def test_definition_resolves_nested_generic_types_and_stdlib_sources(
     tmp_path: Path,
 ) -> None:
@@ -1311,8 +1786,8 @@ def test_storage_library_definition_uses_enclosing_module_not_unbound_last_top(
     assert location == {
         "uri": uri,
         "range": {
-            "start": {"line": 103, "character": 7},
-            "end": {"line": 103, "character": 28},
+            "start": {"line": 120, "character": 7},
+            "end": {"line": 120, "character": 28},
         },
     }
     assert server.dispatch(request)[0]["result"] == location
@@ -1494,7 +1969,7 @@ def test_all_syntax_enum_references_include_other_same_file_module(
         ("examples/all_syntax.zhl", "CorpusCode", "enum_decode<CorpusCode>",
          "all_syntax.zhl", 25, 5),
         ("stdlib/storage/core.zhl", "StoragePingPongStatus",
-         "out status : StoragePingPongStatus", "core.zhl", 103, 3),
+             "out status : StoragePingPongStatus", "core.zhl", 120, 3),
         ("examples/projects/80211a_transmitter/src/transmitter.zhl",
          "WifiTxCommand", "in command : rv<WifiTxCommand>", "data_types.zhl", 11, 6),
     ),

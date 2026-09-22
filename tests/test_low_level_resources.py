@@ -94,6 +94,29 @@ def test_asic_mac_sram_pll_and_standard_cells_use_same_ir() -> None:
     }
 
 
+def test_sky130_profile_names_real_cells_without_inventing_hard_macros() -> None:
+    target, family, resources = load_target("sky130_fd_sc_hd")
+    assert target.inventory == ()
+    assert family.name == "Sky130FdScHd"
+    assert {item.resource_class for item in resources} == {
+        "standard_cell_logic", "register", "clock_control",
+    }
+    primitives = {
+        binding.primitive
+        for resource in resources
+        for binding in resource.physical_bindings
+        if binding.primitive is not None
+    }
+    assert primitives == {
+        "sky130_fd_sc_hd__dfxtp_1",
+        "sky130_fd_sc_hd__dfrtp_1",
+        "sky130_fd_sc_hd__dlclkp_1",
+    }
+    assert not ({"multiplier", "block_memory", "clock_generator"} & {
+        item.resource_class for item in resources
+    })
+
+
 def test_inventory_and_pipeline_configuration_fail_closed() -> None:
     target, _, resources = load_target("xc7z030ffg676-1")
     dsp = next(item for item in resources if item.name == "DSP48E1")
@@ -133,6 +156,7 @@ def test_stdlib_discovery_is_recursive_and_contains_all_target_families() -> Non
     assert "std.target.xilinx.series7" in modules
     assert "std.target.intel.cyclone_v" in modules
     assert "std.target.asic.generic" in modules
+    assert "std.target.asic.sky130" in modules
 
 
 def test_unsupported_intel_physical_binding_is_explicit() -> None:

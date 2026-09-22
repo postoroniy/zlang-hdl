@@ -14,6 +14,7 @@ from hashlib import sha256
 from typing import Callable, Protocol
 
 from zlang.ir import expressions as expr
+from zlang.ir.expression_graph import ExpressionDagIndex
 from zlang.ir.functional import lower_reduction
 from zlang.ir.pipelines import (
     PipelineCostSource,
@@ -368,15 +369,30 @@ def schedule_fixed_pipeline(
         return replace(scheduled, pipeline_plan=plan)
     placements, stage_delays = _partition(nodes, requested_latency)
 
-    registered: dict[tuple[expr.Expression, int], expr.Expression] = {}
-    combinational: dict[expr.Expression, expr.Expression] = {}
+    registered: dict[tuple[str, int], expr.Expression] = {}
+    combinational: dict[str, expr.Expression] = {}
     alignment_records: dict[tuple[str, str, int, int], ImplementationDelay] = {}
     compensation_records: list[ImplementationDelay] = []
     captured_operations: set[str] = set()
 
-    node_by_expression = {node.expression: node for node in nodes}
+    expression_keys = {
+        id(node.expression): node.semantic_identity for node in nodes
+    }
+    expression_keys.update(
+        (id(leaf), expression_semantic_identity(leaf)) for leaf in leaves
+    )
+
+    def expression_key(value: expr.Expression) -> str:
+        key = id(value)
+        result = expression_keys.get(key)
+        if result is None:
+            result = expression_semantic_identity(value)
+            expression_keys[key] = result
+        return result
+
+    node_by_expression = {node.semantic_identity: node for node in nodes}
     operation_identity = {
-        node.expression: _identity(
+        node.semantic_identity: _identity(
             FIXED_PIPELINE_SCHEDULE_SCHEMA,
             "operation",
             node.semantic_identity,
@@ -385,7 +401,7 @@ def schedule_fixed_pipeline(
         for node in nodes
     }
     leaf_identity = {
-        leaf: _identity(
+        expression_key(leaf): _identity(
             FIXED_PIPELINE_SCHEDULE_SCHEMA,
             "leaf",
             expression_semantic_identity(leaf),
@@ -410,13 +426,12 @@ def schedule_fixed_pipeline(
             raise PipelineSchedulingError("pipeline schedule violates dependency order")
         result = value
         semantic_value = value if identity_value is None else identity_value
-        source_identity = (
-            operation_identity[semantic_value]
-            if semantic_value in operation_identity
-            else leaf_identity[semantic_value]
-        )
+        semantic_key = expression_key(semantic_value)
+        source_identity = operation_identity.get(semantic_key)
+        if source_identity is None:
+            source_identity = leaf_identity[semantic_key]
         for latency in range(current_latency + 1, target_latency + 1):
-            key = (semantic_value, latency)
+            key = (semantic_key, latency)
             cached = registered.get(key)
             if cached is None:
                 cached = expr.Pipeline(
@@ -463,23 +478,24 @@ def schedule_fixed_pipeline(
         return result
 
     def value_at_input(value: expr.Expression, stage: int, destination: str) -> expr.Expression:
-        child_node = node_by_expression.get(value)
+        value_key = expression_key(value)
+        child_node = node_by_expression.get(value_key)
         if child_node is None:
             if not dynamic_leaf(value):
                 return value
             return delay_to(value, 0, stage, destination=destination)
-        child_stage = placements[value].stage
+        child_stage = placements[value_key].stage
         if child_stage == stage:
             return compute(value)
         if child_stage > stage:
             raise PipelineSchedulingError("consumer precedes its producer")
         produced = delay_to(
             compute(value), child_stage, child_stage + 1,
-            destination=operation_identity[value],
+            destination=operation_identity[value_key],
             identity_value=value,
             record_delay=False,
         )
-        captured_operations.add(operation_identity[value])
+        captured_operations.add(operation_identity[value_key])
         return delay_to(
             produced,
             child_stage + 1,
@@ -489,20 +505,22 @@ def schedule_fixed_pipeline(
         )
 
     def compute(value: expr.Expression) -> expr.Expression:
-        cached = combinational.get(value)
+        value_key = expression_key(value)
+        cached = combinational.get(value_key)
         if cached is not None:
             return cached
-        node = node_by_expression[value]
-        destination = operation_identity[value]
+        node = node_by_expression[value_key]
+        destination = operation_identity[value_key]
         rewritten = tuple(
-            value_at_input(child, placements[value].stage, destination)
+            value_at_input(child, placements[value_key].stage, destination)
             for child in node.children
         )
         result = _replace_direct_children(value, node.children, rewritten)
-        combinational[value] = result
+        combinational[value_key] = result
         return result
 
-    root_node = node_by_expression.get(source)
+    source_key = expression_key(source)
+    root_node = node_by_expression.get(source_key)
     if root_node is None:
         # A constant pipeline still has reset/fill behavior and therefore must
         # retain real state even though its source value is timeless.
@@ -520,14 +538,14 @@ def schedule_fixed_pipeline(
             domain=domain,
         )
     else:
-        root_stage = placements[source].stage
+        root_stage = placements[source_key].stage
         scheduled = delay_to(
             compute(source), root_stage, root_stage + 1,
-            destination=operation_identity[source],
+            destination=operation_identity[source_key],
             identity_value=source,
             record_delay=False,
         )
-        captured_operations.add(operation_identity[source])
+        captured_operations.add(operation_identity[source_key])
         scheduled = delay_to(
             scheduled,
             root_stage + 1,
@@ -540,7 +558,7 @@ def schedule_fixed_pipeline(
     if not isinstance(scheduled, expr.Pipeline):
         raise PipelineSchedulingError("fixed pipeline schedule has no output boundary")
     erased = erase_pipeline_timing(scheduled)
-    if erased != source:
+    if expression_semantic_identity(erased) != expression_semantic_identity(source):
         raise PipelineSchedulingError(
             "scheduled pipeline does not reconstruct the exact typed source expression"
         )
@@ -555,13 +573,15 @@ def schedule_fixed_pipeline(
 
     operations = tuple(
         ScheduledPipelineOperation(
-            identity=operation_identity[node.expression],
+            identity=operation_identity[node.semantic_identity],
             semantic_identity=node.semantic_identity,
             ordinal=node.ordinal,
             operation=node.operation_class,
-            stage=placements[node.expression].stage,
+            stage=placements[node.semantic_identity].stage,
             operand_identities=tuple(
-                operation_identity.get(child, leaf_identity.get(child, ""))
+                operation_identity.get(
+                    expression_key(child), leaf_identity.get(expression_key(child), "")
+                )
                 for child in node.children
             ),
             operand_types=tuple(child.type for child in node.children),
@@ -1001,66 +1021,94 @@ def render_fixed_pipeline_plan(output: str, plan: PipelinePlan) -> str:
 
 
 def _lower_executable_value(value: expr.Expression) -> expr.Expression:
-    if isinstance(value, expr.Reduce):
-        return _lower_executable_value(lower_reduction(value))
-    if isinstance(value, expr.ImplementationChoice):
-        return _lower_executable_value(value.selected_alternative.expression)
-    children = expression_children(
-        value,
-        policy=ExpressionTraversalPolicy.SELECTED_IMPLEMENTATION,
-    )
-    if not children:
-        return value
-    rewritten = tuple(_lower_executable_value(child) for child in children)
-    return _replace_direct_children(value, children, rewritten)
+    memo: dict[int, expr.Expression] = {}
+
+    def lower(current: expr.Expression) -> expr.Expression:
+        key = id(current)
+        cached = memo.get(key)
+        if cached is not None:
+            return cached
+        if isinstance(current, expr.Reduce):
+            result = lower(lower_reduction(current))
+        elif isinstance(current, expr.ImplementationChoice):
+            result = lower(current.selected_alternative.expression)
+        else:
+            children = expression_children(
+                current,
+                policy=ExpressionTraversalPolicy.SELECTED_IMPLEMENTATION,
+            )
+            if not children:
+                result = current
+            else:
+                rewritten = tuple(lower(child) for child in children)
+                result = _replace_direct_children(current, children, rewritten)
+        memo[key] = result
+        return result
+
+    return lower(value)
 
 
 def _build_dag(
     root: expr.Expression,
     cost_model: OperationCostModel,
 ) -> tuple[tuple[_DagNode, ...], tuple[expr.Expression, ...]]:
-    nodes: dict[expr.Expression, _DagNode] = {}
-    leaves: dict[expr.Expression, None] = {}
-
-    def visit(value: expr.Expression) -> None:
+    nodes: dict[str, _DagNode] = {}
+    leaves: dict[str, expr.Expression] = {}
+    graph = ExpressionDagIndex(
+        (root,),
+        children=lambda value: expression_children(
+            value,
+            policy=ExpressionTraversalPolicy.SELECTED_IMPLEMENTATION,
+        ),
+    )
+    for value in graph:
+        semantic_identity = expression_semantic_identity(value)
         operation_class = _operation_class(value)
         if operation_class is None:
             _validate_leaf(value)
-            leaves.setdefault(value, None)
-            return
+            leaves.setdefault(semantic_identity, value)
+            continue
         children = _operation_children(value)
-        for child in children:
-            visit(child)
-        if value not in nodes:
+        if semantic_identity not in nodes:
             ordinal = len(nodes)
-            nodes[value] = _DagNode(
+            nodes[semantic_identity] = _DagNode(
                 value,
                 children,
-                expression_semantic_identity(value),
+                semantic_identity,
                 operation_class,
                 ordinal,
                 cost_model.cost(value, operation_class),
             )
 
-    visit(root)
-    return tuple(nodes.values()), tuple(leaves)
+    return tuple(nodes.values()), tuple(leaves.values())
 
 
 def _partition(
     nodes: tuple[_DagNode, ...],
     stages: int,
-) -> tuple[dict[expr.Expression, _Placement], tuple[int, ...]]:
+) -> tuple[dict[str, _Placement], tuple[int, ...]]:
     if not nodes:
         return {}, tuple(0 for _ in range(stages))
-    node_by_expression = {item.expression: item for item in nodes}
+    node_by_expression = {item.semantic_identity: item for item in nodes}
+    key_cache = {
+        id(item.expression): item.semantic_identity for item in nodes
+    }
 
-    def place(limit_ps: int) -> tuple[dict[expr.Expression, _Placement], bool]:
-        result: dict[expr.Expression, _Placement] = {}
+    def expression_key(value: expr.Expression) -> str:
+        key = id(value)
+        result = key_cache.get(key)
+        if result is None:
+            result = expression_semantic_identity(value)
+            key_cache[key] = result
+        return result
+
+    def place(limit_ps: int) -> tuple[dict[str, _Placement], bool]:
+        result: dict[str, _Placement] = {}
         for node in nodes:
             dependencies = tuple(
-                result[child]
+                result[expression_key(child)]
                 for child in node.children
-                if child in node_by_expression
+                if expression_key(child) in node_by_expression
             )
             stage = max((item.stage for item in dependencies), default=0)
             arrival = node.cost.delay_ps + max(
@@ -1074,19 +1122,19 @@ def _partition(
             if arrival > limit_ps:
                 stage += 1
                 arrival = node.cost.delay_ps
-            result[node.expression] = _Placement(stage, arrival)
+            result[node.semantic_identity] = _Placement(stage, arrival)
             if stage >= stages:
                 return result, False
         return result, True
 
     maximum_single = max(item.cost.delay_ps for item in nodes)
-    critical: dict[expr.Expression, int] = {}
+    critical: dict[str, int] = {}
     for node in nodes:
-        critical[node.expression] = node.cost.delay_ps + max(
+        critical[node.semantic_identity] = node.cost.delay_ps + max(
             (
-                critical[child]
+                critical[expression_key(child)]
                 for child in node.children
-                if child in node_by_expression
+                if expression_key(child) in node_by_expression
             ),
             default=0,
         )
@@ -1250,7 +1298,7 @@ def _replace_direct_children(
 def _producer_stage(
     identity: str,
     operations: tuple[ScheduledPipelineOperation, ...],
-    leaves: dict[expr.Expression, str],
+    leaves: dict[str, str],
 ) -> int:
     operation = next((item for item in operations if item.identity == identity), None)
     if operation is not None:

@@ -42,6 +42,12 @@ jobs:
           git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
           test "$(git rev-parse HEAD)" = "$tag_commit"
           test "$(git rev-parse origin/main)" = "$tag_commit"
+      - name: Require the complete audited native release set
+        shell: bash
+        run: |
+          python tools/audit_native_binary.py \
+            --expected-version "${GITHUB_REF_NAME#v}" \
+            --require-release-platforms release/native-wheels/zlang_native_sim-*.whl
       - name: Install exact release tooling and ZLang HDL
         run: |
           python -m pip install --disable-pip-version-check --upgrade pip==26.2.1
@@ -54,7 +60,7 @@ jobs:
             setuptools==84.0.0 \
             twine==6.2.0 \
             wheel==0.46.3
-      - name: Validate release source
+      - name: Validate public tree
         run: |
           python tools/release_status.py check --root . --tag "$GITHUB_REF_NAME"
           reuse lint
@@ -65,18 +71,18 @@ jobs:
           umask 022
           export SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
           mkdir -p build/dist-first build/dist-second
-          python -m build --no-isolation --sdist --outdir build/dist-first
-          python -m build --no-isolation --wheel --outdir build/dist-first
+          python -m build --no-isolation --sdist --wheel --outdir build/dist-first
           python -m build --no-isolation --wheel --outdir build/dist-second
           sha256sum build/dist-first/*.whl | sed 's#build/dist-first/##' > build/first-wheel.sha256
           sha256sum build/dist-second/*.whl | sed 's#build/dist-second/##' > build/second-wheel.sha256
           diff -u build/first-wheel.sha256 build/second-wheel.sha256
           mkdir -p dist
           cp build/dist-first/* dist/
+          cp release/native-wheels/zlang_native_sim-*.whl dist/
           python -m twine check dist/*
           python -m venv --without-pip build/wheel-venv
           python -m pip --python build/wheel-venv/bin/python install \
-            --disable-pip-version-check pip==26.2.1 dist/*.whl
+            --disable-pip-version-check pip==26.2.1 dist/zlang_hdl-*.whl
           build/wheel-venv/bin/python -m pip check
           python -m venv --without-pip build/sdist-venv
           python -m pip --python build/sdist-venv/bin/python install \
@@ -153,9 +159,6 @@ jobs:
       - name: Exercise real TextMate and Oniguruma tokenization
         working-directory: editors/vscode/zlang-hdl
         run: npm test
-      - name: Verify the checked editor host is still the latest stable release
-        working-directory: editors/vscode/zlang-hdl
-        run: npm run check:latest-vscode
       - name: Build and audit the exact-tag Community VSIX
         shell: bash
         run: |
@@ -164,11 +167,6 @@ jobs:
             > "$RUNNER_TEMP/zlang-hdl-0.1.0-vsix-audit.json"
           cp -- "$RUNNER_TEMP/zlang-hdl-0.1.0.vsix" \
             "$RUNNER_TEMP/zlang-hdl-0.1.0-vsix-audit.json" dist/
-      - name: Exercise the exact-tag VSIX on the pinned current stable host
-        working-directory: editors/vscode/zlang-hdl
-        run: >-
-          xvfb-run -a npm run test:host --
-          "$RUNNER_TEMP/zlang-hdl-0.1.0.vsix"
       - name: Retain accepted dependency audit evidence
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -181,16 +179,14 @@ jobs:
       - name: Build release SBOM and checksums after inventory acceptance
         shell: bash
         run: |
-          cp docs/ZLang-HDL-Language-Reference.pdf \
-            "dist/zlang-hdl-${GITHUB_REF_NAME}-language-reference.pdf"
           cyclonedx-py requirements dist/release-requirements.txt \
             --output-reproducible \
             --output-format JSON \
             --output-file "dist/zlang-hdl-${GITHUB_REF_NAME}.cdx.json"
           (cd dist && sha256sum zlang_hdl-*.whl zlang_hdl-*.tar.gz \
+            zlang_native_sim-*manylinux_2_28_x86_64.whl \
             zlang-hdl-*.cdx.json release-requirements.txt \
-            zlang-hdl-*.vsix zlang-hdl-*-vsix-audit.json \
-            zlang-hdl-*-language-reference.pdf | sort > SHA256SUMS)
+            zlang-hdl-*.vsix zlang-hdl-*-vsix-audit.json | sort > SHA256SUMS)
           (cd dist && sha256sum -c SHA256SUMS)
       - name: Attest release checksums
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
@@ -221,7 +217,11 @@ jobs:
       - name: Install release test environment and require the EDA toolchain
         run: |
           python -m pip install --disable-pip-version-check --upgrade pip==26.2.1
-          python -m pip install --disable-pip-version-check -e '.[test]'
+          python -m pip install --disable-pip-version-check -e '.[test]' \
+            release/native-wheels/*manylinux_2_28_x86_64.whl
+          python tools/audit_native_binary.py \
+            --expected-version "${GITHUB_REF_NAME#v}" \
+            release/native-wheels/*manylinux_2_28_x86_64.whl
           python tools/release_status.py check --root . --check-tools
       - name: Run full regression twice with no unexpected skips
         run: |

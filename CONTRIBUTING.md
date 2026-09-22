@@ -5,8 +5,7 @@ documentation corrections, tests, and bounded compiler changes.
 
 ## Before opening a change
 
-- Search existing issues and the
-  [current capability matrix](docs/language-reference.md#reference-syntax-support-matrix).
+- Search existing issues and the [language support matrix](docs/language-reference.md#reference-syntax-support-matrix).
 - Keep one pull request focused on one independently testable change.
 - Discuss broad language, IR, backend, or formal-semantics changes in an issue
   before implementation.
@@ -22,12 +21,13 @@ ZLang's supported development environment is Linux x86-64 with CPython
 requiring a version-suffixed Python command from the host:
 
 ```bash
-uv venv --python '>=3.12,<3.13'
+uv python install 3.12
+uv venv --python 3.12
 uv pip install -e '.[test]'
 .venv/bin/python -m pytest -q
 ```
 
-See the [installation guide](docs/language-reference.md#reference-installing-toolchain) for a conventional
+See the [installation chapter](docs/language-reference.md#reference-installing-toolchain) for a conventional
 `venv`/pip alternative, WSL2 setup and optional external EDA tools.
 
 Focused tests should be run serially while debugging. The repository Makefile
@@ -48,6 +48,28 @@ anything.
 Tests requiring Verilator, Yosys, SymbiYosys, Z3, or Icarus Verilog must report tool
 absence explicitly. Release and dedicated toolchain jobs require the pinned
 tools and do not accept an unexpected skip.
+
+Before calling a source change complete:
+
+1. Compile the exact top with `--check`.
+2. Run focused parser, semantic, canonical, and simulator tests.
+3. Exercise production Direct-SV with strict Verilator.
+4. Run applicable formal tests without inventing new claims.
+5. Run the regression gate and `git diff --check` required by the change.
+
+## Building the language-reference PDF
+
+This is a documentation-maintainer workflow, not a prerequisite for installing
+or using ZLang. Install Pandoc, XeLaTeX, qpdf, and Poppler tools, then build
+the PDF with the cover asset supplied to the builder:
+
+```bash
+python tools/build_community_pdf.py --root . --cover /path/to/ZLang-HDL_cover.jpg
+python tools/build_community_pdf.py --root . --check
+```
+
+The builder validates examples and links and checks reproducibility. Review the
+rendered pages before publishing the generated artifact.
 
 ## Pull requests
 

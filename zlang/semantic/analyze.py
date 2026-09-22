@@ -6,8 +6,9 @@ import re
 import ast as pyast
 import hashlib
 from collections.abc import Iterable
-from dataclasses import dataclass, field, fields, is_dataclass, replace
+from dataclasses import MISSING, dataclass, field, fields, is_dataclass, replace
 from fractions import Fraction
+from typing import NoReturn
 
 from zlang.ast import nodes as ast
 from . import compile_time_real as ct_real
@@ -49,6 +50,11 @@ from zlang.ir.hierarchy import (
     validate_instance_port_bindings,
 )
 from zlang.ir.constants import ConstantExpressionError, constant_runtime_value
+from zlang.ir.exact_simplification import (
+    exact_numeric_widen,
+    simplify_binary,
+)
+from zlang.ir.expression_arena import SemanticExpressionArena
 from zlang.ir.callables import (
     CallableKind,
     CallableExpansionError,
@@ -66,9 +72,14 @@ from zlang.ir.functional import (
 )
 from zlang.ir.functional_regions import (
     CompileTimeBinderRef,
+    CompileTimeExpr,
+    CompileTimeOperator,
     ExactReductionCombine,
+    FunctionalSpecializationCertificate,
     FunctionalRegionKind,
     build_exact_reduction_plan,
+    compile_time_range,
+    evaluate_compile_time,
 )
 from zlang.common import stable_digest
 from zlang.analysis_needs import AnalysisNeeds
@@ -87,6 +98,7 @@ from zlang.ir.interfaces import (
     InterfaceSignal,
     PacketSignal,
     ReadyValidSignal,
+    ready_valid_field_name,
     RequestResponseChannel,
     RequestResponseOrdering,
     RequestResponseRole,
@@ -151,12 +163,48 @@ _TOTAL_GENERATED_LIMIT = 65536
 _FUNCTIONAL_REGION_THRESHOLD = 32
 _COMPILE_TIME_CALL_LIMIT = 64
 _COMPILE_TIME_OPERATION_LIMIT = 1_000_000
-_COMPILE_TIME_EVALUATOR_SCHEMA = "zlang-ct-v1"
-_REAL_INTRINSICS = {"pi", "sin", "cos", "log2", "log"}
+_COMPILE_TIME_EVALUATOR_SCHEMA = "zlang-ct-v2"
+_REAL_INTRINSICS = {"pi", "sin", "cos", "log2", "log", "exp", "sqrt"}
 _IMPLEMENT_DEFAULT_TRANSFORMS = (
     TransformFamily.DSP,
     TransformFamily.REDUCTION,
 )
+
+
+def _apply_compile_time_real_intrinsic(
+    name: str,
+    arguments: tuple[ct_real.CompileTimeReal, ...],
+) -> ct_real.CompileTimeReal:
+    """Apply one compiler-owned real intrinsic with one arity contract."""
+
+    _validate_compile_time_real_intrinsic_arity(name, len(arguments))
+    try:
+        if name == "pi":
+            return ct_real.CompileTimeReal.pi()
+        if name == "sin":
+            return ct_real.sin(arguments[0])
+        if name == "cos":
+            return ct_real.cos(arguments[0])
+        if name == "log2":
+            return ct_real.log2(arguments[0])
+        if name == "log":
+            return ct_real.log(arguments[0], arguments[1])
+        if name == "exp":
+            return ct_real.exp(arguments[0])
+        if name == "sqrt":
+            return ct_real.sqrt(arguments[0])
+    except ct_real.CompileTimeRealError as error:
+        raise SemanticError(str(error)) from error
+    raise SemanticError(f"unknown compile-time real intrinsic '{name}'")
+
+
+def _validate_compile_time_real_intrinsic_arity(name: str, actual: int) -> None:
+    expected_arity = 0 if name == "pi" else 2 if name == "log" else 1
+    if actual != expected_arity:
+        noun = "no arguments" if expected_arity == 0 else (
+            "one argument" if expected_arity == 1 else "two arguments"
+        )
+        raise SemanticError(f"intrinsic '{name}' expects {noun}")
 
 
 def _exploration_objective_metric(
@@ -348,27 +396,26 @@ def _builtin_type(name: str) -> HardwareType | None:
     return BitsType(width)
 
 
-def _contains_enum_type(type_: HardwareType) -> bool:
-    if isinstance(type_, EnumType):
+def _contains_nominal_type(
+    type_: HardwareType,
+    nominal_type: type[HardwareType],
+) -> bool:
+    """Return whether an aggregate recursively contains ``nominal_type``."""
+
+    if isinstance(type_, nominal_type):
         return True
     if isinstance(type_, StructType):
-        return any(_contains_enum_type(field.type) for field in type_.fields)
+        return any(
+            _contains_nominal_type(field.type, nominal_type)
+            for field in type_.fields
+        )
     if isinstance(type_, TupleType):
-        return any(_contains_enum_type(element) for element in type_.elements)
+        return any(
+            _contains_nominal_type(element, nominal_type)
+            for element in type_.elements
+        )
     if isinstance(type_, VecType):
-        return _contains_enum_type(type_.element_type)
-    return False
-
-
-def _contains_tagged_union_type(type_: HardwareType) -> bool:
-    if isinstance(type_, TaggedUnionType):
-        return True
-    if isinstance(type_, StructType):
-        return any(_contains_tagged_union_type(field.type) for field in type_.fields)
-    if isinstance(type_, TupleType):
-        return any(_contains_tagged_union_type(element) for element in type_.elements)
-    if isinstance(type_, VecType):
-        return _contains_tagged_union_type(type_.element_type)
+        return _contains_nominal_type(type_.element_type, nominal_type)
     return False
 
 
@@ -603,6 +650,44 @@ class _TypeResolver:
 
         resolving: set[str] = set()
 
+        def visit_real(node: pyast.AST) -> ct_real.CompileTimeReal:
+            if isinstance(node, pyast.Constant) and isinstance(node.value, int):
+                return ct_real.CompileTimeReal.rational_value(Fraction(node.value))
+            if isinstance(node, pyast.Name):
+                return ct_real.CompileTimeReal.rational_value(Fraction(visit(node)))
+            if isinstance(node, pyast.UnaryOp) and isinstance(
+                node.op, (pyast.UAdd, pyast.USub)
+            ):
+                value = visit_real(node.operand)
+                return value if isinstance(node.op, pyast.UAdd) else ct_real.negate(value)
+            if isinstance(node, pyast.BinOp) and isinstance(
+                node.op, (pyast.Add, pyast.Sub, pyast.Mult, pyast.Div)
+            ):
+                left = visit_real(node.left)
+                right = visit_real(node.right)
+                if isinstance(node.op, pyast.Add):
+                    return ct_real.add(left, right)
+                if isinstance(node.op, pyast.Sub):
+                    return ct_real.subtract(left, right)
+                if isinstance(node.op, pyast.Mult):
+                    return ct_real.multiply(left, right)
+                return ct_real.divide(left, right)
+            if (
+                isinstance(node, pyast.Call)
+                and isinstance(node.func, pyast.Name)
+                and node.func.id in _REAL_INTRINSICS
+            ):
+                _validate_compile_time_real_intrinsic_arity(
+                    node.func.id, len(node.args)
+                )
+                return _apply_compile_time_real_intrinsic(
+                    node.func.id,
+                    tuple(visit_real(argument) for argument in node.args),
+                )
+            raise SemanticError(
+                f"{description} '{text}' is not a compile-time real expression"
+            )
+
         def visit(node: pyast.AST) -> int:
             if isinstance(node, pyast.Constant) and isinstance(node.value, int):
                 return node.value
@@ -674,6 +759,18 @@ class _TypeResolver:
                     )
                 return left // right
             if isinstance(node, pyast.Call) and isinstance(node.func, pyast.Name):
+                if node.func.id in _REAL_INTRINSICS:
+                    try:
+                        value = visit_real(node)
+                    except ct_real.CompileTimeRealError as error:
+                        raise SemanticError(str(error)) from error
+                    exact = value.exact_integer()
+                    if exact is None:
+                        raise SemanticError(
+                            f"constant {description} intrinsic '{node.func.id}' "
+                            "produced a non-integral compile-time real value"
+                        )
+                    return exact
                 if len(node.args) != 1:
                     raise SemanticError(
                         f"compile-time intrinsic '{node.func.id}' expects one argument"
@@ -1014,6 +1111,54 @@ def _resolved_module_value_parameters(
         values[parameter.name] = value
         resolver._parameter_values[parameter.name] = value
     return values, frozenset(unresolved)
+
+
+def _check_module_parameter_constraint(
+    module: ast.Module,
+    type_resolver: _TypeResolver,
+    parameter_values: dict[str, int],
+    unresolved_parameter_names: frozenset[str],
+    source_unit: str | None,
+    source_digest: str | None,
+) -> None:
+    """Reject invalid specializations before resolving dependent port types."""
+
+    if module.parameter_constraint is None:
+        return
+    constraint_context = _ExpressionContext(
+        {},
+        allow_delay=False,
+        parameters=parameter_values,
+        unresolved_parameters=unresolved_parameter_names,
+        type_resolver=type_resolver,
+        source_unit=source_unit,
+        source_digest=source_digest,
+    )
+    try:
+        constraint_satisfied = _compile_time_condition(
+            module.parameter_constraint, {}, constraint_context
+        )
+    except SemanticError as error:
+        raise SemanticError(
+            f"module '{module.name}' parameter constraint cannot be "
+            f"discharged: {error}",
+            code="ZL-SEMANTIC-PARAMETER-CONSTRAINT",
+            primary=_semantic_origin(module.parameter_constraint, constraint_context),
+            fixes=("provide concrete type/value specialization arguments",),
+        ) from error
+    if not constraint_satisfied:
+        raise SemanticError(
+            f"module '{module.name}' parameter constraint is not satisfied",
+            code="ZL-SEMANTIC-PARAMETER-CONSTRAINT",
+            primary=_semantic_origin(module.parameter_constraint, constraint_context),
+            notes=(
+                "resolved values: "
+                + ", ".join(
+                    f"{name}={value}"
+                    for name, value in sorted(parameter_values.items())
+                ),
+            ),
+        )
 
 
 def _resolved_module_parameter_records(
@@ -2207,21 +2352,128 @@ def _validate_compile_time_parameter_declarations(module: ast.Module) -> None:
 
 def _analyze_csr_blocks(
     declarations: tuple[ast.CsrBlockDecl, ...],
+    groups: tuple[ast.CsrGroupDecl, ...],
     type_resolver: _TypeResolver,
     symbols: dict[str, ir_module.Port],
     *,
     module_identity: str,
     clock_domain: str | None,
-    reset_domain: str | None,
     clock_domains: tuple[ir_cdc.ClockDomain, ...],
     source_unit: str | None,
     source_digest: str | None,
 ) -> tuple[ir_csr.CsrBlock, ...]:
+    group_catalog: dict[str, ast.CsrGroupDecl] = {}
+    for group in groups:
+        if group.name in group_catalog:
+            raise SemanticError(f"duplicate CSR group '{group.name}'")
+        if not group.registers:
+            raise SemanticError(f"CSR group '{group.name}' has no registers")
+        group_catalog[group.name] = group
+
+    def compile_integer(value: int | str, description: str) -> int:
+        if isinstance(value, int):
+            return value
+        return type_resolver._eval_constant_integer(
+            value, description=description, allow_zero=True
+        )
+
+    expanded_declarations: list[ast.CsrBlockDecl] = []
+    for declaration in declarations:
+        expanded = list(declaration.registers)
+        for use in declaration.group_uses:
+            group = group_catalog.get(use.group_name)
+            if group is None:
+                raise SemanticError(
+                    f"CSR group use '{use.name}' references unknown group "
+                    f"'{use.group_name}'"
+                )
+            count = compile_integer(use.count, f"CSR group '{use.name}' count")
+            base = compile_integer(use.base_offset, f"CSR group '{use.name}' base")
+            stride = compile_integer(use.stride, f"CSR group '{use.name}' stride")
+            if not 1 <= count <= 64:
+                raise SemanticError(
+                    f"CSR group '{use.name}' count must be in 1..64"
+                )
+            if stride <= 0 or stride % 4:
+                raise SemanticError(
+                    f"CSR group '{use.name}' stride must be a positive multiple of 4"
+                )
+            extent = max(register.offset for register in group.registers) + 4
+            if stride < extent:
+                raise SemanticError(
+                    f"CSR group '{use.name}' stride 0x{stride:x} is smaller than "
+                    f"group extent 0x{extent:x}"
+                )
+            for index in range(count):
+                for register in group.registers:
+                    expanded.append(replace(
+                        register,
+                        name=f"{use.name}_{index}_{register.name}",
+                        offset=base + index * stride + register.offset,
+                        projection_path=(f"{use.name}[{index}]", register.name),
+                    ))
+        for split in declaration.split_registers:
+            if split.chunk_width != 32:
+                raise SemanticError(
+                    f"CSR split register '{split.name}' requires split<32> for "
+                    "the canonical 32-bit CSR access interface"
+                )
+            if split.access not in {ast.CsrAccess.READ_WRITE, ast.CsrAccess.WRITE_ONLY}:
+                raise SemanticError(
+                    f"CSR split register '{split.name}' currently requires rw or wo access"
+                )
+            resolved = type_resolver.resolve(split.type_name)
+            if not isinstance(resolved, (UIntType, BitsType)) or resolved.width != 64:
+                raise SemanticError(
+                    f"CSR split register '{split.name}' requires an exact 64-bit "
+                    "unsigned or bits value"
+                )
+            if not 0 <= split.reset < (1 << 64):
+                raise SemanticError(
+                    f"reset value for CSR split register '{split.name}' "
+                    f"does not fit {resolved}"
+                )
+            low_offset = split.offset + (
+                0 if split.order is ast.CsrSplitOrder.LOW_FIRST else 4
+            )
+            high_offset = split.offset + (
+                4 if split.order is ast.CsrSplitOrder.LOW_FIRST else 0
+            )
+            halves = (
+                ("LOW", low_offset, split.reset & 0xFFFF_FFFF),
+                ("HIGH", high_offset, (split.reset >> 32) & 0xFFFF_FFFF),
+            )
+            for suffix, offset, reset in halves:
+                expanded.append(ast.CsrRegisterDecl(
+                    f"{split.name}_{suffix}",
+                    offset,
+                    (ast.CsrFieldDecl(
+                        split.field_name,
+                        ast.TypeName("u32"),
+                        split.access,
+                        31,
+                        0,
+                        reset,
+                        None,
+                        split.origin,
+                    ),),
+                    (),
+                    split.origin,
+                ))
+        if len(expanded) > 256:
+            raise SemanticError(
+                f"CSR block '{declaration.name}' expands to {len(expanded)} "
+                "registers; the bounded maximum is 256"
+            )
+        expanded_declarations.append(replace(
+            declaration, registers=tuple(expanded), group_uses=()
+        ))
+
     blocks: list[ir_csr.CsrBlock] = []
     block_names: set[str] = set()
     absolute_addresses: set[int] = set()
     bound_command_outputs: set[str] = set()
-    for block_ordinal, declaration in enumerate(declarations):
+    for block_ordinal, declaration in enumerate(expanded_declarations):
         if not clock_domains:
             raise SemanticError(
                 f"CSR blocks require a module clock and reset; found "
@@ -2257,11 +2509,20 @@ def _analyze_csr_blocks(
         if declaration.name in block_names:
             raise SemanticError(f"duplicate CSR block '{declaration.name}'")
         block_names.add(declaration.name)
-        if declaration.base_address % 4:
+        base_address = (
+            declaration.base_address
+            if isinstance(declaration.base_address, int)
+            else type_resolver._eval_constant_integer(
+                declaration.base_address,
+                description=f"CSR block '{declaration.name}' base address",
+                allow_zero=True,
+            )
+        )
+        if base_address % 4:
             raise SemanticError(
                 f"CSR block '{declaration.name}' base address must be 4-byte aligned"
             )
-        if not 0 <= declaration.base_address <= 0xFFFF_FFFF:
+        if not 0 <= base_address <= 0xFFFF_FFFF:
             raise SemanticError(
                 f"CSR block '{declaration.name}' base address does not fit 32 bits"
             )
@@ -2269,6 +2530,7 @@ def _analyze_csr_blocks(
         offsets: set[int] = set()
         registers: list[ir_csr.CsrRegister] = []
         state_bindings: list[ir_csr.CsrFieldStateBinding] = []
+        access_observations: list[ir_csr.CsrAccessObservation] = []
         for register_ordinal, register in enumerate(declaration.registers):
             register_identity = ir_csr.CsrRegisterIdentity(
                 block_identity, register_ordinal
@@ -2297,7 +2559,7 @@ def _analyze_csr_blocks(
                     f"duplicate CSR register offset 0x{register.offset:x}"
                 )
             offsets.add(register.offset)
-            address = declaration.base_address + register.offset
+            address = base_address + register.offset
             if address > 0xFFFF_FFFF:
                 raise SemanticError(
                     f"CSR register '{register.name}' address does not fit 32 bits"
@@ -2311,6 +2573,7 @@ def _analyze_csr_blocks(
             occupied_bits: set[int] = set()
             next_lsb = 0
             fields: list[ir_csr.CsrField] = []
+            events: list[ir_csr.CsrEventBinding] = []
             for field_ordinal, field_decl in enumerate(register.fields):
                 field_identity = ir_csr.CsrFieldIdentity(
                     register_identity, field_ordinal
@@ -2452,11 +2715,12 @@ def _analyze_csr_blocks(
                     field_identity, field_origin,
                 )
                 fields.append(typed_field)
-                if access in {
-                    ir_csr.CsrAccess.READ_WRITE,
-                    ir_csr.CsrAccess.WRITE_ONE_TO_CLEAR,
-                    ir_csr.CsrAccess.PULSE,
-                }:
+                if access is not ir_csr.CsrAccess.RESERVED:
+                    access_observations.append(ir_csr.CsrAccessObservation(
+                        field_identity, access, type_, typed_field.width, field_origin,
+                        selected_clock,
+                    ))
+                if ir_csr.access_owns_state(access):
                     state_bindings.append(ir_csr.CsrFieldStateBinding(
                         field_identity,
                         access,
@@ -2469,27 +2733,344 @@ def _analyze_csr_blocks(
                         selected_clock,
                         selected_reset,
                     ))
+            event_names: set[str] = set()
+            for event_ordinal, event_decl in enumerate(register.events):
+                if event_decl.name in event_names or event_decl.name in field_names:
+                    raise SemanticError(
+                        f"duplicate field/event '{event_decl.name}' in CSR register "
+                        f"'{register.name}'"
+                    )
+                event_names.add(event_decl.name)
+                event_type = type_resolver.resolve(event_decl.type_name)
+                if not isinstance(event_type, (BitType, UIntType, BitsType)):
+                    raise SemanticError(
+                        f"CSR event '{event_decl.name}' requires bit, unsigned, or bits type"
+                    )
+                if event_decl.msb is None:
+                    event_lsb = 0
+                    event_msb = event_type.width - 1
+                else:
+                    event_msb = event_decl.msb
+                    event_lsb = event_decl.lsb
+                    if event_lsb is None or event_msb < event_lsb:
+                        raise SemanticError(
+                            f"CSR event '{event_decl.name}' bit range must be msb:lsb"
+                        )
+                if event_msb >= 32 or event_msb - event_lsb + 1 != event_type.width:
+                    raise SemanticError(
+                        f"CSR event '{event_decl.name}' range must fit its exact type in 32 bits"
+                    )
+                if (
+                    event_decl.kind is ast.CsrEventKind.READ
+                    and not isinstance(event_type, BitType)
+                ):
+                    raise SemanticError(
+                        f"on_read CSR event '{event_decl.name}' must have type bit"
+                    )
+                output = symbols.get(event_decl.signal)
+                if output is None or output.direction is not ir_module.PortDirection.OUTPUT:
+                    raise SemanticError(
+                        f"CSR event '{event_decl.name}' target '{event_decl.signal}' "
+                        "must be an output"
+                    )
+                if output.protocol is not InterfaceProtocol.WIRE or output.type != event_type:
+                    raise SemanticError(
+                        f"CSR event '{event_decl.name}' target '{event_decl.signal}' "
+                        f"must be a wire output of exact type {event_type}"
+                    )
+                if output.name in bound_command_outputs:
+                    raise SemanticError(
+                        f"CSR command/event output '{output.name}' is bound more than once"
+                    )
+                bound_command_outputs.add(output.name)
+                events.append(ir_csr.CsrEventBinding(
+                    ir_csr.CsrEventIdentity(register_identity, event_ordinal),
+                    event_decl.name,
+                    ir_csr.CsrEventKind(event_decl.kind.value),
+                    event_type,
+                    event_msb,
+                    event_lsb,
+                    output.name,
+                    SourceOrigin(
+                        event_decl.origin,
+                        f"CSR event {declaration.name}.{register.name}.{event_decl.name}",
+                        source_unit,
+                        source_digest,
+                    ) if event_decl.origin is not None else register_origin,
+                    selected_clock,
+                ))
             registers.append(
                 ir_csr.CsrRegister(
-                    register.name, register.offset, tuple(fields),
-                    register_identity, register_origin,
+                    register.name, register.offset, tuple(fields), tuple(events),
+                    register_identity, register_origin, register.projection_path,
                 )
             )
         if not registers:
             raise SemanticError(f"CSR block '{declaration.name}' has no registers")
+        split_views: list[ir_csr.CsrSplitView] = []
+        register_by_name = {item.name: item for item in registers}
+        for split in declaration.split_registers:
+            low = register_by_name[f"{split.name}_LOW"].fields[0]
+            high = register_by_name[f"{split.name}_HIGH"].fields[0]
+            split_views.append(ir_csr.CsrSplitView(
+                split.name,
+                split.field_name,
+                type_resolver.resolve(split.type_name),
+                low.identity,
+                high.identity,
+                split.order is ast.CsrSplitOrder.LOW_FIRST,
+                SourceOrigin(
+                    split.origin,
+                    f"CSR split value {declaration.name}.{split.name}.{split.field_name}",
+                    source_unit,
+                    source_digest,
+                ) if split.origin is not None else block_origin,
+            ))
         typed_block = ir_csr.CsrBlock(
             declaration.name,
-            declaration.base_address,
+            base_address,
             tuple(registers),
             block_identity,
             block_origin,
             tuple(state_bindings),
+            tuple(access_observations),
+            tuple(split_views),
             selected_clock,
             selected_reset,
         )
         ir_csr.validate_state_bindings(typed_block)
         blocks.append(typed_block)
     return tuple(blocks)
+
+
+def _predeclare_child_csr_outputs(
+    child: ast.Module,
+    resolver: _TypeResolver,
+    physical_names: tuple[str, ...],
+    parent_clock_domains: tuple[ir_cdc.ClockDomain, ...],
+    context: _ExpressionContext,
+) -> None:
+    """Publish the syntax-known CSR child ABI before parent locals are typed.
+
+    Compiler-generated CSR access and state outputs are absent from the child
+    source port list. Parent immutable bindings are nevertheless allowed to
+    consume those outputs, and are analyzed before recursive child elaboration.
+    This bounded declaration pass exposes only ABI facts already exact in
+    syntax: declaration ordinals, field types, and the selected clock domain.
+    Recursive analysis later validates every predeclared fact against final IR.
+    """
+
+    if not child.csr_blocks:
+        return
+
+    if child.clocks:
+        child_domains = tuple(child.clocks)
+    elif len(parent_clock_domains) == 1:
+        child_domains = (parent_clock_domains[0].clock,)
+    else:
+        child_domains = ()
+
+    access = ir_csr.CsrAccessInterface(semantic_id="csr-access-predeclaration")
+    group_catalog = {group.name: group for group in child.csr_groups}
+    for block_ordinal, block in enumerate(child.csr_blocks):
+        domain = block.domain
+        if domain is None and len(child_domains) == 1:
+            domain = child_domains[0]
+        # The authoritative child analysis diagnoses unknown and ambiguous
+        # domains. Never invent provenance merely to type an early reference.
+        if domain is not None and domain not in child_domains:
+            domain = None
+
+        for physical_name in physical_names:
+            for port_name, port_type in access.output_types:
+                key = (physical_name, port_name)
+                context.instance_outputs[key] = port_type
+                context.instance_output_protocols[key] = InterfaceProtocol.WIRE
+                context.instance_output_domains[key] = domain
+
+        registers = list(block.registers)
+        for use in block.group_uses:
+            group = group_catalog.get(use.group_name)
+            if group is None:
+                continue
+            def resolved(value: int | str, description: str) -> int:
+                if isinstance(value, int):
+                    return value
+                return resolver._eval_constant_integer(
+                    value, description=description, allow_zero=True
+                )
+            count = resolved(use.count, f"CSR group '{use.name}' count")
+            base = resolved(use.base_offset, f"CSR group '{use.name}' base")
+            stride = resolved(use.stride, f"CSR group '{use.name}' stride")
+            for index in range(count):
+                registers.extend(
+                    replace(
+                        register,
+                        name=f"{use.name}_{index}_{register.name}",
+                        offset=base + index * stride + register.offset,
+                        projection_path=(f"{use.name}[{index}]", register.name),
+                    )
+                    for register in group.registers
+                )
+        for split in block.split_registers:
+            low_offset = split.offset + (
+                0 if split.order is ast.CsrSplitOrder.LOW_FIRST else 4
+            )
+            high_offset = split.offset + (
+                4 if split.order is ast.CsrSplitOrder.LOW_FIRST else 0
+            )
+            for suffix, offset in (("LOW", low_offset), ("HIGH", high_offset)):
+                registers.append(ast.CsrRegisterDecl(
+                    f"{split.name}_{suffix}",
+                    offset,
+                    (ast.CsrFieldDecl(
+                        split.field_name, ast.TypeName("u32"), split.access,
+                        31, 0, 0, None, split.origin,
+                    ),),
+                    (),
+                    split.origin,
+                ))
+
+        for register_ordinal, register in enumerate(registers):
+            for field_ordinal, field_decl in enumerate(register.fields):
+                field_type = resolver.resolve(field_decl.type_name)
+                field_id = ir_csr.CsrFieldIdentity(
+                    ir_csr.CsrRegisterIdentity(
+                        ir_csr.CsrBlockIdentity(child.name, block_ordinal),
+                        register_ordinal,
+                    ),
+                    field_ordinal,
+                )
+                access_kind = ir_csr.CsrAccess(field_decl.access.value)
+                observation = ir_csr.CsrAccessObservation(
+                    field_id, access_kind, field_type, field_type.width, None, domain
+                )
+                for physical_name in physical_names:
+                    if ir_csr.access_owns_state(access_kind):
+                        port_name = ir_csr.csr_state_port_name_from_ordinals(
+                            block_ordinal, register_ordinal, field_ordinal,
+                        )
+                        key = (physical_name, port_name)
+                        context.instance_outputs[key] = field_type
+                        context.instance_output_protocols[key] = InterfaceProtocol.WIRE
+                        context.instance_output_domains[key] = domain
+                        projection = (port_name, field_type, domain)
+                        context.instance_csr_state_paths[
+                            (physical_name, block.name, register.name, field_decl.name)
+                        ] = projection
+                        context.instance_csr_state_paths[
+                            (
+                                physical_name, block.name, "state",
+                                register.name, field_decl.name,
+                            )
+                        ] = projection
+                        if register.projection_path:
+                            context.instance_csr_state_paths[
+                                (
+                                    physical_name,
+                                    block.name,
+                                    *register.projection_path,
+                                    field_decl.name,
+                                )
+                            ] = projection
+                            context.instance_csr_state_paths[
+                                (
+                                    physical_name,
+                                    block.name,
+                                    "state",
+                                    *register.projection_path,
+                                    field_decl.name,
+                                )
+                            ] = projection
+                    if access_kind is not ir_csr.CsrAccess.RESERVED:
+                        for leaf, port_name, type_ in (
+                            ("read_hit", ir_csr.csr_read_hit_port_name(observation), ir_csr.BitType()),
+                            (
+                                "write_hit",
+                                ir_csr.csr_observation_write_hit_port_name(observation),
+                                ir_csr.BitType(),
+                            ),
+                            (
+                                "write_value",
+                                ir_csr.csr_observation_write_value_port_name(observation),
+                                field_type,
+                            ),
+                            (
+                                "value",
+                                ir_csr.csr_observation_value_port_name(observation),
+                                field_type,
+                            ),
+                        ):
+                            key = (physical_name, port_name)
+                            context.instance_outputs[key] = type_
+                            context.instance_output_protocols[key] = InterfaceProtocol.WIRE
+                            context.instance_output_domains[key] = domain
+                            context.instance_csr_state_paths[
+                                (
+                                    physical_name, block.name, "events",
+                                    register.name, field_decl.name, leaf,
+                                )
+                            ] = (port_name, type_, domain)
+                        if access_kind is ir_csr.CsrAccess.READ_ONLY:
+                            context.instance_csr_state_paths[
+                                (
+                                    physical_name, block.name, "status",
+                                    register.name, field_decl.name,
+                                )
+                            ] = (
+                                ir_csr.csr_observation_value_port_name(observation),
+                                field_type,
+                                domain,
+                            )
+            for event_ordinal, event in enumerate(register.events):
+                event_type = resolver.resolve(event.type_name)
+                event_binding = ir_csr.CsrEventBinding(
+                    ir_csr.CsrEventIdentity(
+                        ir_csr.CsrRegisterIdentity(
+                            ir_csr.CsrBlockIdentity(child.name, block_ordinal),
+                            register_ordinal,
+                        ),
+                        event_ordinal,
+                    ),
+                    event.name,
+                    ir_csr.CsrEventKind(event.kind.value),
+                    event_type,
+                    event.msb if event.msb is not None else event_type.width - 1,
+                    event.lsb if event.lsb is not None else 0,
+                    event.signal,
+                    None,
+                    domain,
+                )
+                port_name = ir_csr.csr_event_port_name(event_binding)
+                for physical_name in physical_names:
+                    key = (physical_name, port_name)
+                    context.instance_outputs[key] = event_type
+                    context.instance_output_protocols[key] = InterfaceProtocol.WIRE
+                    context.instance_output_domains[key] = domain
+                    context.instance_csr_state_paths[
+                        (
+                            physical_name, block.name, "events",
+                            register.name, event.name,
+                        )
+                    ] = (port_name, event_type, domain)
+        for split_ordinal, split in enumerate(block.split_registers):
+            split_type = resolver.resolve(split.type_name)
+            port_name = f"csr_split_{block_ordinal}_{split_ordinal}_value"
+            for physical_name in physical_names:
+                key = (physical_name, port_name)
+                context.instance_outputs[key] = split_type
+                context.instance_output_protocols[key] = InterfaceProtocol.WIRE
+                context.instance_output_domains[key] = domain
+                projection = (port_name, split_type, domain)
+                context.instance_csr_state_paths[
+                    (physical_name, block.name, split.name, split.field_name)
+                ] = projection
+                context.instance_csr_state_paths[
+                    (
+                        physical_name, block.name, "state",
+                        split.name, split.field_name,
+                    )
+                ] = projection
 
 
 @dataclass(frozen=True)
@@ -2567,8 +3148,7 @@ class _FunctionCatalog:
             # Return probing must not publish generic specializations, consume
             # the selected module's logical elaboration budget, or retain a
             # temporary functional-binder identity.
-            probe_context = replace(
-                self.context,
+            probe_context = self.context.derive(
                 generic_specializations=[],
                 function_definitions={},
                 callable_definitions=dict(self.context.callable_definitions),
@@ -2782,128 +3362,228 @@ class _CompileTimeRealQuantization:
     logical_operations: int
 
 
-@dataclass
-class _ExpressionContext:
+@dataclass(frozen=True)
+class AnalysisEnvironment:
+    """Immutable catalog and configuration shared by expression scopes."""
+
     functions: dict[str, _FunctionSignature]
-    allow_delay: bool
     clock_domains: tuple[str, ...] = ()
     default_clock_domain: str | None = None
     generic_functions: dict[str, ast.FunctionDecl] = field(default_factory=dict)
     function_catalog: _FunctionCatalog | None = None
-    # Compile-time parameters are immutable elaboration inputs, not hardware
-    # ports.  Constants retain their exact typed expression and callable
-    # values retain only a statically resolved named-function identity.
-    compile_time_constants: dict[str, ir_expr.Expression] = field(default_factory=dict)
-    static_callables: dict[str, _StaticCallableBinding] = field(default_factory=dict)
     operator_declarations: tuple[ast.OperatorDecl, ...] = ()
     struct_declarations: tuple[ast.StructDecl, ...] = ()
+    generic_dependency_identity: tuple[tuple[str, str], ...] = ()
+    structs: tuple[StructType, ...] = ()
+    parameters: dict[str, int] = field(default_factory=dict)
+    unresolved_parameters: frozenset[str] = frozenset()
+    type_resolver: _TypeResolver | None = None
+    source_digests: dict[str, str] = field(default_factory=dict)
+    analysis_needs: AnalysisNeeds = AnalysisNeeds.NONE
+    formal_config: object | None = None
+    formal_verifier: object | None = None
+
+
+@dataclass
+class AnalysisServices:
+    """Mutable state owned by exactly one top-level semantic analysis."""
+
     generic_specializations: list[ir_module.GenericSpecialization] = field(default_factory=list)
     function_definitions: dict[str, ir_module.Function] = field(default_factory=dict)
-    # Exact generic/operator specializations are typed once and retained as
-    # monomorphic callable definitions.  ``replace(context, ...)`` deliberately
-    # shares these mutable registries across nested source/import contexts.
     callable_definitions: dict[str, ir_module.Function] = field(default_factory=dict)
-    # Number of retained typed Call nodes for each monomorphic definition.
-    # Functional-region compaction decrements calls that it replaces with a
-    # typed table/template and may then discard an otherwise unreachable
-    # compile-time-only definition without guessing source names.
     callable_use_counts: dict[str, int] = field(default_factory=dict)
     specializations_in_progress: set[str] = field(default_factory=set)
-    # Logical elaboration cost of one specialization body. Cache hits replay
-    # this cost so caching changes host work, never the language's bounded
-    # compile-time generation semantics.
     specialization_budget_costs: dict[str, tuple[int, int]] = field(
         default_factory=dict
     )
-    # Host-work cache for one compilation.  Recursive child specialization
-    # contexts share this mapping explicitly; no entry survives a top-level
-    # ``analyze`` call. Cache hits replay ``logical_operations`` so bounded
-    # elaboration semantics remain independent of host caching.
     compile_time_real_quantize_cache: dict[
         tuple[object, ...], _CompileTimeRealQuantization
     ] = field(default_factory=dict)
+    compile_time_budget: "_CompileTimeBudget | None" = None
+    exploration_results: list[object] | None = None
+    definition_resolutions: list[DefinitionResolution] | None = None
+    definition_targets: dict[int, SourceOrigin] = field(default_factory=dict)
+    definition_declarations: list[DefinitionTarget] | None = None
+    completion_scopes: list[CompletionScope] | None = None
+    signature_help_calls: list[SignatureHelpCall] | None = None
+    expression_arena: SemanticExpressionArena = field(
+        default_factory=SemanticExpressionArena
+    )
+
+
+@dataclass(frozen=True)
+class ExpressionScope:
+    """Cheap lexical state derived while checking one expression region."""
+
+    allow_delay: bool
+    compile_time_constants: dict[str, ir_expr.Expression] = field(default_factory=dict)
+    static_callables: dict[str, _StaticCallableBinding] = field(default_factory=dict)
     resolution_stack: tuple[str, ...] = ()
-    generic_dependency_identity: tuple[tuple[str, str], ...] = ()
     allow_fixed_target_coercion: bool = True
-    structs: tuple[StructType, ...] = ()
     instance_outputs: dict[tuple[str, str], HardwareType] = field(default_factory=dict)
-    # Keep protocol ownership beside the output type so runtime instance-array
-    # projection can remain a wire-only value operation rather than silently
-    # selecting a protocol endpoint.
     instance_output_protocols: dict[
         tuple[str, str], InterfaceProtocol
     ] = field(default_factory=dict)
     instance_output_domains: dict[tuple[str, str], str | None] = field(
         default_factory=dict
     )
+    instance_protocol_outputs: dict[
+        tuple[str, str], tuple[str, HardwareType, str | None]
+    ] = field(default_factory=dict)
+    instance_csr_state_paths: dict[
+        tuple[str, ...], tuple[str, HardwareType, str | None]
+    ] = field(default_factory=dict)
     instance_arrays: dict[str, int] = field(default_factory=dict)
-    # The bounded runtime instance-array spelling is only a read-only mux at a
-    # module's public scalar-wire output boundary.  Explicit Generate plus
-    # RuntimeIndex remains the general value-level representation.
     allow_runtime_instance_projection: bool = False
-    # Keep write-only outputs out of the readable namespace while retaining
-    # enough declaration information for an actionable mistaken-read error.
     write_only_outputs: dict[str, ir_module.Port] = field(default_factory=dict)
-    # A scalar output driven by an explicit CDC connection is the typed
-    # destination-domain value of that crossing.  It may feed local logic in
-    # that destination domain without turning arbitrary outputs into readable
-    # implementation state.
     readable_cdc_outputs: set[str] = field(default_factory=set)
-    # Ordinary module outputs are write-only inside hardware expressions.  A
-    # verification overlay is the deliberate exception: contracts and goals
-    # observe the already-defined public boundary without feeding any value
-    # back into the implementation.
     allow_output_reads: bool = False
     allow_implementation_choice: bool = False
-    # Formal-aware exploration is compiler configuration, but expression
-    # checking may happen inside functions/operators as well as directly in a
-    # module assignment.  Keep it on the expression context so nested callable
-    # bodies cannot accidentally reach for ``analyze`` locals that are out of
-    # scope.
-    formal_config: object | None = None
-    formal_verifier: object | None = None
-    # Candidate generation is semantic work; formal execution is not.  Keep
-    # every retained expression-local exploration in the compilation-owned
-    # sink so the later selection phase can apply formal-aware selection without re-analysis.
-    exploration_results: list[object] | None = None
     candidate_site_owner: str | None = None
     next_delay_instance: int = 0
     index_bindings: dict[str, int] = field(default_factory=dict)
-    # Rule-local facts proven by the already typed guard.  They refine only
-    # unsigned value ranges while typing that rule's atomic actions; facts do
-    # not escape to another rule or to ordinary combinational assignments.
+    functional_symbolic_values: dict[str, CompileTimeExpr] = field(
+        default_factory=dict
+    )
+    functional_specialization_certificates: list[
+        FunctionalSpecializationCertificate
+    ] = field(default_factory=list)
     range_refinements: dict[str, ir_expr.ValueRange] = field(default_factory=dict)
     index_types: dict[str, HardwareType] = field(default_factory=dict)
-    parameters: dict[str, int] = field(default_factory=dict)
-    unresolved_parameters: frozenset[str] = frozenset()
     aggregate_paths: dict[str, str] = field(default_factory=dict)
     union_binders: dict[str, ir_expr.Expression] = field(default_factory=dict)
-    type_resolver: _TypeResolver | None = None
-    compile_time_budget: "_CompileTimeBudget | None" = None
     source_unit: str | None = None
     source_digest: str | None = None
-    source_digests: dict[str, str] = field(default_factory=dict)
-    # Optional compiler-owned editor projection.  It is populated only when a
-    # semantic check explicitly requests definition records; the records never
-    # participate in typed/canonical identity.
-    analysis_needs: AnalysisNeeds = AnalysisNeeds.NONE
-    definition_resolutions: list[DefinitionResolution] | None = None
-    definition_targets: dict[int, SourceOrigin] = field(default_factory=dict)
-    definition_declarations: list[DefinitionTarget] | None = None
-    completion_scopes: list[CompletionScope] | None = None
-    signature_help_calls: list[SignatureHelpCall] | None = None
-    # Parser object identities are used only as an intra-compilation memo key.
-    # The retained binder identity contains the deterministic semantic ordinal
-    # and nesting path, never a source span, digest, or Python object identity.
     functional_binder_ordinals: dict[int, int] = field(default_factory=dict)
     next_functional_binder_ordinal: list[int] = field(
         default_factory=lambda: [0]
     )
     functional_binder_nesting: tuple[int, ...] = ()
-    # Functional regions retained inside a callable use declaration-local
-    # identities.  Module expressions deliberately leave this unset so their
-    # established identity schema and source-order ordinals remain unchanged.
     functional_binder_callable_identity: str | None = None
+
+
+_CONTEXT_OWNERS = (AnalysisEnvironment, AnalysisServices, ExpressionScope)
+_CONTEXT_FIELD_OWNER = {
+    descriptor.name: owner
+    for owner in _CONTEXT_OWNERS
+    for descriptor in fields(owner)
+}
+
+
+def _owner_from_values(owner: type, values: dict[str, object]):
+    arguments: dict[str, object] = {}
+    for descriptor in fields(owner):
+        if descriptor.name in values:
+            arguments[descriptor.name] = values.pop(descriptor.name)
+        elif descriptor.default is not MISSING:
+            arguments[descriptor.name] = descriptor.default
+        elif descriptor.default_factory is not MISSING:
+            arguments[descriptor.name] = descriptor.default_factory()
+        else:
+            raise TypeError(f"missing expression-context field '{descriptor.name}'")
+    return owner(**arguments)
+
+
+class _ExpressionContext:
+    """Compatibility facade over explicit environment/services/scope owners."""
+
+    def __init__(
+        self,
+        functions: dict[str, _FunctionSignature],
+        *,
+        allow_delay: bool,
+        **values: object,
+    ) -> None:
+        retained = dict(values)
+        retained["functions"] = functions
+        retained["allow_delay"] = allow_delay
+        object.__setattr__(
+            self, "_environment", _owner_from_values(AnalysisEnvironment, retained)
+        )
+        object.__setattr__(
+            self, "_services", _owner_from_values(AnalysisServices, retained)
+        )
+        object.__setattr__(
+            self, "_scope", _owner_from_values(ExpressionScope, retained)
+        )
+        if retained:
+            names = ", ".join(sorted(retained))
+            raise TypeError(f"unknown expression-context field(s): {names}")
+
+    @classmethod
+    def _from_parts(
+        cls,
+        environment: AnalysisEnvironment,
+        services: AnalysisServices,
+        scope: ExpressionScope,
+    ) -> "_ExpressionContext":
+        context = object.__new__(cls)
+        object.__setattr__(context, "_environment", environment)
+        object.__setattr__(context, "_services", services)
+        object.__setattr__(context, "_scope", scope)
+        return context
+
+    @property
+    def environment(self) -> AnalysisEnvironment:
+        return self._environment
+
+    @property
+    def services(self) -> AnalysisServices:
+        return self._services
+
+    @property
+    def scope(self) -> ExpressionScope:
+        return self._scope
+
+    def __getattr__(self, name: str):
+        owner = _CONTEXT_FIELD_OWNER.get(name)
+        if owner is AnalysisEnvironment:
+            return getattr(self._environment, name)
+        if owner is AnalysisServices:
+            return getattr(self._services, name)
+        if owner is ExpressionScope:
+            return getattr(self._scope, name)
+        raise AttributeError(name)
+
+    def __setattr__(self, name: str, value: object) -> None:
+        owner = _CONTEXT_FIELD_OWNER.get(name)
+        if owner is None:
+            object.__setattr__(self, name, value)
+            return
+        attribute = {
+            AnalysisEnvironment: "_environment",
+            AnalysisServices: "_services",
+            ExpressionScope: "_scope",
+        }[owner]
+        object.__setattr__(
+            self,
+            attribute,
+            replace(getattr(self, attribute), **{name: value}),
+        )
+
+    def derive(self, **changes: object) -> "_ExpressionContext":
+        unknown = set(changes) - set(_CONTEXT_FIELD_OWNER)
+        if unknown:
+            names = ", ".join(sorted(unknown))
+            raise TypeError(f"unknown expression-context field(s): {names}")
+        owners = {
+            AnalysisEnvironment: self._environment,
+            AnalysisServices: self._services,
+            ExpressionScope: self._scope,
+        }
+        for owner in _CONTEXT_OWNERS:
+            updates = {
+                name: value
+                for name, value in changes.items()
+                if _CONTEXT_FIELD_OWNER[name] is owner
+            }
+            if updates:
+                owners[owner] = replace(owners[owner], **updates)
+        return self._from_parts(
+            owners[AnalysisEnvironment],
+            owners[AnalysisServices],
+            owners[ExpressionScope],
+        )
 
     def allocate_delay(self) -> int:
         instance = self.next_delay_instance
@@ -2919,8 +3599,7 @@ def _context_for_source_declaration(
 
     if source_unit is None or source_unit == context.source_unit:
         return context
-    return replace(
-        context,
+    return context.derive(
         source_unit=source_unit,
         source_digest=context.source_digests.get(source_unit),
     )
@@ -2943,8 +3622,7 @@ def _context_for_callable_body(
     """
 
     selected = _context_for_source_declaration(context, source_unit)
-    return replace(
-        selected,
+    return selected.derive(
         functional_binder_ordinals={},
         next_functional_binder_ordinal=[0],
         functional_binder_nesting=(),
@@ -3528,34 +4206,16 @@ def _compile_time_real_value(
                 f"operator '{expression.operator.value}' is not allowed in a compile-time real expression"
             )
         if isinstance(expression, ast.CallExpr):
-            if expression.function == "pi":
-                if expression.arguments:
-                    raise SemanticError("intrinsic 'pi' expects no arguments")
-                return ct_real.CompileTimeReal.pi()
-            if expression.function == "sin":
-                if len(expression.arguments) != 1:
-                    raise SemanticError("intrinsic 'sin' expects one argument")
-                return ct_real.sin(
-                    _compile_time_real_value(expression.arguments[0], inputs, context)
+            if expression.function in _REAL_INTRINSICS:
+                _validate_compile_time_real_intrinsic_arity(
+                    expression.function, len(expression.arguments)
                 )
-            if expression.function == "cos":
-                if len(expression.arguments) != 1:
-                    raise SemanticError("intrinsic 'cos' expects one argument")
-                return ct_real.cos(
-                    _compile_time_real_value(expression.arguments[0], inputs, context)
-                )
-            if expression.function == "log2":
-                if len(expression.arguments) != 1:
-                    raise SemanticError("intrinsic 'log2' expects one argument")
-                return ct_real.log2(
-                    _compile_time_real_value(expression.arguments[0], inputs, context)
-                )
-            if expression.function == "log":
-                if len(expression.arguments) != 2:
-                    raise SemanticError("intrinsic 'log' expects two arguments")
-                return ct_real.log(
-                    _compile_time_real_value(expression.arguments[0], inputs, context),
-                    _compile_time_real_value(expression.arguments[1], inputs, context),
+                return _apply_compile_time_real_intrinsic(
+                    expression.function,
+                    tuple(
+                        _compile_time_real_value(argument, inputs, context)
+                        for argument in expression.arguments
+                    ),
                 )
             if expression.function in {
                 "length", "floor_log2", "ceil_log2", "index_width",
@@ -3897,6 +4557,29 @@ def _bind_generic_type(
             for pattern_argument, actual_argument in zip(
                 pattern_arguments, actual_arguments, strict=True
             ):
+                value_parameter = parameters.get(pattern_argument)
+                if value_parameter is not None and value_parameter.kind == "value":
+                    try:
+                        concrete_value = int(actual_argument)
+                    except ValueError as error:
+                        raise SemanticError(
+                            f"nominal value argument '{actual_argument}' is not concrete"
+                        ) from error
+                    previous = value_bindings.get(pattern_argument)
+                    if previous is not None and previous != concrete_value:
+                        raise SemanticError(
+                            f"conflicting inference for value '{pattern_argument}': "
+                            f"{previous} and {concrete_value}"
+                        )
+                    value_bindings[pattern_argument] = concrete_value
+                    continue
+                if pattern_argument.isdecimal() and actual_argument.isdecimal():
+                    if int(pattern_argument) != int(actual_argument):
+                        raise SemanticError(
+                            f"nominal value argument mismatch: expected "
+                            f"{pattern_argument}, got {actual_argument}"
+                        )
+                    continue
                 _bind_generic_type(
                     ast.TypeName(pattern_argument),
                     resolver.resolve(ast.TypeName(actual_argument)),
@@ -4316,7 +4999,9 @@ def _specialization_bindings(
         if parameter.kind == "constant":
             assert parameter.type_name is not None
             expected_type = binding_resolver.resolve(parameter.type_name)
-            if isinstance(expected_type, EnumType) or _contains_enum_type(expected_type):
+            if isinstance(expected_type, EnumType) or _contains_nominal_type(
+                expected_type, EnumType
+            ):
                 raise SemanticError(
                     f"compile-time constant parameter '{parameter.name}' cannot contain an enum"
                 )
@@ -4736,6 +5421,553 @@ def _annotate_callable_error(
     )
 
 
+class _FunctionalSpecializationRejected(Exception):
+    """A symbolic generic is not in the compiler's closed liftable subset."""
+
+
+def _compile_time_expr_from_python(
+    node: pyast.AST,
+    context: _ExpressionContext,
+) -> CompileTimeExpr:
+    if isinstance(node, pyast.Constant) and isinstance(node.value, int) and not isinstance(
+        node.value, bool
+    ):
+        return CompileTimeExpr.literal(node.value)
+    if isinstance(node, pyast.Name):
+        symbolic = context.functional_symbolic_values.get(node.id)
+        if symbolic is not None:
+            return symbolic
+        if node.id in context.parameters:
+            return CompileTimeExpr.literal(context.parameters[node.id])
+        raise _FunctionalSpecializationRejected(
+            f"compile-time name '{node.id}' is not a liftable functional value"
+        )
+    if isinstance(node, pyast.UnaryOp) and isinstance(node.op, pyast.USub):
+        return CompileTimeExpr(
+            CompileTimeOperator.NEGATE,
+            (_compile_time_expr_from_python(node.operand, context),),
+        )
+    operators: dict[type[pyast.operator], CompileTimeOperator] = {
+        pyast.Add: CompileTimeOperator.ADD,
+        pyast.Sub: CompileTimeOperator.SUBTRACT,
+        pyast.Mult: CompileTimeOperator.MULTIPLY,
+        pyast.FloorDiv: CompileTimeOperator.FLOOR_DIVIDE,
+        pyast.Mod: CompileTimeOperator.MODULO,
+    }
+    if isinstance(node, pyast.BinOp):
+        operator = operators.get(type(node.op))
+        if operator is not None:
+            return CompileTimeExpr(
+                operator,
+                (
+                    _compile_time_expr_from_python(node.left, context),
+                    _compile_time_expr_from_python(node.right, context),
+                ),
+            )
+    raise _FunctionalSpecializationRejected(
+        "generic value expression is outside bounded functional arithmetic"
+    )
+
+
+def _symbolic_specialization_value(
+    value: object,
+    context: _ExpressionContext,
+) -> CompileTimeExpr | None:
+    if isinstance(value, int):
+        return None
+    text = value.text if isinstance(value, ast.TypeName) else str(value)
+    try:
+        parsed = pyast.parse(text, mode="eval")
+    except SyntaxError:
+        return None
+    try:
+        expression = _compile_time_expr_from_python(parsed.body, context)
+    except _FunctionalSpecializationRejected:
+        return None
+    binder_ids = {
+        item.identity
+        for item in context.functional_symbolic_values.values()
+        for item in _compile_time_binders(item)
+    }
+    return expression if _compile_time_binder_ids(expression) & binder_ids else None
+
+
+def _compile_time_binders(value: object) -> tuple[CompileTimeBinderRef, ...]:
+    result: list[CompileTimeBinderRef] = []
+
+    def walk(item: object) -> None:
+        if isinstance(item, CompileTimeBinderRef):
+            result.append(item)
+        elif isinstance(item, CompileTimeExpr):
+            for operand in item.operands:
+                walk(operand)
+
+    walk(value)
+    return tuple(result)
+
+
+def _compile_time_binder_ids(value: object) -> set[str]:
+    return {item.identity for item in _compile_time_binders(value)}
+
+
+def _close_nested_functional_template(
+    value: ir_expr.Expression,
+    binder: CompileTimeBinderRef,
+) -> tuple[
+    ir_expr.Expression,
+    tuple[tuple[ir_expr.FunctionalCaptureRef, ir_expr.Expression], ...],
+]:
+    """Capture expressions owned by enclosing functional binders.
+
+    Nested regions own only their local binder.  A value depending exclusively
+    on an enclosing binder is therefore an immutable capture, while a single
+    compile-time expression mixing local and foreign binders remains outside
+    the closed representable subset and falls back to eager elaboration.
+    """
+
+    captures: list[tuple[ir_expr.FunctionalCaptureRef, ir_expr.Expression]] = []
+
+    def direct_binder_ids(item: object) -> set[str]:
+        result: set[str] = set()
+
+        def walk(current: object, bound: frozenset[str] = frozenset()) -> None:
+            if isinstance(current, CompileTimeBinderRef):
+                if current.identity not in bound:
+                    result.add(current.identity)
+                return
+            if isinstance(current, ir_expr.FunctionalRegion):
+                nested_bound = bound | {current.binder.identity}
+                walk(current.template, nested_bound)
+                for table in current.tables:
+                    walk(table.values, nested_bound)
+                for _, captured in current.captures:
+                    walk(captured, bound)
+                return
+            if isinstance(current, tuple):
+                for child in current:
+                    walk(child)
+                return
+            if is_dataclass(current) and not isinstance(current, type):
+                for field_ in fields(current):
+                    if field_.name in {"type", "origin"}:
+                        continue
+                    walk(getattr(current, field_.name))
+
+        walk(item)
+        return result
+
+    def capture(expression: ir_expr.Expression) -> ir_expr.FunctionalCaptureRef:
+        for reference, existing in captures:
+            if existing == expression:
+                return reference
+        ordinal = len(captures)
+        reference = ir_expr.FunctionalCaptureRef(
+            f"{binder.identity}:capture:{ordinal}",
+            f"{binder.display_name}_capture_{ordinal}",
+            expression.type,
+        )
+        captures.append((reference, expression))
+        return reference
+
+    def rewrite(expression: ir_expr.Expression) -> ir_expr.Expression:
+        if isinstance(expression, ir_expr.FunctionalRegion):
+            return expression
+        binder_ids = direct_binder_ids(expression)
+        if binder_ids and binder.identity not in binder_ids:
+            return capture(expression)
+        if isinstance(expression, ir_expr.FunctionalValue) and (
+            binder_ids - {binder.identity}
+        ):
+            raise _FunctionalSpecializationRejected(
+                "one functional value mixes local and enclosing binders"
+            )
+        if not binder_ids and not isinstance(
+            expression,
+            (
+                ir_expr.Constant,
+                ir_expr.FunctionalCaptureRef,
+                ir_expr.FunctionalTableLookup,
+                ir_expr.FunctionalValue,
+            ),
+        ):
+            return capture(expression)
+        updates = {
+            field_.name: rewrite_value(getattr(expression, field_.name))
+            for field_ in fields(expression)
+            if field_.init and field_.name not in {"type", "origin"}
+        }
+        try:
+            return replace(expression, **updates) if updates else expression
+        except (TypeError, ValueError) as error:
+            raise _FunctionalSpecializationRejected(str(error)) from error
+
+    def rewrite_value(item: object) -> object:
+        if isinstance(item, ir_expr.Expression):
+            return rewrite(item)
+        if isinstance(item, tuple):
+            return tuple(rewrite_value(child) for child in item)
+        if is_dataclass(item) and not isinstance(item, type):
+            updates = {
+                field_.name: rewrite_value(getattr(item, field_.name))
+                for field_ in fields(item)
+                if field_.init and field_.name not in {"type", "origin"}
+            }
+            try:
+                return replace(item, **updates) if updates else item
+            except (TypeError, ValueError) as error:
+                raise _FunctionalSpecializationRejected(str(error)) from error
+        return item
+
+    return rewrite(value), tuple(captures)
+
+
+def _type_syntax_mentions(
+    syntax: ast.TypeSyntax | None,
+    names: set[str],
+) -> bool:
+    if syntax is None:
+        return False
+    if isinstance(syntax, ast.VectorTypeName):
+        return (
+            isinstance(syntax.length, str)
+            and syntax.length in names
+            or _type_syntax_mentions(syntax.element_type, names)
+        )
+    if isinstance(syntax, ast.TupleTypeName):
+        return any(_type_syntax_mentions(item, names) for item in syntax.elements)
+    return any(
+        re.search(rf"(?<![A-Za-z0-9_]){re.escape(name)}(?![A-Za-z0-9_])", syntax.text)
+        for name in names
+    )
+
+
+def _substitute_functional_parameters(
+    value: object,
+    bindings: dict[str, ir_expr.Expression],
+) -> object:
+    if isinstance(value, ir_expr.ParameterRef) and value.name in bindings:
+        replacement = bindings[value.name]
+        if value.type != replacement.type:
+            raise _FunctionalSpecializationRejected(
+                f"parameter '{value.name}' changed type during functional lifting"
+            )
+        return replacement
+    if isinstance(value, tuple):
+        return tuple(_substitute_functional_parameters(item, bindings) for item in value)
+    if is_dataclass(value) and not isinstance(value, type):
+        updates = {
+            item.name: _substitute_functional_parameters(
+                getattr(value, item.name), bindings
+            )
+            for item in fields(value)
+            if item.init and item.name not in {"type", "origin"}
+        }
+        try:
+            return replace(value, **updates) if updates else value
+        except (TypeError, ValueError) as error:
+            raise _FunctionalSpecializationRejected(str(error)) from error
+    return value
+
+
+def _try_specialize_functional_callable(
+    declaration: ast.FunctionDecl | ast.OperatorDecl,
+    arguments: tuple[ir_expr.Expression, ...],
+    explicit: tuple[ast.SpecializationArgument, ...],
+    context: _ExpressionContext,
+    *,
+    specialization_symbols: dict[str, object] | None,
+    call_origin: SourceOrigin | None,
+) -> ir_expr.Expression | None:
+    """Inline one provably value-only binder-dependent specialization.
+
+    This admission path runs only while checking a symbolic functional-region
+    template.  A failure restores every mutable specialization registry and
+    lets the established eager elaborator produce the authoritative result or
+    diagnostic.
+    """
+
+    if not context.functional_symbolic_values or not explicit:
+        return None
+    parameters = {item.name: item for item in declaration.generic_parameters}
+    positional = [item for item in explicit if item.name is None]
+    named = [item for item in explicit if item.name is not None]
+    if positional and named:
+        return None
+    lifted: dict[str, CompileTimeExpr] = {}
+    concrete_explicit: list[ast.SpecializationArgument] = []
+    binder_values = {
+        binder.identity: binder.start
+        for expression in context.functional_symbolic_values.values()
+        for binder in _compile_time_binders(expression)
+    }
+    for index, item in enumerate(explicit):
+        name = item.name or (
+            declaration.generic_parameters[index].name
+            if index < len(declaration.generic_parameters)
+            else ""
+        )
+        symbolic = _symbolic_specialization_value(item.value, context)
+        if symbolic is None:
+            concrete_explicit.append(item)
+            continue
+        parameter = parameters.get(name)
+        if parameter is None or parameter.kind != "value":
+            return None
+        lifted[name] = symbolic
+        try:
+            representative = evaluate_compile_time(symbolic, binder_values)
+        except ValueError:
+            return None
+        concrete_explicit.append(
+            ast.SpecializationArgument(item.name, representative)
+        )
+    if not lifted:
+        return None
+    lifted_names = set(lifted)
+    if any(
+        _type_syntax_mentions(parameter.type_name, lifted_names)
+        for parameter in declaration.parameters
+    ) or _type_syntax_mentions(declaration.return_type, lifted_names):
+        return None
+
+    saved = (
+        list(context.generic_specializations),
+        dict(context.callable_definitions),
+        dict(context.callable_use_counts),
+        set(context.specializations_in_progress),
+        dict(context.specialization_budget_costs),
+    )
+    saved_certificate_count = len(context.functional_specialization_certificates)
+    budget = context.compile_time_budget
+    saved_budget = (
+        (budget.generated_elements, budget.operations, budget.call_depth)
+        if budget is not None
+        else None
+    )
+    try:
+        (
+            type_bindings,
+            value_bindings,
+            constant_bindings,
+            callable_bindings,
+        ) = _specialization_bindings(
+            declaration,
+            tuple(concrete_explicit),
+            arguments,
+            context,
+            specialization_symbols,
+        )
+        if constant_bindings or callable_bindings:
+            raise _FunctionalSpecializationRejected(
+                "functional lifting does not cross constant/callable parameters"
+            )
+        assert context.type_resolver is not None
+        callable_type_bindings = {
+            **type_bindings,
+            **{str(type_): type_ for type_ in type_bindings.values()},
+        }
+        resolver = _TypeResolver(
+            tuple(
+                ast.TypeAlias(name, target)
+                for name, target in context.type_resolver._aliases.items()
+            ),
+            tuple(context.type_resolver._structs.values()),
+            tuple(context.type_resolver._enum_declarations.values()),
+            declaration.generic_parameters,
+            {
+                **context.parameters,
+                **{
+                    name: value
+                    for name, value in value_bindings.items()
+                    if name not in lifted
+                },
+            },
+            callable_type_bindings,
+            context.type_resolver._identity_namespace,
+            tagged_unions=tuple(
+                context.type_resolver._tagged_union_declarations.values()
+            ),
+        )
+        concrete_parameters = tuple(
+            ir_module.FunctionParameter(
+                parameter.name, resolver.resolve(parameter.type_name)
+            )
+            for parameter in declaration.parameters
+        )
+        if any(
+            formal.type != actual.type
+            for formal, actual in zip(concrete_parameters, arguments, strict=True)
+        ):
+            raise _FunctionalSpecializationRejected(
+                "functional callable arguments changed exact type"
+            )
+        expected_return = (
+            resolver.resolve(declaration.return_type)
+            if declaration.return_type is not None
+            else None
+        )
+        identity = stable_digest(
+            {
+                "schema": "zlang-functional-specialization-v1",
+                "source": declaration.source_identity,
+                "owner": getattr(declaration, "name", getattr(declaration, "operator", "")),
+                "types": tuple(sorted((name, str(value)) for name, value in type_bindings.items())),
+                "values": tuple(
+                    sorted(
+                        (name, value)
+                        for name, value in value_bindings.items()
+                        if name not in lifted
+                    )
+                ),
+                "lifted": tuple(sorted(lifted.items())),
+                "dependency": context.generic_dependency_identity,
+            }
+        )
+        stack_key = f"functional:{identity}"
+        if stack_key in context.resolution_stack:
+            raise _FunctionalSpecializationRejected(
+                "recursive functional specialization cycle"
+            )
+        body_context = _context_for_callable_body(
+            context, declaration.source_identity, identity
+        )
+        body_context = body_context.derive(
+            type_resolver=resolver,
+            parameters={
+                **context.parameters,
+                **{
+                    name: value
+                    for name, value in value_bindings.items()
+                    if name not in lifted
+                },
+            },
+            functional_symbolic_values={
+                **context.functional_symbolic_values,
+                **lifted,
+            },
+            index_types={
+                **body_context.index_types,
+                **{
+                    name: UIntType(max(1, upper.bit_length()))
+                    for name, expression in lifted.items()
+                    for lower, upper in (compile_time_range(expression),)
+                    if lower >= 0
+                },
+            },
+            resolution_stack=(*context.resolution_stack, stack_key),
+            allow_fixed_target_coercion=declaration.return_type is None,
+        )
+        symbols: dict[str, object] = {
+            parameter.name: parameter for parameter in concrete_parameters
+        }
+        body = _check_callable_body(
+            declaration,
+            symbols,
+            expected_return,
+            body_context,
+            typed_boundary=(
+                expected_return is not None
+                and isinstance(declaration, ast.FunctionDecl)
+            ),
+        )
+        if expected_return is not None and body.type != expected_return:
+            raise _FunctionalSpecializationRejected(
+                "functional callable return type depends on lifted value"
+            )
+        substituted = _substitute_functional_parameters(
+            body,
+            {
+                parameter.name: argument
+                for parameter, argument in zip(
+                    concrete_parameters, arguments, strict=True
+                )
+            },
+        )
+        assert isinstance(substituted, ir_expr.Expression)
+        if call_origin is not None:
+            substituted = replace(substituted, origin=call_origin)
+        unique_binders = {
+            binder.identity: binder
+            for expression in lifted.values()
+            for binder in _compile_time_binders(expression)
+        }
+        virtual_instances = 1
+        for binder in unique_binders.values():
+            virtual_instances *= binder.stop - binder.start
+        owner_binder_identity = next(
+            (
+                owned_binder.identity
+                for symbolic_value in context.functional_symbolic_values.values()
+                for owned_binder in _compile_time_binders(symbolic_value)
+                if owned_binder.identity in unique_binders
+            ),
+            "",
+        )
+        if not owner_binder_identity:
+            raise _FunctionalSpecializationRejected(
+                "functional specialization has no enclosing owner binder"
+            )
+        declaration_owner = getattr(
+            declaration, "name", f"operator{getattr(declaration, 'operator', '')}"
+        )
+        context.functional_specialization_certificates.append(
+            FunctionalSpecializationCertificate(
+                declaration_identity=(
+                    f"{declaration.source_identity or context.source_unit or '<source>'}:"
+                    f"{declaration_owner}"
+                ),
+                dependency_identity=context.generic_dependency_identity,
+                invariant_arguments=tuple(
+                    sorted(
+                        (name, str(value))
+                        for name, value in (
+                            *type_bindings.items(),
+                            *(
+                                item
+                                for item in value_bindings.items()
+                                if item[0] not in lifted
+                            ),
+                        )
+                    )
+                ),
+                lifted_arguments=tuple(sorted(lifted.items())),
+                owner_binder_identity=owner_binder_identity,
+                parameter_types=tuple(item.type for item in concrete_parameters),
+                return_type=substituted.type,
+                body_identity=expression_semantic_identity(substituted),
+                virtual_instances=virtual_instances,
+            )
+        )
+        return substituted
+    except (SemanticError, ValueError, _FunctionalSpecializationRejected):
+        (
+            generic_specializations,
+            callable_definitions,
+            callable_use_counts,
+            specializations_in_progress,
+            specialization_budget_costs,
+        ) = saved
+        context.generic_specializations[:] = generic_specializations
+        context.callable_definitions.clear()
+        context.callable_definitions.update(callable_definitions)
+        context.callable_use_counts.clear()
+        context.callable_use_counts.update(callable_use_counts)
+        context.specializations_in_progress.clear()
+        context.specializations_in_progress.update(specializations_in_progress)
+        context.specialization_budget_costs.clear()
+        context.specialization_budget_costs.update(specialization_budget_costs)
+        del context.functional_specialization_certificates[
+            saved_certificate_count:
+        ]
+        if budget is not None and saved_budget is not None:
+            (
+                budget.generated_elements,
+                budget.operations,
+                budget.call_depth,
+            ) = saved_budget
+        return None
+
+
 def _specialize_callable(
     declaration: ast.FunctionDecl | ast.OperatorDecl,
     arguments: tuple[ir_expr.Expression, ...],
@@ -4922,8 +6154,7 @@ def _specialize_callable_unannotated(
         declaration.source_identity,
         identity,
     )
-    body_context = replace(
-        body_context,
+    body_context = body_context.derive(
         type_resolver=resolver,
         parameters={**context.parameters, **value_bindings},
         compile_time_constants={
@@ -5428,6 +6659,7 @@ def _select_compile_time_module_items(
         fallback.extend(module.connections)
         fallback.extend(module.connection_chains)
         fallback.extend(module.csr_blocks)
+        fallback.extend(module.csr_groups)
         fallback.extend(module.rules)
         fallback.extend(module.rule_priorities)
         fallback.extend(module.fsms)
@@ -5708,7 +6940,7 @@ def _select_compile_time_module_items(
             "ports", "assignments", "clocks", "resets", "reset_domains",
             "clock_physical", "reset_physical",
             "registers", "next_assignments", "request_responses",
-            "connections", "csr_blocks", "rules", "rule_priorities", "fifos",
+            "connections", "csr_blocks", "csr_groups", "rules", "rule_priorities", "fifos",
             "connection_chains",
             "memories", "roms", "arbiters", "contracts", "instances",
             "verification_goals", "verification_scopes",
@@ -5738,6 +6970,8 @@ def _select_compile_time_module_items(
             fields_to_extend["connection_chains"].append(item)
         elif isinstance(item, ast.CsrBlockDecl):
             fields_to_extend["csr_blocks"].append(item)
+        elif isinstance(item, ast.CsrGroupDecl):
+            fields_to_extend["csr_groups"].append(item)
         elif isinstance(item, (ast.RuleDecl, ast.AnonymousRuleDecl)):
             fields_to_extend["rules"].append(item)
         elif isinstance(item, ast.RulePriority):
@@ -6157,6 +7391,7 @@ def _normalize_concise_module_items(
         fallback.extend(module.connections)
         fallback.extend(module.connection_chains)
         fallback.extend(module.csr_blocks)
+        fallback.extend(module.csr_groups)
         fallback.extend(module.rules)
         fallback.extend(module.rule_priorities)
         fallback.extend(module.fsms)
@@ -6471,7 +7706,6 @@ def analyze(
     exploration_results: list[object] | None = None,
     formal_config: object | None = None,
     formal_verifier: object | None = None,
-    allow_sequential_protocol: bool = False,
     inherited_domain: tuple[str, str] | ir_cdc.ClockDomain | None = None,
     specialization_type_bindings: dict[str, HardwareType] | None = None,
     specialization_constant_bindings: dict[str, ir_expr.Expression] | None = None,
@@ -6979,45 +8213,10 @@ def analyze(
     # Subsequent structural elaboration sees concrete values, including
     # values that were themselves defined by parameter expressions.
     type_resolver._parameter_values.update(parameter_values)
-    if module.parameter_constraint is not None:
-        constraint_context = _ExpressionContext(
-            {},
-            allow_delay=False,
-            parameters=parameter_values,
-            unresolved_parameters=unresolved_parameter_names,
-            type_resolver=type_resolver,
-            source_unit=effective_source_unit,
-            source_digest=effective_source_digest,
-        )
-        try:
-            constraint_satisfied = _compile_time_condition(
-                module.parameter_constraint, {}, constraint_context
-            )
-        except SemanticError as error:
-            raise SemanticError(
-                f"module '{module.name}' parameter constraint cannot be "
-                f"discharged: {error}",
-                code="ZL-SEMANTIC-PARAMETER-CONSTRAINT",
-                primary=_semantic_origin(
-                    module.parameter_constraint, constraint_context
-                ),
-                fixes=("provide concrete type/value specialization arguments",),
-            ) from error
-        if not constraint_satisfied:
-            raise SemanticError(
-                f"module '{module.name}' parameter constraint is not satisfied",
-                code="ZL-SEMANTIC-PARAMETER-CONSTRAINT",
-                primary=_semantic_origin(
-                    module.parameter_constraint, constraint_context
-                ),
-                notes=(
-                    "resolved values: "
-                    + ", ".join(
-                        f"{name}={value}"
-                        for name, value in sorted(parameter_values.items())
-                    ),
-                ),
-            )
+    _check_module_parameter_constraint(
+        module, type_resolver, parameter_values, unresolved_parameter_names,
+        effective_source_unit, effective_source_digest,
+    )
     module = replace(
         module,
         parameters=tuple(
@@ -7128,7 +8327,7 @@ def analyze(
     _validate_operator_declarations(module.operators, module.structs)
     reserved_intrinsics = {
         "length", "floor_log2", "ceil_log2", "index_width", "is_power_of_two",
-        "pi", "sin", "cos", "log2", "log", "parity",
+        "pi", "sin", "cos", "log2", "log", "exp", "sqrt", "parity",
         "enum_encode", "enum_valid", "enum_decode",
     }
     for declaration in module.functions:
@@ -7581,7 +8780,7 @@ def analyze(
         if (
             direction is ir_module.PortDirection.INPUT
             and not allow_external_enum_inputs
-            and _contains_enum_type(port.type)
+            and _contains_nominal_type(port.type, EnumType)
         ):
             if isinstance(port.type, EnumType):
                 boundary_message = (
@@ -7600,7 +8799,7 @@ def analyze(
         if (
             direction is ir_module.PortDirection.INPUT
             and not allow_external_enum_inputs
-            and _contains_tagged_union_type(port.type)
+            and _contains_nominal_type(port.type, TaggedUnionType)
         ):
             raise SemanticError(
                 f"top-level input '{port.name}' cannot expose tagged-union type "
@@ -7717,11 +8916,11 @@ def analyze(
     ).hexdigest()[:24]
     csr_blocks = _analyze_csr_blocks(
         module.csr_blocks,
+        module.csr_groups,
         type_resolver,
         symbols,
         module_identity=csr_module_identity,
         clock_domain=clock,
-        reset_domain=reset,
         clock_domains=clock_domains,
         source_unit=effective_source_unit,
         source_digest=effective_source_digest,
@@ -8464,8 +9663,7 @@ def analyze(
             kind="register",
         )
 
-    module_context = _ExpressionContext(
-        function_signatures,
+    module_context = pure_context.derive(
         allow_delay=bool(clock_domains),
         clock_domains=tuple(domain.clock for domain in clock_domains),
         default_clock_domain=clock,
@@ -8474,38 +9672,14 @@ def analyze(
         static_callables=pure_context.static_callables,
         operator_declarations=module.operators,
         struct_declarations=module.structs,
-        generic_specializations=pure_context.generic_specializations,
-        function_definitions=pure_context.function_definitions,
-        callable_definitions=pure_context.callable_definitions,
-        callable_use_counts=pure_context.callable_use_counts,
-        specializations_in_progress=pure_context.specializations_in_progress,
-        specialization_budget_costs=pure_context.specialization_budget_costs,
-        compile_time_real_quantize_cache=(
-            pure_context.compile_time_real_quantize_cache
-        ),
         structs=struct_types,
         parameters=parameter_values,
         unresolved_parameters=unresolved_parameter_names,
         type_resolver=type_resolver,
         generic_dependency_identity=pure_context.generic_dependency_identity,
-        compile_time_budget=pure_context.compile_time_budget,
-        formal_config=pure_context.formal_config,
-        formal_verifier=pure_context.formal_verifier,
-        exploration_results=pure_context.exploration_results,
         candidate_site_owner=candidate_site_owner,
         source_unit=effective_source_unit,
         source_digest=effective_source_digest,
-        source_digests=source_digests,
-        definition_resolutions=pure_context.definition_resolutions,
-        definition_targets=pure_context.definition_targets,
-        definition_declarations=pure_context.definition_declarations,
-        completion_scopes=pure_context.completion_scopes,
-        signature_help_calls=pure_context.signature_help_calls,
-        analysis_needs=pure_context.analysis_needs,
-        functional_binder_ordinals=pure_context.functional_binder_ordinals,
-        next_functional_binder_ordinal=(
-            pure_context.next_functional_binder_ordinal
-        ),
         write_only_outputs=outputs,
         readable_cdc_outputs=readable_cdc_outputs,
     )
@@ -8724,27 +9898,41 @@ def analyze(
             )
         return f"{owner}[{index}]{tail}"
 
-    def endpoint(path: str, *, source: bool) -> ir_module.ProtocolEndpoint:
+    def endpoint(
+        path: str,
+        *,
+        source: bool,
+        name_origins: tuple[SourceSpan | None, ...] = (),
+    ) -> ir_module.ProtocolEndpoint:
+        primary = _declaration_origin(
+            name_origins[0] if name_origins else None,
+            f"protocol endpoint {path}",
+            module_context,
+        )
+
+        def reject(message: str) -> NoReturn:
+            raise SemanticError(message, primary=primary)
+
         path = concrete_hierarchical_endpoint(path)
         parts = path.split(".")
         if len(parts) == 1:
             port = symbols.get(parts[0])
             if port is None or port.protocol is InterfaceProtocol.WIRE:
-                raise SemanticError(f"protocol endpoint '{path}' is not a protocol port")
+                reject(f"protocol endpoint '{path}' is not a protocol port")
             owner, name, direction, endpoint_type = module.name, port.name, port.direction, port.type
             capacity, domain = port.capacity, port.domain
         elif len(parts) == 2:
             inst = next((item for item in instances if item.name == parts[0]), None)
             child = child_irs.get(parts[0])
             if inst is None or child is None:
-                raise SemanticError(f"unknown hierarchical protocol instance '{parts[0]}'")
+                reject(f"unknown hierarchical protocol instance '{parts[0]}'")
             port = next((item for item in child.ports if item.name == parts[1]), None)
             if port is None:
-                raise SemanticError(f"'{path}' is not a child protocol endpoint")
+                reject(f"'{path}' is not a child protocol endpoint")
             owner, name, direction, endpoint_type = inst.name, port.name, port.direction, port.type
             capacity, domain = port.capacity, port.domain
         else:
-            raise SemanticError(f"protocol endpoint path '{path}' is too deep")
+            reject(f"protocol endpoint path '{path}' is too deep")
         expected = (
             ir_module.PortDirection.INPUT if source and len(parts) == 1
             else ir_module.PortDirection.OUTPUT if source
@@ -8752,7 +9940,7 @@ def analyze(
             else ir_module.PortDirection.INPUT
         )
         if direction is not expected:
-            raise SemanticError(f"protocol endpoint '{path}' has wrong direction")
+            reject(f"protocol endpoint '{path}' has wrong direction")
         result = ir_module.ProtocolEndpoint(owner, name, direction, port.protocol, endpoint_type, capacity, domain)
         protocol_endpoints.append(result)
         return result
@@ -9767,7 +10955,8 @@ def analyze(
         unresolved = {
             parameter.name
             for parameter in child_parameters
-            if parameter.name not in resolved_arguments
+            if parameter.kind in {"type", "value"}
+            and parameter.name not in resolved_arguments
         }
         if unresolved and declaration.array_length is None:
             scalar_inputs: list[tuple[str, ast.TypeSyntax]] = []
@@ -10032,6 +11221,15 @@ def analyze(
             if len(clock_domains) == 1 and clock is not None and reset is not None
             else None,
         )
+        if child_ast.parameter_constraint is not None:
+            child_values, child_unresolved = _resolved_module_value_parameters(
+                child_ast, child_resolver
+            )
+            _check_module_parameter_constraint(
+                child_ast, child_resolver, child_values, child_unresolved,
+                child_ast.source_identity or effective_source_unit,
+                effective_source_digest,
+            )
         array_length = (
             _resolve_range_bound(
                 declaration.array_length, module_context, "instance array"
@@ -10082,6 +11280,129 @@ def analyze(
                 module_context.instance_output_domains[
                     (physical_name, port.name)
                 ] = port.domain
+        for port in child_ast.ports:
+            syntax = port.type_name
+            if (
+                not isinstance(syntax, ast.InterfaceTypeName)
+                or syntax.kind is not ast.InterfaceKind.READY_VALID
+            ):
+                continue
+            payload_type = child_resolver.resolve(syntax.payload_type)
+            outgoing = (
+                (ReadyValidSignal.PAYLOAD, ReadyValidSignal.VALID)
+                if port.direction is ast.Direction.OUTPUT
+                else (ReadyValidSignal.READY,)
+            )
+            for physical_name in physical_names:
+                for port_name in port.names or (port.name,):
+                    for signal in outgoing:
+                        module_context.instance_protocol_outputs[
+                            (physical_name, f"{port_name}.{signal.value}")
+                        ] = (
+                            ready_valid_field_name(port_name, signal),
+                            payload_type if signal is ReadyValidSignal.PAYLOAD
+                            else BitType(),
+                            port.domain or (
+                                child_ast.clocks[0]
+                                if len(child_ast.clocks) == 1
+                                else (clock if len(clock_domains) == 1 else None)
+                            ),
+                        )
+        # Parent registers, rules and formal predicates are checked before
+        # child elaboration.  Predeclare outgoing protocol leaves from the
+        # specialized source signature, then compare them with the final
+        # child IR below.  No backend name or guessed semantic value is used.
+        child_protocols = {item.name: item for item in child_ast.protocols}
+        for aggregate in child_ast.aggregate_interfaces:
+            protocol = child_protocols.get(aggregate.protocol)
+            if protocol is None or aggregate.role not in protocol.roles:
+                continue  # The exact child analysis reports the source error.
+            values: dict[str, int | str] = {
+                item.name: item.default
+                for item in protocol.parameters
+                if item.default is not None
+            }
+            type_values: dict[str, HardwareType] = {}
+            positional = 0
+            for argument in aggregate.arguments:
+                parameter = (
+                    next((item for item in protocol.parameters
+                          if item.name == argument.name), None)
+                    if argument.name is not None
+                    else (protocol.parameters[positional]
+                          if positional < len(protocol.parameters) else None)
+                )
+                if argument.name is None:
+                    positional += 1
+                if parameter is None:
+                    continue  # Final child analysis owns the diagnostic.
+                if parameter.kind == "type":
+                    syntax = argument.value
+                    type_values[parameter.name] = child_resolver.resolve(
+                        syntax if isinstance(
+                            syntax, (ast.TypeName, ast.VectorTypeName,
+                                     ast.TupleTypeName)
+                        ) else ast.TypeName(str(syntax))
+                    )
+                else:
+                    value = argument.value
+                    if isinstance(value, str):
+                        parent = next((item for item in child_ast.parameters
+                                       if item.name == value), None)
+                        if parent is not None and parent.default is not None:
+                            value = parent.default
+                    values[parameter.name] = value
+            protocol_resolver = _TypeResolver(
+                child_ast.type_aliases,
+                child_ast.structs,
+                child_ast.enums,
+                protocol.parameters,
+                values,
+                type_bindings=type_values,
+                identity_namespace=(child_ast.source_identity or child_ast.name),
+                tagged_unions=child_ast.tagged_unions,
+            )
+            for channel in protocol.channels:
+                syntax = channel.type_name
+                if (
+                    not isinstance(syntax, ast.InterfaceTypeName)
+                    or syntax.kind is not ast.InterfaceKind.READY_VALID
+                ):
+                    continue
+                payload_type = protocol_resolver.resolve(syntax.payload_type)
+                direction = (
+                    ast.Direction.OUTPUT
+                    if aggregate.role == channel.source_role
+                    else ast.Direction.INPUT
+                )
+                outgoing = (
+                    (ReadyValidSignal.PAYLOAD, ReadyValidSignal.VALID)
+                    if direction is ast.Direction.OUTPUT
+                    else (ReadyValidSignal.READY,)
+                )
+                synthetic = f"{aggregate.name}__{channel.name}"
+                domain = (channel.domain or aggregate.domain or
+                          (child_ast.clocks[0] if len(child_ast.clocks) == 1
+                           else None))
+                for physical_name in physical_names:
+                    for signal in outgoing:
+                        projection = (
+                            ready_valid_field_name(synthetic, signal),
+                            payload_type if signal is ReadyValidSignal.PAYLOAD
+                            else BitType(),
+                            domain,
+                        )
+                        module_context.instance_protocol_outputs[
+                            (physical_name,
+                             f"{aggregate.name}.{channel.name}.{signal.value}")
+                        ] = projection
+        _predeclare_child_csr_outputs(
+            child_ast,
+            child_resolver,
+            physical_names,
+            clock_domains,
+            module_context,
+        )
         if output_fields and array_length is None:
             aggregate_type = StructType(
                 f"__instance_{declaration.name}", tuple(output_fields)
@@ -10242,8 +11563,7 @@ def analyze(
             module_context,
             purpose=f"rule '{declaration.name}' guard refinement",
         )
-        rule_context = replace(
-            module_context,
+        rule_context = module_context.derive(
             range_refinements=_guard_range_refinements(guard_analysis),
         )
         actions: list[ir_module.NextAssignment] = []
@@ -10387,8 +11707,7 @@ def analyze(
                     combined_analysis,
                     term_analysis,
                 )
-                effect_context = replace(
-                    effect_context,
+                effect_context = effect_context.derive(
                     range_refinements=_guard_range_refinements(combined_analysis),
                 )
             activation = typed_terms[0]
@@ -10807,7 +12126,7 @@ def analyze(
             raise SemanticError("duplicate rule priority")
         priority_edges.add(edge)
         priorities.append(ir_module.RulePriority(*edge))
-    if _has_priority_cycle(rule_names, priority_edges):
+    if _has_priority_cycle(priority_edges):
         raise SemanticError("rule priority graph contains a cycle")
     rule_output_targets = {
         action.target.name
@@ -10987,6 +12306,13 @@ def analyze(
                             "a CSR command binding and a rule action"
                         )
                     assigned_outputs.add((field.binding.signal, None, None))
+            for event in register.events:
+                if event.signal in rule_output_targets:
+                    raise SemanticError(
+                        f"output '{event.signal}' is driven by both a CSR event "
+                        "binding and a rule action"
+                    )
+                assigned_outputs.add((event.signal, None, None))
 
     for arbiter in arbiters:
         for source in arbiter.sources:
@@ -11298,7 +12624,6 @@ def analyze(
             exploration_results=exploration_results,
             formal_config=formal_config,
             formal_verifier=formal_verifier,
-            allow_sequential_protocol=True,
             specialization_type_bindings=resolved_type_arguments,
             specialization_constant_bindings=constant_arguments,
             specialization_callable_bindings=callable_arguments,
@@ -11392,11 +12717,6 @@ def analyze(
                     "wire-only children or mixed scalar/primitive ready-valid "
                     "children; "
                     "mixed or other protocol ports are not supported"
-                )
-            if child_ir.csr_blocks:
-                raise SemanticError(
-                    f"instance array '{declaration.name}' currently does not support "
-                    "CSR children"
                 )
             storage_count = len(child_ir.fifos) + len(child_ir.memories) + len(child_ir.roms)
             scheduled_storage = any(fifo.scheduled for fifo in child_ir.fifos) or any(
@@ -11526,10 +12846,211 @@ def analyze(
                         f"elaboration for '{physical_name}.{port.name}': "
                         f"predeclared {predeclared_type}, analyzed {port.type}"
                     )
+                predeclared_domain = module_context.instance_output_domains.get(
+                    (physical_name, port.name)
+                )
+                predeclared_csr_ports = {
+                    *(
+                        name
+                        for name, _type in ir_csr.CsrAccessInterface(
+                            semantic_id="csr-access-validation"
+                        ).output_types
+                    ),
+                    *(
+                        projection[0]
+                        for key, projection
+                        in module_context.instance_csr_state_paths.items()
+                        if key[0] == physical_name
+                    ),
+                }
+                if (
+                    child_ast.csr_blocks
+                    and port.name in predeclared_csr_ports
+                    and (physical_name, port.name)
+                    in module_context.instance_output_domains
+                    and predeclared_domain != port.domain
+                ):
+                    raise SemanticError(
+                        f"specialized child output domain changed during "
+                        f"elaboration for '{physical_name}.{port.name}': "
+                        f"predeclared {predeclared_domain}, analyzed {port.domain}"
+                    )
                 module_context.instance_outputs[(physical_name, port.name)] = port.type
                 module_context.instance_output_domains[
                     (physical_name, port.name)
                 ] = port.domain
+            for port in child_ir.ports:
+                if port.protocol is not InterfaceProtocol.READY_VALID:
+                    continue
+                logical_bases = [port.name]
+                logical_bases.extend(
+                    f"{aggregate.name}.{member.name}"
+                    for aggregate in child_ir.aggregate_protocol_endpoints
+                    for member in aggregate.members
+                    if port.name == f"{aggregate.name}__{member.name}"
+                )
+                outgoing = (
+                    (ReadyValidSignal.PAYLOAD, ReadyValidSignal.VALID)
+                    if port.direction is ir_module.PortDirection.OUTPUT
+                    else (ReadyValidSignal.READY,)
+                )
+                for signal in outgoing:
+                    scalar_name = ready_valid_field_name(port.name, signal)
+                    signal_type = (
+                        port.type if signal is ReadyValidSignal.PAYLOAD else BitType()
+                    )
+                    for base in logical_bases:
+                        previous = module_context.instance_protocol_outputs.get(
+                            (physical_name, f"{base}.{signal.value}")
+                        )
+                        projection = (scalar_name, signal_type, port.domain)
+                        if previous is not None and previous != projection:
+                            raise SemanticError(
+                                "specialized child protocol signal changed "
+                                "during elaboration for "
+                                f"'{physical_name}.{base}.{signal.value}': "
+                                f"predeclared {previous}, analyzed {projection}"
+                            )
+                        module_context.instance_protocol_outputs[
+                            (physical_name, f"{base}.{signal.value}")
+                        ] = projection
+            for block in child_ir.csr_blocks:
+                for binding in block.state_bindings:
+                    block_name, register_name, field_name = (
+                        ir_csr.csr_named_state_path(block, binding)
+                    )
+                    port_name = ir_csr.csr_state_port_name(binding)
+                    projection_key = (
+                        physical_name,
+                        block_name,
+                        register_name,
+                        field_name,
+                    )
+                    projection = (
+                        port_name,
+                        binding.canonical_type,
+                        block.domain,
+                    )
+                    predeclared_projection = (
+                        module_context.instance_csr_state_paths.get(projection_key)
+                    )
+                    if (
+                        predeclared_projection is not None
+                        and predeclared_projection != projection
+                    ):
+                        raise SemanticError(
+                            "specialized child CSR projection changed during "
+                            f"elaboration for '{physical_name}.{block_name}."
+                            f"{register_name}.{field_name}': predeclared "
+                            f"{predeclared_projection}, analyzed {projection}"
+                        )
+                    module_context.instance_csr_state_paths[
+                        projection_key
+                    ] = projection
+                    module_context.instance_csr_state_paths[
+                        (physical_name, block_name, "state", register_name, field_name)
+                    ] = projection
+                    register = block.registers[
+                        binding.csr_field_id.register.declaration_ordinal
+                    ]
+                    if register.projection_path:
+                        module_context.instance_csr_state_paths[
+                            (
+                                physical_name,
+                                block_name,
+                                *register.projection_path,
+                                field_name,
+                            )
+                        ] = projection
+                        module_context.instance_csr_state_paths[
+                            (
+                                physical_name,
+                                block_name,
+                                "state",
+                                *register.projection_path,
+                                field_name,
+                            )
+                        ] = projection
+                fields_by_identity = {
+                    field.identity: (register, field)
+                    for register in block.registers
+                    for field in register.fields
+                }
+                for observation in block.access_observations:
+                    register, field = fields_by_identity[observation.csr_field_id]
+                    entries = (
+                        ("read_hit", ir_csr.csr_read_hit_port_name(observation), ir_csr.BitType()),
+                        (
+                            "write_hit",
+                            ir_csr.csr_observation_write_hit_port_name(observation),
+                            ir_csr.BitType(),
+                        ),
+                        (
+                            "write_value",
+                            ir_csr.csr_observation_write_value_port_name(observation),
+                            observation.canonical_type,
+                        ),
+                        (
+                            "value",
+                            ir_csr.csr_observation_value_port_name(observation),
+                            observation.canonical_type,
+                        ),
+                    )
+                    for leaf, port_name, type_ in entries:
+                        module_context.instance_csr_state_paths[
+                            (
+                                physical_name,
+                                block.name,
+                                "events",
+                                register.name,
+                                field.name,
+                                leaf,
+                            )
+                        ] = (port_name, type_, block.domain)
+                    if field.access is ir_csr.CsrAccess.READ_ONLY:
+                        module_context.instance_csr_state_paths[
+                            (
+                                physical_name, block.name, "status",
+                                register.name, field.name,
+                            )
+                        ] = (
+                            ir_csr.csr_observation_value_port_name(observation),
+                            observation.canonical_type,
+                            block.domain,
+                        )
+                for register in block.registers:
+                    for event in register.events:
+                        module_context.instance_csr_state_paths[
+                            (
+                                physical_name,
+                                block.name,
+                                "events",
+                                register.name,
+                                event.name,
+                            )
+                        ] = (
+                            ir_csr.csr_event_port_name(event),
+                            event.canonical_type,
+                            block.domain,
+                        )
+                for view in block.split_views:
+                    projection = (
+                        ir_csr.csr_split_port_name(block, view),
+                        view.canonical_type,
+                        block.domain,
+                    )
+                    module_context.instance_csr_state_paths[
+                        (physical_name, block.name, view.name, view.field_name)
+                    ] = projection
+                    module_context.instance_csr_state_paths[
+                        (
+                            physical_name,
+                            block.name,
+                            "state",
+                            view.name,
+                            view.field_name,
+                        )
+                    ] = projection
         # Child port types are resolved through the child declaration's public
         # syntax when available; a synthetic aggregate exposes c.y to the
         # parent type checker without guessing generated RTL names.
@@ -11902,6 +13423,26 @@ def analyze(
             (item for item in aggregate_protocol_endpoints if item.name == source_parts[0]),
             None,
         ) if len(source_parts) == 1 else None
+        # A same-role top/child connection is a delegation regardless of its
+        # source spelling.  The physical direction of every member is fixed
+        # by the protocol roles, not by which endpoint the author wrote first.
+        # Normalize it so all downstream consumers see the existing top-to-
+        # child delegation shape.
+        reverse_delegation = (
+            source_aggregate is not None
+            and len(destination_parts) == 1
+            and next(
+                (item for item in aggregate_protocol_endpoints
+                 if item.name == destination_parts[0]),
+                None,
+            ) is not None
+        )
+        if reverse_delegation:
+            top_aggregate = next(
+                item for item in aggregate_protocol_endpoints
+                if item.name == destination_parts[0]
+            )
+            destination_aggregate = source_aggregate
         if top_aggregate is not None and destination_aggregate is not None:
             if top_aggregate.protocol != destination_aggregate.protocol:
                 raise SemanticError("top aggregate delegation requires the same protocol")
@@ -11921,9 +13462,23 @@ def analyze(
                     other.protocol, other.payload_type, other.source_role, other.sink_role
                 ):
                     raise SemanticError(f"top aggregate delegation member '{name}' does not match")
+                if member.domain != other.domain:
+                    raise SemanticError(
+                        f"top aggregate delegation member '{name}' must share "
+                        "a clock domain"
+                    )
+            normalized_top = (
+                declaration.destination if reverse_delegation
+                else declaration.source
+            )
+            normalized_child = (
+                declaration.source if reverse_delegation
+                else declaration.destination
+            )
             aggregate_protocol_connections.append(
                 ir_module.AggregateProtocolConnection(
-                    declaration.source, declaration.destination,
+                    normalized_top,
+                    normalized_child,
                     top_aggregate.protocol, top_aggregate.specialization_identity,
                     delegation=True,
                 )
@@ -12068,8 +13623,16 @@ def analyze(
                 )
             )
             continue
-        source = endpoint(declaration.source, source=True)
-        destination = endpoint(declaration.destination, source=False)
+        source = endpoint(
+            declaration.source,
+            source=True,
+            name_origins=declaration.source_name_origins,
+        )
+        destination = endpoint(
+            declaration.destination,
+            source=False,
+            name_origins=declaration.destination_name_origins,
+        )
         if source.protocol is not destination.protocol:
             raise SemanticError("hierarchical protocol connections require identical protocols")
         if source.payload_type != destination.payload_type:
@@ -12151,6 +13714,9 @@ def analyze(
                     )
 
     hierarchical_assignments = list(module.assignments)
+    child_protocol_payload_fields: dict[
+        tuple[str, str], dict[tuple[str, ...], ir_expr.Expression]
+    ] = {}
     for declaration in module.instances:
         hierarchical_assignments.extend(
             ast.Assignment(f"{declaration.name}.{binding.target}", binding.expression)
@@ -12162,6 +13728,147 @@ def analyze(
             continue
         if root in instance_names:
             parts = assignment.target.split(".")
+            if len(parts) >= 3:
+                child = child_irs[root]
+                if "payload" in parts[2:-1]:
+                    payload_index = parts.index("payload", 2)
+                    child_name = "__".join(parts[1:payload_index])
+                    child_port = next(
+                        (port for port in child.ports
+                         if port.name == child_name), None
+                    )
+                    if (
+                        child_port is None
+                        or child_port.protocol is not InterfaceProtocol.READY_VALID
+                        or child_port.direction is not ir_module.PortDirection.INPUT
+                    ):
+                        raise SemanticError(
+                            f"'{assignment.target}' is not a writable static "
+                            "child ready/valid payload field"
+                        )
+                    field_path = tuple(parts[payload_index + 1:])
+                    field_type: HardwareType = child_port.type
+                    for field_name in field_path:
+                        if not isinstance(field_type, StructType):
+                            raise SemanticError(
+                                f"'{assignment.target}' does not select a "
+                                "struct payload field"
+                            )
+                        selected = next(
+                            (field for field in field_type.fields
+                             if field.name == field_name), None
+                        )
+                        if selected is None:
+                            raise SemanticError(
+                                f"child payload '{child_name}' has no field "
+                                f"'{field_name}'"
+                            )
+                        field_type = selected.type
+                    bound = _check_typed_boundary(
+                        assignment.expression, value_symbols, field_type,
+                        module_context,
+                    )
+                    if bound.type != field_type:
+                        raise SemanticError(
+                            f"binding '{assignment.target}' has type "
+                            f"{bound.type}, expected {field_type}"
+                        )
+                    bound_domains = {
+                        item for item in _expression_domains(
+                            _expand_immutable_locals(bound, value_symbols),
+                            {**symbols, **resource_symbols}, register_symbols,
+                        ) if item is not None
+                    }
+                    if (
+                        child_port.domain is not None
+                        and bound_domains - {child_port.domain}
+                    ):
+                        foreign = sorted(bound_domains - {child_port.domain})[0]
+                        raise SemanticError(
+                            f"child protocol payload field '{assignment.target}' "
+                            f"in domain '{child_port.domain}' reads dynamic "
+                            f"value from '{foreign}'",
+                            code="ZL-DOMAIN-CROSSING",
+                            primary=bound.origin,
+                        )
+                    fields_for_port = child_protocol_payload_fields.setdefault(
+                        (root, child_name), {}
+                    )
+                    if field_path in fields_for_port:
+                        raise SemanticError(
+                            f"child protocol payload field '{assignment.target}' "
+                            "has multiple drivers"
+                        )
+                    fields_for_port[field_path] = bound
+                    continue
+                try:
+                    signal = ReadyValidSignal(parts[-1])
+                except ValueError as error:
+                    raise SemanticError(
+                        f"child protocol signal '{assignment.target}' is unknown"
+                    ) from error
+                if signal is ReadyValidSignal.TRANSFER or len(parts) not in {3, 4}:
+                    raise SemanticError(
+                        f"child protocol binding '{assignment.target}' must select "
+                        "one payload, valid, or ready signal"
+                    )
+                child_name = "__".join(parts[1:-1])
+                child_port = next(
+                    (port for port in child.ports if port.name == child_name), None
+                )
+                if child_port is None or child_port.protocol is not InterfaceProtocol.READY_VALID:
+                    raise SemanticError(
+                        f"'{assignment.target}' is not a static child "
+                        "ready/valid signal"
+                    )
+                writable = (
+                    signal is ReadyValidSignal.READY
+                    if child_port.direction is ir_module.PortDirection.OUTPUT
+                    else signal in {ReadyValidSignal.PAYLOAD, ReadyValidSignal.VALID}
+                )
+                if not writable:
+                    raise SemanticError(
+                        f"child protocol signal '{assignment.target}' is child-owned"
+                    )
+                signal_type = (
+                    child_port.type if signal is ReadyValidSignal.PAYLOAD else BitType()
+                )
+                bound = _check_typed_boundary(
+                    assignment.expression, value_symbols, signal_type,
+                    module_context,
+                )
+                if bound.type != signal_type:
+                    raise SemanticError(
+                        f"binding '{assignment.target}' has type {bound.type}, "
+                        f"expected {signal_type}"
+                    )
+                scalar_name = ready_valid_field_name(child_name, signal)
+                if any(
+                    item.instance == root and item.port == scalar_name
+                    for item in instance_bindings
+                ):
+                    raise SemanticError(
+                        f"child protocol signal '{assignment.target}' has "
+                        "multiple drivers"
+                    )
+                bound_domains = {
+                    item for item in _expression_domains(
+                        _expand_immutable_locals(bound, value_symbols),
+                        {**symbols, **resource_symbols}, register_symbols,
+                    ) if item is not None
+                }
+                if child_port.domain is not None and bound_domains - {child_port.domain}:
+                    foreign = sorted(bound_domains - {child_port.domain})[0]
+                    raise SemanticError(
+                        f"child protocol signal '{assignment.target}' in domain "
+                        f"'{child_port.domain}' reads dynamic value from '{foreign}'",
+                        code="ZL-DOMAIN-CROSSING",
+                        primary=bound.origin,
+                    )
+                instance_bindings.append(
+                    ir_module.InstancePortBinding(root, scalar_name, bound)
+                )
+                continue
             if len(parts) != 2:
                 raise SemanticError("instance binding must select one child port")
             child = child_irs[root]
@@ -12226,7 +13933,7 @@ def analyze(
             raise SemanticError(f"output '{rendered}' is assigned more than once")
 
         expression_context = (
-            replace(module_context, allow_runtime_instance_projection=True)
+            module_context.derive(allow_runtime_instance_projection=True)
             if isinstance(target, ir_module.Port)
             and target.direction is ir_module.PortDirection.OUTPUT
             and target.protocol is InterfaceProtocol.WIRE
@@ -12427,8 +14134,7 @@ def analyze(
                 raise SemanticError(
                     "implementation choices currently require a wire output"
                 )
-            expression_context = replace(
-                module_context,
+            expression_context = module_context.derive(
                 allow_implementation_choice=True,
             )
             expression = _check_expression(
@@ -12472,6 +14178,59 @@ def analyze(
             )
         assignments.append(ir_module.Assignment(target, expression, signal, channel))
         assigned_outputs.add(target_key)
+
+    for (child_owner, child_name), field_bindings in sorted(
+        child_protocol_payload_fields.items()
+    ):
+        child_port = next(
+            port for port in child_irs[child_owner].ports
+            if port.name == child_name
+        )
+        scalar_name = ready_valid_field_name(
+            child_name, ReadyValidSignal.PAYLOAD
+        )
+        if any(
+            item.instance == child_owner and item.port == scalar_name
+            for item in instance_bindings
+        ):
+            raise SemanticError(
+                f"child protocol payload '{child_owner}.{child_name}' has "
+                "both whole-value and field drivers"
+            )
+
+        def build_child_payload(
+            value_type: HardwareType, path: tuple[str, ...]
+        ) -> ir_expr.Expression:
+            if path in field_bindings:
+                if any(
+                    candidate[:len(path)] == path and len(candidate) > len(path)
+                    for candidate in field_bindings
+                ):
+                    raise SemanticError(
+                        f"child protocol payload '{child_owner}.{child_name}' "
+                        f"has overlapping field drivers at '{'.'.join(path)}'"
+                    )
+                return field_bindings[path]
+            if not isinstance(value_type, StructType):
+                raise SemanticError(
+                    f"child protocol payload '{child_owner}.{child_name}' "
+                    f"is missing field '{'.'.join(path)}'"
+                )
+            return ir_expr.StructConstruct(
+                value_type.name,
+                tuple(
+                    (field.name, build_child_payload(
+                        field.type, (*path, field.name)
+                    ))
+                    for field in value_type.fields
+                ),
+                value_type,
+            )
+
+        instance_bindings.append(ir_module.InstancePortBinding(
+            child_owner, scalar_name,
+            build_child_payload(child_port.type, ()),
+        ))
 
     # A compile-time instance array denotes a fixed set of physical children,
     # not a broadcast binding.  Validate every scalar input here so both
@@ -12727,6 +14486,12 @@ def analyze(
         function_signatures,
         allow_delay=True,
         allow_output_reads=True,
+        instance_outputs=dict(module_context.instance_outputs),
+        instance_output_protocols=dict(module_context.instance_output_protocols),
+        instance_output_domains=dict(module_context.instance_output_domains),
+        instance_protocol_outputs=dict(module_context.instance_protocol_outputs),
+        instance_csr_state_paths=dict(module_context.instance_csr_state_paths),
+        instance_arrays=dict(module_context.instance_arrays),
         generic_functions=generic_functions,
         compile_time_constants=pure_context.compile_time_constants,
         static_callables=pure_context.static_callables,
@@ -12899,7 +14664,6 @@ def analyze(
         return selected
 
     def typed_verification_expression(
-        declaration: object,
         expression_ast: ast.Expression,
         *,
         name: str,
@@ -13042,7 +14806,6 @@ def analyze(
         builder = scope_builder("$module", domain, None)
         reserve_clause(builder, declaration.name)
         expression = typed_verification_expression(
-            declaration,
             declaration.expression,
             name=declaration.name,
             clock_name=domain.clock,
@@ -13087,7 +14850,6 @@ def analyze(
         for requirement_declaration in declaration.requirements:
             reserve_clause(builder, requirement_declaration.name)
             expression = typed_verification_expression(
-                requirement_declaration,
                 requirement_declaration.expression,
                 name=requirement_declaration.name,
                 clock_name=domain.clock,
@@ -13113,7 +14875,6 @@ def analyze(
                 goal_declaration.kind.value
             )
             expression = typed_verification_expression(
-                goal_declaration,
                 goal_declaration.expression,
                 name=goal_declaration.name,
                 clock_name=domain.clock,
@@ -13294,18 +15055,48 @@ def analyze(
                         binding.canonical_type,
                         domain=block.domain,
                     ),
+                ))
+            for observation in block.access_observations:
+                ports.extend((
                     ir_module.Port(
                         ir_module.PortDirection.OUTPUT,
-                        ir_csr.csr_write_hit_port_name(binding),
+                        ir_csr.csr_read_hit_port_name(observation),
                         ir_csr.BitType(),
                         domain=block.domain,
                     ),
                     ir_module.Port(
                         ir_module.PortDirection.OUTPUT,
-                        ir_csr.csr_write_value_port_name(binding),
-                        binding.canonical_type,
+                        ir_csr.csr_observation_write_hit_port_name(observation),
+                        ir_csr.BitType(),
                         domain=block.domain,
                     ),
+                    ir_module.Port(
+                        ir_module.PortDirection.OUTPUT,
+                        ir_csr.csr_observation_write_value_port_name(observation),
+                        observation.canonical_type,
+                        domain=block.domain,
+                    ),
+                    ir_module.Port(
+                        ir_module.PortDirection.OUTPUT,
+                        ir_csr.csr_observation_value_port_name(observation),
+                        observation.canonical_type,
+                        domain=block.domain,
+                    ),
+                ))
+            for register in block.registers:
+                for event in register.events:
+                    ports.append(ir_module.Port(
+                        ir_module.PortDirection.OUTPUT,
+                        ir_csr.csr_event_port_name(event),
+                        event.canonical_type,
+                        domain=block.domain,
+                    ))
+            for view in block.split_views:
+                ports.append(ir_module.Port(
+                    ir_module.PortDirection.OUTPUT,
+                    ir_csr.csr_split_port_name(block, view),
+                    view.canonical_type,
+                    domain=block.domain,
                 ))
 
     module_specialization_bindings = (
@@ -13401,6 +15192,12 @@ def analyze(
         external_contract=external_contract,
         specialization_bindings=module_specialization_bindings,
         verification_scopes=tuple(verification_scopes),
+        semantic_expression_arena_statistics=(
+            pure_context.expression_arena.statistics
+        ),
+        semantic_expression_provenance=(
+            pure_context.expression_arena.provenance_table
+        ),
     )
     # Verification declarations are an optional source overlay.  Computing the
     # implementation-derived namespace walks the complete typed module, which
@@ -13904,9 +15701,12 @@ def _expand_immutable_locals(
     value: ir_expr.Expression,
     symbols: dict[str, _ValueSymbol],
     active: frozenset[str] = frozenset(),
+    memo: dict[int, ir_expr.Expression] | None = None,
 ) -> ir_expr.Expression:
     """Inline immutable locals at semantic boundaries that inspect structure."""
 
+    if memo is None:
+        memo = {}
     if isinstance(value, ir_expr.InputRef):
         symbol = symbols.get(value.name)
         if isinstance(symbol, ir_module.LocalValue):
@@ -13914,30 +15714,36 @@ def _expand_immutable_locals(
                 raise SemanticError(
                     f"cyclic immutable local '{symbol.name}' during semantic expansion"
                 )
-            return _expand_immutable_locals(
-                symbol.expression, symbols, active | {symbol.name}
+            cache_key = id(symbol)
+            cached = memo.get(cache_key)
+            if cached is not None:
+                return cached
+            expanded = _expand_immutable_locals(
+                symbol.expression, symbols, active | {symbol.name}, memo
             )
+            memo[cache_key] = expanded
+            return expanded
         return value
     if isinstance(value, ir_expr.Switch):
         return replace(
             value,
-            selector=_expand_immutable_locals(value.selector, symbols, active),
+            selector=_expand_immutable_locals(value.selector, symbols, active, memo),
             cases=tuple(
                 replace(
                     case,
                     expression=_expand_immutable_locals(
-                        case.expression, symbols, active
+                        case.expression, symbols, active, memo
                     ),
                 )
                 for case in value.cases
             ),
-            default=_expand_immutable_locals(value.default, symbols, active),
+            default=_expand_immutable_locals(value.default, symbols, active, memo),
         )
     if isinstance(value, ir_expr.StructConstruct):
         return replace(
             value,
             fields=tuple(
-                (name, _expand_immutable_locals(item, symbols, active))
+                (name, _expand_immutable_locals(item, symbols, active, memo))
                 for name, item in value.fields
             ),
         )
@@ -13950,11 +15756,11 @@ def _expand_immutable_locals(
         current = getattr(value, item.name)
         if isinstance(current, ir_expr.TracedExpression):
             updates[item.name] = _expand_immutable_locals(
-                current, symbols, active
+                current, symbols, active, memo
             )
         elif isinstance(current, tuple):
             updates[item.name] = tuple(
-                _expand_immutable_locals(element, symbols, active)
+                _expand_immutable_locals(element, symbols, active, memo)
                 if isinstance(element, ir_expr.TracedExpression) else element
                 for element in current
             )
@@ -13977,6 +15783,11 @@ def _static_value_range(
         if isinstance(expression.type, (UIntType, BitsType)):
             return ir_expr.ValueRange(expression.value, expression.value, "constant")
         return None
+    if isinstance(expression, ir_expr.FunctionalValue):
+        minimum, maximum = compile_time_range(expression.expression)
+        if minimum < 0 or not isinstance(expression.type, (UIntType, BitsType)):
+            return None
+        return ir_expr.ValueRange(minimum, maximum, "functional_binder")
     if isinstance(expression, (ir_expr.InputRef, ir_expr.RegisterRef, ir_expr.ParameterRef)):
         if refinements is not None and expression.name in refinements:
             return refinements[expression.name]
@@ -14453,6 +16264,39 @@ def _check_expression(
     expected: HardwareType | None,
     context: _ExpressionContext,
 ) -> ir_expr.Expression:
+    """Type one expression and attach its exact source origin on failure.
+
+    Individual semantic helpers own stable diagnostic codes and may provide a
+    more precise primary origin.  Older helpers often raise only a message,
+    though.  This boundary is the narrowest common point that still knows the
+    exact AST expression being checked, so it supplies that origin without
+    replacing diagnostics which already carry one.
+    """
+
+    try:
+        return _check_expression_traced(expression, inputs, expected, context)
+    except SemanticError as error:
+        if error.primary is not None:
+            raise
+        primary = _semantic_origin(expression, context)
+        if primary is None:
+            raise
+        raise SemanticError(
+            str(error),
+            code=error.code,
+            primary=primary,
+            notes=error.notes,
+            fixes=error.fixes,
+            machine_fixes=error.machine_fixes,
+        ) from error
+
+
+def _check_expression_traced(
+    expression: ast.Expression,
+    inputs: dict[str, _ValueSymbol],
+    expected: HardwareType | None,
+    context: _ExpressionContext,
+) -> ir_expr.Expression:
     _budget_step(context)
     source_expression = expression
     if context.analysis_needs.wants(AnalysisNeeds.COMPLETION):
@@ -14485,7 +16329,8 @@ def _check_expression(
         )
     else:
         origin = _semantic_origin(source_expression, context)
-    return replace(result, origin=origin) if origin is not None else result
+    traced = replace(result, origin=origin) if origin is not None else result
+    return context.expression_arena.intern(traced)
 
 
 def _is_raw_representation_type(type_: HardwareType) -> bool:
@@ -14850,6 +16695,72 @@ def _check_expression_untraced(
     while isinstance(cursor, ast.FieldExpr):
         path_parts.append(cursor.field)
         cursor = cursor.expression
+    def csr_projection_parts(
+        value: ast.Expression,
+    ) -> tuple[str, tuple[str, ...]] | None:
+        if isinstance(value, ast.NameExpr):
+            return value.name, ()
+        if isinstance(value, ast.FieldExpr):
+            parent = csr_projection_parts(value.expression)
+            if parent is None:
+                return None
+            return parent[0], (*parent[1], value.field)
+        if isinstance(value, ast.IndexExpr):
+            parent = csr_projection_parts(value.expression)
+            if parent is None:
+                return None
+            label = parent[1][-1] if parent[1] else parent[0]
+            index = _try_resolve_instance_array_index(
+                value.index, context, array=label
+            )
+            if index is None:
+                return None
+            if parent[1]:
+                return parent[0], (*parent[1][:-1], f"{parent[1][-1]}[{index}]")
+            return f"{parent[0]}[{index}]", ()
+        return None
+
+    decomposed_csr = csr_projection_parts(expression)
+    csr_instance: str | None = None
+    named_csr_path: tuple[str, ...] = ()
+    if decomposed_csr is not None:
+        csr_instance, named_csr_path = decomposed_csr
+        if "[" in csr_instance:
+            array_name = csr_instance.split("[", 1)[0]
+            if array_name in context.instance_arrays:
+                index = int(csr_instance.split("[", 1)[1].rstrip("]"))
+                length = context.instance_arrays[array_name]
+                if index < 0 or index >= length:
+                    raise SemanticError(
+                        f"instance array '{array_name}' index {index} is out of range "
+                        f"0..{length - 1}"
+                    )
+    if csr_instance is not None:
+        projection = context.instance_csr_state_paths.get(
+            (csr_instance, *named_csr_path)
+        )
+        if projection is not None:
+            port_name, type_, domain = projection
+            if expected is not None and expected != type_:
+                raise SemanticError(
+                    f"CSR field projection '{csr_instance}."
+                    f"{'.'.join(named_csr_path)}' has type {type_}, expected "
+                    f"exact {expected}"
+                )
+            return ir_expr.InstanceOutputRef(
+                csr_instance,
+                port_name,
+                type_,
+                domain=domain,
+            )
+        if any(
+            key[0] == csr_instance and key[1] == named_csr_path[0]
+            for key in context.instance_csr_state_paths
+        ):
+            raise SemanticError(
+                f"CSR child '{csr_instance}' has no stored field projection "
+                f"'{'.'.join(named_csr_path)}'"
+            )
     if isinstance(cursor, ast.NameExpr):
         full_path = ".".join((cursor.name, *reversed(path_parts)))
         for prefix in sorted(context.aggregate_paths, key=len, reverse=True):
@@ -14869,6 +16780,18 @@ def _check_expression_untraced(
                     f"{projection.type}, expected exact {expected}"
                 )
             return projection
+        if expression.name in context.functional_symbolic_values:
+            symbolic = context.functional_symbolic_values[expression.name]
+            type_ = expected or context.index_types.get(expression.name)
+            if not isinstance(type_, (UIntType, BitsType)):
+                raise SemanticError(
+                    f"symbolic functional value '{expression.name}' requires "
+                    "an exact unsigned integral type"
+                )
+            try:
+                return ir_expr.FunctionalValue(symbolic, type_)
+            except ValueError as error:
+                raise SemanticError(str(error)) from error
         if expression.name in context.index_bindings:
             value = context.index_bindings[expression.name]
             type_ = expected or context.index_types.get(
@@ -15208,7 +17131,7 @@ def _check_expression_untraced(
                     field_.type,
                     origin=arm.origin,
                 )
-            arm_context = replace(context, union_binders=binders)
+            arm_context = context.derive(union_binders=binders)
             branch = (
                 _check_typed_boundary(
                     arm.expression, inputs, result_type, arm_context
@@ -15458,6 +17381,22 @@ def _check_expression_untraced(
             raise SemanticError(f"addition is not defined for {left.type}") from error
         if isinstance(left, ir_expr.Constant) and isinstance(right, ir_expr.Constant):
             return ir_expr.Constant(left.value + right.value, result_type)
+        if (
+            context.functional_symbolic_values
+            and isinstance(left, ir_expr.Constant)
+            and left.value == 0
+        ):
+            simplified = exact_numeric_widen(right, result_type)
+            if simplified is not None:
+                return simplified
+        if (
+            context.functional_symbolic_values
+            and isinstance(right, ir_expr.Constant)
+            and right.value == 0
+        ):
+            simplified = exact_numeric_widen(left, result_type)
+            if simplified is not None:
+                return simplified
         return ir_expr.Add(left, right, result_type)
 
     if isinstance(expression, ast.BinaryExpr):
@@ -15952,6 +17891,16 @@ def _check_expression_untraced(
                 expression.specializations,
                 context,
             )
+            symbolic_result = _try_specialize_functional_callable(
+                generic,
+                arguments,
+                expression.specializations,
+                context,
+                specialization_symbols=inputs,
+                call_origin=_semantic_origin(expression, context),
+            )
+            if symbolic_result is not None:
+                return symbolic_result
             result = _specialize_callable(
                 generic,
                 arguments,
@@ -15973,6 +17922,36 @@ def _check_expression_untraced(
                         definition.parameters,
                         definition.return_type,
                     )
+                    # Publish scalar constants immediately after generic
+                    # specialization.  The cached definition and provenance
+                    # record remain available for later identical calls, while
+                    # surrounding typed arithmetic can simplify before a
+                    # functional domain is materialized.
+                    try:
+                        constant_value = constant_runtime_value(definition.body)
+                    except ConstantExpressionError:
+                        constant_value = None
+                    if (
+                        context.functional_symbolic_values
+                        and isinstance(constant_value, int)
+                        and isinstance(
+                            definition.return_type,
+                            (
+                                BitType,
+                                BitsType,
+                                EnumType,
+                                FixedType,
+                                SIntType,
+                                UFixedType,
+                                UIntType,
+                            ),
+                        )
+                    ):
+                        return ir_expr.Constant(
+                            _normalize(constant_value, definition.return_type),
+                            definition.return_type,
+                            origin=call_origin,
+                        )
             return result
         static_callable = context.static_callables.get(expression.function)
         if static_callable is not None:
@@ -16236,6 +18215,28 @@ def _check_expression_untraced(
         return ir_expr.StructConstruct(struct.name, tuple(values), struct)
 
     if isinstance(expression, ast.FieldExpr):
+        # A static child's protocol is a typed collection of physical
+        # ready/valid signals.  Resolve the signal before ordinary struct
+        # projection so a payload field (for example child.bus.aw.payload.id)
+        # remains an ordinary FieldAccess on one compiler-owned child value.
+        field_path: list[str] = []
+        field_root: ast.Expression = expression
+        while isinstance(field_root, ast.FieldExpr):
+            field_path.append(field_root.field)
+            field_root = field_root.expression
+        if isinstance(field_root, ast.NameExpr):
+            field_path.append(field_root.name)
+            field_path.reverse()
+            if len(field_path) >= 3:
+                projection = context.instance_protocol_outputs.get(
+                    (field_path[0], ".".join(field_path[1:]))
+                )
+                if projection is not None:
+                    scalar_name, signal_type, signal_domain = projection
+                    return ir_expr.InstanceOutputRef(
+                        field_path[0], scalar_name, signal_type,
+                        domain=signal_domain,
+                    )
         if (
             isinstance(expression.expression, ast.FieldExpr)
             and isinstance(expression.expression.expression, ast.NameExpr)
@@ -17106,6 +19107,8 @@ def _check_expression_untraced(
         )
         if isinstance(condition, ir_expr.Constant):
             return branches[0] if condition.value else branches[1]
+        if context.functional_symbolic_values and branches[0] == branches[1]:
+            return branches[0]
         return ir_expr.Mux(condition, branches[0], branches[1], result_type)
 
     if isinstance(expression, ast.SwitchExpr):
@@ -17298,12 +19301,175 @@ def _check_indexed_vector(
         context.functional_binder_ordinals[body_key] = binder_ordinal
     binder_nesting = (*context.functional_binder_nesting, binder_ordinal)
 
+    kind = (
+        FunctionalRegionKind.GENERATE
+        if constructor is ir_expr.Generate
+        else FunctionalRegionKind.MAP
+    )
+    body_origin = _semantic_origin(body, context)
+    if context.functional_binder_callable_identity is None:
+        binder_identity_payload = {
+            "schema": "zlang-functional-binder-v2",
+            "resolution_stack": context.resolution_stack,
+            "semantic_nesting": context.functional_binder_nesting,
+            "declaration_ordinal": binder_ordinal,
+            "kind": kind.value,
+            "start": start,
+            "stop": stop,
+        }
+    else:
+        binder_identity_payload = {
+            "schema": "zlang-callable-functional-binder-v1",
+            "callable_identity": context.functional_binder_callable_identity,
+            "semantic_nesting": context.functional_binder_nesting,
+            "declaration_ordinal": binder_ordinal,
+            "kind": kind.value,
+            "start": start,
+            "stop": stop,
+        }
+    binder = CompileTimeBinderRef(
+        stable_digest(binder_identity_payload),
+        index,
+        start,
+        stop,
+        body_origin,
+    )
+    index_type = UIntType(max(1, (stop - 1).bit_length()))
+
+    # Admission happens before eager expansion so iterator-dependent generic
+    # calls cannot create one monomorphic definition per element.  The
+    # symbolic checker is deliberately fail-closed: any use that needs a
+    # concrete shape, type, branch, overload, or state boundary falls through
+    # to the established per-element elaborator below.
+    if length >= _FUNCTIONAL_REGION_THRESHOLD or context.functional_symbolic_values:
+        certificate_start = len(context.functional_specialization_certificates)
+        attempt_state = (
+            list(context.generic_specializations),
+            dict(context.callable_definitions),
+            dict(context.callable_use_counts),
+            set(context.specializations_in_progress),
+            dict(context.specialization_budget_costs),
+            dict(context.functional_binder_ordinals),
+            context.next_functional_binder_ordinal[0],
+        )
+        attempt_budget = (
+            (
+                budget.generated_elements,
+                budget.operations,
+                budget.call_depth,
+            )
+            if budget is not None
+            else None
+        )
+        observational_lengths = tuple(
+            len(items) if items is not None else None
+            for items in (
+                context.definition_resolutions,
+                context.definition_declarations,
+                context.completion_scopes,
+                context.signature_help_calls,
+                context.exploration_results,
+            )
+        )
+        symbolic_context = context.derive(
+            allow_delay=False,
+            allow_implementation_choice=False,
+            functional_symbolic_values={
+                **context.functional_symbolic_values,
+                index: CompileTimeExpr.ref(binder),
+            },
+            index_types={**context.index_types, index: index_type},
+            functional_binder_nesting=binder_nesting,
+        )
+        try:
+            symbolic = _check_expression(
+                body, inputs, expected_element, symbolic_context
+            )
+            if expected_element is not None and symbolic.type != expected_element:
+                raise ValueError("symbolic functional element changed exact type")
+            symbolic_type = VecType(length, symbolic.type)
+            symbolic = _expand_immutable_locals(symbolic, inputs)
+            pending_certificates = tuple(
+                dict.fromkeys(
+                    context.functional_specialization_certificates[
+                        certificate_start:
+                    ]
+                )
+            )
+            certificates = tuple(
+                certificate
+                for certificate in pending_certificates
+                if certificate.owner_binder_identity == binder.identity
+            )
+            context.functional_specialization_certificates[certificate_start:] = (
+                certificate
+                for certificate in pending_certificates
+                if certificate.owner_binder_identity != binder.identity
+            )
+            symbolic, captures = _close_nested_functional_template(
+                symbolic,
+                binder,
+            )
+            region = ir_expr.FunctionalRegion(
+                kind,
+                binder,
+                symbolic,
+                (),
+                captures,
+                symbolic_type,
+                certificates,
+            )
+            return region
+        except (SemanticError, ValueError, FunctionalLoweringError):
+            # The eager path remains the semantic authority for unsupported or
+            # invalid constructs, including the exact public diagnostic.
+            del context.functional_specialization_certificates[certificate_start:]
+            (
+                generic_specializations,
+                callable_definitions,
+                callable_use_counts,
+                specializations_in_progress,
+                specialization_budget_costs,
+                binder_ordinals,
+                next_binder_ordinal,
+            ) = attempt_state
+            context.generic_specializations[:] = generic_specializations
+            context.callable_definitions.clear()
+            context.callable_definitions.update(callable_definitions)
+            context.callable_use_counts.clear()
+            context.callable_use_counts.update(callable_use_counts)
+            context.specializations_in_progress.clear()
+            context.specializations_in_progress.update(specializations_in_progress)
+            context.specialization_budget_costs.clear()
+            context.specialization_budget_costs.update(specialization_budget_costs)
+            context.functional_binder_ordinals.clear()
+            context.functional_binder_ordinals.update(binder_ordinals)
+            context.next_functional_binder_ordinal[0] = next_binder_ordinal
+            if budget is not None and attempt_budget is not None:
+                (
+                    budget.generated_elements,
+                    budget.operations,
+                    budget.call_depth,
+                ) = attempt_budget
+            for items, retained in zip(
+                (
+                    context.definition_resolutions,
+                    context.definition_declarations,
+                    context.completion_scopes,
+                    context.signature_help_calls,
+                    context.exploration_results,
+                ),
+                observational_lengths,
+                strict=True,
+            ):
+                if items is not None and retained is not None:
+                    del items[retained:]
+            pass
+
     elements: list[ir_expr.Expression] = []
     element_type = expected_element
-    index_type = UIntType(max(1, (stop - 1).bit_length()))
     for value in range(start, stop):
-        body_context = replace(
-            context,
+        body_context = context.derive(
             allow_delay=False,
             allow_implementation_choice=False,
             index_bindings={**context.index_bindings, index: value},
@@ -17322,47 +19488,11 @@ def _check_indexed_vector(
     assert element_type is not None
     type_ = VecType(length, element_type)
     if length >= _FUNCTIONAL_REGION_THRESHOLD:
-        kind = (
-            FunctionalRegionKind.GENERATE
-            if constructor is ir_expr.Generate
-            else FunctionalRegionKind.MAP
-        )
-        body_origin = _semantic_origin(body, context)
-        if context.functional_binder_callable_identity is None:
-            # Preserve the established identity of module-level functional
-            # regions byte-for-byte.  Their ordinal registry remains shared
-            # by the selected module analysis as before.
-            binder_identity_payload = {
-                "schema": "zlang-functional-binder-v2",
-                "resolution_stack": context.resolution_stack,
-                "semantic_nesting": context.functional_binder_nesting,
-                "declaration_ordinal": binder_ordinal,
-                "kind": kind.value,
-                "start": start,
-                "stop": stop,
-            }
-        else:
-            binder_identity_payload = {
-                "schema": "zlang-callable-functional-binder-v1",
-                "callable_identity": context.functional_binder_callable_identity,
-                "semantic_nesting": context.functional_binder_nesting,
-                "declaration_ordinal": binder_ordinal,
-                "kind": kind.value,
-                "start": start,
-                "stop": stop,
-            }
-        binder_identity = stable_digest(binder_identity_payload)
-        binder = CompileTimeBinderRef(
-            binder_identity,
-            index,
-            start,
-            stop,
-            body_origin,
-        )
         definitions = (
             *context.function_definitions.values(),
             *context.callable_definitions.values(),
         )
+        local_expansion_memo: dict[int, ir_expr.Expression] = {}
         compacted = compact_functional_elements(
             kind,
             binder,
@@ -17372,7 +19502,11 @@ def _check_indexed_vector(
             # Stateful/protocol-derived locals then correctly fail the pure
             # region gate and remain an ordinary bounded Generate/Map.
             tuple(
-                _expand_immutable_locals(element, inputs)
+                _expand_immutable_locals(
+                    element,
+                    inputs,
+                    memo=local_expansion_memo,
+                )
                 for element in elements
             ),
             type_,
@@ -18433,13 +20567,26 @@ def _expression_domains(
     expression: ir_expr.Expression,
     ports: dict[str, object],
     registers: dict[str, ir_module.Register],
+    _memo: dict[int, frozenset[str | None]] | None = None,
 ) -> set[str | None]:
+    memo = {} if _memo is None else _memo
+    cached = memo.get(id(expression))
+    if cached is not None:
+        return set(cached)
+
+    def resolve(value: ir_expr.Expression) -> set[str | None]:
+        return _expression_domains(value, ports, registers, memo)
+
+    def finish(domains: set[str | None]) -> set[str | None]:
+        memo[id(expression)] = frozenset(domains)
+        return domains
+
     if isinstance(expression, ir_expr.InputRef):
         port = ports.get(expression.name)
-        return {port.domain} if port is not None else {None}
+        return finish({port.domain} if port is not None else {None})
     if isinstance(expression, ir_expr.RegisterRef):
         register = registers.get(expression.name)
-        return {register.domain} if register is not None else {None}
+        return finish({register.domain} if register is not None else {None})
     if isinstance(
         expression,
         (
@@ -18450,23 +20597,24 @@ def _expression_domains(
         ),
     ):
         port = ports.get(expression.interface)
-        return {port.domain} if port is not None else {None}
+        return finish({port.domain} if port is not None else {None})
     if isinstance(
         expression,
         (
             ir_expr.ParameterRef,
             ir_expr.FunctionalCaptureRef,
+            ir_expr.FunctionalValue,
             ir_expr.FunctionalTableLookup,
             ir_expr.RequestResponseRef,
             ir_expr.Constant,
         ),
     ):
-        return {None}
+        return finish({None})
     if isinstance(expression, ir_expr.InstanceOutputRef):
-        return {expression.domain}
+        return finish({expression.domain})
     if isinstance(expression, ir_expr.FifoRef):
         resource = ports.get(expression.fifo)
-        return {getattr(resource, "domain", None)}
+        return finish({getattr(resource, "domain", None)})
     if isinstance(expression, ir_expr.MemoryRef):
         resource = ports.get(expression.memory)
         if isinstance(resource, _MemorySymbol) and expression.port is not None:
@@ -18474,38 +20622,34 @@ def _expression_domains(
                 (item for item in resource.ports if item.name == expression.port),
                 None,
             )
-            return {port.domain if port is not None else None}
-        return {getattr(resource, "domain", None)}
+            return finish({port.domain if port is not None else None})
+        return finish({getattr(resource, "domain", None)})
     if isinstance(expression, ir_expr.RomRef):
         resource = ports.get(expression.rom)
-        return {getattr(resource, "domain", None)}
+        return finish({getattr(resource, "domain", None)})
     if isinstance(expression, (ir_expr.EnumEncode, ir_expr.EnumValid)):
-        return _expression_domains(expression.expression, ports, registers)
+        return finish(resolve(expression.expression))
     if isinstance(expression, (ir_expr.UnionTag, ir_expr.UnionField)):
-        return _expression_domains(expression.expression, ports, registers)
+        return finish(resolve(expression.expression))
     if isinstance(expression, ir_expr.EnumDecode):
-        return _expression_domains(
-            expression.expression, ports, registers
-        ) | _expression_domains(expression.fallback, ports, registers)
+        return finish(resolve(expression.expression) | resolve(expression.fallback))
     if isinstance(expression, (ir_expr.Add, ir_expr.Binary)):
-        return _expression_domains(
-            expression.left, ports, registers
-        ) | _expression_domains(expression.right, ports, registers)
+        return finish(resolve(expression.left) | resolve(expression.right))
     if isinstance(expression, ir_expr.StructConstruct):
         domains: set[str | None] = set()
         for _, value in expression.fields:
-            domains |= _expression_domains(value, ports, registers)
-        return domains
+            domains |= resolve(value)
+        return finish(domains)
     if isinstance(expression, ir_expr.TupleConstruct):
         domains: set[str | None] = set()
         for value in expression.elements:
-            domains |= _expression_domains(value, ports, registers)
-        return domains or {None}
+            domains |= resolve(value)
+        return finish(domains or {None})
     if isinstance(expression, ir_expr.UnionConstruct):
         domains: set[str | None] = set()
         for _, value in expression.fields:
-            domains |= _expression_domains(value, ports, registers)
-        return domains or {None}
+            domains |= resolve(value)
+        return finish(domains or {None})
     if isinstance(
         expression,
         (
@@ -18523,71 +20667,64 @@ def _expression_domains(
             ir_expr.Delay,
         ),
     ):
-        domains = _expression_domains(expression.expression, ports, registers)
-        return domains
+        return finish(resolve(expression.expression))
     if isinstance(expression, ir_expr.Pipeline):
-        domains = _expression_domains(expression.expression, ports, registers)
+        domains = resolve(expression.expression)
         if expression.domain is not None:
             domains.add(expression.domain)
-        return domains
+        return finish(domains)
     if isinstance(expression, (ir_expr.RuntimeIndex, ir_expr.VectorUpdate)):
-        domains = _expression_domains(expression.expression, ports, registers)
-        domains |= _expression_domains(expression.index, ports, registers)
+        domains = resolve(expression.expression)
+        domains |= resolve(expression.index)
         if isinstance(expression, ir_expr.VectorUpdate):
-            domains |= _expression_domains(expression.value, ports, registers)
-        return domains
+            domains |= resolve(expression.value)
+        return finish(domains)
     if isinstance(expression, (ir_expr.Concat, ir_expr.VectorConcat)):
         domains: set[str | None] = set()
         for operand in expression.operands:
-            domains |= _expression_domains(operand, ports, registers)
-        return domains
+            domains |= resolve(operand)
+        return finish(domains)
     if isinstance(expression, (ir_expr.Generate, ir_expr.Map)):
         domains: set[str | None] = set()
         for element in expression.elements:
-            domains |= _expression_domains(element, ports, registers)
-        return domains
+            domains |= resolve(element)
+        return finish(domains)
     if isinstance(expression, ir_expr.FunctionalRegion):
         # Template-internal capture/table references are resolved by the
         # region. Only their retained concrete values can carry a domain.
         domains: set[str | None] = set()
         for table in expression.tables:
             for value in table.values:
-                domains |= _expression_domains(value, ports, registers)
+                domains |= resolve(value)
         for _, value in expression.captures:
-            domains |= _expression_domains(value, ports, registers)
-        return domains or {None}
+            domains |= resolve(value)
+        return finish(domains or {None})
     if isinstance(expression, ir_expr.Dot):
-        return _expression_domains(
-            expression.left, ports, registers
-        ) | _expression_domains(expression.right, ports, registers)
+        return finish(resolve(expression.left) | resolve(expression.right))
     if isinstance(expression, ir_expr.Reduce):
-        return _expression_domains(expression.collection, ports, registers)
+        return finish(resolve(expression.collection))
     if isinstance(expression, ir_expr.Mux):
-        return (
-            _expression_domains(expression.condition, ports, registers)
-            | _expression_domains(expression.when_true, ports, registers)
-            | _expression_domains(expression.when_false, ports, registers)
+        return finish(
+            resolve(expression.condition)
+            | resolve(expression.when_true)
+            | resolve(expression.when_false)
         )
     if isinstance(expression, ir_expr.Switch):
-        domains = _expression_domains(expression.selector, ports, registers)
-        domains |= _expression_domains(expression.default, ports, registers)
+        domains = resolve(expression.selector)
+        domains |= resolve(expression.default)
         for case in expression.cases:
-            domains |= _expression_domains(case.expression, ports, registers)
-        return domains
+            domains |= resolve(case.expression)
+        return finish(domains)
     if isinstance(expression, ir_expr.Call):
         domains: set[str | None] = set()
         for argument in expression.arguments:
-            domains |= _expression_domains(argument, ports, registers)
-        return domains
+            domains |= resolve(argument)
+        return finish(domains)
     if isinstance(expression, ir_expr.ImplementationChoice):
         domains: set[str | None] = set()
         for alternative in expression.alternatives:
-            domains |= _expression_domains(
-                alternative.expression,
-                ports,
-                registers,
-            )
-        return domains
+            domains |= resolve(alternative.expression)
+        return finish(domains)
     raise SemanticError(f"cannot determine clock domains of {expression!r}")
 
 
@@ -19019,6 +21156,7 @@ def _validate_verification_expression(
             ir_expr.UnionTag,
             ir_expr.UnionField,
             ir_expr.FunctionalCaptureRef,
+            ir_expr.FunctionalValue,
             ir_expr.FunctionalTableLookup,
             ir_expr.ImplementationChoice,
         ),
@@ -19360,14 +21498,10 @@ def _validate_assumption_ownership(
     )
 
 
-def _has_priority_cycle(
-    names: set[str], edges: set[tuple[str, str]]
-) -> bool:
+def _has_priority_cycle(edges: set[tuple[str, str]]) -> bool:
     def successors(source: str) -> Iterable[str]:
         return (lower for higher, lower in edges if higher == source)
 
-    # Keep the historical edge-domain behavior; name membership is validated
-    # by the caller, not used to prune this cycle check.
     return any(
         reachable(lower, higher, successors) for higher, lower in edges
     )
@@ -19549,7 +21683,22 @@ def _check_binary(
             equal,
             ir_expr.Constant(0, BitType()),
         )
-    return _build_binary(operator, left, right)
+    result = _build_binary(operator, left, right)
+    if context.functional_symbolic_values and isinstance(result, ir_expr.Binary):
+        simplified = simplify_binary(
+            result.operator,
+            result.left,
+            result.right,
+            result.type,
+            range_of=lambda value: (
+                (value_range.minimum, value_range.maximum)
+                if (value_range := _static_value_range(value)) is not None
+                else None
+            ),
+        )
+        if simplified is not None:
+            return simplified
+    return result
 
 
 def _build_aggregate_equality(
@@ -19902,8 +22051,6 @@ def _build_binary(
         value = _evaluate_constant_binary(operator, left.value, right.value, result_type)
         return ir_expr.Constant(value, result_type)
     return ir_expr.Binary(operator, left, right, operand_type, result_type)
-
-
 def _check_alternatives(
     syntax: tuple[ast.Expression, ...],
     inputs: dict[str, _ValueSymbol],
@@ -20017,6 +22164,7 @@ def _called_functions(expression: ir_expr.Expression) -> set[str]:
             ir_expr.InputRef,
             ir_expr.ParameterRef,
             ir_expr.FunctionalCaptureRef,
+            ir_expr.FunctionalValue,
             ir_expr.FunctionalTableLookup,
             ir_expr.RegisterRef,
             ir_expr.ReadyValidRef,
@@ -20267,6 +22415,7 @@ def _reject_instance_output_dependency_cycles(
                     ir_expr.Constant,
                     ir_expr.ParameterRef,
                     ir_expr.FunctionalCaptureRef,
+                    ir_expr.FunctionalValue,
                     ir_expr.FunctionalTableLookup,
                 ),
             ):
@@ -20439,6 +22588,7 @@ def _reject_instance_output_dependency_cycles(
                             ir_expr.Constant,
                             ir_expr.ParameterRef,
                             ir_expr.FunctionalCaptureRef,
+                            ir_expr.FunctionalValue,
                             ir_expr.FunctionalTableLookup,
                         ),
                     ):
@@ -20730,6 +22880,7 @@ def _reject_memory_dependency_cycles(
                     ir_expr.Constant,
                     ir_expr.ParameterRef,
                     ir_expr.FunctionalCaptureRef,
+                    ir_expr.FunctionalValue,
                     ir_expr.FunctionalTableLookup,
                     ir_expr.InstanceOutputRef,
                 ),
@@ -20841,6 +22992,7 @@ def _interface_dependencies(
             ir_expr.InputRef,
             ir_expr.ParameterRef,
             ir_expr.FunctionalCaptureRef,
+            ir_expr.FunctionalValue,
             ir_expr.FunctionalTableLookup,
             ir_expr.RegisterRef,
             ir_expr.FifoRef,
@@ -21059,6 +23211,7 @@ def _expression_latency(expression: ir_expr.Expression) -> int | None:
             ir_expr.InputRef,
             ir_expr.ParameterRef,
             ir_expr.FunctionalCaptureRef,
+            ir_expr.FunctionalValue,
             ir_expr.FunctionalTableLookup,
             ir_expr.RegisterRef,
             ir_expr.ReadyValidRef,

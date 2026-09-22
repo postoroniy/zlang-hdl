@@ -20,6 +20,7 @@ from zlang.costs import (
 )
 from zlang.ir import expressions as ir_expr
 from zlang.ir.cdc import ClockDomain
+from zlang.ir.expression_graph import ExpressionDagIndex
 from zlang.ir.traversal import (
     ExpressionTraversalPolicy,
     expression_children as typed_expression_children,
@@ -814,22 +815,23 @@ def _expression_children(value: ir_expr.Expression) -> tuple[ir_expr.Expression,
 
 def _input_refs(value: ir_expr.Expression) -> dict[str, object]:
     result: dict[str, object] = {}
-    def visit(item: ir_expr.Expression) -> None:
+    graph = ExpressionDagIndex((value,), children=_expression_children)
+    for item in graph.preorder():
         if isinstance(item, ir_expr.InputRef):
             previous = result.get(item.name)
             if previous is not None and previous != item.type:
                 raise ValueError(f"input '{item.name}' has inconsistent types")
             result[item.name] = item.type
-        for child in _expression_children(item):
-            visit(child)
-    visit(value)
     return result
 
 
 def _logic_depth(value: ir_expr.Expression) -> int:
-    children = _expression_children(value)
-    own = 1 if isinstance(value, (ir_expr.Add, ir_expr.Binary, ir_expr.Mux, ir_expr.Switch)) else 0
-    return own + max((_logic_depth(item) for item in children), default=0)
+    graph = ExpressionDagIndex((value,), children=_expression_children)
+    return graph.logic_depth(
+        lambda item: isinstance(
+            item, (ir_expr.Add, ir_expr.Binary, ir_expr.Mux, ir_expr.Switch)
+        )
+    )[0]
 
 
 def _timing_text(relation: TimingRelation | None) -> str:

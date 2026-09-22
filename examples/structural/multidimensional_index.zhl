@@ -1,0 +1,17 @@
+// Static/static, static/runtime, runtime/static, and runtime/runtime access to
+// the same nested value.
+module MultiDimensionalIndexWitness {
+    in values : vec<12,vec<4,vec<4,u8>>>
+    in lane : u3
+    in group : u2
+    in byte_index : u2
+    out static_static : vec<4,u8>
+    out static_runtime : u8
+    out runtime_static : u8
+    out runtime_runtime : u8
+
+    static_static = values[3][2]
+    static_runtime = values[3][group][byte_index]
+    runtime_static = values[lane][2][1]
+    runtime_runtime = values[lane][group][byte_index]
+}

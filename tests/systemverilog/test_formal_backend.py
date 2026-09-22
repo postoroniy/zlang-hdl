@@ -53,7 +53,7 @@ module DirectFifoFormal(input clk,input rst,input [7:0] rx_payload,input rx_vali
       2'b01: model_count <= model_count - 1'b1;
       default: model_count <= model_count;
     endcase
-    if (!$initstate && !$past(rst)) begin
+    if (!$initstate && !$past(rst) && !rst) begin
       // A full FIFO may accept a replacement item when the current front is
       // consumed on the same edge.  This is the frozen simultaneous
       // pop/push behavior, not an overflow.

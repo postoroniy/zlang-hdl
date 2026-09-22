@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=77"]
+requires = ["setuptools==84.0.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -41,6 +41,11 @@ Issues = "https://github.com/postoroniy/zlang-hdl/issues"
 Documentation = "https://github.com/postoroniy/zlang-hdl/tree/main/docs"
 
 [project.optional-dependencies]
+native = [
+    "zlang-native-sim==0.1.0a11; platform_system == 'Linux' and platform_machine == 'x86_64'",
+    "zlang-native-sim==0.1.0a11; platform_system == 'Darwin' and platform_machine == 'x86_64'",
+    "zlang-native-sim==0.1.0a11; platform_system == 'Darwin' and platform_machine == 'arm64'",
+]
 test = [
     "pytest>=8,<10",
     "pytest-xdist>=3.6,<4",
@@ -53,15 +58,14 @@ zlang-lsp = "zlang.lsp.server:main"
 zlang-lock = "zlang.project_cli:main"
 zlang-verify = "zlang.verification_cli:main"
 
+[tool.setuptools.dynamic]
+version = {attr = "zlang._version.__version__"}
+
 [tool.setuptools.packages.find]
 include = ["zlang*"]
 
-[tool.setuptools.package-data]
-"zlang.parser" = ["grammar.lark"]
-"zlang" = ["data/*.json"]
-
-[tool.setuptools.dynamic]
-version = {attr = "zlang._version.__version__"}
+[tool.setuptools]
+include-package-data = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -73,3 +77,8 @@ markers = [
     "toolchain_smoke: representative real external-tool acceptance gate",
     "exhaustive_toolchain: exhaustive real-tool corpus/release acceptance",
 ]
+
+[tool.ruff.lint.per-file-ignores]
+# Lark transformer callbacks receive grammar-owned ``meta``/``items``
+# arguments even when a particular production has no payload to consume.
+"zlang/parser/parser.py" = ["ARG002"]

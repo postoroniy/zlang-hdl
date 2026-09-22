@@ -50,21 +50,28 @@ module ScalarRom<D=4> {
 # before recapture, without changing value semantics or generated RTL. The
 # formal-artifact namespace cleanup replaces historical development labels with
 # descriptive semantic names; because those names are identity-bearing, every
-# eager result below was compiled twice again before this recapture.
+# eager result below was compiled twice again before this recapture.  The
+# current values also bind the content-addressed generic physical graph v2,
+# backend DAG-planning schema, and canonical schema v18; semantic behavior is
+# unchanged.  Every value below was reproduced in two independent compilations.
 EXPECTED = {
-    "add": "91d0de6db433e96372a664d6a2a0d7e97394495bc1047cd60b10ddedd1824717",
-    "stateful_protocol": "e409feafc0bbe25a25141ffeada82dd2fdfef41e89439348eaa6f326ad86bb24",
-    "fixed_dsp": "97c893de9105ede0a9c8336047e1d883982d0df464c12f16788fadcc77e0f004",
-    "csr": "223dd1762346c87b23eb99f99256107587979f114a97dded6e7534945a383281",
-    "hierarchy": "ed232bcb46b32761fefd3041ff036dfdb2190ab56af99a898557d6c647c83e1d",
-    # Companion filenames now use exact typed ROM contents/layout rather than
+    "add": "1138d33309fb4caa5a6a0fff8b9b9c1555a52b2dbfdaa8e415fa9de555d8b7cb",
+    "stateful_protocol": "d69f1dd92f4f800c3f45562151b47773c49fbd31adf4cb3c9b3ca9235ae4dd2c",
+    "fixed_dsp": "7809d7403205d3579d01fe19a8dbdc6eb7cc06ce7cbf1c0519b4caec0bd1ebdd",
+    "csr": "7f4df34013f1e64e399547daa37efce91a208878f686cbf92a9f7ee8745cd2f2",
+    "hierarchy": "11add9b266518a902d3dc1a2d04b09378761df78ab78dbd61b1e7494df0747e4",
+    # Companion filenames use exact typed ROM contents/layout rather than
     # source provenance, so equivalent spellings retain one physical image.
-    "rom": "569e7792f7cf98d297c4763a1a9824238afe24f725f8e316212cd2653a47165b",
+    # Compile-time evaluator schema v2 records the expanded deterministic-real
+    # surface in ROM identity; this snapshot was reproduced in separate runs.
+    "rom": "2d545a1115cc2674fb1ca650ad0178894ad93acac0c4ee1db6c79b08bea2f29d",
     # The concise Wi-Fi source refactor uses slices, shared raw views, vector
     # generation and struct update while retaining the public ABI and IEEE
-    # behavior.  This source/dependency-sensitive eager-result snapshot was
+    # behavior.  Its large shared value DAG now uses the bounded Merkle value
+    # identity rather than materializing the historical expanded-tree
+    # spelling.  This source/dependency-sensitive eager-result snapshot was
     # independently compiled twice before being locked here.
-    "wifi": "63b3c5594245179fa3c62f80f00824cac768f198a4a0bf03661bf39403161e95",
+    "wifi": "d28cb374eed5d0a68241df1abb8cfc96afe239c3effb38b8cda635dd5f7dac3b",
 }
 
 

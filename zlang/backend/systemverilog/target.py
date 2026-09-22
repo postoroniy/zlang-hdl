@@ -219,7 +219,7 @@ def _physical_result_expression(boundary: expr.Expression, accumulator: str) -> 
     )
 
 
-def _emit_signed_product_dsp48e1_graph(module, graph, definitions, simulation_model):
+def _emit_signed_product_dsp48e1_graph(module, graph, _definitions, simulation_model):
     """Emit an ordered exact signed-product cascade from a selected graph.
 
     The mapper has already proved typed widths, signedness, accumulator modes,
@@ -413,7 +413,7 @@ def _emit_signed_product_dsp48e1_graph(module, graph, definitions, simulation_mo
     return f"`default_nettype none\n{model}{top}\n`default_nettype wire\n"
 
 
-def _emit_dsp48e1_graph(module, graph, definitions, simulation_model):
+def _emit_dsp48e1_graph(module, graph, _definitions, simulation_model):
     if len(graph.resources) != 4 or len(graph.dedicated_edges) != 3:
         raise SystemVerilogEmissionError("bounded DSP cascade emitter requires four resources and three dedicated edges")
     if module.clock is None or module.reset is None:

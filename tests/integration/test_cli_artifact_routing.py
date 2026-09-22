@@ -105,6 +105,10 @@ class CliArtifactRoutingTests(unittest.TestCase):
             self.assertEqual(stdout.getvalue(), "")
             self.assertIn("while checking module 'Broken'", stderr.getvalue())
             self.assertIn("unknown input 'missing'", stderr.getvalue())
+            self.assertIn(
+                f"zlang: {path}:1:38: error[ZL-SEMANTIC-001]",
+                stderr.getvalue(),
+            )
 
     def test_check_with_top_checks_only_the_selected_module(self) -> None:
         source = (

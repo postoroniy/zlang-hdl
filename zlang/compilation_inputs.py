@@ -28,6 +28,10 @@ class PhysicalCompilationInputs:
     dependency_module_sources: tuple[Path, ...] = ()
     stdlib_sources: tuple[Path, ...] = ()
     external_sources: tuple[Path, ...] = ()
+    # Exact in-memory source identities used by editor tooling.  Paths remain
+    # physical inputs for overwrite protection, but cache validation must use
+    # these digests instead of rereading stale on-disk bytes.
+    editor_source_overlays: tuple[tuple[Path, str], ...] = ()
 
     def __post_init__(self) -> None:
         for attribute in ("root_source", "project_manifest", "project_lock"):
@@ -46,6 +50,21 @@ class PhysicalCompilationInputs:
             object.__setattr__(
                 self, attribute, _physical_paths(getattr(self, attribute))
             )
+        overlays = tuple(sorted(
+            (
+                (Path(path).expanduser().resolve(strict=True), digest)
+                for path, digest in self.editor_source_overlays
+            ),
+            key=lambda item: item[0].as_posix(),
+        ))
+        if len({path for path, _ in overlays}) != len(overlays):
+            raise ValueError("editor source overlay paths must be unique")
+        if any(
+            not isinstance(digest, str) or len(digest) != 64
+            for _, digest in overlays
+        ):
+            raise ValueError("editor source overlays require SHA-256 digests")
+        object.__setattr__(self, "editor_source_overlays", overlays)
 
     @property
     def all_paths(self) -> tuple[Path, ...]:

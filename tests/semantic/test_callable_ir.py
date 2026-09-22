@@ -30,6 +30,8 @@ from zlang.ir.module import (
 )
 from zlang.ir.types import UIntType, VecType
 from zlang.compiler import compile_source
+from zlang.parser import parse
+from zlang.semantic import analyze
 from zlang.dependencies import (
     DependencyClosure,
     DependencyModuleIdentity,
@@ -128,7 +130,7 @@ def test_callable_definition_and_call_round_trip_through_canonical_ir() -> None:
 
 
 def test_callable_metadata_participates_in_current_canonical_identity() -> None:
-    assert CANONICAL_IR_IDENTITY_SCHEMA == "zlang-canonical-ir-content-v16"
+    assert CANONICAL_IR_IDENTITY_SCHEMA == "zlang-canonical-ir-content-v20"
     original = lower(_module())
     definition = _definition("specialization:add-u8-v2")
     changed = lower(_module(definition))
@@ -140,17 +142,13 @@ def test_callable_diagnostic_source_relocation_does_not_change_identity() -> Non
         "fn identity<type T>(x:T)->T{x} "
         "module Top{in x:u8 out y:u8 y=identity(x)}"
     )
-    first = compile_source(
-        source, source_unit="first/location.zhl"
-    )
-    second = compile_source(
-        source, source_unit="second/location.zhl"
-    )
+    first = analyze(parse(source), source_unit="first/location.zhl")
+    second = analyze(parse(source), source_unit="second/location.zhl")
     assert (
-        first.ir.callable_definitions[0].metadata.declaration_identity
-        != second.ir.callable_definitions[0].metadata.declaration_identity
+        first.callable_definitions[0].metadata.declaration_identity
+        != second.callable_definitions[0].metadata.declaration_identity
     )
-    assert first.high_level_ir_identity == second.high_level_ir_identity
+    assert canonical_ir_identity(lower(first)) == canonical_ir_identity(lower(second))
 
 
 def test_callable_functional_binder_identity_ignores_unrelated_function_order() -> None:
@@ -163,20 +161,16 @@ def test_callable_functional_binder_identity_ignores_unrelated_function_order() 
         "generate(j in 0..32) x[j]} "
     )
     top = "module Top{in x:vec<32,u8> out y:vec<32,u8> y=target(x)}"
-    first = compile_source(
-        target + unrelated + top,
-        source_unit="callable-order.zhl",
-    )
-    reordered = compile_source(
-        unrelated + target + top,
-        source_unit="callable-order.zhl",
+    first = analyze(parse(target + unrelated + top), source_unit="callable-order.zhl")
+    reordered = analyze(
+        parse(unrelated + target + top), source_unit="callable-order.zhl"
     )
 
     first_definition = next(
-        function for function in first.ir.functions if function.name == "target"
+        function for function in first.functions if function.name == "target"
     )
     reordered_definition = next(
-        function for function in reordered.ir.functions
+        function for function in reordered.functions
         if function.name == "target"
     )
     assert isinstance(first_definition.body, FunctionalRegion)
@@ -195,8 +189,8 @@ def test_callable_functional_binder_identity_ignores_unrelated_function_order() 
         capture.identity
         for capture, _expression in reordered_definition.body.captures
     )
-    assert restore(lower(first.ir)) == first.ir
-    assert restore(lower(reordered.ir)) == reordered.ir
+    assert restore(lower(first)) == first
+    assert restore(lower(reordered)) == reordered
 
 
 def test_specialization_identity_is_sensitive_to_dependency_closure() -> None:
@@ -219,22 +213,13 @@ def test_specialization_identity_is_sensitive_to_dependency_closure() -> None:
             ),
         )
 
-    first = compile_source(
-        source,
-        dependency_closure=closure("d" * 64),
-    )
-    repeated = compile_source(
-        source,
-        dependency_closure=closure("d" * 64),
-    )
-    changed = compile_source(
-        source,
-        dependency_closure=closure("f" * 64),
-    )
+    first = analyze(parse(source), dependency_closure=closure("d" * 64))
+    repeated = analyze(parse(source), dependency_closure=closure("d" * 64))
+    changed = analyze(parse(source), dependency_closure=closure("f" * 64))
 
-    first_id = first.ir.callable_definitions[0].callee_identity
-    assert first_id == repeated.ir.callable_definitions[0].callee_identity
-    assert first_id != changed.ir.callable_definitions[0].callee_identity
+    first_id = first.callable_definitions[0].callee_identity
+    assert first_id == repeated.callable_definitions[0].callee_identity
+    assert first_id != changed.callable_definitions[0].callee_identity
 
 
 def test_shared_callable_body_preserves_each_call_site_origin() -> None:
@@ -418,7 +403,7 @@ def test_canonical_callable_definitions_are_sorted_deterministically() -> None:
 
 
 def test_ordinary_function_may_call_a_retained_generic_specialization() -> None:
-    result = compile_source(
+    result = analyze(parse(
         """fn identity<type T>(value:T)->T { value }
 fn wrapper(value:u8)->u8 { identity(value) }
 module Top {
@@ -426,17 +411,15 @@ module Top {
     out result : u8
     result = wrapper(value)
 }
-""",
-        source_unit="ordinary-calls-generic.zhl",
-    )
+"""), source_unit="ordinary-calls-generic.zhl")
 
     wrapper = next(
-        function for function in result.ir.functions if function.name == "wrapper"
+        function for function in result.functions if function.name == "wrapper"
     )
-    specialization = result.ir.callable_definitions[0]
+    specialization = result.callable_definitions[0]
     assert isinstance(wrapper.body, Call)
     assert wrapper.body.callee_identity == specialization.callee_identity
-    assert restore(lower(result.ir)) == result.ir
+    assert restore(lower(result)) == result
 
 
 def test_recursion_across_ordinary_and_generic_functions_is_rejected() -> None:

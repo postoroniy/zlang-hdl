@@ -60,15 +60,46 @@ def test_source_defined_target_resource_and_architecture_load() -> None:
     assert ("multiply", "MREG") in physical.pipeline_site_map
 
 
-def test_toy_asic_uses_the_same_vendor_neutral_ir() -> None:
-    target, family, resources = load_target("toy-asic")
-    resource = resources[0]
-    architecture = load_architecture("ToyMACArchitecture")
-    assert target.name == "toy_asic"
-    assert family.name == "ToyAsicFamily"
-    assert resource.name == "ToyMAC"
-    assert not resource.dedicated_links
-    assert architecture.resource_name == "ToyMAC"
+def test_sky130_hd_uses_the_same_vendor_neutral_ir() -> None:
+    target, family, resources = load_target("sky130-fd-sc-hd")
+    by_name = {resource.name: resource for resource in resources}
+    assert target.name == "sky130_fd_sc_hd"
+    assert target.part == "sky130_fd_sc_hd"
+    assert target.inventory == ()
+    assert family.name == "Sky130FdScHd"
+    assert set(by_name) == {
+        "Sky130HdStandardCellLogic",
+        "Sky130HdFlipFlop",
+        "Sky130HdResetFlipFlop",
+        "Sky130HdClockGate",
+    }
+    assert dict(by_name["Sky130HdStandardCellLogic"].capabilities) == {
+        "characterized_library": "true",
+        "implementation": "liberty_mapped",
+        "library": "sky130_fd_sc_hd",
+    }
+    assert by_name["Sky130HdFlipFlop"].physical_bindings[0].primitive == (
+        "sky130_fd_sc_hd__dfxtp_1"
+    )
+    assert by_name["Sky130HdResetFlipFlop"].physical_bindings[0].primitive == (
+        "sky130_fd_sc_hd__dfrtp_1"
+    )
+    assert by_name["Sky130HdClockGate"].physical_bindings[0].emitter == "unsupported"
+
+
+def test_sky130_target_emits_generic_rtl_for_downstream_liberty_mapping() -> None:
+    result = compile_source(
+        "module Add { in a,b:u8 out y:u9 y=a+b }",
+        target="sky130-fd-sc-hd",
+    )
+    assert result.implementation_graph.is_generic
+    assert result.implementation_graph.target_identity == (
+        "std.target.asic.sky130.sky130_fd_sc_hd"
+    )
+    assert result.implementation_graph.target_part == "sky130_fd_sc_hd"
+    rtl = emit_experimental(result.ir)
+    assert rtl.count("module Add (") == 1
+    assert "_zlang_core" not in rtl
 
 
 
@@ -152,7 +183,7 @@ def test_unknown_required_and_preferred_selection_diagnostics() -> None:
     with pytest.raises(TargetArchitectureError, match="required architecture is unavailable"):
         select_implementation_graph(module, target=TARGET, mode="required")
     fallback = select_implementation_graph(
-        module, target=TARGET, architecture="ToyMACArchitecture", mode="preferred"
+        module, target=TARGET, architecture="Xilinx7MultiplyAdd", mode="preferred"
     )
     assert fallback.is_generic
     assert fallback.selection_policy == "preferred"
@@ -190,12 +221,18 @@ def test_direct_sv_consumes_graph_and_manifest_round_trips() -> None:
 
 def test_backend_rejects_an_unimplemented_source_resource_binding() -> None:
     result = _selected()
+    sky130_target, _, sky130_resources = load_target("sky130-fd-sc-hd")
+    clock_gate = next(
+        item for item in sky130_resources if item.name == "Sky130HdClockGate"
+    )
     graph = replace(
         result.implementation_graph,
-        target_identity="std.target.toy_asic.toy_asic",
-        target_hash=load_target("toy-asic")[0].source_hash,
-        resources=tuple(replace(item, resource_definition_identity="std.target.toy_asic.ToyMAC")
-                        for item in result.implementation_graph.resources),
+        target_identity=sky130_target.identity,
+        target_hash=sky130_target.source_hash,
+        resources=tuple(
+            replace(item, resource_definition_identity=clock_gate.identity)
+            for item in result.implementation_graph.resources
+        ),
     )
     with pytest.raises(SystemVerilogEmissionError, match="unsupported systemverilog binding"):
         emit_target(result.ir, graph)

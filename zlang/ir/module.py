@@ -816,7 +816,15 @@ class RulePriority:
 def _validate_exact_reduction_callables(
     value: object,
     definitions: dict[str, Function],
+    seen: set[int] | None = None,
 ) -> None:
+    if seen is None:
+        seen = set()
+    if is_dataclass(value) and not isinstance(value, type):
+        identity = id(value)
+        if identity in seen:
+            return
+        seen.add(identity)
     if isinstance(value, Reduce) and value.plan is not None:
         for level in value.plan.levels:
             for operation in level.operations:
@@ -835,14 +843,14 @@ def _validate_exact_reduction_callables(
                     )
     if isinstance(value, tuple):
         for item in value:
-            _validate_exact_reduction_callables(item, definitions)
+            _validate_exact_reduction_callables(item, definitions, seen)
         return
     if is_dataclass(value) and not isinstance(value, type):
         for item in fields(value):
             if item.name in {"type", "origin", "plan"}:
                 continue
             _validate_exact_reduction_callables(
-                getattr(value, item.name), definitions
+                getattr(value, item.name), definitions, seen
             )
 
 
@@ -955,6 +963,27 @@ class Module:
     # the typed module for canonical round trips and bundle generation while
     # production backends deliberately ignore it.
     verification_scopes: tuple[VerificationScope, ...] = ()
+    # Host-work evidence from semantic construction.  It is deliberately
+    # excluded from module equality/canonical identity and need not survive a
+    # canonical round trip.
+    semantic_expression_arena_statistics: object | None = field(
+        default=None,
+        compare=False,
+        repr=False,
+    )
+    # The compilation-local arena is retained only long enough for canonical
+    # lowering to recover every source occurrence of an interned node.  It is
+    # deliberately excluded from equality, identities and serialized IR.
+    semantic_expression_provenance: object | None = field(
+        default=None,
+        compare=False,
+        repr=False,
+    )
+    selected_value_normalization_statistics: object | None = field(
+        default=None,
+        compare=False,
+        repr=False,
+    )
 
     def __post_init__(self) -> None:
         validate_verification_overlay(self.verification_scopes)
@@ -1040,8 +1069,13 @@ class Module:
             *(function.body for function in self.functions),
             *(function.body for function in self.callable_definitions),
         )
+        reduction_validation_seen: set[int] = set()
         for root in roots:
-            _validate_exact_reduction_callables(root, definitions)
+            _validate_exact_reduction_callables(
+                root,
+                definitions,
+                reduction_validation_seen,
+            )
 
     @property
     def is_multi_clock(self) -> bool:

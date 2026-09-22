@@ -11,6 +11,49 @@ incompatible input explicitly.
 
 ## Unreleased
 
+## 0.1.0a11 — 2026-09-22
+
+Community alpha with a persistent native simulator, more reliable live editing,
+and compiler scalability/correctness improvements. The Python reference
+simulator and direct-SystemVerilog backend remain independent execution paths.
+
+### Added
+
+- `zlang sim` and the `zlang.sim` API support persistent simulation, batched
+  events and VCD traces. The native Cranelift executor is distributed in an
+  audited Linux x86-64 binary wheel (also usable on WSL2). macOS native wheels
+  are deferred. The Community source tree and Python archives contain no
+  Rust/Cranelift implementation; `--engine reference` remains available without
+  the binary wheel.
+- A structural synthesis witness suite covers 18 independent hardware patterns,
+  including reductions, permutes, crossbars, compactors, CAM, FIR and CRC.
+- A source-level `std.bus.axi4` preview adds five-channel types, bounded
+  manager/subordinate controllers and flat pin adapters. It is not yet a
+  validated drop-in AXI4 endpoint; `AXI4Lite` and `AXI4BurstSubset` retain
+  their existing interfaces.
+
+### Changed
+
+- LSP live editing uses project-wide open-document snapshots and debounced
+  diagnostics. Unsaved imported modules no longer surface stale-snapshot errors
+  as completion or navigation failures.
+- Exact callable simplification, semantic expression sharing, nested functional
+  regions and Direct-SV DAG materialization reduce accidental elaboration and
+  duplicated RTL without changing source-level hardware semantics.
+- The `zlang` command now exposes simulation, verification, project locking and
+  LSP subcommands while retaining the corresponding compatibility executables.
+- The public installation and language documentation remains consolidated into
+  the maintained reference, quick reference and one reviewed PDF. The released
+  compiler is direct-SystemVerilog-only; private development and PDF-build
+  collateral are not part of the Community snapshot.
+
+### Fixed
+
+- CSR hierarchy and emitter cases, typed immutable child bindings, and
+  preserved memory read-data reset behavior found during ZTPU migration.
+- CLI diagnostics retain source file, line, column and error category across
+  multi-module project compilation.
+
 ## 0.1.0a10 — 2026-09-17
 
 Documentation and release-governance correction with no compiler semantic or
@@ -37,12 +80,11 @@ language and RTL semantics are unchanged from `0.1.0a8`.
 ### Changed
 
 - Consolidated the Community documentation into the maintained language
-  reference, quick reference, and one reviewed 93-page PDF with the ZLang HDL
-  cover on its title page. PDF build collateral is not included in the
-  repository.
-- Reduced the VS Code package to a deterministic 13-file runtime bundle,
-  required the current supported VS Code line, and exercised Definition and
-  References through the installed VSIX host.
+  reference, quick reference, and one reviewed PDF with the ZLang HDL cover on
+  its title page. PDF build collateral is not included in the repository.
+- Reduced the VS Code package to a deterministic runtime bundle, required the
+  current supported VS Code line, and exercised Definition and References
+  through the installed VSIX host.
 - Tightened the source-tree, release metadata, reproducible-package,
   dependency, and hosted editor gates used to publish Community artifacts.
 
@@ -66,7 +108,7 @@ language and RTL semantics are unchanged from `0.1.0a8`.
   documentation, diagnostics, reports, cache namespaces and public test names.
   Older identity-bearing cache records fail closed under the renamed namespaces.
 - Added non-publishing Makefile gates for static checks, focused/full tests,
-  two-pass zero-skip release regression, exact source-tree audits, pinned EDA
+  two-pass zero-skip release regression, exact-public-tree audits, pinned EDA
   inventory, editor tests and reproducible packaging. Packages are built from
   a fresh allow-listed Community export, preventing stale checkout `build/`
   files or private sources from entering wheel/sdist artifacts.
@@ -105,8 +147,9 @@ language and RTL semantics are unchanged from `0.1.0a8`.
   real installed-editor navigation acceptance.
 - A tracked Community-only Qwen project skill with concise routing for `.zhl`
   authoring, compiler work, direct-SystemVerilog integration, optimization,
-  formal verification, and standards-based conversion. The skill and its
-  references remain independent from the compiler and editor packages.
+  formal verification, and standards-based conversion. The public projection
+  requires the skill and its references while keeping it independent from the
+  compiler and editor packages.
 
 ### Changed
 
@@ -131,6 +174,14 @@ language and RTL semantics are unchanged from `0.1.0a8`.
 
 ### Changed
 
+- Removed the retired Clash emitter, its hidden compatibility CLI, generated
+  Haskell artifacts, packaging surface, test suite, and tool discovery. Direct
+  SystemVerilog is now the only production RTL backend in both policy and code.
+- Retired executable retired cross-backend equivalence cross-backend comparison without reusing its name for
+  another relation. safety verification safety, direct-SV semantic-reference equivalence semantic-reference equivalence,
+  and formal-aware selection formal-aware selection remain supported.
+- Release acceptance now requires zero skipped tests and no GHC/Clash tooling.
+
 ## 0.1.0a5 — 2026-09-11
 
 ### Added
@@ -144,6 +195,14 @@ language and RTL semantics are unchanged from `0.1.0a8`.
 
 ### Changed
 
+- Direct SystemVerilog is the sole production RTL backend. The public Clash
+  output options and `zlang-compare-backends` command are retired; the legacy
+  emitter remains internal compatibility code only.
+- formal-aware selection and compiler-owned selected-candidate equivalence now use the direct-SV
+  semantic-reference equivalence route. retired cross-backend equivalence is retained only as unavailable historical schema data.
+- Exact `pipeline(N)` scheduling is deferred until target/profile planning,
+  preserving semantic latency while allowing real internal register cuts.
+
 ### Fixed
 
 - Formal observation outputs can be added to a staged direct-SV datapath
@@ -156,6 +215,11 @@ language and RTL semantics are unchanged from `0.1.0a8`.
 ## 0.1.0a4 — 2026-09-10
 
 ### Added
+
+- A concise language quick reference for coding agents and experienced users,
+  linked from the full guide and checked against the current compiler surface.
+- Shared compiler utilities for deterministic subprocess execution, backend
+  binding identities, pipeline constraints and generated Clash signal logic.
 
 ### Changed
 
@@ -171,24 +235,47 @@ language and RTL semantics are unchanged from `0.1.0a8`.
 
 ### Fixed
 
+- Candidate discovery and formal evidence now follow the exact selected
+  implementation identity, including bounded diagnostics for impossible
+  resource policies and source-independent evidence identities.
+- Clash catalog-only alternatives can no longer leak into selected generated
+  RTL, and explicit positive latency intent consistently gates pipeline
+  candidate generation.
+
 ## 0.1.0a3 — 2026-09-08
 
 Community alpha with mathematical/formal examples and a downloadable lexical
-editor package. Compiler semantics and license terms remain unchanged.
+editor package. Compiler semantics, license terms and the Community Baseline
+remain unchanged; publication is subject to `RELEASING.md`.
 
 ### Added
 
+- A reproducible eight-product datapath tutorial comparing one-cycle, balanced
+  architecture and four-stage `explore` implementations. Recorded Vivado
+  out-of-context timing uses the same device and 10 ns constraint; it is not a
+  board-level timing guarantee.
+- Independent semantic-reference equivalence semantic-reference and retired cross-backend equivalence cross-backend bounded checks for
+  the pipelined example, plus deliberate arithmetic and latency mutations.
+  BMC remains bounded evidence; the separately timed-out formal-aware selection architecture route
+  remains explicitly `unknown`.
+- A static VS Code extension for `.zhl`, independently versioned 0.1.0, with
+  compiler-checked snippets, real TextMate/Oniguruma tests and three optional
+  highlighting styles. No LSP, compiler runtime or telemetry is included.
+- Audited VSIX and audit JSON assets in GitHub releases, covered by checksums
+  and exact-tag workflow attestation. Marketplace/Open VSX publication is not
+  part of this release.
+
 ### Fixed
 
-- Refresh source validation for the pinned `setup-node` v7
+- Refresh the immutable public-tree manifest for the pinned `setup-node` v7
   Dependabot update, preserving the selected Node.js 22.23.2 toolchain.
 - Gate editor release packaging on a fresh advisory audit of all locked npm
   build dependencies as well as static package/license validation.
 
 ## 0.1.0a2 — 2026-09-08
 
-Corrective Community alpha release cut. All compiler capabilities and fixes
-below are retained.
+Corrective Community alpha release cut; publication remains subject to every
+gate in `RELEASING.md`. All compiler capabilities and fixes below are retained.
 
 ### Fixed
 
@@ -207,6 +294,26 @@ First Community alpha release cut. The signed tag exists, but the GitHub
 Release was not published; the installer inventory gate is corrected in a2.
 
 ### Added
+
+- Initial experimental alpha of the ZLang HDL compiler.
+- Public release, security, contribution, support, and provenance policies.
+- The 2026-09 Community Baseline retains every included compiler capability.
+  Future CSR C/C++ and UVM helper generators are classified Enterprise, not
+  implemented additions; existing CSR and simulation exports remain Community.
+- Typed semantic and canonical IR, simulation, Clash and direct-SystemVerilog
+  backends, compiler-owned standard library, project locking, manifests, and
+  bounded optimization and verification workflows.
+- Real-design validation including DMA, standard-bus CSR paths, fixed-point FIR,
+  FFT512, and an attributed IEEE 802.11a transmitter project.
+- Four runnable formal examples and a tutorial covering invariant proofs,
+  a deliberately seeded rare-input counterexample, scoped assumptions,
+  bounded ready/valid safety, covers and immutable verification-bundle replay.
+- Source-authored bounded AXI burst reader/writer helpers, scalable replicated
+  two-read/one-write banked storage composition, and simulation-only state
+  preload/inspection by stable semantic identity (ZL-003, ZL-005, and ZL-006).
+- Source-authored, full-width AHB-Lite-to-RegBus support with the standard
+  pipelined address/data relationship, two-cycle ERROR responses, and an
+  active-low asynchronous-assert/synchronized-release reset contract.
 
 ### Changed
 

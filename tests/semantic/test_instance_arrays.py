@@ -450,20 +450,52 @@ module MemoryLaneArray {
     assert restore(lower(module)) == module
 
 
-def test_sequential_array_still_rejects_csr_children_explicitly() -> None:
+def test_sequential_array_accepts_csr_children_with_complete_indexed_bindings() -> None:
     source = """
 module CsrLane {
     clock clk reset rst
-    out value:u8
-    value=0
     csr bank @0 { CONTROL @0 { enable bit rw = 0 } }
 }
 module CsrLaneArray {
     clock clk reset rst
-    out value:u8
+    in address:vec<2,u32>
+    in write_enable:vec<2,bit>
+    in write_data:vec<2,u32>
+    in read_enable:vec<2,bit>
+    out enabled:vec<2,bit>
+    out rdata:vec<2,u32>
+    out ready:vec<2,bit>
     inst lane[2]:CsrLane
-    value=0
+    generate(i in 0..2) {
+        lane[i].addr=address[i]
+        lane[i].write=write_enable[i]
+        lane[i].wdata=write_data[i]
+        lane[i].read=read_enable[i]
+    }
+    enabled=generate(i in 0..2) lane[i].bank.CONTROL.enable
+    rdata=generate(i in 0..2) lane[i].rdata
+    ready=generate(i in 0..2) lane[i].ready
 }
 """
-    with pytest.raises(SemanticError, match="does not support CSR children"):
-        analyze(parse(source))
+    module = analyze(parse(source))
+    assert [item.name for item in module.instances] == ["lane[0]", "lane[1]"]
+    assert len(module.children) == 2
+    assert all(len(item.csr_blocks) == 1 for item in module.children)
+    generated = module.assignments[0].expression
+    assert isinstance(generated, expr.Generate)
+    assert [
+        (item.instance, item.port) for item in generated.elements
+    ] == [
+        ("lane[0]", "csr_field_0_0_0_state"),
+        ("lane[1]", "csr_field_0_0_0_state"),
+    ]
+    assert [
+        (element.instance, element.port)
+        for assignment in module.assignments[1:]
+        for element in assignment.expression.elements
+    ] == [
+        ("lane[0]", "rdata"),
+        ("lane[1]", "rdata"),
+        ("lane[0]", "ready"),
+        ("lane[1]", "ready"),
+    ]

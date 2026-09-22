@@ -6,10 +6,13 @@ from dataclasses import dataclass, replace
 from bisect import bisect_right
 from functools import cache
 from fractions import Fraction
+import hashlib
+from io import BytesIO
 import re
 from importlib.resources import files
 from threading import Lock
 
+import lark
 from lark import Lark, Transformer, UnexpectedInput, v_args
 from lark.exceptions import VisitError
 
@@ -50,9 +53,15 @@ from zlang.ast.nodes import (
     CsrBinding,
     CsrBindingKind,
     CsrBlockDecl,
+    CsrEventDecl,
+    CsrEventKind,
     CsrFieldDecl,
+    CsrGroupDecl,
+    CsrGroupUseDecl,
     CsrPriority,
     CsrRegisterDecl,
+    CsrSplitOrder,
+    CsrSplitRegisterDecl,
     DelayExpr,
     Direction,
     DotExpr,
@@ -1271,6 +1280,9 @@ class _AstBuilder(Transformer):
             csr_blocks=tuple(
                 item for item in body if isinstance(item, CsrBlockDecl)
             ),
+            csr_groups=tuple(
+                item for item in body if isinstance(item, CsrGroupDecl)
+            ),
             rules=tuple(
                 item for item in body
                 if isinstance(item, (RuleDecl, AnonymousRuleDecl))
@@ -2113,12 +2125,60 @@ class _AstBuilder(Transformer):
         return CsrBinding(CsrBindingKind.COMMAND, str(items[0]))
 
     @v_args(meta=True)
+    def csr_event(self, meta: object, items: list[object]) -> CsrEventDecl:
+        position = next(
+            (item for item in items[2:] if _tagged_position(item)), None
+        )
+        kind_index = next(
+            index for index, item in enumerate(items[2:], start=2)
+            if str(item) in {kind.value for kind in CsrEventKind}
+        )
+        return CsrEventDecl(
+            str(items[0]),
+            items[1],
+            CsrEventKind(str(items[kind_index])),
+            str(items[kind_index + 1]),
+            position[1] if position is not None else None,
+            position[2] if position is not None else None,
+            self._span(meta),
+        )
+
+    @v_args(meta=True)
     def csr_register(self, meta: object, items: list[object]) -> CsrRegisterDecl:
         return CsrRegisterDecl(
             str(items[0]),
             self._parse_number(items[1]),
             tuple(item for item in items[2:] if isinstance(item, CsrFieldDecl)),
+            tuple(item for item in items[2:] if isinstance(item, CsrEventDecl)),
             self._span(meta),
+        )
+
+    @v_args(meta=True)
+    def csr_group_decl(self, meta: object, items: list[object]) -> CsrGroupDecl:
+        return CsrGroupDecl(
+            str(items[0]),
+            tuple(item for item in items[1:] if isinstance(item, CsrRegisterDecl)),
+            self._span(meta),
+        )
+
+    @v_args(meta=True)
+    def csr_group_use(self, meta: object, items: list[object]) -> CsrGroupUseDecl:
+        return CsrGroupUseDecl(
+            str(items[0]), str(items[1]), items[2], items[3], items[4],
+            self._span(meta),
+        )
+
+    @v_args(meta=True)
+    def csr_split_register(
+        self, meta: object, items: list[object]
+    ) -> CsrSplitRegisterDecl:
+        trailing = [item for item in items[6:] if item is not None]
+        reset = self._parse_number(trailing[0]) if len(trailing) == 2 else 0
+        order = trailing[-1]
+        return CsrSplitRegisterDecl(
+            str(items[0]), self._parse_number(items[1]), int(str(items[2])),
+            str(items[3]), items[4], CsrAccess(str(items[5])), reset,
+            CsrSplitOrder(str(order)), self._span(meta),
         )
 
     @v_args(meta=True)
@@ -2128,15 +2188,23 @@ class _AstBuilder(Transformer):
             (
                 str(item)
                 for item in trailing
-                if item is not None and not isinstance(item, CsrRegisterDecl)
+                if item is not None and not isinstance(
+                    item, (CsrRegisterDecl, CsrGroupUseDecl, CsrSplitRegisterDecl)
+                )
             ),
             None,
         )
         return CsrBlockDecl(
             str(items[0]),
-            self._parse_number(items[1]),
+            items[1],
             tuple(
                 item for item in trailing if isinstance(item, CsrRegisterDecl)
+            ),
+            tuple(
+                item for item in trailing if isinstance(item, CsrGroupUseDecl)
+            ),
+            tuple(
+                item for item in trailing if isinstance(item, CsrSplitRegisterDecl)
             ),
             domain,
             self._span(meta),
@@ -3092,6 +3160,28 @@ class _AstBuilder(Transformer):
 _GRAMMAR = files("zlang.parser").joinpath("grammar.lark").read_text()
 _PARSER: Lark | None = None
 _PARSER_LOCK = Lock()
+_PARSER_TABLE_LARK_VERSION = "1.3.1"
+_PARSER_TABLE_GRAMMAR_SHA256 = "9c59ebf44c720ed47943514616181a7c6c039d2bbdd5cdf0d7738fcba670061b"
+_PARSER_TABLE_SHA256 = "0617b9f010c3f57a6b20953736004cfc95f1f42b79880aea51a53576d70644b3"
+
+
+def _load_packaged_parser() -> Lark | None:
+    """Load only the compiler-shipped, hash-pinned table, never user cache data."""
+
+    if (
+        Lark is not lark.Lark
+        or lark.__version__ != _PARSER_TABLE_LARK_VERSION
+        or hashlib.sha256(_GRAMMAR.encode("utf-8")).hexdigest()
+        != _PARSER_TABLE_GRAMMAR_SHA256
+    ):
+        return None
+    try:
+        payload = files("zlang.parser").joinpath("lalr-1.3.1.larkbin").read_bytes()
+        if hashlib.sha256(payload).hexdigest() != _PARSER_TABLE_SHA256:
+            return None
+        return Lark.load(BytesIO(payload))
+    except (OSError, ValueError, EOFError):
+        return None
 
 
 def _get_parser() -> Lark:
@@ -3100,11 +3190,13 @@ def _get_parser() -> Lark:
     global _PARSER
     with _PARSER_LOCK:
         if _PARSER is None:
-            _PARSER = Lark(
-                _GRAMMAR,
-                parser="lalr",
-                propagate_positions=True,
-            )
+            _PARSER = _load_packaged_parser()
+            if _PARSER is None:
+                _PARSER = Lark(
+                    _GRAMMAR,
+                    parser="lalr",
+                    propagate_positions=True,
+                )
         return _PARSER
 
 
@@ -3127,6 +3219,21 @@ def is_valid_identifier(name: str) -> bool:
     """Validate a rename candidate with the parser's ordinary-name rules."""
 
     return isinstance(name, str) and bool(name) and _ordinary_binding_name_is_valid(name)
+
+
+def significant_tokens(source: str) -> tuple[tuple[str, str, int, int, int, int], ...]:
+    """Parser-owned lexical tokens, excluding whitespace and comments.
+
+    Callers must also compare successfully parsed ASTs before treating two
+    sources as syntax-equivalent; lexical equality alone is not a semantic
+    equivalence check in a contextual grammar.
+    """
+
+    return tuple(
+        (item.type, item.value, item.line, item.column,
+         item.end_line, item.end_column)
+        for item in _get_parser().lex(source)
+    )
 
 
 def _tagged(item: object, tag: str) -> bool:

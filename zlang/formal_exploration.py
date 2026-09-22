@@ -1237,7 +1237,7 @@ def _inconclusive(status: FormalStatus) -> bool:
     return status in {FormalStatus.UNKNOWN, FormalStatus.SKIPPED}
 
 
-def gate_candidates(candidates: tuple[Any, ...], evaluations: tuple[Any, ...],
+def gate_candidates(candidates: tuple[Any, ...], evaluations: tuple[Any, ...],  # noqa: ARG001 -- retained public gate shape
                     config: FormalExplorationConfig,
                     verifier: Callable[[Any, FormalExplorationConfig], Any] | None = None,
                     *, route: str = "semantic_equivalence_direct_systemverilog") -> FormalGateResult:

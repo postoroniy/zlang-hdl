@@ -4,9 +4,25 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from hashlib import sha256
 
+from zlang.common import canonical_identity
 from zlang.ir.interfaces import ConnectionAdapter, InterfaceProtocol
+from zlang.ir.type_codec import TypeCodecError, canonical_type_data
+
+
+PROTOCOL_ENDPOINT_IDENTITY_SCHEMA = "zlang-protocol-endpoint-v2"
+PROTOCOL_RELATION_IDENTITY_SCHEMA = "zlang-protocol-relation-v2"
+
+
+def _payload_type_data(value: object) -> object:
+    try:
+        return canonical_type_data(value)  # type: ignore[arg-type]
+    except (TypeCodecError, AttributeError, TypeError):
+        if isinstance(value, (str, int, bool)) or value is None:
+            return {"external": value}
+        raise TypeError(
+            "protocol payload type requires canonical hardware type data"
+        ) from None
 
 
 class LatencyModel(str, Enum):
@@ -39,9 +55,14 @@ class ProtocolEndpoint:
 
     @property
     def identity(self) -> str:
-        return sha256(repr((self.protocol.value, self.payload_type,
-                            self.direction, self.clock_domain,
-                            self.reset_domain, self.parameter)).encode()).hexdigest()
+        return canonical_identity(PROTOCOL_ENDPOINT_IDENTITY_SCHEMA, {
+            "clock_domain": self.clock_domain,
+            "direction": self.direction,
+            "parameter": self.parameter,
+            "payload_type": _payload_type_data(self.payload_type),
+            "protocol": self.protocol.value,
+            "reset_domain": self.reset_domain,
+        })
 
 
 @dataclass(frozen=True)
@@ -88,9 +109,23 @@ def relate_protocol(source: ProtocolEndpoint, destination: ProtocolEndpoint,
             raise ProtocolLegalityError("insufficient adapter buffer")
     changed = ("ready timing", "transaction latency") if adapter or buffer_depth else ()
     preserved = ("payload sequence", "ordering", "no loss", "no duplication")
-    identity = sha256(repr((source.identity, destination.identity,
-                            adapter.value if adapter else None, buffer_depth,
-                            contract)).encode()).hexdigest()
+    identity = canonical_identity(PROTOCOL_RELATION_IDENTITY_SCHEMA, {
+        "adapter": adapter.value if adapter else None,
+        "buffer_depth": buffer_depth,
+        "contract": {
+            "backpressure": contract.backpressure,
+            "buffering": contract.buffering,
+            "duplication": contract.duplication,
+            "latency": contract.latency.value,
+            "loss": contract.loss,
+            "ordering": contract.ordering,
+            "payload_sequence": contract.payload_sequence,
+            "reset": contract.reset,
+            "throughput": contract.throughput,
+        },
+        "destination": destination.identity,
+        "source": source.identity,
+    })
     width = int(getattr(source.payload_type, "width", 1))
     return ProtocolRelation(True, preserved, changed,
                             ("legal source behavior", "same clock/reset domain", "downstream may stall arbitrarily"),

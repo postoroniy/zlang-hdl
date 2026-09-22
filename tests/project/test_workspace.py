@@ -112,6 +112,14 @@ def test_path_dependencies_lock_and_load_transitively_without_writes(tmp_path: P
     assert workspace is not None
     assert before == after
     assert workspace.root_identity_for(top).logical_path == "demo.top"
+    assert workspace.source_path_for_unit("demo.top") == top.resolve()
+    assert workspace.source_path_for_unit("middle.child") == (
+        tmp_path / "middle/src/child.zhl"
+    ).resolve()
+    assert workspace.source_path_for_unit("leaf.value") == (
+        tmp_path / "leaf/src/value.zhl"
+    ).resolve()
+    assert workspace.source_path_for_unit("missing.module") is None
     closure = workspace.resolver.resolve(("middle.child",), importer="demo.top")
     assert tuple(item.logical_path for item in closure) == (
         "leaf.value",

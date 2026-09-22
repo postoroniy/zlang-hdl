@@ -42,6 +42,16 @@ async function replace(editor, text) {
   editor.selection = new vscode.Selection(end, end);
 }
 
+async function replaceDocument(document, text) {
+  const edit = new vscode.WorkspaceEdit();
+  edit.replace(
+    document.uri,
+    new vscode.Range(document.positionAt(0), document.positionAt(document.getText().length)),
+    text,
+  );
+  assert.equal(await vscode.workspace.applyEdit(edit), true);
+}
+
 async function checkHost() {
   console.log(`ZLang editor host smoke: VS Code ${vscode.version}`);
   assert.equal(vscode.version, toolchain.vscodeStable.version,
@@ -220,6 +230,71 @@ async function checkHost() {
       path.join(wifiProject, 'src', declarationFile)));
   }
 
+  // An unsaved imported source and both accepted instance spellings must use
+  // one editor snapshot for diagnostics, completion, F12, and Shift+F12.
+  const mapper = await vscode.workspace.openTextDocument(vscode.Uri.file(
+    path.join(wifiProject, 'src', 'mapper.zhl'),
+  ));
+  const ifft = await vscode.workspace.openTextDocument(vscode.Uri.file(
+    path.join(wifiProject, 'src', 'ifft.zhl'),
+  ));
+  const mapperText = mapper.getText();
+  const transmitterText = transmitter.getText();
+  await replaceDocument(mapper, `// unsaved installed-VSIX overlay\n${mapperText}`);
+
+  const explicitInstanceText = transmitterText.replace(
+    '    packet_mapper : IeeePacketMapper64',
+    '    inst packet_mapper : IeeePacketMapper64',
+  );
+  assert.notEqual(explicitInstanceText, transmitterText);
+  await replaceDocument(transmitter, explicitInstanceText);
+  await new Promise((resolve) => setTimeout(resolve, 400));
+  for (const current of [transmitter, mapper, ifft]) {
+    assert.equal(
+      vscode.languages.getDiagnostics(current.uri)
+        .filter((item) => item.severity === vscode.DiagnosticSeverity.Error).length,
+      0,
+      `live edit produced an error diagnostic in ${path.basename(current.uri.fsPath)}`,
+    );
+  }
+  const explicitModuleOffset = transmitter.getText().indexOf('IeeePacketMapper64');
+  const explicitDefinitions = await vscode.commands.executeCommand(
+    'vscode.executeDefinitionProvider',
+    transmitter.uri,
+    transmitter.positionAt(explicitModuleOffset + 'IeeePacketMapper64'.length),
+  );
+  assert.equal(explicitDefinitions?.length, 1, 'F12 failed with explicit inst and dirty import');
+  const explicitTarget = explicitDefinitions[0].targetUri ?? explicitDefinitions[0].uri;
+  assert.equal(explicitTarget.toString(), mapper.uri.toString());
+  const explicitReferences = await vscode.commands.executeCommand(
+    'vscode.executeReferenceProvider', transmitter.uri,
+    transmitter.positionAt(explicitModuleOffset), { includeDeclaration: true },
+  );
+  assert.equal(explicitReferences?.length, 2,
+    'Shift+F12 failed with explicit inst and dirty import');
+  await vscode.commands.executeCommand(
+    'vscode.executeCompletionItemProvider',
+    transmitter.uri,
+    transmitter.positionAt(transmitter.getText().indexOf('packet_mapper.command')),
+  );
+
+  await replaceDocument(transmitter, transmitterText);
+  await new Promise((resolve) => setTimeout(resolve, 400));
+  assert.equal(
+    vscode.languages.getDiagnostics(transmitter.uri)
+      .filter((item) => item.severity === vscode.DiagnosticSeverity.Error).length,
+    0,
+    'removing inst produced a stale or false diagnostic',
+  );
+  const conciseModuleOffset = transmitter.getText().indexOf('IeeePacketMapper64');
+  const conciseDefinitions = await vscode.commands.executeCommand(
+    'vscode.executeDefinitionProvider',
+    transmitter.uri,
+    transmitter.positionAt(conciseModuleOffset + 'IeeePacketMapper64'.length),
+  );
+  assert.equal(conciseDefinitions?.length, 1, 'F12 failed after removing inst');
+  await replaceDocument(mapper, mapperText);
+
   // Navigation providers may change VS Code's active editor; restore the
   // scratch UI fixture before exercising typing and snippet commands.
   editor = await vscode.window.showTextDocument(document, { preview: false });
@@ -277,6 +352,7 @@ async function checkHost() {
       'activation-complete LanguageClient and real F12 definition provider',
       'nested-project type/module F12 with unopened declaration targets',
       'same-file enum and nested-project type/module Shift+F12 from installed VSIX',
+      'multi-document unsaved live edit with explicit and concise instances',
       'line-comment toggle and removal',
       'bracket auto-closing and Enter indentation',
       'registered Clocked module snippet and working tabstops',

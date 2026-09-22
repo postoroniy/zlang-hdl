@@ -1,0 +1,21 @@
+// Lowest matching entry wins. Keys and values are runtime storage images so
+// this measures compare/mux structure rather than ROM constant propagation.
+module CAMWitness<N=8,IW=3> {
+    in search_key : u16
+    in keys : vec<N,u16>
+    in values : vec<N,u16>
+    out hit : bit
+    out match_index : uint<IW>
+    out match_value : u16
+
+    matches = generate(i in 0..N) (keys[i] == search_key)
+    winners = generate(i in 0..N)
+        (matches[i] & ~reduce(|, generate(j in 0..N)
+            (matches[j] & (extend<IW>(j) < extend<IW>(i)))))
+
+    hit = reduce(|, matches)
+    match_index = reduce(|, generate(i in 0..N)
+        mux(winners[i], extend<IW>(i), 0))
+    match_value = reduce(|, generate(i in 0..N)
+        mux(winners[i], values[i], 0))
+}

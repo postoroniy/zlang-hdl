@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
-      - name: Check out Community source
+      - name: Check out public snapshot
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -37,6 +37,13 @@ jobs:
           setuptools==84.0.0
           twine==6.2.0
           wheel==0.46.3
+      - name: Audit and install the reviewed Linux native wheel
+        run: |
+          python tools/audit_native_binary.py \
+            --expected-version "$(python -c 'from zlang._version import __version__; print(__version__)')" \
+            release/native-wheels/*manylinux_2_28_x86_64.whl
+          python -m pip install --disable-pip-version-check \
+            release/native-wheels/*manylinux_2_28_x86_64.whl
       - name: Validate release status
         run: |
           python tools/release_status.py check --root .
@@ -58,13 +65,14 @@ jobs:
           tests/release
       - name: Build and inspect distributions
         run: |
-          python -m build
+          python -m build --sdist --wheel
           python -m twine check dist/*
+
   lexical-editor:
     runs-on: ubuntu-24.04
-    timeout-minutes: 35
+    timeout-minutes: 20
     steps:
-      - name: Check out Community source
+      - name: Check out public snapshot
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false

@@ -1,0 +1,29 @@
+fn generic_constant<A,B,C>() -> u16 {
+    truncate<16>(extend<16>(A) * 17 + extend<16>(B) * 5 + extend<16>(C))
+}
+
+fn generic_partial<A,B,C>(runtime : u16) -> u16 {
+    truncate<16>(runtime + generic_constant<A=A,B=B,C=C>())
+}
+
+fn generic_index<A,B,C,N>(runtime : vec<N,u16>) -> u16 {
+    generic_partial<A=A,B=B,C=C>(runtime[A])
+}
+
+// Many source specializations collapse to fewer exact constant/runtime shapes.
+module GenericExplosionWitness<N=8> {
+    in runtime : vec<N,u16>
+    out constants : vec<N,vec<4,vec<2,u16>>>
+    out partials : vec<N,vec<4,vec<2,u16>>>
+    out indexed : vec<N,vec<4,vec<2,u16>>>
+
+    constants = generate(a in 0..N)
+        generate(b in 0..4)
+            generate(c in 0..2) generic_constant<A=a,B=b,C=c>()
+    partials = generate(a in 0..N)
+        generate(b in 0..4)
+            generate(c in 0..2) generic_partial<A=a,B=b,C=c>(runtime[a])
+    indexed = generate(a in 0..N)
+        generate(b in 0..4)
+            generate(c in 0..2) generic_index<A=a,B=b,C=c,N=N>(runtime)
+}

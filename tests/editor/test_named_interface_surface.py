@@ -11,7 +11,7 @@ EXT = ROOT / "editors" / "vscode" / "zlang-hdl"
 
 
 def test_named_module_interface_is_registry_owned_and_documented() -> None:
-    assert CAPABILITY_REGISTRY.schema_version == 27
+    assert CAPABILITY_REGISTRY.schema_version == 29
     assert "interface" in CAPABILITY_REGISTRY.keywords
     requirement = next(
         item
@@ -55,8 +55,8 @@ def test_editor_distinguishes_named_interfaces_from_aggregate_ports() -> None:
     assert "clock|reset|reg|fifo|memory|rom|interface|csr" in details
 
 
-def test_public_reference_contains_named_interface_contract() -> None:
+def test_public_guide_links_named_interface_contract() -> None:
     index = (ROOT / "docs" / "language-reference.md").read_text()
     readme = (ROOT / "README.md").read_text()
-    assert "## Named module interfaces" in index
+    assert '<a id="reference-named-module-interfaces"></a>' in index
     assert "docs/language-reference.md" in readme
