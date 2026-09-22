@@ -2899,7 +2899,7 @@
     {
       "mode": "0644",
       "path": "tests/semantic/test_formal_result_semantics.py",
-      "sha256": "4e0b22d702cab8ce6cce97f0d4ee66f8d47bf22045ba3e3c80b79b9dc683a96b"
+      "sha256": "6322ebcbd08dc556af9f6acc5b399ceebb6b97c0748caa493795d2ffa3022084"
     },
     {
       "mode": "0644",
@@ -3319,7 +3319,7 @@
     {
       "mode": "0644",
       "path": "tests/semantic/test_verification_result_cache.py",
-      "sha256": "cdad3a792a744e5e97b95fb74010a13ec8d23297975f2758dd14e7458e282844"
+      "sha256": "255faf8f489eb9c592f2fa2e5b5c0364b17d92037f4906d29d8ee8352a518cf1"
     },
     {
       "mode": "0644",
@@ -4139,7 +4139,7 @@
     {
       "mode": "0644",
       "path": "zlang/formal.py",
-      "sha256": "560193c083dd176a177822321910ee96ee72c9dcd2e12894dff89e73ced747ff"
+      "sha256": "b183af350907b1ee3660a54a4e53af66cdff56898010646ddb1de4ea3c79e318"
     },
     {
       "mode": "0644",
@@ -4769,7 +4769,7 @@
     {
       "mode": "0644",
       "path": "zlang/verification_bundle.py",
-      "sha256": "1c2a1709dff089c85603d176bb5372afcdda3ce3b60d84908d8e28cbf8601350"
+      "sha256": "2e8e33c7e1f3fee68779b0dd07d8b8517a1850191df27bff41a97992e771f60c"
     },
     {
       "mode": "0644",

@@ -112,7 +112,7 @@ def test_decisive_result_cache_hit_bypasses_solver_and_strips_work_path(
     entries = _safety_verification_result_entries(cache)
     assert len(entries) == 1
     envelope = json.loads(entries[0].read_text())
-    assert envelope["schema"] == "zlang-verification-result-cache-v1"
+    assert envelope["schema"] == "zlang-verification-result-cache-v2"
     assert envelope["identity"]["route"] == {
         "artifact_hash": routed_job.artifact_hash,
         "backend": routed_job.backend,

@@ -331,6 +331,28 @@ def _sby_trace_files(root: Path, top: str) -> tuple[Path, ...]:
     return tuple(sorted(work.glob("**/trace*.vcd")))
 
 
+def _sby_failed_sample_step(output: str) -> int | None:
+    """Locate the pre-edge DUT frame for one clocked SBY assertion failure.
+
+    The SBY status artifact, not log prose, determines FAIL.  Once FAIL is
+    established, its reported assertion step is only a frame locator: the
+    generated clocked harness samples the DUT's pre-edge state, whereas the
+    VCD frame at that step can already contain nonblocking state updates.
+    Ambiguous or absent step records never license a guessed observation.
+    """
+
+    steps = {
+        int(match.group(1))
+        for match in re.finditer(
+            r"(?m)\bsummary:\s+failed assertion\b[^\n]*\bstep\s+([0-9]+)\b",
+            output,
+        )
+    }
+    if len(steps) != 1:
+        return None
+    return max(0, steps.pop() - 1)
+
+
 def _execution_error_reason(
     reason: str | None,
     output: str,
@@ -367,6 +389,7 @@ def run_verilog_formal(source: str, *, top: str, property_id: str,
                        toolchain: FormalToolchainContext | None = None,
                        trace_bindings: tuple[TraceBinding, ...] = (),
                        comparison_window: ComparisonWindow | None = None,
+                       counterexample_pre_edge: bool = False,
                        diagnostic_sources: tuple[GeneratedDiagnosticContext, ...] = (),
                        ) -> FormalResult:
     """Run a concrete backend-bound Verilog harness through SymbiYosys.
@@ -461,19 +484,29 @@ def run_verilog_formal(source: str, *, top: str, property_id: str,
                     ), output, diagnostic_sources),
                 )
             from zlang.ir.formal import Counterexample
-            # The VCD ``smt_step`` signal is the authoritative failure frame.
-            # Solver log prose is intentionally not part of result semantics.
-            snapshot = decode_vcd_trace(
-                traces[-1],
-                cycle=None,
-                bindings=trace_bindings,
-                comparison_window=comparison_window,
+            sample_step = (
+                _sby_failed_sample_step(output)
+                if counterexample_pre_edge else None
+            )
+            # A clocked assertion samples pre-edge state.  Do not publish the
+            # last VCD frame: SBY may append post-failure transitions and a
+            # marker-only frame.  For other harnesses the legacy trace frame
+            # selection remains unchanged.
+            snapshot = (
+                decode_vcd_trace(
+                    traces[-1],
+                    cycle=sample_step,
+                    bindings=trace_bindings,
+                    comparison_window=comparison_window,
+                )
+                if not counterexample_pre_edge or sample_step is not None
+                else None
             )
             return FormalResult(property_id, FormalStatus.FAILED, mode, engine, solver, depth,
                                 counterexample=Counterexample(
                                     property_id,
-                                    cycle=snapshot.failure_cycle,
-                                    values=snapshot.values,
+                                    cycle=(None if snapshot is None else snapshot.failure_cycle),
+                                    values=(() if snapshot is None else snapshot.values),
                                     raw_trace=output[-4000:] or "formal counterexample"),
                                 source_origin=source_origin, tool_versions=context.versions,
                                 reason="formal counterexample reported")
