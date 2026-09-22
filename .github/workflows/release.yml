@@ -232,11 +232,17 @@ jobs:
         run: |
           mkdir -p build
           python -m pytest -p tools.pytest_no_skips \
-            -n 8 --dist=loadscope -q --junitxml=build/release-1.xml
+            -n 8 --dist=loadscope -q -m 'not performance' \
+            --junitxml=build/release-1.xml
           python tools/release_status.py check --root . --junit build/release-1.xml
+          python -m pytest -p tools.pytest_no_skips -q -m performance \
+            --junitxml=build/release-performance-1.xml
           python -m pytest -p tools.pytest_no_skips \
-            -n 8 --dist=loadscope -q --junitxml=build/release-2.xml
+            -n 8 --dist=loadscope -q -m 'not performance' \
+            --junitxml=build/release-2.xml
           python tools/release_status.py check --root . --junit build/release-2.xml
+          python -m pytest -p tools.pytest_no_skips -q -m performance \
+            --junitxml=build/release-performance-2.xml
 
   publish:
     needs: [validate, eda]

@@ -192,6 +192,7 @@ jobs:
         run: |
           mkdir -p build
           python -m pytest -p tools.pytest_no_skips -n 4 --dist=loadscope -q \
+            -m 'not performance' \
             --junitxml=build/ci-full.xml
           python tools/release_status.py check --root . --junit build/ci-full.xml
       - name: Retain full regression report on failure
@@ -200,6 +201,35 @@ jobs:
         with:
           name: ci-full-${{ github.run_id }}
           path: build/ci-full.xml
+          if-no-files-found: warn
+          retention-days: 14
+
+  performance-regression:
+    # Wall/RSS ceilings require an otherwise idle runner. Running this test
+    # beside compiler workers measures scheduler contention, not scalability.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install public compiler
+        run: python -m pip install --disable-pip-version-check -e '.[test]'
+      - name: Run isolated bounded performance regressions
+        run: >-
+          python -m pytest -p tools.pytest_no_skips -q
+          -m performance
+          --junitxml=build/ci-performance.xml
+      - name: Retain performance failure evidence
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ci-performance-${{ github.run_id }}
+          path: build/ci-performance.xml
           if-no-files-found: warn
           retention-days: 14
 
@@ -247,7 +277,7 @@ jobs:
     # Keep that name as the aggregate result, so random/full/editor failures
     # cannot be bypassed by a successful small test subset.
     if: always()
-    needs: [fast-core, full-regression, random-smoke, lexical-editor, hosted-edge-regression]
+    needs: [fast-core, full-regression, performance-regression, random-smoke, lexical-editor, hosted-edge-regression]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -255,12 +285,14 @@ jobs:
         env:
           FAST_CORE: ${{ needs['fast-core'].result }}
           FULL: ${{ needs['full-regression'].result }}
+          PERFORMANCE: ${{ needs['performance-regression'].result }}
           RANDOM: ${{ needs['random-smoke'].result }}
           EDITOR: ${{ needs['lexical-editor'].result }}
           HOSTED_EDGE: ${{ needs['hosted-edge-regression'].result }}
         run: |
           test "$FAST_CORE" = success
           test "$FULL" = success
+          test "$PERFORMANCE" = success
           test "$RANDOM" = success
           test "$EDITOR" = success
           test "$HOSTED_EDGE" = success
