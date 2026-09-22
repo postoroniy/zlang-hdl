@@ -47,5 +47,8 @@ jobs:
         run: |
           mkdir -p build
           python -m pytest -p tools.pytest_no_skips \
-            -n 8 --dist=loadscope -q --junitxml=build/eda.xml
+            -n 8 --dist=loadscope -q -m 'not performance' \
+            --junitxml=build/eda.xml
           python tools/release_status.py check --root . --junit build/eda.xml
+          python -m pytest -p tools.pytest_no_skips -q -m performance \
+            --junitxml=build/eda-performance.xml
