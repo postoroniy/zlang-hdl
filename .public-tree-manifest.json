@@ -114,7 +114,7 @@
     {
       "mode": "0644",
       "path": "CHANGELOG.md",
-      "sha256": "21e9b9561855129ae5b6cfc4c5c14e6896dc6b220f60ffb895dbae12cab73348"
+      "sha256": "a7c636eb2444805bde395caa29ce9f30d15c2587aa9967633d16e9dcdc41df3d"
     },
     {
       "mode": "0644",
@@ -164,7 +164,7 @@
     {
       "mode": "0644",
       "path": "README.md",
-      "sha256": "3ac0aa987048d69c5958b633315f9fd6aa9b55b263e90fe78068523bef14f05e"
+      "sha256": "ca3ba345637fdc2f738360406dfcd2bb314891eae7a08dfa2c12563077fc4355"
     },
     {
       "mode": "0644",
@@ -1084,7 +1084,7 @@
     {
       "mode": "0644",
       "path": "release/status.json",
-      "sha256": "cc2d47fb498dc2938e55fde5681aba3b19b2b5b71f6fd1ab746905e87e172f50"
+      "sha256": "be050bde6692cf2ab9f247e1232a42c1c5234d78e895f1f410c9d05bdf5831e8"
     },
     {
       "mode": "0644",
@@ -1379,7 +1379,7 @@
     {
       "mode": "0644",
       "path": "tests/editor/test_vscode_package.py",
-      "sha256": "20a743e81c626e1ef63d5d3bd31be9d1db573669bbb7d17c57520754ae39aef5"
+      "sha256": "fe1156db7b291ba43bf7c35e13bb8e45b2296082c38ca7d1e561ad843a6ba38c"
     },
     {
       "mode": "0644",
@@ -2564,7 +2564,7 @@
     {
       "mode": "0644",
       "path": "tests/release/test_random_regression_contract.py",
-      "sha256": "3ee7fcc2d01e53a93343d1baa02e19f0df8d045d39fb31a3c4defb2a074c5717"
+      "sha256": "a76c9c16f8dbeecdb14f7623701b435c53c4430ed5017302780de7d66e83af27"
     },
     {
       "mode": "0644",
@@ -3784,7 +3784,7 @@
     {
       "mode": "0644",
       "path": "tools/random_regression.py",
-      "sha256": "e741ebd7e05035b5139abc942d0ec6186a0138378c272a7badf0b49d9c16bbe6"
+      "sha256": "16694eef21e2a1f56fde2635bac26f6ad92909b8e8bbe72c08b7dc43363c3c70"
     },
     {
       "mode": "0644",

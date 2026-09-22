@@ -141,8 +141,8 @@ combination is supported or that measured FPGA timing is guaranteed.
 | Verilator | Optional lint and behavioral RTL validation |
 | Yosys/SymbiYosys/Z3 | Optional bounded/proven safety and equivalence execution |
 
-The current verified external-tool configuration is Verilator 5.052, Yosys
-0.69, SymbiYosys 0.69, Z3 4.8.12, and Icarus Verilog/VVP 14.0. These are
+The current GitHub-hosted external-tool configuration is Verilator 5.053, Yosys
+0.69, SymbiYosys 0.69, Z3 4.15.5, and Icarus Verilog/VVP 14.0. These are
 evidence versions, not compatibility bounds; see the
 [installation chapter](docs/language-reference.md#reference-installing-toolchain-verify-the-installation) and
 machine-readable [`release/status.json`](release/status.json).

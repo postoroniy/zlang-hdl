@@ -46,6 +46,10 @@ simulator and direct-SystemVerilog backend remain independent execution paths.
   the maintained reference, quick reference and one reviewed PDF. The released
   compiler is direct-SystemVerilog-only; private development and PDF-build
   collateral are not part of the Community snapshot.
+- Mandatory public regression and open-EDA release gates now run on
+  GitHub-hosted Linux runners. Fixed-seed PR cases and twice-daily full plus
+  reproducible random regression retain failing sources, RTL and logs as
+  Actions artifacts; no self-hosted runner is required.
 
 ### Fixed
 

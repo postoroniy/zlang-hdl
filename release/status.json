@@ -33,10 +33,10 @@
   "eda_toolchain": {
     "iverilog": "14.0",
     "sby": "0.69",
-    "verilator": "5.052",
+    "verilator": "5.053",
     "vvp": "14.0",
     "yosys": "0.69",
-    "z3": "4.8.12"
+    "z3": "4.15.5"
   },
   "documentation": {
     "builder_sha256": "64a938f641837be905378f09e1bc4fd4bd0f950575aad659e26d1605375107ba",

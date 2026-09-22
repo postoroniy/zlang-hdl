@@ -14,6 +14,7 @@ import json
 import os
 from pathlib import Path
 import random
+import re
 import shutil
 import subprocess
 import sys
@@ -80,6 +81,19 @@ def run_command(
     return result
 
 
+def parse_simulator_values(output: str) -> dict[str, str]:
+    """Read only our numeric testbench records, not VVP's source/finish banner."""
+    values: dict[str, str] = {}
+    for line in output.splitlines():
+        match = re.fullmatch(r"([0-9]+):([0-9]+)", line.strip())
+        if match is None:
+            continue
+        if match[1] in values:
+            raise ValueError(f"duplicate RTL output sample for input {match[1]}")
+        values[match[1]] = match[2]
+    return values
+
+
 def run_single(suite: str, seed: int, directory: Path) -> tuple[str, str]:
     source, expected, oracle = generate(suite, seed)
     directory.mkdir(parents=True, exist_ok=True)
@@ -140,7 +154,10 @@ def run_single(suite: str, seed: int, directory: Path) -> tuple[str, str]:
         executed = run_command([vvp, str(binary)], directory, directory / "simulator.log", TOOL_TIMEOUT)
         if executed.returncode:
             return "simulation", f"VVP exited {executed.returncode}"
-        actual = dict(line.split(":", 1) for line in executed.stdout.splitlines() if ":" in line)
+        try:
+            actual = parse_simulator_values(executed.stdout)
+        except ValueError as error:
+            return "simulation-output", str(error)
         (directory / "expected.json").write_text(json.dumps(oracle, sort_keys=True) + "\n")
         (directory / "actual.json").write_text(json.dumps(actual, sort_keys=True) + "\n")
         if actual != {key: str(value) for key, value in oracle.items()}:
