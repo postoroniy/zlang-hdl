@@ -13,6 +13,7 @@ from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 import hashlib
 import json
+import os
 from pathlib import Path
 import queue
 import sys
@@ -1449,9 +1450,15 @@ def read_message(stream: BinaryIO) -> object | None:
         raise LspProtocolError("LSP Content-Length is not an integer") from error
     if length < 0:
         raise LspProtocolError("LSP Content-Length must not be negative")
-    payload = stream.read(length)
-    if len(payload) != length:
-        raise LspProtocolError("truncated LSP message body")
+    chunks: list[bytes] = []
+    remaining = length
+    while remaining:
+        chunk = stream.read(remaining)
+        if not chunk:
+            raise LspProtocolError("truncated LSP message body")
+        chunks.append(chunk)
+        remaining -= len(chunk)
+    payload = b"".join(chunks)
     try:
         return json.loads(payload.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
@@ -1472,7 +1479,13 @@ def write_message(stream: BinaryIO, message: object) -> None:
 def run_server() -> int:
     """Console-script entry point for ``zlang-lsp``."""
 
-    return LspServer().run(sys.stdin.buffer, sys.stdout.buffer)
+    # The framing reader is a daemon so an LSP `exit` notification can end the
+    # process even if the client keeps stdin open.  Reading the interpreter's
+    # buffered stdin from that daemon can abort Python during shutdown while
+    # it owns BufferedReader's lock.  A private raw descriptor avoids that
+    # shutdown race; read_message() assembles short pipe reads exactly.
+    reader_input = os.fdopen(os.dup(sys.stdin.fileno()), "rb", buffering=0)
+    return LspServer().run(reader_input, sys.stdout.buffer)
 
 
 def main(

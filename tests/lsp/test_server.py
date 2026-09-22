@@ -53,6 +53,20 @@ def _request(stream: BytesIO, message: object) -> None:
     write_message(stream, message)
 
 
+def test_json_rpc_reader_assembles_short_unbuffered_reads() -> None:
+    class ShortReadStream(BytesIO):
+        def read(self, size: int = -1) -> bytes:
+            return super().read(min(size, 3) if size >= 0 else 3)
+
+    payload = BytesIO()
+    _request(payload, {"jsonrpc": "2.0", "id": 7, "method": "shutdown"})
+    assert read_message(ShortReadStream(payload.getvalue())) == {
+        "jsonrpc": "2.0",
+        "id": 7,
+        "method": "shutdown",
+    }
+
+
 def test_stdio_transport_argument_starts_a_real_json_rpc_process() -> None:
     """Match the argv that vscode-languageclient uses in production."""
 
