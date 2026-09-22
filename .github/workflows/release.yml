@@ -222,7 +222,8 @@ jobs:
         run: |
           python -m pip install --disable-pip-version-check --upgrade pip==26.2.1
           python -m pip install --disable-pip-version-check -e '.[test]' \
-            release/native-wheels/*manylinux_2_28_x86_64.whl
+            release/native-wheels/*manylinux_2_28_x86_64.whl \
+            build==1.3.0
           python tools/audit_native_binary.py \
             --expected-version "${GITHUB_REF_NAME#v}" \
             release/native-wheels/*manylinux_2_28_x86_64.whl

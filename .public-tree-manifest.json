@@ -44,7 +44,7 @@
     {
       "mode": "0644",
       "path": ".github/workflows/ci.yml",
-      "sha256": "f62f202f8690a722dfbad5ac0753b91e2cbf1ae40cecf9a775ab6e6fe857daa8"
+      "sha256": "3ca83f00fa15b104217c7751e8e302330d8ad2e2317460b944adb6d42cedfd52"
     },
     {
       "mode": "0644",
@@ -54,7 +54,7 @@
     {
       "mode": "0644",
       "path": ".github/workflows/daily-regression.yml",
-      "sha256": "6d2ba046105bbaa22a35d1ccd875dc9c65a4a47b20d5187be4631ff5b409dd02"
+      "sha256": "c8ba517b54da71a327ea32020e1d04a6436863ec812fb4f9f9830d8b02e34ef9"
     },
     {
       "mode": "0644",
@@ -64,12 +64,12 @@
     {
       "mode": "0644",
       "path": ".github/workflows/eda.yml",
-      "sha256": "3220f982f75e152e1f2dd211efa966f466ed9e007c618a32983b66f51a75af89"
+      "sha256": "38e144d4b16c049397983f1c5ee97ba1c996c341d1f315c0c3ac17e3a90df407"
     },
     {
       "mode": "0644",
       "path": ".github/workflows/release.yml",
-      "sha256": "baa068f95a7a6cc65a67cc5bbf83111f4f372a6cda11dde6a89199bc44f8756c"
+      "sha256": "7c90ce5f2e54b907fdd7d39d698119b9d06a96070d09b1eb3b7b38900abef595"
     },
     {
       "mode": "0644",
@@ -2249,7 +2249,7 @@
     {
       "mode": "0644",
       "path": "tests/lsp/test_server.py",
-      "sha256": "98c24a49de067fe482fbae8c3693830a486a4cea2082f7102fd5442fde5d778d"
+      "sha256": "b7ded4892f8aa79ec4dd4fb861da17504df339e42e207da3b0009a513a0ffce8"
     },
     {
       "mode": "0644",
@@ -4454,7 +4454,7 @@
     {
       "mode": "0644",
       "path": "zlang/lsp/server.py",
-      "sha256": "8f0a45902b6dd07a0adadc06e9edad9156a6c305869148d9dd819a9859447919"
+      "sha256": "3082c7be598c9a38eddc370e53c259b481dcdf57c58530ed9b46b029e1ecf694"
     },
     {
       "mode": "0644",
