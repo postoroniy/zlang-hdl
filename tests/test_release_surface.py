@@ -67,10 +67,6 @@ def test_package_and_build_metadata_share_one_version_source() -> None:
     assert native == [
         "zlang-native-sim==0.1.0a11; "
         "platform_system == 'Linux' and platform_machine == 'x86_64'",
-        "zlang-native-sim==0.1.0a11; "
-        "platform_system == 'Darwin' and platform_machine == 'x86_64'",
-        "zlang-native-sim==0.1.0a11; "
-        "platform_system == 'Darwin' and platform_machine == 'arm64'",
     ]
 
 

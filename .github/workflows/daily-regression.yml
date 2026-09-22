@@ -1,0 +1,112 @@
+name: Daily regression and random stress
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+    - cron: "37 15 * * *"
+  workflow_dispatch:
+    inputs:
+      master_seed:
+        description: "Optional exact master seed; defaults to today's UTC date"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  seed:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      master_seed: ${{ steps.select.outputs.master_seed }}
+    steps:
+      - id: select
+        name: Select and record the run seed
+        env:
+          REQUESTED_SEED: ${{ inputs.master_seed }}
+        run: |
+          seed="${REQUESTED_SEED:-$(date -u +%Y%m%d)}"
+          printf 'master_seed=%s\n' "$seed" >> "$GITHUB_OUTPUT"
+          printf 'Master seed: %s\n' "$seed"
+          printf 'Master seed: `%s`\n' "$seed" >> "$GITHUB_STEP_SUMMARY"
+
+  deterministic:
+    needs: seed
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+      - uses: YosysHQ/setup-oss-cad-suite@853bb54f52246aa8fb4fab963f104cfb6676197a # v4
+        with:
+          version: "2026-09-22"
+      - name: Install public compiler and Linux native wheel
+        run: |
+          python -m pip install --disable-pip-version-check -e '.[test]' \
+            release/native-wheels/*manylinux_2_28_x86_64.whl
+          python tools/audit_native_binary.py \
+            --expected-version "$(python -c 'from zlang._version import __version__; print(__version__)')" \
+            release/native-wheels/*manylinux_2_28_x86_64.whl
+      - name: Run complete deterministic regression without skips
+        run: |
+          mkdir -p build
+          python -m pytest -p tools.pytest_no_skips -n 4 --dist=loadscope -q \
+            --junitxml=build/daily-deterministic.xml
+          python tools/release_status.py check --root . \
+            --junit build/daily-deterministic.xml
+          printf 'Complete deterministic regression passed; seed `%s`.\n' \
+            '${{ needs.seed.outputs.master_seed }}' >> "$GITHUB_STEP_SUMMARY"
+      - name: Retain deterministic failure report
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: daily-deterministic-${{ github.run_id }}
+          path: build/daily-deterministic.xml
+          if-no-files-found: warn
+          retention-days: 14
+
+  random:
+    needs: seed
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [expressions, diagnostics]
+        shard: [0, 1, 2, 3]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+      - uses: YosysHQ/setup-oss-cad-suite@853bb54f52246aa8fb4fab963f104cfb6676197a # v4
+        with:
+          version: "2026-09-22"
+      - name: Install public compiler
+        run: python -m pip install --disable-pip-version-check -e .
+      - name: Run deterministic random shard
+        run: >-
+          python tools/random_regression.py
+          --suite "${{ matrix.suite }}"
+          --master-seed "${{ needs.seed.outputs.master_seed }}"
+          --tests 512
+          --shard "${{ matrix.shard }}"
+          --shards 4
+          --save-failures build/random-failures
+      - name: Retain random failures
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: daily-random-${{ matrix.suite }}-${{ matrix.shard }}-${{ github.run_id }}
+          path: build/random-failures/
+          if-no-files-found: warn
+          retention-days: 14

@@ -14,10 +14,9 @@ concurrency:
 
 jobs:
   real-tools:
-    # Never run untrusted pull-request code on the privileged EDA host.
-    # Manual dispatch must also select this repository's trusted main branch.
+    # Trusted main acceptance uses a disposable GitHub-hosted runner.
     if: github.repository == 'postoroniy/zlang-hdl' && github.ref == 'refs/heads/main'
-    runs-on: [self-hosted, linux, x64, zlang-eda]
+    runs-on: ubuntu-24.04
     timeout-minutes: 180
     steps:
       - name: Check out public snapshot
@@ -29,6 +28,10 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
+      - name: Set up pinned open EDA tools
+        uses: YosysHQ/setup-oss-cad-suite@853bb54f52246aa8fb4fab963f104cfb6676197a # v4
+        with:
+          version: "2026-09-22"
       - name: Install ZLang HDL and the compatible prebuilt native runtime
         run: |
           python -m pip install --disable-pip-version-check -e '.[test]' \

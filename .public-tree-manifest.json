@@ -1,5 +1,5 @@
 {
-  "config_sha256": "bbaad461b54c10fd556baa6fd97d9188b7b5437d9ee0b0d525467cd54863df73",
+  "config_sha256": "ff5f69e699045c73f0d9a400858ae2eaf33ef5a84c61973b346b4d9728f42469",
   "files": [
     {
       "mode": "0644",
@@ -44,12 +44,17 @@
     {
       "mode": "0644",
       "path": ".github/workflows/ci.yml",
-      "sha256": "a0427b5693db6c7543c09ef5734b8be6210d8dd49f71aadfa105ee26af3c9de1"
+      "sha256": "f62f202f8690a722dfbad5ac0753b91e2cbf1ae40cecf9a775ab6e6fe857daa8"
     },
     {
       "mode": "0644",
       "path": ".github/workflows/codeql.yml",
       "sha256": "5839d1a1a305d5dd90ad98e57d2b684d417c487c324a97396afd8805b68a58a5"
+    },
+    {
+      "mode": "0644",
+      "path": ".github/workflows/daily-regression.yml",
+      "sha256": "6d2ba046105bbaa22a35d1ccd875dc9c65a4a47b20d5187be4631ff5b409dd02"
     },
     {
       "mode": "0644",
@@ -59,12 +64,12 @@
     {
       "mode": "0644",
       "path": ".github/workflows/eda.yml",
-      "sha256": "fce0597dbe3486869f612c7ba883ccb5cedecfabc32baf078df20ca8522e2a36"
+      "sha256": "3220f982f75e152e1f2dd211efa966f466ed9e007c618a32983b66f51a75af89"
     },
     {
       "mode": "0644",
       "path": ".github/workflows/release.yml",
-      "sha256": "615898ff7a927ad3ad2f42d2578c05cad04c6f6c0b27dd6efc8cff3c2feb8d73"
+      "sha256": "baa068f95a7a6cc65a67cc5bbf83111f4f372a6cda11dde6a89199bc44f8756c"
     },
     {
       "mode": "0644",
@@ -329,7 +334,7 @@
     {
       "mode": "0644",
       "path": "editors/vscode/zlang-hdl/test/host-smoke.cjs",
-      "sha256": "237af7fa9d3e2e87df04a2ed186862f43f8b065ed30fd3f6d3f7b85818bca33f"
+      "sha256": "fdc8311911cf8620c886ce106f2de0e342cc96795c8844f62bee79f86473ef81"
     },
     {
       "mode": "0644",
@@ -1069,7 +1074,7 @@
     {
       "mode": "0644",
       "path": "pyproject.toml",
-      "sha256": "b9ba687ae0dbba7c19cddc45b099c6be55824ee13351650d0f530b74723b949b"
+      "sha256": "78e36f8ba516badc23339fbcc168895c71325e969fedd43fb3e911a3c621958c"
     },
     {
       "mode": "0644",
@@ -2528,6 +2533,11 @@
     },
     {
       "mode": "0644",
+      "path": "tests/random/README.md",
+      "sha256": "d9257c18e672f97db35a27cf811c98b89ecae5cd2c9fb7acf771608e57db8fc8"
+    },
+    {
+      "mode": "0644",
       "path": "tests/release/test_makefile_automation.py",
       "sha256": "787982db7f21c0150562f4dba23296f0a14c9f3896f695fd54f338a480101f65"
     },
@@ -2550,6 +2560,11 @@
       "mode": "0644",
       "path": "tests/release/test_python_source_audit.py",
       "sha256": "94c32b062c8261173f9676cdae3ef25f11cdb9e5c56ac530a3bdc16f2a74d090"
+    },
+    {
+      "mode": "0644",
+      "path": "tests/release/test_random_regression_contract.py",
+      "sha256": "3ee7fcc2d01e53a93343d1baa02e19f0df8d045d39fb31a3c4defb2a074c5717"
     },
     {
       "mode": "0644",
@@ -3584,7 +3599,7 @@
     {
       "mode": "0644",
       "path": "tests/test_release_surface.py",
-      "sha256": "3f4a1fd9e0c0b750d50bc414bbef16e4b3fb7c62d0a82306a888967c420ff295"
+      "sha256": "f94926c13b30eb037b557a83d883b0b1b755b4f2eb78aa9ea344eef447cb27a7"
     },
     {
       "mode": "0644",
@@ -3765,6 +3780,11 @@
       "mode": "0644",
       "path": "tools/python_source_audit.py",
       "sha256": "c8426f35c5ab1d2ad23e26039d3740f1d2203862b35fcbccbb3ed73103c9a672"
+    },
+    {
+      "mode": "0644",
+      "path": "tools/random_regression.py",
+      "sha256": "e741ebd7e05035b5139abc942d0ec6186a0138378c272a7badf0b49d9c16bbe6"
     },
     {
       "mode": "0644",
