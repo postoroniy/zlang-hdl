@@ -286,13 +286,13 @@ jobs:
           FAST_CORE: ${{ needs['fast-core'].result }}
           FULL: ${{ needs['full-regression'].result }}
           PERFORMANCE: ${{ needs['performance-regression'].result }}
-          RANDOM: ${{ needs['random-smoke'].result }}
+          RANDOM_SMOKE: ${{ needs['random-smoke'].result }}
           EDITOR: ${{ needs['lexical-editor'].result }}
           HOSTED_EDGE: ${{ needs['hosted-edge-regression'].result }}
         run: |
           test "$FAST_CORE" = success
           test "$FULL" = success
           test "$PERFORMANCE" = success
-          test "$RANDOM" = success
+          test "$RANDOM_SMOKE" = success
           test "$EDITOR" = success
           test "$HOSTED_EDGE" = success
