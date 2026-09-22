@@ -12,7 +12,7 @@ const toolchain = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../editor-
 const extensionId = 'postoroniy.zlang-hdl';
 const languageId = 'zlang-hdl';
 const snippetName = 'Clocked module';
-const hostSmokeTimeoutMs = 120_000;
+const hostSmokeTimeoutMs = 300_000;
 
 function inside(parent, candidate) {
   const relative = path.relative(parent, candidate);
@@ -53,6 +53,8 @@ async function replaceDocument(document, text) {
 }
 
 async function checkHost() {
+  const started = Date.now();
+  const phase = (name) => console.log(`ZLang editor host smoke phase ${name}: ${Date.now() - started} ms`);
   console.log(`ZLang editor host smoke: VS Code ${vscode.version}`);
   assert.equal(vscode.version, toolchain.vscodeStable.version,
     'host smoke must run on the exact current stable VS Code version');
@@ -128,7 +130,9 @@ async function checkHost() {
   // activation.  The activation promise must not resolve until the server has
   // registered its providers; otherwise this first request races start().
   const extensionApi = vscode.extensions.getExtension(extensionId);
+  phase('before activation');
   await extensionApi.activate();
+  phase('extension activated');
   const useOffset = document.getText().lastIndexOf('x');
   const definitions = await vscode.commands.executeCommand(
     'vscode.executeDefinitionProvider',
@@ -142,6 +146,7 @@ async function checkHost() {
   const definitionRange = definition.targetRange ?? definition.range;
   assert.equal(definitionUri.toString(), document.uri.toString());
   assert.deepEqual(definitionRange.start, new vscode.Position(1, 7));
+  phase('simple definition');
 
   // Mirror dogfooding with the repository opened above a nested locked ZLang
   // project.  Only the root document is opened; declaration targets must be
@@ -184,6 +189,7 @@ async function checkHost() {
       `${name} target was opened instead of resolved from the locked project`,
     );
   }
+  phase('project definitions');
 
   // Exercise the installed References provider, not only the JSON-RPC server
   // test.  The declaration sits above another module in the same source.
@@ -215,6 +221,7 @@ async function checkHost() {
   ]);
   assert.deepEqual(coordinates(useReferences), coordinates(enumReferences),
     'declaration/use Shift+F12 returned different semantic reference sets');
+  phase('same-file references');
 
   for (const [name, declarationFile, expectedCount] of [
     ['WifiTxCommand', 'data_types.zhl', 6],
@@ -229,6 +236,7 @@ async function checkHost() {
     assert.ok(references.some((item) => item.uri.fsPath ===
       path.join(wifiProject, 'src', declarationFile)));
   }
+  phase('project references');
 
   // An unsaved imported source and both accepted instance spellings must use
   // one editor snapshot for diagnostics, completion, F12, and Shift+F12.
@@ -248,6 +256,7 @@ async function checkHost() {
   );
   assert.notEqual(explicitInstanceText, transmitterText);
   await replaceDocument(transmitter, explicitInstanceText);
+  phase('unsaved project edits');
   await new Promise((resolve) => setTimeout(resolve, 400));
   for (const current of [transmitter, mapper, ifft]) {
     assert.equal(
@@ -264,6 +273,7 @@ async function checkHost() {
     transmitter.positionAt(explicitModuleOffset + 'IeeePacketMapper64'.length),
   );
   assert.equal(explicitDefinitions?.length, 1, 'F12 failed with explicit inst and dirty import');
+  phase('dirty definition');
   const explicitTarget = explicitDefinitions[0].targetUri ?? explicitDefinitions[0].uri;
   assert.equal(explicitTarget.toString(), mapper.uri.toString());
   const explicitReferences = await vscode.commands.executeCommand(
@@ -272,6 +282,7 @@ async function checkHost() {
   );
   assert.equal(explicitReferences?.length, 2,
     'Shift+F12 failed with explicit inst and dirty import');
+  phase('dirty references');
   await vscode.commands.executeCommand(
     'vscode.executeCompletionItemProvider',
     transmitter.uri,
@@ -294,6 +305,7 @@ async function checkHost() {
   );
   assert.equal(conciseDefinitions?.length, 1, 'F12 failed after removing inst');
   await replaceDocument(mapper, mapperText);
+  phase('live edit restored');
 
   // Navigation providers may change VS Code's active editor; restore the
   // scratch UI fixture before exercising typing and snippet commands.

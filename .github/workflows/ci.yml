@@ -115,3 +115,89 @@ jobs:
             ${{ runner.temp }}/zlang-hdl-0.1.0-audit.json
           if-no-files-found: error
           retention-days: 14
+
+  random-smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [expressions, diagnostics]
+    steps:
+      - name: Check out public snapshot
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Set up pinned open EDA tools
+        uses: YosysHQ/setup-oss-cad-suite@853bb54f52246aa8fb4fab963f104cfb6676197a # v4
+        with:
+          version: "2026-09-22"
+      - name: Install public compiler
+        run: python -m pip install --disable-pip-version-check -e .
+      - name: Run reproducible PR random cases
+        run: >-
+          python tools/random_regression.py
+          --suite "${{ matrix.suite }}"
+          --master-seed pr-20260923-v1
+          --tests 128
+          --save-failures build/random-failures
+      - name: Retain random failures
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: random-pr-${{ matrix.suite }}-${{ github.run_id }}
+          path: build/random-failures/
+          if-no-files-found: warn
+          retention-days: 14
+
+  full-regression:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - name: Check out public snapshot
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Set up pinned open EDA tools
+        uses: YosysHQ/setup-oss-cad-suite@853bb54f52246aa8fb4fab963f104cfb6676197a # v4
+        with:
+          version: "2026-09-22"
+      - name: Install public compiler and audited Linux native wheel
+        run: |
+          python -m pip install --disable-pip-version-check -e '.[test]' \
+            release/native-wheels/*manylinux_2_28_x86_64.whl
+          python tools/audit_native_binary.py \
+            --expected-version "$(python -c 'from zlang._version import __version__; print(__version__)')" \
+            release/native-wheels/*manylinux_2_28_x86_64.whl
+      - name: Record and require the open EDA toolchain
+        run: |
+          verilator --version
+          iverilog -V
+          yosys -V
+          sby --version
+          z3 --version
+          python tools/release_status.py check --root . --check-tools
+      - name: Run complete public regression with no skips
+        run: |
+          mkdir -p build
+          python -m pytest -p tools.pytest_no_skips -n 4 --dist=loadscope -q \
+            --junitxml=build/ci-full.xml
+          python tools/release_status.py check --root . --junit build/ci-full.xml
+      - name: Retain full regression report on failure
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ci-full-${{ github.run_id }}
+          path: build/ci-full.xml
+          if-no-files-found: warn
+          retention-days: 14
