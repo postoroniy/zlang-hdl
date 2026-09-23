@@ -11,6 +11,15 @@ incompatible input explicitly.
 
 ## Unreleased
 
+## 0.1.0a13 — 2026-09-23
+
+Corrective release of the unchanged `0.1.0a12` compiler, native simulator,
+LSP live editing and documentation payload. The persistent LSP symbol-cache
+regression now inspects only the symbol-cache namespace, so the legitimate
+incremental workspace parse cache cannot make repeated hosted release runs
+order-dependent. Release and EDA validation remain on GitHub-hosted Ubuntu
+runners.
+
 ## 0.1.0a12 — 2026-09-23
 
 Corrective release of the unchanged `0.1.0a11` compiler, native simulator,
