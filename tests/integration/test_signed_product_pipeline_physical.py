@@ -299,6 +299,7 @@ def test_exact_pipeline_physical_graph_is_the_semantic_equivalence_implementatio
     )
 
 
+@pytest.mark.performance
 @pytest.mark.skipif(
     len(formal_tools_available()) != 3 or shutil.which("z3") is None,
     reason="Yosys/SymbiYosys/Z3 route unavailable",
