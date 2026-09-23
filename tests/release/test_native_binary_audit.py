@@ -121,7 +121,7 @@ def test_native_release_set_rejects_empty_or_wrong_version(
     with pytest.raises(NativeBinaryAuditError, match="missing=.*linux"):
         audit_native_release_set((), expected_version="0.1.0a11")
     with pytest.raises(NativeBinaryAuditError, match="does not match"):
-        audit_native_binary(linux, expected_version="0.1.0a12")
+        audit_native_binary(linux, expected_version="0.1.0a13")
 
 
 def test_native_binary_audit_rejects_wrong_binary_architecture(
