@@ -33,12 +33,12 @@ VERILATOR = shutil.which("verilator")
 EXPECTED_ARTIFACTS = {
     ("hierarchical_protocol.zhl", "ProtocolTop"): (
         "67ebdf5d5e204ace5eddf737c6cf5c6804ea3503d87f5353e15b7c7b1b89e238",
-        "05833fb5301789a6603dc4d482b7987418c625ee11114ec2b4b09e0fd1e78bb7",
+        "2d3022d770dcdfaa1ac3b370d8750f2b81e2ef3b37afce9bf447d7f8b1086dd3",
         19,
     ),
     ("hierarchical_request_response.zhl", "HierarchicalRequestResponse"): (
         "2fb5e7ce3a95471fded0bf9500c2c4314ee16edcf64e1ff53f37454317031706",
-        "d05b060352e3f6731e551ef0c17d4cc3f083e85e564c1ae87cee03aab1323995",
+        "afb80bd60b5fef68e81186c3ef1c86a27483631da2173c696f91dc7583b25034",
         27,
     ),
     ("simple_dma.zhl", "SimpleDMA"): (
@@ -46,12 +46,12 @@ EXPECTED_ARTIFACTS = {
         # rule and therefore use the explicitly distinct helper family after
         # ordinary ready/valid FIFOs gained full pop/push replacement.
         "02c43b29110ea89358a40c6513cb4c0f2db64cd95cc442da099fdd4f317b92fd",
-        "be82555d4f91901664fd5be024c11b56c023e6fc8a6d42c841c25f673e61cf8e",
+        "bade19fb072e4bdf588f77c0173f714049117af3d77f38dd5664609905103bbf",
         29,
     ),
     ("axi_csr_top.zhl", "AxiCsrTop"): (
         "ce6becd67a964adb44c5c0f965d2262893215d72a1c3db51474bfd25728bd3f9",
-        "b55f487eff1af135a5e2eb7761a79306f6bd252e4f413e99ad1c55ac541ff9f1",
+        "8bc3424335c06227f02bad598f6c0daf0e3dcda5d342ea903695f1624602d720",
         77,
     ),
 }

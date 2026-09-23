@@ -24,7 +24,7 @@ from zlang.ir.traversal import (
 )
 
 
-FUNCTIONAL_REGION_EMISSION_SCHEMA = "zlang-direct-sv-functional-region-v3"
+FUNCTIONAL_REGION_EMISSION_SCHEMA = "zlang-direct-sv-functional-region-v4"
 DIRECT_SV_DAG_SCHEMA = "zlang-direct-sv-dag-v1"
 
 

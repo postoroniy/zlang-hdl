@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import pytest
 
-from zlang.common.graph import DependencyCycle, dependency_postorder, reachable
+from zlang.common.graph import (
+    DependencyCycle,
+    ReachabilityIndex,
+    dependency_postorder,
+    reachable,
+)
 
 
 def test_dependency_postorder_is_stable_dependency_first_and_unique() -> None:
@@ -31,3 +36,14 @@ def test_reachable_terminates_on_cycles() -> None:
     graph = {"a": ("b",), "b": ("a", "c"), "c": ()}
     assert reachable("a", "c", graph.__getitem__)
     assert not reachable("c", "a", graph.__getitem__)
+
+
+def test_reachability_index_answers_repeated_queries_and_detects_cycles() -> None:
+    acyclic = ReachabilityIndex({("a", "b"), ("b", "c"), ("x", "y")})
+    assert acyclic.reaches("a", "c")
+    assert not acyclic.reaches("c", "a")
+    assert acyclic.reaches("missing", "missing")
+    assert not acyclic.has_cycle
+
+    cyclic = ReachabilityIndex({("a", "b"), ("b", "c"), ("c", "a")})
+    assert cyclic.has_cycle

@@ -48,6 +48,44 @@ jobs:
           python tools/audit_native_binary.py \
             --expected-version "${GITHUB_REF_NAME#v}" \
             --require-release-platforms release/native-wheels/zlang_native_sim-*.whl
+      - name: Audit the exact native SBOM for vulnerabilities
+        id: native_vulnerability_audit
+        shell: bash
+        env:
+          OSV_SCANNER_VERSION: "2.6.0"
+          OSV_SCANNER_IMAGE: "ghcr.io/google/osv-scanner:v2.6.0@sha256:b8cc6dc8805bb77fca4ada69c07cfef5a1e07784c22830e0bd49a440aa27d9fe"
+        run: |
+          mkdir -p build/native-vulnerability
+          printf '%s\n' "$OSV_SCANNER_IMAGE" \
+            > build/native-vulnerability/scanner-image.txt
+          wheels=(release/native-wheels/zlang_native_sim-*.whl)
+          test "${#wheels[@]}" -eq 1
+          python tools/audit_native_vulnerabilities.py extract "${wheels[0]}" \
+            --output build/native-vulnerability/zlang-native-sim.cdx.json
+          set +e
+          docker run --rm \
+            -v "$PWD/build/native-vulnerability:/scan:ro" \
+            "$OSV_SCANNER_IMAGE" scan --format=json --all-packages \
+            -L /scan/zlang-native-sim.cdx.json \
+            > build/native-vulnerability/osv-report.json \
+            2> build/native-vulnerability/osv-stderr.log
+          scanner_status="$?"
+          set -e
+          python tools/audit_native_vulnerabilities.py audit \
+            --sbom build/native-vulnerability/zlang-native-sim.cdx.json \
+            --report build/native-vulnerability/osv-report.json \
+            --exceptions release/native-vulnerability-exceptions.json \
+            --output build/native-vulnerability/audit.json \
+            --scanner-exit-code "$scanner_status" \
+            --scanner-version "$OSV_SCANNER_VERSION"
+      - name: Retain native vulnerability evidence
+        if: ${{ always() && steps.native_vulnerability_audit.outcome != 'skipped' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-${{ github.ref_name }}-native-vulnerability-audit
+          path: build/native-vulnerability/
+          if-no-files-found: error
+          retention-days: 30
       - name: Install exact release tooling and ZLang HDL
         run: |
           python -m pip install --disable-pip-version-check --upgrade pip==26.2.1
@@ -167,6 +205,13 @@ jobs:
             > "$RUNNER_TEMP/zlang-hdl-0.1.0-vsix-audit.json"
           cp -- "$RUNNER_TEMP/zlang-hdl-0.1.0.vsix" \
             "$RUNNER_TEMP/zlang-hdl-0.1.0-vsix-audit.json" dist/
+      - name: Stage the exact reviewed language-reference PDF
+        run: >-
+          python tools/stage_release_pdf.py
+          --root .
+          --status release/status.json
+          --tag "$GITHUB_REF_NAME"
+          --output dist
       - name: Retain accepted dependency audit evidence
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -174,6 +219,9 @@ jobs:
           path: |
             build/release-inventory-audit.json
             build/editor-npm-audit.json
+            build/native-vulnerability/audit.json
+            build/native-vulnerability/osv-report.json
+            build/native-vulnerability/osv-stderr.log
           if-no-files-found: error
           retention-days: 30
       - name: Build release SBOM and checksums after inventory acceptance
@@ -186,7 +234,8 @@ jobs:
           (cd dist && sha256sum zlang_hdl-*.whl zlang_hdl-*.tar.gz \
             zlang_native_sim-*manylinux_2_28_x86_64.whl \
             zlang-hdl-*.cdx.json release-requirements.txt \
-            zlang-hdl-*.vsix zlang-hdl-*-vsix-audit.json | sort > SHA256SUMS)
+            zlang-hdl-*.vsix zlang-hdl-*-vsix-audit.json \
+            zlang-hdl-*-language-reference.pdf | sort > SHA256SUMS)
           (cd dist && sha256sum -c SHA256SUMS)
       - name: Attest release checksums
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
@@ -233,16 +282,16 @@ jobs:
         run: |
           mkdir -p build
           python -m pytest -p tools.pytest_no_skips \
-            -n 8 --dist=loadscope -q -m 'not performance' \
+            -n 8 --dist=loadscope -q --maxfail=1 -m 'not performance' \
             --junitxml=build/release-1.xml
           python tools/release_status.py check --root . --junit build/release-1.xml
-          python -m pytest -p tools.pytest_no_skips -q -m performance \
+          python -m pytest -p tools.pytest_no_skips -q --maxfail=1 -m performance \
             --junitxml=build/release-performance-1.xml
           python -m pytest -p tools.pytest_no_skips \
-            -n 8 --dist=loadscope -q -m 'not performance' \
+            -n 8 --dist=loadscope -q --maxfail=1 -m 'not performance' \
             --junitxml=build/release-2.xml
           python tools/release_status.py check --root . --junit build/release-2.xml
-          python -m pytest -p tools.pytest_no_skips -q -m performance \
+          python -m pytest -p tools.pytest_no_skips -q --maxfail=1 -m performance \
             --junitxml=build/release-performance-2.xml
 
   publish:

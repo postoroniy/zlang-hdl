@@ -28,7 +28,7 @@ from zlang.backend.publication import (
     validate_relative_hashes,
 )
 from zlang.backend.source_map import GeneratedSourceMap
-from zlang.common import stable_digest, stable_json
+from zlang.common import stable_digest, stable_pretty_json
 from zlang.common.content_cache import load_json_object, publish_json_atomically
 from zlang.formal import (
     FormalToolchainContext,
@@ -1394,7 +1394,7 @@ class VerificationBundleManifest:
         return {"bundle_identity": self.bundle_identity, **self.identity_data()}
 
     def to_json(self) -> str:
-        return stable_json(self.to_data(), indent=2) + "\n"
+        return stable_pretty_json(self.to_data())
 
     @classmethod
     def from_data(cls, data: object) -> "VerificationBundleManifest":
@@ -1644,7 +1644,7 @@ def publish_verification_bundle(
         property_ids=properties,
         payload=verification_ir,
     )
-    ir_content = (stable_json(ir_data, indent=2) + "\n").encode("utf-8")
+    ir_content = stable_pretty_json(ir_data).encode("utf-8")
     ir_record = VerificationBundleFile(
         "verification-ir.json",
         "verification_ir",
@@ -2671,7 +2671,7 @@ class VerificationRunReport:
         }
 
     def to_json(self) -> str:
-        return stable_json(self.to_data(), indent=2) + "\n"
+        return stable_pretty_json(self.to_data())
 
     @classmethod
     def from_data(cls, data: object) -> "VerificationRunReport":

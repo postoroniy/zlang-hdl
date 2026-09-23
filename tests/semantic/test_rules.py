@@ -1,10 +1,10 @@
 from pathlib import Path
 import unittest
 
+from zlang.common.graph import ReachabilityIndex
 from zlang.ir.types import BitType
 from zlang.parser import parse
 from zlang.semantic import SemanticError, analyze
-from zlang.semantic.analyze import _has_priority_cycle, _priority_orders
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -24,14 +24,16 @@ class RuleSemanticTests(unittest.TestCase):
                     closure[first, second] |= (
                         closure[first, intermediate] and closure[intermediate, second]
                     )
+            graph = ReachabilityIndex(edges)
             with self.subTest(graph=mask):
                 for first, second in pairs:
                     self.assertEqual(
-                        _priority_orders(first, second, edges),
+                        graph.reaches(first, second)
+                        or graph.reaches(second, first),
                         first == second or closure[first, second] or closure[second, first],
                     )
                 expected_cycle = any(closure[node, node] for node in nodes)
-                self.assertEqual(_has_priority_cycle(edges), expected_cycle)
+                self.assertEqual(graph.has_cycle, expected_cycle)
 
     def test_rules_guards_actions_and_priority_reach_typed_ir(self) -> None:
         module = analyze(parse((ROOT / "examples/rule_counter.zhl").read_text()))

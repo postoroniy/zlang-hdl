@@ -21,7 +21,7 @@ EXT = ROOT / "editors" / "vscode" / "zlang-hdl"
 TOOLCHAIN = json.loads((EXT / "editor-toolchain.json").read_text(encoding="utf-8"))
 PINS = {
     "@vscode/test-electron": TOOLCHAIN["vscodeTestElectron"],
-    "@vscode/vsce": "3.9.2",
+    "@vscode/vsce": "4.0.0",
     "esbuild": TOOLCHAIN["esbuild"],
     "vscode-oniguruma": "2.0.1",
     "vscode-textmate": "9.3.2",

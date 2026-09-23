@@ -671,10 +671,14 @@ class FunctionalRegion(TracedExpression):
         owned_values = (
             self.template,
             *(value for table in self.tables for value in table.values),
-            *(value for _, value in self.captures),
         )
         if any(_functional_value_has_effect(value) for value in owned_values):
             raise ValueError("functional region must be pure combinational IR")
+        if any(
+            _functional_capture_has_effect(value)
+            for _, value in self.captures
+        ):
+            raise ValueError("functional region capture must be a pure value read")
         table_by_name = {table.name: table for table in self.tables}
         capture_by_identity = {
             reference.identity: reference for reference, _ in self.captures
@@ -827,6 +831,48 @@ def _functional_value_has_effect(value: object) -> bool:
             if item.name not in {"type", "origin"}
         )
     return False
+
+
+def _functional_capture_has_effect(value: object) -> bool:
+    """Return whether an invariant region capture crosses an effect boundary.
+
+    A register reference is a read of the current pre-edge value.  Capturing
+    that value is no more effectful than passing it through a pure callable,
+    and the latter already lowers to the same FunctionalRegion shape.  State
+    updates, delays, protocol control observations and storage operations stay
+    outside this closed value-only subset.
+    """
+
+    if isinstance(value, RegisterRef):
+        return False
+    if isinstance(
+        value,
+        (
+            ReadyValidRef,
+            CreditRef,
+            PacketRef,
+            VirtualChannelCreditRef,
+            RequestResponseRef,
+            FifoRef,
+            MemoryRef,
+            RomRef,
+            Delay,
+            Pipeline,
+            ImplementationChoice,
+        ),
+    ):
+        return _functional_value_has_effect(value)
+    if isinstance(value, FunctionalRegion):
+        return False
+    if isinstance(value, tuple):
+        return any(_functional_capture_has_effect(item) for item in value)
+    if is_dataclass(value) and not isinstance(value, type):
+        return any(
+            _functional_capture_has_effect(getattr(value, item.name))
+            for item in fields(value)
+            if item.name not in {"type", "origin"}
+        )
+    return _functional_value_has_effect(value)
 
 
 @dataclass(frozen=True)

@@ -11,6 +11,47 @@ incompatible input explicitly.
 
 ## Unreleased
 
+## 0.1.0a14 — 2026-09-23
+
+Community alpha consolidating accepted compiler, simulation, live-editor and
+standard-library work since `v0.1.0a13`. The native executor remains a separate
+audited Linux x86-64/WSL2 binary; its Rust/Cranelift sources and all private
+development collateral are excluded from the Community source tree.
+
+### Changed
+
+- Full AXI4 source types, bounded managers/subordinates, exclusive-access
+  helpers and flat pin adapters are now included in the standard library.
+- Incremental workspace reuse avoids repeated semantic and native compilation
+  when exact or parser-proven trivia-only editor snapshots can be rebound safely.
+- Common serialization, identity, graph traversal and compiler-session products
+  have single typed owners, reducing duplicated Python compiler work without
+  changing language or hardware semantics.
+- Native and reference simulation handle wide packed values and shared DAGs
+  with explicit complexity bounds; hierarchy and protocol execution continue to
+  lower to the generic primitive simulation plan rather than Rust-side ZLang
+  semantics.
+- Future release workflows independently scan the exact CycloneDX inventory
+  embedded in the binary native-simulation wheel and retain fail-closed advisory
+  evidence alongside the existing structural, license, and dependency audits.
+- GitHub releases again include the exact reviewed language-reference PDF from
+  the tagged source tree, covered by release checksums and artifact attestation;
+  the workflow never rebuilds the PDF.
+- Release acceptance now stops each regression or performance pass after its
+  first failure, and does not start later passes or publication after a failed
+  gate.
+- The reviewed VS Code packaging tool is updated to `@vscode/vsce 4.0.0`; its
+  exact direct dependency and lockfile remain enforced by the editor audit.
+
+### Fixed
+
+- LSP live-edit snapshots no longer report dirty locked modules or request
+  failures while related open project files are being edited, and current spans
+  are retained for diagnostics and navigation.
+- Child protocol member projection and aggregate protocol simulation now use
+  the compiler-owned typed composition model consistently across reference,
+  native and Direct-SV execution.
+
 ## 0.1.0a13 — 2026-09-23
 
 Corrective release of the unchanged `0.1.0a12` compiler, native simulator,
@@ -27,8 +68,7 @@ LSP live editing and documentation payload. Runtime scalability checks now run
 in the dedicated serial performance gate instead of competing under the
 parallel correctness regression. The pinned CodeQL and open-EDA setup actions
 are updated to their reviewed Dependabot revisions. All release acceptance
-remains on GitHub-hosted
-Ubuntu runners.
+remains on GitHub-hosted Ubuntu runners.
 
 ## 0.1.0a11 — 2026-09-22
 

@@ -881,6 +881,53 @@ def test_syntax_diagnostic_marks_the_failing_line_instead_of_file_start(
     assert diagnostic["data"]["construct"] == "syntax error"
 
 
+def test_large_state_captured_region_reports_downstream_type_error(
+    tmp_path: Path,
+) -> None:
+    """A pure state read must not force an eager generated-tree expansion."""
+
+    source = tmp_path / "LargeStateCapturedRegion.zhl"
+    text = """fn c3<K>()->u3{K}
+fn c4<K>()->u4{K}
+fn c8<K>()->u8{K}
+module LargeStateCapturedRegion {
+ clock clk reset rst
+ in valid:bit
+ in lanes:u4
+ in groups:u3
+ in bytes:u3
+ in base:vec<12,u8>
+ in data:vec<12,vec<4,vec<4,u8>>>
+ out result:vec<192,u8>
+ out bad:vec<192,u8>
+ reg fill:u8=0
+ result=generate(dst in 0..192) reduce(|, generate(lane in 0..12) reduce(|, generate(group in 0..4) reduce(|, generate(byte in 0..4) mux(valid&(c4<lane>()<lanes)&(c3<group>()<groups)&(c3<byte>()<bytes)&(truncate<8>(extend<10>(fill)+extend<10>(base[lane])+extend<10>(c3<group>()*bytes)+extend<10>(c3<byte>()))==c8<dst>()),data[lane][group][byte],c8<0>()))))
+ hits:vec<192,u1>=repeat<192>(0)
+ bad=generate(dst in 0..192) mux(hits[dst],result[dst],c8<0>())
+}
+"""
+    source.write_text(text, encoding="utf-8")
+    response = LspServer().dispatch({
+        "jsonrpc": "2.0",
+        "method": "textDocument/didOpen",
+        "params": {
+            "textDocument": {
+                "uri": path_to_uri(source),
+                "version": 1,
+                "text": text,
+            },
+        },
+    })
+
+    diagnostics = response[0]["params"]["diagnostics"]
+    assert len(diagnostics) == 1
+    diagnostic = diagnostics[0]
+    assert diagnostic["code"] == "ZL-SEMANTIC-001"
+    assert diagnostic["message"] == "mux condition must be bit, got u1"
+    assert diagnostic["range"]["start"] == {"line": 16, "character": 29}
+    assert "compile-time evaluator exceeded" not in diagnostic["message"]
+
+
 def test_full_text_protocol_rejects_range_changes(tmp_path: Path) -> None:
     source = tmp_path / "Top.zhl"
     source.write_text(VALID, encoding="utf-8")

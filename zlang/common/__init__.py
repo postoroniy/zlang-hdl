@@ -7,6 +7,7 @@ from .serialization import (
     stable_digest,
     stable_json,
     stable_json_bytes,
+    stable_pretty_json,
 )
 from .subprocess import subprocess_text
 
@@ -17,5 +18,6 @@ __all__ = [
     "stable_digest",
     "stable_json",
     "stable_json_bytes",
+    "stable_pretty_json",
     "subprocess_text",
 ]

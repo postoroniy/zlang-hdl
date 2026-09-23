@@ -18,7 +18,7 @@ from zlang.candidate_sites import (
     CandidateSiteRecord,
     candidate_formal_record_sites,
 )
-from zlang.common import stable_digest, stable_json
+from zlang.common import stable_digest, stable_pretty_json
 from zlang.equivalence_result_codec import (
     equivalence_result_from_data,
     equivalence_result_to_data,
@@ -412,7 +412,7 @@ class CandidateEquivalenceExecutionReport:
         )
 
     def to_json(self) -> str:
-        return stable_json(self.to_data(), indent=2) + "\n"
+        return stable_pretty_json(self.to_data())
 
     @classmethod
     def from_json(cls, text: str) -> "CandidateEquivalenceExecutionReport":
@@ -643,7 +643,7 @@ class CompilerFormalExecutionPlan:
         }
 
     def to_json(self) -> str:
-        return stable_json(self.to_data(), indent=2) + "\n"
+        return stable_pretty_json(self.to_data())
 
     @classmethod
     def from_data(cls, value: object) -> "CompilerFormalExecutionPlan":

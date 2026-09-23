@@ -130,6 +130,7 @@ def audit(root: Path) -> dict[str, object]:
     function_names: dict[str, list[str]] = defaultdict(list)
     class_names: dict[str, list[str]] = defaultdict(list)
     bodies: dict[str, list[str]] = defaultdict(list)
+    method_bodies: dict[str, list[str]] = defaultdict(list)
     imports: dict[str, set[str]] = {}
     loaded_names: Counter[str] = Counter()
     private_definitions: list[tuple[str, str, int]] = []
@@ -157,8 +158,23 @@ def audit(root: Path) -> dict[str, object]:
                     private_definitions.append((module, node.name, lines))
             elif isinstance(node, ast.ClassDef):
                 lines = (node.end_lineno or node.lineno) - node.lineno + 1
-                classes.append({"lines": lines, "name": node.name})
+                methods = tuple(
+                    member
+                    for member in node.body
+                    if isinstance(member, (ast.FunctionDef, ast.AsyncFunctionDef))
+                )
+                classes.append({
+                    "lines": lines,
+                    "methods": len(methods),
+                    "name": node.name,
+                })
                 class_names[node.name].append(_qualified(module, node.name))
+                for method in methods:
+                    if len(method.body) > 1 or not isinstance(
+                        method.body[0], (ast.Pass, ast.Expr)
+                    ):
+                        owner = _qualified(module, f"{node.name}.{method.name}")
+                        method_bodies[_function_body_key(method)].append(owner)
 
         current_function: list[str] = []
 
@@ -210,6 +226,10 @@ def audit(root: Path) -> dict[str, object]:
         (sorted(owners) for owners in bodies.values() if len(owners) > 1),
         key=lambda owners: (-len(owners), owners),
     )
+    duplicate_method_bodies = sorted(
+        (sorted(owners) for owners in method_bodies.values() if len(owners) > 1),
+        key=lambda owners: (-len(owners), owners),
+    )
     duplicate_function_names = {
         name: sorted(owners)
         for name, owners in sorted(function_names.items())
@@ -233,6 +253,7 @@ def audit(root: Path) -> dict[str, object]:
     return {
         "direct_json_dumps": sorted(direct_json_dumps),
         "duplicate_bodies": duplicate_bodies,
+        "duplicate_method_bodies": duplicate_method_bodies,
         "duplicate_class_names": duplicate_class_names,
         "duplicate_function_names": duplicate_function_names,
         "import_cycles": _strongly_connected(imports),
@@ -242,12 +263,17 @@ def audit(root: Path) -> dict[str, object]:
             repr_identity_sites,
             key=lambda item: (item["owner"], item["line"]),
         ),
-        "schema": "zlang-python-architecture-audit-v2",
+        "schema": "zlang-python-architecture-audit-v3",
         "summary": {
             "classes": sum(len(item["classes"]) for item in modules.values()),
             "files": len(paths),
             "functions": sum(len(item["functions"]) for item in modules.values()),
             "lines": sum(item["lines"] for item in modules.values()),
+            "methods": sum(
+                class_["methods"]
+                for item in modules.values()
+                for class_ in item["classes"]
+            ),
         },
         "traversal_sites": sorted(traversal_sites),
         "unallowlisted_repr_identity_sites": tuple(

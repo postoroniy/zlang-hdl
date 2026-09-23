@@ -124,11 +124,11 @@ class TopAggregateABI:
 
     @property
     def inputs(self) -> tuple[ExternalProtocolLeaf, ...]:
-        return tuple(leaf for leaf in self.leaves if leaf.direction is PortDirection.INPUT)
+        return _leaves_with_direction(self.leaves, PortDirection.INPUT)
 
     @property
     def outputs(self) -> tuple[ExternalProtocolLeaf, ...]:
-        return tuple(leaf for leaf in self.leaves if leaf.direction is PortDirection.OUTPUT)
+        return _leaves_with_direction(self.leaves, PortDirection.OUTPUT)
 
 
 @dataclass(frozen=True)
@@ -140,15 +140,22 @@ class TopPhysicalABI:
 
     @property
     def inputs(self) -> tuple[ExternalTopLeaf, ...]:
-        return tuple(leaf for leaf in self.leaves if leaf.direction is PortDirection.INPUT)
+        return _leaves_with_direction(self.leaves, PortDirection.INPUT)
 
     @property
     def outputs(self) -> tuple[ExternalTopLeaf, ...]:
-        return tuple(leaf for leaf in self.leaves if leaf.direction is PortDirection.OUTPUT)
+        return _leaves_with_direction(self.leaves, PortDirection.OUTPUT)
 
     @property
     def aggregate_leaves(self) -> tuple[ExternalTopLeaf, ...]:
         return tuple(leaf for leaf in self.leaves if leaf.category == "aggregate")
+
+
+def _leaves_with_direction(
+    leaves: tuple[ExternalTopLeaf, ...],
+    direction: PortDirection,
+) -> tuple[ExternalTopLeaf, ...]:
+    return tuple(leaf for leaf in leaves if leaf.direction is direction)
 
 
 def build_top_physical_abi(module: Module) -> TopPhysicalABI:

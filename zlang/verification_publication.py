@@ -18,7 +18,7 @@ from zlang.backend.systemverilog import (
     emit_formal_artifact,
 )
 from zlang.compilation_products import CompilationResult
-from zlang.common import stable_digest, stable_json
+from zlang.common import stable_digest, stable_pretty_json
 from zlang.candidate_equivalence import PreparedCandidateEquivalenceSite
 from zlang.formal_artifact_provider import (
     FormalArtifactNamespace,
@@ -3016,7 +3016,7 @@ def publish_compilation_verification_bundle(
     candidate_records: list[dict[str, object]] = []
     for prepared in prepared_candidate_equivalence:
         frozen = prepared.freeze()
-        content = (stable_json(frozen.to_data(), indent=2) + "\n").encode("utf-8")
+        content = stable_pretty_json(frozen.to_data()).encode("utf-8")
         content_hash = hashlib.sha256(content).hexdigest()
         path = (
             "implementation/companions/candidate-equivalence/"

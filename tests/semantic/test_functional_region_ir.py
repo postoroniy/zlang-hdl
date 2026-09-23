@@ -474,6 +474,37 @@ def test_functional_region_rejects_effectful_template() -> None:
         )
 
 
+def test_functional_region_accepts_invariant_register_read_capture() -> None:
+    binder = CompileTimeBinderRef("fixture:state-capture", "k", 0, 2)
+    capture = FunctionalCaptureRef("fixture:state", "state", U8)
+    region = FunctionalRegion(
+        FunctionalRegionKind.GENERATE,
+        binder,
+        capture,
+        (),
+        ((capture, RegisterRef("state", U8)),),
+        VecType(2, U8),
+    )
+
+    assert region.captures == ((capture, RegisterRef("state", U8)),)
+
+
+def test_semantic_compaction_captures_current_register_value() -> None:
+    module = compile_source(
+        "fn c8<K>()->u8{K} module Top { clock clk reset rst "
+        "reg state:u8=0 out values:vec<32,u9> "
+        "values=generate(i in 0..32) { state + c8<K=i>() } "
+        "}",
+    ).ir
+
+    region = module.assignments[0].expression
+    assert isinstance(region, FunctionalRegion)
+    assert any(
+        isinstance(captured, RegisterRef)
+        for _, captured in region.captures
+    )
+
+
 def test_semantic_compaction_captures_ready_valid_payload_only() -> None:
     module = compile_source(
         "module Top { "

@@ -17,7 +17,7 @@ def _wheel(path: Path, members: dict[str, bytes]) -> Path:
 
 def test_materialize_extracts_only_the_native_extension(tmp_path: Path) -> None:
     wheel = _wheel(
-        tmp_path / "zlang_hdl-0.1.0a11-cp312-abi3-linux_x86_64.whl",
+        tmp_path / "zlang_hdl-0.1.0a14-cp312-abi3-linux_x86_64.whl",
         {
             "_zlang_native_sim/__init__.py": b"from ._zlang_native_sim import *\n",
             "_zlang_native_sim/_zlang_native_sim.abi3.so": b"native",

@@ -15,7 +15,7 @@ from pathlib import Path, PurePosixPath
 import re
 from typing import Iterable, Mapping
 
-from zlang.common.serialization import stable_digest, stable_json
+from zlang.common.serialization import stable_digest, stable_pretty_json
 from zlang.opt.identity import CANONICAL_IR_IDENTITY_SCHEMA
 from zlang.source import SourceOrigin, source_origin_to_data
 
@@ -857,7 +857,7 @@ class WholeBuildManifest:
         }
 
     def to_json(self) -> str:
-        return stable_json(self.to_data(), indent=2) + "\n"
+        return stable_pretty_json(self.to_data())
 
     @classmethod
     def from_json(cls, text: str) -> "WholeBuildManifest":

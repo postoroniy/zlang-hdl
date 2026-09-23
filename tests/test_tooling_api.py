@@ -861,7 +861,7 @@ def test_persistent_symbol_cache_reuses_saved_project_after_session_restart(
     warm = definition_at(top, text, 1, position, _session=ToolingSession())
     assert warm == cold
     assert calls == 1
-    shards = tuple(tooling._symbol_cache_root().rglob("*.json"))
+    shards = tuple(cache_root.rglob("*.json"))
     assert len(shards) == 1
     encoded = shards[0].read_text(encoding="utf-8")
     assert str(tmp_path) not in encoded

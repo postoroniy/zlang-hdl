@@ -5381,6 +5381,12 @@ def _embedded_staging_emission(
         declarations.append(
             f"  logic {_range(_width(item.expression.type))}{item.name};"
         )
+        # The general DAG planner may discover a region consumer before a
+        # compact region nested below one of its invariant captures.  Publish
+        # the complete producer map before rendering any owner so the nested
+        # statement-owned value is always replaced by its exact-width alias.
+        aliases[item.expression] = item.name
+    for item in region_items:
         region = _replace_materialized(
             item.expression,
             aliases,
@@ -5391,7 +5397,6 @@ def _embedded_staging_emission(
         replication = _functional_region_replication(region)
         if replication is not None:
             region_logic.append(f"  assign {item.name} = {replication};")
-            aliases[item.expression] = item.name
             continue
         plan = _functional_region_plan(
             region,
@@ -5406,7 +5411,6 @@ def _embedded_staging_emission(
         )
         declarations.extend(region_declarations)
         region_logic.extend(("  always_comb begin", *region_statements, "  end"))
-        aliases[item.expression] = item.name
 
     def render(value: expr.Expression) -> str:
         physical = _instance_expression(module, value, local_names)

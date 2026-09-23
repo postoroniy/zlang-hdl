@@ -44,8 +44,11 @@ uv tool install --python '>=3.12,<3.13' \
 
 The native wheel must match the operating system and CPU; WSL2 uses the Linux
 x86-64 wheel. Omit `--with` to install the portable compiler and select
-`--engine reference` for simulation. See the installation chapter for PATH,
-pip/venv and WSL2 details.
+`--engine reference` for simulation. The native accelerator is optional and
+its Rust/Cranelift source is not distributed in this Community repository; it
+does not alter language or RTL semantics. See the
+[native simulation section](docs/language-reference.md#reference-native-simulation)
+and the installation chapter for PATH, pip/venv and WSL2 details.
 
 Check a design without emitting RTL:
 

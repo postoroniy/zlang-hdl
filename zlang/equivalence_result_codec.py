@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 from typing import Mapping
 
-from zlang.common import stable_json
+from zlang.common import stable_pretty_json
 from zlang.common.serialization import ObjectReader
 from zlang.ir.equivalence import (
     EquivalenceCounterexample,
@@ -256,7 +256,7 @@ def equivalence_result_from_data(value: object) -> EquivalenceResult:
 
 
 def equivalence_result_to_json(result: EquivalenceResult) -> str:
-    return stable_json(equivalence_result_to_data(result), indent=2) + "\n"
+    return stable_pretty_json(equivalence_result_to_data(result))
 
 
 def equivalence_result_from_json(text: str) -> EquivalenceResult:
