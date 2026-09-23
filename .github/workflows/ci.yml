@@ -217,8 +217,17 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
+      - name: Set up pinned open EDA tools
+        uses: YosysHQ/setup-oss-cad-suite@853bb54f52246aa8fb4fab963f104cfb6676197a # v4
+        with:
+          version: "2026-09-22"
       - name: Install public compiler
         run: python -m pip install --disable-pip-version-check -e '.[test]'
+      - name: Require bounded formal tools
+        run: |
+          yosys -V
+          sby --version
+          z3 --version
       - name: Run isolated bounded performance regressions
         run: >-
           python -m pytest -p tools.pytest_no_skips -q
