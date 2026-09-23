@@ -14,7 +14,7 @@ incompatible input explicitly.
 ## 0.1.0a14 — 2026-09-23
 
 Community alpha consolidating accepted compiler, simulation, live-editor and
-standard-library work since `v0.1.0a13`. The native executor remains a separate
+standard-library work since `v0.1.0a13`. The native simulator remains a separate
 audited Linux x86-64/WSL2 binary; its Rust/Cranelift sources and all private
 development collateral are excluded from the Community source tree.
 
