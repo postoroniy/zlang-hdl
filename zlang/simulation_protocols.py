@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 import hashlib
+from typing import Generic, TypeVar
 
 from zlang.ir import expressions as expr
 from zlang.ir.arbitration import ArbitrationPolicy, GrantScope
@@ -55,6 +56,21 @@ class ProtocolSimulationLoweringError(ValueError):
 
 
 RUNTIME_PROTOCOL_SCOPE_PREFIX = "$zlang_runtime_protocol:"
+_ProtocolKey = TypeVar("_ProtocolKey")
+
+
+class _MappedProtocolExpressionLowerer(
+    SimulationExpressionRewriter,
+    Generic[_ProtocolKey],
+):
+    """Own the shared immutable lookup table used by protocol erasure."""
+
+    def __init__(
+        self,
+        values: dict[_ProtocolKey, expr.Expression],
+    ) -> None:
+        super().__init__()
+        self._values = values
 
 
 def credit_field_name(endpoint: str, signal: CreditSignal | str) -> str:
@@ -1430,13 +1446,9 @@ def lower_vc_credit_module(module: Module) -> Module:
     )
 
 
-class _PacketExpressionLowerer(SimulationExpressionRewriter):
-    def __init__(
-        self,
-        values: dict[tuple[str, PacketSignal], expr.Expression],
-    ) -> None:
-        super().__init__()
-        self._values = values
+class _PacketExpressionLowerer(
+    _MappedProtocolExpressionLowerer[tuple[str, PacketSignal]],
+):
 
     def rewrite_special(
         self,
@@ -1932,16 +1944,11 @@ def lower_packet_arbiter_module(module: Module) -> Module:
     )
 
 
-class _RequestResponseExpressionLowerer(SimulationExpressionRewriter):
-    def __init__(
-        self,
-        values: dict[
-            tuple[str, RequestResponseChannel, ReadyValidSignal],
-            expr.Expression,
-        ],
-    ) -> None:
-        super().__init__()
-        self._values = values
+class _RequestResponseExpressionLowerer(
+    _MappedProtocolExpressionLowerer[
+        tuple[str, RequestResponseChannel, ReadyValidSignal]
+    ],
+):
 
     def rewrite_special(
         self,
@@ -2522,13 +2529,9 @@ def lower_request_response_module(module: Module) -> Module:
     )
 
 
-class _ProtocolFieldExpressionLowerer(SimulationExpressionRewriter):
-    def __init__(
-        self,
-        values: dict[tuple[str, str, str], expr.Expression],
-    ) -> None:
-        super().__init__()
-        self._values = values
+class _ProtocolFieldExpressionLowerer(
+    _MappedProtocolExpressionLowerer[tuple[str, str, str]],
+):
 
     def rewrite_special(
         self,

@@ -14,7 +14,7 @@ from enum import Enum
 import json
 from typing import Mapping
 
-from zlang.common import stable_digest, stable_json
+from zlang.common import stable_digest, stable_pretty_json
 from zlang.ir.cdc import (
     ClockDomain,
     clock_domain_contract_identity,
@@ -657,7 +657,7 @@ class FormalExecutionPlan:
         }
 
     def to_json(self) -> str:
-        return stable_json(self.to_data(), indent=2) + "\n"
+        return stable_pretty_json(self.to_data())
 
     @classmethod
     def from_data(cls, value: object) -> "FormalExecutionPlan":

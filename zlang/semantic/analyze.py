@@ -83,7 +83,7 @@ from zlang.ir.functional_regions import (
 )
 from zlang.common import stable_digest
 from zlang.analysis_needs import AnalysisNeeds
-from zlang.common.graph import reachable
+from zlang.common.graph import ReachabilityIndex
 from zlang.diagnostics import DiagnosticEdit, DiagnosticFix
 from zlang.ir.signed_reductions import expression_semantic_identity
 from zlang.ir.traversal import (
@@ -12126,7 +12126,8 @@ def analyze(
             raise SemanticError("duplicate rule priority")
         priority_edges.add(edge)
         priorities.append(ir_module.RulePriority(*edge))
-    if _has_priority_cycle(priority_edges):
+    priority_graph = ReachabilityIndex(priority_edges)
+    if priority_graph.has_cycle:
         raise SemanticError("rule priority graph contains a cycle")
     rule_output_targets = {
         action.target.name
@@ -12217,7 +12218,7 @@ def analyze(
                 and
                 ir_state.groups_conflict(first, second)
                 and not _priority_orders(
-                    first.rule_name, second.rule_name, priority_edges
+                    first.rule_name, second.rule_name, priority_graph
                 )
                 and not _guards_are_provably_disjoint(first.guard, second.guard)
             ):
@@ -12234,7 +12235,7 @@ def analyze(
             for second in writers[index + 1:]:
                 if (
                     first.domain == second.domain
-                    and not _priority_orders(first.name, second.name, priority_edges)
+                    and not _priority_orders(first.name, second.name, priority_graph)
                     and not _guards_are_provably_disjoint(
                         first.guard, second.guard
                     )
@@ -19339,8 +19340,10 @@ def _check_indexed_vector(
     # Admission happens before eager expansion so iterator-dependent generic
     # calls cannot create one monomorphic definition per element.  The
     # symbolic checker is deliberately fail-closed: any use that needs a
-    # concrete shape, type, branch, overload, or state boundary falls through
-    # to the established per-element elaborator below.
+    # concrete shape, type, branch, overload, or effectful boundary falls
+    # through to the established per-element elaborator below.  A current
+    # register read is an invariant pure capture; transition ownership never
+    # enters the region.
     if length >= _FUNCTIONAL_REGION_THRESHOLD or context.functional_symbolic_values:
         certificate_start = len(context.functional_specialization_certificates)
         attempt_state = (
@@ -20502,12 +20505,9 @@ def _connection_output_keys(
 def _priority_orders(
     first: str,
     second: str,
-    edges: set[tuple[str, str]],
+    graph: ReachabilityIndex[str],
 ) -> bool:
-    def successors(source: str) -> Iterable[str]:
-        return (lower for higher, lower in edges if higher == source)
-
-    return reachable(first, second, successors) or reachable(second, first, successors)
+    return graph.reaches(first, second) or graph.reaches(second, first)
 
 
 def _guards_are_provably_disjoint(
@@ -21495,15 +21495,6 @@ def _validate_assumption_ownership(
     raise SemanticError(
         f"assumption contract '{contract_name}' uses an unsupported ownership "
         f"expression {expression!r}"
-    )
-
-
-def _has_priority_cycle(edges: set[tuple[str, str]]) -> bool:
-    def successors(source: str) -> Iterable[str]:
-        return (lower for higher, lower in edges if higher == source)
-
-    return any(
-        reachable(lower, higher, successors) for higher, lower in edges
     )
 
 

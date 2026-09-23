@@ -19,12 +19,16 @@ def test_architecture_audit_is_deterministic_and_reports_cycles(tmp_path: Path) 
     (package / "a.py").write_text(
         "from fixture import b\n"
         "def duplicate(value):\n    return value + 1\n"
-        "def _unused():\n    return 2\n",
+        "def _unused():\n    return 2\n"
+        "class First:\n"
+        "    def shared(self, value):\n        return value * 2\n",
         encoding="utf-8",
     )
     (package / "b.py").write_text(
         "from fixture import a\n"
-        "def duplicate(value):\n    return value + 1\n",
+        "def duplicate(value):\n    return value + 1\n"
+        "class Second:\n"
+        "    def shared(self, value):\n        return value * 2\n",
         encoding="utf-8",
     )
 
@@ -33,10 +37,11 @@ def test_architecture_audit_is_deterministic_and_reports_cycles(tmp_path: Path) 
 
     assert first == second
     assert first["summary"] == {
-        "classes": 0,
+        "classes": 2,
         "files": 2,
         "functions": 3,
-        "lines": 8,
+        "lines": 14,
+        "methods": 2,
     }
     assert first["import_cycles"] == [["fixture.a", "fixture.b"]]
     assert first["duplicate_function_names"]["duplicate"] == [
@@ -44,6 +49,10 @@ def test_architecture_audit_is_deterministic_and_reports_cycles(tmp_path: Path) 
         "fixture.b:duplicate",
     ]
     assert len(first["duplicate_bodies"]) == 1
+    assert first["duplicate_method_bodies"] == [[
+        "fixture.a:First.shared",
+        "fixture.b:Second.shared",
+    ]]
     assert first["potential_dead_private_definitions"] == [
         {"lines": 2, "name": "fixture.a:_unused"}
     ]

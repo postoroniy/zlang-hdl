@@ -8,6 +8,7 @@ from zlang.common import (
     canonical_identity,
     stable_digest,
     stable_json,
+    stable_pretty_json,
     subprocess_text,
 )
 
@@ -15,6 +16,12 @@ from zlang.common import (
 def test_stable_json_is_order_independent() -> None:
     assert stable_json({"b": 2, "a": 1}) == '{"a":1,"b":2}'
     assert stable_json({"a": 1, "b": 2}) == stable_json({"b": 2, "a": 1})
+
+
+def test_stable_pretty_json_owns_artifact_formatting_contract() -> None:
+    assert stable_pretty_json({"b": 2, "a": 1}) == (
+        '{\n  "a": 1,\n  "b": 2\n}\n'
+    )
 
 
 def test_stable_digest_preserves_text_identity_and_structured_identity() -> None:

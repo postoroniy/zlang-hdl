@@ -55,6 +55,10 @@ def test_release_workflow_uses_curated_changelog_notes_and_native_set() -> None:
     assert "--generate-notes" not in workflow
     assert "--require-release-platforms" in workflow
     assert "zlang_native_sim-*.whl" in workflow
+    assert "tools/audit_native_vulnerabilities.py" in workflow
+    assert "tools/stage_release_pdf.py" in workflow
+    assert "zlang-hdl-*-language-reference.pdf" in workflow
+    assert workflow.count("--maxfail=1") == 4
 
 
 def test_makefile_help_is_executable_and_documents_nonpublishing_gate() -> None:
@@ -122,7 +126,7 @@ def test_package_rejects_an_uncommitted_public_checkout(
     completed = subprocess.run(
         (
             "make", "-s", "package", f"PYTHON={sys.executable}",
-            "TAG=v0.1.0a13", f"BUILD_ROOT={tmp_path / 'dist'}",
+            "TAG=v0.1.0a14", f"BUILD_ROOT={tmp_path / 'dist'}",
         ),
         cwd=tmp_path,
         capture_output=True,

@@ -26,7 +26,7 @@ from zlang.backend.publication import (
 )
 from zlang.backend.source_map import GeneratedSourceMap
 from zlang.build_manifest import BuildManifestError, PublishedFile
-from zlang.common import stable_digest, stable_json
+from zlang.common import stable_digest, stable_pretty_json
 
 
 GENERATED_NAVIGATION_BUNDLE_SCHEMA = "zlang-generated-navigation-bundle-v1"
@@ -222,7 +222,7 @@ class GeneratedNavigationBundleManifest:
         }
 
     def to_json(self) -> str:
-        return stable_json(self.to_data(), indent=2) + "\n"
+        return stable_pretty_json(self.to_data())
 
     @classmethod
     def from_json(cls, payload: str | bytes) -> "GeneratedNavigationBundleManifest":

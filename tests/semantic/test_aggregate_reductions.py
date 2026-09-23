@@ -5,6 +5,7 @@ import pytest
 from zlang.compiler import compile_source
 from zlang.ir import expressions as expr
 from zlang.ir.callables import expand_callable_calls
+from zlang.ir.traversal import walk_expression
 from zlang.opt import lower, restore
 from zlang.reductions import expand_reduction
 from zlang.semantic import SemanticError
@@ -234,11 +235,9 @@ def test_compaction_never_retains_an_erased_local_reference() -> None:
         "y=generate(i in 0..32) state_bits[i]}",
     ).ir
     generated = module.assignments[0].expression
-    assert isinstance(generated, expr.Generate)
+    assert isinstance(generated, expr.FunctionalRegion)
     assert module.locals == ()
     assert all(
-        not isinstance(item.expression, expr.InputRef)
-        or item.expression.name != "state_bits"
-        for item in generated.elements
-        if isinstance(item, expr.VectorIndex)
+        not isinstance(item, expr.InputRef) or item.name != "state_bits"
+        for item in walk_expression(generated)
     )

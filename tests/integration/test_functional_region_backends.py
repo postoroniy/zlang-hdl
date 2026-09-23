@@ -53,6 +53,37 @@ module ReadyValidPayloadRegion64 {
 """
 
 
+STATE_CAPTURED_NESTED_REGION_SOURCE = """
+fn c6<K>() -> u6 { K }
+fn c8<K>() -> u8 { K }
+
+module StateCapturedNestedRegion {
+    clock clk
+    reset rst
+    in source : vec<32,u8>
+    out result : vec<42,u8>
+
+    reg offset : u6 = 0
+    reg stored : vec<42,u8> = generate(i in 0..42) c8<0>()
+
+    selected : vec<32,u8> =
+        generate(i in 0..32) source[i]
+    padded : vec<64,u8> =
+        generate(i in 0..64)
+            if i < 32 { selected[i] } else { c8<0>() }
+    next : vec<42,u8> =
+        generate(i in 0..42)
+            padded[truncate<6>(c6<i>() - offset)]
+
+    update:
+        when 1 {
+            stored <- next
+        }
+    result = stored
+}
+"""
+
+
 def _region32() -> FunctionalRegion:
     binder = CompileTimeBinderRef("backend:k", "k", 0, 32)
     table = FunctionalTable(
@@ -167,6 +198,27 @@ def test_final_region_materialization_substitutes_binder_and_capture_exactly() -
     assert all(isinstance(value, VectorIndex) for value in elements)
     assert tuple(value.index for value in elements) == tuple(range(32))
     assert all(value.expression == InputRef("values", vector_type) for value in elements)
+
+
+def test_rule_emission_resolves_region_nested_below_state_capture() -> None:
+    module = compile_source(STATE_CAPTURED_NESTED_REGION_SOURCE).ir
+
+    rtl = emit_experimental(module)
+
+    assert "module StateCapturedNestedRegion" in rtl
+    assert "StateCapturedNestedRegion_zlang_core" not in rtl
+    assert "functional region" not in rtl
+
+
+@pytest.mark.skipif(shutil.which("verilator") is None, reason="Verilator unavailable")
+def test_state_captured_nested_region_passes_strict_verilator(
+    tmp_path: Path,
+) -> None:
+    module = compile_source(STATE_CAPTURED_NESTED_REGION_SOURCE).ir
+    rtl = tmp_path / "StateCapturedNestedRegion.sv"
+    rtl.write_text(emit_experimental(module), encoding="utf-8")
+
+    lint_with_verilator((rtl,), module.name)
 
 
 

@@ -13,7 +13,7 @@ import json
 from typing import TYPE_CHECKING, Iterable, Mapping
 
 from zlang.build_manifest import EvidenceRecord, ReportRecord
-from zlang.common import stable_digest, stable_json
+from zlang.common import stable_digest, stable_json, stable_pretty_json
 from zlang.formal_counterexample_codec import counterexample_to_data
 from zlang.formal_exploration import FormalExplorationRecord
 from zlang.ir.equivalence import EquivalenceCounterexample, EquivalenceResult
@@ -808,7 +808,7 @@ def render_evidence_json(
         formal_execution_plan,
         candidate_equivalence,
     )
-    return stable_json(payload.to_data(), indent=2) + "\n"
+    return stable_pretty_json(payload.to_data())
 
 
 def render_evidence_text(

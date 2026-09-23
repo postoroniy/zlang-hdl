@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 def test_current_release_notes_are_curated_from_exact_changelog_section() -> None:
     notes = release_notes(
-        (ROOT / "CHANGELOG.md").read_text(encoding="utf-8"), "v0.1.0a13"
+        (ROOT / "CHANGELOG.md").read_text(encoding="utf-8"), "v0.1.0a14"
     )
     assert "native simulator" in notes
     assert "LSP live editing" in notes

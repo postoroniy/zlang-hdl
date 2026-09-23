@@ -158,6 +158,17 @@ def stable_json_bytes(value: Any) -> bytes:
     return stable_json(value).encode("utf-8")
 
 
+def stable_pretty_json(value: Any) -> str:
+    """Serialize one deterministic, human-readable JSON document.
+
+    Artifact codecs retain ownership of their schemas and payload construction;
+    this helper owns only the shared formatting contract, including the final
+    newline expected by files written by the compiler.
+    """
+
+    return stable_json(value, indent=2) + "\n"
+
+
 def stable_digest(value: Any, *, length: int | None = None) -> str:
     # Preserve the established text-identity behavior used by candidate
     # hashes; structured values use the shared canonical JSON form.

@@ -640,10 +640,14 @@ def _pure_functional_expression(
     # therefore stay outside this pure value-only representation.
     if isinstance(value, expr.ReadyValidRef):
         result = value.signal is ReadyValidSignal.PAYLOAD
+    elif isinstance(value, expr.RegisterRef):
+        # Reading current state is a pure value operation.  The compactor will
+        # represent an invariant read as an explicit FunctionalRegion capture;
+        # no state ownership or transition is moved into the region.
+        result = True
     elif isinstance(
         value,
         (
-            expr.RegisterRef,
             expr.CreditRef,
             expr.PacketRef,
             expr.VirtualChannelCreditRef,

@@ -24,6 +24,7 @@ ALLOWED_LICENSE_IDS = frozenset(
     }
 )
 MAX_WHEEL_BYTES = 16 * 1024 * 1024
+MAX_SBOM_BYTES = 4 * 1024 * 1024
 RELEASE_PLATFORMS = frozenset({"linux_x86_64"})
 _INVENTORY_ROW = re.compile(
     r"^\| `(?P<name>[^`]+)` \| `(?P<version>[^`]+)` \| "
@@ -96,7 +97,14 @@ def _single_member(archive: ZipFile, suffix: str) -> str:
     return candidates[0]
 
 
-def _sbom_inventory(archive: ZipFile) -> dict[tuple[str, str], frozenset[str]]:
+def _read_utf8_member(archive: ZipFile, name: str, context: str) -> str:
+    try:
+        return archive.read(name).decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise NativeBinaryAuditError(f"wheel {context} is not valid UTF-8") from exc
+
+
+def _sbom_document(archive: ZipFile) -> tuple[bytes, dict[str, object]]:
     candidates = [
         name
         for name in archive.namelist()
@@ -104,21 +112,43 @@ def _sbom_inventory(archive: ZipFile) -> dict[tuple[str, str], frozenset[str]]:
     ]
     if len(candidates) != 1:
         raise NativeBinaryAuditError("wheel must contain exactly one CycloneDX SBOM")
-    value = json.loads(archive.read(candidates[0]))
+    if archive.getinfo(candidates[0]).file_size > MAX_SBOM_BYTES:
+        raise NativeBinaryAuditError("wheel SBOM exceeds 4 MiB")
+    payload = archive.read(candidates[0])
+    try:
+        value = json.loads(payload.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise NativeBinaryAuditError("wheel SBOM is malformed JSON") from exc
+    if not isinstance(value, dict):
+        raise NativeBinaryAuditError("wheel SBOM must be a JSON object")
     if value.get("bomFormat") != "CycloneDX":
         raise NativeBinaryAuditError("wheel SBOM is not CycloneDX")
+    if value.get("specVersion") != "1.5":
+        raise NativeBinaryAuditError("wheel SBOM has an unsupported specification version")
     components = value.get("components")
-    if not isinstance(components, list):
-        raise NativeBinaryAuditError("wheel SBOM has no component list")
+    if not isinstance(components, list) or not components:
+        raise NativeBinaryAuditError("wheel SBOM has no non-empty component list")
+    return payload, value
+
+
+def _sbom_inventory(archive: ZipFile) -> dict[tuple[str, str], frozenset[str]]:
+    _, value = _sbom_document(archive)
+    components = value["components"]
+    assert isinstance(components, list)
     result: dict[tuple[str, str], frozenset[str]] = {}
     for component in components:
         if not isinstance(component, dict):
             raise NativeBinaryAuditError("wheel SBOM component is not an object")
         name = component.get("name")
         version = component.get("version")
+        purl = component.get("purl")
         licenses = component.get("licenses")
         if not isinstance(name, str) or not isinstance(version, str):
             raise NativeBinaryAuditError("wheel SBOM component has no name/version")
+        if purl != f"pkg:cargo/{name}@{version}":
+            raise NativeBinaryAuditError(
+                "wheel SBOM component has no exact Cargo package URL"
+            )
         if not isinstance(licenses, list) or len(licenses) != 1:
             raise NativeBinaryAuditError("wheel SBOM component has invalid licenses")
         license_record = licenses[0]
@@ -134,6 +164,22 @@ def _sbom_inventory(archive: ZipFile) -> dict[tuple[str, str], frozenset[str]]:
             raise NativeBinaryAuditError(f"duplicate wheel SBOM component {key}")
         result[key] = license_ids(expression)
     return result
+
+
+def read_native_sbom(wheel: Path) -> bytes:
+    """Return the exact validated CycloneDX bytes embedded in a binary wheel."""
+
+    if wheel.stat().st_size > MAX_WHEEL_BYTES:
+        raise NativeBinaryAuditError("native runtime wheel exceeds 16 MiB")
+    with ZipFile(wheel) as archive:
+        infos = archive.infolist()
+        names = [info.filename for info in infos]
+        if len(names) != len(set(names)):
+            raise NativeBinaryAuditError("wheel contains duplicate members")
+        for info in infos:
+            _safe_member(info)
+        payload, _ = _sbom_document(archive)
+        return payload
 
 
 def _release_platform(tags: list[str]) -> str:
@@ -230,7 +276,9 @@ def audit_native_binary(
                 "wheel must contain exactly one importable abi3 native package"
             )
         metadata_name = _single_member(archive, ".dist-info/METADATA")
-        metadata = Parser().parsestr(archive.read(metadata_name).decode("utf-8"))
+        metadata = Parser().parsestr(
+            _read_utf8_member(archive, metadata_name, "package metadata")
+        )
         if metadata["Name"] != "zlang-native-sim":
             raise NativeBinaryAuditError("wheel has an unexpected package name")
         version = metadata["Version"]
@@ -242,7 +290,9 @@ def audit_native_binary(
                 f"release version {expected_version!r}"
             )
         wheel_name = _single_member(archive, ".dist-info/WHEEL")
-        wheel_metadata = Parser().parsestr(archive.read(wheel_name).decode("utf-8"))
+        wheel_metadata = Parser().parsestr(
+            _read_utf8_member(archive, wheel_name, "wheel metadata")
+        )
         if wheel_metadata["Root-Is-Purelib"] != "false":
             raise NativeBinaryAuditError("native wheel is incorrectly marked pure")
         tags = wheel_metadata.get_all("Tag", failobj=[])
@@ -254,7 +304,9 @@ def audit_native_binary(
             if document not in names:
                 raise NativeBinaryAuditError(f"wheel is missing {document}")
         inventory = parse_inventory(
-            archive.read("THIRD_PARTY_LICENSES.md").decode("utf-8")
+            _read_utf8_member(
+                archive, "THIRD_PARTY_LICENSES.md", "third-party inventory"
+            )
         )
         sbom = _sbom_inventory(archive)
     if sbom != inventory:

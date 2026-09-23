@@ -1,1 +1,1 @@
-"""Historical enterprise path; coverage lives in consolidated backend suites."""
+"""Compatibility path; coverage lives in consolidated backend suites."""

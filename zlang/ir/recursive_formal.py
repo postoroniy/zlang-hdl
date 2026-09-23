@@ -38,7 +38,7 @@ from zlang.ir.module import (
 )
 from zlang.dependencies import DependencyClosure, DependencyModuleIdentity
 from zlang.source import SourceOrigin
-from zlang.common import stable_digest, stable_json
+from zlang.common import stable_digest, stable_pretty_json
 
 
 RECURSIVE_FORMAL_SCHEMA = 2
@@ -366,7 +366,7 @@ class RecursiveFormalDesign:
         return result
 
     def to_json(self) -> str:
-        return stable_json(self.to_dict(), indent=2) + "\n"
+        return stable_pretty_json(self.to_dict())
 
 
 def _module_source_key(module: Module) -> str:
