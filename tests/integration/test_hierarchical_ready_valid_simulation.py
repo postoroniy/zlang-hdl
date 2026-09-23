@@ -4,6 +4,8 @@ from pathlib import Path
 from statistics import median
 from time import perf_counter
 
+import pytest
+
 from zlang.compiler import compile_file, compile_source
 from zlang.simulate import (
     _PersistentStorageSimulationState,
@@ -284,6 +286,7 @@ def test_persistent_child_preview_and_step_match_storage_cycle_history() -> None
     assert actual == expected
 
 
+@pytest.mark.performance
 def test_hierarchical_persistent_simulation_scales_linearly_with_cycles() -> None:
     module = _fft4()
 
@@ -336,6 +339,7 @@ def test_nested_ready_valid_hierarchy_commits_leaf_state_once_per_cycle() -> Non
     assert result[3]["output"] == result[2]["output"]
 
 
+@pytest.mark.performance
 def test_nested_ready_valid_hierarchy_scales_linearly_with_cycles() -> None:
     module = compile_source(
         NESTED_FIFO_SOURCE,

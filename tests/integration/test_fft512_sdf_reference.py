@@ -245,6 +245,7 @@ def test_fft512_semantic_depth_256_rom_matches_independent_table() -> None:
     assert semantic_words == _depth_256_twiddles()
 
 
+@pytest.mark.performance
 def test_fft512_bounded_hierarchical_replay() -> None:
     script = r'''from hashlib import sha256
 import json

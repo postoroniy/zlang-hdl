@@ -122,7 +122,7 @@ def test_package_rejects_an_uncommitted_public_checkout(
     completed = subprocess.run(
         (
             "make", "-s", "package", f"PYTHON={sys.executable}",
-            "TAG=v0.1.0a11", f"BUILD_ROOT={tmp_path / 'dist'}",
+            "TAG=v0.1.0a12", f"BUILD_ROOT={tmp_path / 'dist'}",
         ),
         cwd=tmp_path,
         capture_output=True,

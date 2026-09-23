@@ -11,6 +11,16 @@ incompatible input explicitly.
 
 ## Unreleased
 
+## 0.1.0a12 — 2026-09-23
+
+Corrective release of the unchanged `0.1.0a11` compiler, native simulator,
+LSP live editing and documentation payload. Runtime scalability checks now run
+in the dedicated serial performance gate instead of competing under the
+parallel correctness regression. The pinned CodeQL and open-EDA setup actions
+are updated to their reviewed Dependabot revisions. All release acceptance
+remains on GitHub-hosted
+Ubuntu runners.
+
 ## 0.1.0a11 — 2026-09-22
 
 Community alpha with a persistent native simulator, more reliable live editing,
