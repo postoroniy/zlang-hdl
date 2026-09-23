@@ -30,7 +30,7 @@ def _write_wheel(
     path: Path,
     *,
     platform: str,
-    version: str = "0.1.0a14",
+    version: str = "0.1.0a15",
     payload_platform: str | None = None,
 ) -> None:
     distribution = f"zlang_native_sim-{version}.dist-info"
@@ -125,13 +125,13 @@ def test_native_release_set_requires_linux_only(
 ) -> None:
     linux = tmp_path / "linux.whl"
     _write_wheel(linux, platform="manylinux_2_28_x86_64")
-    infos = audit_native_release_set((linux,), expected_version="0.1.0a14")
+    infos = audit_native_release_set((linux,), expected_version="0.1.0a15")
     assert [info.platform for info in infos] == ["linux_x86_64"]
 
     macos = tmp_path / "macos.whl"
     _write_wheel(macos, platform="macosx_11_0_arm64")
     with pytest.raises(NativeBinaryAuditError, match="extra=.*macos"):
-        audit_native_release_set((linux, macos), expected_version="0.1.0a14")
+        audit_native_release_set((linux, macos), expected_version="0.1.0a15")
 
 
 def test_native_release_set_rejects_empty_or_wrong_version(
@@ -141,7 +141,7 @@ def test_native_release_set_rejects_empty_or_wrong_version(
     _write_wheel(linux, platform="manylinux_2_28_x86_64")
 
     with pytest.raises(NativeBinaryAuditError, match="missing=.*linux"):
-        audit_native_release_set((), expected_version="0.1.0a14")
+        audit_native_release_set((), expected_version="0.1.0a15")
     with pytest.raises(NativeBinaryAuditError, match="does not match"):
         audit_native_binary(linux, expected_version="0.1.0a12")
 
@@ -283,7 +283,7 @@ def test_native_binary_audit_rejects_multiple_or_misplaced_payloads(
 @pytest.mark.parametrize(
     ("member_suffix", "replacement", "message"),
     (
-        (".dist-info/METADATA", b"Name: another-package\nVersion: 0.1.0a14\n", "package name"),
+        (".dist-info/METADATA", b"Name: another-package\nVersion: 0.1.0a15\n", "package name"),
         (".dist-info/WHEEL", b"Root-Is-Purelib: true\nTag: cp312-abi3-manylinux_2_28_x86_64\n", "marked pure"),
         (".dist-info/WHEEL", b"Root-Is-Purelib: false\nTag: cp312-cp312-manylinux_2_28_x86_64\n", "stable abi3"),
         (".dist-info/WHEEL", b"Root-Is-Purelib: false\nTag: cp312-abi3-win_amd64\n", "unsupported native wheel platform"),

@@ -1,6 +1,6 @@
 # ZLang HDL Community Language Reference
 
-Version 0.1.0a14
+Version 0.1.0a15
 
 This is the complete user-facing reference for the ZLang HDL Community compiler.
 The backend-independent typed IR defines language semantics, and Direct
@@ -6136,7 +6136,7 @@ the specific eligible relations rather than promising arbitrary proof.
 ## Known limitations
 
 
-ZLang `0.1.0a14` is an experimental alpha release.  The compiler deliberately
+ZLang `0.1.0a15` is an experimental alpha release.  The compiler deliberately
 fails closed when a design falls outside a validated language/backend
 intersection: it must not publish RTL after silently dropping an IR entity.
 

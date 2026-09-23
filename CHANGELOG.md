@@ -11,6 +11,19 @@ incompatible input explicitly.
 
 ## Unreleased
 
+## 0.1.0a15 — 2026-09-24
+
+Corrective Community alpha carrying the accepted `0.1.0a14` compiler tree after
+its unpublished release workflow exposed an over-broad persistent-cache test.
+It retains that candidate's native simulator, LSP live editing, AXI4 stdlib and
+release-hardening changes without altering compiler or hardware semantics.
+
+### Fixed
+
+- The LSP persistent-symbol-cache regression now inspects only its owned
+  `symbol-v1` namespace instead of also counting incremental workspace parse
+  cache shards beneath the shared XDG cache root. Product behavior is unchanged.
+
 ## 0.1.0a14 — 2026-09-23
 
 Community alpha consolidating accepted compiler, simulation, LSP live editing and
