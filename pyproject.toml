@@ -42,7 +42,7 @@ Documentation = "https://github.com/postoroniy/zlang-hdl/tree/main/docs"
 
 [project.optional-dependencies]
 native = [
-    "zlang-native-sim==0.1.0a11; platform_system == 'Linux' and platform_machine == 'x86_64'",
+    "zlang-native-sim==0.1.0a12; platform_system == 'Linux' and platform_machine == 'x86_64'",
 ]
 test = [
     "pytest>=8,<10",

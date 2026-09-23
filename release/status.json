@@ -3,7 +3,7 @@
   "release": {
     "channel": "alpha",
     "repository": "https://github.com/postoroniy/zlang-hdl",
-    "version": "0.1.0a11"
+    "version": "0.1.0a12"
   },
   "platform": {
     "operating_system": "Linux",
@@ -11,7 +11,7 @@
     "architecture": "x86_64"
   },
   "native_runtime": {
-    "version": "0.1.0a11",
+    "version": "0.1.0a12",
     "abi": "cp312-abi3",
     "source_distribution": false,
     "platforms": [
