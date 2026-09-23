@@ -45,6 +45,7 @@ jobs:
           cache: pip
       - uses: YosysHQ/setup-oss-cad-suite@c7845bc0d335c8076aa22047e85972caa8a916df # v4
         with:
+          github-token: ${{ github.token }}
           version: "2026-09-22"
       - name: Install public compiler and Linux native wheel
         run: |
@@ -96,6 +97,7 @@ jobs:
           cache: pip
       - uses: YosysHQ/setup-oss-cad-suite@c7845bc0d335c8076aa22047e85972caa8a916df # v4
         with:
+          github-token: ${{ github.token }}
           version: "2026-09-22"
       - name: Install public compiler
         run: python -m pip install --disable-pip-version-check -e .

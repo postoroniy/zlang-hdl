@@ -31,6 +31,7 @@ jobs:
       - name: Set up pinned open EDA tools
         uses: YosysHQ/setup-oss-cad-suite@c7845bc0d335c8076aa22047e85972caa8a916df # v4
         with:
+          github-token: ${{ github.token }}
           version: "2026-09-22"
       - name: Install ZLang HDL and the compatible prebuilt native runtime
         run: |
