@@ -42,6 +42,9 @@ PRIMITIVE_OPS = frozenset(
         "extract_bits",
         "insert_bits",
         "concat_bits",
+        "load_capture",
+        "load_index",
+        "loop_region",
     }
 )
 
@@ -54,6 +57,178 @@ class _Builder:
     semantic_fifos: dict[str, dict[str, Any]] = field(default_factory=dict)
     nodes: list[dict[str, Any]] = field(default_factory=list)
     lowered: dict[int, int] = field(default_factory=dict)
+    regions: list[dict[str, Any]] = field(default_factory=list)
+    capture_slots: dict[str, int] | None = None
+    binder_scope: dict[str, int] = field(default_factory=dict)
+
+    def _hoist_primitive_invariants(
+        self,
+        body: "_Builder",
+        captures: tuple[int, ...],
+        capture_widths: list[int],
+        root: int,
+    ) -> tuple[list[dict[str, Any]], tuple[int, ...], list[int], int]:
+        """Evaluate binder-independent primitive work once in the parent scope.
+
+        Semantic-DAG hoisting alone misses invariant nodes introduced by
+        lowering (notably wide concat/extract networks).  All primitive nodes
+        are pure reads or bit-vector operations against the same snapshot, so
+        only `load_index` and its transitive users must remain inside the loop.
+        """
+
+        dependent: list[bool] = []
+        parent_ids: dict[int, int] = {}
+        local_ids: dict[int, int] = {}
+        local_nodes: list[dict[str, Any]] = []
+        capture_nodes = list(captures)
+        widths = list(capture_widths)
+        boundary_slots: dict[int, int] = {}
+        boundary_local_ids: dict[int, int] = {}
+
+        def local_operand(identifier: int) -> int:
+            if dependent[identifier]:
+                return local_ids[identifier]
+            if identifier not in boundary_slots:
+                boundary_slots[identifier] = len(capture_nodes)
+                capture_nodes.append(parent_ids[identifier])
+                widths.append(body.width(identifier))
+                boundary_local_ids[identifier] = len(local_nodes)
+                local_nodes.append({
+                    "id": len(local_nodes), "op": "load_capture",
+                    "width": body.width(identifier), "operands": [],
+                    "attributes": {"slot": boundary_slots[identifier]}, "origins": [],
+                })
+            return boundary_local_ids[identifier]
+
+        for node in body.nodes:
+            identifier = node["id"]
+            is_dependent = node["op"] == "load_index" or any(
+                dependent[operand] for operand in node["operands"]
+            )
+            dependent.append(is_dependent)
+            if not is_dependent:
+                if node["op"] == "load_capture":
+                    parent_ids[identifier] = captures[node["attributes"]["slot"]]
+                else:
+                    parent_ids[identifier] = self.emit(
+                        node["op"], node["width"],
+                        tuple(parent_ids[item] for item in node["operands"]),
+                        node["attributes"], node["origins"],
+                    )
+                continue
+            operands = [local_operand(item) for item in node["operands"]]
+            local_ids[identifier] = len(local_nodes)
+            local_nodes.append({**node, "id": len(local_nodes), "operands": operands})
+
+        if not dependent[root]:
+            result = local_operand(root)
+        else:
+            result = local_ids[root]
+        return local_nodes, tuple(capture_nodes), widths, result
+
+    def _invariant_values(self, template: int, binder: str) -> tuple[int, ...]:
+        """Hoist maximal semantic sub-DAGs independent of this binder."""
+
+        dependencies: list[bool] = []
+        for node in self.semantic_nodes:
+            dependencies.append(
+                (node["op"] == "functional_value" and node["attributes"]["binder"] == binder)
+                or any(dependencies[item] for item in node["operands"])
+            )
+        selected: list[int] = []
+        visited: set[int] = set()
+        pending = [template]
+        while pending:
+            identifier = pending.pop()
+            if identifier in visited:
+                continue
+            visited.add(identifier)
+            node = self.semantic_nodes[identifier]
+            if not dependencies[identifier]:
+                selected.append(identifier)
+            elif node["op"] != "functional_region":
+                pending.extend(reversed(node["operands"]))
+        return tuple(selected)
+
+    def _lower_region(self, node: dict[str, Any]) -> int:
+        attrs = node["attributes"]
+        captures = attrs["captures"]
+        if len(node["operands"]) != 1 + len(captures):
+            raise PrimitiveLoweringError("functional region has invalid captures")
+        capture_nodes = tuple(self.lower(item) for item in node["operands"][1:])
+        capture_widths = [int(item["width"]) for item in captures]
+        if any(self.width(value) != width for value, width in zip(
+            capture_nodes, capture_widths, strict=True
+        )):
+            raise PrimitiveLoweringError("functional region capture width mismatch")
+        capture_by_identity = {
+            item["identity"]: capture_nodes[index]
+            for index, item in enumerate(captures)
+        }
+        if len(capture_by_identity) != len(captures):
+            raise PrimitiveLoweringError("functional region repeats a capture identity")
+        for identifier, semantic in enumerate(self.semantic_nodes):
+            if semantic["op"] == "functional_capture":
+                resolved = capture_by_identity.get(semantic["attributes"]["identity"])
+                if resolved is not None:
+                    existing = self.lowered.get(identifier)
+                    if existing is not None and existing != resolved:
+                        raise PrimitiveLoweringError(
+                            "functional capture has inconsistent lexical binding"
+                        )
+                    self.lowered[identifier] = resolved
+        inherited_binders = tuple(self.binder_scope.items())
+        capture_nodes += tuple(value for _identity, value in inherited_binders)
+        capture_widths.extend(64 for _ in inherited_binders)
+        hoisted = self._invariant_values(node["operands"][0], attrs["binder"])
+        capture_nodes += tuple(self.lower(identifier) for identifier in hoisted)
+        capture_widths.extend(
+            int(self.semantic_nodes[identifier]["type"]["width"])
+            for identifier in hoisted
+        )
+        body = _Builder(
+            self.semantic_nodes,
+            self.max_nodes,
+            semantic_memories=self.semantic_memories,
+            semantic_fifos=self.semantic_fifos,
+            regions=self.regions,
+            capture_slots={item["identity"]: index for index, item in enumerate(captures)},
+        )
+        for ordinal, (identity, _value) in enumerate(inherited_binders, start=len(captures)):
+            body.binder_scope[identity] = body.emit(
+                "load_capture", 64, attributes={"slot": ordinal}
+            )
+        body.binder_scope[attrs["binder"]] = body.emit("load_index", 64)
+        for ordinal, identifier in enumerate(
+            hoisted, start=len(captures) + len(inherited_binders)
+        ):
+            body.lowered[identifier] = body.emit(
+                "load_capture",
+                int(self.semantic_nodes[identifier]["type"]["width"]),
+                attributes={"slot": ordinal},
+            )
+        root = body.lower(node["operands"][0])
+        width = int(node["type"]["width"])
+        element_width = body.width(root)
+        if width != (int(attrs["stop"]) - int(attrs["start"])) * element_width:
+            raise PrimitiveLoweringError("functional region result width mismatch")
+        local_nodes, capture_nodes, capture_widths, root = (
+            self._hoist_primitive_invariants(body, capture_nodes, capture_widths, root)
+        )
+        region = len(self.regions)
+        self.regions.append({
+            "start": attrs["start"],
+            "stop": attrs["stop"],
+            "element_width": element_width,
+            "width": width,
+            "capture_widths": capture_widths,
+            "nodes": local_nodes,
+            "root": root,
+        })
+        return self.emit(
+            "loop_region", width, capture_nodes, {"region": region},
+            node.get("origins", []),
+        )
 
     def emit(
         self,
@@ -192,6 +367,27 @@ class _Builder:
         op = node["op"]
         width = int(node["type"]["width"])
         attrs = node["attributes"]
+        if op == "functional_region":
+            result = self._lower_region(node)
+            self.lowered[identifier] = result
+            return result
+        if op == "functional_capture":
+            identity = attrs["identity"]
+            if self.capture_slots is None or identity not in self.capture_slots:
+                raise PrimitiveLoweringError("unbound functional capture")
+            result = self.emit(
+                "load_capture", width,
+                attributes={"slot": self.capture_slots[identity]},
+            )
+            self.lowered[identifier] = result
+            return result
+        if op == "functional_value":
+            binder = self.binder_scope.get(attrs["binder"])
+            if binder is None:
+                raise PrimitiveLoweringError("unbound functional binder value")
+            result = self.resize(binder, width)
+            self.lowered[identifier] = result
+            return result
         operands = tuple(self.lower(item) for item in node["operands"])
         origins = node.get("origins", [])
 
@@ -404,6 +600,10 @@ class _Builder:
                 left = self.resize(left, width, signed=signed)
             if operator in {"-", "*", "&", "|", "^"}:
                 right = self.resize(right, width, signed=signed)
+            if operator in {"==", "!=", "<", "<=", ">", ">="}:
+                comparison_width = int(operand_type["width"])
+                left = self.resize(left, comparison_width, signed=signed)
+                right = self.resize(right, comparison_width, signed=signed)
             if operator == "!=":
                 result = self.unary("not", self.binary("eq", left, right, 1), 1)
             elif operator in {">", ">="}:
@@ -1485,6 +1685,7 @@ def lower_to_primitive_plan(
     result = dict(payload)
     result["ports"] = ports
     result["nodes"] = builder.nodes
+    result["regions"] = builder.regions
     result["outputs"] = [
         {"name": item["name"], "node": builder.lower(item["node"])}
         for item in payload["outputs"]

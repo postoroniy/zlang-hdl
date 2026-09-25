@@ -748,9 +748,9 @@ def expand_callable_calls(
 
     nodes = 0
 
-    def account() -> None:
+    def account(amount: int = 1) -> None:
         nonlocal nodes
-        nodes += 1
+        nodes += amount
         if nodes > max_nodes:
             raise CallableExpansionError(
                 f"callable expansion exceeds {max_nodes} expression nodes"
@@ -777,48 +777,78 @@ def expand_callable_calls(
             )
         return candidates[0]
 
+    mapped: dict[
+        tuple[int, tuple[str, ...]], tuple[object, object, int]
+    ] = {}
+    visited: dict[
+        tuple[int, tuple[str, ...]], tuple[expr.Expression, expr.Expression, int]
+    ] = {}
+
     def map_value(value: object, stack: tuple[str, ...]) -> object:
         if isinstance(value, expr.Expression):
             return visit(value, stack)
+        if not isinstance(value, tuple) and not (
+            is_dataclass(value) and not isinstance(value, type)
+        ):
+            return value
+        key = (id(value), stack)
+        cached = mapped.get(key)
+        if cached is not None and cached[0] is value:
+            account(cached[2])
+            return cached[1]
+        before = nodes
         if isinstance(value, tuple):
-            return tuple(map_value(item, stack) for item in value)
-        if is_dataclass(value) and not isinstance(value, type):
+            result = tuple(map_value(item, stack) for item in value)
+        else:
             updates = {
                 item.name: map_value(getattr(value, item.name), stack)
                 for item in fields(value)
                 if item.init and item.name not in {"type", "origin"}
             }
             try:
-                return replace(value, **updates)
+                result = replace(value, **updates)
             except (TypeError, ValueError):
-                return value
-        return value
+                result = value
+        mapped[key] = (value, result, nodes - before)
+        return result
 
     def substitute(value: object, bindings: dict[str, expr.Expression]) -> object:
-        if isinstance(value, expr.ParameterRef) and value.name in bindings:
-            return bindings[value.name]
-        if isinstance(value, expr.Expression):
-            updates = {
-                item.name: substitute(getattr(value, item.name), bindings)
-                for item in fields(value)
-                if item.init and item.name not in {"type", "origin"}
-            }
-            return replace(value, **updates) if updates else value
-        if isinstance(value, tuple):
-            return tuple(substitute(item, bindings) for item in value)
-        if is_dataclass(value) and not isinstance(value, type):
-            updates = {
-                item.name: substitute(getattr(value, item.name), bindings)
-                for item in fields(value)
-                if item.init and item.name not in {"type", "origin"}
-            }
-            try:
-                return replace(value, **updates)
-            except (TypeError, ValueError):
-                return value
-        return value
+        substituted: dict[int, tuple[object, object]] = {}
+
+        def walk(current: object) -> object:
+            if isinstance(current, expr.ParameterRef) and current.name in bindings:
+                return bindings[current.name]
+            if not isinstance(current, (expr.Expression, tuple)) and not (
+                is_dataclass(current) and not isinstance(current, type)
+            ):
+                return current
+            cached = substituted.get(id(current))
+            if cached is not None and cached[0] is current:
+                return cached[1]
+            if isinstance(current, tuple):
+                result = tuple(walk(item) for item in current)
+            else:
+                updates = {
+                    item.name: walk(getattr(current, item.name))
+                    for item in fields(current)
+                    if item.init and item.name not in {"type", "origin"}
+                }
+                try:
+                    result = replace(current, **updates) if updates else current
+                except (TypeError, ValueError):
+                    result = current
+            substituted[id(current)] = (current, result)
+            return result
+
+        return walk(value)
 
     def visit(value: expr.Expression, stack: tuple[str, ...]) -> expr.Expression:
+        key = (id(value), stack)
+        cached = visited.get(key)
+        if cached is not None and cached[0] is value:
+            account(cached[2])
+            return cached[1]
+        before = nodes
         account()
         if isinstance(value, expr.Reduce):
             # ``Reduce.expanded`` is a frozen exact-overload implementation,
@@ -829,51 +859,55 @@ def expand_callable_calls(
             # Reduce itself came from a callable body, so leaving it opaque here
             # cannot strand formal parameters.
             collection = map_value(value.collection, stack)
-            return replace(value, collection=collection)
-        if not isinstance(value, expr.Call):
+            result = replace(value, collection=collection)
+        elif not isinstance(value, expr.Call):
             updates = {
                 item.name: map_value(getattr(value, item.name), stack)
                 for item in fields(value)
                 if item.init and item.name not in {"type", "origin"}
             }
-            return replace(value, **updates) if updates else value
-        definition = resolve(value)
-        identity = str(getattr(definition, "callee_identity"))
-        if identity in stack:
-            cycle = " -> ".join((*stack, identity))
-            raise CallableExpansionError(f"callable expansion cycle: {cycle}")
-        if len(stack) >= max_depth:
-            raise CallableExpansionError(
-                f"callable expansion exceeds depth {max_depth} at '{value.function}'"
-            )
-        arguments = tuple(visit(argument, stack) for argument in value.arguments)
-        parameters = tuple(getattr(definition, "parameters"))
-        if len(arguments) != len(parameters):
-            raise CallableExpansionError(
-                f"callable '{value.function}' expects {len(parameters)} arguments, "
-                f"got {len(arguments)}"
-            )
-        for parameter, argument in zip(parameters, arguments, strict=True):
-            if getattr(parameter, "type") != argument.type:
+            result = replace(value, **updates) if updates else value
+        else:
+            definition = resolve(value)
+            identity = str(getattr(definition, "callee_identity"))
+            if identity in stack:
+                cycle = " -> ".join((*stack, identity))
+                raise CallableExpansionError(f"callable expansion cycle: {cycle}")
+            if len(stack) >= max_depth:
                 raise CallableExpansionError(
-                    f"callable argument '{getattr(parameter, 'name')}' has type "
-                    f"{argument.type}, expected {getattr(parameter, 'type')}"
+                    f"callable expansion exceeds depth {max_depth} at '{value.function}'"
                 )
-        if getattr(definition, "return_type") != value.type:
-            raise CallableExpansionError(
-                f"callable '{value.function}' call type {value.type} does not match "
-                f"definition return type {getattr(definition, 'return_type')}"
+            arguments = tuple(visit(argument, stack) for argument in value.arguments)
+            parameters = tuple(getattr(definition, "parameters"))
+            if len(arguments) != len(parameters):
+                raise CallableExpansionError(
+                    f"callable '{value.function}' expects {len(parameters)} arguments, "
+                    f"got {len(arguments)}"
+                )
+            for parameter, argument in zip(parameters, arguments, strict=True):
+                if getattr(parameter, "type") != argument.type:
+                    raise CallableExpansionError(
+                        f"callable argument '{getattr(parameter, 'name')}' has type "
+                        f"{argument.type}, expected {getattr(parameter, 'type')}"
+                    )
+            if getattr(definition, "return_type") != value.type:
+                raise CallableExpansionError(
+                    f"callable '{value.function}' call type {value.type} does not match "
+                    f"definition return type {getattr(definition, 'return_type')}"
+                )
+            bindings = {
+                str(getattr(parameter, "name")): argument
+                for parameter, argument in zip(parameters, arguments, strict=True)
+            }
+            expanded = substitute(getattr(definition, "body"), bindings)
+            assert isinstance(expanded, expr.Expression)
+            expanded = visit(expanded, (*stack, identity))
+            result = (
+                replace(expanded, origin=value.origin)
+                if value.origin is not None else expanded
             )
-        bindings = {
-            str(getattr(parameter, "name")): argument
-            for parameter, argument in zip(parameters, arguments, strict=True)
-        }
-        expanded = substitute(getattr(definition, "body"), bindings)
-        assert isinstance(expanded, expr.Expression)
-        expanded = visit(expanded, (*stack, identity))
-        if value.origin is not None:
-            expanded = replace(expanded, origin=value.origin)
-        return expanded
+        visited[key] = (value, result, nodes - before)
+        return result
 
     return visit(expression, ())
 

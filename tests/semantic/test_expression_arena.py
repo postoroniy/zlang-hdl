@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import importlib
+
+import pytest
 
 from zlang.ir import expressions as expr
 from zlang.ir.expression_arena import (
@@ -8,9 +11,16 @@ from zlang.ir.expression_arena import (
     SemanticExpressionArena,
 )
 from zlang.ir.types import UIntType
+from zlang.ir.module import LocalValue
 from zlang.opt import canonical_ir_identity, lower
 from zlang.parser import parse
 from zlang.semantic import analyze
+from zlang.semantic.analyze import (
+    AnalysisServices,
+    _expand_analysis_calls,
+    _expand_immutable_locals,
+)
+from zlang.semantic import SemanticError
 from zlang.source import SourceOrigin, SourceSpan
 
 
@@ -50,6 +60,48 @@ def test_arena_does_not_merge_call_occurrence_boundaries() -> None:
     second = expr.Call("helper", (), type8, callee_identity="fixture:helper")
 
     assert arena.intern(first) is not arena.intern(second)
+
+
+def test_immutable_local_analysis_preserves_shared_typed_subgraphs() -> None:
+    type8 = UIntType(8)
+    type9 = UIntType(9)
+    type10 = UIntType(10)
+    local = LocalValue("local", type9, expr.Add(
+        expr.InputRef("x", type8), expr.Constant(1, type8), type9,
+    ))
+    branch = expr.Add(expr.InputRef("local", type9), expr.InputRef("local", type9), type10)
+    root = expr.Add(branch, branch, UIntType(11))
+
+    expanded = _expand_immutable_locals(root, {"local": local})
+    assert isinstance(expanded, expr.Add)
+    assert expanded.left is expanded.right
+    assert isinstance(expanded.left, expr.Add)
+    assert expanded.left.left is expanded.left.right
+
+
+def test_call_free_analysis_keeps_original_typed_dag() -> None:
+    shared = expr.Add(
+        expr.InputRef("x", UIntType(8)), expr.Constant(1, UIntType(8)), UIntType(9),
+    )
+    root = expr.Add(shared, shared, UIntType(10))
+    assert _expand_analysis_calls(root, object(), purpose="test") is root
+
+
+def test_immutable_local_expansion_has_a_shared_analysis_work_bound(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    analyzer = importlib.import_module("zlang.semantic.analyze")
+    monkeypatch.setattr(analyzer, "_MAX_ANALYSIS_LOCAL_EXPANSION_NODES", 2)
+    budget = AnalysisServices()
+    expression = expr.Add(
+        expr.InputRef("x", UIntType(8)),
+        expr.InputRef("y", UIntType(8)),
+        UIntType(9),
+    )
+    with pytest.raises(SemanticError, match="bounded immutable-local expansion") as failure:
+        _expand_immutable_locals(expression, {}, work_budget=budget)
+    assert failure.value.code == "ZL-IR-EXPANSION-LIMIT"
+    assert budget.local_expansion_nodes == 3
 
 
 def test_arena_provenance_includes_noninterned_barrier_nodes() -> None:

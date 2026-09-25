@@ -35,6 +35,7 @@ from zlang.tooling import (
     discover_project,
     resolve_direct_imports,
     source_facts,
+    unwritten_register_warnings,
     tooling_identity,
     workspace_index,
     hover_at,
@@ -120,6 +121,52 @@ def test_semantic_check_returns_stable_success_and_failure_records(
     assert failed.status == "failed"
     assert failed.phase == "semantic"
     assert failed.diagnostics[0].code.startswith("ZL-")
+
+
+def test_unwritten_register_is_only_an_editor_warning(tmp_path: Path) -> None:
+    source = tmp_path / "Top.zhl"
+    text = (
+        "module Top {\n"
+        "  clock clk reset rst\n"
+        "  out y : u8\n"
+        "  reg idle : u8 = 0\n"
+        "  reg count : u8 = 0\n"
+        "  count <- count\n"
+        "  y = idle\n"
+        "}\n"
+    )
+    source.write_text(text, encoding="utf-8")
+    checked = check_snapshot(source, text)
+    assert checked.status == "passed"
+    assert checked.diagnostics == ()
+
+    warnings = unwritten_register_warnings(text)
+    assert len(warnings) == 1
+    warning = warnings[0]
+    assert warning.code == "ZL-REGISTER-NEVER-WRITTEN"
+    assert warning.severity == "warning"
+    assert warning.message == (
+        "register 'idle' has no next-state or rule assignment; "
+        "it will hold its reset value"
+    )
+    assert warning.primary is not None
+    assert (
+        warning.primary.start_line,
+        warning.primary.start_column,
+        warning.primary.end_line,
+        warning.primary.end_column,
+    ) == (4, 7, 4, 11)
+    assert unwritten_register_warnings(
+        (Path(__file__).resolve().parents[1] / "examples/rule_counter.zhl").read_text()
+    ) == ()
+    separate_modules = (
+        "module A { clock clk reset rst out y:u8 reg x:u8=0 y=x }\n"
+        "module B { clock clk reset rst out y:u8 reg x:u8=0 x <- x y=x }\n"
+    )
+    assert [item.primary.start_line for item in unwritten_register_warnings(
+        separate_modules
+    )] == [1]
+    assert unwritten_register_warnings("module Broken { reg x:u8=0") == ()
 
 
 def test_identical_duplicate_import_projects_exact_machine_edit(

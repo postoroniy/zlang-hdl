@@ -360,6 +360,37 @@ def test_callable_expansion_rejects_cycles_and_bounds_growth() -> None:
         expand_callable_calls(root, (left, right), max_nodes=1)
 
 
+def test_callable_expansion_preserves_shared_dag_without_relaxing_logical_budget() -> None:
+    leaf = InputRef("x", U8)
+    root = leaf
+    for depth in range(10):
+        root = Add(root, root, UIntType(9 + depth))
+
+    expanded = expand_callable_calls(root, (), max_nodes=2047)
+    assert isinstance(expanded, Add)
+    for _ in range(10):
+        assert isinstance(expanded, Add)
+        assert expanded.left is expanded.right
+        expanded = expanded.left
+    assert isinstance(expanded, InputRef)
+    with pytest.raises(CallableExpansionError, match="exceeds 2046 expression nodes"):
+        expand_callable_calls(root, (), max_nodes=2046)
+
+
+def test_callable_expansion_shares_repeated_resolved_call_occurrence() -> None:
+    identity = Function(
+        "identity8", (FunctionParameter("x", U8),), U8,
+        ParameterRef("x", U8),
+    )
+    call = Call("identity8", (InputRef("x", U8),), U8, identity.callee_identity)
+    root = Add(call, call, U9)
+
+    expanded = expand_callable_calls(root, (identity,))
+    assert isinstance(expanded, Add)
+    assert expanded.left is expanded.right
+    assert expanded.left == InputRef("x", U8)
+
+
 def test_callable_expansion_keeps_nominal_reduce_implementation_opaque() -> None:
     identity = Function(
         "identity9",
