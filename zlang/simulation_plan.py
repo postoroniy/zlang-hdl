@@ -18,6 +18,12 @@ from pathlib import PurePosixPath
 from typing import Any
 
 from zlang.ir.interfaces import InterfaceProtocol
+from zlang.ir.functional_regions import (
+    CompileTimeBinderRef,
+    CompileTimeExpr,
+    CompileTimeOperator,
+    FunctionalRegionKind,
+)
 from zlang.ir.constants import ConstantExpressionError, constant_runtime_value
 from zlang.ir.packing import PACKING_LAYOUT_SCHEMA
 from zlang.ir import packing as ir_packing
@@ -54,8 +60,8 @@ from zlang.simulation_lowering import (
 )
 
 
-SIMULATION_PLAN_SCHEMA = "zlang-simulation-plan-v9"
-SIMULATION_RUNTIME_ABI = "zlang-native-simulation-abi-v9"
+SIMULATION_PLAN_SCHEMA = "zlang-simulation-plan-v10"
+SIMULATION_RUNTIME_ABI = "zlang-native-simulation-abi-v10"
 CRANELIFT_VERSION = "0.135.2"
 MAX_PLAN_BYTES = 16_777_216
 MAX_PLAN_NODES = 32_768
@@ -65,6 +71,9 @@ MAX_PLAN_MEMORY_WIDTH = 512
 MAX_PLAN_LIMB_WORK = 32768
 MAX_PLAN_MEMORY_BITS = 16_777_216
 MAX_PLAN_EVENTS = 4_096
+MAX_PLAN_REGION_DEPTH = 8
+MAX_PLAN_REGION_ITERATIONS = 1_000_000
+MAX_PLAN_DYNAMIC_NODE_WORK = 8_000_000
 
 
 class SimulationPlanError(ValueError):
@@ -353,6 +362,9 @@ _NATIVE_EXPRESSION_OPS = {
     ExpressionOp.MAP,
     ExpressionOp.DOT,
     ExpressionOp.REDUCE,
+    ExpressionOp.FUNCTIONAL_CAPTURE,
+    ExpressionOp.FUNCTIONAL_VALUE,
+    ExpressionOp.FUNCTIONAL_REGION,
 }
 _NATIVE_PLAN_OPS = {"fifo_ref", "memory_port_read", "rom_lookup"}
 
@@ -886,7 +898,41 @@ def _build_leaf_simulation_plan(module: object) -> SimulationPlan:
                 f"{MAX_PLAN_WIDTH} bits; expression %{node.id} has width "
                 f"{node.type.width}"
             )
-        attributes = {name: _json_attribute(value) for name, value in node.attributes}
+        if node.op is ExpressionOp.FUNCTIONAL_VALUE:
+            value = node.attribute("expression")
+            if (
+                not isinstance(value, CompileTimeExpr)
+                or value.operator is not CompileTimeOperator.BINDER
+                or not isinstance(value.operands[0], CompileTimeBinderRef)
+            ):
+                raise JitUnsupportedFeatureError(
+                    "simulation supports only direct functional binder values"
+                )
+            attributes = {"binder": value.operands[0].identity}
+        elif node.op is ExpressionOp.FUNCTIONAL_REGION:
+            binder = node.attribute("binder")
+            kind = node.attribute("kind")
+            captures = node.attribute("capture_layout")
+            if (
+                kind is not FunctionalRegionKind.GENERATE
+                or not isinstance(binder, CompileTimeBinderRef)
+                or node.attribute("table_layout")
+                or node.attribute("certificates")
+            ):
+                raise JitUnsupportedFeatureError(
+                    "simulation supports only table-free generated functional regions"
+                )
+            attributes = {
+                "binder": binder.identity,
+                "start": binder.start,
+                "stop": binder.stop,
+                "captures": [
+                    {"identity": identity, "width": type_.width}
+                    for identity, _display_name, type_ in captures
+                ],
+            }
+        else:
+            attributes = {name: _json_attribute(value) for name, value in node.attributes}
         if node.op is ExpressionOp.ENUM_DECODE:
             attributes.setdefault(
                 "enum_type", {"hardware_type": _type_payload(node.type)}
@@ -1796,6 +1842,7 @@ def _validate_plan_payload(payload: dict[str, Any]) -> None:
         "identity",
         "ports",
         "nodes",
+        "regions",
         "outputs",
         "registers",
         "memories",
@@ -1827,58 +1874,82 @@ def _validate_plan_payload(payload: dict[str, Any]) -> None:
         raise SimulationPlanError(
             "native JIT v1 requires the Linux x86-64 Cranelift recipe"
         )
-    nodes = payload["nodes"]
-    if not isinstance(nodes, list) or len(nodes) > MAX_PLAN_NODES:
-        raise SimulationPlanError("simulation plan node table is invalid")
+    regions = payload["regions"]
+    if not isinstance(regions, list) or len(regions) > MAX_PLAN_NODES:
+        raise SimulationPlanError("simulation region table is invalid")
+    node_count = 0
     limb_work = 0
-    for expected, node in enumerate(nodes):
+    region_work: list[int] = []
+    region_node_work: list[int] = []
+    region_depth: list[int] = []
+    for region_id, region in enumerate(regions):
+        if not isinstance(region, dict) or set(region) != {
+            "start", "stop", "element_width", "width", "capture_widths", "nodes", "root"
+        }:
+            raise SimulationPlanError("simulation region record is invalid")
+        start, stop = region["start"], region["stop"]
+        element_width, width = region["element_width"], region["width"]
+        capture_widths = region["capture_widths"]
+        body = region["nodes"]
         if (
-            not isinstance(node, dict)
-            or set(node) != {"id", "op", "width", "operands", "attributes", "origins"}
-            or node.get("id") != expected
+            any(isinstance(value, bool) or not isinstance(value, int) for value in (
+                start, stop, element_width, width
+            ))
+            or not 0 <= start < stop <= 65_536
+            or not 1 <= element_width <= MAX_PLAN_WIDTH
+            or width != (stop - start) * element_width
+            or width > MAX_PLAN_WIDTH
+            or not isinstance(capture_widths, list)
+            or len(capture_widths) > MAX_PLAN_NODES
+            or any(isinstance(item, bool) or not isinstance(item, int)
+                   or not 1 <= item <= MAX_PLAN_WIDTH for item in capture_widths)
+            or not isinstance(body, list)
+            or not body
+            or isinstance(region["root"], bool)
+            or not isinstance(region["root"], int)
+            or not 0 <= region["root"] < len(body)
+            or not isinstance(body[region["root"]], dict)
+            or body[region["root"]].get("width") != element_width
         ):
-            raise SimulationPlanError("simulation plan node IDs are not contiguous")
-        if node.get("op") not in PRIMITIVE_OPS:
-            raise SimulationPlanError(
-                f"simulation plan node %{expected} has an unsupported operation"
-            )
-        width = node.get("width")
-        if (
-            isinstance(width, bool)
-            or not isinstance(width, int)
-            or not 1 <= width <= MAX_PLAN_WIDTH
-        ):
-            raise SimulationPlanError(
-                f"simulation plan node %{expected} has an invalid width"
-            )
-        limb_work += (width + 63) // 64
-        if limb_work > MAX_PLAN_LIMB_WORK:
-            raise SimulationPlanError(
-                f"simulation plan exceeds {MAX_PLAN_LIMB_WORK} packed node limbs"
-            )
-        if not isinstance(node.get("attributes"), dict) or not isinstance(
-            node.get("origins"), list
-        ):
-            raise SimulationPlanError(
-                f"simulation plan node %{expected} metadata is invalid"
-            )
-        if node["op"] == "constant" and not _validate_u64_limbs(
-            node["attributes"].get("limbs"), width
-        ):
-            raise SimulationPlanError(
-                f"simulation plan constant node %{expected} has invalid limbs"
-            )
-        operands = node.get("operands")
-        if not isinstance(operands, list) or any(
-            isinstance(item, bool)
-            or not isinstance(item, int)
-            or not 0 <= item < expected
-            for item in operands
-        ):
-            raise SimulationPlanError(
-                f"simulation plan node %{expected} has an invalid operand"
-            )
-        _validate_primitive_node(node, nodes)
+            raise SimulationPlanError("simulation region shape is invalid")
+        count, limbs = _validate_node_table(
+            body, regions[:region_id], capture_widths=capture_widths,
+            binder_range=(start, stop),
+        )
+        node_count += count
+        limb_work += limbs
+        children = [node["attributes"]["region"] for node in body
+                    if node["op"] == "loop_region"]
+        depth = 1 + max((region_depth[child] for child in children), default=0)
+        if depth > MAX_PLAN_REGION_DEPTH:
+            raise SimulationPlanError("simulation region nesting exceeds its bound")
+        region_depth.append(depth)
+        region_work.append((stop - start) * (
+            1 + sum(region_work[child] for child in children)
+        ))
+        region_node_work.append((stop - start) * (
+            len(body) + sum(region_node_work[child] for child in children)
+        ))
+    nodes = payload["nodes"]
+    count, limbs = _validate_node_table(nodes, regions)
+    node_count += count
+    limb_work += limbs
+    if node_count > MAX_PLAN_NODES:
+        raise SimulationPlanError(f"simulation plan exceeds {MAX_PLAN_NODES} nodes")
+    if limb_work > MAX_PLAN_LIMB_WORK:
+        raise SimulationPlanError(
+            f"simulation plan exceeds {MAX_PLAN_LIMB_WORK} packed node limbs"
+        )
+    iterations = sum(region_work[node["attributes"]["region"]] for node in nodes
+                     if node["op"] == "loop_region")
+    if iterations > MAX_PLAN_REGION_ITERATIONS:
+        raise SimulationPlanError("simulation region work exceeds its bound")
+    dynamic_nodes = len(nodes) + sum(
+        region_node_work[node["attributes"]["region"]] for node in nodes
+        if node["op"] == "loop_region"
+    )
+    if dynamic_nodes > MAX_PLAN_DYNAMIC_NODE_WORK:
+        raise SimulationPlanError("simulation dynamic node work exceeds its bound")
     expected_fields = {
         "ports": {"name", "direction", "width", "api_type", "domain"},
         "registers": {
@@ -2085,7 +2156,55 @@ def _validate_plan_payload(payload: dict[str, Any]) -> None:
     )
 
 
-def _validate_primitive_node(node: dict[str, Any], nodes: list[dict[str, Any]]) -> None:
+def _validate_node_table(
+    nodes: object,
+    regions: list[dict[str, Any]],
+    *,
+    capture_widths: list[int] | None = None,
+    binder_range: tuple[int, int] | None = None,
+) -> tuple[int, int]:
+    if not isinstance(nodes, list) or len(nodes) > MAX_PLAN_NODES:
+        raise SimulationPlanError("simulation plan node table is invalid")
+    limbs = 0
+    for expected, node in enumerate(nodes):
+        if (
+            not isinstance(node, dict)
+            or set(node) != {"id", "op", "width", "operands", "attributes", "origins"}
+            or node.get("id") != expected
+            or node.get("op") not in PRIMITIVE_OPS
+        ):
+            raise SimulationPlanError("simulation plan node record is invalid")
+        width = node.get("width")
+        if isinstance(width, bool) or not isinstance(width, int) or not 1 <= width <= MAX_PLAN_WIDTH:
+            raise SimulationPlanError(f"simulation plan node %{expected} has invalid width")
+        limbs += (width + 63) // 64
+        if not isinstance(node.get("attributes"), dict) or not isinstance(node.get("origins"), list):
+            raise SimulationPlanError(f"simulation plan node %{expected} metadata is invalid")
+        operands = node.get("operands")
+        if not isinstance(operands, list) or any(
+            isinstance(item, bool) or not isinstance(item, int) or not 0 <= item < expected
+            for item in operands
+        ):
+            raise SimulationPlanError(f"simulation plan node %{expected} has invalid operand")
+        if node["op"] == "constant" and not _validate_u64_limbs(
+            node["attributes"].get("limbs"), width
+        ):
+            raise SimulationPlanError(f"simulation plan constant node %{expected} has invalid limbs")
+        _validate_primitive_node(
+            node, nodes, regions, capture_widths=capture_widths,
+            binder_range=binder_range,
+        )
+    return len(nodes), limbs
+
+
+def _validate_primitive_node(
+    node: dict[str, Any],
+    nodes: list[dict[str, Any]],
+    regions: list[dict[str, Any]],
+    *,
+    capture_widths: list[int] | None,
+    binder_range: tuple[int, int] | None,
+) -> None:
     op = node["op"]
     operands = node["operands"]
     attrs = node["attributes"]
@@ -2094,6 +2213,8 @@ def _validate_primitive_node(node: dict[str, Any], nodes: list[dict[str, Any]]) 
         "load_input": 0,
         "load_state": 0,
         "load_event": 0,
+        "load_capture": 0,
+        "load_index": 0,
         "load_memory": 1,
         "not": 1,
         "add": 2,
@@ -2138,6 +2259,30 @@ def _validate_primitive_node(node: dict[str, Any], nodes: list[dict[str, Any]]) 
             raise SimulationPlanError(
                 f"primitive node %{node['id']} has invalid concat metadata"
             )
+    elif op == "load_capture":
+        slot = attrs.get("slot")
+        if (set(attrs) != {"slot"} or capture_widths is None
+            or isinstance(slot, bool) or not isinstance(slot, int)
+            or not 0 <= slot < len(capture_widths)
+            or node["width"] != capture_widths[slot]):
+            raise SimulationPlanError("functional capture slot is invalid")
+    elif op == "load_index":
+        if attrs or operands or binder_range is None or binder_range[0] < 0 or (
+            binder_range[1] - 1 >= (1 << node["width"])
+        ):
+            raise SimulationPlanError("functional binder value is invalid")
+    elif op == "loop_region":
+        region_id = attrs.get("region")
+        if (set(attrs) != {"region"} or isinstance(region_id, bool)
+            or not isinstance(region_id, int) or not 0 <= region_id < len(regions)):
+            raise SimulationPlanError("functional region reference is invalid")
+        region = regions[region_id]
+        if (node["width"] != region["width"]
+            or len(operands) != len(region["capture_widths"])
+            or any(nodes[value]["width"] != width for value, width in zip(
+                operands, region["capture_widths"], strict=True
+            ))):
+            raise SimulationPlanError("functional region capture shape is invalid")
     elif attrs:
         raise SimulationPlanError(
             f"primitive node %{node['id']} has unexpected metadata"

@@ -214,6 +214,7 @@ def test_csr_plan_is_deterministic_and_contains_only_primitive_state() -> None:
         "identity",
         "ports",
         "nodes",
+        "regions",
         "outputs",
         "registers",
         "memories",

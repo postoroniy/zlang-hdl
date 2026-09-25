@@ -135,10 +135,13 @@ class ReferenceInstance:
         *,
         registers: dict[str, int] | None = None,
         memories: dict[str, list[int]] | None = None,
+        nodes: list[dict[str, object]] | None = None,
+        captures: tuple[int, ...] = (),
+        binder_index: int | None = None,
     ) -> list[int]:
         registers = self._registers if registers is None else registers
         memories = self._memories if memories is None else memories
-        nodes = self.program.plan.payload["nodes"]
+        nodes = self.program.plan.payload["nodes"] if nodes is None else nodes
         values: list[int] = []
         for node in nodes:
             op = node["op"]
@@ -166,6 +169,24 @@ class ReferenceInstance:
                 memory = memories[str(attrs["memory"])]
                 address = operands[0]
                 result = memory[address if address < len(memory) else 0]
+            elif op == "load_capture":
+                result = captures[int(attrs["slot"])]
+            elif op == "load_index":
+                assert binder_index is not None
+                result = binder_index
+            elif op == "loop_region":
+                region = self.program.plan.payload["regions"][int(attrs["region"])]
+                result = 0
+                element_width = int(region["element_width"])
+                for index in range(int(region["start"]), int(region["stop"])):
+                    body = self._evaluate_nodes(
+                        registers=registers, memories=memories,
+                        nodes=region["nodes"], captures=tuple(operands),
+                        binder_index=index,
+                    )
+                    result |= body[int(region["root"])] << (
+                        (index - int(region["start"])) * element_width
+                    )
             elif op == "add":
                 result = operands[0] + operands[1]
             elif op == "sub":

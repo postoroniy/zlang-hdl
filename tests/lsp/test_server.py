@@ -24,6 +24,7 @@ from zlang.lsp.server import (
     uri_to_path,
     write_message,
 )
+from zlang.lsp.supervisor import WORKER_ADDRESS_SPACE_BYTES, supervise_stdio
 from zlang.tooling import (
     ToolingDiagnosticEdit,
     ToolingDiagnosticFix,
@@ -110,6 +111,100 @@ def test_stdio_transport_argument_starts_a_real_json_rpc_process() -> None:
     assert [message["id"] for message in messages] == [1, 2]
     assert messages[0]["result"]["serverInfo"]["name"] == "zlang-lsp"
     assert messages[1]["result"] is None
+
+
+def test_stdio_publishes_exact_output_error_and_register_warning(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "Bad.zhl"
+    text = (
+        "module Bad {\n"
+        "  clock clk reset rst\n"
+        "  out y:u8\n"
+        "  reg idle:u8=0\n"
+        "}\n"
+    )
+    source.write_text(text, encoding="utf-8")
+    payload = BytesIO()
+    for message in (
+        {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+        {"jsonrpc": "2.0", "method": "initialized", "params": {}},
+        {
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": {"textDocument": {
+                "uri": path_to_uri(source), "version": 1, "text": text,
+            }},
+        },
+        {"jsonrpc": "2.0", "id": 2, "method": "shutdown", "params": {}},
+        {"jsonrpc": "2.0", "method": "exit", "params": {}},
+    ):
+        _request(payload, message)
+    completed = subprocess.run(
+        (
+            sys.executable, "-c",
+            "from zlang.lsp.server import main; raise SystemExit(main([]))",
+        ),
+        input=payload.getvalue(), capture_output=True, timeout=15,
+    )
+    assert completed.returncode == 0, completed.stderr.decode("utf-8")
+    publishes = [
+        message for message in _messages(completed.stdout)
+        if message.get("method") == "textDocument/publishDiagnostics"
+    ]
+    diagnostics = publishes[0]["params"]["diagnostics"]
+    assert [(item["code"], item["severity"]) for item in diagnostics] == [
+        ("ZL-REGISTER-NEVER-WRITTEN", 2),
+        ("ZL-SEMANTIC-001", 1),
+    ]
+    assert diagnostics[0]["range"]["start"] == {"line": 3, "character": 6}
+    assert diagnostics[1]["range"] == {
+        "start": {"line": 2, "character": 6},
+        "end": {"line": 2, "character": 7},
+    }
+
+
+def test_stdio_supervisor_terminates_a_stalled_compiler_worker(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    payload = BytesIO()
+    _request(payload, {
+        "jsonrpc": "2.0", "id": 7, "method": "initialize", "params": {},
+    })
+    result = supervise_stdio(
+        BytesIO(payload.getvalue()),
+        BytesIO(),
+        command=(sys.executable, "-c", "import time; time.sleep(10)"),
+        timeout_seconds=0.2,
+    )
+
+    assert result == 124
+    assert "worker exceeded the bounded request time" in capsys.readouterr().err
+
+
+def test_stdio_supervisor_preserves_json_rpc_parse_error() -> None:
+    output = BytesIO()
+    result = supervise_stdio(
+        BytesIO(b"Content-Length: 1\r\n\r\n{"),
+        output,
+        command=(sys.executable, "-c", "import time; time.sleep(10)"),
+    )
+    assert result == 1
+    assert _messages(output.getvalue())[0]["error"]["code"] == -32700
+
+
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux RLIMIT_AS")
+def test_lsp_worker_applies_address_space_limit_in_child() -> None:
+    result = subprocess.run(
+        [
+            sys.executable, "-B", "-c",
+            "import resource; "
+            "from zlang.lsp.supervisor import limit_worker_address_space; "
+            "limit_worker_address_space(); "
+            "print(resource.getrlimit(resource.RLIMIT_AS)[0])",
+        ],
+        capture_output=True, text=True, check=True,
+    )
+    assert 0 < int(result.stdout.strip()) <= WORKER_ADDRESS_SPACE_BYTES
 
 
 def test_diagnostic_scheduler_replaces_deadlines_with_an_injected_clock() -> None:
@@ -512,6 +607,102 @@ def test_real_compiler_open_change_and_close(tmp_path: Path) -> None:
     })
     assert closed[0]["params"] == {"uri": uri, "diagnostics": []}
     assert uri not in server.documents
+
+
+def test_unassigned_output_diagnostic_marks_declared_name(tmp_path: Path) -> None:
+    source = tmp_path / "Bad.zhl"
+    text = (
+        "module Bad {\n"
+        "  out driven, missing : u8\n"
+        "  driven = 0\n"
+        "}\n"
+    )
+    source.write_text(text, encoding="utf-8")
+    uri = path_to_uri(source)
+    messages = LspServer().dispatch({
+        "jsonrpc": "2.0",
+        "method": "textDocument/didOpen",
+        "params": {"textDocument": {"uri": uri, "version": 1, "text": text}},
+    })
+    diagnostic = messages[0]["params"]["diagnostics"][0]
+    assert diagnostic["message"] == "output 'missing' has no assignment"
+    assert diagnostic["range"] == {
+        "start": {"line": 1, "character": 14},
+        "end": {"line": 1, "character": 21},
+    }
+
+
+def test_unwritten_register_warning_tracks_current_editor_text(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "Top.zhl"
+    text = (
+        "module Top {\n"
+        "  clock clk reset rst\n"
+        "  out y : u8\n"
+        "  reg idle : u8 = 0\n"
+        "  y = idle\n"
+        "}\n"
+    )
+    source.write_text(text, encoding="utf-8")
+    uri = path_to_uri(source)
+    server = LspServer()
+    opened = server.dispatch({
+        "jsonrpc": "2.0",
+        "method": "textDocument/didOpen",
+        "params": {"textDocument": {"uri": uri, "version": 1, "text": text}},
+    })
+    warnings = opened[0]["params"]["diagnostics"]
+    assert len(warnings) == 1
+    assert warnings[0]["code"] == "ZL-REGISTER-NEVER-WRITTEN"
+    assert warnings[0]["severity"] == 2
+    assert warnings[0]["range"] == {
+        "start": {"line": 3, "character": 6},
+        "end": {"line": 3, "character": 10},
+    }
+
+    updated = text.replace("  y = idle\n", "  idle <- idle\n  y = idle\n")
+    changed = server.dispatch({
+        "jsonrpc": "2.0",
+        "method": "textDocument/didChange",
+        "params": {
+            "textDocument": {"uri": uri, "version": 2},
+            "contentChanges": [{"text": updated}],
+        },
+    })
+    assert changed[0]["params"]["diagnostics"] == []
+
+
+def test_unwritten_register_warning_survives_symbol_proof_fast_path(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "Top.zhl"
+    text = (
+        "module Top {\n"
+        "  clock clk reset rst\n"
+        "  out y:u8\n"
+        "  reg idle:u8=0\n"
+        "  y=idle\n"
+        "}\n"
+    )
+    source.write_text(text, encoding="utf-8")
+    server = LspServer()
+    monkeypatch.setattr(
+        server.tooling_session, "symbol_snapshot", lambda *args, **kwargs: object()
+    )
+    opened = server.dispatch({
+        "jsonrpc": "2.0",
+        "method": "textDocument/didOpen",
+        "params": {
+            "textDocument": {
+                "uri": path_to_uri(source), "version": 1, "text": text,
+            },
+        },
+    })
+    assert [item["code"] for item in opened[0]["params"]["diagnostics"]] == [
+        "ZL-REGISTER-NEVER-WRITTEN"
+    ]
 
 
 def test_tooling_session_reuses_queries_and_invalidates_on_did_change(
@@ -920,8 +1111,11 @@ module LargeStateCapturedRegion {
     })
 
     diagnostics = response[0]["params"]["diagnostics"]
-    assert len(diagnostics) == 1
-    diagnostic = diagnostics[0]
+    assert [(item["code"], item["severity"]) for item in diagnostics] == [
+        ("ZL-REGISTER-NEVER-WRITTEN", 2),
+        ("ZL-SEMANTIC-001", 1),
+    ]
+    diagnostic = diagnostics[1]
     assert diagnostic["code"] == "ZL-SEMANTIC-001"
     assert diagnostic["message"] == "mux condition must be bit, got u1"
     assert diagnostic["range"]["start"] == {"line": 16, "character": 29}

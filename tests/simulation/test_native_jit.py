@@ -258,6 +258,46 @@ def test_python_and_native_decoders_reject_resource_exhaustion_before_parsing(
         _zlang_native_sim.compile_plan_bytes(bounded_nodes)
 
 
+def test_python_and_native_reject_excessive_dynamic_region_work(
+    tmp_path: Path,
+) -> None:
+    source = _source(tmp_path, "bounded_region", "module BoundedRegion { out y:bit=0 }")
+    payload = json.loads(
+        zlang.sim.compile(source, top="BoundedRegion", engine="reference").plan.to_bytes()
+    )
+    body = [
+        {"id": 0, "op": "load_index", "width": 64, "operands": [],
+         "attributes": {}, "origins": []},
+        {"id": 1, "op": "constant", "width": 64, "operands": [],
+         "attributes": {"limbs": [1]}, "origins": []},
+    ]
+    for identifier in range(2, 1026):
+        body.append({
+            "id": identifier, "op": "add", "width": 64,
+            "operands": [identifier - 1 if identifier > 2 else 0, 1],
+            "attributes": {}, "origins": [],
+        })
+    body.append({
+        "id": len(body), "op": "eq", "width": 1,
+        "operands": [len(body) - 1, 1], "attributes": {}, "origins": [],
+    })
+    payload["regions"] = [{
+        "start": 0, "stop": 8192, "element_width": 1, "width": 8192,
+        "capture_widths": [], "nodes": body, "root": len(body) - 1,
+    }]
+    payload["nodes"].append({
+        "id": len(payload["nodes"]), "op": "loop_region", "width": 8192,
+        "operands": [], "attributes": {"region": 0}, "origins": [],
+    })
+    encoded = _resign(payload)
+    with pytest.raises(SimulationPlanError, match="dynamic node work"):
+        SimulationPlan.from_bytes(encoded)
+    import _zlang_native_sim
+
+    with pytest.raises(ValueError, match="dynamic node work"):
+        _zlang_native_sim.compile_plan_bytes(encoded)
+
+
 def test_primitive_lowering_stops_at_node_bound_before_plan_serialization(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -562,6 +602,130 @@ def test_native_generated_collections_concat_reshape_dot_and_reduce(
             for name, value in inputs.items():
                 instance.set(name, value)
             assert instance.eval() == simulate(module, **inputs)
+
+
+def test_nested_functional_regions_match_typed_reference_in_both_engines(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = _source(
+        tmp_path,
+        "nested_regions",
+        """
+        module NestedRegions {
+            in enables:vec<4,vec<2,bit>>
+            in addresses:vec<4,vec<2,u6>>
+            in values:vec<4,vec<2,u8>>
+            out result:vec<32,u8>
+            result=generate(dst in 0..32) {
+                reduce(|,generate(lane in 0..4) {
+                    reduce(|,generate(byte in 0..2) {
+                        (enables[lane][byte] & (addresses[lane][byte] == dst)) ?
+                            values[lane][byte] : 0
+                    })
+                })
+            }
+        }
+        """,
+    )
+    module = compile_file(source, top="NestedRegions").ir
+    native = zlang.sim.load(source, top="NestedRegions", engine="native")
+    reference = zlang.sim.load(source, top="NestedRegions", engine="reference")
+    assert native.program.plan.payload["regions"]
+    assert SimulationPlan.from_bytes(native.program.plan.to_bytes()) == native.program.plan
+    assert any(
+        node["op"] == "loop_region"
+        for region in native.program.plan.payload["regions"]
+        for node in region["nodes"]
+    )
+    assert max(
+        len(region["nodes"]) for region in native.program.plan.payload["regions"]
+    ) < 128
+    vectors = (
+        {
+            "enables": [[1, 1], [1, 0], [1, 1], [0, 1]],
+            "addresses": [[0, 3], [3, 5], [5, 7], [7, 31]],
+            "values": [[1, 2], [4, 8], [16, 32], [64, 128]],
+        },
+        {
+            "enables": [[0, 0], [1, 1], [0, 1], [1, 0]],
+            "addresses": [[7, 5], [10, 10], [20, 12], [12, 0]],
+            "values": [[255, 254], [3, 4], [5, 6], [7, 8]],
+        },
+    )
+    with native, reference:
+        for inputs in vectors:
+            for name, value in inputs.items():
+                native.set(name, value)
+                reference.set(name, value)
+            expected = simulate(module, **inputs)
+            assert reference.eval() == expected
+            assert native.eval() == expected
+
+    damaged = json.loads(native.program.plan.to_bytes())
+    damaged["regions"][0]["root"] = len(damaged["regions"][0]["nodes"])
+    with pytest.raises(SimulationPlanError, match="simulation region shape"):
+        SimulationPlan.from_bytes(_resign(damaged))
+    import _zlang_native_sim
+
+    with pytest.raises(ValueError, match="functional region"):
+        _zlang_native_sim.compile_plan_bytes(_resign(damaged))
+    monkeypatch.setattr(simulation_plan_module, "MAX_PLAN_DYNAMIC_NODE_WORK", 1)
+    with pytest.raises(SimulationPlanError, match="dynamic node work"):
+        SimulationPlan.from_bytes(native.program.plan.to_bytes())
+
+
+def test_functional_region_in_edge_program_matches_typed_cycles(tmp_path: Path) -> None:
+    source = _source(
+        tmp_path,
+        "region_state",
+        """
+        module RegionState {
+            clock clk reset rst
+            in data:vec<64,u8>
+            in bias:u8
+            out result:vec<64,u8>
+            reg state:vec<64,u8>=repeat(0)
+            state <- generate(i in 0..64) { data[i] ^ bias }
+            result=state
+        }
+        """,
+    )
+    module = compile_file(source, top="RegionState").ir
+    vectors = (
+        {"data": [index for index in range(64)], "bias": 17},
+        {"data": [(index * 3) & 255 for index in range(64)], "bias": 83},
+        {"data": [(255 - index) for index in range(64)], "bias": 7},
+    )
+    expected = simulate_cycles(module, vectors, [True, False, False])
+    for engine in ("reference", "native"):
+        instance = zlang.sim.load(source, top="RegionState", engine=engine)
+        assert instance.program.plan.payload["regions"]
+        with instance:
+            for cycle, inputs in enumerate(vectors):
+                instance.reset("rst", asserted=cycle == 0)
+                for name, value in inputs.items():
+                    instance.set(name, value)
+                assert instance.eval() == expected[cycle]
+                instance.edge("clk")
+
+
+def test_functional_region_bit_packing_crosses_limb_boundaries(tmp_path: Path) -> None:
+    source = _source(
+        tmp_path,
+        "bit_region",
+        "module BitRegion { in mask:vec<192,bit> out result:vec<192,bit> "
+        "result=generate(i in 0..192) mask[i] }",
+    )
+    module = compile_file(source, top="BitRegion").ir
+    mask = [int(index in {0, 63, 64, 127, 128, 191}) for index in range(192)]
+    expected = simulate(module, mask=mask)
+    for engine in ("reference", "native"):
+        instance = zlang.sim.load(source, top="BitRegion", engine=engine)
+        assert instance.program.plan.payload["regions"]
+        with instance:
+            instance.set("mask", mask)
+            assert instance.eval() == expected
 
 
 def test_native_signed_shift_compare_and_api_round_trip(tmp_path: Path) -> None:

@@ -11,6 +11,31 @@ incompatible input explicitly.
 
 ## Unreleased
 
+## 0.1.0a16 — 2026-09-25
+
+Community alpha focused on bounded compilation and simulation of large
+structural designs, plus LSP resilience. Language, fixed-point, RTL and formal
+semantics are unchanged.
+
+### Fixed
+
+- Shared typed expression subgraphs remain shared when pure functions are
+  instantiated, preventing exponential compiler and editor memory growth.
+- LSP requests have bounded supervision so an unexpectedly expensive analysis
+  cannot leave the editor waiting indefinitely; ordinary diagnostics and
+  navigation retain compiler-owned semantics.
+- Reference and native simulators now lower nested pure functional regions
+  into bounded primitive-plan regions without duplicating their bodies. A large
+  structural stress case now runs with exact reference/native/typed cycle
+  parity rather than exhausting the plan budget.
+
+### Compatibility
+
+- The serialized native simulation plan and runtime ABI advance to version 10.
+  The Python compiler and separate Linux x86-64/WSL2 native wheel must both be
+  version `0.1.0a16`; mismatched older wheels fail closed. The independent
+  reference simulation engine remains available.
+
 ## 0.1.0a15 — 2026-09-24
 
 Corrective Community alpha carrying the accepted `0.1.0a14` compiler tree after

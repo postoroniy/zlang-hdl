@@ -1969,6 +1969,11 @@ class ToolingDiagnostic:
     notes: tuple[str, ...]
     fixes: tuple[str, ...]
     machine_fixes: tuple[ToolingDiagnosticFix, ...] = ()
+    severity: str = "error"
+
+    def __post_init__(self) -> None:
+        if self.severity not in {"error", "warning"}:
+            raise ValueError("tooling diagnostic severity is unsupported")
 
 
 @dataclass(frozen=True)
@@ -4260,6 +4265,93 @@ def source_facts(source_text: str) -> SourceFacts:
     )
 
 
+def unwritten_register_warnings(source_text: str) -> tuple[ToolingDiagnostic, ...]:
+    """Report only source-declared registers with no possible source update.
+
+    A register without an update is valid ZLang and holds its reset value.
+    This narrow editor observation uses the compiler parser's declaration and
+    action records; it never changes semantic checking or searches identifier
+    text for a matching assignment.  An update in any compile-time branch
+    suppresses the warning, so unspecialized source cannot get a false alarm.
+    """
+
+    # A negative prefilter avoids reparsing most navigation targets.  Actual
+    # classification below is exclusively parser-owned.
+    if "reg" not in source_text:
+        return ()
+    try:
+        syntax = parse(source_text)
+    except ParseError:
+        return ()
+
+    def write_targets(module: ast_nodes.Module) -> set[str]:
+        targets: set[str] = set()
+
+        def visit(value: object) -> None:
+            if isinstance(value, ast_nodes.NextAssignment):
+                target = value.target
+                targets.add(
+                    target if isinstance(target, str) else target.register
+                )
+                return
+            if isinstance(value, ast_nodes.Module) or isinstance(
+                value, ast_nodes.Expression
+            ):
+                return
+            if isinstance(value, (tuple, list)):
+                for item in value:
+                    visit(item)
+            elif is_dataclass(value) and not isinstance(value, type):
+                for item in fields(value):
+                    if item.name not in {"origin", "name_origin", "name_origins"}:
+                        visit(getattr(value, item.name))
+
+        visit(
+            module.ordered_items
+            if module.ordered_items
+            else (
+                *module.next_assignments,
+                *module.rules,
+                *module.fsms,
+                *module.compile_time_ifs,
+                *module.generate_blocks,
+            )
+        )
+        return targets
+
+    warnings: list[ToolingDiagnostic] = []
+
+    def collect(module: ast_nodes.Module) -> None:
+        targets = write_targets(module)
+        for declaration in module.registers:
+            if declaration.name in targets:
+                continue
+            origin = _origin_from_source(
+                declaration.name_origin, construct=f"register {declaration.name}"
+            )
+            if origin is None:
+                continue
+            warnings.append(ToolingDiagnostic(
+                "ZL-REGISTER-NEVER-WRITTEN",
+                f"register '{declaration.name}' has no next-state or rule "
+                "assignment; it will hold its reset value",
+                origin,
+                (),
+                (),
+                severity="warning",
+            ))
+        for child in module.submodules:
+            collect(child)
+
+    collect(syntax)
+    warnings.sort(key=lambda item: (
+        item.primary.start_line if item.primary is not None else 0,
+        item.primary.start_column if item.primary is not None else 0,
+        item.message,
+    ))
+    return tuple(warnings)
+
+
 def resolve_direct_imports(
     source: Path | str,
     imports: tuple[str, ...],
@@ -4598,6 +4690,7 @@ __all__ = [
     "discover_project",
     "resolve_direct_imports",
     "source_facts",
+    "unwritten_register_warnings",
     "tooling_identity",
     "hover_at",
     "definition_at",

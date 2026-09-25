@@ -46,6 +46,7 @@ def test_scalar_instance_array_is_one_deterministic_primitive_plan() -> None:
         "identity",
         "ports",
         "nodes",
+        "regions",
         "outputs",
         "registers",
         "memories",

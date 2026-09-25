@@ -35,10 +35,10 @@ def test_stages_exact_reviewed_bytes_under_tagged_name(tmp_path: Path) -> None:
     destination = stage_release_pdf(
         root=root,
         status_path=status,
-        tag="v0.1.0a15",
+        tag="v0.1.0a16",
         output=tmp_path / "dist",
     )
-    assert destination.name == "zlang-hdl-v0.1.0a15-language-reference.pdf"
+    assert destination.name == "zlang-hdl-v0.1.0a16-language-reference.pdf"
     assert destination.read_bytes() == (root / "docs/reference.pdf").read_bytes()
 
 
@@ -57,6 +57,6 @@ def test_staging_fails_closed_for_unreviewed_pdf(
         stage_release_pdf(
             root=root,
             status_path=status,
-            tag="v0.1.0a15",
+            tag="v0.1.0a16",
             output=tmp_path / "dist",
         )

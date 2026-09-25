@@ -49,6 +49,7 @@ from zlang.tooling import (
     rename_at,
     semantic_tokens,
     signature_help_at,
+    unwritten_register_warnings,
 )
 
 
@@ -289,9 +290,7 @@ def diagnostic_to_lsp(
     origin = diagnostic.primary
     return {
         "range": origin_to_range(origin, source_text),
-        # Diagnostic currently represents compiler errors.  The tooling API
-        # does not expose another severity, so this is the truthful mapping.
-        "severity": 1,
+        "severity": 1 if diagnostic.severity == "error" else 2,
         "code": diagnostic.code,
         "source": "zlang",
         "message": diagnostic.message,
@@ -1148,6 +1147,10 @@ class LspServer:
     def _publish_document(self, state: DocumentState) -> list[dict[str, Any]]:
         digest = hashlib.sha256(state.text.encode("utf-8")).hexdigest()
         try:
+            warnings = [
+                diagnostic_to_lsp(item, state.text)
+                for item in unwritten_register_warnings(state.text)
+            ]
             # A definition-aware shard exists only after successful semantic
             # analysis.  If an exact saved child was already observed while
             # compiling the source that navigated here, it is sufficient proof
@@ -1163,9 +1166,9 @@ class LspServer:
                     required_module=state.navigation_top,
                 )
             if symbol_proof is not None:
-                return [_publish(state.uri, [])]
+                return [_publish(state.uri, warnings)]
             if self.tooling_session.trivia_diagnostic_proof(state.path, state.text):
-                return [_publish(state.uri, [])]
+                return [_publish(state.uri, warnings)]
             record = check_snapshot(
                 state.path,
                 state.text,
@@ -1197,7 +1200,7 @@ class LspServer:
                     "compiler integration failed; see the language-server log",
                 ),
             ]
-        grouped: dict[str, list[dict[str, Any]]] = {state.uri: []}
+        grouped: dict[str, list[dict[str, Any]]] = {state.uri: warnings}
         for item in record.diagnostics:
             target = state
             unit = item.primary.source_unit if item.primary is not None else None
@@ -1494,28 +1497,25 @@ def main(
     prog: str = SERVER_NAME,
 ) -> int:
     effective_argv = list(sys.argv[1:] if argv is None else argv)
-    if effective_argv:
-        parser = argparse.ArgumentParser(
-            prog=prog,
-            description="Run the ZLang HDL language server over stdio",
-        )
-        parser.add_argument(
-            "--version",
-            action="version",
-            version=f"%(prog)s {__version__}",
-        )
-        # vscode-languageclient appends this conventional marker when a
-        # command is launched with TransportKind.stdio.  The server has only
-        # ever used stdio, so the option deliberately changes no behavior;
-        # accepting it is nevertheless part of the executable contract with
-        # the installed VS Code client.
-        parser.add_argument(
-            "--stdio",
-            action="store_true",
-            help=argparse.SUPPRESS,
-        )
-        parser.parse_args(effective_argv)
-    return run_server()
+    parser = argparse.ArgumentParser(
+        prog=prog,
+        description="Run the ZLang HDL language server over stdio",
+    )
+    parser.add_argument(
+        "--version", action="version", version=f"%(prog)s {__version__}",
+    )
+    # vscode-languageclient appends this conventional marker when a command
+    # is launched with TransportKind.stdio.
+    parser.add_argument("--stdio", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--worker", action="store_true", help=argparse.SUPPRESS)
+    options = parser.parse_args(effective_argv)
+    from zlang.lsp.supervisor import limit_worker_address_space, supervise_stdio
+
+    if options.worker:
+        limit_worker_address_space()
+        return run_server()
+    reader_input = os.fdopen(os.dup(sys.stdin.fileno()), "rb", buffering=0)
+    return supervise_stdio(reader_input, sys.stdout.buffer)
 
 
 if __name__ == "__main__":  # pragma: no cover - console entry point

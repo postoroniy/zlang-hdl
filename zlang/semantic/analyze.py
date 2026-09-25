@@ -59,6 +59,7 @@ from zlang.ir.callables import (
     CallableKind,
     CallableExpansionError,
     CallableReachabilityError,
+    callable_uses,
     expand_callable_calls,
     reachable_callable_definitions,
     stable_callee_identity,
@@ -160,6 +161,8 @@ _SIGNED_PATTERN = re.compile(r"s([1-9][0-9]*)\Z")
 _GENERIC_PATTERN = re.compile(r"(uint|sint|bits)<(.+)>\Z")
 _FUNCTIONAL_RANGE_LIMIT = 4096
 _TOTAL_GENERATED_LIMIT = 65536
+_MAX_LOCAL_EXPANSION_NODES = 500_000
+_MAX_ANALYSIS_LOCAL_EXPANSION_NODES = 4_000_000
 _FUNCTIONAL_REGION_THRESHOLD = 32
 _COMPILE_TIME_CALL_LIMIT = 64
 _COMPILE_TIME_OPERATION_LIMIT = 1_000_000
@@ -3409,6 +3412,7 @@ class AnalysisServices:
     expression_arena: SemanticExpressionArena = field(
         default_factory=SemanticExpressionArena
     )
+    local_expansion_nodes: int = 0
 
 
 @dataclass(frozen=True)
@@ -8739,6 +8743,7 @@ def analyze(
 
     symbols: dict[str, ir_module.Port] = {}
     ports: list[ir_module.Port] = []
+    port_origins: dict[str, SourceOrigin | None] = {}
     for declaration in module.ports:
         if declaration.name in symbols:
             raise SemanticError(f"duplicate port '{declaration.name}'")
@@ -8830,18 +8835,18 @@ def analyze(
                 f"port '{declaration.name}' requires an explicit clock domain"
             )
         symbols[port.name] = port
-        _remember_definition_target(
-            pure_context,
-            port,
-            _declaration_origin(
-                (
-                    declaration.name_origins[0]
-                    if declaration.name_origins
-                    else declaration.origin
-                ),
-                f"port {declaration.name}",
-                pure_context,
+        port_origin = _declaration_origin(
+            (
+                declaration.name_origins[0]
+                if declaration.name_origins
+                else declaration.origin
             ),
+            f"port {declaration.name}",
+            pure_context,
+        )
+        port_origins[port.name] = port_origin
+        _remember_definition_target(
+            pure_context, port, port_origin,
             name=declaration.name,
             kind="port",
         )
@@ -10596,7 +10601,9 @@ def analyze(
             source_domains = {
                 item
                 for item in _expression_domains(
-                    _expand_immutable_locals(value, value_symbols),
+                    _expand_immutable_locals(
+                        value, value_symbols, work_budget=module_context.services
+                    ),
                     {**symbols, **resource_symbols},
                     register_symbols,
                 )
@@ -11543,7 +11550,9 @@ def analyze(
         guard_domains = {
             item
             for item in _expression_domains(
-                _expand_immutable_locals(guard, value_symbols),
+                _expand_immutable_locals(
+                    guard, value_symbols, work_budget=module_context.services
+                ),
                 {**symbols, **resource_symbols},
                 register_symbols,
             )
@@ -11559,7 +11568,9 @@ def analyze(
                 fixes=("insert an explicit supported clock-domain crossing",),
             )
         guard_analysis = _expand_analysis_calls(
-            _expand_immutable_locals(guard, value_symbols),
+            _expand_immutable_locals(
+                guard, value_symbols, work_budget=module_context.services
+            ),
             module_context,
             purpose=f"rule '{declaration.name}' guard refinement",
         )
@@ -11698,7 +11709,9 @@ def analyze(
                 )
                 typed_terms.append(term)
                 term_analysis = _expand_analysis_calls(
-                    _expand_immutable_locals(term, value_symbols),
+                    _expand_immutable_locals(
+                        term, value_symbols, work_budget=module_context.services
+                    ),
                     module_context,
                     purpose=f"rule '{declaration.name}' conditional refinement",
                 )
@@ -11940,7 +11953,9 @@ def analyze(
                 index = _check_expression(
                     indexed.index, value_symbols, None, action_context
                 )
-                index = _expand_immutable_locals(index, value_symbols)
+                index = _expand_immutable_locals(
+                    index, value_symbols, work_budget=action_context.services
+                )
                 index = _expand_analysis_calls(
                     index, action_context, purpose="vector-register update index"
                 )
@@ -12066,7 +12081,10 @@ def analyze(
             effect_domains = {
                 item
                 for item in _expression_domains(
-                    _expand_immutable_locals(effect.expression, value_symbols),
+                    _expand_immutable_locals(
+                        effect.expression, value_symbols,
+                        work_budget=module_context.services,
+                    ),
                     {**symbols, **resource_symbols},
                     register_symbols,
                 )
@@ -12086,7 +12104,10 @@ def analyze(
                 operand_domains = {
                     item
                     for item in _expression_domains(
-                        _expand_immutable_locals(operand, value_symbols),
+                        _expand_immutable_locals(
+                            operand, value_symbols,
+                            work_budget=module_context.services,
+                        ),
                         {**symbols, **resource_symbols},
                         register_symbols,
                     )
@@ -13776,7 +13797,10 @@ def analyze(
                         )
                     bound_domains = {
                         item for item in _expression_domains(
-                            _expand_immutable_locals(bound, value_symbols),
+                            _expand_immutable_locals(
+                                bound, value_symbols,
+                                work_budget=module_context.services,
+                            ),
                             {**symbols, **resource_symbols}, register_symbols,
                         ) if item is not None
                     }
@@ -13854,7 +13878,10 @@ def analyze(
                     )
                 bound_domains = {
                     item for item in _expression_domains(
-                        _expand_immutable_locals(bound, value_symbols),
+                            _expand_immutable_locals(
+                                bound, value_symbols,
+                                work_budget=module_context.services,
+                            ),
                         {**symbols, **resource_symbols}, register_symbols,
                     ) if item is not None
                 }
@@ -13893,7 +13920,9 @@ def analyze(
             bound_domains = {
                 item
                 for item in _expression_domains(
-                    _expand_immutable_locals(bound, value_symbols),
+                    _expand_immutable_locals(
+                        bound, value_symbols, work_budget=module_context.services
+                    ),
                     {**symbols, **resource_symbols},
                     register_symbols,
                 )
@@ -14297,7 +14326,10 @@ def analyze(
             continue
         target_domain = assignment.target.domain
         source_domains = _expression_domains(
-            _expand_immutable_locals(assignment.expression, value_symbols),
+            _expand_immutable_locals(
+                assignment.expression, value_symbols,
+                work_budget=module_context.services,
+            ),
             {**symbols, **resource_symbols},
             register_symbols,
         )
@@ -14318,7 +14350,10 @@ def analyze(
             )
     for assignment in next_assignments:
         source_domains = _expression_domains(
-            _expand_immutable_locals(assignment.expression, value_symbols),
+            _expand_immutable_locals(
+                assignment.expression, value_symbols,
+                work_budget=module_context.services,
+            ),
             {**symbols, **resource_symbols},
             register_symbols,
         )
@@ -14475,7 +14510,8 @@ def analyze(
         target, channel, signal = missing[0]
         raise SemanticError(
             f"output '{_render_assignment_target(target, signal, channel)}' "
-            "has no assignment"
+            "has no assignment",
+            primary=port_origins.get(target.name),
         )
 
     _reject_interface_dependency_cycles(tuple(assignments))
@@ -15703,69 +15739,106 @@ def _expand_immutable_locals(
     symbols: dict[str, _ValueSymbol],
     active: frozenset[str] = frozenset(),
     memo: dict[int, ir_expr.Expression] | None = None,
+    *,
+    work_budget: AnalysisServices | None = None,
 ) -> ir_expr.Expression:
-    """Inline immutable locals at semantic boundaries that inspect structure."""
+    """Inline immutable locals without expanding shared typed DAG paths."""
 
     if memo is None:
         memo = {}
-    if isinstance(value, ir_expr.InputRef):
-        symbol = symbols.get(value.name)
-        if isinstance(symbol, ir_module.LocalValue):
-            if symbol.name in active:
+    # A local can occur thousands of times in one value.  The local cache
+    # handles repeated names, while this per-query cache also preserves
+    # sharing of their already-typed descendants.  The active set is part of
+    # the key so cycle detection cannot be bypassed through another path.
+    node_memo: dict[
+        tuple[int, frozenset[str]],
+        tuple[ir_expr.Expression, ir_expr.Expression],
+    ] = {}
+    visited_nodes = 0
+
+    def walk(current: ir_expr.Expression, active_names: frozenset[str]) -> ir_expr.Expression:
+        nonlocal visited_nodes
+        key = (id(current), active_names)
+        cached_node = node_memo.get(key)
+        if cached_node is not None and cached_node[0] is current:
+            return cached_node[1]
+        visited_nodes += 1
+        if visited_nodes > _MAX_LOCAL_EXPANSION_NODES:
+            raise SemanticError(
+                "immutable-local analysis exceeds the bounded expression DAG size",
+                code="ZL-IR-EXPANSION-LIMIT",
+                primary=current.origin,
+            )
+        if work_budget is not None:
+            work_budget.local_expansion_nodes += 1
+            if (
+                work_budget.local_expansion_nodes
+                > _MAX_ANALYSIS_LOCAL_EXPANSION_NODES
+            ):
                 raise SemanticError(
-                    f"cyclic immutable local '{symbol.name}' during semantic expansion"
+                    "semantic analysis exceeds the bounded immutable-local "
+                    "expansion work for this source",
+                    code="ZL-IR-EXPANSION-LIMIT",
+                    primary=current.origin,
                 )
-            cache_key = id(symbol)
-            cached = memo.get(cache_key)
-            if cached is not None:
-                return cached
-            expanded = _expand_immutable_locals(
-                symbol.expression, symbols, active | {symbol.name}, memo
+
+        if isinstance(current, ir_expr.InputRef):
+            symbol = symbols.get(current.name)
+            if isinstance(symbol, ir_module.LocalValue):
+                if symbol.name in active_names:
+                    raise SemanticError(
+                        f"cyclic immutable local '{symbol.name}' during semantic expansion"
+                    )
+                cache_key = id(symbol)
+                expanded = memo.get(cache_key)
+                if expanded is None:
+                    expanded = walk(
+                        symbol.expression, active_names | {symbol.name}
+                    )
+                    memo[cache_key] = expanded
+                result = expanded
+            else:
+                result = current
+        elif isinstance(current, ir_expr.Switch):
+            result = replace(
+                current,
+                selector=walk(current.selector, active_names),
+                cases=tuple(
+                    replace(case, expression=walk(case.expression, active_names))
+                    for case in current.cases
+                ),
+                default=walk(current.default, active_names),
             )
-            memo[cache_key] = expanded
-            return expanded
-        return value
-    if isinstance(value, ir_expr.Switch):
-        return replace(
-            value,
-            selector=_expand_immutable_locals(value.selector, symbols, active, memo),
-            cases=tuple(
-                replace(
-                    case,
-                    expression=_expand_immutable_locals(
-                        case.expression, symbols, active, memo
-                    ),
-                )
-                for case in value.cases
-            ),
-            default=_expand_immutable_locals(value.default, symbols, active, memo),
-        )
-    if isinstance(value, ir_expr.StructConstruct):
-        return replace(
-            value,
-            fields=tuple(
-                (name, _expand_immutable_locals(item, symbols, active, memo))
-                for name, item in value.fields
-            ),
-        )
-    if not isinstance(value, ir_expr.TracedExpression):
-        return value
-    updates: dict[str, object] = {}
-    for item in fields(value):
-        if item.name == "origin" or not item.init:
-            continue
-        current = getattr(value, item.name)
-        if isinstance(current, ir_expr.TracedExpression):
-            updates[item.name] = _expand_immutable_locals(
-                current, symbols, active, memo
+        elif isinstance(current, ir_expr.StructConstruct):
+            result = replace(
+                current,
+                fields=tuple(
+                    (name, walk(item, active_names))
+                    for name, item in current.fields
+                ),
             )
-        elif isinstance(current, tuple):
-            updates[item.name] = tuple(
-                _expand_immutable_locals(element, symbols, active, memo)
-                if isinstance(element, ir_expr.TracedExpression) else element
-                for element in current
-            )
-    return replace(value, **updates) if updates else value
+        elif not isinstance(current, ir_expr.TracedExpression):
+            result = current
+        else:
+            updates: dict[str, object] = {}
+            for item in fields(current):
+                if item.name == "origin" or not item.init:
+                    continue
+                child = getattr(current, item.name)
+                if isinstance(child, ir_expr.TracedExpression):
+                    updates[item.name] = walk(child, active_names)
+                elif isinstance(child, tuple):
+                    updates[item.name] = tuple(
+                        walk(element, active_names)
+                        if isinstance(element, ir_expr.TracedExpression)
+                        else element
+                        for element in child
+                    )
+            result = replace(current, **updates) if updates else current
+        node_memo[key] = (current, result)
+        return result
+
+    return walk(value, active)
 
 
 def _unsigned_type_range(type_: HardwareType) -> ir_expr.ValueRange | None:
@@ -17514,7 +17587,9 @@ def _check_expression_untraced(
         # immutable aliases and pure callable bodies here; physical partition
         # and register placement belongs to implementation planning, after
         # target/profile/evidence inputs are known.
-        scheduling_operand = _expand_immutable_locals(operand, inputs)
+        scheduling_operand = _expand_immutable_locals(
+            operand, inputs, work_budget=context.services
+        )
         scheduling_operand = _expand_analysis_calls(
             scheduling_operand,
             context,
@@ -18535,7 +18610,9 @@ def _check_expression_untraced(
                 )
             assert not isinstance(index_syntax, int)
             typed_index = _check_expression(index_syntax, inputs, None, context)
-            typed_index = _expand_immutable_locals(typed_index, inputs)
+            typed_index = _expand_immutable_locals(
+                typed_index, inputs, work_budget=context.services
+            )
             typed_index = _expand_analysis_calls(
                 typed_index, context, purpose="runtime instance-array selector"
             )
@@ -18642,7 +18719,9 @@ def _check_expression_untraced(
                 typed_index = _check_expression(
                     expression.index, inputs, None, context
                 )
-                typed_index = _expand_immutable_locals(typed_index, inputs)
+                typed_index = _expand_immutable_locals(
+                    typed_index, inputs, work_budget=context.services
+                )
                 typed_index = _expand_analysis_calls(
                     typed_index, context, purpose="packed bit index"
                 )
@@ -18699,7 +18778,9 @@ def _check_expression_untraced(
             index = context.index_bindings[expression.index.name]
         else:
             typed_index = _check_expression(expression.index, inputs, None, context)
-            typed_index = _expand_immutable_locals(typed_index, inputs)
+            typed_index = _expand_immutable_locals(
+                typed_index, inputs, work_budget=context.services
+            )
             typed_index = _expand_analysis_calls(
                 typed_index, context, purpose="runtime vector index"
             )
@@ -19364,6 +19445,7 @@ def _check_indexed_vector(
             if budget is not None
             else None
         )
+        attempt_expansion_nodes = context.services.local_expansion_nodes
         observational_lengths = tuple(
             len(items) if items is not None else None
             for items in (
@@ -19391,7 +19473,9 @@ def _check_indexed_vector(
             if expected_element is not None and symbolic.type != expected_element:
                 raise ValueError("symbolic functional element changed exact type")
             symbolic_type = VecType(length, symbolic.type)
-            symbolic = _expand_immutable_locals(symbolic, inputs)
+            symbolic = _expand_immutable_locals(
+                symbolic, inputs, work_budget=context.services
+            )
             pending_certificates = tuple(
                 dict.fromkeys(
                     context.functional_specialization_certificates[
@@ -19454,6 +19538,7 @@ def _check_indexed_vector(
                     budget.operations,
                     budget.call_depth,
                 ) = attempt_budget
+            context.services.local_expansion_nodes = attempt_expansion_nodes
             for items, retained in zip(
                 (
                     context.definition_resolutions,
@@ -19509,6 +19594,7 @@ def _check_indexed_vector(
                     element,
                     inputs,
                     memo=local_expansion_memo,
+                    work_budget=context.services,
                 )
                 for element in elements
             ),
@@ -23155,6 +23241,15 @@ def _expand_analysis_calls(
     purpose: str,
 ) -> ir_expr.Expression:
     """Create an exact temporary analysis view of retained callable bodies."""
+
+    # The input may already be an immutable DAG with large shared local
+    # vectors.  Callable expansion reconstructs expression nodes while it
+    # walks them, so doing that for a call-free index can multiply the same
+    # subtree thousands of times.  The compiler-owned use walker visits each
+    # shared node once; with no callable edge the exact analysis view is the
+    # original typed expression.
+    if not callable_uses(expression):
+        return expression
 
     function_definitions = tuple(
         context.function_definitions[name]

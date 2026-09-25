@@ -83,6 +83,26 @@ class SemanticTests(unittest.TestCase):
         with self.assertRaisesRegex(SemanticError, "output 'y' has no assignment"):
             analyze(parse(source))
 
+    def test_unassigned_grouped_output_points_to_exact_name(self) -> None:
+        source = (
+            "module Bad {\n"
+            "  out driven, missing : u8\n"
+            "  driven = 0\n"
+            "}\n"
+        )
+        with self.assertRaisesRegex(
+            SemanticError, "output 'missing' has no assignment"
+        ) as failure:
+            analyze(parse(source))
+        assert failure.exception.primary is not None
+        self.assertEqual(
+            failure.exception.primary.span.to_data(),
+            {
+                "start_line": 2, "start_column": 15,
+                "end_line": 2, "end_column": 22,
+            },
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
