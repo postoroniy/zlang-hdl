@@ -7,6 +7,7 @@ these channels are AXI channels.
 
 from __future__ import annotations
 
+import hashlib
 import os
 from pathlib import Path
 import shutil
@@ -289,8 +290,13 @@ def test_combined_axi_burst_schema_survives_typed_and_canonical_ir() -> None:
     ),
 )
 def test_root_ready_valid_safety_verification_executes_with_real_sby_z3(
-    top: str, expected_assertions: set[str]
+    top: str, expected_assertions: set[str], record_property,
 ) -> None:
+    record_property("stdlib_source", "stdlib/bus/axi_burst.zhl")
+    record_property(
+        "stdlib_source_sha256",
+        hashlib.sha256((ROOT / "stdlib/bus/axi_burst.zhl").read_bytes()).hexdigest(),
+    )
     compiled = compile_source(SOURCE, top=top)
     artifact = emit_formal_artifact(
         compiled.ir, build_recursive_formal_design(compiled.ir)

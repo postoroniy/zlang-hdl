@@ -20,7 +20,6 @@ from zlang.parser import parse
 
 ROOT = Path(__file__).resolve().parents[2]
 EXAMPLES = ROOT / "examples"
-EXCLUDED_EXAMPLE_PREFIXES = ("projects/80211ad_phylayer/",)
 INITIALIZED_INTERNAL_WIRE = re.compile(r"(?m)^[ \t]*wire\b[^;\n]*=")
 
 
@@ -154,8 +153,6 @@ DIRECT_UNSUPPORTED: dict[tuple[str, str], str] = {}
 def _roots():
     for path in sorted(EXAMPLES.rglob("*.zhl")):
         relative = path.relative_to(EXAMPLES).as_posix()
-        if relative.startswith(EXCLUDED_EXAMPLE_PREFIXES):
-            continue
         source = path.read_text()
         syntax = parse(source)
         for module in (*syntax.submodules, syntax):

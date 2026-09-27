@@ -11,6 +11,21 @@ incompatible input explicitly.
 
 ## Unreleased
 
+### Added
+
+- Nightly Z3-backed standard-library contracts and a source- and JUnit-bound
+  coverage inventory distinguish proven properties, bounded checks, partial
+  coverage, and unverified declarations. These checks do not claim complete
+  AXI4 or FIFO verification.
+
+### Fixed
+
+- The 802.11a eager-result regression now compares physical input content
+  without depending on checkout path ordering or duplicate installed stdlib
+  copies. Compiler semantics and generated RTL are unchanged.
+- Community example inventory no longer silently excludes an 802.11ad
+  experiment; the public source tree is explicitly checked to omit it.
+
 ## 0.1.0a16 — 2026-09-25
 
 Community alpha focused on bounded compilation and simulation of large

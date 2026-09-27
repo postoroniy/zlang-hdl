@@ -92,13 +92,16 @@ def test_every_owned_hardware_source_uses_the_canonical_suffix() -> None:
         path
         for root in roots
         for path in root.rglob("*.zhl")
-        if not (
-            root == ROOT / "examples"
-            and path.relative_to(root).as_posix().startswith(
-                "projects/80211ad_phylayer/"
-            )
-        )
     )
 
     assert legacy == ()
     assert sources
+
+
+def test_80211ad_experiment_is_absent_from_community_sources() -> None:
+    # The private experiment is not part of the supported public corpus.
+    assert not any(
+        "80211ad" in path.relative_to(ROOT).as_posix().lower().replace(".", "")
+        for root in (ROOT / "examples", ROOT / "stdlib")
+        for path in root.rglob("*")
+    )
