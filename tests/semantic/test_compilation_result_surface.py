@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from hashlib import sha256
 from dataclasses import fields
 from pathlib import Path
 
@@ -53,12 +54,15 @@ module ScalarRom<D=4> {
 # eager result below was compiled twice again before this recapture.  The
 # current values also bind the content-addressed generic physical graph v2,
 # backend DAG-planning schema, and canonical schema v18; semantic behavior is
-# unchanged.  Every value below was reproduced in two independent compilations.
+# unchanged. Physical input snapshots now use filename/content pairs rather
+# than absolute-path order or duplicate installed stdlib copies; file-backed
+# hashes were recaptured accordingly. Every value below was reproduced in two
+# independent compilations.
 EXPECTED = {
-    "add": "1138d33309fb4caa5a6a0fff8b9b9c1555a52b2dbfdaa8e415fa9de555d8b7cb",
-    "stateful_protocol": "d69f1dd92f4f800c3f45562151b47773c49fbd31adf4cb3c9b3ca9235ae4dd2c",
+    "add": "0d21d7c7533fbefcc082993695b6b43120b859ad22bc11553c9aaddd7bf41a35",
+    "stateful_protocol": "56bb8d2f6add0c41605e89f5d1b40f64fa320b9540dfc48ac45ca9cdfadc534d",
     "fixed_dsp": "7809d7403205d3579d01fe19a8dbdc6eb7cc06ce7cbf1c0519b4caec0bd1ebdd",
-    "csr": "7f4df34013f1e64e399547daa37efce91a208878f686cbf92a9f7ee8745cd2f2",
+    "csr": "151d81c9a1b0dd25ff25b287cf8dd2a8bf0d69e8541898282a5b7485a0d97e20",
     "hierarchy": "11add9b266518a902d3dc1a2d04b09378761df78ab78dbd61b1e7494df0747e4",
     # Companion filenames use exact typed ROM contents/layout rather than
     # source provenance, so equivalent spellings retain one physical image.
@@ -71,7 +75,7 @@ EXPECTED = {
     # identity rather than materializing the historical expanded-tree
     # spelling.  This source/dependency-sensitive eager-result snapshot was
     # independently compiled twice before being locked here.
-    "wifi": "d28cb374eed5d0a68241df1abb8cfc96afe239c3effb38b8cda635dd5f7dac3b",
+    "wifi": "1fa795b1c8ece74b9e7abde45d9a8bf74605f093baa7be0e158f514f1c3840d5",
 }
 
 
@@ -101,6 +105,15 @@ def _compile_case(name: str):
     raise AssertionError(name)
 
 
+def _physical_input_role_shape(
+    paths: tuple[Path, ...],
+) -> tuple[tuple[str, str], ...]:
+    # An editable checkout and its installed stdlib may contribute two
+    # physical copies of the same bytes. Neither their absolute-path order nor
+    # that duplicate copy is part of the compilation-result contract.
+    return tuple(sorted({(path.name, sha256(path.read_bytes()).hexdigest()) for path in paths}))
+
+
 def _surface_digest(result) -> str:
     per_field: dict[str, str] = {}
     for item in fields(result):
@@ -117,8 +130,9 @@ def _surface_digest(result) -> str:
             )
         elif item.name == "physical_inputs":
             # Physical roots have no semantic identity.  Preserve the returned
-            # role/content shape without baking a checkout path into the gate.
-            payload = tuple(path.name for path in value.all_paths)
+            # role/content shape without baking a checkout path or its
+            # absolute-path ordering into the gate.
+            payload = _physical_input_role_shape(value.all_paths)
         elif isinstance(value, str):
             payload = value
         else:
@@ -126,6 +140,36 @@ def _surface_digest(result) -> str:
         per_field[item.name] = stable_digest(payload)
     assert set(per_field) == {item.name for item in fields(result)}
     return stable_digest(per_field)
+
+
+def test_physical_input_role_shape_ignores_checkout_layout(tmp_path: Path) -> None:
+    # all_paths sorts full host paths; stripping directories alone left the
+    # Wi-Fi digest dependent on which checkout or venv sorted first.
+    first_root = tmp_path / "first"
+    second_root = tmp_path / "second"
+    for root in (first_root, second_root):
+        (root / "stdlib").mkdir(parents=True)
+        (root / "venv").mkdir()
+        (root / "project").mkdir()
+        (root / "stdlib" / "core.zhl").write_text("same")
+        (root / "venv" / "core.zhl").write_text("same")
+        (root / "project" / "controller.zhl").write_text("root")
+    first = (
+        first_root / "stdlib" / "core.zhl",
+        first_root / "project" / "controller.zhl",
+        first_root / "venv" / "core.zhl",
+    )
+    second = (
+        second_root / "project" / "controller.zhl",
+        second_root / "venv" / "core.zhl",
+        second_root / "stdlib" / "core.zhl",
+    )
+    assert _physical_input_role_shape(first) == _physical_input_role_shape(second)
+    assert tuple(name for name, _ in _physical_input_role_shape(first)) == (
+        "controller.zhl", "core.zhl",
+    )
+    (second_root / "venv" / "core.zhl").write_text("different")
+    assert len(_physical_input_role_shape(second)) == 3
 
 
 @pytest.mark.parametrize("name", tuple(EXPECTED))

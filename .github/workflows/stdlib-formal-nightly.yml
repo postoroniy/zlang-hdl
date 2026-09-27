@@ -1,0 +1,65 @@
+name: Stdlib formal nightly
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  z3-contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out Community source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Set up pinned open EDA tools
+        uses: YosysHQ/setup-oss-cad-suite@c7845bc0d335c8076aa22047e85972caa8a916df # v4
+        with:
+          github-token: ${{ github.token }}
+          version: "2026-09-22"
+      - name: Install Community test dependencies
+        run: |
+          python -m pip install --disable-pip-version-check -e '.[test]'
+          python -m pip install --disable-pip-version-check z3-solver==4.13.4.0
+          python -c 'import sysconfig; print(sysconfig.get_path("scripts"))' >> "$GITHUB_PATH"
+      - name: Require actual Z3 formal tools
+        run: |
+          yosys -V
+          sby --version
+          yosys-smtbmc --help > /dev/null
+          z3 --version
+      - name: Run executable contracts and fail-closed coverage inventory
+        run: |
+          mkdir -p build/stdlib-formal-tmp
+          python -m pytest -p tools.pytest_no_skips -q \
+            -o junit_family=legacy \
+            tests/integration/test_stdlib_axi4_z3.py \
+            tests/integration/test_stdlib_stream_z3.py \
+            tests/integration/test_stdlib_formal_coverage.py \
+            tests/integration/test_ztpu_axi_burst.py::test_root_ready_valid_safety_verification_executes_with_real_sby_z3 \
+            --basetemp=build/stdlib-formal-tmp \
+            --junitxml=build/stdlib-formal.xml
+          python tools/stdlib_formal_coverage.py \
+            --junit build/stdlib-formal.xml \
+            > build/stdlib-formal-coverage.json
+      - name: Retain coverage, solver traces and test result
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: stdlib-formal-${{ github.run_id }}
+          path: |
+            build/stdlib-formal.xml
+            build/stdlib-formal-coverage.json
+            build/stdlib-formal-tmp/
+          if-no-files-found: warn
+          retention-days: 14
