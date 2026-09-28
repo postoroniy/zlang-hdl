@@ -62,6 +62,11 @@ def test_release_workflow_uses_curated_changelog_notes_and_native_set() -> None:
     assert "tools/stage_release_pdf.py" in workflow
     assert "zlang-hdl-*-language-reference.pdf" in workflow
     assert workflow.count("--maxfail=1") == 4
+    assert 'printf \'%s\\n\' "$python_scripts" >> "$GITHUB_PATH"' in workflow
+    assert 'export PATH="$python_scripts:$PATH"' in workflow
+    assert workflow.index('export PATH="$python_scripts:$PATH"') < workflow.index(
+        "python tools/release_status.py check --root . --check-tools"
+    )
 
 
 def test_makefile_help_is_executable_and_documents_nonpublishing_gate() -> None:

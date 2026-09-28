@@ -281,7 +281,9 @@ jobs:
           python -m pip install --disable-pip-version-check -e '.[test]' \
             release/native-wheels/*manylinux_2_28_x86_64.whl \
             build==1.3.0 z3-solver==4.13.4.0
-          python -c 'import sysconfig; print(sysconfig.get_path("scripts"))' >> "$GITHUB_PATH"
+          python_scripts="$(python -c 'import sysconfig; print(sysconfig.get_path("scripts"))')"
+          printf '%s\n' "$python_scripts" >> "$GITHUB_PATH"
+          export PATH="$python_scripts:$PATH"
           python tools/audit_native_binary.py \
             --expected-version "${GITHUB_REF_NAME#v}" \
             release/native-wheels/*manylinux_2_28_x86_64.whl
