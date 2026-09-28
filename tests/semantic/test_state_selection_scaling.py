@@ -426,15 +426,21 @@ def test_exact_ztpu_zl038_reproducers_are_bounded_and_cycle_equivalent(
     command = [
         sys.executable, "-c", "from zlang.cli import main; raise SystemExit(main())",
     ]
+    simulation_command = [
+        *command,
+        "sim", "src/layout_dma_core.zhl", "--project", "zlang.toml",
+        "--top", "ZtpuLayoutDmaControl64x32", "--engine", "native",
+        "--events", "normal-copy.jsonl", "--json",
+    ]
+    if shutil.which("verilator") is not None:
+        simulation_command.extend(
+            (
+                "--compare-with", "verilator",
+                "--compare-artifacts", str(project / "comparison"),
+            )
+        )
     result = subprocess.run(
-        [
-            *command,
-            "sim", "src/layout_dma_core.zhl", "--project", "zlang.toml",
-            "--top", "ZtpuLayoutDmaControl64x32", "--engine", "native",
-            "--events", "normal-copy.jsonl", "--json",
-            "--compare-with", "verilator",
-            "--compare-artifacts", str(project / "comparison"),
-        ],
+        simulation_command,
         cwd=project, env=environment, capture_output=True, text=True,
         timeout=120, check=False,
     )
