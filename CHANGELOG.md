@@ -11,6 +11,25 @@ incompatible input explicitly.
 
 ## Unreleased
 
+## 0.1.0a18 — 2026-09-29
+
+Corrective alpha carrying the accepted `0.1.0a17` compiler, native simulator,
+editor and documentation content after its release EDA gate selected the wrong
+Z3 executable. Language, compiler, generated RTL and verification semantics are
+unchanged.
+
+### Fixed
+
+- The release EDA job now prepends the pinned Python scripts directory before
+  checking the tool inventory, so Z3 4.13.4 is selected even when the OSS CAD
+  Suite also provides Z3 4.15.5.
+
+### Compatibility
+
+- The separate native simulator wheel is version `0.1.0a18`. Its plan/runtime
+  contract remains ABI v11 and is otherwise byte-equivalent in implementation
+  to the reviewed `0.1.0a17` runtime source.
+
 ## 0.1.0a17 — 2026-09-28
 
 This alpha carries the reviewed native simulator source and accepted compiler

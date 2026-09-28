@@ -3,7 +3,7 @@
   "release": {
     "channel": "alpha",
     "repository": "https://github.com/postoroniy/zlang-hdl",
-    "version": "0.1.0a17"
+    "version": "0.1.0a18"
   },
   "platform": {
     "operating_system": "Linux",
@@ -11,7 +11,7 @@
     "architecture": "x86_64"
   },
   "native_runtime": {
-    "version": "0.1.0a17",
+    "version": "0.1.0a18",
     "abi": "cp312-abi3",
     "source_distribution": false,
     "platforms": [
@@ -55,11 +55,11 @@
     "format": "PDF-1.5",
     "pages": 86,
     "pdf": "docs/ZLang-HDL-Language-Reference.pdf",
-    "pdf_sha256": "36910ba4b8192e7bf0d286f0168162ee32caee0cdebef7957b0a67f8bdb55607",
+    "pdf_sha256": "8e89d519398dd7ba3e4edea9a61fdc51cae6d6d893141cfefe25e2664197daa8",
     "syntax_grammar_sha256": "f63945e59c4a8bde6e4b1a95b4512ca787d8a91b4c8333e160398a26de83526d",
     "sources": {
       "docs/language-quick-reference.md": "e037efdc44878a955451793802cc15623ee2b6f7c26c1625c5cee09925b5b8dc",
-      "docs/language-reference.md": "efa08de2da46c09197d1a9fd85f9ccf3254c836de5b199861a2afd856126ba98"
+      "docs/language-reference.md": "2fd606db1803f41b4e8d2be4cf4637b5de6d0d45f3e9643613aeb2a22aac6894"
     },
     "source_date_epoch": 1789792159
   },
