@@ -1394,10 +1394,23 @@ class _AstBuilder(Transformer):
     def reset_physical_block(self, items: list[object]) -> tuple[str, str, str, str]:
         return ("reset_physical", *(str(item) for item in items))
 
+    def async_reset_polarity(self, items: list[object]) -> tuple[str, str]:
+        return ("polarity", str(items[0]))
+
+    def async_reset_release(self, items: list[object]) -> tuple[str, str]:
+        return ("release", str(items[0]))
+
     def async_reset_physical_block(
         self, items: list[object]
-    ) -> tuple[str, str]:
-        return ("async_reset_physical", str(items[0]))
+    ) -> tuple[object, ...]:
+        values: dict[str, str] = {}
+        for item in items:
+            assert isinstance(item, tuple)
+            key, value = str(item[0]), str(item[1])
+            if key in values:
+                raise ParseError(f"async reset {key} may be specified only once")
+            values[key] = value
+        return ("async_reset_physical", values)
 
     @v_args(meta=True)
     def reset_decl(self, meta: object, items: list[object]) -> tuple[object, ...]:
@@ -1454,10 +1467,18 @@ class _AstBuilder(Transformer):
             ),
             None,
         )
-        polarity = "active_high" if block is None else str(block[1])
+        attributes = {} if block is None else block[1]
+        assert isinstance(attributes, dict)
+        polarity = str(attributes.get("polarity", "active_high"))
         if polarity not in {"active_high", "active_low"}:
             raise ParseError(
                 "reset polarity must be 'active_high' or 'active_low'"
+            )
+        release = str(attributes.get("release", "synchronized"))
+        if release not in {"synchronized", "externally_synchronized"}:
+            raise ParseError(
+                "async reset release must be 'synchronized' or "
+                "'externally_synchronized'"
             )
         declaration = ResetPhysicalDecl(
             name=name,
@@ -1466,18 +1487,26 @@ class _AstBuilder(Transformer):
             polarity=polarity,
             power_up="unspecified",
             origin=self._span(meta),
-            release_mode="synchronized",
-            release_cycles=2,
+            release_mode=release,
+            release_cycles=2 if release == "synchronized" else 0,
         )
         return ("reset", name, domain, declaration)
 
     @v_args(meta=True)
     def register_decl(self, meta: object, items: list[object]) -> RegisterDecl:
-        domain = str(items[2]) if len(items) == 4 and items[2] is not None else None
+        tail = tuple(item for item in items[2:] if item is not None)
+        domain = next(
+            (str(item) for item in tail if isinstance(item, lark.Token)),
+            None,
+        )
+        initial = next(
+            (item for item in tail if not isinstance(item, lark.Token)),
+            None,
+        )
         return RegisterDecl(
             str(items[0]),
             items[1],
-            items[-1],
+            initial,
             domain,
             self._span(meta),
             self._token_span(items[0]),
@@ -3161,8 +3190,8 @@ _GRAMMAR = files("zlang.parser").joinpath("grammar.lark").read_text()
 _PARSER: Lark | None = None
 _PARSER_LOCK = Lock()
 _PARSER_TABLE_LARK_VERSION = "1.3.1"
-_PARSER_TABLE_GRAMMAR_SHA256 = "9c59ebf44c720ed47943514616181a7c6c039d2bbdd5cdf0d7738fcba670061b"
-_PARSER_TABLE_SHA256 = "0617b9f010c3f57a6b20953736004cfc95f1f42b79880aea51a53576d70644b3"
+_PARSER_TABLE_GRAMMAR_SHA256 = "1565dc186024699d97e7746d7a64969e1ee764755e8453c5d93941f257b4e903"
+_PARSER_TABLE_SHA256 = "183f00885c053e8cff95c0cbcbc9196a3ae80dfb856daa2ce268ebaeb62ef2c8"
 
 
 def _load_packaged_parser() -> Lark | None:

@@ -6,7 +6,7 @@ from dataclasses import replace
 from zlang.architecture import ArchitectureCandidate
 from zlang.compiler import compile_source
 from zlang.parser import ParseError, parse
-from zlang.simulate import simulate
+from zlang.native_simulation import simulate
 
 
 ROOT = Path(__file__).resolve().parents[2]

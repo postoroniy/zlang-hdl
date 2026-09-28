@@ -57,7 +57,11 @@ class BackendBindingTests(unittest.TestCase):
         )
         text = emit_experimental(result.ir)
         self.assertIn("logic [15:0] queue_front;", text)
-        self.assertIn("assign queue_front = queue_storage[queue_rd];", text)
+        self.assertIn(
+            "assign queue_front = (queue_count == '0) ? '0 : "
+            "queue_storage[queue_rd];",
+            text,
+        )
         self.assertIn("assign zlang_packed_tx_payload = {", text)
         self.assertIn("assign tx_payload = zlang_packed_tx_payload;", text)
         self.assertNotIn("assign tx_payload = queue_storage", text)

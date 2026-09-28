@@ -13,7 +13,8 @@ No additional product edition, entitlement mechanism, restricted compiler
 feature or service dependency is required to use the functionality in this
 repository.
 
-The optional Linux x86-64/WSL2 native-simulation wheel is a separately audited
-binary accelerator whose Rust/Cranelift source is not distributed here. The
-Community compiler and reference simulator remain usable without it; see the
+The Linux x86-64/WSL2 native-simulation wheel is a separately audited Community
+runtime whose Rust/Cranelift source is not distributed here. The compiler and
+RTL emission remain usable without it; simulation requires a matching wheel
+and has no hidden fallback engine. See the
 [native simulation section](language-reference.md#reference-native-simulation).

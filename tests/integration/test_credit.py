@@ -2,7 +2,7 @@ from pathlib import Path
 import unittest
 
 from zlang.compiler import compile_source
-from zlang.simulate import (
+from zlang.native_simulation import (
     ProtocolViolation,
     SimulationError,
     simulate_credit_cycles,

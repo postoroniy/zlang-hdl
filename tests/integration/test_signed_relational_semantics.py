@@ -40,7 +40,7 @@ from zlang.ir.formal_predicates import (
     FormalSignedness,
     ObservationRef,
 )
-from zlang.simulate import simulate_cycles
+from zlang.native_simulation import simulate_cycles
 
 
 VERILATOR = shutil.which("verilator")

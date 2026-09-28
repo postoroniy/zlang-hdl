@@ -36,9 +36,12 @@ def test_makefile_exposes_bounded_test_and_release_entry_points() -> None:
     assert "--check-tools" in text
     assert text.count("tools/public_tree.py export") == 5
     assert 'check-export --source "$$public_root"' in text
+    assert 'PYTHONPATH="$(CURDIR)" $(PYTHON) tools/public_tree.py export' in text
+    assert text.count('PYTHONPATH="$$public_root" $(PYTHON)') >= 3
     assert "git archive --format=tar HEAD" in text
     assert '-m build "$$source_root" --no-isolation' in text
     assert 'cd "$$public_root"' in text
+    assert 'export PYTHONPATH="$$public_root"' in text
     assert 'python_bin="$$(cd "$$(dirname "$$python_bin")" && pwd)' in text
     assert "realpath" not in text
     assert "gh release create" not in text

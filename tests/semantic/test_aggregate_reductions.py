@@ -9,7 +9,7 @@ from zlang.ir.traversal import walk_expression
 from zlang.opt import lower, restore
 from zlang.reductions import expand_reduction
 from zlang.semantic import SemanticError
-from zlang.simulate import simulate
+from zlang.native_simulation import simulate
 
 
 def test_complex_sum_retains_exact_overload_expansion_and_type() -> None:

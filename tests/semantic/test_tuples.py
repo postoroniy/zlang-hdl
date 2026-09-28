@@ -11,7 +11,7 @@ from zlang.ir.types import BitType, SIntType, TupleType, UIntType, VecType
 from zlang.opt import EGraphAdapterError, canonical_to_egraph
 from zlang.opt import lower, restore
 from zlang.semantic import SemanticError
-from zlang.simulate import simulate, simulate_cycles
+from zlang.native_simulation import simulate, simulate_cycles
 
 
 def _compile(source: str):

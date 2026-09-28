@@ -14,6 +14,7 @@ import math
 from typing import get_args
 
 from zlang.ir import expressions as expr
+from zlang.ir.types import HardwareType
 from zlang.source import SourceOrigin
 
 
@@ -47,6 +48,10 @@ class ExpressionProvenanceTable:
 
 
 _EXPRESSION_TYPES = tuple(get_args(expr.Expression))
+_EXPRESSION_TYPE_SET = frozenset(_EXPRESSION_TYPES)
+_HARDWARE_TYPE_SET = frozenset(get_args(HardwareType))
+
+
 _BARRIER_TYPES = (
     # Call occurrences own source-site multiplicity used by bounded inlining
     # and callable DCE.  Arguments are still interned recursively.
@@ -69,6 +74,7 @@ class SemanticExpressionArena:
         # Python can then reuse their addresses during the same compilation.
         self._memo: dict[int, tuple[expr.Expression, expr.Expression]] = {}
         self._origins: dict[int, list[SourceOrigin]] = {}
+        self._field_cache: dict[type, tuple[object, ...]] = {}
         self._requests = 0
         self._hits = 0
         self._next_node_id = 0
@@ -103,15 +109,15 @@ class SemanticExpressionArena:
             self._record_origin(cached[1], expression.origin)
             return cached[1]
 
-        rebuilt = self._rewrite_expression_children(expression)
+        updates = self._rewritten_children(expression)
         self._requests += 1
-        if isinstance(rebuilt, _BARRIER_TYPES):
-            selected = rebuilt
+        if isinstance(expression, _BARRIER_TYPES):
+            selected = replace(expression, **updates) if updates else expression
         else:
-            key = self._key(rebuilt)
+            key = self._key(expression, updates)
             selected = self._pool.get(key)
             if selected is None:
-                selected = rebuilt
+                selected = replace(expression, **updates) if updates else expression
                 self._pool[key] = selected
             else:
                 self._hits += 1
@@ -121,7 +127,7 @@ class SemanticExpressionArena:
             self._nodes_by_id[id(selected)] = selected
             self._next_node_id += 1
         self._memo[id(expression)] = (expression, selected)
-        self._memo[id(rebuilt)] = (rebuilt, selected)
+        self._memo[id(selected)] = (selected, selected)
         self._record_origin(selected, expression.origin)
         return selected
 
@@ -136,31 +142,48 @@ class SemanticExpressionArena:
         if origin not in retained:
             retained.append(origin)
 
-    def _rewrite_expression_children(
+    def _semantic_fields(self, type_: type) -> tuple[object, ...]:
+        selected = self._field_cache.get(type_)
+        if selected is None:
+            selected = tuple(
+                descriptor for descriptor in fields(type_)
+                if descriptor.init
+                and descriptor.name not in {"origin", "source_origin"}
+            )
+            self._field_cache[type_] = selected
+        return selected
+
+    def _rewritten_children(
         self,
         expression: expr.Expression,
-    ) -> expr.Expression:
+    ) -> dict[str, object]:
         updates: dict[str, object] = {}
-        for descriptor in fields(expression):
-            if not descriptor.init or descriptor.name in {"origin", "source_origin"}:
-                continue
+        for descriptor in self._semantic_fields(type(expression)):
             current = getattr(expression, descriptor.name)
             rewritten = self._rewrite_value(current)
             if rewritten is not current:
                 updates[descriptor.name] = rewritten
-        return replace(expression, **updates) if updates else expression
+        return updates
 
     def _rewrite_value(self, value: object) -> object:
-        if isinstance(value, _EXPRESSION_TYPES):
+        if type(value) in _EXPRESSION_TYPE_SET:
             return self.intern(value)
+        if value is None or type(value) in {bool, int, str, bytes, float}:
+            return value
+        # Hardware type records contain no typed expression children.
+        if type(value) in _HARDWARE_TYPE_SET:
+            return value
         if isinstance(value, tuple):
-            rewritten = tuple(self._rewrite_value(item) for item in value)
-            return value if all(a is b for a, b in zip(value, rewritten, strict=True)) else rewritten
+            rewritten: list[object] = []
+            changed = False
+            for item in value:
+                selected = self._rewrite_value(item)
+                rewritten.append(selected)
+                changed |= selected is not item
+            return tuple(rewritten) if changed else value
         if is_dataclass(value) and not isinstance(value, type):
             updates: dict[str, object] = {}
-            for descriptor in fields(value):
-                if not descriptor.init or descriptor.name in {"origin", "source_origin"}:
-                    continue
+            for descriptor in self._semantic_fields(type(value)):
                 current = getattr(value, descriptor.name)
                 rewritten = self._rewrite_value(current)
                 if rewritten is not current:
@@ -168,25 +191,28 @@ class SemanticExpressionArena:
             return replace(value, **updates) if updates else value
         return value
 
-    def _key(self, expression: expr.Expression) -> object:
+    def _key(
+        self, expression: expr.Expression, updates: Mapping[str, object]
+    ) -> object:
         return (
-            type(expression).__module__,
-            type(expression).__qualname__,
+            type(expression),
             tuple(
-                (descriptor.name, self._key_value(getattr(expression, descriptor.name)))
-                for descriptor in fields(expression)
-                if descriptor.init
-                and descriptor.name not in {"origin", "source_origin"}
+                self._key_value(
+                    updates.get(descriptor.name, getattr(expression, descriptor.name))
+                )
+                for descriptor in self._semantic_fields(type(expression))
             ),
         )
 
     def _key_value(self, value: object) -> object:
-        if isinstance(value, _EXPRESSION_TYPES):
+        if type(value) in _EXPRESSION_TYPE_SET:
             node_id = self._node_ids.get(id(value))
             if node_id is None:
                 value = self.intern(value)
                 node_id = self._node_ids[id(value)]
             return ("expression", node_id)
+        if value is None or type(value) in {bool, int, str, bytes}:
+            return value
         if isinstance(value, tuple):
             return tuple(self._key_value(item) for item in value)
         if isinstance(value, list):
@@ -205,18 +231,19 @@ class SemanticExpressionArena:
             )
         if isinstance(value, Enum):
             return (type(value).__module__, type(value).__qualname__, value.value)
+        # Hardware types are frozen, origin-free value records.  Their own
+        # equality/hash contract is exactly the field-wise semantic key.
+        if type(value) in _HARDWARE_TYPE_SET:
+            return value
         if is_dataclass(value) and not isinstance(value, type):
             return (
-                type(value).__module__,
-                type(value).__qualname__,
+                type(value),
                 tuple(
-                    (descriptor.name, self._key_value(getattr(value, descriptor.name)))
-                    for descriptor in fields(value)
-                    if descriptor.init
-                    and descriptor.name not in {"origin", "source_origin"}
+                    self._key_value(getattr(value, descriptor.name))
+                    for descriptor in self._semantic_fields(type(value))
                 ),
             )
-        if value is None or isinstance(value, (bool, int, str, bytes)):
+        if isinstance(value, (bool, int, str, bytes)):
             return value
         if isinstance(value, float):
             if not math.isfinite(value):

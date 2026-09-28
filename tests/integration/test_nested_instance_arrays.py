@@ -14,7 +14,7 @@ from zlang.compiler import compile_source
 from zlang.ir.hierarchy import build_hierarchy_index
 from zlang.opt import lower, restore
 from zlang.semantic import SemanticError
-from zlang.simulate import simulate, simulate_cycles
+from zlang.native_simulation import simulate, simulate_cycles
 from zlang.toolchain import lint_with_verilator
 
 

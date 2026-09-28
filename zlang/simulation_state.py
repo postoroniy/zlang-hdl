@@ -15,10 +15,14 @@ import json
 from typing import Iterable, Mapping
 
 from zlang.common import stable_digest, stable_pretty_json
-from zlang.ir.cdc import ResetReleaseMode
 from zlang.ir.hierarchy import build_hierarchy_index, specialization_fingerprint
 from zlang.ir.module import Module
-from zlang.ir.packing import PACKING_LAYOUT_SCHEMA, is_bit_packable
+from zlang.ir.packing import (
+    PACKING_LAYOUT_SCHEMA,
+    is_bit_packable,
+    pack_runtime,
+    unpack_runtime,
+)
 from zlang.ir.runtime_values import runtime_value_fits
 from zlang.ir.type_codec import canonical_type_data, canonical_type_from_data
 from zlang.ir.types import HardwareType, VecType
@@ -625,7 +629,7 @@ def build_simulation_state_catalog(
 
 
 class SimulationStateSession:
-    """Persistent semantic simulation with typed out-of-band state access."""
+    """Persistent native simulation with typed out-of-band state access."""
 
     def __init__(
         self,
@@ -633,7 +637,11 @@ class SimulationStateSession:
         *,
         catalog: SimulationStateCatalog | None = None,
     ) -> None:
-        from zlang.simulate import _make_persistent_ready_valid_child_state
+        from zlang.sim import Program, _native_runtime
+        from zlang.simulation_plan import (
+            _memory_read_register_name,
+            build_simulation_plan,
+        )
 
         module = getattr(compilation, "ir", None)
         selected = getattr(compilation, "selected_ir_identity", None)
@@ -658,66 +666,66 @@ class SimulationStateSession:
                 "simulation state catalog does not match the selected typed hierarchy"
             )
         try:
-            self._root_state = _make_persistent_ready_valid_child_state(module)
-        except Exception as error:
+            plan = build_simulation_plan(module)
+            self._simulator = Program(
+                plan, module, _native_runtime().compile_plan_bytes(plan.to_bytes())
+            ).create()
+        except (ValueError, RuntimeError, ImportError) as error:
             raise SimulationStateError(
-                f"typed hierarchy is not supported by the persistent simulator: {error}"
+                f"typed hierarchy is not supported by the native simulator: {error}"
             ) from error
-        self._states: dict[tuple[str, ...], object] = {}
-        self._index_state(module, (module.name,), self._root_state)
-        missing_paths = sorted({
-            binding.physical_instance_path
-            for binding in self.catalog.bindings
-            if binding.physical_instance_path not in self._states
-        })
-        if missing_paths:
-            raise SimulationStateError(
-                "persistent simulator cannot expose catalog state at: "
-                + ", ".join(".".join(path) for path in missing_paths)
-            )
-        self._release_remaining = 0
+        registers = {item["name"]: item for item in plan.payload["registers"]}
+        memories = {item["name"]: item for item in plan.payload["memories"]}
+        semantic_memories = {
+            (entry.physical_path, memory.name): memory
+            for entry in build_hierarchy_index(module).entries
+            for memory in entry.module.memories
+        }
+        self._state_targets: dict[str, tuple[str, str]] = {}
+        for binding in self.catalog.bindings:
+            prefix = ".".join(binding.physical_instance_path[1:])
+            if binding.object_kind is SimulationStateKind.MEMORY_READ_DATA:
+                memory = semantic_memories.get(
+                    (binding.physical_instance_path, binding.object_name)
+                )
+                if memory is None or memory.read_latency < 1 or memory.ports:
+                    raise SimulationStateError(
+                        "native memory read-data state has no exact compiler binding"
+                    )
+                name = _memory_read_register_name(
+                    memory.semantic_id, None, memory.read_latency - 1
+                )
+            else:
+                name = binding.object_name
+            if prefix:
+                name = f"{prefix}.{name}"
+            if binding.object_kind is SimulationStateKind.MEMORY:
+                record = memories.get(name)
+                if (record is None or record["width"] != binding.element_width
+                        or record["depth"] != binding.length):
+                    raise SimulationStateError(
+                        "native memory state disagrees with the selected catalog"
+                    )
+                kind = "memory"
+            else:
+                record = registers.get(name)
+                if record is None or record["width"] != binding.packed_width:
+                    raise SimulationStateError(
+                        "native register state disagrees with the selected catalog"
+                    )
+                kind = "register"
+            self._state_targets[binding.binding_id] = (kind, name)
+        self._external_reset_active = False
         self.cycle = 0
 
     @classmethod
     def from_compilation(cls, compilation: object) -> "SimulationStateSession":
         return cls(compilation)
 
-    def _index_state(self, module: Module, path: tuple[str, ...], state: object) -> None:
-        from zlang.simulate import (
-            _PersistentReadyValidHierarchySimulationState,
-            _PersistentStorageSimulationState,
-        )
-
-        if isinstance(state, _PersistentReadyValidHierarchySimulationState):
-            self._states[path] = state.local_state
-            for elaborated, child in zip(
-                module.elaborated_instances, module.children, strict=True
-            ):
-                owner = elaborated.instance.name
-                self._index_state(child, path + (owner,), state.child_states[owner])
-            return
-        if isinstance(state, _PersistentStorageSimulationState):
-            self._states[path] = state
-            children = {
-                elaborated.instance.name: child
-                for elaborated, child in zip(
-                    module.elaborated_instances, module.children, strict=True
-                )
-            }
-            for owner, child_state in state.scalar_child_states.items():
-                self._index_state(
-                    children[owner], path + (owner,), child_state
-                )
-
-    def _resolve(self, binding_id: str) -> tuple[SimulationStateBinding, object]:
+    def _resolve(self, binding_id: str) -> tuple[SimulationStateBinding, str, str]:
         binding = self.catalog.binding(binding_id)
-        state = self._states.get(binding.physical_instance_path)
-        if state is None:
-            raise SimulationStateError(
-                "simulation state binding refers to a hierarchy node unsupported "
-                f"by the persistent simulator: {'.'.join(binding.physical_instance_path)}"
-            )
-        return binding, state
+        kind, name = self._state_targets[binding_id]
+        return binding, kind, name
 
     @staticmethod
     def _check_index(binding: SimulationStateBinding, index: int | None) -> None:
@@ -735,16 +743,28 @@ class SimulationStateSession:
             )
 
     def read(self, binding_id: str, *, index: int | None = None) -> object:
-        binding, state = self._resolve(binding_id)
+        from zlang.simulation_primitives import int_from_limbs
+
+        binding, kind, name = self._resolve(binding_id)
         self._check_index(binding, index)
-        if binding.object_kind is SimulationStateKind.REGISTER:
-            value = state.register_state[binding.object_name]
-        elif binding.object_kind is SimulationStateKind.MEMORY:
-            value = state.memory_cells[binding.object_name]
+        if kind == "memory" and index is None:
+            assert binding.length is not None and binding.element_type is not None
+            value = [
+                unpack_runtime(
+                    binding.element_type,
+                    int_from_limbs(self._simulator._native.read_state(kind, name, offset)),
+                )
+                for offset in range(binding.length)
+            ]
         else:
-            value = state.memory_read_data[binding.object_name]
-        if index is not None:
-            value = value[index]
+            type_ = binding.element_type if kind == "memory" else binding.canonical_type
+            assert type_ is not None
+            value = unpack_runtime(
+                type_,
+                int_from_limbs(self._simulator._native.read_state(kind, name, index if kind == "memory" else None)),
+            )
+            if index is not None and kind == "register":
+                value = value[index]
         return deepcopy(value)
 
     def write(
@@ -754,7 +774,7 @@ class SimulationStateSession:
         *,
         index: int | None = None,
     ) -> None:
-        binding, state = self._resolve(binding_id)
+        binding, _, _ = self._resolve(binding_id)
         self._check_index(binding, index)
         expected_type = binding.canonical_type if index is None else binding.element_type
         assert expected_type is not None
@@ -762,44 +782,51 @@ class SimulationStateSession:
             raise SimulationStateError(
                 f"simulation state value does not fit exact type '{expected_type}'"
             )
-        self._write_resolved(binding, state, deepcopy(value), index=index)
+        self._simulator._native.write_state_batch(
+            self._prepare_edits(binding, deepcopy(value), index=index)
+        )
 
-    @staticmethod
-    def _write_resolved(
+    def _prepare_edits(
+        self,
         binding: SimulationStateBinding,
-        state: object,
         value: object,
         *,
         index: int | None,
-    ) -> None:
-        if binding.object_kind is SimulationStateKind.REGISTER:
-            if index is None:
-                state.register_state[binding.object_name] = value
-            else:
-                current = list(state.register_state[binding.object_name])
-                current[index] = value
-                state.register_state[binding.object_name] = current
-        elif binding.object_kind is SimulationStateKind.MEMORY and index is None:
-            state.memory_cells[binding.object_name] = list(value)
-        elif binding.object_kind is SimulationStateKind.MEMORY:
-            state.memory_cells[binding.object_name][index] = value
-        else:
+    ) -> list[tuple[str, str, int | None, list[int]]]:
+        from zlang.simulation_primitives import int_to_limbs
+
+        kind, name = self._state_targets[binding.binding_id]
+        if kind == "memory":
+            assert binding.element_type is not None
             if index is not None:
-                raise SimulationStateError("memory read-data state is not indexable")
-            state.memory_read_data[binding.object_name] = value
+                return [(kind, name, index, int_to_limbs(
+                    pack_runtime(binding.element_type, value), binding.element_type.width
+                ))]
+            return [
+                (kind, name, offset, int_to_limbs(
+                    pack_runtime(binding.element_type, element), binding.element_type.width
+                ))
+                for offset, element in enumerate(value)
+            ]
+        if index is not None:
+            current = self.read(binding.binding_id)
+            current[index] = value
+            value = current
+        return [(kind, name, None, int_to_limbs(
+            pack_runtime(binding.canonical_type, value), binding.packed_width
+        ))]
 
     def preload(self, values: Mapping[str, object]) -> None:
-        prepared: list[tuple[SimulationStateBinding, object, object]] = []
+        prepared: list[tuple[str, str, int | None, list[int]]] = []
         for binding_id, value in values.items():
-            binding, state = self._resolve(binding_id)
+            binding, _, _ = self._resolve(binding_id)
             if not runtime_value_fits(value, binding.canonical_type):
                 raise SimulationStateError(
                     "simulation state value does not fit exact type "
                     f"'{binding.canonical_type}'"
                 )
-            prepared.append((binding, state, deepcopy(value)))
-        for binding, state, value in prepared:
-            self._write_resolved(binding, state, value, index=None)
+            prepared.extend(self._prepare_edits(binding, deepcopy(value), index=None))
+        self._simulator._native.write_state_batch(prepared)
 
     def snapshot(self, binding_ids: Iterable[str] | None = None) -> dict[str, object]:
         selected = (
@@ -809,30 +836,28 @@ class SimulationStateSession:
         )
         return {binding_id: self.read(binding_id) for binding_id in selected}
 
-    def _effective_reset(self, external_reset: bool) -> tuple[bool, int]:
-        if len(self.module.clock_domains) != 1:
-            return bool(external_reset), self._release_remaining
-        domain = self.module.clock_domains[0]
-        if domain.reset_release_mode is ResetReleaseMode.NATIVE:
-            return bool(external_reset), 0
-        if external_reset:
-            return True, domain.reset_release_cycles
-        if self._release_remaining:
-            return True, self._release_remaining - 1
-        return False, 0
-
     def step(
         self,
         inputs: Mapping[str, object],
         *,
         reset: bool = False,
     ) -> dict[str, object]:
-        effective_reset, next_release_remaining = self._effective_reset(reset)
         try:
-            result = self._root_state.step(dict(inputs), effective_reset)
+            expected = {port.name for port in self.module.inputs}
+            if set(inputs) != expected:
+                raise SimulationStateError(
+                    "simulation state step requires exactly the module inputs"
+                )
+            domain = self.module.clock_domains[0]
+            for name, value in inputs.items():
+                self._simulator.set(name, value)
+            if domain.reset and bool(reset) != self._external_reset_active:
+                self._simulator.reset(domain.reset, asserted=bool(reset))
+            result = self._simulator.eval()
+            self._simulator.edge(domain.clock)
         except Exception as error:
             raise SimulationStateError(str(error)) from error
-        self._release_remaining = next_release_remaining
+        self._external_reset_active = bool(reset)
         self.cycle += 1
         return result
 

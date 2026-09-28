@@ -8,7 +8,7 @@ import pytest
 
 from zlang.backend.systemverilog import emit_experimental
 from zlang.compiler import compile_source
-from zlang.simulate import simulate
+from zlang.native_simulation import simulate
 from zlang.timing import timing_info
 
 

@@ -12,7 +12,7 @@ from zlang.compiler import compile_source
 from zlang.ir import expressions as expr
 from zlang.ir.external import ExternalModuleContract
 from zlang.sim import compile as compile_simulation
-from zlang.simulate import simulate
+from zlang.native_simulation import simulate
 from zlang.simulation_external import (
     ExternalModelSimulationLoweringError,
     lower_external_model,
@@ -27,7 +27,7 @@ def _source(tmp_path: Path) -> Path:
 
 
 @pytest.mark.parametrize("top", ("VendorAdd", "Top"))
-def test_external_model_has_reference_native_and_semantic_parity(
+def test_external_model_has_native_and_declared_semantic_parity(
     tmp_path: Path,
     top: str,
 ) -> None:
@@ -35,27 +35,21 @@ def test_external_model_has_reference_native_and_semantic_parity(
     semantic = compile_source(SOURCE, top=top).ir
     vectors = ((0, 0), (1, 2), (127, 129), (255, 1), (255, 255))
     expected = tuple(simulate(semantic, a=a, b=b)["y"] for a, b in vectors)
-    observed = {}
-    identities = set()
-    for engine in ("reference", "native"):
-        program = compile_simulation(path, top=top, engine=engine)
-        identities.add(program.plan.identity)
-        values = []
-        with program.create() as instance:
-            for a, b in vectors:
-                instance.set("a", a)
-                instance.set("b", b)
-                instance.eval()
-                values.append(instance.get("y"))
-        observed[engine] = tuple(values)
-    assert len(identities) == 1
-    assert observed == {"reference": expected, "native": expected}
+    program = compile_simulation(path, top=top, engine="native")
+    values = []
+    with program.create() as instance:
+        for a, b in vectors:
+            instance.set("a", a)
+            instance.set("b", b)
+            instance.eval()
+            values.append(instance.get("y"))
+    assert tuple(values) == expected
 
 
 def test_external_model_plan_is_only_the_existing_primitive_machine(
     tmp_path: Path,
 ) -> None:
-    program = compile_simulation(_source(tmp_path), top="Top", engine="reference")
+    program = compile_simulation(_source(tmp_path), top="Top", engine="native")
     operations = {node["op"] for node in program.plan.payload["nodes"]}
     assert operations <= PRIMITIVE_OPS
     assert not operations & {"call", "parameter", "external", "model"}
@@ -63,7 +57,7 @@ def test_external_model_plan_is_only_the_existing_primitive_machine(
     assert program.plan.payload["registers"] == []
     assert program.plan.payload["edge_programs"] == []
     assert program.plan.to_bytes() == compile_simulation(
-        _source(tmp_path), top="Top", engine="reference"
+        _source(tmp_path), top="Top", engine="native"
     ).plan.to_bytes()
 
 
@@ -126,12 +120,11 @@ fn add_model(a : u8, b : u8) -> u9 { add_core(a, b) }""",
     )
     path = tmp_path / "nested_external.zhl"
     path.write_text(source, encoding="utf-8")
-    for engine in ("reference", "native"):
-        with compile_simulation(path, top="Top", engine=engine).create() as instance:
-            instance.set("a", 201)
-            instance.set("b", 99)
-            instance.eval()
-            assert instance.get("y") == 300
+    with compile_simulation(path, top="Top", engine="native").create() as instance:
+        instance.set("a", 201)
+        instance.set("b", 99)
+        instance.eval()
+        assert instance.get("y") == 300
 
 
 def test_native_runtime_has_no_external_module_vocabulary() -> None:

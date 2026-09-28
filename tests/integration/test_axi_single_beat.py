@@ -9,14 +9,14 @@ import pytest
 import zlang
 from tests.simulation.differential import run_differential
 from zlang.compiler import compile_file
-from zlang.simulate import simulate_cycles
+from zlang.native_simulation import simulate_cycles
 
 
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE = ROOT / "examples/axi_single_beat.zhl"
 
 
-@pytest.mark.parametrize("engine", ("reference", "native"))
+@pytest.mark.parametrize("engine", ("native",))
 @pytest.mark.parametrize(
     ("top", "aligned", "unaligned", "size"),
     (
@@ -50,7 +50,7 @@ def test_single_beat_address_helper_fails_closed_for_unsupported_width(
         "valid=axi_single_beat_address<32,24>(address).valid }\n",
         encoding="utf-8",
     )
-    program = zlang.sim.compile(source, top="InvalidGeometry", engine="reference")
+    program = zlang.sim.compile(source, top="InvalidGeometry", engine="native")
     with program.create() as instance:
         instance.set("address", 0x100)
         assert instance.eval() == {"valid": 0}
@@ -222,7 +222,7 @@ def test_single_beat_reader_reports_bad_last_and_response() -> None:
 @pytest.mark.parametrize("top", (
     "AxiSingleBeatReadExample", "AxiSingleBeatWriteExample"
 ))
-def test_single_beat_reference_native_and_rtl_agree(
+def test_single_beat_native_and_rtl_agree(
     tmp_path: Path,
     top: str,
 ) -> None:
@@ -264,4 +264,4 @@ def test_single_beat_reference_native_and_rtl_agree(
     trace = run_differential(
         SOURCE, top=top, events=events, directory=tmp_path / top
     )
-    assert trace.reference == trace.native == trace.direct_sv
+    assert trace.native == trace.direct_sv

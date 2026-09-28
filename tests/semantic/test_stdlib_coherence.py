@@ -11,7 +11,7 @@ from zlang.compiler import compile_source
 from zlang.ir import expressions as ir_expr
 from zlang.ir.types import FixedType
 from zlang.semantic import SemanticError
-from zlang.simulate import simulate
+from zlang.native_simulation import simulate
 
 
 WITNESSES = {

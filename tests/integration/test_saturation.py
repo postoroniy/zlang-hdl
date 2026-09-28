@@ -8,7 +8,7 @@ from zlang.cli import main
 from zlang.compiler import compile_source
 from zlang.opt import saturate
 from zlang.opt import RewriteRule
-from zlang.simulate import simulate
+from zlang.native_simulation import simulate
 
 
 ROOT = Path(__file__).resolve().parents[2]

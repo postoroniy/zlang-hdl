@@ -11,7 +11,7 @@ from zlang.backend.systemverilog import emit_experimental
 from zlang.compiler import compile_source
 from zlang.fixed_point import quantize_rational
 from zlang.ir import expressions as expr
-from zlang.simulate import simulate_cycles
+from zlang.native_simulation import simulate_cycles
 
 
 ROOT = Path(__file__).resolve().parents[2]

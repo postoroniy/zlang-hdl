@@ -190,7 +190,11 @@ def module_expression_roots(
     # must not make an otherwise dead Signal temporary appear reusable.  The
     # direct-SV procedural reset path uses the runtime renderer.
     if include_register_initials:
-        roots.extend(register.initial for register in module.registers)
+        roots.extend(
+            register.initial
+            for register in module.registers
+            if register.initial is not None
+        )
     roots.extend(binding.expression for binding in module.instance_bindings)
     for fifo in module.fifos:
         roots.extend(

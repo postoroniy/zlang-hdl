@@ -9,7 +9,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from zlang.compiler import compile_source
-from zlang.simulate import simulate_cycles
+from zlang.native_simulation import simulate_cycles
 
 
 ROOT = Path(__file__).resolve().parents[2]

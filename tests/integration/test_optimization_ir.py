@@ -12,7 +12,7 @@ from zlang.csr import emit_csr_json, emit_csr_markdown
 from zlang.opt import lower, restore
 from zlang.parser import parse
 from zlang.semantic import analyze
-from zlang.simulate import simulate, simulate_cycles
+from zlang.native_simulation import simulate, simulate_cycles
 
 
 ROOT = Path(__file__).resolve().parents[2]

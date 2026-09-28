@@ -1,7 +1,7 @@
 import unittest
 
 from zlang.compiler import compile_source
-from zlang.simulate import ProtocolViolation, simulate_cycles
+from zlang.native_simulation import ProtocolViolation, simulate_cycles
 
 
 SCALAR_FIFO = """

@@ -169,18 +169,18 @@ def test_jit_reuses_native_code_but_not_source_provenance(
     monkeypatch.setattr(sim, "_PROGRAM_CACHE", sim.OrderedDict())
     source = tmp_path / "top.zhl"
     source.write_text("module Top { in x:u8 out y:u8 y=x }\n")
-    first = sim.compile(source, top="Top", engine="jit")
-    assert sim.compile(source, top="Top", engine="jit").plan is first.plan
+    first = sim.compile(source, top="Top", engine="native")
+    assert sim.compile(source, top="Top", engine="native").plan is first.plan
     source.write_text(
         "// comment shifts all following source spans\n" + source.read_text()
     )
-    changed = sim.compile(source, top="Top", engine="jit")
+    changed = sim.compile(source, top="Top", engine="native")
     assert changed.plan.identity != first.plan.identity
     assert changed.plan.execution_identity == first.plan.execution_identity
     assert changed._native is first._native
     assert runtime.calls == 1
     source.write_text("module Top { in x:u8 out y:u8 y=(x) }\n")
-    regrouped = sim.compile(source, top="Top", engine="jit")
+    regrouped = sim.compile(source, top="Top", engine="native")
     assert regrouped.plan.identity != changed.plan.identity
     assert regrouped.plan.execution_identity == changed.plan.execution_identity
     assert regrouped._native is first._native and runtime.calls == 1

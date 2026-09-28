@@ -100,7 +100,7 @@ class PublicCapabilityRegistry:
 
 
 CAPABILITY_REGISTRY = PublicCapabilityRegistry(
-    schema_version=29,
+    schema_version=30,
     keywords=(
         "import", "module", "extern", "model", "struct", "enum", "union", "type", "fn", "operator", "equiv",
         "protocol", "role", "channel", "member", "resource", "target", "device",
@@ -111,7 +111,7 @@ CAPABILITY_REGISTRY = PublicCapabilityRegistry(
         "provides", "part", "inventory", "dedicated_capacity", "require_resource",
         "use_pipeline", "require_dedicated",
         "in", "out", "clock", "reset", "async", "edge", "mode", "polarity",
-        "power_up", "inst", "connect", "transform", "interface",
+        "power_up", "release", "inst", "connect", "transform", "interface",
         "wire", "rv", "credit", "packet", "vc_credit", "request_response",
         "max_outstanding", "ordering", "match_by", "buffer", "request_buffer",
         "response_buffer", "adapter", "crossing", "async_fifo", "arbiter", "policy",
@@ -157,7 +157,7 @@ CAPABILITY_REGISTRY = PublicCapabilityRegistry(
         "saturate", "lut", "ff", "dsp", "bram", "latency", "throughput", "ii",
         "fmax", "fmax_est", "parallelism", "depth", "candidates",
         "rising", "falling", "synchronous", "asynchronous", "active_high",
-        "active_low", "unspecified",
+        "active_low", "externally_synchronized", "unspecified",
     ),
     operators=(
         "<=>", "<-", "->", "=>", "..", "==", "!=", "<=", ">=", "<", ">",
@@ -278,13 +278,16 @@ CAPABILITY_REGISTRY = PublicCapabilityRegistry(
             "supported", "supported", "supported",
             (
                 "existing formal routes support exact rising/falling, "
-                "synchronous/raw-asynchronous, polarity, and synchronized-release "
+                "synchronous/raw-asynchronous, polarity, internal synchronized-release, "
+                "and externally synchronized-release "
                 "contracts when power_up is unspecified"
             ),
             CapabilityWitness("examples/all_syntax.zhl", "AsyncResetSyntax"),
             (
                 "default synchronous active-high, raw asynchronous compatibility, "
-                "or asynchronous assertion with fixed two-edge synchronized release; "
+                "asynchronous assertion with fixed two-edge synchronized release, or "
+                "explicit externally synchronized release; registers without reset "
+                "values have no reset branch; "
                 "one reset per clock, one conditioner per synchronized-release "
                 "domain; no power-on reset or implicit reset crossing",
             ),

@@ -16,7 +16,7 @@ from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
 from zlang.compiler import compile_file
 from zlang.opt import OptimizationStage, lower, restore
 from zlang.ir.types import EnumType
-from zlang.simulate import _PersistentStorageSimulationState, simulate_cycles
+from zlang.native_simulation import PersistentNativeSimulationState, simulate_cycles
 from zlang.toolchain import lint_with_verilator
 
 
@@ -174,7 +174,7 @@ def test_input_strip_concise_fsm_lowers_to_enum_register_and_rules() -> None:
 
 def test_input_strip_fsm_flushes_64_zeroes_under_stalls_and_reset() -> None:
     strip = _input_strip_module()
-    state = _PersistentStorageSimulationState(strip)
+    state = PersistentNativeSimulationState(strip)
 
     state.step(_strip_cycle(), True)
     accepted = state.step(_strip_cycle(valid=1, last=1), False)

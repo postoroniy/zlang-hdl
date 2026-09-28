@@ -1124,14 +1124,17 @@ def generate_properties(module: Module) -> FormalDesign:
             _type_range(register.type).replace("state", register.name), module,
             ownership=Ownership.IMPLEMENTATION,
             generated_from=f"register:{register.name}", predicate=bounds,
-            origin=register.initial.origin,
+            origin=(
+                register.initial.origin
+                if register.initial is not None else None
+            ),
             classification=(
                 FormalPropertyClassification.BEHAVIORAL
                 if isinstance(register.type, EnumType)
                 else FormalPropertyClassification.REPRESENTATION_INVARIANT
             ),
         ))
-        if module.reset is not None:
+        if module.reset is not None and register.initial is not None:
             initial_value = getattr(register.initial, "value", 0)
             reset_predicate = _implies(
                 _bit_observation("reset", ObservationCycle.PREVIOUS),
@@ -1941,7 +1944,12 @@ def signal_bindings(module: Module, *, rtl_module: str | None = None,
         register_id = register_observation_id(register.name)
         result.append(SignalBinding(register_id, rtl_module,
                                     overrides.get(register_id, register.name), register.type.width,
-                                    "internal", register.domain or module.clock, register.initial.origin))
+                                    "internal", register.domain or module.clock,
+                                    (
+                                        register.initial.origin
+                                        if register.initial is not None
+                                        else None
+                                    )))
     if include_rule_fire and module.resolved_transition is not None:
         for group in module.resolved_transition.action_groups:
             key = rule_fire_observation_id(group.rule_name)

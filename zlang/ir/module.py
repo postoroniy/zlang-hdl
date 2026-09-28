@@ -781,7 +781,8 @@ class Function:
 class Register:
     name: str
     type: HardwareType
-    initial: Expression
+    # ``None`` means physical state with no reset value/reset branch.
+    initial: Expression | None
     domain: str | None = None
 
 

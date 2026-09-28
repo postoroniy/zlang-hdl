@@ -25,6 +25,7 @@ from zlang.ir.functional_regions import (
     FunctionalRegionKind,
 )
 from zlang.ir.constants import ConstantExpressionError, constant_runtime_value
+from zlang.ir.runtime_values import zero_runtime_value
 from zlang.ir.packing import PACKING_LAYOUT_SCHEMA
 from zlang.ir import packing as ir_packing
 from zlang.ir.state import (
@@ -32,7 +33,7 @@ from zlang.ir.state import (
     StateResourceKind,
     conditional_activation_predicates,
     ordered_groups,
-    selection_regions,
+    selection_regions_for_transition,
 )
 from zlang.ir.storage import FifoSignal, MemoryPortKind, MemorySignal, RomSignal
 from zlang.ir.verification import VerificationGoalKind
@@ -60,14 +61,18 @@ from zlang.simulation_lowering import (
 )
 
 
-SIMULATION_PLAN_SCHEMA = "zlang-simulation-plan-v10"
-SIMULATION_RUNTIME_ABI = "zlang-native-simulation-abi-v10"
+SIMULATION_PLAN_SCHEMA = "zlang-simulation-plan-v11"
+SIMULATION_RUNTIME_ABI = "zlang-native-simulation-abi-v11"
 CRANELIFT_VERSION = "0.135.2"
 MAX_PLAN_BYTES = 16_777_216
 MAX_PLAN_NODES = 32_768
 MAX_PLAN_WIDTH = 8192
 MAX_PLAN_ARITHMETIC_WIDTH = 512
-MAX_PLAN_MEMORY_WIDTH = 512
+# Memory cells use the same limb-backed representation as other packed values.
+# Keep the per-cell bound aligned with the plan-wide packed-value contract so
+# aggregate FIFO payloads (for example the 2065-bit 802.11a mapper packet) do
+# not fail after otherwise valid primitive lowering.
+MAX_PLAN_MEMORY_WIDTH = MAX_PLAN_WIDTH
 MAX_PLAN_LIMB_WORK = 32768
 MAX_PLAN_MEMORY_BITS = 16_777_216
 MAX_PLAN_EVENTS = 4_096
@@ -253,6 +258,11 @@ def _type_payload(type_: HardwareType) -> dict[str, Any]:
 
 def _pack_initial(type_: HardwareType, value: object) -> int:
     if isinstance(type_, EnumType):
+        if isinstance(value, str):
+            try:
+                return type_.member_code(value)
+            except ValueError as error:
+                raise SimulationPlanError(str(error)) from error
         if (
             isinstance(value, bool)
             or not isinstance(value, int)
@@ -262,9 +272,69 @@ def _pack_initial(type_: HardwareType, value: object) -> int:
                 f"initial value {value!r} is invalid for '{type_}'"
             )
         return value
+    if isinstance(type_, StructType):
+        if isinstance(value, int) and not isinstance(value, bool):
+            if 0 <= value < 1 << type_.width:
+                return value
+            raise SimulationPlanError(
+                f"initial packed value {value} does not fit '{type_}'"
+            )
+        if not isinstance(value, dict):
+            raise SimulationPlanError(
+                f"initial value for struct '{type_}' must be a mapping"
+            )
+        expected = tuple(field.name for field in type_.fields)
+        if set(value) != set(expected):
+            raise SimulationPlanError(
+                f"initial value for struct '{type_}' must contain exactly {expected}"
+            )
+        packed = 0
+        for field in type_.fields:
+            packed = (packed << field.type.width) | _pack_initial(
+                field.type, value[field.name]
+            )
+        return packed
+    if isinstance(type_, TupleType):
+        if isinstance(value, int) and not isinstance(value, bool):
+            if 0 <= value < 1 << type_.width:
+                return value
+            raise SimulationPlanError(
+                f"initial packed value {value} does not fit '{type_}'"
+            )
+        if not isinstance(value, tuple) or len(value) != len(type_.elements):
+            raise SimulationPlanError(
+                f"initial value for '{type_}' must contain exactly "
+                f"{len(type_.elements)} elements"
+            )
+        packed = 0
+        offset = 0
+        for element_type, element in zip(type_.elements, value, strict=True):
+            packed |= _pack_initial(element_type, element) << offset
+            offset += element_type.width
+        return packed
+    if isinstance(type_, VecType):
+        if isinstance(value, int) and not isinstance(value, bool):
+            if 0 <= value < 1 << type_.width:
+                return value
+            raise SimulationPlanError(
+                f"initial packed value {value} does not fit '{type_}'"
+            )
+        if not isinstance(value, (tuple, list)) or len(value) != type_.length:
+            raise SimulationPlanError(
+                f"initial value for '{type_}' must contain exactly "
+                f"{type_.length} elements"
+            )
+        return sum(
+            _pack_initial(type_.element_type, element)
+            << (index * type_.element_type.width)
+            for index, element in enumerate(value)
+        )
     if isinstance(type_, TaggedUnionType):
         return ir_packing.pack_tagged_union_runtime(value)
-    return ir_packing.pack_runtime(type_, value)
+    try:
+        return ir_packing.pack_runtime(type_, value)
+    except ir_packing.PackingError as error:
+        raise SimulationPlanError(str(error)) from error
 
 
 def _u64_limbs(value: int, width: int) -> list[int]:
@@ -305,6 +375,36 @@ def _json_attribute(value: object) -> object:
         "native simulation cannot serialize expression metadata of type "
         f"'{type(value).__name__}'"
     )
+
+
+def _compile_time_expression_payload(value: CompileTimeExpr) -> dict[str, object]:
+    operands: list[object] = []
+    for operand in value.operands:
+        if isinstance(operand, CompileTimeExpr):
+            operands.append(_compile_time_expression_payload(operand))
+        elif isinstance(operand, CompileTimeBinderRef):
+            operands.append({"binder": operand.identity})
+        elif isinstance(operand, int) and not isinstance(operand, bool):
+            operands.append({"literal": operand})
+        else:
+            raise JitUnsupportedFeatureError(
+                "simulation cannot serialize a compile-time expression operand"
+            )
+    return {"operator": value.operator.value, "operands": operands}
+
+
+def _compile_time_expression_binders(value: CompileTimeExpr) -> list[str]:
+    binders: set[str] = set()
+
+    def visit(current: CompileTimeExpr) -> None:
+        for operand in current.operands:
+            if isinstance(operand, CompileTimeBinderRef):
+                binders.add(operand.identity)
+            elif isinstance(operand, CompileTimeExpr):
+                visit(operand)
+
+    visit(value)
+    return sorted(binders)
 
 
 def _origin_payload(origin: object) -> dict[str, object] | None:
@@ -364,6 +464,7 @@ _NATIVE_EXPRESSION_OPS = {
     ExpressionOp.REDUCE,
     ExpressionOp.FUNCTIONAL_CAPTURE,
     ExpressionOp.FUNCTIONAL_VALUE,
+    ExpressionOp.FUNCTIONAL_TABLE_LOOKUP,
     ExpressionOp.FUNCTIONAL_REGION,
 }
 _NATIVE_PLAN_OPS = {"fifo_ref", "memory_port_read", "rom_lookup"}
@@ -389,6 +490,45 @@ def _unsupported_module_features(module: object) -> tuple[str, ...]:
     if module.external_contract is not None:
         features.append("external module contract")
     return tuple(features)
+
+
+def _lower_direct_wire_connections(module: object) -> object:
+    """Erase semantically validated direct wire edges into ordinary assignments.
+
+    Buffered, adapted, crossed, and protocol connections have dedicated
+    lowering paths.  A plain wire connection is exactly an input reference
+    driving the destination and needs no runtime instruction of its own.
+    """
+
+    from zlang.ir.expressions import InputRef
+    from zlang.ir.module import Assignment
+
+    assignments = list(module.assignments)
+    remaining = []
+    for connection in module.connections:
+        direct = (
+            connection.source.protocol is InterfaceProtocol.WIRE
+            and connection.destination.protocol is InterfaceProtocol.WIRE
+            and connection.buffer_depth == 0
+            and connection.adapter is None
+            and connection.crossing is None
+        )
+        if not direct:
+            remaining.append(connection)
+            continue
+        assignments.append(
+            Assignment(
+                connection.destination,
+                InputRef(connection.source.name, connection.source.type),
+            )
+        )
+    if len(remaining) == len(module.connections):
+        return module
+    return replace(
+        module,
+        assignments=tuple(assignments),
+        connections=tuple(remaining),
+    )
 
 
 def _erase_non_runtime_metadata(module: object) -> object:
@@ -564,6 +704,17 @@ def build_simulation_plan(module: object) -> SimulationPlan:
     return _build_leaf_simulation_plan(module)
 
 
+def _memory_read_register_name(
+    semantic_id: str, port_name: str | None, stage: int
+) -> str:
+    """Name the exact native state holding one compiler-owned memory read stage."""
+
+    suffix = hashlib.sha256(
+        f"{semantic_id}:{port_name or 'legacy'}".encode("utf-8")
+    ).hexdigest()[:16]
+    return f"$zlang_jit_memory_{suffix}_read_stage_{stage}"
+
+
 def _build_leaf_simulation_plan(module: object) -> SimulationPlan:
     """Build one hierarchy-free executable primitive plan."""
 
@@ -587,6 +738,7 @@ def _build_leaf_simulation_plan(module: object) -> SimulationPlan:
         ExternalModelSimulationLoweringError,
     ) as error:
         raise JitUnsupportedFeatureError(str(error)) from error
+    module = _lower_direct_wire_connections(module)
     # Canonical IR intentionally retains callable definitions for provenance
     # and backend emission.  Primitive simulation has no callable operation,
     # so remove definitions that are unreachable from this hierarchy shell
@@ -600,8 +752,12 @@ def _build_leaf_simulation_plan(module: object) -> SimulationPlan:
     try:
         module = normalize_selected_values(
             module,
-            total_inline_nodes=MAX_PLAN_NODES,
+            # The normalizer charges each call body before shared-DAG
+            # canonicalization.  Allow a bounded 2x construction allowance;
+            # the exact post-lowering plan still must satisfy MAX_PLAN_NODES.
+            total_inline_nodes=MAX_PLAN_NODES * 2,
             inline_all_calls=True,
+            expand_exact_reductions=True,
         )
     except SelectedValueNormalizationError as error:
         raise JitUnsupportedFeatureError(str(error)) from error
@@ -646,6 +802,12 @@ def _build_leaf_simulation_plan(module: object) -> SimulationPlan:
             )
 
     for fifo in canonical.fifos:
+        if fifo.element_type.width > MAX_PLAN_MEMORY_WIDTH:
+            raise JitUnsupportedFeatureError(
+                f"FIFO '{fifo.name}' has {fifo.element_type.width}-bit cells; "
+                f"simulation currently supports cells through "
+                f"{MAX_PLAN_MEMORY_WIDTH} bits"
+            )
         if fifo.depth * fifo.element_type.width > MAX_PLAN_MEMORY_BITS:
             raise JitUnsupportedFeatureError(
                 f"FIFO '{fifo.name}' exceeds the native simulation bound of "
@@ -673,11 +835,7 @@ def _build_leaf_simulation_plan(module: object) -> SimulationPlan:
     }
     memory_read_registers = {
         (memory.name, port_name): [
-            "$zlang_jit_memory_"
-            + hashlib.sha256(
-                f"{memory.semantic_id}:{port_name or 'legacy'}".encode("utf-8")
-            ).hexdigest()[:16]
-            + f"_read_stage_{stage}"
+            _memory_read_register_name(memory.semantic_id, port_name, stage)
             for stage in range(memory.read_latency)
         ]
         for memory in canonical.memories
@@ -696,21 +854,29 @@ def _build_leaf_simulation_plan(module: object) -> SimulationPlan:
     initial_node_values: dict[int, int] = {}
     for register in canonical.registers:
         try:
-            initial_value = constant_runtime_value(
-                semantic_registers[register.name].initial
+            semantic_initial = semantic_registers[register.name].initial
+            initial_value = (
+                zero_runtime_value(register.type)
+                if semantic_initial is None
+                else constant_runtime_value(semantic_initial)
             )
             packed_initial = _pack_initial(register.type, initial_value)
-        except (ConstantExpressionError, ir_packing.PackingError) as error:
+        except (
+            ConstantExpressionError,
+            ir_packing.PackingError,
+            ValueError,
+        ) as error:
             raise JitUnsupportedFeatureError(
                 f"native simulation requires a constant initial value for register "
                 f"'{register.name}': {error}"
             ) from error
         packed_register_initials[register.name] = packed_initial
-        previous = initial_node_values.setdefault(register.initial, packed_initial)
-        if previous != packed_initial:
-            raise SimulationPlanError(
-                f"canonical initial node %{register.initial} has conflicting values"
-            )
+        if register.initial is not None:
+            previous = initial_node_values.setdefault(register.initial, packed_initial)
+            if previous != packed_initial:
+                raise SimulationPlanError(
+                    f"canonical initial node %{register.initial} has conflicting values"
+                )
     for expected, node in enumerate(canonical.expressions):
         if node.id != expected:
             raise SimulationPlanError("canonical expression IDs are not contiguous")
@@ -900,36 +1066,68 @@ def _build_leaf_simulation_plan(module: object) -> SimulationPlan:
             )
         if node.op is ExpressionOp.FUNCTIONAL_VALUE:
             value = node.attribute("expression")
+            if not isinstance(value, CompileTimeExpr):
+                raise JitUnsupportedFeatureError(
+                    "simulation requires a compiler-owned functional value expression"
+                )
+            attributes = {
+                "compile_time_expression": _compile_time_expression_payload(value),
+                "binders": _compile_time_expression_binders(value),
+            }
+        elif node.op is ExpressionOp.FUNCTIONAL_TABLE_LOOKUP:
+            index = node.attribute("index")
             if (
-                not isinstance(value, CompileTimeExpr)
-                or value.operator is not CompileTimeOperator.BINDER
-                or not isinstance(value.operands[0], CompileTimeBinderRef)
+                not isinstance(index, CompileTimeExpr)
+                or index.operator is not CompileTimeOperator.BINDER
+                or not isinstance(index.operands[0], CompileTimeBinderRef)
             ):
                 raise JitUnsupportedFeatureError(
-                    "simulation supports only direct functional binder values"
+                    "simulation supports only direct-binder functional table lookups"
                 )
-            attributes = {"binder": value.operands[0].identity}
+            attributes = {
+                "table_name": node.attribute("table_name"),
+                "binder": index.operands[0].identity,
+            }
         elif node.op is ExpressionOp.FUNCTIONAL_REGION:
             binder = node.attribute("binder")
             kind = node.attribute("kind")
+            tables = node.attribute("table_layout")
             captures = node.attribute("capture_layout")
             if (
-                kind is not FunctionalRegionKind.GENERATE
+                kind not in {
+                    FunctionalRegionKind.GENERATE,
+                    FunctionalRegionKind.MAP,
+                }
                 or not isinstance(binder, CompileTimeBinderRef)
-                or node.attribute("table_layout")
-                or node.attribute("certificates")
             ):
                 raise JitUnsupportedFeatureError(
-                    "simulation supports only table-free generated functional regions"
+                    "simulation supports only exact generated/mapped functional regions"
                 )
             attributes = {
                 "binder": binder.identity,
                 "start": binder.start,
                 "stop": binder.stop,
+                "tables": [
+                    {
+                        "name": name,
+                        "start": start,
+                        "width": type_.width,
+                        "count": count,
+                    }
+                    for name, start, type_, count in tables
+                ],
                 "captures": [
                     {"identity": identity, "width": type_.width}
                     for identity, _display_name, type_ in captures
                 ],
+            }
+        elif node.op is ExpressionOp.VECTOR_INDEX and isinstance(
+            node.attribute("index"), CompileTimeExpr
+        ):
+            index = node.attribute("index")
+            attributes = {
+                "compile_time_expression": _compile_time_expression_payload(index),
+                "binders": _compile_time_expression_binders(index),
             }
         else:
             attributes = {name: _json_attribute(value) for name, value in node.attributes}
@@ -1148,6 +1346,29 @@ def _build_leaf_simulation_plan(module: object) -> SimulationPlan:
                 "native simulation supports only direct public-port assignments"
             )
         outputs.append({"name": assignment.target_name, "node": assignment.expression})
+    assigned_outputs = {item["name"] for item in outputs}
+    if canonical.resolved_transition is not None:
+        for resource in canonical.resolved_transition.resources:
+            if (
+                resource.kind is not StateResourceKind.OUTPUT
+                or resource.name in assigned_outputs
+            ):
+                continue
+            zero_node = len(nodes)
+            nodes.append(
+                {
+                    "id": zero_node,
+                    "op": ExpressionOp.CONSTANT.value,
+                    "type": _type_payload(resource.type),
+                    "operands": [],
+                    "attributes": {
+                        "limbs": _u64_limbs(0, resource.type.width)
+                    },
+                    "origins": [],
+                }
+            )
+            outputs.append({"name": resource.name, "node": zero_node})
+            assigned_outputs.add(resource.name)
 
     registers = []
     for register in canonical.registers:
@@ -1160,6 +1381,7 @@ def _build_leaf_simulation_plan(module: object) -> SimulationPlan:
                     packed_register_initials[register.name], register.type.width
                 ),
                 "domain": register.domain or canonical.clock,
+                "resettable": register.initial is not None,
             }
         )
 
@@ -1170,8 +1392,20 @@ def _build_leaf_simulation_plan(module: object) -> SimulationPlan:
             "edge": domain.edge.value,
             "reset_mode": domain.reset_mode.value,
             "reset_polarity": domain.reset_polarity.value,
-            "reset_release_mode": domain.reset_release_mode.value,
-            "reset_release_cycles": domain.reset_release_cycles,
+            # The primitive VM needs only executable reset behavior.  An
+            # externally synchronized release has the same no-conditioner
+            # execution as native release; typed/canonical IR and backend
+            # manifests retain the stronger source contract.
+            "reset_release_mode": (
+                "synchronized"
+                if domain.reset_release_mode.value == "synchronized"
+                else "native"
+            ),
+            "reset_release_cycles": (
+                domain.reset_release_cycles
+                if domain.reset_release_mode.value == "synchronized"
+                else 0
+            ),
         }
         for domain in canonical.clock_domains
     ]
@@ -1547,6 +1781,7 @@ def _build_leaf_simulation_plan(module: object) -> SimulationPlan:
         ]
         scheduler_guards = [item.rule_name for item in ordered]
         scheduler_activations = list(conditional_activation_predicates(transition))
+        scheduler_regions = selection_regions_for_transition(transition)
         for group in ordered:
             actions = []
             for action in group.actions:
@@ -1571,11 +1806,14 @@ def _build_leaf_simulation_plan(module: object) -> SimulationPlan:
                     action.kind is StateActionKind.MEMORY_WRITE
                     and resource.kind is StateResourceKind.MEMORY
                     and len(action.operands) in {2, 3}
+                ) or (
+                    action.kind is StateActionKind.OUTPUT_WRITE
+                    and resource.kind is StateResourceKind.OUTPUT
+                    and len(action.operands) == 1
                 )
                 if not valid:
                     raise JitUnsupportedFeatureError(
-                        "native simulation currently accepts register writes and "
-                        "synchronous FIFO push/pop scheduled actions"
+                        "native simulation encountered an invalid scheduled action"
                     )
                 actions.append(
                     {
@@ -1596,9 +1834,7 @@ def _build_leaf_simulation_plan(module: object) -> SimulationPlan:
                             value.value if isinstance(value, Enum) else value
                             for value in region
                         ]
-                        for region in selection_regions(
-                            transition, group.rule_name
-                        )
+                        for region in scheduler_regions[group.rule_name]
                     ],
                     "actions": actions,
                 }

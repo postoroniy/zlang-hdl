@@ -12,7 +12,7 @@ from zlang.ir.module import SpecializationBindingKind
 from zlang.ir.types import FixedType, StructType, UIntType, VecType
 from zlang.opt import lower, restore
 from zlang.semantic import SemanticError
-from zlang.simulate import simulate_cycles
+from zlang.native_simulation import simulate_cycles
 
 
 CALLABLE = """

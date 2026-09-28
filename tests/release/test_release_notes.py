@@ -14,10 +14,12 @@ ROOT = Path(__file__).resolve().parents[2]
 
 def test_current_release_notes_are_curated_from_exact_changelog_section() -> None:
     notes = release_notes(
-        (ROOT / "CHANGELOG.md").read_text(encoding="utf-8"), "v0.1.0a16"
+        (ROOT / "CHANGELOG.md").read_text(encoding="utf-8"), "v0.1.0a17"
     )
     assert "native simulator" in notes
-    assert "LSP resilience" in notes
+    assert "Z3 4.13.4" in notes
+    assert "ABI v11" in notes
+    assert "ABI-v10" not in notes
     assert "0.1.0a10 —" not in notes
 
 

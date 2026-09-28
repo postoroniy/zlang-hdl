@@ -39,7 +39,7 @@ from zlang.ir.formal_predicates import (
     FormalSignedness,
     ObservationRef,
 )
-from zlang.simulate import simulate
+from zlang.native_simulation import simulate
 
 
 VERILATOR = shutil.which("verilator")

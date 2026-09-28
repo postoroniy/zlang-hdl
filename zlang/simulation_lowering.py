@@ -60,6 +60,8 @@ class _Builder:
     regions: list[dict[str, Any]] = field(default_factory=list)
     capture_slots: dict[str, int] | None = None
     binder_scope: dict[str, int] = field(default_factory=dict)
+    table_scope: dict[str, tuple[int, tuple[int, ...]]] = field(default_factory=dict)
+    reset_release_clocks: dict[str, str] = field(default_factory=dict)
 
     def _hoist_primitive_invariants(
         self,
@@ -132,7 +134,12 @@ class _Builder:
         dependencies: list[bool] = []
         for node in self.semantic_nodes:
             dependencies.append(
-                (node["op"] == "functional_value" and node["attributes"]["binder"] == binder)
+                (
+                    node["op"] == "functional_value"
+                    and node["attributes"].get("binder") == binder
+                )
+                or node["attributes"].get("binder") == binder
+                or binder in node["attributes"].get("binders", [])
                 or any(dependencies[item] for item in node["operands"])
             )
         selected: list[int] = []
@@ -150,19 +157,60 @@ class _Builder:
                 pending.extend(reversed(node["operands"]))
         return tuple(selected)
 
+    def _compile_time_value(self, value: dict[str, Any]) -> int:
+        if "binder" in value:
+            binder = self.binder_scope.get(str(value["binder"]))
+            if binder is None:
+                raise PrimitiveLoweringError("unbound functional binder value")
+            return binder
+        if "literal" in value:
+            return self.constant(int(value["literal"]), 64)
+        operator = value.get("operator")
+        operands = tuple(
+            self._compile_time_value(item) for item in value.get("operands", [])
+        )
+        if operator == "literal" and len(operands) == 1:
+            return operands[0]
+        if operator == "binder" and len(operands) == 1:
+            return operands[0]
+        if operator in {"add", "subtract", "multiply"} and len(operands) == 2:
+            primitive = {
+                "add": "add",
+                "subtract": "sub",
+                "multiply": "mul",
+            }[str(operator)]
+            return self.binary(primitive, operands[0], operands[1], 64)
+        if operator == "negate" and len(operands) == 1:
+            return self.binary("sub", self.constant(0, 64), operands[0], 64)
+        raise PrimitiveLoweringError(
+            f"unsupported functional compile-time operator '{operator}'"
+        )
+
     def _lower_region(self, node: dict[str, Any]) -> int:
         attrs = node["attributes"]
+        tables = attrs.get("tables", [])
         captures = attrs["captures"]
-        if len(node["operands"]) != 1 + len(captures):
+        table_count = sum(int(item["count"]) for item in tables)
+        if len(node["operands"]) != 1 + table_count + len(captures):
             raise PrimitiveLoweringError("functional region has invalid captures")
-        capture_nodes = tuple(self.lower(item) for item in node["operands"][1:])
-        capture_widths = [int(item["width"]) for item in captures]
+        table_nodes = tuple(
+            self.lower(item) for item in node["operands"][1 : 1 + table_count]
+        )
+        declared_capture_nodes = tuple(
+            self.lower(item) for item in node["operands"][1 + table_count :]
+        )
+        capture_nodes = (*table_nodes, *declared_capture_nodes)
+        capture_widths = [
+            int(item["width"])
+            for item in tables
+            for _ in range(int(item["count"]))
+        ] + [int(item["width"]) for item in captures]
         if any(self.width(value) != width for value, width in zip(
             capture_nodes, capture_widths, strict=True
         )):
             raise PrimitiveLoweringError("functional region capture width mismatch")
         capture_by_identity = {
-            item["identity"]: capture_nodes[index]
+            item["identity"]: declared_capture_nodes[index]
             for index, item in enumerate(captures)
         }
         if len(capture_by_identity) != len(captures):
@@ -192,15 +240,35 @@ class _Builder:
             semantic_memories=self.semantic_memories,
             semantic_fifos=self.semantic_fifos,
             regions=self.regions,
-            capture_slots={item["identity"]: index for index, item in enumerate(captures)},
+            capture_slots={
+                item["identity"]: table_count + index
+                for index, item in enumerate(captures)
+            },
+            reset_release_clocks=self.reset_release_clocks,
         )
-        for ordinal, (identity, _value) in enumerate(inherited_binders, start=len(captures)):
+        table_offset = 0
+        for table in tables:
+            values = tuple(
+                body.emit(
+                    "load_capture",
+                    int(table["width"]),
+                    attributes={"slot": table_offset + index},
+                )
+                for index in range(int(table["count"]))
+            )
+            body.table_scope[str(table["name"])] = (int(table["start"]), values)
+            table_offset += int(table["count"])
+        for ordinal, (identity, _value) in enumerate(
+            inherited_binders,
+            start=table_count + len(captures),
+        ):
             body.binder_scope[identity] = body.emit(
                 "load_capture", 64, attributes={"slot": ordinal}
             )
         body.binder_scope[attrs["binder"]] = body.emit("load_index", 64)
         for ordinal, identifier in enumerate(
-            hoisted, start=len(captures) + len(inherited_binders)
+            hoisted,
+            start=table_count + len(captures) + len(inherited_binders),
         ):
             body.lowered[identifier] = body.emit(
                 "load_capture",
@@ -382,19 +450,50 @@ class _Builder:
             self.lowered[identifier] = result
             return result
         if op == "functional_value":
-            binder = self.binder_scope.get(attrs["binder"])
-            if binder is None:
-                raise PrimitiveLoweringError("unbound functional binder value")
-            result = self.resize(binder, width)
+            result = self.resize(
+                self._compile_time_value(attrs["compile_time_expression"]),
+                width,
+            )
+            self.lowered[identifier] = result
+            return result
+        if op == "functional_table_lookup":
+            table = self.table_scope.get(str(attrs["table_name"]))
+            binder = self.binder_scope.get(str(attrs["binder"]))
+            if table is None or binder is None or not table[1]:
+                raise PrimitiveLoweringError("unbound functional table lookup")
+            start, values = table
+            result = values[0]
+            for index, value in reversed(tuple(enumerate(values))):
+                match = self.binary(
+                    "eq",
+                    binder,
+                    self.constant(start + index, self.width(binder)),
+                    1,
+                )
+                result = self.select(match, value, result, width)
             self.lowered[identifier] = result
             return result
         operands = tuple(self.lower(item) for item in node["operands"])
         origins = node.get("origins", [])
 
         if op == "input":
-            result = self.emit(
+            raw = self.emit(
                 "load_input", width, attributes={"name": attrs["name"]}, origins=origins
             )
+            name = str(attrs["name"])
+            reset = name.removeprefix("$reset:")
+            clock = (
+                self.reset_release_clocks.get(reset)
+                if name.startswith("$reset:")
+                else None
+            )
+            if clock is None:
+                result = raw
+            else:
+                release = self.emit(
+                    "load_state", 32, attributes={"name": f"$release:{clock}"}
+                )
+                result = self.binary("or", raw, self.truthy(release), 1)
         elif op == "register_ref":
             result = self.emit(
                 "load_state", width, attributes={"name": attrs["name"]}, origins=origins
@@ -411,15 +510,28 @@ class _Builder:
                     f"memory read references unknown memory '{memory_name}'"
                 )
             address = operands[0]
+            reset_name = memory.get("reset")
             reset = (
                 self.emit(
                     "load_input",
                     1,
-                    attributes={"name": f"$reset:{memory['reset']}"},
+                    attributes={"name": f"$reset:{reset_name}"},
                 )
-                if memory.get("reset") is not None
+                if reset_name is not None
                 else self.constant(0, 1)
             )
+            release_clock = (
+                self.reset_release_clocks.get(str(reset_name))
+                if reset_name is not None
+                else None
+            )
+            if release_clock is not None:
+                release = self.emit(
+                    "load_state",
+                    32,
+                    attributes={"name": f"$release:{release_clock}"},
+                )
+                reset = self.binary("or", reset, self.truthy(release), 1)
             old = self.emit(
                 "load_memory", width, (address,), {"memory": memory_name}, origins
             )
@@ -673,8 +785,18 @@ class _Builder:
         elif op == "reduce":
             result = self._reduce(node, operands[0])
         elif op == "vector_index":
-            offset = int(attrs["index"]) * width
-            result = self.extract(operands[0], self.constant(offset, 32), width)
+            if "compile_time_expression" in attrs:
+                index = self._compile_time_value(attrs["compile_time_expression"])
+                offset = self.binary(
+                    "mul",
+                    index,
+                    self.constant(width, self.width(index)),
+                    self.width(index),
+                )
+                result = self.extract(operands[0], offset, width)
+            else:
+                offset = int(attrs["index"]) * width
+                result = self.extract(operands[0], self.constant(offset, 32), width)
         elif op == "runtime_index":
             index = self.resize(operands[1], 64)
             offset = self.binary("mul", index, self.constant(width, 64), 64)
@@ -724,16 +846,18 @@ class _Builder:
         element_width = int(source_type["element"]["width"])
         length = int(source_type["length"])
         width = int(node["type"]["width"])
+        signed = self._signed(source_type["element"])
         values = [
             self.resize(
                 self.extract(
                     source, self.constant(index * element_width, 32), element_width
                 ),
                 width,
+                signed=signed,
             )
             for index in range(length)
         ]
-        operator = {"+": "add", "&": "and", "|": "or", "^": "xor"}[
+        operator = {"+": "add", "*": "mul", "&": "and", "|": "or", "^": "xor"}[
             node["attributes"]["operator"]
         ]
         result = values[0]
@@ -886,6 +1010,12 @@ def lower_to_primitive_plan(
         max_nodes,
         semantic_memories={item["name"]: item for item in payload["memories"]},
         semantic_fifos={item["name"]: item for item in payload.get("fifos", [])},
+        reset_release_clocks={
+            str(item["reset"]): str(item["clock"])
+            for item in payload["domains"]
+            if item.get("reset") is not None
+            and item.get("reset_release_mode") == "synchronized"
+        },
     )
     ports = [
         {
@@ -903,6 +1033,12 @@ def lower_to_primitive_plan(
             "width": item["type"]["width"],
             "initial_limbs": item["initial_limbs"],
             "domain": item["domain"],
+            # Consumed during primitive lowering and deliberately omitted from
+            # the runtime register layout below.
+            # Compiler-synthesized pipeline, FIFO, ROM, and memory-read state
+            # predates the per-source-register flag and remains resettable by
+            # construction. Source registers always publish the flag.
+            "resettable": item.get("resettable", True),
         }
         for item in payload["registers"]
     ]
@@ -1053,6 +1189,19 @@ def lower_to_primitive_plan(
 
     edge_programs = []
     memory_by_name = {item["name"]: item for item in memories}
+    preserve_read_registers = {
+        name
+        for memory in payload["memories"]
+        if memory.get("read_data_reset") == "preserve"
+        for port in memory.get("ports", [])
+        for name in port.get("read_registers", [])
+    }
+    preserve_read_registers.update(
+        name
+        for memory in payload["memories"]
+        if memory.get("read_data_reset") == "preserve"
+        for name in memory.get("scheduled_read_registers", [])
+    )
     for domain in payload["domains"]:
         clock = domain["clock"]
         next_values = next_by_domain.setdefault(clock, {})
@@ -1147,6 +1296,13 @@ def lower_to_primitive_plan(
                                 write_mask,
                                 builder.width(candidate_mask),
                             )
+                if effective_reset is not None:
+                    read_fire = builder.binary(
+                        "and",
+                        read_fire,
+                        builder.unary("not", effective_reset, 1),
+                        1,
+                    )
                 comparison_width = address_width + 1
                 depth = builder.constant(memory["depth"], comparison_width)
                 read_valid = builder.binary(
@@ -1406,6 +1562,13 @@ def lower_to_primitive_plan(
                     if port["read_enable"] is None
                     else builder.truthy(builder.lower(port["read_enable"]))
                 )
+                if effective_reset is not None:
+                    read_enable = builder.binary(
+                        "and",
+                        read_enable,
+                        builder.unary("not", effective_reset, 1),
+                        1,
+                    )
                 collision = None
                 write_first_value = old
                 for writer in reversed(writers):
@@ -1437,7 +1600,7 @@ def lower_to_primitive_plan(
                         collision, collision_value, old, memory["width"]
                     )
                 )
-                if port["read_enable"] is not None:
+                if port["read_enable"] is not None or effective_reset is not None:
                     sampled = builder.select(
                         read_enable, sampled, current_read, memory["width"]
                     )
@@ -1613,7 +1776,11 @@ def lower_to_primitive_plan(
 
         for name, value in sorted(next_values.items()):
             register = register_by_name[name]
-            if effective_reset is not None:
+            if (
+                effective_reset is not None
+                and register["resettable"]
+                and name not in preserve_read_registers
+            ):
                 initial = sum(
                     int(limb) << (64 * i)
                     for i, limb in enumerate(register["initial_limbs"])
@@ -1682,15 +1849,81 @@ def lower_to_primitive_plan(
             }
         )
 
+    output_nodes = {
+        item["name"]: builder.lower(item["node"])
+        for item in payload["outputs"]
+    }
+    domain_by_clock = {
+        item["clock"]: item for item in payload["domains"]
+    }
+    output_enabled_cache: dict[str, int] = {}
+
+    def output_enabled(domain: str) -> int:
+        cached = output_enabled_cache.get(domain)
+        if cached is not None:
+            return cached
+        metadata = domain_by_clock.get(domain)
+        if metadata is None:
+            enabled = builder.constant(1, 1)
+        else:
+            effective_reset = None
+            reset = metadata.get("reset")
+            if reset is not None:
+                effective_reset = builder.emit(
+                    "load_input", 1, attributes={"name": f"$reset:{reset}"}
+                )
+            if metadata.get("reset_release_mode") == "synchronized":
+                release = builder.emit(
+                    "load_state", 32, attributes={"name": f"$release:{domain}"}
+                )
+                release = builder.truthy(release)
+                effective_reset = (
+                    release
+                    if effective_reset is None
+                    else builder.binary("or", effective_reset, release, 1)
+                )
+            enabled = (
+                builder.constant(1, 1)
+                if effective_reset is None
+                else builder.unary("not", builder.truthy(effective_reset), 1)
+            )
+        output_enabled_cache[domain] = enabled
+        return enabled
+
+    for action in scheduled_storage_actions:
+        if action["kind"] != "output_write":
+            continue
+        target = action["target"]
+        old = output_nodes.get(target)
+        if old is None:
+            raise PrimitiveLoweringError(
+                f"scheduled output '{target}' has no public output declaration"
+            )
+        commit = builder.binary(
+            "and",
+            int(action["commit"]),
+            output_enabled(str(action["domain"])),
+            1,
+        )
+        output_nodes[target] = builder.select(
+            commit,
+            builder.lower(action["node"]),
+            old,
+            builder.width(old),
+        )
+
     result = dict(payload)
     result["ports"] = ports
     result["nodes"] = builder.nodes
     result["regions"] = builder.regions
     result["outputs"] = [
-        {"name": item["name"], "node": builder.lower(item["node"])}
+        {"name": item["name"], "node": output_nodes[item["name"]]}
         for item in payload["outputs"]
     ]
-    result["registers"] = registers
+    result["registers"] = [
+        {key: value for key, value in register.items() if key != "resettable"}
+        for register in registers
+    ]
     result["memories"] = memories
     result["edge_programs"] = edge_programs
     result.pop("direct_next")

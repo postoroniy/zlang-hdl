@@ -42,6 +42,7 @@ class ResetReleaseMode(str, Enum):
 
     NATIVE = "native"
     SYNCHRONIZED = "synchronized"
+    EXTERNALLY_SYNCHRONIZED = "externally_synchronized"
 
 
 class PowerUpPolicy(str, Enum):
@@ -109,6 +110,18 @@ class ClockDomain:
         if self.reset_release_mode is ResetReleaseMode.NATIVE:
             if self.reset_release_cycles != 0:
                 raise ValueError("native reset release requires zero release cycles")
+            return
+        if self.reset_release_mode is ResetReleaseMode.EXTERNALLY_SYNCHRONIZED:
+            if self.reset_mode is not ResetMode.ASYNCHRONOUS:
+                raise ValueError(
+                    "externally synchronized reset release requires asynchronous "
+                    "assertion"
+                )
+            if self.reset_release_cycles != 0:
+                raise ValueError(
+                    "externally synchronized reset release requires zero internal "
+                    "release cycles"
+                )
             return
         if self.reset_mode is not ResetMode.ASYNCHRONOUS:
             raise ValueError(

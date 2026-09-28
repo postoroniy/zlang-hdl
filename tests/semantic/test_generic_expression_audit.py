@@ -17,7 +17,7 @@ from zlang.ir.signed_reductions import expression_semantic_identity
 from zlang.opt import lower, restore
 from zlang.parser import parse
 from zlang.semantic import SemanticError, analyze
-from zlang.simulate import simulate, simulate_cycles
+from zlang.native_simulation import simulate, simulate_cycles
 
 
 def _module(source: str):

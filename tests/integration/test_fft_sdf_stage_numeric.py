@@ -30,7 +30,7 @@ from zlang.ir.callables import expand_callable_calls
 from zlang.opt import OptimizationStage, lower, restore
 from zlang.parser import parse
 from zlang.semantic import analyze
-from zlang.simulate import simulate_cycles
+from zlang.native_simulation import simulate_cycles
 from zlang.targets import select_implementation_graph
 
 

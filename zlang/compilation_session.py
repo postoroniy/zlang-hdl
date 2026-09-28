@@ -1916,7 +1916,13 @@ def inline_locals(module: IrModule) -> IrModule:
             for rule in module.rules
         ),
         registers=tuple(
-            replace(register, initial=walk(register.initial))
+            replace(
+                register,
+                initial=(
+                    walk(register.initial)
+                    if register.initial is not None else None
+                ),
+            )
             for register in module.registers
         ),
         instance_bindings=tuple(

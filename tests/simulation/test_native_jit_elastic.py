@@ -116,7 +116,7 @@ def test_elastic_lowering_is_explicit_state_without_pipeline_nodes() -> None:
     )
 
 
-@pytest.mark.parametrize("engine", ("reference", "native"))
+@pytest.mark.parametrize("engine", ("native",))
 def test_elastic_public_api_and_global_stall_are_cycle_exact(engine: str) -> None:
     program = zlang.sim.compile(
         SOURCE,
@@ -169,17 +169,17 @@ def test_elastic_public_api_and_global_stall_are_cycle_exact(engine: str) -> Non
     assert all(not item["output"]["valid"] for item in trace[12:])
 
 
-def test_elastic_matches_reference_native_and_direct_sv(tmp_path: Path) -> None:
+def test_elastic_matches_native_and_direct_sv(tmp_path: Path) -> None:
     trace = run_differential(
         SOURCE,
         top="ElasticPipelineAuto",
         events=_events(),
         directory=tmp_path / "elastic_rtl",
     )
-    assert trace.reference == trace.native == trace.direct_sv
+    assert trace.native == trace.direct_sv
 
 
-@pytest.mark.parametrize("engine", ("reference", "native"))
+@pytest.mark.parametrize("engine", ("native",))
 def test_elastic_child_is_flattened_before_primitive_plan(
     tmp_path: Path,
     engine: str,

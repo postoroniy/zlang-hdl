@@ -228,6 +228,20 @@ class _ValueAlternative:
     certificate: tuple[str, ...]
 
 
+def _cached_expression_identity(
+    cache: dict[int, str],
+    value: expr.Expression,
+) -> str:
+    """Return one semantic expression identity without repeating DAG walks."""
+
+    key = id(value)
+    result = cache.get(key)
+    if result is None:
+        result = expression_semantic_identity(value)
+        cache[key] = result
+    return result
+
+
 def schedule_fixed_pipeline(
     source_expression: expr.Expression,
     requested_latency: int,
@@ -382,14 +396,6 @@ def schedule_fixed_pipeline(
         (id(leaf), expression_semantic_identity(leaf)) for leaf in leaves
     )
 
-    def expression_key(value: expr.Expression) -> str:
-        key = id(value)
-        result = expression_keys.get(key)
-        if result is None:
-            result = expression_semantic_identity(value)
-            expression_keys[key] = result
-        return result
-
     node_by_expression = {node.semantic_identity: node for node in nodes}
     operation_identity = {
         node.semantic_identity: _identity(
@@ -401,10 +407,10 @@ def schedule_fixed_pipeline(
         for node in nodes
     }
     leaf_identity = {
-        expression_key(leaf): _identity(
+        _cached_expression_identity(expression_keys, leaf): _identity(
             FIXED_PIPELINE_SCHEDULE_SCHEMA,
             "leaf",
-            expression_semantic_identity(leaf),
+            _cached_expression_identity(expression_keys, leaf),
         )
         for leaf in leaves
     }
@@ -426,7 +432,7 @@ def schedule_fixed_pipeline(
             raise PipelineSchedulingError("pipeline schedule violates dependency order")
         result = value
         semantic_value = value if identity_value is None else identity_value
-        semantic_key = expression_key(semantic_value)
+        semantic_key = _cached_expression_identity(expression_keys, semantic_value)
         source_identity = operation_identity.get(semantic_key)
         if source_identity is None:
             source_identity = leaf_identity[semantic_key]
@@ -478,7 +484,7 @@ def schedule_fixed_pipeline(
         return result
 
     def value_at_input(value: expr.Expression, stage: int, destination: str) -> expr.Expression:
-        value_key = expression_key(value)
+        value_key = _cached_expression_identity(expression_keys, value)
         child_node = node_by_expression.get(value_key)
         if child_node is None:
             if not dynamic_leaf(value):
@@ -505,7 +511,7 @@ def schedule_fixed_pipeline(
         )
 
     def compute(value: expr.Expression) -> expr.Expression:
-        value_key = expression_key(value)
+        value_key = _cached_expression_identity(expression_keys, value)
         cached = combinational.get(value_key)
         if cached is not None:
             return cached
@@ -519,7 +525,7 @@ def schedule_fixed_pipeline(
         combinational[value_key] = result
         return result
 
-    source_key = expression_key(source)
+    source_key = _cached_expression_identity(expression_keys, source)
     root_node = node_by_expression.get(source_key)
     if root_node is None:
         # A constant pipeline still has reset/fill behavior and therefore must
@@ -580,7 +586,10 @@ def schedule_fixed_pipeline(
             stage=placements[node.semantic_identity].stage,
             operand_identities=tuple(
                 operation_identity.get(
-                    expression_key(child), leaf_identity.get(expression_key(child), "")
+                    _cached_expression_identity(expression_keys, child),
+                    leaf_identity.get(
+                        _cached_expression_identity(expression_keys, child), ""
+                    ),
                 )
                 for child in node.children
             ),
@@ -1094,21 +1103,13 @@ def _partition(
         id(item.expression): item.semantic_identity for item in nodes
     }
 
-    def expression_key(value: expr.Expression) -> str:
-        key = id(value)
-        result = key_cache.get(key)
-        if result is None:
-            result = expression_semantic_identity(value)
-            key_cache[key] = result
-        return result
-
     def place(limit_ps: int) -> tuple[dict[str, _Placement], bool]:
         result: dict[str, _Placement] = {}
         for node in nodes:
             dependencies = tuple(
-                result[expression_key(child)]
+                result[_cached_expression_identity(key_cache, child)]
                 for child in node.children
-                if expression_key(child) in node_by_expression
+                if _cached_expression_identity(key_cache, child) in node_by_expression
             )
             stage = max((item.stage for item in dependencies), default=0)
             arrival = node.cost.delay_ps + max(
@@ -1132,9 +1133,9 @@ def _partition(
     for node in nodes:
         critical[node.semantic_identity] = node.cost.delay_ps + max(
             (
-                critical[expression_key(child)]
+                critical[_cached_expression_identity(key_cache, child)]
                 for child in node.children
-                if expression_key(child) in node_by_expression
+                if _cached_expression_identity(key_cache, child) in node_by_expression
             ),
             default=0,
         )

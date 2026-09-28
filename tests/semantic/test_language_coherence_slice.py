@@ -9,7 +9,7 @@ import pytest
 from zlang.parser import parse
 from zlang.compiler import compile_source
 from zlang.semantic import SemanticError, analyze
-from zlang.simulate import simulate
+from zlang.native_simulation import simulate
 from zlang.stdlib import load_stdlib_source
 
 

@@ -27,7 +27,7 @@ import zlang.backend.systemverilog.emitter as direct_sv_emitter
 import zlang.cli as cli_module
 from zlang.compiler import compile_file
 from zlang.opt import OptimizationStage, lower, restore
-from zlang.simulate import simulate_cycles
+from zlang.native_simulation import simulate_cycles
 from zlang.toolchain import lint_with_verilator
 
 

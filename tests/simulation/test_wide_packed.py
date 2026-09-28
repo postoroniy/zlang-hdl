@@ -15,7 +15,7 @@ LAST = (1 << 1059) | (1 << 255) | 0xABCD
 
 
 @pytest.mark.parametrize("top", ("WidePackedQueue", "WideIndexedCounters"))
-def test_wide_packed_state_matches_reference_native_and_rtl(
+def test_wide_packed_state_matches_native_and_rtl(
     tmp_path: Path, top: str
 ) -> None:
     if top == "WidePackedQueue":
@@ -57,6 +57,48 @@ def test_wide_packed_state_matches_reference_native_and_rtl(
     trace = run_differential(
         SOURCE, top=top, events=events, directory=tmp_path / top
     )
-    assert trace.reference == trace.native == trace.direct_sv
+    assert trace.native == trace.direct_sv
     for event, value in expected.items():
-        assert trace.reference[event][output] == value
+        assert trace.native[event][output] == value
+
+
+def test_wide_memory_cell_matches_native_and_rtl(tmp_path: Path) -> None:
+    source = tmp_path / "wide_memory.zhl"
+    source.write_text(
+        """module WideMemoryCell {
+    clock clk reset rst
+    in write : bit
+    in address : u2
+    in data : bits<1067>
+    out result : bits<1067>
+
+    memory cells : mem<bits<1067>,4> {
+        read_latency 0
+        collision read_first
+        reset { contents preserve read_data preserve }
+    }
+    cells.read_address = address
+    cells.write_enable = write
+    cells.write_address = address
+    cells.write_data = data
+    result = cells.read_data
+}
+""",
+        encoding="utf-8",
+    )
+    events = (
+        {"reset": {"rst": True}, "edges": ["clk"]},
+        {"reset": {"rst": False}},
+        {"set": {"write": 1, "address": 0, "data": FIRST}, "edges": ["clk"]},
+        {"set": {"write": 0}},
+        {"set": {"write": 1, "address": 1, "data": LAST}, "edges": ["clk"]},
+        {"set": {"write": 0, "address": 0}},
+        {"set": {"address": 1}},
+    )
+    trace = run_differential(
+        source, top="WideMemoryCell", events=events, directory=tmp_path / "rtl"
+    )
+    assert trace.native == trace.direct_sv
+    assert trace.native[3]["result"] == FIRST
+    assert trace.native[5]["result"] == FIRST
+    assert trace.native[6]["result"] == LAST

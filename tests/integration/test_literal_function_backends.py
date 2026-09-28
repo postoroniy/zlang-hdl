@@ -10,7 +10,7 @@ import pytest
 from zlang.backend.manifest import BackendArtifact
 from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
 from zlang.compiler import compile_source
-from zlang.simulate import simulate
+from zlang.native_simulation import simulate
 from zlang.toolchain import lint_with_verilator
 
 

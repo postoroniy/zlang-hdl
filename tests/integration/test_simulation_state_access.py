@@ -16,6 +16,14 @@ from zlang.backend.systemverilog.simulation_state import (
 )
 from zlang.compiler import compile_source
 from zlang.opt import OptimizationStage, canonical_ir_identity, lower, restore
+from zlang.sim import _native_runtime
+from zlang.simulation_plan import (
+    JitUnsupportedFeatureError,
+    SIMULATION_RUNTIME_ABI,
+    SimulationPlan,
+    SimulationPlanError,
+    build_simulation_plan,
+)
 from zlang.simulation_state import (
     SimulationStateCatalog,
     SimulationStateError,
@@ -270,6 +278,7 @@ def test_persistent_session_preloads_two_dependent_chunks_and_is_atomic() -> Non
     assert session.read(completed.binding_id) == 64
     assert session.read(cursor.binding_id) == 64
     assert session.read(sampled.binding_id) == 0
+
     assert session.read(tags.binding_id)[:64] == [1] * 64
 
     # Chunk two is constructed from the retained completion image.  It must
@@ -305,6 +314,49 @@ def test_persistent_session_preloads_two_dependent_chunks_and_is_atomic() -> Non
     assert session.read(completed.binding_id) == 0
     assert session.read(sampled_cells.binding_id) == [0, 0]
     assert session.read(sampled.binding_id) == 0
+
+
+def test_native_state_batch_rejects_invalid_late_edit_atomically() -> None:
+    session = SimulationStateSession.from_compilation(_compile())
+    cursor = _binding(
+        session.catalog, SimulationStateKind.REGISTER, "command_index"
+    )
+    completed = _binding(
+        session.catalog, SimulationStateKind.REGISTER, "completion_count"
+    )
+    before = session.snapshot((cursor.binding_id, completed.binding_id))
+    native = session._simulator._native  # noqa: SLF001 - test the atomic runtime boundary
+    with pytest.raises(ValueError, match="packed value has bits above"):
+        native.write_state_batch([
+            ("register", "command_index", None, [5]),
+            ("register", "completion_count", None, [1 << 16]),
+        ])
+    assert session.snapshot((cursor.binding_id, completed.binding_id)) == before
+
+
+def test_native_state_access_plan_rejects_older_schema_and_abi() -> None:
+    import _zlang_native_sim
+
+    assert _zlang_native_sim.runtime_abi() == SIMULATION_RUNTIME_ABI
+    plan = build_simulation_plan(_compile().ir)
+    for current, previous, message in (
+        (b"zlang-simulation-plan-v11", b"zlang-simulation-plan-v10", "unsupported simulation plan schema"),
+        (b"zlang-native-simulation-abi-v11", b"zlang-native-simulation-abi-v10", "unsupported native simulation ABI"),
+    ):
+        with pytest.raises(SimulationPlanError, match=message):
+            SimulationPlan.from_bytes(plan.to_bytes().replace(current, previous))
+
+
+def test_native_state_access_rejects_stale_extension_abi(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import _zlang_native_sim
+
+    monkeypatch.setattr(
+        _zlang_native_sim, "runtime_abi", lambda: "zlang-native-simulation-abi-v10"
+    )
+    with pytest.raises(JitUnsupportedFeatureError, match="ABI is incompatible"):
+        _native_runtime()
 
 
 def test_direct_bundle_is_deterministic_strict_and_does_not_change_rtl(

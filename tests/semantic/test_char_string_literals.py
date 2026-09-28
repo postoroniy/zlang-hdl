@@ -9,7 +9,7 @@ from zlang.ir.types import BitsType, UIntType, VecType
 from zlang.opt import lower, restore
 from zlang.opt.identity import canonical_ir_identity
 from zlang.semantic import SemanticError
-from zlang.simulate import simulate
+from zlang.native_simulation import simulate
 
 
 def _compile(source: str):

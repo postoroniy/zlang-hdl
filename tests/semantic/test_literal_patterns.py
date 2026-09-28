@@ -15,7 +15,7 @@ from zlang.opt.ir import ExpressionOp
 from zlang.parser import parse
 from zlang.semantic import SemanticError
 from zlang.semantic import analyze
-from zlang.simulate import simulate
+from zlang.native_simulation import simulate
 
 
 def _compile(source: str):

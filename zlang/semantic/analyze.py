@@ -5530,35 +5530,44 @@ def _close_nested_functional_template(
     """
 
     captures: list[tuple[ir_expr.FunctionalCaptureRef, ir_expr.Expression]] = []
+    binder_memo: dict[
+        tuple[int, frozenset[str]], tuple[object, frozenset[str]]
+    ] = {}
 
     def direct_binder_ids(item: object) -> set[str]:
-        result: set[str] = set()
-
-        def walk(current: object, bound: frozenset[str] = frozenset()) -> None:
+        def walk(current: object, bound: frozenset[str]) -> frozenset[str]:
+            key = (id(current), bound)
+            cached = binder_memo.get(key)
+            if cached is not None and cached[0] is current:
+                return cached[1]
             if isinstance(current, CompileTimeBinderRef):
-                if current.identity not in bound:
-                    result.add(current.identity)
-                return
-            if isinstance(current, ir_expr.FunctionalRegion):
+                result = (
+                    frozenset((current.identity,))
+                    if current.identity not in bound else frozenset()
+                )
+            elif isinstance(current, ir_expr.FunctionalRegion):
                 nested_bound = bound | {current.binder.identity}
-                walk(current.template, nested_bound)
-                for table in current.tables:
-                    walk(table.values, nested_bound)
-                for _, captured in current.captures:
-                    walk(captured, bound)
-                return
-            if isinstance(current, tuple):
-                for child in current:
-                    walk(child)
-                return
-            if is_dataclass(current) and not isinstance(current, type):
-                for field_ in fields(current):
-                    if field_.name in {"type", "origin"}:
-                        continue
-                    walk(getattr(current, field_.name))
+                result = walk(current.template, nested_bound)
+                result |= walk(
+                    tuple(table.values for table in current.tables), nested_bound
+                )
+                result |= walk(
+                    tuple(captured for _, captured in current.captures), bound
+                )
+            elif isinstance(current, tuple):
+                result = frozenset().union(*(walk(child, bound) for child in current))
+            elif is_dataclass(current) and not isinstance(current, type):
+                result = frozenset().union(*(
+                    walk(getattr(current, field_.name), bound)
+                    for field_ in fields(current)
+                    if field_.name not in {"type", "origin"}
+                ))
+            else:
+                result = frozenset()
+            binder_memo[key] = (current, result)
+            return result
 
-        walk(item)
-        return result
+        return set(walk(item, frozenset()))
 
     def capture(expression: ir_expr.Expression) -> ir_expr.FunctionalCaptureRef:
         for reference, existing in captures:
@@ -9640,30 +9649,38 @@ def analyze(
             "register", declaration.name, declaration.domain
         )
         type_ = type_resolver.resolve(declaration.type_name)
-        initial = _check_typed_boundary(
-            declaration.initial, {}, type_, pure_context
-        )
-        initial_analysis = _expand_analysis_calls(
-            initial, pure_context, purpose=f"register '{declaration.name}' initial value"
-        )
-        if initial.type != type_ or not _is_constant_expression(initial_analysis):
-            raise SemanticError(
-                f"initial value for register '{declaration.name}' must be a "
-                f"constant of type {type_}"
+        initial = None
+        if declaration.initial is not None:
+            initial = _check_typed_boundary(
+                declaration.initial, {}, type_, pure_context
             )
+            initial_analysis = _expand_analysis_calls(
+                initial,
+                pure_context,
+                purpose=f"register '{declaration.name}' initial value",
+            )
+            if initial.type != type_ or not _is_constant_expression(initial_analysis):
+                raise SemanticError(
+                    f"initial value for register '{declaration.name}' must be a "
+                    f"constant of type {type_}"
+                )
+        declaration_origin = _declaration_origin(
+            declaration.name_origin or declaration.origin,
+            f"register {declaration.name}",
+            pure_context,
+        )
         register = ir_module.Register(
-            declaration.name, type_, initial, register_domain
+            declaration.name,
+            type_,
+            initial,
+            register_domain,
         )
         registers.append(register)
         register_symbols[register.name] = register
         _remember_definition_target(
             pure_context,
             register,
-            _declaration_origin(
-                declaration.name_origin or declaration.origin,
-                f"register {declaration.name}",
-                pure_context,
-            ),
+            declaration_origin,
             name=declaration.name,
             kind="register",
         )
@@ -12163,7 +12180,13 @@ def analyze(
         resource_ids[(ir_state.StateResourceKind.REGISTER, register.name)] = semantic_id
         resources.append(ir_state.StateResource(
             semantic_id, register.name, ir_state.StateResourceKind.REGISTER,
-            register.type, register.domain or clock, register.initial.origin,
+            register.type,
+            register.domain or clock,
+            (
+                register.initial.origin
+                if register.initial is not None
+                else None
+            ),
         ))
     for fifo in fifos:
         semantic_id = f"state:{transition_prefix}:fifo:{fifo.name}"
@@ -22700,10 +22723,12 @@ def _reject_instance_output_dependency_cycles(
             scheduled_guard_cache: dict[
                 str, tuple[ir_expr.Expression, ...]
             ] = {}
+            scheduled_regions_cache = None
 
             def scheduled_guard_dependencies(
                 rule_name: str,
             ) -> tuple[ir_expr.Expression, ...]:
+                nonlocal scheduled_regions_cache
                 cached_guards = scheduled_guard_cache.get(rule_name)
                 if cached_guards is not None:
                     return cached_guards
@@ -22730,9 +22755,11 @@ def _reject_instance_output_dependency_cycles(
                         resource.kind is ir_state.StateResourceKind.FIFO
                         for resource in transition.resources
                     )
-                    regions = ir_state.selection_regions(
-                        transition, rule_name
-                    )
+                    if scheduled_regions_cache is None:
+                        scheduled_regions_cache = (
+                            ir_state.selection_regions_for_transition(transition)
+                        )
+                    regions = scheduled_regions_cache[rule_name]
                     guards = tuple(
                         group.guard
                         for index, group in enumerate(groups)

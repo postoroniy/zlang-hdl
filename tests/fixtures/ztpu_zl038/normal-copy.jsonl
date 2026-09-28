@@ -1,0 +1,11 @@
+{"reset":{"rst":true},"set":{"enable":1,"layout_valid":0,"layout_in_addr":256,"layout_out_addr":512,"read_ar_ready":0,"read_r_valid":0,"read_r_data":0,"read_r_last":0,"read_r_resp":0,"write_aw_ready":0,"write_w_ready":0,"write_b_valid":0,"write_b_resp":0},"edges":["clk"]}
+{"reset":{"rst":false}}
+{"set":{"layout_valid":1},"edges":["clk"]}
+{"set":{"layout_valid":0},"edges":["clk"]}
+{"set":{"read_ar_ready":1},"edges":["clk"]}
+{"set":{"read_ar_ready":0,"read_r_valid":1,"read_r_data":305419896,"read_r_last":1},"edges":["clk"]}
+{"set":{"read_r_valid":0,"read_r_last":0},"edges":["clk"]}
+{"set":{"write_aw_ready":1},"edges":["clk"]}
+{"set":{"write_aw_ready":0,"write_w_ready":1},"edges":["clk"]}
+{"set":{"write_w_ready":0,"write_b_valid":1},"edges":["clk"]}
+{"set":{"write_b_valid":0},"edges":["clk"]}

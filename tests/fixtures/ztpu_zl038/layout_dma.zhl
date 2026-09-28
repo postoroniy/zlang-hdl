@@ -1,0 +1,62 @@
+// SPDX-License-Identifier: BSD-3-Clause
+
+import std.bus.axi_burst
+import ztpu.layout_dma_core
+
+struct ZtpuLayoutAddressPair64 {
+    in_addr : u64
+    out_addr : u64
+}
+
+// Typed public boundary. ZLang owns protocol roles and aggregate flattening;
+// the scalar core owns the cycle-exact transaction behavior.
+module ZtpuLayoutDmaCopy64x32 {
+    clock clk reset rst
+    in enable : bit
+    in layout : rv<ZtpuLayoutAddressPair64>
+    out busy, done, error : bit
+    interface axi_read : AXI4BurstReadSubset<64,32>.master @clk
+    interface axi_write : AXI4BurstWriteSubset<64,32>.master @clk
+
+    core : ZtpuLayoutDmaControl64x32 {
+        enable
+        layout_valid=layout.valid
+        layout_in_addr=layout.payload.in_addr
+        layout_out_addr=layout.payload.out_addr
+        read_ar_ready=axi_read.ar.ready
+        read_r_valid=axi_read.r.valid
+        read_r_data=axi_read.r.payload.data
+        read_r_last=axi_read.r.payload.last
+        read_r_resp=axi_read.r.payload.resp
+        write_aw_ready=axi_write.aw.ready
+        write_w_ready=axi_write.w.ready
+        write_b_valid=axi_write.b.valid
+        write_b_resp=axi_write.b.payload.resp
+    }
+
+    layout.ready = core.layout_ready
+    busy = core.busy
+    done = core.done
+    error = core.error
+
+    axi_read.ar.valid = core.read_ar_valid
+    axi_read.ar.payload = AxiBurstAddress {
+        addr = core.read_ar_addr
+        len = core.read_ar_len
+        size = core.read_ar_size
+    }
+    axi_read.r.ready = core.read_r_ready
+
+    axi_write.aw.valid = core.write_aw_valid
+    axi_write.aw.payload = AxiBurstAddress {
+        addr = core.write_aw_addr
+        len = core.write_aw_len
+        size = core.write_aw_size
+    }
+    axi_write.w.valid = core.write_w_valid
+    axi_write.w.payload = AxiBurstWriteData {
+        data = core.write_w_data
+        last = core.write_w_last
+    }
+    axi_write.b.ready = core.write_b_ready
+}

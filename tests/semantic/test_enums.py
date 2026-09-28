@@ -11,7 +11,7 @@ from zlang.ir.types import BitType, EnumType, StructType, VecType
 from zlang.opt import OptimizationStage, lower, restore
 from zlang.parser import parse
 from zlang.semantic import SemanticError, analyze
-from zlang.simulate import simulate, simulate_cycles
+from zlang.native_simulation import simulate, simulate_cycles
 
 
 ENUM_FSM_SOURCE = """

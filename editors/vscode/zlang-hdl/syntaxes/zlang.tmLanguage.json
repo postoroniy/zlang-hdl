@@ -508,7 +508,7 @@
         {"name": "keyword.control.verification.zlang", "match": "\\b(?:assume|guarantee|disable|iff)\\b"},
         {"name": "keyword.other.directive.protocol.zlang", "match": "\\b(?:max_outstanding|ordering|match_by|buffer|request_buffer|response_buffer|adapter|crossing|policy|grant)\\b"},
         {"name": "keyword.other.directive.storage.zlang", "match": "\\b(?:read_latency|init|collision|contents|read_data|read_port|write_port|read_write_port|write_priority)\\b"},
-        {"name": "keyword.other.directive.clock-reset.zlang", "match": "\\b(?:edge|mode|polarity|power_up)\\b"},
+        {"name": "keyword.other.directive.clock-reset.zlang", "match": "\\b(?:edge|mode|polarity|power_up|release)\\b"},
         {"name": "keyword.other.directive.target.zlang", "match": "\\b(?:port|operation|class|capability|limit|register_site|pipeline_site|pipeline_config|dedicated|binding|physical_primitive|physical_site|physical_edge|provides|part|inventory|dedicated_capacity|require_resource|use_pipeline|require_dedicated)\\b"},
         {"name": "keyword.other.directive.quantization.zlang", "match": "\\b(?:round|overflow)\\b"}
       ]
@@ -565,7 +565,7 @@
         {"name": "constant.language.storage.zlang", "match": "\\b(?:clear|preserve)\\b"},
         {"name": "constant.language.architecture.zlang", "match": "\\b(?:mul_add|multiply_add|dsp_mac|optional_yosys|reduction|reassociate|pipeline|adapter|auto)\\b"},
         {"name": "constant.language.quantization.zlang", "match": "\\b(?:nearest_even|toward_zero|floor|away_zero|wrap|saturate)\\b"},
-        {"name": "constant.language.clock-reset.zlang", "match": "\\b(?:rising|falling|synchronous|asynchronous|active_high|active_low|unspecified)\\b"},
+        {"name": "constant.language.clock-reset.zlang", "match": "\\b(?:rising|falling|synchronous|asynchronous|active_high|active_low|externally_synchronized|unspecified)\\b"},
         {"name": "variable.language.metric.zlang", "match": "\\b(?:lut|ff|dsp|bram|latency|throughput|ii|fmax|fmax_est|parallelism|depth|candidates)\\b"}
       ]
     },

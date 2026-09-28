@@ -9,7 +9,7 @@ import pytest
 
 import zlang.sim
 from zlang.compiler import compile_file
-from zlang.simulate import simulate_cdc_steps
+from zlang.native_simulation import simulate_cdc_steps
 from zlang.simulation_plan import SimulationPlan, SimulationPlanError
 from tests.simulation.differential import run_differential
 
@@ -159,11 +159,7 @@ def test_cdc_lowering_matches_existing_oracle_and_native_runtime(
         edges,
         resets,
     )
-    reference = _persistent_pre_edge_trace(
-        path, top, "reference", inputs, edges, resets
-    )
-    native = _persistent_pre_edge_trace(path, top, "jit", inputs, edges, resets)
-    assert reference == expected
+    native = _persistent_pre_edge_trace(path, top, "native", inputs, edges, resets)
     assert native == expected
 
 
@@ -197,30 +193,27 @@ module AsyncMemory {{
     ("collision", "coincident"),
     (("old", 0), ("new", 55), ("no_change", 0)),
 )
-def test_async_memory_coincident_edges_are_exact_in_both_engines(
+def test_async_memory_coincident_edges_are_exact_in_native_engine(
     tmp_path: Path,
     collision: str,
     coincident: int,
 ) -> None:
     source = tmp_path / f"async_memory_{collision}.zhl"
     source.write_text(_async_memory_source(collision))
-    traces = []
-    for engine in ("reference", "jit"):
-        instance = zlang.sim.load(source, top="AsyncMemory", engine=engine)
-        instance.reset("write_rst", asserted=True)
-        instance.reset("read_rst", asserted=True)
-        instance.edge_many(["write_clk", "read_clk"])
-        instance.reset("write_rst", asserted=False)
-        instance.reset("read_rst", asserted=False)
-        instance.set("write_enable", 1)
-        instance.set("write_address", 0)
-        instance.set("write_data", 55)
-        instance.set("read_address", 0)
-        first = instance.edge_many(["write_clk", "read_clk"])["read_data"]
-        instance.set("write_enable", 0)
-        second = instance.edge("read_clk")["read_data"]
-        traces.append((first, second))
-    assert traces == [(coincident, 55), (coincident, 55)]
+    instance = zlang.sim.load(source, top="AsyncMemory", engine="native")
+    instance.reset("write_rst", asserted=True)
+    instance.reset("read_rst", asserted=True)
+    instance.edge_many(["write_clk", "read_clk"])
+    instance.reset("write_rst", asserted=False)
+    instance.reset("read_rst", asserted=False)
+    instance.set("write_enable", 1)
+    instance.set("write_address", 0)
+    instance.set("write_data", 55)
+    instance.set("read_address", 0)
+    first = instance.edge_many(["write_clk", "read_clk"])["read_data"]
+    instance.set("write_enable", 0)
+    second = instance.edge("read_clk")["read_data"]
+    assert (first, second) == (coincident, 55)
 
 
 def test_event_load_names_only_a_declared_clock(tmp_path: Path) -> None:
@@ -228,7 +221,7 @@ def test_event_load_names_only_a_declared_clock(tmp_path: Path) -> None:
     source.write_text(_async_memory_source("new"))
     payload = deepcopy(
         zlang.sim.compile(
-            source, top="AsyncMemory", engine="reference"
+            source, top="AsyncMemory", engine="native"
         ).plan.payload
     )
     event = next(node for node in payload["nodes"] if node["op"] == "load_event")
@@ -249,7 +242,7 @@ def test_cdc_plan_contains_only_generic_primitive_operations() -> None:
     plan = zlang.sim.compile(
         ROOT / "examples" / "cdc_async_fifo.zhl",
         top="CdcAsyncFifo",
-        engine="jit",
+        engine="native",
     ).plan.payload
     operations = {node["op"] for node in plan["nodes"]}
     assert not operations & {
@@ -263,7 +256,7 @@ def test_cdc_plan_contains_only_generic_primitive_operations() -> None:
     assert {memory["domain"] for memory in plan["memories"]} == {SOURCE}
 
 
-def test_async_fifo_matches_reference_native_and_direct_sv(tmp_path: Path) -> None:
+def test_async_fifo_matches_native_and_direct_sv(tmp_path: Path) -> None:
     events = (
         {
             "set": _rv(),
@@ -289,10 +282,10 @@ def test_async_fifo_matches_reference_native_and_direct_sv(tmp_path: Path) -> No
         events=events,
         directory=tmp_path / "async_fifo_rtl",
     )
-    assert trace.reference == trace.native == trace.direct_sv
+    assert trace.native == trace.direct_sv
 
 
-def test_async_memory_matches_reference_native_and_direct_sv(tmp_path: Path) -> None:
+def test_async_memory_matches_native_and_direct_sv(tmp_path: Path) -> None:
     source = tmp_path / "async_memory.zhl"
     # Generic synthesizable SV intentionally promises only the structural
     # old-data model; exact ``new`` coincident behavior is covered above by
@@ -327,4 +320,4 @@ def test_async_memory_matches_reference_native_and_direct_sv(tmp_path: Path) -> 
         events=events,
         directory=tmp_path / "async_memory_rtl",
     )
-    assert trace.reference == trace.native == trace.direct_sv
+    assert trace.native == trace.direct_sv

@@ -11,12 +11,21 @@ incompatible input explicitly.
 
 ## Unreleased
 
+## 0.1.0a17 — 2026-09-28
+
+This alpha carries the reviewed native simulator source and accepted compiler
+fixes forward under a new version. Its plan/runtime contract is ABI v11; it
+does not reuse the published a16 tag.
+
 ### Added
 
 - Nightly Z3-backed standard-library contracts and a source- and JUnit-bound
   coverage inventory distinguish proven properties, bounded checks, partial
   coverage, and unverified declarations. These checks do not claim complete
   AXI4 or FIFO verification.
+- `zlang sim --compare-with iverilog|verilator` emits the normal direct
+  SystemVerilog implementation, drives the same event schedule, and compares
+  every physical output after every event with the native simulator.
 
 ### Fixed
 
@@ -25,6 +34,23 @@ incompatible input explicitly.
   copies. Compiler semantics and generated RTL are unchanged.
 - Community example inventory no longer silently excludes an 802.11ad
   experiment; the public source tree is explicitly checked to omit it.
+- Formal release checks use Z3 4.13.4 consistently with the executable
+  standard-library contract tests.
+
+### Validated
+
+- The native simulator and compiler complete bounded checks of the large
+  structural receive-shim source used in private regression review; the source
+  and its tests are not part of the Community release projection.
+
+### Compatibility
+
+- The separate native runtime wheel is version `0.1.0a17`. Its serialized plan
+  and runtime ABI advance to version 11; mixing older compiler/runtime packages
+  fails closed.
+- Native is the only simulation engine. The retired `reference`, `python`, and
+  `jit` selectors produce a migration diagnostic; independently generated RTL
+  can be checked with either Icarus Verilog or Verilator.
 
 ## 0.1.0a16 — 2026-09-25
 

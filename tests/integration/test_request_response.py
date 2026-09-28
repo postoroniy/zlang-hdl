@@ -2,7 +2,7 @@ from pathlib import Path
 import unittest
 
 from zlang.compiler import compile_source
-from zlang.simulate import (
+from zlang.native_simulation import (
     ProtocolViolation,
     simulate_request_response_cycles,
 )
@@ -116,7 +116,7 @@ class RequestResponseIntegrationTests(unittest.TestCase):
             "request_payload": {"id": 1, "data": 2},
             "issue": 1,
         }
-        with self.assertRaisesRegex(ProtocolViolation, "duplicate outstanding ID 1"):
+        with self.assertRaisesRegex(ProtocolViolation, "duplicate outstanding ID"):
             simulate_request_response_cycles(module, [first, duplicate])
 
         unknown = {
@@ -127,7 +127,7 @@ class RequestResponseIntegrationTests(unittest.TestCase):
                 {"id": 2, "data": 2}, response_valid=1
             ),
         }
-        with self.assertRaisesRegex(ProtocolViolation, "non-outstanding ID 2"):
+        with self.assertRaisesRegex(ProtocolViolation, "non-outstanding ID"):
             simulate_request_response_cycles(module, [first, unknown])
 
 

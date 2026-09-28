@@ -15,7 +15,7 @@ from zlang.ir.storage import MemoryCollision, MemoryPortKind
 from zlang.opt.lowering import CanonicalizationError, lower, restore
 from zlang.opt.capabilities import RewriteBarrier, module_rewrite_barriers
 from zlang.semantic.errors import SemanticError
-from zlang.simulate import simulate_multiclock_steps, simulate_storage_cycles
+from zlang.native_simulation import simulate_multiclock_steps, simulate_storage_cycles
 from zlang.targets import select_implementation_graph
 from zlang.toolchain import lint_with_verilator
 

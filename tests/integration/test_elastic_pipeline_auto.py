@@ -19,7 +19,7 @@ from zlang.formal import (
     run_verilog_formal,
 )
 from zlang.ir.formal import FormalStatus
-from zlang.simulate import simulate_cycles
+from zlang.native_simulation import simulate_cycles
 
 
 ROOT = Path(__file__).resolve().parents[2]

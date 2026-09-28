@@ -1,6 +1,6 @@
 # ZLang HDL Community Language Reference
 
-Version 0.1.0a16
+Version 0.1.0a17 (local candidate)
 
 This is the complete user-facing reference for the ZLang HDL Community compiler.
 The backend-independent typed IR defines language semantics, and Direct
@@ -219,7 +219,7 @@ Install other tools only for the workflows you actually use:
 | Workflow | Additional requirement | If it is missing |
 | --- | --- | --- |
 | `zlang SOURCE --check` and SystemVerilog emission | None beyond Python and `zlang-hdl` | Neither Verilator nor Yosys is needed; a missing compiler package or incompatible Python prevents `zlang` from starting. |
-| `zlang sim` (default native engine) | Matching `zlang-native-sim` wheel for the host | Native execution fails explicitly; `zlang sim --engine reference` remains available from the base package. |
+| `zlang sim` (native engine) | Matching `zlang-native-sim` wheel for the host | Simulation fails explicitly; compiler checking and RTL emission remain available. |
 | VS Code diagnostics and navigation | Bundled extension plus `zlang-lsp` from the base package | Compiler CLI still works, but editor integration does not start. |
 | Strict RTL lint or Verilator execution | `verilator` | RTL can still be emitted; lint and Verilator simulation cannot run. |
 | Generic synthesis | `yosys` | RTL can still be emitted; synthesis cannot run. |
@@ -344,10 +344,10 @@ not turn an unsupported binding or reset model into an executable property.
 <a id="reference-native-simulation"></a>
 ## Native simulation
 
-The default simulation engine compiles a bounded primitive bit-vector plan to
-native machine code with Cranelift. It does not generate SystemVerilog and does
-not invoke Verilator, a C/C++ compiler, or an external HDL simulator. The
-independent Python reference engine remains available as an explicit oracle:
+The simulation engine compiles a bounded primitive bit-vector plan to native
+machine code with Cranelift. It does not generate SystemVerilog or invoke an
+external HDL simulator during ordinary execution. There is one executable
+simulation semantics path:
 
 ```python
 from zlang import sim
@@ -358,9 +358,6 @@ instance.tick("clk")
 print(instance.get("y"))
 instance.close()
 
-reference = sim.load(
-    "examples/counter.zhl", top="Counter", engine="reference"
-)
 ```
 
 The command-line interface supports the same explicit engine choice:
@@ -370,7 +367,17 @@ zlang sim examples/counter.zhl --top Counter --engine native \
   --clock clk --cycles 100 --json
 zlang sim examples/multi_clock_stateful.zhl --top MultiClockStateful \
   --engine native --events events.jsonl --trace build/trace.vcd
+zlang sim examples/add.zhl --top Add --set a=200 --set b=55 \
+  --compare-with iverilog --compare-artifacts build/sim-compare --json
 ```
+
+`--compare-with iverilog` and `--compare-with verilator` emit the normal direct
+SystemVerilog artifact, execute it in the selected external simulator, and
+compare every physical output after every event. A mismatch, X/Z value,
+missing sample, tool failure, or timeout fails closed. Comparison artifacts
+are retained only when an empty `--compare-artifacts` directory is supplied.
+Sequential RTL must receive the same explicit reset events needed by physical
+hardware; use `--events` when comparing a resettable design.
 
 One instance is not thread-safe; independent instances may run concurrently.
 `eval()` changes no architectural state. `edge_many()` computes all next-state
@@ -381,10 +388,11 @@ immediately. Values are exact-width and are never silently truncated.
 <!-- native-simulation-limits:start -->
 Compilation fails closed when the primitive plan exceeds 32,768 nodes,
 32,768 cumulative packed node limbs, 16 MiB, an 8,192-bit packed value,
-a 512-bit arithmetic operand or a 512-bit memory cell.
+a 512-bit arithmetic operand or a single 8,192-bit memory cell.
 <!-- native-simulation-limits:end -->
-There is no silent
-fallback from `jit` to the reference or RTL engines. Unsupported external
+There is no silent fallback from native execution to an RTL simulator. The
+retired `reference`, `python`, and `jit` engine spellings produce deterministic
+migration diagnostics. Unsupported external
 stateful/protocol models remain unsupported instead of acquiring
 simulator-specific behavior.
 
@@ -392,14 +400,12 @@ The native executor is distributed only as audited `cp312-abi3` binary wheels:
 
 - `manylinux_2_28_x86_64`, used by Linux x86-64 and WSL2.
 
-The independent Python reference simulator remains available on supported
-Python platforms without a native wheel.
-
 The public source archive contains no Rust source, Cargo manifest/lockfile, Rust
 toolchain file, or native build output. The binary wheels carry Apache-2.0
 license and notice files, an exact locked third-party inventory, and a CycloneDX
 SBOM. The public compiler retains the versioned primitive-plan/packing/ABI
-contract and the independent reference executor needed to validate behavior.
+contract. Native behavior is validated against independently generated direct
+SystemVerilog through Icarus and Verilator rather than a second Python engine.
 
 <a id="reference-getting-started"></a>
 ## Getting started
@@ -1646,6 +1652,10 @@ async reset arst_n @clk { polarity active_low }
 ```
 
 Normal state transition resumes on the third edge after external deassertion.
+Use the externally synchronized release contract only when the external source
+already guarantees synchronous deassertion to this exact clock. It removes the
+internal 2FF while retaining asynchronous reset for state with a declared reset
+value.
 The low-level `reset ... { mode asynchronous ... }` spelling retains raw native
 deassertion for compatibility. Exact polarity, falling-edge behavior,
 hierarchical propagation, and unsupported formal/target routes are documented
@@ -1669,6 +1679,11 @@ Expressions read committed beginning-of-cycle state. All accepted `<-` updates
 become visible together at the active edge. A register without an accepted
 update holds. Reset restores the declared constant. Multiple unordered writers
 are rejected.
+
+The reset value is optional. `reg retained : u8` has no generated reset branch
+or reset sensitivity; its hardware value is unspecified until written. Native
+two-state simulation starts it from a deterministic zero seed for tool parity,
+which is not a power-up or reset guarantee in generated RTL.
 
 Control registers may use nominal enums. Reset and next-state values must be
 members of the exact same declaration, and an exhaustive enum `switch` is the
@@ -1958,6 +1973,14 @@ rule replace when rotate {
 
 Do not mix rule-owned actions with globally driven `.push`/`.pop` controls. An
 illegal resource action suppresses the whole rule.
+
+Rule scheduling selects the lexicographically highest-priority **legal atomic
+set**, not each rule independently. Thus a push on a full FIFO may fire with a
+compatible lower-priority pop on the same edge; a push alone remains blocked.
+The compiler constructs exact selection regions for empty, interior, and full
+occupancy without enumerating every count or rule subset. If exact scheduling
+exceeds its bounded work budget, compilation reports
+`ZL-STATE-SCHEDULER-LIMIT` rather than emitting an approximate circuit.
 
 <a id="reference-sequential-state-storage-writable-memories"></a>
 ### Writable memories
@@ -2344,6 +2367,34 @@ async reset arst_n @clk {
 }
 ```
 
+If reset deassertion is already synchronized to this exact clock outside the
+generated module, state that physical contract explicitly:
+
+```zlang
+clock clk
+async reset arst_n @clk {
+    polarity active_low
+    release externally_synchronized
+}
+```
+
+This retains asynchronous assertion for resettable state but emits no internal
+two-register release conditioner. The annotation is never inferred: every
+destination clock domain must receive a release synchronized to that clock.
+Omitting `release` retains the safe internal 2FF default.
+
+A register participates in reset only when it declares a reset value:
+
+```zlang
+reg control : u8 = 0 // asynchronous reset to zero
+reg datapath : u8    // no reset branch or reset sensitivity
+```
+
+The unreset register continues to accept enabled clocked updates while reset is
+asserted. Its RTL power-up value is unspecified until the design writes it.
+Native two-state simulation uses a deterministic zero startup seed, which is
+not a source-level power-up or reset guarantee.
+
 A falling-edge clock uses falling edges for the two release cycles as well.
 Polarity affects the external pin and generated RTL; the simulator still
 accepts a logical `True` for asserted reset.
@@ -2368,12 +2419,23 @@ they do not reinterpret the physical pin as active-high.
 <a id="reference-physical-clock-reset-contract-backend-lowering"></a>
 ### Backend lowering
 
-Direct-SV emits a deterministic two-register synchronizer marked
-with `ASYNC_REG` for the concise form. The top-level domain owns it and routes
-one conditioned reset through register/rule, FIFO, memory, CSR, protocol, and
-child state. A hierarchy does not create one synchronizer per sibling. A
-clocked but completely state-free module publishes the same physical contract
-without emitting an unused conditioner, because no reset epoch is consumed.
+Direct-SV emits a deterministic two-register synchronizer marked with
+`ASYNC_REG` for the unannotated concise form. The top-level domain owns it and
+routes one conditioned reset through register/rule, FIFO, memory, CSR,
+protocol, and child state. A hierarchy does not create one synchronizer per
+sibling. A clocked but completely state-free module publishes the same
+physical contract without emitting an unused conditioner, because no reset
+epoch is consumed.
+
+Within a composed artifact, each child receives the top's conditioned net and
+uses it directly as its asynchronous reset. Children and nested grandchildren
+never add another release conditioner, so hierarchy depth does not add reset
+release latency. The same reusable child compiled as a public top owns its own
+conditioner, because that compilation has a new external reset boundary.
+
+`release externally_synchronized` routes the external reset directly into the
+asynchronous event control of resettable state and emits no conditioner.
+Resetless registers use only the active clock event.
 
 The semantic simulator models each input item as one active edge. It therefore
 models immediate assertion at the sampled boundary and the exact two-edge
@@ -3138,6 +3200,10 @@ no AHB, AXI, APB, AXI-Stream, Wishbone, or RegBus transaction dispatcher.
 | `std.bus.reg` | `RegBus`, CSR bank/target | In-order request/response CSR boundary |
 | `std.bus.axi_lite` | `AXI4Lite`, `AXI4LiteToRegBus` | 32/32-compatible, independent AW/W buffering |
 | `std.bus.axi_burst` | `AXI4BurstSubset`, read/write views and helpers | No-ID, single-outstanding, full-width incrementing bursts |
+| `std.bus.axi4` | Five-channel `AXI4`/`AXI4WithUser`, bounded read/write managers | IDs, bursts and optional USER payloads; under validation |
+| `std.bus.axi4_subordinate` | Bounded read/write subordinate adapters | Backend transactions and responses; under validation |
+| `std.bus.axi4_pins` | Flat-pin adapters | Source-owned five-channel pin projection |
+| `std.bus.axi4_exclusive` | Reservation monitor and exclusive subordinate | Separate explicit same-edge commit contract; under validation |
 | `std.bus.apb` | `APB`, `APBToRegBus` | APB setup/access sequencing |
 | `std.bus.ahb_lite` | `AHBLite`, `AHBLiteToRegBus` | Single-manager, full-width AHB-Lite to RegBus |
 | `std.bus.axi_stream` | `AXIStream`, `AXIStreamPipe` | Data/keep/strb/last ready/valid stream |
@@ -3169,10 +3235,17 @@ resolver discovers `.zhl` modules by convention, resolves a deterministic
 dependency closure, rejects cycles and unsafe paths, and records every logical
 identity/content hash in semantic, canonical, and backend artifacts.
 
-Full AXI4 with IDs, multiple outstanding transactions, general burst kinds and
-sidebands, AXI-Stream ID/dest/user, Wishbone burst/retry, automatic adapters and
-CDC are deliberately not provided by these profiles. The narrower ZTPU burst
-profile described below is supported without claiming that broader surface.
+The AXI4 source modules include IDs, bounded outstanding slots, five independent
+channels, and optional USER sidebands. Directed and randomized tests cover
+stalls, repeated IDs, slot reuse, error responses, native simulation against
+generated Direct-SV, and direct-SystemVerilog generation. These checks do
+**not** establish complete
+external endpoint compliance: bounded formal endpoint proofs remain outstanding.
+The ordinary subordinate never emits `EXOKAY`; exclusive commit requires the
+separate `axi4_exclusive` contract and same-edge `exclusive_grant` gating.
+The narrower `axi_burst` profile remains distinct and unchanged. AXI-Stream
+ID/dest/user, Wishbone burst/retry, automatic adapters, and CDC are not added
+by these profiles.
 
 Runnable integrated examples are [AXI4-Lite CSR](../examples/axi_csr_top.zhl),
 [APB CSR](../examples/apb_csr_top.zhl),
@@ -6108,7 +6181,7 @@ the specific eligible relations rather than promising arbitrary proof.
 | `typed-static-parameters` | identity/cache participation; no new property family |
 | `generic-rom-and-table-gather` | existing storage safety only |
 | `sequential-state` | existing safety verification register/rule families retain one outer rule-fire observation |
-| `physical-clock-reset` | existing formal routes support exact rising/falling, synchronous/raw-asynchronous, polarity, and synchronized-release contracts when power_up is unspecified |
+| `physical-clock-reset` | existing formal routes support exact rising/falling, synchronous/raw-asynchronous, polarity, internal synchronized-release, and externally synchronized-release contracts when power_up is unspecified |
 | `multi-clock-stateful-logic` | source goals use exact per-goal domains; automatic state families remain bounded |
 | `encoded-enums-and-fsm` | no enum/FSM-specific property family |
 | `vector-state-update` | register safety where observable |
@@ -6136,7 +6209,7 @@ the specific eligible relations rather than promising arbitrary proof.
 ## Known limitations
 
 
-ZLang `0.1.0a16` is an experimental alpha release.  The compiler deliberately
+ZLang `0.1.0a17` is an experimental alpha candidate. The compiler deliberately
 fails closed when a design falls outside a validated language/backend
 intersection: it must not publish RTL after silently dropping an IR entity.
 

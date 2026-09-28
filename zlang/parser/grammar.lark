@@ -227,8 +227,10 @@ clock_physical_block: "{" _EDGE NAME "}"
 reset_decl: _RESET NAME [_AT NAME] [reset_physical_block]
 reset_physical_block: "{" _MODE NAME _POLARITY NAME _POWER_UP NAME "}"
 async_reset_decl: _ASYNC _RESET NAME [_AT NAME] [async_reset_physical_block]
-async_reset_physical_block: "{" _POLARITY NAME "}"
-register_decl: _REG NAME ":" type_name [_AT NAME] "=" source_expr
+async_reset_physical_block: "{" async_reset_physical_item+ "}"
+?async_reset_physical_item: _POLARITY NAME -> async_reset_polarity
+                          | _RELEASE NAME -> async_reset_release
+register_decl: _REG NAME ":" type_name [_AT NAME] ["=" source_expr]
 next_assignment: NAME _NEXT_ASSIGN source_expr
 rule_decl: _RULE NAME [_AT NAME] _WHEN source_expr action_block [conditional_else]
 anonymous_rule_decl: _WHEN source_expr action_block [conditional_else]
@@ -682,6 +684,7 @@ _EDGE.3: /edge(?![A-Za-z0-9_])/
 _MODE.3: /mode(?![A-Za-z0-9_])/
 _POLARITY.3: /polarity(?![A-Za-z0-9_])/
 _POWER_UP.3: /power_up(?![A-Za-z0-9_])/
+_RELEASE.3: /release(?![A-Za-z0-9_])/
 // Keep keyword matching from consuming the prefix of identifiers such as
 // `regbus`, which are valid ordinary source names.
 _REG.3: /reg(?![A-Za-z0-9_])/

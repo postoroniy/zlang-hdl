@@ -16,7 +16,7 @@ from zlang.ir.verification import (
     VerificationRequirement,
     VerificationScope,
 )
-from zlang.simulate import (
+from zlang.native_simulation import (
     SimulationError,
     VerificationAssertionError,
     VerificationMonitor,

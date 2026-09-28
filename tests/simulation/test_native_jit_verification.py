@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 import zlang.sim
-from zlang.simulate import VerificationAssertionError
+from zlang.native_simulation import VerificationAssertionError
 from zlang.simulation_plan import SimulationPlan, SimulationPlanError
 from tests.simulation.differential import run_differential
 
@@ -51,7 +51,7 @@ def test_verification_plan_is_generic_bounded_instrumentation() -> None:
         zlang.sim.compile(
             ROOT / "examples/verification/scoped_sum.zhl",
             top="ScopedSum",
-            engine="reference",
+            engine="native",
         )
         for _ in range(2)
     ]
@@ -68,31 +68,23 @@ def test_verification_plan_is_generic_bounded_instrumentation() -> None:
     )
 
 
-def test_requirements_and_covers_match_reference_and_native() -> None:
-    traces = []
-    for engine in ("reference", "jit"):
-        instance = zlang.sim.load(
-            ROOT / "examples/verification/scoped_sum.zhl",
-            top="ScopedSum",
-            engine=engine,
-        )
-        instance.reset("rst", asserted=True)
-        instance.edge("clk")
-        instance.reset("rst", asserted=False)
-        observations = []
-        for a, b in ((101, 1), (100, 100), (5, 6)):
-            instance.set("a", a)
-            instance.set("b", b)
-            observations.append((instance.edge("clk"), instance.drain_events()))
-        traces.append(
-            (
-                observations,
-                instance.requirement_violations,
-                instance.cover_witnesses,
-            )
-        )
-    assert traces[0] == traces[1]
-    observations, violations, witnesses = traces[0]
+def test_requirements_and_covers_are_cycle_exact() -> None:
+    instance = zlang.sim.load(
+        ROOT / "examples/verification/scoped_sum.zhl",
+        top="ScopedSum",
+        engine="native",
+    )
+    instance.reset("rst", asserted=True)
+    instance.edge("clk")
+    instance.reset("rst", asserted=False)
+    observations = []
+    for a, b in ((101, 1), (100, 100), (5, 6)):
+        instance.set("a", a)
+        instance.set("b", b)
+        observations.append((instance.edge("clk"), instance.drain_events()))
+    violations = instance.requirement_violations
+    witnesses = instance.cover_witnesses
+    instance.close()
     assert [item[0] for item in observations] == [
         {"total": 102},
         {"total": 200},
@@ -112,36 +104,32 @@ def test_requirements_and_covers_match_reference_and_native() -> None:
 
 
 def test_assertion_failure_is_source_attributed_and_does_not_commit() -> None:
-    results = []
-    for engine in ("reference", "jit"):
-        instance = zlang.sim.load(
-            ROOT / "examples/verification/rare_overflow_bug.zhl",
-            top="RareOverflowBug",
-            engine=engine,
-        )
-        instance.reset("rst", asserted=True)
-        instance.edge("clk")
-        instance.reset("rst", asserted=False)
-        instance.set("increment", 1)
-        instance.set("clear", 0)
-        instance.set("key", 0xC0DE_F00D_1234_5678)
-        with pytest.raises(VerificationAssertionError) as caught:
-            instance.run_cycles("clk", 11)
-        error = caught.value
-        events = instance.drain_events()
-        results.append(
-            (
-                error.goal_name,
-                error.goal_kind.value,
-                error.cycle,
-                error.source_origin.span.start_line,
-                error.hierarchy_path,
-                instance.get("value"),
-                events,
-            )
-        )
-    assert results[0] == results[1]
-    assert results[0][:6] == (
+    instance = zlang.sim.load(
+        ROOT / "examples/verification/rare_overflow_bug.zhl",
+        top="RareOverflowBug",
+        engine="native",
+    )
+    instance.reset("rst", asserted=True)
+    instance.edge("clk")
+    instance.reset("rst", asserted=False)
+    instance.set("increment", 1)
+    instance.set("clear", 0)
+    instance.set("key", 0xC0DE_F00D_1234_5678)
+    with pytest.raises(VerificationAssertionError) as caught:
+        instance.run_cycles("clk", 11)
+    error = caught.value
+    events = instance.drain_events()
+    result = (
+        error.goal_name,
+        error.goal_kind.value,
+        error.cycle,
+        error.source_origin.span.start_line,
+        error.hierarchy_path,
+        instance.get("value"),
+        events,
+    )
+    instance.close()
+    assert result[:6] == (
         "capacity",
         "assert",
         11,
@@ -149,27 +137,25 @@ def test_assertion_failure_is_source_attributed_and_does_not_commit() -> None:
         ("RareOverflowBug",),
         10,
     )
-    assert [event.category for event in results[0][6]] == ["assertion_failure"]
+    assert [event.category for event in result[6]] == ["assertion_failure"]
 
 
 def test_reset_suppresses_checks_and_cover_is_recorded_once(tmp_path: Path) -> None:
     source = _checked_source(tmp_path)
-    for engine in ("reference", "jit"):
-        instance = zlang.sim.load(source, top="Checked", engine=engine)
-        instance.set("ok", 0)
-        instance.reset("rst", asserted=True)
-        instance.edge("clk")
-        assert instance.drain_events() == ()
-        instance.reset("rst", asserted=False)
-        instance.set("ok", 1)
-        instance.edge("clk")
-        instance.edge("clk")
-        assert [(item.goal_name, item.cycle) for item in instance.cover_witnesses] == [
-            ("saw_ok", 1)
-        ]
-        assert [event.category for event in instance.drain_events()] == [
-            "cover_witness"
-        ]
+    instance = zlang.sim.load(source, top="Checked", engine="native")
+    instance.set("ok", 0)
+    instance.reset("rst", asserted=True)
+    instance.edge("clk")
+    assert instance.drain_events() == ()
+    instance.reset("rst", asserted=False)
+    instance.set("ok", 1)
+    instance.edge("clk")
+    instance.edge("clk")
+    assert [(item.goal_name, item.cycle) for item in instance.cover_witnesses] == [
+        ("saw_ok", 1)
+    ]
+    assert [event.category for event in instance.drain_events()] == ["cover_witness"]
+    instance.close()
 
 
 def test_child_verification_retains_hierarchical_provenance(tmp_path: Path) -> None:
@@ -196,23 +182,19 @@ module Top {
 """,
         encoding="utf-8",
     )
-    traces = []
-    for engine in ("reference", "jit"):
-        instance = zlang.sim.load(source, top="Top", engine=engine)
-        instance.reset("rst", asserted=True)
+    instance = zlang.sim.load(source, top="Top", engine="native")
+    instance.reset("rst", asserted=True)
+    instance.edge("clk")
+    instance.reset("rst", asserted=False)
+    instance.set("step", 2)
+    instance.edge("clk")
+    instance.edge("clk")
+    cover = instance.drain_events()
+    with pytest.raises(VerificationAssertionError) as caught:
         instance.edge("clk")
-        instance.reset("rst", asserted=False)
-        instance.set("step", 2)
-        instance.edge("clk")
-        instance.edge("clk")
-        cover = instance.drain_events()
-        with pytest.raises(VerificationAssertionError) as caught:
-            instance.edge("clk")
-        failure = instance.drain_events()
-        traces.append((cover, failure, caught.value.hierarchy_path))
-    assert traces[0] == traces[1]
-    assert traces[0][2] == ("Top", "child")
-    assert [event.hierarchy_path for event in (*traces[0][0], *traces[0][1])] == [
+    failure = instance.drain_events()
+    assert caught.value.hierarchy_path == ("Top", "child")
+    assert [event.hierarchy_path for event in (*cover, *failure)] == [
         ("Top", "child"),
         ("Top", "child"),
     ]
@@ -243,32 +225,22 @@ module MultiClockChecks {
 """,
         encoding="utf-8",
     )
-    traces = []
-    for engine in ("reference", "jit"):
-        instance = zlang.sim.load(source, top="MultiClockChecks", engine=engine)
-        instance.reset("control_rst", asserted=True)
-        instance.reset("datapath_rst", asserted=True)
-        instance.edge_many(["control_clk", "datapath_clk"])
-        instance.reset("control_rst", asserted=False)
-        instance.reset("datapath_rst", asserted=False)
-        instance.edge_many(["control_clk", "datapath_clk"])
-        instance.edge("datapath_clk")
-        cover = instance.drain_events()
-        instance.edge("control_clk")
-        before = instance.outputs()
-        with pytest.raises(VerificationAssertionError) as caught:
-            instance.edge_many(["datapath_clk", "control_clk"])
-        traces.append(
-            (
-                cover,
-                before,
-                instance.outputs(),
-                caught.value.clock,
-                instance.drain_events(),
-            )
-        )
-    assert traces[0] == traces[1]
-    cover, before, after, clock, failure = traces[0]
+    instance = zlang.sim.load(source, top="MultiClockChecks", engine="native")
+    instance.reset("control_rst", asserted=True)
+    instance.reset("datapath_rst", asserted=True)
+    instance.edge_many(["control_clk", "datapath_clk"])
+    instance.reset("control_rst", asserted=False)
+    instance.reset("datapath_rst", asserted=False)
+    instance.edge_many(["control_clk", "datapath_clk"])
+    instance.edge("datapath_clk")
+    cover = instance.drain_events()
+    instance.edge("control_clk")
+    before = instance.outputs()
+    with pytest.raises(VerificationAssertionError) as caught:
+        instance.edge_many(["datapath_clk", "control_clk"])
+    after = instance.outputs()
+    clock = caught.value.clock
+    failure = instance.drain_events()
     assert [(event.category, event.clock) for event in cover] == [
         ("cover_witness", "datapath_clk")
     ]
@@ -290,19 +262,19 @@ module AsyncResetChecks {
 """,
         encoding="utf-8",
     )
-    results = []
-    for engine in ("reference", "jit"):
-        instance = zlang.sim.load(source, top="AsyncResetChecks", engine=engine)
-        instance.set("ok", 0)
-        instance.reset("rst", asserted=True)
-        instance.reset("rst", asserted=False)
+    instance = zlang.sim.load(source, top="AsyncResetChecks", engine="native")
+    instance.set("ok", 0)
+    instance.reset("rst", asserted=True)
+    instance.reset("rst", asserted=False)
+    instance.edge("clk")
+    instance.edge("clk")
+    assert instance.drain_events() == ()
+    with pytest.raises(VerificationAssertionError) as caught:
         instance.edge("clk")
-        instance.edge("clk")
-        assert instance.drain_events() == ()
-        with pytest.raises(VerificationAssertionError) as caught:
-            instance.edge("clk")
-        results.append((caught.value.cycle, instance.drain_events()))
-    assert results[0] == results[1]
+    assert caught.value.cycle == 2
+    assert [event.category for event in instance.drain_events()] == [
+        "assertion_failure"
+    ]
 
 
 def test_passing_instrumented_design_matches_direct_sv(tmp_path: Path) -> None:
@@ -324,7 +296,7 @@ def test_passing_instrumented_design_matches_direct_sv(tmp_path: Path) -> None:
         ),
         directory=tmp_path / "rtl",
     )
-    assert trace.reference == trace.native == trace.direct_sv
+    assert trace.native == trace.direct_sv
 
 
 def test_malformed_instrumentation_fails_closed_in_both_decoders() -> None:
@@ -333,7 +305,7 @@ def test_malformed_instrumentation_fails_closed_in_both_decoders() -> None:
     plan = zlang.sim.compile(
         ROOT / "examples/verification/scoped_sum.zhl",
         top="ScopedSum",
-        engine="reference",
+        engine="native",
     ).plan
     invalid = deepcopy(plan.payload)
     invalid["edge_programs"][0]["probes"][0]["event"] = len(invalid["events"])

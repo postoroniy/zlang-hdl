@@ -318,6 +318,7 @@ class _Normalizer:
         single_use_inline_nodes: int,
         total_inline_nodes: int,
         inline_all_calls: bool,
+        expand_exact_reductions: bool,
     ) -> None:
         definitions = (*module.functions, *module.callable_definitions)
         self.by_identity = {item.callee_identity: item for item in definitions}
@@ -336,6 +337,7 @@ class _Normalizer:
         self.single_use_inline_nodes = single_use_inline_nodes
         self.remaining_inline_nodes = total_inline_nodes
         self.inline_all_calls = inline_all_calls
+        self.expand_exact_reductions = expand_exact_reductions
         # Retaining the input object beside its result prevents Python object
         # ID reuse while allowing each shared DAG node to be rewritten once.
         self.memo: dict[int, tuple[expr.Expression, expr.Expression]] = {}
@@ -370,6 +372,82 @@ class _Normalizer:
             self.expression_cache_hits += 1
             return cached[1]
         self.unique_expression_visits += 1
+        if self.expand_exact_reductions and isinstance(
+            value, expr.ImplementationChoice
+        ):
+            try:
+                selected = value.selected_alternative.expression
+            except (StopIteration, ValueError) as error:
+                raise SelectedValueNormalizationError(
+                    "simulation requires an extracted implementation choice"
+                ) from error
+            result = self.rewrite_expression(selected)
+            result = _with_origin(result, value.origin)
+            self.memo[object_id] = (value, result)
+            return result
+        if (
+            self.expand_exact_reductions
+            and isinstance(value, expr.Reduce)
+            and value.expanded is not None
+        ):
+            result = self.rewrite_expression(value.expanded)
+            result = _with_origin(result, value.origin)
+            self.memo[object_id] = (value, result)
+            return result
+        if (
+            self.expand_exact_reductions
+            and isinstance(value, expr.Reduce)
+            and value.plan is not None
+        ):
+            collection = self.rewrite_expression(value.collection)
+            current: list[expr.Expression] = [
+                expr.VectorIndex(
+                    collection,
+                    index,
+                    value.plan.leaf_type,
+                    origin=value.origin,
+                )
+                for index in range(value.plan.length)
+            ]
+            for level in value.plan.levels:
+                by_left = {item.left_index: item for item in level.operations}
+                next_values: list[expr.Expression] = []
+                index = 0
+                while index < len(current):
+                    operation = by_left.get(index)
+                    if operation is None:
+                        next_values.append(current[index])
+                        index += 1
+                        continue
+                    if operation.function is None:
+                        next_values.append(
+                            expr.Add(
+                                current[index],
+                                current[index + 1],
+                                operation.result_type,
+                                origin=value.origin,
+                            )
+                        )
+                    else:
+                        next_values.append(
+                            expr.Call(
+                                operation.function,
+                                (current[index], current[index + 1]),
+                                operation.result_type,
+                                operation.callee_identity,
+                                origin=value.origin,
+                            )
+                        )
+                    index += 2
+                current = next_values
+            if len(current) != 1:
+                raise SelectedValueNormalizationError(
+                    "exact reduction expansion did not produce one root"
+                )
+            result = self.rewrite_expression(current[0])
+            result = _with_origin(result, value.origin)
+            self.memo[object_id] = (value, result)
+            return result
         if isinstance(value, expr.Call):
             arguments = tuple(self.rewrite_expression(item) for item in value.arguments)
             call = replace(value, arguments=arguments)
@@ -491,6 +569,7 @@ def normalize_selected_values(
     total_inline_nodes: int = DEFAULT_TOTAL_INLINE_NODES,
     prune_callables: bool = True,
     inline_all_calls: bool = False,
+    expand_exact_reductions: bool = False,
 ) -> Module:
     """Fold exact pure calls and prune dead executable callables recursively."""
 
@@ -503,6 +582,7 @@ def normalize_selected_values(
             total_inline_nodes=total_inline_nodes,
             prune_callables=prune_callables,
             inline_all_calls=inline_all_calls,
+            expand_exact_reductions=expand_exact_reductions,
         )
         for child in module.children
     )
@@ -511,6 +591,7 @@ def normalize_selected_values(
         single_use_inline_nodes=single_use_inline_nodes,
         total_inline_nodes=total_inline_nodes,
         inline_all_calls=inline_all_calls,
+        expand_exact_reductions=expand_exact_reductions,
     )
     updates = {
         item.name: normalizer.rewrite_value(getattr(module, item.name))

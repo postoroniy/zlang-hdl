@@ -38,7 +38,7 @@ from zlang.ir import expressions as expr
 from zlang.ir.equivalence import EquivalenceCounterexample
 from zlang.ir.formal import FormalStatus, ProofMode
 from zlang.opt import canonical_ir_identity, lower, restore
-from zlang.simulate import simulate
+from zlang.native_simulation import simulate
 
 
 class _BoundVerifier:

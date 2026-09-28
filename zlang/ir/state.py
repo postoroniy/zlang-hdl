@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+from functools import lru_cache
 from itertools import product
 
+from zlang.diagnostics import DiagnosticError
 from zlang.ir.expressions import Expression
 from zlang.ir.types import BitType, HardwareType
 from zlang.source import SourceOrigin
@@ -42,6 +44,12 @@ class FifoOccupancy(str, Enum):
     EMPTY = "empty"
     MIDDLE = "middle"
     FULL = "full"
+
+
+class StateSelectionLimitError(DiagnosticError):
+    """Exact scheduling exceeded its bounded compiler work budget."""
+
+    default_code = "ZL-STATE-SCHEDULER-LIMIT"
 
 
 @dataclass(frozen=True)
@@ -296,48 +304,92 @@ def select_action_groups(
             and _active_actions(item, active)
         )
     )
-    if len(candidates) > 20:
-        raise ValueError("state transition supports at most 20 enabled rules")
-    resources = {item.semantic_id: item for item in transition.resources}
-
-    def legal(selected: tuple[ActionGroup, ...]) -> bool:
-        for index, left in enumerate(selected):
-            if any(
-                groups_conflict(left, right, active)
-                for right in selected[index + 1:]
+    # Without FIFOs, legality is solely pairwise conflict exclusion.  It is
+    # downward-closed, so selecting each highest-priority compatible group in
+    # order gives exactly the lexicographically maximal legal set.  Enumerating
+    # every subset here makes even a modest FSM exponential during backend
+    # scheduler-region construction.
+    if not any(
+        resource.kind is StateResourceKind.FIFO
+        for resource in transition.resources
+    ):
+        selected: list[ActionGroup] = []
+        for candidate in candidates:
+            if not any(
+                groups_conflict(candidate, prior, active)
+                for prior in selected
             ):
-                return False
-        fifo_actions: dict[str, set[StateActionKind]] = {}
-        for group in selected:
-            for action in _active_actions(group, active):
-                resource = resources[action.resource_id]
-                if resource.kind is StateResourceKind.FIFO:
-                    fifo_actions.setdefault(resource.name, set()).add(action.kind)
-        for resource in transition.resources:
-            if resource.kind is not StateResourceKind.FIFO:
-                continue
-            actions = fifo_actions.get(resource.name, set())
-            count = fifo_counts.get(resource.name, 0)
-            pop = StateActionKind.FIFO_POP in actions
-            push = StateActionKind.FIFO_PUSH in actions
-            if pop and count == 0:
-                return False
-            if push and resource.depth is not None and count >= resource.depth and not pop:
-                return False
-        return True
+                selected.append(candidate)
+        return tuple(item.rule_name for item in selected)
 
-    best: tuple[ActionGroup, ...] = ()
-    best_score: tuple[int, ...] | None = None
-    for mask in range(1 << len(candidates)):
-        selected = tuple(
-            item for index, item in enumerate(candidates) if mask & (1 << index)
+    resources = {item.semantic_id: item for item in transition.resources}
+    fifos = tuple(
+        item for item in transition.resources
+        if item.kind is StateResourceKind.FIFO
+    )
+    fifo_indices = {item.semantic_id: index for index, item in enumerate(fifos)}
+    empty = sum(
+        1 << index for index, item in enumerate(fifos)
+        if fifo_counts.get(item.name, 0) == 0
+    )
+    full = sum(
+        1 << index for index, item in enumerate(fifos)
+        if item.depth is not None and fifo_counts.get(item.name, 0) >= item.depth
+    )
+    conflicts = tuple(
+        sum(
+            1 << later for later in range(index + 1, len(candidates))
+            if groups_conflict(group, candidates[later], active)
         )
-        if not legal(selected):
-            continue
-        score = tuple(int(item in selected) for item in candidates)
-        if best_score is None or score > best_score:
-            best, best_score = selected, score
-    return tuple(item.rule_name for item in best)
+        for index, group in enumerate(candidates)
+    )
+    effects: list[tuple[int, int]] = []
+    for group in candidates:
+        pushes = pops = 0
+        for action in _active_actions(group, active):
+            if resources[action.resource_id].kind is not StateResourceKind.FIFO:
+                continue
+            bit = 1 << fifo_indices[action.resource_id]
+            if action.kind is StateActionKind.FIFO_PUSH:
+                pushes |= bit
+            elif action.kind is StateActionKind.FIFO_POP:
+                pops |= bit
+        effects.append((pushes, pops))
+
+    # Legality is not downward-closed: a lower-priority pop may make a
+    # higher-priority push legal on a full FIFO.  Try the lexicographically
+    # preferred inclusion first, but accept it only if a legal suffix exists.
+    work = 0
+
+    @lru_cache(maxsize=None)
+    def suffix(
+        index: int, blocked: int, pushes: int, pops: int,
+    ) -> tuple[int, ...] | None:
+        nonlocal work
+        work += 1
+        if work > 100_000:
+            raise StateSelectionLimitError(
+                "state scheduler exceeds 100000 exact selection states",
+                primary=candidates[0].source_origin if candidates else None,
+            )
+        if index == len(candidates):
+            return () if not (pushes & full & ~pops) else None
+        if not (blocked & (1 << index)):
+            next_pushes, next_pops = effects[index]
+            if not (next_pops & empty):
+                chosen = suffix(
+                    index + 1,
+                    blocked | conflicts[index],
+                    pushes | next_pushes,
+                    pops | next_pops,
+                )
+                if chosen is not None:
+                    return (index, *chosen)
+        return suffix(index + 1, blocked, pushes, pops)
+
+    chosen = suffix(0, 0, 0, 0)
+    assert chosen is not None  # The empty set is always legal.
+    return tuple(candidates[index].rule_name for index in chosen)
 
 
 def selection_cubes(
@@ -413,121 +465,394 @@ def selection_cubes(
     return tuple(sorted(result, key=lambda cube: tuple(-1 if item is None else int(item) for item in cube)))
 
 
-def selection_regions(
-    transition: ResolvedTransition, rule_name: str
-) -> tuple[tuple[FifoOccupancy | bool | None, ...], ...]:
-    """Return exact scheduler regions without enumerating every FIFO count.
+class _SchedulerBdd:
+    """Bounded, per-transition Boolean decisions; no process-wide cache."""
 
-    FIFO legality depends only on ``count == 0`` and ``count == depth``.  The
-    old truth-table helper remains available for compatibility and semantic
-    tests; emitters use this depth-independent form so a depth-32 FIFO does not
-    generate tens of thousands of repeated count comparisons.
-    """
+    def __init__(
+        self, terminal_axis: int, origin: SourceOrigin | None,
+        selection_axes: tuple[int, ...] = (),
+    ) -> None:
+        self.origin = origin
+        self.selection_axis_index = {
+            axis: index for index, axis in enumerate(selection_axes)
+        }
+        self.nodes = [(terminal_axis, 0, 0), (terminal_axis, 1, 1)]
+        self.unique: dict[tuple[int, int, int], int] = {}
+        self.apply_cache: dict[tuple[str, int, int], int] = {}
+        self.not_cache = {0: 1, 1: 0}
+        self.cofactor_cache: dict[tuple[int, int, bool], int] = {}
+        self.exists_cache: dict[tuple[int, int], int] = {}
 
+    def node(self, axis: int, low: int, high: int) -> int:
+        if low == high:
+            return low
+        key = (axis, low, high)
+        if key not in self.unique:
+            if len(self.nodes) >= 100_000:
+                raise StateSelectionLimitError(
+                    "state scheduler exceeds 100000 symbolic nodes",
+                    primary=self.origin,
+                )
+            self.unique[key] = len(self.nodes)
+            self.nodes.append(key)
+        return self.unique[key]
+
+    def variable(self, axis: int) -> int:
+        return self.node(axis, 0, 1)
+
+    def negate(self, value: int) -> int:
+        if value not in self.not_cache:
+            axis, low, high = self.nodes[value]
+            self.not_cache[value] = self.node(
+                axis, self.negate(low), self.negate(high)
+            )
+        return self.not_cache[value]
+
+    def apply(self, operation: str, left: int, right: int) -> int:
+        if operation == "and":
+            if left == 0 or right == 0:
+                return 0
+            if left == 1:
+                return right
+            if right == 1:
+                return left
+        else:
+            if left == 1 or right == 1:
+                return 1
+            if left == 0:
+                return right
+            if right == 0:
+                return left
+        if left == right:
+            return left
+        key = (operation, min(left, right), max(left, right))
+        if key not in self.apply_cache:
+            axis = min(self.nodes[left][0], self.nodes[right][0])
+            left_low, left_high = (
+                self.nodes[left][1:] if self.nodes[left][0] == axis
+                else (left, left)
+            )
+            right_low, right_high = (
+                self.nodes[right][1:] if self.nodes[right][0] == axis
+                else (right, right)
+            )
+            self.apply_cache[key] = self.node(
+                axis,
+                self.apply(operation, left_low, right_low),
+                self.apply(operation, left_high, right_high),
+            )
+            if len(self.apply_cache) > 500_000:
+                raise StateSelectionLimitError(
+                    "state scheduler exceeds 500000 symbolic operations",
+                    primary=self.origin,
+                )
+        return self.apply_cache[key]
+
+    def cofactor(self, value: int, axis: int, choice: bool) -> int:
+        key = (value, axis, choice)
+        if key not in self.cofactor_cache:
+            current, low, high = self.nodes[value]
+            if current >= axis:
+                result = (high if choice else low) if current == axis else value
+            else:
+                result = self.node(
+                    current,
+                    self.cofactor(low, axis, choice),
+                    self.cofactor(high, axis, choice),
+                )
+            self.cofactor_cache[key] = result
+            if len(self.cofactor_cache) > 500_000:
+                raise StateSelectionLimitError(
+                    "state scheduler exceeds 500000 symbolic cofactors",
+                    primary=self.origin,
+                )
+        return self.cofactor_cache[key]
+
+    def exists_choices(self, value: int, first_index: int) -> int:
+        key = (value, first_index)
+        if key not in self.exists_cache:
+            current, low, high = self.nodes[value]
+            if value < 2:
+                result = value
+            elif self.selection_axis_index.get(current, -1) >= first_index:
+                result = self.apply(
+                    "or", self.exists_choices(low, first_index),
+                    self.exists_choices(high, first_index),
+                )
+            else:
+                result = self.node(
+                    current, self.exists_choices(low, first_index),
+                    self.exists_choices(high, first_index),
+                )
+            self.exists_cache[key] = result
+            if len(self.exists_cache) > 500_000:
+                raise StateSelectionLimitError(
+                    "state scheduler exceeds 500000 symbolic projections",
+                    primary=self.origin,
+                )
+        return self.exists_cache[key]
+
+
+def selection_regions_for_transition(
+    transition: ResolvedTransition,
+) -> dict[str, tuple[tuple[FifoOccupancy | bool | None, ...], ...]]:
+    """Compute all exact priority-maximal fire regions once per transition."""
+
+    groups = ordered_groups(transition)
     fifos = tuple(
         item for item in transition.resources
         if item.kind is StateResourceKind.FIFO
     )
-    groups = ordered_groups(transition)
-    fifo_domains: tuple[tuple[FifoOccupancy, ...], ...] = tuple(
-        (
-            (FifoOccupancy.EMPTY, FifoOccupancy.FULL)
-            if item.depth == 1
-            else (
-                FifoOccupancy.EMPTY,
-                FifoOccupancy.MIDDLE,
-                FifoOccupancy.FULL,
-            )
+    predicates = conditional_activation_predicates(transition)
+    if len(groups) > 256:
+        raise StateSelectionLimitError(
+            "state scheduler exceeds 256 action groups",
+            primary=groups[0].source_origin,
         )
-        for item in fifos
-    )
-    conditional = conditional_actions(transition)
-    activation_predicates = conditional_activation_predicates(transition)
-    activation_indices = {
-        action.semantic_id: activation_predicates.index(action.activation)
-        for action in conditional
-    }
-    domains: tuple[tuple[FifoOccupancy | bool, ...], ...] = (
-        *fifo_domains,
-        *((False, True) for _ in groups),
-        *((False, True) for _ in activation_predicates),
-    )
-    regions: set[tuple[FifoOccupancy | bool | None, ...]] = set()
-    for values in product(*domains):
-        counts = {
-            fifo.name: (
-                0
-                if values[index] is FifoOccupancy.EMPTY
-                else (
-                    fifo.depth or 0
-                    if values[index] is FifoOccupancy.FULL
-                    else 1
+    if not fifos and not predicates:
+        guard_regions = {}
+        total_regions = 0
+        for group in groups:
+            regions = _guard_only_selection_regions(groups, group.rule_name)
+            total_regions += len(regions)
+            if total_regions > 20_000:
+                raise StateSelectionLimitError(
+                    "state scheduler exceeds 20000 exact regions in one transition",
+                    primary=group.source_origin,
                 )
-            )
-            for index, fifo in enumerate(fifos)
-        }
-        guards = {
-            group.rule_name: bool(values[len(fifos) + index])
-            for index, group in enumerate(groups)
-        }
-        activation_offset = len(fifos) + len(groups)
-        activations = {
-            action.semantic_id: bool(values[
-                activation_offset
-                + activation_indices[action.semantic_id]
-            ])
-            for action in conditional
-        }
-        if rule_name in select_action_groups(
-            transition, guards, counts, activations
-        ):
-            regions.add(tuple(values))
+            guard_regions[group.rule_name] = regions
+        return guard_regions
 
-    changed = True
-    while changed:
-        changed = False
-        for dimension, domain in enumerate(domains):
-            buckets: dict[
-                tuple[object, ...],
-                list[tuple[FifoOccupancy | bool | None, ...]],
-            ] = {}
-            for region in regions:
-                if region[dimension] is None:
-                    continue
-                key = region[:dimension] + region[dimension + 1:]
-                buckets.setdefault(key, []).append(region)
-            replacements: list[
-                tuple[
-                    set[tuple[FifoOccupancy | bool | None, ...]],
-                    tuple[FifoOccupancy | bool | None, ...],
-                ]
-            ] = []
-            for key, members in buckets.items():
-                if {item[dimension] for item in members} == set(domain):
-                    replacement = key[:dimension] + (None,) + key[dimension:]
-                    replacements.append((set(members), replacement))
-            if replacements:
-                for removed, replacement in replacements:
-                    regions.difference_update(removed)
-                    regions.add(replacement)
-                changed = True
+    fifo_axes: list[tuple[int, ...]] = []
+    axis = 0
+    for fifo in fifos:
+        width = 1 if fifo.depth == 1 else 2
+        fifo_axes.append(tuple(range(axis, axis + width)))
+        axis += width
+    activation_axes = tuple(range(axis, axis + len(predicates)))
+    group_start = axis + len(predicates)
+    guard_axes = tuple(group_start + 2 * index for index in range(len(groups)))
+    selection_axes = tuple(axis + 1 for axis in guard_axes)
+    terminal_axis = group_start + 2 * len(groups)
+    if terminal_axis > 256:
+        raise StateSelectionLimitError(
+            "state scheduler exceeds 256 decision variables",
+            primary=groups[0].source_origin if groups else None,
+        )
+    bdd = _SchedulerBdd(
+        terminal_axis,
+        groups[0].source_origin if groups else None,
+        selection_axes,
+    )
 
-    result = []
-    for region in regions:
-        if any(
-            other != region
-            and all(a is None or a == b for a, b in zip(other, region, strict=True))
-            for other in regions
-        ):
-            continue
-        result.append(region)
+    def land(left: int, right: int) -> int:
+        return bdd.apply("and", left, right)
+
+    def lor(left: int, right: int) -> int:
+        return bdd.apply("or", left, right)
+
+    fifo_index = {fifo.semantic_id: index for index, fifo in enumerate(fifos)}
+    action_active = {
+        action.semantic_id: (
+            1 if action.activation is None else
+            bdd.variable(activation_axes[predicates.index(action.activation)])
+        )
+        for group in groups for action in group.actions
+    }
+    selected = [bdd.variable(axis) for axis in selection_axes]
+    formula = 1
+    empty: list[int] = []
+    full: list[int] = []
+    for axes in fifo_axes:
+        if len(axes) == 1:
+            full.append(bdd.variable(axes[0]))
+            empty.append(bdd.negate(full[-1]))
+        else:
+            empty.append(bdd.variable(axes[0]))
+            full.append(bdd.variable(axes[1]))
+            formula = land(formula, bdd.negate(land(empty[-1], full[-1])))
+
+    pushes = [0] * len(fifos)
+    pops = [0] * len(fifos)
+    for index, group in enumerate(groups):
+        active = 0
+        for action in group.actions:
+            condition = action_active[action.semantic_id]
+            active = lor(active, condition)
+            if action.resource_id in fifo_index:
+                fifo = fifo_index[action.resource_id]
+                effect = land(selected[index], condition)
+                if action.kind is StateActionKind.FIFO_PUSH:
+                    pushes[fifo] = lor(pushes[fifo], effect)
+                elif action.kind is StateActionKind.FIFO_POP:
+                    pops[fifo] = lor(pops[fifo], effect)
+        enabled = land(bdd.variable(guard_axes[index]), active)
+        formula = land(formula, lor(bdd.negate(selected[index]), enabled))
+        for earlier in range(index):
+            conflict = 0
+            for left in groups[earlier].actions:
+                for right in group.actions:
+                    if actions_conflict(left, right):
+                        conflict = lor(
+                            conflict,
+                            land(
+                                action_active[left.semantic_id],
+                                action_active[right.semantic_id],
+                            ),
+                        )
+            if conflict:
+                formula = land(
+                    formula,
+                    bdd.negate(land(land(selected[earlier], selected[index]), conflict)),
+                )
+    for index in range(len(fifos)):
+        formula = land(formula, lor(bdd.negate(pops[index]), bdd.negate(empty[index])))
+        formula = land(
+            formula,
+            lor(bdd.negate(pushes[index]), lor(bdd.negate(full[index]), pops[index])),
+        )
+
+    fire_functions: list[int] = []
+    for index in range(len(groups)):
+        choice_axis = selection_axes[index]
+        yes = bdd.cofactor(formula, choice_axis, True)
+        no = bdd.cofactor(formula, choice_axis, False)
+        can_choose = bdd.exists_choices(yes, index + 1)
+        fire_functions.append(can_choose)
+        formula = lor(land(can_choose, yes), land(bdd.negate(can_choose), no))
 
     order = {
-        None: -1,
-        False: 0,
-        True: 1,
+        None: -1, False: 0, True: 1,
         FifoOccupancy.EMPTY: 2,
         FifoOccupancy.MIDDLE: 3,
         FifoOccupancy.FULL: 4,
     }
-    return tuple(sorted(result, key=lambda item: tuple(order[value] for value in item)))
+    result = {}
+    total_regions = 0
+    for group, root in zip(groups, fire_functions, strict=True):
+        regions: set[tuple[FifoOccupancy | bool | None, ...]] = set()
+        assignment: dict[int, bool] = {}
+
+        def collect(value: int) -> None:
+            nonlocal total_regions
+            if value == 0:
+                return
+            if value == 1:
+                choices: list[tuple[FifoOccupancy | None, ...]] = []
+                for fifo, axes in zip(fifos, fifo_axes, strict=True):
+                    states = (
+                        ((FifoOccupancy.EMPTY, (False,)),
+                         (FifoOccupancy.FULL, (True,)))
+                        if fifo.depth == 1 else
+                        ((FifoOccupancy.EMPTY, (True, False)),
+                         (FifoOccupancy.MIDDLE, (False, False)),
+                         (FifoOccupancy.FULL, (False, True)))
+                    )
+                    matching = tuple(
+                        state for state, bits in states
+                        if all(
+                            axis not in assignment or assignment[axis] == bit
+                            for axis, bit in zip(axes, bits, strict=True)
+                        )
+                    )
+                    if not matching:
+                        return
+                    choices.append((None,) if len(matching) == len(states) else matching)
+                tail = tuple(
+                    assignment.get(axis)
+                    for axis in (*guard_axes, *activation_axes)
+                )
+                for occupancy in product(*choices):
+                    region = (*occupancy, *tail)
+                    if region not in regions:
+                        regions.add(region)
+                        total_regions += 1
+                    if total_regions > 20_000:
+                        raise StateSelectionLimitError(
+                            "state scheduler exceeds 20000 exact regions in one transition",
+                            primary=group.source_origin,
+                        )
+                return
+            axis, low, high = bdd.nodes[value]
+            assignment[axis] = False
+            collect(low)
+            assignment[axis] = True
+            collect(high)
+            del assignment[axis]
+
+        collect(root)
+        result[group.rule_name] = tuple(
+            sorted(regions, key=lambda region: tuple(order[item] for item in region))
+        )
+    return result
+
+
+def selection_regions(
+    transition: ResolvedTransition, rule_name: str,
+) -> tuple[tuple[FifoOccupancy | bool | None, ...], ...]:
+    """Return exact occupancy/guard/activation regions for one rule."""
+    return selection_regions_for_transition(transition).get(rule_name, ())
+
+
+def _guard_only_selection_regions(
+    groups: tuple[ActionGroup, ...], rule_name: str
+) -> tuple[tuple[bool | None, ...], ...]:
+    """Build exact priority selections without a 2**rules truth table.
+
+    With no FIFO occupancy or conditional effects, only guards and pairwise
+    conflicts influence selection.  Each group's fire function is its guard
+    conjoined with the absence of any already-selected conflicting group.
+    A reduced ordered Boolean decision diagram shares those functions and
+    yields deterministic disjoint regions directly.
+    """
+
+    if not any(group.rule_name == rule_name for group in groups):
+        return ()
+
+    bdd = _SchedulerBdd(len(groups), groups[0].source_origin)
+
+    fires: list[int] = []
+    for index, group in enumerate(groups):
+        blockers = 0
+        for prior, prior_fire in zip(groups[:index], fires, strict=True):
+            if groups_conflict(group, prior):
+                blockers = bdd.apply("or", blockers, prior_fire)
+        fires.append(
+            bdd.apply(
+                "and", bdd.variable(index), bdd.negate(blockers)
+            )
+            if group.actions else 0
+        )
+
+    target = next(
+        fire for group, fire in zip(groups, fires, strict=True)
+        if group.rule_name == rule_name
+    )
+    values: list[bool | None] = [None] * len(groups)
+    regions: list[tuple[bool | None, ...]] = []
+
+    def collect(value: int) -> None:
+        if value == 0:
+            return
+        if value == 1:
+            regions.append(tuple(values))
+            if len(regions) > 20_000:
+                raise StateSelectionLimitError(
+                    "state scheduler exceeds 20000 exact regions",
+                    primary=groups[0].source_origin,
+                )
+            return
+        axis, low, high = bdd.nodes[value]
+        values[axis] = False
+        collect(low)
+        values[axis] = True
+        collect(high)
+        values[axis] = None
+
+    collect(target)
+    return tuple(
+        sorted(
+            regions,
+            key=lambda region: tuple(-1 if value is None else int(value) for value in region),
+        )
+    )

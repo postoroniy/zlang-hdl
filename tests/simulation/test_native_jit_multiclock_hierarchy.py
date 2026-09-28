@@ -101,7 +101,7 @@ EVENTS = (
 
 
 @pytest.mark.parametrize("nested", (False, True))
-def test_multiclock_child_matches_reference_native_and_direct_sv(
+def test_multiclock_child_matches_native_and_direct_sv(
     tmp_path: Path,
     nested: bool,
 ) -> None:
@@ -113,7 +113,7 @@ def test_multiclock_child_matches_reference_native_and_direct_sv(
         directory=tmp_path / ("nested_rtl" if nested else "direct_rtl"),
     )
 
-    assert trace.reference == trace.native == trace.direct_sv
+    assert trace.native == trace.direct_sv
     assert trace.native[-1]["synced"] == 1
 
 
@@ -121,8 +121,8 @@ def test_multiclock_hierarchy_plan_has_only_root_domains_and_primitives(
     tmp_path: Path,
 ) -> None:
     source = _cdc_level_hierarchy(tmp_path, nested=True)
-    first = zlang.sim.compile(source, top="CdcTop", engine="reference").plan
-    second = zlang.sim.compile(source, top="CdcTop", engine="reference").plan
+    first = zlang.sim.compile(source, top="CdcTop", engine="native").plan
+    second = zlang.sim.compile(source, top="CdcTop", engine="native").plan
 
     assert first.to_bytes() == second.to_bytes()
     assert first.payload["canonical_ir_identity"].startswith("hierarchical:")
@@ -144,7 +144,7 @@ def test_multiclock_hierarchy_plan_has_only_root_domains_and_primitives(
     } & {item["op"] for item in first.payload["nodes"]}
 
 
-def test_async_fifo_child_matches_reference_native_and_direct_sv(
+def test_async_fifo_child_matches_native_and_direct_sv(
     tmp_path: Path,
 ) -> None:
     source = _async_fifo_hierarchy(tmp_path)
@@ -180,7 +180,7 @@ def test_async_fifo_child_matches_reference_native_and_direct_sv(
         directory=tmp_path / "async_fifo_rtl",
     )
 
-    assert trace.reference == trace.native == trace.direct_sv
+    assert trace.native == trace.direct_sv
     transferred = [
         item["destination_payload"]
         for item in trace.native

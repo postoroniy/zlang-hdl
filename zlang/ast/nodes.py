@@ -1271,7 +1271,8 @@ class GenerateBlock:
 class RegisterDecl:
     name: str
     type_name: TypeSyntax
-    initial: Expression
+    # An omitted value means that this physical register has no reset branch.
+    initial: Expression | None
     domain: str | None = None
     # Exact declaration/name spans are tooling metadata only.  Appending them
     # keeps existing positional construction and semantic AST identity stable.

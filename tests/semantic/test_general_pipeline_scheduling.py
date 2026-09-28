@@ -16,7 +16,7 @@ from zlang.pipeline_scheduling import (
     erase_pipeline_timing,
 )
 from zlang.semantic import SemanticError
-from zlang.simulate import simulate_cycles
+from zlang.native_simulation import simulate_cycles
 from zlang.timing import timing_info
 from zlang.targets import load_target
 

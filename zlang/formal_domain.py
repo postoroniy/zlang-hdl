@@ -207,7 +207,7 @@ def render_formal_domain(
     )
     initial_assumption = f"initial assume({external_asserted});"
 
-    if domain.reset_release_mode is ResetReleaseMode.NATIVE:
+    if domain.reset_release_mode is not ResetReleaseMode.SYNCHRONIZED:
         if domain.reset_polarity is ResetPolarity.ACTIVE_LOW:
             identity = _contract_identity(
                 domain,

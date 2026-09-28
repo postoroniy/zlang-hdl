@@ -28,7 +28,7 @@ from zlang.ir.types import FixedType
 from zlang.opt import OptimizationStage, lower, restore
 from zlang.parser import parse
 from zlang.semantic import analyze
-from zlang.simulate import simulate_cycles
+from zlang.native_simulation import simulate_cycles
 from zlang.toolchain import lint_with_verilator
 
 

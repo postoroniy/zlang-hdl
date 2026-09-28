@@ -59,6 +59,17 @@ def _field_state_name(
     return f"$zlang_csr_state:{identity}"
 
 
+def csr_field_state_register_name(
+    block_index: int,
+    register_index: int,
+    field_index: int,
+    field: ir_csr.CsrField,
+) -> str:
+    """Return the compiler-owned primitive register for one stored CSR field."""
+
+    return _field_state_name(block_index, register_index, field_index, field)
+
+
 def _stored(access: ir_csr.CsrAccess) -> bool:
     return ir_csr.access_owns_state(access)
 

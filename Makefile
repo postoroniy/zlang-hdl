@@ -46,11 +46,11 @@ public-check:
 	if [[ -f tools/public_tree.py ]]; then
 		public_root="$$(mktemp -d "$${TMPDIR:-/tmp}/zlang-public-check.XXXXXX")"
 		trap 'rm -rf -- "$$public_root"' EXIT
-		$(PYTHON) tools/public_tree.py export --source . --destination "$$public_root"
-		$(PYTHON) tools/public_tree.py check-export --source "$$public_root" --config "$(CURDIR)/release/public-tree.toml"
-		$(PYTHON) "$$public_root/tools/release_status.py" check --root "$$public_root" --tag "$(TAG)"
+		PYTHONPATH="$(CURDIR)" $(PYTHON) tools/public_tree.py export --source . --destination "$$public_root"
+		PYTHONPATH="$$public_root" $(PYTHON) tools/public_tree.py check-export --source "$$public_root" --config "$(CURDIR)/release/public-tree.toml"
+		PYTHONPATH="$$public_root" $(PYTHON) "$$public_root/tools/release_status.py" check --root "$$public_root" --tag "$(TAG)"
 	else
-		$(PYTHON) tools/release_status.py check --root . --tag "$(TAG)"
+		PYTHONPATH="$(CURDIR)" $(PYTHON) tools/release_status.py check --root . --tag "$(TAG)"
 	fi
 
 static:
@@ -77,7 +77,7 @@ jit-audit:
 		if [[ -n "$${ZLANG_NATIVE_RUNTIME_WHEEL:-}" ]]; then
 			arguments+=(--wheel "$$ZLANG_NATIVE_RUNTIME_WHEEL")
 		fi
-		$(PYTHON) tools/audit_native_runtime.py "$${arguments[@]}"
+		$(PYTHON) -m tools.audit_native_runtime "$${arguments[@]}"
 	else
 		wheel="$${ZLANG_NATIVE_RUNTIME_WHEEL:-}"
 		if [[ -z "$$wheel" ]]; then
@@ -125,11 +125,11 @@ release-tools:
 	if [[ -f tools/public_tree.py ]]; then
 		public_root="$$(mktemp -d "$${TMPDIR:-/tmp}/zlang-public-tools.XXXXXX")"
 		trap 'rm -rf -- "$$public_root"' EXIT
-		$(PYTHON) tools/public_tree.py export --source . --destination "$$public_root"
-		$(PYTHON) "$$public_root/tools/release_status.py" check \
+		PYTHONPATH="$(CURDIR)" $(PYTHON) tools/public_tree.py export --source . --destination "$$public_root"
+		PYTHONPATH="$$public_root" $(PYTHON) "$$public_root/tools/release_status.py" check \
 			--root "$$public_root" --check-tools --tag "$(TAG)"
 	else
-		$(PYTHON) tools/release_status.py check --root . --check-tools --tag "$(TAG)"
+		PYTHONPATH="$(CURDIR)" $(PYTHON) tools/release_status.py check --root . --check-tools --tag "$(TAG)"
 	fi
 
 test-fast:
@@ -197,6 +197,7 @@ test-release-twice:
 	"$$python_bin" "$$public_root/tools/materialize_native_test_extension.py" \
 		"$${native_wheels[0]}" "$$public_root"
 	cd "$$public_root"
+	export PYTHONPATH="$$public_root"
 	"$$python_bin" -m pytest -p tools.pytest_no_skips \
 		-n "$(WORKERS)" --dist=loadscope -q --junitxml="$$report_root/release-1.xml"
 	"$$python_bin" tools/release_status.py check \
@@ -265,7 +266,7 @@ package:
 			-maxdepth 1 -type f -name 'zlang_native_sim-*.whl' -print)
 		test "$${#native_first[@]}" -eq 1 && test "$${#native_second[@]}" -eq 1
 		cmp -- "$${native_first[0]}" "$${native_second[0]}"
-		$(PYTHON) tools/audit_native_runtime.py --root native-runtime \
+		$(PYTHON) -m tools.audit_native_runtime --root native-runtime \
 			--wheel "$${native_first[0]}"
 		cp -- "$${native_first[0]}" "$(DIST_DIR)/"
 	else

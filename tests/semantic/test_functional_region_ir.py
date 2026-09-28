@@ -58,7 +58,7 @@ from zlang.opt.lowering import (
     restore,
     restore_expression,
 )
-from zlang.simulate import simulate
+from zlang.native_simulation import simulate
 
 
 U8 = UIntType(8)

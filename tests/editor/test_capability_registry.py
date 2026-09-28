@@ -26,7 +26,7 @@ def _compile_witness(source_path: str, top: str):
 
 
 def test_registry_is_versioned_unique_and_deterministic() -> None:
-    assert CAPABILITY_REGISTRY.schema_version == 29
+    assert CAPABILITY_REGISTRY.schema_version == 30
     assert CAPABILITY_REGISTRY.production_backend == "direct_systemverilog"
     surface = CAPABILITY_REGISTRY.editor_surface()
     assert tuple(surface) == ("keywords", "types", "intrinsics", "modes", "operators")
@@ -179,7 +179,10 @@ def test_domain_is_semantic_terminology_not_a_source_keyword() -> None:
 
 
 def test_physical_domain_and_tagged_union_spellings_are_registry_owned() -> None:
-    assert {"union", "match", "async", "edge", "mode", "polarity", "power_up"} <= set(
+    assert {
+        "union", "match", "async", "edge", "mode", "polarity", "power_up",
+        "release",
+    } <= set(
         CAPABILITY_REGISTRY.keywords
     )
     assert {
@@ -189,6 +192,7 @@ def test_physical_domain_and_tagged_union_spellings_are_registry_owned() -> None
         "asynchronous",
         "active_high",
         "active_low",
+        "externally_synchronized",
         "unspecified",
     } <= set(CAPABILITY_REGISTRY.modes)
 

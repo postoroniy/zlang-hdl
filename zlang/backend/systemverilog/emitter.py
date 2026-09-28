@@ -60,6 +60,7 @@ from zlang.ir.state import (
     groups_conflict,
     ordered_groups as ordered_state_groups,
     selection_regions,
+    selection_regions_for_transition,
     transition_for_domain,
 )
 from zlang.ir.types import (
@@ -139,6 +140,7 @@ from zlang.common.systemverilog import (
 )
 from zlang.backend.systemverilog.sequential import (
     PhysicalDomainError as _PhysicalDomainError,
+    active_clock_event as _active_clock_event,
     clock_event as _clock_event,
     effective_reset_signal as _effective_reset_signal,
     module_domain as _module_domain,
@@ -2870,7 +2872,8 @@ def _emit_fifo(module: Module) -> str:
             f"  logic {_range(width)}{name}_front;"
         )
         observation_assignments.append(
-            f"  assign {name}_front = {name}_storage[{name}_rd];"
+            f"  assign {name}_front = ({name}_count == '0) "
+            f"? '0 : {name}_storage[{name}_rd];"
         )
     if FifoSignal.VALID in referenced_fifo_signals:
         observation_declarations.append(f"  logic {name}_valid;")
@@ -2988,6 +2991,41 @@ def _append_unified_state(
             f"{activation_names[action_activation_predicate_index(transition, action)]})"
         )
 
+    def register_update_lines(register, indent: str) -> list[str]:
+        resource_id = next(
+            item.semantic_id for item in transition.resources
+            if item.kind.value == "register" and item.name == register.name
+        )
+        writers = [
+            (group, action)
+            for group in groups
+            for action in group.actions
+            if (
+                action.resource_id == resource_id
+                and action.kind is StateActionKind.REGISTER_WRITE
+            )
+        ]
+        lines: list[str] = []
+        for index, (group, action) in enumerate(writers):
+            keyword = "if" if index == 0 else "else if"
+            lines.append(
+                f"{indent}{keyword} ({action_enable(group, action)}) "
+                f"{_identifier(register.name)} <= {render(action.operands[0])};"
+            )
+        default = next(
+            (
+                item for item in module.next_assignments
+                if item.target.name == register.name
+            ),
+            None,
+        )
+        if default is not None:
+            lines.append(
+                f"{indent}{'else ' if writers else ''}"
+                f"{_identifier(register.name)} <= {render(default.expression)};"
+            )
+        return lines
+
     for register in module.registers:
         declarations.append(
             _logic_declaration(
@@ -3010,7 +3048,8 @@ def _append_unified_state(
             f"  logic {name}_overflow, {name}_underflow;",
         ))
         logic.extend((
-            f"  assign {name}_front = {name}_storage[{name}_rd];",
+            f"  assign {name}_front = ({name}_count == '0) "
+            f"? '0 : {name}_storage[{name}_rd];",
             f"  assign {name}_empty = ({name}_count == '0);",
             f"  assign {name}_full = ({name}_count == {fifo.count_width}'d{fifo.depth});",
             f"  assign {name}_valid = "
@@ -3077,9 +3116,10 @@ def _append_unified_state(
         )
         local_activations = conditional_activation_predicates(local_transition)
         guard_names = [group.rule_name for group in local_groups]
+        local_regions = selection_regions_for_transition(local_transition)
         for group in local_groups:
             clauses: list[str] = []
-            for region in selection_regions(local_transition, group.rule_name):
+            for region in local_regions[group.rule_name]:
                 count_values = region[:len(local_fifos)]
                 guard_values = region[
                     len(local_fifos):len(local_fifos) + len(guard_names)
@@ -3257,6 +3297,12 @@ def _append_unified_state(
             item for item in module.registers
             if item.domain == physical_domain.clock
         )
+        resettable_registers = tuple(
+            item for item in domain_registers if item.initial is not None
+        )
+        unreset_registers = tuple(
+            item for item in domain_registers if item.initial is None
+        )
         domain_fifos = tuple(
             item for item in module.fifos
             if item.domain == physical_domain.clock
@@ -3265,7 +3311,16 @@ def _append_unified_state(
             item for item in module.memories
             if item.domain == physical_domain.clock
         )
-        if not (domain_registers or domain_fifos or domain_memories):
+        for register in unreset_registers:
+            updates = register_update_lines(register, "    ")
+            if not updates:
+                continue
+            logic.append(
+                f"  always_ff @({_active_clock_event(module, _identifier, physical_domain.clock)}) begin"
+            )
+            logic.extend(updates)
+            logic.append("  end")
+        if not (resettable_registers or domain_fifos or domain_memories):
             continue
         domain_has_initialization = any(
             memory.contents_reset is MemoryResetPolicy.PRESERVE
@@ -3280,7 +3335,7 @@ def _append_unified_state(
         logic.append(
             f"    if ({_reset_asserted(module, _identifier, physical_domain.clock)}) begin"
         )
-        for register in domain_registers:
+        for register in resettable_registers:
             logic.append(
                 f"      {_identifier(register.name)} <= {render(register.initial)};"
             )
@@ -3312,38 +3367,8 @@ def _append_unified_state(
                     f"      // {name} contents and read result hold across reset."
                 )
         logic.append("    end else begin")
-        for register in domain_registers:
-            writers = []
-            resource_id = next(
-                item.semantic_id for item in transition.resources
-                if item.kind.value == "register" and item.name == register.name
-            )
-            for group in groups:
-                for action in group.actions:
-                    if (
-                        action.resource_id != resource_id
-                        or action.kind is not StateActionKind.REGISTER_WRITE
-                    ):
-                        continue
-                    writers.append((group, action))
-            for index, (group, action) in enumerate(writers):
-                keyword = "if" if index == 0 else "else if"
-                logic.append(
-                    f"      {keyword} ({action_enable(group, action)}) "
-                    f"{_identifier(register.name)} <= {render(action.operands[0])};"
-                )
-            default = next(
-                (
-                    item for item in module.next_assignments
-                    if item.target.name == register.name
-                ),
-                None,
-            )
-            if default is not None:
-                logic.append(
-                    f"      {'else ' if writers else ''}{_identifier(register.name)} "
-                    f"<= {render(default.expression)};"
-                )
+        for register in resettable_registers:
+            logic.extend(register_update_lines(register, "      "))
         for fifo in domain_fifos:
             name = _identifier(fifo.name)
             ptr_width = max(1, (fifo.depth - 1).bit_length())
@@ -5457,38 +5482,49 @@ def _append_rule_state(
             ),
             None,
         )
-        logic.append(
-            f"  always_ff @({_clock_event(module, _identifier, register.domain)}) begin"
-        )
-        if compact_reset:
-            logic.extend((
-                f"    if ({_reset_asserted(module, _identifier, register.domain)}) "
-                f"{_identifier(register.name)} <= {render(register.initial)};",
-                "    else begin",
-            ))
+        if register.initial is None and not writers and default is None:
+            continue
+        if register.initial is None:
+            logic.append(
+                f"  always_ff @({_active_clock_event(module, _identifier, register.domain)}) begin"
+            )
+            body_indent = "    "
         else:
-            logic.extend((
-                f"    if ({_reset_asserted(module, _identifier, register.domain)}) begin",
-                f"      {_identifier(register.name)} <= {render(register.initial)};",
-                "    end else begin",
-            ))
+            logic.append(
+                f"  always_ff @({_clock_event(module, _identifier, register.domain)}) begin"
+            )
+            if compact_reset:
+                logic.extend((
+                    f"    if ({_reset_asserted(module, _identifier, register.domain)}) "
+                    f"{_identifier(register.name)} <= {render(register.initial)};",
+                    "    else begin",
+                ))
+            else:
+                logic.extend((
+                    f"    if ({_reset_asserted(module, _identifier, register.domain)}) begin",
+                    f"      {_identifier(register.name)} <= {render(register.initial)};",
+                    "    end else begin",
+                ))
+            body_indent = "      "
         for index, (rule, action) in enumerate(writers):
             keyword = "if" if index == 0 else "else if"
             logic.append(
-                f"      {keyword} ({render(rule.guard)}) "
+                f"{body_indent}{keyword} ({render(rule.guard)}) "
                 f"{_identifier(register.name)} <= {render(action.expression)};"
             )
         if default is not None:
-            prefix = "      else " if writers else "      "
+            prefix = f"{body_indent}else " if writers else body_indent
             logic.append(
                 f"{prefix}{_identifier(register.name)} <= {render(default)};"
             )
         elif writers:
             logic.append(
-                f"      else {_identifier(register.name)} <= "
+                f"{body_indent}else {_identifier(register.name)} <= "
                 f"{_identifier(register.name)};"
             )
-        logic.extend(("    end", "  end"))
+        if register.initial is not None:
+            logic.append("    end")
+        logic.append("  end")
     logic.extend(
         f"  assign {_assignment_name(assignment)} = "
         f"{render(assignment.expression)};"

@@ -17,7 +17,7 @@ from zlang.ir.types import (
     VecType,
 )
 from zlang.semantic import SemanticError
-from zlang.simulate import simulate_cycles
+from zlang.native_simulation import simulate_cycles
 
 
 def _compile(source: str):
