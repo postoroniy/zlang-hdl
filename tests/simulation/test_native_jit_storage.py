@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.simulation.differential import run_differential
 import zlang.sim
 from zlang.simulation_lowering import PRIMITIVE_OPS
 
@@ -22,23 +23,20 @@ def _run_scalar(
     source: Path,
     top: str,
     inputs: list[dict[str, int]],
-) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
-    traces = []
-    for engine in ("reference", "native"):
-        instance = zlang.sim.load(source, top=top, engine=engine)
-        trace = []
-        with instance:
-            for values in inputs:
-                for name, value in values.items():
-                    instance.set(name, value)
-                trace.append(instance.eval())
-                instance.edge("clk")
-        traces.append(trace)
-    return traces[0], traces[1]
+) -> list[dict[str, object]]:
+    instance = zlang.sim.load(source, top=top, engine="native")
+    trace = []
+    with instance:
+        for values in inputs:
+            for name, value in values.items():
+                instance.set(name, value)
+            trace.append(instance.eval())
+            instance.edge("clk")
+    return trace
 
 
 @pytest.mark.parametrize("collision", ["old", "new", "no_change"])
-def test_native_same_clock_true_dual_port_memory_matches_reference(
+def test_native_same_clock_true_dual_port_memory_matches_expected_cycles(
     tmp_path: Path,
     collision: str,
 ) -> None:
@@ -73,7 +71,7 @@ def test_native_same_clock_true_dual_port_memory_matches_reference(
         "b_addr": 1,
         "b_data": 0,
     }
-    reference, native = _run_scalar(
+    native = _run_scalar(
         source,
         "DualPort",
         [
@@ -87,12 +85,13 @@ def test_native_same_clock_true_dual_port_memory_matches_reference(
             idle,
         ],
     )
-    assert native == reference
     assert native[3]["a_q"] == {"old": 5, "new": 9, "no_change": 5}[collision]
     assert native[-1] == {"a_q": 22, "b_q": 33}
 
 
-def test_native_latency_zero_ported_memory_matches_reference(tmp_path: Path) -> None:
+def test_native_latency_zero_ported_memory_matches_expected_cycles(
+    tmp_path: Path,
+) -> None:
     source = _source(
         tmp_path,
         "combinational_memory",
@@ -108,7 +107,7 @@ def test_native_latency_zero_ported_memory_matches_reference(tmp_path: Path) -> 
         }
         """,
     )
-    reference, native = _run_scalar(
+    native = _run_scalar(
         source,
         "CombinationalMemory",
         [
@@ -117,19 +116,20 @@ def test_native_latency_zero_ported_memory_matches_reference(tmp_path: Path) -> 
             {"we": 1, "wa": 1, "wd": 31, "ra": 2},
         ],
     )
-    assert native == reference == [{"q": 17}, {"q": 17}, {"q": 17}]
-    for engine in ("reference", "native"):
-        instance = zlang.sim.load(source, top="CombinationalMemory", engine=engine)
-        with instance:
-            instance.set("we", 0)
-            instance.set("wa", 0)
-            instance.set("wd", 0)
-            instance.set("ra", 2)
-            instance.reset("rst", asserted=True)
-            assert instance.eval() == {"q": 0}
+    assert native == [{"q": 17}, {"q": 17}, {"q": 17}]
+    instance = zlang.sim.load(source, top="CombinationalMemory", engine="native")
+    with instance:
+        instance.set("we", 0)
+        instance.set("wa", 0)
+        instance.set("wd", 0)
+        instance.set("ra", 2)
+        instance.reset("rst", asserted=True)
+        assert instance.eval() == {"q": 0}
 
 
-def test_latency_zero_preserved_read_data_matches_reference(tmp_path: Path) -> None:
+def test_latency_zero_preserved_read_data_matches_reset_contract(
+    tmp_path: Path,
+) -> None:
     source = _source(
         tmp_path,
         "preserved_combinational_memory",
@@ -147,30 +147,31 @@ def test_latency_zero_preserved_read_data_matches_reference(tmp_path: Path) -> N
         }
         """,
     )
-    for engine in ("reference", "native"):
-        instance = zlang.sim.load(
-            source,
-            top="PreservedCombinationalMemory",
-            engine=engine,
-        )
-        with instance:
-            for name, value in {
-                "we": 1,
-                "wa": 2,
-                "wd": 17,
-                "ra": 2,
-            }.items():
-                instance.set(name, value)
-            instance.edge("clk")
-            instance.set("we", 0)
-            assert instance.eval() == {"q": 17}
-            instance.reset("rst", asserted=True)
-            assert instance.eval() == {"q": 17}
-            instance.edge("clk")
-            assert instance.eval() == {"q": 17}
+    instance = zlang.sim.load(
+        source,
+        top="PreservedCombinationalMemory",
+        engine="native",
+    )
+    with instance:
+        for name, value in {
+            "we": 1,
+            "wa": 2,
+            "wd": 17,
+            "ra": 2,
+        }.items():
+            instance.set(name, value)
+        instance.edge("clk")
+        instance.set("we", 0)
+        assert instance.eval() == {"q": 17}
+        instance.reset("rst", asserted=True)
+        assert instance.eval() == {"q": 17}
+        instance.edge("clk")
+        assert instance.eval() == {"q": 17}
 
 
-def test_native_legacy_fifo_matches_reference_under_stall_and_wraparound() -> None:
+def test_native_legacy_fifo_matches_direct_sv_under_stall_and_wraparound(
+    tmp_path: Path,
+) -> None:
     source = ROOT / "examples" / "fifo_bridge.zhl"
     rng = random.Random(91)
     events = [
@@ -180,21 +181,24 @@ def test_native_legacy_fifo_matches_reference_under_stall_and_wraparound() -> No
         )
         for _ in range(80)
     ]
-    traces = []
-    for engine in ("reference", "native"):
-        instance = zlang.sim.load(source, top="FifoBridge", engine=engine)
-        trace = []
-        with instance:
-            for source_value, sink_value in events:
-                instance.set("rx", source_value)
-                instance.set("tx", sink_value)
-                trace.append(instance.eval())
-                instance.edge("clk")
-        traces.append(trace)
-    assert traces[1] == traces[0]
+    trace = run_differential(
+        source,
+        top="FifoBridge",
+        events=tuple(
+            {
+                "set": {"rx": source_value, "tx": sink_value},
+                "edges": ("clk",),
+            }
+            for source_value, sink_value in events
+        ),
+        directory=tmp_path / "fifo_rtl",
+    )
+    assert trace.native == trace.direct_sv
 
 
-def test_native_scheduled_fifo_and_memory_match_reference() -> None:
+def test_native_scheduled_fifo_matches_direct_sv_and_memory_is_cycle_exact(
+    tmp_path: Path,
+) -> None:
     fifo_source = ROOT / "examples" / "fft_sdf_stage_atomic_transition.zhl"
     rng = random.Random(17)
     events = [
@@ -204,18 +208,19 @@ def test_native_scheduled_fifo_and_memory_match_reference() -> None:
         )
         for _ in range(64)
     ]
-    traces = []
-    for engine in ("reference", "native"):
-        instance = zlang.sim.load(fifo_source, top="SDFStateStage", engine=engine)
-        trace = []
-        with instance:
-            for source_value, sink_value in events:
-                instance.set("input", source_value)
-                instance.set("output", sink_value)
-                trace.append(instance.eval())
-                instance.edge("clk")
-        traces.append(trace)
-    assert traces[1] == traces[0]
+    trace = run_differential(
+        fifo_source,
+        top="SDFStateStage",
+        events=tuple(
+            {
+                "set": {"input": source_value, "output": sink_value},
+                "edges": ("clk",),
+            }
+            for source_value, sink_value in events
+        ),
+        directory=tmp_path / "scheduled_fifo_rtl",
+    )
+    assert trace.native == trace.direct_sv
 
     memory_source = ROOT / "examples" / "rule_local_memory.zhl"
     memory_inputs = [
@@ -224,10 +229,15 @@ def test_native_scheduled_fifo_and_memory_match_reference() -> None:
         {"read_enable": 0, "write_enable": 1, "address": 2, "write_data": 23},
         {"read_enable": 1, "write_enable": 0, "address": 2, "write_data": 0},
     ]
-    reference, native = _run_scalar(
-        memory_source, "RuleLocalMemory", memory_inputs
+    memory_trace = run_differential(
+        memory_source,
+        top="RuleLocalMemory",
+        events=tuple(
+            {"set": values, "edges": ("clk",)} for values in memory_inputs
+        ),
+        directory=tmp_path / "scheduled_memory_rtl",
     )
-    assert native == reference
+    assert memory_trace.native == memory_trace.direct_sv
 
 
 def test_storage_is_erased_before_the_primitive_runtime_boundary() -> None:
@@ -236,8 +246,8 @@ def test_storage_is_erased_before_the_primitive_runtime_boundary() -> None:
         (ROOT / "examples" / "fft_sdf_stage_atomic_transition.zhl", "SDFStateStage"),
         (ROOT / "examples" / "rule_local_memory.zhl", "RuleLocalMemory"),
     ):
-        first = zlang.sim.compile(source, top=top, engine="reference").plan
-        second = zlang.sim.compile(source, top=top, engine="reference").plan
+        first = zlang.sim.compile(source, top=top, engine="native").plan
+        second = zlang.sim.compile(source, top=top, engine="native").plan
         assert first.to_bytes() == second.to_bytes()
         assert "fifos" not in first.payload
         assert "transitions" not in first.payload

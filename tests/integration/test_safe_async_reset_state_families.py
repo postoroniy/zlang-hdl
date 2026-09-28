@@ -16,7 +16,7 @@ import pytest
 
 from zlang.backend.systemverilog.emitter import emit as emit_systemverilog
 from zlang.compiler import compile_source
-from zlang.simulate import (
+from zlang.native_simulation import (
     simulate_csr_cycles,
     simulate_cycles,
     simulate_request_response_cycles,

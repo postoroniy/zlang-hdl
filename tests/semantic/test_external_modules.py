@@ -5,7 +5,7 @@ import pytest
 from zlang.compiler import compile_source
 from zlang.opt.lowering import lower, restore
 from zlang.semantic.errors import SemanticError
-from zlang.simulate import simulate
+from zlang.native_simulation import simulate
 
 from tests.parser.test_external_modules import SOURCE
 

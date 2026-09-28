@@ -13,7 +13,7 @@ from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
 from zlang.compiler import compile_source
 from zlang.ir.interfaces import RequestResponseRole
 from zlang.opt import OptimizationStage, lower, restore
-from zlang.simulate import simulate_request_response_cycles
+from zlang.native_simulation import simulate_request_response_cycles
 
 
 SOURCE = r"""

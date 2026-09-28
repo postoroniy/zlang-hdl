@@ -53,6 +53,33 @@ def test_arena_interns_exact_typed_nodes_and_retains_all_origins() -> None:
     assert arena.statistics.hits >= 1
 
 
+def test_arena_pool_hit_does_not_rebuild_an_identical_typed_node(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    arena_module = importlib.import_module("zlang.ir.expression_arena")
+    arena = SemanticExpressionArena()
+    type8 = UIntType(8)
+    type9 = UIntType(9)
+
+    def addition() -> expr.Add:
+        return expr.Add(
+            expr.InputRef("a", type8), expr.InputRef("b", type8), type9
+        )
+
+    first = arena.intern(addition())
+    original_replace = arena_module.replace
+    replacements = 0
+
+    def counted_replace(*args: object, **kwargs: object) -> object:
+        nonlocal replacements
+        replacements += 1
+        return original_replace(*args, **kwargs)
+
+    monkeypatch.setattr(arena_module, "replace", counted_replace)
+    assert arena.intern(addition()) is first
+    assert replacements == 0
+
+
 def test_arena_does_not_merge_call_occurrence_boundaries() -> None:
     arena = SemanticExpressionArena()
     type8 = UIntType(8)

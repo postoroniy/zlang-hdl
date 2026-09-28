@@ -381,7 +381,7 @@ class CanonicalExternalModuleContract:
 class CanonicalRegister:
     name: str
     type: HardwareType
-    initial: NodeId
+    initial: NodeId | None
     domain: str | None
 
 

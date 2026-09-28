@@ -14,7 +14,7 @@ from zlang.ir import expressions as ir_expr
 from zlang.opt import lower, restore
 from zlang.parser import ParseError, parse
 from zlang.semantic import SemanticError, analyze
-from zlang.simulate import simulate
+from zlang.native_simulation import simulate
 
 
 class FixedPointTests(unittest.TestCase):

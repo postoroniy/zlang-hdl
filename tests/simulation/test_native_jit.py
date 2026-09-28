@@ -11,10 +11,9 @@ from concurrent.futures import ThreadPoolExecutor
 import pytest
 
 import zlang
-import zlang.simulate as reference_simulator
 import zlang.simulation_plan as simulation_plan_module
 from zlang.compiler import compile_file, create_file_compilation_session
-from zlang.simulate import simulate, simulate_cycles
+from zlang.native_simulation import simulate, simulate_cycles
 from zlang.simulation_plan import (
     JitUnsupportedFeatureError,
     MAX_PLAN_BYTES,
@@ -52,8 +51,8 @@ def test_simulation_plan_is_canonical_and_round_trips(tmp_path: Path) -> None:
         "module Comb { in a,b:u8 in select:bit "
         "out y:u9=select ? (a+b) : extend<9>(a) }",
     )
-    first = zlang.sim.compile(source, top="Comb", engine="jit").plan
-    second = zlang.sim.compile(source, top="Comb", engine="jit").plan
+    first = zlang.sim.compile(source, top="Comb", engine="native").plan
+    second = zlang.sim.compile(source, top="Comb", engine="native").plan
 
     assert first.to_bytes() == second.to_bytes()
     assert first.identity == second.identity
@@ -69,7 +68,7 @@ def test_native_plan_and_rust_surface_are_language_neutral(tmp_path: Path) -> No
         "module PrimitiveBoundary { in a:u8 out y:u8=truncate<8>(a + 1) }",
     )
     payload = zlang.sim.compile(
-        source, top="PrimitiveBoundary", engine="jit"
+        source, top="PrimitiveBoundary", engine="native"
     ).plan.payload
     assert "transitions" not in payload
     assert "direct_next" not in payload
@@ -142,8 +141,8 @@ def test_simulation_plan_is_hash_seed_independent(tmp_path: Path) -> None:
 
 def test_exact_plan_reuses_process_owned_native_program(tmp_path: Path) -> None:
     source = _source(tmp_path, "cached", "module Cached { in a:u8 out y:u8=a }")
-    first = zlang.sim.compile(source, top="Cached", engine="jit")
-    second = zlang.sim.compile(source, top="Cached", engine="jit")
+    first = zlang.sim.compile(source, top="Cached", engine="native")
+    second = zlang.sim.compile(source, top="Cached", engine="native")
     assert first.identity == second.identity
     assert first._native is second._native
 
@@ -165,7 +164,7 @@ def test_distinct_instances_execute_safely_from_parallel_threads(
         }
         """,
     )
-    program = zlang.sim.compile(source, top="ParallelCounter", engine="jit")
+    program = zlang.sim.compile(source, top="ParallelCounter", engine="native")
 
     def run(step: int, cycles: int) -> int:
         instance = program.create()
@@ -188,11 +187,11 @@ def test_persistent_api_defaults_to_native_without_fallback(
     assert type(default._native).__module__ == "_zlang_native_sim"  # noqa: SLF001
     with default.create() as instance:
         assert instance.get("y") == 0
-    assert zlang.sim.load(source, top="Explicit", engine="reference").get("y") == 0
-    assert zlang.sim.load(source, top="Explicit", engine="python").get("y") == 0
+    assert zlang.sim.load(source, top="Explicit", engine="native").get("y") == 0
+    assert zlang.sim.load(source, top="Explicit", engine="native").get("y") == 0
 
 
-def test_reference_executor_consumes_the_same_primitive_plan(
+def test_distinct_native_instances_consume_the_same_primitive_plan(
     tmp_path: Path,
 ) -> None:
     source = _source(
@@ -209,20 +208,20 @@ def test_reference_executor_consumes_the_same_primitive_plan(
         }
         """,
     )
-    reference = zlang.sim.load(source, top="ReferenceCounter", engine="reference")
-    native = zlang.sim.load(source, top="ReferenceCounter", engine="native")
-    for instance in (reference, native):
+    first = zlang.sim.load(source, top="ReferenceCounter", engine="native")
+    second = zlang.sim.load(source, top="ReferenceCounter", engine="native")
+    for instance in (first, second):
         instance.set("step", 257)
     for _ in range(25):
-        assert reference.edge("clk") == native.edge("clk")
-    assert reference.get_packed("value") == native.get_packed("value")
+        assert first.edge("clk") == second.edge("clk")
+    assert first.get_packed("value") == second.get_packed("value")
 
 
 def test_simulation_plan_rejects_noncanonical_and_corrupt_payloads(
     tmp_path: Path,
 ) -> None:
     source = _source(tmp_path, "comb", "module Comb { in a:u8 out y:u8=a }")
-    plan = zlang.sim.compile(source, top="Comb", engine="jit").plan
+    plan = zlang.sim.compile(source, top="Comb", engine="native").plan
     decoded = json.loads(plan.to_bytes())
     decoded["schema"] = "unknown"
     with pytest.raises(SimulationPlanError, match="canonical|schema"):
@@ -235,7 +234,7 @@ def test_python_and_native_decoders_reject_resource_exhaustion_before_parsing(
     tmp_path: Path,
 ) -> None:
     source = _source(tmp_path, "bounded", "module Bounded { out y:bit=0 }")
-    plan = zlang.sim.compile(source, top="Bounded", engine="jit").plan
+    plan = zlang.sim.compile(source, top="Bounded", engine="native").plan
     oversized = b" " * (MAX_PLAN_BYTES + 1)
     with pytest.raises(SimulationPlanError, match="encoded bytes"):
         SimulationPlan.from_bytes(oversized)
@@ -263,7 +262,7 @@ def test_python_and_native_reject_excessive_dynamic_region_work(
 ) -> None:
     source = _source(tmp_path, "bounded_region", "module BoundedRegion { out y:bit=0 }")
     payload = json.loads(
-        zlang.sim.compile(source, top="BoundedRegion", engine="reference").plan.to_bytes()
+        zlang.sim.compile(source, top="BoundedRegion", engine="native").plan.to_bytes()
     )
     body = [
         {"id": 0, "op": "load_index", "width": 64, "operands": [],
@@ -316,12 +315,10 @@ def test_primitive_lowering_stops_at_node_bound_before_plan_serialization(
         simulation_plan_module.build_simulation_plan(session.planning.module)
 
 
-def test_64_step_shared_dag_remains_compact_and_matches_reference(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_64_step_shared_dag_remains_compact_and_matches_independent_formula() -> None:
     source = ROOT / "benchmarks/native_jit/large_combinational.zhl"
     top = "NativeJitLargeCombinationalBenchmark"
-    program = zlang.sim.compile(source, top=top, engine="jit")
+    program = zlang.sim.compile(source, top=top, engine="native")
 
     assert len(program.plan.payload["nodes"]) < 64 * 12
     assert len(program.plan.to_bytes()) < 128 * 1024
@@ -354,30 +351,12 @@ def test_64_step_shared_dag_remains_compact_and_matches_reference(
             value &= 0xFFFFFFFF
         return value
 
-    reference_visits: dict[int, int] = {}
-    evaluate_uncached = reference_simulator._evaluate_uncached
-
-    def track_reference_visit(*args: object, **kwargs: object) -> object:
-        expression = args[0]
-        identity = id(expression)
-        reference_visits[identity] = reference_visits.get(identity, 0) + 1
-        return evaluate_uncached(*args, **kwargs)
-
-    monkeypatch.setattr(
-        reference_simulator,
-        "_evaluate_uncached",
-        track_reference_visit,
-    )
-
     with program.create() as instance:
         for seed in (0, 1, 0x12345678, 0xFFFFFFFF):
-            reference_visits.clear()
             instance.set("seed", seed)
             expected = {"result": reference(seed)}
             assert instance.eval() == expected
             assert simulate(program.module, seed=seed) == expected
-            assert reference_visits
-            assert max(reference_visits.values()) == 1
 
 
 @pytest.mark.parametrize("steps", [12, 16, 24, 32, 48, 64])
@@ -403,7 +382,7 @@ def test_native_decoder_rejects_mutated_plan_before_execution(
     mutation: str,
 ) -> None:
     source = _source(tmp_path, "decode", "module Decode { in a:u8 out y:u9=a + 1 }")
-    plan = zlang.sim.compile(source, top="Decode", engine="jit").plan
+    plan = zlang.sim.compile(source, top="Decode", engine="native").plan
     payload = json.loads(plan.to_bytes())
     if mutation == "cycle":
         payload["nodes"][0]["operands"] = [0]
@@ -466,7 +445,7 @@ def test_native_combinational_matches_python_oracle(
     )
     module = compile_file(source, top="Ops").ir
     oracle = simulate(module, **inputs)
-    instance = zlang.sim.load(source, top="Ops", engine="jit")
+    instance = zlang.sim.load(source, top="Ops", engine="native")
     with instance:
         for name, value in inputs.items():
             instance.set(name, value)
@@ -489,7 +468,7 @@ def test_native_aggregate_packing_and_runtime_index(tmp_path: Path) -> None:
         }
         """,
     )
-    instance = zlang.sim.load(source, top="Aggregate", engine="jit")
+    instance = zlang.sim.load(source, top="Aggregate", engine="native")
     with instance:
         instance.set("pair", {"high": 0xA5, "low": 0x3C})
         instance.set("values", [11, 22, 33, 44])
@@ -497,7 +476,7 @@ def test_native_aggregate_packing_and_runtime_index(tmp_path: Path) -> None:
         assert instance.eval() == {"high": 0xA5, "low": 0x3C, "selected": 33}
 
     corrupted = json.loads(
-        zlang.sim.compile(source, top="Aggregate", engine="jit").plan.to_bytes()
+        zlang.sim.compile(source, top="Aggregate", engine="native").plan.to_bytes()
     )
     vector_type = next(
         port["api_type"]
@@ -547,7 +526,7 @@ def test_native_switch_enum_decode_and_tagged_union_match_python_oracle(
         """,
     )
     module = compile_file(source, top="NativeUnion").ir
-    instance = zlang.sim.load(source, top="NativeUnion", engine="jit")
+    instance = zlang.sim.load(source, top="NativeUnion", engine="native")
     vectors = (
         {"raw_mode": 0, "kind": 0, "data": -7},
         {"raw_mode": 0, "kind": 1, "data": -7},
@@ -592,7 +571,7 @@ def test_native_generated_collections_concat_reshape_dot_and_reduce(
         """,
     )
     module = compile_file(source, top="NativeCollections").ir
-    instance = zlang.sim.load(source, top="NativeCollections", engine="jit")
+    instance = zlang.sim.load(source, top="NativeCollections", engine="native")
     vectors = (
         {"a": [1, 2, 3, 4], "b": [5, 6, 7, 8]},
         {"a": [255, 0, 17, 31], "b": [2, 9, 4, 3]},
@@ -604,7 +583,7 @@ def test_native_generated_collections_concat_reshape_dot_and_reduce(
             assert instance.eval() == simulate(module, **inputs)
 
 
-def test_nested_functional_regions_match_typed_reference_in_both_engines(
+def test_nested_functional_regions_match_explicit_oracle_in_native_engine(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -628,9 +607,7 @@ def test_nested_functional_regions_match_typed_reference_in_both_engines(
         }
         """,
     )
-    module = compile_file(source, top="NestedRegions").ir
     native = zlang.sim.load(source, top="NestedRegions", engine="native")
-    reference = zlang.sim.load(source, top="NestedRegions", engine="reference")
     assert native.program.plan.payload["regions"]
     assert SimulationPlan.from_bytes(native.program.plan.to_bytes()) == native.program.plan
     assert any(
@@ -653,14 +630,19 @@ def test_nested_functional_regions_match_typed_reference_in_both_engines(
             "values": [[255, 254], [3, 4], [5, 6], [7, 8]],
         },
     )
-    with native, reference:
+    with native:
         for inputs in vectors:
             for name, value in inputs.items():
                 native.set(name, value)
-                reference.set(name, value)
-            expected = simulate(module, **inputs)
-            assert reference.eval() == expected
-            assert native.eval() == expected
+            expected = [0] * 32
+            for lane in range(4):
+                for byte in range(2):
+                    if not inputs["enables"][lane][byte]:
+                        continue
+                    address = inputs["addresses"][lane][byte]
+                    if address < len(expected):
+                        expected[address] |= inputs["values"][lane][byte]
+            assert native.eval() == {"result": expected}
 
     damaged = json.loads(native.program.plan.to_bytes())
     damaged["regions"][0]["root"] = len(damaged["regions"][0]["nodes"])
@@ -698,16 +680,15 @@ def test_functional_region_in_edge_program_matches_typed_cycles(tmp_path: Path) 
         {"data": [(255 - index) for index in range(64)], "bias": 7},
     )
     expected = simulate_cycles(module, vectors, [True, False, False])
-    for engine in ("reference", "native"):
-        instance = zlang.sim.load(source, top="RegionState", engine=engine)
-        assert instance.program.plan.payload["regions"]
-        with instance:
-            for cycle, inputs in enumerate(vectors):
-                instance.reset("rst", asserted=cycle == 0)
-                for name, value in inputs.items():
-                    instance.set(name, value)
-                assert instance.eval() == expected[cycle]
-                instance.edge("clk")
+    instance = zlang.sim.load(source, top="RegionState", engine="native")
+    assert instance.program.plan.payload["regions"]
+    with instance:
+        for cycle, inputs in enumerate(vectors):
+            instance.reset("rst", asserted=cycle == 0)
+            for name, value in inputs.items():
+                instance.set(name, value)
+            assert instance.eval() == expected[cycle]
+            instance.edge("clk")
 
 
 def test_functional_region_bit_packing_crosses_limb_boundaries(tmp_path: Path) -> None:
@@ -720,12 +701,11 @@ def test_functional_region_bit_packing_crosses_limb_boundaries(tmp_path: Path) -
     module = compile_file(source, top="BitRegion").ir
     mask = [int(index in {0, 63, 64, 127, 128, 191}) for index in range(192)]
     expected = simulate(module, mask=mask)
-    for engine in ("reference", "native"):
-        instance = zlang.sim.load(source, top="BitRegion", engine=engine)
-        assert instance.program.plan.payload["regions"]
-        with instance:
-            instance.set("mask", mask)
-            assert instance.eval() == expected
+    instance = zlang.sim.load(source, top="BitRegion", engine="native")
+    assert instance.program.plan.payload["regions"]
+    with instance:
+        instance.set("mask", mask)
+        assert instance.eval() == expected
 
 
 def test_native_signed_shift_compare_and_api_round_trip(tmp_path: Path) -> None:
@@ -744,7 +724,7 @@ def test_native_signed_shift_compare_and_api_round_trip(tmp_path: Path) -> None:
         """,
     )
     module = compile_file(source, top="Signed").ir
-    instance = zlang.sim.load(source, top="Signed", engine="jit")
+    instance = zlang.sim.load(source, top="Signed", engine="native")
     with instance:
         instance.set("value", -4)
         instance.set("other", -127)
@@ -785,7 +765,7 @@ def test_native_fixed_conversion_rounding_and_saturation_match_python_oracle(
         """,
     )
     module = compile_file(source, top="FixedConversion").ir
-    instance = zlang.sim.load(source, top="FixedConversion", engine="jit")
+    instance = zlang.sim.load(source, top="FixedConversion", engine="native")
     with instance:
         # Exhaust all raw encodings.  This covers negative values, exact values,
         # discarded fractions, ties, wraparound and both saturation bounds.
@@ -810,7 +790,7 @@ def test_native_fixed_raw_conversions_are_representation_only(tmp_path: Path) ->
         """,
     )
     module = compile_file(source, top="FixedRawConversion").ir
-    instance = zlang.sim.load(source, top="FixedRawConversion", engine="jit")
+    instance = zlang.sim.load(source, top="FixedRawConversion", engine="native")
     with instance:
         for raw in (0, 1, -1, (1 << 127) + 7, -(1 << 127) + 9):
             instance.set("raw", raw)
@@ -846,7 +826,7 @@ def test_native_multi_limb_fixed_rescale_matches_python_oracle(
     values = [0, 1, (1 << 64) - 1, (1 << 66) + (1 << 61)]
     if source_type.startswith("fixed"):
         values.extend((-1, -(1 << 64) + 3, -(1 << 127) + 7))
-    instance = zlang.sim.load(source, top="WideFixedConversion", engine="jit")
+    instance = zlang.sim.load(source, top="WideFixedConversion", engine="native")
     with instance:
         for value in values:
             instance.set("value", value)
@@ -873,7 +853,7 @@ def test_native_atomic_register_commit_matches_cycle_oracle(tmp_path: Path) -> N
     )
     cycles = [{"enable": 1}, {"enable": 0}, {"enable": 1}]
     oracle = simulate_cycles(compile_file(source, top="Swap").ir, cycles)
-    instance = zlang.sim.load(source, top="Swap", engine="jit")
+    instance = zlang.sim.load(source, top="Swap", engine="native")
     observed = []
     with instance:
         for inputs in cycles:
@@ -905,7 +885,7 @@ def test_native_priority_and_synchronous_reset(tmp_path: Path) -> None:
         }
         """,
     )
-    instance = zlang.sim.load(source, top="Priority", engine="jit")
+    instance = zlang.sim.load(source, top="Priority", engine="native")
     with instance:
         instance.set("high", 1)
         instance.set("low", 1)
@@ -931,7 +911,7 @@ def test_native_async_assertion_and_synchronized_release(tmp_path: Path) -> None
         }
         """,
     )
-    instance = zlang.sim.load(source, top="AsyncReset", engine="jit")
+    instance = zlang.sim.load(source, top="AsyncReset", engine="native")
     with instance:
         assert instance.edge("clk") == {"y": 9}
         assert instance.reset("arst", asserted=True) == {"y": 7}
@@ -955,7 +935,7 @@ def test_native_batching_and_trace_are_persistent(tmp_path: Path) -> None:
         }
         """,
     )
-    instance = zlang.sim.load(source, top="Counter", engine="jit")
+    instance = zlang.sim.load(source, top="Counter", engine="native")
     with instance:
         instance.enable_trace(["y", "value"])
         assert instance.run_cycles("clk", 4) == {"y": 4}
@@ -982,7 +962,7 @@ def test_native_event_batch_crosses_ffi_once_and_preserves_order(
         }
         """,
     )
-    instance = zlang.sim.load(source, top="EventCounter", engine="jit")
+    instance = zlang.sim.load(source, top="EventCounter", engine="native")
     with instance:
         assert instance.run_events(
             [
@@ -1020,10 +1000,7 @@ def test_native_coincident_clocks_commit_from_one_snapshot(tmp_path: Path) -> No
         }
         """,
     )
-    instances = [
-        zlang.sim.load(source, top="MultiClock", engine=engine)
-        for engine in ("native", "reference")
-    ]
+    instances = [zlang.sim.load(source, top="MultiClock", engine="native")]
     for instance in instances:
         instance.set("left_step", 2)
         instance.set("right_step", 3)
@@ -1035,18 +1012,18 @@ def test_native_coincident_clocks_commit_from_one_snapshot(tmp_path: Path) -> No
             instance.edge_many(["left_clk", "right_clk"])
             for instance in instances
         ]
-        assert first[0] == first[1] == {
+        assert first == [{
             "left": 3,
             "right": 13,
-        }
+        }]
         second = [
             instance.edge_many(["right_clk", "left_clk"])
             for instance in instances
         ]
-        assert second[0] == second[1] == {
+        assert second == [{
             "left": 5,
             "right": 16,
-        }
+        }]
     finally:
         for instance in instances:
             instance.close()
@@ -1072,7 +1049,7 @@ def test_native_wide_bitwise_shift_and_api_round_trip(
     mask = (1 << width) - 1
     left = (1 << (width - 1)) | (1 << 64) | 0xA5
     right = (1 << (width - 1)) | 0x5A
-    instance = zlang.sim.load(source, top=f"Wide{width}", engine="jit")
+    instance = zlang.sim.load(source, top=f"Wide{width}", engine="native")
     with instance:
         instance.set("left", left)
         instance.set("right", right)
@@ -1092,7 +1069,7 @@ def test_native_u127_addition_reaches_u128(tmp_path: Path) -> None:
     )
     a = (1 << 126) | 7
     b = (1 << 126) | 9
-    instance = zlang.sim.load(source, top="WideAdd", engine="jit")
+    instance = zlang.sim.load(source, top="WideAdd", engine="native")
     with instance:
         instance.set("a", a)
         instance.set("b", b)
@@ -1116,7 +1093,7 @@ def test_native_u128_register_initial_and_atomic_commit(tmp_path: Path) -> None:
         }}
         """,
     )
-    instance = zlang.sim.load(source, top="WideState", engine="jit")
+    instance = zlang.sim.load(source, top="WideState", engine="native")
     with instance:
         assert instance.eval() == {"current": initial}
         instance.set("next", replacement)
@@ -1146,7 +1123,7 @@ def test_native_multi_limb_bitwise_shift_and_compare(
     mask = (1 << width) - 1
     left = (1 << (width - 1)) | (1 << 128) | (1 << 64) | 0xA55A
     right = (1 << (width - 2)) | (1 << min(129, width - 3)) | 0x5AA5
-    instance = zlang.sim.load(source, top=f"MultiLimb{width}", engine="jit")
+    instance = zlang.sim.load(source, top=f"MultiLimb{width}", engine="native")
     with instance:
         instance.set("left", left)
         instance.set("right", right)
@@ -1180,7 +1157,7 @@ def test_native_multi_limb_add_subtract_and_multiply(tmp_path: Path) -> None:
     add_right = (1 << 254) | (1 << 128) | 11
     mul_left = (1 << 191) | (1 << 127) | 3
     mul_right = (1 << 190) | (1 << 65) | 5
-    instance = zlang.sim.load(source, top="MultiLimbArithmetic", engine="jit")
+    instance = zlang.sim.load(source, top="MultiLimbArithmetic", engine="native")
     with instance:
         instance.set("add_left", add_left)
         instance.set("add_right", add_right)
@@ -1207,7 +1184,7 @@ def test_native_multi_limb_signed_shift_and_compare(tmp_path: Path) -> None:
         """,
     )
     value = -(1 << 220) + 12345
-    instance = zlang.sim.load(source, top="MultiLimbSigned", engine="jit")
+    instance = zlang.sim.load(source, top="MultiLimbSigned", engine="native")
     with instance:
         instance.set("value", value)
         for shift in (1, 63, 64, 129, 256, 257):
@@ -1229,7 +1206,7 @@ def test_native_512_bit_vector_runtime_index(tmp_path: Path) -> None:
         """,
     )
     values = [((index * 37) + 11) & 0xFF for index in range(64)]
-    instance = zlang.sim.load(source, top="WideVectorIndex", engine="jit")
+    instance = zlang.sim.load(source, top="WideVectorIndex", engine="native")
     with instance:
         instance.set("values", values)
         for index in (0, 1, 7, 31, 32, 63):
@@ -1254,7 +1231,7 @@ def test_native_257_bit_register_and_trace(tmp_path: Path) -> None:
         }}
         """,
     )
-    instance = zlang.sim.load(source, top="WideLimbState", engine="jit")
+    instance = zlang.sim.load(source, top="WideLimbState", engine="native")
     with instance:
         instance.enable_trace(["current", "value"])
         assert instance.eval() == {"current": initial}
@@ -1293,7 +1270,7 @@ def test_native_fixed_sequential_expression_matches_python_oracle(
     inputs = [{"a": index + 1, "b": 3, "c": index + 9} for index in range(10)]
     module = create_file_compilation_session(source, top=name).planning.module
     expected = simulate_cycles(module, inputs)
-    program = zlang.sim.compile(source, top=name, engine="jit")
+    program = zlang.sim.compile(source, top=name, engine="native")
     instance = program.create()
     actual = []
     with instance:
@@ -1340,7 +1317,7 @@ def test_native_initialized_rom_matches_one_cycle_python_oracle(
     inputs = [{"address": value} for value in (7, 1, 6, 2, 5, 3, 4, 0)]
     module = create_file_compilation_session(source, top="NativeRom").planning.module
     expected = simulate_cycles(module, inputs)
-    program = zlang.sim.compile(source, top="NativeRom", engine="jit")
+    program = zlang.sim.compile(source, top="NativeRom", engine="native")
     instance = program.create()
     actual = []
     with instance:
@@ -1458,28 +1435,24 @@ def test_native_synchronous_memory_matches_python_collision_and_reset_semantics(
     module = create_file_compilation_session(source, top="NativeMemory").planning.module
     expected = simulate_cycles(module, inputs)
     program = zlang.sim.compile(source, top="NativeMemory", engine="native")
-    actual_by_engine = []
-    for engine in ("native", "reference"):
-        instance = zlang.sim.load(source, top="NativeMemory", engine=engine)
-        actual = []
-        with instance:
-            for values in inputs:
-                for name, value in values.items():
-                    instance.set(name, value)
-                actual.append(instance.eval())
-                instance.edge("clk")
-            assert actual == expected
-            assert actual[-1] == {"read_data": collision_result}
+    instance = zlang.sim.load(source, top="NativeMemory", engine="native")
+    actual = []
+    with instance:
+        for values in inputs:
+            for name, value in values.items():
+                instance.set(name, value)
+            actual.append(instance.eval())
+            instance.edge("clk")
+        assert actual == expected
+        assert actual[-1] == {"read_data": collision_result}
 
-            instance.reset("rst", asserted=True)
-            instance.edge("clk")
-            instance.reset("rst", asserted=False)
-            instance.set("read_address", 0)
-            instance.set("write_enable", 0)
-            instance.edge("clk")
-            assert instance.get("read_data") == 5
-        actual_by_engine.append(actual)
-    assert actual_by_engine[0] == actual_by_engine[1]
+        instance.reset("rst", asserted=True)
+        instance.edge("clk")
+        instance.reset("rst", asserted=False)
+        instance.set("read_address", 0)
+        instance.set("write_enable", 0)
+        instance.edge("clk")
+        assert instance.get("read_data") == 5
 
     assert len(program.plan.payload["memories"]) == 1
     corrupted = json.loads(program.plan.to_bytes())
@@ -1524,7 +1497,7 @@ def test_native_synchronous_memory_preserves_exact_read_latency(
         source, top="MemoryLatency"
     ).planning.module
     expected = simulate_cycles(module, inputs)
-    instance = zlang.sim.load(source, top="MemoryLatency", engine="jit")
+    instance = zlang.sim.load(source, top="MemoryLatency", engine="native")
     actual = []
     with instance:
         for values in inputs:
@@ -1570,7 +1543,7 @@ def test_native_synchronous_memory_preserves_arbitrary_width_byte_masks(
     ]
     module = create_file_compilation_session(source, top="MaskedMemory").planning.module
     expected = simulate_cycles(module, inputs)
-    instance = zlang.sim.load(source, top="MaskedMemory", engine="jit")
+    instance = zlang.sim.load(source, top="MaskedMemory", engine="native")
     actual = []
     with instance:
         for values in inputs:
@@ -1599,8 +1572,10 @@ def test_native_memory_plan_is_depth_independent(
         }
         """,
     )
-    program = zlang.sim.compile(large, top="LargeMemory", engine="jit")
-    assert len(program.plan.payload["nodes"]) < 64
+    program = zlang.sim.compile(large, top="LargeMemory", engine="native")
+    # Reset-aware read sampling adds one fixed primitive, but memory depth must
+    # still not expand the plan.
+    assert len(program.plan.payload["nodes"]) <= 64
     assert len(program.plan.payload["memories"]) == 1
 
 
@@ -1612,7 +1587,7 @@ def test_native_jit_accepts_wide_packed_values_but_keeps_a_storage_bound(
         "wide",
         "module Wide { in value:bits<513> out result:bits<513>=value }",
     )
-    with zlang.sim.load(source, top="Wide", engine="jit") as instance:
+    with zlang.sim.load(source, top="Wide", engine="native") as instance:
         value = (1 << 512) | (1 << 63) | 7
         instance.set("value", value)
         assert instance.eval() == {"result": value}
@@ -1624,7 +1599,7 @@ def test_native_jit_accepts_wide_packed_values_but_keeps_a_storage_bound(
         "out result:bits<8193>=value }",
     )
     with pytest.raises(JitUnsupportedFeatureError, match="through 8192 bits"):
-        zlang.sim.load(oversized, top="Oversized", engine="jit")
+        zlang.sim.load(oversized, top="Oversized", engine="native")
 
 
 def test_native_jit_keeps_wide_arithmetic_fail_closed(tmp_path: Path) -> None:
@@ -1635,7 +1610,7 @@ def test_native_jit_keeps_wide_arithmetic_fail_closed(tmp_path: Path) -> None:
         "out y:uint<514>=a+b }",
     )
     with pytest.raises(SimulationPlanError, match="512-bit arithmetic bound"):
-        zlang.sim.load(source, top="WideArithmetic", engine="jit")
+        zlang.sim.load(source, top="WideArithmetic", engine="native")
 
 
 def test_cli_sim_preserves_compile_cli_and_emits_json(tmp_path: Path) -> None:
@@ -1654,7 +1629,7 @@ def test_cli_sim_preserves_compile_cli_and_emits_json(tmp_path: Path) -> None:
             "--top",
             "Cli",
             "--engine",
-            "jit",
+            "native",
             "--set",
             "a=40",
             "--set",

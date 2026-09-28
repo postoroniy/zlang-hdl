@@ -154,6 +154,27 @@ def test_native_async_domain_adds_only_raw_assertion_to_history_event(
         )
 
 
+def test_externally_synchronized_release_adds_no_formal_release_tracker() -> None:
+    rendered = render_formal_domain(
+        ClockDomain(
+            "clk",
+            "arst_n",
+            reset_mode=ResetMode.ASYNCHRONOUS,
+            reset_polarity=ResetPolarity.ACTIVE_LOW,
+            reset_release_mode=ResetReleaseMode.EXTERNALLY_SYNCHRONIZED,
+            reset_release_cycles=0,
+        ),
+        clock_name="clk",
+        reset_name="arst_n",
+        used_names=set(),
+    )
+
+    assert rendered.history_event == "posedge clk or negedge arst_n"
+    assert rendered.reset_active == "zlang_formal_reset_active"
+    assert rendered.release_tracker_name is None
+    assert all("release" not in line for line in rendered.support_lines)
+
+
 @pytest.mark.parametrize(
     (
         "edge",

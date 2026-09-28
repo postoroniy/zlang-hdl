@@ -24,7 +24,7 @@ from zlang.ir.types import (
 from zlang.opt import OptimizationStage, lower, restore
 from zlang.opt.ir import ExpressionOp
 from zlang.semantic import SemanticError
-from zlang.simulate import simulate, simulate_cycles
+from zlang.native_simulation import simulate, simulate_cycles
 
 
 SOURCE = """

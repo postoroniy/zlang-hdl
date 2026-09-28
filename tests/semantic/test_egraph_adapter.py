@@ -6,7 +6,7 @@ from zlang.compiler import compile_source
 from zlang.ir.types import UIntType
 from zlang.opt import RewriteRule, SaturationError, saturate, term_to_expression
 from zlang.opt.ir import ExpressionOp, pure_metadata
-from zlang.simulate import simulate
+from zlang.native_simulation import simulate
 from zlang.opt import (
     EGraphAdapterError,
     canonical_to_egraph,

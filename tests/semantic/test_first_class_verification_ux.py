@@ -14,7 +14,7 @@ from zlang.module_resolver import attach_source_identity
 from zlang.opt import CanonicalizationError, lower, restore
 from zlang.parser import parse
 from zlang.semantic import SemanticError, analyze
-from zlang.simulate import VerificationAssertionError, simulate_cycles
+from zlang.native_simulation import VerificationAssertionError, simulate_cycles
 
 
 def _compile(source: str):

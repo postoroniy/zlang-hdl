@@ -19,7 +19,7 @@ from zlang.compiler import compile_file
 from zlang.ir.expressions import VectorUpdate
 from zlang.ir.types import FixedType, StructType, VecType
 from zlang.opt import OptimizationStage, lower, restore
-from zlang.simulate import simulate_cycles
+from zlang.native_simulation import simulate_cycles
 from zlang.toolchain import lint_with_verilator
 
 

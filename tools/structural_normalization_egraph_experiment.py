@@ -40,7 +40,7 @@ from zlang.ir.traversal import (
 )
 from zlang.ir.types import HardwareType, StructType, TupleType, VecType
 from zlang.opt import lower, render_term, saturate, term_to_expression
-from zlang.simulate import simulate
+from zlang.native_simulation import simulate
 
 
 SCHEMA = "zlang-structural-normalization-egraph-experiment-v1"

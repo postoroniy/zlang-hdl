@@ -27,7 +27,7 @@ from zlang.ir import (
     VecType,
     VectorIndex,
 )
-from zlang.simulate import simulate
+from zlang.native_simulation import simulate
 
 
 U8 = UIntType(8)

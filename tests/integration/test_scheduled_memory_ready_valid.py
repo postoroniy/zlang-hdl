@@ -17,7 +17,7 @@ import pytest
 from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
 from zlang.compiler import compile_source
 from zlang.opt.lowering import lower, restore
-from zlang.simulate import simulate_cycles
+from zlang.native_simulation import simulate_cycles
 
 
 SOURCE = r"""

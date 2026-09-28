@@ -1,6 +1,6 @@
 """Bounded simulator validation for the three-stage FFT8 SDF reference.
 
-The numerical oracle is deliberately independent of :mod:`zlang.simulate`.
+The numerical oracle is deliberately independent of the native simulator.
 It applies the fixed-point contract once at every D=4, D=2, and D=1 stage
 boundary, matching the architectural quantization points in the ZLang source.
 """
@@ -9,7 +9,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from zlang.compiler import compile_source
-from zlang.simulate import simulate_cycles
+from zlang.native_simulation import simulate_cycles
 
 
 ROOT = Path(__file__).resolve().parents[2]

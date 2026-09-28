@@ -24,6 +24,7 @@ EXPECTED_LANGUAGE_TOUR_TOPS = (
     "TextTupleSyntax",
     "StateSyntax",
     "AsyncResetSyntax",
+    "ExternalAsyncResetSyntax",
     "EncodedEnumSyntax",
     "FsmSyntax",
     "VectorStateUpdateSyntax",

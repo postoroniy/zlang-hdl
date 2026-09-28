@@ -73,6 +73,26 @@ def test_nonlegacy_domain_publishes_current_contract() -> None:
     assert restored.build_identity == artifact.build_identity
 
 
+def test_external_release_contract_is_published_without_aliasing_raw_async() -> None:
+    external_module = compile_source(ASYNC.replace(
+        "polarity active_low",
+        "polarity active_low release externally_synchronized",
+    )).ir
+    raw_module = compile_source(ASYNC.replace(
+        "async reset arst_n @clk { polarity active_low }",
+        "reset arst_n @clk { mode asynchronous polarity active_low "
+        "power_up unspecified }",
+    )).ir
+
+    external = emit_artifact(external_module).physical_domains[0]
+    raw = emit_artifact(raw_module).physical_domains[0]
+    assert external.reset_release_mode == "externally_synchronized"
+    assert external.reset_release_cycles == 0
+    assert external.identity != raw.identity
+    restored = BackendArtifact.from_json(emit_artifact(external_module).to_json())
+    assert restored.physical_domains[0] == external
+
+
 
 
 def test_legacy_default_domain_uses_inline_top_manifest_with_exact_domain() -> None:

@@ -15,7 +15,7 @@ from zlang.opt import OptimizationStage, lower, restore
 from zlang.opt.identity import canonical_ir_identity
 from zlang.opt.ir import ExpressionOp
 from zlang.semantic import SemanticError
-from zlang.simulate import simulate
+from zlang.native_simulation import simulate
 
 
 SOURCE = """

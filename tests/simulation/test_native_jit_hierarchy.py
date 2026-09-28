@@ -23,7 +23,7 @@ def test_scalar_instance_array_is_one_deterministic_primitive_plan() -> None:
         zlang.sim.compile(
             ROOT / "examples/sequential_instance_array.zhl",
             top="StateLaneArray",
-            engine="reference",
+            engine="native",
         )
         for _ in range(2)
     ]
@@ -64,23 +64,20 @@ def test_scalar_instance_array_is_one_deterministic_primitive_plan() -> None:
     assert child_origins
 
 
-def test_scalar_instance_array_matches_reference_and_native() -> None:
-    results = []
-    for engine in ("reference", "native"):
-        instance = zlang.sim.load(
-            ROOT / "examples/sequential_instance_array.zhl",
-            top="StateLaneArray",
-            engine=engine,
-        )
-        with instance:
-            instance.set("enables", [1, 1])
-            instance.set("steps", [2, 3])
-            trace = [instance.eval(), instance.edge("clk"), instance.edge("clk")]
-            instance.reset("rst", asserted=True)
-            trace.append(instance.edge("clk"))
-            instance.reset("rst", asserted=False)
-            results.append(trace)
-    assert results[0] == results[1] == [
+def test_scalar_instance_array_is_cycle_exact() -> None:
+    instance = zlang.sim.load(
+        ROOT / "examples/sequential_instance_array.zhl",
+        top="StateLaneArray",
+        engine="native",
+    )
+    with instance:
+        instance.set("enables", [1, 1])
+        instance.set("steps", [2, 3])
+        trace = [instance.eval(), instance.edge("clk"), instance.edge("clk")]
+        instance.reset("rst", asserted=True)
+        trace.append(instance.edge("clk"))
+        instance.reset("rst", asserted=False)
+    assert trace == [
         {"values": [0, 0]},
         {"values": [2, 3]},
         {"values": [4, 6]},
@@ -112,15 +109,11 @@ def test_parent_and_child_commit_from_one_pre_edge_snapshot(tmp_path: Path) -> N
         }
         """,
     )
-    traces = []
-    for engine in ("reference", "native"):
-        instance = zlang.sim.load(source, top="Top", engine=engine)
-        with instance:
-            instance.set("next", 9)
-            traces.append(
-                [instance.eval(), instance.edge("clk"), instance.edge("clk")]
-            )
-    assert traces[0] == traces[1] == [
+    instance = zlang.sim.load(source, top="Top", engine="native")
+    with instance:
+        instance.set("next", 9)
+        trace = [instance.eval(), instance.edge("clk"), instance.edge("clk")]
+    assert trace == [
         {"captured": 0, "child_value": 1},
         {"captured": 1, "child_value": 9},
         {"captured": 9, "child_value": 9},
@@ -149,13 +142,10 @@ def test_nested_combinational_hierarchy_disappears_before_plan(
         }
         """,
     )
-    outputs = []
-    for engine in ("reference", "native"):
-        instance = zlang.sim.load(source, top="Top", engine=engine)
-        with instance:
-            instance.set("x", 41)
-            outputs.append(instance.eval())
-    assert outputs == [{"y": 42}, {"y": 42}]
+    instance = zlang.sim.load(source, top="Top", engine="native")
+    with instance:
+        instance.set("x", 41)
+        assert instance.eval() == {"y": 42}
 
 
 def test_identical_child_combinational_nodes_share_one_plan_producer(
@@ -177,69 +167,64 @@ def test_identical_child_combinational_nodes_share_one_plan_producer(
         }
         """,
     )
-    plans = [
-        zlang.sim.compile(source, top="Top", engine=engine)
-        for engine in ("reference", "native")
-    ]
+    plans = [zlang.sim.compile(source, top="Top", engine="native") for _ in range(2)]
     assert plans[0].plan.to_bytes() == plans[1].plan.to_bytes()
     payload = plans[0].plan.payload
     outputs = {item["name"]: item["node"] for item in payload["outputs"]}
     assert outputs["left"] == outputs["right"]
-    with plans[0].create() as reference, plans[1].create() as native:
-        for instance in (reference, native):
+    with plans[0].create() as first, plans[1].create() as second:
+        for instance in (first, second):
             instance.set("x", 41)
             assert instance.eval() == {"left": 42, "right": 42}
 
 
 def test_child_memories_are_namespaced_and_cycle_exact() -> None:
-    traces = []
-    for engine in ("reference", "native"):
-        instance = zlang.sim.load(
-            ROOT / "examples/storage_instance_array.zhl",
-            top="MemoryLaneArray",
-            engine=engine,
-        )
-        with instance:
-            events = [
-                {
-                    "set": {
-                        "read_address": [0, 0],
-                        "write_enable": [1, 1],
-                        "write_address": [0, 0],
-                        "write_data": [0x22, 0x11],
-                    },
-                    "edges": ["clk"],
+    instance = zlang.sim.load(
+        ROOT / "examples/storage_instance_array.zhl",
+        top="MemoryLaneArray",
+        engine="native",
+    )
+    with instance:
+        events = [
+            {
+                "set": {
+                    "read_address": [0, 0],
+                    "write_enable": [1, 1],
+                    "write_address": [0, 0],
+                    "write_data": [0x22, 0x11],
                 },
-                {
-                    "set": {
-                        "read_address": [0, 1],
-                        "write_enable": [0, 1],
-                        "write_address": [0, 1],
-                        "write_data": [0, 0x33],
-                    },
-                    "edges": ["clk"],
+                "edges": ["clk"],
+            },
+            {
+                "set": {
+                    "read_address": [0, 1],
+                    "write_enable": [0, 1],
+                    "write_address": [0, 1],
+                    "write_data": [0, 0x33],
                 },
-                {
-                    "set": {
-                        "read_address": [1, 0],
-                        "write_enable": [0, 0],
-                    },
-                    "edges": ["clk"],
+                "edges": ["clk"],
+            },
+            {
+                "set": {
+                    "read_address": [1, 0],
+                    "write_enable": [0, 0],
                 },
-            ]
-            traces.append(instance.run_events(events))
-            assert {item["name"] for item in instance.program.plan.payload["memories"]} == {
-                "lane[0].table",
-                "lane[1].table",
-            }
-    assert traces[0] == traces[1] == [
+                "edges": ["clk"],
+            },
+        ]
+        trace = instance.run_events(events)
+        assert {item["name"] for item in instance.program.plan.payload["memories"]} == {
+            "lane[0].table",
+            "lane[1].table",
+        }
+    assert trace == [
         {"read_data": [0x22, 0x11]},
         {"read_data": [0x22, 0x33]},
         {"read_data": [0, 0x11]},
     ]
 
 
-@pytest.mark.parametrize("engine", ("reference", "native"))
+@pytest.mark.parametrize("engine", ("native",))
 def test_buffered_protocol_hierarchy_is_flattened(engine: str) -> None:
     with zlang.sim.load(
             ROOT / "examples/hierarchical_protocol.zhl",

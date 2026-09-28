@@ -13,8 +13,8 @@ width tables and backend limits, follow the linked topic guide.
 
 - Source files use `.zhl`. The old `.zl` suffix is rejected.
 - Run `zlang SOURCE --check`; highlighting is lexical and is not validation.
-- Native simulation needs a matching platform wheel; `--engine reference` uses
-  the independent Python simulator.
+- Native simulation needs a matching platform wheel and fails explicitly when
+  it is unavailable; there is no second Python execution engine.
 - Hardware assignments are concurrent. `=` drives the current cycle and `<-`
   schedules next state at the active clock edge.
 - Assignment types are exact. There is no implicit resize, signedness change,
@@ -150,6 +150,9 @@ qualifier but does not create a runtime namespace.
 - Declare one default synchronous domain with `clock clk reset rst`.
 - `async reset arst @clk` means asynchronous assertion and fixed two-edge
   synchronized release. Do not emulate reset modes in user logic.
+- Add `release externally_synchronized` only when deassertion is already
+  synchronized outside; no internal 2FF is emitted.
+- `reg q:T = VALUE` resets to `VALUE`; `reg q:T` has no reset branch.
 - `reg`, `fifo`, `memory`, and `rom` retain explicit typed state/storage
   semantics. Memory latency, collision, mask, and reset policies are not inferred.
 - A concise child declaration is `child : ChildModule`; `inst child : ChildModule`

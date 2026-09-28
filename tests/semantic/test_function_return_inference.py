@@ -9,7 +9,7 @@ from zlang.ir import expressions as expr
 from zlang.module_resolver import IndexedModuleResolver, load_indexed_module
 from zlang.opt import lower, restore
 from zlang.semantic import SemanticError
-from zlang.simulate import simulate
+from zlang.native_simulation import simulate
 
 
 def _compile(source: str):

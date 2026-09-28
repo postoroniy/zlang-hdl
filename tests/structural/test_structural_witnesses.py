@@ -12,7 +12,7 @@ import pytest
 from tests.structural.catalog import WITNESSES, WITNESS_BY_SLUG
 from zlang.backend.systemverilog import emit_experimental
 from zlang.compiler import compile_source
-from zlang.simulate import simulate
+from zlang.native_simulation import simulate
 
 
 def _compile(slug: str):

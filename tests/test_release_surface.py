@@ -48,7 +48,7 @@ def test_every_public_cli_reports_the_distribution_version(
 def test_package_and_build_metadata_share_one_version_source() -> None:
     configuration = tomllib.loads((ROOT / "pyproject.toml").read_text())
 
-    assert zlang.__version__ == __version__ == "0.1.0a16"
+    assert zlang.__version__ == __version__ == "0.1.0a17"
     assert configuration["project"]["dynamic"] == ["version"]
     assert configuration["project"]["license"] == "Apache-2.0"
     assert configuration["project"]["requires-python"] == ">=3.12,<3.13"
@@ -65,7 +65,7 @@ def test_package_and_build_metadata_share_one_version_source() -> None:
     assert "tool" not in configuration or "maturin" not in configuration["tool"]
     native = configuration["project"]["optional-dependencies"]["native"]
     assert native == [
-        "zlang-native-sim==0.1.0a16; "
+        "zlang-native-sim==0.1.0a17; "
         "platform_system == 'Linux' and platform_machine == 'x86_64'",
     ]
 
@@ -99,9 +99,13 @@ def test_every_owned_hardware_source_uses_the_canonical_suffix() -> None:
 
 
 def test_80211ad_experiment_is_absent_from_community_sources() -> None:
-    # The private experiment is not part of the supported public corpus.
-    assert not any(
-        "80211ad" in path.relative_to(ROOT).as_posix().lower().replace(".", "")
-        for root in (ROOT / "examples", ROOT / "stdlib")
-        for path in root.rglob("*")
-    )
+    # The private checkout may retain this experiment, but the Community
+    # projection must exclude it. A public export has no projection config and
+    # must not contain the experiment at all.
+    experiment = ROOT / "examples/projects/80211ad_phylayer"
+    projection = ROOT / "release/public-tree.toml"
+    if projection.is_file():
+        config = tomllib.loads(projection.read_text())
+        assert "examples/projects/80211ad_phylayer/**" in config["projection"]["exclude"]
+    else:
+        assert not experiment.exists()

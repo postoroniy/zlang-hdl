@@ -674,8 +674,9 @@ class FunctionalRegion(TracedExpression):
         )
         if any(_functional_value_has_effect(value) for value in owned_values):
             raise ValueError("functional region must be pure combinational IR")
+        capture_effects: dict[int, tuple[object, bool]] = {}
         if any(
-            _functional_capture_has_effect(value)
+            _functional_capture_has_effect(value, capture_effects)
             for _, value in self.captures
         ):
             raise ValueError("functional region capture must be a pure value read")
@@ -833,7 +834,9 @@ def _functional_value_has_effect(value: object) -> bool:
     return False
 
 
-def _functional_capture_has_effect(value: object) -> bool:
+def _functional_capture_has_effect(
+    value: object, memo: dict[int, tuple[object, bool]] | None = None
+) -> bool:
     """Return whether an invariant region capture crosses an effect boundary.
 
     A register reference is a read of the current pre-edge value.  Capturing
@@ -843,6 +846,8 @@ def _functional_capture_has_effect(value: object) -> bool:
     outside this closed value-only subset.
     """
 
+    if memo is None:
+        memo = {}
     if isinstance(value, RegisterRef):
         return False
     if isinstance(
@@ -864,15 +869,21 @@ def _functional_capture_has_effect(value: object) -> bool:
         return _functional_value_has_effect(value)
     if isinstance(value, FunctionalRegion):
         return False
+    cached = memo.get(id(value))
+    if cached is not None and cached[0] is value:
+        return cached[1]
     if isinstance(value, tuple):
-        return any(_functional_capture_has_effect(item) for item in value)
-    if is_dataclass(value) and not isinstance(value, type):
-        return any(
-            _functional_capture_has_effect(getattr(value, item.name))
+        result = any(_functional_capture_has_effect(item, memo) for item in value)
+    elif is_dataclass(value) and not isinstance(value, type):
+        result = any(
+            _functional_capture_has_effect(getattr(value, item.name), memo)
             for item in fields(value)
             if item.name not in {"type", "origin"}
         )
-    return _functional_value_has_effect(value)
+    else:
+        result = _functional_value_has_effect(value)
+    memo[id(value)] = (value, result)
+    return result
 
 
 @dataclass(frozen=True)

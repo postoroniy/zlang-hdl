@@ -43,10 +43,11 @@ uv tool install --python '>=3.12,<3.13' \
 ```
 
 The native wheel must match the operating system and CPU; WSL2 uses the Linux
-x86-64 wheel. Omit `--with` to install the portable compiler and select
-`--engine reference` for simulation. The native accelerator is optional and
-its Rust/Cranelift source is not distributed in this Community repository; it
-does not alter language or RTL semantics. See the
+x86-64 wheel. A compiler-only installation may omit `--with`, but `zlang sim`
+then fails explicitly because native simulation has no fallback executor. The
+Rust/Cranelift source is not distributed in this Community repository; the
+versioned plan/ABI remains compiler-owned and does not alter language or RTL
+semantics. See the
 [native simulation section](docs/language-reference.md#reference-native-simulation)
 and the installation chapter for PATH, pip/venv and WSL2 details.
 
@@ -71,7 +72,13 @@ Run a persistent native simulation directly from ZLang source:
 ```
 
 Use `zlang sim --help` for input assignment, JSONL multi-clock events, VCD
-tracing, and the independent reference executor.
+tracing, and optional cycle-by-cycle comparison with generated RTL in Icarus
+or Verilator.
+
+```bash
+.venv/bin/zlang sim examples/add.zhl --top Add \
+  --set a=200 --set b=55 --compare-with verilator --json
+```
 
 With Verilator installed, a strict lint smoke is:
 
@@ -145,7 +152,7 @@ combination is supported or that measured FPGA timing is guaranteed.
 | Yosys/SymbiYosys/Z3 | Optional bounded/proven safety and equivalence execution |
 
 The current GitHub-hosted external-tool configuration is Verilator 5.053, Yosys
-0.69, SymbiYosys 0.69, Z3 4.15.5, and Icarus Verilog/VVP 14.0. These are
+0.69, SymbiYosys 0.69, Z3 4.13.4, and Icarus Verilog/VVP 14.0. These are
 evidence versions, not compatibility bounds; see the
 [installation chapter](docs/language-reference.md#reference-installing-toolchain-verify-the-installation) and
 machine-readable [`release/status.json`](release/status.json).

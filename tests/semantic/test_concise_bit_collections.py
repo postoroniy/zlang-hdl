@@ -12,7 +12,7 @@ from zlang.ir.types import BitType, BitsType, UIntType, VecType
 from zlang.opt import CanonicalizationError, OptimizationStage, lower, restore
 from zlang.opt.ir import ExpressionOp, pure_metadata
 from zlang.semantic import SemanticError
-from zlang.simulate import simulate
+from zlang.native_simulation import simulate
 
 
 def _compile(source: str):

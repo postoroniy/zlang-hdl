@@ -12,7 +12,7 @@ import pytest
 
 from zlang.cli import main as compiler_main
 from zlang.compiler import compile_source
-from zlang.simulate import VerificationAssertionError, simulate_cycles
+from zlang.native_simulation import VerificationAssertionError, simulate_cycles
 from zlang.verification_bundle import load_verification_bundle
 from zlang.verification_cli import main as verification_main
 

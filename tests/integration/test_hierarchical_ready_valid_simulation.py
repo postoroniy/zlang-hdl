@@ -7,8 +7,8 @@ from time import perf_counter
 import pytest
 
 from zlang.compiler import compile_file, compile_source
-from zlang.simulate import (
-    _PersistentStorageSimulationState,
+from zlang.native_simulation import (
+    PersistentNativeSimulationState,
     simulate_cycles,
     simulate_storage_cycles,
 )
@@ -274,14 +274,12 @@ def test_persistent_child_preview_and_step_match_storage_cycle_history() -> None
     ]
     assert simulate_storage_cycles(child, cycles, reset=resets) == expected
 
-    state = _PersistentStorageSimulationState(child)
+    state = PersistentNativeSimulationState(child)
     actual = []
     for inputs, reset_active in zip(cycles, resets, strict=True):
-        first_preview = state.preview(inputs, reset_active)
-        second_preview = state.preview(inputs, reset_active)
         committed = state.step(inputs, reset_active)
-        assert first_preview == second_preview == committed
         actual.append(committed)
+    state.close()
 
     assert actual == expected
 

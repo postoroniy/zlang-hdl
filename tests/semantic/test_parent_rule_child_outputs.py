@@ -7,7 +7,7 @@ from zlang.ir.state import StateActionKind
 from zlang.opt import lower, restore
 from zlang.parser import parse
 from zlang.semantic import SemanticError, analyze
-from zlang.simulate import simulate_cycles
+from zlang.native_simulation import simulate_cycles
 
 
 SOURCE = """

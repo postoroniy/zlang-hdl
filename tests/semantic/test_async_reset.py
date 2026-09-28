@@ -81,6 +81,50 @@ def test_release_contract_participates_in_canonical_identity() -> None:
     assert canonical_ir_identity(lower(synchronized)) != canonical_ir_identity(lower(raw))
 
 
+def test_external_release_and_unreset_register_survive_typed_canonical_ir() -> None:
+    source = """
+module ExternalResetState {
+  clock clk
+  async reset arst @clk { release externally_synchronized }
+  in x : u8
+  out y : u8
+  reg reset_q : u8 = 0
+  reg free_q : u8
+  reset_q <- x
+  free_q <- x
+  y = free_q
+}
+"""
+    module = analyze(parse(source))
+    domain = module.clock_domains[0]
+
+    assert domain.reset_release_mode is ResetReleaseMode.EXTERNALLY_SYNCHRONIZED
+    assert domain.reset_release_cycles == 0
+    assert module.registers[0].initial is not None
+    assert module.registers[1].initial is None
+    restored = restore(lower(module))
+    assert restored == module
+    assert restored.registers[1].initial is None
+
+
+def test_external_release_identity_is_distinct_from_raw_async() -> None:
+    external = analyze(parse(CONCISE.replace(
+        "polarity active_low",
+        "polarity active_low release externally_synchronized",
+    )))
+    raw = analyze(parse(CONCISE.replace(
+        "async reset arst_n @clk { polarity active_low }",
+        "reset arst_n @clk { mode asynchronous polarity active_low "
+        "power_up unspecified }",
+    )))
+
+    assert external.clock_domains[0].reset_release_mode is (
+        ResetReleaseMode.EXTERNALLY_SYNCHRONIZED
+    )
+    assert raw.clock_domains[0].reset_release_mode is ResetReleaseMode.NATIVE
+    assert canonical_ir_identity(lower(external)) != canonical_ir_identity(lower(raw))
+
+
 @pytest.mark.parametrize(
     ("mode", "release", "cycles", "message"),
     (
@@ -101,6 +145,18 @@ def test_release_contract_participates_in_canonical_identity() -> None:
             ResetReleaseMode.NATIVE,
             2,
             "requires zero release cycles",
+        ),
+        (
+            ResetMode.SYNCHRONOUS,
+            ResetReleaseMode.EXTERNALLY_SYNCHRONIZED,
+            0,
+            "requires asynchronous assertion",
+        ),
+        (
+            ResetMode.ASYNCHRONOUS,
+            ResetReleaseMode.EXTERNALLY_SYNCHRONIZED,
+            2,
+            "requires zero internal release cycles",
         ),
     ),
 )

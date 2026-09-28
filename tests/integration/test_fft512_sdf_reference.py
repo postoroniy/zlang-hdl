@@ -253,7 +253,7 @@ from pathlib import Path
 
 from tests.integration.test_fft512_sdf_reference import _fixture
 from zlang.compiler import compile_source
-from zlang.simulate import simulate_cycles
+from zlang.native_simulation import simulate_cycles
 
 source = Path("examples/fft/sdf_stage_numeric.zhl")
 module = compile_source(

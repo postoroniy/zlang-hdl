@@ -23,7 +23,7 @@ from zlang.formal import (
 from zlang.ir.module import PortDirection
 from zlang.ir.top_abi import build_top_physical_abi
 from zlang.ir.types import StructType
-from zlang.simulate import simulate, simulate_cycles
+from zlang.native_simulation import simulate, simulate_cycles
 from zlang.semantic.errors import SemanticError
 from tests.simulation.differential import run_differential
 
@@ -558,7 +558,7 @@ def test_axi4_source_pin_adapters_have_exact_axi_boundary(
     assert f"{top}_zlang_core" not in rtl
 
 
-@pytest.mark.parametrize("engine", ("reference", "native"))
+@pytest.mark.parametrize("engine", ("native",))
 def test_axi4_user_master_pins_round_trip_all_five_channels(
     engine: str,
 ) -> None:
@@ -605,7 +605,7 @@ def test_axi4_user_master_pins_round_trip_all_five_channels(
         }
 
 
-@pytest.mark.parametrize("engine", ("reference", "native"))
+@pytest.mark.parametrize("engine", ("native",))
 def test_axi4_user_subordinate_pins_preserve_all_sidebands(
     engine: str,
 ) -> None:
@@ -656,7 +656,7 @@ def test_axi4_user_subordinate_pins_preserve_all_sidebands(
                 )
 
 
-@pytest.mark.parametrize("engine", ("reference", "native"))
+@pytest.mark.parametrize("engine", ("native",))
 def test_static_child_protocol_signals_are_generic(
     tmp_path: Path, engine: str,
 ) -> None:
@@ -679,7 +679,7 @@ def test_static_child_protocol_signals_are_generic(
     assert "GenericChildSignalsTop_zlang_core" not in rtl
 
 
-@pytest.mark.parametrize("engine", ("reference", "native"))
+@pytest.mark.parametrize("engine", ("native",))
 def test_static_child_protocol_payload_fields_build_exact_record(
     tmp_path: Path, engine: str,
 ) -> None:
@@ -762,7 +762,7 @@ def test_static_child_protocol_signal_rejects_unsafe_bindings(
         compile_source(source, top="GenericChildSignalsTop")
 
 
-@pytest.mark.parametrize("engine", ("reference", "native"))
+@pytest.mark.parametrize("engine", ("native",))
 def test_axi4_child_payload_field_projection(
     tmp_path: Path, engine: str,
 ) -> None:
@@ -833,7 +833,7 @@ def test_child_protocol_projection_formal_and_manifest_round_trip() -> None:
         BackendArtifact.from_json(stale)
 
 
-@pytest.mark.parametrize("engine", ("reference", "native"))
+@pytest.mark.parametrize("engine", ("native",))
 def test_generic_child_ready_valid_projection_in_parent_state(
     tmp_path: Path, engine: str,
 ) -> None:
@@ -882,7 +882,39 @@ def test_axi4_read_response_stability_formal_artifact(tmp_path: Path) -> None:
         )
 
 
-@pytest.mark.parametrize("engine", ("reference", "native"))
+@pytest.mark.parametrize(
+    ("source_name", "top", "channels"),
+    (
+        ("axi4.zhl", "AXI4ReadManager", ("axi__ar", "axi__r")),
+        ("axi4.zhl", "AXI4WriteManager", ("axi__aw", "axi__w", "axi__b")),
+        ("axi4_subordinate.zhl", "AXI4ReadSubordinate", ("axi__ar", "axi__r")),
+        ("axi4_subordinate.zhl", "AXI4WriteSubordinate", ("axi__aw", "axi__w", "axi__b")),
+    ),
+)
+def test_axi4_endpoint_ready_valid_formal_obligations_are_executable(
+    source_name: str, top: str, channels: tuple[str, ...],
+) -> None:
+    """All existing AXI channel safety obligations reach formal preparation.
+
+    This checks applicability and generated design, not a solver proof of the
+    complete external AXI4 endpoint contract.
+    """
+    source = Path(__file__).resolve().parents[2] / "stdlib/bus" / source_name
+    compiled = compile_file(source, top=top)
+    artifact = emit_formal_artifact(
+        compiled.ir, build_recursive_formal_design(compiled.ir)
+    )
+    design = connect_formal_design(compiled.formal_design, artifact)
+    obligations = {
+        item.generated_from: item
+        for item in design.properties
+        if item.generated_from.startswith("ready_valid:")
+    }
+    assert {f"ready_valid:{channel}" for channel in channels} <= obligations.keys()
+    assert all(item.non_executable_reason is None for item in obligations.values())
+
+
+@pytest.mark.parametrize("engine", ("native",))
 def test_axi4_five_channel_composition_is_protocol_generic(
     tmp_path: Path, engine: str,
 ) -> None:
@@ -899,7 +931,7 @@ def test_axi4_five_channel_composition_is_protocol_generic(
     assert "Axi4FiveTop_zlang_core" not in rtl
 
 
-@pytest.mark.parametrize("engine", ("reference", "native"))
+@pytest.mark.parametrize("engine", ("native",))
 def test_connected_child_protocol_signal_remains_readable(
     tmp_path: Path, engine: str,
 ) -> None:
@@ -1218,7 +1250,7 @@ def test_axi4_read_subordinate_interleaves_ids_but_orders_same_id() -> None:
     assert trace[-1]["protocol_error"] == 1  # premature slot-1 beat was rejected
 
 
-@pytest.mark.parametrize("engine", ("reference", "native"))
+@pytest.mark.parametrize("engine", ("native",))
 def test_axi4_read_subordinate_randomized_slot_scoreboard(
     engine: str,
 ) -> None:
@@ -1497,7 +1529,7 @@ def _axi4_held_backend_result_events() -> tuple[dict[str, object], ...]:
     )
 
 
-@pytest.mark.parametrize("engine", ("reference", "native"))
+@pytest.mark.parametrize("engine", ("native",))
 def test_axi4_write_subordinate_never_accepts_duplicate_held_result(
     engine: str,
 ) -> None:
@@ -1533,10 +1565,10 @@ def test_axi4_write_subordinate_duplicate_result_rtl_parity(tmp_path: Path) -> N
                 for event in _axi4_held_backend_result_events()],
         directory=tmp_path,
     )
-    assert trace.reference == trace.native == trace.direct_sv
+    assert trace.native == trace.direct_sv
 
 
-@pytest.mark.parametrize("engine", ("reference", "native"))
+@pytest.mark.parametrize("engine", ("native",))
 def test_axi4_write_subordinate_randomized_transaction_scoreboard(
     engine: str,
 ) -> None:
@@ -1647,7 +1679,7 @@ def test_axi4_write_subordinate_randomized_transaction_scoreboard(
     assert all(not pending for pending in expected_by_id.values())
 
 
-@pytest.mark.parametrize("engine", ("reference", "native"))
+@pytest.mark.parametrize("engine", ("native",))
 def test_axi4_five_channel_subordinate_composition(engine: str) -> None:
     source = Path(__file__).resolve().parents[2] / "stdlib/bus/axi4_subordinate.zhl"
     module = compile_file(source, top="AXI4Subordinate").ir
@@ -1698,7 +1730,7 @@ def test_axi4_write_manager_max_length_counted_wlast() -> None:
     assert trace[-1]["failed"] == 0
 
 
-@pytest.mark.parametrize("engine", ("reference", "native"))
+@pytest.mark.parametrize("engine", ("native",))
 def test_axi4_write_manager_engine_parity(tmp_path: Path, engine: str) -> None:
     source = tmp_path / "axi4_write.zhl"
     source.write_text(WRITE_MANAGER_SOURCE)
@@ -1720,7 +1752,7 @@ def test_axi4_write_manager_engine_parity(tmp_path: Path, engine: str) -> None:
         assert [item["failed"] for item in outputs] == [0, 0, 0, 0]
 
 
-@pytest.mark.parametrize("engine", ("reference", "native"))
+@pytest.mark.parametrize("engine", ("native",))
 def test_axi4_read_manager_engine_parity(tmp_path: Path, engine: str) -> None:
     source = tmp_path / "axi4_read.zhl"
     source.write_text(READ_MANAGER_SOURCE)
@@ -1743,7 +1775,7 @@ def test_axi4_read_manager_engine_parity(tmp_path: Path, engine: str) -> None:
         assert [item["failed"] for item in outputs] == [0, 0, 0, 0]
 
 
-@pytest.mark.parametrize("engine", ("reference", "native"))
+@pytest.mark.parametrize("engine", ("native",))
 def test_axi4_user_read_manager_keeps_address_and_response_user(
     engine: str,
 ) -> None:
@@ -1771,7 +1803,7 @@ def test_axi4_user_read_manager_keeps_address_and_response_user(
         assert second["protocol_error"] == 0
 
 
-@pytest.mark.parametrize("engine", ("reference", "native"))
+@pytest.mark.parametrize("engine", ("native",))
 def test_axi4_user_write_manager_keeps_independent_sidebands(
     engine: str,
 ) -> None:
@@ -1894,7 +1926,7 @@ def test_axi4_five_channel_manager_composes_without_wrapper(
         )
 
 
-@pytest.mark.parametrize("engine", ("reference", "native"))
+@pytest.mark.parametrize("engine", ("native",))
 def test_axi4_five_channel_loopback_transactions(
     tmp_path: Path, engine: str,
 ) -> None:
@@ -1956,7 +1988,7 @@ def test_axi4_five_channel_loopback_transactions(
 
 
 @pytest.mark.skipif(shutil.which("verilator") is None, reason="Verilator unavailable")
-def test_axi4_five_channel_loopback_reference_native_rtl_differential(
+def test_axi4_five_channel_loopback_native_rtl_differential(
     tmp_path: Path,
 ) -> None:
     source = tmp_path / "axi4_loopback.zhl"
@@ -1989,7 +2021,7 @@ def test_axi4_five_channel_loopback_reference_native_rtl_differential(
     trace = run_differential(
         source, top="Axi4Loopback", events=events, directory=tmp_path,
     )
-    assert trace.reference == trace.native == trace.direct_sv
+    assert trace.native == trace.direct_sv
 
 
 def _exclusive_monitor_event(
@@ -2012,7 +2044,7 @@ def _exclusive_monitor_event(
     }
 
 
-@pytest.mark.parametrize("engine", ("reference", "native"))
+@pytest.mark.parametrize("engine", ("native",))
 def test_axi4_exclusive_monitor_atomic_conflict_wins(
     engine: str,
 ) -> None:
@@ -2041,7 +2073,7 @@ def test_axi4_exclusive_monitor_atomic_conflict_wins(
     assert errors == [0] * len(events)
 
 
-@pytest.mark.parametrize("engine", ("reference", "native"))
+@pytest.mark.parametrize("engine", ("native",))
 @pytest.mark.parametrize("field,value", (
     ("region", 1), ("cache", 1), ("prot", 1),
 ))
@@ -2096,7 +2128,7 @@ def test_axi4_exclusive_monitor_direct_sv_tools(
         )
 
 
-@pytest.mark.parametrize("engine", ("reference", "native"))
+@pytest.mark.parametrize("engine", ("native",))
 def test_axi4_exclusive_ram_witness_gates_atomic_write(engine: str) -> None:
     source = Path(__file__).resolve().parents[2] / "stdlib/bus/axi4_exclusive.zhl"
     request = _read_request(1)
@@ -2134,7 +2166,7 @@ def test_axi4_exclusive_ram_witness_gates_atomic_write(engine: str) -> None:
         assert sim.eval()["read_data"] == 0xAABBCCDD
 
 
-@pytest.mark.parametrize("engine", ("reference", "native"))
+@pytest.mark.parametrize("engine", ("native",))
 @pytest.mark.parametrize("conflict", (0, 1))
 @pytest.mark.parametrize("result_resp", (0, 1, 2))
 @pytest.mark.parametrize("reset_between", (False, True))
@@ -2229,7 +2261,7 @@ def test_axi4_exclusive_subordinate_same_edge_commit_contract(
 
 
 @pytest.mark.skipif(shutil.which("verilator") is None, reason="Verilator unavailable")
-def test_axi4_exclusive_subordinate_reference_native_rtl_differential(
+def test_axi4_exclusive_subordinate_native_rtl_differential(
     tmp_path: Path,
 ) -> None:
     source = Path(__file__).resolve().parents[2] / "stdlib/bus/axi4_exclusive.zhl"
@@ -2293,10 +2325,10 @@ def test_axi4_exclusive_subordinate_reference_native_rtl_differential(
         source, top="AXI4ExclusiveSubordinate", events=events,
         directory=tmp_path,
     )
-    assert trace.reference == trace.native == trace.direct_sv
+    assert trace.native == trace.direct_sv
 
 
-@pytest.mark.parametrize("engine", ("reference", "native"))
+@pytest.mark.parametrize("engine", ("native",))
 def test_axi4_user_read_subordinate_preserves_address_and_beat_user(
     engine: str,
 ) -> None:
@@ -2332,7 +2364,7 @@ def test_axi4_user_read_subordinate_preserves_address_and_beat_user(
         assert response["transfer"] == 1
 
 
-@pytest.mark.parametrize("engine", ("reference", "native"))
+@pytest.mark.parametrize("engine", ("native",))
 def test_axi4_user_write_subordinate_preserves_all_three_user_fields(
     engine: str,
 ) -> None:
@@ -2368,7 +2400,7 @@ def test_axi4_user_write_subordinate_preserves_all_three_user_fields(
         assert response["transfer"] == 1
 
 
-@pytest.mark.parametrize("engine", ("reference", "native"))
+@pytest.mark.parametrize("engine", ("native",))
 def test_axi4_user_five_channel_subordinate_issues_both_addresses(
     engine: str,
 ) -> None:

@@ -407,6 +407,8 @@ def compose_hierarchical_primitive_payload(
     origin_cache: set[tuple[int, str]] = set()
     active: set[tuple[tuple[str, ...], int]] = set()
     nodes: list[dict[str, object]] = []
+    regions: list[dict[str, object]] = []
+    region_ids: dict[tuple[tuple[str, ...], int], int] = {}
 
     def linked_input(frame: _Frame, name: str) -> tuple[_Frame, int] | None:
         for (owner, port), private in frame.boundary.child_outputs.items():
@@ -426,6 +428,37 @@ def compose_hierarchical_primitive_payload(
         if isinstance(origin, dict):
             return {**origin, "hierarchy_path": list(frame.path)}
         return origin
+
+    # Functional-region identifiers are local to each leaf plan.  Preserve the
+    # already validated region body and remap only nested region references;
+    # captures remain operands of the owning loop node.  Region tables are
+    # ordered bottom-up by construction, so every nested reference is already
+    # available when its parent is copied.
+    for frame in frames:
+        for local_id, source_region in enumerate(frame.plan.payload["regions"]):
+            body: list[dict[str, object]] = []
+            for source_node in source_region["nodes"]:
+                attributes = dict(source_node["attributes"])
+                if source_node["op"] == "loop_region":
+                    nested = int(attributes["region"])
+                    try:
+                        attributes["region"] = region_ids[(frame.path, nested)]
+                    except KeyError as error:
+                        raise HierarchicalSimulationError(
+                            "functional region references a non-preceding local region"
+                        ) from error
+                body.append(
+                    {
+                        **source_node,
+                        "attributes": attributes,
+                        "origins": [
+                            origin_with_path(origin, frame)
+                            for origin in source_node.get("origins", [])
+                        ],
+                    }
+                )
+            region_ids[(frame.path, local_id)] = len(regions)
+            regions.append({**source_region, "nodes": body})
 
     def lower(frame: _Frame, identifier: int) -> int:
         root = (frame.path, identifier)
@@ -492,6 +525,10 @@ def compose_hierarchical_primitive_payload(
                     raise HierarchicalSimulationError(
                         f"unlinked child input '{'.'.join(current.path)}.{name}'"
                     )
+            elif source["op"] == "loop_region":
+                attributes["region"] = region_ids[
+                    (current.path, int(attributes["region"]))
+                ]
             content = {
                 "op": source["op"],
                 "width": source["width"],
@@ -668,6 +705,7 @@ def compose_hierarchical_primitive_payload(
         "canonical_ir_identity": f"hierarchical:{composite_identity}",
         "identity": "",
         "ports": real_ports,
+        "regions": regions,
         "nodes": nodes,
         "outputs": outputs,
         "registers": registers,

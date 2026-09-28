@@ -28,6 +28,41 @@ def test_concise_async_reset_accepts_only_the_polarity_override() -> None:
     assert module.reset_physical[0].polarity == "active_low"
 
 
+def test_async_reset_can_declare_externally_synchronized_release() -> None:
+    module = parse(
+        "module ExternalSync { clock clk async reset arst_n @clk { "
+        "release externally_synchronized polarity active_low } }"
+    )
+
+    reset = module.reset_physical[0]
+    assert reset.mode == "asynchronous"
+    assert reset.polarity == "active_low"
+    assert reset.release_mode == "externally_synchronized"
+    assert reset.release_cycles == 0
+
+
+def test_register_reset_value_is_optional() -> None:
+    module = parse(
+        "module OptionalReset { clock clk reset rst @clk "
+        "reg reset_q:u8=0 reg free_q:u8 free_q <- reset_q }"
+    )
+
+    reset_q, free_q = module.registers
+    assert reset_q.initial is not None
+    assert free_q.initial is None
+
+
+@pytest.mark.parametrize("release", ("native", "eventually"))
+def test_concise_async_reset_rejects_other_release_contracts(
+    release: str,
+) -> None:
+    with pytest.raises(ParseError, match="async reset release"):
+        parse(
+            "module Bad { clock clk async reset arst @clk { "
+            f"release {release} }} }}"
+        )
+
+
 def test_legacy_async_block_remains_native() -> None:
     module = parse(
         "module RawAsync { clock clk reset arst @clk { "

@@ -2,7 +2,7 @@ from pathlib import Path
 import unittest
 
 from zlang.compiler import compile_source
-from zlang.simulate import simulate
+from zlang.native_simulation import simulate
 
 
 ROOT = Path(__file__).resolve().parents[2]

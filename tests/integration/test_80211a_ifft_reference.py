@@ -30,7 +30,8 @@ from zlang.ir import expressions as expr
 from zlang.ir.functional_regions import evaluate_compile_time
 from zlang.ir.types import FixedType, StructType, VecType
 from zlang.opt import OptimizationStage, lower, restore
-from zlang.simulate import simulate
+from zlang.native_simulation import simulate
+from zlang.simulation_plan import SimulationPlanError, build_simulation_plan
 from zlang.toolchain import lint_with_verilator
 
 
@@ -423,18 +424,15 @@ def test_ifft64_symbolic_types_quantization_and_canonical_round_trip(
     assert restore(canonical) == module
 
 
-def test_ifft64_semantic_simulator_matches_independent_integer_oracle(
+def test_ifft64_native_plan_fails_closed_at_compilation_bound(
     ifft64_compilation,
 ) -> None:
     module = ifft64_compilation.ir
-    for ordinal, samples in enumerate(_oracle_vectors(64)):
-        marker = ordinal & 1
-        expected = _ifft_reference(samples)
-        actual = simulate(module, input=_message(samples, marker))["output"]
-        assert actual["new_message"] == marker
-        assert actual["data"] == [
-            {"i": real, "q": imag} for real, imag in expected
-        ]
+    with pytest.raises(
+        SimulationPlanError,
+        match="primitive simulation plan exceeds the 32768-node compilation bound",
+    ):
+        build_simulation_plan(module)
 
 
 @pytest.mark.performance

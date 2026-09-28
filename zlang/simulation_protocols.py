@@ -1340,10 +1340,20 @@ def lower_vc_credit_module(module: Module) -> Module:
                 returned,
                 lowerer._channel_match(return_vc, port, channel),
             )
+            increment = (
+                returned_here
+                if port.direction is PortDirection.OUTPUT
+                else sent_here
+            )
+            decrement = (
+                sent_here
+                if port.direction is PortDirection.OUTPUT
+                else returned_here
+            )
             updated = expr.Binary(
                 expr.BinaryOperator.SUBTRACT,
-                expr.Add(count, expr.Extend(returned_here, register.type), register.type),
-                expr.Extend(sent_here, register.type),
+                expr.Add(count, expr.Extend(increment, register.type), register.type),
+                expr.Extend(decrement, register.type),
                 register.type,
                 register.type,
             )

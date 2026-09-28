@@ -213,7 +213,7 @@ def effective_reset_signal(
 
     domain = module_domain(module, clock)
     if (
-        domain.reset_release_mode is ResetReleaseMode.NATIVE
+        domain.reset_release_mode is not ResetReleaseMode.SYNCHRONIZED
         or not module_requires_reset_conditioner(module)
     ):
         return identifier(domain.reset)
@@ -319,6 +319,14 @@ def clock_event(module: Module, identifier, clock: str | None = None) -> str:
         )
         event += f" or {reset_edge} {effective_reset_signal(module, identifier, clock)}"
     return event
+
+
+def active_clock_event(module: Module, identifier, clock: str | None = None) -> str:
+    """Return only the active clock edge, without any reset sensitivity."""
+
+    domain = module_domain(module, clock)
+    edge = "posedge" if domain.edge is ClockEdge.RISING else "negedge"
+    return f"{edge} {identifier(domain.clock)}"
 
 
 def reset_asserted(module: Module, identifier, clock: str | None = None) -> str:

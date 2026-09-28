@@ -1,8 +1,7 @@
-"""Public persistent simulation API.
+"""Public persistent native simulation API.
 
-The native engine is the default for the supported Community simulation
-surface.  The independent reference engine remains explicit.  Neither engine
-falls back to SystemVerilog or another executor for an unsupported plan.
+Generated RTL comparison is an explicit validation mode; it is never an
+execution fallback for an unsupported native plan.
 """
 
 from __future__ import annotations
@@ -26,13 +25,15 @@ from zlang.ir.interfaces import (
     RequestResponseRole,
     VirtualChannelCreditSignal,
 )
-from zlang.ir.module import PortDirection
+from zlang.ir.module import Module, PortDirection
 from zlang.ir.runtime_values import TaggedUnionValue
 from zlang.ir.types import (
     BitType,
     EnumType,
     HardwareType,
+    StructType,
     TaggedUnionType,
+    TupleType,
     UIntType,
     VecType,
 )
@@ -47,7 +48,7 @@ from zlang.simulation_primitives import (
     int_from_limbs as _limbs_to_int,
     int_to_limbs as _int_to_limbs,
 )
-from zlang.simulate import (
+from zlang.simulation_errors import (
     ProtocolViolation,
     VerificationAssertionError,
     VerificationCoverWitness,
@@ -102,6 +103,60 @@ def _pack_value(type_: HardwareType, value: object) -> int:
                 f"value {value!r} is not a valid member/code of '{type_.name}'"
             )
         return value
+    if isinstance(type_, StructType):
+        if not isinstance(value, Mapping):
+            raise SimulationRuntimeError(
+                f"value for struct '{type_}' must be a mapping"
+            )
+        expected = tuple(field.name for field in type_.fields)
+        if set(value) != set(expected):
+            raise SimulationRuntimeError(
+                f"value does not fit {type_}: struct value must contain "
+                f"exactly {expected}"
+            )
+        packed = 0
+        try:
+            for field in type_.fields:
+                packed = (packed << field.type.width) | _pack_value(
+                    field.type, value[field.name]
+                )
+        except SimulationRuntimeError as error:
+            raise SimulationRuntimeError(
+                f"value does not fit {type_}: {error}"
+            ) from error
+        return packed
+    if isinstance(type_, TupleType):
+        if not isinstance(value, tuple) or len(value) != len(type_.elements):
+            raise SimulationRuntimeError(
+                f"value for '{type_}' must contain exactly "
+                f"{len(type_.elements)} elements"
+            )
+        packed = 0
+        offset = 0
+        for element_type, element in zip(type_.elements, value, strict=True):
+            packed |= _pack_value(element_type, element) << offset
+            offset += element_type.width
+        return packed
+    if isinstance(type_, VecType):
+        if (
+            not isinstance(value, Sequence)
+            or isinstance(value, (str, bytes, bytearray))
+            or len(value) != type_.length
+        ):
+            raise SimulationRuntimeError(
+                f"value does not fit {type_}: vector value must contain "
+                f"exactly {type_.length} elements"
+            )
+        try:
+            return sum(
+                _pack_value(type_.element_type, element)
+                << (index * type_.element_type.width)
+                for index, element in enumerate(value)
+            )
+        except SimulationRuntimeError as error:
+            raise SimulationRuntimeError(
+                f"value does not fit {type_}: {error}"
+            ) from error
     if isinstance(type_, TaggedUnionType):
         if not isinstance(value, TaggedUnionValue):
             raise SimulationRuntimeError(
@@ -111,7 +166,9 @@ def _pack_value(type_: HardwareType, value: object) -> int:
     try:
         return packing.pack_runtime(type_, value)
     except packing.PackingError as error:
-        raise SimulationRuntimeError(str(error)) from error
+        raise SimulationRuntimeError(
+            f"value {value!r} does not fit {type_}"
+        ) from error
 
 
 def _unpack_value(type_: HardwareType, value: int) -> object:
@@ -121,6 +178,31 @@ def _unpack_value(type_: HardwareType, value: int) -> object:
                 f"native value {value} is not a valid code of '{type_.name}'"
             )
         return value
+    if isinstance(type_, StructType):
+        result: dict[str, object] = {}
+        shift = type_.width
+        for field in type_.fields:
+            shift -= field.type.width
+            raw = (value >> shift) & ((1 << field.type.width) - 1)
+            result[field.name] = _unpack_value(field.type, raw)
+        return result
+    if isinstance(type_, TupleType):
+        result = []
+        offset = 0
+        for element_type in type_.elements:
+            raw = (value >> offset) & ((1 << element_type.width) - 1)
+            result.append(_unpack_value(element_type, raw))
+            offset += element_type.width
+        return tuple(result)
+    if isinstance(type_, VecType):
+        return [
+            _unpack_value(
+                type_.element_type,
+                (value >> (index * type_.element_type.width))
+                & ((1 << type_.element_type.width) - 1),
+            )
+            for index in range(type_.length)
+        ]
     if isinstance(type_, TaggedUnionType):
         # Public tagged-union reconstruction requires an active-variant proof.
         # Keep the exact packed value rather than guessing a variant.
@@ -137,8 +219,7 @@ def _native_runtime():
     except ImportError as error:
         raise JitUnsupportedFeatureError(
             "the compatible ZLang native simulation runtime is not installed; "
-            "install 'zlang-hdl[native]' for a supported platform or select "
-            "engine='reference'"
+            "install 'zlang-hdl[native]' for a supported platform"
         ) from error
     actual_abi = _zlang_native_sim.runtime_abi()
     if actual_abi != SIMULATION_RUNTIME_ABI:
@@ -154,7 +235,7 @@ class Program:
     """One compiled immutable simulation program, reusable across instances."""
 
     plan: SimulationPlan
-    module: object
+    module: Module
     _native: object
 
     @property
@@ -232,7 +313,7 @@ class Simulator:
             tuple[tuple[str, ...], str], VerificationCoverWitness
         ] = {}
 
-    def _index_verification(self, module: object, path: tuple[str, ...]) -> None:
+    def _index_verification(self, module: Module, path: tuple[str, ...]) -> None:
         for scope in module.verification_scopes:
             self._verification_scopes[(path, scope.semantic_id)] = scope
             for clause in (*scope.requirements, *scope.goals):
@@ -408,9 +489,14 @@ class Simulator:
                 f"ready/valid input '{port.name}' requires fields: {rendered}"
             )
         for field, type_ in fields:
-            self._set_scalar(
-                ready_valid_field_name(port.name, field), type_, value[field]
-            )
+            try:
+                self._set_scalar(
+                    ready_valid_field_name(port.name, field), type_, value[field]
+                )
+            except SimulationRuntimeError as error:
+                raise SimulationRuntimeError(
+                    f"{port.name}.{field}: {error}"
+                ) from error
 
     def _set_protocol(self, port: object, value: object) -> None:
         if port.protocol is InterfaceProtocol.READY_VALID:
@@ -429,9 +515,14 @@ class Simulator:
                 f"{rendered}"
             )
         for field, type_ in fields:
-            self._set_scalar(
-                self._protocol_field_name(port, field), type_, value[field]
-            )
+            try:
+                self._set_scalar(
+                    self._protocol_field_name(port, field), type_, value[field]
+                )
+            except SimulationRuntimeError as error:
+                raise SimulationRuntimeError(
+                    f"{port.name}.{field}: {error}"
+                ) from error
 
     def _get_ready_valid(self, port: object) -> dict[str, object]:
         valid = int(
@@ -1512,9 +1603,10 @@ def compile(
 ) -> Program:
     """Compile one file into a reusable persistent simulation program."""
 
-    if engine not in {"jit", "native", "reference", "python"}:
+    if engine != "native":
         raise ValueError(
-            "simulation engine must be 'native'/'jit' or 'reference'/'python'"
+            f"simulation engine '{engine}' was removed; use engine='native' "
+            "and --compare-with iverilog|verilator for an external RTL oracle"
         )
     source_path = validate_source_path(source)
     source_text = source_path.read_text(encoding="utf-8")
@@ -1523,24 +1615,15 @@ def compile(
     )
     plan = _load_simulation_plan(session)
     _COMPILATION_WORKSPACE.refresh(session)
-    runtime = None
-    if engine in {"jit", "native"}:
-        runtime = _native_runtime()
-        cache_key = f"native:{plan.execution_identity}"
-    else:
-        from zlang.simulation_reference import compile_reference_plan
-
-        cache_key = f"reference:{plan.identity}"
+    runtime = _native_runtime()
+    cache_key = f"native:{plan.execution_identity}"
     with _PROGRAM_CACHE_LOCK:
         native = _PROGRAM_CACHE.get(cache_key)
         if native is None:
-            if runtime is None:
-                native = compile_reference_plan(plan)
-            else:
-                try:
-                    native = runtime.compile_plan_bytes(plan.to_bytes())
-                except (ValueError, RuntimeError) as error:
-                    raise JitUnsupportedFeatureError(str(error)) from error
+            try:
+                native = runtime.compile_plan_bytes(plan.to_bytes())
+            except (ValueError, RuntimeError) as error:
+                raise JitUnsupportedFeatureError(str(error)) from error
             _PROGRAM_CACHE[cache_key] = native
             while len(_PROGRAM_CACHE) > _PROGRAM_CACHE_ENTRIES:
                 _PROGRAM_CACHE.popitem(last=False)

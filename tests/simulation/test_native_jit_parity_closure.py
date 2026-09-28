@@ -22,7 +22,7 @@ ROOT = Path(__file__).resolve().parents[2]
 ALL_SYNTAX = ROOT / "examples/all_syntax.zhl"
 
 
-@pytest.mark.parametrize("engine", ("reference", "native"))
+@pytest.mark.parametrize("engine", ("native",))
 def test_global_equivalence_is_compile_time_only_for_execution(engine: str) -> None:
     with zlang.sim.load(
         ALL_SYNTAX,
@@ -40,31 +40,25 @@ def test_global_equivalence_is_compile_time_only_for_execution(engine: str) -> N
 
 
 def test_legacy_contracts_execute_only_through_exact_overlay_probes() -> None:
-    traces = []
-    for engine in ("reference", "native"):
-        with zlang.sim.load(
-            ALL_SYNTAX,
-            top="ContractSyntax",
-            engine=engine,
-        ) as instance:
-            instance.reset("rst", asserted=True)
-            instance.edge("clk")
-            instance.reset("rst", asserted=False)
-            instance.set("a", 9)
-            instance.set("b", 0)
-            outputs = instance.edge("clk")
-            traces.append(
-                (
-                    outputs,
-                    tuple(
-                        (event.category, event.clause_name)
-                        for event in instance.drain_events()
-                    ),
-                )
+    with zlang.sim.load(
+        ALL_SYNTAX,
+        top="ContractSyntax",
+        engine="native",
+    ) as instance:
+        instance.reset("rst", asserted=True)
+        instance.edge("clk")
+        instance.reset("rst", asserted=False)
+        instance.set("a", 9)
+        instance.set("b", 0)
+        outputs = instance.edge("clk")
+        trace = (
+            outputs,
+            tuple(
+                (event.category, event.clause_name)
+                for event in instance.drain_events()
             )
-
-    assert traces[0] == traces[1]
-    assert traces[0] == (
+        )
+    assert trace == (
         {"y": 9},
         (
             ("requirement_violation", "bounded"),
@@ -105,7 +99,9 @@ def test_scheduler_plan_size_is_independent_of_fifo_depth(
 
     plan = build_simulation_plan(module)
 
-    assert len(plan.payload["nodes"]) == 148
+    # Exact symbolic FIFO regions use a smaller equivalent cover than the
+    # former occupancy/guard truth-table minimizer, independent of depth.
+    assert len(plan.payload["nodes"]) == 143
 
 
 def test_fft512_plan_stays_bounded_after_callable_and_scheduler_lowering() -> None:

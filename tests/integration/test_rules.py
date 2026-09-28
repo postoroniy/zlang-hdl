@@ -7,7 +7,7 @@ import unittest
 
 from zlang.backend.systemverilog import emit_experimental
 from zlang.compiler import compile_source
-from zlang.simulate import simulate_cycles
+from zlang.native_simulation import simulate_cycles
 
 
 ROOT = Path(__file__).resolve().parents[2]

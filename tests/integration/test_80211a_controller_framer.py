@@ -16,7 +16,7 @@ from zlang.formal import build_recursive_formal_design
 from zlang.ir import Concat, Constant
 from zlang.opt import OptimizationStage, lower, restore
 from zlang.semantic import SemanticError
-from zlang.simulate import simulate, simulate_cycles
+from zlang.native_simulation import simulate, simulate_cycles
 from zlang.toolchain import lint_with_verilator
 
 

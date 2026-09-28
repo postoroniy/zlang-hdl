@@ -1,10 +1,9 @@
 """Record the post-boundary native-simulation performance baseline.
 
 This runner deliberately changes no compiler or runtime policy. It measures
-the semantic oracle, open primitive-plan reference executor, native JIT and
-Direct-SV/Verilator paths at a stable set of compiler witnesses. Timing fields
-are observations; identities, case definitions and support outcomes are the
-reproducible part of the report.
+the native runtime and independently generated Direct-SV/Verilator path at a
+stable set of compiler witnesses. Timing fields are observations; identities,
+case definitions and support outcomes are the reproducible part of the report.
 """
 
 from __future__ import annotations
@@ -30,14 +29,17 @@ from typing import Literal
 from zlang.backend.systemverilog import emit_experimental
 from zlang.compiler import create_file_compilation_session
 from zlang.sim import Program
-from zlang.simulation_reference import compile_reference_plan
-from zlang.simulate import simulate, simulate_cycles, simulate_multiclock_steps
-from zlang.simulation_plan import JitUnsupportedFeatureError, build_simulation_plan
+from zlang.simulation_plan import (
+    JitUnsupportedFeatureError,
+    SIMULATION_PLAN_SCHEMA,
+    SIMULATION_RUNTIME_ABI,
+    build_simulation_plan,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
-REPORT_SCHEMA = "zlang-native-simulation-performance-baseline-v3"
-BASELINE = "native-runtime-boundary-v1"
+REPORT_SCHEMA = "zlang-native-simulation-performance-baseline-v4"
+BASELINE = "native-vs-generated-rtl-v1"
 CaseKind = Literal["combinational", "single_clock", "multi_clock"]
 
 
@@ -169,27 +171,6 @@ def _measure(function, samples: int) -> tuple[float, object]:
 def _set_inputs(simulator, inputs: dict[str, object]) -> None:
     for name, value in inputs.items():
         simulator.set(name, value)
-
-
-def _semantic_reference_once(
-    case: BenchmarkCase, module: object, count: int
-) -> object:
-    if case.kind == "combinational":
-        result = None
-        for _ in range(count):
-            result = simulate(module, **case.inputs)
-        return result
-    if case.kind == "single_clock":
-        # The historical semantic oracle reports the pre-edge output for each
-        # supplied cycle.  Add one observation cycle so its final value is the
-        # same post-edge state returned by the persistent plan executors after
-        # ``count`` edges.
-        return simulate_cycles(module, [case.inputs] * (count + 1))[-1]
-    return simulate_multiclock_steps(
-        module,
-        [case.inputs] * (count + 1),
-        [set(case.clocks)] * (count + 1),
-    )[-1]
 
 
 def _plan_executor_once(
@@ -476,8 +457,6 @@ def _benchmark_case(
     batch_sizes: tuple[int, ...],
     samples: int,
     engines: frozenset[str],
-    semantic_reference_max_items: int,
-    plan_reference_max_items: int,
     verilator_build_timeout: int,
     rtl_emission_timeout: int,
     rtl_emission_memory_limit_mib: int,
@@ -512,68 +491,6 @@ def _benchmark_case(
     }
     measurements = result["measurements"]
     assert isinstance(measurements, dict)
-
-    if "semantic_reference" in engines:
-        semantic_reference = {}
-        for count in batch_sizes:
-            if count > semantic_reference_max_items:
-                semantic_reference[str(count)] = {
-                    "status": "omitted",
-                    "reason": (
-                        "count exceeds semantic-reference control-workload limit "
-                        f"{semantic_reference_max_items}"
-                    ),
-                }
-                continue
-            seconds, final = _measure(
-                lambda count=count: _semantic_reference_once(case, module, count),
-                samples,
-            )
-            semantic_reference[str(count)] = {
-                "seconds_median": seconds,
-                "items_per_second": round(count / seconds, 3),
-                "final_outputs": final,
-            }
-        measurements["semantic_reference"] = semantic_reference
-
-    if "plan_reference" in engines:
-        reference_compile_seconds, reference = _measure(
-            lambda: compile_reference_plan(plan), samples
-        )
-        assert reference is not None
-        reference_program = Program(plan=plan, module=module, _native=reference)
-        reference_instance_seconds, reference_instance = _measure(
-            reference_program.create, samples
-        )
-        assert reference_instance is not None
-        reference_instance.close()
-        plan_reference = {
-            "compile_seconds_median": reference_compile_seconds,
-            "instance_create_seconds_median": reference_instance_seconds,
-            "measurements": {},
-        }
-        for count in batch_sizes:
-            if count > plan_reference_max_items:
-                plan_reference["measurements"][str(count)] = {
-                    "status": "omitted",
-                    "reason": (
-                        "count exceeds plan-reference workload limit "
-                        f"{plan_reference_max_items}"
-                    ),
-                }
-                continue
-            seconds, final = _measure(
-                lambda count=count: _plan_executor_once(
-                    case, reference_program, count
-                ),
-                samples,
-            )
-            plan_reference["measurements"][str(count)] = {
-                "seconds_median": seconds,
-                "items_per_second": round(count / seconds, 3),
-                "final_outputs": final,
-            }
-        measurements["plan_reference"] = plan_reference
 
     if "native" in engines:
         import _zlang_native_sim
@@ -692,36 +609,20 @@ def main(argv: list[str] | None = None) -> int:
         "--batch-sizes", nargs="+", default=["100", "1000", "100000", "1000000"]
     )
     parser.add_argument("--samples", type=int, default=1)
-    parser.add_argument("--semantic-reference-max-items", type=int, default=100)
-    parser.add_argument("--plan-reference-max-items", type=int, default=100000)
     parser.add_argument("--verilator-build-timeout", type=int, default=120)
     parser.add_argument("--rtl-emission-timeout", type=int, default=120)
     parser.add_argument("--rtl-emission-memory-limit-mib", type=int, default=2048)
     parser.add_argument(
         "--engines",
         nargs="+",
-        choices=(
-            "semantic_reference",
-            "plan_reference",
-            "native",
-            "verilator",
-        ),
-        default=(
-            "semantic_reference",
-            "plan_reference",
-            "native",
-            "verilator",
-        ),
+        choices=("native", "verilator"),
+        default=("native", "verilator"),
     )
     parser.add_argument("--skip-real-design-probes", action="store_true")
     parser.add_argument("--output", type=Path)
     arguments = parser.parse_args(argv)
     if arguments.samples < 1:
         parser.error("--samples must be positive")
-    if arguments.semantic_reference_max_items < 1:
-        parser.error("--semantic-reference-max-items must be positive")
-    if arguments.plan_reference_max_items < 1:
-        parser.error("--plan-reference-max-items must be positive")
     if arguments.verilator_build_timeout < 1:
         parser.error("--verilator-build-timeout must be positive")
     if arguments.rtl_emission_timeout < 1:
@@ -738,12 +639,10 @@ def main(argv: list[str] | None = None) -> int:
     report = {
         "schema": REPORT_SCHEMA,
         "baseline": BASELINE,
-        "simulation_plan_schema": "zlang-simulation-plan-v8",
-        "runtime_abi": "zlang-native-simulation-abi-v8",
+        "simulation_plan_schema": SIMULATION_PLAN_SCHEMA,
+        "runtime_abi": SIMULATION_RUNTIME_ABI,
         "samples": arguments.samples,
         "batch_sizes": list(batch_sizes),
-        "semantic_reference_max_items": arguments.semantic_reference_max_items,
-        "plan_reference_max_items": arguments.plan_reference_max_items,
         "verilator_build_timeout": arguments.verilator_build_timeout,
         "rtl_emission_timeout": arguments.rtl_emission_timeout,
         "rtl_emission_memory_limit_mib": arguments.rtl_emission_memory_limit_mib,
@@ -755,10 +654,6 @@ def main(argv: list[str] | None = None) -> int:
                 batch_sizes=batch_sizes,
                 samples=arguments.samples,
                 engines=frozenset(arguments.engines),
-                semantic_reference_max_items=(
-                    arguments.semantic_reference_max_items
-                ),
-                plan_reference_max_items=arguments.plan_reference_max_items,
                 verilator_build_timeout=arguments.verilator_build_timeout,
                 rtl_emission_timeout=arguments.rtl_emission_timeout,
                 rtl_emission_memory_limit_mib=(

@@ -23,7 +23,7 @@ from zlang.backend.systemverilog import SystemVerilogEmissionError, emit_artifac
 from zlang.compiler import compile_source
 from zlang.ir import hierarchy as ir_hierarchy
 from zlang.ir.state import StateResourceKind, groups_conflict
-from zlang.simulate import simulate_cycles
+from zlang.native_simulation import simulate_cycles
 
 
 RULE_COUNT = 27

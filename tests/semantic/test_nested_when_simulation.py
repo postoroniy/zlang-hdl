@@ -8,7 +8,7 @@ from zlang.compiler import compile_source
 from zlang.ir.state import select_action_groups
 from zlang.parser import parse
 from zlang.semantic import analyze
-from zlang.simulate import simulate_cycles
+from zlang.native_simulation import simulate_cycles
 
 
 def _module(source: str):

@@ -12,21 +12,15 @@ from zlang import sim
 from zlang._version import __version__
 
 
-_ENGINE_ALIASES = {
-    "native": "native",
-    "reference": "reference",
-    "jit": "native",
-    "python": "reference",
-}
-
-
 def _engine(value: str) -> str:
-    try:
-        return _ENGINE_ALIASES[value]
-    except KeyError as error:
+    if value == "native":
+        return value
+    if value in {"reference", "python", "jit"}:
         raise argparse.ArgumentTypeError(
-            "expected 'native' or 'reference'"
-        ) from error
+            f"engine '{value}' was removed; use native and optionally "
+            "--compare-with iverilog|verilator"
+        )
+    raise argparse.ArgumentTypeError("expected 'native'")
 
 
 def _assignment(value: str) -> tuple[str, object]:
@@ -59,6 +53,34 @@ def _read_events(path: Path) -> list[dict[str, object]]:
             )
         result.append(event)
     return result
+
+
+def _comparison_events(arguments: argparse.Namespace) -> tuple[dict[str, object], ...]:
+    """Normalize the public CLI modes into the event contract used by RTL."""
+
+    initial = dict(arguments.assignments)
+    if arguments.events is not None:
+        events = _read_events(arguments.events)
+        if events and initial:
+            first = dict(events[0])
+            updates = dict(initial)
+            supplied = first.get("set", {})
+            if not isinstance(supplied, dict):
+                raise sim.SimulationRuntimeError("event set field must be a mapping")
+            updates.update(supplied)
+            first["set"] = updates
+            events[0] = first
+        return tuple(events)
+    if arguments.cycles is not None:
+        count = max(arguments.cycles, 1)
+        return tuple(
+            {
+                **({"set": initial} if index == 0 and initial else {}),
+                **({"edges": (arguments.clock,)} if arguments.cycles else {}),
+            }
+            for index in range(count)
+        )
+    return ({"set": initial} if initial else {},)
 
 
 def _vcd_identifier(index: int) -> str:
@@ -129,11 +151,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     execution_options.add_argument(
         "--engine",
         type=_engine,
-        metavar="{native,reference}",
+        metavar="native",
         default="native",
         help=(
-            "simulation executor (default: native); legacy jit/python names "
-            "remain accepted"
+            "simulation executor (default: native)"
         ),
     )
     execution_options.add_argument(
@@ -154,6 +175,24 @@ def main(argv: Sequence[str] | None = None) -> int:
         metavar="NAME=JSON",
         help="set an input before execution; may be repeated",
     )
+    execution_options.add_argument(
+        "--compare-with",
+        choices=("iverilog", "verilator"),
+        help="compare native results with generated RTL in this simulator",
+    )
+    execution_options.add_argument(
+        "--compare-artifacts",
+        type=Path,
+        metavar="DIR",
+        help="retain comparison RTL, testbench, logs, and manifest in DIR",
+    )
+    execution_options.add_argument(
+        "--compare-timeout",
+        type=float,
+        default=120.0,
+        metavar="SECONDS",
+        help="bound each external comparison command (default: 120)",
+    )
     output_options = parser.add_argument_group("simulation output")
     output_options.add_argument(
         "--trace", type=Path, help="write simulation transitions as VCD"
@@ -168,35 +207,76 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.error("--cycles requires --clock")
     if arguments.cycles is not None and arguments.cycles < 0:
         parser.error("--cycles must not be negative")
+    if arguments.compare_artifacts is not None and arguments.compare_with is None:
+        parser.error("--compare-artifacts requires --compare-with")
+    if arguments.compare_timeout <= 0:
+        parser.error("--compare-timeout must be positive")
     try:
-        instance = sim.load(
+        program = sim.compile(
             arguments.source,
             top=arguments.top,
             project=arguments.project,
             profile=arguments.profile,
             engine=arguments.engine,
         )
-        with instance:
-            if (
-                arguments.cycles is not None
-                and len(instance.program.module.clock_domains) != 1
-            ):
-                raise sim.SimulationRuntimeError(
-                    "--cycles is valid only for a single-clock top; use --events"
-                )
-            for name, value in arguments.assignments:
-                instance.set(name, value)
-            if arguments.trace is not None:
-                instance.enable_trace()
+        if (
+            arguments.cycles is not None
+            and len(program.module.clock_domains) != 1
+        ):
+            raise sim.SimulationRuntimeError(
+                "--cycles is valid only for a single-clock top; use --events"
+            )
+        if arguments.compare_with is not None:
+            from zlang.simulation_compare import compare_program
+
+            comparison_events = _comparison_events(arguments)
+            comparison = compare_program(
+                program,
+                comparison_events,
+                simulator=arguments.compare_with,
+                artifact_directory=arguments.compare_artifacts,
+                timeout=arguments.compare_timeout,
+            )
             if arguments.events is not None:
-                outputs: object = instance.run_events(_read_events(arguments.events))
-            elif arguments.cycles is not None:
-                outputs = instance.run_cycles(arguments.clock, arguments.cycles)
+                outputs = list(comparison.native_outputs)
             else:
-                outputs = instance.eval()
-            if arguments.trace is not None:
-                _write_vcd(arguments.trace, instance, instance.drain_trace())
-    except (OSError, ValueError, sim.SimulationPlanError, sim.SimulationRuntimeError) as error:
+                outputs = comparison.native_outputs[-1]
+        else:
+            outputs = None
+
+        # Trace generation retains the established native trace contract.  A
+        # comparison uses a fresh native instance so the external proof and
+        # optional VCD cannot share mutable state accidentally.
+        if arguments.compare_with is None or arguments.trace is not None:
+            instance = program.create()
+            with instance:
+                for name, value in arguments.assignments:
+                    instance.set(name, value)
+                if arguments.trace is not None:
+                    instance.enable_trace()
+                if arguments.events is not None:
+                    native_outputs: object = instance.run_events(
+                        _read_events(arguments.events)
+                    )
+                elif arguments.cycles is not None:
+                    native_outputs = instance.run_cycles(
+                        arguments.clock, arguments.cycles
+                    )
+                else:
+                    native_outputs = instance.eval()
+                if arguments.compare_with is None:
+                    outputs = native_outputs
+                if arguments.trace is not None:
+                    _write_vcd(
+                        arguments.trace, instance, instance.drain_trace()
+                    )
+        assert outputs is not None
+    except (
+        OSError,
+        ValueError,
+        sim.SimulationPlanError,
+        sim.SimulationRuntimeError,
+    ) as error:
         print(f"zlang sim: error: {error}", file=sys.stderr)
         return 2
     if arguments.json:

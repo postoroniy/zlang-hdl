@@ -13,7 +13,7 @@ from pathlib import Path
 
 from zlang.compiler import compile_source
 from zlang.ir.expressions import Pipeline
-from zlang.simulate import simulate, simulate_cycles
+from zlang.native_simulation import simulate, simulate_cycles
 
 
 EXT = Path(__file__).resolve().parents[2] / "editors" / "vscode" / "zlang-hdl"

@@ -18,7 +18,7 @@ from zlang.ir.interfaces import RequestResponseOrdering, RequestResponseRole
 from zlang.opt import lower, restore
 from zlang.opt.lowering import CanonicalizationError
 from zlang.semantic import SemanticError
-from zlang.simulate import simulate_request_response_cycles
+from zlang.native_simulation import simulate_request_response_cycles
 from zlang.toolchain import lint_with_verilator
 
 

@@ -8,7 +8,7 @@ import pytest
 
 import zlang
 from zlang.compiler import compile_source
-from zlang.simulate import simulate_csr_cycles
+from zlang.native_simulation import simulate_csr_cycles
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -39,7 +39,7 @@ def _persistent_trace(
         return trace
 
 
-@pytest.mark.parametrize("engine", ("reference", "native"))
+@pytest.mark.parametrize("engine", ("native",))
 def test_csr_access_policies_match_the_independent_oracle(engine: str) -> None:
     path = ROOT / "examples/control_csr.zhl"
     cycles = [
@@ -70,7 +70,7 @@ def test_csr_access_policies_match_the_independent_oracle(engine: str) -> None:
     )
 
 
-@pytest.mark.parametrize("engine", ("reference", "native"))
+@pytest.mark.parametrize("engine", ("native",))
 def test_csr_hardware_bindings_match_the_independent_oracle(engine: str) -> None:
     path = ROOT / "examples/engine_csr.zhl"
     cycles = [
@@ -129,7 +129,7 @@ def test_csr_hardware_bindings_match_the_independent_oracle(engine: str) -> None
     ]
 
 
-@pytest.mark.parametrize("engine", ("reference", "native"))
+@pytest.mark.parametrize("engine", ("native",))
 def test_software_priority_clear_wins_without_runtime_csr_semantics(
     engine: str,
     tmp_path: Path,
@@ -156,7 +156,7 @@ def test_software_priority_clear_wins_without_runtime_csr_semantics(
     assert trace[-1] == {"rdata": 0, "ready": 1}
 
 
-@pytest.mark.parametrize("engine", ("reference", "native"))
+@pytest.mark.parametrize("engine", ("native",))
 def test_csr_and_user_state_share_one_atomic_edge_program(
     engine: str,
     tmp_path: Path,
@@ -200,8 +200,8 @@ def test_csr_and_user_state_share_one_atomic_edge_program(
 
 def test_csr_plan_is_deterministic_and_contains_only_primitive_state() -> None:
     path = ROOT / "examples/engine_csr.zhl"
-    first = zlang.sim.compile(path, top="EngineCsr", engine="reference").plan
-    second = zlang.sim.compile(path, top="EngineCsr", engine="reference").plan
+    first = zlang.sim.compile(path, top="EngineCsr", engine="native").plan
+    second = zlang.sim.compile(path, top="EngineCsr", engine="native").plan
 
     assert first.to_bytes() == second.to_bytes()
     assert set(first.payload) == {
@@ -252,7 +252,7 @@ def test_csr_plan_is_deterministic_and_contains_only_primitive_state() -> None:
     }
 
 
-@pytest.mark.parametrize("engine", ("reference", "native"))
+@pytest.mark.parametrize("engine", ("native",))
 def test_csr_reset_and_default_trace_keep_internal_abi_private(
     engine: str,
 ) -> None:
@@ -278,7 +278,7 @@ def test_csr_reset_and_default_trace_keep_internal_abi_private(
     )
 
 
-@pytest.mark.parametrize("engine", ("reference", "native"))
+@pytest.mark.parametrize("engine", ("native",))
 def test_child_csr_is_flattened_before_the_primitive_plan(
     engine: str,
     tmp_path: Path,

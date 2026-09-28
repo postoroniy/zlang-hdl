@@ -5,7 +5,7 @@ from zlang import compile_source
 from zlang.backend.systemverilog.emitter import emit
 from zlang.formal import run_verilog_formal
 from zlang.ir.formal import FormalStatus, ProofMode, generate_properties
-from zlang.simulate import simulate_csr_cycles
+from zlang.native_simulation import simulate_csr_cycles
 
 
 AXI_TOP = """

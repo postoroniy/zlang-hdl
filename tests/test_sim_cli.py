@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import shutil
 
 import pytest
 
@@ -34,7 +35,8 @@ def test_sim_help_exposes_canonical_engines_and_examples(
 
     assert raised.value.code == 0
     output = capsys.readouterr().out
-    assert "--engine {native,reference}" in output
+    assert "--engine native" in output
+    assert "--compare-with {iverilog,verilator}" in output
     assert "--events EVENTS" in output
     assert "zlang sim counter.zhl" in output
 
@@ -45,42 +47,23 @@ def _source(tmp_path: Path, name: str, text: str) -> Path:
     return path
 
 
-@pytest.mark.parametrize(
-    ("alias", "canonical"),
-    (("jit", "native"), ("python", "reference")),
-)
-def test_sim_cli_keeps_legacy_engine_aliases(
-    monkeypatch: pytest.MonkeyPatch,
+@pytest.mark.parametrize("removed", ("reference", "python", "jit"))
+def test_sim_cli_rejects_removed_engines_with_migration_diagnostic(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
-    alias: str,
-    canonical: str,
+    removed: str,
 ) -> None:
     source = _source(tmp_path, "alias", "module Alias { out value:u8 value=7 }")
-    selected: list[str] = []
 
-    class _Instance:
-        def __enter__(self) -> "_Instance":
-            return self
-
-        def __exit__(self, *_arguments: object) -> None:
-            return None
-
-        def eval(self) -> dict[str, int]:
-            return {"value": 7}
-
-    def fake_load(*_arguments: object, engine: str, **_keywords: object) -> _Instance:
-        selected.append(engine)
-        return _Instance()
-
-    monkeypatch.setattr("zlang.sim_cli.sim.load", fake_load)
-
-    assert main(["sim", str(source), "--engine", alias, "--json"]) == 0
-    assert selected == [canonical]
-    assert json.loads(capsys.readouterr().out) == {"value": 7}
+    with pytest.raises(SystemExit) as raised:
+        main(["sim", str(source), "--engine", removed, "--json"])
+    assert raised.value.code == 2
+    error = capsys.readouterr().err
+    assert f"engine '{removed}' was removed" in error
+    assert "--compare-with iverilog|verilator" in error
 
 
-@pytest.mark.parametrize("engine", ("reference", "native"))
+@pytest.mark.parametrize("engine", ("native",))
 def test_sim_cycles_json_uses_one_persistent_instance(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
@@ -131,6 +114,56 @@ def test_sim_cli_defaults_to_native_engine(
 
     assert main(["sim", str(source), "--top", "DefaultNative", "--json"]) == 0
     assert json.loads(capsys.readouterr().out) == {"value": 7}
+
+
+@pytest.mark.parametrize("simulator", ("iverilog", "verilator"))
+def test_sim_cli_compares_native_with_external_rtl_and_retains_evidence(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    simulator: str,
+) -> None:
+    if simulator == "iverilog" and (
+        shutil.which("iverilog") is None or shutil.which("vvp") is None
+    ):
+        pytest.skip("Icarus Verilog is unavailable")
+    if simulator == "verilator" and shutil.which("verilator") is None:
+        pytest.skip("Verilator is unavailable")
+    source = _source(
+        tmp_path,
+        "compare",
+        "module Compare { in a,b:u8 out y:u9 y=a+b }",
+    )
+    evidence = tmp_path / "evidence"
+
+    assert main(
+        [
+            "sim",
+            str(source),
+            "--top",
+            "Compare",
+            "--set",
+            "a=200",
+            "--set",
+            "b=55",
+            "--compare-with",
+            simulator,
+            "--compare-artifacts",
+            str(evidence),
+            "--json",
+        ]
+    ) == 0
+    assert json.loads(capsys.readouterr().out) == {"y": 255}
+    manifest = json.loads((evidence / "comparison.json").read_text())
+    assert manifest["schema"] == "zlang-simulation-comparison-v1"
+    assert manifest["simulator"] == simulator
+    assert manifest["native_trace"] == manifest["rtl_trace"] == [{"y": 255}]
+    assert {path.name for path in evidence.iterdir()} == {
+        "compare_tb.sv",
+        "comparison.json",
+        "compile.log",
+        "design.sv",
+        "run.log",
+    }
 
 
 def test_sim_jsonl_events_support_coincident_clocks(
@@ -230,7 +263,7 @@ def test_sim_cycles_rejects_multiclock_top(
             "--top",
             "CdcLevel",
             "--engine",
-            "reference",
+            "native",
             "--clock",
             "source_clock",
             "--cycles",
@@ -254,7 +287,7 @@ def test_sim_invalid_jsonl_is_reported_without_traceback(
             "--top",
             "CdcLevel",
             "--engine",
-            "reference",
+            "native",
             "--events",
             str(events),
         ]

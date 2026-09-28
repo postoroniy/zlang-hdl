@@ -2,7 +2,7 @@ from pathlib import Path
 import unittest
 
 from zlang.compiler import compile_source
-from zlang.simulate import ProtocolViolation, simulate_cdc_steps
+from zlang.native_simulation import ProtocolViolation, simulate_cdc_steps
 
 
 ROOT = Path(__file__).resolve().parents[2]

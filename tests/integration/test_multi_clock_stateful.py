@@ -14,7 +14,7 @@ from zlang.opt.lowering import CanonicalizationError, lower, restore
 from zlang.opt.capabilities import RewriteBarrier, module_rewrite_barriers
 from zlang.ir.module import default_selected_ir_identity
 from zlang.semantic.errors import SemanticError
-from zlang.simulate import simulate_multiclock_steps
+from zlang.native_simulation import SimulationError, simulate_multiclock_steps
 
 
 DUAL_COUNTER = """
@@ -99,6 +99,16 @@ def test_multiclock_simulation_commits_only_the_active_domain() -> None:
         (2, 4),
         (0, 4),
     ]
+
+
+def test_multiclock_simulation_rejects_mismatched_schedules_once() -> None:
+    module = compile_source(DUAL_COUNTER).ir
+
+    with pytest.raises(
+        SimulationError,
+        match="multi-clock input, edge, and reset schedules must have equal lengths",
+    ):
+        simulate_multiclock_steps(module, [{}, {}], [{"clk_a"}])
 
 
 @pytest.mark.parametrize(

@@ -331,8 +331,9 @@ def test_screenshot_surface_uses_specific_scopes_not_one_catch_all() -> None:
         "round", "overflow", "provides", "require_resource", "read_latency",
         "collision", "floor_log2", "is_power_of_two", "fixed_raw", "quantize",
         "max_outstanding", "match_by", "crossing", "assume", "guarantee",
-        "async", "edge", "mode", "polarity", "power_up", "falling", "asynchronous",
-        "active_low", "unspecified", "union", "match",
+        "async", "edge", "mode", "polarity", "power_up", "release", "falling",
+        "asynchronous", "active_low", "externally_synchronized", "unspecified",
+        "union", "match",
     ):
         assert token in repository_text, f"screenshot token has no editor scope: {token}"
     for scope in (

@@ -12,7 +12,7 @@ import pytest
 
 from zlang.backend.systemverilog.emitter import emit as emit_systemverilog
 from zlang.compiler import compile_source
-from zlang.simulate import simulate_cycles, simulate_hierarchical_scalar_cycles
+from zlang.native_simulation import simulate_cycles, simulate_hierarchical_scalar_cycles
 from zlang.toolchain import lint_with_verilator
 
 
@@ -47,6 +47,41 @@ module SafeTop {
   out y : u8
   inst child : SafeChild { x }
   y = child.y
+}
+"""
+
+
+SAFE_NESTED_HIERARCHY = """
+module SafeLeaf {
+  clock clk
+  async reset arst @clk
+  in x : u8
+  out y : u8
+  reg q : u8 = 0
+  q <- x
+  y = q
+}
+
+module SafeMiddle {
+  clock clk
+  async reset arst @clk
+  in x : u8
+  out y : u8
+  leaf : SafeLeaf { x }
+  y = leaf.y
+}
+
+module SafeNestedTop {
+  clock clk
+  async reset arst @clk
+  in a : u8
+  in b : u8
+  out x : u8
+  out y : u8
+  left : SafeMiddle { x = a }
+  right : SafeMiddle { x = b }
+  x = left.y
+  y = right.y
 }
 """
 
@@ -150,6 +185,54 @@ def test_direct_sv_emits_one_root_conditioner_and_native_child_reset_abi() -> No
     assert f"always_ff @(posedge clk or posedge {effective})" not in generated
 
 
+def test_nested_siblings_share_only_the_public_top_release_conditioner() -> None:
+    generated = emit_systemverilog(
+        _compile(SAFE_NESTED_HIERARCHY, top="SafeNestedTop")
+    )
+
+    # Reusable child component bodies consume their local async-reset port.
+    # Only the public top owns the two synchronizer flops, and its conditioned
+    # net fans out to both sibling instances.
+    assert generated.count('(* ASYNC_REG = "TRUE" *)') == 1
+    assert generated.count("logic [1:0] zlang_reset_release_") == 1
+    assert generated.count("logic zlang_reset_effective_") == 1
+    assert generated.count(".arst(zlang_reset_effective_") == 2
+    assert generated.count(".arst(arst)") == 1
+    assert "always_ff @(posedge clk or posedge zlang_reset_effective_" not in generated
+
+
+def test_nested_children_do_not_add_release_latency_in_native_simulation() -> None:
+    module = _compile(SAFE_NESTED_HIERARCHY, top="SafeNestedTop")
+    trace = simulate_hierarchical_scalar_cycles(
+        module,
+        (
+            {"a": 3, "b": 4},
+            {"a": 5, "b": 6},
+            {"a": 7, "b": 8},
+            {"a": 11, "b": 12},
+            {"a": 13, "b": 14},
+        ),
+        (True, False, False, False, False),
+    )
+
+    assert [item["x"] for item in trace] == [0, 0, 0, 0, 11]
+    assert [item["y"] for item in trace] == [0, 0, 0, 0, 12]
+
+
+def test_external_top_contract_eliminates_every_hierarchical_conditioner() -> None:
+    source = SAFE_NESTED_HIERARCHY.replace(
+        "async reset arst @clk",
+        "async reset arst @clk { release externally_synchronized }",
+    )
+    generated = emit_systemverilog(_compile(source, top="SafeNestedTop"))
+
+    assert 'ASYNC_REG = "TRUE"' not in generated
+    assert "zlang_reset_release_" not in generated
+    assert "zlang_reset_effective_" not in generated
+    assert generated.count(".arst(arst)") == 3
+    assert "always_ff @(posedge clk or posedge arst)" in generated
+
+
 def test_direct_sv_adapter_consumes_effective_reset_without_reconditioning() -> None:
     generated = emit_systemverilog(_compile(CREDIT_TO_RV))
     effective = next(
@@ -201,6 +284,81 @@ def test_direct_sv_native_reset_text_has_no_conditioner() -> None:
     assert "zlang_reset_release_" not in raw_async_text
     assert "zlang_reset_effective_" not in raw_async_text
     assert "always_ff @(posedge clk or posedge arst)" in raw_async_text
+
+
+def test_externally_synchronized_release_uses_raw_async_reset_without_2ff() -> None:
+    source = SAFE_COUNTER.replace(
+        "async reset arst @clk",
+        "async reset arst @clk { release externally_synchronized }",
+    )
+    generated = emit_systemverilog(_compile(source))
+
+    assert "zlang_reset_release_" not in generated
+    assert "zlang_reset_effective_" not in generated
+    assert 'ASYNC_REG = "TRUE"' not in generated
+    assert "always_ff @(posedge clk or posedge arst)" in generated
+    assert "if (arst) begin" in generated
+
+
+def test_register_without_value_has_no_reset_branch_or_sensitivity() -> None:
+    source = """
+module MixedResetRegisters {
+  clock clk
+  async reset arst @clk { release externally_synchronized }
+  in x : u8
+  out reset_value : u8
+  out free_value : u8
+  reg reset_q : u8 = 0
+  reg free_q : u8
+  reset_q <- x
+  free_q <- x
+  reset_value = reset_q
+  free_value = free_q
+}
+"""
+    generated = emit_systemverilog(_compile(source))
+
+    assert generated.count("always_ff @(posedge clk or posedge arst)") == 1
+    assert generated.count("always_ff @(posedge clk)") == 1
+    assert (
+        "always_ff @(posedge clk) begin\n"
+        "    free_q <= x;\n"
+        "  end"
+    ) in generated
+    assert (
+        "always_ff @(posedge clk or posedge arst) begin\n"
+        "    if (arst) begin\n"
+        "      reset_q <= 8'd0;"
+    ) in generated
+
+
+def test_external_release_and_resetless_register_have_exact_native_behavior() -> None:
+    source = """
+module MixedResetBehavior {
+  clock clk
+  async reset arst @clk { release externally_synchronized }
+  in x : u8
+  out reset_value : u8
+  out free_value : u8
+  reg reset_q : u8 = 0
+  reg free_q : u8
+  reset_q <- x
+  free_q <- x
+  reset_value = reset_q
+  free_value = free_q
+}
+"""
+    trace = simulate_cycles(
+        _compile(source),
+        ({"x": 3}, {"x": 5}, {"x": 7}),
+        (True, False, False),
+    )
+
+    # The resettable value responds directly to the external asynchronous
+    # contract: there is no two-edge release hold.  The resetless value ignores
+    # reset and therefore captures the first input even during assertion.
+    assert [item["reset_value"] for item in trace] == [0, 0, 5]
+    assert [item["free_value"] for item in trace] == [3, 3, 5]
 
 
 @pytest.mark.skipif(shutil.which("verilator") is None, reason="Verilator unavailable")

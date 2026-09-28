@@ -1,4 +1,4 @@
-"""Cycle/event parity across reference, native, and Direct-SV execution."""
+"""Cycle/event parity across native and Direct-SV execution."""
 
 from __future__ import annotations
 
@@ -52,7 +52,7 @@ def test_odd_and_wide_combinational_values_match_all_paths(tmp_path: Path) -> No
         events=events,
         directory=tmp_path / "rtl",
     )
-    assert trace.reference == trace.native == trace.direct_sv
+    assert trace.native == trace.direct_sv
 
 
 def test_ready_valid_protocol_erasure_matches_direct_sv(tmp_path: Path) -> None:
@@ -71,7 +71,7 @@ def test_ready_valid_protocol_erasure_matches_direct_sv(tmp_path: Path) -> None:
         ),
         directory=tmp_path / "rv_rtl",
     )
-    assert trace.reference == trace.native == trace.direct_sv
+    assert trace.native == trace.direct_sv
 
 
 def test_direct_ready_valid_hierarchy_matches_direct_sv(tmp_path: Path) -> None:
@@ -108,7 +108,7 @@ def test_direct_ready_valid_hierarchy_matches_direct_sv(tmp_path: Path) -> None:
         ),
         directory=tmp_path / "rv_hierarchy_rtl",
     )
-    assert trace.reference == trace.native == trace.direct_sv
+    assert trace.native == trace.direct_sv
 
 
 def test_hierarchy_and_atomic_parent_child_state_match_all_paths(
@@ -149,7 +149,7 @@ def test_hierarchy_and_atomic_parent_child_state_match_all_paths(
         events=events,
         directory=tmp_path / "rtl",
     )
-    assert trace.reference == (
+    assert trace.native == (
         {"child_value": 1, "captured": 0},
         {"child_value": 9, "captured": 1},
         {"child_value": 9, "captured": 9},
@@ -186,7 +186,7 @@ def test_hierarchical_synchronous_memories_match_all_paths(tmp_path: Path) -> No
         events=events,
         directory=tmp_path / "rtl",
     )
-    assert trace.reference == trace.native == trace.direct_sv
+    assert trace.native == trace.direct_sv
 
 
 def test_scheduled_fifo_matches_all_execution_paths(tmp_path: Path) -> None:
@@ -215,7 +215,7 @@ def test_scheduled_fifo_matches_all_execution_paths(tmp_path: Path) -> None:
         events=events,
         directory=tmp_path / "rtl",
     )
-    assert trace.reference == trace.native == trace.direct_sv
+    assert trace.native == trace.direct_sv
 
 
 def test_coincident_multi_clock_event_is_atomic_in_all_paths(tmp_path: Path) -> None:
@@ -263,4 +263,4 @@ def test_coincident_multi_clock_event_is_atomic_in_all_paths(tmp_path: Path) -> 
         events=events,
         directory=tmp_path / "rtl",
     )
-    assert trace.reference == trace.native == trace.direct_sv
+    assert trace.native == trace.direct_sv

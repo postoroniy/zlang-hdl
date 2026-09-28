@@ -32,7 +32,7 @@ from zlang.ir.module import PortDirection
 from zlang.ir.types import StructType
 from zlang.opt import lower, restore
 from zlang.semantic import SemanticError
-from zlang.simulate import simulate_cycles
+from zlang.native_simulation import simulate_cycles
 
 
 ROOT = Path(__file__).resolve().parents[2]

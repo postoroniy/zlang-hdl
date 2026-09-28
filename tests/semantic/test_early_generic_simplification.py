@@ -15,7 +15,7 @@ from zlang.ir import (
 )
 from zlang.ir.traversal import walk_expression
 from zlang.ir.normalization import normalize_selected_values
-from zlang.simulate import simulate
+from zlang.native_simulation import simulate
 
 
 def _expressions(value):

@@ -881,7 +881,10 @@ def lower(
         CanonicalRegister(
             register.name,
             register.type,
-            builder.lower(register.initial),
+            (
+                builder.lower(register.initial)
+                if register.initial is not None else None
+            ),
             register.domain,
         )
         for register in module.registers
@@ -1346,7 +1349,10 @@ def restore(module: CanonicalModule) -> Module:
         Register(
             register.name,
             register.type,
-            expressions.restore(register.initial),
+            (
+                expressions.restore(register.initial)
+                if register.initial is not None else None
+            ),
             register.domain,
         )
         for register in module.registers
@@ -3095,7 +3101,7 @@ def _build_entities(
                 NodeCategory.STATE,
                 "register",
                 register.name,
-                (register.initial,),
+                (() if register.initial is None else (register.initial,)),
             )
         )
     for index, assignment in enumerate(next_assignments):

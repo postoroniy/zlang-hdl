@@ -210,6 +210,26 @@ module AsyncResetSyntax {
     value = held
 }
 
+// If deassertion is already synchronized to this exact clock outside the
+// module, say so explicitly. No internal 2FF is emitted. Registers without a
+// value have no reset branch; registers with a value still reset asynchronously.
+module ExternalAsyncResetSyntax {
+    clock clk
+    async reset arst_n @clk {
+        polarity active_low
+        release externally_synchronized
+    }
+    in sample : u8
+    out reset_value : u8
+    out free_value : u8
+    reg reset_state : u8 = 0
+    reg free_state : u8
+    reset_state <- sample
+    free_state <- sample
+    reset_value = reset_state
+    free_value = free_state
+}
+
 module EncodedEnumSyntax {
     in raw : bits<3>
     out result : CorpusEnumBoundary

@@ -27,7 +27,7 @@ from zlang.opt.lowering import (
     lower_expression_graph,
     restore_expression,
 )
-from zlang.simulate import simulate
+from zlang.native_simulation import simulate
 
 
 U4 = UIntType(4)

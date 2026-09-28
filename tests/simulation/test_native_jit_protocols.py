@@ -10,7 +10,7 @@ import pytest
 import zlang
 from tests.simulation.differential import run_differential
 from zlang.compiler import compile_source
-from zlang.simulate import (
+from zlang.native_simulation import (
     ProtocolViolation,
     simulate_connection_cycles,
     simulate_credit_cycles,
@@ -29,7 +29,7 @@ def _source(tmp_path: Path, name: str, text: str) -> Path:
     return path
 
 
-@pytest.mark.parametrize("engine", ("reference", "native"))
+@pytest.mark.parametrize("engine", ("native",))
 def test_ready_valid_passthrough_keeps_public_api_and_primitive_plan(
     engine: str,
 ) -> None:
@@ -82,7 +82,7 @@ def test_ready_valid_passthrough_keeps_public_api_and_primitive_plan(
         }
 
 
-@pytest.mark.parametrize("engine", ("reference", "native"))
+@pytest.mark.parametrize("engine", ("native",))
 def test_transfer_is_compiler_lowered_into_atomic_state_effect(
     tmp_path: Path,
     engine: str,
@@ -115,7 +115,7 @@ def test_transfer_is_compiler_lowered_into_atomic_state_effect(
         }
 
 
-@pytest.mark.parametrize("engine", ("reference", "native"))
+@pytest.mark.parametrize("engine", ("native",))
 def test_ready_valid_run_events_remains_batched_and_grouped(engine: str) -> None:
     with zlang.sim.load(
         ROOT / "examples/rv_passthrough.zhl",
@@ -144,7 +144,7 @@ def test_ready_valid_run_events_remains_batched_and_grouped(engine: str) -> None
         ]
 
 
-@pytest.mark.parametrize("engine", ("reference", "native"))
+@pytest.mark.parametrize("engine", ("native",))
 def test_direct_ready_valid_hierarchy_is_erased_before_runtime(
     tmp_path: Path,
     engine: str,
@@ -183,7 +183,7 @@ def test_direct_ready_valid_hierarchy_is_erased_before_runtime(
         }
 
 
-@pytest.mark.parametrize("engine", ("reference", "native"))
+@pytest.mark.parametrize("engine", ("native",))
 def test_direct_leaf_connect_uses_the_same_primitive_lowering(engine: str) -> None:
     with zlang.sim.load(
         ROOT / "examples/rv_connect.zhl",
@@ -199,7 +199,7 @@ def test_direct_leaf_connect_uses_the_same_primitive_lowering(engine: str) -> No
         }
 
 
-@pytest.mark.parametrize("engine", ("reference", "native"))
+@pytest.mark.parametrize("engine", ("native",))
 def test_buffered_protocol_connection_reuses_primitive_fifo_lowering(
     engine: str,
 ) -> None:
@@ -278,7 +278,7 @@ def test_buffered_ready_valid_matches_direct_systemverilog(tmp_path: Path) -> No
         ),
         directory=tmp_path,
     )
-    assert trace.reference == trace.native == trace.direct_sv
+    assert trace.native == trace.direct_sv
 
 
 def test_hierarchical_buffered_ready_valid_is_compiler_flattened(
@@ -317,11 +317,16 @@ def test_hierarchical_buffered_ready_valid_is_compiler_flattened(
         },
         {"set": {"sink": {"ready": 1}}, "edges": ["clk"]},
     )
-    trace = run_differential(source, top="Top", events=events, directory=tmp_path)
-    assert trace.reference == trace.native == trace.direct_sv
+    trace = run_differential(
+        source,
+        top="Top",
+        events=events,
+        directory=tmp_path / "comparison",
+    )
+    assert trace.native == trace.direct_sv
 
 
-@pytest.mark.parametrize("engine", ("reference", "native"))
+@pytest.mark.parametrize("engine", ("native",))
 def test_credit_sender_is_lowered_to_primitive_counter_state(engine: str) -> None:
     source = (ROOT / "examples/credit_source.zhl").read_text(encoding="utf-8")
     module = compile_source(source).ir
@@ -352,7 +357,7 @@ def test_credit_sender_is_lowered_to_primitive_counter_state(engine: str) -> Non
     assert actual == expected
 
 
-@pytest.mark.parametrize("engine", ("reference", "native"))
+@pytest.mark.parametrize("engine", ("native",))
 def test_credit_receiver_bounds_are_generic_runtime_checks(
     tmp_path: Path,
     engine: str,
@@ -415,7 +420,7 @@ def test_credit_sender_matches_direct_systemverilog(tmp_path: Path) -> None:
         ),
         directory=tmp_path,
     )
-    assert trace.reference == trace.native == trace.direct_sv
+    assert trace.native == trace.direct_sv
 
 
 _HIERARCHICAL_CREDIT_SOURCE = """
@@ -461,7 +466,7 @@ module NestedCreditHierarchy {
 """
 
 
-@pytest.mark.parametrize("engine", ("reference", "native"))
+@pytest.mark.parametrize("engine", ("native",))
 @pytest.mark.parametrize("top", ("CreditHierarchy", "NestedCreditHierarchy"))
 def test_hierarchical_credit_is_flattened_to_scalar_state(
     tmp_path: Path,
@@ -576,7 +581,7 @@ module NestedAggregateTop {
 """
 
 
-@pytest.mark.parametrize("engine", ("reference", "native"))
+@pytest.mark.parametrize("engine", ("native",))
 @pytest.mark.parametrize("top", ("AggregateTop", "NestedAggregateTop"))
 def test_aggregate_protocol_hierarchy_is_lowered_by_member(
     tmp_path: Path,
@@ -637,7 +642,7 @@ def test_aggregate_protocol_hierarchy_matches_direct_systemverilog(
         ),
         directory=tmp_path / "aggregate_protocol_differential",
     )
-    assert trace.reference == trace.native == trace.direct_sv
+    assert trace.native == trace.direct_sv
 
 
 _AGGREGATE_DELEGATION_SOURCE = """
@@ -662,7 +667,7 @@ module AggregateBoundary {
 """
 
 
-@pytest.mark.parametrize("engine", ("reference", "native"))
+@pytest.mark.parametrize("engine", ("native",))
 def test_top_aggregate_delegation_uses_expanded_public_fields(
     tmp_path: Path,
     engine: str,
@@ -707,7 +712,7 @@ _AGGREGATE_SCALAR_CHILD_SOURCE = """
 """
 
 
-@pytest.mark.parametrize("engine", ("reference", "native"))
+@pytest.mark.parametrize("engine", ("native",))
 def test_aggregate_top_with_scalar_child_needs_no_delegation(
     tmp_path: Path,
     engine: str,
@@ -739,10 +744,10 @@ def test_aggregate_top_without_delegation_matches_direct_sv(tmp_path: Path) -> N
         ),
         directory=tmp_path / "aggregate_scalar_child_sv",
     )
-    assert trace.reference == trace.native == trace.direct_sv
+    assert trace.native == trace.direct_sv
 
 
-@pytest.mark.parametrize("engine", ("reference", "native"))
+@pytest.mark.parametrize("engine", ("native",))
 def test_vc_credit_sender_is_compiler_lowered_per_channel(engine: str) -> None:
     path = ROOT / "examples/vc_credit_source.zhl"
     module = compile_source(path.read_text(encoding="utf-8")).ir
@@ -775,7 +780,7 @@ def test_vc_credit_sender_is_compiler_lowered_per_channel(engine: str) -> None:
     assert actual == expected
 
 
-@pytest.mark.parametrize("engine", ("reference", "native"))
+@pytest.mark.parametrize("engine", ("native",))
 def test_vc_credit_receiver_bounds_are_generic_runtime_checks(
     tmp_path: Path,
     engine: str,
@@ -843,10 +848,10 @@ def test_vc_credit_sender_matches_direct_systemverilog(tmp_path: Path) -> None:
         ),
         directory=tmp_path,
     )
-    assert trace.reference == trace.native == trace.direct_sv
+    assert trace.native == trace.direct_sv
 
 
-@pytest.mark.parametrize("engine", ("reference", "native"))
+@pytest.mark.parametrize("engine", ("native",))
 def test_vc_credit_run_events_preserves_vector_counts(engine: str) -> None:
     with zlang.sim.load(
         ROOT / "examples/vc_credit_source.zhl",
@@ -895,7 +900,7 @@ def _packet_cycle(
     }
 
 
-@pytest.mark.parametrize("engine", ("reference", "native"))
+@pytest.mark.parametrize("engine", ("native",))
 def test_packet_round_robin_is_compiler_lowered(engine: str) -> None:
     path = ROOT / "examples/packet_round_robin.zhl"
     module = compile_source(path.read_text(encoding="utf-8")).ir
@@ -920,7 +925,7 @@ def test_packet_round_robin_is_compiler_lowered(engine: str) -> None:
     assert actual == expected
 
 
-@pytest.mark.parametrize("engine", ("reference", "native"))
+@pytest.mark.parametrize("engine", ("native",))
 def test_packet_round_robin_visits_all_sources(engine: str) -> None:
     values = _packet_cycle(
         _packet(30),
@@ -942,7 +947,7 @@ def test_packet_round_robin_visits_all_sources(engine: str) -> None:
     assert grants == [0, 1, 2, 3]
 
 
-@pytest.mark.parametrize("engine", ("reference", "native"))
+@pytest.mark.parametrize("engine", ("native",))
 def test_packet_beat_grant_rotates_after_each_transfer(
     tmp_path: Path,
     engine: str,
@@ -969,7 +974,7 @@ def test_packet_beat_grant_rotates_after_each_transfer(
     assert grants == [0, 1, 0, 1]
 
 
-@pytest.mark.parametrize("engine", ("reference", "native"))
+@pytest.mark.parametrize("engine", ("native",))
 def test_packet_stall_violation_is_a_generic_precommit_check(engine: str) -> None:
     with zlang.sim.load(
         ROOT / "examples/packet_round_robin.zhl",
@@ -1047,7 +1052,7 @@ def test_packet_arbiters_match_direct_systemverilog(
         events=events,
         directory=tmp_path / top,
     )
-    assert trace.reference == trace.native == trace.direct_sv
+    assert trace.native == trace.direct_sv
 
 
 _IN_ORDER_REQUEST_RESPONSE_SOURCE = """
@@ -1078,7 +1083,7 @@ module StandaloneResponder {
 """
 
 
-@pytest.mark.parametrize("engine", ("reference", "native"))
+@pytest.mark.parametrize("engine", ("native",))
 @pytest.mark.parametrize(
     ("top", "cycles"),
     (
@@ -1174,7 +1179,7 @@ def test_in_order_request_response_is_compiler_lowered(
     assert actual == expected
 
 
-@pytest.mark.parametrize("engine", ("reference", "native"))
+@pytest.mark.parametrize("engine", ("native",))
 def test_in_order_request_response_run_events_is_batched(
     tmp_path: Path,
     engine: str,
@@ -1205,7 +1210,7 @@ def test_in_order_request_response_run_events_is_batched(
     assert result[0]["mem"]["outstanding"] == 1
 
 
-@pytest.mark.parametrize("engine", ("reference", "native"))
+@pytest.mark.parametrize("engine", ("native",))
 def test_hierarchical_request_response_is_flattened_compiler_side(
     engine: str,
 ) -> None:
@@ -1246,7 +1251,7 @@ def test_hierarchical_request_response_is_flattened_compiler_side(
         ) == [{"response_seen": 1}, {"response_seen": 0}]
 
 
-@pytest.mark.parametrize("engine", ("reference", "native"))
+@pytest.mark.parametrize("engine", ("native",))
 def test_hierarchical_request_response_directional_buffers_use_storage(
     tmp_path: Path,
     engine: str,
@@ -1350,7 +1355,7 @@ def test_hierarchical_request_response_directional_buffers_use_storage(
     ]
 
 
-@pytest.mark.parametrize("engine", ("reference", "native"))
+@pytest.mark.parametrize("engine", ("native",))
 def test_nested_request_response_hierarchy_is_lowered_transitively(
     tmp_path: Path,
     engine: str,
@@ -1418,7 +1423,7 @@ def _ooo_cycle(
     }
 
 
-@pytest.mark.parametrize("engine", ("reference", "native"))
+@pytest.mark.parametrize("engine", ("native",))
 def test_out_of_order_request_response_uses_primitive_id_slots(engine: str) -> None:
     path = ROOT / "examples/request_client.zhl"
     module = compile_source(path.read_text(encoding="utf-8")).ir
@@ -1443,7 +1448,7 @@ def test_out_of_order_request_response_uses_primitive_id_slots(engine: str) -> N
     assert actual == expected
 
 
-@pytest.mark.parametrize("engine", ("reference", "native"))
+@pytest.mark.parametrize("engine", ("native",))
 @pytest.mark.parametrize(
     ("second", "message"),
     (
@@ -1474,7 +1479,7 @@ def test_out_of_order_id_violations_fail_before_commit(
         assert instance.eval()["mem"]["outstanding"] == 1
 
 
-@pytest.mark.parametrize("engine", ("reference", "native"))
+@pytest.mark.parametrize("engine", ("native",))
 @pytest.mark.parametrize(
     ("filename", "top", "cycles"),
     (
@@ -1572,10 +1577,10 @@ def test_protocol_adapters_match_direct_systemverilog(
         events=events,
         directory=tmp_path,
     )
-    assert trace.reference == trace.native == trace.direct_sv
+    assert trace.native == trace.direct_sv
 
 
-@pytest.mark.parametrize("engine", ("reference", "native"))
+@pytest.mark.parametrize("engine", ("native",))
 def test_credit_to_ready_valid_overflow_fails_before_commit(engine: str) -> None:
     with zlang.sim.load(
         ROOT / "examples/credit_to_rv.zhl",
@@ -1595,7 +1600,7 @@ def test_protocol_field_shapes_are_strict() -> None:
     with zlang.sim.load(
         ROOT / "examples/rv_passthrough.zhl",
         top="RvPassthrough",
-        engine="reference",
+        engine="native",
     ) as instance:
         with pytest.raises(
             zlang.sim.SimulationRuntimeError,
@@ -1609,7 +1614,7 @@ def test_protocol_field_shapes_are_strict() -> None:
             instance.set_packed("rx", 1)
 
 
-@pytest.mark.parametrize("engine", ("reference", "native"))
+@pytest.mark.parametrize("engine", ("native",))
 def test_protocol_trace_selection_is_lowered_to_scalar_names(
     tmp_path: Path,
     engine: str,

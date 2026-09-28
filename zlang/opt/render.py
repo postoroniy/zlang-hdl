@@ -6,8 +6,10 @@ from dataclasses import fields, is_dataclass
 from enum import Enum
 from pathlib import Path
 from collections.abc import Mapping
+from typing import get_args
 
 from zlang.common import stable_digest, stable_json
+from zlang.ir.types import HardwareType
 from zlang.opt.ir import CanonicalModule, NodeCategory
 from zlang.source import SourceOrigin
 
@@ -131,7 +133,9 @@ def render_identity(module: CanonicalModule) -> str:
     """
 
     graph: dict[str, object] = {}
-    root = _identity_value(module, graph=graph, memo={}, active=set())
+    root = _identity_value(
+        module, graph=graph, memo={}, active=set(), type_memo={}
+    )
     return stable_json({"root": root, "nodes": sorted(graph.items())})
 
 
@@ -157,6 +161,7 @@ _ORIGIN_FIELDS = frozenset(
         "selected_value_normalization_statistics",
     }
 )
+_HARDWARE_TYPE_SET = frozenset(get_args(HardwareType))
 
 
 def _identity_value(
@@ -165,6 +170,7 @@ def _identity_value(
     graph: dict[str, object],
     memo: dict[int, str],
     active: set[int],
+    type_memo: dict[HardwareType, str],
 ) -> object:
     """Encode a canonical object graph without expanding shared expression DAGs.
 
@@ -181,6 +187,10 @@ def _identity_value(
         value is None or isinstance(value, (str, int, float, bool))
     ):
         return value
+    if type(value) in _HARDWARE_TYPE_SET:
+        cached_type = type_memo.get(value)
+        if cached_type is not None:
+            return {"$ref": cached_type}
     object_id = id(value)
     if object_id in memo:
         return {"$ref": memo[object_id]}
@@ -204,6 +214,7 @@ def _identity_value(
                         graph=graph,
                         memo=memo,
                         active=active,
+                        type_memo=type_memo,
                     ),
                 ]
                 for item in fields(value)
@@ -213,8 +224,8 @@ def _identity_value(
     elif isinstance(value, Mapping):
         entries = [
             (
-                _identity_value(key, graph=graph, memo=memo, active=active),
-                _identity_value(item, graph=graph, memo=memo, active=active),
+                _identity_value(key, graph=graph, memo=memo, active=active, type_memo=type_memo),
+                _identity_value(item, graph=graph, memo=memo, active=active, type_memo=type_memo),
             )
             for key, item in value.items()
         ]
@@ -224,13 +235,13 @@ def _identity_value(
         payload = {
             "$sequence": type(value).__name__,
             "items": [
-                _identity_value(item, graph=graph, memo=memo, active=active)
+                _identity_value(item, graph=graph, memo=memo, active=active, type_memo=type_memo)
                 for item in value
             ],
         }
     elif isinstance(value, (set, frozenset)):
         items = [
-            _identity_value(item, graph=graph, memo=memo, active=active)
+            _identity_value(item, graph=graph, memo=memo, active=active, type_memo=type_memo)
             for item in value
         ]
         items.sort(key=stable_json)
@@ -249,6 +260,8 @@ def _identity_value(
         raise TypeError("canonical IR identity content-digest collision")
     graph[digest] = payload
     memo[object_id] = digest
+    if type(value) in _HARDWARE_TYPE_SET:
+        type_memo[value] = digest
     return {"$ref": digest}
 
 
@@ -259,6 +272,7 @@ def _identity_field_value(
     graph: dict[str, object],
     memo: dict[int, str],
     active: set[int],
+    type_memo: dict[HardwareType, str],
 ) -> object:
     if name == "declaration_identity" and isinstance(value, str):
         source, separator, declaration = value.partition("::")
@@ -266,7 +280,9 @@ def _identity_field_value(
             # Preserve the nominal declaration kind/name without letting a
             # checkout location become its semantic content identity.
             value = "$source::" + declaration
-    return _identity_value(value, graph=graph, memo=memo, active=active)
+    return _identity_value(
+        value, graph=graph, memo=memo, active=active, type_memo=type_memo
+    )
 
 
 def _render_value(value: object) -> str:

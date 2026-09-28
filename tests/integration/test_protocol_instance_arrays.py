@@ -17,7 +17,7 @@ from zlang.opt.lowering import CanonicalizationError
 from zlang.ir.module import PortDirection
 from zlang.ir.types import UIntType
 from zlang.semantic import SemanticError
-from zlang.simulate import simulate_cycles
+from zlang.native_simulation import simulate_cycles
 
 
 SOURCE = """
