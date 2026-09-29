@@ -21,12 +21,13 @@ FAST_TEST_PATHS := \
 	tests/parser tests/semantic tests/conformance tests/editor \
 	tests/packaging tests/release
 
-.PHONY: help release-preflight public-check static jit-check jit-audit jit-advisory-audit native-release-set audit release-tools test-fast test test-structural \
+.PHONY: help release-regressions release-preflight public-check static jit-check jit-audit jit-advisory-audit native-release-set audit release-tools test-fast test test-structural \
 	structural-baseline \
 	community-pdf community-pdf-check test-release-twice editor-test editor-host-test package release-candidate
 
 help:
 	@printf '%s\n' \
+		'make release-regressions validate fix inclusion and permanent regression selectors' \
 		'make release-preflight  bind version, tag, Git tree and release artifacts' \
 		'make public-check       validate the public projection and release metadata' \
 		'make static             run Ruff, compileall, and diff checks' \
@@ -48,7 +49,13 @@ help:
 		'make package            build one sdist and two byte-identical wheels' \
 		'make release-candidate  run the local non-publishing release gate'
 
-release-preflight:
+release-regressions:
+	PYTHONPATH="$(CURDIR)" $(PYTHON) tools/release_regressions.py \
+		--root . \
+		--release "$(patsubst v%,%,$(TAG))" \
+		--previous-tag "$(PREVIOUS_TAG)"
+
+release-preflight: release-regressions
 	mkdir -p "$(dir $(RELEASE_PREFLIGHT_REPORT))"
 	PYTHONPATH="$(CURDIR)" $(PYTHON) tools/release_preflight.py \
 		--root . \

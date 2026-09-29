@@ -24,10 +24,14 @@ from tools.audit_native_binary import (
     audit_native_release_set,
 )
 from tools.release_notes import release_notes
+from tools.release_regressions import (
+    RegressionLedgerError,
+    validate_regression_ledger,
+)
 from tools.release_status import StatusError, validate as validate_release_status
 
 
-SCHEMA = 1
+SCHEMA = 2
 _ALPHA_TAG = re.compile(r"^v(?P<base>[0-9]+\.[0-9]+\.[0-9]+)a(?P<number>[0-9]+)$")
 
 
@@ -121,6 +125,14 @@ def preflight(
     if not isinstance(release, dict) or release.get("version") != tag.removeprefix("v"):
         raise ReleasePreflightError("release status version does not match the tag")
     version = tag.removeprefix("v")
+    try:
+        regressions = validate_regression_ledger(
+            root,
+            release=version,
+            previous_tag=previous_tag,
+        )
+    except RegressionLedgerError as exc:
+        raise ReleasePreflightError(str(exc)) from exc
 
     try:
         notes = release_notes(
@@ -175,6 +187,7 @@ def preflight(
             "editors/vscode/zlang-hdl/package-lock.json",
             "editors/vscode/zlang-hdl/package.json",
             "pyproject.toml",
+            "release/regressions.json",
             "release/status.json",
             "zlang/_version.py",
         )
@@ -191,6 +204,7 @@ def preflight(
             "previous_commit": previous_commit,
         },
         "identities": identities,
+        "regressions": regressions,
         "release_notes_sha256": hashlib.sha256(notes.encode("utf-8")).hexdigest(),
         "native_wheels": [
             {

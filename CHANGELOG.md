@@ -26,6 +26,9 @@ unchanged.
 - The release workflow can run the exact release validation and EDA gates
   manually on a prospective tag without publishing. Tag-triggered publication
   remains conditional on the signed tag matching protected `main` exactly.
+- A versioned release regression ledger binds every accepted fix to permanent
+  source paths and focused tests. Release preflight now fails closed when a
+  recorded fix, source, test selector, baseline tag or disposition is missing.
 
 ### Fixed
 

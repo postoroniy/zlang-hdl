@@ -1,0 +1,37 @@
+{
+  "entries": [
+    {
+      "id": "ZL-039",
+      "source_paths": [
+        "zlang/semantic/analyze.py",
+        "zlang/simulation_csr.py"
+      ],
+      "status": "included",
+      "summary": "CSR status and sticky bindings retain exact typed aggregate input member paths.",
+      "tests": [
+        "tests/integration/test_csr_hardware.py::HardwareCsrIntegrationTests::test_aggregate_status_leaves_drive_csr_and_direct_sv",
+        "tests/semantic/test_csr_hardware.py::HardwareCsrSemanticTests::test_aggregate_binding_rejects_implicit_clock_domain_crossing",
+        "tests/semantic/test_csr_hardware.py::HardwareCsrSemanticTests::test_aggregate_bindings_fail_closed_for_invalid_leaf_or_command",
+        "tests/semantic/test_csr_hardware.py::HardwareCsrSemanticTests::test_status_and_sticky_bindings_retain_typed_aggregate_leaves"
+      ]
+    },
+    {
+      "id": "ZL-040",
+      "source_paths": [
+        "zlang/ir/csr.py",
+        "zlang/semantic/analyze.py",
+        "zlang/simulation_csr.py"
+      ],
+      "status": "included",
+      "summary": "Reusable CSR groups preserve native split<32> logical values through projection and execution.",
+      "tests": [
+        "tests/integration/test_csr.py::CsrIntegrationTests::test_group_split_halves_remain_independently_writable",
+        "tests/integration/test_csr_hierarchy_projection.py::test_group_split_value_has_one_typed_child_projection",
+        "tests/semantic/test_csr.py::CsrSemanticTests::test_group_split_values_share_normal_expansion_and_extent_rules"
+      ]
+    }
+  ],
+  "previous_tag": "v0.1.0a18",
+  "release": "0.1.0a19",
+  "schema": 1
+}

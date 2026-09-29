@@ -15,6 +15,8 @@ def test_makefile_exposes_bounded_test_and_release_entry_points() -> None:
     text = MAKEFILE.read_text(encoding="utf-8")
     assert ".ONESHELL:" in text
     assert ".SHELLFLAGS := -eu -o pipefail -c" in text
+    assert "release-preflight: release-regressions" in text
+    assert "tools/release_regressions.py" in text
     assert (
         "release-candidate: release-preflight native-release-set community-pdf-check public-check static jit-check jit-audit "
         "jit-advisory-audit audit release-tools test-release-twice" in text
@@ -101,6 +103,7 @@ def test_makefile_help_is_executable_and_documents_nonpublishing_gate() -> None:
         text=True,
     )
     assert "make test-release-twice" in completed.stdout
+    assert "make release-regressions" in completed.stdout
     assert "make release-preflight" in completed.stdout
     assert "make community-pdf" in completed.stdout
     assert "make community-pdf-check" in completed.stdout

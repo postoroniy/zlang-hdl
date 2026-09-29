@@ -66,10 +66,12 @@ def test_current_candidate_binds_release_sources_native_wheel_and_git(
         mode="candidate",
         require_clean=False,
     )
-    assert report["schema"] == 1
+    assert report["schema"] == 2
     assert report["version"] == "0.1.0a19"
     assert report["tag"] == "v0.1.0a19"
     assert report["previous_tag"] == "v0.1.0a18"
+    assert report["regressions"]["included"] == ["ZL-039", "ZL-040"]
+    assert "release/regressions.json" in report["identities"]
     assert report["git"]["previous_commit"] == _git(
         release_repository, "rev-list", "-n", "1", "v0.1.0a18"
     )

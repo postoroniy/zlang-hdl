@@ -5,6 +5,12 @@ same GitHub `Release` workflow. The candidate mode validates and retains
 artifacts but cannot publish. Only a signed annotated tag at the exact protected
 `main` commit enables the publish job.
 
+Branch ownership, durable regression requirements, release inclusion, and
+post-publication branch retention are mandatory in
+[`branch-release-regression-policy.md`](branch-release-regression-policy.md).
+In particular, a fix is not release evidence until it is represented in the
+candidate's `release/regressions.json` with permanent tests.
+
 ## Local candidate
 
 Create a release branch from the latest public `main`. Update the compiler,
@@ -28,7 +34,8 @@ host smoke, and reproducible package construction.
 `tools/release_preflight.py` composes existing authoritative validators. Its
 deterministic JSON binds the package version, prospective tag, previous tag,
 Git commit/tree, changelog notes, reviewed PDF, editor lock/package, release
-status and audited native wheel. It never creates a tag or release.
+status, regression ledger and audited native wheel. It never creates a tag or
+release.
 
 ## Hosted pre-tag gate
 
