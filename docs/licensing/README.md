@@ -8,15 +8,20 @@ the MIT Wi-Fi reference project and the CC-BY-4.0 code of conduct.
 The edition name does not determine ownership of a hardware design or replace
 the license applying to its source.
 
-- [Community Baseline](COMMUNITY_BASELINE.md): existing compiler features stay
+There is one public Community compiler and language-server product. No
+entitlement mechanism, restricted compiler feature, private service, or Agent
+Mode dependency is required to use the functionality in this repository. The
+machine-readable [`release/status.json`](../../release/status.json) identifies
+the current release; the baseline below records a frozen minimum Community
+boundary and is not a mutable current-version document.
+
+- [Community baseline](COMMUNITY_BASELINE.md): existing compiler features stay
   Community, including local formal verification, exploration and proof caches.
 - [Generated output](GENERATED_OUTPUT_POLICY.md): user designs, included
   libraries, helper bodies, ROM images and external-tool output are distinct
   provenance cases.
 - [IP classification](IP_CLASSIFICATION.md): the roles and recorded licenses of
   examples, regression fixtures and reference designs.
-- [Editions](../editions.md): current Community scope and explicitly classified,
-  not-yet-implemented Enterprise additions.
 - [Contribution policy](../../CONTRIBUTING.md): DCO and third-party attribution.
 - [Branding](../../TRADEMARKS.md): project naming, separate from software rights.
 

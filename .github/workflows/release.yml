@@ -4,6 +4,19 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Prospective release tag (must not exist yet)
+        required: true
+        type: string
+      previous_tag:
+        description: Exact previous Community release tag
+        required: true
+        type: string
+
+env:
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
 
 permissions:
   contents: read
@@ -28,10 +41,11 @@ jobs:
           python-version: "3.12"
           cache: pip
       - name: Verify annotated tag and GitHub signature
+        if: ${{ github.event_name == 'push' }}
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ env.RELEASE_TAG }}
         run: |
           object_type="$(gh api "repos/$REPOSITORY/git/ref/tags/$TAG" --jq .object.type)"
           test "$object_type" = tag
@@ -46,7 +60,7 @@ jobs:
         shell: bash
         run: |
           python tools/audit_native_binary.py \
-            --expected-version "${GITHUB_REF_NAME#v}" \
+            --expected-version "${RELEASE_TAG#v}" \
             --require-release-platforms release/native-wheels/zlang_native_sim-*.whl
       - name: Audit the exact native SBOM for vulnerabilities
         id: native_vulnerability_audit
@@ -82,7 +96,7 @@ jobs:
         if: ${{ always() && steps.native_vulnerability_audit.outcome != 'skipped' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: release-${{ github.ref_name }}-native-vulnerability-audit
+          name: release-${{ env.RELEASE_TAG }}-native-vulnerability-audit
           path: build/native-vulnerability/
           if-no-files-found: error
           retention-days: 30
@@ -98,9 +112,28 @@ jobs:
             setuptools==84.0.0 \
             twine==6.2.0 \
             wheel==0.46.3
+      - name: Bind the candidate or signed tag to one release manifest
+        env:
+          PREVIOUS_TAG_INPUT: ${{ inputs.previous_tag }}
+        shell: bash
+        run: |
+          git fetch --force --tags origin
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
+            mode=candidate
+            previous_tag="$PREVIOUS_TAG_INPUT"
+          else
+            mode=tagged
+            previous_tag="$(git describe --tags --abbrev=0 "${RELEASE_TAG}^")"
+          fi
+          python tools/release_preflight.py \
+            --root . \
+            --tag "$RELEASE_TAG" \
+            --previous-tag "$previous_tag" \
+            --mode "$mode" \
+            --output build/release-preflight.json
       - name: Validate public tree
         run: |
-          python tools/release_status.py check --root . --tag "$GITHUB_REF_NAME"
+          python tools/release_status.py check --root . --tag "$RELEASE_TAG"
           reuse lint
           pip-audit . --progress-spinner off
       - name: Build one sdist and a byte-reproducible wheel
@@ -133,13 +166,13 @@ jobs:
             'module PackageSmoke { in x:u8 out y:u8 y=x }' \
             > "$smoke_dir/package-smoke.zhl"
           for environment in "$PWD/build/wheel-venv" "$PWD/build/sdist-venv"; do
-            test "$("$environment/bin/zlang" --version)" = "zlang ${GITHUB_REF_NAME#v}"
-            test "$("$environment/bin/zlang-lock" --version)" = "zlang-lock ${GITHUB_REF_NAME#v}"
-            test "$("$environment/bin/zlang-verify" --version)" = "zlang-verify ${GITHUB_REF_NAME#v}"
+            test "$("$environment/bin/zlang" --version)" = "zlang ${RELEASE_TAG#v}"
+            test "$("$environment/bin/zlang-lock" --version)" = "zlang-lock ${RELEASE_TAG#v}"
+            test "$("$environment/bin/zlang-verify" --version)" = "zlang-verify ${RELEASE_TAG#v}"
             (cd "$smoke_dir" && "$environment/bin/zlang" package-smoke.zhl --check)
           done
           for kind in wheel sdist; do
-            printf 'zlang-hdl==%s\n' "${GITHUB_REF_NAME#v}" > "build/$kind-requirements.txt"
+            printf 'zlang-hdl==%s\n' "${RELEASE_TAG#v}" > "build/$kind-requirements.txt"
             "build/$kind-venv/bin/python" -m pip freeze --all --exclude zlang-hdl \
               | LC_ALL=C sort >> "build/$kind-requirements.txt"
           done
@@ -149,7 +182,7 @@ jobs:
         run: |
           python tools/release_inventory.py \
             --requirements dist/release-requirements.txt \
-            --project-version "${GITHUB_REF_NAME#v}" \
+            --project-version "${RELEASE_TAG#v}" \
             --report build/release-inventory-audit.json
       - name: Set up pinned Node.js for the Community VS Code extension
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -217,12 +250,14 @@ jobs:
           python tools/stage_release_pdf.py
           --root .
           --status release/status.json
-          --tag "$GITHUB_REF_NAME"
+          --tag "$RELEASE_TAG"
           --output dist
+      - name: Stage the release identity manifest
+        run: cp -- build/release-preflight.json dist/release-preflight.json
       - name: Retain accepted dependency audit evidence
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: release-${{ github.ref_name }}-dependency-audits
+          name: release-${{ env.RELEASE_TAG }}-dependency-audits
           path: |
             build/release-inventory-audit.json
             build/editor-npm-audit.json
@@ -237,21 +272,22 @@ jobs:
           cyclonedx-py requirements dist/release-requirements.txt \
             --output-reproducible \
             --output-format JSON \
-            --output-file "dist/zlang-hdl-${GITHUB_REF_NAME}.cdx.json"
+            --output-file "dist/zlang-hdl-${RELEASE_TAG}.cdx.json"
           (cd dist && sha256sum zlang_hdl-*.whl zlang_hdl-*.tar.gz \
             zlang_native_sim-*manylinux_2_28_x86_64.whl \
-            zlang-hdl-*.cdx.json release-requirements.txt \
+            zlang-hdl-*.cdx.json release-preflight.json release-requirements.txt \
             zlang-hdl-*.vsix zlang-hdl-*-vsix-audit.json \
             zlang-hdl-*-language-reference.pdf | sort > SHA256SUMS)
           (cd dist && sha256sum -c SHA256SUMS)
       - name: Attest release checksums
+        if: ${{ github.event_name == 'push' }}
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-checksums: dist/SHA256SUMS
       - name: Upload reviewed release artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: release-${{ github.ref_name }}
+          name: release-${{ env.RELEASE_TAG }}
           path: dist/
           if-no-files-found: error
           retention-days: 30
@@ -285,7 +321,7 @@ jobs:
           printf '%s\n' "$python_scripts" >> "$GITHUB_PATH"
           export PATH="$python_scripts:$PATH"
           python tools/audit_native_binary.py \
-            --expected-version "${GITHUB_REF_NAME#v}" \
+            --expected-version "${RELEASE_TAG#v}" \
             release/native-wheels/*manylinux_2_28_x86_64.whl
           python tools/release_status.py check --root . --check-tools
       - name: Run full regression twice with no unexpected skips
@@ -305,6 +341,7 @@ jobs:
             --junitxml=build/release-performance-2.xml
 
   publish:
+    if: ${{ github.event_name == 'push' }}
     needs: [validate, eda]
     runs-on: ubuntu-24.04
     permissions:
@@ -317,11 +354,11 @@ jobs:
       - name: Download validated release artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: release-${{ github.ref_name }}
+          name: release-${{ env.RELEASE_TAG }}
           path: dist
       - name: Extract curated notes from the changelog
         env:
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ env.RELEASE_TAG }}
         run: >-
           python tools/release_notes.py
           --changelog CHANGELOG.md
@@ -331,7 +368,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ env.RELEASE_TAG }}
         run: >-
           gh release create "$TAG" dist/*
           --verify-tag

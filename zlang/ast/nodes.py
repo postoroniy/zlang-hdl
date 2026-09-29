@@ -664,6 +664,7 @@ class CsrRegisterDecl:
 class CsrGroupDecl:
     name: str
     registers: tuple[CsrRegisterDecl, ...]
+    split_registers: tuple["CsrSplitRegisterDecl", ...] = ()
     origin: SourceSpan | None = field(default=None, compare=False)
 
 
@@ -693,6 +694,7 @@ class CsrSplitRegisterDecl:
     reset: int = 0
     order: CsrSplitOrder = CsrSplitOrder.LOW_FIRST
     origin: SourceSpan | None = field(default=None, compare=False)
+    projection_path: tuple[str, ...] = field(default=(), compare=False)
 
 
 @dataclass(frozen=True)

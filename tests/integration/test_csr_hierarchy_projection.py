@@ -177,6 +177,33 @@ module Parent {
     assert "module CsrBank_zlang_core" not in rtl
 
 
+def test_group_split_value_has_one_typed_child_projection() -> None:
+    source = """
+module CsrBank {
+    clock clk reset rst
+    csr group Window {
+        CTRL @0 { enable bit @0 rw=0 }
+        BASE @4 split<32> value u64 rw=0 order low_first
+    }
+    csr registers @0 { rows:Window[2] @0 stride 12 }
+}
+module Parent {
+    clock clk reset rst
+    in addr:u32 in write:bit in wdata:u32 in read:bit
+    out base:u64
+    bank:CsrBank { addr write wdata read }
+    base=bank.registers.rows[1].BASE.value
+}
+"""
+    result = compile_source(source, top="Parent")
+    selected = result.ir.assignments[0].expression
+    assert isinstance(selected, expr.InstanceOutputRef)
+    assert selected.port == "csr_split_0_1_value"
+    assert restore(lower(result.ir)) == result.ir
+    rtl = emit_experimental(result.ir)
+    assert "csr_split_0_1_value" in rtl
+
+
 def test_unknown_named_csr_projection_reports_the_complete_path() -> None:
     source = _bank_source(registers=1) + _parent_source().replace(
         "bank.registers.R64.value",

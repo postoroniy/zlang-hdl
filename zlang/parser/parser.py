@@ -2187,6 +2187,10 @@ class _AstBuilder(Transformer):
         return CsrGroupDecl(
             str(items[0]),
             tuple(item for item in items[1:] if isinstance(item, CsrRegisterDecl)),
+            tuple(
+                item for item in items[1:]
+                if isinstance(item, CsrSplitRegisterDecl)
+            ),
             self._span(meta),
         )
 
@@ -3190,8 +3194,8 @@ _GRAMMAR = files("zlang.parser").joinpath("grammar.lark").read_text()
 _PARSER: Lark | None = None
 _PARSER_LOCK = Lock()
 _PARSER_TABLE_LARK_VERSION = "1.3.1"
-_PARSER_TABLE_GRAMMAR_SHA256 = "1565dc186024699d97e7746d7a64969e1ee764755e8453c5d93941f257b4e903"
-_PARSER_TABLE_SHA256 = "183f00885c053e8cff95c0cbcbc9196a3ae80dfb856daa2ce268ebaeb62ef2c8"
+_PARSER_TABLE_GRAMMAR_SHA256 = "863668ec110ff44ca5fa8c07d97af0668173c37b0864252ebef1101534941a9d"
+_PARSER_TABLE_SHA256 = "fcd5beed6597b3010dbf33244c7eebb29b4652f5421abbce75354de268eab0bc"
 
 
 def _load_packaged_parser() -> Lark | None:

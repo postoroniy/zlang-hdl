@@ -3,7 +3,7 @@
   "release": {
     "channel": "alpha",
     "repository": "https://github.com/postoroniy/zlang-hdl",
-    "version": "0.1.0a18"
+    "version": "0.1.0a19"
   },
   "platform": {
     "operating_system": "Linux",
@@ -11,7 +11,7 @@
     "architecture": "x86_64"
   },
   "native_runtime": {
-    "version": "0.1.0a18",
+    "version": "0.1.0a19",
     "abi": "cp312-abi3",
     "source_distribution": false,
     "platforms": [
@@ -19,8 +19,8 @@
     ]
   },
   "validation": {
-    "minimum_tests_passed": 3768,
-    "minimum_tests_collected": 3768,
+    "minimum_tests_passed": 4122,
+    "minimum_tests_collected": 4122,
     "maximum_tests_skipped": 0,
     "example_corpus": {
       "source_files": 108,
@@ -39,7 +39,7 @@
     "z3": "4.13.4"
   },
   "documentation": {
-    "builder_sha256": "6ce739a112524f120799967e7ec22de6886f830a8407b2fdf50b3c17e5f286b1",
+    "builder_sha256": "13adb55f1c2e5e67589f1327a3b87b92fbc80551a39ce5a1751c9a7d4f5d30b9",
     "cover_sha256": "22c31a7a75b6db59293b6bf334d1499c891fb03ec5e45b5afac471116ab0d5d2",
     "examples": {
       "linked_sources": 20,
@@ -47,19 +47,19 @@
       "python_blocks": 1,
       "referenced_tops": 5,
       "shell_blocks": 39,
-      "standalone_compiled": 18,
+      "standalone_compiled": 20,
       "syntax_fragments": 107,
       "toml_blocks": 3,
-      "zlang_fences": 125
+      "zlang_fences": 127
     },
     "format": "PDF-1.5",
     "pages": 86,
     "pdf": "docs/ZLang-HDL-Language-Reference.pdf",
-    "pdf_sha256": "8e89d519398dd7ba3e4edea9a61fdc51cae6d6d893141cfefe25e2664197daa8",
+    "pdf_sha256": "0e1ab7737cd726f7c265a7105465811f75ab2dd609b184e356a251e0aaffb21e",
     "syntax_grammar_sha256": "f63945e59c4a8bde6e4b1a95b4512ca787d8a91b4c8333e160398a26de83526d",
     "sources": {
       "docs/language-quick-reference.md": "e037efdc44878a955451793802cc15623ee2b6f7c26c1625c5cee09925b5b8dc",
-      "docs/language-reference.md": "2fd606db1803f41b4e8d2be4cf4637b5de6d0d45f3e9643613aeb2a22aac6894"
+      "docs/language-reference.md": "7c7550674c9bcfbdf13fb6f6617d459fb2ae25f515d587bcc34cd926f0bf6727"
     },
     "source_date_epoch": 1789792159
   },

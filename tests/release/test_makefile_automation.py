@@ -15,11 +15,22 @@ def test_makefile_exposes_bounded_test_and_release_entry_points() -> None:
     text = MAKEFILE.read_text(encoding="utf-8")
     assert ".ONESHELL:" in text
     assert ".SHELLFLAGS := -eu -o pipefail -c" in text
+    assert "release-preflight: release-regressions" in text
+    assert "tools/release_regressions.py" in text
     assert (
-        "release-candidate: native-release-set community-pdf-check public-check static jit-check jit-audit "
+        "release-candidate: release-preflight native-release-set community-pdf-check public-check static jit-check jit-audit "
         "jit-advisory-audit audit release-tools test-release-twice" in text
     )
-    assert "tools/build_community_pdf.py" in text
+    assert "tools/release_preflight.py" in text
+    assert 'PYTHONPATH="$(CURDIR)" $(PYTHON) tools/release_preflight.py' in text
+    assert "--mode candidate" in text
+    assert "--require-clean" in text
+    assert "community-pdf:" not in text
+    assert "tools/build_community_pdf.py" not in text
+    assert (
+        'PYTHONPATH="$(CURDIR)" $(PYTHON) tools/release_status.py check '
+        '--root . --tag "$(TAG)"'
+    ) in text
     assert "-p tools.pytest_no_skips" in text
     assert text.count('--junitxml="$$report_root/release-') == 2
     assert "test \"$${#first_wheels[@]}\" -eq 1" in text
@@ -27,6 +38,12 @@ def test_makefile_exposes_bounded_test_and_release_entry_points() -> None:
     assert "public package requires a clean committed checkout" in text
     assert "Python wheel/sdist version does not match the release tag" in text
     assert "tools/materialize_native_test_extension.py" in text
+    assert "tests/editor/test_vscode_package.py" in text
+    assert "npm --prefix editors/vscode/zlang-hdl run test:host" in text
+    assert (
+        'PYTHONPATH="$(CURDIR)" xvfb-run -a npm '
+        '--prefix editors/vscode/zlang-hdl run test:host'
+    ) in text
     assert "--compatibility off" in text
     assert "ZLANG_NATIVE_RUNTIME_WHEEL" in text
     assert '-m reuse --root "$$public_root" lint' in text
@@ -34,6 +51,9 @@ def test_makefile_exposes_bounded_test_and_release_entry_points() -> None:
     assert '-m reuse --root . lint' in text
     assert '-m pip_audit . --progress-spinner off' in text
     assert "--check-tools" in text
+    assert "PYTHON_SCRIPTS ?=" in text
+    assert 'export PATH="$(PYTHON_SCRIPTS):$$PATH"' in text
+    assert 'export PATH="$$(dirname "$$python_bin"):$$PATH"' in text
     assert text.count("tools/public_tree.py export") == 5
     assert 'check-export --source "$$public_root"' in text
     assert 'PYTHONPATH="$(CURDIR)" $(PYTHON) tools/public_tree.py export' in text
@@ -60,6 +80,12 @@ def test_release_workflow_uses_curated_changelog_notes_and_native_set() -> None:
     assert "zlang_native_sim-*.whl" in workflow
     assert "tools/audit_native_vulnerabilities.py" in workflow
     assert "tools/stage_release_pdf.py" in workflow
+    assert "workflow_dispatch:" in workflow
+    assert "tools/release_preflight.py" in workflow
+    assert '--mode "$mode"' in workflow
+    assert "release-preflight.json" in workflow
+    assert "if: ${{ github.event_name == 'push' }}\n    needs: [validate, eda]" in workflow
+    assert "Exercise the installed exact-tag VSIX" in workflow
     assert "zlang-hdl-*-language-reference.pdf" in workflow
     assert workflow.count("--maxfail=1") == 4
     assert 'printf \'%s\\n\' "$python_scripts" >> "$GITHUB_PATH"' in workflow
@@ -78,7 +104,8 @@ def test_makefile_help_is_executable_and_documents_nonpublishing_gate() -> None:
         text=True,
     )
     assert "make test-release-twice" in completed.stdout
-    assert "make community-pdf" in completed.stdout
+    assert "make release-regressions" in completed.stdout
+    assert "make release-preflight" in completed.stdout
     assert "make community-pdf-check" in completed.stdout
     assert "make audit" in completed.stdout
     assert "make jit-check" in completed.stdout
@@ -87,6 +114,7 @@ def test_makefile_help_is_executable_and_documents_nonpublishing_gate() -> None:
     assert "make native-release-set" in completed.stdout
     assert "make release-tools" in completed.stdout
     assert "make release-candidate" in completed.stdout
+    assert "make editor-host-test" in completed.stdout
     assert "non-publishing" in completed.stdout
 
 

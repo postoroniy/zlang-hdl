@@ -14,6 +14,7 @@ import threading
 
 from zlang.ir.module import Module
 from zlang.ir import csr as ir_csr
+from zlang.ir import expressions as ir_expr
 from zlang.ir.cdc import CrossingKind
 from zlang.ir.packing import unpack_runtime
 from zlang.sim import Program, SimulationRuntimeError, Simulator, _native_runtime
@@ -296,7 +297,16 @@ def simulate_csr_cycles(
                     field.binding is not None
                     and field.binding.kind is ir_csr.CsrBindingKind.STATUS
                 ):
-                    stored.append((key, "", field.type, field.binding.signal))
+                    stored.append((
+                        key,
+                        "",
+                        field.type,
+                        ir_csr.csr_hardware_source(
+                            field.binding,
+                            field.type,
+                            origin=field.source_origin,
+                        ),
+                    ))
 
     try:
         with program.create() as instance:
@@ -312,9 +322,26 @@ def simulate_csr_cycles(
                     instance.edge(clock)
                 result = instance.eval()
                 state = {}
-                for key, register_name, type_, status_input in stored:
-                    if status_input is not None:
-                        state[key] = inputs[status_input]
+                for key, register_name, type_, status_source in stored:
+                    if status_source is not None:
+                        selected: object
+                        chain: list[str] = []
+                        cursor = status_source
+                        while isinstance(cursor, ir_expr.FieldAccess):
+                            chain.append(cursor.field)
+                            cursor = cursor.expression
+                        if not isinstance(cursor, ir_expr.InputRef):
+                            raise SimulationError(
+                                "CSR status state view requires an input/member source"
+                            )
+                        selected = inputs[cursor.name]
+                        for field_name in reversed(chain):
+                            if not isinstance(selected, Mapping):
+                                raise SimulationError(
+                                    f"CSR status input '{cursor.name}' is not structured"
+                                )
+                            selected = selected[field_name]
+                        state[key] = selected
                     else:
                         limbs = instance._native.read_state(  # noqa: SLF001
                             "register", register_name, None

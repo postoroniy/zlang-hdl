@@ -195,6 +195,7 @@ BMC but fails at a deeper bound, with a source-attributed counterexample.
 - [Complete Community language reference](docs/language-reference.md)
 - [Concise language quick reference](docs/language-quick-reference.md)
 - [Printable PDF reference](docs/ZLang-HDL-Language-Reference.pdf)
+- [Non-publishing candidate and signed release process](docs/release-process.md)
 
 The compiler-owned capability registry and release CI are authoritative for
 executable support. Documentation should describe semantics and boundaries
@@ -234,9 +235,11 @@ Copyright 2026 Viacheslav Vinogradov.
 
 The Community repository contains the complete compiler, standard library,
 local verification flows, examples, tests, and editor integration documented
-here. The [Community baseline](docs/licensing/COMMUNITY_BASELINE.md) identifies
-the published snapshot and production-backend policy. See also the
-[Community edition](docs/editions.md) and [name and branding policy](TRADEMARKS.md).
+here. The machine-readable [`release/status.json`](release/status.json)
+identifies the current release candidate. The frozen
+[Community baseline](docs/licensing/COMMUNITY_BASELINE.md) records the minimum
+public product boundary rather than the current version. See also the
+[name and branding policy](TRADEMARKS.md).
 
 The [licensing guide](docs/licensing/README.md) distinguishes compiler licensing,
 reference-design provenance and obligations for included generated material.

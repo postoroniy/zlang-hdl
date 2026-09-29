@@ -41,6 +41,17 @@ class CsrParserTests(unittest.TestCase):
         self.assertEqual(block.group_uses[0].count, 4)
         self.assertEqual(block.split_registers[0].field_name, "value")
 
+    def test_csr_group_accepts_native_split_values(self) -> None:
+        module = parse(
+            "module Bank { clock clk reset rst "
+            "csr group Window { CTRL @0 { enable bit @0 rw=0 } "
+            "BASE @4 split<32> value u64 rw=0 order low_first } "
+            "csr registers @0 { rows:Window[2] @0 stride 12 } }"
+        )
+        group = module.csr_groups[0]
+        self.assertEqual([item.name for item in group.registers], ["CTRL"])
+        self.assertEqual([item.name for item in group.split_registers], ["BASE"])
+
 
 if __name__ == "__main__":
     unittest.main()

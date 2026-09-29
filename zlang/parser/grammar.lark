@@ -209,7 +209,8 @@ assignment_target: NAME ("." NAME)*
 // A CSR block base is an elaboration-time integer, just like a storage depth.
 // Keeping the same bounded expression vocabulary lets one reusable CSR module
 // specialize its absolute map without turning addresses into runtime values.
-csr_group_decl: _CSR _GROUP NAME "{" csr_register* "}"
+csr_group_decl: _CSR _GROUP NAME "{" csr_group_item* "}"
+?csr_group_item: csr_register | csr_split_register
 csr_decl: _CSR NAME _AT storage_depth [_AT NAME] "{" csr_block_item* "}"
 ?csr_block_item: csr_register | csr_group_use | csr_split_register
 csr_group_use: NAME ":" NAME "[" storage_depth "]" _AT storage_depth _STRIDE storage_depth

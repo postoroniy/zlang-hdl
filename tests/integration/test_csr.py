@@ -40,6 +40,23 @@ class CsrIntegrationTests(unittest.TestCase):
         ])
         self.assertEqual(results[2]["rdata"], 0x89ABCDEF)
         self.assertEqual(results[3]["rdata"], 0x01234567)
+
+    def test_group_split_halves_remain_independently_writable(self) -> None:
+        module = compile_source(
+            "module Bank { clock clk reset rst "
+            "csr group Window { BASE @4 split<32> value u64 rw=0 "
+            "order low_first } "
+            "csr registers @0 { rows:Window[1] @0 stride 12 } }"
+        ).ir
+        results = simulate_csr_cycles(module, [
+            {"addr": 4, "write": 1, "wdata": 0x89ABCDEF, "read": 0},
+            {"addr": 8, "write": 1, "wdata": 0x01234567, "read": 0},
+            {"addr": 4, "write": 0, "wdata": 0, "read": 1},
+            {"addr": 8, "write": 0, "wdata": 0, "read": 1},
+        ])
+        self.assertEqual(results[2]["rdata"], 0x89ABCDEF)
+        self.assertEqual(results[3]["rdata"], 0x01234567)
+
     def test_implicit_reserved_bits_read_zero_and_ignore_writes(self) -> None:
         module = compile_source(
             "module Gaps { clock clk reset rst csr registers @0 { "

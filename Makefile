@@ -3,26 +3,31 @@ SHELL := /bin/bash
 .SHELLFLAGS := -eu -o pipefail -c
 
 PYTHON ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python)
+PYTHON_SCRIPTS ?= $(shell $(PYTHON) -c 'import sysconfig; print(sysconfig.get_path("scripts"))')
 CARGO_AUDIT ?= cargo-audit
 CARGO_AUDIT_VERSION ?= 0.22.2
 WORKERS ?= 16
 BUILD_ROOT ?= build/local-release
 DIST_DIR ?= $(BUILD_ROOT)/dist
 TAG ?= v$(shell $(PYTHON) -c 'from zlang._version import __version__; print(__version__)')
+PREVIOUS_TAG ?= $(shell git describe --tags --abbrev=0 HEAD)
+RELEASE_PREFLIGHT_REPORT ?= build/release-preflight.json
+EDITOR_VSIX ?= build/editor-release/zlang-hdl-0.1.0.vsix
 STRUCTURAL_PROFILE ?= small
 STRUCTURAL_REPORT_DIR ?= build/structural
-COMMUNITY_PDF_COVER ?= $(HOME)/Downloads/ZLang-HDL_cover.jpg
 
 FAST_TEST_PATHS := \
 	tests/parser tests/semantic tests/conformance tests/editor \
 	tests/packaging tests/release
 
-.PHONY: help public-check static jit-check jit-audit jit-advisory-audit native-release-set audit release-tools test-fast test test-structural \
+.PHONY: help release-regressions release-preflight public-check static jit-check jit-audit jit-advisory-audit native-release-set audit release-tools test-fast test test-structural \
 	structural-baseline \
-	community-pdf community-pdf-check test-release-twice editor-test package release-candidate
+	community-pdf-check test-release-twice editor-test editor-host-test package release-candidate
 
 help:
 	@printf '%s\n' \
+		'make release-regressions validate fix inclusion and permanent regression selectors' \
+		'make release-preflight  bind version, tag, Git tree and release artifacts' \
 		'make public-check       validate the public projection and release metadata' \
 		'make static             run Ruff, compileall, and diff checks' \
 		'make jit-check          run locked Rust format, Clippy, and unit gates' \
@@ -35,12 +40,28 @@ help:
 		'make test               run the complete parallel test suite' \
 		'make test-structural    run reduced structural correctness/tool gates' \
 		'make structural-baseline measure the selected structural profile' \
-		'make community-pdf      rebuild the highlighted XeLaTeX language reference' \
 		'make community-pdf-check validate PDF and release-status identities' \
 		'make test-release-twice run two zero-skip suites and validate both JUnit files' \
 		'make editor-test        install locked editor dependencies and run its tests' \
+		'make editor-host-test   build, audit and run the installed VSIX host smoke' \
 		'make package            build one sdist and two byte-identical wheels' \
 		'make release-candidate  run the local non-publishing release gate'
+
+release-regressions:
+	PYTHONPATH="$(CURDIR)" $(PYTHON) tools/release_regressions.py \
+		--root . \
+		--release "$(patsubst v%,%,$(TAG))" \
+		--previous-tag "$(PREVIOUS_TAG)"
+
+release-preflight: release-regressions
+	mkdir -p "$(dir $(RELEASE_PREFLIGHT_REPORT))"
+	PYTHONPATH="$(CURDIR)" $(PYTHON) tools/release_preflight.py \
+		--root . \
+		--tag "$(TAG)" \
+		--previous-tag "$(PREVIOUS_TAG)" \
+		--mode candidate \
+		--require-clean \
+		--output "$(RELEASE_PREFLIGHT_REPORT)"
 
 public-check:
 	if [[ -f tools/public_tree.py ]]; then
@@ -122,6 +143,7 @@ audit:
 	fi
 
 release-tools:
+	export PATH="$(PYTHON_SCRIPTS):$$PATH"
 	if [[ -f tools/public_tree.py ]]; then
 		public_root="$$(mktemp -d "$${TMPDIR:-/tmp}/zlang-public-tools.XXXXXX")"
 		trap 'rm -rf -- "$$public_root"' EXIT
@@ -148,16 +170,8 @@ structural-baseline:
 		--json "$(STRUCTURAL_REPORT_DIR)/$(STRUCTURAL_PROFILE).json" \
 		--markdown "$(STRUCTURAL_REPORT_DIR)/$(STRUCTURAL_PROFILE).md"
 
-community-pdf:
-	$(PYTHON) tools/build_community_pdf.py \
-			--root . --cover "$(COMMUNITY_PDF_COVER)"
-
 community-pdf-check:
-	if [[ -f tools/build_community_pdf.py ]]; then
-		$(PYTHON) tools/build_community_pdf.py --root . --check
-	else
-		$(PYTHON) tools/release_status.py check --root . --tag "$(TAG)"
-	fi
+	PYTHONPATH="$(CURDIR)" $(PYTHON) tools/release_status.py check --root . --tag "$(TAG)"
 
 test-release-twice:
 	public_root="$$(mktemp -d "$${TMPDIR:-/tmp}/zlang-public-tests.XXXXXX")"
@@ -168,6 +182,7 @@ test-release-twice:
 	else
 		python_bin="$$(command -v "$$python_bin")"
 	fi
+	export PATH="$$(dirname "$$python_bin"):$$PATH"
 	report_root="$$(pwd)/build"
 	mkdir -p "$$report_root"
 	if [[ -f tools/public_tree.py ]]; then
@@ -210,6 +225,18 @@ test-release-twice:
 editor-test:
 	npm --prefix editors/vscode/zlang-hdl ci --ignore-scripts
 	npm --prefix editors/vscode/zlang-hdl test
+
+editor-host-test: editor-test
+	if [[ -e "$(EDITOR_VSIX)" ]]; then
+		echo "$(EDITOR_VSIX) already exists; choose a fresh EDITOR_VSIX" >&2
+		exit 2
+	fi
+	mkdir -p "$(dir $(EDITOR_VSIX))"
+	npm --prefix editors/vscode/zlang-hdl run package -- "$(abspath $(EDITOR_VSIX))"
+	$(PYTHON) tests/editor/test_vscode_package.py "$(abspath $(EDITOR_VSIX))" \
+		> "$(abspath $(EDITOR_VSIX)).audit.json"
+	PYTHONPATH="$(CURDIR)" xvfb-run -a npm --prefix editors/vscode/zlang-hdl run test:host -- \
+		"$(abspath $(EDITOR_VSIX))"
 
 package:
 	if [[ -e "$(BUILD_ROOT)" ]]; then \
@@ -281,4 +308,4 @@ package:
 
 # This target prepares and validates local candidate artifacts. It deliberately
 # does not create commits/tags, upload artifacts, or publish a GitHub release.
-release-candidate: native-release-set community-pdf-check public-check static jit-check jit-audit jit-advisory-audit audit release-tools test-release-twice editor-test package
+release-candidate: release-preflight native-release-set community-pdf-check public-check static jit-check jit-audit jit-advisory-audit audit release-tools test-release-twice editor-host-test package
