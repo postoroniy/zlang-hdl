@@ -235,9 +235,11 @@ Copyright 2026 Viacheslav Vinogradov.
 
 The Community repository contains the complete compiler, standard library,
 local verification flows, examples, tests, and editor integration documented
-here. The [Community baseline](docs/licensing/COMMUNITY_BASELINE.md) identifies
-the published snapshot and production-backend policy. See also the
-[Community edition](docs/editions.md) and [name and branding policy](TRADEMARKS.md).
+here. The machine-readable [`release/status.json`](release/status.json)
+identifies the current release candidate. The frozen
+[Community baseline](docs/licensing/COMMUNITY_BASELINE.md) records the minimum
+public product boundary rather than the current version. See also the
+[name and branding policy](TRADEMARKS.md).
 
 The [licensing guide](docs/licensing/README.md) distinguishes compiler licensing,
 reference-design provenance and obligations for included generated material.

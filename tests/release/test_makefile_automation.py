@@ -25,7 +25,8 @@ def test_makefile_exposes_bounded_test_and_release_entry_points() -> None:
     assert 'PYTHONPATH="$(CURDIR)" $(PYTHON) tools/release_preflight.py' in text
     assert "--mode candidate" in text
     assert "--require-clean" in text
-    assert "tools/build_community_pdf.py" in text
+    assert "community-pdf:" not in text
+    assert "tools/build_community_pdf.py" not in text
     assert (
         'PYTHONPATH="$(CURDIR)" $(PYTHON) tools/release_status.py check '
         '--root . --tag "$(TAG)"'
@@ -105,7 +106,6 @@ def test_makefile_help_is_executable_and_documents_nonpublishing_gate() -> None:
     assert "make test-release-twice" in completed.stdout
     assert "make release-regressions" in completed.stdout
     assert "make release-preflight" in completed.stdout
-    assert "make community-pdf" in completed.stdout
     assert "make community-pdf-check" in completed.stdout
     assert "make audit" in completed.stdout
     assert "make jit-check" in completed.stdout

@@ -15,7 +15,6 @@ RELEASE_PREFLIGHT_REPORT ?= build/release-preflight.json
 EDITOR_VSIX ?= build/editor-release/zlang-hdl-0.1.0.vsix
 STRUCTURAL_PROFILE ?= small
 STRUCTURAL_REPORT_DIR ?= build/structural
-COMMUNITY_PDF_COVER ?= $(HOME)/Downloads/ZLang-HDL_cover.jpg
 
 FAST_TEST_PATHS := \
 	tests/parser tests/semantic tests/conformance tests/editor \
@@ -23,7 +22,7 @@ FAST_TEST_PATHS := \
 
 .PHONY: help release-regressions release-preflight public-check static jit-check jit-audit jit-advisory-audit native-release-set audit release-tools test-fast test test-structural \
 	structural-baseline \
-	community-pdf community-pdf-check test-release-twice editor-test editor-host-test package release-candidate
+	community-pdf-check test-release-twice editor-test editor-host-test package release-candidate
 
 help:
 	@printf '%s\n' \
@@ -41,7 +40,6 @@ help:
 		'make test               run the complete parallel test suite' \
 		'make test-structural    run reduced structural correctness/tool gates' \
 		'make structural-baseline measure the selected structural profile' \
-		'make community-pdf      rebuild the highlighted XeLaTeX language reference' \
 		'make community-pdf-check validate PDF and release-status identities' \
 		'make test-release-twice run two zero-skip suites and validate both JUnit files' \
 		'make editor-test        install locked editor dependencies and run its tests' \
@@ -172,16 +170,8 @@ structural-baseline:
 		--json "$(STRUCTURAL_REPORT_DIR)/$(STRUCTURAL_PROFILE).json" \
 		--markdown "$(STRUCTURAL_REPORT_DIR)/$(STRUCTURAL_PROFILE).md"
 
-community-pdf:
-	PYTHONPATH="$(CURDIR)" $(PYTHON) tools/build_community_pdf.py \
-			--root . --cover "$(COMMUNITY_PDF_COVER)"
-
 community-pdf-check:
-	if [[ -f tools/build_community_pdf.py ]]; then
-		PYTHONPATH="$(CURDIR)" $(PYTHON) tools/build_community_pdf.py --root . --check
-	else
-		PYTHONPATH="$(CURDIR)" $(PYTHON) tools/release_status.py check --root . --tag "$(TAG)"
-	fi
+	PYTHONPATH="$(CURDIR)" $(PYTHON) tools/release_status.py check --root . --tag "$(TAG)"
 
 test-release-twice:
 	public_root="$$(mktemp -d "$${TMPDIR:-/tmp}/zlang-public-tests.XXXXXX")"
