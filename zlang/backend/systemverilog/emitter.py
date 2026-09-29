@@ -5839,7 +5839,9 @@ def _emit_csr(module: Module, *, expose_internal_abi: bool = False) -> str:
             and binding is not None
             and binding.kind is ir_csr.CsrBindingKind.STICKY
         ):
-            hardware = _identifier(binding.signal)
+            hardware = _expression(ir_csr.csr_hardware_source(
+                binding, field.type, origin=field.source_origin,
+            ))
             if binding.priority is ir_csr.CsrPriority.SOFTWARE:
                 update = (
                     f"(({name} | {hardware}) & "
@@ -5880,7 +5882,9 @@ def _emit_csr(module: Module, *, expose_internal_abi: bool = False) -> str:
                     and field.binding is not None
                     and field.binding.kind is ir_csr.CsrBindingKind.STATUS
                 ):
-                    value = _identifier(field.binding.signal)
+                    value = _expression(ir_csr.csr_hardware_source(
+                        field.binding, field.type, origin=field.source_origin,
+                    ))
                 elif field.access is ir_csr.CsrAccess.READ_ONLY:
                     value = f"{field.width}'d{field.reset}"
                 else:
@@ -5934,7 +5938,9 @@ def _emit_csr(module: Module, *, expose_internal_abi: bool = False) -> str:
                     and field.binding is not None
                     and field.binding.kind is ir_csr.CsrBindingKind.STATUS
                 ):
-                    observed_value = _identifier(field.binding.signal)
+                    observed_value = _expression(ir_csr.csr_hardware_source(
+                        field.binding, field.type, origin=field.source_origin,
+                    ))
                 elif field.access is ir_csr.CsrAccess.READ_ONLY:
                     observed_value = f"{field.width}'d{field.reset}"
                 else:

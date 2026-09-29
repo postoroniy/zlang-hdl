@@ -2353,6 +2353,137 @@ def _validate_compile_time_parameter_declarations(module: ast.Module) -> None:
                 )
 
 
+def _expand_csr_block_syntax(
+    declaration: ast.CsrBlockDecl,
+    group_catalog: dict[str, ast.CsrGroupDecl],
+    type_resolver: _TypeResolver,
+) -> ast.CsrBlockDecl:
+    """Expand bounded CSR groups and split values through one syntax path.
+
+    Child ABI predeclaration and authoritative CSR analysis must observe the
+    same register/split order. Keeping expansion here prevents those paths
+    from drifting as group members gain additional canonical forms.
+    """
+
+    def compile_integer(value: int | str, description: str) -> int:
+        if isinstance(value, int):
+            return value
+        return type_resolver._eval_constant_integer(
+            value, description=description, allow_zero=True
+        )
+
+    expanded = list(declaration.registers)
+    expanded_splits = list(declaration.split_registers)
+    for use in declaration.group_uses:
+        group = group_catalog.get(use.group_name)
+        if group is None:
+            raise SemanticError(
+                f"CSR group use '{use.name}' references unknown group "
+                f"'{use.group_name}'"
+            )
+        if not group.registers and not group.split_registers:
+            raise SemanticError(f"CSR group '{group.name}' has no registers")
+        count = compile_integer(use.count, f"CSR group '{use.name}' count")
+        base = compile_integer(use.base_offset, f"CSR group '{use.name}' base")
+        stride = compile_integer(use.stride, f"CSR group '{use.name}' stride")
+        if not 1 <= count <= 64:
+            raise SemanticError(f"CSR group '{use.name}' count must be in 1..64")
+        if stride <= 0 or stride % 4:
+            raise SemanticError(
+                f"CSR group '{use.name}' stride must be a positive multiple of 4"
+            )
+        extent = max((
+            *(register.offset + 4 for register in group.registers),
+            *(split.offset + 8 for split in group.split_registers),
+        ))
+        if stride < extent:
+            raise SemanticError(
+                f"CSR group '{use.name}' stride 0x{stride:x} is smaller than "
+                f"group extent 0x{extent:x}"
+            )
+        for index in range(count):
+            prefix = (f"{use.name}[{index}]",)
+            for register in group.registers:
+                expanded.append(replace(
+                    register,
+                    name=f"{use.name}_{index}_{register.name}",
+                    offset=base + index * stride + register.offset,
+                    projection_path=(*prefix, register.name),
+                ))
+            for split in group.split_registers:
+                expanded_splits.append(replace(
+                    split,
+                    name=f"{use.name}_{index}_{split.name}",
+                    offset=base + index * stride + split.offset,
+                    projection_path=(*prefix, split.name),
+                ))
+
+    for split in expanded_splits:
+        if split.chunk_width != 32:
+            raise SemanticError(
+                f"CSR split register '{split.name}' requires split<32> for "
+                "the canonical 32-bit CSR access interface"
+            )
+        if split.access not in {ast.CsrAccess.READ_WRITE, ast.CsrAccess.WRITE_ONLY}:
+            raise SemanticError(
+                f"CSR split register '{split.name}' currently requires rw or wo access"
+            )
+        resolved = type_resolver.resolve(split.type_name)
+        if not isinstance(resolved, (UIntType, BitsType)) or resolved.width != 64:
+            raise SemanticError(
+                f"CSR split register '{split.name}' requires an exact 64-bit "
+                "unsigned or bits value"
+            )
+        if not 0 <= split.reset < (1 << 64):
+            raise SemanticError(
+                f"reset value for CSR split register '{split.name}' "
+                f"does not fit {resolved}"
+            )
+        low_offset = split.offset + (
+            0 if split.order is ast.CsrSplitOrder.LOW_FIRST else 4
+        )
+        high_offset = split.offset + (
+            4 if split.order is ast.CsrSplitOrder.LOW_FIRST else 0
+        )
+        halves = (
+            ("LOW", low_offset, split.reset & 0xFFFF_FFFF),
+            ("HIGH", high_offset, (split.reset >> 32) & 0xFFFF_FFFF),
+        )
+        for suffix, offset, reset in halves:
+            expanded.append(ast.CsrRegisterDecl(
+                f"{split.name}_{suffix}",
+                offset,
+                (ast.CsrFieldDecl(
+                    split.field_name,
+                    ast.TypeName("u32"),
+                    split.access,
+                    31,
+                    0,
+                    reset,
+                    None,
+                    split.origin,
+                ),),
+                (),
+                split.origin,
+                (
+                    (*split.projection_path[:-1], f"{split.projection_path[-1]}_{suffix}")
+                    if split.projection_path
+                    else ()
+                ),
+            ))
+    if len(expanded) > 256:
+        raise SemanticError(
+            f"CSR block '{declaration.name}' expands to {len(expanded)} "
+            "registers; the bounded maximum is 256"
+        )
+    return replace(
+        declaration,
+        registers=tuple(expanded),
+        group_uses=(),
+        split_registers=tuple(expanded_splits),
+    )
+
+
 def _analyze_csr_blocks(
     declarations: tuple[ast.CsrBlockDecl, ...],
     groups: tuple[ast.CsrGroupDecl, ...],
@@ -2369,108 +2500,13 @@ def _analyze_csr_blocks(
     for group in groups:
         if group.name in group_catalog:
             raise SemanticError(f"duplicate CSR group '{group.name}'")
-        if not group.registers:
+        if not group.registers and not group.split_registers:
             raise SemanticError(f"CSR group '{group.name}' has no registers")
         group_catalog[group.name] = group
-
-    def compile_integer(value: int | str, description: str) -> int:
-        if isinstance(value, int):
-            return value
-        return type_resolver._eval_constant_integer(
-            value, description=description, allow_zero=True
-        )
-
-    expanded_declarations: list[ast.CsrBlockDecl] = []
-    for declaration in declarations:
-        expanded = list(declaration.registers)
-        for use in declaration.group_uses:
-            group = group_catalog.get(use.group_name)
-            if group is None:
-                raise SemanticError(
-                    f"CSR group use '{use.name}' references unknown group "
-                    f"'{use.group_name}'"
-                )
-            count = compile_integer(use.count, f"CSR group '{use.name}' count")
-            base = compile_integer(use.base_offset, f"CSR group '{use.name}' base")
-            stride = compile_integer(use.stride, f"CSR group '{use.name}' stride")
-            if not 1 <= count <= 64:
-                raise SemanticError(
-                    f"CSR group '{use.name}' count must be in 1..64"
-                )
-            if stride <= 0 or stride % 4:
-                raise SemanticError(
-                    f"CSR group '{use.name}' stride must be a positive multiple of 4"
-                )
-            extent = max(register.offset for register in group.registers) + 4
-            if stride < extent:
-                raise SemanticError(
-                    f"CSR group '{use.name}' stride 0x{stride:x} is smaller than "
-                    f"group extent 0x{extent:x}"
-                )
-            for index in range(count):
-                for register in group.registers:
-                    expanded.append(replace(
-                        register,
-                        name=f"{use.name}_{index}_{register.name}",
-                        offset=base + index * stride + register.offset,
-                        projection_path=(f"{use.name}[{index}]", register.name),
-                    ))
-        for split in declaration.split_registers:
-            if split.chunk_width != 32:
-                raise SemanticError(
-                    f"CSR split register '{split.name}' requires split<32> for "
-                    "the canonical 32-bit CSR access interface"
-                )
-            if split.access not in {ast.CsrAccess.READ_WRITE, ast.CsrAccess.WRITE_ONLY}:
-                raise SemanticError(
-                    f"CSR split register '{split.name}' currently requires rw or wo access"
-                )
-            resolved = type_resolver.resolve(split.type_name)
-            if not isinstance(resolved, (UIntType, BitsType)) or resolved.width != 64:
-                raise SemanticError(
-                    f"CSR split register '{split.name}' requires an exact 64-bit "
-                    "unsigned or bits value"
-                )
-            if not 0 <= split.reset < (1 << 64):
-                raise SemanticError(
-                    f"reset value for CSR split register '{split.name}' "
-                    f"does not fit {resolved}"
-                )
-            low_offset = split.offset + (
-                0 if split.order is ast.CsrSplitOrder.LOW_FIRST else 4
-            )
-            high_offset = split.offset + (
-                4 if split.order is ast.CsrSplitOrder.LOW_FIRST else 0
-            )
-            halves = (
-                ("LOW", low_offset, split.reset & 0xFFFF_FFFF),
-                ("HIGH", high_offset, (split.reset >> 32) & 0xFFFF_FFFF),
-            )
-            for suffix, offset, reset in halves:
-                expanded.append(ast.CsrRegisterDecl(
-                    f"{split.name}_{suffix}",
-                    offset,
-                    (ast.CsrFieldDecl(
-                        split.field_name,
-                        ast.TypeName("u32"),
-                        split.access,
-                        31,
-                        0,
-                        reset,
-                        None,
-                        split.origin,
-                    ),),
-                    (),
-                    split.origin,
-                ))
-        if len(expanded) > 256:
-            raise SemanticError(
-                f"CSR block '{declaration.name}' expands to {len(expanded)} "
-                "registers; the bounded maximum is 256"
-            )
-        expanded_declarations.append(replace(
-            declaration, registers=tuple(expanded), group_uses=()
-        ))
+    expanded_declarations = tuple(
+        _expand_csr_block_syntax(declaration, group_catalog, type_resolver)
+        for declaration in declarations
+    )
 
     blocks: list[ir_csr.CsrBlock] = []
     block_names: set[str] = set()
@@ -2649,8 +2685,17 @@ def _analyze_csr_blocks(
                 binding: ir_csr.CsrHardwareBinding | None = None
                 if field_decl.binding is not None:
                     signal_name = field_decl.binding.signal
+                    signal_parts = signal_name.split(".")
                     port = symbols.get(signal_name)
+                    member_path: tuple[str, ...] = ()
+                    if port is None and len(signal_parts) > 1:
+                        port = symbols.get(signal_parts[0])
+                        if port is not None:
+                            member_path = tuple(signal_parts[1:])
                     if port is None and "." in signal_name:
+                        # Retain the historical generated-scalar spelling for
+                        # old source while preferring a typed aggregate member
+                        # whenever the root port exists.
                         port = symbols.get(signal_name.replace(".", "_"))
                     if port is None:
                         raise SemanticError(
@@ -2661,10 +2706,32 @@ def _analyze_csr_blocks(
                         raise SemanticError(
                             f"CSR hardware signal '{port.name}' must be a wire port"
                         )
-                    if port.type != type_:
+                    source: ir_expr.Expression = ir_expr.InputRef(
+                        port.name, port.type, origin=field_origin
+                    )
+                    source_type = port.type
+                    for member_name in member_path:
+                        if not isinstance(source_type, StructType):
+                            raise SemanticError(
+                                f"CSR hardware signal '{signal_name}' selects "
+                                f"member '{member_name}' from non-struct "
+                                f"type {source_type}"
+                            )
+                        member = source_type.field(member_name)
+                        if member is None:
+                            raise SemanticError(
+                                f"CSR hardware signal '{signal_name}' references "
+                                f"unknown member '{member_name}' of "
+                                f"struct '{source_type.name}'"
+                            )
+                        source = ir_expr.FieldAccess(
+                            source, member_name, member.type, origin=field_origin
+                        )
+                        source_type = member.type
+                    if source_type != type_:
                         raise SemanticError(
                             f"CSR field '{field_decl.name}' has type {type_}, but hardware "
-                            f"signal '{port.name}' has type {port.type}"
+                            f"signal '{signal_name}' has type {source_type}"
                         )
                     kind = ir_csr.CsrBindingKind(field_decl.binding.kind.value)
                     if kind is ir_csr.CsrBindingKind.STATUS:
@@ -2691,6 +2758,11 @@ def _analyze_csr_blocks(
                                 f"CSR sticky event '{port.name}' must be an input"
                             )
                     else:
+                        if member_path:
+                            raise SemanticError(
+                                "CSR command bindings currently require a scalar "
+                                "output port"
+                            )
                         if access not in {
                             ir_csr.CsrAccess.PULSE,
                             ir_csr.CsrAccess.WRITE_ONLY,
@@ -2712,7 +2784,19 @@ def _analyze_csr_blocks(
                         if field_decl.binding.priority is not None
                         else None
                     )
-                    binding = ir_csr.CsrHardwareBinding(kind, port.name, priority)
+                    if port.domain != selected_clock:
+                        raise SemanticError(
+                            f"CSR hardware signal '{signal_name}' belongs to "
+                            f"clock domain '{port.domain}', expected "
+                            f"'{selected_clock}'",
+                            code="ZL-DOMAIN-CROSSING",
+                        )
+                    binding = ir_csr.CsrHardwareBinding(
+                        kind,
+                        port.name if not member_path else signal_name,
+                        priority,
+                        None if kind is ir_csr.CsrBindingKind.COMMAND else source,
+                    )
                 typed_field = ir_csr.CsrField(
                     field_decl.name, type_, access, msb, lsb, reset, binding,
                     field_identity, field_origin,
@@ -2828,6 +2912,7 @@ def _analyze_csr_blocks(
                     source_unit,
                     source_digest,
                 ) if split.origin is not None else block_origin,
+                split.projection_path,
             ))
         typed_block = ir_csr.CsrBlock(
             declaration.name,
@@ -2891,48 +2976,8 @@ def _predeclare_child_csr_outputs(
                 context.instance_output_protocols[key] = InterfaceProtocol.WIRE
                 context.instance_output_domains[key] = domain
 
-        registers = list(block.registers)
-        for use in block.group_uses:
-            group = group_catalog.get(use.group_name)
-            if group is None:
-                continue
-            def resolved(value: int | str, description: str) -> int:
-                if isinstance(value, int):
-                    return value
-                return resolver._eval_constant_integer(
-                    value, description=description, allow_zero=True
-                )
-            count = resolved(use.count, f"CSR group '{use.name}' count")
-            base = resolved(use.base_offset, f"CSR group '{use.name}' base")
-            stride = resolved(use.stride, f"CSR group '{use.name}' stride")
-            for index in range(count):
-                registers.extend(
-                    replace(
-                        register,
-                        name=f"{use.name}_{index}_{register.name}",
-                        offset=base + index * stride + register.offset,
-                        projection_path=(f"{use.name}[{index}]", register.name),
-                    )
-                    for register in group.registers
-                )
-        for split in block.split_registers:
-            low_offset = split.offset + (
-                0 if split.order is ast.CsrSplitOrder.LOW_FIRST else 4
-            )
-            high_offset = split.offset + (
-                4 if split.order is ast.CsrSplitOrder.LOW_FIRST else 0
-            )
-            for suffix, offset in (("LOW", low_offset), ("HIGH", high_offset)):
-                registers.append(ast.CsrRegisterDecl(
-                    f"{split.name}_{suffix}",
-                    offset,
-                    (ast.CsrFieldDecl(
-                        split.field_name, ast.TypeName("u32"), split.access,
-                        31, 0, 0, None, split.origin,
-                    ),),
-                    (),
-                    split.origin,
-                ))
+        expanded_block = _expand_csr_block_syntax(block, group_catalog, resolver)
+        registers = list(expanded_block.registers)
 
         for register_ordinal, register in enumerate(registers):
             for field_ordinal, field_decl in enumerate(register.fields):
@@ -3056,7 +3101,7 @@ def _predeclare_child_csr_outputs(
                             register.name, event.name,
                         )
                     ] = (port_name, event_type, domain)
-        for split_ordinal, split in enumerate(block.split_registers):
+        for split_ordinal, split in enumerate(expanded_block.split_registers):
             split_type = resolver.resolve(split.type_name)
             port_name = f"csr_split_{block_ordinal}_{split_ordinal}_value"
             for physical_name in physical_names:
@@ -3068,6 +3113,24 @@ def _predeclare_child_csr_outputs(
                 context.instance_csr_state_paths[
                     (physical_name, block.name, split.name, split.field_name)
                 ] = projection
+                if split.projection_path:
+                    context.instance_csr_state_paths[
+                        (
+                            physical_name,
+                            block.name,
+                            *split.projection_path,
+                            split.field_name,
+                        )
+                    ] = projection
+                    context.instance_csr_state_paths[
+                        (
+                            physical_name,
+                            block.name,
+                            "state",
+                            *split.projection_path,
+                            split.field_name,
+                        )
+                    ] = projection
                 context.instance_csr_state_paths[
                     (
                         physical_name, block.name, "state",
@@ -13087,6 +13150,24 @@ def analyze(
                     module_context.instance_csr_state_paths[
                         (physical_name, block.name, view.name, view.field_name)
                     ] = projection
+                    if view.projection_path:
+                        module_context.instance_csr_state_paths[
+                            (
+                                physical_name,
+                                block.name,
+                                *view.projection_path,
+                                view.field_name,
+                            )
+                        ] = projection
+                        module_context.instance_csr_state_paths[
+                            (
+                                physical_name,
+                                block.name,
+                                "state",
+                                *view.projection_path,
+                                view.field_name,
+                            )
+                        ] = projection
                     module_context.instance_csr_state_paths[
                         (
                             physical_name,

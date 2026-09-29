@@ -11,6 +11,34 @@ incompatible input explicitly.
 
 ## Unreleased
 
+## 0.1.0a19 — 2026-09-29
+
+Community alpha carrying two compiler-owned CSR interoperability fixes and a
+safer pre-tag release-candidate path. Language timing, numerical semantics,
+generated RTL behavior outside the corrected CSR cases, and formal policy are
+unchanged.
+
+### Added
+
+- Reusable CSR groups may contain native `split<32>` 64-bit values. Group
+  expansion, child hierarchy projection, simulation and Direct SystemVerilog
+  retain one authoritative typed logical value.
+- The release workflow can run the exact release validation and EDA gates
+  manually on a prospective tag without publishing. Tag-triggered publication
+  remains conditional on the signed tag matching protected `main` exactly.
+
+### Fixed
+
+- CSR `ro` and sticky-W1C bindings can consume exact members of typed aggregate
+  input ports. The compiler retains the member expression and rejects missing
+  fields, type mismatches, command-member targets and implicit clock-domain
+  crossings.
+
+### Compatibility
+
+- The separate native runtime wheel is version `0.1.0a19`; the serialized plan
+  and runtime contract remain ABI v11.
+
 ## 0.1.0a18 — 2026-09-29
 
 Corrective alpha carrying the accepted `0.1.0a17` compiler, native simulator,

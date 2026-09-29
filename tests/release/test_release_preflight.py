@@ -1,0 +1,127 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Viacheslav Vinogradov
+from __future__ import annotations
+
+import json
+from pathlib import Path
+import shutil
+import subprocess
+
+import pytest
+
+from tools.release_preflight import (
+    ReleasePreflightError,
+    _alpha_sequence,
+    main,
+    preflight,
+)
+
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+def _git(root: Path, *arguments: str) -> str:
+    completed = subprocess.run(
+        ("git", "-C", str(root), *arguments),
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return completed.stdout.strip()
+
+
+@pytest.fixture(scope="module")
+def release_repository(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """Give preflight a real history without requiring history in release archives."""
+
+    root = tmp_path_factory.mktemp("release-preflight") / "candidate"
+    shutil.copytree(
+        ROOT,
+        root,
+        ignore=shutil.ignore_patterns(
+            ".git", ".pytest_cache", ".vscode-test", "__pycache__",
+            "_zlang_native_sim", "build", "dist", "node_modules", "target",
+        ),
+    )
+    _git(root, "init", "-q")
+    _git(root, "config", "user.name", "Release Preflight Test")
+    _git(root, "config", "user.email", "release-preflight@example.invalid")
+    marker = root / ".release-base"
+    marker.write_text("v0.1.0a18\n", encoding="utf-8")
+    _git(root, "add", marker.name)
+    _git(root, "-c", "commit.gpgsign=false", "commit", "-qm", "previous release")
+    _git(root, "tag", "-a", "v0.1.0a18", "-m", "previous release")
+    _git(root, "add", "-A")
+    _git(root, "-c", "commit.gpgsign=false", "commit", "-qm", "candidate")
+    return root
+
+
+def test_current_candidate_binds_release_sources_native_wheel_and_git(
+    release_repository: Path,
+) -> None:
+    report = preflight(
+        release_repository,
+        tag="v0.1.0a19",
+        previous_tag="v0.1.0a18",
+        mode="candidate",
+        require_clean=False,
+    )
+    assert report["schema"] == 1
+    assert report["version"] == "0.1.0a19"
+    assert report["tag"] == "v0.1.0a19"
+    assert report["previous_tag"] == "v0.1.0a18"
+    assert report["git"]["previous_commit"] == _git(
+        release_repository, "rev-list", "-n", "1", "v0.1.0a18"
+    )
+    assert report["native_wheels"] == [
+        {
+            "file": "zlang_native_sim-0.1.0a19-cp312-abi3-manylinux_2_28_x86_64.whl",
+            "platform": "linux_x86_64",
+            "sha256": "33fdf075fe38de1d418fa1e0aced03112355bb5a48302321436fed15d884b93f",
+            "version": "0.1.0a19",
+        }
+    ]
+
+
+@pytest.mark.parametrize(
+    ("tag", "previous", "message"),
+    (
+        ("v0.1.0a19", "v0.1.0a17", "immediately follow"),
+        ("v0.2.0a1", "v0.1.0a18", "different bases"),
+        ("v0.1.0", "v0.1.0a18", "alpha tags"),
+    ),
+)
+def test_alpha_sequence_is_explicit_and_monotonic(
+    tag: str, previous: str, message: str
+) -> None:
+    with pytest.raises(ReleasePreflightError, match=message):
+        _alpha_sequence(tag, previous)
+
+
+def test_tagged_mode_rejects_an_absent_or_lightweight_release_tag(
+    release_repository: Path,
+) -> None:
+    with pytest.raises(ReleasePreflightError, match="annotated tag"):
+        preflight(
+            release_repository,
+            tag="v0.1.0a19",
+            previous_tag="v0.1.0a18",
+            mode="tagged",
+            require_clean=False,
+        )
+
+
+def test_cli_writes_stable_sorted_json(
+    tmp_path: Path, release_repository: Path,
+) -> None:
+    output = tmp_path / "preflight.json"
+    assert main([
+        "--root", str(release_repository),
+        "--tag", "v0.1.0a19",
+        "--previous-tag", "v0.1.0a18",
+        "--output", str(output),
+    ]) == 0
+    payload = output.read_text(encoding="utf-8")
+    assert payload.endswith("\n")
+    assert json.loads(payload)["mode"] == "candidate"
+    assert payload == json.dumps(json.loads(payload), indent=2, sort_keys=True) + "\n"

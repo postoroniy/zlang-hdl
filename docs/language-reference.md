@@ -1,6 +1,6 @@
 # ZLang HDL Community Language Reference
 
-Version 0.1.0a18 (local candidate)
+Version 0.1.0a19 (local candidate)
 
 This is the complete user-facing reference for the ZLang HDL Community compiler.
 The backend-independent typed IR defines language semantics, and Direct
@@ -388,7 +388,9 @@ immediately. Values are exact-width and are never silently truncated.
 <!-- native-simulation-limits:start -->
 Compilation fails closed when the primitive plan exceeds 32,768 nodes,
 32,768 cumulative packed node limbs, 16 MiB, an 8,192-bit packed value,
-a 512-bit arithmetic operand or a single 8,192-bit memory cell.
+a 512-bit arithmetic operand or an 8,192-bit memory cell.
+Compact functional regions additionally fail closed above 8 nested regions,
+1,000,000 total iterations or 8,000,000 estimated dynamic node executions.
 <!-- native-simulation-limits:end -->
 There is no silent fallback from native execution to an RTL simulator. The
 retired `reference`, `python`, and `jit` engine spellings produce deterministic
@@ -2810,6 +2812,27 @@ Hardware status uses `<-`, commands use `->`, and sticky events make simultaneou
 hardware/software priority explicit. RTL, JSON, and Markdown are derived from
 the same typed model.
 
+Status and sticky sources may select exact leaves of a typed aggregate input;
+the compiler retains and type-checks the member expression rather than deriving
+a flattened name:
+
+```zlang
+struct Perf { cycles : u32 }
+struct EngineStatus { busy : bit perf : Perf }
+
+module AggregateStatusBank {
+    clock clk reset rst
+    in status : EngineStatus
+    csr registers @0 {
+        STATUS @0 { busy bit @0 ro <- status.busy }
+        CYCLES @4 { value u32 @31:0 ro <- status.perf.cycles }
+    }
+}
+```
+
+Aggregate members used by one CSR bank must belong to that bank's clock
+domain. Command bindings remain scalar output ports.
+
 Omitted bits are implicitly reserved. A storage-independent access event may
 observe the same bits as their single owning field:
 
@@ -2851,6 +2874,21 @@ module CsrSplitExample {
     csr registers @0 {
         INPUT_BASE @0x18 split<32> value u64 rw = 0 order low_first
     }
+}
+```
+
+The same `split<32>` declaration may be part of a reusable group. Every group
+instance receives one logical typed projection and two independently writable
+32-bit words:
+
+```zlang
+module GroupedSplitExample {
+    clock clk reset rst
+    csr group Window {
+        CONTROL @0 { enable bit @0 rw = 0 }
+        BASE @4 split<32> value u64 rw = 0 order low_first
+    }
+    csr registers @0 { windows : Window[2] @0 stride 12 }
 }
 ```
 
@@ -6209,7 +6247,7 @@ the specific eligible relations rather than promising arbitrary proof.
 ## Known limitations
 
 
-ZLang `0.1.0a18` is an experimental alpha candidate. The compiler deliberately
+ZLang `0.1.0a19` is an experimental alpha candidate. The compiler deliberately
 fails closed when a design falls outside a validated language/backend
 intersection: it must not publish RTL after silently dropping an IR entity.
 

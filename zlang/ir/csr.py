@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
+from zlang.ir.expressions import Expression, InputRef
 from zlang.ir.types import BitType, HardwareType, UIntType
 from zlang.source import SourceOrigin
 
@@ -54,6 +55,31 @@ class CsrHardwareBinding:
     kind: CsrBindingKind
     signal: str
     priority: CsrPriority | None = None
+    source: Expression | None = None
+
+
+def csr_hardware_source(
+    binding: CsrHardwareBinding,
+    type_: HardwareType,
+    *,
+    origin: SourceOrigin | None = None,
+) -> Expression:
+    """Return the typed hardware value owned by a status/sticky binding.
+
+    ``source`` retains an aggregate member projection.  The scalar fallback
+    preserves restoration of canonical IR written before member paths were
+    first-class CSR sources.
+    """
+
+    if binding.kind is CsrBindingKind.COMMAND:
+        raise CsrStateBindingError("CSR command binding is not a readable source")
+    source = binding.source or InputRef(binding.signal, type_, origin=origin)
+    if source.type != type_:
+        raise CsrStateBindingError(
+            f"CSR hardware binding '{binding.signal}' has type {source.type}, "
+            f"expected {type_}"
+        )
+    return source
 
 
 @dataclass(frozen=True, order=True)
@@ -153,6 +179,7 @@ class CsrSplitView:
     high_field_id: CsrFieldIdentity
     low_first: bool
     source_origin: SourceOrigin | None
+    projection_path: tuple[str, ...] = ()
 
     @property
     def semantic_value_id(self) -> str:

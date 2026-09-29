@@ -195,6 +195,7 @@ BMC but fails at a deeper bound, with a source-attributed counterexample.
 - [Complete Community language reference](docs/language-reference.md)
 - [Concise language quick reference](docs/language-quick-reference.md)
 - [Printable PDF reference](docs/ZLang-HDL-Language-Reference.pdf)
+- [Non-publishing candidate and signed release process](docs/release-process.md)
 
 The compiler-owned capability registry and release CI are authoritative for
 executable support. Documentation should describe semantics and boundaries

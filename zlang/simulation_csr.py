@@ -228,8 +228,8 @@ def lower_csr_module(module: Module) -> Module:
                             binding is not None
                             and binding.kind is ir_csr.CsrBindingKind.STICKY
                         ):
-                            hardware = expr.InputRef(
-                                binding.signal,
+                            hardware = ir_csr.csr_hardware_source(
+                                binding,
                                 field.type,
                                 origin=field.source_origin,
                             )
@@ -292,8 +292,8 @@ def lower_csr_module(module: Module) -> Module:
                     and field.binding is not None
                     and field.binding.kind is ir_csr.CsrBindingKind.STATUS
                 ):
-                    field_value: expr.Expression = expr.InputRef(
-                        field.binding.signal,
+                    field_value: expr.Expression = ir_csr.csr_hardware_source(
+                        field.binding,
                         field.type,
                         origin=field.source_origin,
                     )
@@ -377,8 +377,8 @@ def lower_csr_module(module: Module) -> Module:
                 and field.binding is not None
                 and field.binding.kind is ir_csr.CsrBindingKind.STATUS
             ):
-                observed_value: expr.Expression = expr.InputRef(
-                    field.binding.signal,
+                observed_value: expr.Expression = ir_csr.csr_hardware_source(
+                    field.binding,
                     field.type,
                     origin=field.source_origin,
                 )

@@ -148,6 +148,45 @@ class CsrSemanticTests(unittest.TestCase):
         )
         self.assertEqual(str(block.split_views[0].canonical_type), "u64")
 
+    def test_group_split_values_share_normal_expansion_and_extent_rules(self) -> None:
+        module = analyze(parse(
+            "module Bank { clock clk reset rst "
+            "csr group Window { CTRL @0 { enable bit @0 rw=0 } "
+            "BASE @4 split<32> value u64 rw=0x123456789abcdef0 "
+            "order low_first LIMIT @12 split<32> value u64 rw=0 "
+            "order low_first } "
+            "csr registers @0 { rows:Window[2] @0 stride 20 } }"
+        ))
+        block = module.csr_blocks[0]
+        self.assertEqual(
+            [(item.name, item.offset) for item in block.registers],
+            [
+                ("rows_0_CTRL", 0),
+                ("rows_1_CTRL", 20),
+                ("rows_0_BASE_LOW", 4),
+                ("rows_0_BASE_HIGH", 8),
+                ("rows_0_LIMIT_LOW", 12),
+                ("rows_0_LIMIT_HIGH", 16),
+                ("rows_1_BASE_LOW", 24),
+                ("rows_1_BASE_HIGH", 28),
+                ("rows_1_LIMIT_LOW", 32),
+                ("rows_1_LIMIT_HIGH", 36),
+            ],
+        )
+        self.assertEqual(
+            [item.name for item in block.split_views],
+            ["rows_0_BASE", "rows_0_LIMIT", "rows_1_BASE", "rows_1_LIMIT"],
+        )
+        self.assertEqual(block.split_views[0].projection_path, ("rows[0]", "BASE"))
+
+        with self.assertRaisesRegex(SemanticError, "smaller than group extent"):
+            analyze(parse(
+                "module Bad { clock clk reset rst "
+                "csr group G { BASE @4 split<32> value u64 rw=0 "
+                "order low_first } "
+                "csr registers @0 { rows:G[1] @0 stride 8 } }"
+            ))
+
     def test_group_bounds_stride_and_overlaps_fail_closed(self) -> None:
         cases = (
             (
