@@ -330,15 +330,19 @@ jobs:
           python -m pytest -p tools.pytest_no_skips \
             -n 8 --dist=loadscope -q --maxfail=1 -m 'not performance' \
             --junitxml=build/release-1.xml
-          python tools/release_status.py check --root . --junit build/release-1.xml
           python -m pytest -p tools.pytest_no_skips -q --maxfail=1 -m performance \
             --junitxml=build/release-performance-1.xml
+          python tools/release_status.py check --root . \
+            --junit build/release-1.xml \
+            --performance-junit build/release-performance-1.xml
           python -m pytest -p tools.pytest_no_skips \
             -n 8 --dist=loadscope -q --maxfail=1 -m 'not performance' \
             --junitxml=build/release-2.xml
-          python tools/release_status.py check --root . --junit build/release-2.xml
           python -m pytest -p tools.pytest_no_skips -q --maxfail=1 -m performance \
             --junitxml=build/release-performance-2.xml
+          python tools/release_status.py check --root . \
+            --junit build/release-2.xml \
+            --performance-junit build/release-performance-2.xml
 
   publish:
     if: ${{ github.event_name == 'push' }}

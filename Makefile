@@ -214,13 +214,21 @@ test-release-twice:
 	cd "$$public_root"
 	export PYTHONPATH="$$public_root"
 	"$$python_bin" -m pytest -p tools.pytest_no_skips \
-		-n "$(WORKERS)" --dist=loadscope -q --junitxml="$$report_root/release-1.xml"
+		-n "$(WORKERS)" --dist=loadscope -q -m 'not performance' \
+		--junitxml="$$report_root/release-1.xml"
+	"$$python_bin" -m pytest -p tools.pytest_no_skips -q -m performance \
+		--junitxml="$$report_root/release-performance-1.xml"
 	"$$python_bin" tools/release_status.py check \
-		--root . --junit "$$report_root/release-1.xml"
+		--root . --junit "$$report_root/release-1.xml" \
+		--performance-junit "$$report_root/release-performance-1.xml"
 	"$$python_bin" -m pytest -p tools.pytest_no_skips \
-		-n "$(WORKERS)" --dist=loadscope -q --junitxml="$$report_root/release-2.xml"
+		-n "$(WORKERS)" --dist=loadscope -q -m 'not performance' \
+		--junitxml="$$report_root/release-2.xml"
+	"$$python_bin" -m pytest -p tools.pytest_no_skips -q -m performance \
+		--junitxml="$$report_root/release-performance-2.xml"
 	"$$python_bin" tools/release_status.py check \
-		--root . --junit "$$report_root/release-2.xml"
+		--root . --junit "$$report_root/release-2.xml" \
+		--performance-junit "$$report_root/release-performance-2.xml"
 
 editor-test:
 	npm --prefix editors/vscode/zlang-hdl ci --ignore-scripts

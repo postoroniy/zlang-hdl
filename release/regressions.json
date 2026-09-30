@@ -29,6 +29,27 @@
         "tests/integration/test_csr_hierarchy_projection.py::test_group_split_value_has_one_typed_child_projection",
         "tests/semantic/test_csr.py::CsrSemanticTests::test_group_split_values_share_normal_expansion_and_extent_rules"
       ]
+    },
+    {
+      "id": "ZL-041",
+      "source_paths": [
+        ".github/workflows/ci.yml",
+        ".github/workflows/daily-regression.yml",
+        ".github/workflows/eda.yml",
+        ".github/workflows/release.yml",
+        "Makefile",
+        "release/status.json",
+        "tools/release_status.py"
+      ],
+      "status": "included",
+      "summary": "Release gates validate deterministic and isolated performance JUnit partitions against separate fail-closed minimums.",
+      "tests": [
+        "tests/release/test_makefile_automation.py::test_hosted_combined_gates_validate_both_test_partitions",
+        "tests/release/test_makefile_automation.py::test_hosted_performance_job_validates_its_isolated_report",
+        "tests/release/test_release_status_junit.py::test_junit_partitions_are_validated_against_their_own_minimums",
+        "tests/release/test_release_status_junit.py::test_performance_report_cannot_substitute_for_the_deterministic_partition",
+        "tests/release/test_release_status_junit.py::test_performance_report_fails_closed"
+      ]
     }
   ],
   "previous_tag": "v0.1.0a18",

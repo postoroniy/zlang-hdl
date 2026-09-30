@@ -36,6 +36,10 @@ unchanged.
   input ports. The compiler retains the member expression and rejects missing
   fields, type mismatches, command-member targets and implicit clock-domain
   crossings.
+- Hosted and local release gates validate the deterministic and isolated
+  performance JUnit partitions separately. A complete deterministic run is no
+  longer rejected for not containing the intentionally isolated performance
+  tests, while either partition still fails closed on missing tests or skips.
 
 ### Compatibility
 
