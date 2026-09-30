@@ -25,7 +25,7 @@ from zlang.ir.traversal import (
 
 
 FUNCTIONAL_REGION_EMISSION_SCHEMA = "zlang-direct-sv-functional-region-v4"
-DIRECT_SV_DAG_SCHEMA = "zlang-direct-sv-dag-v1"
+DIRECT_SV_DAG_SCHEMA = "zlang-direct-sv-dag-v2"
 
 
 @dataclass(frozen=True)
@@ -257,6 +257,7 @@ def plan_materialization(
     reserved_names: Iterable[str] = (),
     generated_prefix: str = "zlang_expr_",
     minimum_shared_size: int = 4,
+    maximum_inline_size: int = 64,
     scope: str = "module",
 ) -> tuple[MaterializedExpression, ...]:
     """Choose shared/expensive exact expressions in deterministic DFS order."""
@@ -267,6 +268,7 @@ def plan_materialization(
         reserved_names=reserved_names,
         generated_prefix=generated_prefix,
         minimum_shared_size=minimum_shared_size,
+        maximum_inline_size=maximum_inline_size,
         scope=scope,
     ).materialized
 
@@ -282,6 +284,7 @@ def build_direct_sv_dag_plan(
     reserved_names: Iterable[str] = (),
     generated_prefix: str = "zlang_expr_",
     minimum_shared_size: int = 4,
+    maximum_inline_size: int = 64,
     scope: str = "module",
 ) -> DirectSvDagPlan:
     """Build a bounded DAG plan without expanding logical expression paths.
@@ -294,6 +297,11 @@ def build_direct_sv_dag_plan(
 
     if minimum_shared_size < 1:
         raise ValueError("minimum shared expression size must be positive")
+    if maximum_inline_size < minimum_shared_size:
+        raise ValueError(
+            "maximum inline expression size must not be smaller than the "
+            "minimum shared expression size"
+        )
 
     if preferred_names is None:
         preferred_items: tuple[tuple[expr.Expression, str], ...] = ()
@@ -376,22 +384,52 @@ def build_direct_sv_dag_plan(
         if isinstance(value, expr.FixedConvert)
         and size_of(value.expression) >= 8
     }
-
-    selected: list[expr.Expression] = []
+    base_selected: set[str] = set()
     for value in dependency_order:
-        size = size_of(value)
-        used_repeatedly = (
-            fanout[identity_of(value)] > 1 and size >= minimum_shared_size
-        )
         identity = identity_of(value)
-        feeds_expensive_conversion = identity in expensive_conversion_inputs
         if (
             identity in preferred_by_identity
             or identity in aggregate_field_selections
             or identity in dynamic_index_prefixes
-            or used_repeatedly
-            or feeds_expensive_conversion
+            or (
+                fanout[identity] > 1
+                and size_of(value) >= minimum_shared_size
+            )
+            or identity in expensive_conversion_inputs
         ):
+            base_selected.add(identity)
+
+    # Partition only the expression that remains after already-shared values
+    # become aliases.  Measuring the original logical tree here would select
+    # every unique wrapper around a shared producer and inflate a compact DAG.
+    # Wide fan-in needs one extra boundary: even when every child is small, a
+    # constructor with many compound children otherwise renders as one very
+    # long assignment.
+    chunk_selected: set[str] = set()
+
+    def partition(value: expr.Expression) -> int:
+        identity = identity_of(value)
+        if identity in base_selected or identity in chunk_selected:
+            return 1
+        children = expression_children(value)
+        effective_size = 1 + sum(partition(child) for child in children)
+        if effective_size <= maximum_inline_size or not children:
+            return effective_size
+        chunk_selected.update(
+            identity_of(child)
+            for child in children
+            if expression_children(child)
+        )
+        chunk_selected.add(identity)
+        return 1
+
+    for root in roots:
+        partition(root)
+
+    selected: list[expr.Expression] = []
+    for value in dependency_order:
+        identity = identity_of(value)
+        if identity in base_selected or identity in chunk_selected:
             if not isinstance(
                 value,
                 (

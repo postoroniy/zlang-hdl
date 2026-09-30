@@ -48,6 +48,26 @@ module Scatter32 {
 """
 
 
+SCATTER_HIT_SOURCE = """
+fn c8<K>() -> u8 { K }
+module ScatterHit192 {
+    in valid : bit
+    in addresses : vec<12,vec<4,vec<4,u8>>>
+    out hit : vec<192,bit>
+
+    hit = generate(dst in 0..192) {
+        reduce(|, generate(lane in 0..12) {
+            reduce(|, generate(pixel in 0..4) {
+                reduce(|, generate(byte in 0..4) {
+                    valid & (addresses[lane][pixel][byte] == c8<K=dst>())
+                })
+            })
+        })
+    }
+}
+"""
+
+
 def _module(expression: FunctionalRegion) -> Module:
     output = Port(PortDirection.OUTPUT, "result", expression.type)
     inputs = ()
@@ -56,7 +76,7 @@ def _module(expression: FunctionalRegion) -> Module:
     return Module("FunctionalRegionEmission", (*inputs, output), (Assignment(output, expression),))
 
 
-def test_module_region_uses_nonzero_lsb_first_procedural_loop() -> None:
+def test_module_region_uses_nonzero_lsb_first_structural_generate() -> None:
     binder = CompileTimeBinderRef("fixture:index", "index", 3, 7)
     capture = FunctionalCaptureRef("fixture:values", "values", VecType(8, U8))
     region = FunctionalRegion(
@@ -70,11 +90,13 @@ def test_module_region_uses_nonzero_lsb_first_procedural_loop() -> None:
 
     generated = emit_experimental(_module(region))
 
-    assert "for (" in generated
+    assert "generate" in generated
+    assert "for (genvar" in generated
     assert " = 3;" in generated and " < 7;" in generated
     assert " - 3) * 8) +: 8]" in generated
     assert "values[(32'(" in generated
     assert "{8'(values" not in generated
+    assert "always_comb" not in generated
 
 
 def test_nested_region_composition_is_dependency_first() -> None:
@@ -141,9 +163,11 @@ def test_destination_decode_is_lowered_as_bounded_candidate_scatter() -> None:
     generated = emit_experimental(module)
 
     assert generated.count("for (") == 1
-    assert "region_scatter_address" in generated
+    assert "zlang_scatter_contribution_" in generated
+    assert "zlang_scatter_reduce_" in generated
     assert "< 6'd32" in generated
     assert "region_reduce_" not in generated
+    assert "always_comb" not in generated
 
     expected = [0] * 32
     expected[1] = 0x2 | 0x4
@@ -165,6 +189,36 @@ def test_scatter_lowering_rejects_nonzero_miss_value() -> None:
 
     assert "region_scatter_address" not in generated
     assert generated.count("for (") == 2
+
+
+@pytest.mark.skipif(shutil.which("yosys") is None, reason="Yosys unavailable")
+def test_large_boolean_destination_decode_is_structural_and_yosys_bounded(
+    tmp_path: Path,
+) -> None:
+    generated = emit_experimental(
+        compile_source(SCATTER_HIT_SOURCE, top="ScatterHit192").ir
+    )
+    assert generated.count("for (genvar") == 3
+    assert "zlang_scatter_contribution_" in generated
+    assert "zlang_scatter_reduce_" in generated
+    assert "always_comb" not in generated
+    assert len(generated.encode("utf-8")) < 65_536
+
+    rtl = tmp_path / "ScatterHit192.sv"
+    rtl.write_text(generated, encoding="utf-8")
+    completed = subprocess.run(
+        (
+            "yosys",
+            "-q",
+            "-p",
+            f"read_verilog -sv {rtl}; hierarchy -check -top ScatterHit192; "
+            "proc; opt; stat",
+        ),
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert completed.returncode == 0, completed.stdout + completed.stderr
 
 
 @pytest.mark.skipif(

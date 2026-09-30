@@ -117,3 +117,19 @@ def test_procedural_materialization_orders_shared_dependencies_first() -> None:
         "parent_first",
         "parent_second",
     )
+
+
+def test_unique_oversized_tree_is_partitioned_at_typed_dag_boundaries() -> None:
+    type8 = UIntType(8)
+    value: expr.Expression = expr.InputRef("a", type8)
+    for index in range(40):
+        value = expr.Add(value, expr.Constant(index, type8), type8)
+
+    plan = plan_materialization((value,), maximum_inline_size=16)
+    aliases = {item.expression: item.name for item in plan}
+    rewritten = replace_materialized(value, aliases, keep=value)
+
+    assert plan
+    assert plan[-1].expression == value
+    assert isinstance(rewritten, expr.Add)
+    assert expression_size(rewritten) <= 16

@@ -12,7 +12,7 @@ import pytest
 from zlang.backend.expression_materialization import build_direct_sv_dag_plan
 from zlang.backend.systemverilog import emit_experimental
 from zlang.backend.systemverilog import emitter as sv_emitter
-from zlang.compiler import _inline_locals
+from zlang.compiler import _inline_locals, compile_source
 from zlang.ir import expressions as expr
 from zlang.ir.types import UIntType, VecType
 from zlang.parser import parse
@@ -89,6 +89,34 @@ def test_unified_state_materializes_runtime_selected_struct_once() -> None:
     assert f"{temporary}[15:8]" in rtl
     assert "+: 16][15:8]" not in rtl
     assert rtl.count(f"assign {temporary} =") == 1
+
+
+def test_embedded_sequential_renderer_uses_module_dag_materialization() -> None:
+    module = compile_source(
+        """
+module EmbeddedRuleDag {
+    clock clk
+    reset rst
+    in enable : bit
+    in a : u8
+    in b : u8
+    out y : u10
+    reg state : u10 = 0
+
+    heavy : u10 = extend<9>(a) + extend<9>(b)
+    step: when enable & (heavy != 0) { state <- heavy }
+    y = state
+}
+""",
+        top="EmbeddedRuleDag",
+    ).ir
+
+    declarations, logic, render = sv_emitter._embedded_staging_emission(module)
+    assert any("zlang_expr_" in line for line in declarations)
+    assert any("assign zlang_expr_" in line for line in logic)
+    assert module.resolved_transition is not None
+    guard = module.resolved_transition.action_groups[0].guard
+    assert "zlang_expr_" in render(guard)
 
 
 @pytest.mark.skipif(shutil.which("verilator") is None, reason="Verilator unavailable")
