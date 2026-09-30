@@ -349,7 +349,7 @@
     {
       "mode": "0644",
       "path": "editors/vscode/zlang-hdl/test/host-smoke.cjs",
-      "sha256": "fdc8311911cf8620c886ce106f2de0e342cc96795c8844f62bee79f86473ef81"
+      "sha256": "56c32906a00584c6bbd00208051a36ee99fd3dede2cb4b97d98ecfd4d259c289"
     },
     {
       "mode": "0644",
