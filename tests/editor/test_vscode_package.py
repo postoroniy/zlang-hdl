@@ -43,7 +43,7 @@ GENERATED_RUNTIME = {
 }
 RUNTIME_PACKAGES = {
     "balanced-match": "4.0.4",
-    "brace-expansion": "5.0.9",
+    "brace-expansion": "5.0.12",
     "minimatch": "10.2.6",
     "semver": "7.8.5",
     "vscode-jsonrpc": "9.0.2",
