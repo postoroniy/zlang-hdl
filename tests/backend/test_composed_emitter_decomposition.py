@@ -23,7 +23,7 @@ VERILATOR = shutil.which("verilator")
 # normalization, connection-owned request/response admission/accounting, and
 # inline selected-top boundary, hierarchy-local naming schema v2, and exact
 # selected-value normalization schema v3, functional-region emission schema
-# v3, Direct-SV DAG schema v1, and hierarchy-local naming schema v3.  The
+# v3, Direct-SV DAG schema v2, and hierarchy-local naming schema v3.  The
 # AXI/CSR case now retains shared nodes
 # once while inlining single-use nodes; the other RTL bodies remain unchanged.
 # They cover ready/valid hierarchy (including legal full-buffer simultaneous
@@ -33,12 +33,12 @@ VERILATOR = shutil.which("verilator")
 EXPECTED_ARTIFACTS = {
     ("hierarchical_protocol.zhl", "ProtocolTop"): (
         "67ebdf5d5e204ace5eddf737c6cf5c6804ea3503d87f5353e15b7c7b1b89e238",
-        "2d3022d770dcdfaa1ac3b370d8750f2b81e2ef3b37afce9bf447d7f8b1086dd3",
+        "a7232596482a2b540ea55b7acc26028ead734d0a3f03d0c2304a71170a36b229",
         19,
     ),
     ("hierarchical_request_response.zhl", "HierarchicalRequestResponse"): (
         "2fb5e7ce3a95471fded0bf9500c2c4314ee16edcf64e1ff53f37454317031706",
-        "afb80bd60b5fef68e81186c3ef1c86a27483631da2173c696f91dc7583b25034",
+        "dc07874b89934324b6b7e017a5182575fb0a7cb9d8d1c7612ceb164444f068a5",
         27,
     ),
     ("simple_dma.zhl", "SimpleDMA"): (
@@ -46,12 +46,12 @@ EXPECTED_ARTIFACTS = {
         # rule and therefore use the explicitly distinct helper family after
         # ordinary ready/valid FIFOs gained full pop/push replacement.
         "02c43b29110ea89358a40c6513cb4c0f2db64cd95cc442da099fdd4f317b92fd",
-        "bade19fb072e4bdf588f77c0173f714049117af3d77f38dd5664609905103bbf",
+        "81362252d651e119de25158b1385ecf41ffdd154a1fe97d2339569dc1a95d6b2",
         29,
     ),
     ("axi_csr_top.zhl", "AxiCsrTop"): (
         "ce6becd67a964adb44c5c0f965d2262893215d72a1c3db51474bfd25728bd3f9",
-        "8bc3424335c06227f02bad598f6c0daf0e3dcda5d342ea903695f1624602d720",
+        "54f91fb020049b94e89817daf09c84a0e286d58fcced74312b082f73f5cbdbdc",
         77,
     ),
 }

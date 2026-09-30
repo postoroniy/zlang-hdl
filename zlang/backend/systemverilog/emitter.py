@@ -330,6 +330,7 @@ class _FunctionalScatterEmissionPlan:
 
     dimensions: tuple[_FunctionalScatterDimension, ...]
     entries: tuple[_FunctionalScatterEntry, ...]
+    expression_temporaries: tuple[_MaterializedExpression, ...]
     enable_temporary: str
     address_temporary: str
     value_temporary: str
@@ -2006,6 +2007,17 @@ def _materialized_emission(module: Module):
                     entry.name for entry in materialized
                 ),
             )
+            generated = _functional_region_generate_rendering(
+                region,
+                plan,
+                declaration_indent="  ",
+                statement_indent="  ",
+            )
+            if generated is not None:
+                region_declarations, region_statements = generated
+                declarations.extend(region_declarations)
+                assignments.extend(region_statements)
+                continue
             region_declarations, region_statements = _functional_region_rendering(
                 region,
                 plan,
@@ -5318,7 +5330,14 @@ def _emit_connection_adapter(
 def _embedded_staging_emission(
     module: Module,
 ) -> tuple[list[str], list[str], object]:
-    """Materialize nested Delay/Pipeline nodes without moving their boundary."""
+    """Materialize staged and shared values without moving timing boundaries.
+
+    Rule/sequential emission uses this renderer even when a module contains no
+    ``Delay`` or ``Pipeline`` node.  Keep its pure combinational expressions on
+    the same module-wide DAG materialization policy as ordinary combinational
+    emission; otherwise every rule guard and register action recursively
+    prints the complete logical expression tree at each use site.
+    """
 
     staged: list[expr.Delay | expr.Pipeline] = []
     local_names = module_rtl_names(module)
@@ -5365,16 +5384,42 @@ def _embedded_staging_emission(
                 f"  logic{signed} {_range(_width(value.type))}{name};"
             )
             domain_resets.append(f"      {name} <= '0;")
+        aliases[value] = local_names.stage(kind, value.instance, count)
+
+    # Publish every backend-local alias before rendering either a temporary or
+    # a staged input.  A shared expression may depend on a staged value, and a
+    # staged input may itself contain shared pure subexpressions.  The existing
+    # exact typed DAG plan is authoritative for both cases; Delay/Pipeline
+    # nodes already have their timing-preserving stage aliases above and must
+    # not acquire a second combinational temporary.
+    planned_items = _materialization_plan(module, local_names)
+    materialized_items = tuple(
+        item
+        for item in planned_items
+        if not isinstance(item.expression, (expr.Delay, expr.Pipeline))
+        and item.expression not in aliases
+    )
+    for item in materialized_items:
+        aliases[item.expression] = item.name
+
+    for value in staged:
+        value_domain = (
+            value.domain if isinstance(value, expr.Pipeline) else module.clock
+        )
+        assert value_domain is not None
+        domain_updates = updates[value_domain]
+        count = value.cycles if isinstance(value, expr.Delay) else value.stages
+        kind = "delay" if isinstance(value, expr.Delay) else "pipeline"
         physical_input = _replace_materialized(value.expression, aliases)
         domain_updates.append(
-            f"      {local_names.stage(kind, value.instance, 1)} <= {_expression(physical_input)};"
+            f"      {local_names.stage(kind, value.instance, 1)} <= "
+            f"{_expression(physical_input)};"
         )
         for index in range(2, count + 1):
             domain_updates.append(
                 f"      {local_names.stage(kind, value.instance, index)} <= "
                 f"{local_names.stage(kind, value.instance, index - 1)};"
             )
-        aliases[value] = local_names.stage(kind, value.instance, count)
 
     sequential: list[str] = []
     for domain in module.clock_domains:
@@ -5392,25 +5437,39 @@ def _embedded_staging_emission(
 
     # Rules and sequential modules historically used this staging renderer
     # directly instead of the ordinary combinational materialization path.
-    # Compact functional regions are nevertheless ordinary combinational
-    # values and must have the same statement-owned lowering in every route,
-    # including register reset values.
-    region_logic: list[str] = []
+    # Compact functional regions retain statement-owned lowering; every other
+    # selected pure DAG node uses an exact-width continuous assignment.
+    combinational_logic: list[str] = []
     region_items = tuple(
         item
-        for item in _materialization_plan(module, local_names)
+        for item in materialized_items
         if isinstance(item.expression, expr.FunctionalRegion)
     )
+    ordinary_items = tuple(
+        item
+        for item in materialized_items
+        if not isinstance(item.expression, expr.FunctionalRegion)
+    )
     region_names = tuple(item.name for item in region_items)
-    for item in region_items:
-        declarations.append(
-            f"  logic {_range(_width(item.expression.type))}{item.name};"
+    for item in materialized_items:
+        signed = (
+            " signed"
+            if isinstance(item.expression.type, (SIntType, FixedType))
+            else ""
         )
-        # The general DAG planner may discover a region consumer before a
-        # compact region nested below one of its invariant captures.  Publish
-        # the complete producer map before rendering any owner so the nested
-        # statement-owned value is always replaced by its exact-width alias.
-        aliases[item.expression] = item.name
+        declarations.append(
+            f"  logic{signed} {_range(_width(item.expression.type))}{item.name};"
+        )
+    for item in dependency_ordered_materialization(ordinary_items):
+        physical = _instance_expression(module, item.expression, local_names)
+        rewritten = _replace_materialized(
+            physical,
+            aliases,
+            keep=item.expression,
+        )
+        combinational_logic.append(
+            f"  assign {item.name} = {_expression(rewritten)};"
+        )
     for item in region_items:
         region = _replace_materialized(
             item.expression,
@@ -5421,13 +5480,24 @@ def _embedded_staging_emission(
         assert isinstance(region, expr.FunctionalRegion)
         replication = _functional_region_replication(region)
         if replication is not None:
-            region_logic.append(f"  assign {item.name} = {replication};")
+            combinational_logic.append(f"  assign {item.name} = {replication};")
             continue
         plan = _functional_region_plan(
             region,
             item.name,
             reserved_names=region_names,
         )
+        generated = _functional_region_generate_rendering(
+            region,
+            plan,
+            declaration_indent="  ",
+            statement_indent="  ",
+        )
+        if generated is not None:
+            region_declarations, region_statements = generated
+            declarations.extend(region_declarations)
+            combinational_logic.extend(region_statements)
+            continue
         region_declarations, region_statements = _functional_region_rendering(
             region,
             plan,
@@ -5435,13 +5505,15 @@ def _embedded_staging_emission(
             statement_indent="    ",
         )
         declarations.extend(region_declarations)
-        region_logic.extend(("  always_comb begin", *region_statements, "  end"))
+        combinational_logic.extend(
+            ("  always_comb begin", *region_statements, "  end")
+        )
 
     def render(value: expr.Expression) -> str:
         physical = _instance_expression(module, value, local_names)
         return _expression(_replace_materialized(physical, aliases))
 
-    return declarations, [*region_logic, *sequential], render
+    return declarations, [*combinational_logic, *sequential], render
 
 
 def _append_rule_state(
@@ -7286,7 +7358,10 @@ def _functional_scatter_shape(
         break
     if leaves is None:
         leaves = (current,)
-    if not leaves or any(not isinstance(leaf, expr.Mux) for leaf in leaves):
+    if not leaves or any(
+        not isinstance(leaf, expr.Mux) and not isinstance(leaf.type, BitType)
+        for leaf in leaves
+    ):
         return None
 
     captures = {
@@ -7298,11 +7373,23 @@ def _functional_scatter_shape(
         return None
 
     def match(leaf: expr.Expression) -> _FunctionalScatterEntry | None:
-        assert isinstance(leaf, expr.Mux)
+        # A destination-hit bitmap is the one-bit form of the same scatter as
+        # a destination-value mux: OR-reducing ``enable && address == dst`` is
+        # exactly OR-writing one to each enabled candidate address.  Recognize
+        # that compiler-owned shape directly so synthesis never has to expand
+        # a destination-count x candidate-count procedural reduction.
+        if isinstance(leaf, expr.Mux):
+            source_items = (leaf.condition, leaf.when_true, leaf.when_false)
+        else:
+            source_items = (
+                leaf,
+                expr.Constant(1, BitType(), origin=leaf.origin),
+                expr.Constant(0, BitType(), origin=leaf.origin),
+            )
         try:
             resolved = tuple(
                 _resolve_functional_scatter_captures(item, captures)
-                for item in (leaf.condition, leaf.when_true, leaf.when_false)
+                for item in source_items
             )
         except (TypeError, ValueError, SystemVerilogEmissionError):
             return None
@@ -7413,11 +7500,26 @@ def _functional_scatter_plan(
     if shape is None:
         return None
     regions, entries = shape
+    # A fully materialized Generate carries one compiler-owned entry for every
+    # candidate.  Its former FunctionalRegion binders can remain in the shape
+    # ancestry even though capture resolution has already replaced every use
+    # with a compile-time constant.  Re-emitting those dead binders would run
+    # the complete entry list once per original dimension (quadratic or worse
+    # elaboration in synthesis).  Retain loops only while an entry still
+    # depends on their authoritative binder identity.
+    if regions and all(
+        not _functional_binder_dependent(value, owner.binder.identity)
+        for owner in regions
+        for entry in entries
+        for value in (entry.enable, entry.address, entry.value)
+    ):
+        regions = ()
+    prefix = owner_identity[:10]
     dimensions = [
         _FunctionalScatterDimension(
             child,
             allocate_private_rtl_identifier(
-                f"region_scatter_i_{ordinal}",
+                f"region_scatter_i_{prefix}_{ordinal}",
                 semantic_identity=(
                     f"{owner_identity}:scatter:{ordinal}:{child.binder.identity}"
                 ),
@@ -7442,7 +7544,7 @@ def _functional_scatter_plan(
         if lookup.table_name not in tables:
             return None
         temporary = allocate_private_rtl_identifier(
-            f"region_scatter_table_{ordinal}",
+            f"region_scatter_table_{prefix}_{ordinal}",
             semantic_identity=(
                 f"{owner_identity}:scatter:table:{ordinal}:{lookup.table_name}"
             ),
@@ -7455,21 +7557,33 @@ def _functional_scatter_plan(
         dimensions[-1] = replace(
             dimensions[-1], table_temporaries=tuple(table_temporaries)
         )
+    expression_temporaries = plan_materialization(
+        (
+            value
+            for entry in entries
+            for value in (entry.enable, entry.address, entry.value)
+        ),
+        reserved_names=tuple(used),
+        generated_prefix=f"zlang_scatter_expr_{prefix}_",
+        scope=f"functional_scatter:{owner_identity}",
+    )
+    used.update(item.name for item in expression_temporaries)
     return _FunctionalScatterEmissionPlan(
         tuple(dimensions),
         entries,
+        expression_temporaries,
         allocate_private_rtl_identifier(
-            "region_scatter_enable",
+            f"region_scatter_enable_{prefix}",
             semantic_identity=f"{owner_identity}:scatter:enable",
             used=used,
         ),
         allocate_private_rtl_identifier(
-            "region_scatter_address",
+            f"region_scatter_address_{prefix}",
             semantic_identity=f"{owner_identity}:scatter:address",
             used=used,
         ),
         allocate_private_rtl_identifier(
-            "region_scatter_value",
+            f"region_scatter_value_{prefix}",
             semantic_identity=f"{owner_identity}:scatter:value",
             used=used,
         ),
@@ -7712,6 +7826,297 @@ def _functional_region_rendering(
     return declarations, statements
 
 
+def _functional_region_generate_rendering(
+    region: expr.FunctionalRegion,
+    plan: FunctionalRegionEmissionPlan,
+    *,
+    declaration_indent: str,
+    statement_indent: str,
+) -> tuple[list[str], list[str]] | None:
+    """Render a pure element map as structural generate assignments.
+
+    Each iteration owns one disjoint packed result slice.  Expressing that
+    fact structurally avoids the priority/update network that synthesis tools
+    must conservatively construct for a procedural loop writing a variable
+    indexed part-select.  Tables, reductions and scatters retain their
+    specialized statement-owned lowering.
+    """
+
+    if plan.scatter is not None:
+        return _functional_scatter_generate_rendering(
+            region,
+            plan,
+            declaration_indent=declaration_indent,
+            statement_indent=statement_indent,
+        )
+    if plan.table_temporaries or plan.reduction_temporaries:
+        return None
+
+    aliases = ExpressionAliasMap(
+        (item.expression, item.name) for item in plan.expression_temporaries
+    )
+    ordered = dependency_ordered_materialization(plan.expression_temporaries)
+    dependent = tuple(
+        item
+        for item in ordered
+        if _functional_binder_dependent(item.expression, region.binder.identity)
+    )
+    dependent_ids = {id(item) for item in dependent}
+    invariant = tuple(item for item in ordered if id(item) not in dependent_ids)
+    declarations: list[str] = []
+    statements: list[str] = []
+    context = _FunctionalExpressionContext(
+        binders=((region.binder.identity, plan.loop_variable),),
+        captures=tuple(
+            (reference.identity, value) for reference, value in region.captures
+        ),
+        table_temporaries=(),
+    )
+
+    def declaration(item: _MaterializedExpression, indent: str) -> str:
+        signed = (
+            " signed"
+            if isinstance(item.expression.type, (SIntType, FixedType))
+            else ""
+        )
+        return (
+            f"{indent}logic{signed} "
+            f"{_range(_width(item.expression.type))}{item.name};"
+        )
+
+    with _functional_expression_scope(context):
+        for item in invariant:
+            declarations.append(declaration(item, declaration_indent))
+            rewritten = _replace_materialized(
+                item.expression, aliases, keep=item.expression
+            )
+            statements.append(
+                f"{statement_indent}assign {item.name} = "
+                f"{_expression(rewritten)};"
+            )
+        statements.extend(
+            (
+                f"{statement_indent}generate",
+                f"{statement_indent}  for (genvar {plan.loop_variable} = "
+                f"{region.binder.start}; {plan.loop_variable} < "
+                f"{region.binder.stop}; {plan.loop_variable} = "
+                f"{plan.loop_variable} + 1) begin : "
+                f"zlang_region_generate_{plan.identity[:10]}",
+            )
+        )
+        for item in dependent:
+            statements.append(declaration(item, statement_indent + "    "))
+            rewritten = _replace_materialized(
+                item.expression, aliases, keep=item.expression
+            )
+            statements.append(
+                f"{statement_indent}    assign {item.name} = "
+                f"{_expression(rewritten)};"
+            )
+        rewritten_template = _replace_materialized(region.template, aliases)
+        base = (
+            f"(({plan.loop_variable} - {region.binder.start}) * "
+            f"{plan.element_width})"
+        )
+        statements.extend(
+            (
+                f"{statement_indent}    assign {plan.result_name}[{base} +: "
+                f"{plan.element_width}] = {_expression(rewritten_template)};",
+                f"{statement_indent}  end",
+                f"{statement_indent}endgenerate",
+            )
+        )
+    return declarations, statements
+
+
+def _functional_scatter_generate_rendering(
+    region: expr.FunctionalRegion,
+    plan: FunctionalRegionEmissionPlan,
+    *,
+    declaration_indent: str,
+    statement_indent: str,
+) -> tuple[list[str], list[str]] | None:
+    """Render an addressed OR-scatter as structural candidate contributions."""
+
+    scatter = plan.scatter
+    assert scatter is not None
+    if any(dimension.table_temporaries for dimension in scatter.dimensions):
+        return None
+    first_entry = scatter.entries[0]
+    if any(
+        entry.address.type != first_entry.address.type
+        or entry.value.type != first_entry.value.type
+        for entry in scatter.entries[1:]
+    ):
+        return None
+
+    dimension_lengths = tuple(
+        dimension.region.binder.stop - dimension.region.binder.start
+        for dimension in scatter.dimensions
+    )
+    candidate_count = len(scatter.entries)
+    for length in dimension_lengths:
+        candidate_count *= length
+    if candidate_count < 1:
+        return None
+
+    aliases = ExpressionAliasMap(
+        (item.expression, item.name)
+        for item in scatter.expression_temporaries
+    )
+    ordered = dependency_ordered_materialization(
+        scatter.expression_temporaries
+    )
+    dependent = tuple(
+        item
+        for item in ordered
+        if any(
+            _functional_binder_dependent(
+                item.expression, dimension.region.binder.identity
+            )
+            for dimension in scatter.dimensions
+        )
+    )
+    dependent_ids = {id(item) for item in dependent}
+    invariant = tuple(item for item in ordered if id(item) not in dependent_ids)
+    width = _width(region.type)
+    prefix = plan.identity[:10]
+    contribution = f"zlang_scatter_contribution_{prefix}"
+    declarations = [
+        f"{declaration_indent}logic {_range(width)}{contribution} "
+        f"[0:{candidate_count - 1}];"
+    ]
+    statements: list[str] = []
+
+    def declaration(item: _MaterializedExpression, indent: str) -> str:
+        signed = (
+            " signed"
+            if isinstance(item.expression.type, (SIntType, FixedType))
+            else ""
+        )
+        return (
+            f"{indent}logic{signed} "
+            f"{_range(_width(item.expression.type))}{item.name};"
+        )
+
+    root_context = _FunctionalExpressionContext((), (), ())
+    with _functional_expression_scope(root_context):
+        for item in invariant:
+            declarations.append(declaration(item, declaration_indent))
+            rewritten = _replace_materialized(
+                item.expression, aliases, keep=item.expression
+            )
+            statements.append(
+                f"{statement_indent}assign {item.name} = "
+                f"{_expression(rewritten)};"
+            )
+
+    binders: list[tuple[str, str]] = []
+    captures: tuple[tuple[str, expr.Expression], ...] = ()
+    for dimension in scatter.dimensions:
+        binders.append(
+            (dimension.region.binder.identity, dimension.loop_variable)
+        )
+        captures = (
+            *(
+                (reference.identity, value)
+                for reference, value in dimension.region.captures
+            ),
+            *captures,
+        )
+    context = _FunctionalExpressionContext(tuple(binders), captures, ())
+    indent = statement_indent
+    if scatter.dimensions:
+        statements.append(f"{indent}generate")
+        indent += "  "
+        for ordinal, dimension in enumerate(scatter.dimensions):
+            owned = dimension.region
+            statements.append(
+                f"{indent}for (genvar {dimension.loop_variable} = "
+                f"{owned.binder.start}; {dimension.loop_variable} < "
+                f"{owned.binder.stop}; {dimension.loop_variable} = "
+                f"{dimension.loop_variable} + 1) begin : "
+                f"zlang_scatter_generate_{prefix}_{ordinal}"
+            )
+            indent += "  "
+
+    with _functional_expression_scope(context):
+        for item in dependent:
+            statements.append(declaration(item, indent))
+            rewritten = _replace_materialized(
+                item.expression, aliases, keep=item.expression
+            )
+            statements.append(
+                f"{indent}assign {item.name} = {_expression(rewritten)};"
+            )
+
+        linear_index = "0"
+        for length, dimension in zip(dimension_lengths, scatter.dimensions):
+            offset = (
+                f"({dimension.loop_variable} - "
+                f"{dimension.region.binder.start})"
+            )
+            linear_index = f"(({linear_index}) * {length} + {offset})"
+        for ordinal, entry in enumerate(scatter.entries):
+            index = f"(({linear_index}) * {len(scatter.entries)} + {ordinal})"
+            enabled = _expression(
+                _replace_materialized(entry.enable, aliases)
+            )
+            address = _expression(
+                _replace_materialized(entry.address, aliases)
+            )
+            value = _expression(_replace_materialized(entry.value, aliases))
+            address_width = _width(entry.address.type)
+            guard = (
+                "1'b1"
+                if region.type.length >= 1 << address_width
+                else (
+                    f"($unsigned({address}) < "
+                    f"{address_width}'d{region.type.length})"
+                )
+            )
+            shifted = (
+                f"({width}'($unsigned({value})) << "
+                f"($unsigned({address}) * 32'd{plan.element_width}))"
+            )
+            statements.append(
+                f"{indent}assign {contribution}[{index}] = "
+                f"(({enabled}) && ({guard})) ? {shifted} : '0;"
+            )
+
+    if scatter.dimensions:
+        for _ in reversed(scatter.dimensions):
+            indent = indent[:-2]
+            statements.append(f"{indent}end")
+        statements.append(f"{statement_indent}endgenerate")
+
+    level: list[str] = [
+        f"{contribution}[{index}]" for index in range(candidate_count)
+    ]
+    depth = 0
+    while len(level) > 1:
+        next_level: list[str] = []
+        for ordinal in range(0, len(level), 2):
+            if ordinal + 1 == len(level):
+                next_level.append(level[ordinal])
+                continue
+            name = f"zlang_scatter_reduce_{prefix}_{depth}_{ordinal // 2}"
+            declarations.append(
+                f"{declaration_indent}logic {_range(width)}{name};"
+            )
+            statements.append(
+                f"{statement_indent}assign {name} = "
+                f"{level[ordinal]} | {level[ordinal + 1]};"
+            )
+            next_level.append(name)
+        level = next_level
+        depth += 1
+    statements.append(
+        f"{statement_indent}assign {plan.result_name} = {level[0]};"
+    )
+    return declarations, statements
+
+
 def _functional_scatter_rendering(
     region: expr.FunctionalRegion,
     plan: FunctionalRegionEmissionPlan,
@@ -7759,18 +8164,63 @@ def _functional_scatter_rendering(
             f"{_range(_width(first_entry.value.type))}{scatter.value_temporary};",
         )
     )
+    for item in scatter.expression_temporaries:
+        signed = (
+            " signed"
+            if isinstance(item.expression.type, (SIntType, FixedType))
+            else ""
+        )
+        declarations.append(
+            f"{declaration_indent}logic{signed} "
+            f"{_range(_width(item.expression.type))}{item.name};"
+        )
+
+    aliases = ExpressionAliasMap(
+        (item.expression, item.name)
+        for item in scatter.expression_temporaries
+    )
+
+    ordered_temporaries = dependency_ordered_materialization(
+        scatter.expression_temporaries
+    )
+    dependent_temporaries = tuple(
+        item
+        for item in ordered_temporaries
+        if any(
+            _functional_binder_dependent(
+                item.expression, dimension.region.binder.identity
+            )
+            for dimension in scatter.dimensions
+        )
+    )
+    dependent_temporary_ids = {id(item) for item in dependent_temporaries}
+    invariant_temporaries = tuple(
+        item
+        for item in ordered_temporaries
+        if id(item) not in dependent_temporary_ids
+    )
 
     statements = [f"{statement_indent}{plan.result_name} = '0;"]
+    with _functional_expression_scope(_FunctionalExpressionContext((), (), ())):
+        for item in invariant_temporaries:
+            rewritten = _replace_materialized(
+                item.expression,
+                aliases,
+                keep=item.expression,
+            )
+            statements.append(
+                f"{statement_indent}{item.name} = {_expression(rewritten)};"
+            )
 
     def render_entry(entry: _FunctionalScatterEntry, indent: str) -> None:
         statements.extend(
             (
                 f"{indent}{scatter.enable_temporary} = "
-                f"{_expression(entry.enable)};",
+                f"{_expression(_replace_materialized(entry.enable, aliases))};",
                 f"{indent}{scatter.address_temporary} = "
-                f"{_expression(entry.address)};",
+                f"{_expression(_replace_materialized(entry.address, aliases))};",
                 f"{indent}{scatter.value_temporary} = "
-                f"{_expression(entry.value)};",
+                f"{_expression(_replace_materialized(entry.value, aliases))};",
             )
         )
         address = scatter.address_temporary
@@ -7845,6 +8295,15 @@ def _functional_scatter_rendering(
             if ordinal + 1 < len(scatter.dimensions):
                 render_dimension(ordinal + 1, inner, context)
             else:
+                for item in dependent_temporaries:
+                    rewritten = _replace_materialized(
+                        item.expression,
+                        aliases,
+                        keep=item.expression,
+                    )
+                    statements.append(
+                        f"{inner}{item.name} = {_expression(rewritten)};"
+                    )
                 for entry in scatter.entries:
                     render_entry(entry, inner)
         statements.append(f"{indent}end")
@@ -7854,6 +8313,15 @@ def _functional_scatter_rendering(
         render_dimension(0, statement_indent, root_context)
     else:
         with _functional_expression_scope(root_context):
+            for item in dependent_temporaries:
+                rewritten = _replace_materialized(
+                    item.expression,
+                    aliases,
+                    keep=item.expression,
+                )
+                statements.append(
+                    f"{statement_indent}{item.name} = {_expression(rewritten)};"
+                )
             for entry in scatter.entries:
                 render_entry(entry, statement_indent)
     return declarations, statements
