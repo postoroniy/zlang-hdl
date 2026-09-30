@@ -240,10 +240,11 @@ jobs:
           sby --version
           z3 --version
       - name: Run isolated bounded performance regressions
-        run: >-
-          python -m pytest -p tools.pytest_no_skips -q
-          -m performance
-          --junitxml=build/ci-performance.xml
+        run: |
+          python -m pytest -p tools.pytest_no_skips -q -m performance \
+            --junitxml=build/ci-performance.xml
+          python tools/release_status.py check --root . \
+            --performance-junit build/ci-performance.xml
       - name: Retain performance failure evidence
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

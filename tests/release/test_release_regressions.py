@@ -21,16 +21,17 @@ ROOT = Path(__file__).resolve().parents[2]
 def _copy_ledger_tree(tmp_path: Path) -> Path:
     root = tmp_path / "candidate"
     shutil.copytree(ROOT / "release", root / "release")
-    for relative in (
-        "zlang/semantic/analyze.py",
-        "zlang/simulation_csr.py",
-        "zlang/ir/csr.py",
-        "tests/integration/test_csr.py",
-        "tests/integration/test_csr_hardware.py",
-        "tests/integration/test_csr_hierarchy_projection.py",
-        "tests/semantic/test_csr.py",
-        "tests/semantic/test_csr_hardware.py",
-    ):
+    payload = _payload(root)
+    relatives = {
+        relative
+        for entry in payload["entries"]
+        if entry["status"] == "included"
+        for relative in (
+            *entry["source_paths"],
+            *(selector.split("::", 1)[0] for selector in entry["tests"]),
+        )
+    }
+    for relative in sorted(relatives):
         destination = root / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(ROOT / relative, destination)
@@ -56,12 +57,12 @@ def test_current_release_binds_included_fixes_to_permanent_tests() -> None:
     )
     assert report == {
         "schema": 1,
-        "entries": 2,
-        "included": ["ZL-039", "ZL-040"],
+        "entries": 3,
+        "included": ["ZL-039", "ZL-040", "ZL-041"],
         "dispositions": {
             "deferred": 0,
             "excluded_experiment": 0,
-            "included": 2,
+            "included": 3,
             "private_only": 0,
         },
     }
@@ -125,7 +126,7 @@ def test_nonincluded_fix_requires_reason_and_durable_follow_up(tmp_path: Path) -
         release="0.1.0a19",
         previous_tag="v0.1.0a18",
     )
-    assert report["included"] == ["ZL-040"]
+    assert report["included"] == ["ZL-040", "ZL-041"]
 
     del payload["entries"][0]["follow_up"]
     _write(root, payload)
@@ -157,5 +158,5 @@ def test_cli_reports_the_validated_inclusion_count(capsys: pytest.CaptureFixture
         "--previous-tag", "v0.1.0a18",
     ]) == 0
     assert capsys.readouterr().out == (
-        "release regressions valid: 2 entries, 2 included\n"
+        "release regressions valid: 3 entries, 3 included\n"
     )

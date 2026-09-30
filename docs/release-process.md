@@ -30,6 +30,10 @@ and runs the release identity preflight, public-tree/status checks, static and
 native audits, two no-skip suites, external-tool inventory, an installed-VSIX
 host smoke, and reproducible package construction.
 
+Each regression pass runs the ordinary deterministic suite and the five
+isolated `performance` regressions as separate JUnit reports. Release status
+validates both partitions; neither report may contain a skip, failure, or error.
+
 `tools/release_preflight.py` composes existing authoritative validators. Its
 deterministic JSON binds the package version, prospective tag, previous tag,
 Git commit/tree, changelog notes, reviewed PDF, editor lock/package, release

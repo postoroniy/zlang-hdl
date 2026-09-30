@@ -19,8 +19,10 @@
     ]
   },
   "validation": {
-    "minimum_tests_passed": 4122,
-    "minimum_tests_collected": 4122,
+    "minimum_deterministic_tests_passed": 4125,
+    "minimum_deterministic_tests_collected": 4125,
+    "minimum_performance_tests_passed": 5,
+    "minimum_performance_tests_collected": 5,
     "maximum_tests_skipped": 0,
     "example_corpus": {
       "source_files": 108,
