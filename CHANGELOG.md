@@ -11,12 +11,12 @@ incompatible input explicitly.
 
 ## Unreleased
 
-## 0.1.0a19 — 2026-09-29
+## 0.1.0a19 — 2026-09-30
 
-Community alpha carrying two compiler-owned CSR interoperability fixes and a
-safer pre-tag release-candidate path. Language timing, numerical semantics,
-generated RTL behavior outside the corrected CSR cases, and formal policy are
-unchanged.
+Community alpha carrying two compiler-owned CSR interoperability fixes,
+bounded Direct-SystemVerilog expression sharing and a safer pre-tag
+release-candidate path. Language timing, numerical semantics and formal policy
+are unchanged.
 
 ### Added
 
@@ -40,6 +40,13 @@ unchanged.
   performance JUnit partitions separately. A complete deterministic run is no
   longer rejected for not containing the intentionally isolated performance
   tests, while either partition still fails closed on missing tests or skips.
+- Direct SystemVerilog emission now gives selected expression definitions the
+  same bounded-DAG treatment as their use sites, emits large aggregate values
+  through bounded slices, and shares exact binder-free region invariants.
+  Candidate-addressed OR scatters use a structural tree only while its
+  intermediate size is bounded and otherwise retain the equivalent compact
+  procedural form. This avoids frontend memory blow-ups without changing typed
+  IR, generated value semantics, or enabling additional e-graph rewrites.
 
 ### Compatibility
 

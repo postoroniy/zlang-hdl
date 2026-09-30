@@ -8,21 +8,30 @@ import pytest
 
 from zlang.backend.systemverilog import emit_experimental
 from zlang.backend.systemverilog import emitter as sv_emitter
+from zlang.backend.expression_materialization import MaterializedExpression
 from zlang.compiler import compile_source
 from zlang.ir import (
+    Add,
     Assignment,
+    Binary,
+    BinaryOperator,
+    BitType,
     CompileTimeBinderRef,
     CompileTimeExpr,
     Constant,
     FunctionalCaptureRef,
     FunctionalRegion,
     FunctionalRegionKind,
+    FunctionalValue,
     FunctionalTable,
     FunctionalTableLookup,
     InputRef,
     Module,
+    Mux,
     Port,
     PortDirection,
+    Reduce,
+    ReductionOperator,
     UIntType,
     VecType,
     VectorIndex,
@@ -57,9 +66,9 @@ module ScatterHit192 {
 
     hit = generate(dst in 0..192) {
         reduce(|, generate(lane in 0..12) {
-            reduce(|, generate(pixel in 0..4) {
+            reduce(|, generate(group in 0..4) {
                 reduce(|, generate(byte in 0..4) {
-                    valid & (addresses[lane][pixel][byte] == c8<K=dst>())
+                    valid & (addresses[lane][group][byte] == c8<K=dst>())
                 })
             })
         })
@@ -126,6 +135,57 @@ def test_nested_region_composition_is_dependency_first() -> None:
     assert plan.nodes[0].free_binders == ()
 
 
+def test_exact_binder_free_region_invariant_has_one_shared_owner() -> None:
+    def region(identity: str) -> FunctionalRegion:
+        binder = CompileTimeBinderRef(identity, "index", 0, 1)
+        return FunctionalRegion(
+            FunctionalRegionKind.GENERATE,
+            binder,
+            Constant(0, U8),
+            (),
+            (),
+            VecType(1, U8),
+        )
+
+    left = Add(InputRef("a", U8), InputRef("b", U8), U8)
+    right = Add(InputRef("a", U8), InputRef("b", U8), U8)
+
+    def record(
+        owner: FunctionalRegion,
+        value: Add,
+        suffix: str,
+    ) -> tuple[FunctionalRegion, sv_emitter.FunctionalRegionEmissionPlan]:
+        scatter = sv_emitter._FunctionalScatterEmissionPlan(
+            (),
+            (),
+            (MaterializedExpression(value, f"local_{suffix}"),),
+            f"enable_{suffix}",
+            f"address_{suffix}",
+            f"value_{suffix}",
+        )
+        return owner, sv_emitter.FunctionalRegionEmissionPlan(
+            f"plan:{suffix}",
+            f"result_{suffix}",
+            "",
+            8,
+            (),
+            (),
+            scatter=scatter,
+        )
+
+    shared = sv_emitter._shared_functional_region_materialization(
+        {
+            "left": record(region("fixture:left"), left, "left"),
+            "right": record(region("fixture:right"), right, "right"),
+        },
+        used_names={"result_left", "result_right"},
+    )
+
+    assert len(shared) == 1
+    assert shared[0].expression == left
+    assert shared[0].name.startswith("zlang_region_shared_0")
+
+
 def test_region_table_uses_one_deterministic_case_lookup() -> None:
     binder = CompileTimeBinderRef("fixture:table-index", "index", 2, 6)
     table = FunctionalTable(
@@ -162,8 +222,7 @@ def test_destination_decode_is_lowered_as_bounded_candidate_scatter() -> None:
     module = compile_source(SCATTER_SOURCE, top="Scatter32").ir
     generated = emit_experimental(module)
 
-    assert generated.count("for (") == 1
-    assert "zlang_scatter_contribution_" in generated
+    assert "zlang_scatter_contributions_" in generated
     assert "zlang_scatter_reduce_" in generated
     assert "< 6'd32" in generated
     assert "region_reduce_" not in generated
@@ -191,17 +250,87 @@ def test_scatter_lowering_rejects_nonzero_miss_value() -> None:
     assert generated.count("for (") == 2
 
 
+def test_scatter_plan_elides_only_candidate_binder_dimensions_absent_from_entry(
+) -> None:
+    destination = CompileTimeBinderRef("fixture:destination", "dst", 0, 8)
+    dead = CompileTimeBinderRef("fixture:dead", "dead", 0, 4)
+    live = CompileTimeBinderRef("fixture:live", "live", 0, 2)
+    type4 = UIntType(4)
+    address = VectorIndex(
+        InputRef("addresses", VecType(2, type4)),
+        CompileTimeExpr.ref(live),
+        type4,
+    )
+    value = VectorIndex(
+        InputRef("data", VecType(2, type4)),
+        CompileTimeExpr.ref(live),
+        type4,
+    )
+    destination_value = FunctionalValue(CompileTimeExpr.ref(destination), type4)
+    destination_capture = FunctionalCaptureRef(
+        "fixture:destination-capture",
+        "destination",
+        type4,
+    )
+    enabled = Binary(
+        BinaryOperator.BIT_AND,
+        InputRef("valid", BitType()),
+        Binary(
+            BinaryOperator.EQUAL,
+            address,
+            destination_capture,
+            type4,
+            BitType(),
+        ),
+        BitType(),
+        BitType(),
+    )
+    leaf = Mux(enabled, value, Constant(0, type4), type4)
+    live_region = FunctionalRegion(
+        FunctionalRegionKind.GENERATE,
+        live,
+        leaf,
+        (),
+        ((destination_capture, destination_value),),
+        VecType(2, type4),
+    )
+    live_reduction = Reduce(ReductionOperator.BIT_OR, live_region, type4)
+    dead_region = FunctionalRegion(
+        FunctionalRegionKind.GENERATE,
+        dead,
+        live_reduction,
+        (),
+        (),
+        VecType(4, type4),
+    )
+    dead_reduction = Reduce(ReductionOperator.BIT_OR, dead_region, type4)
+    outer = FunctionalRegion(
+        FunctionalRegionKind.GENERATE,
+        destination,
+        dead_reduction,
+        (),
+        (),
+        VecType(8, type4),
+    )
+
+    plan = sv_emitter._functional_region_plan(outer, "result")
+
+    assert plan.scatter is not None
+    assert tuple(
+        item.region.binder.identity for item in plan.scatter.dimensions
+    ) == (live.identity,)
+
+
 @pytest.mark.skipif(shutil.which("yosys") is None, reason="Yosys unavailable")
-def test_large_boolean_destination_decode_is_structural_and_yosys_bounded(
+def test_large_boolean_destination_decode_uses_bounded_procedural_scatter(
     tmp_path: Path,
 ) -> None:
     generated = emit_experimental(
         compile_source(SCATTER_HIT_SOURCE, top="ScatterHit192").ir
     )
-    assert generated.count("for (genvar") == 3
-    assert "zlang_scatter_contribution_" in generated
-    assert "zlang_scatter_reduce_" in generated
-    assert "always_comb" not in generated
+    assert "zlang_scatter_contributions_" not in generated
+    assert "region_scatter_address" in generated
+    assert "always_comb" in generated
     assert len(generated.encode("utf-8")) < 65_536
 
     rtl = tmp_path / "ScatterHit192.sv"
@@ -219,7 +348,6 @@ def test_large_boolean_destination_decode_is_structural_and_yosys_bounded(
         timeout=30,
     )
     assert completed.returncode == 0, completed.stdout + completed.stderr
-
 
 @pytest.mark.skipif(
     not all(shutil.which(tool) for tool in ("verilator", "yosys", "iverilog")),

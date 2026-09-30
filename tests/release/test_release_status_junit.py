@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from tools import release_status
+import tools.release_status as release_status
 
 
 def _write_junit(

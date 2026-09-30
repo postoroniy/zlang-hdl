@@ -407,9 +407,14 @@ def build_direct_sv_dag_plan(
     # long assignment.
     chunk_selected: set[str] = set()
 
-    def partition(value: expr.Expression) -> int:
+    def partition(
+        value: expr.Expression, *, definition: bool = False
+    ) -> int:
         identity = identity_of(value)
-        if identity in base_selected or identity in chunk_selected:
+        if (
+            not definition
+            and (identity in base_selected or identity in chunk_selected)
+        ):
             return 1
         children = expression_children(value)
         effective_size = 1 + sum(partition(child) for child in children)
@@ -420,11 +425,29 @@ def build_direct_sv_dag_plan(
             for child in children
             if expression_children(child)
         )
-        chunk_selected.add(identity)
+        if not definition:
+            chunk_selected.add(identity)
         return 1
 
     for root in roots:
         partition(root)
+
+    # A selected node is one compact alias at its use sites, but its own
+    # definition still needs bounded children.  Treating the selected node as
+    # an alias while planning that definition used to leave very large
+    # preferred/shared RHS expressions intact.  Newly selected child chunks
+    # are processed in turn so every materialized definition observes the
+    # same bound without expanding logical DAG paths.
+    pending = list(base_selected | chunk_selected)
+    planned_definitions: set[str] = set()
+    while pending:
+        identity = pending.pop()
+        if identity in planned_definitions:
+            continue
+        planned_definitions.add(identity)
+        before = set(chunk_selected)
+        partition(representatives[identity], definition=True)
+        pending.extend(sorted(chunk_selected - before))
 
     selected: list[expr.Expression] = []
     for value in dependency_order:
