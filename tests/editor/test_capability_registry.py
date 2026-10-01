@@ -26,7 +26,7 @@ def _compile_witness(source_path: str, top: str):
 
 
 def test_registry_is_versioned_unique_and_deterministic() -> None:
-    assert CAPABILITY_REGISTRY.schema_version == 30
+    assert CAPABILITY_REGISTRY.schema_version == 31
     assert CAPABILITY_REGISTRY.production_backend == "direct_systemverilog"
     surface = CAPABILITY_REGISTRY.editor_surface()
     assert tuple(surface) == ("keywords", "types", "intrinsics", "modes", "operators")

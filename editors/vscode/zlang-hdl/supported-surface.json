@@ -14,7 +14,7 @@
     "response_buffer", "adapter", "crossing", "async_fifo", "arbiter", "policy",
     "grant", "disable", "iff", "csr", "group", "split", "stride", "order", "sticky", "rule", "when", "priority", "fsm", "hold",
     "fifo", "memory", "mem", "async_mem", "rom", "read_latency", "init", "collision", "read_port", "write_port", "read_write_port", "write_priority", "contents", "read_data", "reg", "delay", "timing",
-    "pipeline", "choice", "auto", "explore", "allow", "avoid", "require",
+    "pipeline", "choice", "auto", "implement", "intent", "require",
     "minimize", "maximize", "generate", "map", "sum", "reduce", "dot", "quantize",
     "round", "overflow", "with", "if", "else", "switch", "match", "mux", "assume", "guarantee", "assert", "cover", "contract", "ensure"
   ],

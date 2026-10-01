@@ -1,10 +1,10 @@
-"""Bounded artifact-mutation helpers, independent of optional external tools."""
+"""Implementation artifact-mutation helpers, independent of external tools."""
 
 from pathlib import Path
 
 import pytest
 
-from tools.math_exploration_formal import mutate_output, run
+from tools.math_implementation_formal import mutate_output, run
 
 
 RTL = """module Example(input clk, rst, input [3:0] a, output [7:0] result);

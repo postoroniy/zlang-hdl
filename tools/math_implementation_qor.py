@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bounded, matched routed timing experiment for the mathematical tutorial.
+"""Matched routed timing experiment for the implementation-selection tutorial.
 
 This measures generic direct-SV implementations, not compiler estimates or a
 formal proof. Identical launch/capture registers isolate the arithmetic paths.
@@ -30,8 +30,8 @@ from zlang.timing import timing_info
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = ROOT / "examples/verification/math_exploration.zhl"
-TOPS = ("MathOneCycle", "MathArchitecture", "MathExplore")
+SOURCE = ROOT / "examples/verification/math_implementation.zhl"
+TOPS = ("MathOneCycle", "MathImplementationTopology", "MathImplementationPipeline")
 SCHEMA = "zlang-math-exploration-routed-v1"
 
 

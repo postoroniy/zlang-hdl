@@ -125,21 +125,6 @@ class PreparedCandidateEquivalence:
 _ProofBundle = PreparedCandidateEquivalence
 
 
-@dataclass(frozen=True)
-class _CandidateEquivalenceShape:
-    implementation: object
-    reference: object
-    module: Module
-    reference_module: Module
-    property: EquivalenceProperty
-    reference_rtl: str
-    reference_rtl_names: dict[str, str]
-    input_semantic_ids: tuple[str, ...]
-    output_name: str
-    clock: str | None
-    reset: str | None
-
-
 def _proof_bundle_fingerprint(
     bundle: PreparedCandidateEquivalence,
 ) -> dict[str, object]:

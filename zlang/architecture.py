@@ -67,11 +67,6 @@ class ArchitectureCandidate:
         return self.implementation.value
 
 
-def architecture_candidate_hash(candidate: ArchitectureCandidate) -> str:
-    """Stable measurement identity including architecture intent."""
-    return candidate.identity
-
-
 def expand_architectures(value_root: expr.Expression, context: object | None = None) -> tuple[ArchitectureCandidate, ...]:
     """Expand one normalized semantic value into deterministic candidates.
 
@@ -149,29 +144,3 @@ def extract_best_architecture(candidates, objective="lut", constraints=(), sourc
     from zlang.costs import extract_best
     return extract_best(candidates, objective, constraints, source_policy,
                         cost_fn=architecture_cost)
-
-
-def architecture_candidates_for_choice(choice: expr.ImplementationChoice) -> tuple[ArchitectureCandidate, ...]:
-    """Adapt legacy ``choice`` alternatives to the architecture alternatives candidate model."""
-    candidates: list[ArchitectureCandidate] = []
-    for alternative in choice.alternatives:
-        implementation = {
-            expr.ImplementationKind.MUL_ADD: ArchitectureImplementation.GENERIC,
-            expr.ImplementationKind.DSP_MAC: ArchitectureImplementation.DSP_MAC,
-        }.get(alternative.kind)
-        if implementation is None:
-            continue
-        timing = TimingContract(alternative.semantics.latency,
-                                alternative.semantics.initiation_interval)
-        candidates.append(ArchitectureCandidate(
-            alternative.expression, implementation, (), timing,
-            ResourceIntent.DEDICATED_DSP if implementation is ArchitectureImplementation.DSP_MAC else ResourceIntent.GENERIC_LOGIC,
-            alternative.expression.origin,
-        ))
-    return tuple(candidates)
-
-
-def expand_reduction_architectures(value_root, search=None):
-    """exact reduction planning generic reduction entry point kept beside architecture alternatives architecture APIs."""
-    from zlang.reductions import ReductionSearch, expand_reduction
-    return expand_reduction(value_root, search or ReductionSearch())

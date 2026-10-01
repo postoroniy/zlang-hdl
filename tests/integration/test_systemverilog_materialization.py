@@ -143,10 +143,7 @@ def test_dynamic_select_materializes_compound_prefix_once() -> None:
     assert first.count(
         "assign zlang_expr_0 = zlang_packed_frame[34:3];"
     ) == 1
-    assert (
-        "assign y = zlang_expr_0[(32'(index) * 32'd8) +: 8];"
-        in first
-    )
+    assert "assign y = zlang_expr_0[(32'(index) << 3) +: 8];" in first
     assert "zlang_packed_frame[34:3][" not in first
 
 
@@ -171,7 +168,7 @@ def test_runtime_select_from_compound_vector_avoids_postfix_part_select() -> Non
 
     assert "}[" not in rendered
     assert rendered.startswith("8'(($unsigned({")
-    assert ">> ((32'(index) * 32'd8))" in rendered
+    assert ">> ((32'(index) << 3))" in rendered
 
 
 def test_direct_sv_dag_plan_materializes_one_shared_producer() -> None:

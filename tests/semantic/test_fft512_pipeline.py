@@ -18,10 +18,10 @@ ROOT = Path(__file__).resolve().parents[2]
 
 def test_exact_complex_real_pipeline_uses_current_packaged_dsp48_evidence() -> None:
     source = (
-        ROOT / "examples" / "fft" / "complex_multiply_pipeline_auto.zhl"
+        ROOT / "examples" / "fft" / "complex_multiply_implementation.zhl"
     ).read_text()
     result = compile_source(
-        source, top="FFTComplexMultiplyRealAuto", target="xc7z030ffg676-1"
+        source, top="FFTComplexMultiplyRealImplementation", target="xc7z030ffg676-1"
     )
     exploration = result.ir.pipeline_explorations[0]
     assert isinstance(exploration.source_expression, FixedConvert)

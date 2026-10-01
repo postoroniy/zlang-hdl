@@ -11,6 +11,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass, fields, is_dataclass, replace
 from enum import Enum
 import hashlib
+from itertools import product
 import re
 from typing import Callable, Iterator
 
@@ -133,6 +134,14 @@ from zlang.backend.systemverilog.composed import (
     rv_fifo_helper as _composed_rv_fifo_helper,
 )
 from zlang.backend.systemverilog.syntax import sized_decimal as _sized_decimal
+from zlang.backend.systemverilog.functional_scatter import (
+    FunctionalScatterLoweringChunk,
+    FunctionalScatterLoweringPlan,
+    FunctionalScatterLoweringStrategy,
+    MAX_SCATTER_CHUNK_RESULT_BIT_UPDATES,
+    MAX_SCATTER_CHUNK_WRITES,
+    render_scatter_helper,
+)
 from zlang.common.systemverilog import (
     render_ordered_comparison,
     render_right_shift,
@@ -209,11 +218,10 @@ class SystemVerilogEmissionError(DiagnosticError):
         self.semantic_path = semantic_path
 
 
-# Structural contribution trees keep small scatters as explicit continuous
-# logic. Larger candidate sets use the equivalent procedural OR-write form;
-# otherwise Verilog frontends eagerly construct candidate_count * result_width
-# intermediate nets before their process passes can compact the decode.
-MAX_STRUCTURAL_SCATTER_CANDIDATES = 64
+# Functional scatter lowering is a backend-local physical choice.  These
+# limits bound both emitted structure and the whole-vector update chains that
+# Verilog process lowering otherwise constructs.  They do not change the
+# typed-IR OR/collision semantics.
 
 
 @dataclass(frozen=True)
@@ -264,6 +272,10 @@ _CURRENT_TOP_BOUNDARY: ContextVar[TopBoundaryPlan | None] = ContextVar(
     "zlang_systemverilog_top_boundary", default=None,
 )
 
+_CURRENT_SCATTER_HELPERS: ContextVar[dict[str, str] | None] = ContextVar(
+    "zlang_systemverilog_scatter_helpers", default=None,
+)
+
 
 @contextmanager
 def _top_boundary_scope(
@@ -274,6 +286,16 @@ def _top_boundary_scope(
         yield
     finally:
         _CURRENT_TOP_BOUNDARY.reset(token)
+
+
+@contextmanager
+def _scatter_helper_scope() -> Iterator[dict[str, str]]:
+    helpers: dict[str, str] = {}
+    token = _CURRENT_SCATTER_HELPERS.set(helpers)
+    try:
+        yield helpers
+    finally:
+        _CURRENT_SCATTER_HELPERS.reset(token)
 
 
 @dataclass(frozen=True)
@@ -633,15 +655,24 @@ def _emit_named_design(
     boundary = _build_top_boundary_plan(
         physical_module, leaves=tuple(public_abi.leaves),
     )
-    packed = _emit_packed(
-        physical_module,
-        external_mappings=external_mappings,
-        formal_buffer_counts=_formal_buffer_counts,
-        formal_adapter_counts=_formal_adapter_counts,
-        hierarchy_cache=hierarchy_cache,
-        top_boundary=boundary,
-    )
-    return packed
+    with _scatter_helper_scope() as scatter_helpers:
+        packed = _emit_packed(
+            physical_module,
+            external_mappings=external_mappings,
+            formal_buffer_counts=_formal_buffer_counts,
+            formal_adapter_counts=_formal_adapter_counts,
+            hierarchy_cache=hierarchy_cache,
+            top_boundary=boundary,
+        )
+    if not scatter_helpers:
+        return packed
+    suffix = "`default_nettype wire\n"
+    if not packed.endswith(suffix):
+        raise SystemVerilogEmissionError(
+            "direct-SystemVerilog output lost its default-nettype boundary"
+        )
+    helper_text = "\n".join(scatter_helpers[name] for name in sorted(scatter_helpers))
+    return f"{packed[:-len(suffix)]}{helper_text}{suffix}"
 
 
 def _validate_state_storage_rtl_namespace(
@@ -6687,6 +6718,97 @@ def _compile_time_expression(expression: int | CompileTimeExpr) -> str:
     return f"(({operands[0]}) - (({floor}) * ({operands[1]})))"
 
 
+def _compile_time_integer(expression: int | CompileTimeExpr) -> int | None:
+    """Evaluate only a binder expression fixed by the current emit context."""
+
+    if isinstance(expression, int) and not isinstance(expression, bool):
+        return expression
+    if not isinstance(expression, CompileTimeExpr):
+        return None
+    if expression.operator is CompileTimeOperator.LITERAL:
+        value = expression.operands[0]
+        return value if isinstance(value, int) and not isinstance(value, bool) else None
+    if expression.operator is CompileTimeOperator.BINDER:
+        binder = expression.operands[0]
+        assert isinstance(binder, CompileTimeBinderRef)
+        context = _CURRENT_FUNCTIONAL_EXPRESSION.get()
+        rendered = None if context is None else context.binder(binder.identity)
+        if rendered is None or re.fullmatch(r"-?[0-9]+", rendered) is None:
+            return None
+        return int(rendered)
+    values = tuple(
+        _compile_time_integer(
+            CompileTimeExpr.ref(item)
+            if isinstance(item, CompileTimeBinderRef)
+            else item
+        )
+        for item in expression.operands
+    )
+    if any(value is None for value in values):
+        return None
+    concrete = tuple(value for value in values if value is not None)
+    if expression.operator is CompileTimeOperator.ADD:
+        return concrete[0] + concrete[1]
+    if expression.operator is CompileTimeOperator.SUBTRACT:
+        return concrete[0] - concrete[1]
+    if expression.operator is CompileTimeOperator.MULTIPLY:
+        return concrete[0] * concrete[1]
+    if expression.operator is CompileTimeOperator.NEGATE:
+        return -concrete[0]
+    if concrete[1] == 0:
+        return None
+    if expression.operator is CompileTimeOperator.FLOOR_DIVIDE:
+        return concrete[0] // concrete[1]
+    assert expression.operator is CompileTimeOperator.MODULO
+    return concrete[0] % concrete[1]
+
+
+def _constant_vector_projection(
+    expression: expr.VectorIndex | expr.RuntimeIndex,
+) -> tuple[expr.Expression, int, int] | None:
+    """Collapse a compiler-fixed nested vector path to one packed slice."""
+
+    vector = expression.expression.type
+    if not isinstance(vector, VecType):
+        return None
+    index = (
+        _compile_time_integer(expression.index.expression)
+        if isinstance(expression, expr.RuntimeIndex)
+        and isinstance(expression.index, expr.FunctionalValue)
+        else (
+            expression.index.value
+            if isinstance(expression, expr.RuntimeIndex)
+            and isinstance(expression.index, expr.Constant)
+            else (
+                _compile_time_integer(expression.index)
+                if isinstance(expression, expr.VectorIndex)
+                else None
+            )
+        )
+    )
+    if index is None or not 0 <= index < vector.length:
+        return None
+    width = _width(vector.element_type)
+    lsb = ir_packing.vector_element_lsb(vector, index)
+    if isinstance(expression.expression, (expr.VectorIndex, expr.RuntimeIndex)):
+        parent = _constant_vector_projection(expression.expression)
+        if parent is not None:
+            root, parent_lsb, _parent_width = parent
+            return root, parent_lsb + lsb, width
+    return expression.expression, lsb, width
+
+
+def _scaled_packed_index(rendered_index: str, element_width: int) -> str:
+    """Render exact bit scaling without a multiplier for power-of-two widths."""
+
+    if element_width == 1:
+        return f"32'({rendered_index})"
+    if element_width & (element_width - 1) == 0:
+        shift = element_width.bit_length() - 1
+        return f"(32'({rendered_index}) << {shift})"
+    return f"(32'({rendered_index}) * 32'd{element_width})"
+
+
 def _expression(expression: expr.Expression) -> str:
     if isinstance(expression, (expr.InputRef, expr.ParameterRef, expr.RegisterRef)):
         return _identifier(expression.name)
@@ -7007,6 +7129,10 @@ def _expression(expression: expr.Expression) -> str:
         vector = expression.expression.type
         if not isinstance(vector, VecType):
             raise SystemVerilogEmissionError("vector index requires a vector")
+        projection = _constant_vector_projection(expression)
+        if projection is not None:
+            root, lsb, width = projection
+            return _slice(_expression(root), lsb + width - 1, lsb)
         element_width = _width(vector.element_type)
         rendered_vector = _expression(expression.expression)
         if isinstance(expression.index, int):
@@ -7014,7 +7140,7 @@ def _expression(expression: expr.Expression) -> str:
             msb = lsb + element_width - 1
             return _slice(rendered_vector, msb, lsb)
         rendered_index = _compile_time_expression(expression.index)
-        base = f"(32'({rendered_index}) * 32'd{element_width})"
+        base = _scaled_packed_index(rendered_index, element_width)
         if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", rendered_vector):
             return f"{rendered_vector}[{base} +: {element_width}]"
         return f"{element_width}'(($unsigned({rendered_vector})) >> ({base}))"
@@ -7022,10 +7148,14 @@ def _expression(expression: expr.Expression) -> str:
         vector = expression.expression.type
         if not isinstance(vector, VecType):
             raise SystemVerilogEmissionError("runtime vector index requires a vector")
+        projection = _constant_vector_projection(expression)
+        if projection is not None:
+            root, lsb, width = projection
+            return _slice(_expression(root), lsb + width - 1, lsb)
         element_width = _width(vector.element_type)
         rendered_vector = _expression(expression.expression)
         rendered_index = _expression(expression.index)
-        base = f"(32'({rendered_index}) * 32'd{element_width})"
+        base = _scaled_packed_index(rendered_index, element_width)
         # Yosys does not accept an indexed part-select whose base is a compound
         # expression (notably a concatenation), even though Verilator does.
         # Keep the compact indexed select for a plain packed signal and lower a
@@ -7044,7 +7174,7 @@ def _expression(expression: expr.Expression) -> str:
         rendered_vector = _expression(expression.expression)
         rendered_index = _expression(expression.index)
         rendered_value = _expression(expression.value)
-        base = f"(32'({rendered_index}) * 32'd{element_width})"
+        base = _scaled_packed_index(rendered_index, element_width)
         element_mask = f"{total_width}'h{((1 << element_width) - 1):x}"
         cleared = (
             f"({total_width}'($unsigned({rendered_vector})) & "
@@ -7816,6 +7946,140 @@ def _functional_scatter_plan(
     )
 
 
+def _functional_scatter_reduction_names(
+    prefix: str,
+    source_count: int,
+) -> tuple[tuple[str, ...], ...]:
+    levels: list[tuple[str, ...]] = []
+    depth = 0
+    while source_count > 1:
+        target_count = (source_count + 1) // 2
+        levels.append(
+            tuple(
+                f"zlang_scatter_reduce_{prefix}_{depth}_{ordinal}"
+                for ordinal in range(target_count)
+            )
+        )
+        source_count = target_count
+        depth += 1
+    return tuple(levels)
+
+
+def _functional_scatter_lowering_plan(
+    region: expr.FunctionalRegion,
+    plan: FunctionalRegionEmissionPlan,
+) -> FunctionalScatterLoweringPlan:
+    """Choose one bounded physical lowering without changing scatter semantics."""
+
+    scatter = plan.scatter
+    assert scatter is not None
+    dimension_lengths = tuple(
+        dimension.region.binder.stop - dimension.region.binder.start
+        for dimension in scatter.dimensions
+    )
+    effective_candidate_count = len(scatter.entries)
+    for length in dimension_lengths:
+        effective_candidate_count *= length
+    result_width = region.type.length * plan.element_width
+    if effective_candidate_count < 1 or result_width < 1:
+        raise SystemVerilogEmissionError(
+            "functional scatter has an empty physical candidate/result shape"
+        )
+
+    prefix = plan.identity[:10]
+    strategy = FunctionalScatterLoweringPlan.select_strategy(
+        effective_candidate_count,
+        result_width,
+    )
+    # One whole result update is the irreducible procedural unit.  A result
+    # wider than the nominal bit-update budget therefore receives one write
+    # per independent chunk instead of becoming an unsupported valid design.
+    bit_limited_writes = max(
+        1, MAX_SCATTER_CHUNK_RESULT_BIT_UPDATES // result_width
+    )
+    writes_per_chunk = min(MAX_SCATTER_CHUNK_WRITES, bit_limited_writes)
+
+    # Keep the largest natural inner binder shape that fits one process.  The
+    # fixed outer prefix is then enumerated in compiler-owned binder order.
+    prefix_depth = len(dimension_lengths)
+    suffix_candidates = 1
+    for candidate_depth in range(len(dimension_lengths) + 1):
+        candidate_suffix = 1
+        for length in dimension_lengths[candidate_depth:]:
+            candidate_suffix *= length
+        if candidate_suffix <= writes_per_chunk:
+            prefix_depth = candidate_depth
+            suffix_candidates = candidate_suffix
+            break
+    entries_per_chunk = max(1, writes_per_chunk // suffix_candidates)
+    prefix_ranges = tuple(
+        range(
+            dimension.region.binder.start,
+            dimension.region.binder.stop,
+        )
+        for dimension in scatter.dimensions[:prefix_depth]
+    )
+    fixed_value_sets = tuple(product(*prefix_ranges)) if prefix_ranges else ((),)
+    chunks: list[FunctionalScatterLoweringChunk] = []
+    for fixed_values in fixed_value_sets:
+        fixed_binders = tuple(
+            (
+                scatter.dimensions[ordinal].region.binder.identity,
+                value,
+            )
+            for ordinal, value in enumerate(fixed_values)
+        )
+        for entry_start in range(0, len(scatter.entries), entries_per_chunk):
+            entry_stop = min(
+                len(scatter.entries), entry_start + entries_per_chunk
+            )
+            ordinal = len(chunks)
+            chunk_prefix = f"zlang_scatter_chunk_{prefix}_{ordinal}"
+            remaining = tuple(range(prefix_depth, len(scatter.dimensions)))
+            chunks.append(
+                FunctionalScatterLoweringChunk(
+                    ordinal=ordinal,
+                    accumulator=chunk_prefix,
+                    fixed_binders=fixed_binders,
+                    remaining_dimension_ordinals=remaining,
+                    entry_start=entry_start,
+                    entry_stop=entry_stop,
+                    write_count=(entry_stop - entry_start) * suffix_candidates,
+                    loop_variables=tuple(
+                        f"{chunk_prefix}_i_{dimension_ordinal}"
+                        for dimension_ordinal in remaining
+                    ),
+                    enable_temporary=f"{chunk_prefix}_enable",
+                    address_temporary=f"{chunk_prefix}_address",
+                    value_temporary=f"{chunk_prefix}_value",
+                )
+            )
+    if any(
+        chunk.write_count > MAX_SCATTER_CHUNK_WRITES
+        or (
+            strategy is FunctionalScatterLoweringStrategy.CHUNKED_PROCEDURAL
+            and chunk.write_count * result_width
+            > MAX_SCATTER_CHUNK_RESULT_BIT_UPDATES
+            and not (
+                chunk.write_count == 1
+                and result_width > MAX_SCATTER_CHUNK_RESULT_BIT_UPDATES
+            )
+        )
+        for chunk in chunks
+    ):
+        raise SystemVerilogEmissionError(
+            "functional scatter chunk exceeds its bounded lowering budget"
+        )
+    return FunctionalScatterLoweringPlan(
+        strategy,
+        effective_candidate_count,
+        result_width,
+        tuple(chunks),
+        f"zlang_scatter_chunks_{prefix}",
+        _functional_scatter_reduction_names(prefix, len(chunks)),
+    )
+
+
 def _functional_region_plan(
     region: expr.FunctionalRegion,
     result_name: str,
@@ -8159,6 +8423,44 @@ def _functional_region_generate_rendering(
     return declarations, statements
 
 
+def _functional_scatter_structural_helper(
+    *,
+    destination_count: int,
+    result_width: int,
+    element_width: int,
+    address_width: int,
+    candidate_count: int,
+) -> tuple[str, str]:
+    return render_scatter_helper(
+        destination_count=destination_count,
+        result_width=result_width,
+        element_width=element_width,
+        address_width=address_width,
+        candidate_count=candidate_count,
+        procedural_write=False,
+    )
+
+
+def _functional_scatter_structural_helper_rendering(
+    region: expr.FunctionalRegion,
+    plan: FunctionalRegionEmissionPlan,
+    lowering: FunctionalScatterLoweringPlan,
+    *,
+    declaration_indent: str,
+    statement_indent: str,
+    outer_materialized: tuple[_MaterializedExpression, ...],
+) -> tuple[list[str], list[str]] | None:
+    return _functional_scatter_chunked_rendering(
+        region,
+        plan,
+        lowering,
+        declaration_indent=declaration_indent,
+        statement_indent=statement_indent,
+        outer_materialized=outer_materialized,
+        procedural_write=False,
+    )
+
+
 def _functional_scatter_generate_rendering(
     region: expr.FunctionalRegion,
     plan: FunctionalRegionEmissionPlan,
@@ -8167,31 +8469,95 @@ def _functional_scatter_generate_rendering(
     statement_indent: str,
     outer_materialized: tuple[_MaterializedExpression, ...] = (),
 ) -> tuple[list[str], list[str]] | None:
-    """Render an addressed OR-scatter as structural candidate contributions."""
+    """Render an addressed OR-scatter through one bounded lowering policy."""
+
+    lowering = _functional_scatter_lowering_plan(region, plan)
+    if lowering.strategy is FunctionalScatterLoweringStrategy.CHUNKED_PROCEDURAL:
+        return _functional_scatter_chunked_rendering(
+            region,
+            plan,
+            lowering,
+            declaration_indent=declaration_indent,
+            statement_indent=statement_indent,
+            outer_materialized=outer_materialized,
+        )
+    rendered = _functional_scatter_structural_helper_rendering(
+        region,
+        plan,
+        lowering,
+        declaration_indent=declaration_indent,
+        statement_indent=statement_indent,
+        outer_materialized=outer_materialized,
+    )
+    if rendered is not None:
+        return rendered
+    return _functional_scatter_bounded_process_rendering(
+        region,
+        plan,
+        lowering,
+        declaration_indent=declaration_indent,
+        statement_indent=statement_indent,
+        outer_materialized=outer_materialized,
+    )
+
+
+def _functional_scatter_chunk_helper(
+    *,
+    destination_count: int,
+    result_width: int,
+    element_width: int,
+    address_width: int,
+    write_count: int,
+) -> tuple[str, str]:
+    return render_scatter_helper(
+        destination_count=destination_count,
+        result_width=result_width,
+        element_width=element_width,
+        address_width=address_width,
+        candidate_count=write_count,
+        procedural_write=True,
+    )
+
+
+def _functional_scatter_chunked_rendering(
+    region: expr.FunctionalRegion,
+    plan: FunctionalRegionEmissionPlan,
+    lowering: FunctionalScatterLoweringPlan,
+    *,
+    declaration_indent: str,
+    statement_indent: str,
+    outer_materialized: tuple[_MaterializedExpression, ...] = (),
+    procedural_write: bool = True,
+) -> tuple[list[str], list[str]] | None:
+    """Render invariant buses and one shared helper per physical chunk shape."""
 
     scatter = plan.scatter
     assert scatter is not None
     if any(dimension.table_temporaries for dimension in scatter.dimensions):
-        return None
+        if not procedural_write:
+            return None
+        return _functional_scatter_bounded_process_rendering(
+            region,
+            plan,
+            lowering,
+            declaration_indent=declaration_indent,
+            statement_indent=statement_indent,
+            outer_materialized=outer_materialized,
+        )
     first_entry = scatter.entries[0]
     if any(
         entry.address.type != first_entry.address.type
         or entry.value.type != first_entry.value.type
         for entry in scatter.entries[1:]
     ):
-        return None
-
-    dimension_lengths = tuple(
-        dimension.region.binder.stop - dimension.region.binder.start
-        for dimension in scatter.dimensions
-    )
-    candidate_count = len(scatter.entries)
-    for length in dimension_lengths:
-        candidate_count *= length
-    if candidate_count < 1:
-        return None
-    if candidate_count > MAX_STRUCTURAL_SCATTER_CANDIDATES:
-        return None
+        raise SystemVerilogEmissionError(
+            "functional scatter entries do not share exact address/value types"
+        )
+    helpers = _CURRENT_SCATTER_HELPERS.get()
+    if helpers is None:
+        raise SystemVerilogEmissionError(
+            "functional scatter rendering requires an active helper scope"
+        )
 
     outer_aliases = ExpressionAliasMap(
         (item.expression, item.name) for item in outer_materialized
@@ -8201,18 +8567,222 @@ def _functional_scatter_generate_rendering(
         for item in scatter.expression_temporaries
         if item.expression not in outer_aliases
     )
+    ordered_temporaries = dependency_ordered_materialization(local_temporaries)
+    invariant_temporaries = tuple(
+        item
+        for item in ordered_temporaries
+        if not any(
+            _functional_binder_dependent(
+                item.expression, dimension.region.binder.identity
+            )
+            for dimension in scatter.dimensions
+        )
+    )
     aliases = ExpressionAliasMap(
         (
             *((item.expression, item.name) for item in outer_materialized),
-            *((item.expression, item.name) for item in local_temporaries),
+            *((item.expression, item.name) for item in invariant_temporaries),
         )
     )
-    ordered = dependency_ordered_materialization(
-        local_temporaries
+    declarations: list[str] = []
+    statements: list[str] = []
+    for item in invariant_temporaries:
+        signed = (
+            " signed"
+            if isinstance(item.expression.type, (SIntType, FixedType))
+            else ""
+        )
+        declarations.append(
+            f"{declaration_indent}logic{signed} "
+            f"{_range(_width(item.expression.type))}{item.name};"
+        )
+    with _functional_expression_scope(_FunctionalExpressionContext((), (), ())):
+        for item in invariant_temporaries:
+            rewritten = _replace_materialized(
+                item.expression, aliases, keep=item.expression
+            )
+            statements.append(
+                f"{statement_indent}assign {item.name} = {_expression(rewritten)};"
+            )
+
+    all_captures: tuple[tuple[str, expr.Expression], ...] = ()
+    for dimension in scatter.dimensions:
+        all_captures = (
+            *((reference.identity, value) for reference, value in dimension.region.captures),
+            *all_captures,
+        )
+    address_width = _width(first_entry.address.type)
+    for chunk in lowering.chunks:
+        enable_bus = f"{chunk.accumulator}_candidate_enable"
+        address_bus = f"{chunk.accumulator}_candidate_address"
+        value_bus = f"{chunk.accumulator}_candidate_value"
+        declarations.extend(
+            (
+                f"{declaration_indent}logic [{chunk.write_count - 1}:0] "
+                f"{enable_bus};",
+                f"{declaration_indent}logic "
+                f"[{chunk.write_count * address_width - 1}:0] {address_bus};",
+                f"{declaration_indent}logic "
+                f"[{chunk.write_count * plan.element_width - 1}:0] {value_bus};",
+                f"{declaration_indent}logic "
+                f"[{lowering.result_width - 1}:0] {chunk.accumulator};",
+            )
+        )
+        remaining_ranges = tuple(
+            range(
+                scatter.dimensions[ordinal].region.binder.start,
+                scatter.dimensions[ordinal].region.binder.stop,
+            )
+            for ordinal in chunk.remaining_dimension_ordinals
+        )
+        remaining_values = (
+            tuple(product(*remaining_ranges)) if remaining_ranges else ((),)
+        )
+        candidate_ordinal = 0
+        for suffix_values in remaining_values:
+            binders = tuple(
+                (identity, str(value)) for identity, value in chunk.fixed_binders
+            ) + tuple(
+                (
+                    scatter.dimensions[dimension_ordinal].region.binder.identity,
+                    str(value),
+                )
+                for dimension_ordinal, value in zip(
+                    chunk.remaining_dimension_ordinals, suffix_values
+                )
+            )
+            context = _FunctionalExpressionContext(binders, all_captures, ())
+            with _functional_expression_scope(context):
+                for entry in scatter.entries[
+                    chunk.entry_start:chunk.entry_stop
+                ]:
+                    enabled = _expression(
+                        _replace_materialized(entry.enable, aliases)
+                    )
+                    address = _expression(
+                        _replace_materialized(entry.address, aliases)
+                    )
+                    value = _expression(
+                        _replace_materialized(entry.value, aliases)
+                    )
+                    statements.extend(
+                        (
+                            f"{statement_indent}assign {enable_bus}"
+                            f"[{candidate_ordinal}] = {enabled};",
+                            f"{statement_indent}assign {address_bus}["
+                            f"{candidate_ordinal * address_width} +: "
+                            f"{address_width}] = {address};",
+                            f"{statement_indent}assign {value_bus}["
+                            f"{candidate_ordinal * plan.element_width} +: "
+                            f"{plan.element_width}] = {value};",
+                        )
+                    )
+                    candidate_ordinal += 1
+        if candidate_ordinal != chunk.write_count:
+            raise SystemVerilogEmissionError(
+                "functional scatter chunk candidate enumeration changed shape"
+            )
+        if procedural_write:
+            helper_name, helper_text = _functional_scatter_chunk_helper(
+                destination_count=region.type.length,
+                result_width=lowering.result_width,
+                element_width=plan.element_width,
+                address_width=address_width,
+                write_count=chunk.write_count,
+            )
+        else:
+            helper_name, helper_text = _functional_scatter_structural_helper(
+                destination_count=region.type.length,
+                result_width=lowering.result_width,
+                element_width=plan.element_width,
+                address_width=address_width,
+                candidate_count=chunk.write_count,
+            )
+        existing = helpers.get(helper_name)
+        if existing is not None and existing != helper_text:
+            raise SystemVerilogEmissionError(
+                "functional scatter helper identity collision"
+            )
+        helpers[helper_name] = helper_text
+        statements.extend(
+            (
+                f"{statement_indent}{helper_name} "
+                f"{chunk.accumulator}_instance (",
+                f"{statement_indent}  .candidate_enable({enable_bus}),",
+                f"{statement_indent}  .candidate_address({address_bus}),",
+                f"{statement_indent}  .candidate_value({value_bus}),",
+                f"{statement_indent}  .result({chunk.accumulator})",
+                f"{statement_indent});",
+            )
+        )
+
+    sources = tuple(chunk.accumulator for chunk in lowering.chunks)
+    for level in lowering.reduction_names:
+        for name in level:
+            declarations.append(
+                f"{declaration_indent}logic "
+                f"[{lowering.result_width - 1}:0] {name};"
+            )
+        next_sources: list[str] = []
+        for ordinal, target in enumerate(level):
+            left = sources[ordinal * 2]
+            right = (
+                sources[ordinal * 2 + 1]
+                if ordinal * 2 + 1 < len(sources)
+                else None
+            )
+            expression = left if right is None else f"{left} | {right}"
+            statements.append(
+                f"{statement_indent}assign {target} = {expression};"
+            )
+            next_sources.append(target)
+        sources = tuple(next_sources)
+    statements.append(
+        f"{statement_indent}assign {plan.result_name} = {sources[0]};"
     )
-    dependent = tuple(
+    return declarations, statements
+
+
+def _functional_scatter_bounded_process_rendering(
+    region: expr.FunctionalRegion,
+    plan: FunctionalRegionEmissionPlan,
+    lowering: FunctionalScatterLoweringPlan,
+    *,
+    declaration_indent: str,
+    statement_indent: str,
+    outer_materialized: tuple[_MaterializedExpression, ...] = (),
+) -> tuple[list[str], list[str]]:
+    """Render independent bounded accumulators and a balanced OR tree."""
+
+    scatter = plan.scatter
+    assert scatter is not None
+    first_entry = scatter.entries[0]
+    if any(
+        entry.address.type != first_entry.address.type
+        or entry.value.type != first_entry.value.type
+        for entry in scatter.entries[1:]
+    ):
+        raise SystemVerilogEmissionError(
+            "functional scatter entries do not share exact address/value types"
+        )
+
+    table_by_name = {
+        table.name: table
+        for owner in (region, *(dimension.region for dimension in scatter.dimensions))
+        for table in owner.tables
+    }
+    outer_aliases = ExpressionAliasMap(
+        (item.expression, item.name) for item in outer_materialized
+    )
+    local_temporaries = tuple(
         item
-        for item in ordered
+        for item in scatter.expression_temporaries
+        if item.expression not in outer_aliases
+    )
+    ordered_temporaries = dependency_ordered_materialization(local_temporaries)
+    dependent_temporaries = tuple(
+        item
+        for item in ordered_temporaries
         if any(
             _functional_binder_dependent(
                 item.expression, dimension.region.binder.identity
@@ -8220,20 +8790,16 @@ def _functional_scatter_generate_rendering(
             for dimension in scatter.dimensions
         )
     )
-    dependent_ids = {id(item) for item in dependent}
-    invariant = tuple(item for item in ordered if id(item) not in dependent_ids)
-    destination_count = region.type.length
-    element_width = plan.element_width
-    result_width = destination_count * element_width
-    prefix = plan.identity[:10]
-    contributions = f"zlang_scatter_contributions_{prefix}"
-    declarations = [
-        f"{declaration_indent}logic "
-        f"[{candidate_count * result_width - 1}:0] {contributions};"
-    ]
-    statements: list[str] = []
+    dependent_ids = {id(item) for item in dependent_temporaries}
+    invariant_temporaries = tuple(
+        item for item in ordered_temporaries if id(item) not in dependent_ids
+    )
 
-    def declaration(item: _MaterializedExpression, indent: str) -> str:
+    def declaration(
+        item: _MaterializedExpression,
+        name: str,
+        indent: str,
+    ) -> str:
         signed = (
             " signed"
             if isinstance(item.expression.type, (SIntType, FixedType))
@@ -8241,144 +8807,238 @@ def _functional_scatter_generate_rendering(
         )
         return (
             f"{indent}logic{signed} "
-            f"{_range(_width(item.expression.type))}{item.name};"
+            f"{_range(_width(item.expression.type))}{name};"
         )
 
-    root_context = _FunctionalExpressionContext((), (), ())
-    with _functional_expression_scope(root_context):
-        for item in invariant:
-            declarations.append(declaration(item, declaration_indent))
+    declarations = [
+        declaration(item, item.name, declaration_indent)
+        for item in invariant_temporaries
+    ]
+    statements: list[str] = []
+    invariant_aliases = ExpressionAliasMap(
+        (
+            *((item.expression, item.name) for item in outer_materialized),
+            *((item.expression, item.name) for item in invariant_temporaries),
+        )
+    )
+    with _functional_expression_scope(_FunctionalExpressionContext((), (), ())):
+        for item in invariant_temporaries:
             rewritten = _replace_materialized(
-                item.expression, aliases, keep=item.expression
+                item.expression,
+                invariant_aliases,
+                keep=item.expression,
             )
             statements.append(
-                f"{statement_indent}assign {item.name} = "
-                f"{_expression(rewritten)};"
+                f"{statement_indent}assign {item.name} = {_expression(rewritten)};"
             )
 
-    binders: list[tuple[str, str]] = []
-    captures: tuple[tuple[str, expr.Expression], ...] = ()
+    all_captures: tuple[tuple[str, expr.Expression], ...] = ()
     for dimension in scatter.dimensions:
-        binders.append(
-            (dimension.region.binder.identity, dimension.loop_variable)
+        all_captures = (
+            *((reference.identity, value) for reference, value in dimension.region.captures),
+            *all_captures,
         )
-        captures = (
-            *(
-                (reference.identity, value)
-                for reference, value in dimension.region.captures
-            ),
-            *captures,
-        )
-    context = _FunctionalExpressionContext(tuple(binders), captures, ())
-    indent = statement_indent
-    if scatter.dimensions:
-        statements.append(f"{indent}generate")
-        indent += "  "
-        for ordinal, dimension in enumerate(scatter.dimensions):
-            owned = dimension.region
-            statements.append(
-                f"{indent}for (genvar {dimension.loop_variable} = "
-                f"{owned.binder.start}; {dimension.loop_variable} < "
-                f"{owned.binder.stop}; {dimension.loop_variable} = "
-                f"{dimension.loop_variable} + 1) begin : "
-                f"zlang_scatter_generate_{prefix}_{ordinal}"
-            )
-            indent += "  "
 
-    with _functional_expression_scope(context):
-        for item in dependent:
-            statements.append(declaration(item, indent))
-            rewritten = _replace_materialized(
-                item.expression, aliases, keep=item.expression
-            )
-            statements.append(
-                f"{indent}assign {item.name} = {_expression(rewritten)};"
-            )
-
-        linear_index = "0"
-        for length, dimension in zip(dimension_lengths, scatter.dimensions):
-            offset = (
-                f"({dimension.loop_variable} - "
-                f"{dimension.region.binder.start})"
-            )
-            linear_index = f"(({linear_index}) * {length} + {offset})"
-        for ordinal, entry in enumerate(scatter.entries):
-            index = f"(({linear_index}) * {len(scatter.entries)} + {ordinal})"
-            enabled = _expression(
-                _replace_materialized(entry.enable, aliases)
-            )
-            address = _expression(
-                _replace_materialized(entry.address, aliases)
-            )
-            value = _expression(_replace_materialized(entry.value, aliases))
-            address_width = _width(entry.address.type)
-            guard = (
-                "1'b1"
-                if region.type.length >= 1 << address_width
-                else (
-                    f"($unsigned({address}) < "
-                    f"{address_width}'d{region.type.length})"
-                )
-            )
-            shift = (
-                f"$unsigned({address})"
-                if element_width == 1
-                else f"($unsigned({address}) * {element_width})"
-            )
-            statements.append(
-                f"{indent}assign {contributions}[({index}) * {result_width} "
-                f"+: {result_width}] = (({enabled}) && ({guard})) ? "
-                f"({result_width}'($unsigned({value})) << {shift}) : '0;"
-            )
-
-    if scatter.dimensions:
-        for _ in reversed(scatter.dimensions):
-            indent = indent[:-2]
-            statements.append(f"{indent}end")
-        statements.append(f"{statement_indent}endgenerate")
-
-    source = contributions
-    source_count = candidate_count
-    depth = 0
-    while source_count > 1:
-        target_count = (source_count + 1) // 2
-        target = f"zlang_scatter_reduce_{prefix}_{depth}"
+    for chunk in lowering.chunks:
         declarations.append(
             f"{declaration_indent}logic "
-            f"[{target_count * result_width - 1}:0] {target};"
+            f"[{lowering.result_width - 1}:0] {chunk.accumulator};"
         )
-        pair = f"zlang_scatter_reduce_pair_{prefix}_{depth}"
-        pair_count = source_count // 2
-        if pair_count:
-            statements.extend(
+        for loop_variable in chunk.loop_variables:
+            declarations.append(f"{declaration_indent}integer {loop_variable};")
+        declarations.extend(
+            (
+                f"{declaration_indent}logic {chunk.enable_temporary};",
+                f"{declaration_indent}logic "
+                f"{_range(_width(first_entry.address.type))}{chunk.address_temporary};",
+                f"{declaration_indent}logic "
+                f"{_range(_width(first_entry.value.type))}{chunk.value_temporary};",
+            )
+        )
+        dependent_names = tuple(
+            (item, f"{chunk.accumulator}_expr_{ordinal}")
+            for ordinal, item in enumerate(dependent_temporaries)
+        )
+        declarations.extend(
+            declaration(item, name, declaration_indent)
+            for item, name in dependent_names
+        )
+        table_names: list[tuple[expr.FunctionalTableLookup, str]] = []
+        table_names_by_dimension: dict[
+            int, tuple[tuple[expr.FunctionalTableLookup, str], ...]
+        ] = {}
+        for dimension_ordinal, dimension in enumerate(scatter.dimensions):
+            owned_names = tuple(
                 (
-                    f"{statement_indent}generate",
-                    f"{statement_indent}  for (genvar {pair} = 0; {pair} < "
-                    f"{pair_count}; {pair} = {pair} + 1) begin : "
-                    f"zlang_scatter_reduce_pairs_{prefix}_{depth}",
-                    f"{statement_indent}    assign {target}["
-                    f"{pair} * {result_width} +: {result_width}] = "
-                    f"{source}[({pair} * 2) * {result_width} "
-                    f"+: {result_width}] | {source}["
-                    f"(({pair} * 2) + 1) * {result_width} "
-                    f"+: {result_width}];",
-                    f"{statement_indent}  end",
-                    f"{statement_indent}endgenerate",
+                    lookup,
+                    f"{chunk.accumulator}_table_{dimension_ordinal}_{ordinal}",
+                )
+                for ordinal, (lookup, _temporary) in enumerate(
+                    dimension.table_temporaries
                 )
             )
-        if source_count % 2:
-            statements.append(
-                f"{statement_indent}assign {target}["
-                f"{(target_count - 1) * result_width} +: {result_width}] = "
-                f"{source}[{(source_count - 1) * result_width} "
-                f"+: {result_width}];"
+            table_names_by_dimension[dimension_ordinal] = owned_names
+            table_names.extend(owned_names)
+            for lookup, name in owned_names:
+                signed = (
+                    " signed"
+                    if isinstance(lookup.type, (SIntType, FixedType))
+                    else ""
+                )
+                declarations.append(
+                    f"{declaration_indent}logic{signed} "
+                    f"{_range(_width(lookup.type))}{name};"
+                )
+
+        aliases = ExpressionAliasMap(
+            (
+                *((item.expression, item.name) for item in outer_materialized),
+                *((item.expression, item.name) for item in invariant_temporaries),
+                *((item.expression, name) for item, name in dependent_names),
             )
-        source = target
-        source_count = target_count
-        depth += 1
+        )
+        fixed_binders = tuple(
+            (identity, str(value)) for identity, value in chunk.fixed_binders
+        )
+        remaining_binders = tuple(
+            (
+                scatter.dimensions[dimension_ordinal].region.binder.identity,
+                loop_variable,
+            )
+            for dimension_ordinal, loop_variable in zip(
+                chunk.remaining_dimension_ordinals,
+                chunk.loop_variables,
+            )
+        )
+        context = _FunctionalExpressionContext(
+            (*fixed_binders, *remaining_binders),
+            all_captures,
+            tuple(table_names),
+        )
+        statements.extend(
+            (
+                f"{statement_indent}always_comb begin",
+                f"{statement_indent}  {chunk.accumulator} = '0;",
+                f"{statement_indent}  {chunk.enable_temporary} = '0;",
+                f"{statement_indent}  {chunk.address_temporary} = '0;",
+                f"{statement_indent}  {chunk.value_temporary} = '0;",
+            )
+        )
+        for _item, name in dependent_names:
+            statements.append(f"{statement_indent}  {name} = '0;")
+        for _lookup, name in table_names:
+            statements.append(f"{statement_indent}  {name} = '0;")
+
+        def render_tables(dimension_ordinal: int, indent: str) -> None:
+            for lookup, temporary in table_names_by_dimension[dimension_ordinal]:
+                table = table_by_name.get(lookup.table_name)
+                if table is None:
+                    raise SystemVerilogEmissionError(
+                        f"functional table '{lookup.table_name}' is not declared"
+                    )
+                statements.append(
+                    f"{indent}case ({_compile_time_expression(lookup.index)})"
+                )
+                for offset, value in enumerate(table.values):
+                    statements.append(
+                        f"{indent}  {table.start + offset}: {temporary} = "
+                        f"{_expression(value)};"
+                    )
+                statements.append(f"{indent}endcase")
+
+        def render_entries(indent: str) -> None:
+            for item, name in dependent_names:
+                rewritten = _replace_materialized(
+                    item.expression,
+                    aliases,
+                    keep=item.expression,
+                )
+                statements.append(f"{indent}{name} = {_expression(rewritten)};")
+            for entry in scatter.entries[chunk.entry_start:chunk.entry_stop]:
+                statements.extend(
+                    (
+                        f"{indent}{chunk.enable_temporary} = "
+                        f"{_expression(_replace_materialized(entry.enable, aliases))};",
+                        f"{indent}{chunk.address_temporary} = "
+                        f"{_expression(_replace_materialized(entry.address, aliases))};",
+                        f"{indent}{chunk.value_temporary} = "
+                        f"{_expression(_replace_materialized(entry.value, aliases))};",
+                    )
+                )
+                address_width = _width(entry.address.type)
+                guard = (
+                    "1'b1"
+                    if region.type.length >= 1 << address_width
+                    else (
+                        f"($unsigned({chunk.address_temporary}) < "
+                        f"{address_width}'d{region.type.length})"
+                    )
+                )
+                base = (
+                    f"($unsigned({chunk.address_temporary}) * "
+                    f"{plan.element_width})"
+                )
+                destination = (
+                    f"{chunk.accumulator}[{base} +: {plan.element_width}]"
+                )
+                statements.extend(
+                    (
+                        f"{indent}if (({chunk.enable_temporary}) && ({guard})) begin",
+                        f"{indent}  {destination} = "
+                        f"{plan.element_width}'($unsigned({destination})) | "
+                        f"{plan.element_width}'($unsigned({chunk.value_temporary}));",
+                        f"{indent}end",
+                    )
+                )
+
+        def render_dimensions(position: int, indent: str) -> None:
+            if position == len(chunk.remaining_dimension_ordinals):
+                render_entries(indent)
+                return
+            dimension_ordinal = chunk.remaining_dimension_ordinals[position]
+            dimension = scatter.dimensions[dimension_ordinal]
+            loop_variable = chunk.loop_variables[position]
+            owned = dimension.region
+            statements.append(
+                f"{indent}for ({loop_variable} = {owned.binder.start}; "
+                f"{loop_variable} < {owned.binder.stop}; "
+                f"{loop_variable} = {loop_variable} + 1) begin"
+            )
+            inner = indent + "  "
+            render_tables(dimension_ordinal, inner)
+            render_dimensions(position + 1, inner)
+            statements.append(f"{indent}end")
+
+        with _functional_expression_scope(context):
+            fixed_dimension_count = len(chunk.fixed_binders)
+            for dimension_ordinal in range(fixed_dimension_count):
+                render_tables(dimension_ordinal, statement_indent + "  ")
+            render_dimensions(0, statement_indent + "  ")
+        statements.append(f"{statement_indent}end")
+
+    sources = tuple(chunk.accumulator for chunk in lowering.chunks)
+    for level in lowering.reduction_names:
+        for name in level:
+            declarations.append(
+                f"{declaration_indent}logic "
+                f"[{lowering.result_width - 1}:0] {name};"
+            )
+        next_sources: list[str] = []
+        for ordinal, target in enumerate(level):
+            left = sources[ordinal * 2]
+            right = (
+                sources[ordinal * 2 + 1]
+                if ordinal * 2 + 1 < len(sources)
+                else None
+            )
+            expression = left if right is None else f"{left} | {right}"
+            statements.append(
+                f"{statement_indent}assign {target} = {expression};"
+            )
+            next_sources.append(target)
+        sources = tuple(next_sources)
     statements.append(
-        f"{statement_indent}assign {plan.result_name} = "
-        f"{source}[0 +: {result_width}];"
+        f"{statement_indent}assign {plan.result_name} = {sources[0]};"
     )
     return declarations, statements
 
@@ -8509,7 +9169,9 @@ def _functional_scatter_rendering(
             if region.type.length >= 1 << address_width
             else f"($unsigned({address}) < {address_width}'d{region.type.length})"
         )
-        base = f"($unsigned({address}) * {plan.element_width})"
+        base = _scaled_packed_index(
+            f"$unsigned({address})", plan.element_width
+        )
         destination = f"{plan.result_name}[{base} +: {plan.element_width}]"
         statements.extend(
             (

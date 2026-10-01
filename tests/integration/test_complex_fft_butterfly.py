@@ -15,7 +15,7 @@ from zlang.timing import timing_info
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE = (ROOT / "examples/complex_fft_butterfly.zhl").read_text()
 PIPELINE_SOURCE = (
-    ROOT / "examples/fft/complex_multiply_pipeline_auto.zhl"
+    ROOT / "examples/fft/complex_multiply_implementation.zhl"
 ).read_text()
 
 
@@ -64,12 +64,12 @@ def test_complex_butterfly_direct_sv_is_lint_clean_and_materialized() -> None:
 @pytest.mark.skipif(shutil.which("verilator") is None, reason="Verilator unavailable")
 def test_signed_complex_real_pipeline_direct_sv_is_lint_clean() -> None:
     module = compile_source(
-        PIPELINE_SOURCE, top="FFTComplexMultiplyRealAuto"
+        PIPELINE_SOURCE, top="FFTComplexMultiplyRealImplementation"
     ).ir
     text = emit_experimental(module)
     assert " - " in text
     with tempfile.TemporaryDirectory() as temporary:
-        rtl = Path(temporary) / "FFTComplexMultiplyRealAuto.sv"
+        rtl = Path(temporary) / "FFTComplexMultiplyRealImplementation.sv"
         rtl.write_text(text)
         subprocess.run(
             ("verilator", "--lint-only", "-Wall", "-Wno-fatal", str(rtl)),
@@ -87,7 +87,7 @@ module tb;
   logic signed [17:0] sample_re=0, sample_im=0;
   logic signed [15:0] twiddle_re=0, twiddle_im=0;
   wire signed [17:0] result;
-  FFTComplexMultiplyRealAuto dut(
+  FFTComplexMultiplyRealImplementation dut(
     .clk,.rst,.sample_re,.sample_im,.twiddle_re,.twiddle_im,.result
   );
   task tick; begin #1 clk=1; #1; clk=0; #1; end endtask
@@ -124,7 +124,7 @@ def _simulate_rtl(files: list[Path], root: Path, *, latency: int) -> None:
 @pytest.mark.skipif(shutil.which("verilator") is None, reason="Verilator unavailable")
 def test_signed_complex_real_pipeline_direct_sv_simulates_bit_exact() -> None:
     module = compile_source(
-        PIPELINE_SOURCE, top="FFTComplexMultiplyRealAuto"
+        PIPELINE_SOURCE, top="FFTComplexMultiplyRealImplementation"
     ).ir
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)

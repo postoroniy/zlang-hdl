@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Route the selected high-level target-aware FIR candidates in Vivado."""
+"""Route selected high-level implementation FIR candidates in Vivado."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ except ModuleNotFoundError:  # Direct ``python tools/<script>.py`` execution.
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = ROOT / "examples" / "symmetric_fixed_fir_auto.zhl"
+SOURCE = ROOT / "examples" / "symmetric_fixed_fir_implementation.zhl"
 CONFIGURATIONS = (
     "unregistered",
     "multiply_registered",
@@ -166,8 +166,8 @@ def main() -> int:
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
     source = SOURCE.read_text()
-    bounded = compile_source(source, top="SymmetricFixedFIRAuto", target=args.part)
-    exact = compile_source(source, top="SymmetricFixedFIRAutoExact8", target=args.part)
+    bounded = compile_source(source, top="SymmetricFixedFIRImplementation", target=args.part)
+    exact = compile_source(source, top="SymmetricFixedFIRImplementationExact8", target=args.part)
     bounded_graphs = tuple(
         candidate.graph
         for candidate in bounded.target_planning_result.generated_candidates
@@ -186,11 +186,11 @@ def main() -> int:
     route_requests = tuple(
         (
             f"bounded_{graph.pipeline_configuration_identity.rsplit('.', 1)[-1]}",
-            "SymmetricFixedFIRAuto", bounded.ir, graph,
+            "SymmetricFixedFIRImplementation", bounded.ir, graph,
         )
         for graph in bounded_graphs
     ) + (
-        ("exact8", "SymmetricFixedFIRAutoExact8", exact.ir, exact_graph),
+        ("exact8", "SymmetricFixedFIRImplementationExact8", exact.ir, exact_graph),
     )
     with ThreadPoolExecutor(max_workers=max(1, args.jobs)) as executor:
         futures = [

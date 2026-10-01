@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run bounded compiler-owned equivalence and isolated RTL mutation checks.
+"""Run implementation-selection equivalence and isolated RTL mutation checks.
 
 This tutorial driver uses the existing CLI, immutable candidate replay inputs,
 and semantic-reference equivalence executor. It does not add assumptions, alter selection, or modify the
@@ -28,7 +28,7 @@ from zlang.verification_bundle import (
 )
 
 
-DEFAULT_SOURCE = Path(__file__).resolve().parents[1] / "examples/verification/math_exploration.zhl"
+DEFAULT_SOURCE = Path(__file__).resolve().parents[1] / "examples/verification/math_implementation.zhl"
 
 
 def mutate_output(rtl: str, output: str, width: int, mutation: str) -> str:
@@ -75,8 +75,8 @@ def run(output: Path, *, source: Path = DEFAULT_SOURCE, depth: int = 10, timeout
     output.mkdir(parents=True)
     started = time.monotonic()
     arguments = [
-        str(source), "--top", "MathExplore",
-        "--systemverilog", str(output / "MathExplore.sv"),
+        str(source), "--top", "MathImplementationPipeline",
+        "--systemverilog", str(output / "MathImplementationPipeline.sv"),
         "--verify", "--formal-policy", "required_bmc",
         "--formal-depth", str(depth), "--formal-timeout", str(timeout),
         "--formal-max-candidates", "1", "--formal-cache", str(output / "cache"),
@@ -159,7 +159,7 @@ def run(output: Path, *, source: Path = DEFAULT_SOURCE, depth: int = 10, timeout
         "schema": "zlang-math-exploration-formal-demo-v1",
         "accepted": accepted, "compiler_exit_code": status,
         "source": str(source.resolve()), "source_sha256": source_hash,
-        "top": "MathExplore", "depth": depth, "timeout_seconds": timeout,
+        "top": "MathImplementationPipeline", "depth": depth, "timeout_seconds": timeout,
         "candidate_statuses": candidate_statuses, "checks": checks,
         "seconds": time.monotonic() - started,
         "claim": "bounded equivalence only; not unbounded proof or measured FPGA timing",

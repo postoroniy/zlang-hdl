@@ -6,7 +6,7 @@ import re
 import ast as pyast
 import hashlib
 from collections.abc import Iterable
-from dataclasses import MISSING, dataclass, field, fields, is_dataclass, replace
+from dataclasses import dataclass, field, fields, is_dataclass, replace
 from fractions import Fraction
 from typing import NoReturn
 
@@ -22,7 +22,6 @@ from zlang.ir import arbitration as ir_arbitration
 from zlang.ir import verification as ir_verification
 from zlang.ir import pipelines as ir_pipelines
 from zlang.ir import elastic as ir_elastic
-from zlang.ir import architectures as ir_architectures
 from zlang.ir import packing as ir_packing
 from zlang.ir import timing as ir_timing
 from zlang.ir import external as ir_external
@@ -54,7 +53,6 @@ from zlang.ir.exact_simplification import (
     exact_numeric_widen,
     simplify_binary,
 )
-from zlang.ir.expression_arena import SemanticExpressionArena
 from zlang.ir.callables import (
     CallableKind,
     CallableExpansionError,
@@ -131,8 +129,15 @@ from zlang.pipelines import (
 from zlang.source import SourceOrigin, SourceSpan
 from zlang.completion_resolution import CompletionCandidate, CompletionScope
 from zlang.definition_resolution import DefinitionResolution, DefinitionTarget
-from zlang.signature_help_resolution import SignatureHelpCall, SignatureParameter
+from zlang.signature_help_resolution import SignatureHelpCall
 from .errors import SemanticError
+from .context import (
+    AnalysisServices,
+    ExpressionContext as _ExpressionContext,
+)
+from . import observations as _observations
+from .expressions import check_expression as _check_expression_boundary
+from .module_validation import reject_dependency_cycles
 from .public_timing import analyze_public_module_timing
 from zlang.dependencies import DependencyClosure, DependencyModuleIdentity
 from zlang.module_resolver import (
@@ -3428,234 +3433,6 @@ class _CompileTimeRealQuantization:
     logical_operations: int
 
 
-@dataclass(frozen=True)
-class AnalysisEnvironment:
-    """Immutable catalog and configuration shared by expression scopes."""
-
-    functions: dict[str, _FunctionSignature]
-    clock_domains: tuple[str, ...] = ()
-    default_clock_domain: str | None = None
-    generic_functions: dict[str, ast.FunctionDecl] = field(default_factory=dict)
-    function_catalog: _FunctionCatalog | None = None
-    operator_declarations: tuple[ast.OperatorDecl, ...] = ()
-    struct_declarations: tuple[ast.StructDecl, ...] = ()
-    generic_dependency_identity: tuple[tuple[str, str], ...] = ()
-    structs: tuple[StructType, ...] = ()
-    parameters: dict[str, int] = field(default_factory=dict)
-    unresolved_parameters: frozenset[str] = frozenset()
-    type_resolver: _TypeResolver | None = None
-    source_digests: dict[str, str] = field(default_factory=dict)
-    analysis_needs: AnalysisNeeds = AnalysisNeeds.NONE
-    formal_config: object | None = None
-    formal_verifier: object | None = None
-
-
-@dataclass
-class AnalysisServices:
-    """Mutable state owned by exactly one top-level semantic analysis."""
-
-    generic_specializations: list[ir_module.GenericSpecialization] = field(default_factory=list)
-    function_definitions: dict[str, ir_module.Function] = field(default_factory=dict)
-    callable_definitions: dict[str, ir_module.Function] = field(default_factory=dict)
-    callable_use_counts: dict[str, int] = field(default_factory=dict)
-    specializations_in_progress: set[str] = field(default_factory=set)
-    specialization_budget_costs: dict[str, tuple[int, int]] = field(
-        default_factory=dict
-    )
-    compile_time_real_quantize_cache: dict[
-        tuple[object, ...], _CompileTimeRealQuantization
-    ] = field(default_factory=dict)
-    compile_time_budget: "_CompileTimeBudget | None" = None
-    exploration_results: list[object] | None = None
-    definition_resolutions: list[DefinitionResolution] | None = None
-    definition_targets: dict[int, SourceOrigin] = field(default_factory=dict)
-    definition_declarations: list[DefinitionTarget] | None = None
-    completion_scopes: list[CompletionScope] | None = None
-    signature_help_calls: list[SignatureHelpCall] | None = None
-    expression_arena: SemanticExpressionArena = field(
-        default_factory=SemanticExpressionArena
-    )
-    local_expansion_nodes: int = 0
-
-
-@dataclass(frozen=True)
-class ExpressionScope:
-    """Cheap lexical state derived while checking one expression region."""
-
-    allow_delay: bool
-    compile_time_constants: dict[str, ir_expr.Expression] = field(default_factory=dict)
-    static_callables: dict[str, _StaticCallableBinding] = field(default_factory=dict)
-    resolution_stack: tuple[str, ...] = ()
-    allow_fixed_target_coercion: bool = True
-    instance_outputs: dict[tuple[str, str], HardwareType] = field(default_factory=dict)
-    instance_output_protocols: dict[
-        tuple[str, str], InterfaceProtocol
-    ] = field(default_factory=dict)
-    instance_output_domains: dict[tuple[str, str], str | None] = field(
-        default_factory=dict
-    )
-    instance_protocol_outputs: dict[
-        tuple[str, str], tuple[str, HardwareType, str | None]
-    ] = field(default_factory=dict)
-    instance_csr_state_paths: dict[
-        tuple[str, ...], tuple[str, HardwareType, str | None]
-    ] = field(default_factory=dict)
-    instance_arrays: dict[str, int] = field(default_factory=dict)
-    allow_runtime_instance_projection: bool = False
-    write_only_outputs: dict[str, ir_module.Port] = field(default_factory=dict)
-    readable_cdc_outputs: set[str] = field(default_factory=set)
-    allow_output_reads: bool = False
-    allow_implementation_choice: bool = False
-    candidate_site_owner: str | None = None
-    next_delay_instance: int = 0
-    index_bindings: dict[str, int] = field(default_factory=dict)
-    functional_symbolic_values: dict[str, CompileTimeExpr] = field(
-        default_factory=dict
-    )
-    functional_specialization_certificates: list[
-        FunctionalSpecializationCertificate
-    ] = field(default_factory=list)
-    range_refinements: dict[str, ir_expr.ValueRange] = field(default_factory=dict)
-    index_types: dict[str, HardwareType] = field(default_factory=dict)
-    aggregate_paths: dict[str, str] = field(default_factory=dict)
-    union_binders: dict[str, ir_expr.Expression] = field(default_factory=dict)
-    source_unit: str | None = None
-    source_digest: str | None = None
-    functional_binder_ordinals: dict[int, int] = field(default_factory=dict)
-    next_functional_binder_ordinal: list[int] = field(
-        default_factory=lambda: [0]
-    )
-    functional_binder_nesting: tuple[int, ...] = ()
-    functional_binder_callable_identity: str | None = None
-
-
-_CONTEXT_OWNERS = (AnalysisEnvironment, AnalysisServices, ExpressionScope)
-_CONTEXT_FIELD_OWNER = {
-    descriptor.name: owner
-    for owner in _CONTEXT_OWNERS
-    for descriptor in fields(owner)
-}
-
-
-def _owner_from_values(owner: type, values: dict[str, object]):
-    arguments: dict[str, object] = {}
-    for descriptor in fields(owner):
-        if descriptor.name in values:
-            arguments[descriptor.name] = values.pop(descriptor.name)
-        elif descriptor.default is not MISSING:
-            arguments[descriptor.name] = descriptor.default
-        elif descriptor.default_factory is not MISSING:
-            arguments[descriptor.name] = descriptor.default_factory()
-        else:
-            raise TypeError(f"missing expression-context field '{descriptor.name}'")
-    return owner(**arguments)
-
-
-class _ExpressionContext:
-    """Compatibility facade over explicit environment/services/scope owners."""
-
-    def __init__(
-        self,
-        functions: dict[str, _FunctionSignature],
-        *,
-        allow_delay: bool,
-        **values: object,
-    ) -> None:
-        retained = dict(values)
-        retained["functions"] = functions
-        retained["allow_delay"] = allow_delay
-        object.__setattr__(
-            self, "_environment", _owner_from_values(AnalysisEnvironment, retained)
-        )
-        object.__setattr__(
-            self, "_services", _owner_from_values(AnalysisServices, retained)
-        )
-        object.__setattr__(
-            self, "_scope", _owner_from_values(ExpressionScope, retained)
-        )
-        if retained:
-            names = ", ".join(sorted(retained))
-            raise TypeError(f"unknown expression-context field(s): {names}")
-
-    @classmethod
-    def _from_parts(
-        cls,
-        environment: AnalysisEnvironment,
-        services: AnalysisServices,
-        scope: ExpressionScope,
-    ) -> "_ExpressionContext":
-        context = object.__new__(cls)
-        object.__setattr__(context, "_environment", environment)
-        object.__setattr__(context, "_services", services)
-        object.__setattr__(context, "_scope", scope)
-        return context
-
-    @property
-    def environment(self) -> AnalysisEnvironment:
-        return self._environment
-
-    @property
-    def services(self) -> AnalysisServices:
-        return self._services
-
-    @property
-    def scope(self) -> ExpressionScope:
-        return self._scope
-
-    def __getattr__(self, name: str):
-        owner = _CONTEXT_FIELD_OWNER.get(name)
-        if owner is AnalysisEnvironment:
-            return getattr(self._environment, name)
-        if owner is AnalysisServices:
-            return getattr(self._services, name)
-        if owner is ExpressionScope:
-            return getattr(self._scope, name)
-        raise AttributeError(name)
-
-    def __setattr__(self, name: str, value: object) -> None:
-        owner = _CONTEXT_FIELD_OWNER.get(name)
-        if owner is None:
-            object.__setattr__(self, name, value)
-            return
-        attribute = {
-            AnalysisEnvironment: "_environment",
-            AnalysisServices: "_services",
-            ExpressionScope: "_scope",
-        }[owner]
-        object.__setattr__(
-            self,
-            attribute,
-            replace(getattr(self, attribute), **{name: value}),
-        )
-
-    def derive(self, **changes: object) -> "_ExpressionContext":
-        unknown = set(changes) - set(_CONTEXT_FIELD_OWNER)
-        if unknown:
-            names = ", ".join(sorted(unknown))
-            raise TypeError(f"unknown expression-context field(s): {names}")
-        owners = {
-            AnalysisEnvironment: self._environment,
-            AnalysisServices: self._services,
-            ExpressionScope: self._scope,
-        }
-        for owner in _CONTEXT_OWNERS:
-            updates = {
-                name: value
-                for name, value in changes.items()
-                if _CONTEXT_FIELD_OWNER[name] is owner
-            }
-            if updates:
-                owners[owner] = replace(owners[owner], **updates)
-        return self._from_parts(
-            owners[AnalysisEnvironment],
-            owners[AnalysisServices],
-            owners[ExpressionScope],
-        )
-
-    def allocate_delay(self) -> int:
-        instance = self.next_delay_instance
-        self.next_delay_instance += 1
-        return instance
 
 
 def _context_for_source_declaration(
@@ -12390,9 +12167,6 @@ def analyze(
     assignments: list[ir_module.Assignment] = []
     pipeline_explorations: list[ir_pipelines.PipelineExploration] = []
     elastic_pipeline_regions: list[ir_elastic.ElasticPipelineRegion] = []
-    architecture_explorations: list[
-        ir_architectures.ArchitectureExploration
-    ] = []
     assigned_outputs: set[
         tuple[str, RequestResponseChannel | None, InterfaceSignal | None]
     ] = set()
@@ -14214,50 +13988,50 @@ def analyze(
                     for name in sorted(pipeline_by_name)
                 )
                 if pipeline_candidates:
-                    if pipeline_candidates:
-                        # The target planner consumes the typed pipeline
-                        # candidate set even when the generic bounded exploration extractor
-                        # selected the source/value candidate.  `implement`
-                        # is one unified policy region, so target-aware
-                        # planning must not disappear merely because its
-                        # first backend-independent pass preferred the
-                        # generic realization.
-                        selected_name = (
-                            selected_pipeline.name
-                            if isinstance(selected_pipeline, ir_pipelines.PipelineCandidate)
-                            else pipeline_candidates[0].name
+                    # The target planner consumes the typed pipeline
+                    # candidate set even when the generic bounded exploration
+                    # extractor selected the source/value candidate.  `implement`
+                    # is one unified policy region, so target-aware planning must
+                    # not disappear merely because its first backend-independent
+                    # pass preferred the generic realization.
+                    selected_name = (
+                        selected_pipeline.name
+                        if isinstance(
+                            selected_pipeline, ir_pipelines.PipelineCandidate
                         )
-                        pipeline_constraints = pipeline_constraints_from_unified(
-                            constraints_from_syntax(
-                                assignment.expression.constraints
-                            )
+                        else pipeline_candidates[0].name
+                    )
+                    pipeline_constraints = pipeline_constraints_from_unified(
+                        constraints_from_syntax(
+                            assignment.expression.constraints
                         )
-                        # This retained pipeline candidate is an internal
-                        # implementation region.  Its source spelling is
-                        # ``implement``; do not masquerade as a retired
-                        # canonical implement source for evidence identity.
-                        pipeline_operand = operand
-                        if assignment.expression.origin is not None:
-                            pipeline_origin = SourceOrigin(
-                                assignment.expression.origin,
-                                "implement",
-                                module_context.source_unit,
-                                module_context.source_digest,
-                            )
-                            pipeline_operand = replace(
-                                pipeline_operand, origin=pipeline_origin
-                            )
-                        pipeline_explorations.append(
-                            ir_pipelines.PipelineExploration(
-                                target.name,
-                                target_type,
-                                pipeline_operand,
-                                pipeline_constraints,
-                                pipeline_candidates,
-                                selected_name,
-                                len(pipeline_candidates),
-                            )
+                    )
+                    # This retained pipeline candidate is an internal
+                    # implementation region.  Its source spelling is
+                    # ``implement``; do not masquerade as a retired source form
+                    # for evidence identity.
+                    pipeline_operand = operand
+                    if assignment.expression.origin is not None:
+                        pipeline_origin = SourceOrigin(
+                            assignment.expression.origin,
+                            "implement",
+                            module_context.source_unit,
+                            module_context.source_digest,
                         )
+                        pipeline_operand = replace(
+                            pipeline_operand, origin=pipeline_origin
+                        )
+                    pipeline_explorations.append(
+                        ir_pipelines.PipelineExploration(
+                            target.name,
+                            target_type,
+                            pipeline_operand,
+                            pipeline_constraints,
+                            pipeline_candidates,
+                            selected_name,
+                            len(pipeline_candidates),
+                        )
+                    )
             exploration_origin = _semantic_origin(
                 assignment.expression, module_context
             )
@@ -15292,7 +15066,6 @@ def analyze(
         contracts=tuple(contracts),
         pipeline_explorations=tuple(pipeline_explorations),
         elastic_pipeline_regions=tuple(elastic_pipeline_regions),
-        architecture_explorations=tuple(architecture_explorations),
         equivalences=tuple(equivalences),
         parameters=resolved_module_parameters,
         instances=tuple(instances),
@@ -16270,114 +16043,21 @@ def _completion_function_detail(
     signature: _FunctionSignature | None = None,
     declaration: ast.FunctionDecl | None = None,
 ) -> str:
-    """Render a stable source-facing callable detail for completion."""
-
-    if signature is not None:
-        parameters = ", ".join(
-            f"{parameter.name} : {parameter.type}"
-            for parameter in signature.parameters
-        )
-        return f"fn {name}({parameters}) -> {signature.return_type}"
-    if declaration is None:
-        return f"fn {name}"
-    parameters = ", ".join(
-        f"{parameter.name} : {parameter.type_name}"
-        for parameter in declaration.parameters
+    return _observations.completion_function_detail(
+        name,
+        signature=signature,
+        declaration=declaration,
     )
-    generic = ""
-    if declaration.generic_parameters:
-        generic = "<" + ", ".join(
-            parameter.name for parameter in declaration.generic_parameters
-        ) + ">"
-    suffix = (
-        f" -> {declaration.return_type}"
-        if declaration.return_type is not None
-        else ""
-    )
-    return f"fn {name}{generic}({parameters}){suffix}"
 
 
 def _completion_candidates(
     inputs: dict[str, _ValueSymbol],
     context: _ExpressionContext,
 ) -> tuple[CompletionCandidate, ...]:
-    """Project the compiler's current semantic environment for one scope."""
-
-    candidates: list[CompletionCandidate] = []
-    for name, signature in context.functions.items():
-        candidates.append(
-            CompletionCandidate(
-                name,
-                "function",
-                _completion_function_detail(name, signature=signature),
-                context.definition_targets.get(id(signature.declaration)),
-            )
-        )
-    for name, declaration in context.generic_functions.items():
-        candidates.append(
-            CompletionCandidate(
-                name,
-                "function",
-                _completion_function_detail(name, declaration=declaration),
-                context.definition_targets.get(id(declaration)),
-            )
-        )
-    for name, symbol in inputs.items():
-        kind: str | None = None
-        detail: str | None = None
-        if isinstance(symbol, ir_module.Port):
-            if symbol.protocol is not InterfaceProtocol.WIRE:
-                continue
-            kind, detail = "port", str(symbol.type)
-        elif isinstance(symbol, ir_module.FunctionParameter):
-            kind, detail = "parameter", str(symbol.type)
-        elif isinstance(symbol, ir_module.LocalValue):
-            kind, detail = "value", str(symbol.type)
-        elif isinstance(symbol, ir_expr.Expression):
-            # Callable-local immutable bindings are represented by their
-            # already-typed expression rather than a LocalValue.
-            kind, detail = "value", str(symbol.type)
-        if kind is None:
-            continue
-        candidates.append(
-            CompletionCandidate(
-                name,
-                kind,
-                detail,
-                context.definition_targets.get(id(symbol)),
-            )
-        )
-    for name in context.parameters:
-        candidates.append(CompletionCandidate(name, "parameter", "compile-time parameter"))
-    for name in context.index_bindings:
-        candidates.append(CompletionCandidate(name, "parameter", "compile-time index"))
-    for name, value in context.compile_time_constants.items():
-        candidates.append(CompletionCandidate(name, "parameter", str(value.type)))
-    for name in context.static_callables:
-        candidates.append(CompletionCandidate(name, "function", f"fn {name}"))
-
-    unique: dict[tuple[object, ...], CompletionCandidate] = {}
-    for candidate in candidates:
-        target = candidate.target
-        target_key = (
-            None
-            if target is None
-            else (
-                target.source_unit,
-                target.digest,
-                target.span.start_line,
-                target.span.start_column,
-                target.span.end_line,
-                target.span.end_column,
-                target.construct,
-            )
-        )
-        unique[(candidate.name, candidate.kind, candidate.detail, target_key)] = candidate
-    return tuple(
-        sorted(
-            unique.values(),
-            key=lambda candidate: (candidate.name, candidate.kind, candidate.detail or ""),
-        )
+    return _observations.completion_candidates(
+        inputs,
+        context,
+        _completion_function_detail,
     )
 
 
@@ -16386,15 +16066,13 @@ def _record_completion_scope(
     inputs: dict[str, _ValueSymbol],
     context: _ExpressionContext,
 ) -> None:
-    """Record visible candidates without affecting semantic checking."""
-
-    if context.completion_scopes is None or expression.origin is None:
-        return
-    origin = _semantic_origin(expression, context)
-    if origin is None:
-        return
-    context.completion_scopes.append(
-        CompletionScope(origin, _completion_candidates(inputs, context))
+    _observations.record_completion_scope(
+        context.completion_scopes,
+        expression,
+        inputs,
+        context,
+        _semantic_origin,
+        _completion_candidates,
     )
 
 
@@ -16404,36 +16082,15 @@ def _record_signature_help_call(
     parameters: tuple[ir_module.FunctionParameter, ...],
     return_type: HardwareType,
 ) -> None:
-    """Record one resolved call for semantic signature-help queries."""
-
-    if context.signature_help_calls is None or expression.origin is None:
-        return
-    call_origin = _semantic_origin(expression, context)
-    if call_origin is None or len(parameters) != len(expression.arguments):
-        return
-    argument_origins = tuple(
-        _semantic_origin(argument, context) for argument in expression.arguments
+    _observations.record_signature_help_call(
+        context.signature_help_calls,
+        expression,
+        context,
+        parameters,
+        return_type,
+        _semantic_origin,
+        _callable_reference_origin,
     )
-    # Active-parameter selection is only sound when every argument has an
-    # authoritative parser span.  The callee span may be absent for a few
-    # synthesized/internal calls; the enclosing call span remains sufficient
-    # for a conservative query in that case.
-    record = SignatureHelpCall(
-        call_origin,
-        _callable_reference_origin(expression, context),
-        argument_origins,
-        expression.function,
-        tuple(
-            SignatureParameter(parameter.name, str(parameter.type))
-            for parameter in parameters
-        ),
-        str(return_type),
-    )
-    # Return-type probing and the final callable-body check can visit the same
-    # source call more than once.  Keep one deterministic compiler fact for a
-    # given resolved call/signature while retaining distinct specializations.
-    if record not in context.signature_help_calls:
-        context.signature_help_calls.append(record)
 
 
 def _check_expression(
@@ -16442,31 +16099,14 @@ def _check_expression(
     expected: HardwareType | None,
     context: _ExpressionContext,
 ) -> ir_expr.Expression:
-    """Type one expression and attach its exact source origin on failure.
-
-    Individual semantic helpers own stable diagnostic codes and may provide a
-    more precise primary origin.  Older helpers often raise only a message,
-    though.  This boundary is the narrowest common point that still knows the
-    exact AST expression being checked, so it supplies that origin without
-    replacing diagnostics which already carry one.
-    """
-
-    try:
-        return _check_expression_traced(expression, inputs, expected, context)
-    except SemanticError as error:
-        if error.primary is not None:
-            raise
-        primary = _semantic_origin(expression, context)
-        if primary is None:
-            raise
-        raise SemanticError(
-            str(error),
-            code=error.code,
-            primary=primary,
-            notes=error.notes,
-            fixes=error.fixes,
-            machine_fixes=error.machine_fixes,
-        ) from error
+    return _check_expression_boundary(
+        _check_expression_traced,
+        expression,
+        inputs,
+        expected,
+        context,
+        _semantic_origin,
+    )
 
 
 def _check_expression_traced(
@@ -22926,28 +22566,11 @@ def _reject_instance_output_dependency_cycles(
                 dependencies.update(referenced_outputs)
             graph[(instance, output.name)] = dependencies
 
-    visited: set[tuple[str, str]] = set()
-    active: list[tuple[str, str]] = []
-
-    def visit(node: tuple[str, str]) -> None:
-        if node in active:
-            start = active.index(node)
-            cycle = " -> ".join(
-                f"{instance}.{port}" for instance, port in (*active[start:], node)
-            )
-            raise SemanticError(
-                f"combinational child dependency cycle: {cycle}"
-            )
-        if node in visited or node not in graph:
-            return
-        active.append(node)
-        for dependency in sorted(graph[node]):
-            visit(dependency)
-        active.pop()
-        visited.add(node)
-
-    for node in sorted(graph):
-        visit(node)
+    reject_dependency_cycles(
+        graph,
+        render_node=lambda node: f"{node[0]}.{node[1]}",
+        description="child",
+    )
 
 
 def _reject_interface_dependency_cycles(
@@ -22962,50 +22585,33 @@ def _reject_interface_dependency_cycles(
         target: _interface_dependencies(assignment.expression) & driven.keys()
         for target, assignment in driven.items()
     }
-    visited: set[
-        tuple[str, RequestResponseChannel | None, InterfaceSignal]
-    ] = set()
-    active: list[
-        tuple[str, RequestResponseChannel | None, InterfaceSignal]
-    ] = []
+    def describe_interface_cycle(
+        cycle: tuple[
+            tuple[str, RequestResponseChannel | None, InterfaceSignal], ...
+        ],
+    ) -> str:
+        protocols = {
+            "request_response" if channel is not None else type(signal)
+            for _, channel, signal in cycle
+        }
+        if protocols == {ReadyValidSignal}:
+            return "ready/valid"
+        if protocols == {CreditSignal}:
+            return "credit"
+        if protocols == {"request_response"}:
+            return "request/response"
+        return "interface"
 
-    def visit(
-        target: tuple[str, RequestResponseChannel | None, InterfaceSignal]
-    ) -> None:
-        if target in active:
-            start = active.index(target)
-            cycle = " -> ".join(
-                (
-                    f"{interface}.{channel.value}.{signal.value}"
-                    if channel is not None
-                    else f"{interface}.{signal.value}"
-                )
-                for interface, channel, signal in (*active[start:], target)
-            )
-            protocols = {
-                "request_response" if channel is not None else type(signal)
-                for _, channel, signal in (*active[start:], target)
-            }
-            description = (
-                "ready/valid"
-                if protocols == {ReadyValidSignal}
-                else "credit"
-                if protocols == {CreditSignal}
-                else "request/response"
-                if protocols == {"request_response"}
-                else "interface"
-            )
-            raise SemanticError(f"combinational {description} dependency cycle: {cycle}")
-        if target in visited:
-            return
-        active.append(target)
-        for dependency in dependencies[target]:
-            visit(dependency)
-        active.pop()
-        visited.add(target)
-
-    for target in driven:
-        visit(target)
+    reject_dependency_cycles(
+        dependencies,
+        render_node=lambda target: (
+            f"{target[0]}.{target[1].value}.{target[2].value}"
+            if target[1] is not None
+            else f"{target[0]}.{target[2].value}"
+        ),
+        description=describe_interface_cycle,
+        stable_sort=False,
+    )
 
 
 def _reject_memory_dependency_cycles(
@@ -23101,28 +22707,11 @@ def _reject_memory_dependency_cycles(
             if control is not None
         ))
 
-    visited: set[str] = set()
-    active: list[str] = []
-
-    def visit(name: str) -> None:
-        if name in active:
-            start = active.index(name)
-            cycle = " -> ".join(
-                f"{item}.read_data" for item in (*active[start:], name)
-            )
-            raise SemanticError(
-                f"combinational memory dependency cycle: {cycle}"
-            )
-        if name in visited:
-            return
-        active.append(name)
-        for dependency in sorted(graph[name]):
-            visit(dependency)
-        active.pop()
-        visited.add(name)
-
-    for name in sorted(graph):
-        visit(name)
+    reject_dependency_cycles(
+        graph,
+        render_node=lambda name: f"{name}.read_data",
+        description="memory",
+    )
 
 
 def _interface_dependencies(

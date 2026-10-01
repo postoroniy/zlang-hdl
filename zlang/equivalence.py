@@ -910,7 +910,7 @@ def publish_bindings(module: Module, *, side: BindingSide, selected_ir_identity:
     if module.elastic_pipeline_regions:
         raise EquivalenceError(
             "semantic-reference equivalence fixed-latency equivalence does not support variable-latency "
-            "elastic pipeline(auto) regions"
+            "transform pipeline(auto) regions"
         )
     protocol_ports = tuple(
         port

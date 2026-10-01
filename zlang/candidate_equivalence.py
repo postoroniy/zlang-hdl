@@ -19,7 +19,7 @@ from zlang.candidate_sites import (
     candidate_owner_formal_domain,
     selected_candidate_sites,
 )
-from zlang.common import stable_digest
+from zlang.common import ObjectReader, stable_digest
 from zlang.equivalence import run_equivalence_formal
 from zlang.equivalence_result_codec import (
     equivalence_result_from_data,
@@ -169,25 +169,31 @@ class FrozenCandidateEquivalenceSite:
 
     @classmethod
     def from_data(cls, value: object) -> "FrozenCandidateEquivalenceSite":
-        if not isinstance(value, dict) or set(value) != {
-            "schema", "plan", "direct_systemverilog", "replay_identity",
-        }:
+        try:
+            data = ObjectReader(
+                value,
+                "frozen candidate equivalence",
+                FormalOrchestrationError,
+            ).exact_keys({
+                "schema", "plan", "direct_systemverilog", "replay_identity",
+            })
+        except FormalOrchestrationError as error:
             raise FormalOrchestrationError(
                 "frozen candidate equivalence fields differ from the current schema"
-            )
-        if value["schema"] != "zlang-frozen-candidate-equivalence-site-v3":
+            ) from error
+        if data["schema"] != "zlang-frozen-candidate-equivalence-site-v3":
             raise FormalOrchestrationError(
                 "unsupported frozen candidate equivalence schema"
             )
         try:
-            plan = CandidateEquivalencePlanReference.from_data(value["plan"])
+            plan = CandidateEquivalencePlanReference.from_data(data["plan"])
             prepared = prepared_candidate_equivalence_from_data(
-                value["direct_systemverilog"]
+                data["direct_systemverilog"]
             )
         except (TypeError, ValueError) as error:
             raise FormalOrchestrationError(str(error)) from error
         restored = cls(plan, prepared.property, prepared)
-        if value["replay_identity"] != restored.replay_identity:
+        if data["replay_identity"] != restored.replay_identity:
             raise FormalOrchestrationError(
                 "frozen candidate replay identity does not match its contents"
             )
