@@ -82,7 +82,7 @@ def test_direct_sv_runtime_expression_index_simulates(tmp_path: Path) -> None:
     rtl = tmp_path / "RuntimeSelect.sv"
     rtl.write_text(artifact.text)
     assert artifact.bindings[0].width == 32
-    assert "32'(2'(raw_index))" in artifact.text
+    assert "values[2'(raw_index)]" in artifact.text
     _run_verilator([rtl], tmp_path, "sv")
 
 

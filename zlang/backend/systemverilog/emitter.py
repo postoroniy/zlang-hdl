@@ -237,6 +237,7 @@ class TopBoundaryPlan:
     module_name: str
     public_ports: tuple[str, ...]
     base_aliases: tuple[tuple[str, str], ...]
+    direct_vector_bases: tuple[str, ...]
     declarations: tuple[str, ...]
     input_bridges: tuple[str, ...]
     output_bridges: tuple[str, ...]
@@ -245,8 +246,12 @@ class TopBoundaryPlan:
     def identity(self) -> str:
         """Stable physical identity of the validated inline boundary."""
 
-        return stable_digest({
-            "schema": "zlang-direct-sv-top-boundary-v2",
+        payload: dict[str, object] = {
+            "schema": (
+                "zlang-direct-sv-top-boundary-v3"
+                if self.direct_vector_bases
+                else "zlang-direct-sv-top-boundary-v2"
+            ),
             "packing_layout_schema": ir_packing.PACKING_LAYOUT_SCHEMA,
             "module": self.module_name,
             "public_ports": list(self.public_ports),
@@ -254,7 +259,10 @@ class TopBoundaryPlan:
             "declarations": list(self.declarations),
             "input_bridges": list(self.input_bridges),
             "output_bridges": list(self.output_bridges),
-        })
+        }
+        if self.direct_vector_bases:
+            payload["direct_vector_bases"] = list(self.direct_vector_bases)
+        return stable_digest(payload)
 
     @property
     def physical_module_name(self) -> str:
@@ -266,6 +274,11 @@ class TopBoundaryPlan:
              if source == source_name),
             None,
         )
+
+    def is_direct_vector(self, source_name: str) -> bool:
+        """Return whether one source root keeps its packed vector shape."""
+
+        return source_name in self.direct_vector_bases
 
 
 _CURRENT_TOP_BOUNDARY: ContextVar[TopBoundaryPlan | None] = ContextVar(
@@ -1605,10 +1618,8 @@ def _public_leaf_port_declaration(leaf: object) -> str:
     dimensions = "".join(
         f"[{length - 1}:0]" for length in leaf.array_dimensions
     )
-    return (
-        f"{direction}{net} logic{signed} {dimensions}"
-        f"{_range(_width(element))}{name}"
-    )
+    element_range = _range(_width(element)).strip()
+    return f"{direction}{net} logic{signed} {dimensions}{element_range} {name}"
 
 
 def _public_leaf_elements(leaf: object) -> tuple[tuple[object, str], ...]:
@@ -1802,18 +1813,30 @@ def _build_top_boundary_plan(
         _validate_top_boundary_root(root, group)
 
     bases_requiring_alias: set[str] = set()
+    direct_vector_bases: set[str] = set()
     for root in root_order:
         group = roots[root]
         first = group[0]
+        base = _top_boundary_source_base(first)
+        direct_vector = (
+            len(group) == 1
+            and len(first.array_dimensions) == 1
+            and isinstance(first.packed_root_type, VecType)
+            and first.leaf_semantic_id == root
+            and rtl_identifier(first.external_name)
+            == _top_boundary_signal(first)
+        )
         direct = (
             len(group) == 1
-            and not first.array_dimensions
+            and (not first.array_dimensions or direct_vector)
             and first.leaf_semantic_id == root
             and rtl_identifier(first.external_name)
             == _top_boundary_signal(first)
         )
         if not direct:
-            bases_requiring_alias.add(_top_boundary_source_base(first))
+            bases_requiring_alias.add(base)
+        elif direct_vector:
+            direct_vector_bases.add(base)
 
     used = set(module_rtl_names(module).allocated_names)
     used.update(rtl_identifier(leaf.external_name) for leaf in selected_leaves)
@@ -1829,6 +1852,7 @@ def _build_top_boundary_plan(
         module.name,
         public_ports,
         tuple(sorted(aliases.items())),
+        tuple(sorted(direct_vector_bases)),
         (), (), (),
     )
     declarations: list[str] = []
@@ -2034,6 +2058,39 @@ def _continuous_value_assignments(
             for index, element in enumerate(value.elements)
         )
     return (f"{indent}assign {name} = {_expression(value)};",)
+
+
+def _output_value_assignments(
+    name: str,
+    value: expr.Expression,
+    render: Callable[[expr.Expression], str],
+    *,
+    indent: str,
+) -> tuple[str, ...]:
+    """Render a public value while retaining an exact packed-array shape."""
+
+    boundary = _CURRENT_TOP_BOUNDARY.get()
+    direct_vector = (
+        boundary is not None
+        and boundary.is_direct_vector(name)
+        and isinstance(value.type, VecType)
+    )
+    if isinstance(value, (expr.Generate, expr.Map)) and isinstance(
+        value.type, VecType
+    ):
+        element_width = _width(value.type.element_type)
+        return tuple(
+            (
+                f"{indent}assign {rtl_identifier(name)}[{index}] = "
+                f"{render(element)};"
+                if direct_vector
+                else f"{indent}assign {_identifier(name)}"
+                f"[{index * element_width} +: {element_width}] = "
+                f"{render(element)};"
+            )
+            for index, element in enumerate(value.elements)
+        )
+    return (f"{indent}assign {_identifier(name)} = {render(value)};",)
 
 
 def _contains_functional_scope_reference(value: object) -> bool:
@@ -2411,7 +2468,7 @@ def _named_module(
 ) -> str:
     boundary = _CURRENT_TOP_BOUNDARY.get()
     if boundary is not None and name == boundary.physical_module_name:
-        if boundary.base_aliases:
+        if boundary.base_aliases or boundary.direct_vector_bases:
             ports = list(boundary.public_ports)
         bridge_prefix = (
             ("  // Compiler-generated inline top boundary.",)
@@ -3217,9 +3274,12 @@ def _append_unified_state(
         lines: list[str] = []
         for index, (group, action) in enumerate(writers):
             keyword = "if" if index == 0 else "else if"
+            update = _register_update_statement(
+                register.name, action.operands[0], render
+            )
             lines.append(
                 f"{indent}{keyword} ({action_enable(group, action)}) "
-                f"{_identifier(register.name)} <= {render(action.operands[0])};"
+                f"{update}"
             )
         default = next(
             (
@@ -4714,8 +4774,12 @@ def _emit_combinational(module: Module) -> str:
         for assignment in module.assignments
         for line in (
             f"  // ZLang IR output: {assignment.target.name}",
-            f"  assign {_identifier(assignment.target.name)} = "
-            f"{render(assignment.expression)};",
+            *_output_value_assignments(
+                assignment.target.name,
+                assignment.expression,
+                render,
+                indent="  ",
+            ),
         )
     ]
     return _module(
@@ -5826,9 +5890,12 @@ def _append_rule_state(
             body_indent = "      "
         for index, (rule, action) in enumerate(writers):
             keyword = "if" if index == 0 else "else if"
+            update = _register_update_statement(
+                register.name, action.expression, render
+            )
             logic.append(
                 f"{body_indent}{keyword} ({render(rule.guard)}) "
-                f"{_identifier(register.name)} <= {render(action.expression)};"
+                f"{update}"
             )
         if default is not None:
             prefix = f"{body_indent}else " if writers else body_indent
@@ -7129,12 +7196,19 @@ def _expression(expression: expr.Expression) -> str:
         vector = expression.expression.type
         if not isinstance(vector, VecType):
             raise SystemVerilogEmissionError("vector index requires a vector")
+        rendered_vector = _expression(expression.expression)
+        if _uses_native_vector_indexing(expression.expression):
+            rendered_index = (
+                str(expression.index)
+                if isinstance(expression.index, int)
+                else _compile_time_expression(expression.index)
+            )
+            return f"{rendered_vector}[{rendered_index}]"
         projection = _constant_vector_projection(expression)
         if projection is not None:
             root, lsb, width = projection
             return _slice(_expression(root), lsb + width - 1, lsb)
         element_width = _width(vector.element_type)
-        rendered_vector = _expression(expression.expression)
         if isinstance(expression.index, int):
             lsb = ir_packing.vector_element_lsb(vector, expression.index)
             msb = lsb + element_width - 1
@@ -7148,13 +7222,15 @@ def _expression(expression: expr.Expression) -> str:
         vector = expression.expression.type
         if not isinstance(vector, VecType):
             raise SystemVerilogEmissionError("runtime vector index requires a vector")
+        rendered_vector = _expression(expression.expression)
+        rendered_index = _expression(expression.index)
+        if _uses_native_vector_indexing(expression.expression):
+            return f"{rendered_vector}[{rendered_index}]"
         projection = _constant_vector_projection(expression)
         if projection is not None:
             root, lsb, width = projection
             return _slice(_expression(root), lsb + width - 1, lsb)
         element_width = _width(vector.element_type)
-        rendered_vector = _expression(expression.expression)
-        rendered_index = _expression(expression.index)
         base = _scaled_packed_index(rendered_index, element_width)
         # Yosys does not accept an indexed part-select whose base is a compound
         # expression (notably a concatenation), even though Verilator does.
@@ -9667,6 +9743,42 @@ def _logic_declaration(name: str, type_: HardwareType) -> str:
 
     signed = " signed" if isinstance(type_, (SIntType, FixedType)) else ""
     return f"  logic{signed} {_range(_width(type_))}{name};"
+
+
+def _uses_native_vector_indexing(value: expr.Expression) -> bool:
+    """Return whether ``value[index]`` matches its emitted declaration."""
+
+    if not isinstance(value, expr.InputRef) or not isinstance(value.type, VecType):
+        return False
+    boundary = _CURRENT_TOP_BOUNDARY.get()
+    return boundary is not None and boundary.is_direct_vector(value.name)
+
+
+def _register_update_statement(
+    register_name: str,
+    value: expr.Expression,
+    render: Callable[[expr.Expression], str],
+) -> str:
+    """Render one exact register update, preserving element-write intent."""
+
+    target = _identifier(register_name)
+    if (
+        isinstance(value, expr.VectorUpdate)
+        and isinstance(value.expression, expr.RegisterRef)
+        and value.expression.name == register_name
+    ):
+        vector_type = value.expression.type
+        if not isinstance(vector_type, VecType):
+            raise SystemVerilogEmissionError(
+                "vector register update requires a vector register"
+            )
+        element_width = _width(vector_type.element_type)
+        base = _scaled_packed_index(render(value.index), element_width)
+        return (
+            f"{target}[{base} +: {element_width}] <= "
+            f"{render(value.value)};"
+        )
+    return f"{target} <= {render(value)};"
 
 
 def _range(width: int) -> str:

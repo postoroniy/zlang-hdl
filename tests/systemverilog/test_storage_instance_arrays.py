@@ -72,8 +72,8 @@ def test_fifo_instance_array_is_structural_deterministic_and_bound() -> None:
     assert first.text.count("logic [1:0] queue_count;") == 1
     assert " lane_0 (" in first.text
     assert " lane_1 (" in first.text
-    assert ".data(zlang_packed_data[15:8])" in first.text
-    assert ".data(zlang_packed_data[7:0])" in first.text
+    assert ".data(data[1])" in first.text
+    assert ".data(data[0])" in first.text
 
     restored = BackendArtifact.from_json(first.to_json())
     # Artifact JSON is a publication manifest and deliberately omits source

@@ -91,6 +91,17 @@ def test_generic_explosion_has_no_duplicate_specialization_identity() -> None:
     assert len(identities) == len(set(identities))
 
 
+def test_dynamic_permute_retains_native_packed_array_indexing() -> None:
+    rtl = emit_experimental(_compile("dynamic_permute"))
+
+    for index in range(8):
+        assert f"assign result[{index}] = data[index[{index}]];" in rtl
+    assert "zlang_packed_data" not in rtl
+    assert "zlang_packed_index" not in rtl
+    assert "zlang_packed_result" not in rtl
+    assert "+: 8" not in rtl
+
+
 def test_one_hot_mux_preserves_the_one_hot_case_without_assuming_it() -> None:
     module = _compile("one_hot_mux")
     values = [1 << (index % 16) for index in range(16)]
