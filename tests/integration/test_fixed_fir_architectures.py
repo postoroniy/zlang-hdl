@@ -138,7 +138,7 @@ def test_direct_sv_materializes_large_quantize_operand_once_and_deterministicall
     assert first == second
     assert "logic signed [26:0] zlang_expr_0;" in first
     assert first.count("assign zlang_expr_0 =") == 1
-    assert first.count("samples[95:84]") == 1
+    assert first.count("samples[7]") == 1
     assert "$signed(zlang_expr_0)" in first
     core = first.split("module FixedFIRBalanced (", 1)[0]
     assert len(core.encode()) < 4_000
@@ -159,7 +159,7 @@ def test_combinational_quantize_materializes_but_trivial_conversion_does_not() -
     large_sv = emit_experimental(large)
     small_sv = emit_experimental(small)
     assert "logic signed [26:0] zlang_expr_0;" in large_sv
-    assert large_sv.count("a[95:84]") == 1
+    assert large_sv.count("a[7]") == 1
     assert "zlang_expr_" not in small_sv
 
 

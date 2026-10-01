@@ -62,8 +62,8 @@ class BackendBindingTests(unittest.TestCase):
             "queue_storage[queue_rd];",
             text,
         )
-        self.assertIn("assign zlang_packed_tx_payload = {", text)
-        self.assertIn("assign tx_payload = zlang_packed_tx_payload;", text)
+        self.assertIn("assign tx_payload = {", text)
+        self.assertNotIn("zlang_packed_tx_payload", text)
         self.assertNotIn("assign tx_payload = queue_storage", text)
         verilator = shutil.which("verilator")
         if verilator:

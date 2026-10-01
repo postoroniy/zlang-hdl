@@ -68,7 +68,7 @@ class DirectSystemVerilogEmitterTests(unittest.TestCase):
         self.assertIn("module FIR2", generated)
         self.assertEqual(generated.count("function automatic logic [15:0] tap("), 1)
         self.assertEqual(generated.count("tap = "), 1)
-        self.assertEqual(generated.count("tap(zlang_packed_samples["), 2)
+        self.assertEqual(generated.count("tap(samples["), 2)
 
     def test_single_use_nested_pure_functions_are_inlined_and_lint(self) -> None:
         source = """
