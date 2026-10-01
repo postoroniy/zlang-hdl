@@ -11,12 +11,12 @@ incompatible input explicitly.
 
 ## Unreleased
 
-## 0.1.0a19 — 2026-09-30
+## 0.1.0a19 — 2026-10-01
 
 Community alpha carrying two compiler-owned CSR interoperability fixes,
-bounded Direct-SystemVerilog expression sharing and a safer pre-tag
-release-candidate path. Language timing, numerical semantics and formal policy
-are unchanged.
+bounded Direct-SystemVerilog expression and wide-scatter lowering, and a safer
+pre-tag release-candidate path. Language timing, numerical semantics and formal
+policy are unchanged.
 
 ### Added
 
@@ -29,6 +29,22 @@ are unchanged.
 - A versioned release regression ledger binds every accepted fix to permanent
   source paths and focused tests. Release preflight now fails closed when a
   recorded fix, source, test selector, baseline tag or disposition is missing.
+
+### Changed
+
+- Semantic editor observations are demand-driven owners separate from the
+  expression-checking façade, and native simulation keeps its public API while
+  plan construction and strict payload validation live in focused modules.
+- Python-only standard-bus and protocol reference models moved to test support
+  and are no longer runtime package modules. ZLang standard-library sources are
+  unchanged.
+
+### Removed
+
+- The retired scalar `pipeline(auto)`, `architecture(auto)`, and `explore`
+  compatibility parser productions have been removed. Compiler-discovered
+  scalar implementation selection uses `implement`; exact `pipeline(N)`,
+  user-authored `choice`, and protocol `transform pipeline(auto)` remain.
 
 ### Fixed
 
@@ -44,9 +60,11 @@ are unchanged.
   same bounded-DAG treatment as their use sites, emits large aggregate values
   through bounded slices, and shares exact binder-free region invariants.
   Candidate-addressed OR scatters use a structural tree only while its
-  intermediate size is bounded and otherwise retain the equivalent compact
-  procedural form. This avoids frontend memory blow-ups without changing typed
-  IR, generated value semantics, or enabling additional e-graph rewrites.
+  intermediate size is bounded. Wider scatters use deterministic binder-aligned
+  chunks of at most sixteen writes, independent accumulators, and a balanced OR
+  tree instead of a whole-vector procedural update chain. This avoids frontend
+  and Yosys memory blow-ups without changing typed IR, collision/range/fixed-
+  width value semantics, or enabling additional e-graph rewrites.
 
 ### Compatibility
 

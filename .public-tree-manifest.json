@@ -44,17 +44,17 @@
     {
       "mode": "0644",
       "path": ".github/workflows/ci.yml",
-      "sha256": "a7da437160c63196373f92480c06c5c094a39d61e97ec6d0d15b50f790c43e0a"
+      "sha256": "471aa1e9d2cc61979ac30c133806f4dd9994747d332669119f9601bce9cbff16"
     },
     {
       "mode": "0644",
       "path": ".github/workflows/codeql.yml",
-      "sha256": "e3dbf73b65a20f7e84eb645eb6ba11d9b9c57e42cf0b68e1e54949ee8beec9e9"
+      "sha256": "6dced27aa868225cc01cec9eb356f91a66a9b440856f9de6a5bf4b8fd306025b"
     },
     {
       "mode": "0644",
       "path": ".github/workflows/daily-regression.yml",
-      "sha256": "c77d4576c761850cde70a88d11bf6678e9194650d117298330c3bdaef4018311"
+      "sha256": "c4e0fc8dcc8f0ee0c5475945a731bc591262126573fe4493469c44b85f61f9b0"
     },
     {
       "mode": "0644",
@@ -64,12 +64,12 @@
     {
       "mode": "0644",
       "path": ".github/workflows/eda.yml",
-      "sha256": "0277bb20738c6159be55bb8e3962a84185f2576ab322398ae44f42e463d5be5e"
+      "sha256": "2a98a1e99d9dd3f728178b1fef800a47d9a528d30dc3a0ab55f35f9846c59537"
     },
     {
       "mode": "0644",
       "path": ".github/workflows/release.yml",
-      "sha256": "3cdb28cacff77b3ca10c69439368280239a6729da37f323758dd3522462f63f1"
+      "sha256": "8699f8cad16150d70c79220d0afaf03a0977e13d2cd76e1aa3d24276ac28c709"
     },
     {
       "mode": "0644",
@@ -119,7 +119,7 @@
     {
       "mode": "0644",
       "path": "CHANGELOG.md",
-      "sha256": "560c8af9bd48bb77068a2c8d54545ffc0c557c551221ac95dee3184687c4ea62"
+      "sha256": "b8d7d9c997da598b477932ffe9881652369784240f9f3cb2bd3207fead376d22"
     },
     {
       "mode": "0644",
@@ -204,7 +204,7 @@
     {
       "mode": "0644",
       "path": "docs/ZLang-HDL-Language-Reference.pdf",
-      "sha256": "0e1ab7737cd726f7c265a7105465811f75ab2dd609b184e356a251e0aaffb21e"
+      "sha256": "99d9f387c134deafde759c6990e91ae4f102484e998b64d3ffa562e21107be76"
     },
     {
       "mode": "0644",
@@ -214,7 +214,7 @@
     {
       "mode": "0644",
       "path": "docs/language-reference.md",
-      "sha256": "7c7550674c9bcfbdf13fb6f6617d459fb2ae25f515d587bcc34cd926f0bf6727"
+      "sha256": "2b4c4f6bda076cab21935bcc4fb4d6961270694fddd0519fcf5f6c96eb122007"
     },
     {
       "mode": "0644",
@@ -239,7 +239,7 @@
     {
       "mode": "0644",
       "path": "docs/release-process.md",
-      "sha256": "1623dbfd9e8f9a3a78c53d5aa64764119c1d41cf739898d5c62c9763869a3f8a"
+      "sha256": "19abbf15ede299752d67c3ab4f381246c56be6efbb7dd7b42d7abec0ddc24f73"
     },
     {
       "mode": "0644",
@@ -284,7 +284,7 @@
     {
       "mode": "0644",
       "path": "editors/vscode/zlang-hdl/editor-toolchain.json",
-      "sha256": "0af47957c874055a9d0cea42863ca5df027e128777f0eb1ab3da3933c9a462a7"
+      "sha256": "98992a925764887ee5ecee4466f8e8f7aebb41ca96bf2a0d2ca056743eb0f2fe"
     },
     {
       "mode": "0644",
@@ -304,12 +304,12 @@
     {
       "mode": "0644",
       "path": "editors/vscode/zlang-hdl/package-lock.json",
-      "sha256": "d64fc70bf7d2dca4660bafac58b64d4258321d5c7c337b1157fb96c1d21739bb"
+      "sha256": "33c8674f0786e41a28d576c2c6cd7911aeb292750ca52f47f007709bb1665ac2"
     },
     {
       "mode": "0644",
       "path": "editors/vscode/zlang-hdl/package.json",
-      "sha256": "2b82ea9745353d08e7f727c9353c98eae8f467e3cd8d5742bf13fc6ed71e475e"
+      "sha256": "d42c695e3f7113793ae3132bcf6c261e9d063e84f71cca6a69106b89f05c517e"
     },
     {
       "mode": "0644",
@@ -324,12 +324,12 @@
     {
       "mode": "0644",
       "path": "editors/vscode/zlang-hdl/supported-surface.json",
-      "sha256": "2907ab52cb86296b81d1abd33b16c046eef71205f90f47e3c36bb73f3a35fb16"
+      "sha256": "4abbaa35f39e46b2cafbd96830fca5b949f51604577adf4fe5d2997235640208"
     },
     {
       "mode": "0644",
       "path": "editors/vscode/zlang-hdl/syntaxes/zlang.tmLanguage.json",
-      "sha256": "f63945e59c4a8bde6e4b1a95b4512ca787d8a91b4c8333e160398a26de83526d"
+      "sha256": "e568449f05bf36bb7f6aeaa5da013a09421724211e54f5ae0f506fa01be9a8f2"
     },
     {
       "mode": "0644",
@@ -504,12 +504,12 @@
     {
       "mode": "0644",
       "path": "examples/fft/README.md",
-      "sha256": "6ee1fc34d53aa863fe6b2e60c2b354010847cedc220f66fed42e960edc7e597b"
+      "sha256": "4c6ef3044b1023e49fc94fc9d9e2c49a8deee273c7edeb29e721bdd6dcd70d7e"
     },
     {
       "mode": "0644",
-      "path": "examples/fft/complex_multiply_pipeline_auto.zhl",
-      "sha256": "4275c6e1d5f1c2cf9bf4318c37b2885c966168f6cfe402e50d25c64773394c70"
+      "path": "examples/fft/complex_multiply_implementation.zhl",
+      "sha256": "f392f56d2c7d1ee6c95cbf997ffc84bea7bfffd602638045373ccb0ca79342b1"
     },
     {
       "mode": "0644",
@@ -983,6 +983,11 @@
     },
     {
       "mode": "0644",
+      "path": "examples/structural/scatter_12x4x4.zhl",
+      "sha256": "982c0790e4db4af398a9078ecb8448ce5da6322980ad68a67b82693752100397"
+    },
+    {
+      "mode": "0644",
       "path": "examples/structural/scatter_gather.zhl",
       "sha256": "227691b073d5fe4019af56a9e1b353744612708dfdd46a654449d434c8782a2f"
     },
@@ -1003,13 +1008,13 @@
     },
     {
       "mode": "0644",
-      "path": "examples/symmetric_fixed_fir_auto.zhl",
-      "sha256": "9360540d210c798274ac3500d3f594b97c1635246311bb428adbfd45a83465ee"
+      "path": "examples/symmetric_fixed_fir_dsp_pipelines.zhl",
+      "sha256": "3fa759d12152fa419e71e8c3f02cd3b5fbad1445b254766b08c5c0f213cd8b3f"
     },
     {
       "mode": "0644",
-      "path": "examples/symmetric_fixed_fir_dsp_pipelines.zhl",
-      "sha256": "3fa759d12152fa419e71e8c3f02cd3b5fbad1445b254766b08c5c0f213cd8b3f"
+      "path": "examples/symmetric_fixed_fir_implementation.zhl",
+      "sha256": "063d3e36ae978ef26b10e7650cbc087d87323ec3122604a337eab0743e2fd499"
     },
     {
       "mode": "0644",
@@ -1034,7 +1039,7 @@
     {
       "mode": "0644",
       "path": "examples/verification/README.md",
-      "sha256": "1e29b9396feb0a9d0fee94058370517d0bab81c9d598b2bf1e2af6856860fcb0"
+      "sha256": "d347a5fcbb3a1753b04484a51a0b2411d77ea15efd98a25f31191691a6524036"
     },
     {
       "mode": "0644",
@@ -1043,13 +1048,13 @@
     },
     {
       "mode": "0644",
-      "path": "examples/verification/math-exploration.md",
-      "sha256": "227b9b93ab50e080fc4f75a8d1425d55acd372995449ecff669be0bbd0675506"
+      "path": "examples/verification/math-implementation.md",
+      "sha256": "670c7a09b5f080eccbb0af32cab2e815ba1f1a224e600d8473589444aee25943"
     },
     {
       "mode": "0644",
-      "path": "examples/verification/math_exploration.zhl",
-      "sha256": "c22f498fa3a7d5fbb2689d5dc4189067ed54c69b22ab9fb07d65dfbee8b614bb"
+      "path": "examples/verification/math_implementation.zhl",
+      "sha256": "a85f636cae6c78cf85d952a020a1fb439f4f8779e4a045fbfe69adf591e29ae7"
     },
     {
       "mode": "0644",
@@ -1089,7 +1094,7 @@
     {
       "mode": "0644",
       "path": "pyproject.toml",
-      "sha256": "b28c80b9f700245bb816dde79ed369f30c5aaa328923abff89bee0f7b133b0e0"
+      "sha256": "fd513eebe0f05210e1a8c3955caab15591173493aef9036ee523f2292bf36306"
     },
     {
       "mode": "0644",
@@ -1104,12 +1109,12 @@
     {
       "mode": "0644",
       "path": "release/regressions.json",
-      "sha256": "5eb60581c1db787c73fe14ce60bf8c55a1335d048b2f05fe86a4093e3c7104df"
+      "sha256": "f76509b2da499a04f582ca700d754dea76e7d9dae4132bf17b1de662062bf0bc"
     },
     {
       "mode": "0644",
       "path": "release/status.json",
-      "sha256": "bdc49a5342b3ed38dad3a9f3256f7b79143100194bc522d162971154bcb48830"
+      "sha256": "7498c43923a1b1f40519c4515ce14a4767aefbada60ff27fb3b3a64172e8870a"
     },
     {
       "mode": "0644",
@@ -1319,7 +1324,7 @@
     {
       "mode": "0644",
       "path": "tests/backend/test_functional_region_emission.py",
-      "sha256": "faec947c95ce0c7ea90d041035b179c0ebd16920db45922c6b7feed35cd26ab5"
+      "sha256": "9b3cfcf949629b6699381a4f15c8d12b268c8fd1df72a3e8b014cc55e6ae7494"
     },
     {
       "mode": "0644",
@@ -1394,17 +1399,17 @@
     {
       "mode": "0644",
       "path": "tests/editor/test_capability_registry.py",
-      "sha256": "c9d840226ab075d364db48a9d0dcdaf653591148568906186916c5004c8672a0"
+      "sha256": "b6c9993a0a06f3b3f3965e6f0fcd07c91238a1d9c76182c5f81ac68933d389b1"
     },
     {
       "mode": "0644",
       "path": "tests/editor/test_named_interface_surface.py",
-      "sha256": "1733499c20cd4b22f90a5d63ce1d810976d91ee7a4ee1c738765f9706f6a6f5e"
+      "sha256": "c65be2473492b88c259830f090fad3cbfcfd94f53ce92046929d74635853bc69"
     },
     {
       "mode": "0644",
       "path": "tests/editor/test_vscode_package.py",
-      "sha256": "85bd4d062c0eaba9e82ecd6a5a79ad985cbec48c34fac060fef27163f21cd540"
+      "sha256": "7899b34a4e8f6114ef1da20fea3ca8027f2e7d9af42e6db88f45ded5f726175d"
     },
     {
       "mode": "0644",
@@ -1414,7 +1419,7 @@
     {
       "mode": "0644",
       "path": "tests/editor/test_vscode_surface.py",
-      "sha256": "c246b8342357cd6eb7233b8934d16ee778766b135e8c94269a98e81bda5846c1"
+      "sha256": "48bed7e7d4f092079218995a93d5795a37cdbc3bcc90e5740fe710d1a5956395"
     },
     {
       "mode": "0644",
@@ -1634,7 +1639,7 @@
     {
       "mode": "0644",
       "path": "tests/integration/test_ahb_lite.py",
-      "sha256": "b9f1c32079d9ab2f89f8c6a04ed33036fe666c57df4e565f466c25751964d889"
+      "sha256": "dd6bedf91c7c2af206146c18930b3120050e8637809b775ede6ec7d227e09649"
     },
     {
       "mode": "0644",
@@ -1714,7 +1719,7 @@
     {
       "mode": "0644",
       "path": "tests/integration/test_complex_fft_butterfly.py",
-      "sha256": "5beb087586e7674a448d128d1cdb533b9662a19a6b489bfd04676d3472870a68"
+      "sha256": "66df544931045319de2491903d47a9678a9d5bf29fee9a6de6725ee802f8717a"
     },
     {
       "mode": "0644",
@@ -1983,13 +1988,13 @@
     },
     {
       "mode": "0644",
-      "path": "tests/integration/test_math_exploration_example.py",
-      "sha256": "be2df08bc391a400950e1b992942eedaf8879ff47d682178b42b5b9487b27e20"
+      "path": "tests/integration/test_math_implementation_example.py",
+      "sha256": "987f6bf68dd4882d6f10d19ec27e92f054d73886fb85ae9d9c953954e876a9a8"
     },
     {
       "mode": "0644",
-      "path": "tests/integration/test_math_exploration_formal.py",
-      "sha256": "b683d2605c41a4ed5f2c68b13063758e3448ec6bfacc53df80e81c99d1730fed"
+      "path": "tests/integration/test_math_implementation_formal.py",
+      "sha256": "d6c19a2d7f4d7af6b0cbae93060e11dba8f86271b2770ffc45d495680d4ec3d4"
     },
     {
       "mode": "0644",
@@ -2204,7 +2209,7 @@
     {
       "mode": "0644",
       "path": "tests/integration/test_signed_product_pipeline_physical.py",
-      "sha256": "6e6ac8fd94ecad01f9691428e9ae80d9a07014fc469296920ab06c721f12ef39"
+      "sha256": "95ab590283f81c8951976bc3672681db045a9a5ec68b80dd12d0946bb06d41aa"
     },
     {
       "mode": "0644",
@@ -2239,7 +2244,7 @@
     {
       "mode": "0644",
       "path": "tests/integration/test_standard_bus_error_paths.py",
-      "sha256": "56f4b2b989e4d00bc8232900a3535375441e831b44251090c104422918cbd6fc"
+      "sha256": "ae10401d3a11e4ba9a5b0f39512a314013d2ce3ca7b3524f26f3853ec8047f1d"
     },
     {
       "mode": "0644",
@@ -2274,7 +2279,7 @@
     {
       "mode": "0644",
       "path": "tests/integration/test_systemverilog_materialization.py",
-      "sha256": "75ac8c367600dcf1b594cef15248a712f3315f46262f601dd542cd9eec6ac5c4"
+      "sha256": "2684c57a59b59573b2a07ea581911822ce96c1e8bb775c8dadaaebb55b62173d"
     },
     {
       "mode": "0644",
@@ -2284,7 +2289,7 @@
     {
       "mode": "0644",
       "path": "tests/integration/test_target_auto_pipeline.py",
-      "sha256": "48b5f2e5d5cc7a3f39dc2d7c72133352e4e6d2022adf7c264e6e9edacb969d64"
+      "sha256": "32393222994eae20b1ded17a25fe32ac4167a43757e332056e61739186d23fc4"
     },
     {
       "mode": "0644",
@@ -2369,7 +2374,7 @@
     {
       "mode": "0644",
       "path": "tests/packaging/test_stdlib_packaging.py",
-      "sha256": "55e8d0b2300aefa3cc6a508ea32e66b279ee6474df5c07338ee0fc1b69371eff"
+      "sha256": "8ce49dd40ea4f977a41c8b214e0b9fcbd7576363c5f5482fe04b4bc9283a3362"
     },
     {
       "mode": "0644",
@@ -2389,7 +2394,7 @@
     {
       "mode": "0644",
       "path": "tests/parser/test_architectures.py",
-      "sha256": "e6efca092931e29d7cddbda994b421a223ba36e84ed74575c07e40ac21967ce3"
+      "sha256": "306f916a253b4ef6791a3c60e823184be0826266e367b00a02405c5269a52b66"
     },
     {
       "mode": "0644",
@@ -2539,7 +2544,7 @@
     {
       "mode": "0644",
       "path": "tests/parser/test_pipelines.py",
-      "sha256": "f485014c991aa94a5fefa1cd289c90100e744ada5f71579d8d3c076f048c6385"
+      "sha256": "e9d4715e530d047f3d15f8200421d5cc0e7f0eb3c1dfaa63222593d50fcf6f7e"
     },
     {
       "mode": "0644",
@@ -2699,12 +2704,12 @@
     {
       "mode": "0644",
       "path": "tests/release/test_release_preflight.py",
-      "sha256": "dc5f69bc38fbbc51d8bd3f17c5b26c0f46b3e92353ff1fbda6512f44abe1031c"
+      "sha256": "cb0a9321c4814b98f33d93b1291e4ef5ac876d2d5c0ff6a4a2d924a95d85c0cd"
     },
     {
       "mode": "0644",
       "path": "tests/release/test_release_regressions.py",
-      "sha256": "a20b4c15f32165bf8c45f3fe051fc4d33bf26c55bd6eab889124ad1525045f63"
+      "sha256": "8cc9f5903cafd5d0f48aeefdc4349b0ff6066226af311267fd146b363fc2fa30"
     },
     {
       "mode": "0644",
@@ -2764,7 +2769,7 @@
     {
       "mode": "0644",
       "path": "tests/semantic/test_architectures.py",
-      "sha256": "d1b437ae85f679c0e9137c51636c00da0759f33e090284319906782ab4cb3b0c"
+      "sha256": "b392711a2ae29814e3181a774daa0852111511c585c3b8e8e61b63d5980aa24b"
     },
     {
       "mode": "0644",
@@ -2784,7 +2789,7 @@
     {
       "mode": "0644",
       "path": "tests/semantic/test_bounded_exploration.py",
-      "sha256": "1818e68232cf78b29197cd28826375bf054f0699335f4407a527d46bbd6049c3"
+      "sha256": "b7db92f6b7d0e9263875951d1da258c071fb31ed15ccf5cd1e41cd261f2ec7be"
     },
     {
       "mode": "0644",
@@ -2804,7 +2809,7 @@
     {
       "mode": "0644",
       "path": "tests/semantic/test_candidate_site_ledger.py",
-      "sha256": "16f3ad414c0be65f7ef06bffd4a0f52151940aa16c49eb8e8b03c4e83c6107db"
+      "sha256": "6bcfb2ad95c750150ac4ac48e48f5665af4b494ba3d58de87f2441cd56a704d2"
     },
     {
       "mode": "0644",
@@ -2944,7 +2949,7 @@
     {
       "mode": "0644",
       "path": "tests/semantic/test_example_layout.py",
-      "sha256": "3e489f493162696f4727e439f0df8624084300cd5850713f426f9c47d4e236b2"
+      "sha256": "aa8c7c712de474f617f7ceadca2a3824eaffd039a964698323f1c8bf3abbb2aa"
     },
     {
       "mode": "0644",
@@ -2974,7 +2979,7 @@
     {
       "mode": "0644",
       "path": "tests/semantic/test_fft512_pipeline.py",
-      "sha256": "db9d9bab85fed17111c528a60bb1077970970f39fd3cd1b9d9abe515d65acbf2"
+      "sha256": "11ae84676dda18ba5a1ea8d33efb18cc7f518f89f2363e4f1eca7d4e4b3b09ec"
     },
     {
       "mode": "0644",
@@ -3109,12 +3114,12 @@
     {
       "mode": "0644",
       "path": "tests/semantic/test_implementation_intent.py",
-      "sha256": "5cfc0b5623ccda9f949ffc8ada04e6dc2e0a2ad8ad9e57ca86797fd112cd65ee"
+      "sha256": "5f5317b9c86653f8ae979d41e787902674545dc7a81d98de28b7c0662fdd50e0"
     },
     {
       "mode": "0644",
       "path": "tests/semantic/test_implementation_plans.py",
-      "sha256": "c6c70a085c45cf2c7cb98c7eb1c17f3503c7adacb8819f666448cb796511e216"
+      "sha256": "28d65edb75c312e9490133d15d28e23559690ac390365d2edf80d13011d6bd9e"
     },
     {
       "mode": "0644",
@@ -3168,8 +3173,8 @@
     },
     {
       "mode": "0644",
-      "path": "tests/semantic/test_math_exploration_formal_tool.py",
-      "sha256": "2309ce94856b595d17f5c26a37d2a7d8a13d3b4f31a8830239282349ea93cffb"
+      "path": "tests/semantic/test_math_implementation_formal_tool.py",
+      "sha256": "c1e3e94405159d293aae5add9c8610de82c72773f21fe79eabfcbee09d98f906"
     },
     {
       "mode": "0644",
@@ -3214,7 +3219,7 @@
     {
       "mode": "0644",
       "path": "tests/semantic/test_nested_explore_context.py",
-      "sha256": "53612ce65762ded5159a68f8f9a6466904f69e0cd95a7c1961fd629d5cb84d5f"
+      "sha256": "661e7a6445bebd00139fb14831404a9864880a72204aeaa6116b146d6c416273"
     },
     {
       "mode": "0644",
@@ -3284,7 +3289,7 @@
     {
       "mode": "0644",
       "path": "tests/semantic/test_protocol_equivalence.py",
-      "sha256": "68de0307535c97c8069d3fc84e067e80217fd38989b2eaee2b31922afedd47dc"
+      "sha256": "afbb32a1b4d58b4bc50d80ec416b34ec7107a7df925b57db12d9a02a0fabbba8"
     },
     {
       "mode": "0644",
@@ -3558,6 +3563,21 @@
     },
     {
       "mode": "0644",
+      "path": "tests/support/__init__.py",
+      "sha256": "42f3bc7b2fa65c550445c4efcc328f573b34bbb43e012a3bbd82fa98e4ff13c8"
+    },
+    {
+      "mode": "0644",
+      "path": "tests/support/protocols.py",
+      "sha256": "7b2c82841ed42d6c11afa8650e9cf584c5aff3c33b755d89ff1629a7e541bfcb"
+    },
+    {
+      "mode": "0644",
+      "path": "tests/support/standard_bus.py",
+      "sha256": "7573b042309635cc1bec7c6d7decdf4ef79b1a48977c1484c429dc64c50eb174"
+    },
+    {
+      "mode": "0644",
       "path": "tests/systemverilog/__init__.py",
       "sha256": "553e2e19805ba1464e0fde60463e301a7889067de874eab0d5642edf07a05439"
     },
@@ -3579,7 +3599,7 @@
     {
       "mode": "0644",
       "path": "tests/systemverilog/test_composed_backend.py",
-      "sha256": "581509309d4e62cecf89ab09b586f5f93c8c28a35bc1cf4d81235490ff649e99"
+      "sha256": "9aa34f4dc2477a373260b523509c288c155a1af6777d4c82974b402589a9c992"
     },
     {
       "mode": "0644",
@@ -3728,8 +3748,8 @@
     },
     {
       "mode": "0644",
-      "path": "tests/test_math_exploration_qor.py",
-      "sha256": "2a3dfae0427e3ccd1961c6cd53f506ff0dda0f2965adf5067b21da0497bd4ed8"
+      "path": "tests/test_math_implementation_qor.py",
+      "sha256": "867760d851cc0235816dfd0766701bcc56edafabb018cb3fc509e79211812f35"
     },
     {
       "mode": "0644",
@@ -3764,7 +3784,7 @@
     {
       "mode": "0644",
       "path": "tests/test_signed_product_reduction.py",
-      "sha256": "8722e1ff75436d0fa3d5f9833658bb46e7eb3177165eaceb98e01802d637e42c"
+      "sha256": "2cfc7902e887d56d413e684a2a2d614c73e9ec4b5cfaa5b4e4ebbf576c5bb555"
     },
     {
       "mode": "0644",
@@ -3789,7 +3809,7 @@
     {
       "mode": "0644",
       "path": "tests/test_standard_bus_library.py",
-      "sha256": "6520a12af819fabcf37ff1926d05d4c60990037705dd63a8c19bea2780f9f27d"
+      "sha256": "dc6a45c6af1894275c135f09c26d7a027b87b295b4e13f03d9b72b8abce2d06c"
     },
     {
       "mode": "0644",
@@ -3799,7 +3819,7 @@
     {
       "mode": "0644",
       "path": "tests/test_stdlib_real_designs.py",
-      "sha256": "e3f60ad889b3c09b99bc97da929ba99c83ec51297786b7089bd90a94862edc99"
+      "sha256": "0c96e3399069f28b980570bbf8c012aedbd9268b173b9586f368875c7287fbb0"
     },
     {
       "mode": "0644",
@@ -3808,13 +3828,13 @@
     },
     {
       "mode": "0644",
-      "path": "tests/test_target_auto_fir_qor_tool.py",
-      "sha256": "e759720c7f02433da263f3e47b237d2d8aeb6c82796f5a8f50eff0701c4d9c32"
+      "path": "tests/test_target_implementation_fir_qor_tool.py",
+      "sha256": "69bd1b2be06a4cc6bae087b0f0e72623420e5a7a0518b13c1d682223fb8e1bea"
     },
     {
       "mode": "0644",
       "path": "tests/test_target_pipeline_planner.py",
-      "sha256": "abd293813afe9440f01f61b3f126cb39b08c65aa781f07fe6e148736af467721"
+      "sha256": "b502b247b5818f909dcc53e01d1ea9e13a7c75bfea646fb3a3387cc02864fa17"
     },
     {
       "mode": "0644",
@@ -3908,18 +3928,18 @@
     },
     {
       "mode": "0644",
-      "path": "tools/math_exploration_formal.py",
-      "sha256": "77edc6696a12bc5b8e9a4733d0237420a859953b7d80d2827aa49cdbba480b1d"
+      "path": "tools/math_implementation_formal.py",
+      "sha256": "e7274e5de1d91e6ee72701c50314f7d4688e54c15b34aa54f224e72035f12294"
     },
     {
       "mode": "0644",
-      "path": "tools/math_exploration_qor.py",
-      "sha256": "8d7b76d7924e2190b3d610be1c38dd7d5d6c0a6111fb4d43c2d89b9f3ca90d76"
+      "path": "tools/math_implementation_qor.py",
+      "sha256": "9818313996206be85139732d7cbf27aaab719ad6dadd4347282b33b9dd37b299"
     },
     {
       "mode": "0644",
       "path": "tools/profile_compilation_latency.py",
-      "sha256": "138b878dfa7231a5236a322a10381d1c6a803b1c100c7923788f968d22b3caed"
+      "sha256": "3ca1bde8993b5b05a0195ed4a7535950999da57858b5fb50d3f715df318b6192"
     },
     {
       "mode": "0644",
@@ -3964,7 +3984,7 @@
     {
       "mode": "0644",
       "path": "tools/signed_product_pipeline_qor.py",
-      "sha256": "5f529eb066159cb11e7d6f1b0f617fe463d2ac5d444f996fc6c667169736e8f5"
+      "sha256": "2ada19492ba23bafcd4dd7878f49a181147a6258e50c01c8cebb142d33304b9e"
     },
     {
       "mode": "0644",
@@ -3988,11 +4008,6 @@
     },
     {
       "mode": "0644",
-      "path": "tools/target_auto_fir_qor.py",
-      "sha256": "2d18a677d81f89062f936009d7d62c37d0becfbe46635c850e1b1052222670fa"
-    },
-    {
-      "mode": "0644",
       "path": "tools/target_bram_vendor_qor.py",
       "sha256": "37eeda0af307dd59cf834834c02c5de0652f1c623c32a126dc92bd43156016da"
     },
@@ -4000,6 +4015,11 @@
       "mode": "0644",
       "path": "tools/target_fir_vendor_qor.py",
       "sha256": "aaf47ccb389d1b1a687d6d0bbb0b424071d783f5c2f09a2d16901eb6cb4fa133"
+    },
+    {
+      "mode": "0644",
+      "path": "tools/target_implementation_fir_qor.py",
+      "sha256": "83d9567a694499c5d85b8bd565860d72cb97221aa4927e96851a62c1163281c5"
     },
     {
       "mode": "0644",
@@ -4024,12 +4044,12 @@
     {
       "mode": "0644",
       "path": "zlang/architecture.py",
-      "sha256": "25fcd2bfe87725696904139bd3af25bf8839238b9856bccf7ca03e3c04867428"
+      "sha256": "6d92c5aca9495235b8e128331afaa8b54c427d312d7dd98b3daab8d326f95af5"
     },
     {
       "mode": "0644",
       "path": "zlang/architectures.py",
-      "sha256": "7027a56bad1e9ce4b2e7e7fcba66d69b9f6c2e5485d6dd2e12bf9c4ec6269a02"
+      "sha256": "4412165ab0f1ad19ee8120e22db9211e13e320fbe23e1e3afc3480b93362ad33"
     },
     {
       "mode": "0644",
@@ -4124,7 +4144,12 @@
     {
       "mode": "0644",
       "path": "zlang/backend/systemverilog/emitter.py",
-      "sha256": "7a30d840e6a89778e4909bf504e3d575dcd5d23532cfa00e2d8ced69129585cc"
+      "sha256": "b1253fb7c4ca1328c4ba6c11f984833577422b9472826986b37c8631f004cdd3"
+    },
+    {
+      "mode": "0644",
+      "path": "zlang/backend/systemverilog/functional_scatter.py",
+      "sha256": "4443dc42d6c02fb6dd8f2971d3e26bd266eb3c844bef9aa6df60c3a19cacda68"
     },
     {
       "mode": "0644",
@@ -4159,12 +4184,12 @@
     {
       "mode": "0644",
       "path": "zlang/candidate_equivalence.py",
-      "sha256": "dce4aaf588ac1a5b6c2c2ab8926440e6743dccd1bdda1ff77ac2eaa5572f8fec"
+      "sha256": "af04735f7e303b8dced6bb5b4bd298fac1d749fad6da40e89efad4aa0c6017f4"
     },
     {
       "mode": "0644",
       "path": "zlang/candidate_sites.py",
-      "sha256": "7a22962c5248e25318ba737f51d4049dec037125302b8902543815b0208feb8a"
+      "sha256": "c35751d4c747e1f730002558b3bf6f5b726a2423af2156b571e78d67953d5ff2"
     },
     {
       "mode": "0644",
@@ -4219,7 +4244,7 @@
     {
       "mode": "0644",
       "path": "zlang/compilation_session.py",
-      "sha256": "fd53e4aeff8f8cbdcbd0f190dec0911f46d2bc05093b6e206e778d4768fe3c29"
+      "sha256": "83f5b8aa6ee4ac1707e9a0b407338fb0e258e6ae3a87bf605731984e05642c93"
     },
     {
       "mode": "0644",
@@ -4279,7 +4304,7 @@
     {
       "mode": "0644",
       "path": "zlang/equivalence.py",
-      "sha256": "fbaa077da2abb2ae58ae66bdf93596dba95d4447527ab95c3f6812a89d901e4d"
+      "sha256": "2ffbf6014bd708b6dd746c64cdb5624aea334c754957e450c9a980ced8fc1dd1"
     },
     {
       "mode": "0644",
@@ -4319,7 +4344,7 @@
     {
       "mode": "0644",
       "path": "zlang/formal_candidate.py",
-      "sha256": "9b895fedb1576018a520a37df6236debc0a9bfa71963109edec8248c3725a8f1"
+      "sha256": "5e6fc806a8fbcee62082872c86d608216629c06174b875d0bd52cdf235dc318a"
     },
     {
       "mode": "0644",
@@ -4364,7 +4389,7 @@
     {
       "mode": "0644",
       "path": "zlang/implementation_plans.py",
-      "sha256": "2faab2edfc8e027a900d388c7d99c919e75006618ea58dd7cb5b26200a17d07b"
+      "sha256": "01767e846d11ad973f8859c4c24c45a3c071f2c104adaaa0cceeabaa825eafd2"
     },
     {
       "mode": "0644",
@@ -4699,7 +4724,7 @@
     {
       "mode": "0644",
       "path": "zlang/opt/saturation.py",
-      "sha256": "cb387f2acc69ef96367d033f7fdd62248d4dd3f90ae2e63b71e1db2d3fbb3ea1"
+      "sha256": "faeab82a6f6e139eff59dcb174876d7391041f4b6d976eed436249020615b7f4"
     },
     {
       "mode": "0644",
@@ -4714,17 +4739,17 @@
     {
       "mode": "0644",
       "path": "zlang/parser/grammar.lark",
-      "sha256": "863668ec110ff44ca5fa8c07d97af0668173c37b0864252ebef1101534941a9d"
+      "sha256": "75032e651a7e5cf438a958b0ba10e69c27ae7ab23061be51f5d0b4f0b5e40860"
     },
     {
       "mode": "0644",
       "path": "zlang/parser/lalr-1.3.1.larkbin",
-      "sha256": "fcd5beed6597b3010dbf33244c7eebb29b4652f5421abbce75354de268eab0bc"
+      "sha256": "f77db591842fc49cda8b0edaf9be8f9e6fe49226cd7101cd65528ef9a4ca9bb1"
     },
     {
       "mode": "0644",
       "path": "zlang/parser/parser.py",
-      "sha256": "d95614348f1f75bea0c8a3c4850794921f8466ce4768c7a803cd10ae53842348"
+      "sha256": "552cd3b832396653e17f512fde69ab086c0023eb0eece8d3ad5db18a03c82ba2"
     },
     {
       "mode": "0644",
@@ -4739,7 +4764,7 @@
     {
       "mode": "0644",
       "path": "zlang/pipelines.py",
-      "sha256": "f4d74a46999af54767af1a9a0a20bd427549b115ac9f8292862394d78af76293"
+      "sha256": "afcf1c721b9b6ce4e03a66bfd83c16107dd6058ff971a0e952164d8c156b52c1"
     },
     {
       "mode": "0644",
@@ -4758,13 +4783,8 @@
     },
     {
       "mode": "0644",
-      "path": "zlang/protocols.py",
-      "sha256": "d8ddcfe9dde2e562f972bee18eb51508ff58c1c3bbe1e4a97c7499f51cb7acb3"
-    },
-    {
-      "mode": "0644",
       "path": "zlang/public_capabilities.py",
-      "sha256": "e6d7ce95ba1b5e8f08d1fe70aff379bede2a5ebf2f2003e6c9140a91dc9e686a"
+      "sha256": "ff99c9501c9d67a254c1a7d01a11b727aac11263a94d214c776f7eeb65fbb92a"
     },
     {
       "mode": "0644",
@@ -4789,7 +4809,7 @@
     {
       "mode": "0644",
       "path": "zlang/semantic/analyze.py",
-      "sha256": "25d44565e8d47ba226166a8cdffc2eb02eb9509ff32f5d507956b258786d11b4"
+      "sha256": "f6a7713d8a18e4cbd66587ef8516acbd1dc82118002718edc8954215c7b1868c"
     },
     {
       "mode": "0644",
@@ -4798,8 +4818,28 @@
     },
     {
       "mode": "0644",
+      "path": "zlang/semantic/context.py",
+      "sha256": "7649afb0fc37179fa11e142254f68a78ecd8de84d2c0e404ecc0aeba96382f79"
+    },
+    {
+      "mode": "0644",
       "path": "zlang/semantic/errors.py",
       "sha256": "053a5cf06ce2ad738cf652712025cd80a1d5796ea74f4b1210bd79d957c43c09"
+    },
+    {
+      "mode": "0644",
+      "path": "zlang/semantic/expressions.py",
+      "sha256": "43ab24b21892c2b76799caf16b189c44ec1a7f9afc2025105c7679b5df4befed"
+    },
+    {
+      "mode": "0644",
+      "path": "zlang/semantic/module_validation.py",
+      "sha256": "f7d169e92b26c83633e13cea68a933f5a9fda4647a103ae7122c2a7e1fee4a53"
+    },
+    {
+      "mode": "0644",
+      "path": "zlang/semantic/observations.py",
+      "sha256": "9587d0029870a8ded611710bf6dd3d7ba625d3e2de48cb129ae90cee091ab7d2"
     },
     {
       "mode": "0644",
@@ -4864,7 +4904,17 @@
     {
       "mode": "0644",
       "path": "zlang/simulation_plan.py",
-      "sha256": "81bea6fb3e9dbfa907d69cf387678fc466fba9a02eea1b0bcb67ed97e1023a5e"
+      "sha256": "152724c9c415a75e966fa5fd39fc51a294b249219f6a017fd3c24abf4d6a0d5a"
+    },
+    {
+      "mode": "0644",
+      "path": "zlang/simulation_plan_build.py",
+      "sha256": "ae16723cfd23708ccb5ccd5f67b2adad75e388317f70f4cbd4c2db367e025be7"
+    },
+    {
+      "mode": "0644",
+      "path": "zlang/simulation_plan_codec.py",
+      "sha256": "84ab2b1eaa6bb474c9a50f9b257d16b0ef10c409ac48063f394a69780ec067d9"
     },
     {
       "mode": "0644",
@@ -4900,11 +4950,6 @@
       "mode": "0644",
       "path": "zlang/source_rebinding.py",
       "sha256": "ad5ae9f2b0514f7861a2326c862395bf54db280caf41b74d20834e991f4f7096"
-    },
-    {
-      "mode": "0644",
-      "path": "zlang/standard_bus.py",
-      "sha256": "ffb989d8578b48dca6925d507c44b0ec988283e31fc8b045ae10e59d9e489fd3"
     },
     {
       "mode": "0644",
