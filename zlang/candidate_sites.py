@@ -1279,7 +1279,8 @@ def gate_structured_candidate_sites(
         )
         if len(matches) != 1:
             raise CandidateSiteError(
-                "architecture(auto) formal gate requires one exact output assignment"
+                "restored architecture candidate formal gate requires one exact "
+                "output assignment"
             )
         selected_expression = next(
             item.expression for item in architecture.candidates

@@ -39,8 +39,8 @@ class ComposedDirectSystemVerilogTests(unittest.TestCase):
                 self.assertEqual(completed.returncode, 0, completed.stderr)
 
     def test_nested_fft_examples_use_explicit_selected_tops(self) -> None:
-        source = (ROOT / "examples/fft/complex_multiply_pipeline_auto.zhl").read_text()
-        for top in ("FFTComplexMultiplyRealAuto", "FFTComplexMultiplyImagAuto"):
+        source = (ROOT / "examples/fft/complex_multiply_implementation.zhl").read_text()
+        for top in ("FFTComplexMultiplyRealImplementation", "FFTComplexMultiplyImagImplementation"):
             with self.subTest(top=top), tempfile.TemporaryDirectory() as temporary:
                 path = Path(temporary) / f"{top}.sv"
                 path.write_text(emit_experimental(compile_source(source, top=top).ir))

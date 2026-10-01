@@ -95,7 +95,7 @@ def _extract_root_graph(graph: EGraph, root: _EggNode, max_terms: int) -> tuple[
 
     The serialized node IDs are only graph edges.  They never participate in
     candidate ordering or identities; equal-cost options use their decoded
-    semantic expression instead.  This adapter is pinned to egglog 13.2.0.
+    semantic expression instead.  This adapter is pinned to egglog 14.0.0.
     """
     runtime = to_runtime_expr(root)
     graph._add_decls(runtime)
@@ -480,7 +480,7 @@ def saturate(
 def _engine_typed_eclass_count(graph: EGraph) -> int:
     """Count exact-typed expression e-classes in the saturated egglog graph.
 
-    ``egglog==13.2.0`` does not expose a public scalar e-class counter.  Its
+    ``egglog==14.0.0`` does not expose a public scalar e-class counter.  Its
     deterministic serialized graph does expose the engine e-class assigned to
     every node.  ZLang reports the number of distinct classes containing an
     ``_egg_typed`` node: these are the semantic typed-expression classes.  Raw

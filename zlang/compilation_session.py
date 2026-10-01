@@ -1387,7 +1387,7 @@ class CompilationSession:
             }:
                 raise SemanticError(
                     "formal-required policy has no semantic-reference equivalence route for variable-latency "
-                    "elastic pipeline(auto); safety verification ready/valid safety remains available"
+                    "transform pipeline(auto); safety verification ready/valid safety remains available"
                 )
             try:
                 defer_physical = (

@@ -1,4 +1,4 @@
-"""Real scalar correlator triangle and mutation tutorial acceptance."""
+"""Real implementation-selection triangle and mutation tutorial acceptance."""
 
 import json
 from pathlib import Path
@@ -6,7 +6,7 @@ import shutil
 
 import pytest
 
-from tools.math_exploration_formal import run
+from tools.math_implementation_formal import run
 from zlang.equivalence_result_codec import equivalence_result_from_data
 from zlang.verification_bundle import load_verification_bundle
 
@@ -17,7 +17,7 @@ REAL_TOOLS = all(
 
 
 @pytest.mark.skipif(not REAL_TOOLS, reason="real SBY/Yosys/Z3 required")
-def test_math_exploration_bounded_triangle_and_real_mutations(tmp_path: Path) -> None:
+def test_math_implementation_bounded_triangle_and_real_mutations(tmp_path: Path) -> None:
     output = tmp_path / "formal"
     summary = run(output, depth=10, timeout=120)
     assert summary["accepted"]

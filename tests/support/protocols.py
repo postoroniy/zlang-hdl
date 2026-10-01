@@ -1,4 +1,4 @@
-"""protocol equivalence protocol observational-equivalence and finite trace safety models."""
+"""Protocol observational-equivalence and finite trace safety test models."""
 
 from __future__ import annotations
 

@@ -2815,16 +2815,6 @@ class _AstBuilder(Transformer):
         )
 
     @v_args(meta=True)
-    def removed_pipeline_auto_expr(
-        self, meta: object, items: list[object]
-    ) -> object:
-        raise ParseError(
-            "scalar pipeline(auto) was removed; use implement { expression "
-            "intent { ... } } for compiler-selected implementation, or "
-            "pipeline(N) for exact latency"
-        )
-
-    @v_args(meta=True)
     def protocol_transform_expr(
         self, meta: object, items: list[object]
     ) -> ProtocolTransformExpr:
@@ -2835,18 +2825,6 @@ class _AstBuilder(Transformer):
                 if isinstance(item, PipelineConstraint)
             ),
             origin=self._span(meta),
-        )
-
-    def architecture_constraint(self, items: list[object]) -> tuple[str, int]:
-        return (str(items[0]), self._parse_number(items[1]))
-
-    @v_args(meta=True)
-    def removed_architecture_expr(
-        self, meta: object, items: list[object]
-    ) -> object:
-        raise ParseError(
-            "scalar architecture(auto) was removed; use implement { expression "
-            "intent { ... } } for compiler-selected implementation"
         )
 
     def implementation_arm(self, items: list[object]) -> ImplementationArm:
@@ -2897,44 +2875,6 @@ class _AstBuilder(Transformer):
             tuple(items[1:]),
             cost_policy,
             origin=self._span(meta),
-        )
-
-    def explore_allow(self, items: list[object]) -> tuple[str, tuple[str, ...]]:
-        return ("allow", (str(items[0]),))
-
-    def explore_avoid(self, items: list[object]) -> tuple[str, tuple[str, ...]]:
-        return ("avoid", (str(items[0]),))
-
-    def explore_allow_group(self, items: list[object]) -> tuple[str, tuple[str, ...]]:
-        return ("allow", tuple(str(item) for item in items))
-
-    def explore_avoid_group(self, items: list[object]) -> tuple[str, tuple[str, ...]]:
-        return ("avoid", tuple(str(item) for item in items))
-
-    def explore_require(self, items: list[object]) -> tuple[str, str, int]:
-        return (
-            str(items[0]),
-            str(items[1]),
-            self._parse_number(items[2]),
-        )
-
-    def explore_require_group(self, items: list[object]) -> tuple[tuple[str, str, int], ...]:
-        return tuple(
-            (str(items[index]), str(items[index + 1]), self._parse_number(items[index + 2]))
-            for index in range(0, len(items), 3)
-        )
-
-    def explore_minimize(self, items: list[object]) -> tuple[str, str]:
-        return ("minimize", str(items[0]))
-
-    def explore_maximize(self, items: list[object]) -> tuple[str, str]:
-        return ("maximize", str(items[0]))
-
-    @v_args(meta=True)
-    def removed_explore_expr(self, meta: object, items: list[object]) -> object:
-        raise ParseError(
-            "scalar explore was removed; use implement { expression intent "
-            "{ ... } } for compiler-selected implementation"
         )
 
     def implement_constraint(self, items: list[object]) -> ExplorationConstraint:
@@ -3194,8 +3134,8 @@ _GRAMMAR = files("zlang.parser").joinpath("grammar.lark").read_text()
 _PARSER: Lark | None = None
 _PARSER_LOCK = Lock()
 _PARSER_TABLE_LARK_VERSION = "1.3.1"
-_PARSER_TABLE_GRAMMAR_SHA256 = "863668ec110ff44ca5fa8c07d97af0668173c37b0864252ebef1101534941a9d"
-_PARSER_TABLE_SHA256 = "fcd5beed6597b3010dbf33244c7eebb29b4652f5421abbce75354de268eab0bc"
+_PARSER_TABLE_GRAMMAR_SHA256 = "75032e651a7e5cf438a958b0ba10e69c27ae7ab23061be51f5d0b4f0b5e40860"
+_PARSER_TABLE_SHA256 = "f77db591842fc49cda8b0edaf9be8f9e6fe49226cd7101cd65528ef9a4ca9bb1"
 
 
 def _load_packaged_parser() -> Lark | None:

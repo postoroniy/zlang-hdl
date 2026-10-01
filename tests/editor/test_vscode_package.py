@@ -46,11 +46,11 @@ RUNTIME_PACKAGES = {
     "brace-expansion": "5.0.12",
     "minimatch": "10.2.6",
     "semver": "7.8.5",
-    "vscode-jsonrpc": "9.0.2",
+    "vscode-jsonrpc": "9.0.3",
     "vscode-languageclient": TOOLCHAIN["vscodeLanguageClient"],
-    "vscode-languageserver-protocol": "3.18.3",
-    "vscode-languageserver-textdocument": "1.0.14",
-    "vscode-languageserver-types": "3.18.3",
+    "vscode-languageserver-protocol": "3.18.4",
+    "vscode-languageserver-textdocument": "1.0.15",
+    "vscode-languageserver-types": "3.18.4",
 }
 VSIX_NS = "http://schemas.microsoft.com/developer/vsx-schema/2011"
 CONTENT_NS = "http://schemas.openxmlformats.org/package/2006/content-types"

@@ -19,11 +19,11 @@ from zlang.targets import TargetArchitectureError
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = (ROOT / "examples/symmetric_fixed_fir_auto.zhl").read_text()
+SOURCE = (ROOT / "examples/symmetric_fixed_fir_implementation.zhl").read_text()
 TARGET = "xc7z030ffg676-1"
 
 
-def _compile(top="SymmetricFixedFIRAuto", **kwargs):
+def _compile(top="SymmetricFixedFIRImplementation", **kwargs):
     return compile_source(SOURCE, top=top, target=TARGET, **kwargs)
 
 
@@ -70,7 +70,7 @@ def test_packaged_qor_catalog_keys_match_current_emitted_graphs() -> None:
         if item.key.architecture_template_identity == fir_template
     }
     bounded = _compile()
-    exact = _compile(top="SymmetricFixedFIRAutoExact8")
+    exact = _compile(top="SymmetricFixedFIRImplementationExact8")
     current_fir = {
         item.graph.identity
         for item in bounded.target_planning_result.generated_candidates
@@ -80,10 +80,10 @@ def test_packaged_qor_catalog_keys_match_current_emitted_graphs() -> None:
     assert packaged_fir == current_fir
 
     fft_source = (
-        ROOT / "examples/fft/complex_multiply_pipeline_auto.zhl"
+        ROOT / "examples/fft/complex_multiply_implementation.zhl"
     ).read_text()
     current_signed = set()
-    for top in ("FFTComplexMultiplyRealAuto", "FFTComplexMultiplyImagAuto"):
+    for top in ("FFTComplexMultiplyRealImplementation", "FFTComplexMultiplyImagImplementation"):
         result = compile_source(fft_source, top=top, target=TARGET)
         current_signed.update(
             item.graph.identity
@@ -107,7 +107,7 @@ def test_generic_candidate_uses_computed_structural_fmax_not_placeholder():
 
 
 def test_ii_alias_normalizes_to_existing_throughput_constraint_and_exact_latency():
-    result = _compile(top="SymmetricFixedFIRAutoExact8")
+    result = _compile(top="SymmetricFixedFIRImplementationExact8")
     constraints = result.ir.pipeline_explorations[0].constraints
     assert constraints[0].metric is PipelineMetric.LATENCY
     assert constraints[0].relation is PipelineRelation.EXACT
@@ -142,7 +142,7 @@ def test_candidate_set_is_generic_plus_four_resource_configurations():
 
 def test_exact_latency_adds_only_explicit_compensation():
     result = _compile(
-        top="SymmetricFixedFIRAutoExact8",
+        top="SymmetricFixedFIRImplementationExact8",
         target_evidence_policy="measured_required",
     )
     selected = result.implementation_graph
@@ -212,7 +212,7 @@ def test_independent_coefficients_do_not_match_symmetric_template():
     ).replace(
         "samples[7] * coefficients[0]", "samples[7] * coefficients[7]"
     )
-    result = compile_source(source, top="SymmetricFixedFIRAuto", target=TARGET)
+    result = compile_source(source, top="SymmetricFixedFIRImplementation", target=TARGET)
     assert result.implementation_graph.is_generic
     assert any("four semantically reused coefficients" in reason
                for item in result.target_planning_result.rejected_candidates
@@ -221,14 +221,14 @@ def test_independent_coefficients_do_not_match_symmetric_template():
 
 def test_illegal_exact_width_rejects_target_and_keeps_generic():
     source = SOURCE.replace("vec<8,SF2.10>", "vec<8,SF20.10>")
-    result = compile_source(source, top="SymmetricFixedFIRAuto", target=TARGET)
+    result = compile_source(source, top="SymmetricFixedFIRImplementation", target=TARGET)
     assert result.implementation_graph.is_generic
     assert any("preadder width exceeded" in reason
                for item in result.target_planning_result.rejected_candidates
                for reason in item.rejection_reasons)
     with pytest.raises(TargetArchitectureError, match="required target architecture"):
         compile_source(
-            source, top="SymmetricFixedFIRAuto", target=TARGET,
+            source, top="SymmetricFixedFIRImplementation", target=TARGET,
             architecture="Xilinx7SymmetricDSPCascade",
             architecture_mode="required",
         )

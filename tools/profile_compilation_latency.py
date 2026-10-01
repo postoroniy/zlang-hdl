@@ -158,6 +158,7 @@ def _instrument(timeline: _Timeline) -> None:
     import zlang.ir.normalization as normalization
     import zlang.pipeline_scheduling as scheduling
     import zlang.simulation_plan as simulation_plan
+    import zlang.simulation_plan_build as simulation_plan_build
     import zlang.workspace as workspace
     import zlang.module_resolver as module_resolver
     import zlang.parser.parser as parser_module
@@ -205,13 +206,12 @@ def _instrument(timeline: _Timeline) -> None:
         (scheduling, ("schedule_module_fixed_pipelines",)),
         (normalization, ("normalize_selected_values",)),
         (
-            simulation_plan,
+            simulation_plan_build,
             (
                 "_build_leaf_simulation_plan",
-                "_identity_bytes",
-                "_validate_plan_payload",
             ),
         ),
+        (simulation_plan, ("_identity_bytes", "_validate_plan_payload")),
         (
             emitter,
             (

@@ -1,8 +1,8 @@
 # Formal verification you can run
 
 For arithmetic optimization rather than state safety, see
-[From a long expression to a checked pipeline](math-exploration.md): exact
-eight-product math, `architecture`/`explore`, latency-aware Z3 equivalence,
+[From a long expression to a checked pipeline](math-implementation.md): exact
+eight-product `implement` selection, latency-aware Z3 equivalence,
 deliberate RTL mutations, and a separate routed 100 MHz experiment.
 
 These four small designs demonstrate the existing ZLang HDL verification flow.

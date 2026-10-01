@@ -1,4 +1,4 @@
-"""Independent standard-bus behavioral/reference models.
+"""Independent standard-bus behavioral/reference models for tests.
 
 These models are deliberately kept outside production lowering.  Their plain
 immutable records and explicit ``step`` transitions provide an oracle for the

@@ -117,6 +117,10 @@ def test_wheel_contains_and_resolves_every_shipped_stdlib_module(tmp_path: Path)
     assert not any(name.endswith(".rs") for name in wheel_members)
     assert not any("Cargo.toml" in name or "Cargo.lock" in name for name in wheel_members)
     assert not any("native-runtime" in name for name in wheel_members)
+    assert not any(
+        name.endswith(("zlang/standard_bus.py", "zlang/protocols.py"))
+        for name in wheel_members
+    )
     assert packaged == expected
     assert "stdlib/math/complex.zhl" in packaged
     assert "stdlib/stream/core.zhl" in packaged
@@ -163,6 +167,10 @@ def test_wheel_contains_and_resolves_every_shipped_stdlib_module(tmp_path: Path)
     assert not any(name.endswith(".rs") for name in sdist_members)
     assert not any("/Cargo.toml" in name or "/Cargo.lock" in name for name in sdist_members)
     assert not any("/native-runtime/" in name for name in sdist_members)
+    assert not any(
+        name.endswith(("/zlang/standard_bus.py", "/zlang/protocols.py"))
+        for name in sdist_members
+    )
 
     installed = tmp_path / "installed"
     install = subprocess.run(

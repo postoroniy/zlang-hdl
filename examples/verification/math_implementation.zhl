@@ -16,7 +16,7 @@ module MathOneCycle {
     assert result_width @ clk { y < 34359738368 }
 }
 
-module MathArchitecture {
+module MathImplementationTopology {
     clock clk reset rst
     in a0, b0, a1, b1, a2, b2, a3, b3 : u16
     in a4, b4, a5, b5, a6, b6, a7, b7 : u16
@@ -35,7 +35,7 @@ module MathArchitecture {
     assert result_width @ clk { y < 34359738368 }
 }
 
-module MathExplore {
+module MathImplementationPipeline {
     clock clk reset rst
     in a0, b0, a1, b1, a2, b2, a3, b3 : u16
     in a4, b4, a5, b5, a6, b6, a7, b7 : u16

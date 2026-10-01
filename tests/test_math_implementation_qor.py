@@ -1,8 +1,10 @@
+"""Implementation-selection routed-QoR tool contract."""
+
 from __future__ import annotations
 
 import pytest
 
-from tools.math_exploration_qor import (
+from tools.math_implementation_qor import (
     SOURCE,
     TOPS,
     build_shell,

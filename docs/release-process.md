@@ -30,7 +30,7 @@ and runs the release identity preflight, public-tree/status checks, static and
 native audits, two no-skip suites, external-tool inventory, an installed-VSIX
 host smoke, and reproducible package construction.
 
-Each regression pass runs the ordinary deterministic suite and the five
+Each regression pass runs the ordinary deterministic suite and the six
 isolated `performance` regressions as separate JUnit reports. Release status
 validates both partitions; neither report may contain a skip, failure, or error.
 

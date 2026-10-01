@@ -75,6 +75,8 @@ def test_current_candidate_binds_release_sources_native_wheel_and_git(
         "ZL-040",
         "ZL-041",
         "ZL-042",
+        "ZL-043",
+        "ZL-044",
     ]
     assert "release/regressions.json" in report["identities"]
     assert report["git"]["previous_commit"] == _git(

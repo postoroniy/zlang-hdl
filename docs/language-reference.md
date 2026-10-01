@@ -3292,7 +3292,8 @@ Runnable integrated examples are [AXI4-Lite CSR](../examples/axi_csr_top.zhl),
 [streaming packet engine](../examples/streaming_packet_engine.zhl). The bounded
 burst helpers are exposed by the
 [ZTPU AXI burst witness](../examples/ztpu_axi_burst.zhl). Python models in
-`zlang/standard_bus.py` remain independent test oracles only.
+`tests/support/standard_bus.py` remains an independent test oracle only and is
+not part of the runtime package.
 
 The AHB-Lite contract follows the
 [Arm AMBA 3 AHB-Lite protocol](https://documentation-service.arm.com/static/5f914801f86e16515cdc2a27)
@@ -3795,7 +3796,7 @@ typed value IR
 Timing alignment validates latency/II for eligible candidates. That validation
 is not, by itself, a formal proof.
 
-The [arithmetic exploration tutorial](../examples/verification/math-exploration.md)
+The [arithmetic exploration tutorial](../examples/verification/math-implementation.md)
 demonstrates an exact eight-product expression, topology-only selection versus
 an internally registered pipeline, real latency-aware equivalence/mutations,
 and independent FPGA timing measurement. Solver success and estimated frequency
@@ -3829,7 +3830,7 @@ The remaining source forms are:
   ready/valid transform.
 
 The scalar spellings `architecture(auto)`, `pipeline(auto)`, and `explore` are
-retired and fail with migration diagnostics.
+not part of the grammar. Old source must be migrated to `implement`.
 
 | `intent` metric | Accepted condition | Meaning / limit |
 | --- | --- | --- |
@@ -4300,8 +4301,8 @@ root-module-only and scalar-only; recursive protocol regions are unsupported.
 ### Normalization and conflicts
 
 `choice(auto)` remains accepted for user-supplied alternatives. Scalar
-`architecture(auto)`, `pipeline(auto)`, and `explore` are retired and produce
-migration diagnostics. Canonical `implement` source policy is represented
+`architecture(auto)`, `pipeline(auto)`, and `explore` are not part of the
+grammar. Canonical `implement` source policy is represented
 through the same `ImplementationRequest` model as the selected profile and
 explicit compiler options. Equal normalized contributions are harmless. Different values for
 the same target, transform set, objective, constraint, evidence policy, formal
@@ -4628,7 +4629,7 @@ tools own measured counts and routed timing.
 Automatic target-aware planning is enabled only for the reviewed symmetric-FIR
 and ordered signed-product reduction regions documented in the
 [Target-aware architecture and pipeline planning](#reference-high-level-target-aware-architecture-pipeline-planner).
-General `explore`, BRAM/clock selection, and arbitrary resource ranking remain
+General unconstrained exploration, BRAM/clock selection, and arbitrary resource ranking remain
 disabled. The accepted boundary is documented in the
 [Target-aware architecture and pipeline planning](#reference-high-level-target-aware-architecture-pipeline-planner).
 
@@ -4661,13 +4662,13 @@ exact observable sample latency.
 The target is build configuration, for example:
 
 ```bash
-zlang examples/symmetric_fixed_fir_auto.zhl \
-  --top SymmetricFixedFIRAuto \
+zlang examples/symmetric_fixed_fir_implementation.zhl \
+  --top SymmetricFixedFIRImplementation \
   --target xc7z030ffg676-1 \
   --target-evidence-policy measured_required \
-  --systemverilog build/SymmetricFixedFIRAuto.sv \
-  --implementation-manifest build/SymmetricFixedFIRAuto.json \
-  --pipeline-report build/SymmetricFixedFIRAuto.report
+  --systemverilog build/SymmetricFixedFIRImplementation.sv \
+  --implementation-manifest build/SymmetricFixedFIRImplementation.json \
+  --pipeline-report build/SymmetricFixedFIRImplementation.report
 ```
 
 Functional source never names DSP48E1, MREG or PREG. With no target, or with
@@ -6144,8 +6145,8 @@ Canonical implementation-selection markers: `implement`, `choice`.
 
 Implementation selection uses the canonical `implement` form for
 compiler-discovered candidates and `choice` for user-supplied alternatives. The retired
-scalar `pipeline(auto)`, `architecture(auto)`, and `explore` spellings are
-migration diagnostics; only protocol `transform pipeline(auto, ...)` remains
+scalar `pipeline(auto)`, `architecture(auto)`, and `explore` spellings are not
+grammar productions; only protocol `transform pipeline(auto, ...)` remains
 source syntax.
 
 `zlang.public_capabilities.CAPABILITY_REGISTRY` is the machine-readable source

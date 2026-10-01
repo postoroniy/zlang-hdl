@@ -60,9 +60,51 @@
       "status": "included",
       "summary": "Direct SystemVerilog bounds selected expression definitions, aggregate assignments and candidate-addressed scatter lowering.",
       "tests": [
-        "tests/backend/test_functional_region_emission.py::test_large_boolean_destination_decode_uses_bounded_procedural_scatter",
+        "tests/backend/test_functional_region_emission.py::test_large_boolean_destination_decode_uses_structural_scatter",
         "tests/backend/test_functional_region_emission.py::test_scatter_plan_elides_only_candidate_binder_dimensions_absent_from_entry",
         "tests/test_expression_materialization.py::test_preferred_root_definition_is_partitioned_independently_of_uses"
+      ]
+    },
+    {
+      "id": "ZL-043",
+      "source_paths": [
+        "examples/structural/scatter_12x4x4.zhl",
+        "zlang/backend/systemverilog/emitter.py",
+        "zlang/backend/systemverilog/functional_scatter.py"
+      ],
+      "status": "included",
+      "summary": "Wide candidate-addressed OR scatters use binder-aligned bounded chunks and one shared physical helper shape.",
+      "tests": [
+        "tests/backend/test_functional_region_emission.py::test_192_bit_hit_scatter_remains_structural",
+        "tests/backend/test_functional_region_emission.py::test_192_byte_scatter_uses_twelve_natural_sixteen_write_chunks",
+        "tests/backend/test_functional_region_emission.py::test_chunked_wide_scatter_matches_native_for_every_output_element",
+        "tests/backend/test_functional_region_emission.py::test_public_wide_scatter_yosys_process_is_time_and_memory_bounded",
+        "tests/backend/test_functional_region_emission.py::test_scatter_wider_than_chunk_budget_uses_irreducible_single_write_chunks",
+        "tests/backend/test_functional_region_emission.py::test_sequential_scatter_uses_the_same_chunked_policy",
+        "tests/backend/test_functional_region_emission.py::test_table_backed_structural_scatter_uses_its_bounded_plan"
+      ]
+    },
+    {
+      "id": "ZL-044",
+      "source_paths": [
+        "zlang/parser/grammar.lark",
+        "zlang/semantic/context.py",
+        "zlang/semantic/expressions.py",
+        "zlang/semantic/module_validation.py",
+        "zlang/semantic/observations.py",
+        "zlang/simulation_plan.py",
+        "zlang/simulation_plan_build.py",
+        "zlang/simulation_plan_codec.py"
+      ],
+      "status": "included",
+      "summary": "Canonical implement syntax and demand-driven semantic observations retain one compiler authority while simulation planning and validation have explicit owners.",
+      "tests": [
+        "tests/packaging/test_stdlib_packaging.py::test_wheel_contains_and_resolves_every_shipped_stdlib_module",
+        "tests/semantic/test_bounded_exploration.py::BoundedExplorationTests::test_removed_scalar_forms_are_not_in_the_grammar",
+        "tests/semantic/test_implementation_intent.py::test_implement_defaults_exclude_semantic_changing_transform_families",
+        "tests/simulation/test_native_jit.py::test_simulation_plan_is_canonical_and_round_trips",
+        "tests/test_tooling_api.py::test_definition_query_does_not_collect_completion_metadata",
+        "tests/tools/test_audit_python_architecture.py::test_compiler_architecture_regressions_remain_closed"
       ]
     }
   ],

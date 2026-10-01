@@ -245,7 +245,7 @@ def test_semantic_catalog_never_calls_verifier_and_selection_uses_exact_rank() -
 
 
 def test_scalar_explore_is_not_a_callable_expression() -> None:
-    with pytest.raises(ParseError, match="scalar explore was removed"):
+    with pytest.raises(ParseError):
         CompilationSession(
             "fn select<type T>(x:T) { explore { x ^ 0 } } "
             "module Nested { in x:u8 out y:u8 y=select(x) }",
@@ -418,6 +418,28 @@ def test_candidate_ledger_identity_is_origin_insensitive() -> None:
     assert left.identity == right.identity
     assert left.sites[0].source_origin != right.sites[0].source_origin
     assert CandidateSiteLedger.from_json(left.to_json()) == left
+
+
+@pytest.mark.parametrize(
+    "legacy_kind",
+    (
+        CandidateSiteKind.SOURCE_EXPLORE,
+        CandidateSiteKind.ARCHITECTURE_AUTO,
+        CandidateSiteKind.STANDALONE_PIPELINE,
+    ),
+)
+def test_legacy_candidate_site_kinds_remain_decode_only(
+    legacy_kind: CandidateSiteKind,
+) -> None:
+    current = compile_source(
+        "module LegacyDecode { in a:u8 out y:u8 "
+        "y=implement { a ^ 0 intent { minimize lut } } }",
+    ).candidate_site_ledger
+    assert current is not None
+    legacy = CandidateSiteLedger((replace(current.sites[0], kind=legacy_kind),))
+    restored = CandidateSiteLedger.from_json(legacy.to_json())
+    assert restored == legacy
+    assert restored.sites[0].kind is legacy_kind
 
 
 def test_formal_selection_origin_stripping_preserves_execution_and_evidence_identity() -> None:

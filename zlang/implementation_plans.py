@@ -185,7 +185,7 @@ def plan_backend_implementations(
     ):
         physical_intent = True
         elastic_physical_error = (
-            "elastic pipeline(auto) physical mapping requires every selected "
+            "transform pipeline(auto) physical mapping requires every selected "
             "resource site to advertise one compatible clock-enable/stall input; "
             "the current target resource schema provides no such capability"
         )
