@@ -131,7 +131,7 @@ jobs:
             mode=tagged
             previous_tag="$(git describe --tags --abbrev=0 "${RELEASE_TAG}^")"
           fi
-          python tools/release_preflight.py \
+          python -m tools.release_preflight \
             --root . \
             --tag "$RELEASE_TAG" \
             --previous-tag "$previous_tag" \

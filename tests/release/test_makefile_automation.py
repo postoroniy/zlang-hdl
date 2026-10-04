@@ -82,7 +82,7 @@ def test_release_workflow_uses_curated_changelog_notes_and_native_set() -> None:
     assert "tools/audit_native_vulnerabilities.py" in workflow
     assert "tools/stage_release_pdf.py" in workflow
     assert "workflow_dispatch:" in workflow
-    assert "tools/release_preflight.py" in workflow
+    assert "python -m tools.release_preflight" in workflow
     assert '--mode "$mode"' in workflow
     assert '--selected-ref "$GITHUB_REF_NAME"' in workflow
     assert "--protected-main-ref origin/main" in workflow
