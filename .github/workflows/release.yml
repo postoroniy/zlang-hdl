@@ -174,8 +174,8 @@ jobs:
             > "$smoke_dir/package-smoke.zhl"
           for environment in "$PWD/build/wheel-venv" "$PWD/build/sdist-venv"; do
             test "$("$environment/bin/zlang" --version)" = "zlang ${RELEASE_TAG#v}"
-            test "$("$environment/bin/zlang-lock" --version)" = "zlang-lock ${RELEASE_TAG#v}"
-            test "$("$environment/bin/zlang-verify" --version)" = "zlang-verify ${RELEASE_TAG#v}"
+            test "$("$environment/bin/zlang" lock --version)" = "zlang lock ${RELEASE_TAG#v}"
+            test "$("$environment/bin/zlang" verify --version)" = "zlang verify ${RELEASE_TAG#v}"
             (cd "$smoke_dir" && "$environment/bin/zlang" package-smoke.zhl --check)
           done
           for kind in wheel sdist; do
