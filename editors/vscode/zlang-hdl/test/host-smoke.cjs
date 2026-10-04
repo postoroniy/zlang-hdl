@@ -142,6 +142,17 @@ async function checkHost() {
   assert.deepEqual(definitionRange.start, new vscode.Position(1, 7));
   phase('simple definition');
 
+  const completions = await vscode.commands.executeCommand(
+    'vscode.executeCompletionItemProvider',
+    document.uri,
+    document.positionAt(useOffset),
+  );
+  assert.ok(
+    completions?.items.some((item) => item.label === 'x'),
+    'installed LanguageClient did not provide compiler-owned completion',
+  );
+  phase('simple completion');
+
   // Mirror dogfooding with the repository opened above a nested locked ZLang
   // project.  Only the root document is opened; declaration targets must be
   // resolved from the document-local manifest/lock, never workspaceFolder.
@@ -277,12 +288,6 @@ async function checkHost() {
   assert.equal(explicitReferences?.length, 2,
     'Shift+F12 failed with explicit inst and dirty import');
   phase('dirty references');
-  await vscode.commands.executeCommand(
-    'vscode.executeCompletionItemProvider',
-    transmitter.uri,
-    transmitter.positionAt(transmitter.getText().indexOf('packet_mapper.command')),
-  );
-
   await replaceDocument(transmitter, transmitterText);
   await new Promise((resolve) => setTimeout(resolve, 400));
   assert.equal(
@@ -312,6 +317,7 @@ async function checkHost() {
       'isolated installed VSIX identity and standard LSP client manifest',
       'automatic .zhl association; no .zl or .zlh association',
       'activation-complete LanguageClient and real F12 definition provider',
+      'compiler-owned completion through the installed LanguageClient',
       'nested-project type/module F12 with unopened declaration targets',
       'same-file enum and nested-project type/module Shift+F12 from installed VSIX',
       'multi-document unsaved live edit with explicit and concise instances',
