@@ -16,6 +16,7 @@ import shutil
 
 import pytest
 
+from zlang.backend import systemverilog
 from zlang.backend.systemverilog import emit_formal_artifact
 from zlang.compiler import compile_source
 from zlang.formal import run_verilog_formal
@@ -378,7 +379,8 @@ def test_missing_descendant_observation_skips_only_affected_physical_instance(
         ),
     )
     monkeypatch.setattr(
-        "zlang.verification_publication.emit_formal_artifact",
+        systemverilog,
+        "emit_formal_artifact",
         lambda *_args, **_kwargs: partial,
     )
     directory = tmp_path / "bundle"

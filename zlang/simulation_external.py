@@ -108,6 +108,10 @@ def lower_external_model(
         raise ExternalModelSimulationLoweringError(
             f"external module '{module.name}' model call changed signature"
         )
+    if call.callee_identity != contract.model_callee_identity:
+        raise ExternalModelSimulationLoweringError(
+            f"external module '{module.name}' model call changed callable identity"
+        )
     expected_arguments = tuple((port.name, port.type) for port in inputs)
     actual_arguments = tuple(
         (argument.name, argument.type)
@@ -119,14 +123,9 @@ def lower_external_model(
         raise ExternalModelSimulationLoweringError(
             f"external module '{module.name}' model call does not match its inputs"
         )
-    # Semantic construction uses an unqualified legacy call because the
-    # external declaration itself selected the model.  Attach the already
-    # verified stable identity before expansion so an unrelated overload can
-    # never affect simulation.
-    qualified = replace(call, callee_identity=contract.model_callee_identity)
     try:
         expanded = expand_callable_calls(
-            qualified,
+            call,
             definitions,
             max_depth=max_depth,
             max_nodes=max_nodes,

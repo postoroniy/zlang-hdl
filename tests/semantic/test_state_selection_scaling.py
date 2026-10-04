@@ -43,9 +43,9 @@ from tests.simulation.differential import run_differential
 ROOT = Path(__file__).resolve().parents[2]
 ZTPU_FIXTURE = ROOT / "tests" / "fixtures" / "ztpu_zl038"
 ZTPU_CANONICAL_IDENTITIES = {
-    "fsm": "high-level:97f4d1c880c26723ee0c12f579f3fedecc02d3c74851a0006c7654d74b7079d6",
-    "flat": "high-level:5996ec117ccb64bf985b3eb38aa3dda39067870f68209c01921b60502256bdd9",
-    "hierarchy": "high-level:cab751d8ab06bf77f68c187eb0fee05f4a5781babeb2193c8df10e9fc4667f8d",
+    "fsm": "high-level:890e6bb709bbd4deb9404bc86760eebb894a237edad2588b62d01ccb28381518",
+    "flat": "high-level:fe0d8d29842819703e4d97c7674e4e7ce9da3502b1dd62d0622f417543a10788",
+    "hierarchy": "high-level:3774acd4c1ae664d6367302cc2c130cf52786c18030fe6a5764db8c62fac435c",
 }
 
 

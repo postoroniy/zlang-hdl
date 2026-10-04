@@ -1,8 +1,8 @@
 import unittest
 
 from zlang.parser import ParseError, parse
-from zlang.ir import EquivalenceGuardKind
-from zlang.opt import lower, restore
+from zlang.ir.module import EquivalenceGuardKind
+from zlang.opt.lowering import lower, restore
 from zlang.semantic import SemanticError, analyze
 
 

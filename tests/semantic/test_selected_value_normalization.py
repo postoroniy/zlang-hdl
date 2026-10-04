@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from zlang.compiler import compile_source
-from zlang.ir import Call, Constant
+from zlang.ir.expressions import Call, Constant
 from zlang.ir.normalization import normalize_selected_values
 from zlang.parser import parse
 from zlang.semantic import analyze

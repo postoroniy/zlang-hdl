@@ -4,15 +4,9 @@ import pytest
 
 from zlang.ir import expressions as expr
 from zlang.ir.state import StateActionKind
-from zlang.ir.storage import (
-    Memory,
-    MemoryCollision,
-    MemoryResetPolicy,
-    memory_byte_mask_width,
-)
-from zlang.ir.types import BitsType, UIntType
+from zlang.ir.storage import memory_byte_mask_width
+from zlang.ir.types import BitsType
 from zlang.opt.lowering import CanonicalizationError, lower, restore
-from zlang.opt.ir import CanonicalMemory
 from zlang.parser import parse
 from zlang.semantic import SemanticError, analyze
 from zlang.native_simulation import simulate_cycles
@@ -113,30 +107,6 @@ module ScheduledPartialWidthWithFullWrite {{
   q=table.read_data
 }}
 """
-
-
-def test_legacy_memory_positional_constructor_keeps_source_origin_position() -> None:
-    origin = object()
-    memory = Memory(
-        "table", "memory:table", UIntType(8), 4, 1,
-        MemoryCollision.READ_FIRST,
-        expr.Constant(0, UIntType(2)), expr.Constant(0, UIntType(1)),
-        expr.Constant(0, UIntType(2)), expr.Constant(0, UIntType(8)), origin,
-    )
-    assert memory.source_origin is origin
-    assert memory.write_mask_width is None
-    assert memory.write_mask is None
-    assert memory.contents_reset is MemoryResetPolicy.CLEAR
-    assert memory.read_data_reset is MemoryResetPolicy.CLEAR
-    canonical = CanonicalMemory(
-        "table", "memory:table", UIntType(8), 4, 1,
-        MemoryCollision.READ_FIRST, 0, 1, 2, 3, origin,
-    )
-    assert canonical.source_origin is origin
-    assert canonical.write_mask_width is None
-    assert canonical.write_mask is None
-    assert canonical.contents_reset is MemoryResetPolicy.CLEAR
-    assert canonical.read_data_reset is MemoryResetPolicy.CLEAR
 
 
 def test_scheduled_mask_metadata_and_two_argument_compatibility() -> None:

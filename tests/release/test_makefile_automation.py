@@ -84,6 +84,12 @@ def test_release_workflow_uses_curated_changelog_notes_and_native_set() -> None:
     assert "workflow_dispatch:" in workflow
     assert "tools/release_preflight.py" in workflow
     assert '--mode "$mode"' in workflow
+    assert '--selected-ref "$GITHUB_REF_NAME"' in workflow
+    assert "--protected-main-ref origin/main" in workflow
+    assert (
+        "git fetch --no-tags origin "
+        "+refs/heads/main:refs/remotes/origin/main"
+    ) in workflow
     assert "release-preflight.json" in workflow
     assert "if: ${{ github.event_name == 'push' }}\n    needs: [validate, eda]" in workflow
     assert "Exercise the installed exact-tag VSIX" in workflow

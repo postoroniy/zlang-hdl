@@ -9,7 +9,7 @@ from zlang.backend.systemverilog.emitter import emit
 from zlang.cli import main
 from zlang.costs import extract_estimated_costs
 from zlang.csr import emit_csr_json, emit_csr_markdown
-from zlang.opt import lower, restore
+from zlang.opt.lowering import lower, restore
 from zlang.parser import parse
 from zlang.semantic import analyze
 from zlang.native_simulation import simulate, simulate_cycles

@@ -7,7 +7,7 @@ import subprocess
 
 import pytest
 
-from zlang.backend.systemverilog import emit_artifact, emit_experimental
+from zlang.backend.systemverilog import emit_artifact, emit
 from zlang.compiler import compile_source
 from zlang.toolchain import lint_with_verilator
 
@@ -80,7 +80,7 @@ def _build_and_run(rtl: tuple[Path, ...], tmp_path: Path) -> None:
 
 def test_direct_sv_contains_real_internal_boundaries() -> None:
     result = compile_source(SOURCE)
-    direct = emit_experimental(result.ir)
+    direct = emit(result.ir)
 
     # Stage zero registers the two products and the short f bypass is delayed
     # to the final add.  The production backend does not contain a single full
@@ -107,7 +107,7 @@ def test_shared_dag_node_is_materialized_once_in_direct_sv() -> None:
         "t=a*b y=pipeline(3){(t+c)*(t+d)} }"
     )
     result = compile_source(source)
-    direct = emit_experimental(result.ir)
+    direct = emit(result.ir)
     assert direct.count("assign zlang_stage_expr_0 = ") == 1
     assert direct.count("zlang_stage_expr_0}") == 2
 
@@ -155,6 +155,6 @@ def test_scheduled_pipeline_reduces_measured_logic_depth(tmp_path: Path) -> None
 @pytest.mark.skipif(shutil.which("verilator") is None, reason="Verilator required")
 def test_direct_sv_staged_pipeline_is_cycle_exact(tmp_path: Path) -> None:
     rtl = tmp_path / "GeneralExpressionPipeline.sv"
-    rtl.write_text(emit_experimental(compile_source(SOURCE).ir))
+    rtl.write_text(emit(compile_source(SOURCE).ir))
     lint_with_verilator((rtl,), "GeneralExpressionPipeline")
     _build_and_run((rtl,), tmp_path)

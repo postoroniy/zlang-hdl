@@ -15,7 +15,7 @@ from zlang.backend.systemverilog import emit_target, emit_target_artifact
 from zlang.compiler import compile_source
 from zlang.costs import CandidateCost
 from zlang.fixed_point import quantize_rational
-from zlang.equivalence import formal_tools_available
+from tests.support.formal import formal_tools_available
 from zlang.formal_candidate import (
     SemanticEquivalenceDirectSystemVerilogCandidateVerifier,
     PhysicalTargetFormalCandidate,

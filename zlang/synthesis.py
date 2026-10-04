@@ -15,7 +15,8 @@ from zlang.implementations import select_implementation
 from zlang.ir import expressions as expr
 from zlang.ir.module import Assignment, Module
 from zlang.ir.module import dependency_context_identity
-from zlang.opt import lower, render
+from zlang.opt.module_lowering import lower
+from zlang.opt.render import render
 from zlang.common import stable_digest
 
 

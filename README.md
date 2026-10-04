@@ -45,9 +45,9 @@ uv tool install --python '>=3.12,<3.13' \
 The native wheel must match the operating system and CPU; WSL2 uses the Linux
 x86-64 wheel. A compiler-only installation may omit `--with`, but `zlang sim`
 then fails explicitly because native simulation has no fallback executor. The
-Rust/Cranelift source is not distributed in this Community repository; the
-versioned plan/ABI remains compiler-owned and does not alter language or RTL
-semantics. See the
+native runtime implementation source is not distributed in this Community
+repository; the matching wheel uses a versioned simulation ABI. This packaging
+boundary does not alter language or RTL semantics. See the
 [native simulation section](docs/language-reference.md#reference-native-simulation)
 and the installation chapter for PATH, pip/venv and WSL2 details.
 
@@ -116,7 +116,7 @@ The validated language includes:
   arbitration, and mandatory explicit named-domain CDC;
 - source-authored RegBus, AHB-Lite, AXI4-Lite, APB, Wishbone, AXI-Stream, CSR,
   math, stream, storage, coding, and target-library components;
-- direct-SystemVerilog emission with source maps and versioned BackendArtifact
+- direct-SystemVerilog emission with source maps and versioned backend artifact
   manifests;
 - bounded equality saturation, implementation exploration, synthesis evidence,
   safety checks, semantic-reference equivalence, formal-aware selection, and
@@ -176,10 +176,8 @@ Create and replay an immutable verification bundle:
   --report build/verification-report.json
 ```
 
-`zlang` is the unified command surface: use `zlang sim`, `zlang verify`,
-`zlang lock`, and `zlang lsp`. The installed `zlang-verify`, `zlang-lock`, and
-`zlang-lsp` executables remain compatibility aliases for scripts and editor
-configuration.
+`zlang` is the single installed command surface: use `zlang sim`, `zlang verify`,
+`zlang lock`, and `zlang lsp`.
 
 Bounded model checking is reported as `bounded_pass`, never promoted to
 `proven`. Missing tools, bindings, reset semantics, or unsupported routes remain
@@ -197,7 +195,7 @@ BMC but fails at a deeper bound, with a source-attributed counterexample.
 - [Printable PDF reference](docs/ZLang-HDL-Language-Reference.pdf)
 - [Non-publishing candidate and signed release process](docs/release-process.md)
 
-The compiler-owned capability registry and release CI are authoritative for
+The machine-readable capability registry and release CI are authoritative for
 executable support. Documentation should describe semantics and boundaries
 without copying mutable pass totals into multiple files.
 

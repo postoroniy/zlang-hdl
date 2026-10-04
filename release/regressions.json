@@ -3,7 +3,8 @@
     {
       "id": "ZL-039",
       "source_paths": [
-        "zlang/semantic/analyze.py",
+        "zlang/semantic/csr/analyzer.py",
+        "zlang/semantic/csr/bindings.py",
         "zlang/simulation_csr.py"
       ],
       "status": "included",
@@ -19,7 +20,8 @@
       "id": "ZL-040",
       "source_paths": [
         "zlang/ir/csr.py",
-        "zlang/semantic/analyze.py",
+        "zlang/semantic/csr/analyzer.py",
+        "zlang/semantic/csr/layout.py",
         "zlang/simulation_csr.py"
       ],
       "status": "included",
@@ -55,7 +57,7 @@
       "id": "ZL-042",
       "source_paths": [
         "zlang/backend/expression_materialization.py",
-        "zlang/backend/systemverilog/emitter.py"
+        "zlang/backend/systemverilog/functional/scatter.py"
       ],
       "status": "included",
       "summary": "Direct SystemVerilog bounds selected expression definitions, aggregate assignments and candidate-addressed scatter lowering.",
@@ -69,7 +71,7 @@
       "id": "ZL-043",
       "source_paths": [
         "examples/structural/scatter_12x4x4.zhl",
-        "zlang/backend/systemverilog/emitter.py",
+        "zlang/backend/systemverilog/functional/scatter.py",
         "zlang/backend/systemverilog/functional_scatter.py"
       ],
       "status": "included",
@@ -105,6 +107,17 @@
         "tests/simulation/test_native_jit.py::test_simulation_plan_is_canonical_and_round_trips",
         "tests/test_tooling_api.py::test_definition_query_does_not_collect_completion_metadata",
         "tests/tools/test_audit_python_architecture.py::test_compiler_architecture_regressions_remain_closed"
+      ]
+    },
+    {
+      "id": "ZL-045",
+      "source_paths": [
+        "zlang/simulation_protocol_shared.py"
+      ],
+      "status": "included",
+      "summary": "Primitive protocol plans preserve canonical scalar field identities for string-backed signal enums.",
+      "tests": [
+        "tests/simulation/test_native_jit_protocols.py::test_credit_sender_is_lowered_to_primitive_counter_state"
       ]
     }
   ],

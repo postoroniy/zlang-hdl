@@ -2,12 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from zlang.ast import (
-    FieldExpr,
-    SwitchExpr,
-    TaggedUnionConstructExpr,
-    TaggedUnionMatchExpr,
-)
+from zlang.ast.nodes import FieldExpr, SwitchExpr, TaggedUnionConstructExpr, TaggedUnionMatchExpr
 from zlang.parser import parse
 
 

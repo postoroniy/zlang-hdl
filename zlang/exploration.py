@@ -18,13 +18,13 @@ from zlang.costs import (
     UnifiedConstraint,
     extract_best,
 )
+from zlang.candidate_expression import (
+    candidate_expression_children as _expression_children,
+    candidate_input_refs as _input_refs,
+)
 from zlang.ir import expressions as ir_expr
 from zlang.ir.cdc import ClockDomain
 from zlang.ir.expression_graph import ExpressionDagIndex
-from zlang.ir.traversal import (
-    ExpressionTraversalPolicy,
-    expression_children as typed_expression_children,
-)
 from zlang.timing import TimingRelation, timing_info, validate_timed_candidate
 
 
@@ -59,7 +59,7 @@ class ExplorationContext:
     # that boundary lets compiler orchestration apply formal-aware selection after semantic
     # typing, without re-running the analyzer with a live verifier.
     site_owner: str | None = None
-    site_kind: str = "source_explore"
+    site_kind: str = "implement"
     clock_domain: str | None = None
 
 
@@ -215,12 +215,12 @@ class ExplorationResult:
     search_complete: bool
     termination_reason: str
     formal_records: tuple[object, ...] = ()
-    # Selection-only locator metadata.  Expression-local explores deliberately
-    # leave ``site_output`` unset and are rewritten by exact retained object
-    # identity; complete output/profile regions retain their public boundary.
+    # Selection-only locator metadata. Expression-local regions leave
+    # ``site_output`` unset and are rewritten by exact retained object identity;
+    # complete output/profile regions retain their public boundary.
     site_owner: str | None = None
     site_output: str | None = None
-    site_kind: str = "expression_explore"
+    site_kind: str = "implement"
 
     @property
     def selected(self) -> ExplorationCandidate:
@@ -663,7 +663,9 @@ def _value_candidates(
 ) -> tuple[list[ExplorationCandidate], bool, list[RejectedCandidate]]:
     try:
         from zlang.ir.module import Assignment, Module, Port, PortDirection
-        from zlang.opt import lower, saturate, term_to_expression
+        from zlang.opt.module_lowering import lower
+        from zlang.opt.rewrite_model import term_to_expression
+        from zlang.opt.saturation import saturate
 
         inputs = _input_refs(request.root)
         output_name = "__zlang_explore_result"
@@ -693,7 +695,7 @@ def _value_candidates(
             for certificate in saturation.certificates
         }
         from hashlib import sha256
-        from zlang.opt import render_term
+        from zlang.opt.rewrite_model import render_term
         for term in saturation.alternatives:
             expression = term_to_expression(term)
             certificate = certificates[sha256(render_term(term).encode()).hexdigest()]
@@ -799,30 +801,6 @@ def _merge_completion(
     if truncated:
         return False, f"search truncated at {stage}"
     return complete, reason
-
-
-def _expression_children(value: ir_expr.Expression) -> tuple[ir_expr.Expression, ...]:
-    # Exploration keeps exact reductions compact and follows only a selected
-    # implementation.  All other node coverage is owned by the closed-union
-    # traversal, so a future expression kind cannot silently become a leaf.
-    if isinstance(value, ir_expr.Reduce):
-        return (value.collection,)
-    return typed_expression_children(
-        value,
-        policy=ExpressionTraversalPolicy.SELECTED_IMPLEMENTATION,
-    )
-
-
-def _input_refs(value: ir_expr.Expression) -> dict[str, object]:
-    result: dict[str, object] = {}
-    graph = ExpressionDagIndex((value,), children=_expression_children)
-    for item in graph.preorder():
-        if isinstance(item, ir_expr.InputRef):
-            previous = result.get(item.name)
-            if previous is not None and previous != item.type:
-                raise ValueError(f"input '{item.name}' has inconsistent types")
-            result[item.name] = item.type
-    return result
 
 
 def _logic_depth(value: ir_expr.Expression) -> int:

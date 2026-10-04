@@ -6,7 +6,7 @@ import pytest
 from zlang.ir.state import (
     FifoOccupancy,
     StateActionKind,
-    groups_conflict,
+    groups_may_conflict,
     ordered_groups,
     select_action_groups,
     selection_cubes,
@@ -111,7 +111,7 @@ module Pair { clock clk reset rst in x:u8 in fire:bit
 """
     module = analyze(parse(source))
     groups = module.resolved_transition.action_groups
-    assert not groups_conflict(groups[0], groups[1])
+    assert not groups_may_conflict(groups[0], groups[1])
     result = simulate_cycles(module, [
         {"x": 7, "fire": 1},  # empty: pop group suppressed, push group fires
         {"x": 8, "fire": 1},  # both fire, count remains one

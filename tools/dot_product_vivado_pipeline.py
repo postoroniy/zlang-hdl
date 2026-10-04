@@ -11,7 +11,7 @@ import shutil
 import subprocess
 import time
 
-from zlang.backend.systemverilog import emit_experimental
+from zlang.backend.systemverilog import emit
 from zlang.compiler import compile_source
 from zlang.ir import expressions as ir_expr
 from zlang.timing import timing_info
@@ -136,7 +136,7 @@ def main() -> int:
             f"reported latency {args.latency} does not match source pipeline "
             f"latency {actual_latency}"
         )
-    rtl = emit_experimental(compilation.ir)
+    rtl = emit(compilation.ir)
     with ThreadPoolExecutor(max_workers=max(1, args.jobs)) as executor:
         futures = [executor.submit(
             _run, name, rtl, use_dsp, cascade, retiming,

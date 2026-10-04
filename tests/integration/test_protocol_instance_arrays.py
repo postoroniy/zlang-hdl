@@ -12,7 +12,7 @@ import pytest
 from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
 from zlang.compiler import compile_source
 from zlang.ir.hierarchy import build_hierarchy_index, specialization_fingerprint
-from zlang.opt import lower, restore
+from zlang.opt.lowering import lower, restore
 from zlang.opt.lowering import CanonicalizationError
 from zlang.ir.module import PortDirection
 from zlang.ir.types import UIntType

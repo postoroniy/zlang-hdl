@@ -60,7 +60,7 @@ def test_backend_artifact_round_trip_is_byte_identical() -> None:
         ),
         (
             lambda data: data["bindings"][0].update(source_origin=7),
-            "source_origin must be an object, string, or null",
+            "source_origin must be an object or null",
         ),
     ),
 )

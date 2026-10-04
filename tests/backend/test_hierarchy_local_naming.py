@@ -17,7 +17,9 @@ from zlang.backend.naming import (
     validate_component_name_plans,
 )
 from zlang.compiler import compile_source
-from zlang.ir import CompileTimeBinderRef, Constant, FunctionalRegion, FunctionalRegionKind, UIntType, VecType
+from zlang.ir.functional_regions import CompileTimeBinderRef, FunctionalRegionKind
+from zlang.ir.expressions import Constant, FunctionalRegion
+from zlang.ir.types import UIntType, VecType
 from zlang.ir.hierarchy import build_hierarchy_index
 from zlang.ir.module import LocalValue
 
@@ -142,8 +144,10 @@ def test_independent_compilation_registry_rejects_truncated_prefix_collisions(sp
 
 def test_source_names_win_over_generated_arrays_signals_and_rule_helpers(collision_module) -> None:
     from zlang.backend.systemverilog.emitter import (
-        SystemVerilogEmissionError, _expression, emit_artifact,
+        SystemVerilogEmissionError,
+        emit_artifact,
     )
+    from zlang.backend.systemverilog.expression import _expression
 
     plan = module_rtl_names(collision_module)
     assert plan.instance("cfg") == "cfg"

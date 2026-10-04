@@ -3,7 +3,7 @@ from dataclasses import replace
 import pytest
 
 from zlang.compiler import compile_source
-from zlang.ir.state import StateActionKind, StateResourceKind, groups_conflict
+from zlang.ir.state import StateActionKind, StateResourceKind, groups_may_conflict
 from zlang.ir.types import UIntType
 from zlang.opt.lowering import CanonicalizationError, lower, restore
 from zlang.parser import parse
@@ -94,7 +94,7 @@ def test_memory_ownership_is_whole_resource_and_all_or_none() -> None:
 
 def test_same_direction_conflicts_and_read_write_is_legal() -> None:
     module = analyze(parse(source()))
-    assert not groups_conflict(
+    assert not groups_may_conflict(
         module.resolved_transition.group("fetch"),
         module.resolved_transition.group("store"),
     )

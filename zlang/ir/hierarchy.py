@@ -474,12 +474,6 @@ class HierarchyIndex:
             )
         return match
 
-    def specialization_catalog(self) -> tuple[HierarchySpecialization, ...]:
-        """Compatibility spelling for the immutable specialization view."""
-
-        return self.specializations
-
-
 def build_hierarchy_index(
     module: Module,
     *,

@@ -10,11 +10,12 @@ import subprocess
 import pytest
 
 from zlang.backend.systemverilog import (
-    emit_experimental,
+    emit,
 )
 from zlang.compiler import compile_file
 from zlang.ir.interfaces import RequestResponseRole
-from zlang.opt import OptimizationStage, lower, restore
+from zlang.opt.ir import OptimizationStage
+from zlang.opt.lowering import lower, restore
 from zlang.parser import parse
 
 
@@ -211,7 +212,7 @@ def test_every_standalone_supported_example_root_passes_strict_lint(tmp_path: Pa
         key = (relative, top)
         if key in CHILD_OR_TEMPLATE_ONLY or key in DIRECT_UNSUPPORTED:
             continue
-        generated = emit_experimental(_direct_result(path, top).ir)
+        generated = emit(_direct_result(path, top).ir)
         _assert_explicit_internal_drivers(generated, f"{relative}::{top}")
         path = tmp_path / f"{checked:03d}_{top}.sv"
         path.write_text(generated)

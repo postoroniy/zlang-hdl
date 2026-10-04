@@ -17,7 +17,11 @@ import pytest
 from zlang.backend.manifest import BackendArtifact
 from zlang.backend.naming import RTL_NAMING_SCHEMA, module_rtl_names
 from zlang.backend.systemverilog import emit_artifact, emit_formal_artifact
-from zlang.backend.systemverilog.emitter import _formal_projection_name, _physicalize_generic_callables, physical_state_root_path
+from zlang.backend.systemverilog.boundary import physical_state_root_path
+from zlang.backend.systemverilog.formal import _formal_projection_name
+from zlang.backend.systemverilog.physicalization import (
+    physicalize_generic_callables,
+)
 from zlang.backend.systemverilog.simulation_state import (
     SYSTEMVERILOG_SIMULATION_STATE_SCHEMA,
     SystemVerilogSimulationStateBundle,
@@ -31,7 +35,7 @@ from zlang.formal_artifact_provider import FormalArtifactRecipe
 import zlang.formal_candidate as candidate_module
 from zlang.ir.hierarchy import build_hierarchy_index
 from zlang.simulation_state import SimulationStateError
-from zlang.verification_publication import _prepared_route_recipe
+from zlang.verification_prepared_routes import _prepared_route_recipe
 
 
 SIMPLE = "module NamingMetadata { in x:u8 out y:u8 y=x }"
@@ -140,12 +144,12 @@ def test_vpi_scope_uses_physicalized_generic_helper_reservations():
         e=identity(step) slot:GenericChild { step } y=slot.y
     }
     """
-    physical = _physicalize_generic_callables(analyze(parse(source)))
+    physical = physicalize_generic_callables(analyze(parse(source)))
     helper = next(f.name for f in physical.callable_definitions if f.name.startswith("zlang_spec_"))
     result = compile_source(source.replace("slot", helper))
     artifact = emit_artifact(result.ir, selected_ir_identity=result.selected_ir_identity)
     bundle = build_systemverilog_simulation_state_bundle(result.ir, artifact)
-    expected = module_rtl_names(_physicalize_generic_callables(result.ir)).instance(helper)
+    expected = module_rtl_names(physicalize_generic_callables(result.ir)).instance(helper)
     assert expected != module_rtl_names(result.ir).instance(helper)
     assert bundle.locators[0].vpi_path == f"TOP.GenericNames.{expected}.r"
     assert f" {expected} (" in artifact.text
@@ -162,7 +166,7 @@ def test_rr_observations_resolve_final_formal_and_generic_scopes(tmp_path: Path)
         "module HierarchicalRequestResponse {",
         "module HierarchicalRequestResponse { out echo:bit = identity(fire)",
     )
-    probe = _physicalize_generic_callables(analyze(parse(generic)))
+    probe = physicalize_generic_callables(analyze(parse(generic)))
     helper = next(f.name for f in probe.callable_definitions if f.name.startswith("zlang_spec_"))
     generic_collision = generic.replace("requester", helper)
     for index, variant in enumerate((reserved_collision, generic_collision)):

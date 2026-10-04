@@ -30,15 +30,17 @@ VERILATOR = shutil.which("verilator")
 # pop/push and reset-suppressed public handshakes), unbuffered
 # request/response, directional request/response FIFOs with a stateful
 # mixed-port child, and source-authored aggregate bus/CSR hierarchy.
+# Manifest hashes use current structured origins and the always-leaf top ABI;
+# the Direct-SV hashes remain unchanged.
 EXPECTED_ARTIFACTS = {
     ("hierarchical_protocol.zhl", "ProtocolTop"): (
         "67ebdf5d5e204ace5eddf737c6cf5c6804ea3503d87f5353e15b7c7b1b89e238",
-        "a7232596482a2b540ea55b7acc26028ead734d0a3f03d0c2304a71170a36b229",
+        "c3f5ae15d347e3707c0590a7e1c41dc14a0e47e9fe97c44f3d4d4db41b5b1639",
         19,
     ),
     ("hierarchical_request_response.zhl", "HierarchicalRequestResponse"): (
         "2fb5e7ce3a95471fded0bf9500c2c4314ee16edcf64e1ff53f37454317031706",
-        "dc07874b89934324b6b7e017a5182575fb0a7cb9d8d1c7612ceb164444f068a5",
+        "2a3a0a3f793fd99cc0f70ad7fbaa493d42834d0d3d351ae91a31bce54dd80fd3",
         27,
     ),
     ("simple_dma.zhl", "SimpleDMA"): (
@@ -46,12 +48,12 @@ EXPECTED_ARTIFACTS = {
         # rule and therefore use the explicitly distinct helper family after
         # ordinary ready/valid FIFOs gained full pop/push replacement.
         "02c43b29110ea89358a40c6513cb4c0f2db64cd95cc442da099fdd4f317b92fd",
-        "81362252d651e119de25158b1385ecf41ffdd154a1fe97d2339569dc1a95d6b2",
+        "4a226adc98063e19eab9e881557aaf90a02d376663e02a868bf003331e344288",
         29,
     ),
     ("axi_csr_top.zhl", "AxiCsrTop"): (
         "ce6becd67a964adb44c5c0f965d2262893215d72a1c3db51474bfd25728bd3f9",
-        "54f91fb020049b94e89817daf09c84a0e286d58fcced74312b082f73f5cbdbdc",
+        "a3e971752f0ebb4adc3236af8156c0908153e56a60d22fdeaf720167fa2f9177",
         77,
     ),
 }

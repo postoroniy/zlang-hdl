@@ -7,7 +7,7 @@ import pytest
 
 from zlang.backend.systemverilog import (
     SystemVerilogEmissionError,
-    emit_experimental,
+    emit,
     emit_target,
 )
 from zlang.compiler import compile_source
@@ -159,7 +159,7 @@ module CombinationalRead {
         reset=[False, False, True],
     )
     assert [item["q"] for item in results] == [7, 7, 0]
-    text = emit_experimental(module)
+    text = emit(module)
     assert "assign zlang_table_rd_read_data" in text
     assert "? wd" in text
 
@@ -204,7 +204,7 @@ module InitializedMemory<INIT=0x5a> {
         reset=[True, False, False],
     )
     assert after_reset[-1]["q"] == 0x5A
-    text = emit_experimental(module)
+    text = emit(module)
     assert "zlang_table_cells[zlang_table_reset_index] = 8'd90" in text
     assert "zlang_table_cells[zlang_table_reset_index] <= 8'd90" in text
 
@@ -241,7 +241,7 @@ module ScheduledInit<INIT=7> {
 }
 """
     module = compile_source(source).ir
-    text = emit_experimental(module)
+    text = emit(module)
     assert "zlang_table_cells[zlang_table_reset_index] = 8'd7" in text
     assert "zlang_table_cells[zlang_table_reset_index] <= 8'd7" in text
 
@@ -325,7 +325,7 @@ module Masked {
         ],
     )
     assert results[-1]["q"] == 0x1A23
-    text = emit_experimental(module)
+    text = emit(module)
     assert "write_mask_expanded" in text
 
 
@@ -365,7 +365,7 @@ def test_async_read_latency_is_exact_destination_cycles(
         *([0] * (read_latency + 1)),
         7,
     ]
-    text = emit_experimental(module)
+    text = emit(module)
     assert f"table_rd_read_stage_{read_latency - 2}" in text
     assert "zlang_table_rd_read_data <= zlang_table_rd_read_stage_" in text
     rtl = tmp_path / "AsyncMemory.sv"
@@ -393,7 +393,7 @@ module MemoryTwoCycles {{
         [{**sample, "we": 1, "wa": 2, "wd": 9}, *([sample] * (read_latency + 1))],
     )
     assert [item["q"] for item in results] == [*([0] * (read_latency + 1)), 9]
-    text = emit_experimental(module)
+    text = emit(module)
     assert f"table_read_stage_{read_latency - 2}" in text
     assert "zlang_table_read_data <= zlang_table_read_stage_" in text
     rtl = tmp_path / "MemoryTwoCycles.sv"
@@ -403,7 +403,7 @@ module MemoryTwoCycles {{
 
 def test_async_memory_emits_one_writer_and_one_reader_process() -> None:
     module = compile_source(_async_memory_source()).ir
-    text = emit_experimental(module)
+    text = emit(module)
     assert text.count("always_ff @(posedge write_clk)") == 1
     assert text.count("always_ff @(posedge read_clk)") == 1
     assert text.count("table_cells[write_address] <= write_data") == 1
@@ -419,7 +419,7 @@ def test_async_new_collision_requires_exact_physical_binding() -> None:
     with pytest.raises(
         SystemVerilogEmissionError, match="exact target physical binding"
     ):
-        emit_experimental(module)
+        emit(module)
 
 
 def test_same_clock_memory_emits_one_process_and_replication_is_physical() -> None:
@@ -437,7 +437,7 @@ module Replicated {
   q0=table.r0.data q1=table.r1.data q2=table.r2.data
 }
 """
-    text = emit_experimental(compile_source(source).ir)
+    text = emit(compile_source(source).ir)
     assert text.count("always_ff @(posedge clk)") == 1
     assert "memory_plan=replicated_1r1w" in text
     for port in ("r0", "r1", "r2"):
@@ -488,7 +488,7 @@ def test_ported_memory_generic_and_selected_sv_lint(
 ) -> None:
     async_module = compile_source(_async_memory_source()).ir
     async_rtl = tmp_path / "AsyncMemory.sv"
-    async_rtl.write_text(emit_experimental(async_module))
+    async_rtl.write_text(emit(async_module))
     lint_with_verilator((async_rtl,), "AsyncMemory")
 
     compilation = compile_source(
@@ -552,7 +552,7 @@ def test_multidomain_stdlib_wrappers_are_ordinary_hierarchy(
 ) -> None:
     module = compile_source(source, top="Top").ir
     assert module.children[0].name == child_name
-    text = emit_experimental(module)
+    text = emit(module)
     assert ".write_clk(write_clk)" in text
     assert ".read_clk(read_clk)" in text
 

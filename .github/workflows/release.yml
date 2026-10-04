@@ -118,9 +118,15 @@ jobs:
         shell: bash
         run: |
           git fetch --force --tags origin
+          protected_main_arguments=()
           if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
             mode=candidate
             previous_tag="$PREVIOUS_TAG_INPUT"
+            git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+            protected_main_arguments=(
+              --selected-ref "$GITHUB_REF_NAME"
+              --protected-main-ref origin/main
+            )
           else
             mode=tagged
             previous_tag="$(git describe --tags --abbrev=0 "${RELEASE_TAG}^")"
@@ -130,6 +136,7 @@ jobs:
             --tag "$RELEASE_TAG" \
             --previous-tag "$previous_tag" \
             --mode "$mode" \
+            "${protected_main_arguments[@]}" \
             --output build/release-preflight.json
       - name: Validate public tree
         run: |

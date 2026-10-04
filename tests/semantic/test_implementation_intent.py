@@ -82,11 +82,9 @@ def test_implement_lowers_to_normalized_policy_and_candidate_site() -> None:
     policy = next(item for item in result.implementation_policy.regions if item.source_form)
     assert policy.source_form == "implement"
     assert result.candidate_site_ledger.sites[0].kind is CandidateSiteKind.IMPLEMENT
-    assert not {
-        CandidateSiteKind.SOURCE_EXPLORE,
-        CandidateSiteKind.ARCHITECTURE_AUTO,
-        CandidateSiteKind.STANDALONE_PIPELINE,
-    }.intersection(item.kind for item in result.candidate_site_ledger.sites)
+    assert {item.kind for item in result.candidate_site_ledger.sites} == {
+        CandidateSiteKind.IMPLEMENT
+    }
     assert "source=implement" in result.implementation_policy_report
     assert "selected:" in result.implementation_report
 
@@ -330,12 +328,12 @@ def test_math_architecture_candidate_is_hashseed_independent() -> None:
     script = (
         "import json; from hashlib import sha256; from pathlib import Path; "
         "from zlang.compiler import compile_file; "
-        "from zlang.backend.systemverilog import emit_experimental; "
+        "from zlang.backend.systemverilog import emit; "
         "result=compile_file(Path('examples/verification/math_implementation.zhl'), "
         "top='MathImplementationTopology'); "
         "candidate=result.exploration_results[0].selected_candidate; "
         "print(json.dumps([candidate.implementation_identity, candidate.stages, "
-        "sha256(emit_experimental(result.ir).encode()).hexdigest()]))"
+        "sha256(emit(result.ir).encode()).hexdigest()]))"
     )
     outputs = []
     for seed in map(str, range(64)):

@@ -3,16 +3,14 @@ from unittest.mock import patch
 
 from zlang.compiler import compile_source
 from zlang.equivalence import (
-    emit_miter, emit_miter_with_metadata, emit_reference_model,
+    emit_miter_with_metadata, emit_reference_model,
     make_equivalence_property, publish_bindings, run_equivalence_formal,
     unavailable_result,
 )
-from zlang.ir import (
-    BindingMap, BindingSide, EquivalenceBinding, EquivalenceError,
-    ClockDomain,
-    EquivalenceMode, EquivalenceRelation, EquivalenceStatus, InputRef,
-    Constant, Pipeline, ResetReleaseMode, SIntType, SignalRole, UIntType,
-)
+from zlang.ir.equivalence import BindingMap, BindingSide, EquivalenceBinding, EquivalenceError, EquivalenceMode, EquivalenceRelation, EquivalenceStatus, SignalRole
+from zlang.ir.cdc import ClockDomain, ResetReleaseMode
+from zlang.ir.expressions import InputRef, Constant, Pipeline
+from zlang.ir.types import SIntType, UIntType
 from zlang.ir.cdc import ClockEdge, PowerUpPolicy, ResetMode, ResetPolarity
 from zlang.ir.formal import Counterexample, FormalResult, FormalStatus, ProofMode
 from zlang.timing import TimingInfo
@@ -38,9 +36,18 @@ class SemanticEquivalenceTests(unittest.TestCase):
     def test_same_cycle_reference_model_and_miter_are_deterministic(self):
         prop = make_equivalence_property(self.x, self.x, candidate_class="guarded_rewrite", reference_root="r", implementation_root="i", inputs=("x",), reference_output="y", implementation_output="y")
         reference = emit_reference_model("Ref", "y", self.u8, (("x", self.u8),), self.x)
-        first = emit_miter(prop, self.bindings(), reference_module="Ref", implementation_module="Impl")
-        self.assertEqual(first, emit_miter(prop, self.bindings(), reference_module="Ref", implementation_module="Impl"))
-        self.assertIn("always_comb assert", first)
+        first = emit_miter_with_metadata(
+            prop, self.bindings(), reference_module="Ref",
+            implementation_module="Impl",
+        )
+        self.assertEqual(
+            first,
+            emit_miter_with_metadata(
+                prop, self.bindings(), reference_module="Ref",
+                implementation_module="Impl",
+            ),
+        )
+        self.assertIn("always_comb assert", first.source)
         self.assertIn("assign y = x", reference)
 
     def test_reference_model_renders_negative_signed_literal_legally(self):
@@ -116,9 +123,12 @@ class SemanticEquivalenceTests(unittest.TestCase):
             prop = make_equivalence_property(self.x, implementation, candidate_class="pipeline_scheduler", reference_root="r", implementation_root=f"p{stages}", inputs=("x",), reference_output="y", implementation_output="y", reference_timing=TimingInfo(0, 1, "clk", "rst"), implementation_timing=TimingInfo(stages, 1, "clk", "rst"))
             self.assertEqual(prop.relation_kind, EquivalenceRelation.FIXED_LATENCY_VALUE)
             self.assertEqual(prop.latency_delta, stages)
-            text = emit_miter(prop, self.bindings(selected=f"p{stages}"), reference_module="Ref", implementation_module="Impl")
-            self.assertIn("sample_valid", text)
-            self.assertIn("if (reset)", text)
+            emission = emit_miter_with_metadata(
+                prop, self.bindings(selected=f"p{stages}"),
+                reference_module="Ref", implementation_module="Impl",
+            )
+            self.assertIn("sample_valid", emission.source)
+            self.assertIn("if (reset)", emission.source)
 
     def test_fixed_latency_bmc_requires_a_reachable_comparison_window(self):
         implementation = Pipeline(2, self.x, 1, self.u8)
@@ -128,16 +138,23 @@ class SemanticEquivalenceTests(unittest.TestCase):
             candidate_class="pipeline_scheduler",
             reference_root="r",
             implementation_root="p2",
+            reference_output="y",
+            implementation_output="y",
             reference_timing=TimingInfo(0, 1, "clk", "rst"),
             implementation_timing=TimingInfo(2, 1, "clk", "rst"),
         )
         self.assertEqual(prop.comparison_window.fill_cycles, 2)
         self.assertEqual(prop.comparison_window.first_comparison_cycle, 4)
         self.assertEqual(prop.comparison_window.minimum_bmc_depth, 6)
+        emission = emit_miter_with_metadata(
+            prop, self.bindings(selected="p2"), reference_module="Ref",
+            implementation_module="Impl",
+        )
 
         with patch("zlang.formal.run_verilog_formal") as solver:
             shallow = run_equivalence_formal(
-                prop, "unused", top="semantic_equivalence", depth=5
+                prop, "unused", top="semantic_equivalence", depth=5,
+                trace_metadata=emission.trace_metadata,
             )
         solver.assert_not_called()
         self.assertEqual(shallow.status, EquivalenceStatus.UNKNOWN)
@@ -156,7 +173,9 @@ class SemanticEquivalenceTests(unittest.TestCase):
                 ),
             ) as solver:
                 result = run_equivalence_formal(
-                    prop, "module semantic_equivalence; endmodule", top="semantic_equivalence", depth=depth
+                    prop, "module semantic_equivalence; endmodule",
+                    top="semantic_equivalence", depth=depth,
+                    trace_metadata=emission.trace_metadata,
                 )
             solver.assert_called_once()
             self.assertEqual(result.status, EquivalenceStatus.BOUNDED_PASS)
@@ -178,6 +197,7 @@ class SemanticEquivalenceTests(unittest.TestCase):
                 top="semantic_equivalence",
                 mode=EquivalenceMode.PROVE,
                 depth=1,
+                trace_metadata=emission.trace_metadata,
             )
         solver.assert_called_once()
         self.assertEqual(proven.status, EquivalenceStatus.PROVEN)
@@ -205,12 +225,13 @@ class SemanticEquivalenceTests(unittest.TestCase):
             clock_domain_contract=domain,
         )
 
-        text = emit_miter(
+        emission = emit_miter_with_metadata(
             prop,
             self.bindings(selected="p2-async-low"),
             reference_module="Ref",
             implementation_module="Impl",
         )
+        text = emission.source
 
         self.assertIn("initial begin", text)
         self.assertIn("assume(!reset);", text)
@@ -254,19 +275,21 @@ class SemanticEquivalenceTests(unittest.TestCase):
         self.assertEqual(prop.comparison_window.first_comparison_cycle, 6)
         self.assertEqual(prop.comparison_window.minimum_bmc_depth, 8)
 
-        text = emit_miter(
+        emission = emit_miter_with_metadata(
             prop,
             self.bindings(selected="p2-safe-async"),
             reference_module="Ref",
             implementation_module="Impl",
         )
+        text = emission.source
         self.assertIn('(* ASYNC_REG = "TRUE" *)', text)
         self.assertIn("always @(posedge clock or posedge reset)", text)
         self.assertIn("assign zlang_formal_reset_active", text)
 
         with patch("zlang.formal.run_verilog_formal") as solver:
             shallow = run_equivalence_formal(
-                prop, text, top="semantic_equivalence", depth=7
+                prop, text, top="semantic_equivalence", depth=7,
+                trace_metadata=emission.trace_metadata,
             )
         solver.assert_not_called()
         self.assertEqual(shallow.status, EquivalenceStatus.UNKNOWN)
@@ -285,7 +308,8 @@ class SemanticEquivalenceTests(unittest.TestCase):
             "zlang.formal.run_verilog_formal", return_value=proof
         ) as solver:
             result = run_equivalence_formal(
-                prop, text, top="semantic_equivalence", depth=8
+                prop, text, top="semantic_equivalence", depth=8,
+                trace_metadata=emission.trace_metadata,
             )
         assert result.counterexample is not None
         # Reset release shifts the absolute witness window, but the originating
@@ -531,6 +555,8 @@ class SemanticEquivalenceTests(unittest.TestCase):
             candidate_class="pipeline_scheduler",
             reference_root="r",
             implementation_root="p2",
+            reference_output="y",
+            implementation_output="y",
             reference_timing=TimingInfo(0, 1, "clk", "rst"),
             implementation_timing=TimingInfo(2, 1, "clk", "rst"),
         )
@@ -548,11 +574,17 @@ class SemanticEquivalenceTests(unittest.TestCase):
                 raw_trace="trace",
             ),
         )
+        emission = emit_miter_with_metadata(
+            prop, self.bindings(selected="p2"), reference_module="Ref",
+            implementation_module="Impl",
+        )
         with patch(
             "zlang.formal.run_verilog_formal", return_value=proof
         ) as solver:
             result = run_equivalence_formal(
-                prop, "module semantic_equivalence; endmodule", top="semantic_equivalence", depth=6
+                prop, "module semantic_equivalence; endmodule",
+                top="semantic_equivalence", depth=6,
+                trace_metadata=emission.trace_metadata,
             )
 
         assert result.counterexample is not None

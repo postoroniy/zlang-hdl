@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from zlang.backend.systemverilog import emit_experimental
+from zlang.backend.systemverilog import emit
 from zlang.compiler import compile_source
 from zlang.native_simulation import simulate
 from zlang.timing import timing_info
@@ -45,7 +45,7 @@ def test_complex_fft_butterfly_is_bit_exact_for_cardinal_twiddles() -> None:
 @pytest.mark.skipif(shutil.which("verilator") is None, reason="Verilator unavailable")
 def test_complex_butterfly_direct_sv_is_lint_clean_and_materialized() -> None:
     module = compile_source(SOURCE, top="ComplexFFTButterfly").ir
-    text = emit_experimental(module)
+    text = emit(module)
     assert len(text) < 20_000
     assert "function automatic" not in text
     assert "zlang_spec_" not in text
@@ -66,7 +66,7 @@ def test_signed_complex_real_pipeline_direct_sv_is_lint_clean() -> None:
     module = compile_source(
         PIPELINE_SOURCE, top="FFTComplexMultiplyRealImplementation"
     ).ir
-    text = emit_experimental(module)
+    text = emit(module)
     assert " - " in text
     with tempfile.TemporaryDirectory() as temporary:
         rtl = Path(temporary) / "FFTComplexMultiplyRealImplementation.sv"
@@ -129,6 +129,6 @@ def test_signed_complex_real_pipeline_direct_sv_simulates_bit_exact() -> None:
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
         rtl = root / "direct.sv"
-        rtl.write_text(emit_experimental(module))
+        rtl.write_text(emit(module))
         assignment = next(item for item in module.assignments if item.target.name == "result")
         _simulate_rtl([rtl], root, latency=timing_info(assignment.expression).latency)

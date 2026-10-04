@@ -53,9 +53,6 @@ test = [
 
 [project.scripts]
 zlang = "zlang.cli:main"
-zlang-lsp = "zlang.lsp.server:main"
-zlang-lock = "zlang.project_cli:main"
-zlang-verify = "zlang.verification_cli:main"
 
 [tool.setuptools.dynamic]
 version = {attr = "zlang._version.__version__"}
@@ -80,4 +77,4 @@ markers = [
 [tool.ruff.lint.per-file-ignores]
 # Lark transformer callbacks receive grammar-owned ``meta``/``items``
 # arguments even when a particular production has no payload to consume.
-"zlang/parser/parser.py" = ["ARG002"]
+"zlang/parser/*.py" = ["ARG002"]

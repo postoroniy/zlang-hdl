@@ -21,7 +21,7 @@ from zlang.opt.ir import (
     Observation,
     pure_metadata,
 )
-from zlang.opt.lowering import restore_expression
+from zlang.opt.expression_restoration import restore_expression
 from zlang.opt.rewrite_spec import RewriteRegistration, RewriteRule
 from zlang.source import SourceOrigin
 

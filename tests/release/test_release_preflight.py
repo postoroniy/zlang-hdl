@@ -77,6 +77,7 @@ def test_current_candidate_binds_release_sources_native_wheel_and_git(
         "ZL-042",
         "ZL-043",
         "ZL-044",
+        "ZL-045",
     ]
     assert "release/regressions.json" in report["identities"]
     assert report["git"]["previous_commit"] == _git(
@@ -90,6 +91,58 @@ def test_current_candidate_binds_release_sources_native_wheel_and_git(
             "version": "0.1.0a19",
         }
     ]
+
+
+def test_hosted_candidate_requires_selected_protected_main(
+    release_repository: Path,
+) -> None:
+    head = _git(release_repository, "rev-parse", "HEAD")
+    _git(release_repository, "update-ref", "refs/remotes/origin/main", head)
+    report = preflight(
+        release_repository,
+        tag="v0.1.0a19",
+        previous_tag="v0.1.0a18",
+        mode="candidate",
+        require_clean=False,
+        selected_ref="main",
+        protected_main_ref="origin/main",
+    )
+    assert report["git"]["commit"] == head
+
+
+def test_hosted_candidate_rejects_non_main_selected_ref(
+    release_repository: Path,
+) -> None:
+    head = _git(release_repository, "rev-parse", "HEAD")
+    _git(release_repository, "update-ref", "refs/remotes/origin/main", head)
+    with pytest.raises(ReleasePreflightError, match="select the 'main' branch"):
+        preflight(
+            release_repository,
+            tag="v0.1.0a19",
+            previous_tag="v0.1.0a18",
+            mode="candidate",
+            require_clean=False,
+            selected_ref="feature",
+            protected_main_ref="origin/main",
+        )
+
+
+def test_hosted_candidate_rejects_head_not_at_protected_main(
+    tmp_path: Path, release_repository: Path,
+) -> None:
+    root = tmp_path / "non-main-candidate"
+    shutil.copytree(release_repository, root)
+    _git(root, "update-ref", "refs/remotes/origin/main", "HEAD^")
+    with pytest.raises(ReleasePreflightError, match="does not match protected"):
+        preflight(
+            root,
+            tag="v0.1.0a19",
+            previous_tag="v0.1.0a18",
+            mode="candidate",
+            require_clean=False,
+            selected_ref="main",
+            protected_main_ref="origin/main",
+        )
 
 
 @pytest.mark.parametrize(

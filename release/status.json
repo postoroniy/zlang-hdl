@@ -41,27 +41,27 @@
     "z3": "4.13.4"
   },
   "documentation": {
-    "builder_sha256": "bfd82dbe70a215fcebf64dbb404f0fa6bc7375c3abf4b1bb321003b6dbe3c914",
+    "builder_sha256": "6135aa1e6bc0c44e6ac2386d223bb5031e7befc1f2c369d02149279b057bb738",
     "cover_sha256": "22c31a7a75b6db59293b6bf334d1499c891fb03ec5e45b5afac471116ab0d5d2",
     "examples": {
-      "linked_sources": 20,
+      "linked_sources": 17,
       "json_blocks": 1,
       "python_blocks": 1,
       "referenced_tops": 5,
-      "shell_blocks": 39,
+      "shell_blocks": 38,
       "standalone_compiled": 20,
-      "syntax_fragments": 107,
+      "syntax_fragments": 104,
       "toml_blocks": 3,
-      "zlang_fences": 127
+      "zlang_fences": 124
     },
     "format": "PDF-1.5",
-    "pages": 86,
+    "pages": 70,
     "pdf": "docs/ZLang-HDL-Language-Reference.pdf",
-    "pdf_sha256": "99d9f387c134deafde759c6990e91ae4f102484e998b64d3ffa562e21107be76",
+    "pdf_sha256": "3403a6488a3e575c243df1626f8f44968fb37d5f6f028000c23cdfe509b6816a",
     "syntax_grammar_sha256": "e568449f05bf36bb7f6aeaa5da013a09421724211e54f5ae0f506fa01be9a8f2",
     "sources": {
-      "docs/language-quick-reference.md": "e037efdc44878a955451793802cc15623ee2b6f7c26c1625c5cee09925b5b8dc",
-      "docs/language-reference.md": "2b4c4f6bda076cab21935bcc4fb4d6961270694fddd0519fcf5f6c96eb122007"
+      "docs/language-quick-reference.md": "c8560bcd63a32c1fd492e42bc74ae492459574505faf61ee9727d93fa29f474e",
+      "docs/language-reference.md": "163667e6dc1aaac694e96e6371e31d13b479b8caac843717578855ff5bc02d5f"
     },
     "source_date_epoch": 1789792159
   },

@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from zlang.compiler import compile_file, compile_source
-from zlang.ir import Constant
+from zlang.ir.expressions import Constant
 from zlang.ir.hierarchy import (
     HierarchyError,
     build_hierarchy_index,

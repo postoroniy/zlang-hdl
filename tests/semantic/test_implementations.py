@@ -3,7 +3,8 @@ import unittest
 
 from zlang.compiler import compile_source
 from zlang.ir import expressions as expr
-from zlang.opt import NodeCategory, lower, restore
+from zlang.opt.ir import NodeCategory
+from zlang.opt.lowering import lower, restore
 from zlang.parser import parse
 from zlang.semantic import SemanticError, analyze
 

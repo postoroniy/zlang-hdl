@@ -4,7 +4,7 @@ import pytest
 
 from zlang.compiler import compile_source
 from zlang.ir.storage import MemoryResetPolicy
-from zlang.opt import canonical_ir_identity
+from zlang.opt.identity import canonical_ir_identity
 from zlang.opt.lowering import CanonicalizationError, lower, restore
 from zlang.parser import parse
 from zlang.semantic import SemanticError, analyze

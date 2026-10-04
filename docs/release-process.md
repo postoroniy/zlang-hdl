@@ -130,7 +130,7 @@ missing or renamed regression therefore fails before tagging.
 - Bug fixes test the first incorrect boundary, not only a broad end-to-end path.
 - Compiler and native-runtime fixes include an independent behavioral oracle
   where practical, normally Direct SystemVerilog with Verilator or Icarus.
-- LSP regressions exercise real JSON-RPC and compiler-owned tooling facts;
+- LSP regressions exercise real JSON-RPC and current compiler tooling results;
   mocked protocol tests alone are insufficient.
 - Performance fixes use bounded permanent fixtures and assert a completion
   limit or deterministic fail-closed budget diagnostic.

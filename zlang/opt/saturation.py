@@ -56,7 +56,9 @@ from zlang.opt.egraph import (
     egraph_to_canonical,
     validate_scalar_pure_nodes,
 )
-from zlang.opt.lowering import lower_expression_graph, restore, restore_expression
+from zlang.opt.expression_lowering import lower_expression_graph
+from zlang.opt.expression_restoration import restore_expression
+from zlang.opt.module_restoration import restore
 from zlang.opt.rewrite_spec import (
     RewriteRegistration,
     RewriteRule,

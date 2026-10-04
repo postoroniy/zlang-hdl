@@ -3,15 +3,12 @@ from subprocess import TimeoutExpired
 from unittest.mock import patch
 
 from zlang.compiler import compile_source
-from zlang.formal import build_formal_design, emit_sby, run_formal, run_verilog_formal
-from zlang.ir import (
-    BitType, Constant, Fifo, FormalError,
-    FormalDesign, FormalProperty, FormalPropertyClassification, FormalStatus,
-    Module, Ownership,
-    Port, PortDirection, ProofMode, PropertyKind, FixedType,
-    Register, SignalBinding, UIntType,
-    TemporalForm,
-)
+from zlang.formal import build_formal_design, run_verilog_formal
+from zlang.ir.types import BitType, FixedType, UIntType
+from zlang.ir.expressions import Constant
+from zlang.ir.storage import Fifo
+from zlang.ir.formal import FormalError, FormalDesign, FormalProperty, FormalPropertyClassification, FormalStatus, Ownership, ProofMode, PropertyKind, SignalBinding, TemporalForm
+from zlang.ir.module import Module, Port, PortDirection, Register
 from zlang.ir.csr import CsrAccess, CsrBlock, CsrField, CsrRegister
 from zlang.ir.interfaces import InterfaceProtocol
 from zlang.ir.expressions import InputRef
@@ -177,20 +174,13 @@ class SafetyVerificationTests(unittest.TestCase):
         rebound = SignalBinding(original.semantic_signal_id, "OtherTop", "i_data", original.width, original.direction)
         self.assertEqual(rebound.semantic_signal_id, original.semantic_signal_id)
 
-    def test_bounded_pass_never_becomes_proven(self):
-        result = run_formal(build_formal_design(self.module()), mode=ProofMode.BMC)
-        self.assertTrue(result)
-        self.assertTrue(all(item.status is FormalStatus.SKIPPED for item in result))
-
-    def test_harness_and_sby_are_deterministic(self):
+    def test_unbound_harness_is_deterministic(self):
         design = build_formal_design(self.module())
         from zlang.ir.formal import emit_harness
         harness = emit_harness(design, mode=ProofMode.BMC, depth=4)
         self.assertIn("non-executable property report", harness)
         self.assertIn("safety_verification.", harness)
         self.assertIn("depth=4", harness)
-        with self.assertRaisesRegex(FormalError, "connected backend"):
-            emit_sby(design, depth=4)
 
     def test_invalid_binding_and_result_are_rejected(self):
         with self.assertRaises(FormalError):

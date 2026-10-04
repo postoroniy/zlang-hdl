@@ -16,7 +16,7 @@ def test_current_release_notes_are_curated_from_exact_changelog_section() -> Non
     notes = release_notes(
         (ROOT / "CHANGELOG.md").read_text(encoding="utf-8"), "v0.1.0a19"
     )
-    assert "compiler-owned CSR" in notes
+    assert "two CSR interoperability fixes" in notes
     assert "pre-tag" in notes
     assert "ABI v11" in notes
     assert "ABI-v10" not in notes

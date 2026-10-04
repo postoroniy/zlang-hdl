@@ -8,25 +8,14 @@ from typing import Any
 
 from zlang.ir.packing import PACKING_LAYOUT_SCHEMA
 from zlang.simulation_lowering import PRIMITIVE_OPS
-from zlang.simulation_plan import (
-    CRANELIFT_VERSION,
-    MAX_PLAN_ARITHMETIC_WIDTH,
-    MAX_PLAN_DYNAMIC_NODE_WORK,
-    MAX_PLAN_EVENTS,
-    MAX_PLAN_LIMB_WORK,
-    MAX_PLAN_MEMORY_BITS,
-    MAX_PLAN_MEMORY_WIDTH,
-    MAX_PLAN_NODES,
-    MAX_PLAN_REGION_DEPTH,
-    MAX_PLAN_REGION_ITERATIONS,
-    MAX_PLAN_WIDTH,
-    SIMULATION_PLAN_SCHEMA,
-    SIMULATION_RUNTIME_ABI,
+from zlang.simulation_plan_policy import (
+    DEFAULT_SIMULATION_PLAN_POLICY,
     SimulationPlanError,
+    SimulationPlanPolicy,
 )
 
 
-def _validate_type_payload(type_: object) -> None:
+def _validate_type_payload(type_: object, policy: SimulationPlanPolicy) -> None:
     if not isinstance(type_, dict):
         raise SimulationPlanError("hardware type record must be an object")
     kind = type_.get("kind")
@@ -34,7 +23,7 @@ def _validate_type_payload(type_: object) -> None:
     if (
         isinstance(width, bool)
         or not isinstance(width, int)
-        or not 1 <= width <= MAX_PLAN_WIDTH
+        or not 1 <= width <= policy.max_width
     ):
         raise SimulationPlanError("hardware type width is invalid")
     scalar_fields = {"kind", "width"}
@@ -96,7 +85,7 @@ def _validate_type_payload(type_: object) -> None:
         length = type_["length"]
         if isinstance(length, bool) or not isinstance(length, int) or length < 1:
             raise SimulationPlanError("vector length is invalid")
-        _validate_type_payload(type_["element"])
+        _validate_type_payload(type_["element"], policy)
         if width != length * type_["element"]["width"]:
             raise SimulationPlanError("vector packed width is invalid")
         return
@@ -107,7 +96,7 @@ def _validate_type_payload(type_: object) -> None:
         if not isinstance(elements, list) or not elements:
             raise SimulationPlanError("tuple element table is invalid")
         for element in elements:
-            _validate_type_payload(element)
+            _validate_type_payload(element, policy)
         if width != sum(element["width"] for element in elements):
             raise SimulationPlanError("tuple packed width is invalid")
         return
@@ -132,7 +121,7 @@ def _validate_type_payload(type_: object) -> None:
             ):
                 raise SimulationPlanError("struct field is invalid")
             names.append(field["name"])
-            _validate_type_payload(field["type"])
+            _validate_type_payload(field["type"], policy)
         if len(names) != len(set(names)) or width != sum(
             field["type"]["width"] for field in fields
         ):
@@ -181,7 +170,7 @@ def _validate_type_payload(type_: object) -> None:
                 ):
                     raise SimulationPlanError("tagged-union field is invalid")
                 field_names.append(field["name"])
-                _validate_type_payload(field["type"])
+                _validate_type_payload(field["type"], policy)
                 payload_width += field["type"]["width"]
             if len(field_names) != len(set(field_names)):
                 raise SimulationPlanError("tagged-union field names are not unique")
@@ -212,33 +201,20 @@ def _validate_u64_limbs(value: object, width: int) -> bool:
     return used == 64 or value[-1] < 1 << used
 
 
-def validate_plan_payload(payload: dict[str, Any]) -> None:
-    """Validate with the façade's current limits, including bounded tests."""
+def validate_plan_payload(
+    payload: dict[str, Any],
+    *,
+    policy: SimulationPlanPolicy = DEFAULT_SIMULATION_PLAN_POLICY,
+) -> None:
+    """Validate under one immutable compiler-owned policy."""
 
-    from zlang import simulation_plan as facade
-
-    global CRANELIFT_VERSION, MAX_PLAN_ARITHMETIC_WIDTH
-    global MAX_PLAN_DYNAMIC_NODE_WORK, MAX_PLAN_EVENTS, MAX_PLAN_LIMB_WORK
-    global MAX_PLAN_MEMORY_BITS, MAX_PLAN_MEMORY_WIDTH, MAX_PLAN_NODES
-    global MAX_PLAN_REGION_DEPTH, MAX_PLAN_REGION_ITERATIONS, MAX_PLAN_WIDTH
-    global SIMULATION_PLAN_SCHEMA, SIMULATION_RUNTIME_ABI
-    CRANELIFT_VERSION = facade.CRANELIFT_VERSION
-    MAX_PLAN_ARITHMETIC_WIDTH = facade.MAX_PLAN_ARITHMETIC_WIDTH
-    MAX_PLAN_DYNAMIC_NODE_WORK = facade.MAX_PLAN_DYNAMIC_NODE_WORK
-    MAX_PLAN_EVENTS = facade.MAX_PLAN_EVENTS
-    MAX_PLAN_LIMB_WORK = facade.MAX_PLAN_LIMB_WORK
-    MAX_PLAN_MEMORY_BITS = facade.MAX_PLAN_MEMORY_BITS
-    MAX_PLAN_MEMORY_WIDTH = facade.MAX_PLAN_MEMORY_WIDTH
-    MAX_PLAN_NODES = facade.MAX_PLAN_NODES
-    MAX_PLAN_REGION_DEPTH = facade.MAX_PLAN_REGION_DEPTH
-    MAX_PLAN_REGION_ITERATIONS = facade.MAX_PLAN_REGION_ITERATIONS
-    MAX_PLAN_WIDTH = facade.MAX_PLAN_WIDTH
-    SIMULATION_PLAN_SCHEMA = facade.SIMULATION_PLAN_SCHEMA
-    SIMULATION_RUNTIME_ABI = facade.SIMULATION_RUNTIME_ABI
-    _validate_plan_payload(payload)
+    _validate_plan_payload(payload, policy)
 
 
-def _validate_plan_payload(payload: dict[str, Any]) -> None:
+def _validate_plan_payload(
+    payload: dict[str, Any],
+    policy: SimulationPlanPolicy,
+) -> None:
     required = {
         "schema",
         "runtime_abi",
@@ -259,9 +235,9 @@ def _validate_plan_payload(payload: dict[str, Any]) -> None:
     }
     if set(payload) != required:
         raise SimulationPlanError("simulation plan fields do not match its schema")
-    if payload["schema"] != SIMULATION_PLAN_SCHEMA:
+    if payload["schema"] != policy.schema:
         raise SimulationPlanError("unsupported simulation plan schema")
-    if payload["runtime_abi"] != SIMULATION_RUNTIME_ABI:
+    if payload["runtime_abi"] != policy.runtime_abi:
         raise SimulationPlanError("unsupported native simulation ABI")
     if payload["packing_layout_schema"] != PACKING_LAYOUT_SCHEMA:
         raise SimulationPlanError("unsupported packed-layout schema")
@@ -275,14 +251,14 @@ def _validate_plan_payload(payload: dict[str, Any]) -> None:
     native_target = payload["native_target"]
     if native_target != {
         "triple": "x86_64-unknown-linux-gnu",
-        "cranelift": CRANELIFT_VERSION,
+        "cranelift": policy.cranelift_version,
         "isa_flags": ["native"],
     }:
         raise SimulationPlanError(
             "native JIT v1 requires the Linux x86-64 Cranelift recipe"
         )
     regions = payload["regions"]
-    if not isinstance(regions, list) or len(regions) > MAX_PLAN_NODES:
+    if not isinstance(regions, list) or len(regions) > policy.max_nodes:
         raise SimulationPlanError("simulation region table is invalid")
     node_count = 0
     limb_work = 0
@@ -303,13 +279,13 @@ def _validate_plan_payload(payload: dict[str, Any]) -> None:
                 start, stop, element_width, width
             ))
             or not 0 <= start < stop <= 65_536
-            or not 1 <= element_width <= MAX_PLAN_WIDTH
+            or not 1 <= element_width <= policy.max_width
             or width != (stop - start) * element_width
-            or width > MAX_PLAN_WIDTH
+            or width > policy.max_width
             or not isinstance(capture_widths, list)
-            or len(capture_widths) > MAX_PLAN_NODES
+            or len(capture_widths) > policy.max_nodes
             or any(isinstance(item, bool) or not isinstance(item, int)
-                   or not 1 <= item <= MAX_PLAN_WIDTH for item in capture_widths)
+                   or not 1 <= item <= policy.max_width for item in capture_widths)
             or not isinstance(body, list)
             or not body
             or isinstance(region["root"], bool)
@@ -320,7 +296,7 @@ def _validate_plan_payload(payload: dict[str, Any]) -> None:
         ):
             raise SimulationPlanError("simulation region shape is invalid")
         count, limbs = _validate_node_table(
-            body, regions[:region_id], capture_widths=capture_widths,
+            body, regions[:region_id], policy=policy, capture_widths=capture_widths,
             binder_range=(start, stop),
         )
         node_count += count
@@ -328,7 +304,7 @@ def _validate_plan_payload(payload: dict[str, Any]) -> None:
         children = [node["attributes"]["region"] for node in body
                     if node["op"] == "loop_region"]
         depth = 1 + max((region_depth[child] for child in children), default=0)
-        if depth > MAX_PLAN_REGION_DEPTH:
+        if depth > policy.max_region_depth:
             raise SimulationPlanError("simulation region nesting exceeds its bound")
         region_depth.append(depth)
         region_work.append((stop - start) * (
@@ -338,24 +314,24 @@ def _validate_plan_payload(payload: dict[str, Any]) -> None:
             len(body) + sum(region_node_work[child] for child in children)
         ))
     nodes = payload["nodes"]
-    count, limbs = _validate_node_table(nodes, regions)
+    count, limbs = _validate_node_table(nodes, regions, policy=policy)
     node_count += count
     limb_work += limbs
-    if node_count > MAX_PLAN_NODES:
-        raise SimulationPlanError(f"simulation plan exceeds {MAX_PLAN_NODES} nodes")
-    if limb_work > MAX_PLAN_LIMB_WORK:
+    if node_count > policy.max_nodes:
+        raise SimulationPlanError(f"simulation plan exceeds {policy.max_nodes} nodes")
+    if limb_work > policy.max_limb_work:
         raise SimulationPlanError(
-            f"simulation plan exceeds {MAX_PLAN_LIMB_WORK} packed node limbs"
+            f"simulation plan exceeds {policy.max_limb_work} packed node limbs"
         )
     iterations = sum(region_work[node["attributes"]["region"]] for node in nodes
                      if node["op"] == "loop_region")
-    if iterations > MAX_PLAN_REGION_ITERATIONS:
+    if iterations > policy.max_region_iterations:
         raise SimulationPlanError("simulation region work exceeds its bound")
     dynamic_nodes = len(nodes) + sum(
         region_node_work[node["attributes"]["region"]] for node in nodes
         if node["op"] == "loop_region"
     )
-    if dynamic_nodes > MAX_PLAN_DYNAMIC_NODE_WORK:
+    if dynamic_nodes > policy.max_dynamic_node_work:
         raise SimulationPlanError("simulation dynamic node work exceeds its bound")
     expected_fields = {
         "ports": {"name", "direction", "width", "api_type", "domain"},
@@ -387,11 +363,11 @@ def _validate_plan_payload(payload: dict[str, Any]) -> None:
             if (
                 isinstance(width, bool)
                 or not isinstance(width, int)
-                or not 1 <= width <= MAX_PLAN_WIDTH
+                or not 1 <= width <= policy.max_width
             ):
                 raise SimulationPlanError(f"simulation plan {table} width is invalid")
             if table == "ports":
-                _validate_type_payload(item.get("api_type"))
+                _validate_type_payload(item.get("api_type"), policy)
                 if item["api_type"]["width"] != width:
                     raise SimulationPlanError(
                         "simulation port API type width is inconsistent"
@@ -489,15 +465,15 @@ def _validate_plan_payload(payload: dict[str, Any]) -> None:
         if (
             isinstance(memory.get("width"), bool)
             or not isinstance(memory.get("width"), int)
-            or not 1 <= memory["width"] <= MAX_PLAN_MEMORY_WIDTH
-            or memory["depth"] * memory["width"] > MAX_PLAN_MEMORY_BITS
+            or not 1 <= memory["width"] <= policy.max_memory_width
+            or memory["depth"] * memory["width"] > policy.max_memory_bits
             or not _validate_u64_limbs(memory["initial_limbs"], memory["width"])
         ):
             raise SimulationPlanError(
                 f"simulation memory '{memory['name']}' metadata is invalid"
             )
     events = payload["events"]
-    if not isinstance(events, list) or len(events) > MAX_PLAN_EVENTS:
+    if not isinstance(events, list) or len(events) > policy.max_events:
         raise SimulationPlanError("simulation instrumentation event table is invalid")
     for expected, event in enumerate(events):
         if (
@@ -567,10 +543,11 @@ def _validate_node_table(
     nodes: object,
     regions: list[dict[str, Any]],
     *,
+    policy: SimulationPlanPolicy,
     capture_widths: list[int] | None = None,
     binder_range: tuple[int, int] | None = None,
 ) -> tuple[int, int]:
-    if not isinstance(nodes, list) or len(nodes) > MAX_PLAN_NODES:
+    if not isinstance(nodes, list) or len(nodes) > policy.max_nodes:
         raise SimulationPlanError("simulation plan node table is invalid")
     limbs = 0
     for expected, node in enumerate(nodes):
@@ -582,7 +559,11 @@ def _validate_node_table(
         ):
             raise SimulationPlanError("simulation plan node record is invalid")
         width = node.get("width")
-        if isinstance(width, bool) or not isinstance(width, int) or not 1 <= width <= MAX_PLAN_WIDTH:
+        if (
+            isinstance(width, bool)
+            or not isinstance(width, int)
+            or not 1 <= width <= policy.max_width
+        ):
             raise SimulationPlanError(f"simulation plan node %{expected} has invalid width")
         limbs += (width + 63) // 64
         if not isinstance(node.get("attributes"), dict) or not isinstance(node.get("origins"), list):
@@ -598,7 +579,7 @@ def _validate_node_table(
         ):
             raise SimulationPlanError(f"simulation plan constant node %{expected} has invalid limbs")
         _validate_primitive_node(
-            node, nodes, regions, capture_widths=capture_widths,
+            node, nodes, regions, policy=policy, capture_widths=capture_widths,
             binder_range=binder_range,
         )
     return len(nodes), limbs
@@ -609,6 +590,7 @@ def _validate_primitive_node(
     nodes: list[dict[str, Any]],
     regions: list[dict[str, Any]],
     *,
+    policy: SimulationPlanPolicy,
     capture_widths: list[int] | None,
     binder_range: tuple[int, int] | None,
 ) -> None:
@@ -700,10 +682,10 @@ def _validate_primitive_node(
         )
     if op in {
         "add", "sub", "mul", "shl", "lshr", "ashr", "ult", "ule", "slt", "sle",
-    } and nodes[operands[0]]["width"] > MAX_PLAN_ARITHMETIC_WIDTH:
+    } and nodes[operands[0]]["width"] > policy.max_arithmetic_width:
         raise SimulationPlanError(
             f"primitive node %{node['id']} exceeds the "
-            f"{MAX_PLAN_ARITHMETIC_WIDTH}-bit arithmetic bound"
+            f"{policy.max_arithmetic_width}-bit arithmetic bound"
         )
     if op == "select" and nodes[operands[0]]["width"] != 1:
         raise SimulationPlanError(
