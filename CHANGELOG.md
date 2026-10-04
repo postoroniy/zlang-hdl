@@ -11,29 +11,7 @@ incompatible input explicitly.
 
 ## Unreleased
 
-### Fixed
-
-- Primitive credit, virtual-channel credit, and packet simulation plans retain
-  canonical scalar field names when their resolved signal identities are
-  string-backed enums. Native protocol input updates no longer target a
-  mismatched Python enum spelling.
-
-### Changed
-
-- The VS Code extension now launches the canonical `zlang lsp` subcommand from
-  the configured `zlang` executable.
-
-### Removed
-
-- Removed the standalone `zlang-lsp`, `zlang-lock`, and `zlang-verify` console
-  aliases. Use `zlang lsp`, `zlang lock`, and `zlang verify`.
-- Removed the `--experimental-systemverilog`, `--formal-harness`, and
-  `--formal-sby` compatibility options. Use `--systemverilog` and immutable
-  `--verification-bundle` publication.
-- Bare compiler invocation without `--check`, `--verify`, or an explicit
-  artifact output is no longer an implicit RTL-emission path.
-
-## 0.1.0a19 — 2026-10-01
+## 0.1.0a19 — 2026-10-05
 
 Community alpha carrying two CSR interoperability fixes,
 bounded Direct-SystemVerilog expression and wide-scatter lowering, and a safer
@@ -57,6 +35,8 @@ policy are unchanged.
 - Semantic editor observations are demand-driven owners separate from the
   expression-checking façade, and native simulation keeps its public API while
   plan construction and strict payload validation live in focused modules.
+- The VS Code extension now launches the canonical `zlang lsp` subcommand from
+  the configured `zlang` executable.
 - Python-only standard-bus and protocol reference models moved to test support
   and are no longer runtime package modules. ZLang standard-library sources are
   unchanged.
@@ -67,6 +47,13 @@ policy are unchanged.
   compatibility parser productions have been removed. Compiler-discovered
   scalar implementation selection uses `implement`; exact `pipeline(N)`,
   user-authored `choice`, and protocol `transform pipeline(auto)` remain.
+- Removed the standalone `zlang-lsp`, `zlang-lock`, and `zlang-verify` console
+  aliases. Use `zlang lsp`, `zlang lock`, and `zlang verify`.
+- Removed the `--experimental-systemverilog`, `--formal-harness`, and
+  `--formal-sby` compatibility options. Use `--systemverilog` and immutable
+  `--verification-bundle` publication.
+- Bare compiler invocation without `--check`, `--verify`, or an explicit
+  artifact output is no longer an implicit RTL-emission path.
 
 ### Fixed
 
@@ -74,6 +61,10 @@ policy are unchanged.
   input ports. The compiler retains the member expression and rejects missing
   fields, type mismatches, command-member targets and implicit clock-domain
   crossings.
+- Primitive credit, virtual-channel credit, and packet simulation plans retain
+  canonical scalar field names when their resolved signal identities are
+  string-backed enums. Native protocol input updates no longer target a
+  mismatched Python enum spelling.
 - Hosted and local release gates validate the deterministic and isolated
   performance JUnit partitions separately. A complete deterministic run is no
   longer rejected for not containing the intentionally isolated performance

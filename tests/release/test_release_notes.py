@@ -13,12 +13,20 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_current_release_notes_are_curated_from_exact_changelog_section() -> None:
-    notes = release_notes(
-        (ROOT / "CHANGELOG.md").read_text(encoding="utf-8"), "v0.1.0a19"
-    )
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    notes = release_notes(changelog, "v0.1.0a19")
+    unreleased = changelog.split("## Unreleased", 1)[1].split("## 0.1.0a19", 1)[0]
+
+    assert not unreleased.strip()
+    assert "## 0.1.0a19 — 2026-10-05" in changelog
     assert "two CSR interoperability fixes" in notes
     assert "pre-tag" in notes
     assert "ABI v11" in notes
+    assert "Primitive credit, virtual-channel credit" in notes
+    assert "canonical `zlang lsp`" in notes
+    assert "`zlang-lsp`, `zlang-lock`, and `zlang-verify`" in notes
+    assert "`--experimental-systemverilog`" in notes
+    assert "Bare compiler invocation" in notes
     assert "ABI-v10" not in notes
     assert "0.1.0a10 —" not in notes
 
