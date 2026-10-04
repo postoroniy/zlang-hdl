@@ -82,7 +82,7 @@ def test_release_workflow_uses_curated_changelog_notes_and_native_set() -> None:
     assert "tools/audit_native_vulnerabilities.py" in workflow
     assert "tools/stage_release_pdf.py" in workflow
     assert "workflow_dispatch:" in workflow
-    assert "tools/release_preflight.py" in workflow
+    assert "python -m tools.release_preflight" in workflow
     assert '--mode "$mode"' in workflow
     assert '--selected-ref "$GITHUB_REF_NAME"' in workflow
     assert "--protected-main-ref origin/main" in workflow
@@ -94,6 +94,10 @@ def test_release_workflow_uses_curated_changelog_notes_and_native_set() -> None:
     assert "if: ${{ github.event_name == 'push' }}\n    needs: [validate, eda]" in workflow
     assert "Exercise the installed exact-tag VSIX" in workflow
     assert "zlang-hdl-*-language-reference.pdf" in workflow
+    assert '"$environment/bin/zlang" lock --version' in workflow
+    assert '"$environment/bin/zlang" verify --version' in workflow
+    assert '"$environment/bin/zlang-lock"' not in workflow
+    assert '"$environment/bin/zlang-verify"' not in workflow
     assert workflow.count("--maxfail=1") == 4
     assert workflow.count("--performance-junit") == 2
     assert 'printf \'%s\\n\' "$python_scripts" >> "$GITHUB_PATH"' in workflow

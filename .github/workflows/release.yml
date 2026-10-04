@@ -131,7 +131,7 @@ jobs:
             mode=tagged
             previous_tag="$(git describe --tags --abbrev=0 "${RELEASE_TAG}^")"
           fi
-          python tools/release_preflight.py \
+          python -m tools.release_preflight \
             --root . \
             --tag "$RELEASE_TAG" \
             --previous-tag "$previous_tag" \
@@ -174,8 +174,8 @@ jobs:
             > "$smoke_dir/package-smoke.zhl"
           for environment in "$PWD/build/wheel-venv" "$PWD/build/sdist-venv"; do
             test "$("$environment/bin/zlang" --version)" = "zlang ${RELEASE_TAG#v}"
-            test "$("$environment/bin/zlang-lock" --version)" = "zlang-lock ${RELEASE_TAG#v}"
-            test "$("$environment/bin/zlang-verify" --version)" = "zlang-verify ${RELEASE_TAG#v}"
+            test "$("$environment/bin/zlang" lock --version)" = "zlang lock ${RELEASE_TAG#v}"
+            test "$("$environment/bin/zlang" verify --version)" = "zlang verify ${RELEASE_TAG#v}"
             (cd "$smoke_dir" && "$environment/bin/zlang" package-smoke.zhl --check)
           done
           for kind in wheel sdist; do
