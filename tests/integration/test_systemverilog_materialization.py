@@ -10,9 +10,11 @@ import subprocess
 import pytest
 
 from zlang.backend.expression_materialization import build_direct_sv_dag_plan
-from zlang.backend.systemverilog import emit_experimental
-from zlang.backend.systemverilog import emitter as sv_emitter
-from zlang.compiler import _inline_locals, compile_source
+from zlang.backend.systemverilog import emit
+from zlang.backend.systemverilog import expression as sv_expression
+from zlang.backend.systemverilog import materialized as sv_materialized
+from zlang.compilation_session import inline_locals
+from zlang.compiler import compile_source
 from zlang.ir import expressions as expr
 from zlang.ir.types import UIntType, VecType
 from zlang.parser import parse
@@ -61,12 +63,12 @@ module CompoundRuntimePrefix {
 
 
 def _rtl() -> str:
-    return emit_experimental(_inline_locals(analyze(parse(SOURCE))))
+    return emit(inline_locals(analyze(parse(SOURCE))))
 
 
 def _compound_runtime_prefix_rtl() -> str:
-    return emit_experimental(
-        _inline_locals(analyze(parse(COMPOUND_RUNTIME_PREFIX_SOURCE)))
+    return emit(
+        inline_locals(analyze(parse(COMPOUND_RUNTIME_PREFIX_SOURCE)))
     )
 
 
@@ -111,7 +113,7 @@ module EmbeddedRuleDag {
         top="EmbeddedRuleDag",
     ).ir
 
-    declarations, logic, render = sv_emitter._embedded_staging_emission(module)
+    declarations, logic, render = sv_materialized._embedded_staging_emission(module)
     assert any("zlang_expr_" in line for line in declarations)
     assert any("assign zlang_expr_" in line for line in logic)
     assert module.resolved_transition is not None
@@ -164,7 +166,7 @@ def test_runtime_select_from_compound_vector_avoids_postfix_part_select() -> Non
         byte,
     )
 
-    rendered = sv_emitter._expression(selected)
+    rendered = sv_expression._expression(selected)
 
     assert "}[" not in rendered
     assert rendered.startswith("8'(($unsigned({")
@@ -204,7 +206,7 @@ def test_shared_mixer_dag_emits_linearly_without_logical_path_expansion(
         source, top="FrontendSharedDagScalability"
     ).planning.module
 
-    rtl = emit_experimental(module)
+    rtl = emit(module)
 
     assert len(rtl.encode("utf-8")) < 16_384
     assert max(len(line.encode("utf-8")) for line in rtl.splitlines()) < 256
@@ -231,7 +233,7 @@ def test_runtime_select_from_compound_vector_is_yosys_accepted(tmp_path) -> None
     rtl = tmp_path / "CompoundSelect.sv"
     rtl.write_text(
         "module CompoundSelect(input logic [1:0] index, output logic [7:0] y);\n"
-        f"  assign y = {sv_emitter._expression(selected)};\n"
+        f"  assign y = {sv_expression._expression(selected)};\n"
         "endmodule\n"
     )
 
@@ -260,7 +262,7 @@ def test_large_vector_literal_is_split_before_frontend_token_limits() -> None:
         VecType(5000, bit),
     )
 
-    rendered = sv_emitter._expression(generated)
+    rendered = sv_expression._expression(generated)
 
     assert "\n" in rendered
     assert max(map(len, rendered.splitlines())) < 16_384

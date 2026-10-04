@@ -4,7 +4,7 @@ from pathlib import Path
 import shutil
 import unittest
 
-from zlang.backend.systemverilog import emit_experimental
+from zlang.backend.systemverilog import emit
 from zlang.compiler import compile_source
 from zlang.formal import run_verilog_formal
 from zlang.ir.formal import FormalStatus
@@ -16,7 +16,7 @@ TOOLS_AVAILABLE = all(shutil.which(tool) for tool in ("yosys", "sby", "z3"))
 
 def emitted(name: str, *, top: str | None = None) -> str:
     module = compile_source((ROOT / "examples" / name).read_text(), top=top).ir
-    return emit_experimental(module)
+    return emit(module)
 
 
 RULE_HARNESS = r"""

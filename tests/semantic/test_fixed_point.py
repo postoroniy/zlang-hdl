@@ -5,13 +5,13 @@ import unittest
 import os
 from pathlib import Path
 
-from zlang.backend.systemverilog import emit_experimental
+from zlang.backend.systemverilog import emit
 from zlang.compiler import compile_source
 from zlang.formal import build_recursive_formal_design
 from zlang.backend.manifest import BackendArtifact, publish_artifact
-from zlang.ir import FixedOverflowPolicy, FixedType, UFixedType
+from zlang.ir.types import FixedOverflowPolicy, FixedType, UFixedType
 from zlang.ir import expressions as ir_expr
-from zlang.opt import lower, restore
+from zlang.opt.lowering import lower, restore
 from zlang.parser import ParseError, parse
 from zlang.semantic import SemanticError, analyze
 from zlang.native_simulation import simulate
@@ -499,7 +499,7 @@ module Top {
         ).ir
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "F.sv"
-            path.write_text(emit_experimental(module))
+            path.write_text(emit(module))
             subprocess.run(("verilator", "--lint-only", "-Wall", "-Wno-fatal", str(path)), check=True)
 
     @unittest.skipUnless(shutil.which("verilator"), "Verilator is unavailable")
@@ -512,8 +512,8 @@ module Top {
         ).ir
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            (root / "wrap.sv").write_text(emit_experimental(wrap))
-            (root / "sat.sv").write_text(emit_experimental(saturating))
+            (root / "wrap.sv").write_text(emit(wrap))
+            (root / "sat.sv").write_text(emit(saturating))
             (root / "tb.sv").write_text(r"""
 module tb;
   logic signed [3:0] a, b; wire signed [3:0] wrap_y, sat_y;
@@ -548,7 +548,7 @@ endmodule
                 f"module {module_name} {{ in a:fixed<8,2> out y:fixed<8,0> "
                 f"y=quantize<fixed<8,0>>(a){{round {mode} overflow wrap}} }}"
             ))
-            sources.append(emit_experimental(module))
+            sources.append(emit(module))
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             rtl, bench = root / "FixedRounds.sv", root / "tb.sv"

@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+from itertools import product
 
 from zlang.common import stable_digest
 
@@ -41,6 +42,15 @@ class FunctionalScatterLoweringChunk:
 
 
 @dataclass(frozen=True)
+class FunctionalScatterDimensionShape:
+    """Compiler-owned binder shape needed by physical scatter partitioning."""
+
+    identity: str
+    start: int
+    stop: int
+
+
+@dataclass(frozen=True)
 class FunctionalScatterLoweringPlan:
     """Single owner of the bounded direct-SV scatter lowering decision."""
 
@@ -63,6 +73,123 @@ class FunctionalScatterLoweringPlan:
         ):
             return FunctionalScatterLoweringStrategy.STRUCTURAL
         return FunctionalScatterLoweringStrategy.CHUNKED_PROCEDURAL
+
+
+def _reduction_names(
+    prefix: str,
+    source_count: int,
+) -> tuple[tuple[str, ...], ...]:
+    levels: list[tuple[str, ...]] = []
+    depth = 0
+    while source_count > 1:
+        target_count = (source_count + 1) // 2
+        levels.append(
+            tuple(
+                f"zlang_scatter_reduce_{prefix}_{depth}_{ordinal}"
+                for ordinal in range(target_count)
+            )
+        )
+        source_count = target_count
+        depth += 1
+    return tuple(levels)
+
+
+def plan_scatter_lowering(
+    *,
+    entry_count: int,
+    result_width: int,
+    dimensions: tuple[FunctionalScatterDimensionShape, ...],
+    prefix: str,
+) -> FunctionalScatterLoweringPlan:
+    """Choose one bounded physical lowering without inspecting typed IR."""
+
+    dimension_lengths = tuple(item.stop - item.start for item in dimensions)
+    effective_candidate_count = entry_count
+    for length in dimension_lengths:
+        effective_candidate_count *= length
+    if effective_candidate_count < 1 or result_width < 1:
+        raise ValueError(
+            "functional scatter has an empty physical candidate/result shape"
+        )
+
+    strategy = FunctionalScatterLoweringPlan.select_strategy(
+        effective_candidate_count,
+        result_width,
+    )
+    bit_limited_writes = max(
+        1, MAX_SCATTER_CHUNK_RESULT_BIT_UPDATES // result_width
+    )
+    writes_per_chunk = min(MAX_SCATTER_CHUNK_WRITES, bit_limited_writes)
+
+    prefix_depth = len(dimension_lengths)
+    suffix_candidates = 1
+    for candidate_depth in range(len(dimension_lengths) + 1):
+        candidate_suffix = 1
+        for length in dimension_lengths[candidate_depth:]:
+            candidate_suffix *= length
+        if candidate_suffix <= writes_per_chunk:
+            prefix_depth = candidate_depth
+            suffix_candidates = candidate_suffix
+            break
+    entries_per_chunk = max(1, writes_per_chunk // suffix_candidates)
+    prefix_ranges = tuple(
+        range(dimension.start, dimension.stop)
+        for dimension in dimensions[:prefix_depth]
+    )
+    fixed_value_sets = tuple(product(*prefix_ranges)) if prefix_ranges else ((),)
+    chunks: list[FunctionalScatterLoweringChunk] = []
+    for fixed_values in fixed_value_sets:
+        fixed_binders = tuple(
+            (dimensions[ordinal].identity, value)
+            for ordinal, value in enumerate(fixed_values)
+        )
+        for entry_start in range(0, entry_count, entries_per_chunk):
+            entry_stop = min(entry_count, entry_start + entries_per_chunk)
+            ordinal = len(chunks)
+            chunk_prefix = f"zlang_scatter_chunk_{prefix}_{ordinal}"
+            remaining = tuple(range(prefix_depth, len(dimensions)))
+            chunks.append(
+                FunctionalScatterLoweringChunk(
+                    ordinal=ordinal,
+                    accumulator=chunk_prefix,
+                    fixed_binders=fixed_binders,
+                    remaining_dimension_ordinals=remaining,
+                    entry_start=entry_start,
+                    entry_stop=entry_stop,
+                    write_count=(entry_stop - entry_start) * suffix_candidates,
+                    loop_variables=tuple(
+                        f"{chunk_prefix}_i_{dimension_ordinal}"
+                        for dimension_ordinal in remaining
+                    ),
+                    enable_temporary=f"{chunk_prefix}_enable",
+                    address_temporary=f"{chunk_prefix}_address",
+                    value_temporary=f"{chunk_prefix}_value",
+                )
+            )
+    if any(
+        chunk.write_count > MAX_SCATTER_CHUNK_WRITES
+        or (
+            strategy is FunctionalScatterLoweringStrategy.CHUNKED_PROCEDURAL
+            and chunk.write_count * result_width
+            > MAX_SCATTER_CHUNK_RESULT_BIT_UPDATES
+            and not (
+                chunk.write_count == 1
+                and result_width > MAX_SCATTER_CHUNK_RESULT_BIT_UPDATES
+            )
+        )
+        for chunk in chunks
+    ):
+        raise ValueError(
+            "functional scatter chunk exceeds its bounded lowering budget"
+        )
+    return FunctionalScatterLoweringPlan(
+        strategy,
+        effective_candidate_count,
+        result_width,
+        tuple(chunks),
+        f"zlang_scatter_chunks_{prefix}",
+        _reduction_names(prefix, len(chunks)),
+    )
 
 
 def render_scatter_helper(
@@ -215,6 +342,7 @@ def render_scatter_helper(
 
 
 __all__ = [
+    "FunctionalScatterDimensionShape",
     "FunctionalScatterLoweringChunk",
     "FunctionalScatterLoweringPlan",
     "FunctionalScatterLoweringStrategy",
@@ -222,5 +350,6 @@ __all__ = [
     "MAX_SCATTER_CHUNK_WRITES",
     "MAX_STRUCTURAL_SCATTER_BITS",
     "MAX_STRUCTURAL_SCATTER_CANDIDATES",
+    "plan_scatter_lowering",
     "render_scatter_helper",
 ]

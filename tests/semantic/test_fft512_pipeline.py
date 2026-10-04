@@ -1,14 +1,8 @@
 from pathlib import Path
 
 from zlang.compiler import compile_source
-from zlang.ir import (
-    FixedConvert,
-    ProductTermSign,
-    RuntimeIndex,
-    Truncate,
-    RegisterRef,
-    recognize_signed_product_reduction,
-)
+from zlang.ir.expressions import FixedConvert, RuntimeIndex, Truncate, RegisterRef
+from zlang.ir.signed_reductions import ProductTermSign, recognize_signed_product_reduction
 from zlang.parser import parse
 from zlang.semantic import analyze
 

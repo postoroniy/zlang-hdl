@@ -56,26 +56,28 @@ module ScalarRom<D=4> {
 # backend DAG-planning schema, and canonical schema v18; semantic behavior is
 # unchanged. Physical input snapshots now use filename/content pairs rather
 # than absolute-path order or duplicate installed stdlib copies; file-backed
-# hashes were recaptured accordingly. Every value below was reproduced in two
+# hashes were recaptured accordingly. The current-only result surface omits
+# executable harness strings, requires canonical callable identities, and
+# publishes candidate-site schema v2. Every value below was reproduced in two
 # independent compilations.
 EXPECTED = {
-    "add": "0d21d7c7533fbefcc082993695b6b43120b859ad22bc11553c9aaddd7bf41a35",
-    "stateful_protocol": "56bb8d2f6add0c41605e89f5d1b40f64fa320b9540dfc48ac45ca9cdfadc534d",
-    "fixed_dsp": "7809d7403205d3579d01fe19a8dbdc6eb7cc06ce7cbf1c0519b4caec0bd1ebdd",
-    "csr": "151d81c9a1b0dd25ff25b287cf8dd2a8bf0d69e8541898282a5b7485a0d97e20",
-    "hierarchy": "11add9b266518a902d3dc1a2d04b09378761df78ab78dbd61b1e7494df0747e4",
+    "add": "87ca14e58c40b772f99cefd9867bba367033de25f56a207cdb87190ec5c81d9c",
+    "stateful_protocol": "b187ee147087e2ffd2705b4a2784ca9d82122d1c2477031c7f436a219d49d238",
+    "fixed_dsp": "35dd7cd140741bfe5da990eca25ef2f553a36abb94b4c0c836cba9603c60db1b",
+    "csr": "6c21dd6f6e15239cac1265461cd944dd968ab75a1defc9c128ca8dbc5a9c4996",
+    "hierarchy": "8a8405a5d5f7e027716f62dbd96ff82512932ff37da46d8d1421e05757527664",
     # Companion filenames use exact typed ROM contents/layout rather than
     # source provenance, so equivalent spellings retain one physical image.
     # Compile-time evaluator schema v2 records the expanded deterministic-real
     # surface in ROM identity; this snapshot was reproduced in separate runs.
-    "rom": "2d545a1115cc2674fb1ca650ad0178894ad93acac0c4ee1db6c79b08bea2f29d",
+    "rom": "0534454426105c2b8847b52b4738e8795a8910755aaa8b60774ed7ecc49ad135",
     # The concise Wi-Fi source refactor uses slices, shared raw views, vector
     # generation and struct update while retaining the public ABI and IEEE
     # behavior.  Its large shared value DAG now uses the bounded Merkle value
     # identity rather than materializing the historical expanded-tree
     # spelling.  This source/dependency-sensitive eager-result snapshot was
     # independently compiled twice before being locked here.
-    "wifi": "1fa795b1c8ece74b9e7abde45d9a8bf74605f093baa7be0e158f514f1c3840d5",
+    "wifi": "7756c7e3941510c4ffca401964cd0cb09c75be9ee6a2b578ea26c4553a28b58a",
 }
 
 

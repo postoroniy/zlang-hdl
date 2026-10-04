@@ -7,7 +7,7 @@ import pytest
 from zlang.compiler import compile_source
 from zlang.ir import expressions as expr
 from zlang.module_resolver import IndexedModuleResolver, load_indexed_module
-from zlang.opt import lower, restore
+from zlang.opt.lowering import lower, restore
 from zlang.semantic import SemanticError
 from zlang.native_simulation import simulate
 

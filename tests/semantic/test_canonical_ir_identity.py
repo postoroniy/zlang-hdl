@@ -6,7 +6,7 @@ from pathlib import Path
 
 from zlang.compiler import compile_file, compile_source
 from zlang.ir.expressions import ImplementationKind
-from zlang.opt import canonical_ir_identity
+from zlang.opt.identity import canonical_ir_identity
 from zlang.opt.ir import ExpressionOp
 from zlang.opt.render import render_identity
 

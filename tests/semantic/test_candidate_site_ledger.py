@@ -14,19 +14,16 @@ from zlang.candidate_sites import (
     CandidateSiteLedger,
     build_candidate_site_ledger,
     candidate_formal_records,
-    pipeline_site_key,
 )
 from zlang.compilation_session import (
     CompilationSession,
-    _restore_selection_formal_records,
 )
+from zlang.compilation_selection import restore_selection_formal_records
 from zlang.compiler import compile_source
 from zlang.parser import ParseError
 from zlang.costs import CostExtractionError
 from zlang.exploration import TransformFamily
 from zlang.formal_exploration import FormalPolicy
-from zlang.formal_exploration import FormalExplorationConfig
-from zlang.formal_candidate import gate_standalone_pipelines
 from zlang.implementation_request import (
     ImplementationContribution,
     ImplementationObjective,
@@ -37,7 +34,8 @@ from zlang.implementation_request import (
 from zlang.ir import expressions as expr
 from zlang.ir.equivalence import EquivalenceCounterexample
 from zlang.ir.formal import FormalStatus, ProofMode
-from zlang.opt import canonical_ir_identity, lower, restore
+from zlang.opt.identity import canonical_ir_identity
+from zlang.opt.lowering import lower, restore
 from zlang.native_simulation import simulate
 
 
@@ -175,7 +173,7 @@ def test_selection_record_restore_keys_sibling_children_by_specialization() -> N
     )
     reference = replace(base, children=marked_children)
     restored = restore(lower(base))
-    reconnected = _restore_selection_formal_records(reference, restored)
+    reconnected = restore_selection_formal_records(reference, restored)
 
     assert tuple(
         child.pipeline_explorations[0].formal_records
@@ -422,24 +420,18 @@ def test_candidate_ledger_identity_is_origin_insensitive() -> None:
 
 @pytest.mark.parametrize(
     "legacy_kind",
-    (
-        CandidateSiteKind.SOURCE_EXPLORE,
-        CandidateSiteKind.ARCHITECTURE_AUTO,
-        CandidateSiteKind.STANDALONE_PIPELINE,
-    ),
+    ("source_explore", "architecture_auto", "standalone_pipeline"),
 )
-def test_legacy_candidate_site_kinds_remain_decode_only(
-    legacy_kind: CandidateSiteKind,
-) -> None:
+def test_legacy_candidate_site_kinds_are_rejected(legacy_kind: str) -> None:
     current = compile_source(
         "module LegacyDecode { in a:u8 out y:u8 "
         "y=implement { a ^ 0 intent { minimize lut } } }",
     ).candidate_site_ledger
     assert current is not None
-    legacy = CandidateSiteLedger((replace(current.sites[0], kind=legacy_kind),))
-    restored = CandidateSiteLedger.from_json(legacy.to_json())
-    assert restored == legacy
-    assert restored.sites[0].kind is legacy_kind
+    payload = current.to_data()
+    payload["sites"][0]["kind"] = legacy_kind
+    with pytest.raises(CandidateSiteError, match="not a valid CandidateSiteKind"):
+        CandidateSiteLedger.from_data(payload)
 
 
 def test_formal_selection_origin_stripping_preserves_execution_and_evidence_identity() -> None:
@@ -482,29 +474,3 @@ def test_pipeline_catalog_classification_ignores_source_origin() -> None:
     restored = replace(result.ir, pipeline_explorations=(stripped,))
     ledger = build_candidate_site_ledger(restored, result.exploration_results)
     assert [site.kind for site in ledger.sites].count(CandidateSiteKind.IMPLEMENT) == 1
-
-
-def test_mixed_pipeline_catalog_preserves_legacy_tuple_order() -> None:
-    source = """
-    module MixedCatalog {
-      clock clk
-      reset rst
-      in a,b,c,d,e,f,g,h:u2
-      out y1:u7
-      out y2:u7
-      y1 = implement { a*b+c*d+e*f+g*h intent { latency >= 1 ii == 1 } }
-      y2 = implement { a*b+c*d+e*f+g*h intent { latency >= 1 ii == 1 } }
-    }
-    """
-    base = compile_source(source).ir
-    assert tuple(item.output for item in base.pipeline_explorations) == ("y1", "y2")
-    canonical = {pipeline_site_key(base, base.pipeline_explorations[0])}
-    updated = gate_standalone_pipelines(
-        base,
-        FormalExplorationConfig(FormalPolicy.AVAILABLE),
-        _BoundVerifier(lambda _candidate, _config: {"status": FormalStatus.BOUNDED_PASS}),
-        canonical_site_keys=canonical,
-    )
-    assert tuple(item.output for item in updated.pipeline_explorations) == ("y1", "y2")
-    assert updated.pipeline_explorations[0].formal_records == ()
-    assert updated.pipeline_explorations[1].formal_records

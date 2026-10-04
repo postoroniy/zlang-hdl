@@ -23,7 +23,7 @@ from zlang.ir.formal import FormalStatus
 from zlang.ir.interfaces import InterfaceProtocol
 from zlang.ir.module import PortDirection
 from zlang.ir.types import UIntType
-from zlang.opt import lower, restore
+from zlang.opt.lowering import lower, restore
 from zlang.parser import parse
 from zlang.semantic import SemanticError, analyze
 

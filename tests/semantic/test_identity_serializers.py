@@ -1,4 +1,4 @@
-"""Regression checks for value, physical and historical evidence identities."""
+"""Regression checks for current value, physical and evidence identities."""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ from zlang.target_planner import (
     _compatible_evidence,
 )
 from zlang.targets import generic_implementation_graph
-from zlang.opt import lower
+from zlang.opt.lowering import lower
 
 
 def test_counterexample_codec_preserves_exact_closed_union_shapes() -> None:
@@ -143,7 +143,6 @@ def test_scheduled_physical_identity_ignores_estimate_and_provenance() -> None:
         rewrite_certificate=("same_value",),
     )
     assert graph.identity == changed.identity
-    assert graph.legacy_identity != changed.legacy_identity
     assert graph.identity != replace(graph, stage_assignment=(("op", 0),), clock_domain="clkB").identity
 
 
@@ -170,17 +169,16 @@ def test_implementation_physical_identity_ignores_timing_estimate() -> None:
         legality_evidence=("new estimate",),
     )
     assert graph.identity == changed.identity
-    assert graph.legacy_identity != changed.legacy_identity
 
 
-def test_historical_qor_key_matches_only_the_exact_old_graph() -> None:
+def test_qor_key_matches_only_the_exact_current_graph() -> None:
     graph = ImplementationGraph(
         "semantic", "generic", "target", "target-hash", (), (), (), 1, 1,
         target_part="part",
         pipeline_configuration_identity="configuration",
     )
     key = MeasurementKey(
-        "target", "part", "generic", graph.legacy_identity, "configuration",
+        "target", "part", "generic", graph.identity, "configuration",
         "direct_systemverilog", "Vivado", "2024.2", 5.0,
     )
     evidence = QoREvidence(
@@ -196,7 +194,7 @@ def test_historical_qor_key_matches_only_the_exact_old_graph() -> None:
     ) is None
 
 
-def test_fixed_quantization_participates_in_physical_and_legacy_qor_guard() -> None:
+def test_fixed_quantization_participates_in_physical_qor_identity() -> None:
     accumulator = expr.InputRef("acc", FixedType(48, 16))
     conversion = expr.FixedConvert(
         accumulator, expr.FixedRounding.NEAREST_EVEN,
@@ -212,23 +210,20 @@ def test_fixed_quantization_participates_in_physical_and_legacy_qor_guard() -> N
         graph, quantization=replace(conversion, rounding=expr.FixedRounding.FLOOR)
     )
     assert graph.identity != changed.identity
-    assert graph.legacy_identity == changed.legacy_identity
 
     key = MeasurementKey(
-        "target", "part", "fir", graph.legacy_identity, "configuration",
+        "target", "part", "fir", graph.identity, "configuration",
         "direct_systemverilog", "Vivado", "2024.2", 5.0,
     )
-    bare = QoREvidence(key, MetricSource.SYNTHESIS_MEASUREMENT, 1, 1, 0, 0, 200.0)
-    guarded = replace(
-        bare, quantization_identity=expression_semantic_identity(conversion)
+    evidence = QoREvidence(
+        key, MetricSource.SYNTHESIS_MEASUREMENT, 1, 1, 0, 0, 200.0
     )
     options = {
         "backend": "direct_systemverilog", "tool": "Vivado",
         "tool_version": "2024.2", "clock_period_ns": 5.0,
     }
-    assert _compatible_evidence((bare,), graph, **options) is None
-    assert _compatible_evidence((guarded,), graph, **options) is guarded
-    assert _compatible_evidence((guarded,), changed, **options) is None
+    assert _compatible_evidence((evidence,), graph, **options) is evidence
+    assert _compatible_evidence((evidence,), changed, **options) is None
 
 
 def test_generic_module_identity_ignores_pipeline_cost_metadata() -> None:

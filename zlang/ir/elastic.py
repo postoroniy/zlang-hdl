@@ -40,19 +40,6 @@ class ElasticTimingContract:
         if not self.variable_wall_clock_latency:
             raise ValueError("elastic wall-clock latency must be variable")
 
-    @property
-    def minimum_latency(self) -> int:
-        """Compatibility alias; the stored contract is explicitly unstalled."""
-
-        return self.minimum_unstalled_latency
-
-    @property
-    def initiation_interval(self) -> int:
-        """Compatibility alias; the stored II applies only without stalls."""
-
-        return self.ii_no_stall
-
-
 @dataclass(frozen=True)
 class ElasticPipelinePlan:
     """Physical state owned by one selected globally-stalled candidate."""

@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from tests.case_matrix import check_cases
-from zlang.ast import CharLiteralExpr, StringLiteralExpr, TypeName, VectorTypeName
+from zlang.ast.nodes import CharLiteralExpr, StringLiteralExpr, TypeName, VectorTypeName
 from zlang.parser import ParseError, parse
 
 

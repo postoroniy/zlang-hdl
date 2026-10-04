@@ -4,7 +4,8 @@ import unittest
 
 from zlang.cli import main
 from zlang.compiler import compile_source
-from zlang.opt import render, restore
+from zlang.opt.render import render
+from zlang.opt.lowering import restore
 from zlang.native_simulation import simulate_cycles
 
 

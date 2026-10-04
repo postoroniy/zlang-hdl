@@ -10,7 +10,7 @@ import pytest
 from live_edit_catalog import LIVE_EDIT_CASES, LanguageSurfaceCase
 from zlang.compiler import compile_source
 from zlang.lsp.server import LspServer, path_to_uri
-from zlang.opt import lower
+from zlang.opt.lowering import lower
 from zlang.opt.identity import canonical_ir_identity
 from zlang.public_capabilities import CAPABILITY_REGISTRY
 

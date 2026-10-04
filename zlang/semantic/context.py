@@ -4,7 +4,8 @@
 
 from __future__ import annotations
 
-from dataclasses import MISSING, dataclass, field, fields, replace
+from dataclasses import dataclass, field, replace
+from typing import TYPE_CHECKING
 
 from zlang.analysis_needs import AnalysisNeeds
 from zlang.ast import nodes as ast
@@ -13,14 +14,125 @@ from zlang.definition_resolution import DefinitionResolution, DefinitionTarget
 from zlang.ir import expressions as ir_expr
 from zlang.ir import module as ir_module
 from zlang.ir.expression_arena import SemanticExpressionArena
-from zlang.ir.functional_regions import (
-    CompileTimeExpr,
-    FunctionalSpecializationCertificate,
-)
+from zlang.ir import functional_regions as functional_regions
 from zlang.ir.interfaces import InterfaceProtocol
 from zlang.ir.types import HardwareType, StructType
 from zlang.signature_help_resolution import SignatureHelpCall
 from zlang.source import SourceOrigin
+
+from .callable_state import CallableSpecializationCache
+from .callable_bodies import CallableBodyAnalyzer
+from .callable_specialization import CallableSpecializer
+from .expressions import ExpressionAnalyzer
+
+if TYPE_CHECKING:
+    from zlang.dependencies import DependencyClosure, DependencyModuleIdentity
+    from zlang.ir.cdc import ClockDomain
+    from zlang.ir.hierarchy import HierarchyTraversalCache
+    from zlang.module_resolver import ModuleResolutionContext, ModuleResolver
+
+
+@dataclass(frozen=True)
+class SourceAnalysisContext:
+    """Source identity and source-facing policy for one module analysis."""
+
+    module: ast.Module
+    source_unit: str | None = None
+    source_digest: str | None = None
+    allow_external_enum_inputs: bool = False
+    enum_identity_namespace: str | None = None
+
+
+@dataclass(frozen=True)
+class ResolutionAnalysisContext:
+    """Compiler-owned import and locked dependency resolution inputs."""
+
+    module_resolver: ModuleResolver | None = None
+    resolution_context: ModuleResolutionContext | None = None
+    root_module_identity: DependencyModuleIdentity | None = None
+    dependency_closure: DependencyClosure | None = None
+    imports_premerged: bool = False
+
+
+@dataclass(frozen=True)
+class HierarchyAnalysisContext:
+    """Shared traversal state and inherited domain for recursive analysis."""
+
+    inherited_domain: tuple[str, str] | ClockDomain | None = None
+    instance_stack: tuple[str, ...] = ()
+    cache: HierarchyTraversalCache | None = None
+
+
+@dataclass(frozen=True)
+class SpecializationAnalysisContext:
+    """Bindings supplied while specializing a module or callable."""
+
+    type_bindings: dict[str, HardwareType] | None = None
+    constant_bindings: dict[str, ir_expr.Expression] | None = None
+    callable_bindings: dict[str, object] | None = None
+
+
+@dataclass(frozen=True)
+class CompileTimeAnalysisContext:
+    """Compile-time evaluation resources shared with recursive analysis."""
+
+    budget: object | None = None
+    real_quantize_cache: dict[tuple[object, ...], object] | None = None
+
+
+@dataclass(frozen=True)
+class ImplementationAnalysisContext:
+    """Implementation-intent observations produced by semantic analysis."""
+
+    exploration_results: list[object] | None = None
+
+
+@dataclass(frozen=True)
+class VerificationAnalysisContext:
+    """Formal policy inputs used only by semantic verification analysis."""
+
+    formal_config: object | None = None
+    formal_verifier: object | None = None
+
+
+@dataclass(frozen=True)
+class ToolingObservationContext:
+    """Demand-driven compiler observation sinks for editor queries."""
+
+    analysis_needs: AnalysisNeeds = AnalysisNeeds.NONE
+    definition_resolutions: list[DefinitionResolution] | None = None
+    definition_targets: dict[int, SourceOrigin] = field(default_factory=dict)
+    definition_declarations: list[DefinitionTarget] | None = None
+    completion_scopes: list[CompletionScope] | None = None
+    signature_help_calls: list[SignatureHelpCall] | None = None
+
+
+@dataclass(frozen=True)
+class AnalysisContext:
+    """Composed ownership boundary for one top-level semantic analysis."""
+
+    source: SourceAnalysisContext
+    resolution: ResolutionAnalysisContext = field(
+        default_factory=ResolutionAnalysisContext
+    )
+    hierarchy: HierarchyAnalysisContext = field(
+        default_factory=HierarchyAnalysisContext
+    )
+    specialization: SpecializationAnalysisContext = field(
+        default_factory=SpecializationAnalysisContext
+    )
+    compile_time: CompileTimeAnalysisContext = field(
+        default_factory=CompileTimeAnalysisContext
+    )
+    implementation: ImplementationAnalysisContext = field(
+        default_factory=ImplementationAnalysisContext
+    )
+    verification: VerificationAnalysisContext = field(
+        default_factory=VerificationAnalysisContext
+    )
+    tooling: ToolingObservationContext = field(
+        default_factory=ToolingObservationContext
+    )
 
 
 @dataclass(frozen=True)
@@ -40,7 +152,6 @@ class AnalysisEnvironment:
     unresolved_parameters: frozenset[str] = frozenset()
     type_resolver: object | None = None
     source_digests: dict[str, str] = field(default_factory=dict)
-    analysis_needs: AnalysisNeeds = AnalysisNeeds.NONE
     formal_config: object | None = None
     formal_verifier: object | None = None
 
@@ -49,26 +160,22 @@ class AnalysisEnvironment:
 class AnalysisServices:
     """Mutable state owned by exactly one top-level semantic analysis."""
 
-    generic_specializations: list[ir_module.GenericSpecialization] = field(
-        default_factory=list
+    callables: CallableSpecializationCache = field(
+        default_factory=CallableSpecializationCache
     )
-    function_definitions: dict[str, ir_module.Function] = field(default_factory=dict)
-    callable_definitions: dict[str, ir_module.Function] = field(default_factory=dict)
-    callable_use_counts: dict[str, int] = field(default_factory=dict)
-    specializations_in_progress: set[str] = field(default_factory=set)
-    specialization_budget_costs: dict[str, tuple[int, int]] = field(
-        default_factory=dict
+    callable_specializer: CallableSpecializer = field(
+        default_factory=CallableSpecializer
     )
+    callable_bodies: CallableBodyAnalyzer = field(
+        default_factory=CallableBodyAnalyzer
+    )
+    expression_analysis: ExpressionAnalyzer = field(default_factory=ExpressionAnalyzer)
     compile_time_real_quantize_cache: dict[tuple[object, ...], object] = field(
         default_factory=dict
     )
     compile_time_budget: object | None = None
     exploration_results: list[object] | None = None
-    definition_resolutions: list[DefinitionResolution] | None = None
-    definition_targets: dict[int, SourceOrigin] = field(default_factory=dict)
-    definition_declarations: list[DefinitionTarget] | None = None
-    completion_scopes: list[CompletionScope] | None = None
-    signature_help_calls: list[SignatureHelpCall] | None = None
+    tooling: ToolingObservationContext = field(default_factory=ToolingObservationContext)
     expression_arena: SemanticExpressionArena = field(
         default_factory=SemanticExpressionArena
     )
@@ -106,11 +213,11 @@ class ExpressionScope:
     candidate_site_owner: str | None = None
     next_delay_instance: int = 0
     index_bindings: dict[str, int] = field(default_factory=dict)
-    functional_symbolic_values: dict[str, CompileTimeExpr] = field(
+    functional_symbolic_values: dict[str, functional_regions.CompileTimeExpr] = field(
         default_factory=dict
     )
     functional_specialization_certificates: list[
-        FunctionalSpecializationCertificate
+        functional_regions.FunctionalSpecializationCertificate
     ] = field(default_factory=list)
     range_refinements: dict[str, ir_expr.ValueRange] = field(default_factory=dict)
     index_types: dict[str, HardwareType] = field(default_factory=dict)
@@ -124,66 +231,18 @@ class ExpressionScope:
     functional_binder_callable_identity: str | None = None
 
 
-_CONTEXT_OWNERS = (AnalysisEnvironment, AnalysisServices, ExpressionScope)
-_CONTEXT_FIELD_OWNER = {
-    descriptor.name: owner
-    for owner in _CONTEXT_OWNERS
-    for descriptor in fields(owner)
-}
-
-
-def _owner_from_values(owner: type, values: dict[str, object]):
-    arguments: dict[str, object] = {}
-    for descriptor in fields(owner):
-        if descriptor.name in values:
-            arguments[descriptor.name] = values.pop(descriptor.name)
-        elif descriptor.default is not MISSING:
-            arguments[descriptor.name] = descriptor.default
-        elif descriptor.default_factory is not MISSING:
-            arguments[descriptor.name] = descriptor.default_factory()
-        else:
-            raise TypeError(f"missing expression-context field '{descriptor.name}'")
-    return owner(**arguments)
-
-
 class ExpressionContext:
-    """Compatibility facade over explicit environment/services/scope owners."""
+    """Explicit environment, service, and lexical-scope ownership boundary."""
 
     def __init__(
         self,
-        functions: dict[str, object],
-        *,
-        allow_delay: bool,
-        **values: object,
-    ) -> None:
-        retained = dict(values)
-        retained["functions"] = functions
-        retained["allow_delay"] = allow_delay
-        object.__setattr__(
-            self, "_environment", _owner_from_values(AnalysisEnvironment, retained)
-        )
-        object.__setattr__(
-            self, "_services", _owner_from_values(AnalysisServices, retained)
-        )
-        object.__setattr__(
-            self, "_scope", _owner_from_values(ExpressionScope, retained)
-        )
-        if retained:
-            names = ", ".join(sorted(retained))
-            raise TypeError(f"unknown expression-context field(s): {names}")
-
-    @classmethod
-    def _from_parts(
-        cls,
         environment: AnalysisEnvironment,
         services: AnalysisServices,
         scope: ExpressionScope,
-    ) -> "ExpressionContext":
-        context = object.__new__(cls)
-        object.__setattr__(context, "_environment", environment)
-        object.__setattr__(context, "_services", services)
-        object.__setattr__(context, "_scope", scope)
-        return context
+    ) -> None:
+        self._environment = environment
+        self._services = services
+        self._scope = scope
 
     @property
     def environment(self) -> AnalysisEnvironment:
@@ -197,65 +256,41 @@ class ExpressionContext:
     def scope(self) -> ExpressionScope:
         return self._scope
 
-    def __getattr__(self, name: str):
-        owner = _CONTEXT_FIELD_OWNER.get(name)
-        if owner is AnalysisEnvironment:
-            return getattr(self._environment, name)
-        if owner is AnalysisServices:
-            return getattr(self._services, name)
-        if owner is ExpressionScope:
-            return getattr(self._scope, name)
-        raise AttributeError(name)
+    @property
+    def expressions(self) -> ExpressionAnalyzer:
+        return self._services.expression_analysis
 
-    def __setattr__(self, name: str, value: object) -> None:
-        owner = _CONTEXT_FIELD_OWNER.get(name)
-        if owner is None:
-            object.__setattr__(self, name, value)
-            return
-        attribute = {
-            AnalysisEnvironment: "_environment",
-            AnalysisServices: "_services",
-            ExpressionScope: "_scope",
-        }[owner]
-        object.__setattr__(
-            self,
-            attribute,
-            replace(getattr(self, attribute), **{name: value}),
+    def with_environment(self, **changes: object) -> "ExpressionContext":
+        return ExpressionContext(
+            replace(self._environment, **changes), self._services, self._scope
         )
 
-    def derive(self, **changes: object) -> "ExpressionContext":
-        unknown = set(changes) - set(_CONTEXT_FIELD_OWNER)
-        if unknown:
-            names = ", ".join(sorted(unknown))
-            raise TypeError(f"unknown expression-context field(s): {names}")
-        owners = {
-            AnalysisEnvironment: self._environment,
-            AnalysisServices: self._services,
-            ExpressionScope: self._scope,
-        }
-        for owner in _CONTEXT_OWNERS:
-            updates = {
-                name: value
-                for name, value in changes.items()
-                if _CONTEXT_FIELD_OWNER[name] is owner
-            }
-            if updates:
-                owners[owner] = replace(owners[owner], **updates)
-        return self._from_parts(
-            owners[AnalysisEnvironment],
-            owners[AnalysisServices],
-            owners[ExpressionScope],
+    def with_services(self, **changes: object) -> "ExpressionContext":
+        return ExpressionContext(
+            self._environment, replace(self._services, **changes), self._scope
+        )
+
+    def with_scope(self, **changes: object) -> "ExpressionContext":
+        return ExpressionContext(
+            self._environment, self._services, replace(self._scope, **changes)
         )
 
     def allocate_delay(self) -> int:
-        instance = self.next_delay_instance
-        self.next_delay_instance += 1
+        instance = self._scope.next_delay_instance
+        object.__setattr__(
+            self,
+            "_scope",
+            replace(self._scope, next_delay_instance=instance + 1),
+        )
         return instance
 
+    def advance_delay_allocator(self, next_instance: int) -> None:
+        """Advance the shared delay-name allocator without reusing an identity."""
 
-__all__ = [
-    "AnalysisEnvironment",
-    "AnalysisServices",
-    "ExpressionContext",
-    "ExpressionScope",
-]
+        if next_instance <= self._scope.next_delay_instance:
+            return
+        object.__setattr__(
+            self,
+            "_scope",
+            replace(self._scope, next_delay_instance=next_instance),
+        )

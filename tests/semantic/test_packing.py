@@ -24,7 +24,8 @@ from zlang.ir.types import (
     UIntType,
     VecType,
 )
-from zlang.opt import OptimizationStage, lower, restore
+from zlang.opt.ir import OptimizationStage
+from zlang.opt.lowering import lower, restore
 from zlang.semantic import SemanticError
 from zlang.native_simulation import simulate
 
@@ -162,7 +163,7 @@ def test_packing_survives_canonical_and_artifact_round_trips() -> None:
     restored_artifact = BackendArtifact.from_json(artifact.to_json())
     assert restored_artifact.artifact_hash == artifact.artifact_hash
     for signal, type_name in (
-        ("port:pair_out", "Pair"),
+        ("port:pair_out", None),
         ("port:samples_out", "vec<2,u4>"),
         ("port:signed_out", "s8"),
         ("port:fixed_out", "fixed<8,4>"),

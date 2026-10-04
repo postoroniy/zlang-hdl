@@ -108,8 +108,8 @@ def _contributes() -> dict:
                 "zlang.lsp.path": {
                     "type": "string", "default": "",
                     "description": (
-                        "Direct path or PATH command for the Community zlang-lsp "
-                        "executable. Use ${workspaceFolder}/.venv/bin/zlang-lsp "
+                        "Direct path or PATH command for the Community zlang "
+                        "executable. Use ${workspaceFolder}/.venv/bin/zlang "
                         "for a repository checkout."
                     ),
                 },
@@ -140,7 +140,7 @@ def validate_metadata(package: dict, *, packaged: bool = False) -> None:
         "untrustedWorkspaces": {
             "supported": False,
             "description": (
-                "The extension starts the configured local zlang-lsp executable "
+                "The extension starts the configured local zlang lsp process "
                 "only in a trusted workspace."
             ),
         },

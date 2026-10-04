@@ -1,10 +1,10 @@
 from pathlib import Path
 import unittest
 
-from zlang.backend.systemverilog import emit_experimental
+from zlang.backend.systemverilog import emit
 from zlang.compiler import compile_source
 from zlang.native_simulation import simulate_csr_cycles
-from zlang.opt import lower, restore
+from zlang.opt.lowering import lower, restore
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -115,7 +115,7 @@ module AggregateStatusBank {
         self.assertEqual(results[0]["rdata"], 1)
         self.assertEqual(results[1]["rdata"], 42)
         self.assertEqual(restore(lower(module)), module)
-        rtl = emit_experimental(module)
+        rtl = emit(module)
         self.assertIn("status_busy", rtl)
         self.assertIn("status_perf_cycles", rtl)
         self.assertIn("zlang_packed_status[32]", rtl)

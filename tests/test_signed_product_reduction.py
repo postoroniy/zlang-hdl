@@ -6,17 +6,9 @@ import pytest
 from zlang.backend.manifest import BackendArtifact
 from zlang.backend.systemverilog import emit_target_artifact
 from zlang.compiler import compile_source
-from zlang.ir import (
-    Add,
-    Binary,
-    BinaryOperator,
-    FixedConvert,
-    FixedType,
-    UFixedType,
-    ProductTermSign,
-    SignedProductJoinOperator,
-    recognize_signed_product_reduction,
-)
+from zlang.ir.expressions import Add, Binary, BinaryOperator, FixedConvert
+from zlang.ir.types import FixedType, UFixedType
+from zlang.ir.signed_reductions import ProductTermSign, SignedProductJoinOperator, recognize_signed_product_reduction
 from zlang.targets import (
     TargetArchitectureError,
     load_architecture_templates,

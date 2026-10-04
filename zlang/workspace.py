@@ -34,9 +34,9 @@ from zlang.module_resolver import (
     ModuleResolutionError,
     ResolvedModuleSource,
     annotate_source,
-    attach_source_identity,
     load_indexed_module,
 )
+from zlang.source_identity import attach_source_identity
 from zlang.parser import parse
 from zlang.project import (
     LockedExternalMapping,
@@ -213,7 +213,7 @@ def _validate_external_mappings(
     if expected != lock.external_mappings:
         raise WorkspaceError(
             "locked external mappings are missing, dirty, or do not match zlang.toml; "
-            "run 'zlang-lock update'"
+            "run 'zlang lock update'"
         )
     return tuple(
         _external_source_path(manifest.project_root, source.relative_path)
@@ -668,7 +668,7 @@ def load_project_workspace(
         raise WorkspaceError(str(error)) from error
     if lock.manifest_resolution_digest != manifest.resolution_digest:
         raise WorkspaceError(
-            "zlang.lock does not match zlang.toml; run 'zlang-lock update'"
+            "zlang.lock does not match zlang.toml; run 'zlang lock update'"
         )
     _validate_external_mappings(manifest, lock)
 
@@ -973,7 +973,7 @@ def update_project_lock(project: Path | str = Path("zlang.toml")) -> ProjectLock
                 except WorkspaceError as error:
                     raise WorkspaceError(
                         f"cached Git package '{package.name}' is dirty; "
-                        "remove that cache entry and rerun zlang-lock update"
+                        "remove that cache entry and rerun zlang lock update"
                     ) from error
                 else:
                     assert existing_modules == package.modules

@@ -7,7 +7,7 @@ import subprocess
 
 import pytest
 
-from zlang.backend.systemverilog import emit_experimental
+from zlang.backend.systemverilog import emit
 from zlang.compiler import compile_source
 
 
@@ -21,7 +21,7 @@ def _simulate(source: str, top: str, body: str, tmp_path: Path) -> None:
     ).ir
     rtl = tmp_path / f"{top}.sv"
     harness = tmp_path / "test.cpp"
-    rtl.write_text(emit_experimental(module))
+    rtl.write_text(emit(module))
     harness.write_text(f'#include "V{top}.h"\n' + body)
     obj = tmp_path / "obj"
     environment = os.environ.copy()

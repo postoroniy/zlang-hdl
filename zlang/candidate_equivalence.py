@@ -135,7 +135,7 @@ class FrozenCandidateEquivalenceSite:
             raise FormalOrchestrationError(
                 f"frozen semantic-reference equivalence physical domain is invalid: {error}"
             ) from error
-        if prepared.implementation_artifact is None or plan.route is None:
+        if plan.route is None:
             raise FormalOrchestrationError(
                 "frozen direct-SystemVerilog semantic-reference equivalence route is incomplete"
             )
@@ -205,10 +205,6 @@ def _semantic_equivalence_plan(
     property_: EquivalenceProperty,
     prepared: PreparedCandidateEquivalence,
 ) -> FormalGoalPlan:
-    if prepared.implementation_artifact is None:
-        raise FormalOrchestrationError(
-            "prepared direct-SystemVerilog semantic-reference equivalence route has no implementation artifact"
-        )
     route = FormalExecutableRoute(
         FormalRouteKind.SEMANTIC_EQUIVALENCE,
         (formal_backend_artifact_ref(prepared.implementation_artifact),),
@@ -634,26 +630,10 @@ def execute_frozen_candidate_equivalence(
     )
 
 
-def execute_selected_candidate_equivalence(
-    compilation: object,
-    compiler_plan: CompilerFormalExecutionPlan,
-    config: FormalExplorationConfig,
-    *,
-    jobs: int = 1,
-) -> tuple[CompilerFormalExecutionPlan, tuple[CandidateEquivalenceExecutionReport, ...]]:
-    enriched, prepared = prepare_selected_candidate_equivalence(
-        compilation, compiler_plan, config
-    )
-    return enriched, execute_prepared_candidate_equivalence(
-        compilation, enriched, prepared, config, jobs=jobs
-    )
-
-
 __all__ = [
     "FrozenCandidateEquivalenceSite",
     "PreparedCandidateEquivalenceSite",
     "execute_frozen_candidate_equivalence",
     "execute_prepared_candidate_equivalence",
-    "execute_selected_candidate_equivalence",
     "prepare_selected_candidate_equivalence",
 ]

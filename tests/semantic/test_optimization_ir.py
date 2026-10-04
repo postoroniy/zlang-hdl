@@ -2,14 +2,8 @@ from dataclasses import replace
 from pathlib import Path
 import unittest
 
-from zlang.opt import (
-    CanonicalizationError,
-    EquivalenceMode,
-    NodeCategory,
-    equivalence_definition,
-    lower,
-    restore,
-)
+from zlang.opt.lowering import CanonicalizationError, lower, restore
+from zlang.opt.ir import EquivalenceMode, NodeCategory, equivalence_definition
 from zlang.opt.ir import ExpressionOp, Observation
 from zlang.parser import parse
 from zlang.semantic import analyze

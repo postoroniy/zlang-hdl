@@ -12,13 +12,13 @@ from zlang.backend.systemverilog import emit_artifact
 from zlang.compiler import compile_source
 from zlang.equivalence import (
     artifact_hash,
-    emit_miter,
+    emit_miter_with_metadata,
     emit_reference_model,
-    formal_tools_available,
     make_equivalence_property,
     publish_bindings,
     run_equivalence_formal,
 )
+from tests.support.formal import formal_tools_available
 from zlang.ir.equivalence import (
     BindingMap,
     BindingSide,
@@ -183,13 +183,17 @@ def _semantic_equivalence(module, implementation: str, implementation_module: st
             rtl_names=rtl_names,
         ))
     )
-    miter = emit_miter(
+    miter = emit_miter_with_metadata(
         property_,
         bindings,
         reference_module="PackingReference",
         implementation_module=implementation_module,
     )
-    return property_, reference + "\n" + implementation + "\n" + miter
+    return (
+        property_,
+        reference + "\n" + implementation + "\n" + miter.source,
+        miter.trace_metadata,
+    )
 
 
 @pytest.mark.skipif(
@@ -199,18 +203,24 @@ def _semantic_equivalence(module, implementation: str, implementation_module: st
 def test_semantic_equivalence_packing_reference_is_visible_and_mutation_fails() -> None:
     module = compile_source(SOURCE).ir
     implementation = emit_artifact(module).text
-    property_, source = _semantic_equivalence(module, implementation, module.name, "direct_systemverilog")
+    property_, source, trace_metadata = _semantic_equivalence(
+        module, implementation, module.name, "direct_systemverilog"
+    )
     top = "semantic_equivalence_" + property_.id.replace(".", "_")
     correct = run_equivalence_formal(
-        property_, source, top=top, mode=EquivalenceMode.BMC, depth=2
+        property_, source, top=top, mode=EquivalenceMode.BMC, depth=2,
+        trace_metadata=trace_metadata,
     )
     assert correct.status is EquivalenceStatus.BOUNDED_PASS
 
     mutated = implementation.replace(">> 4", ">> 3", 1)
     assert mutated != implementation
-    _, bad_source = _semantic_equivalence(module, mutated, module.name, "direct_systemverilog")
+    _, bad_source, bad_trace_metadata = _semantic_equivalence(
+        module, mutated, module.name, "direct_systemverilog"
+    )
     failed = run_equivalence_formal(
-        property_, bad_source, top=top, mode=EquivalenceMode.BMC, depth=2
+        property_, bad_source, top=top, mode=EquivalenceMode.BMC, depth=2,
+        trace_metadata=bad_trace_metadata,
     )
     assert failed.status is EquivalenceStatus.FAILED
     assert failed.counterexample is not None
@@ -224,7 +234,7 @@ def test_semantic_equivalence_negative_signed_literal_passes_and_mutation_fails(
     module = compile_source(SIGNED_LITERAL_SOURCE).ir
     implementation = emit_artifact(module).text
     assert "-8'sd1" in implementation
-    property_, source = _semantic_equivalence(
+    property_, source, trace_metadata = _semantic_equivalence(
         module,
         implementation,
         module.name,
@@ -232,20 +242,22 @@ def test_semantic_equivalence_negative_signed_literal_passes_and_mutation_fails(
     )
     top = "semantic_equivalence_" + property_.id.replace(".", "_")
     correct = run_equivalence_formal(
-        property_, source, top=top, mode=EquivalenceMode.BMC, depth=2
+        property_, source, top=top, mode=EquivalenceMode.BMC, depth=2,
+        trace_metadata=trace_metadata,
     )
     assert correct.status is EquivalenceStatus.BOUNDED_PASS
 
     mutated = implementation.replace("-8'sd1", "8'sd0", 1)
     assert mutated != implementation
-    _, bad_source = _semantic_equivalence(
+    _, bad_source, bad_trace_metadata = _semantic_equivalence(
         module,
         mutated,
         module.name,
         "direct_systemverilog",
     )
     failed = run_equivalence_formal(
-        property_, bad_source, top=top, mode=EquivalenceMode.BMC, depth=2
+        property_, bad_source, top=top, mode=EquivalenceMode.BMC, depth=2,
+        trace_metadata=bad_trace_metadata,
     )
     assert failed.status is EquivalenceStatus.FAILED
     assert failed.counterexample is not None

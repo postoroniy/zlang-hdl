@@ -34,9 +34,10 @@ def compiler_schema_registry() -> tuple[CompilerSchema, ...]:
     from zlang.ir.normalization import NORMALIZATION_SCHEMA
     from zlang.ir.packing import PACKING_LAYOUT_SCHEMA
     from zlang.opt.identity import CANONICAL_IR_IDENTITY_SCHEMA
-    from zlang.simulation_plan import SIMULATION_PLAN_SCHEMA
+    from zlang.simulation_plan_policy import SIMULATION_PLAN_SCHEMA
     from zlang.simulation_state import SIMULATION_STATE_SCHEMA
-    from zlang.tooling import SYMBOL_CACHE_SCHEMA, TOOLING_API_SCHEMA
+    from zlang.tooling_models import TOOLING_API_SCHEMA
+    from zlang.tooling_symbol_cache import SYMBOL_CACHE_SCHEMA
 
     values = (
         CompilerSchema("backend.direct_sv_dag", DIRECT_SV_DAG_SCHEMA),

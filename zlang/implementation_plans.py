@@ -17,11 +17,13 @@ from zlang.target_planner import (
     TargetPlanningResult,
     plan_target_pipeline,
 )
-from zlang.targets import (
+from zlang.target_catalog import (
     ArchitectureSelectionMode,
     TargetArchitectureError,
-    generic_implementation_graph,
     load_target,
+)
+from zlang.target_mapping_selection import (
+    generic_implementation_graph,
     select_implementation_graph,
 )
 

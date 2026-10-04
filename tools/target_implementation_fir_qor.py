@@ -161,7 +161,7 @@ def main() -> int:
     parser.add_argument(
         "--evidence-output",
         type=Path,
-        help="write deterministic zlang-target-qor-v2 planner evidence",
+        help="write deterministic current planner evidence",
     )
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)

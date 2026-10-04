@@ -13,16 +13,28 @@ import json
 from typing import TYPE_CHECKING, Iterable, Mapping
 
 from zlang.build_manifest import EvidenceRecord, ReportRecord
-from zlang.common import stable_digest, stable_json, stable_pretty_json
-from zlang.formal_counterexample_codec import counterexample_to_data
+from zlang.common import stable_digest, stable_pretty_json
+from zlang.evidence_records import (
+    EVIDENCE_REPORT_SCHEMA,
+    EvidenceReportError,
+    build_evidence_record as _record,
+    evidence_details as _details,
+)
+from zlang.formal_evidence_adapters import (
+    evidence_from_equivalence_result,
+    evidence_from_formal_exploration_record,
+)
 from zlang.formal_exploration import FormalExplorationRecord
-from zlang.ir.equivalence import EquivalenceCounterexample, EquivalenceResult
-from zlang.ir.formal import Counterexample, FormalProperty, FormalResult
+from zlang.ir.equivalence import EquivalenceResult
+from zlang.ir.formal import FormalProperty, FormalResult
 from zlang.ir.interfaces import InterfaceProtocol
 from zlang.ir.module import Module, PortDirection
 from zlang.ir.timing import ModuleTimingContract, TimingKnowledge
 from zlang.source import SourceOrigin
-from zlang.verification_bundle import VerificationJobResult, VerificationRunReport
+from zlang.verification_bundle_report import (
+    VerificationJobResult,
+    VerificationRunReport,
+)
 
 
 if TYPE_CHECKING:
@@ -30,13 +42,6 @@ if TYPE_CHECKING:
         CandidateEquivalenceExecutionReport,
         CompilerFormalExecutionPlan,
     )
-
-
-EVIDENCE_REPORT_SCHEMA = "zlang-evidence-report-v2"
-
-
-class EvidenceReportError(ValueError):
-    """A value cannot be represented as truthful structured evidence."""
 
 
 @dataclass(frozen=True)
@@ -235,115 +240,6 @@ class EvidenceReportPayload:
         return cls.from_data(value)
 
 
-def _counterexample_data(
-    counterexample: Counterexample | EquivalenceCounterexample | None,
-) -> dict[str, object] | None:
-    try:
-        return counterexample_to_data(counterexample)
-    except TypeError as error:
-        raise EvidenceReportError(
-            "counterexample evidence must use an safety verification or semantic-reference equivalence typed counterexample"
-        ) from error
-
-
-def _details(**values: object) -> tuple[tuple[str, str], ...]:
-    result: list[tuple[str, str]] = []
-    for key, value in values.items():
-        if value is None:
-            continue
-        if isinstance(value, str):
-            rendered = value
-        elif isinstance(value, bool):
-            rendered = "true" if value else "false"
-        elif isinstance(value, (int, float)):
-            rendered = str(value)
-        else:
-            rendered = stable_json(value)
-        result.append((key, rendered))
-    return tuple(sorted(result))
-
-
-def _record(
-    family: str,
-    *,
-    claim: str,
-    status: str,
-    mode: str | None,
-    depth: int | None,
-    property_id: str | None,
-    candidate_identity: str | None,
-    backend: str | None,
-    artifact_hash: str | None,
-    reference_hash: str | None,
-    source_origin: SourceOrigin | None,
-    engine: str | None,
-    solver: str | None,
-    relation: str | None,
-    route: str | None,
-    counterexample: Counterexample | EquivalenceCounterexample | None,
-    details: tuple[tuple[str, str], ...],
-) -> EvidenceRecord:
-    if depth is not None and depth < 1:
-        raise EvidenceReportError("evidence depth must be positive")
-    counterexample_data = _counterexample_data(counterexample)
-    counterexample_digest = (
-        None if counterexample_data is None else stable_digest(counterexample_data)
-    )
-    if counterexample_data is not None:
-        concise_counterexample = {
-            key: value
-            for key, value in counterexample_data.items()
-            if key not in {"raw_trace", "source_origin"}
-        }
-        details = tuple(sorted((
-            *details,
-            ("counterexample_metadata", stable_json(concise_counterexample)),
-        )))
-    identity_data = {
-        "schema": EVIDENCE_REPORT_SCHEMA,
-        "family": family,
-        "claim": claim,
-        "status": status,
-        "mode": mode,
-        "depth": depth,
-        "property_id": property_id,
-        "candidate_identity": candidate_identity,
-        "backend": backend,
-        "artifact_hash": artifact_hash,
-        "reference_hash": reference_hash,
-        "engine": engine,
-        "solver": solver,
-        "relation": relation,
-        "route": route,
-        "counterexample_digest": counterexample_digest,
-        # Cache hit/executed is useful report metadata, but it describes how an
-        # already-identical result was obtained and cannot change evidence or
-        # whole-build identity.
-        "details": [
-            list(item) for item in details if item[0] != "cache_state"
-        ],
-    }
-    return EvidenceRecord(
-        evidence_id=f"{family}.{stable_digest(identity_data)}",
-        claim=claim,
-        status=status,
-        mode=mode,
-        depth=depth,
-        property_id=property_id,
-        candidate_identity=candidate_identity,
-        backend=backend,
-        artifact_hash=artifact_hash,
-        reference_hash=reference_hash,
-        source_origin=source_origin,
-        engine=engine,
-        solver=solver,
-        relation=relation,
-        route=route,
-        counterexample_digest=counterexample_digest,
-        details=details,
-    )
-
-
 def evidence_from_formal_result(
     result: FormalResult,
     *,
@@ -480,139 +376,6 @@ def evidence_from_verification_job_result(
             tool_versions=[list(item) for item in result.tool_versions],
             **counterexample_details,
             **witness_details,
-        ),
-    )
-
-
-def evidence_from_equivalence_result(result: EquivalenceResult) -> EvidenceRecord:
-    """Adapt one semantic-reference equivalence semantic-reference equivalence result."""
-
-    if not isinstance(result, EquivalenceResult):
-        raise TypeError("semantic-reference equivalence evidence requires EquivalenceResult")
-    return _record(
-        "semantic_equivalence",
-        claim="semantic_equivalence.selected_architecture_equivalence",
-        status=result.status.value,
-        mode=result.mode.value,
-        depth=result.depth,
-        property_id=result.property_id,
-        candidate_identity=result.candidate_identity,
-        backend=result.backend,
-        artifact_hash=result.implementation_hash,
-        reference_hash=result.reference_hash,
-        source_origin=result.source_origin,
-        engine=result.engine,
-        solver=result.solver,
-        relation=result.relation_kind.value,
-        route="semantic_reference",
-        counterexample=result.counterexample,
-        details=_details(
-            binding_map_version=result.binding_map_version,
-            latency_delta=result.latency_delta,
-            reason=result.reason,
-        ),
-    )
-
-
-
-
-def evidence_from_formal_exploration_record(
-    result: FormalExplorationRecord,
-    *,
-    site_identity: str | None = None,
-) -> EvidenceRecord:
-    """Adapt one formal-aware selection candidate record without promoting an unexecuted route."""
-
-    if not isinstance(result, FormalExplorationRecord):
-        raise TypeError("formal-aware selection evidence requires FormalExplorationRecord")
-    if not result.candidate_identity:
-        raise EvidenceReportError("formal-aware selection evidence requires a candidate identity")
-    if result.rank < 1:
-        raise EvidenceReportError("formal-aware selection evidence rank must be positive")
-    if site_identity is not None and not site_identity:
-        raise EvidenceReportError("formal-aware selection candidate-site identity must be non-empty")
-    if result.status is None:
-        if result.mode is not None or result.depth is not None:
-            raise EvidenceReportError(
-                "unexecuted formal-aware selection evidence cannot carry proof mode or depth"
-            )
-        status = "not_run"
-        mode = None
-        depth = None
-    else:
-        status = result.status.value
-        if result.mode is None:
-            raise EvidenceReportError("executed formal-aware selection evidence requires a proof mode")
-        mode = result.mode.value
-        depth = result.depth
-        if status in {"bounded_pass", "proven", "failed"}:
-            if not result.backend or not result.artifact_hash:
-                raise EvidenceReportError(
-                    "decisive formal-aware selection evidence requires a connected backend artifact"
-                )
-            for label, value in (
-                ("property identity", result.property_identity),
-                ("harness hash", result.harness_hash),
-                ("assumptions identity", result.assumptions_identity),
-                ("backend identity", result.backend_identity),
-                ("reference artifact hash", result.reference_artifact_hash),
-                (
-                    "implementation artifact hash",
-                    result.implementation_artifact_hash,
-                ),
-            ):
-                if not value:
-                    raise EvidenceReportError(
-                        f"decisive formal-aware selection evidence requires {label}"
-                    )
-    counterexample = result.counterexample
-    if counterexample is not None and not isinstance(
-        counterexample,
-        (Counterexample, EquivalenceCounterexample),
-    ):
-        raise EvidenceReportError("formal-aware selection counterexample metadata must use typed formal IR")
-    if status == "failed" and counterexample is None:
-        raise EvidenceReportError(
-            "failed formal-aware selection evidence requires counterexample metadata"
-        )
-    return _record(
-        "formal_selection",
-        claim="formal_selection.formal_candidate_eligibility",
-        status=status,
-        mode=mode,
-        depth=depth,
-        property_id=result.property_identity,
-        candidate_identity=result.candidate_identity,
-        backend=result.backend,
-        artifact_hash=(
-            result.implementation_artifact_hash or result.artifact_hash
-        ),
-        reference_hash=result.reference_artifact_hash,
-        source_origin=result.source_origin,
-        engine=result.engine,
-        solver=result.solver,
-        relation=None,
-        route=result.formal_route,
-        counterexample=counterexample,
-        details=_details(
-            site_identity=site_identity,
-            rank=result.rank,
-            semantic_legality=result.semantic_legality,
-            policy=result.policy.value,
-            cache_state=result.cache_state,
-            eligible=result.eligible,
-            reason=result.reason,
-            proof_reason=result.proof_reason or None,
-            work_directory=result.work_directory,
-            execution_recipe_identity=result.execution_recipe_identity,
-            harness_hash=result.harness_hash,
-            assumptions_identity=result.assumptions_identity,
-            backend_identity=result.backend_identity,
-            selected_origin=(
-                None
-                if result.selected_origin is None
-                else result.selected_origin.to_data()
-            ),
         ),
     )
 

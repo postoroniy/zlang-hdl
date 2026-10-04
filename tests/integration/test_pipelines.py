@@ -5,7 +5,7 @@ import unittest
 from zlang.compiler import compile_source
 from zlang.cli import main
 from zlang.native_simulation import simulate_cycles
-from zlang.opt import render
+from zlang.opt.render import render
 
 
 ROOT = Path(__file__).resolve().parents[2]

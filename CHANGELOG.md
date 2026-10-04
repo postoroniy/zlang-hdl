@@ -11,9 +11,31 @@ incompatible input explicitly.
 
 ## Unreleased
 
+### Fixed
+
+- Primitive credit, virtual-channel credit, and packet simulation plans retain
+  canonical scalar field names when their resolved signal identities are
+  string-backed enums. Native protocol input updates no longer target a
+  mismatched Python enum spelling.
+
+### Changed
+
+- The VS Code extension now launches the canonical `zlang lsp` subcommand from
+  the configured `zlang` executable.
+
+### Removed
+
+- Removed the standalone `zlang-lsp`, `zlang-lock`, and `zlang-verify` console
+  aliases. Use `zlang lsp`, `zlang lock`, and `zlang verify`.
+- Removed the `--experimental-systemverilog`, `--formal-harness`, and
+  `--formal-sby` compatibility options. Use `--systemverilog` and immutable
+  `--verification-bundle` publication.
+- Bare compiler invocation without `--check`, `--verify`, or an explicit
+  artifact output is no longer an implicit RTL-emission path.
+
 ## 0.1.0a19 — 2026-10-01
 
-Community alpha carrying two compiler-owned CSR interoperability fixes,
+Community alpha carrying two CSR interoperability fixes,
 bounded Direct-SystemVerilog expression and wide-scatter lowering, and a safer
 pre-tag release-candidate path. Language timing, numerical semantics and formal
 policy are unchanged.
@@ -143,7 +165,7 @@ semantics are unchanged.
   instantiated, preventing exponential compiler and editor memory growth.
 - LSP requests have bounded supervision so an unexpectedly expensive analysis
   cannot leave the editor waiting indefinitely; ordinary diagnostics and
-  navigation retain compiler-owned semantics.
+  navigation retain language semantics.
 - Reference and native simulators now lower nested pure functional regions
   into bounded primitive-plan regions without duplicating their bodies. A large
   structural stress case now runs with exact reference/native/typed cycle
@@ -207,8 +229,8 @@ development collateral are excluded from the Community source tree.
   failures while related open project files are being edited, and current spans
   are retained for diagnostics and navigation.
 - Child protocol member projection and aggregate protocol simulation now use
-  the compiler-owned typed composition model consistently across reference,
-  native and Direct-SV execution.
+  the same typed composition semantics across reference, native and Direct-SV
+  execution.
 
 ## 0.1.0a13 — 2026-09-23
 
@@ -364,7 +386,7 @@ language and RTL semantics are unchanged from `0.1.0a8`.
   Uniform compile-time `init VALUE` preserves generic reset and FPGA power-up
   initialization semantics without claiming analog collision guarantees.
 - Community `zlang-lsp` and the independently packaged VS Code language client,
-  with compiler-owned Definition/References, content-bound symbol shards and
+  with resolved Definition/References, content-bound symbol caches and
   real installed-editor navigation acceptance.
 - A tracked Community-only Qwen project skill with concise routing for `.zhl`
   authoring, compiler work, direct-SystemVerilog integration, optimization,
@@ -389,7 +411,7 @@ language and RTL semantics are unchanged from `0.1.0a8`.
 - Definition and References now share bounded multi-module top selection.
   References validates project-root bytes and candidate bounds instead of
   publishing stale or truncated sets; same-file enum and resource navigation
-  retain exact compiler-owned identifier spans.
+  retain exact resolved identifier spans.
 
 ## 0.1.0a6 — 2026-09-11
 
@@ -398,9 +420,9 @@ language and RTL semantics are unchanged from `0.1.0a8`.
 - Removed the retired Clash emitter, its hidden compatibility CLI, generated
   Haskell artifacts, packaging surface, test suite, and tool discovery. Direct
   SystemVerilog is now the only production RTL backend in both policy and code.
-- Retired executable retired cross-backend equivalence cross-backend comparison without reusing its name for
-  another relation. safety verification safety, direct-SV semantic-reference equivalence semantic-reference equivalence,
-  and formal-aware selection formal-aware selection remain supported.
+- Retired executable cross-backend comparison without reusing its name for
+  another relation. Safety verification, Direct-SV semantic-reference
+  equivalence, and formal-aware selection remain supported.
 - Release acceptance now requires zero skipped tests and no GHC/Clash tooling.
 
 ## 0.1.0a5 — 2026-09-11
@@ -419,8 +441,9 @@ language and RTL semantics are unchanged from `0.1.0a8`.
 - Direct SystemVerilog is the sole production RTL backend. The public Clash
   output options and `zlang-compare-backends` command are retired; the legacy
   emitter remains internal compatibility code only.
-- formal-aware selection and compiler-owned selected-candidate equivalence now use the direct-SV
-  semantic-reference equivalence route. retired cross-backend equivalence is retained only as unavailable historical schema data.
+- Formal-aware selection and selected-candidate equivalence now use the
+  Direct-SV semantic-reference equivalence route. Cross-backend equivalence is
+  retained only as unavailable historical schema data.
 - Exact `pipeline(N)` scheduling is deferred until target/profile planning,
   preserving semantic latency while allowing real internal register cuts.
 
@@ -475,10 +498,10 @@ remain unchanged; publication is subject to `RELEASING.md`.
   architecture and four-stage `explore` implementations. Recorded Vivado
   out-of-context timing uses the same device and 10 ns constraint; it is not a
   board-level timing guarantee.
-- Independent semantic-reference equivalence semantic-reference and retired cross-backend equivalence cross-backend bounded checks for
-  the pipelined example, plus deliberate arithmetic and latency mutations.
-  BMC remains bounded evidence; the separately timed-out formal-aware selection architecture route
-  remains explicitly `unknown`.
+- Independent semantic-reference equivalence and cross-backend bounded checks
+  for the pipelined example, plus deliberate arithmetic and latency mutations.
+  BMC remains bounded evidence; the separately timed-out formal-aware selection
+  route remains explicitly `unknown`.
 - A static VS Code extension for `.zhl`, independently versioned 0.1.0, with
   compiler-checked snippets, real TextMate/Oniguruma tests and three optional
   highlighting styles. No LSP, compiler runtime or telemetry is included.
@@ -522,7 +545,7 @@ Release was not published; the installer inventory gate is corrected in a2.
   Future CSR C/C++ and UVM helper generators are classified Enterprise, not
   implemented additions; existing CSR and simulation exports remain Community.
 - Typed semantic and canonical IR, simulation, Clash and direct-SystemVerilog
-  backends, compiler-owned standard library, project locking, manifests, and
+  backends, built-in standard library, project locking, manifests, and
   bounded optimization and verification workflows.
 - Real-design validation including DMA, standard-bus CSR paths, fixed-point FIR,
   FFT512, and an attributed IEEE 802.11a transmitter project.

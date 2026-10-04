@@ -3,8 +3,8 @@ import shutil
 import unittest
 
 from zlang.compiler import compile_source
-from zlang.opt import saturate
-from zlang.opt import RewriteRule
+from zlang.opt.saturation import saturate
+from zlang.opt.rewrite_spec import RewriteRule
 
 
 ROOT = Path(__file__).resolve().parents[2]

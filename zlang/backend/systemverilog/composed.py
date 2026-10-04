@@ -1,52 +1,42 @@
 """Backend-local direct-SystemVerilog lowering for composed hierarchy.
 
 The subsystem consumes already-typed hierarchy, endpoint, connection, and state
-IR. It deliberately knows nothing about source syntax. Small renderer
-callbacks keep shared low-level SV spelling and the existing state/storage
-emitters authoritative without introducing an emitter import cycle.
+IR. It deliberately knows nothing about source syntax. Static rendering rules
+come directly from their authoritative owners; only per-run external and CDC
+renderers are injected.
 """
 
 from __future__ import annotations
 
-from contextlib import AbstractContextManager
 from dataclasses import dataclass, replace
 from typing import Callable
 
 from zlang.ir import expressions as ir_expr
 from zlang.ir.expressions import Expression
-from zlang.ir.hierarchy import HierarchyIndex
-from zlang.ir.interfaces import (
-    InterfaceProtocol,
-    RequestResponseChannel,
-    parse_ready_valid_field_name,
-    ready_valid_field_name,
-)
-from zlang.ir.module import (
-    Assignment,
-    Module,
-    PortDirection,
-    ProtocolEndpoint,
-    RequestResponseConnection,
-    Rule,
-)
-from zlang.ir.types import HardwareType
+from zlang.ir import hierarchy as ir_hierarchy
+from zlang.ir import interfaces as ir_interfaces
+from zlang.ir import module as ir_module
 from zlang.ir.traversal import walk_expression
-from zlang.backend.expression_materialization import module_expression_roots
-from zlang.backend.naming import (
-    ComponentNamePlan,
-    build_component_name_plan,
-    module_rtl_names,
-)
-from zlang.backend.systemverilog.sequential import (
-    clock_event,
-    effective_reset_signal,
-    native_release_module,
-    reset_asserted,
-)
+from zlang.backend import expression_materialization as materialization
+from zlang.backend import identifiers
+from zlang.backend import naming as naming
+from zlang.backend.systemverilog import boundary as sv_boundary
+from zlang.backend.systemverilog import context as emission_context
+from zlang.backend.systemverilog import csr as sv_csr
+from zlang.backend.systemverilog import materialized as sv_materialized
+from zlang.backend.systemverilog import module_rendering as sv_module_rendering
+from zlang.backend.systemverilog import physicalization as sv_physicalization
+from zlang.backend.systemverilog import pipeline as sv_pipeline
+from zlang.backend.systemverilog import rendering as sv_rendering
+from zlang.backend.systemverilog import rules as sv_rules
+from zlang.backend.systemverilog import sequential as sv_sequential
+from zlang.backend.systemverilog import request_response as sv_request_response
+from zlang.backend.systemverilog import state as sv_state
+from zlang.backend.systemverilog import storage as sv_storage
+from zlang.backend.systemverilog.errors import SystemVerilogEmissionError
 
 
 ExpressionRenderer = Callable[[Expression], str]
-ExpressionEmission = tuple[list[str], list[str], ExpressionRenderer]
 
 
 @dataclass(frozen=True)
@@ -59,70 +49,25 @@ class FormalBufferCountProjection:
     """
 
     request_response_semantic_id: str
-    channel: RequestResponseChannel
+    channel: ir_interfaces.RequestResponseChannel
     signal: str
     width: int
     depth: int
 
 
 @dataclass(frozen=True)
-class SVPhysicalSyntax:
-    """Physical SV spelling and typed-hierarchy validation capability."""
-
-    error: Callable[[str], Exception]
-    identifier: Callable[[str], str]
-    component_identifier: Callable[[str], str]
-    instance_identifier: Callable[[str], str]
-    packed_width: Callable[[HardwareType], int]
-    packed_range: Callable[[int], str]
-    logic_declaration: Callable[[str, HardwareType], str]
-    physical_ports: Callable[[Module], list[str]]
-    validate_hierarchy: Callable[[Module], HierarchyIndex]
-
-
-@dataclass(frozen=True)
-class ComposedLeafServices:
-    """Existing leaf/body emitters reused by composed physical hierarchy."""
-
-    materialized_emission: Callable[[Module], ExpressionEmission]
-    staging_emission: Callable[[Module], ExpressionEmission]
-    rom_logic: Callable[
-        [Module, ExpressionRenderer], tuple[list[str], list[str]]
-    ]
-    append_unified_state: Callable[
-        [Module, list[str], list[str], ExpressionRenderer], None
-    ]
-    append_rule_state: Callable[
-        [Module, list[str], list[str], ExpressionRenderer], None
-    ]
-    emit_fifo: Callable[[Module], str]
-    emit_memory: Callable[[Module], str]
-    emit_rom: Callable[[Module], str]
-    emit_unified_state: Callable[[Module], str]
-    emit_rules: Callable[[Module], str]
-    emit_elastic_pipeline: Callable[[Module], str]
-    emit_cdc_child: Callable[[Module], str]
-    emit_csr_child: Callable[[Module], str]
-    named_module: Callable[[str, list[str], list[str], Module], str]
-    requires_unified_state: Callable[[Module], bool]
-    ordered_rules: Callable[[Module], tuple[Rule, ...]]
-    assignment_name: Callable[[Assignment], str]
-    emit_external: Callable[[Module, str], str]
-    suspend_top_boundary: Callable[[], AbstractContextManager[None]]
-
-
-@dataclass(frozen=True)
 class ComposedRendering:
-    """Two immutable capabilities required by composed hierarchy emission."""
+    """Per-emission capabilities that genuinely depend on caller state."""
 
-    physical: SVPhysicalSyntax
-    services: ComposedLeafServices
+    emit_external: Callable[[ir_module.Module, str], str]
+    emit_cdc_child: Callable[[ir_module.Module], str]
+    hierarchy_cache: ir_hierarchy.HierarchyTraversalCache
     formal_buffer_counts: tuple[FormalBufferCountProjection, ...] = ()
-    component_names: ComponentNamePlan | None = None
+    component_names: naming.ComponentNamePlan | None = None
 
 
 def component_name(
-    module: Module,
+    module: ir_module.Module,
     specialization: str | None,
     rendering: ComposedRendering,
     *,
@@ -131,59 +76,60 @@ def component_name(
     """Resolve a physical definition from the complete typed catalog."""
 
     if top:
-        return rendering.physical.identifier(module.name)
+        return sv_rendering._identifier(module.name)
     if rendering.component_names is None or specialization is None:
-        raise rendering.physical.error(
+        raise SystemVerilogEmissionError(
             "physical component naming requires a validated specialization catalog"
         )
     return rendering.component_names.component(module.name, specialization)
 
 
 def request_response_tracker_name(
-    descriptor: RequestResponseConnection,
-    rendering: ComposedRendering,
-    module: Module | None = None,
+    descriptor: ir_module.RequestResponseConnection,
+    module: ir_module.Module | None = None,
 ) -> str:
     """Return the ledger token shared by production and formal projection."""
 
-    instance_identifier = (
-        module_rtl_names(module).instance if module is not None
-        else rendering.physical.instance_identifier
-    )
-    request_owner = instance_identifier(
+    if module is not None:
+        return sv_request_response.tracker_name(
+            descriptor,
+            module,
+            identifier=sv_rendering._identifier,
+        )
+    request_owner = identifiers.rtl_instance_identifier(
         descriptor.request.source.owner
     )
-    response_owner = instance_identifier(
+    response_owner = identifiers.rtl_instance_identifier(
         descriptor.response.destination.owner
     )
-    return rendering.physical.identifier(
+    return sv_rendering._identifier(
         f"rr_{request_owner}_"
-        f"{rendering.physical.identifier(descriptor.request.source.name)}_"
+        f"{sv_rendering._identifier(descriptor.request.source.name)}_"
         f"{response_owner}_outstanding"
     )
 
 
-def emit_composed_design(module: Module, rendering: ComposedRendering) -> str:
+def emit_composed_design(module: ir_module.Module, rendering: ComposedRendering) -> str:
     """Emit every specialization once and every physical instance once."""
 
-    physical = rendering.physical
-    services = rendering.services
-    hierarchy = physical.validate_hierarchy(module)
+    hierarchy = sv_physicalization.validated_hierarchy(
+        module, cache=rendering.hierarchy_cache
+    )
     rendering = replace(
         rendering,
-        component_names=build_component_name_plan(
-            hierarchy, identifier=physical.identifier,
+        component_names=naming.build_component_name_plan(
+            hierarchy, identifier=sv_rendering._identifier,
         ),
     )
     emitted: dict[tuple[str, str], str] = {}
     definitions: list[str] = []
 
-    def visit(current: Module, name: str, *, root: bool = False) -> None:
+    def visit(current: ir_module.Module, name: str, *, root: bool = False) -> None:
         # Only the selected root owns the physical reset conditioner.  Every
         # reusable child specialization receives the already-conditioned reset
         # through its ordinary reset port and therefore uses a native internal
         # release ABI.
-        emitted_current = current if root else native_release_module(current)
+        emitted_current = current if root else sv_sequential.native_release_module(current)
         child_names: dict[str, str] = {}
         for child, elaborated in zip(
             emitted_current.children,
@@ -196,7 +142,7 @@ def emit_composed_design(module: Module, rendering: ComposedRendering) -> str:
             child_names[elaborated.instance.name] = child_name
             key = (child_name, elaborated.specialization_identity or "")
             if key not in emitted:
-                with services.suspend_top_boundary():
+                with emission_context.top_boundary_scope(None):
                     visit(child, child_name)
                 emitted[key] = child_name
         closed_state_component = (
@@ -223,13 +169,13 @@ def emit_composed_design(module: Module, rendering: ComposedRendering) -> str:
         # reusable component.  The standalone FIFO path remains for the
         # legacy one-resource module shape only.
         if emitted_current.external_contract is not None:
-            definitions.append(services.emit_external(emitted_current, name))
+            definitions.append(rendering.emit_external(emitted_current, name))
         elif (
             emitted_current.elastic_pipeline_regions
             and not emitted_current.elaborated_instances
         ):
             definitions.append(
-                services.emit_elastic_pipeline(
+                sv_pipeline._emit_elastic_pipeline(
                     replace(emitted_current, name=name)
                 )
             )
@@ -241,7 +187,7 @@ def emit_composed_design(module: Module, rendering: ComposedRendering) -> str:
             and not emitted_current.rules
         ):
             definitions.append(
-                services.emit_fifo(replace(emitted_current, name=name))
+                sv_storage._emit_fifo(replace(emitted_current, name=name))
             )
         elif (
             emitted_current.memories
@@ -253,7 +199,7 @@ def emit_composed_design(module: Module, rendering: ComposedRendering) -> str:
             and not emitted_current.rules
         ):
             definitions.append(
-                services.emit_memory(replace(emitted_current, name=name))
+                sv_storage._emit_memory(replace(emitted_current, name=name))
             )
         elif (
             emitted_current.roms
@@ -262,14 +208,14 @@ def emit_composed_design(module: Module, rendering: ComposedRendering) -> str:
             and not emitted_current.rules
         ):
             definitions.append(
-                services.emit_rom(replace(emitted_current, name=name))
+                sv_storage._emit_rom_module(replace(emitted_current, name=name))
             )
         elif (
             closed_state_component
-            and services.requires_unified_state(emitted_current)
+            and sv_state.requires_unified_state(emitted_current)
         ):
             definitions.append(
-                services.emit_unified_state(
+                sv_storage._emit_unified_state_module(
                     replace(emitted_current, name=name)
                 )
             )
@@ -280,12 +226,12 @@ def emit_composed_design(module: Module, rendering: ComposedRendering) -> str:
             and not emitted_current.protocol_endpoints
             and not emitted_current.aggregate_protocol_endpoints
             and all(
-                port.protocol is InterfaceProtocol.WIRE
+                port.protocol is ir_interfaces.InterfaceProtocol.WIRE
                 for port in emitted_current.ports
             )
         ):
             definitions.append(
-                services.emit_rules(replace(emitted_current, name=name))
+                sv_rules._emit_rules(replace(emitted_current, name=name))
             )
         elif (
             emitted_current.csr_blocks
@@ -295,8 +241,8 @@ def emit_composed_design(module: Module, rendering: ComposedRendering) -> str:
             # behavior still comes from typed CSR IR; the composed parent only
             # wires the canonical scalar access ABI.
             definitions.append(
-                services.emit_csr_child(
-                    replace(emitted_current, name=name)
+                sv_csr._emit_csr(
+                    replace(emitted_current, name=name), expose_internal_abi=True
                 )
             )
         elif (
@@ -309,7 +255,7 @@ def emit_composed_design(module: Module, rendering: ComposedRendering) -> str:
             # A typed CDC child owns synchronizer/storage state.  It cannot be
             # rendered as the ordinary combinational hierarchy shell.
             definitions.append(
-                services.emit_cdc_child(
+                rendering.emit_cdc_child(
                     replace(emitted_current, name=name)
                 )
             )
@@ -329,14 +275,13 @@ def emit_composed_design(module: Module, rendering: ComposedRendering) -> str:
 
 
 def _endpoint_base(
-    module: Module,
-    endpoint: ProtocolEndpoint,
-    rendering: ComposedRendering,
+    module: ir_module.Module,
+    endpoint: ir_module.ProtocolEndpoint,
 ) -> str:
     identifier = (
-        rendering.physical.identifier
+        sv_rendering._identifier
         if endpoint.owner == module.name
-        else rendering.physical.component_identifier
+        else identifiers.rtl_identifier
     )
     base = identifier(endpoint.name)
     if endpoint.channel is not None:
@@ -345,18 +290,27 @@ def _endpoint_base(
 
 
 def _connection_key(
-    module: Module,
-    owner: str,
-    endpoint: ProtocolEndpoint,
+    module: ir_module.Module,
+    endpoint: ir_module.ProtocolEndpoint,
     signal: str,
-    rendering: ComposedRendering,
 ) -> tuple[str, str, str]:
-    return (owner, _endpoint_base(module, endpoint, rendering), signal)
+    return (endpoint.owner, _endpoint_base(module, endpoint), signal)
+
+
+def _connection_pair_keys(
+    module: ir_module.Module,
+    connection: ir_module.HierarchicalConnection,
+    signal: str,
+) -> tuple[tuple[str, str, str], tuple[str, str, str]]:
+    return (
+        _connection_key(module, connection.source, signal),
+        _connection_key(module, connection.destination, signal),
+    )
 
 
 def _external_protocol_signal(
-    module: Module,
-    endpoint: ProtocolEndpoint,
+    module: ir_module.Module,
+    endpoint: ir_module.ProtocolEndpoint,
     signal: str,
     identifier: Callable[[str], str],
 ) -> str | None:
@@ -365,7 +319,7 @@ def _external_protocol_signal(
     if endpoint.owner != module.name:
         return None
     base = identifier(endpoint.name)
-    if endpoint.protocol is InterfaceProtocol.READY_VALID:
+    if endpoint.protocol is ir_interfaces.InterfaceProtocol.READY_VALID:
         return f"{base}_{signal}"
     if signal == "wire":
         return base
@@ -373,7 +327,7 @@ def _external_protocol_signal(
 
 
 def composed_component_identifier_claims(
-    module: Module,
+    module: ir_module.Module,
     rendering: ComposedRendering,
 ) -> tuple[tuple[str, str], ...]:
     """Return typed internal names emitted by one composed component.
@@ -384,10 +338,11 @@ def composed_component_identifier_claims(
     typed hierarchy/delegation edge already supplies that connection.
     """
 
-    physical = rendering.physical
-    local_names = module_rtl_names(module)
-    physical.validate_hierarchy(module)
-    identifier = physical.identifier
+    local_names = naming.module_rtl_names(module)
+    sv_physicalization.validated_hierarchy(
+        module, cache=rendering.hierarchy_cache
+    )
+    identifier = sv_rendering._identifier
     claims: list[tuple[str, str]] = []
     connection_keys: set[tuple[str, str, str]] = set()
 
@@ -398,12 +353,12 @@ def composed_component_identifier_claims(
         id(edge): (descriptor, channel)
         for descriptor in module.request_response_connections
         for channel, edge in (
-            (RequestResponseChannel.REQUEST, descriptor.request),
-            (RequestResponseChannel.RESPONSE, descriptor.response),
+            (ir_interfaces.RequestResponseChannel.REQUEST, descriptor.request),
+            (ir_interfaces.RequestResponseChannel.RESPONSE, descriptor.response),
         )
     }
     for descriptor in module.request_response_connections:
-        tracker = request_response_tracker_name(descriptor, rendering, module)
+        tracker = request_response_tracker_name(descriptor, module)
         claim(tracker, f"request/response '{descriptor.semantic_id}' ledger")
         claim(
             f"{tracker}_request_transfer",
@@ -423,7 +378,7 @@ def composed_component_identifier_claims(
 
     for index, connection in enumerate(module.hierarchical_connections):
         rr_info = rr_edges.get(id(connection))
-        if connection.source.protocol is InterfaceProtocol.WIRE:
+        if connection.source.protocol is ir_interfaces.InterfaceProtocol.WIRE:
             shared = (
                 _external_protocol_signal(
                     module, connection.source, "wire", identifier,
@@ -434,26 +389,15 @@ def composed_component_identifier_claims(
             )
             if shared is None:
                 claim(f"zlang_conn_{index}", f"scalar hierarchy connection {index}")
-            connection_keys.add(
-                _connection_key(
-                    module, connection.source.owner, connection.source, "wire", rendering
-                )
-            )
-            connection_keys.add(
-                _connection_key(
-                    module,
-                    connection.destination.owner,
-                    connection.destination,
-                    "wire",
-                    rendering,
-                )
+            connection_keys.update(
+                _connection_pair_keys(module, connection, "wire")
             )
             continue
 
         depth = connection.buffer_depth
-        if connection.source.channel is RequestResponseChannel.REQUEST:
+        if connection.source.channel is ir_interfaces.RequestResponseChannel.REQUEST:
             depth = connection.request_buffer_depth
-        elif connection.source.channel is RequestResponseChannel.RESPONSE:
+        elif connection.source.channel is ir_interfaces.RequestResponseChannel.RESPONSE:
             depth = connection.response_buffer_depth
         base = f"zlang_conn_{index}"
         if depth:
@@ -482,23 +426,8 @@ def composed_component_identifier_claims(
                         f"formal hierarchy buffer projection {index}",
                     )
             for signal in ("payload", "valid", "ready"):
-                connection_keys.add(
-                    _connection_key(
-                        module,
-                        connection.source.owner,
-                        connection.source,
-                        signal,
-                        rendering,
-                    )
-                )
-                connection_keys.add(
-                    _connection_key(
-                        module,
-                        connection.destination.owner,
-                        connection.destination,
-                        signal,
-                        rendering,
-                    )
+                connection_keys.update(
+                    _connection_pair_keys(module, connection, signal)
                 )
             continue
 
@@ -525,23 +454,8 @@ def composed_component_identifier_claims(
                         f"request/response connection {index} {side} {signal}",
                     )
         for signal in ("payload", "valid", "ready"):
-            connection_keys.add(
-                _connection_key(
-                    module,
-                    connection.source.owner,
-                    connection.source,
-                    signal,
-                    rendering,
-                )
-            )
-            connection_keys.add(
-                _connection_key(
-                    module,
-                    connection.destination.owner,
-                    connection.destination,
-                    signal,
-                    rendering,
-                )
+            connection_keys.update(
+                _connection_pair_keys(module, connection, signal)
             )
 
     aggregates = {item.name: item for item in module.aggregate_protocol_endpoints}
@@ -561,12 +475,12 @@ def composed_component_identifier_claims(
             if item.name == child_name
         )
         for member in top.members:
-            if member.protocol is InterfaceProtocol.WIRE:
+            if member.protocol is ir_interfaces.InterfaceProtocol.WIRE:
                 connection_keys.add(
                     (
                         child_owner,
-                        f"{physical.component_identifier(child.name)}__"
-                        f"{physical.component_identifier(member.name)}",
+                        f"{identifiers.rtl_identifier(child.name)}__"
+                        f"{identifiers.rtl_identifier(member.name)}",
                         "wire",
                     )
                 )
@@ -575,10 +489,10 @@ def composed_component_identifier_claims(
         child = module.children[index]
         owner = elaborated.instance.name
         for port in child.ports:
-            port_name = physical.component_identifier(port.name)
+            port_name = identifiers.rtl_identifier(port.name)
             if (
-                port.protocol is InterfaceProtocol.WIRE
-                and port.direction is PortDirection.OUTPUT
+                port.protocol is ir_interfaces.InterfaceProtocol.WIRE
+                and port.direction is ir_module.PortDirection.OUTPUT
                 and (owner, port_name, "wire") not in connection_keys
             ):
                 claim(
@@ -589,173 +503,30 @@ def composed_component_identifier_claims(
     return tuple(claims)
 
 
-def _emit_composed_component(
-    module: Module,
-    component_name_: str,
-    child_names: dict[str, str],
-    rendering: ComposedRendering,
-) -> str:
-    physical = rendering.physical
-    local_names = module_rtl_names(module)
-    services = rendering.services
-    identifier = physical.identifier
-    packed_width = physical.packed_width
-    packed_range = physical.packed_range
-    ports = physical.physical_ports(module)
-    declarations: list[str] = []
-    logic: list[str] = []
-    connection_signals: dict[tuple[str, str, str], str] = {}
-    fifo_helpers: list[tuple[str, int, int, bool, bool]] = []
+def _append_composed_connection_logic(
+    module, declarations, logic, connection_signals, fifo_helpers,
+    rr_edges, rr_tracker_names, formal_count_by_edge,
+) -> None:
+    """Render local/hierarchical protocol edges and request ledgers."""
 
-    # Aggregate scalar members are ordinary typed wire ports after semantic
-    # expansion, but they retain ownership in the aggregate schema.  Validate
-    # their physical driver explicitly so a missing reverse member never turns
-    # into an undriven RTL output (and a connection plus assignment never
-    # becomes a multiple driver).
-    aggregate_wire_outputs = {
-        f"{aggregate.name}__{member.name}"
-        for aggregate in module.aggregate_protocol_endpoints
-        for member in aggregate.members
-        if member.protocol is InterfaceProtocol.WIRE
-        and any(
-            port.name == f"{aggregate.name}__{member.name}"
-            and port.direction is PortDirection.OUTPUT
-            for port in module.ports
-        )
-    }
-    assignment_drivers = {
-        services.assignment_name(assignment) for assignment in module.assignments
-    }
-    connection_drivers = {
-        endpoint.name
-        for connection in module.hierarchical_connections
-        for endpoint in (connection.source, connection.destination)
-        if endpoint.owner == module.name
-        and endpoint.protocol is InterfaceProtocol.WIRE
-    }
-    for connection in module.aggregate_protocol_connections:
-        if not connection.delegation:
-            continue
-        aggregate = next(
-            (
-                item
-                for item in module.aggregate_protocol_endpoints
-                if item.name == connection.source
-            ),
-            None,
-        )
-        if aggregate is not None:
-            connection_drivers.update(
-                f"{aggregate.name}__{member.name}"
-                for member in aggregate.members
-                if member.protocol is InterfaceProtocol.WIRE
-            )
-    for name in sorted(aggregate_wire_outputs):
-        driver_count = int(name in assignment_drivers) + int(
-            name in connection_drivers
-        )
-        if driver_count == 0:
-            raise physical.error(f"aggregate scalar output '{name}' has no driver")
-        if driver_count > 1:
-            raise physical.error(
-                f"aggregate scalar output '{name}' has multiple drivers"
-            )
-
-    stage_declarations, stage_logic, stage_render = services.staging_emission(module)
-    if stage_declarations:
-        # A composed scalar child keeps its own physical pipeline registers.
-        # Do not flatten or re-expand the staged expression in the parent.
-        declarations.extend(stage_declarations)
-        logic.extend(stage_logic)
-        render = stage_render
-    else:
-        materialized_declarations, materialized_assignments, render = (
-            services.materialized_emission(module)
-        )
-        declarations.extend(materialized_declarations)
-        logic.extend(materialized_assignments)
-    rom_declarations, rom_lines = services.rom_logic(module, render)
-    declarations.extend(rom_declarations)
-    logic.extend(rom_lines)
-    has_unified_state = services.requires_unified_state(module)
-    if has_unified_state:
-        services.append_unified_state(module, declarations, logic, render)
-    rr_edges = {
-        id(edge): (descriptor, channel)
-        for descriptor in module.request_response_connections
-        for channel, edge in (
-            (RequestResponseChannel.REQUEST, descriptor.request),
-            (RequestResponseChannel.RESPONSE, descriptor.response),
-        )
-    }
+    identifier = sv_rendering._identifier
+    packed_width = sv_rendering._width
+    packed_range = sv_rendering._range
     rr_transfer_signals: dict[int, tuple[str, str]] = {}
-    rr_tracker_names: dict[int, tuple[str, int]] = {}
-    formal_count_by_edge: dict[int, FormalBufferCountProjection] = {}
-    for descriptor in module.request_response_connections:
-        if descriptor.ordering.value != "in_order" or descriptor.max_outstanding <= 0:
-            raise physical.error(
-                "direct hierarchical request/response requires positive "
-                "in_order max_outstanding"
-            )
-        tracker = request_response_tracker_name(descriptor, rendering, module)
-        rr_tracker_names[id(descriptor)] = (tracker, descriptor.max_outstanding)
-        count_width = max(1, descriptor.max_outstanding.bit_length())
-        declarations.append(f"  logic [{count_width - 1}:0] {tracker};")
-        for channel, edge, depth in (
-            (
-                RequestResponseChannel.REQUEST,
-                descriptor.request,
-                descriptor.request.request_buffer_depth,
-            ),
-            (
-                RequestResponseChannel.RESPONSE,
-                descriptor.response,
-                descriptor.response.response_buffer_depth,
-            ),
-        ):
-            matches = tuple(
-                item for item in rendering.formal_buffer_counts
-                if item.request_response_semantic_id == descriptor.semantic_id
-                and item.channel is channel
-            )
-            if len(matches) > 1:
-                raise physical.error(
-                    "duplicate formal directional-buffer count projection for "
-                    f"'{descriptor.semantic_id}:{channel.value}'"
-                )
-            if not matches:
-                continue
-            projection = matches[0]
-            expected_width = max(1, depth.bit_length()) if depth else 0
-            if depth <= 0 or projection.depth != depth:
-                raise physical.error(
-                    "formal directional-buffer count projection does not match "
-                    f"the typed {channel.value} buffer depth"
-                )
-            if projection.width != expected_width:
-                raise physical.error(
-                    "formal directional-buffer count projection has width "
-                    f"{projection.width}, expected {expected_width}"
-                )
-            if identifier(projection.signal) != projection.signal:
-                raise physical.error(
-                    "formal directional-buffer count projection has an invalid "
-                    "physical signal"
-                )
-            formal_count_by_edge[id(edge)] = projection
-
     for index, connection in enumerate(module.connections):
         if not connection.buffer_depth:
             continue
         if (
-            connection.source.protocol is not InterfaceProtocol.READY_VALID
-            or connection.destination.protocol is not InterfaceProtocol.READY_VALID
+            connection.source.protocol is not ir_interfaces.InterfaceProtocol.READY_VALID
+            or connection.destination.protocol is not ir_interfaces.InterfaceProtocol.READY_VALID
         ):
-            raise physical.error(
+            raise SystemVerilogEmissionError(
                 "composed buffering currently requires ready/valid endpoints"
             )
         if module.clock is None or module.reset is None:
-            raise physical.error("buffered connection requires clock/reset")
+            raise SystemVerilogEmissionError(
+                "buffered connection requires clock/reset"
+            )
         width = packed_width(connection.source.type)
         helper = f"ZLangRvFifo_{width}_{connection.buffer_depth}"
         fifo_helpers.append(
@@ -766,7 +537,7 @@ def _emit_composed_component(
         logic.extend((
             f"  {helper} zlang_local_fifo_{index} (",
             f"    .clk({identifier(module.clock)}), "
-            f".rst({effective_reset_signal(module, identifier)}),",
+            f".rst({sv_sequential.effective_reset_signal(module, identifier)}),",
             f"    .in_payload({source}_payload), "
             f".in_valid({source}_valid), .in_ready({source}_ready),",
             f"    .out_payload({destination}_payload), "
@@ -777,9 +548,9 @@ def _emit_composed_component(
     for index, connection in enumerate(module.hierarchical_connections):
         rr_info = rr_edges.get(id(connection))
         width = packed_width(connection.source.payload_type)
-        if connection.source.protocol is InterfaceProtocol.WIRE:
-            if connection.destination.protocol is not InterfaceProtocol.WIRE:
-                raise physical.error(
+        if connection.source.protocol is ir_interfaces.InterfaceProtocol.WIRE:
+            if connection.destination.protocol is not ir_interfaces.InterfaceProtocol.WIRE:
+                raise SystemVerilogEmissionError(
                     "hierarchical scalar connection requires two wire endpoints"
                 )
             if (
@@ -789,7 +560,7 @@ def _emit_composed_component(
                 or connection.adapter is not None
                 or connection.crossing is not None
             ):
-                raise physical.error(
+                raise SystemVerilogEmissionError(
                     "hierarchical scalar connection does not accept protocol options"
                 )
             base = f"zlang_conn_{index}"
@@ -803,33 +574,21 @@ def _emit_composed_component(
             if shared is None:
                 shared = base
                 declarations.append(f"  logic {packed_range(width)}{shared};")
-            connection_signals[
-                _connection_key(
-                    module, connection.source.owner, connection.source, "wire", rendering
-                )
-            ] = shared
-            connection_signals[
-                _connection_key(
-                    module,
-                    connection.destination.owner,
-                    connection.destination,
-                    "wire",
-                    rendering,
-                )
-            ] = shared
+            for key in _connection_pair_keys(module, connection, "wire"):
+                connection_signals[key] = shared
             continue
         if (
-            connection.source.protocol is not InterfaceProtocol.READY_VALID
-            or connection.destination.protocol is not InterfaceProtocol.READY_VALID
+            connection.source.protocol is not ir_interfaces.InterfaceProtocol.READY_VALID
+            or connection.destination.protocol is not ir_interfaces.InterfaceProtocol.READY_VALID
         ):
-            raise physical.error(
+            raise SystemVerilogEmissionError(
                 "hierarchical protocol connection requires matching "
                 "ready/valid endpoints"
             )
         depth = connection.buffer_depth
-        if connection.source.channel is RequestResponseChannel.REQUEST:
+        if connection.source.channel is ir_interfaces.RequestResponseChannel.REQUEST:
             depth = connection.request_buffer_depth
-        elif connection.source.channel is RequestResponseChannel.RESPONSE:
+        elif connection.source.channel is ir_interfaces.RequestResponseChannel.RESPONSE:
             depth = connection.response_buffer_depth
         if depth:
             count_projection = formal_count_by_edge.get(id(connection))
@@ -846,10 +605,10 @@ def _emit_composed_component(
                 descriptor, channel = rr_info
                 tracker, maximum = rr_tracker_names[id(descriptor)]
                 count_width = max(1, maximum.bit_length())
-                active = f"!({reset_asserted(module, identifier)})"
+                active = f"!({sv_sequential.reset_asserted(module, identifier)})"
                 allow = (
                     f"({active} && {tracker} < {count_width}'d{maximum})"
-                    if channel is RequestResponseChannel.REQUEST
+                    if channel is ir_interfaces.RequestResponseChannel.REQUEST
                     else f"({active} && ({tracker} != '0 || "
                     f"{tracker}_request_transfer))"
                 )
@@ -864,17 +623,13 @@ def _emit_composed_component(
                 )
             for signal in ("payload", "valid", "ready"):
                 connection_signals[
-                    _connection_key(
-                        module, connection.source.owner, connection.source, signal, rendering
-                    )
+                    _connection_key(module, connection.source, signal)
                 ] = f"{up}_{signal}"
                 connection_signals[
                     _connection_key(
                         module,
-                        connection.destination.owner,
                         connection.destination,
                         signal,
-                        rendering,
                     )
                 ] = destination_valid if signal == "valid" else f"{down}_{signal}"
             source_payload = _external_protocol_signal(
@@ -929,11 +684,13 @@ def _emit_composed_component(
                 )
             )
             if module.clock is None or module.reset is None:
-                raise physical.error("buffered hierarchy requires clock/reset")
+                raise SystemVerilogEmissionError(
+                    "buffered hierarchy requires clock/reset"
+                )
             instance_lines = [
                 f"  {helper} zlang_conn_{index}_fifo (",
                 f"    .clk({identifier(module.clock)}), "
-                f".rst({effective_reset_signal(module, identifier)}),",
+                f".rst({sv_sequential.effective_reset_signal(module, identifier)}),",
                 f"    .in_payload({up}_payload), "
                 f".in_valid({up}_valid), .in_ready({up}_ready),",
                 f"    .out_payload({down}_payload), "
@@ -975,32 +732,16 @@ def _emit_composed_component(
                         )
                         or f"{base}_{signal}"
                     )
-                    connection_signals[
-                        _connection_key(
-                            module,
-                            connection.source.owner,
-                            connection.source,
-                            signal,
-                            rendering,
-                        )
-                    ] = value
-                    connection_signals[
-                        _connection_key(
-                            module,
-                            connection.destination.owner,
-                            connection.destination,
-                            signal,
-                            rendering,
-                        )
-                    ] = value
+                    for key in _connection_pair_keys(module, connection, signal):
+                        connection_signals[key] = value
             else:
                 descriptor, channel = rr_info
                 tracker, maximum = rr_tracker_names[id(descriptor)]
                 count_width = max(1, maximum.bit_length())
-                active = f"!({reset_asserted(module, identifier)})"
+                active = f"!({sv_sequential.reset_asserted(module, identifier)})"
                 allow = (
                     f"({active} && {tracker} < {count_width}'d{maximum})"
-                    if channel is RequestResponseChannel.REQUEST
+                    if channel is ir_interfaces.RequestResponseChannel.REQUEST
                     else f"({active} && ({tracker} != '0 || "
                     f"{tracker}_request_transfer))"
                 )
@@ -1026,37 +767,29 @@ def _emit_composed_component(
                     connection_signals[
                         _connection_key(
                             module,
-                            connection.source.owner,
                             connection.source,
                             signal,
-                            rendering,
                         )
                     ] = f"{src}_{signal}"
                     connection_signals[
                         _connection_key(
                             module,
-                            connection.destination.owner,
                             connection.destination,
                             signal,
-                            rendering,
                         )
                     ] = f"{dst}_{signal}"
                 connection_signals[
                     _connection_key(
                         module,
-                        connection.source.owner,
                         connection.source,
                         "ready",
-                        rendering,
                     )
                 ] = f"{src}_ready"
                 connection_signals[
                     _connection_key(
                         module,
-                        connection.destination.owner,
                         connection.destination,
                         "ready",
-                        rendering,
                     )
                 ] = f"{dst}_ready"
                 rr_transfer_signals[id(connection)] = (
@@ -1081,8 +814,8 @@ def _emit_composed_component(
         logic.extend((
             f"  assign {request_transfer} = {request_valid} && {request_ready};",
             f"  assign {response_transfer} = {response_valid} && {response_ready};",
-            f"  always_ff @({clock_event(module, identifier)}) begin",
-            f"    if ({reset_asserted(module, identifier)}) {tracker} <= '0;",
+            f"  always_ff @({sv_sequential.clock_event(module, identifier)}) begin",
+            f"    if ({sv_sequential.reset_asserted(module, identifier)}) {tracker} <= '0;",
             "    else begin",
             f"      case ({{{request_transfer}, {response_transfer}}})",
             f"        2'b10: if ({tracker} < {count_width}'d{maximum}) "
@@ -1093,6 +826,169 @@ def _emit_composed_component(
             "    end",
             "  end",
         ))
+
+
+
+def _emit_composed_component(
+    module: ir_module.Module,
+    component_name_: str,
+    child_names: dict[str, str],
+    rendering: ComposedRendering,
+) -> str:
+    local_names = naming.module_rtl_names(module)
+    identifier = sv_rendering._identifier
+    packed_width = sv_rendering._width
+    packed_range = sv_rendering._range
+    ports = sv_boundary._physical_port_declarations(module)
+    declarations: list[str] = []
+    logic: list[str] = []
+    connection_signals: dict[tuple[str, str, str], str] = {}
+    fifo_helpers: list[tuple[str, int, int, bool, bool]] = []
+
+    # Aggregate scalar members are ordinary typed wire ports after semantic
+    # expansion, but they retain ownership in the aggregate schema.  Validate
+    # their physical driver explicitly so a missing reverse member never turns
+    # into an undriven RTL output (and a connection plus assignment never
+    # becomes a multiple driver).
+    aggregate_wire_outputs = {
+        f"{aggregate.name}__{member.name}"
+        for aggregate in module.aggregate_protocol_endpoints
+        for member in aggregate.members
+        if member.protocol is ir_interfaces.InterfaceProtocol.WIRE
+        and any(
+            port.name == f"{aggregate.name}__{member.name}"
+            and port.direction is ir_module.PortDirection.OUTPUT
+            for port in module.ports
+        )
+    }
+    assignment_drivers = {
+        sv_rendering._assignment_name(assignment) for assignment in module.assignments
+    }
+    connection_drivers = {
+        endpoint.name
+        for connection in module.hierarchical_connections
+        for endpoint in (connection.source, connection.destination)
+        if endpoint.owner == module.name
+        and endpoint.protocol is ir_interfaces.InterfaceProtocol.WIRE
+    }
+    for connection in module.aggregate_protocol_connections:
+        if not connection.delegation:
+            continue
+        aggregate = next(
+            (
+                item
+                for item in module.aggregate_protocol_endpoints
+                if item.name == connection.source
+            ),
+            None,
+        )
+        if aggregate is not None:
+            connection_drivers.update(
+                f"{aggregate.name}__{member.name}"
+                for member in aggregate.members
+                if member.protocol is ir_interfaces.InterfaceProtocol.WIRE
+            )
+    for name in sorted(aggregate_wire_outputs):
+        driver_count = int(name in assignment_drivers) + int(
+            name in connection_drivers
+        )
+        if driver_count == 0:
+            raise SystemVerilogEmissionError(
+                f"aggregate scalar output '{name}' has no driver"
+            )
+        if driver_count > 1:
+            raise SystemVerilogEmissionError(
+                f"aggregate scalar output '{name}' has multiple drivers"
+            )
+
+    stage_declarations, stage_logic, stage_render = (
+        sv_materialized._embedded_staging_emission(module)
+    )
+    if stage_declarations:
+        # A composed scalar child keeps its own physical pipeline registers.
+        # Do not flatten or re-expand the staged expression in the parent.
+        declarations.extend(stage_declarations)
+        logic.extend(stage_logic)
+        render = stage_render
+    else:
+        materialized_declarations, materialized_assignments, render = (
+            sv_materialized._materialized_emission(module)
+        )
+        declarations.extend(materialized_declarations)
+        logic.extend(materialized_assignments)
+    rom_declarations, rom_lines = sv_storage._emit_rom_logic(module, render)
+    declarations.extend(rom_declarations)
+    logic.extend(rom_lines)
+    has_unified_state = sv_state.requires_unified_state(module)
+    if has_unified_state:
+        sv_state._append_unified_state(module, declarations, logic, render)
+    rr_edges = {
+        id(edge): (descriptor, channel)
+        for descriptor in module.request_response_connections
+        for channel, edge in (
+            (ir_interfaces.RequestResponseChannel.REQUEST, descriptor.request),
+            (ir_interfaces.RequestResponseChannel.RESPONSE, descriptor.response),
+        )
+    }
+    rr_tracker_names: dict[int, tuple[str, int]] = {}
+    formal_count_by_edge: dict[int, FormalBufferCountProjection] = {}
+    for descriptor in module.request_response_connections:
+        if descriptor.ordering.value != "in_order" or descriptor.max_outstanding <= 0:
+            raise SystemVerilogEmissionError(
+                "direct hierarchical request/response requires positive "
+                "in_order max_outstanding"
+            )
+        tracker = request_response_tracker_name(descriptor, module)
+        rr_tracker_names[id(descriptor)] = (tracker, descriptor.max_outstanding)
+        count_width = max(1, descriptor.max_outstanding.bit_length())
+        declarations.append(f"  logic [{count_width - 1}:0] {tracker};")
+        for channel, edge, depth in (
+            (
+                ir_interfaces.RequestResponseChannel.REQUEST,
+                descriptor.request,
+                descriptor.request.request_buffer_depth,
+            ),
+            (
+                ir_interfaces.RequestResponseChannel.RESPONSE,
+                descriptor.response,
+                descriptor.response.response_buffer_depth,
+            ),
+        ):
+            matches = tuple(
+                item for item in rendering.formal_buffer_counts
+                if item.request_response_semantic_id == descriptor.semantic_id
+                and item.channel is channel
+            )
+            if len(matches) > 1:
+                raise SystemVerilogEmissionError(
+                    "duplicate formal directional-buffer count projection for "
+                    f"'{descriptor.semantic_id}:{channel.value}'"
+                )
+            if not matches:
+                continue
+            projection = matches[0]
+            expected_width = max(1, depth.bit_length()) if depth else 0
+            if depth <= 0 or projection.depth != depth:
+                raise SystemVerilogEmissionError(
+                    "formal directional-buffer count projection does not match "
+                    f"the typed {channel.value} buffer depth"
+                )
+            if projection.width != expected_width:
+                raise SystemVerilogEmissionError(
+                    "formal directional-buffer count projection has width "
+                    f"{projection.width}, expected {expected_width}"
+                )
+            if identifier(projection.signal) != projection.signal:
+                raise SystemVerilogEmissionError(
+                    "formal directional-buffer count projection has an invalid "
+                    "physical signal"
+                )
+            formal_count_by_edge[id(edge)] = projection
+
+    _append_composed_connection_logic(
+        module, declarations, logic, connection_signals, fifo_helpers,
+        rr_edges, rr_tracker_names, formal_count_by_edge,
+    )
 
     # Top-level aggregate delegation connects the child's flattened leaves
     # directly to the already-published top ABI.
@@ -1119,10 +1015,10 @@ def _emit_composed_component(
         for member in top.members:
             top_port = identifier(f"{top_name}__{member.name}")
             child_port = (
-                f"{physical.component_identifier(child_name)}__"
-                f"{physical.component_identifier(member.name)}"
+                f"{identifiers.rtl_identifier(child_name)}__"
+                f"{identifiers.rtl_identifier(member.name)}"
             )
-            if member.protocol is InterfaceProtocol.WIRE:
+            if member.protocol is ir_interfaces.InterfaceProtocol.WIRE:
                 connection_signals[(child_owner, child_port, "wire")] = top_port
             else:
                 for signal in ("payload", "valid", "ready"):
@@ -1133,21 +1029,23 @@ def _emit_composed_component(
     bindings = {
         (item.instance, item.port): item.expression
         for item in module.instance_bindings
-        if parse_ready_valid_field_name(item.port) is None
+        if ir_interfaces.parse_ready_valid_field_name(item.port) is None
     }
     protocol_bindings = {
         (item.instance, item.port): item.expression
         for item in module.instance_bindings
-        if parse_ready_valid_field_name(item.port) is not None
+        if ir_interfaces.parse_ready_valid_field_name(item.port) is not None
     }
     if len(bindings) + len(protocol_bindings) != len(module.instance_bindings):
-        raise physical.error("composed child bindings have duplicate targets")
+        raise SystemVerilogEmissionError(
+            "composed child bindings have duplicate targets"
+        )
     referenced_protocol_outputs = set()
-    for root in module_expression_roots(module):
+    for root in materialization.module_expression_roots(module):
         for value in walk_expression(root):
             if not isinstance(value, ir_expr.InstanceOutputRef):
                 continue
-            projection = parse_ready_valid_field_name(value.port)
+            projection = ir_interfaces.parse_ready_valid_field_name(value.port)
             if projection is not None:
                 referenced_protocol_outputs.add(
                     (value.instance, projection[0], projection[1].value)
@@ -1160,7 +1058,7 @@ def _emit_composed_component(
         if len(child.clock_domains) == 1:
             child_domain = child.clock_domains[0]
             if elaborated.clock is None or elaborated.reset is None:
-                raise physical.error(
+                raise SystemVerilogEmissionError(
                     f"sequential child '{owner}' has no resolved parent domain"
                 )
             parent_domain = next(
@@ -1172,44 +1070,44 @@ def _emit_composed_component(
                 None,
             )
             if parent_domain is None:
-                raise physical.error(
+                raise SystemVerilogEmissionError(
                     f"sequential child '{owner}' has no exact parent clock/reset contract"
                 )
             connections.append(
-                f".{physical.component_identifier(child_domain.clock)}"
+                f".{identifiers.rtl_identifier(child_domain.clock)}"
                 f"({identifier(parent_domain.clock)})"
             )
             connections.append(
-                f".{physical.component_identifier(child_domain.reset)}"
-                f"({effective_reset_signal(module, identifier, parent_domain.clock)})"
+                f".{identifiers.rtl_identifier(child_domain.reset)}"
+                f"({sv_sequential.effective_reset_signal(module, identifier, parent_domain.clock)})"
             )
         elif child.clock_domains:
             parent_domains = {item.clock: item for item in module.clock_domains}
             for child_domain in child.clock_domains:
                 parent_domain = parent_domains.get(child_domain.clock)
                 if parent_domain != child_domain:
-                    raise physical.error(
+                    raise SystemVerilogEmissionError(
                         f"sequential child '{owner}' domain '{child_domain.clock}' "
                         "has no exact parent clock/reset contract"
                     )
                 connections.append(
-                    f".{physical.component_identifier(child_domain.clock)}"
+                    f".{identifiers.rtl_identifier(child_domain.clock)}"
                     f"({identifier(parent_domain.clock)})"
                 )
                 connections.append(
-                    f".{physical.component_identifier(child_domain.reset)}"
-                    f"({effective_reset_signal(module, identifier, parent_domain.clock)})"
+                    f".{identifiers.rtl_identifier(child_domain.reset)}"
+                    f"({sv_sequential.effective_reset_signal(module, identifier, parent_domain.clock)})"
                 )
         for port in child.ports:
-            port_name = physical.component_identifier(port.name)
-            if port.protocol is InterfaceProtocol.WIRE:
+            port_name = identifiers.rtl_identifier(port.name)
+            if port.protocol is ir_interfaces.InterfaceProtocol.WIRE:
                 delegated = connection_signals.get((owner, port_name, "wire"))
                 if delegated is not None:
                     signal = delegated
-                elif port.direction is PortDirection.INPUT:
+                elif port.direction is ir_module.PortDirection.INPUT:
                     expression = bindings.get((owner, port.name))
                     if expression is None:
-                        raise physical.error(
+                        raise SystemVerilogEmissionError(
                             f"child '{owner}' input '{port.name}' is unbound"
                         )
                     signal = render(expression)
@@ -1220,29 +1118,29 @@ def _emit_composed_component(
                     )
                 connections.append(f".{port_name}({signal})")
                 continue
-            if port.protocol is not InterfaceProtocol.READY_VALID:
-                raise physical.error(
+            if port.protocol is not ir_interfaces.InterfaceProtocol.READY_VALID:
+                raise SystemVerilogEmissionError(
                     f"unsupported hierarchical protocol {port.protocol.value}"
                 )
             for signal_name in ("payload", "valid", "ready"):
                 signal = connection_signals.get(
                     (owner, port_name, signal_name)
                 )
-                scalar_name = ready_valid_field_name(port.name, signal_name)
+                scalar_name = ir_interfaces.ready_valid_field_name(port.name, signal_name)
                 bound = protocol_bindings.get((owner, scalar_name))
                 if signal is not None and bound is not None:
-                    raise physical.error(
+                    raise SystemVerilogEmissionError(
                         f"child protocol signal '{owner}.{port.name}."
                         f"{signal_name}' has multiple drivers"
                     )
                 child_output = (
                     signal_name in {"payload", "valid"}
-                    if port.direction is PortDirection.OUTPUT
+                    if port.direction is ir_module.PortDirection.OUTPUT
                     else signal_name == "ready"
                 )
                 if signal is None and bound is not None:
                     if child_output:
-                        raise physical.error(
+                        raise SystemVerilogEmissionError(
                             f"child-owned signal '{owner}.{port.name}."
                             f"{signal_name}' cannot be bound"
                         )
@@ -1274,23 +1172,23 @@ def _emit_composed_component(
                         )
                         logic.append(f"  assign {alias} = {signal};")
                 if signal is None:
-                    raise physical.error(
+                    raise SystemVerilogEmissionError(
                         f"child protocol signal "
                         f"'{owner}.{port.name}.{signal_name}' is unconnected"
                     )
                 connections.append(f".{port_name}_{signal_name}({signal})")
         for interface in child.request_responses:
-            base = physical.component_identifier(interface.name)
+            base = identifiers.rtl_identifier(interface.name)
             for channel in (
-                RequestResponseChannel.REQUEST,
-                RequestResponseChannel.RESPONSE,
+                ir_interfaces.RequestResponseChannel.REQUEST,
+                ir_interfaces.RequestResponseChannel.RESPONSE,
             ):
                 for signal_name in ("payload", "valid", "ready"):
                     signal = connection_signals.get(
                         (owner, f"{base}_{channel.value}", signal_name)
                     )
                     if signal is None:
-                        raise physical.error(
+                        raise SystemVerilogEmissionError(
                             f"child request/response signal "
                             f"'{owner}.{base}.{channel.value}.{signal_name}' "
                             "is unconnected"
@@ -1305,12 +1203,14 @@ def _emit_composed_component(
         )
 
     if not has_unified_state:
-        services.append_rule_state(module, declarations, logic, render)
-    body = services.named_module(
+        sv_rules._append_rule_state(
+            module, declarations, logic, render, compact_reset=True
+        )
+    body = sv_module_rendering._named_module(
         component_name_,
         ports,
         declarations + logic,
-        module,
+        typed_module=module,
     )
     helpers = "\n".join(
         rv_fifo_helper(
@@ -1327,7 +1227,7 @@ def rv_fifo_helper(
     name: str,
     width: int,
     depth: int,
-    module: Module | None = None,
+    module: ir_module.Module | None = None,
     *,
     expose_count: bool = False,
     allow_full_replace: bool = True,
@@ -1340,10 +1240,10 @@ def rv_fifo_helper(
         return "clk" if value == module.clock else "rst"
 
     helper_module = (
-        native_release_module(module) if module is not None else None
+        sv_sequential.native_release_module(module) if module is not None else None
     )
     reset_deasserted_expression = (
-        f"!({reset_asserted(helper_module, helper_identifier)})"
+        f"!({sv_sequential.reset_asserted(helper_module, helper_identifier)})"
         if helper_module is not None
         else "!rst"
     )
@@ -1378,12 +1278,12 @@ def rv_fifo_helper(
         "  assign out_payload = storage[rd];",
         *(("  assign formal_count = count;",) if expose_count else ()),
         (
-            f"  always_ff @({clock_event(helper_module, helper_identifier)}) begin"
+            f"  always_ff @({sv_sequential.clock_event(helper_module, helper_identifier)}) begin"
             if helper_module is not None
             else "  always_ff @(posedge clk) begin"
         ),
         (
-            f"    if ({reset_asserted(helper_module, helper_identifier)}) "
+            f"    if ({sv_sequential.reset_asserted(helper_module, helper_identifier)}) "
             "begin count <= '0; rd <= '0; wr <= '0; end"
             if helper_module is not None
             else "    if (rst) begin count <= '0; rd <= '0; wr <= '0; end"

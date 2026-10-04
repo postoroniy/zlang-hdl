@@ -76,7 +76,7 @@ Publish the immutable inputs without executing a solver:
 First use a deliberately insufficient depth:
 
 ```sh
-.venv/bin/zlang-verify build/verify/rare \
+.venv/bin/zlang verify build/verify/rare \
   --mode bmc --depth 8 --timeout 45 \
   --work-dir build/verify-work/rare-shallow \
   --report build/verify/rare-shallow.txt
@@ -87,7 +87,7 @@ Expected exit: **0**, with `bounded_pass`, **not** `proven`.
 Now replay the **same bundle**, without recompiling the source:
 
 ```sh
-.venv/bin/zlang-verify build/verify/rare \
+.venv/bin/zlang verify build/verify/rare \
   --mode bmc --depth 16 --timeout 45 \
   --work-dir build/verify-work/rare-deep \
   --report build/verify/rare-deep.txt
@@ -197,7 +197,7 @@ unstated requirement, analog behavior, or arbitrary physical implementation.
 | `unknown` / `skipped` | Incomplete evidence or an unavailable route/tool, never success |
 
 Normal text reports show statuses and source spans. Add
-`--verification-format json` to `zlang`, or `--format json` to `zlang-verify`,
+`--verification-format json` to `zlang`, or `--format json` to `zlang verify`,
 for machine-readable output. A prove run retains its earlier `bounded_results`.
 Raw logs and VCDs stay in the work directory, outside the immutable bundle.
 

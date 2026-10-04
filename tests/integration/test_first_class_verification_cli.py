@@ -8,7 +8,8 @@ import shutil
 import pytest
 
 from zlang.build_manifest import WholeBuildManifest
-import zlang.cli as cli_module
+import zlang.cli_command as cli_command
+import zlang.cli_verification as cli_verification
 from zlang.cli import main as compiler_main
 from zlang.compiler import compile_source
 from zlang.evidence_report import EvidenceReportPayload
@@ -16,10 +17,11 @@ from zlang.formal_exploration import FormalPolicy
 from zlang.formal_orchestration import CompilerFormalExecutionPlan
 from zlang.ir.formal import Counterexample, CoverWitness, ProofMode
 from zlang.ir.formal_planning import FormalExecutionPlan
-import zlang.verification_bundle as verification_bundle_module
+import zlang.verification_bundle_codec as verification_bundle_codec_module
 from zlang.verification_bundle import (
     VerificationBundleError,
     VerificationJobResult,
+    VerificationRunConfig,
     VerificationRunReport,
     load_verification_bundle,
 )
@@ -167,7 +169,7 @@ module SelectedIrCrossLink {
         VerificationBundleError,
         match="formal execution plan selected-IR identity does not match hardware",
     ):
-        verification_bundle_module._validate_verification_payload(
+        verification_bundle_codec_module._validate_verification_payload(
             payload,
             property_ids=loaded.manifest.property_ids,
             jobs=fake_jobs,
@@ -192,11 +194,11 @@ def test_verification_execution_options_require_verify(
     assert raised.value.code == 2
 
 
-@pytest.mark.parametrize("request_sby", (False, True))
-def test_legacy_formal_views_reject_multi_job_plans_with_bundle_guidance(
+@pytest.mark.parametrize("removed_option", ("--formal-harness", "--formal-sby"))
+def test_removed_legacy_formal_views_are_not_cli_options(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
-    request_sby: bool,
+    removed_option: str,
 ) -> None:
     source = tmp_path / "legacy-mixed.zhl"
     source.write_text(
@@ -204,18 +206,15 @@ def test_legacy_formal_views_reject_multi_job_plans_with_bundle_guidance(
         "assert stable @ clk { y == 0 } cover seen @ clk { y == 0 } }",
         encoding="utf-8",
     )
-    harness = tmp_path / "formal.sv"
-    arguments = [str(source), "--formal-harness", str(harness)]
-    if request_sby:
-        arguments.extend(("--formal-sby", str(tmp_path / "formal.sby")))
+    output = tmp_path / "legacy-output"
+    arguments = [str(source), removed_option, str(output)]
 
     with pytest.raises(SystemExit) as raised:
         compiler_main(tuple(arguments))
     assert raised.value.code == 2
     diagnostic = capsys.readouterr().err
-    assert "legacy combined formal output would be incomplete" in diagnostic
-    assert "--verification-bundle" in diagnostic
-    assert not harness.exists()
+    assert f"unrecognized arguments: {removed_option}" in diagnostic
+    assert not output.exists()
 
 
 SOURCE = """
@@ -271,7 +270,7 @@ def _stubbed_verification_report(
     return VerificationRunReport(
         loaded.manifest.bundle_identity,
         loaded.manifest.top,
-        cli_module.VerificationRunConfig(
+        VerificationRunConfig(
             mode=ProofMode.BMC, depth=5, timeout_seconds=30,
         ),
         tuple(results),
@@ -314,7 +313,11 @@ module VerificationEvidence {
         assert getattr(config, "jobs") == 2
         return _stubbed_verification_report(bundle, failed=failed)
 
-    monkeypatch.setattr(cli_module, "run_verification_bundle_staged", execute)
+    monkeypatch.setattr(
+        cli_verification.bundle_api,
+        "run_verification_bundle_staged",
+        execute,
+    )
     status = compiler_main((
         str(source),
         "--verify",
@@ -413,23 +416,23 @@ module JointFormalEvidence {
         formal_verifier=Verifier(),
     )
     monkeypatch.setattr(
-        cli_module,
+        cli_command.compiler_api,
         "compile_file_snapshot",
         lambda *_args, **_kwargs: compilation,
     )
     monkeypatch.setattr(
-        cli_module,
+        cli_verification.bundle_api,
         "run_verification_bundle_staged",
         lambda bundle, *, config, work_directory, **_keywords:
         _stubbed_verification_report(bundle),
     )
     monkeypatch.setattr(
-        cli_module,
+        cli_verification.candidate_api,
         "prepare_selected_candidate_equivalence",
         lambda _result, plan, _config: (plan, ()),
     )
     monkeypatch.setattr(
-        cli_module,
+        cli_verification.candidate_api,
         "execute_prepared_candidate_equivalence",
         lambda _result, _plan, _prepared, _config, *, jobs=1: (),
     )
@@ -526,21 +529,29 @@ module CandidateTrigger {
         calls["execute"] += 1
         return ()
 
-    monkeypatch.setattr(cli_module, "compile_file_snapshot", compile_snapshot)
     monkeypatch.setattr(
-        cli_module,
+        cli_command.compiler_api,
+        "compile_file_snapshot",
+        compile_snapshot,
+    )
+    monkeypatch.setattr(
+        cli_verification.bundle_api,
         "run_verification_bundle_staged",
         lambda bundle, *, config, work_directory, **_keywords:
         _stubbed_verification_report(bundle),
     )
     monkeypatch.setattr(
-        cli_module, "prepare_selected_candidate_equivalence", prepare
+        cli_verification.candidate_api,
+        "prepare_selected_candidate_equivalence",
+        prepare,
     )
     monkeypatch.setattr(
-        cli_module, "execute_prepared_candidate_equivalence", execute
+        cli_verification.candidate_api,
+        "execute_prepared_candidate_equivalence",
+        execute,
     )
 
-    assert compiler_main((str(source),)) == 0
+    assert compiler_main((str(source), "--check")) == 0
     capsys.readouterr()
     assert calls == {"prepare": 0, "execute": 0}
 
@@ -634,27 +645,22 @@ module CandidateReportExit {
             return "candidate equivalence failed\n"
 
     monkeypatch.setattr(
-        cli_module,
+        cli_command.compiler_api,
         "compile_file_snapshot",
         lambda *_args, **_kwargs: compilation,
     )
     monkeypatch.setattr(
-        cli_module,
+        cli_verification.bundle_api,
         "run_verification_bundle_staged",
         lambda bundle, *, config, work_directory, **_keywords:
         _stubbed_verification_report(bundle),
     )
     monkeypatch.setattr(
-        cli_module,
-        "prepare_selected_candidate_equivalence",
-        lambda _result, plan, _config: (plan, (object(),)),
-    )
-    monkeypatch.setattr(
-        cli_module,
+        cli_verification.candidate_api,
         "execute_prepared_candidate_equivalence",
         lambda _result, _plan, _prepared, _config, *, jobs=1: (candidate_result,),
     )
-    monkeypatch.setattr(cli_module, "CompilerVerificationReport", Combined)
+    monkeypatch.setattr(cli_verification, "CompilerVerificationReport", Combined)
     report = tmp_path / "verification.json"
 
     status = compiler_main((

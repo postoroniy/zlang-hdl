@@ -7,36 +7,29 @@ import subprocess
 
 import pytest
 
-from zlang.backend.systemverilog import emit_experimental
+from zlang.backend.systemverilog import emit
 from zlang.backend.systemverilog import emitter as sv_emitter
+from zlang.backend.systemverilog import materialized as sv_materialized
 from zlang.backend.expression_materialization import MaterializedExpression
-from zlang.compiler import compile_source
-from zlang.ir import (
-    Add,
-    Assignment,
-    Binary,
-    BinaryOperator,
-    BitType,
-    CompileTimeBinderRef,
-    CompileTimeExpr,
-    Constant,
-    FunctionalCaptureRef,
-    FunctionalRegion,
-    FunctionalRegionKind,
-    FunctionalValue,
-    FunctionalTable,
-    FunctionalTableLookup,
-    InputRef,
-    Module,
-    Mux,
-    Port,
-    PortDirection,
-    Reduce,
-    ReductionOperator,
-    UIntType,
-    VecType,
-    VectorIndex,
+from zlang.backend.systemverilog.functional import (
+    FunctionalRegionEmissionPlan,
+    FunctionalRegionPlanner,
+    FunctionalScatterEmissionPlan,
+    FunctionalScatterEntry,
 )
+from zlang.backend.systemverilog.functional import region as functional_region
+from zlang.backend.systemverilog.functional.scatter import (
+    _functional_scatter_lowering_plan,
+)
+from zlang.backend.systemverilog.functional_scatter import (
+    FunctionalScatterLoweringPlan,
+    FunctionalScatterLoweringStrategy,
+)
+from zlang.compiler import compile_source
+from zlang.ir.expressions import Add, Binary, BinaryOperator, Constant, FunctionalCaptureRef, FunctionalRegion, FunctionalValue, FunctionalTableLookup, InputRef, Mux, Reduce, ReductionOperator, VectorIndex
+from zlang.ir.module import Assignment, Module, Port, PortDirection
+from zlang.ir.types import BitType, UIntType, VecType
+from zlang.ir.functional_regions import CompileTimeBinderRef, CompileTimeExpr, FunctionalRegionKind, FunctionalTable
 from zlang.native_simulation import simulate
 
 
@@ -150,7 +143,7 @@ def test_module_region_uses_nonzero_lsb_first_structural_generate() -> None:
         VecType(4, U8),
     )
 
-    generated = emit_experimental(_module(region))
+    generated = emit(_module(region))
 
     assert "generate" in generated
     assert "for (genvar" in generated
@@ -181,7 +174,7 @@ def test_nested_region_composition_is_dependency_first() -> None:
         VecType(2, inner.type),
     )
 
-    plan = sv_emitter._functional_region_composition_plan(outer)
+    plan = FunctionalRegionPlanner().composition_plan(outer)
 
     assert tuple(node.region for node in plan.nodes) == (inner, outer)
     assert plan.nodes[-1].dependencies == (plan.nodes[0].identity,)
@@ -207,8 +200,8 @@ def test_exact_binder_free_region_invariant_has_one_shared_owner() -> None:
         owner: FunctionalRegion,
         value: Add,
         suffix: str,
-    ) -> tuple[FunctionalRegion, sv_emitter.FunctionalRegionEmissionPlan]:
-        scatter = sv_emitter._FunctionalScatterEmissionPlan(
+    ) -> tuple[FunctionalRegion, FunctionalRegionEmissionPlan]:
+        scatter = FunctionalScatterEmissionPlan(
             (),
             (),
             (MaterializedExpression(value, f"local_{suffix}"),),
@@ -216,7 +209,7 @@ def test_exact_binder_free_region_invariant_has_one_shared_owner() -> None:
             f"address_{suffix}",
             f"value_{suffix}",
         )
-        return owner, sv_emitter.FunctionalRegionEmissionPlan(
+        return owner, FunctionalRegionEmissionPlan(
             f"plan:{suffix}",
             f"result_{suffix}",
             "",
@@ -226,7 +219,7 @@ def test_exact_binder_free_region_invariant_has_one_shared_owner() -> None:
             scatter=scatter,
         )
 
-    shared = sv_emitter._shared_functional_region_materialization(
+    shared = sv_materialized._shared_functional_region_materialization(
         {
             "left": record(region("fixture:left"), left, "left"),
             "right": record(region("fixture:right"), right, "right"),
@@ -261,8 +254,8 @@ def test_region_table_uses_one_deterministic_case_lookup() -> None:
         VecType(4, U8),
     )
 
-    first = emit_experimental(_module(region))
-    second = emit_experimental(_module(region))
+    first = emit(_module(region))
+    second = emit(_module(region))
 
     assert first == second
     assert first.count("case (") == 1
@@ -273,7 +266,7 @@ def test_region_table_uses_one_deterministic_case_lookup() -> None:
 
 def test_destination_decode_is_lowered_as_bounded_candidate_scatter() -> None:
     module = compile_source(SCATTER_SOURCE, top="Scatter32").ir
-    generated = emit_experimental(module)
+    generated = emit(module)
 
     assert "module zlang_scatter_structural_helper_" in generated
     assert "assign reduce_" in generated
@@ -297,7 +290,7 @@ def test_scatter_lowering_rejects_nonzero_miss_value() -> None:
         "data[i], 0)",
         "data[i], 1)",
     )
-    generated = emit_experimental(compile_source(source, top="Scatter32").ir)
+    generated = emit(compile_source(source, top="Scatter32").ir)
 
     assert "region_scatter_address" not in generated
     assert generated.count("for (") == 2
@@ -366,7 +359,7 @@ def test_scatter_plan_elides_only_candidate_binder_dimensions_absent_from_entry(
         VecType(8, type4),
     )
 
-    plan = sv_emitter._functional_region_plan(outer, "result")
+    plan = functional_region.functional_region_plan(outer, "result")
 
     assert plan.scatter is not None
     assert tuple(
@@ -421,14 +414,14 @@ def test_table_backed_structural_scatter_uses_its_bounded_plan() -> None:
         (),
         VecType(4, U8),
     )
-    plan = sv_emitter._functional_region_plan(outer, "result")
-    lowering = sv_emitter._functional_scatter_lowering_plan(outer, plan)
+    plan = functional_region.functional_region_plan(outer, "result")
+    lowering = _functional_scatter_lowering_plan(outer, plan)
 
     assert plan.scatter is not None
-    assert lowering.strategy is sv_emitter.FunctionalScatterLoweringStrategy.STRUCTURAL
+    assert lowering.strategy is FunctionalScatterLoweringStrategy.STRUCTURAL
     assert any(item.table_temporaries for item in plan.scatter.dimensions)
 
-    generated = emit_experimental(_module(outer))
+    generated = emit(_module(outer))
 
     assert "zlang_scatter_chunks_" not in generated
     assert "zlang_scatter_chunk_" in generated
@@ -437,11 +430,11 @@ def test_table_backed_structural_scatter_uses_its_bounded_plan() -> None:
 
 
 def test_scatter_lowering_plan_uses_documented_cost_boundaries() -> None:
-    strategy = sv_emitter.FunctionalScatterLoweringPlan.select_strategy
+    strategy = FunctionalScatterLoweringPlan.select_strategy
 
-    assert strategy(256, 256) is sv_emitter.FunctionalScatterLoweringStrategy.STRUCTURAL
-    assert strategy(257, 1) is sv_emitter.FunctionalScatterLoweringStrategy.CHUNKED_PROCEDURAL
-    assert strategy(256, 257) is sv_emitter.FunctionalScatterLoweringStrategy.CHUNKED_PROCEDURAL
+    assert strategy(256, 256) is FunctionalScatterLoweringStrategy.STRUCTURAL
+    assert strategy(257, 1) is FunctionalScatterLoweringStrategy.CHUNKED_PROCEDURAL
+    assert strategy(256, 257) is FunctionalScatterLoweringStrategy.CHUNKED_PROCEDURAL
 
 
 def test_192_bit_hit_scatter_remains_structural() -> None:
@@ -452,10 +445,10 @@ def test_192_bit_hit_scatter_remains_structural() -> None:
         if assignment.target.name == "hit"
     )
     assert isinstance(region, FunctionalRegion)
-    emission = sv_emitter._functional_region_plan(region, "hit_result")
-    lowering = sv_emitter._functional_scatter_lowering_plan(region, emission)
+    emission = functional_region.functional_region_plan(region, "hit_result")
+    lowering = _functional_scatter_lowering_plan(region, emission)
 
-    assert lowering.strategy is sv_emitter.FunctionalScatterLoweringStrategy.STRUCTURAL
+    assert lowering.strategy is FunctionalScatterLoweringStrategy.STRUCTURAL
     assert lowering.effective_candidate_count == 192
     assert lowering.result_width == 192
     assert len(lowering.chunks) == 12
@@ -470,10 +463,10 @@ def test_192_byte_scatter_uses_twelve_natural_sixteen_write_chunks() -> None:
         if assignment.target.name == "result"
     )
     assert isinstance(region, FunctionalRegion)
-    emission = sv_emitter._functional_region_plan(region, "value_result")
-    lowering = sv_emitter._functional_scatter_lowering_plan(region, emission)
+    emission = functional_region.functional_region_plan(region, "value_result")
+    lowering = _functional_scatter_lowering_plan(region, emission)
 
-    assert lowering.strategy is sv_emitter.FunctionalScatterLoweringStrategy.CHUNKED_PROCEDURAL
+    assert lowering.strategy is FunctionalScatterLoweringStrategy.CHUNKED_PROCEDURAL
     assert lowering.effective_candidate_count == 192
     assert lowering.result_width == 1536
     assert len(lowering.chunks) == 12
@@ -489,7 +482,7 @@ def test_192_byte_scatter_uses_twelve_natural_sixteen_write_chunks() -> None:
 
 
 def test_sequential_scatter_uses_the_same_chunked_policy() -> None:
-    generated = emit_experimental(
+    generated = emit(
         compile_source(
             SEQUENTIAL_SCATTER_SOURCE,
             top="SequentialScatter12x4x4",
@@ -513,12 +506,12 @@ def test_flat_scatter_entries_split_into_stable_sixteen_entry_chunks() -> None:
         (),
         VecType(192, U8),
     )
-    entry = sv_emitter._FunctionalScatterEntry(
+    entry = FunctionalScatterEntry(
         Constant(1, BitType()),
         Constant(0, U8),
         Constant(1, U8),
     )
-    scatter = sv_emitter._FunctionalScatterEmissionPlan(
+    scatter = FunctionalScatterEmissionPlan(
         (),
         (entry,) * 48,
         (),
@@ -526,7 +519,7 @@ def test_flat_scatter_entries_split_into_stable_sixteen_entry_chunks() -> None:
         "flat_address",
         "flat_value",
     )
-    emission = sv_emitter.FunctionalRegionEmissionPlan(
+    emission = FunctionalRegionEmissionPlan(
         "0123456789abcdef",
         "flat_result",
         "",
@@ -536,8 +529,8 @@ def test_flat_scatter_entries_split_into_stable_sixteen_entry_chunks() -> None:
         scatter=scatter,
     )
 
-    first = sv_emitter._functional_scatter_lowering_plan(region, emission)
-    second = sv_emitter._functional_scatter_lowering_plan(region, emission)
+    first = _functional_scatter_lowering_plan(region, emission)
+    second = _functional_scatter_lowering_plan(region, emission)
 
     assert first == second
     assert tuple(chunk.write_count for chunk in first.chunks) == (16, 16, 16)
@@ -558,17 +551,17 @@ def test_scatter_wider_than_chunk_budget_uses_irreducible_single_write_chunks(
         if assignment.target.name == "result"
     )
     assert isinstance(region, FunctionalRegion)
-    emission = sv_emitter._functional_region_plan(region, "wide_result")
+    emission = functional_region.functional_region_plan(region, "wide_result")
 
-    lowering = sv_emitter._functional_scatter_lowering_plan(region, emission)
+    lowering = _functional_scatter_lowering_plan(region, emission)
 
-    assert lowering.strategy is sv_emitter.FunctionalScatterLoweringStrategy.CHUNKED_PROCEDURAL
+    assert lowering.strategy is FunctionalScatterLoweringStrategy.CHUNKED_PROCEDURAL
     assert lowering.result_width == 4096 * 8
     assert tuple(chunk.write_count for chunk in lowering.chunks) == (1, 1, 1)
     assert lowering.result_width > sv_emitter.MAX_SCATTER_CHUNK_RESULT_BIT_UPDATES
 
-    first = emit_experimental(module)
-    second = emit_experimental(module)
+    first = emit(module)
+    second = emit(module)
 
     assert first == second
     assert first.count("zlang_scatter_chunk_helper_") >= 1
@@ -579,7 +572,7 @@ def test_scatter_wider_than_chunk_budget_uses_irreducible_single_write_chunks(
 def test_large_boolean_destination_decode_uses_structural_scatter(
     tmp_path: Path,
 ) -> None:
-    generated = emit_experimental(
+    generated = emit(
         compile_source(SCATTER_HIT_SOURCE, top="ScatterHit192").ir
     )
     assert "module zlang_scatter_structural_helper_" in generated
@@ -613,8 +606,8 @@ def test_public_wide_scatter_yosys_process_is_time_and_memory_bounded(
         SCATTER_12X4X4_SOURCE,
         top="Scatter12x4x4Witness",
     ).ir
-    generated = emit_experimental(module)
-    assert generated == emit_experimental(module)
+    generated = emit(module)
+    assert generated == emit(module)
     assert generated.count("always_comb begin") == 2
     assert generated.count("if (") == 1
     assert generated.count("contribution[") == 1
@@ -673,7 +666,7 @@ def test_region_loop_is_accepted_by_supported_sv_frontends(tmp_path: Path) -> No
         VecType(4, U8),
     )
     rtl = tmp_path / "FunctionalRegionEmission.sv"
-    rtl.write_text(emit_experimental(_module(region)), encoding="utf-8")
+    rtl.write_text(emit(_module(region)), encoding="utf-8")
     commands = (
         ("verilator", "--lint-only", "--timing", "-Wall", "-Wno-fatal", str(rtl)),
         ("yosys", "-q", "-p", f"read_verilog -sv {rtl}; hierarchy -check -top FunctionalRegionEmission"),
@@ -721,7 +714,7 @@ def test_scatter_rtl_matches_lsb_first_collision_and_range_semantics(
 
     rtl = tmp_path / "Scatter32.sv"
     rtl.write_text(
-        emit_experimental(module)
+        emit(module)
         + "\nmodule Scatter32Tb;\n"
         + "  logic valid;\n"
         + "  logic [3:0][5:0] addresses;\n"
@@ -742,6 +735,61 @@ def test_scatter_rtl_matches_lsb_first_collision_and_range_semantics(
         capture_output=True,
         text=True,
         timeout=30,
+    )
+    assert compiled.returncode == 0, compiled.stdout + compiled.stderr
+    simulated = subprocess.run(
+        ("vvp", str(executable)),
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert simulated.returncode == 0, simulated.stdout + simulated.stderr
+
+
+@pytest.mark.skipif(
+    shutil.which("iverilog") is None or shutil.which("vvp") is None,
+    reason="Icarus Verilog unavailable",
+)
+def test_public_wide_scatter_compiles_and_runs_with_icarus(tmp_path: Path) -> None:
+    module = compile_source(
+        SCATTER_12X4X4_SOURCE,
+        top="Scatter12x4x4Witness",
+    ).ir
+    rtl = tmp_path / "Scatter12x4x4Witness.sv"
+    rtl.write_text(emit(module), encoding="utf-8")
+    bench = tmp_path / "tb.sv"
+    bench.write_text(
+        "module tb;\n"
+        "  logic valid;\n"
+        "  logic [11:0][3:0][3:0][7:0] addresses;\n"
+        "  logic [11:0][3:0][3:0][7:0] values;\n"
+        "  logic [191:0] hit;\n"
+        "  logic [191:0][7:0] result;\n"
+        "  Scatter12x4x4Witness dut(.*);\n"
+        "  initial begin\n"
+        "    valid = 1'b0; addresses = '0; values = '1; #1;\n"
+        "    if (hit !== '0) $fatal(1, \"hit mismatch\");\n"
+        "    if (result !== '0) $fatal(1, \"result mismatch\");\n"
+        "    $finish;\n"
+        "  end\n"
+        "endmodule\n",
+        encoding="utf-8",
+    )
+    executable = tmp_path / "wide-scatter.vvp"
+    compiled = subprocess.run(
+        (
+            "iverilog",
+            "-g2012",
+            "-s",
+            "tb",
+            "-o",
+            str(executable),
+            str(rtl),
+            str(bench),
+        ),
+        capture_output=True,
+        text=True,
+        timeout=60,
     )
     assert compiled.returncode == 0, compiled.stdout + compiled.stderr
     simulated = subprocess.run(
@@ -835,7 +883,7 @@ def test_chunked_wide_scatter_matches_native_for_every_output_element(
         )
 
     rtl = tmp_path / "Scatter12x4x4Witness.sv"
-    rtl.write_text(emit_experimental(module), encoding="utf-8")
+    rtl.write_text(emit(module), encoding="utf-8")
     bench = tmp_path / "tb.sv"
     bench.write_text(
         "module tb;\n"

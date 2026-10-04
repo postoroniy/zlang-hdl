@@ -9,7 +9,7 @@ import subprocess
 
 import pytest
 
-from zlang.backend.systemverilog import emit_experimental
+from zlang.backend.systemverilog import emit
 from zlang.compiler import compile_source
 from zlang.formal import run_verilog_formal
 from zlang.ir.formal import FormalStatus
@@ -93,7 +93,7 @@ def test_direct_sv_atomic_transition_simulates() -> None:
     with TemporaryDirectory(prefix="zlang-atomic-sv-") as temporary:
         root = Path(temporary)
         rtl = root / "AtomicFifo.sv"
-        rtl.write_text(emit_experimental(module))
+        rtl.write_text(emit(module))
         _simulate([rtl], root)
 
 
@@ -103,7 +103,7 @@ def test_direct_sv_atomic_transition_simulates() -> None:
 
 @pytest.mark.skipif(not FORMAL, reason="Yosys, SymbiYosys, and Z3 are required")
 def test_safety_verification_combined_register_fifo_safety_executes() -> None:
-    rtl = emit_experimental(compile_source(SOURCE).ir)
+    rtl = emit(compile_source(SOURCE).ir)
     checks = r"""
   initial assume(rst);
   always @(posedge clk) if (!$initstate) begin

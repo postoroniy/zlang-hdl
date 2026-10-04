@@ -208,25 +208,6 @@ def validate_feature_claims(
     )
 
 
-def validate_plan_kinds(
-    module: Module,
-    *,
-    backend: str,
-    plan: str,
-    kinds: frozenset[ModuleFeatureKind],
-) -> ModuleFeatureInventory:
-    """Convenience preflight for a single-contributor emission plan."""
-
-    inventory = module_feature_inventory(module)
-    validate_feature_claims(
-        inventory,
-        claims_for_kinds(inventory, plan, kinds),
-        backend=backend,
-        plan=plan,
-    )
-    return inventory
-
-
 def _assignment_identity(index: int, assignment: object) -> str:
     target = getattr(getattr(assignment, "target", None), "name", "unknown")
     signal = getattr(getattr(assignment, "signal", None), "value", None)
@@ -468,5 +449,4 @@ __all__ = [
     "module_feature_groups",
     "unsupported_legacy_state_mix",
     "validate_feature_claims",
-    "validate_plan_kinds",
 ]

@@ -346,6 +346,10 @@ def test_credit_sender_is_lowered_to_primitive_counter_state(engine: str) -> Non
     encoded = json.dumps(program.plan.payload, sort_keys=True)
     assert '"op": "credit' not in encoded
     assert '"protocol"' not in encoded
+    assert "$zlang_protocol:tx:return" in {
+        port["name"] for port in program.plan.payload["ports"]
+    }
+    assert "CreditSignal" not in encoded
     with program.create() as instance:
         actual = []
         for values in cycles:

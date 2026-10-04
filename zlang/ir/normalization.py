@@ -256,7 +256,7 @@ def _call_counts(module: Module) -> Counter[str]:
                 return
             visited[id(value)] = value
         if isinstance(value, expr.Call):
-            identity = value.callee_identity or f"name:{value.function}"
+            identity = value.callee_identity
             # A local aggregate call projected at several fields is
             # represented by several traced Call nodes at ``name local``
             # references, but is one executable value and one materialized
@@ -322,9 +322,6 @@ class _Normalizer:
     ) -> None:
         definitions = (*module.functions, *module.callable_definitions)
         self.by_identity = {item.callee_identity: item for item in definitions}
-        self.by_name: dict[str, list[Function]] = {}
-        for item in definitions:
-            self.by_name.setdefault(item.name, []).append(item)
         self.call_counts = _call_counts(module)
         self.dependencies = {
             item.callee_identity: _parameter_dependencies(item.body)
@@ -358,11 +355,8 @@ class _Normalizer:
         )
 
     def resolve(self, call: expr.Call) -> Function | None:
-        if call.callee_identity is not None:
-            candidate = self.by_identity.get(call.callee_identity)
-            return candidate if candidate is not None and candidate.name == call.function else None
-        candidates = self.by_name.get(call.function, ())
-        return candidates[0] if len(candidates) == 1 else None
+        candidate = self.by_identity.get(call.callee_identity)
+        return candidate if candidate is not None and candidate.name == call.function else None
 
     def rewrite_expression(self, value: expr.Expression) -> expr.Expression:
         self.expression_requests += 1
@@ -459,13 +453,12 @@ class _Normalizer:
                 result = call
             else:
                 identity = definition.callee_identity
-                key = identity if call.callee_identity is not None else f"name:{call.function}"
                 parameter_independent = not (
                     self.dependencies[identity]
                     & {parameter.name for parameter in definition.parameters}
                 )
                 constant_arguments = all(isinstance(item, expr.Constant) for item in arguments)
-                single_use = self.call_counts[key] == 1
+                single_use = self.call_counts[identity] == 1
                 body_nodes = self.body_nodes[identity]
                 bounded_inline = (
                     single_use

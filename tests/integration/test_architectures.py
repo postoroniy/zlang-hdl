@@ -4,7 +4,7 @@ import unittest
 
 from zlang.cli import main
 from zlang.compiler import compile_source
-from zlang.opt import render
+from zlang.opt.render import render
 from zlang.native_simulation import simulate
 
 

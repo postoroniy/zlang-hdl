@@ -1,7 +1,8 @@
 from pathlib import Path
 
 from zlang.compiler import compile_source
-from zlang.opt import OptimizationStage, lower, restore
+from zlang.opt.ir import OptimizationStage
+from zlang.opt.lowering import lower, restore
 
 
 ROOT = Path(__file__).resolve().parents[2]

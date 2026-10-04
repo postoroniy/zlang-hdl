@@ -14,7 +14,8 @@ from tests.integration.test_80211a_ifft_library import (
 from zlang.backend.manifest import BackendArtifact
 from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
 from zlang.compiler import compile_file
-from zlang.opt import OptimizationStage, lower, restore
+from zlang.opt.ir import OptimizationStage
+from zlang.opt.lowering import lower, restore
 from zlang.ir.types import EnumType
 from zlang.native_simulation import PersistentNativeSimulationState, simulate_cycles
 from zlang.toolchain import lint_with_verilator

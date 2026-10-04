@@ -82,7 +82,7 @@ def test_fifo_instance_array_is_structural_deterministic_and_bound() -> None:
     assert restored.bindings == first.bindings
     assert restored.manifest_version == first.manifest_version
     assert [item.semantic_signal_id for item in restored.bindings] == [
-        "port:data", "port:push", "port:pop", "port:front", "clock", "reset"
+        "port:data", "port:front", "port:pop", "port:push", "clock", "reset"
     ]
 
 

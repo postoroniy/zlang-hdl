@@ -4,7 +4,7 @@ import pytest
 
 from zlang.compiler import compile_source
 from zlang.ir.formal_predicates import FormalPredicate
-from zlang.opt import lower, restore
+from zlang.opt.lowering import lower, restore
 from zlang.semantic import SemanticError
 
 

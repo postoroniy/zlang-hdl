@@ -154,11 +154,21 @@ def _wrap(timeline: _Timeline, owner: Any, attribute: str, name: str) -> None:
 
 def _instrument(timeline: _Timeline) -> None:
     import zlang.backend.systemverilog.emitter as emitter
+    import zlang.backend.systemverilog.materialized as sv_materialized
     import zlang.compilation_session as session
+    import zlang.compilation_selection as selection
+    import zlang.costs as costs
+    import zlang.implementation_plans as implementation_plans
+    import zlang.implementation_policy as implementation_policy
+    import zlang.ir.callables as ir_callables
     import zlang.ir.normalization as normalization
+    import zlang.opt.module_lowering as module_lowering
+    import zlang.opt.module_restoration as module_restoration
+    import zlang.opt.render as opt_render
     import zlang.pipeline_scheduling as scheduling
-    import zlang.simulation_plan as simulation_plan
     import zlang.simulation_plan_build as simulation_plan_build
+    import zlang.simulation_plan_codec as simulation_plan_codec
+    import zlang.simulation_plan_model as simulation_plan_model
     import zlang.workspace as workspace
     import zlang.module_resolver as module_resolver
     import zlang.parser.parser as parser_module
@@ -193,16 +203,21 @@ def _instrument(timeline: _Timeline) -> None:
             (
                 "analyze",
                 "inline_locals",
-                "normalize_implementation_policy",
-                "apply_external_region_exploration",
-                "extract_estimated_costs",
-                "lower",
-                "restore",
-                "render_canonical_identity",
-                "plan_backend_implementations",
-                "_canonical_round_trip_matches",
             ),
         ),
+        (selection, ("canonical_round_trip_matches",)),
+        (opt_render, ("render_identity",)),
+        (
+            implementation_policy,
+            (
+                "normalize_implementation_policy",
+                "apply_external_region_exploration",
+            ),
+        ),
+        (costs, ("extract_estimated_costs",)),
+        (module_lowering, ("lower",)),
+        (module_restoration, ("restore",)),
+        (implementation_plans, ("plan_backend_implementations",)),
         (scheduling, ("schedule_module_fixed_pipelines",)),
         (normalization, ("normalize_selected_values",)),
         (
@@ -211,20 +226,26 @@ def _instrument(timeline: _Timeline) -> None:
                 "_build_leaf_simulation_plan",
             ),
         ),
-        (simulation_plan, ("_identity_bytes", "_validate_plan_payload")),
+        (simulation_plan_model, ("identity_bytes",)),
+        (simulation_plan_codec, ("validate_plan_payload",)),
         (
             emitter,
+            ("emit",),
+        ),
+        (
+            sv_materialized,
+            ("_materialization_plan", "_materialized_emission"),
+        ),
+        (normalization, ("normalize_selected_values",)),
+        (
+            materialization,
             (
-                "emit",
-                "_materialization_plan",
-                "_materialized_emission",
+                "build_direct_sv_dag_plan",
                 "plan_materialization",
                 "dependency_ordered_materialization",
-                "normalize_selected_values",
-                "reachable_module_callables",
             ),
         ),
-        (materialization, ("build_direct_sv_dag_plan",)),
+        (ir_callables, ("reachable_module_callables",)),
         (
             workspace,
             (
@@ -239,7 +260,12 @@ def _instrument(timeline: _Timeline) -> None:
         for name in names:
             _wrap(timeline, owner, name, name)
     # Local imports in product builders resolve module attributes at call time.
-    _wrap(timeline, simulation_plan, "build_simulation_plan", "build_simulation_plan")
+    _wrap(
+        timeline,
+        simulation_plan_build,
+        "build_simulation_plan",
+        "build_simulation_plan",
+    )
     _wrap(
         timeline,
         workspace.ProjectWorkspace,
@@ -299,10 +325,21 @@ def _native(
 
 def _sv(timeline: _Timeline, source: Path, project: Path | None, top: str) -> None:
     import zlang.cli as cli
+    import zlang.cli_command as cli_command
     import zlang.backend.systemverilog.emitter as emitter
 
-    _wrap(timeline, cli, "compile_file_snapshot", "compile_file_snapshot")
-    _wrap(timeline, cli, "emit_systemverilog_artifact", "emit_systemverilog_artifact")
+    _wrap(
+        timeline,
+        cli_command.compiler_api,
+        "compile_file_snapshot",
+        "compile_file_snapshot",
+    )
+    _wrap(
+        timeline,
+        cli_command.sv_backend,
+        "emit_artifact",
+        "emit_systemverilog_artifact",
+    )
     _wrap(timeline, emitter, "emit_artifact", "emit_artifact")
     with tempfile.TemporaryDirectory(prefix="zlang-compile-profile-") as directory:
         output = Path(directory) / "profile.sv"

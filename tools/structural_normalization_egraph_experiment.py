@@ -27,7 +27,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from tests.structural.catalog import WITNESS_BY_SLUG
-from zlang.backend.systemverilog import emit_experimental
+from zlang.backend.systemverilog import emit
 from zlang.compiler import compile_source
 from zlang.ir import expressions as expr
 from zlang.ir.module import Assignment, Module, Port, PortDirection
@@ -308,8 +308,8 @@ def _experiment(slug: str, profile: str) -> dict[str, object]:
                 ),
             )
             selected_module = _module_for(selected, ports, module)
-            source_rtl = emit_experimental(source_module)
-            selected_rtl = emit_experimental(selected_module)
+            source_rtl = emit(source_module)
+            selected_rtl = emit(selected_module)
             records.append(
                 {
                     "source_identity": expression_semantic_identity(standalone),

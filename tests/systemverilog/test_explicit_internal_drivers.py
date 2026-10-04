@@ -5,7 +5,7 @@ import re
 
 import pytest
 
-from zlang.backend.systemverilog import emit_experimental
+from zlang.backend.systemverilog import emit
 from zlang.backend.systemverilog.composed import rv_fifo_helper
 from zlang.backend.systemverilog.target import _dsp48e1_simulation_model
 from zlang.compiler import compile_source
@@ -48,7 +48,7 @@ def _emit_example(example: str, *, top: str | None = None) -> str:
         (ROOT / "examples" / example).read_text(),
         top=top,
     ).ir
-    return emit_experimental(module)
+    return emit(module)
 
 
 def _assert_no_initialized_wires(text: str) -> None:
@@ -132,7 +132,7 @@ def test_production_internal_combinational_signals_have_explicit_drivers(
 
 def test_global_memory_mask_helpers_have_explicit_drivers() -> None:
     module = compile_source(GLOBAL_MASKED_MEMORY).ir
-    text = emit_experimental(module)
+    text = emit(module)
 
     _assert_no_initialized_wires(text)
     for signal in (
