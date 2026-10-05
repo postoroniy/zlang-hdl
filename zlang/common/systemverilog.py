@@ -7,6 +7,18 @@ so production, reference, and verification emitters cannot drift apart.
 
 from __future__ import annotations
 
+import re
+
+
+_UNSIGNED_DECIMAL_LITERAL_RE = re.compile(r"(\d+)'d(\d+)")
+
+
+def _resized_unsigned_decimal_literal(rendered: str, width: int) -> str | None:
+    match = _UNSIGNED_DECIMAL_LITERAL_RE.fullmatch(rendered)
+    if match is None:
+        return None
+    return f"{width}'d{int(match.group(2))}"
+
 
 def render_typed_resize(
     rendered: str,
@@ -26,6 +38,9 @@ def render_typed_resize(
         return f"({rendered})"
     if signed:
         return f"{target_width}'($signed({rendered}))"
+    literal = _resized_unsigned_decimal_literal(rendered, target_width)
+    if literal is not None:
+        return literal
     extension = target_width - source_width
     return f"{{{{{extension}{{1'b0}}}}, {rendered}}}"
 
