@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+from contextvars import ContextVar
 import re
 
 from zlang.ir import expressions as expr
@@ -11,6 +12,7 @@ from zlang.ir import packing as ir_packing
 from zlang.ir import interfaces as ir_interfaces
 from zlang.ir import storage as ir_storage
 from zlang.ir import types as ir_types
+from zlang.backend.expression_constant_folding import BackendConstantFolder
 from zlang.backend.systemverilog import context as emission_context
 from zlang.backend.systemverilog.syntax import sized_decimal as _sized_decimal
 from zlang.common.systemverilog import (
@@ -25,6 +27,24 @@ from zlang.ir import functional_regions as functional_regions
 
 from zlang.backend.systemverilog.errors import SystemVerilogEmissionError
 from zlang.backend.systemverilog import rendering as sv_rendering
+
+
+_CURRENT_CONSTANT_FOLDER: ContextVar[BackendConstantFolder | None] = ContextVar(
+    "zlang_systemverilog_constant_folder", default=None,
+)
+
+
+def _fold_for_render(expression: expr.Expression) -> expr.Expression:
+    folder = _CURRENT_CONSTANT_FOLDER.get()
+    if folder is not None:
+        return folder.fold(expression)
+    folder = BackendConstantFolder()
+    token = _CURRENT_CONSTANT_FOLDER.set(folder)
+    try:
+        return folder.fold(expression)
+    finally:
+        _CURRENT_CONSTANT_FOLDER.reset(token)
+
 
 def _compile_time_expression(expression: int | functional_regions.CompileTimeExpr) -> str:
     """Render exact binder arithmetic using Python-compatible floor semantics."""
@@ -260,6 +280,9 @@ def _fixed_convert(expression: expr.FixedConvert) -> str:
 
 
 def _expression(expression: expr.Expression) -> str:
+    folded = _fold_for_render(expression)
+    if folded is not expression:
+        return _expression(folded)
     if isinstance(expression, (expr.InputRef, expr.ParameterRef, expr.RegisterRef)):
         return sv_rendering._identifier(expression.name)
     if isinstance(expression, expr.InstanceOutputRef):
