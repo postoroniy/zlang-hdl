@@ -15,12 +15,13 @@ RELEASE_PREFLIGHT_REPORT ?= build/release-preflight.json
 EDITOR_VSIX ?= build/editor-release/zlang-hdl-0.1.0.vsix
 STRUCTURAL_PROFILE ?= small
 STRUCTURAL_REPORT_DIR ?= build/structural
+HOST_PR_CHECK_LOG ?= build/host-pr-check
 
 FAST_TEST_PATHS := \
 	tests/parser tests/semantic tests/conformance tests/editor \
 	tests/packaging tests/release
 
-.PHONY: help release-regressions release-preflight public-check static jit-check jit-audit jit-advisory-audit native-release-set audit release-tools test-fast test test-structural \
+.PHONY: help release-regressions release-preflight public-check static jit-check jit-audit jit-advisory-audit native-release-set audit release-tools host-pr-check test-fast test test-structural \
 	structural-baseline \
 	community-pdf-check test-release-twice editor-test editor-host-test package release-candidate
 
@@ -36,6 +37,7 @@ help:
 		'make native-release-set require the audited Linux native wheel' \
 		'make audit              run REUSE and Python dependency audits' \
 		'make release-tools      validate the pinned external-tool inventory' \
+		'make host-pr-check      run focused local PR checks into build/host-pr-check' \
 		'make test-fast          run the compiler/editor/package CI subset' \
 		'make test               run the complete parallel test suite' \
 		'make test-structural    run reduced structural correctness/tool gates' \
@@ -153,6 +155,28 @@ release-tools:
 	else
 		PYTHONPATH="$(CURDIR)" $(PYTHON) tools/release_status.py check --root . --check-tools --tag "$(TAG)"
 	fi
+
+host-pr-check:
+	mkdir -p "$(HOST_PR_CHECK_LOG)"
+	$(PYTHON) -m py_compile \
+		zlang/backend/expression_constant_folding.py \
+		zlang/backend/systemverilog/expression.py \
+		zlang/common/systemverilog.py \
+		> "$(HOST_PR_CHECK_LOG)/py_compile.log" 2>&1
+	$(PYTHON) -m ruff check --select E9,F63,F7,F82 \
+		zlang/backend/expression_constant_folding.py \
+		zlang/backend/systemverilog/expression.py \
+		zlang/common/systemverilog.py \
+		tests/backend/test_expression_constant_folding.py \
+		> "$(HOST_PR_CHECK_LOG)/ruff.log" 2>&1
+	$(PYTHON) -m pytest -q \
+		tests/backend/test_expression_constant_folding.py \
+		tests/test_expression_materialization.py \
+		tests/backend/test_functional_region_emission.py \
+		> "$(HOST_PR_CHECK_LOG)/focused-pytest.log" 2>&1
+	git diff --check \
+		> "$(HOST_PR_CHECK_LOG)/diff-check.log" 2>&1
+	@printf 'host-pr-check logs: %s\n' "$(HOST_PR_CHECK_LOG)"
 
 test-fast:
 	$(PYTHON) -m pytest -n "$(WORKERS)" --dist=loadscope -q $(FAST_TEST_PATHS)
