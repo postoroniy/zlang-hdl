@@ -1,8 +1,14 @@
 from pathlib import Path
 
 from zlang.compiler import compile_source
-from zlang.ir.expressions import FixedConvert, RuntimeIndex, Truncate, RegisterRef
-from zlang.ir.signed_reductions import ProductTermSign, recognize_signed_product_reduction
+from zlang.ir import (
+    FixedConvert,
+    ProductTermSign,
+    RuntimeIndex,
+    Truncate,
+    RegisterRef,
+    recognize_signed_product_reduction,
+)
 from zlang.parser import parse
 from zlang.semantic import analyze
 
@@ -12,10 +18,10 @@ ROOT = Path(__file__).resolve().parents[2]
 
 def test_exact_complex_real_pipeline_uses_current_packaged_dsp48_evidence() -> None:
     source = (
-        ROOT / "examples" / "fft" / "complex_multiply_implementation.zhl"
+        ROOT / "examples" / "fft" / "complex_multiply_pipeline_auto.zhl"
     ).read_text()
     result = compile_source(
-        source, top="FFTComplexMultiplyRealImplementation", target="xc7z030ffg676-1"
+        source, top="FFTComplexMultiplyRealAuto", target="xc7z030ffg676-1"
     )
     exploration = result.ir.pipeline_explorations[0]
     assert isinstance(exploration.source_expression, FixedConvert)

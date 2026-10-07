@@ -58,8 +58,13 @@ def discover_tool_inventory(
     which: Callable[[str], str | None] | None = None,
     runner: Callable[..., object] | None = None,
     version_timeout: int = 5,
+    require_truthy_path: bool = False,
 ) -> ToolInventory:
-    """Discover tools once while retaining caller-defined order and probes."""
+    """Discover tools once while retaining caller-defined order and probes.
+
+    ``require_truthy_path`` exists solely to preserve callers whose historical
+    discovery used truth-value checks rather than ``is not None`` checks.
+    """
 
     requested = tuple(names)
     if len(set(requested)) != len(requested):
@@ -77,7 +82,8 @@ def discover_tool_inventory(
     versions: list[tuple[str, str]] = []
     for name in requested:
         path = locate(name)
-        if not path:
+        found = bool(path) if require_truthy_path else path is not None
+        if not found:
             continue
         available.append(name)
         command = commands.get(name)

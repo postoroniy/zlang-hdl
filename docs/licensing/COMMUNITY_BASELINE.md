@@ -19,8 +19,8 @@ non-commercial hardware development under those applicable licenses.
 ## Production backend policy
 
 Direct SystemVerilog is the sole supported production RTL backend. ZLang
-semantics are defined by its typed semantic and timing contracts, independently
-of the generated backend text.
+semantics are defined by backend-independent typed IR and compiler-owned
+semantic and timing models.
 
 Clash was a pre-baseline experimental backend. It was retired before this
 baseline and is not part of the Community package, command-line interface,

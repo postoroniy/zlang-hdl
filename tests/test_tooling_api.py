@@ -354,7 +354,7 @@ def test_definition_projection_resolves_80211a_module_instance_targets(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import time
-    import zlang.tooling_session as tooling_session
+    import zlang.tooling as tooling
 
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
     monkeypatch.setenv("ZLANG_LSP_SYMBOL_CACHE", "persistent")
@@ -367,17 +367,17 @@ def test_definition_projection_resolves_80211a_module_instance_targets(
         "IeeeIFFTFramedOutputBoundary": project / "src/ifft.zhl",
     }
 
-    observations = importlib.import_module("zlang.semantic.observations")
+    semantic = importlib.import_module("zlang.semantic.analyze")
 
     def unexpected(*args: object, **kwargs: object) -> object:
         raise AssertionError(
             "completion metadata was collected by module definition_at"
         )
 
-    monkeypatch.setattr(observations, "record_completion_scope", unexpected)
-    monkeypatch.setattr(observations, "completion_candidates", unexpected)
-    monkeypatch.setattr(observations, "completion_function_detail", unexpected)
-    original = tooling_session.check_file_snapshot
+    monkeypatch.setattr(semantic, "_record_completion_scope", unexpected)
+    monkeypatch.setattr(semantic, "_completion_candidates", unexpected)
+    monkeypatch.setattr(semantic, "_completion_function_detail", unexpected)
+    original = tooling.check_file_snapshot
     calls = 0
 
     def observed(*args: object, **kwargs: object) -> object:
@@ -385,7 +385,7 @@ def test_definition_projection_resolves_80211a_module_instance_targets(
         calls += 1
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(tooling_session, "check_file_snapshot", observed)
+    monkeypatch.setattr(tooling, "check_file_snapshot", observed)
     session = ToolingSession()
 
     cold_started = time.perf_counter()
@@ -479,11 +479,11 @@ def test_definition_projection_resolves_80211a_connection_endpoints(
 ) -> None:
     """Cover live F12 on ``command -> packet_mapper.command`` and disk reuse."""
 
-    import zlang.tooling_session as tooling_session
+    import zlang.tooling as tooling
 
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
     monkeypatch.setenv("ZLANG_LSP_SYMBOL_CACHE", "persistent")
-    original = tooling_session.check_file_snapshot
+    original = tooling.check_file_snapshot
     calls = 0
 
     def observed(*args: object, **kwargs: object) -> object:
@@ -491,7 +491,7 @@ def test_definition_projection_resolves_80211a_connection_endpoints(
         calls += 1
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(tooling_session, "check_file_snapshot", observed)
+    monkeypatch.setattr(tooling, "check_file_snapshot", observed)
     project = Path("examples/projects/80211a_transmitter").resolve()
     source = project / "src/transmitter.zhl"
     text = source.read_text(encoding="utf-8")
@@ -620,7 +620,7 @@ def test_enum_boundary_diagnostic_distinguishes_direct_and_aggregate_types() -> 
 def test_definition_query_does_not_collect_completion_metadata(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    observations = importlib.import_module("zlang.semantic.observations")
+    semantic = importlib.import_module("zlang.semantic.analyze")
     source = tmp_path / "Top.zhl"
     text = (
         "fn inc(x:u8) -> u9 { x + 1 }\n"
@@ -631,9 +631,9 @@ def test_definition_query_does_not_collect_completion_metadata(
     def unexpected(*args: object, **kwargs: object) -> object:
         raise AssertionError("completion metadata was collected by definition_at")
 
-    monkeypatch.setattr(observations, "record_completion_scope", unexpected)
-    monkeypatch.setattr(observations, "completion_candidates", unexpected)
-    monkeypatch.setattr(observations, "completion_function_detail", unexpected)
+    monkeypatch.setattr(semantic, "_record_completion_scope", unexpected)
+    monkeypatch.setattr(semantic, "_completion_candidates", unexpected)
+    monkeypatch.setattr(semantic, "_completion_function_detail", unexpected)
 
     definition = definition_at(source, text, 1, text.splitlines()[1].index("inc"))
     assert isinstance(definition, ToolingDefinition)
@@ -643,21 +643,21 @@ def test_definition_query_does_not_collect_completion_metadata(
 def test_completion_query_still_collects_function_metadata(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    observations = importlib.import_module("zlang.semantic.observations")
+    semantic = importlib.import_module("zlang.semantic.analyze")
     source = tmp_path / "Top.zhl"
     text = (
         "fn inc(x:u8) -> u9 { x + 1 }\n"
         "module Top { in a:u8 out y:u9 y=inc(a) }\n"
     )
     source.write_text(text)
-    original = observations.record_completion_scope
+    original = semantic._completion_function_detail
     calls: list[str] = []
 
-    def observed(*args: object, **kwargs: object) -> None:
-        calls.append("scope")
+    def observed(*args: object, **kwargs: object) -> str:
+        calls.append("detail")
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(observations, "record_completion_scope", observed)
+    monkeypatch.setattr(semantic, "_completion_function_detail", observed)
     candidates = completion_at(source, text, 1, text.splitlines()[1].index("inc"))
     assert any(item.name == "inc" for item in candidates)
     assert calls
@@ -702,7 +702,7 @@ def test_tooling_session_reuses_and_upgrades_semantic_snapshots(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import zlang.tooling_session as tooling_session
+    import zlang.tooling as tooling
 
     source = tmp_path / "Top.zhl"
     text = (
@@ -710,7 +710,7 @@ def test_tooling_session_reuses_and_upgrades_semantic_snapshots(
         "module Top { in a:u8 out y:u9 y=inc(a) }\n"
     )
     source.write_text(text)
-    original = tooling_session.check_file_snapshot
+    original = tooling.check_file_snapshot
     calls = 0
     needs_seen: list[AnalysisNeeds] = []
 
@@ -720,7 +720,7 @@ def test_tooling_session_reuses_and_upgrades_semantic_snapshots(
         needs_seen.append(AnalysisNeeds(kwargs["analysis_needs"]))
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(tooling_session, "check_file_snapshot", observed)
+    monkeypatch.setattr(tooling, "check_file_snapshot", observed)
     session = ToolingSession()
     position = text.splitlines()[1].index("inc")
     assert definition_at(source, text, 1, position, _session=session) is not None
@@ -757,12 +757,12 @@ def test_tooling_session_retries_one_physical_snapshot_race(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import zlang.tooling_session as tooling_session
+    import zlang.tooling as tooling
 
     source = tmp_path / "Top.zhl"
     text = "module Top { out y:u8 y=1 }\n"
     source.write_text(text, encoding="utf-8")
-    original = tooling_session.check_file_snapshot
+    original = tooling.check_file_snapshot
     calls = 0
 
     def raced(*args: object, **kwargs: object) -> object:
@@ -774,7 +774,7 @@ def test_tooling_session_retries_one_physical_snapshot_race(
             )
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(tooling_session, "check_file_snapshot", raced)
+    monkeypatch.setattr(tooling, "check_file_snapshot", raced)
     result = ToolingSession().semantic_snapshot(source, text)
     assert result.ir.name == "Top"
     assert calls == 2
@@ -784,7 +784,7 @@ def test_tooling_session_invalidation_for_changed_root_and_dependency(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import zlang.tooling_session as tooling_session
+    import zlang.tooling as tooling
 
     root = _project(tmp_path)
     dependency = root / "src/dep.zhl"
@@ -797,7 +797,7 @@ def test_tooling_session_invalidation_for_changed_root_and_dependency(
     top.write_text(text)
     update_project_lock(root / "zlang.toml")
 
-    original = tooling_session.check_file_snapshot
+    original = tooling.check_file_snapshot
     calls = 0
 
     def observed(*args: object, **kwargs: object) -> object:
@@ -805,7 +805,7 @@ def test_tooling_session_invalidation_for_changed_root_and_dependency(
         calls += 1
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(tooling_session, "check_file_snapshot", observed)
+    monkeypatch.setattr(tooling, "check_file_snapshot", observed)
     session = ToolingSession()
     position = text.splitlines()[1].index("inc")
     assert definition_at(top, text, 1, position, _session=session) is not None
@@ -833,7 +833,7 @@ def test_symbol_cache_survives_semantic_lru_eviction(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import zlang.tooling_session as tooling_session
+    import zlang.tooling as tooling
 
     monkeypatch.setenv("ZLANG_LSP_SYMBOL_CACHE", "memory")
     source = tmp_path / "Root.zhl"
@@ -842,7 +842,7 @@ def test_symbol_cache_survives_semantic_lru_eviction(
         "module Root { in a:u8 out y:u9 y=inc(a) }\n"
     )
     source.write_text(text, encoding="utf-8")
-    original = tooling_session.check_file_snapshot
+    original = tooling.check_file_snapshot
     calls = 0
 
     def observed(*args: object, **kwargs: object) -> object:
@@ -850,7 +850,7 @@ def test_symbol_cache_survives_semantic_lru_eviction(
         calls += 1
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(tooling_session, "check_file_snapshot", observed)
+    monkeypatch.setattr(tooling, "check_file_snapshot", observed)
     session = ToolingSession()
     position = text.splitlines()[1].index("inc")
     assert definition_at(source, text, 1, position, _session=session) is not None
@@ -879,8 +879,7 @@ def test_persistent_symbol_cache_reuses_saved_project_after_session_restart(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import zlang.tooling_session as tooling_session
-    import zlang.tooling_symbol_cache as tooling_symbol_cache
+    import zlang.tooling as tooling
 
     cache_root = tmp_path / "cache"
     monkeypatch.setenv("XDG_CACHE_HOME", str(cache_root))
@@ -892,7 +891,7 @@ def test_persistent_symbol_cache_reuses_saved_project_after_session_restart(
     text = "import demo.dep\nmodule Top { in a:u8 out y:u9 y=inc(a) }\n"
     top.write_text(text, encoding="utf-8")
     update_project_lock(root / "zlang.toml")
-    original = tooling_session.check_file_snapshot
+    original = tooling.check_file_snapshot
     calls = 0
 
     def observed(*args: object, **kwargs: object) -> object:
@@ -900,7 +899,7 @@ def test_persistent_symbol_cache_reuses_saved_project_after_session_restart(
         calls += 1
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(tooling_session, "check_file_snapshot", observed)
+    monkeypatch.setattr(tooling, "check_file_snapshot", observed)
     position = text.splitlines()[1].index("inc")
     cold = definition_at(top, text, 1, position, _session=ToolingSession())
     assert cold is not None
@@ -909,7 +908,7 @@ def test_persistent_symbol_cache_reuses_saved_project_after_session_restart(
     warm = definition_at(top, text, 1, position, _session=ToolingSession())
     assert warm == cold
     assert calls == 1
-    shards = tuple(tooling_symbol_cache._symbol_cache_root().rglob("*.json"))
+    shards = tuple(tooling._symbol_cache_root().rglob("*.json"))
     assert len(shards) == 1
     encoded = shards[0].read_text(encoding="utf-8")
     assert str(tmp_path) not in encoded
@@ -922,7 +921,7 @@ def test_persistent_symbol_cache_uses_content_not_timestamps(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import os
-    import zlang.tooling_session as tooling_session
+    import zlang.tooling as tooling
 
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
     monkeypatch.setenv("ZLANG_LSP_SYMBOL_CACHE", "persistent")
@@ -935,7 +934,7 @@ def test_persistent_symbol_cache_uses_content_not_timestamps(
     text = "import demo.dep\nmodule Top { in a:u8 out y:u9 y=inc(a) }\n"
     top.write_text(text, encoding="utf-8")
     update_project_lock(root / "zlang.toml")
-    original = tooling_session.check_file_snapshot
+    original = tooling.check_file_snapshot
     calls = 0
 
     def observed(*args: object, **kwargs: object) -> object:
@@ -943,7 +942,7 @@ def test_persistent_symbol_cache_uses_content_not_timestamps(
         calls += 1
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(tooling_session, "check_file_snapshot", observed)
+    monkeypatch.setattr(tooling, "check_file_snapshot", observed)
     position = text.splitlines()[1].index("inc")
     assert definition_at(top, text, 1, position, _session=ToolingSession())
     os.utime(top, None)
@@ -962,7 +961,7 @@ def test_unsaved_and_corrupt_symbol_cache_fail_safe(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import zlang.tooling_session as tooling_session
+    import zlang.tooling as tooling
 
     cache_root = tmp_path / "cache"
     monkeypatch.setenv("XDG_CACHE_HOME", str(cache_root))
@@ -988,7 +987,7 @@ def test_unsaved_and_corrupt_symbol_cache_fail_safe(
     assert definition_at(top, saved, 1, position, _session=ToolingSession())
     shard = next(iter((cache_root / "zlang-hdl/lsp").rglob("*.json")))
     shard.write_text("{broken", encoding="utf-8")
-    original = tooling_session.check_file_snapshot
+    original = tooling.check_file_snapshot
     calls = 0
 
     def observed(*args: object, **kwargs: object) -> object:
@@ -996,7 +995,7 @@ def test_unsaved_and_corrupt_symbol_cache_fail_safe(
         calls += 1
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(tooling_session, "check_file_snapshot", observed)
+    monkeypatch.setattr(tooling, "check_file_snapshot", observed)
     assert definition_at(top, saved, 1, position, _session=ToolingSession())
     assert calls == 1
 
@@ -1005,8 +1004,7 @@ def test_symbol_cache_modes_and_recipe_identity(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import zlang.tooling_session as tooling_session
-    import zlang.tooling_symbol_cache as tooling_symbol_cache
+    import zlang.tooling as tooling
 
     cache_root = tmp_path / "cache"
     monkeypatch.setenv("XDG_CACHE_HOME", str(cache_root))
@@ -1017,7 +1015,7 @@ def test_symbol_cache_modes_and_recipe_identity(
     text = "module Top { in a:u8 out y:u8 y=a }\n"
     top.write_text(text, encoding="utf-8")
     update_project_lock(root / "zlang.toml")
-    original = tooling_session.check_file_snapshot
+    original = tooling.check_file_snapshot
     calls = 0
 
     def observed(*args: object, **kwargs: object) -> object:
@@ -1025,7 +1023,7 @@ def test_symbol_cache_modes_and_recipe_identity(
         calls += 1
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(tooling_session, "check_file_snapshot", observed)
+    monkeypatch.setattr(tooling, "check_file_snapshot", observed)
     position = text.index("a", text.index("y=a"))
     session = ToolingSession()
     assert definition_at(top, text, 0, position, _session=session)
@@ -1041,9 +1039,7 @@ def test_symbol_cache_modes_and_recipe_identity(
     assert calls == 3
 
     monkeypatch.setattr(
-        tooling_symbol_cache,
-        "SYMBOL_CACHE_SCHEMA",
-        tooling_symbol_cache.SYMBOL_CACHE_SCHEMA + 1,
+        tooling, "SYMBOL_CACHE_SCHEMA", tooling.SYMBOL_CACHE_SCHEMA + 1
     )
     assert definition_at(top, text, 0, position, _session=ToolingSession())
     assert calls == 4
@@ -1053,7 +1049,7 @@ def test_symbol_cache_manifest_lock_and_symlink_invalidation(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import zlang.tooling_session as tooling_session
+    import zlang.tooling as tooling
 
     cache_root = tmp_path / "cache"
     monkeypatch.setenv("XDG_CACHE_HOME", str(cache_root))
@@ -1063,7 +1059,7 @@ def test_symbol_cache_manifest_lock_and_symlink_invalidation(
     text = "module Top { in a:u8 out y:u8 y=a }\n"
     top.write_text(text, encoding="utf-8")
     update_project_lock(root / "zlang.toml")
-    original = tooling_session.check_file_snapshot
+    original = tooling.check_file_snapshot
     calls = 0
 
     def observed(*args: object, **kwargs: object) -> object:
@@ -1071,7 +1067,7 @@ def test_symbol_cache_manifest_lock_and_symlink_invalidation(
         calls += 1
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(tooling_session, "check_file_snapshot", observed)
+    monkeypatch.setattr(tooling, "check_file_snapshot", observed)
     position = text.index("a", text.index("y=a"))
     assert definition_at(top, text, 0, position, _session=ToolingSession())
     assert calls == 1
@@ -1109,7 +1105,7 @@ def test_symbol_cache_gc_uses_age_only_for_collection(
 ) -> None:
     import os
     import time
-    import zlang.tooling_symbol_cache as tooling_symbol_cache
+    import zlang.tooling as tooling
 
     root = tmp_path / "symbol-v1"
     namespace = root / "namespace"
@@ -1124,8 +1120,8 @@ def test_symbol_cache_gc_uses_age_only_for_collection(
         item.write_text("{}", encoding="utf-8")
         os.utime(item, (now - 30 + index,) * 2)
         recent.append(item)
-    monkeypatch.setattr(tooling_symbol_cache, "_SYMBOL_DISK_MAX_ENTRIES", 2)
-    tooling_symbol_cache._garbage_collect_symbol_cache(root)
+    monkeypatch.setattr(tooling, "_SYMBOL_DISK_MAX_ENTRIES", 2)
+    tooling._garbage_collect_symbol_cache(root)
     assert not old.exists()
     assert not recent[0].exists()
     assert recent[1].exists()
@@ -1138,7 +1134,7 @@ def test_symbol_cache_concurrent_publication_is_atomic_and_deterministic(
 ) -> None:
     from concurrent.futures import ThreadPoolExecutor
     import json
-    import zlang.tooling_symbol_cache as tooling_symbol_cache
+    import zlang.tooling as tooling
 
     cache_root = tmp_path / "cache"
     monkeypatch.setenv("XDG_CACHE_HOME", str(cache_root))
@@ -1154,15 +1150,13 @@ def test_symbol_cache_concurrent_publication_is_atomic_and_deterministic(
         text,
         analysis_needs=AnalysisNeeds.DEFINITIONS,
     )
-    _, payload = tooling_symbol_cache._normalized_symbol_payload(
-        top, result, session
-    )
+    _, payload = tooling._normalized_symbol_payload(top, result, session)
     shard = next(iter(cache_root.rglob("*.json")))
     expected = shard.read_bytes()
     shard.unlink()
 
     def publish(_: int) -> None:
-        tooling_symbol_cache._publish_persistent_symbol_snapshot(
+        tooling._publish_persistent_symbol_snapshot(
             top,
             text,
             payload,
@@ -1414,7 +1408,7 @@ def test_references_projection_collects_exact_project_type_occurrences(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import zlang.tooling_session as tooling_session
+    import zlang.tooling as tooling
 
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
     monkeypatch.setenv("ZLANG_LSP_SYMBOL_CACHE", "persistent")
@@ -1429,7 +1423,7 @@ def test_references_projection_collects_exact_project_type_occurrences(
     position = (
         text.splitlines()[line].index("WifiSampleMeta") + len("WifiSampleMeta")
     )
-    original = tooling_session.check_file_snapshot
+    original = tooling.check_file_snapshot
     calls = 0
     compiled_roots: list[tuple[str, object]] = []
 
@@ -1439,7 +1433,7 @@ def test_references_projection_collects_exact_project_type_occurrences(
         compiled_roots.append((str(args[0]), kwargs.get("top")))
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(tooling_session, "check_file_snapshot", observed)
+    monkeypatch.setattr(tooling, "check_file_snapshot", observed)
     references = references_at(
         source,
         text,
@@ -1534,7 +1528,6 @@ def test_project_reference_root_bound_fails_before_partial_scan(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import zlang.tooling as tooling
-    import zlang.tooling_navigation as tooling_navigation
 
     manifest = tmp_path / "zlang.toml"
     location = tooling.ProjectLocation(manifest, tmp_path, tmp_path)
@@ -1543,23 +1536,15 @@ def test_project_reference_root_bound_fails_before_partial_scan(
             f"demo.root_{index}", tmp_path / f"root_{index}.zhl",
             ("demo.dep",), True,
         )
-        for index in range(tooling_navigation._REFERENCE_MAX_PROJECT_ROOTS + 1)
+        for index in range(tooling._REFERENCE_MAX_PROJECT_ROOTS + 1)
     )
     index = tooling.WorkspaceIndex(manifest, tmp_path, roots, (
         tooling.WorkspaceModule("demo.dep", tmp_path / "dep.zhl", (), False),
     ))
-    monkeypatch.setattr(
-        tooling_navigation.tooling_workspace,
-        "discover_project",
-        lambda _source: location,
-    )
-    monkeypatch.setattr(
-        tooling_navigation.tooling_workspace,
-        "workspace_index",
-        lambda _manifest: index,
-    )
+    monkeypatch.setattr(tooling, "discover_project", lambda _source: location)
+    monkeypatch.setattr(tooling, "workspace_index", lambda _manifest: index)
     with pytest.raises(ToolingError, match="root candidate limit exceeded"):
-        tooling_navigation._project_reference_compilations(
+        tooling._project_reference_compilations(
             tmp_path / "dep.zhl", "", SimpleNamespace(source_unit="demo.dep"),
             "Leaf",
         )
@@ -1568,7 +1553,7 @@ def test_project_reference_root_bound_fails_before_partial_scan(
 def test_project_reference_source_change_fails_instead_of_publishing_stale_use(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import zlang.tooling_queries as tooling_queries
+    import zlang.tooling as tooling
 
     root = _project(tmp_path)
     dependency = root / "src/dep.zhl"
@@ -1579,7 +1564,7 @@ def test_project_reference_source_change_fails_instead_of_publishing_stale_use(
         encoding="utf-8",
     )
     update_project_lock(root / "zlang.toml")
-    original = tooling_queries._definition_snapshot
+    original = tooling._definition_snapshot
 
     def changed_after_analysis(source: Path, text: str, **kwargs: object) -> object:
         result = original(source, text, **kwargs)
@@ -1587,11 +1572,7 @@ def test_project_reference_source_change_fails_instead_of_publishing_stale_use(
             top.write_text(text + "// changed after prefilter\n", encoding="utf-8")
         return result
 
-    monkeypatch.setattr(
-        tooling_queries,
-        "_definition_snapshot",
-        changed_after_analysis,
-    )
+    monkeypatch.setattr(tooling, "_definition_snapshot", changed_after_analysis)
     text = dependency.read_text(encoding="utf-8")
     with pytest.raises(ToolingError, match="changed during lookup"):
         references_at(

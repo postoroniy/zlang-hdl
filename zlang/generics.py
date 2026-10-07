@@ -18,6 +18,13 @@ GENERIC_SPECIALIZATION_SCHEMA = "zlang-generic-specialization-v2"
 
 
 @dataclass(frozen=True)
+class GenericParameter:
+    name: str
+    kind: str
+    default: int | str | None = None
+
+
+@dataclass(frozen=True)
 class GenericArgument:
     name: str
     kind: str
@@ -29,6 +36,25 @@ class GenericArgument:
     @property
     def canonical(self) -> str:
         return str(self.value)
+
+
+@dataclass(frozen=True)
+class GenericSubstitution:
+    arguments: tuple[GenericArgument, ...]
+
+    def type_bindings(self) -> dict[str, HardwareType]:
+        return {
+            item.name: item.value
+            for item in self.arguments
+            if item.kind == "type"
+        }  # type: ignore[return-value]
+
+    def value_bindings(self) -> dict[str, int]:
+        return {
+            item.name: item.value
+            for item in self.arguments
+            if item.kind == "value"
+        }  # type: ignore[return-value]
 
 
 @dataclass(frozen=True)

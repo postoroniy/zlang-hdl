@@ -2,31 +2,54 @@ SHELL := /bin/bash
 .ONESHELL:
 .SHELLFLAGS := -eu -o pipefail -c
 
-PYTHON ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python)
-PYTHON_SCRIPTS ?= $(shell $(PYTHON) -c 'import sysconfig; print(sysconfig.get_path("scripts"))')
+VENV ?= $(CURDIR)/.venv
+VENV := $(abspath $(VENV))
+PYTHON := $(VENV)/bin/python
+PYTHON_SCRIPTS := $(VENV)/bin
+TMP_ROOT ?= $(CURDIR)/build/tmp
+LOCAL_RUNNER := $(CURDIR)/tools/run_local_env.sh
+RUN_PYTHON = ZLANG_VENV="$(VENV)" "$(LOCAL_RUNNER)" --purpose "$(1)" -- "$(PYTHON)"
 CARGO_AUDIT ?= cargo-audit
 CARGO_AUDIT_VERSION ?= 0.22.2
+SETUPTOOLS_VERSION ?= 84.0.0
+RUFF_VERSION ?= 0.12.12
+PIP_AUDIT_VERSION ?= 2.10.1
+REUSE_VERSION ?= 5.1.1
+TWINE_VERSION ?= 6.2.0
+RELEASE_PYTHON_TOOLS := \
+	"pip-audit==$(PIP_AUDIT_VERSION)" \
+	"reuse==$(REUSE_VERSION)" \
+	"ruff==$(RUFF_VERSION)" \
+	"twine==$(TWINE_VERSION)"
 WORKERS ?= 16
 BUILD_ROOT ?= build/local-release
 DIST_DIR ?= $(BUILD_ROOT)/dist
-TAG ?= v$(shell $(PYTHON) -c 'from zlang._version import __version__; print(__version__)')
+TAG ?= v$(shell if test -x "$(PYTHON)"; then "$(PYTHON)" -c 'from zlang._version import __version__; print(__version__)'; else printf unknown; fi)
 PREVIOUS_TAG ?= $(shell git describe --tags --abbrev=0 HEAD)
 RELEASE_PREFLIGHT_REPORT ?= build/release-preflight.json
 EDITOR_VSIX ?= build/editor-release/zlang-hdl-0.1.0.vsix
 STRUCTURAL_PROFILE ?= small
 STRUCTURAL_REPORT_DIR ?= build/structural
-HOST_PR_CHECK_LOG ?= build/host-pr-check
 
 FAST_TEST_PATHS := \
 	tests/parser tests/semantic tests/conformance tests/editor \
 	tests/packaging tests/release
 
-.PHONY: help release-regressions release-preflight public-check static jit-check jit-audit jit-advisory-audit native-release-set audit release-tools host-pr-check test-fast test test-structural \
+.PHONY: help venv env-check release-review-clean release-review release-regressions release-preflight public-check static jit-check jit-audit jit-advisory-audit native-release-set native-release-install audit release-tools test-fast test test-structural \
 	structural-baseline \
 	community-pdf-check test-release-twice editor-test editor-host-test package release-candidate
 
+LOCAL_ENV_TARGETS := \
+	release-regressions release-preflight public-check static jit-check jit-audit \
+	jit-advisory-audit native-release-set native-release-install audit release-tools test-fast test \
+	test-structural structural-baseline community-pdf-check test-release-twice \
+	editor-test editor-host-test release-review release-candidate
+
+$(LOCAL_ENV_TARGETS): env-check
+
 help:
 	@printf '%s\n' \
+		'make release-review     validate a clean public review branch before merge' \
 		'make release-regressions validate fix inclusion and permanent regression selectors' \
 		'make release-preflight  bind version, tag, Git tree and release artifacts' \
 		'make public-check       validate the public projection and release metadata' \
@@ -35,9 +58,9 @@ help:
 		'make jit-audit          audit locked native sources/licenses and optional wheel' \
 		'make jit-advisory-audit audit locked native crates with pinned cargo-audit' \
 		'make native-release-set require the audited Linux native wheel' \
+		'make native-release-install install the audited release wheel into this worktree venv' \
 		'make audit              run REUSE and Python dependency audits' \
 		'make release-tools      validate the pinned external-tool inventory' \
-		'make host-pr-check      run focused local PR checks into build/host-pr-check' \
 		'make test-fast          run the compiler/editor/package CI subset' \
 		'make test               run the complete parallel test suite' \
 		'make test-structural    run reduced structural correctness/tool gates' \
@@ -49,15 +72,62 @@ help:
 		'make package            build one sdist and two byte-identical wheels' \
 		'make release-candidate  run the local non-publishing release gate'
 
+venv:
+	mkdir -p "$(TMP_ROOT)"
+	run_tmp="$$(mktemp -d "$(TMP_ROOT)/venv.XXXXXX")"
+	trap 'rm -rf -- "$$run_tmp"' EXIT
+	export TMPDIR="$$run_tmp" TMP="$$run_tmp" TEMP="$$run_tmp" PYTHONNOUSERSITE=1
+	if [[ ! -x "$(PYTHON)" ]]; then
+		if command -v uv >/dev/null; then
+			uv venv --python 3.12 "$(VENV)"
+		else
+			python3 -c 'import sys; assert (3, 12) <= sys.version_info < (3, 13), sys.version'
+			python3 -m venv "$(VENV)"
+		fi
+	fi
+	# Install the exact build backend first: a newly created Python venv is not
+	# guaranteed to include setuptools, while the editable install below avoids
+	# a separate build-isolation environment.
+	if command -v uv >/dev/null; then
+		uv pip install --python "$(PYTHON)" "setuptools==$(SETUPTOOLS_VERSION)"
+		uv pip install --python "$(PYTHON)" -e '.[test]' $(RELEASE_PYTHON_TOOLS)
+	else
+		"$(PYTHON)" -m pip install --disable-pip-version-check "setuptools==$(SETUPTOOLS_VERSION)"
+		"$(PYTHON)" -m pip install --disable-pip-version-check --no-build-isolation -e '.[test]' $(RELEASE_PYTHON_TOOLS)
+	fi
+
+env-check:
+	if [[ ! -x "$(PYTHON)" ]]; then
+		echo "missing local virtual environment: run 'make venv' in $(CURDIR)" >&2
+		exit 2
+	fi
+	if [[ -n "$${VIRTUAL_ENV:-}" ]] && [[ "$$(cd "$${VIRTUAL_ENV}" && pwd -P)" != "$$(cd "$(VENV)" && pwd -P)" ]]; then
+		echo "active VIRTUAL_ENV is not this worktree: deactivate; make venv; source .venv/bin/activate" >&2
+		exit 2
+	fi
+	"$(PYTHON)" tools/check_local_environment.py --root "$(CURDIR)" --venv "$(VENV)"
+
+# This is deliberately usable on a reviewed public branch. Candidate mode
+# additionally requires exact protected origin/main and therefore runs only
+# after merge.
+release-review-clean:
+	if ! git diff --quiet || ! git diff --cached --quiet || \
+		[[ -n "$$(git ls-files --others --exclude-standard)" ]]; then \
+		echo 'release review requires a clean committed public checkout' >&2; \
+		exit 2; \
+	fi
+
+release-review: release-review-clean release-regressions community-pdf-check public-check static test-release-twice
+
 release-regressions:
-	PYTHONPATH="$(CURDIR)" $(PYTHON) tools/release_regressions.py \
+	PYTHONPATH="$(CURDIR)" $(call RUN_PYTHON,release-regressions) tools/release_regressions.py \
 		--root . \
 		--release "$(patsubst v%,%,$(TAG))" \
 		--previous-tag "$(PREVIOUS_TAG)"
 
 release-preflight: release-regressions
 	mkdir -p "$(dir $(RELEASE_PREFLIGHT_REPORT))"
-	PYTHONPATH="$(CURDIR)" $(PYTHON) tools/release_preflight.py \
+	PYTHONPATH="$(CURDIR)" $(call RUN_PYTHON,release-preflight) tools/release_preflight.py \
 		--root . \
 		--tag "$(TAG)" \
 		--previous-tag "$(PREVIOUS_TAG)" \
@@ -66,21 +136,23 @@ release-preflight: release-regressions
 		--output "$(RELEASE_PREFLIGHT_REPORT)"
 
 public-check:
+	mkdir -p "$(TMP_ROOT)"
 	if [[ -f tools/public_tree.py ]]; then
-		public_root="$$(mktemp -d "$${TMPDIR:-/tmp}/zlang-public-check.XXXXXX")"
+		public_root="$$(mktemp -d "$(TMP_ROOT)/public-check.XXXXXX")"
 		trap 'rm -rf -- "$$public_root"' EXIT
-		PYTHONPATH="$(CURDIR)" $(PYTHON) tools/public_tree.py export --source . --destination "$$public_root"
-		PYTHONPATH="$$public_root" $(PYTHON) tools/public_tree.py check-export --source "$$public_root" --config "$(CURDIR)/release/public-tree.toml"
-		PYTHONPATH="$$public_root" $(PYTHON) "$$public_root/tools/release_status.py" check --root "$$public_root" --tag "$(TAG)"
+		PYTHONPATH="$(CURDIR)" $(call RUN_PYTHON,public-check) tools/public_tree.py export --source . --destination "$$public_root"
+		PYTHONPATH="$$public_root" $(call RUN_PYTHON,public-check) tools/public_tree.py check-export --source "$$public_root" --config "$(CURDIR)/release/public-tree.toml"
+		PYTHONPATH="$$public_root" $(call RUN_PYTHON,public-check) "$$public_root/tools/release_status.py" check --root "$$public_root" --tag "$(TAG)"
 	else
-		PYTHONPATH="$(CURDIR)" $(PYTHON) tools/release_status.py check --root . --tag "$(TAG)"
+		PYTHONPATH="$(CURDIR)" $(call RUN_PYTHON,public-check) tools/release_status.py check --root . --tag "$(TAG)"
 	fi
 
 static:
-	$(PYTHON) -m ruff check zlang tests tools
-	$(PYTHON) -m ruff check --select ARG001,ARG002 zlang
-	$(PYTHON) tools/python_source_audit.py zlang
-	$(PYTHON) -m compileall -q zlang tests tools
+	$(call RUN_PYTHON,static-ruff) -m ruff check zlang tests tools
+	$(call RUN_PYTHON,static-ruff-args) -m ruff check --select ARG001,ARG002 zlang
+	$(call RUN_PYTHON,static-source-audit) tools/python_source_audit.py zlang
+	$(call RUN_PYTHON,static-workflow-env) tools/audit_workflow_local_env.py --root .
+	$(call RUN_PYTHON,static-compileall) -m compileall -q zlang tests tools
 	git diff --check
 	git diff --cached --check
 
@@ -91,7 +163,7 @@ jit-check:
 		cargo test --locked
 		cargo clippy --locked --all-targets -- -D warnings
 	else
-		$(PYTHON) -c 'import _zlang_native_sim as runtime; from zlang.simulation_plan import SIMULATION_RUNTIME_ABI as expected; assert runtime.runtime_abi() == expected'
+		$(call RUN_PYTHON,jit-check) -c 'import _zlang_native_sim as runtime; from zlang.simulation_plan import SIMULATION_RUNTIME_ABI as expected; assert runtime.runtime_abi() == expected'
 	fi
 
 jit-audit:
@@ -100,7 +172,7 @@ jit-audit:
 		if [[ -n "$${ZLANG_NATIVE_RUNTIME_WHEEL:-}" ]]; then
 			arguments+=(--wheel "$$ZLANG_NATIVE_RUNTIME_WHEEL")
 		fi
-		$(PYTHON) -m tools.audit_native_runtime "$${arguments[@]}"
+		$(call RUN_PYTHON,jit-audit) -m tools.audit_native_runtime "$${arguments[@]}"
 	else
 		wheel="$${ZLANG_NATIVE_RUNTIME_WHEEL:-}"
 		if [[ -z "$$wheel" ]]; then
@@ -109,7 +181,7 @@ jit-audit:
 			wheel="$${wheels[0]}"
 		fi
 		version="$(TAG)"
-		$(PYTHON) tools/audit_native_binary.py --expected-version "$${version#v}" "$$wheel"
+		$(call RUN_PYTHON,jit-audit) tools/audit_native_binary.py --expected-version "$${version#v}" "$$wheel"
 	fi
 
 jit-advisory-audit:
@@ -129,77 +201,67 @@ native-release-set:
 	mapfile -t wheels < <(find release/native-wheels -maxdepth 1 \
 		-type f -name 'zlang_native_sim-*.whl' -print | sort)
 	version="$(TAG)"
-	$(PYTHON) tools/audit_native_binary.py --expected-version "$${version#v}" \
+	$(call RUN_PYTHON,native-release-set) tools/audit_native_binary.py --expected-version "$${version#v}" \
 		--require-release-platforms "$${wheels[@]}"
 
+native-release-install: native-release-set
+	mapfile -t wheels < <(find release/native-wheels -maxdepth 1 \
+		-type f -name 'zlang_native_sim-*.whl' -print | sort)
+	test "$${#wheels[@]}" -eq 1 && test -f "$${wheels[0]}"
+	$(call RUN_PYTHON,native-release-install) -m pip install --disable-pip-version-check \
+		--force-reinstall --no-deps "$${wheels[0]}"
+
 audit:
+	mkdir -p "$(TMP_ROOT)"
 	if [[ -f tools/public_tree.py ]]; then
-		public_root="$$(mktemp -d "$${TMPDIR:-/tmp}/zlang-public-audit.XXXXXX")"
+		public_root="$$(mktemp -d "$(TMP_ROOT)/public-audit.XXXXXX")"
 		trap 'rm -rf -- "$$public_root"' EXIT
-		$(PYTHON) tools/public_tree.py export --source . --destination "$$public_root"
-		$(PYTHON) -m reuse --root "$$public_root" lint
-		$(PYTHON) -m pip_audit "$$public_root" --progress-spinner off
+		$(call RUN_PYTHON,audit) tools/public_tree.py export --source . --destination "$$public_root"
+		$(call RUN_PYTHON,audit) -m reuse --root "$$public_root" lint
+		$(call RUN_PYTHON,audit) -m pip_audit "$$public_root" --progress-spinner off
 	else
-		$(PYTHON) -m reuse --root . lint
-		$(PYTHON) -m pip_audit . --progress-spinner off
+		$(call RUN_PYTHON,audit) -m reuse --root . lint
+		$(call RUN_PYTHON,audit) -m pip_audit . --progress-spinner off
 	fi
 
 release-tools:
+	mkdir -p "$(TMP_ROOT)"
 	export PATH="$(PYTHON_SCRIPTS):$$PATH"
 	if [[ -f tools/public_tree.py ]]; then
-		public_root="$$(mktemp -d "$${TMPDIR:-/tmp}/zlang-public-tools.XXXXXX")"
+		public_root="$$(mktemp -d "$(TMP_ROOT)/public-tools.XXXXXX")"
 		trap 'rm -rf -- "$$public_root"' EXIT
-		PYTHONPATH="$(CURDIR)" $(PYTHON) tools/public_tree.py export --source . --destination "$$public_root"
-		PYTHONPATH="$$public_root" $(PYTHON) "$$public_root/tools/release_status.py" check \
+		PYTHONPATH="$(CURDIR)" $(call RUN_PYTHON,release-tools) tools/public_tree.py export --source . --destination "$$public_root"
+		PYTHONPATH="$$public_root" $(call RUN_PYTHON,release-tools) "$$public_root/tools/release_status.py" check \
 			--root "$$public_root" --check-tools --tag "$(TAG)"
 	else
-		PYTHONPATH="$(CURDIR)" $(PYTHON) tools/release_status.py check --root . --check-tools --tag "$(TAG)"
+		PYTHONPATH="$(CURDIR)" $(call RUN_PYTHON,release-tools) tools/release_status.py check --root . --check-tools --tag "$(TAG)"
 	fi
 
-host-pr-check:
-	mkdir -p "$(HOST_PR_CHECK_LOG)"
-	$(PYTHON) -m py_compile \
-		zlang/backend/expression_constant_folding.py \
-		zlang/backend/systemverilog/expression.py \
-		zlang/common/systemverilog.py \
-		> "$(HOST_PR_CHECK_LOG)/py_compile.log" 2>&1
-	$(PYTHON) -m ruff check --select E9,F63,F7,F82 \
-		zlang/backend/expression_constant_folding.py \
-		zlang/backend/systemverilog/expression.py \
-		zlang/common/systemverilog.py \
-		tests/backend/test_expression_constant_folding.py \
-		> "$(HOST_PR_CHECK_LOG)/ruff.log" 2>&1
-	$(PYTHON) -m pytest -q \
-		tests/backend/test_expression_constant_folding.py \
-		tests/test_expression_materialization.py \
-		tests/backend/test_functional_region_emission.py \
-		> "$(HOST_PR_CHECK_LOG)/focused-pytest.log" 2>&1
-	git diff --check \
-		> "$(HOST_PR_CHECK_LOG)/diff-check.log" 2>&1
-	@printf 'host-pr-check logs: %s\n' "$(HOST_PR_CHECK_LOG)"
-
 test-fast:
-	$(PYTHON) -m pytest -n "$(WORKERS)" --dist=loadscope -q $(FAST_TEST_PATHS)
+	$(call RUN_PYTHON,test-fast) -m pytest -n "$(WORKERS)" --dist=loadscope -q $(FAST_TEST_PATHS)
 
 test:
-	$(PYTHON) -m pytest -n "$(WORKERS)" --dist=loadscope -q
+	$(call RUN_PYTHON,test) -m pytest -n "$(WORKERS)" --dist=loadscope -q
 
 test-structural:
-	$(PYTHON) -m pytest -q tests/structural/test_structural_witnesses.py
+	$(call RUN_PYTHON,test-structural) -m pytest -q tests/structural/test_structural_witnesses.py
 
 structural-baseline:
 	mkdir -p "$(STRUCTURAL_REPORT_DIR)"
-	$(PYTHON) tools/structural_synthesis_baseline.py \
+	$(call RUN_PYTHON,structural-baseline) tools/structural_synthesis_baseline.py \
 		--profile "$(STRUCTURAL_PROFILE)" \
 		--json "$(STRUCTURAL_REPORT_DIR)/$(STRUCTURAL_PROFILE).json" \
 		--markdown "$(STRUCTURAL_REPORT_DIR)/$(STRUCTURAL_PROFILE).md"
 
 community-pdf-check:
-	PYTHONPATH="$(CURDIR)" $(PYTHON) tools/release_status.py check --root . --tag "$(TAG)"
+	PYTHONPATH="$(CURDIR)" $(call RUN_PYTHON,community-pdf) tools/release_status.py check --root . --tag "$(TAG)"
 
 test-release-twice:
-	public_root="$$(mktemp -d "$${TMPDIR:-/tmp}/zlang-public-tests.XXXXXX")"
-	trap 'rm -rf -- "$$public_root"' EXIT
+	mkdir -p "$(TMP_ROOT)"
+	run_tmp="$$(mktemp -d "$(TMP_ROOT)/release-tests.XXXXXX")"
+	public_root="$$(mktemp -d "$$run_tmp/public.XXXXXX")"
+	trap 'rm -rf -- "$$run_tmp"' EXIT
+	export TMPDIR="$$run_tmp" TMP="$$run_tmp" TEMP="$$run_tmp" PYTHONNOUSERSITE=1
 	python_bin="$(PYTHON)"
 	if [[ "$$python_bin" == */* ]]; then
 		python_bin="$$(cd "$$(dirname "$$python_bin")" && pwd)/$$(basename "$$python_bin")"
@@ -230,6 +292,12 @@ test-release-twice:
 		test "$${#wheels[@]}" -eq 1 && test -f "$${wheels[0]}"
 		cp -- "$${wheels[0]}" "$$public_root/.native-test/wheels/"
 	fi
+	# The exported source is a separate worktree.  Provision its own venv rather
+	# than running its suite through this checkout's environment: the local
+	# environment policy deliberately rejects sibling virtual environments.
+	env -u VIRTUAL_ENV make -C "$$public_root" venv
+	python_bin="$$public_root/.venv/bin/python"
+	export PATH="$$public_root/.venv/bin:$$PATH"
 	mapfile -t native_wheels < <(find "$$public_root/.native-test/wheels" \
 		-maxdepth 1 -type f -name 'zlang_native_sim-*.whl' -print)
 	test "$${#native_wheels[@]}" -eq 1
@@ -238,21 +306,13 @@ test-release-twice:
 	cd "$$public_root"
 	export PYTHONPATH="$$public_root"
 	"$$python_bin" -m pytest -p tools.pytest_no_skips \
-		-n "$(WORKERS)" --dist=loadscope -q -m 'not performance' \
-		--junitxml="$$report_root/release-1.xml"
-	"$$python_bin" -m pytest -p tools.pytest_no_skips -q -m performance \
-		--junitxml="$$report_root/release-performance-1.xml"
+		-n "$(WORKERS)" --dist=loadscope -q --junitxml="$$report_root/release-1.xml"
 	"$$python_bin" tools/release_status.py check \
-		--root . --junit "$$report_root/release-1.xml" \
-		--performance-junit "$$report_root/release-performance-1.xml"
+		--root . --junit "$$report_root/release-1.xml"
 	"$$python_bin" -m pytest -p tools.pytest_no_skips \
-		-n "$(WORKERS)" --dist=loadscope -q -m 'not performance' \
-		--junitxml="$$report_root/release-2.xml"
-	"$$python_bin" -m pytest -p tools.pytest_no_skips -q -m performance \
-		--junitxml="$$report_root/release-performance-2.xml"
+		-n "$(WORKERS)" --dist=loadscope -q --junitxml="$$report_root/release-2.xml"
 	"$$python_bin" tools/release_status.py check \
-		--root . --junit "$$report_root/release-2.xml" \
-		--performance-junit "$$report_root/release-performance-2.xml"
+		--root . --junit "$$report_root/release-2.xml"
 
 editor-test:
 	npm --prefix editors/vscode/zlang-hdl ci --ignore-scripts
@@ -265,7 +325,7 @@ editor-host-test: editor-test
 	fi
 	mkdir -p "$(dir $(EDITOR_VSIX))"
 	npm --prefix editors/vscode/zlang-hdl run package -- "$(abspath $(EDITOR_VSIX))"
-	$(PYTHON) tests/editor/test_vscode_package.py "$(abspath $(EDITOR_VSIX))" \
+	$(call RUN_PYTHON,editor-host) tests/editor/test_vscode_package.py "$(abspath $(EDITOR_VSIX))" \
 		> "$(abspath $(EDITOR_VSIX)).audit.json"
 	PYTHONPATH="$(CURDIR)" xvfb-run -a npm --prefix editors/vscode/zlang-hdl run test:host -- \
 		"$(abspath $(EDITOR_VSIX))"
@@ -282,6 +342,8 @@ package:
 			exit 2
 		fi
 	fi
+	$(MAKE) --no-print-directory env-check
+	mkdir -p "$(TMP_ROOT)"
 	umask 022
 	export SOURCE_DATE_EPOCH="$$(git log -1 --format=%ct)"
 	python_bin="$(PYTHON)"
@@ -289,7 +351,7 @@ package:
 		python_dir="$$(cd "$$(dirname "$$python_bin")" && pwd)"
 		export PATH="$$python_dir:$$PATH"
 	fi
-	source_root="$$(mktemp -d "$${TMPDIR:-/tmp}/zlang-release-source.XXXXXX")"
+	source_root="$$(mktemp -d "$(TMP_ROOT)/release-source.XXXXXX")"
 	trap 'rm -rf -- "$$source_root"' EXIT
 	mkdir -p "$(BUILD_ROOT)/first" "$(BUILD_ROOT)/second" "$(DIST_DIR)"
 	if [[ -f tools/public_tree.py ]]; then
@@ -340,4 +402,4 @@ package:
 
 # This target prepares and validates local candidate artifacts. It deliberately
 # does not create commits/tags, upload artifacts, or publish a GitHub release.
-release-candidate: release-preflight native-release-set community-pdf-check public-check static jit-check jit-audit jit-advisory-audit audit release-tools test-release-twice editor-host-test package
+release-candidate: release-preflight native-release-install community-pdf-check public-check static jit-check jit-audit jit-advisory-audit audit release-tools test-release-twice editor-host-test package

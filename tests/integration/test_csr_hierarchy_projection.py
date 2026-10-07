@@ -10,10 +10,10 @@ import subprocess
 
 import pytest
 
-from zlang.backend.systemverilog import emit
+from zlang.backend.systemverilog import emit_experimental
 from zlang.compiler import compile_source
 from zlang.ir import expressions as expr
-from zlang.opt.lowering import lower, restore
+from zlang.opt import lower, restore
 from zlang.semantic import SemanticError
 
 
@@ -69,7 +69,7 @@ def test_large_parent_uses_named_csr_projection_without_an_unknown_owner() -> No
     )
     assert restore(lower(result.ir)) == result.ir
 
-    rtl = emit(result.ir)
+    rtl = emit_experimental(result.ir)
     assert rtl.count("module CsrParent") == 1
     assert rtl.count("module CsrBank") == 1
     assert ".csr_field_0_64_0_state(" in rtl
@@ -172,7 +172,7 @@ module Parent {
         "csr_split_0_0_value",
     ]
     assert restore(lower(result.ir)) == result.ir
-    rtl = emit(result.ir)
+    rtl = emit_experimental(result.ir)
     assert rtl.count("module CsrBank") == 1
     assert "module CsrBank_zlang_core" not in rtl
 
@@ -200,7 +200,7 @@ module Parent {
     assert isinstance(selected, expr.InstanceOutputRef)
     assert selected.port == "csr_split_0_1_value"
     assert restore(lower(result.ir)) == result.ir
-    rtl = emit(result.ir)
+    rtl = emit_experimental(result.ir)
     assert "csr_split_0_1_value" in rtl
 
 
@@ -225,7 +225,7 @@ def test_named_projection_preserves_the_legacy_physical_abi() -> None:
     )
     legacy = compile_source(prefix + legacy_source, top="CsrParent").ir
     assert named.assignments == legacy.assignments
-    assert emit(named) == emit(legacy)
+    assert emit_experimental(named) == emit_experimental(legacy)
 
 
 def test_specialized_csr_base_reaches_child_ir_and_rtl() -> None:
@@ -236,7 +236,7 @@ def test_specialized_csr_base_reaches_child_ir_and_rtl() -> None:
     )
     child = result.ir.children[0]
     assert child.csr_blocks[0].base_address == 256
-    assert "addr == 32'h00000100" in emit(result.ir)
+    assert "addr == 32'h00000100" in emit_experimental(result.ir)
 
 
 @pytest.mark.skipif(VERILATOR is None, reason="Verilator unavailable")
@@ -255,7 +255,7 @@ module MultiCsrBlocks {
     module = compile_source(source, top="MultiCsrBlocks").ir
     assert [block.base_address for block in module.csr_blocks] == [0, 0x400]
     rtl = tmp_path / "MultiCsrBlocks.sv"
-    rtl.write_text(emit(module), encoding="utf-8")
+    rtl.write_text(emit_experimental(module), encoding="utf-8")
     text = rtl.read_text(encoding="utf-8")
     assert text.count("module MultiCsrBlocks") == 1
     assert "32'h00000000" in text
@@ -349,7 +349,7 @@ module CsrArray {
         ("bank[1]", "ready"),
     ]
     assert restore(lower(module)) == module
-    rtl = emit(module)
+    rtl = emit_experimental(module)
     assert rtl.count("module CsrBank") == 1
     assert len(re.findall(r"CsrBank_[a-z0-9]+ bank_[01] \(", rtl)) == 2
     path = tmp_path / "csr_array.sv"
@@ -402,7 +402,7 @@ module CsrArrayReadback {
 }
 """
     rtl = tmp_path / "CsrArrayReadback.sv"
-    rtl.write_text(emit(compile_source(source, top="CsrArrayReadback").ir))
+    rtl.write_text(emit_experimental(compile_source(source, top="CsrArrayReadback").ir))
     harness = tmp_path / "harness.cpp"
     harness.write_text(
         r'''#include "VCsrArrayReadback.h"

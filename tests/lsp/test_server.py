@@ -711,12 +711,12 @@ def test_tooling_session_reuses_queries_and_invalidates_on_did_change(
 ) -> None:
     """The LSP session reuses semantic products until the document changes."""
 
-    import zlang.tooling_session as tooling_session
+    import zlang.tooling as tooling
 
     source = tmp_path / "Top.zhl"
     source.write_text(VALID, encoding="utf-8")
     uri = path_to_uri(source)
-    original = tooling_session.check_file_snapshot
+    original = tooling.check_file_snapshot
     calls = 0
 
     def observed(*args, **kwargs):
@@ -724,7 +724,7 @@ def test_tooling_session_reuses_queries_and_invalidates_on_did_change(
         calls += 1
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(tooling_session, "check_file_snapshot", observed)
+    monkeypatch.setattr(tooling, "check_file_snapshot", observed)
     server = LspServer()
     server.dispatch({
         "jsonrpc": "2.0",
@@ -780,12 +780,12 @@ def test_preview_close_reopen_reuses_content_validated_semantic_snapshot(
 ) -> None:
     """VS Code preview churn must not recompile an unchanged definition file."""
 
-    import zlang.tooling_session as tooling_session
+    import zlang.tooling as tooling
 
     source = (tmp_path / "Preview.zhl").resolve()
     source.write_text(VALID, encoding="utf-8")
     uri = path_to_uri(source)
-    original = tooling_session.check_file_snapshot
+    original = tooling.check_file_snapshot
     calls = 0
 
     def observed(*args: object, **kwargs: object) -> object:
@@ -793,7 +793,7 @@ def test_preview_close_reopen_reuses_content_validated_semantic_snapshot(
         calls += 1
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(tooling_session, "check_file_snapshot", observed)
+    monkeypatch.setattr(tooling, "check_file_snapshot", observed)
     server = LspServer()
 
     def open_text(text: str, version: int) -> None:
@@ -835,7 +835,7 @@ def test_definition_target_reuses_parent_symbol_shard_for_open_and_tokens(
 ) -> None:
     """A navigated child needs no duplicate diagnostics/token compilation."""
 
-    import zlang.tooling_session as tooling_session
+    import zlang.tooling as tooling
     from zlang.workspace import update_project_lock
 
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
@@ -858,7 +858,7 @@ def test_definition_target_reuses_parent_symbol_shard_for_open_and_tokens(
     top.write_text(top_text, encoding="utf-8")
     update_project_lock(root / "zlang.toml")
 
-    original = tooling_session.check_file_snapshot
+    original = tooling.check_file_snapshot
     calls = 0
 
     def observed(*args: object, **kwargs: object) -> object:
@@ -866,7 +866,7 @@ def test_definition_target_reuses_parent_symbol_shard_for_open_and_tokens(
         calls += 1
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(tooling_session, "check_file_snapshot", observed)
+    monkeypatch.setattr(tooling, "check_file_snapshot", observed)
     server = LspServer()
     top_uri = path_to_uri(top)
     server.dispatch({
@@ -972,12 +972,12 @@ def test_definition_target_reuses_parent_symbol_shard_for_open_and_tokens(
 def test_trivia_edit_reuses_clean_diagnostic_proof_but_invalid_edit_rechecks(
     tmp_path: Path, monkeypatch,
 ) -> None:
-    import zlang.tooling_session as tooling_session
+    import zlang.tooling as tooling
 
     source = tmp_path / "Top.zhl"
     source.write_text(VALID)
     uri = path_to_uri(source)
-    original = tooling_session.check_file_snapshot
+    original = tooling.check_file_snapshot
     calls = 0
 
     def observed(*args, **kwargs):
@@ -985,7 +985,7 @@ def test_trivia_edit_reuses_clean_diagnostic_proof_but_invalid_edit_rechecks(
         calls += 1
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(tooling_session, "check_file_snapshot", observed)
+    monkeypatch.setattr(tooling, "check_file_snapshot", observed)
     server = LspServer()
     server.dispatch({
         "jsonrpc": "2.0", "method": "textDocument/didOpen",
@@ -1242,12 +1242,12 @@ def test_framed_live_change_burst_compiles_only_the_latest_version(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import zlang.tooling_session as tooling_session
+    import zlang.tooling as tooling
 
     source = tmp_path / "Top.zhl"
     source.write_text(VALID, encoding="utf-8")
     uri = path_to_uri(source)
-    original = tooling_session.check_file_snapshot
+    original = tooling.check_file_snapshot
     compilations = 0
 
     def observed(*args: object, **kwargs: object) -> object:
@@ -1255,7 +1255,7 @@ def test_framed_live_change_burst_compiles_only_the_latest_version(
         compilations += 1
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(tooling_session, "check_file_snapshot", observed)
+    monkeypatch.setattr(tooling, "check_file_snapshot", observed)
     incoming = BytesIO()
     _request(incoming, {"jsonrpc": "2.0", "id": 1, "method": "initialize"})
     _request(incoming, {
@@ -1490,11 +1490,11 @@ def test_framed_definition_resolves_nested_project_from_parent_workspace(
 ) -> None:
     """Mirror live F12 at a selected symbol's exclusive right edge."""
 
-    import zlang.tooling_session as tooling_session
+    import zlang.tooling as tooling
 
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
     monkeypatch.setenv("ZLANG_LSP_SYMBOL_CACHE", "persistent")
-    original = tooling_session.check_file_snapshot
+    original = tooling.check_file_snapshot
     definition_compilations = 0
 
     def observed(*args: object, **kwargs: object) -> object:
@@ -1504,7 +1504,7 @@ def test_framed_definition_resolves_nested_project_from_parent_workspace(
             definition_compilations += 1
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(tooling_session, "check_file_snapshot", observed)
+    monkeypatch.setattr(tooling, "check_file_snapshot", observed)
 
     repository = Path.cwd().resolve()
     project = repository / "examples/projects/80211a_transmitter"
@@ -2017,17 +2017,17 @@ def test_storage_library_definition_uses_enclosing_module_not_unbound_last_top(
         if "out status : StoragePingPongStatus<W>" in value
     )
     column = text.splitlines()[line].index("StoragePingPongStatus")
-    import zlang.tooling_session as tooling_session
+    from zlang import tooling
 
     compiler_calls = 0
-    original = tooling_session.check_file_snapshot
+    original = tooling.check_file_snapshot
 
     def observed(*args: object, **kwargs: object) -> object:
         nonlocal compiler_calls
         compiler_calls += 1
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(tooling_session, "check_file_snapshot", observed)
+    monkeypatch.setattr(tooling, "check_file_snapshot", observed)
     request = {
         "jsonrpc": "2.0",
         "id": 77,

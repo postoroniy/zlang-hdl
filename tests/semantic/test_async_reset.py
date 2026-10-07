@@ -13,8 +13,7 @@ from zlang.ir.cdc import (
     ResetPolarity,
     ResetReleaseMode,
 )
-from zlang.opt.lowering import CanonicalizationError, lower, restore
-from zlang.opt.identity import canonical_ir_identity
+from zlang.opt import CanonicalizationError, canonical_ir_identity, lower, restore
 from zlang.parser import parse
 from zlang.semantic import SemanticError, analyze
 

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from zlang.backend.systemverilog import emit
+from zlang.backend.systemverilog import emit_experimental
 from zlang.compiler import compile_source
 
 
@@ -45,8 +45,8 @@ module MemoryProfile {{
 
 def _emit(source: str) -> str:
     module = compile_source(source).ir
-    first = emit(module)
-    assert emit(module) == first
+    first = emit_experimental(module)
+    assert emit_experimental(module) == first
     return first
 
 

@@ -2,18 +2,12 @@
 
 import unittest
 
-from zlang.equivalence import (
-    MiterTraceMetadata,
-    make_equivalence_property,
-    run_equivalence_formal,
-)
-from zlang.formal import run_verilog_formal
-from zlang.ir.equivalence import EquivalenceStatus
-from zlang.ir.expressions import InputRef
-from zlang.ir.types import UIntType
+from zlang.equivalence import make_equivalence_property, run_equivalence_formal
+from zlang.formal import run_verilog_targets
+from zlang.ir import EquivalenceStatus, InputRef, UIntType
 from zlang.ir.formal import FormalStatus, ProofMode
 from zlang.timing import TimingInfo
-from zlang.ir.expressions import Pipeline
+from zlang.ir import Pipeline
 
 
 SAFE = """module safety_verification(input clk, input [7:0] a, b);
@@ -23,31 +17,18 @@ endmodule
 """
 
 
-def _run_verilog_targets(targets, *, mode=ProofMode.BMC, depth=20):
-    return tuple(
-        run_verilog_formal(
-            source,
-            top=top,
-            property_id=property_id,
-            mode=mode,
-            depth=depth,
-        )
-        for property_id, top, source in targets
-    )
-
-
 class RealFormalValidationTests(unittest.TestCase):
     def test_all_six_safety_verification_targets_execute(self):
         targets = tuple((f"safety_verification.{family}.safe", "safety_verification", SAFE) for family in
                         ("counter", "fifo", "ready_valid", "credit", "csr", "rules"))
-        results = _run_verilog_targets(targets, mode=ProofMode.BMC, depth=4)
+        results = run_verilog_targets(targets, mode=ProofMode.BMC, depth=4)
         for result in results:
             if result.status is FormalStatus.SKIPPED:
                 self.assertIn("missing formal tools", result.reason or "")
             else:
                 self.assertEqual(result.status.value, "bounded_pass")
                 self.assertIsNotNone(result.tool_versions)
-        proven = _run_verilog_targets((targets[0],), mode=ProofMode.PROVE, depth=4)[0]
+        proven = run_verilog_targets((targets[0],), mode=ProofMode.PROVE, depth=4)[0]
         if proven.status is not FormalStatus.SKIPPED:
             self.assertEqual(proven.status, FormalStatus.PROVEN)
 
@@ -61,7 +42,7 @@ wire [4:0] y = a + b; always @(posedge clk) assert(y == a + b + c); endmodule"""
 reg [1:0] credits; always @(posedge clk) begin if (rst) credits <= 0; else credits <= credits - 1'b1; assert(credits != 3); end endmodule""",
         }
         for name, source in mutations.items():
-            result = _run_verilog_targets(((name, "mut", source),), depth=4)[0]
+            result = run_verilog_targets(((name, "mut", source),), depth=4)[0]
             if result.status is not FormalStatus.SKIPPED:
                 self.assertEqual(result.status.value, "failed", name)
                 self.assertIsNotNone(result.counterexample, name)
@@ -78,15 +59,7 @@ endmodule"""
             candidate = make_equivalence_property(
                 x, x, candidate_class=candidate_class, reference_root="r",
                 implementation_root=candidate_class)
-            result = run_equivalence_formal(
-                candidate,
-                source,
-                top="semantic_equivalence",
-                depth=4,
-                trace_metadata=MiterTraceMetadata(
-                    "reference_value", "implementation_value"
-                ),
-            )
+            result = run_equivalence_formal(candidate, source, top="semantic_equivalence", depth=4)
             if result.status is not EquivalenceStatus.SKIPPED:
                 self.assertEqual(result.status, EquivalenceStatus.BOUNDED_PASS)
 
@@ -102,15 +75,7 @@ always @(posedge clk) begin
   else begin history <= x; valid <= 1; end
   if (!rst && valid) assert(history == implementation_value);
 end endmodule"""
-        result = run_equivalence_formal(
-            timed,
-            timed_source,
-            top="semantic_equivalence_proof",
-            depth=6,
-            trace_metadata=MiterTraceMetadata(
-                "x", "implementation_value", "rst", "valid"
-            ),
-        )
+        result = run_equivalence_formal(timed, timed_source, top="semantic_equivalence_proof", depth=6)
         if result.status is not EquivalenceStatus.SKIPPED:
             self.assertEqual(result.status, EquivalenceStatus.BOUNDED_PASS)
 
@@ -127,23 +92,12 @@ reg [7:0] history; reg valid; always @(posedge clk) begin
  else begin history <= x; valid <= 1; end
  if (!rst && valid) assert(history == x); // wrong latency, including after mid-stream reset
 end endmodule"""
-        trace_metadata = MiterTraceMetadata("x", "history", "rst", "valid")
-        shallow = run_equivalence_formal(
-            timed,
-            source,
-            top="badpipe",
-            depth=4,
-            trace_metadata=trace_metadata,
-        )
+        shallow = run_equivalence_formal(timed, source, top="badpipe", depth=4)
         self.assertEqual(shallow.status, EquivalenceStatus.UNKNOWN)
         self.assertIn("comparison_window_unreached", shallow.reason or "")
         for depth in (5, 6):
             result = run_equivalence_formal(
-                timed,
-                source,
-                top="badpipe",
-                depth=depth,
-                trace_metadata=trace_metadata,
+                timed, source, top="badpipe", depth=depth
             )
             if result.status is not EquivalenceStatus.SKIPPED:
                 self.assertEqual(result.status, EquivalenceStatus.FAILED)

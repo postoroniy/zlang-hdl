@@ -10,7 +10,7 @@ import tempfile
 
 import pytest
 
-from zlang.backend.systemverilog import emit
+from zlang.backend.systemverilog import emit_experimental
 from zlang.compiler import compile_source
 
 
@@ -50,7 +50,7 @@ def test_top_semantics_retains_one_resolved_state_owner() -> None:
 @pytest.mark.skipif(shutil.which("verilator") is None, reason="Verilator unavailable")
 def test_direct_sv_stalls_transfers_and_resets() -> None:
     module = compile_source(SOURCE).ir
-    rtl_text = emit(module)
+    rtl_text = emit_experimental(module)
     bench_text = r"""
 module tb;
   logic clk=0,rst=1,enable=1;

@@ -940,7 +940,10 @@ def _load_cache(
     if config.cache_directory is None:
         return None, "miss"
     canonical = config.cache_directory / _RESULT_CACHE_NAMESPACE / f"{key}.json"
+    legacy = config.cache_directory / f"{key}.json"
     payload, diagnostic = load_json_object(canonical)
+    if payload is None and diagnostic is None:
+        payload, diagnostic = load_json_object(legacy)
     if diagnostic is not None:
         return None, f"corrupt-ignored ({diagnostic})"
     if payload is None:

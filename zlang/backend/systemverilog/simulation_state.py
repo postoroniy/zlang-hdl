@@ -7,11 +7,16 @@ import hashlib
 import json
 from pathlib import Path
 
-from zlang.backend import identifiers as identifiers
+from zlang.backend.identifiers import (
+    rtl_identifier,
+    rtl_memory_cells_identifier,
+    rtl_memory_read_data_identifier,
+    rtl_register_state_identifier,
+)
 from zlang.backend.manifest import BackendArtifact
 from zlang.backend.naming import RTL_NAMING_SCHEMA, module_rtl_names, rtl_hierarchy_instance_path
 from zlang.common import stable_digest, stable_pretty_json
-from zlang.ir import module as ir_module
+from zlang.ir.module import Module
 from zlang.ir.hierarchy import build_hierarchy_index
 from zlang.simulation_state import (
     SimulationStateCatalog,
@@ -577,7 +582,7 @@ class StateAccess {{
 
 
 def build_systemverilog_simulation_state_bundle(
-    module: ir_module.Module,
+    module: Module,
     artifact: BackendArtifact,
 ) -> SystemVerilogSimulationStateBundle:
     """Bind the typed catalog to exact public VPI hierarchy paths."""
@@ -605,18 +610,18 @@ def build_systemverilog_simulation_state_bundle(
     catalog = build_simulation_state_catalog(
         module, selected_ir_identity=artifact.selected_ir_identity
     )
-    from zlang.backend.systemverilog.boundary import physical_state_root_path
-    from zlang.backend.systemverilog.physicalization import (
-        physicalize_generic_callables,
+    from zlang.backend.systemverilog.emitter import (
+        _physicalize_generic_callables,
+        physical_state_root_path,
     )
 
-    rtl_module = identifiers.rtl_identifier(module.name)
+    rtl_module = rtl_identifier(module.name)
     state_root = physical_state_root_path(module)
     # Generic helpers are renamed before RTL scope allocation.  Resolve VPI
     # through that same emission-only view, while retaining the original typed
     # semantic catalog above.  Otherwise a user instance colliding with a
     # physical helper could receive a different suffix here than in the RTL.
-    typed_hierarchy = build_hierarchy_index(physicalize_generic_callables(module))
+    typed_hierarchy = build_hierarchy_index(_physicalize_generic_callables(module))
     names_by_path = {
         entry.physical_path: module_rtl_names(entry.module)
         for entry in typed_hierarchy.entries
@@ -627,11 +632,11 @@ def build_systemverilog_simulation_state_bundle(
             typed_hierarchy, binding.physical_instance_path, plans=names_by_path,
         ))
         if binding.object_kind is SimulationStateKind.REGISTER:
-            token = identifiers.rtl_register_state_identifier(binding.object_name)
+            token = rtl_register_state_identifier(binding.object_name)
         elif binding.object_kind is SimulationStateKind.MEMORY:
-            token = identifiers.rtl_memory_cells_identifier(binding.object_name)
+            token = rtl_memory_cells_identifier(binding.object_name)
         else:
-            token = identifiers.rtl_memory_read_data_identifier(binding.object_name)
+            token = rtl_memory_read_data_identifier(binding.object_name)
         relative = f"{hierarchy}.{token}" if hierarchy else token
         locators.append(SystemVerilogStateLocator(
             binding.binding_id,

@@ -8,7 +8,7 @@ from zlang.common.tool_inventory import (
     ToolInventory,
     discover_tool_inventory,
 )
-from tests.support.formal import formal_tools_available
+from zlang.equivalence import formal_tools_available
 from zlang.compilation_session import CompilationSession
 from zlang.formal import (
     run_verilog_formal,
@@ -113,12 +113,22 @@ def test_existing_safety_verification_and_semantic_equivalence_discovery_surface
     )
 
     with patch(
-        "tests.support.formal.shutil.which",
+        "zlang.equivalence.shutil.which",
         side_effect=lambda name: (
             f"/tools/{name}" if name != "sby" else None
         ),
     ):
         assert formal_tools_available() == ("yosys", "yosys-smtbmc")
+
+
+def test_truthy_path_compatibility_is_explicit() -> None:
+    not_none = discover_tool_inventory(("yosys",), which=lambda _: "")
+    truthy = discover_tool_inventory(
+        ("yosys",), which=lambda _: "", require_truthy_path=True
+    )
+
+    assert not_none.available == ("yosys",)
+    assert truthy.available == ()
 
 
 def test_safety_verification_inventory_versions_yosys_smtbmc_explicitly() -> None:

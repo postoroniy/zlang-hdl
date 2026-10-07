@@ -15,9 +15,7 @@ from zlang.backend.systemverilog.simulation_state import (
     build_systemverilog_simulation_state_bundle,
 )
 from zlang.compiler import compile_source
-from zlang.opt.ir import OptimizationStage
-from zlang.opt.identity import canonical_ir_identity
-from zlang.opt.lowering import lower, restore
+from zlang.opt import OptimizationStage, canonical_ir_identity, lower, restore
 from zlang.sim import _native_runtime
 from zlang.simulation_plan import (
     JitUnsupportedFeatureError,

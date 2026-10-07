@@ -17,12 +17,17 @@ from zlang.formal_candidate import (
     prepared_candidate_equivalence_to_data,
     validate_prepared_equivalence_domains,
 )
-from zlang.equivalence import MiterTraceMetadata
-from zlang.ir.module import Assignment, Module, Port, PortDirection
-from zlang.ir.types import BitType
-from zlang.ir.comparison_window import ComparisonWindow
-from zlang.ir.expressions import Constant
-from zlang.ir.equivalence import EquivalenceProperty, EquivalenceRelation
+from zlang.ir import (
+    Assignment,
+    BitType,
+    ComparisonWindow,
+    Constant,
+    EquivalenceProperty,
+    EquivalenceRelation,
+    Module,
+    Port,
+    PortDirection,
+)
 from zlang.ir.cdc import (
     ClockDomain,
     ClockEdge,
@@ -117,9 +122,6 @@ def _bundle(domain: ClockDomain) -> PreparedCandidateEquivalence:
         reference,
         implementation,
         (),
-        MiterTraceMetadata(
-            "reference_result", "implementation_result", "reset", "valid"
-        ),
     )
 
 
@@ -292,7 +294,6 @@ def test_in_memory_frozen_site_reuses_the_same_physical_domain_validator() -> No
             BindingSide.IMPLEMENTATION,
         ),
         valid.input_semantic_ids,
-        valid.trace_metadata,
     )
     with pytest.raises(ValueError, match="physical clock/reset contract"):
         validate_prepared_equivalence_domains(

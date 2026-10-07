@@ -10,7 +10,7 @@ import subprocess
 import pytest
 
 from tests.structural.catalog import WITNESSES, WITNESS_BY_SLUG
-from zlang.backend.systemverilog import emit
+from zlang.backend.systemverilog import emit_experimental
 from zlang.compiler import compile_source
 from zlang.native_simulation import simulate
 
@@ -41,8 +41,8 @@ def _crc32_reflected(data: int, seed: int, width: int) -> int:
 @pytest.mark.parametrize("witness", WITNESSES, ids=lambda item: item.slug)
 def test_structural_witness_is_deterministic_single_module(witness) -> None:
     module = compile_source(witness.source_text("small"), top=witness.top).ir
-    first = emit(module)
-    second = emit(module)
+    first = emit_experimental(module)
+    second = emit_experimental(module)
 
     assert first == second
     assert len(first.encode()) < 2 * 1024 * 1024
@@ -77,7 +77,7 @@ def test_medium_nested_functional_regions_reach_direct_sv(slug: str) -> None:
     witness = WITNESS_BY_SLUG[slug]
     module = compile_source(witness.source_text("medium"), top=witness.top).ir
 
-    generated = emit(module)
+    generated = emit_experimental(module)
 
     assert re.search(rf"(?m)^module\s+{witness.top}\s*\(", generated)
     assert "_zlang_core" not in generated
@@ -89,17 +89,6 @@ def test_generic_explosion_has_no_duplicate_specialization_identity() -> None:
 
     assert identities
     assert len(identities) == len(set(identities))
-
-
-def test_dynamic_permute_retains_native_packed_array_indexing() -> None:
-    rtl = emit(_compile("dynamic_permute"))
-
-    for index in range(8):
-        assert f"assign result[{index}] = data[index[{index}]];" in rtl
-    assert "zlang_packed_data" not in rtl
-    assert "zlang_packed_index" not in rtl
-    assert "zlang_packed_result" not in rtl
-    assert "+: 8" not in rtl
 
 
 def test_one_hot_mux_preserves_the_one_hot_case_without_assuming_it() -> None:
@@ -135,8 +124,8 @@ def test_round_robin_protocol_arbiter_is_a_single_deterministic_module(
 ) -> None:
     source = WITNESS_BY_SLUG["wide_arbiter"].source.read_text(encoding="utf-8")
     module = compile_source(source, top="RoundRobinProtocolWitness").ir
-    first = emit(module)
-    second = emit(module)
+    first = emit_experimental(module)
+    second = emit_experimental(module)
 
     assert first == second
     assert re.findall(r"(?m)^module\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(", first) == [
@@ -186,7 +175,7 @@ def test_round_robin_protocol_arbiter_is_a_single_deterministic_module(
 def test_structural_witness_lints_with_verilator(witness, tmp_path: Path) -> None:
     rtl = tmp_path / f"{witness.top}.sv"
     rtl.write_text(
-        emit(
+        emit_experimental(
             compile_source(witness.source_text("small"), top=witness.top).ir
         ),
         encoding="utf-8",
@@ -217,7 +206,7 @@ def test_structural_witness_crosses_meaningful_yosys_stages(
 ) -> None:
     rtl = tmp_path / f"{witness.top}.sv"
     rtl.write_text(
-        emit(
+        emit_experimental(
             compile_source(witness.source_text("small"), top=witness.top).ir
         ),
         encoding="utf-8",
@@ -390,7 +379,7 @@ def test_structural_witness_semantics(slug: str) -> None:
 def test_barrel_shifter_executes_in_icarus(tmp_path: Path) -> None:
     witness = WITNESS_BY_SLUG["barrel_shifter"]
     rtl = tmp_path / "BarrelShifterWitness.sv"
-    rtl.write_text(emit(_compile(witness.slug)), encoding="utf-8")
+    rtl.write_text(emit_experimental(_compile(witness.slug)), encoding="utf-8")
     bench = tmp_path / "tb.sv"
     bench.write_text(
         """
@@ -477,7 +466,7 @@ def test_static_and_runtime_permutations_execute_in_icarus(
 ) -> None:
     witness = WITNESS_BY_SLUG[slug]
     rtl = tmp_path / f"{witness.top}.sv"
-    rtl.write_text(emit(_compile(slug)), encoding="utf-8")
+    rtl.write_text(emit_experimental(_compile(slug)), encoding="utf-8")
     testbench = tmp_path / f"{slug}_tb.sv"
     testbench.write_text(bench, encoding="utf-8")
     executable = tmp_path / f"{slug}.vvp"

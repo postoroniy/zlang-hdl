@@ -111,7 +111,7 @@
           }
         },
         {
-          "name": "keyword.control.verification.zlang",
+          "name": "keyword.control.exploration.zlang",
           "match": "\\brequire(?=\\s*\\{)"
         }
       ]
@@ -504,7 +504,7 @@
         {"name": "keyword.declaration.zlang", "match": "\\b(?:import|module|extern|model|struct|enum|union|type|fn|operator|equiv|protocol|role|channel|member|resource|target|device|architecture)\\b"},
         {"name": "storage.modifier.hardware.zlang", "match": "\\b(?:clock|reset|async|inst|connect|interface|reg|fifo|memory|rom|csr|group|split|stride|order|sticky|rule|priority|arbiter|timing|fsm)\\b"},
         {"name": "keyword.control.zlang", "match": "\\b(?:if|else|when|switch|match|hold|with)\\b"},
-        {"name": "keyword.control.implementation.zlang", "match": "\\b(?:choice|implement|intent|minimize|maximize|transform)\\b"},
+        {"name": "keyword.control.exploration.zlang", "match": "\\b(?:choice|explore|allow|avoid|minimize|maximize|transform)\\b"},
         {"name": "keyword.control.verification.zlang", "match": "\\b(?:assume|guarantee|disable|iff)\\b"},
         {"name": "keyword.other.directive.protocol.zlang", "match": "\\b(?:max_outstanding|ordering|match_by|buffer|request_buffer|response_buffer|adapter|crossing|policy|grant)\\b"},
         {"name": "keyword.other.directive.storage.zlang", "match": "\\b(?:read_latency|init|collision|contents|read_data|read_port|write_port|read_write_port|write_priority)\\b"},

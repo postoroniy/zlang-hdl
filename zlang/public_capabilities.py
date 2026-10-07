@@ -100,7 +100,7 @@ class PublicCapabilityRegistry:
 
 
 CAPABILITY_REGISTRY = PublicCapabilityRegistry(
-    schema_version=31,
+    schema_version=30,
     keywords=(
         "import", "module", "extern", "model", "struct", "enum", "union", "type", "fn", "operator", "equiv",
         "protocol", "role", "channel", "member", "resource", "target", "device",
@@ -122,7 +122,7 @@ CAPABILITY_REGISTRY = PublicCapabilityRegistry(
         "collision", "read_port", "write_port", "read_write_port",
         "write_priority", "contents", "read_data", "reg", "delay",
         "timing",
-        "pipeline", "choice", "auto", "implement", "intent", "require",
+        "pipeline", "choice", "auto", "explore", "allow", "avoid", "require",
         "minimize", "maximize", "generate", "map", "sum", "reduce", "dot", "quantize",
         "round", "overflow", "with", "if", "else", "switch", "match", "mux",
         "assume", "guarantee", "assert", "cover", "contract", "ensure",
@@ -152,7 +152,7 @@ CAPABILITY_REGISTRY = PublicCapabilityRegistry(
         "pulse_toggle", "handshake", "async_fifo", "rv_to_credit", "credit_to_rv",
         "read_first", "write_first", "old", "new", "no_change", "clear",
         "preserve", "hardware", "software", "mul_add",
-        "multiply_add", "dsp_mac", "optional_yosys", "reduction", "reassociate",
+        "multiply", "multiply_add", "dsp_mac", "optional_yosys", "reduction", "reassociate",
         "auto", "nearest_even", "toward_zero", "floor", "away_zero", "wrap",
         "saturate", "lut", "ff", "dsp", "bram", "latency", "throughput", "ii",
         "fmax", "fmax_est", "parallelism", "depth", "candidates",

@@ -107,6 +107,15 @@ def tuple_element_lsb(type_: TupleType, index: int) -> int:
     return sum(item.width for item in type_.elements[:index])
 
 
+def struct_field_lsb(type_: StructType, field: str) -> int:
+    """Return the LSB of ``field`` in the canonical packed struct value."""
+
+    for index, item in enumerate(type_.fields):
+        if item.name == field:
+            return sum(value.type.width for value in type_.fields[index + 1 :])
+    raise PackingError(f"struct '{type_.name}' has no field '{field}'")
+
+
 def bit_mask(width: int) -> int:
     if width < 1:
         raise PackingError("a bit width must be positive")
@@ -230,15 +239,14 @@ def unpack_runtime(type_: HardwareType, value: int) -> object:
             return raw - (1 << type_.width)
         return raw
     if isinstance(type_, StructType):
-        remaining = value
-        result: dict[str, object] = {}
-        shift = width
-        for field in type_.fields:
-            field_width = packed_width(field.type)
-            shift -= field_width
-            field_raw = (remaining >> shift) & bit_mask(field_width)
-            result[field.name] = unpack_runtime(field.type, field_raw)
-        return result
+        return {
+            field.name: unpack_runtime(
+                field.type,
+                (value >> struct_field_lsb(type_, field.name))
+                & bit_mask(packed_width(field.type)),
+            )
+            for field in type_.fields
+        }
     if isinstance(type_, TupleType):
         result: list[object] = []
         for index, element_type in enumerate(type_.elements):

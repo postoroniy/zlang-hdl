@@ -8,7 +8,8 @@ from pathlib import Path
 from collections.abc import Mapping
 from typing import get_args
 
-from zlang.common import stable_digest, stable_json
+from zlang.common import stable_json
+from zlang.common.serialization import stable_acyclic_digest
 from zlang.ir.types import HardwareType
 from zlang.opt.ir import CanonicalModule, NodeCategory
 from zlang.source import SourceOrigin
@@ -132,11 +133,38 @@ def render_identity(module: CanonicalModule) -> str:
     separate semantic inputs and remain included.
     """
 
+    return stable_json(canonical_identity_graph(module))
+
+
+def canonical_identity_graph(module: CanonicalModule) -> dict[str, object]:
+    """Return the exact origin-insensitive graph rendered for identity.
+
+    Keeping the structural graph available lets strict compiler self-checks
+    compare two freshly built canonical products without first serializing
+    both complete graphs to JSON.  Published identities still use
+    :func:`render_identity` and therefore retain byte-for-byte compatibility.
+    """
+
     graph: dict[str, object] = {}
     root = _identity_value(
         module, graph=graph, memo={}, active=set(), type_memo={}
     )
-    return stable_json({"root": root, "nodes": sorted(graph.items())})
+    return {"root": root, "nodes": sorted(graph.items())}
+
+
+def canonical_identity_matches(
+    left: CanonicalModule,
+    right: CanonicalModule,
+) -> bool:
+    """Compare two canonical products using one collision-checked graph.
+
+    This is the strict structural relation underlying :func:`render_identity`.
+    Sharing one graph avoids materializing and sorting two complete node
+    inventories during compiler round-trip validation.  Every node from both
+    inputs still passes through the same content digest collision check.
+    """
+
+    return _originless_structural_equal(left, right, memo=set(), active=set())
 
 
 _ORIGIN_FIELDS = frozenset(
@@ -162,6 +190,76 @@ _ORIGIN_FIELDS = frozenset(
     }
 )
 _HARDWARE_TYPE_SET = frozenset(get_args(HardwareType))
+
+
+def _originless_structural_equal(
+    left: object,
+    right: object,
+    *,
+    memo: set[tuple[int, int]],
+    active: set[tuple[int, int]],
+) -> bool:
+    """Compare canonical objects under the same provenance-erasure policy."""
+
+    if left is right:
+        return True
+    if isinstance(left, SourceOrigin) and isinstance(right, SourceOrigin):
+        return True
+    if type(left) is not type(right):
+        return False
+    if not isinstance(left, Enum) and (
+        left is None or isinstance(left, (str, int, float, bool))
+    ):
+        return left == right
+    if isinstance(left, Enum):
+        return left.value == right.value
+    key = (id(left), id(right))
+    if key in memo:
+        return True
+    if key in active:
+        raise TypeError("canonical IR identity contains an object cycle")
+    active.add(key)
+    if isinstance(left, tuple):
+        result = len(left) == len(right) and all(
+            _originless_structural_equal(
+                left_item, right_item, memo=memo, active=active,
+            )
+            for left_item, right_item in zip(left, right, strict=True)
+        )
+    elif isinstance(left, list):
+        result = len(left) == len(right) and all(
+            _originless_structural_equal(
+                left_item, right_item, memo=memo, active=active,
+            )
+            for left_item, right_item in zip(left, right, strict=True)
+        )
+    elif isinstance(left, Mapping):
+        result = (
+            left.keys() == right.keys()
+            and all(
+                _originless_structural_equal(
+                    left[key], right[key], memo=memo, active=active,
+                )
+                for key in left
+            )
+        )
+    elif is_dataclass(left) and not isinstance(left, type):
+        result = all(
+            _originless_structural_equal(
+                getattr(left, field.name),
+                getattr(right, field.name),
+                memo=memo,
+                active=active,
+            )
+            for field in fields(left)
+            if field.name not in _ORIGIN_FIELDS
+        )
+    else:
+        result = left == right
+    active.remove(key)
+    if result:
+        memo.add(key)
+    return result
 
 
 def _identity_value(
@@ -254,7 +352,7 @@ def _identity_value(
             f"{type(value).__module__}.{type(value).__qualname__}"
         )
     active.remove(object_id)
-    digest = stable_digest(payload)
+    digest = stable_acyclic_digest(payload)
     previous = graph.get(digest)
     if previous is not None and previous != payload:
         raise TypeError("canonical IR identity content-digest collision")

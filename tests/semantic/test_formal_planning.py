@@ -5,8 +5,18 @@ import json
 
 import pytest
 
-from zlang.ir.comparison_window import ComparisonWindow
-from zlang.ir.formal_planning import FormalBackendArtifactRef, FormalExecutableRoute, FormalExecutionPlan, FormalGoalPlan, FormalPlanGoalKind, FormalPlanningError, FormalRouteKind, FormalSkipCode, FormalSkipReason
+from zlang.ir import (
+    ComparisonWindow,
+    FormalBackendArtifactRef,
+    FormalExecutableRoute,
+    FormalExecutionPlan,
+    FormalGoalPlan,
+    FormalPlanGoalKind,
+    FormalPlanningError,
+    FormalRouteKind,
+    FormalSkipCode,
+    FormalSkipReason,
+)
 from zlang.ir.cdc import (
     ClockDomain,
     ClockEdge,

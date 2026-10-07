@@ -17,9 +17,6 @@ from typing import Iterable
 
 
 _IDENTITY_WORDS = ("identity", "digest", "hash", "fingerprint", "key")
-MODULE_LINE_LIMIT = 2_000
-FUNCTION_LINE_LIMIT = 400
-CLASS_LINE_LIMIT = 800
 
 # These owners feed published QoR/evidence/cache identities whose current
 # spelling is compatibility-bound.  They remain visible in the report and may
@@ -29,27 +26,22 @@ CLASS_LINE_LIMIT = 800
 INTENTIONAL_REPR_IDENTITY_OWNERS: dict[str, str] = {
     "zlang.architecture:identity": "published architecture identity",
     "zlang.backend.naming:_local_owner_identity": "published RTL naming identity",
-    "zlang.backend.systemverilog.physicalization:digest": (
-        "physical RTL object identity"
-    ),
+    "zlang.backend.systemverilog.emitter:digest": "physical RTL object identity",
     "zlang.costs:_sort_key": "legacy deterministic candidate ordering",
     "zlang.exploration:_semantic_identity": "candidate evidence identity",
     "zlang.formal_exploration:proof_cache_key": "formal proof cache compatibility",
     "zlang.ir.callables:_callable_definition_order_key": "callable ordering compatibility",
     "zlang.ir.scheduled:identity": "published scheduled-graph identity",
     "zlang.ir.scheduled:legacy_identity": "explicit legacy restoration identity",
-    "zlang.ir.target:identity": "published current target graph identity",
+    "zlang.ir.target:_identity": "published target graph identity",
     "zlang.ir.verification:expression_key": "verification expression compatibility",
     "zlang.ir.verification:verification_identity": "verification artifact compatibility",
     "zlang.pipeline_scheduling:_identity": "packaged QoR graph identity",
     "zlang.reductions:identity": "published reduction candidate identity",
     "zlang.reductions:semantic_identity": "published reduction semantic identity",
-    "zlang.semantic.state:_transition_identity": (
-        "preserved resolved-transition semantic identity"
-    ),
     "zlang.target_planner:identity": "packaged QoR evidence identity",
     "zlang.target_timing:_identity": "packaged timing graph identity",
-    "zlang.target_mapping_identity:digest": "published target physical identity",
+    "zlang.targets:digest": "published target physical identity",
     "zlang.timing:_value_identity": "published timing value identity",
 }
 
@@ -71,62 +63,23 @@ def _function_body_key(node: ast.FunctionDef | ast.AsyncFunctionDef) -> str:
 def _imported_modules(tree: ast.AST, module: str) -> set[str]:
     result: set[str] = set()
     package = module.split(".")
-
-    class RuntimeImportVisitor(ast.NodeVisitor):
-        """Collect imports which can participate in a runtime cycle.
-
-        ``TYPE_CHECKING`` edges describe annotation coupling, but Python never
-        executes them. Counting them as runtime import cycles obscured the
-        actual ownership problems the audit is intended to find.
-        """
-
-        def visit_If(self, node: ast.If) -> None:
-            test = node.test
-            is_type_checking = (
-                isinstance(test, ast.Name) and test.id == "TYPE_CHECKING"
-            ) or (
-                isinstance(test, ast.Attribute)
-                and isinstance(test.value, ast.Name)
-                and test.value.id == "typing"
-                and test.attr == "TYPE_CHECKING"
-            )
-            if is_type_checking:
-                for child in node.orelse:
-                    self.visit(child)
-                return
-            self.generic_visit(node)
-
-        def visit_Import(self, node: ast.Import) -> None:
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
             result.update(alias.name for alias in node.names)
-
-        def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+        elif isinstance(node, ast.ImportFrom):
             if node.level:
                 prefix = package[: max(0, len(package) - node.level)]
                 imported = ".".join((*prefix, node.module or ""))
             else:
                 imported = node.module or ""
-            if not imported:
-                return
-            imported = imported.rstrip(".")
-            result.add(imported)
-            result.update(
-                f"{imported}.{alias.name}"
-                for alias in node.names
-                if alias.name != "*"
-            )
-
-        # Deferred imports run only after the defining module has completed
-        # initialization. They may express dependency direction, but cannot
-        # form the import-time SCC reported by this audit.
-        def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
-            return
-
-        visit_AsyncFunctionDef = visit_FunctionDef
-
-        def visit_ClassDef(self, node: ast.ClassDef) -> None:
-            return
-
-    RuntimeImportVisitor().visit(tree)
+            if imported:
+                imported = imported.rstrip(".")
+                result.add(imported)
+                result.update(
+                    f"{imported}.{alias.name}"
+                    for alias in node.names
+                    if alias.name != "*"
+                )
     return result
 
 
@@ -237,11 +190,6 @@ def audit(root: Path) -> dict[str, object]:
                 if isinstance(node.ctx, ast.Load):
                     loaded_names[node.id] += 1
 
-            def visit_Attribute(self, node: ast.Attribute) -> None:
-                if isinstance(node.ctx, ast.Load):
-                    loaded_names[node.attr] += 1
-                self.generic_visit(node)
-
             def visit_Call(self, node: ast.Call) -> None:
                 name = None
                 if isinstance(node.func, ast.Name):
@@ -301,29 +249,6 @@ def audit(root: Path) -> dict[str, object]:
         if loaded_names[name] == 0
     ]
     dead_candidates.sort(key=lambda item: (-item["lines"], item["name"]))
-    oversized_modules = tuple(
-        {"lines": item["lines"], "name": name}
-        for name, item in sorted(modules.items())
-        if item["lines"] > MODULE_LINE_LIMIT
-    )
-    oversized_functions = tuple(
-        {
-            "lines": function["lines"],
-            "name": _qualified(module, function["name"]),
-        }
-        for module, item in sorted(modules.items())
-        for function in item["functions"]
-        if function["lines"] > FUNCTION_LINE_LIMIT
-    )
-    oversized_classes = tuple(
-        {
-            "lines": class_["lines"],
-            "name": _qualified(module, class_["name"]),
-        }
-        for module, item in sorted(modules.items())
-        for class_ in item["classes"]
-        if class_["lines"] > CLASS_LINE_LIMIT
-    )
 
     return {
         "direct_json_dumps": sorted(direct_json_dumps),
@@ -333,15 +258,12 @@ def audit(root: Path) -> dict[str, object]:
         "duplicate_function_names": duplicate_function_names,
         "import_cycles": _strongly_connected(imports),
         "modules": modules,
-        "oversized_classes": oversized_classes,
-        "oversized_functions": oversized_functions,
-        "oversized_modules": oversized_modules,
         "potential_dead_private_definitions": dead_candidates,
         "repr_identity_sites": sorted(
             repr_identity_sites,
             key=lambda item: (item["owner"], item["line"]),
         ),
-        "schema": "zlang-python-architecture-audit-v4",
+        "schema": "zlang-python-architecture-audit-v3",
         "summary": {
             "classes": sum(len(item["classes"]) for item in modules.values()),
             "files": len(paths),

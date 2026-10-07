@@ -38,7 +38,6 @@ from zlang.ir.module import (
 )
 from zlang.dependencies import DependencyClosure, DependencyModuleIdentity
 from zlang.source import SourceOrigin
-from zlang.ir.top_abi import build_top_physical_abi
 from zlang.common import stable_digest, stable_pretty_json
 
 
@@ -411,10 +410,7 @@ def _component(module: Module, specialization: str, children: tuple[str, ...]) -
         if item.semantic_signal_id.startswith(("register:", "fifo:", "rr:", "port:", "csr-field:"))
         and item.direction == "internal"
     )
-    aggregate = tuple(
-        item.leaf_semantic_id
-        for item in build_top_physical_abi(module).aggregate_leaves
-    )
+    aggregate = tuple(item.leaf_semantic_id for item in getattr(module.top_aggregate_abi, "leaves", ()))
     observations = tuple(sorted({item.semantic_signal_id for item in bindings}))
     identity = _digest({"module": module.name, "source": _module_source_key(module),
                         "specialization": specialization})
@@ -710,7 +706,7 @@ def build_recursive_formal_design(module: Module, *, selected_ir_identity: str |
                 semantic_signedness.get(binding.semantic_signal_id, "bits"),
                 binding.direction,
             ))
-        for leaf in build_top_physical_abi(current).aggregate_leaves:
+        for leaf in getattr(current.top_aggregate_abi, "leaves", ()):
             ref = FormalObjectRef(
                 node_identity, leaf.leaf_semantic_id, "aggregate_leaf",
                 _type_text(leaf.canonical_type), leaf.clock_domain,

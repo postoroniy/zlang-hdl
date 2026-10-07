@@ -18,7 +18,6 @@ from zlang.ir.target import (
     TimingNode,
 )
 from zlang.ir.signed_reductions import SignedProductReduction, expression_semantic_identity
-from zlang.source import SourceOrigin
 from zlang.timing import align_operands
 
 
@@ -33,7 +32,7 @@ def alignment_delays(
     width: int,
     destination_node: str,
     semantic_identity: str | None = None,
-    source_origin: SourceOrigin | None = None,
+    source_origin: str | None = None,
 ) -> tuple[ImplementationDelay, ...]:
     """Turn timing alignment's minimum-latency alignment plan into explicit graph objects."""
     values = tuple(operands)
@@ -65,7 +64,7 @@ def add_compensation(
     required_latency: int | None,
     width: int,
     semantic_identity: str,
-    source_origin: SourceOrigin | None,
+    source_origin: str | None,
 ) -> TimingDAG:
     """Reach an exact output contract without changing useful internal cuts."""
     if required_latency is None:
@@ -112,7 +111,9 @@ def build_dsp_cascade_timing_dag(
     The function knows resource instances, generic sites and edge kinds.  It
     never inspects a vendor primitive or emitted RTL register name.
     """
-    origins = graph.source_origin
+    origins = graph.source_origin.render() if hasattr(graph.source_origin, "render") else (
+        str(graph.source_origin) if graph.source_origin is not None else None
+    )
     nodes: list[TimingNode] = []
     input_id = _identity(graph.semantic_region_identity, "input_boundary")
     nodes.append(TimingNode(
@@ -219,7 +220,10 @@ def build_signed_product_timing_dag(
 ) -> TimingDAG:
     """Describe the unchanged product/join/quantization path for a generic plan."""
 
-    origin = reduction.source_origin
+    origin = (
+        reduction.source_origin.render()
+        if reduction.source_origin is not None else None
+    )
     input_id = _identity(reduction.semantic_identity, "input_boundary")
     nodes: list[TimingNode] = [TimingNode(
         input_id, "input_boundary", "input", reduction.semantic_identity,
@@ -231,8 +235,9 @@ def build_signed_product_timing_dag(
         product_nodes[term.ordinal] = node_id
         nodes.append(TimingNode(
             node_id, "product_segment", f"product{term.ordinal}",
-            term.semantic_identity, source_origin=term.source_origin,
-            target_identity=target_identity,
+            term.semantic_identity, source_origin=(
+                term.source_origin.render() if term.source_origin else None
+            ), target_identity=target_identity,
         ))
     join_nodes: dict[int, str] = {}
     for join in reduction.joins:
@@ -242,7 +247,7 @@ def build_signed_product_timing_dag(
             node_id,
             "subtract_join" if join.operator.value == "subtract" else "add_join",
             f"join{join.ordinal}", join.semantic_identity,
-            source_origin=join.source_origin,
+            source_origin=(join.source_origin.render() if join.source_origin else None),
             target_identity=target_identity,
         ))
     boundary_kind = (
@@ -256,7 +261,7 @@ def build_signed_product_timing_dag(
         TimingNode(
             quant_id, boundary_kind, "quantization",
             expression_semantic_identity(quantization),
-            source_origin=quantization.origin,
+            source_origin=(quantization.origin.render() if quantization.origin else None),
             target_identity=target_identity,
         ),
         TimingNode(

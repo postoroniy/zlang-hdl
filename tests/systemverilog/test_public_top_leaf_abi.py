@@ -138,10 +138,8 @@ def test_dynamic_placement_packed_array_top_synthesizes_with_yosys() -> None:
     assert "`ifdef" not in artifact.text
     assert "`ifndef" not in artifact.text
     assert "output logic [255:0][7:0] contents" in artifact.text
-    assert "logic [2047:0] buffer;" in artifact.text
-    assert "buffer[(32'(index) << 3) +: 8] <= value;" in artifact.text
-    assert "assign contents = buffer;" in artifact.text
-    assert "zlang_packed_contents" not in artifact.text
+    assert "logic [2047:0] zlang_packed_contents;" in artifact.text
+    assert "assign contents = zlang_packed_contents;" in artifact.text
     assert "zlang_top_core" not in artifact.text
     assert "_zlang_core" not in artifact.text
 

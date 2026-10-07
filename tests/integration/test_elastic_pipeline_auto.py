@@ -10,7 +10,7 @@ import subprocess
 import pytest
 
 from zlang.backend.systemverilog import emit_formal_artifact
-from zlang.backend.systemverilog import emit
+from zlang.backend.systemverilog import emit_experimental
 from zlang.compiler import compile_source
 from zlang.formal import (
     build_recursive_formal_design,
@@ -227,8 +227,8 @@ def _run_verilator(
 @pytest.mark.skipif(shutil.which("verilator") is None, reason="Verilator unavailable")
 def test_direct_sv_is_deterministic_and_cycle_exact(tmp_path: Path) -> None:
     module = _module()
-    first = emit(module)
-    second = emit(module)
+    first = emit_experimental(module)
+    second = emit_experimental(module)
     assert first == second
     assert first.count("assign zlang_elastic_advance =") == 1
     assert "else if (zlang_elastic_advance)" in first

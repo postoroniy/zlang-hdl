@@ -5,13 +5,13 @@ from zlang.backend.systemverilog import emit_artifact
 from zlang.compiler import compile_source
 from zlang.equivalence import (
     artifact_hash,
-    emit_miter_with_metadata,
+    emit_miter,
     emit_reference_model,
+    formal_tools_available,
     make_equivalence_property,
     publish_bindings,
     run_equivalence_formal,
 )
-from tests.support.formal import formal_tools_available
 from zlang.ir.equivalence import (
     BindingMap,
     BindingSide,
@@ -69,15 +69,15 @@ def _semantic_equivalence(
         artifact_hash_value=artifact_hash(implementation),
         rtl_names=rtl_names,
     )
-    miter = emit_miter_with_metadata(
+    miter = emit_miter(
         property_,
         BindingMap((*reference_bindings, *implementation_bindings)),
         reference_module="FixedReference",
         implementation_module=implementation_module,
     )
-    source = reference + "\n" + implementation + "\n" + miter.source
+    source = reference + "\n" + implementation + "\n" + miter
     top = "semantic_equivalence_" + property_.id.replace(".", "_")
-    return property_, source, top, miter.trace_metadata
+    return property_, source, top
 
 
 @pytest.mark.skipif(
@@ -89,23 +89,21 @@ def test_real_semantic_equivalence_fixed_reference_passes_and_rounding_mutation_
     implementation = emit_artifact(
         module, selected_ir_identity="selected:fixed-review"
     ).text
-    property_, source, top, trace_metadata = _semantic_equivalence(
+    property_, source, top = _semantic_equivalence(
         module, implementation, module.name, "direct_systemverilog"
     )
     correct = run_equivalence_formal(
-        property_, source, top=top, mode=EquivalenceMode.PROVE, depth=4,
-        trace_metadata=trace_metadata,
+        property_, source, top=top, mode=EquivalenceMode.PROVE, depth=4
     )
     assert correct.status is EquivalenceStatus.PROVEN
 
     mutated = implementation.replace(" + 9'd1 + ", " + 9'd0 + ")
     assert mutated != implementation
-    _, bad_source, bad_top, bad_trace_metadata = _semantic_equivalence(
+    _, bad_source, bad_top = _semantic_equivalence(
         module, mutated, module.name, "direct_systemverilog"
     )
     failed = run_equivalence_formal(
-        property_, bad_source, top=bad_top, mode=EquivalenceMode.BMC, depth=4,
-        trace_metadata=bad_trace_metadata,
+        property_, bad_source, top=bad_top, mode=EquivalenceMode.BMC, depth=4
     )
     assert failed.status is EquivalenceStatus.FAILED
     assert failed.counterexample is not None
@@ -163,12 +161,11 @@ assign y=($signed(p0) >>> 2)+($signed(p1) >>> 2); endmodule""",
 )
 def test_real_semantic_equivalence_fixed_mutation_matrix_fails(source: str, bad_rtl: str) -> None:
     module = compile_source(source).ir
-    property_, formal_source, top, trace_metadata = _semantic_equivalence(
+    property_, formal_source, top = _semantic_equivalence(
         module, bad_rtl, module.name, "direct_systemverilog"
     )
     result = run_equivalence_formal(
-        property_, formal_source, top=top, mode=EquivalenceMode.BMC, depth=4,
-        trace_metadata=trace_metadata,
+        property_, formal_source, top=top, mode=EquivalenceMode.BMC, depth=4
     )
     assert result.status is EquivalenceStatus.FAILED
     assert result.counterexample is not None

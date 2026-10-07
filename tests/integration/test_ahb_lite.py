@@ -11,7 +11,7 @@ import pytest
 from zlang.backend.systemverilog import emit_artifact
 from zlang.compiler import compile_source
 from zlang.native_simulation import simulate_cycles
-from tests.support.standard_bus import (
+from zlang.standard_bus import (
     AhbLiteInput,
     AhbLiteToRegBus,
     RegRequest,

@@ -4,8 +4,15 @@ import unittest
 
 from zlang.compiler import compile_source
 from zlang.ir.expressions import ImplementationKind
-from zlang.opt.ir import EffectKind, NodeCategory, OptimizationStage, Purity, Signedness
-from zlang.opt.lowering import lower, restore
+from zlang.opt import (
+    EffectKind,
+    NodeCategory,
+    OptimizationStage,
+    Purity,
+    Signedness,
+    lower,
+    restore,
+)
 from zlang.opt.ir import ExpressionOp
 from zlang.parser import parse
 from zlang.semantic import analyze

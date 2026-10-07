@@ -6,11 +6,16 @@ from unittest.mock import patch
 from zlang.compiler import compile_source
 from zlang.ir.expressions import BinaryOperator
 from zlang.ir.types import BitType, FixedType, UIntType
-from zlang.opt.ir import EquivalenceMode
-from zlang.opt.rewrite_spec import RewriteRule
-from zlang.opt.saturation import SaturationError, saturate
-from zlang.opt.lowering import lower
-from zlang.opt.rewrite_model import render_saturation, Term, term_to_expression
+from zlang.opt import (
+    EquivalenceMode,
+    RewriteRule,
+    SaturationError,
+    lower,
+    render_saturation,
+    saturate,
+    Term,
+    term_to_expression,
+)
 from zlang.opt.ir import ExpressionOp, NodeCategory, Observation
 import zlang.opt.saturation as saturation_module
 from zlang.opt.value_certificate import (
@@ -244,7 +249,10 @@ class EqualitySaturationSemanticTests(unittest.TestCase):
             "module Nested { in x:u8 out y:u8 "
             "y=implement { (x|0)^0 intent { minimize lut } } }"
         )
-        self.assertIn("source=1 value=4 architecture=4 reduction=4 legal=4 rejected=0", explored.exploration_report)
+        self.assertIn(
+            "source=1 value=4 multiplier=4 architecture=4 reduction=4 legal=4 rejected=0",
+            explored.exploration_report,
+        )
 
     def test_source_equiv_is_bidirectional_from_the_plain_value_root(self) -> None:
         compilation = compile_source(

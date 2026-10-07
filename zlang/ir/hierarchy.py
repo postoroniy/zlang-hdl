@@ -125,6 +125,13 @@ _SPECIALIZATION_VISIBLE_CATALOG_FIELDS = frozenset({
     # helpers or discover the same helpers in a different order.  The exact
     # executable closure is added explicitly by specialization_fingerprint().
     "functions", "callable_definitions",
+    # Named type declarations are also inherited from the source-visible
+    # compilation context.  Any type that affects the reusable component is
+    # already retained through its typed ports, state, expressions, storage,
+    # or reachable callable closure.  Hashing the whole catalog makes two
+    # otherwise identical children disagree merely because their parents
+    # import different unrelated declarations.
+    "structs", "enums", "tagged_unions",
 })
 
 
@@ -271,7 +278,7 @@ def specialization_fingerprint(module: Module) -> str:
         ) from error
 
     return stable_digest({
-        "schema": "zlang-typed-module-specialization-v3",
+        "schema": "zlang-typed-module-specialization-v4",
         "content": _specialization_digest(module),
         "reachable_callables": _specialization_digest(reachable_callables),
     })
@@ -473,6 +480,12 @@ class HierarchyIndex:
                 f"{key.module_name}@{key.specialization_identity}"
             )
         return match
+
+    def specialization_catalog(self) -> tuple[HierarchySpecialization, ...]:
+        """Compatibility spelling for the immutable specialization view."""
+
+        return self.specializations
+
 
 def build_hierarchy_index(
     module: Module,

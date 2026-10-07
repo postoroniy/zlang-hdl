@@ -7,7 +7,7 @@ import subprocess
 
 import pytest
 
-from zlang.backend.systemverilog import emit
+from zlang.backend.systemverilog import emit_experimental
 from zlang.compiler import compile_source
 
 
@@ -21,7 +21,7 @@ def test_hardware_connected_csr_matches_frozen_priority_and_pulse(tmp_path: Path
     ).ir
     rtl = tmp_path / "EngineCsr.sv"
     harness = tmp_path / "test.cpp"
-    rtl.write_text(emit(module))
+    rtl.write_text(emit_experimental(module))
     harness.write_text(r'''
 #include "VEngineCsr.h"
 static void tick(VEngineCsr& d) {

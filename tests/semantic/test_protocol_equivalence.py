@@ -3,7 +3,7 @@ import unittest
 from zlang.costs import UnifiedConstraint, extract_best
 from zlang.ir.expressions import CostMetric
 from zlang.ir.interfaces import ConnectionAdapter, InterfaceProtocol
-from tests.support.protocols import (
+from zlang.protocols import (
     ProtocolEndpoint,
     ProtocolLegalityError,
     ProtocolTraceChecker,

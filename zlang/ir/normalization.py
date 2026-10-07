@@ -256,7 +256,7 @@ def _call_counts(module: Module) -> Counter[str]:
                 return
             visited[id(value)] = value
         if isinstance(value, expr.Call):
-            identity = value.callee_identity
+            identity = value.callee_identity or f"name:{value.function}"
             # A local aggregate call projected at several fields is
             # represented by several traced Call nodes at ``name local``
             # references, but is one executable value and one materialized
@@ -322,6 +322,9 @@ class _Normalizer:
     ) -> None:
         definitions = (*module.functions, *module.callable_definitions)
         self.by_identity = {item.callee_identity: item for item in definitions}
+        self.by_name: dict[str, list[Function]] = {}
+        for item in definitions:
+            self.by_name.setdefault(item.name, []).append(item)
         self.call_counts = _call_counts(module)
         self.dependencies = {
             item.callee_identity: _parameter_dependencies(item.body)
@@ -355,8 +358,11 @@ class _Normalizer:
         )
 
     def resolve(self, call: expr.Call) -> Function | None:
-        candidate = self.by_identity.get(call.callee_identity)
-        return candidate if candidate is not None and candidate.name == call.function else None
+        if call.callee_identity is not None:
+            candidate = self.by_identity.get(call.callee_identity)
+            return candidate if candidate is not None and candidate.name == call.function else None
+        candidates = self.by_name.get(call.function, ())
+        return candidates[0] if len(candidates) == 1 else None
 
     def rewrite_expression(self, value: expr.Expression) -> expr.Expression:
         self.expression_requests += 1
@@ -453,12 +459,13 @@ class _Normalizer:
                 result = call
             else:
                 identity = definition.callee_identity
+                key = identity if call.callee_identity is not None else f"name:{call.function}"
                 parameter_independent = not (
                     self.dependencies[identity]
                     & {parameter.name for parameter in definition.parameters}
                 )
                 constant_arguments = all(isinstance(item, expr.Constant) for item in arguments)
-                single_use = self.call_counts[identity] == 1
+                single_use = self.call_counts[key] == 1
                 body_nodes = self.body_nodes[identity]
                 bounded_inline = (
                     single_use
@@ -568,68 +575,75 @@ def normalize_selected_values(
 
     if single_use_inline_nodes < 0 or total_inline_nodes < 0:
         raise SelectedValueNormalizationError("normalization budgets must be non-negative")
-    children = tuple(
-        normalize_selected_values(
-            child,
+    # Child modules may deliberately share one immutable elaborated object.
+    # Keep that sharing while normalizing: repeated rewriting would do the
+    # same work and would turn one selected child graph into distinct Python
+    # objects despite no semantic difference.
+    module_memo: dict[int, tuple[Module, Module]] = {}
+
+    def normalize_module(current: Module) -> Module:
+        cached = module_memo.get(id(current))
+        if cached is not None and cached[0] is current:
+            return cached[1]
+        result = normalize_current_module(current)
+        module_memo[id(current)] = (current, result)
+        return result
+
+    def normalize_current_module(current: Module) -> Module:
+        children = tuple(normalize_module(child) for child in current.children)
+        normalizer = _Normalizer(
+            current,
             single_use_inline_nodes=single_use_inline_nodes,
             total_inline_nodes=total_inline_nodes,
-            prune_callables=prune_callables,
             inline_all_calls=inline_all_calls,
             expand_exact_reductions=expand_exact_reductions,
         )
-        for child in module.children
-    )
-    normalizer = _Normalizer(
-        module,
-        single_use_inline_nodes=single_use_inline_nodes,
-        total_inline_nodes=total_inline_nodes,
-        inline_all_calls=inline_all_calls,
-        expand_exact_reductions=expand_exact_reductions,
-    )
-    updates = {
-        item.name: normalizer.rewrite_value(getattr(module, item.name))
-        for item in fields(module)
-        if item.init
-        and item.name not in {
-            "functions",
-            "callable_definitions",
-            "children",
-            "generic_specializations",
-            "semantic_expression_arena_statistics",
-            "semantic_expression_provenance",
-            "selected_value_normalization_statistics",
+        updates = {
+            item.name: normalizer.rewrite_value(getattr(current, item.name))
+            for item in fields(current)
+            if item.init
+            and item.name not in {
+                "functions",
+                "callable_definitions",
+                "children",
+                "generic_specializations",
+                "semantic_expression_arena_statistics",
+                "semantic_expression_provenance",
+                "selected_value_normalization_statistics",
+            }
         }
-    }
-    functions = tuple(
-        replace(function, body=normalizer.rewrite_expression(function.body))
-        for function in module.functions
-    )
-    callables = tuple(
-        replace(function, body=normalizer.rewrite_expression(function.body))
-        for function in module.callable_definitions
-    )
-    rewritten = replace(
-        module,
-        **updates,
-        functions=functions,
-        callable_definitions=callables,
-        children=children,
-        selected_value_normalization_statistics=normalizer.statistics,
-    )
-    if not prune_callables:
-        return rewritten
-    try:
-        reachable = reachable_module_callables(rewritten)
-    except CallableReachabilityError as error:
-        raise SelectedValueNormalizationError(str(error)) from error
-    live = {function.callee_identity for function in reachable}
-    return replace(
-        rewritten,
-        functions=tuple(item for item in functions if item.callee_identity in live),
-        callable_definitions=tuple(
-            item for item in callables if item.callee_identity in live
-        ),
-    )
+        functions = tuple(
+            replace(function, body=normalizer.rewrite_expression(function.body))
+            for function in current.functions
+        )
+        callables = tuple(
+            replace(function, body=normalizer.rewrite_expression(function.body))
+            for function in current.callable_definitions
+        )
+        rewritten = replace(
+            current,
+            **updates,
+            functions=functions,
+            callable_definitions=callables,
+            children=children,
+            selected_value_normalization_statistics=normalizer.statistics,
+        )
+        if not prune_callables:
+            return rewritten
+        try:
+            reachable = reachable_module_callables(rewritten)
+        except CallableReachabilityError as error:
+            raise SelectedValueNormalizationError(str(error)) from error
+        live = {function.callee_identity for function in reachable}
+        return replace(
+            rewritten,
+            functions=tuple(item for item in functions if item.callee_identity in live),
+            callable_definitions=tuple(
+                item for item in callables if item.callee_identity in live
+            ),
+        )
+
+    return normalize_module(module)
 
 
 __all__ = [

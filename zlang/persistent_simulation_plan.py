@@ -16,14 +16,12 @@ import tempfile
 
 from zlang._version import __version__
 from zlang.compilation_session import CompilationSession
-from zlang.opt.identity import canonical_ir_identity
-from zlang.opt.ir import OptimizationStage
-from zlang.opt.module_lowering import lower
-from zlang.simulation_plan_model import SimulationPlan
-from zlang.simulation_plan_policy import (
+from zlang.opt import OptimizationStage, canonical_ir_identity, lower
+from zlang.simulation_plan import (
     MAX_PLAN_BYTES,
     SIMULATION_PLAN_SCHEMA,
     SIMULATION_RUNTIME_ABI,
+    SimulationPlan,
     SimulationPlanError,
 )
 
@@ -72,7 +70,7 @@ def _recipe(session: CompilationSession) -> str:
             lower(module, stage=OptimizationStage.SELECTED_ARCHITECTURE)
         ),
         "source": hashlib.sha256(session.source.encode("utf-8")).hexdigest(),
-        "source_unit": session.options.source_unit,
+        "source_unit": session.source_unit,
         "physical_root": (
             None
             if inputs.root_source is None

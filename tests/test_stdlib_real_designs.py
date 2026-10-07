@@ -7,7 +7,7 @@ from pathlib import Path
 
 from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
 from zlang.compiler import compile_source
-from tests.support.standard_bus import (
+from zlang.standard_bus import (
     AxiStreamBeat,
     RegResponse,
     WishboneInput,

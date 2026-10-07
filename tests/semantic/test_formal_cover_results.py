@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from zlang.formal import run_verilog_cover
+from zlang.formal import emit_cover_sby, run_verilog_cover
 from zlang.ir.formal import (
     CoverProperty,
     CoverResult,
@@ -144,6 +144,15 @@ def test_connected_cover_harness_and_sby_are_deterministic() -> None:
     assert "assert (" not in first
     assert "// assume.count.not-three" in first
     assert "zlang_formal_obs_count" in first
+    config = emit_cover_sby(
+        design, cover_id="cover.count.two", depth=6,
+        source_file="counter_cover.sv",
+    )
+    assert "mode cover" in config
+    assert "depth 6" in config
+    assert f"prep -top {top}" in config
+    assert "counter_cover.sv" in config
+
     unavailable = replace(
         design,
         properties=(replace(
@@ -156,6 +165,8 @@ def test_connected_cover_harness_and_sby_are_deterministic() -> None:
     )
     assert "non-executable property report" in report
     assert "requires executable assumption" in report
+    with pytest.raises(FormalError, match="requires executable assumption"):
+        emit_cover_sby(unavailable, cover_id="cover.count.two", depth=6)
 
 
 def test_cover_runner_classifies_from_status_and_vcd_not_log_wording(

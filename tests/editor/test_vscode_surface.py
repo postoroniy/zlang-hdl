@@ -29,7 +29,7 @@ def test_extension_json_and_registration_are_valid() -> None:
     assert package["displayName"] == "ZLang HDL"
     assert package["main"] == "./extension.js"
     assert "activationEvents" not in package
-    assert package["dependencies"] == {"vscode-languageclient": "10.1.2"}
+    assert package["dependencies"] == {"vscode-languageclient": "10.1.1"}
     assert package["capabilities"]["untrustedWorkspaces"]["supported"] is False
     assert "extension.js" in package["files"]
     assert package["contributes"]["configuration"]["properties"]["zlang.lsp.path"]["default"] == ""

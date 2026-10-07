@@ -403,12 +403,8 @@ def build_async_fifo_physical_plan(
         write_enable=None,
         write_address=None,
         write_data=None,
-        source_origin=None,
-        write_mask_width=None,
-        write_mask=None,
         contents_reset=MemoryResetPolicy.PRESERVE,
         read_data_reset=MemoryResetPolicy.CLEAR,
-        domain=None,
         ports=(
             MemoryPort(
                 "wr",
@@ -429,8 +425,6 @@ def build_async_fifo_physical_plan(
             ),
         ),
         async_memory=True,
-        write_priority=(),
-        initial_value=None,
     )
     plan = AsyncFifoPhysicalPlan(
         identity,

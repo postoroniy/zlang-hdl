@@ -256,12 +256,15 @@ class Call(TracedExpression):
     function: str
     arguments: tuple[Expression, ...]
     type: HardwareType
-    callee_identity: str
+    # Legacy source functions resolve by ``function``.  Monomorphic generic
+    # and operator definitions use this stable semantic identity so multiple
+    # specializations may share one source-level owner without ambiguity.
+    callee_identity: str | None = None
 
     def __post_init__(self) -> None:
         if not self.function:
             raise ValueError("call function name must not be empty")
-        if not self.callee_identity:
+        if self.callee_identity == "":
             raise ValueError("call callee identity must not be empty")
 
 

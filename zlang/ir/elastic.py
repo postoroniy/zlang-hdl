@@ -12,12 +12,14 @@ from enum import Enum
 
 from zlang.ir.expressions import Expression
 from zlang.ir.pipelines import PipelineCandidate, PipelineConstraint
+from zlang.ir.temporal import TemporalClass, TemporalImplementationGraph
 from zlang.ir.types import HardwareType
 from zlang.source import SourceOrigin
 
 
 class ElasticStallPolicy(str, Enum):
     GLOBAL_CLOCK_ENABLE = "global_clock_enable"
+    NON_INTERLEAVED_TRANSACTION = "non_interleaved_transaction"
 
 
 @dataclass(frozen=True)
@@ -33,12 +35,31 @@ class ElasticTimingContract:
     def __post_init__(self) -> None:
         if self.minimum_unstalled_latency < 1:
             raise ValueError("elastic timing requires positive advance latency")
-        if self.ii_no_stall != 1:
-            raise ValueError("bounded elastic pipelines currently require II=1")
-        if self.capacity != self.minimum_unstalled_latency:
-            raise ValueError("global-stall elastic capacity must equal latency")
+        if self.stall_policy is ElasticStallPolicy.GLOBAL_CLOCK_ENABLE:
+            if self.ii_no_stall != 1:
+                raise ValueError("global-stall elastic pipelines require II=1")
+            if self.capacity != self.minimum_unstalled_latency:
+                raise ValueError("global-stall elastic capacity must equal latency")
+        elif self.stall_policy is ElasticStallPolicy.NON_INTERLEAVED_TRANSACTION:
+            if self.capacity != 1:
+                raise ValueError("non-interleaved elastic candidates require capacity=1")
+        else:  # pragma: no cover - enum validation protects constructed values.
+            raise ValueError("unknown elastic stall policy")
         if not self.variable_wall_clock_latency:
             raise ValueError("elastic wall-clock latency must be variable")
+
+    @property
+    def minimum_latency(self) -> int:
+        """Compatibility alias; the stored contract is explicitly unstalled."""
+
+        return self.minimum_unstalled_latency
+
+    @property
+    def initiation_interval(self) -> int:
+        """Compatibility alias; the stored II applies only without stalls."""
+
+        return self.ii_no_stall
+
 
 @dataclass(frozen=True)
 class ElasticPipelinePlan:
@@ -85,13 +106,17 @@ class ElasticPipelineRegion:
     constraints: tuple[PipelineConstraint, ...]
     candidates: tuple[PipelineCandidate, ...]
     selected: str
-    plan: ElasticPipelinePlan
+    plan: ElasticPipelinePlan | None
     timing: ElasticTimingContract
     clock: str
     reset: str
     source_origin: SourceOrigin | None = field(default=None, compare=False)
     # formal-aware selection route evidence is orchestration metadata, never elastic semantics.
     formal_records: tuple[object, ...] = field(default=(), compare=False)
+    # A non-None temporal graph is the sole authority for a transactional
+    # candidate.  Legacy globally-stalled elastic plans stay physically and
+    # byte-identically represented by ``plan``.
+    temporal_graph: TemporalImplementationGraph | None = field(default=None)
 
     def __post_init__(self) -> None:
         validate_elastic_region_metadata(self)
@@ -99,6 +124,10 @@ class ElasticPipelineRegion:
             raise ValueError("elastic source expression has wrong result type")
         if any(candidate.expression.type != self.output_type for candidate in self.candidates):
             raise ValueError("elastic candidate expression has wrong result type")
+
+        if self.temporal_graph is not None:
+            self._validate_temporal()
+            return
 
         # The plan is sealed against the already typed selected expression.  A
         # backend must never be able to reinterpret a stale/corrupt list of
@@ -124,6 +153,7 @@ class ElasticPipelineRegion:
             for node in nodes
             if isinstance(node, expr.Pipeline)
         ))
+        assert self.plan is not None
         if not stages or stages != self.plan.data_stage_instances:
             raise ValueError(
                 "elastic selected expression data stages disagree with its plan"
@@ -134,6 +164,33 @@ class ElasticPipelineRegion:
             raise ValueError(
                 "elastic selected expression latency disagrees with its candidate"
             )
+
+    def _validate_temporal(self) -> None:
+        """Seal the bounded capacity-one transaction wrapper contract."""
+
+        assert self.temporal_graph is not None
+        graph = self.temporal_graph
+        selected = self.selected_candidate
+        if self.plan is not None:
+            raise ValueError("temporal elastic candidates must not carry a legacy stage plan")
+        if graph.temporal_class is not TemporalClass.FLOW_CONTROLLED:
+            raise ValueError("elastic temporal candidates require flow-controlled admission")
+        if graph.capacity != 1:
+            raise ValueError("initial temporal elastic candidates require capacity=1")
+        if graph.semantic_region_identity != self.semantic_id:
+            raise ValueError("temporal graph semantic identity disagrees with elastic region")
+        if selected.expression != self.source_expression:
+            raise ValueError("temporal candidates must retain the exact semantic expression")
+        if selected.latency != graph.latency or selected.initiation_interval != graph.initiation_interval:
+            raise ValueError("temporal candidate timing disagrees with temporal graph")
+        if self.timing.minimum_unstalled_latency != graph.latency:
+            raise ValueError("temporal timing latency disagrees with temporal graph")
+        if self.timing.ii_no_stall != graph.initiation_interval:
+            raise ValueError("temporal timing II disagrees with temporal graph")
+        if self.timing.capacity != graph.capacity:
+            raise ValueError("temporal timing capacity disagrees with temporal graph")
+        if self.timing.stall_policy is not ElasticStallPolicy.NON_INTERLEAVED_TRANSACTION:
+            raise ValueError("temporal candidate uses the wrong elastic stall policy")
 
     @property
     def selected_candidate(self) -> PipelineCandidate:
@@ -164,26 +221,35 @@ def validate_elastic_region_metadata(region: object) -> None:
         raise ValueError("elastic selected candidate is absent")
     plan = getattr(region, "plan")
     timing = getattr(region, "timing")
-    if plan.selected_candidate != selected_name:
-        raise ValueError("elastic plan candidate does not match selection")
+    temporal_graph = getattr(region, "temporal_graph", None)
+    if temporal_graph is None:
+        if plan is None or plan.selected_candidate != selected_name:
+            raise ValueError("elastic plan candidate does not match selection")
+    elif plan is not None:
+        raise ValueError("temporal elastic candidate cannot carry a legacy plan")
     selected = next(item for item in candidates if item.name == selected_name)
     if selected.violations:
         raise ValueError("elastic selected candidate is not statically legal")
-    if any(
-        candidate.latency < 1 or candidate.initiation_interval != 1
-        for candidate in candidates
+    if any(candidate.latency < 1 for candidate in candidates):
+        raise ValueError("elastic candidates require positive latency")
+    if temporal_graph is None and any(
+        candidate.initiation_interval != 1 for candidate in candidates
     ):
-        raise ValueError("elastic candidates require positive latency and II=1")
+        raise ValueError("globally-stalled elastic candidates require II=1")
     if selected.latency != timing.minimum_unstalled_latency:
         raise ValueError("elastic selected latency disagrees with timing")
     if selected.initiation_interval != timing.ii_no_stall:
         raise ValueError("elastic selected II disagrees with timing")
-    if plan.latency != selected.latency or plan.valid_stage_count != timing.capacity:
-        raise ValueError("elastic plan latency/capacity disagrees with selection")
-    if plan.stall_policy is not timing.stall_policy:
-        raise ValueError("elastic plan and timing stall policies disagree")
-    if selected.pipeline_plan.inserted_registers != selected.latency:
-        raise ValueError("elastic selected register plan disagrees with latency")
+    if temporal_graph is None:
+        assert plan is not None
+        if plan.latency != selected.latency or plan.valid_stage_count != timing.capacity:
+            raise ValueError("elastic plan latency/capacity disagrees with selection")
+        if plan.stall_policy is not timing.stall_policy:
+            raise ValueError("elastic plan and timing stall policies disagree")
+        if selected.pipeline_plan.inserted_registers != selected.latency:
+            raise ValueError("elastic selected register plan disagrees with latency")
+    elif temporal_graph.implementation_identity == "":
+        raise ValueError("temporal graph implementation identity must be present")
 
 
 __all__ = [

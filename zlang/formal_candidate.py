@@ -13,6 +13,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 import json
 import tempfile
+from typing import Iterable
 
 from zlang.backend.systemverilog import (
     SystemVerilogEmissionError,
@@ -22,9 +23,7 @@ from zlang.backend.systemverilog.target import emit_target_artifact
 from zlang.backend.manifest import MANIFEST_VERSION, BackendArtifact, publish_artifact
 from zlang.backend.naming import RTL_NAMING_SCHEMA
 from zlang.common import stable_digest
-from zlang.candidate_classification import candidate_equivalence_class
-from zlang.candidate_expression import candidate_input_refs as _input_refs
-from zlang.costs import CandidateCost
+from zlang.costs import CandidateCost, extract_best
 from zlang.equivalence import (
     MiterTraceMetadata,
     artifact_hash,
@@ -72,7 +71,7 @@ from zlang.ir.signed_reductions import expression_semantic_identity
 from zlang.ir.types import StructType, TupleType, VecType
 from zlang.ir.type_codec import canonical_type_data, canonical_type_from_data
 from zlang.source import SourceOrigin, source_origin_to_data
-from zlang.timing import TimingInfo, timing_info
+from zlang.timing import TimingInfo, timing_info, validate_timed_candidate
 
 
 class FormalCandidateUnavailable(FormalExplorationError):
@@ -94,7 +93,16 @@ class PhysicalTargetFormalCandidate:
 
 @dataclass(frozen=True)
 class PreparedCandidateEquivalence:
-    """One complete semantic-reference equivalence candidate/backend route."""
+    """One completely prepared existing semantic-reference equivalence candidate/backend route.
+
+    This is a compiler preparation product, not a new equivalence relation.  It
+    retains the two artifacts which the historical formal-aware selection-only adapter used to
+    discard after building its miter.  Retaining those typed artifacts lets the
+    compiler evidence path retain the direct-SV semantic-reference equivalence leg for deterministic replay.
+
+    The trailing optional fields preserve the private ``_ProofBundle`` test
+    construction API while callers migrate to this public product.
+    """
 
     property: EquivalenceProperty | object
     source: str
@@ -105,11 +113,31 @@ class PreparedCandidateEquivalence:
     property_identity: str
     assumptions_identity: str
     backend_identity: str
-    backend: str
-    reference_artifact: BackendArtifact
-    implementation_artifact: BackendArtifact
+    backend: str = "direct_systemverilog"
+    reference_artifact: BackendArtifact | None = None
+    implementation_artifact: BackendArtifact | None = None
+    input_semantic_ids: tuple[str, ...] = ()
+    trace_metadata: MiterTraceMetadata | None = None
+
+
+# Compatibility for focused cache tests which exercised the former private
+# preparation object directly.  Production code uses the public name above.
+_ProofBundle = PreparedCandidateEquivalence
+
+
+@dataclass(frozen=True)
+class _CandidateEquivalenceShape:
+    implementation: object
+    reference: object
+    module: Module
+    reference_module: Module
+    property: EquivalenceProperty
+    reference_rtl: str
+    reference_rtl_names: dict[str, str]
     input_semantic_ids: tuple[str, ...]
-    trace_metadata: MiterTraceMetadata
+    output_name: str
+    clock: str | None
+    reset: str | None
 
 
 def _proof_bundle_fingerprint(
@@ -126,10 +154,14 @@ def _proof_bundle_fingerprint(
         "top": bundle.top,
         "backend": bundle.backend,
     }
-    result["reference_build_identity"] = bundle.reference_artifact.build_identity
-    result["implementation_build_identity"] = (
-        bundle.implementation_artifact.build_identity
-    )
+    if bundle.reference_artifact is not None:
+        result["reference_build_identity"] = (
+            bundle.reference_artifact.build_identity
+        )
+    if bundle.implementation_artifact is not None:
+        result["implementation_build_identity"] = (
+            bundle.implementation_artifact.build_identity
+        )
     return result
 
 
@@ -265,11 +297,15 @@ def _property_from_data(value: object) -> EquivalenceProperty:
     )
 
 
-def _artifact_data(artifact: BackendArtifact) -> object:
+def _artifact_data(artifact: BackendArtifact | None) -> object:
+    if artifact is None:
+        return None
     return {"manifest": json.loads(artifact.to_json()), "text": artifact.text}
 
 
-def _artifact_from_data(value: object) -> BackendArtifact:
+def _artifact_from_data(value: object) -> BackendArtifact | None:
+    if value is None:
+        return None
     if not isinstance(value, dict) or set(value) != {"manifest", "text"}:
         raise ValueError("prepared semantic-reference equivalence artifact payload is invalid")
     text = value["text"]
@@ -281,7 +317,9 @@ def _artifact_from_data(value: object) -> BackendArtifact:
     return artifact
 
 
-def _trace_metadata_data(value: MiterTraceMetadata) -> object:
+def _trace_metadata_data(value: MiterTraceMetadata | None) -> object:
+    if value is None:
+        return None
     return {
         "reference_output": value.reference_output,
         "implementation_output": value.implementation_output,
@@ -290,7 +328,9 @@ def _trace_metadata_data(value: MiterTraceMetadata) -> object:
     }
 
 
-def _trace_metadata_from_data(value: object) -> MiterTraceMetadata:
+def _trace_metadata_from_data(value: object) -> MiterTraceMetadata | None:
+    if value is None:
+        return None
     expected = {
         "reference_output", "implementation_output", "reset",
         "comparison_valid",
@@ -407,6 +447,8 @@ def prepared_candidate_equivalence_from_data(
     result = _decode_prepared_candidate(value)
     if not isinstance(result.property, EquivalenceProperty):
         raise ValueError("prepared candidate requires typed semantic-reference equivalence property IR")
+    if result.reference_artifact is None or result.implementation_artifact is None:
+        raise ValueError("replayable semantic-reference equivalence candidate requires both exact artifacts")
     if result.reference_artifact_hash != result.reference_artifact.artifact_hash:
         raise ValueError("prepared semantic-reference equivalence reference artifact hash is inconsistent")
     if (
@@ -429,6 +471,48 @@ def prepared_candidate_equivalence_from_data(
         result.implementation_artifact,
     )
     return result
+
+
+@dataclass(frozen=True)
+class _PipelineFormalCandidate:
+    pipeline_candidate: object
+    expression: object
+    semantic_identity: str
+    implementation_identity: str
+    cost: CandidateCost
+    timing_relation: object | None = None
+    candidate_class: str = "pipeline_scheduler"
+
+
+def _candidate_class(candidate: object) -> str:
+    explicit = getattr(candidate, "candidate_class", None)
+    if explicit in {"value", "guarded_rewrite", "architecture_alternatives", "pipeline_scheduler", "exact_reduction", "pipeline"}:
+        return str(explicit)
+    stages = tuple(str(item) for item in getattr(candidate, "stages", ()))
+    if any("pipeline" in item for item in stages):
+        return "pipeline_scheduler"
+    if any("reduction" in item for item in stages):
+        return "exact_reduction"
+    if getattr(candidate, "architecture", None) is not None:
+        return "architecture_alternatives"
+    if any(item == "value" for item in stages):
+        return "guarded_rewrite"
+    return "value"
+
+
+def candidate_equivalence_class(candidate: object) -> str:
+    """Return the frozen semantic-reference equivalence candidate family used by formal-aware selection preparation."""
+
+    return _candidate_class(candidate)
+
+
+def _input_refs(expression: object) -> dict[str, object]:
+    # Reuse the exploration traversal policy: exact reductions retain their
+    # selected implementation and implementation choices follow only the
+    # selected branch.  This is the same typed graph supplied to each backend.
+    from zlang.exploration import _input_refs as exploration_input_refs
+
+    return exploration_input_refs(expression)
 
 
 class _SemanticEquivalenceCandidateVerifierBase:
@@ -458,12 +542,12 @@ class _SemanticEquivalenceCandidateVerifierBase:
         )
 
     def _key(self, candidate: object) -> str:
-        identity = getattr(candidate, "implementation_identity", None)
-        if not isinstance(identity, str) or not identity:
-            raise FormalCandidateUnavailable(
-                "semantic-reference equivalence candidate has no implementation identity"
-            )
-        return identity
+        return str(getattr(candidate, "implementation_identity", "")) or stable_digest(
+            {
+                "schema": "zlang-formal_selection-candidate-fallback-v1",
+                "expression": expression_semantic_identity(candidate.expression),
+            }
+        )
 
 
     def prepare(
@@ -509,7 +593,7 @@ class _SemanticEquivalenceCandidateVerifierBase:
             "reference_semantics": expression_semantic_identity(
                 self.reference_expression
             ),
-            "candidate_class": self.candidate_class or candidate_equivalence_class(candidate),
+            "candidate_class": self.candidate_class or _candidate_class(candidate),
             "clock_domain_contract": clock_domain_data(
                 self.clock_domain_contract
             ),
@@ -680,7 +764,7 @@ class _SemanticEquivalenceCandidateVerifierBase:
             name=reference_module,
             assignments=(Assignment(output, reference),),
         )
-        candidate_kind = self.candidate_class or candidate_equivalence_class(candidate)
+        candidate_kind = self.candidate_class or _candidate_class(candidate)
         reference_timing = timing_info(reference)
         candidate_timing = timing_info(implementation)
         if timed:
@@ -812,7 +896,7 @@ class SemanticEquivalenceDirectSystemVerilogCandidateVerifier(_SemanticEquivalen
             "reference_semantics": expression_semantic_identity(
                 self.reference_expression
             ),
-            "candidate_class": self.candidate_class or candidate_equivalence_class(candidate),
+            "candidate_class": self.candidate_class or _candidate_class(candidate),
             "clock_domain_contract": clock_domain_data(
                 self.clock_domain_contract
             ),
@@ -957,6 +1041,164 @@ def _validate_candidate_artifact(
         )
 
 
+def gate_standalone_pipelines(
+    module: Module,
+    config: FormalExplorationConfig,
+    verifier: object | None = None,
+    *,
+    canonical_site_keys: Iterable[tuple[str, str | None, str]] = (),
+    backend: str = "direct_systemverilog",
+) -> Module:
+    """Apply the frozen formal-aware selection gate to ordinary implementation regions.
+
+    Canonical ``implement`` regions are gated while their deterministic cost selection candidate set is
+    available.  The retained ``PipelineExploration`` records are an internal
+    candidate table, so this adapter recreates the same deterministic cost selection ranking and
+    rewires only the selected output assignment.
+    """
+
+    if config.policy is FormalPolicy.OFF or not module.pipeline_explorations:
+        return module
+    from zlang.formal_exploration import gate_candidates
+    from zlang.ir.expressions import CostMetric
+    from zlang.candidate_sites import (
+        candidate_owner_formal_domain,
+        module_candidate_owner_identity,
+        pipeline_site_key,
+    )
+
+    assignments = list(module.assignments)
+    # A canonical ``implement`` region publishes one unified ExplorationResult.
+    # Its PipelineExploration entries are planner/report metadata only and must
+    # not be sent through the standalone formal-aware selection route a second time.  Persisted
+    # standalone pipeline records (which predate ``implement``) retain the
+    # legacy route and are gated below.
+    canonical_keys = frozenset(canonical_site_keys)
+    standalone = tuple(
+        (index, exploration)
+        for index, exploration in enumerate(module.pipeline_explorations)
+        if pipeline_site_key(module, exploration) not in canonical_keys
+    )
+    if not standalone:
+        return module
+    # Keep the retained catalog order stable.  Canonical planner entries are
+    # skipped by site key; only true standalone entries are replaced in place.
+    updated_explorations = list(module.pipeline_explorations)
+    for pipeline_index, exploration in standalone:
+        wrapped, constraints, extraction = standalone_pipeline_candidate_space(
+            exploration
+        )
+        domain, domain_limitation = candidate_owner_formal_domain(
+            module, module_candidate_owner_identity(module)
+        )
+        if backend != "direct_systemverilog":
+            raise FormalCandidateUnavailable(
+                f"formal backend '{backend}' is retired; use direct_systemverilog"
+            )
+        selected_verifier = (
+            verifier
+            if verifier is not None and domain_limitation is None
+            else SemanticEquivalenceDirectSystemVerilogCandidateVerifier(
+                exploration.source_expression,
+                candidate_class="pipeline_scheduler",
+                artifact_provider=getattr(config, "artifact_provider", None),
+                clock_domain_contract=domain,
+                unavailable_reason=domain_limitation,
+            )
+        )
+        gate = gate_candidates(
+            wrapped,
+            extraction.evaluations,
+            config,
+            selected_verifier,
+        )
+        gated = extract_best(
+            gate.eligible,
+            objective=CostMetric.FMAX_EST,
+            constraints=constraints,
+            cost_fn=lambda item: item.cost,
+        )
+        selected = gated.selected.pipeline_candidate
+        updated_explorations[pipeline_index] = replace(
+            exploration,
+            selected=selected.name,
+            formal_records=gate.records,
+        )
+        matches = [
+            index for index, assignment in enumerate(assignments)
+            if assignment.target.name == exploration.output
+            and assignment.signal is None
+            and assignment.channel is None
+        ]
+        if len(matches) != 1:
+            raise FormalCandidateUnavailable(
+                "standalone pipeline formal gate requires one exact output assignment"
+            )
+        index = matches[0]
+        assignments[index] = replace(assignments[index], expression=selected.expression)
+    return replace(
+        module,
+        assignments=tuple(assignments),
+        pipeline_explorations=tuple(updated_explorations),
+    )
+
+
+def standalone_pipeline_candidate_space(exploration: object):
+    """Reconstruct the exact frozen deterministic cost selection space for one retained pipeline site.
+
+    Both the selection-phase formal-aware selection adapter and ``CandidateSiteLedger`` consume
+    this helper.  Keeping one implementation prevents candidate ranks from
+    drifting between evidence publication and the actual gate.
+    """
+
+    from zlang.ir.expressions import CostMetric
+    from zlang.pipelines import pipeline_constraint_to_unified
+
+    wrapped = tuple(
+        _PipelineFormalCandidate(
+            candidate,
+            candidate.expression,
+            expression_semantic_identity(exploration.source_expression),
+            stable_digest({
+                "schema": "zlang-formal_selection-pipeline-candidate-v1",
+                "source": expression_semantic_identity(
+                    exploration.source_expression
+                ),
+                "name": candidate.name,
+                "expression": expression_semantic_identity(candidate.expression),
+                "latency": candidate.latency,
+                "ii": candidate.initiation_interval,
+                "transformations": list(candidate.transformations),
+            }),
+            CandidateCost.estimate(
+                lut=candidate.estimate.lut,
+                ff=candidate.estimate.ff,
+                dsp=candidate.estimate.dsp,
+                latency=candidate.latency,
+                ii=candidate.initiation_interval,
+                fmax_est=candidate.estimate.fmax_mhz,
+                structural_cost=len(candidate.transformations),
+            ),
+            timing_relation=validate_timed_candidate(
+                exploration.source_expression,
+                candidate.expression,
+                value_equivalent=True,
+            ),
+        )
+        for candidate in exploration.candidates
+    )
+    constraints = tuple(
+        pipeline_constraint_to_unified(item) for item in exploration.constraints
+    )
+    extraction = extract_best(
+        wrapped,
+        objective=CostMetric.FMAX_EST,
+        constraints=constraints,
+        cost_fn=lambda item: item.cost,
+    )
+    return wrapped, constraints, extraction
+
+
 __all__ = [
     "candidate_equivalence_class",
     "FormalCandidateUnavailable",
@@ -966,4 +1208,6 @@ __all__ = [
     "prepared_candidate_equivalence_from_data",
     "prepared_candidate_equivalence_to_data",
     "validate_prepared_equivalence_domains",
+    "gate_standalone_pipelines",
+    "standalone_pipeline_candidate_space",
 ]

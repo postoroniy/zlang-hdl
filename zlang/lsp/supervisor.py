@@ -16,13 +16,6 @@ import threading
 import time
 from typing import BinaryIO
 
-from zlang.lsp.protocol import (
-    LspProtocolError,
-    error_response,
-    read_message,
-    write_message,
-)
-
 
 WORKER_TIMEOUT_SECONDS = 60.0
 WORKER_ADDRESS_SPACE_BYTES = 2 * 1024 * 1024 * 1024
@@ -53,6 +46,8 @@ def supervise_stdio(
     timeout_seconds: float = WORKER_TIMEOUT_SECONDS,
 ) -> int:
     """Forward standard LSP frames and bound outstanding worker operations."""
+
+    from zlang.lsp.server import LspProtocolError, _error, read_message, write_message
 
     if timeout_seconds <= 0:
         raise ValueError("LSP worker timeout must be positive")
@@ -132,10 +127,7 @@ def supervise_stdio(
             # parse error.  Preserve that protocol behavior at this boundary.
             try:
                 with output_lock:
-                    write_message(
-                        output_stream,
-                        error_response(None, -32700, str(error)),
-                    )
+                    write_message(output_stream, _error(None, -32700, str(error)))
             except (BrokenPipeError, OSError):
                 pass
             transport_errors.append(error)

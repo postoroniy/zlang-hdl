@@ -8,10 +8,10 @@ from zlang.backend.systemverilog.emitter import (
     SystemVerilogCapabilityReport,
     SystemVerilogEmissionError,
     capability_report,
-    emit,
     emit_artifact,
     emit_artifact_with_source_map,
     emit_formal_artifact,
+    emit as emit_experimental,
 )
 from zlang.backend.systemverilog.target import emit_target, emit_target_artifact
 from zlang.backend.external import ExternalMappingError, ExternalPhysicalMapping
@@ -27,7 +27,7 @@ __all__ = [
     "SystemVerilogCapabilityReport",
     "capability_report",
     "emit_contracts",
-    "emit",
+    "emit_experimental",
     "emit_artifact",
     "emit_artifact_with_source_map",
     "emit_formal_artifact",

@@ -11,14 +11,21 @@ from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
 from zlang.compiler import compile_source
 from zlang.equivalence import (
     artifact_hash,
-    emit_miter_with_metadata,
+    emit_miter,
     emit_reference_model,
+    formal_tools_available,
     make_equivalence_property,
     publish_bindings,
     run_equivalence_formal,
 )
-from tests.support.formal import formal_tools_available
-from zlang.ir.equivalence import BindingMap, BindingSide, EquivalenceBinding, EquivalenceMode, EquivalenceStatus, SignalRole
+from zlang.ir import (
+    BindingMap,
+    BindingSide,
+    EquivalenceBinding,
+    EquivalenceMode,
+    EquivalenceStatus,
+    SignalRole,
+)
 
 
 SOURCE = """
@@ -74,12 +81,8 @@ def test_direct_sv_runtime_expression_index_simulates(tmp_path: Path) -> None:
     artifact = emit_sv_artifact(compile_source(SOURCE).ir)
     rtl = tmp_path / "RuntimeSelect.sv"
     rtl.write_text(artifact.text)
-    assert next(
-        binding
-        for binding in artifact.bindings
-        if binding.semantic_signal_id == "port:values"
-    ).width == 32
-    assert "values[2'(raw_index)]" in artifact.text
+    assert artifact.bindings[0].width == 32
+    assert "32'(2'(raw_index))" in artifact.text
     _run_verilator([rtl], tmp_path, "sv")
 
 
@@ -114,16 +117,12 @@ def _semantic_equivalence_source(implementation: str):
         backend="direct_systemverilog", artifact_hash_value=artifact_hash(implementation),
         rtl_names=names,
     )
-    miter = emit_miter_with_metadata(
+    miter = emit_miter(
         property_, BindingMap((*ref_bindings, *impl_bindings)),
         reference_module="RuntimeSelectReference",
         implementation_module="RuntimeSelect",
     )
-    return (
-        property_,
-        reference + "\n" + implementation + "\n" + miter.source,
-        miter.trace_metadata,
-    )
+    return property_, reference + "\n" + implementation + "\n" + miter
 
 
 EXPLICIT_SWITCH = r"""
@@ -149,10 +148,10 @@ endmodule
     reason="Yosys/SymbiYosys formal tools are unavailable",
 )
 def test_semantic_equivalence_runtime_select_matches_explicit_switch_with_real_solver() -> None:
-    property_, source, trace_metadata = _semantic_equivalence_source(EXPLICIT_SWITCH)
+    property_, source = _semantic_equivalence_source(EXPLICIT_SWITCH)
     result = run_equivalence_formal(
         property_, source, top="semantic_equivalence_" + property_.id.replace(".", "_"),
-        mode=EquivalenceMode.PROVE, depth=4, trace_metadata=trace_metadata,
+        mode=EquivalenceMode.PROVE, depth=4,
     )
     assert result.status is EquivalenceStatus.PROVEN
 
@@ -172,10 +171,10 @@ def test_semantic_equivalence_rejects_the_retired_msb_first_runtime_selector() -
         "      2'd2: y = values[15:8];\n"
         "      default: y = values[7:0];",
     )
-    property_, source, trace_metadata = _semantic_equivalence_source(retired)
+    property_, source = _semantic_equivalence_source(retired)
     result = run_equivalence_formal(
         property_, source, top="semantic_equivalence_" + property_.id.replace(".", "_"),
-        mode=EquivalenceMode.PROVE, depth=4, trace_metadata=trace_metadata,
+        mode=EquivalenceMode.PROVE, depth=4,
     )
     assert result.status is EquivalenceStatus.FAILED
 

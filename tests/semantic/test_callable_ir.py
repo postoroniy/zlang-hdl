@@ -32,7 +32,6 @@ from zlang.ir.types import UIntType, VecType
 from zlang.compiler import compile_source
 from zlang.parser import parse
 from zlang.semantic import analyze
-from tests.support.typed_callables import typed_function
 from zlang.dependencies import (
     DependencyClosure,
     DependencyModuleIdentity,
@@ -64,7 +63,7 @@ def _definition(
         identity,
         (("A", "u8"), ("B", "u8")),
     )
-    return typed_function(
+    return Function(
         name,
         parameters,
         U9,
@@ -111,10 +110,10 @@ def test_specialized_callable_has_stable_metadata_and_expands_once() -> None:
     assert definition.metadata.arguments == (("A", "u8"), ("B", "u8"))
 
 
-def test_current_function_fixture_has_stable_callee_identity() -> None:
-    first = typed_function("identity", (FunctionParameter("x", U8),), U8, ParameterRef("x", U8))
-    second = typed_function("identity", (FunctionParameter("x", U8),), U8, ParameterRef("x", U8))
-    changed = typed_function("identity", (FunctionParameter("x", U9),), U9, ParameterRef("x", U9))
+def test_legacy_function_constructor_derives_a_stable_callee_identity() -> None:
+    first = Function("identity", (FunctionParameter("x", U8),), U8, ParameterRef("x", U8))
+    second = Function("identity", (FunctionParameter("x", U8),), U8, ParameterRef("x", U8))
+    changed = Function("identity", (FunctionParameter("x", U9),), U9, ParameterRef("x", U9))
     assert first.callee_identity == second.callee_identity
     assert first.callee_identity != changed.callee_identity
 
@@ -138,7 +137,7 @@ def test_callable_metadata_participates_in_current_canonical_identity() -> None:
     assert canonical_ir_identity(original) != canonical_ir_identity(changed)
 
 
-def test_callable_source_relocation_changes_current_canonical_identity() -> None:
+def test_callable_diagnostic_source_relocation_does_not_change_identity() -> None:
     source = (
         "fn identity<type T>(x:T)->T{x} "
         "module Top{in x:u8 out y:u8 y=identity(x)}"
@@ -149,7 +148,7 @@ def test_callable_source_relocation_changes_current_canonical_identity() -> None
         first.callable_definitions[0].metadata.declaration_identity
         != second.callable_definitions[0].metadata.declaration_identity
     )
-    assert canonical_ir_identity(lower(first)) != canonical_ir_identity(lower(second))
+    assert canonical_ir_identity(lower(first)) == canonical_ir_identity(lower(second))
 
 
 def test_callable_functional_binder_identity_ignores_unrelated_function_order() -> None:
@@ -338,7 +337,7 @@ def test_callable_expansion_rejects_cycles_and_bounds_growth() -> None:
     right_metadata = CallableMetadata(
         CallableKind.FUNCTION, "right", "fixture:right", "right-id"
     )
-    left = typed_function(
+    left = Function(
         "left",
         (FunctionParameter("x", U8),),
         U8,
@@ -346,7 +345,7 @@ def test_callable_expansion_rejects_cycles_and_bounds_growth() -> None:
         "left-id",
         left_metadata,
     )
-    right = typed_function(
+    right = Function(
         "right",
         (FunctionParameter("x", U8),),
         U8,
@@ -379,7 +378,7 @@ def test_callable_expansion_preserves_shared_dag_without_relaxing_logical_budget
 
 
 def test_callable_expansion_shares_repeated_resolved_call_occurrence() -> None:
-    identity = typed_function(
+    identity = Function(
         "identity8", (FunctionParameter("x", U8),), U8,
         ParameterRef("x", U8),
     )
@@ -393,7 +392,7 @@ def test_callable_expansion_shares_repeated_resolved_call_occurrence() -> None:
 
 
 def test_callable_expansion_keeps_nominal_reduce_implementation_opaque() -> None:
-    identity = typed_function(
+    identity = Function(
         "identity9",
         (FunctionParameter("x", U9),),
         U9,

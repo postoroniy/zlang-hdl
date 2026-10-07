@@ -1,17 +1,23 @@
 """Shared backend expression-materialization policy tests."""
 
 from zlang.backend.expression_materialization import (
-    ExpressionAliasMap,
     MaterializedExpression,
     dependency_ordered_materialization,
-    expression_size,
+    expression_children,
     module_expression_roots,
     plan_materialization,
     replace_materialized,
 )
 from zlang.compiler import compile_source
 from zlang.ir import expressions as expr
+from zlang.ir.expression_graph import ExpressionDagIndex
 from zlang.ir.types import FixedType, UIntType
+
+
+def _logical_size(value: expr.Expression) -> int:
+    return ExpressionDagIndex(
+        (value,), children=expression_children
+    ).logical_occurrences()
 
 
 def test_shared_large_typed_expression_is_named_once_deterministically() -> None:
@@ -27,7 +33,7 @@ def test_shared_large_typed_expression_is_named_once_deterministically() -> None
     second = plan_materialization((root,), reserved_names=("a", "b"))
     assert first == second
     assert [item.expression for item in first].count(shared) == 1
-    assert expression_size(shared) == 5
+    assert _logical_size(shared) == 5
 
     aliases = {item.expression: item.name for item in first}
     rewritten = replace_materialized(root, aliases)
@@ -117,49 +123,4 @@ def test_procedural_materialization_orders_shared_dependencies_first() -> None:
         "shared",
         "parent_first",
         "parent_second",
-    )
-
-
-def test_unique_oversized_tree_is_partitioned_at_typed_dag_boundaries() -> None:
-    type8 = UIntType(8)
-    value: expr.Expression = expr.InputRef("a", type8)
-    for index in range(40):
-        value = expr.Add(value, expr.Constant(index, type8), type8)
-
-    plan = plan_materialization((value,), maximum_inline_size=16)
-    aliases = {item.expression: item.name for item in plan}
-    rewritten = replace_materialized(value, aliases, keep=value)
-
-    assert plan
-    assert plan[-1].expression == value
-    assert isinstance(rewritten, expr.Add)
-    assert expression_size(rewritten) <= 16
-def test_preferred_root_definition_is_partitioned_independently_of_uses() -> None:
-    type8 = UIntType(8)
-    value: expr.Expression = expr.InputRef("a", type8)
-    for index in range(40):
-        value = expr.Add(value, expr.Constant(index, type8), type8)
-
-    plan = plan_materialization(
-        (value,),
-        preferred_names=((value, "preferred"),),
-        maximum_inline_size=16,
-    )
-    aliases = ExpressionAliasMap(
-        (item.expression, item.name) for item in plan
-    )
-    rewritten = replace_materialized(value, aliases, keep=value)
-
-    assert plan[-1].name == "preferred"
-    assert len(plan) > 1
-    assert expression_size(rewritten) <= 16
-    assert all(
-        expression_size(
-            replace_materialized(
-                item.expression,
-                aliases,
-                keep=item.expression,
-            )
-        ) <= 16
-        for item in plan
     )

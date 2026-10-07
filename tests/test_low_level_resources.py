@@ -9,6 +9,10 @@ from zlang.compiler import compile_source
 from zlang.ir.target import PipelineConfiguration
 from zlang.parser import parse
 from zlang.stdlib import available_stdlib_modules
+from zlang.target_capabilities import (
+    MemoryCapabilityRequest,
+    assess_memory_capability,
+)
 from zlang.targets import (
     TargetArchitectureError,
     load_target,
@@ -61,6 +65,25 @@ def test_xilinx_and_intel_memories_share_generic_legality_api() -> None:
         validate_memory_configuration(m10k, width=64, depth=1, port_mode="single")
     with pytest.raises(TargetArchitectureError, match="capacity exceeded"):
         validate_memory_configuration(ramb, width=36, depth=2048, port_mode="single")
+
+
+def test_memory_capability_assessment_preserves_every_catalog_fact() -> None:
+    ramb = _resource("xc7z030ffg676-1", "RAMB36E1")
+    supported = assess_memory_capability(
+        ramb, MemoryCapabilityRequest(width=36, depth=1024, port_mode="true_dual")
+    )
+    assert supported.supported
+    assert supported.advertised_widths == (1, 2, 4, 9, 18, 36, 72)
+    assert supported.capacity_bits == 36_864
+    assert supported.failure_message() is None
+
+    unsupported = assess_memory_capability(
+        ramb, MemoryCapabilityRequest(width=64, depth=1, port_mode="single")
+    )
+    assert not unsupported.supported
+    assert unsupported.failure_message() == (
+        "memory resource 'std.target.xilinx.series7.RAMB36E1' does not support width 64"
+    )
 
 
 def test_clock_resources_use_one_generic_requirement_check() -> None:

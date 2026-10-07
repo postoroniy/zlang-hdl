@@ -24,13 +24,6 @@ from urllib.parse import unquote, urlparse
 from urllib.request import url2pathname
 
 from zlang._version import __version__
-from zlang.lsp.protocol import (
-    JSON_RPC_VERSION,
-    LspProtocolError,
-    error_response as _error,
-    read_message,
-    write_message,
-)
 from zlang.tooling import (
     EditorDocumentSnapshot,
     EditorWorkspaceSnapshot,
@@ -46,10 +39,10 @@ from zlang.tooling import (
     ToolingSemanticToken,
     ToolingSignatureHelp,
     ToolingSession,
-    check_snapshot,
     completion_at,
-    definition_at,
+    check_snapshot,
     document_symbols,
+    definition_at,
     hover_at,
     is_unspecialized_generic_diagnostic,
     references_at,
@@ -61,6 +54,7 @@ from zlang.tooling import (
 
 
 SERVER_NAME = "zlang-lsp"
+JSON_RPC_VERSION = "2.0"
 TEXT_DOCUMENT_SYNC_FULL = 1
 CODE_ACTION_QUICKFIX = "quickfix"
 DIAGNOSTIC_DEBOUNCE_SECONDS = 0.250
@@ -103,6 +97,10 @@ _SEMANTIC_TOKEN_TYPE_INDEX = {
 _SEMANTIC_TOKEN_MODIFIER_INDEX = {
     name: index for index, name in enumerate(SEMANTIC_TOKEN_MODIFIERS)
 }
+
+
+class LspProtocolError(ValueError):
+    """A malformed JSON-RPC/LSP message or unsupported local document URI."""
 
 
 @dataclass(frozen=True)
@@ -603,6 +601,14 @@ def _response(request_id: Any, result: Any = None) -> dict[str, Any]:
     return {"jsonrpc": JSON_RPC_VERSION, "id": request_id, "result": result}
 
 
+def _error(request_id: Any, code: int, message: str) -> dict[str, Any]:
+    return {
+        "jsonrpc": JSON_RPC_VERSION,
+        "id": request_id,
+        "error": {"code": code, "message": message},
+    }
+
+
 class LspServer:
     """Stateful dispatcher for the bounded Community LSP surface."""
 
@@ -851,10 +857,7 @@ class LspServer:
 
     def _document_symbols(self, params: object) -> list[dict[str, Any]]:
         state = self._open_document(params, "documentSymbol")
-        return [
-            _symbol_to_lsp(symbol)
-            for symbol in document_symbols(state.text)
-        ]
+        return [_symbol_to_lsp(symbol) for symbol in document_symbols(state.text)]
 
     def _hover(self, params: object) -> dict[str, Any] | None:
         self._sync_editor_workspace()
@@ -1424,8 +1427,60 @@ def _best_effort_uri(params: object) -> str:
     return ""
 
 
+def read_message(stream: BinaryIO) -> object | None:
+    """Read one standard LSP message from a binary stream."""
+
+    first = stream.readline()
+    if first == b"":
+        return None
+    headers: dict[str, str] = {}
+    line = first
+    while line not in {b"\r\n", b"\n"}:
+        try:
+            name, value = line.decode("ascii").rstrip("\r\n").split(":", 1)
+        except (UnicodeDecodeError, ValueError) as error:
+            raise LspProtocolError("malformed LSP header") from error
+        headers[name.strip().lower()] = value.strip()
+        line = stream.readline()
+        if line == b"":
+            raise LspProtocolError("truncated LSP headers")
+    value = headers.get("content-length")
+    if value is None:
+        raise LspProtocolError("LSP message is missing Content-Length")
+    try:
+        length = int(value)
+    except ValueError as error:
+        raise LspProtocolError("LSP Content-Length is not an integer") from error
+    if length < 0:
+        raise LspProtocolError("LSP Content-Length must not be negative")
+    chunks: list[bytes] = []
+    remaining = length
+    while remaining:
+        chunk = stream.read(remaining)
+        if not chunk:
+            raise LspProtocolError("truncated LSP message body")
+        chunks.append(chunk)
+        remaining -= len(chunk)
+    payload = b"".join(chunks)
+    try:
+        return json.loads(payload.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise LspProtocolError("invalid JSON-RPC message") from error
+
+
+def write_message(stream: BinaryIO, message: object) -> None:
+    payload = json.dumps(
+        message, ensure_ascii=False, separators=(",", ":"), sort_keys=True
+    ).encode("utf-8")
+    stream.write(f"Content-Length: {len(payload)}\r\n\r\n".encode("ascii"))
+    stream.write(payload)
+    flush = getattr(stream, "flush", None)
+    if flush is not None:
+        flush()
+
+
 def run_server() -> int:
-    """Serve the canonical ``zlang lsp`` subcommand over stdio."""
+    """Console-script entry point for ``zlang-lsp``."""
 
     # The framing reader is a daemon so an LSP `exit` notification can end the
     # process even if the client keeps stdin open.  Reading the interpreter's

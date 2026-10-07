@@ -24,9 +24,11 @@ from zlang.ir.types import (
     UFixedType,
     UIntType,
 )
-from zlang.opt.rewrite_spec import RewriteRule
-from zlang.opt.rewrite_model import render_saturation
-from zlang.opt.saturation import saturate
+from zlang.opt import (
+    RewriteRule,
+    render_saturation,
+    saturate,
+)
 from zlang.opt.rewrite_spec import (
     BUILTIN_REWRITE_SPECS,
     TypedRewriteSpec,

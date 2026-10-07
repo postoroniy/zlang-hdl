@@ -1,6 +1,14 @@
 from __future__ import annotations
 
-from zlang.ast.nodes import BitcastExpr, ConcatExpr, PackExpr, ReshapeExpr, SliceExpr, UnpackExpr
+from zlang.ast import (
+    BitcastExpr,
+    ConcatExpr,
+    DynamicSliceExpr,
+    PackExpr,
+    ReshapeExpr,
+    SliceExpr,
+    UnpackExpr,
+)
 from zlang.parser import parse
 
 
@@ -34,6 +42,18 @@ def test_slice_bounds_keep_compile_time_parameter_expressions() -> None:
     assert isinstance(expression, SliceExpr)
     assert expression.msb == "N-1"
     assert expression.lsb == 0
+
+
+def test_dynamic_slice_keeps_runtime_offset_and_compile_time_width() -> None:
+    syntax = parse(
+        "module Dynamic { in x:bits<8> in offset:u2 out y:bits<3> "
+        "y=x[offset +: 3] }"
+    )
+    expression = syntax.assignments[0].expression
+    assert isinstance(expression, DynamicSliceExpr)
+    assert expression.width == 3
+    assert expression.offset.name == "offset"
+    assert expression.origin is not None
 
 
 def test_bitcast_and_both_reshape_spellings_have_dedicated_ast_nodes() -> None:

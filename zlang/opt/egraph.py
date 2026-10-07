@@ -38,7 +38,7 @@ from zlang.opt.ir import (
     NodeId, NodeMetadata, Purity, Signedness, pure_metadata,
 )
 from zlang.opt.capabilities import expression_capability
-from zlang.opt.expression_restoration import restore_expression
+from zlang.opt.lowering import restore_expression
 from zlang.source import SourceOrigin
 
 

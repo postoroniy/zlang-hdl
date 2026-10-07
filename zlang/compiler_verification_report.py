@@ -17,8 +17,10 @@ from zlang.formal_orchestration import (
     CompilerFormalExecutionPlan,
     FormalOrchestrationError,
 )
-from zlang.verification_bundle_codec import VerificationBundleError
-from zlang.verification_bundle_report import VerificationRunReport
+from zlang.verification_bundle import (
+    VerificationBundleError,
+    VerificationRunReport,
+)
 
 
 COMPILER_VERIFICATION_REPORT_SCHEMA = "zlang-compiler-verification-report-v2"

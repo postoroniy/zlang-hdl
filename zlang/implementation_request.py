@@ -23,7 +23,7 @@ from zlang.ir.expressions import CostMetric
 from zlang.ir.timing import ModuleTimingContract
 from zlang.project import ProjectManifest
 from zlang.source import SourceOrigin
-from zlang.target_catalog import ArchitectureSelectionMode
+from zlang.targets import ArchitectureSelectionMode
 
 
 IMPLEMENTATION_REQUEST_SCHEMA = "zlang-implementation-request-v1"
@@ -496,6 +496,11 @@ def parse_selected_profile(
         raise ImplementationRequestError(str(error)) from error
 
 
+# Descriptive compatibility spelling for callers that treat the selected
+# profile as one contribution among source/CLI/API policy.
+parse_implementation_profile = parse_selected_profile
+
+
 def merge_implementation_contributions(
     *contributions: ImplementationContribution,
 ) -> ImplementationRequest:
@@ -821,5 +826,6 @@ __all__ = [
     "TransformPolicy",
     "apply_exact_timing_contract",
     "merge_implementation_contributions",
+    "parse_implementation_profile",
     "parse_selected_profile",
 ]

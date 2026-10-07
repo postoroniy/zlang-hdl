@@ -10,17 +10,21 @@ import subprocess
 import pytest
 
 from zlang.backend.systemverilog import (
-    emit,
+    emit_experimental,
 )
 from zlang.compiler import compile_file
 from zlang.ir.interfaces import RequestResponseRole
-from zlang.opt.ir import OptimizationStage
-from zlang.opt.lowering import lower, restore
+from zlang.opt import OptimizationStage, lower, restore
 from zlang.parser import parse
 
 
 ROOT = Path(__file__).resolve().parents[2]
 EXAMPLES = ROOT / "examples"
+EXCLUDED_EXAMPLE_PREFIXES = (
+    "projects/80211ad_phylayer/",
+    "projects/80211ad_phylayer_from_public/",
+)
+EXCLUDED_EXAMPLE_FILES = frozenset({"structural/test.zhl"})
 INITIALIZED_INTERNAL_WIRE = re.compile(r"(?m)^[ \t]*wire\b[^;\n]*=")
 
 
@@ -154,9 +158,10 @@ DIRECT_UNSUPPORTED: dict[tuple[str, str], str] = {}
 def _roots():
     for path in sorted(EXAMPLES.rglob("*.zhl")):
         relative = path.relative_to(EXAMPLES).as_posix()
-        if relative.startswith("projects/80211ad_phylayer/"):
-            # Private experimental sources are inventoried separately, not part
-            # of the supported Community direct-SV corpus.
+        if (
+            relative in EXCLUDED_EXAMPLE_FILES
+            or relative.startswith(EXCLUDED_EXAMPLE_PREFIXES)
+        ):
             continue
         source = path.read_text()
         syntax = parse(source)
@@ -207,20 +212,20 @@ def test_request_response_role_survives_canonical_round_trip(
 @pytest.mark.toolchain_smoke
 @pytest.mark.exhaustive_toolchain
 def test_every_standalone_supported_example_root_passes_strict_lint(tmp_path: Path) -> None:
-    checked = 0
+    checked: set[tuple[str, str]] = set()
     for path, relative, _, top in _roots():
         key = (relative, top)
         if key in CHILD_OR_TEMPLATE_ONLY or key in DIRECT_UNSUPPORTED:
             continue
-        generated = emit(_direct_result(path, top).ir)
+        generated = emit_experimental(_direct_result(path, top).ir)
         _assert_explicit_internal_drivers(generated, f"{relative}::{top}")
-        path = tmp_path / f"{checked:03d}_{top}.sv"
-        path.write_text(generated)
+        output = tmp_path / f"{len(checked):03d}_{top}.sv"
+        output.write_text(generated)
         completed = subprocess.run(
             (
                 "verilator", "--lint-only", "-Wno-DECLFILENAME",
                 "-Wno-UNUSED", "-Wno-UNDRIVEN", "--top-module", top,
-                str(path),
+                str(output),
             ),
             capture_output=True,
             text=True,
@@ -228,5 +233,10 @@ def test_every_standalone_supported_example_root_passes_strict_lint(tmp_path: Pa
         assert completed.returncode == 0, (
             f"{relative}::{top}\n{completed.stderr}"
         )
-        checked += 1
-    assert checked > 0
+        checked.add(key)
+    assert ("add.zhl", "Add") in checked
+    assert not any(
+        relative in EXCLUDED_EXAMPLE_FILES
+        or relative.startswith(EXCLUDED_EXAMPLE_PREFIXES)
+        for relative, _top in checked
+    )

@@ -21,8 +21,7 @@ from zlang.ir.types import (
     TaggedUnionVariant,
     UIntType,
 )
-from zlang.opt.ir import OptimizationStage
-from zlang.opt.lowering import lower, restore
+from zlang.opt import OptimizationStage, lower, restore
 from zlang.opt.ir import ExpressionOp
 from zlang.semantic import SemanticError
 from zlang.native_simulation import simulate, simulate_cycles
@@ -136,34 +135,12 @@ def test_union_canonical_round_trip_retains_declaration_and_nodes() -> None:
         ("union A { V } union B { V } module M { out y:u1 y=match A.V { B.V=>0 } }", "does not belong"),
         ("union U { A } module M { out y:u1 y=match U.A { U.A=>0 U.A=>1 } }", "duplicate match"),
         ("union U { A B } module M { out y:u1 y=match U.A { U.A=>0 } }", "missing tagged-union match"),
+        ("union U { A } module M { in x:U out y:u1 y=0 }", "cannot expose tagged-union type"),
     ),
 )
 def test_union_diagnostics_fail_closed(source: str, detail: str) -> None:
     with pytest.raises(SemanticError, match=detail):
         _compile(source)
-
-
-def test_top_level_tagged_union_input_and_output_are_supported() -> None:
-    module = _compile(
-        "union U { Empty Value { x:u8 } } "
-        "module M { in x:U out y:U y=x }",
-        "M",
-    )
-
-    assert module.inputs[0].type == module.tagged_unions[0]
-    assert module.outputs[0].type == module.tagged_unions[0]
-    leaves = {
-        leaf.leaf_semantic_id: leaf
-        for leaf in module.top_physical_abi.leaves
-    }
-    assert leaves["port:x"].canonical_type == module.tagged_unions[0]
-    assert leaves["port:y"].canonical_type == module.tagged_unions[0]
-    value = TaggedUnionValue(
-        module.tagged_unions[0], "Value", (("x", 0xA5),),
-    )
-    assert simulate(module, x=value) == {
-        "y": pack_tagged_union_runtime(value),
-    }
 
 
 def test_module_and_canonical_declaration_tables_reject_forged_nominal_types() -> None:

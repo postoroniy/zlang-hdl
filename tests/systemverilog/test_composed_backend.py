@@ -5,7 +5,7 @@ import subprocess
 import tempfile
 import unittest
 
-from zlang.backend.systemverilog import emit_artifact, emit
+from zlang.backend.systemverilog import emit_artifact, emit_experimental
 from zlang.compiler import compile_source
 from zlang.formal import build_recursive_formal_design
 from zlang.parser import parse
@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[2]
 @unittest.skipUnless(shutil.which("verilator"), "Verilator is required")
 class ComposedDirectSystemVerilogTests(unittest.TestCase):
     def emit(self, source: str, top: str) -> str:
-        return emit(compile_source((ROOT / "examples" / source).read_text(), top=top).ir)
+        return emit_experimental(compile_source((ROOT / "examples" / source).read_text(), top=top).ir)
 
     def test_real_design_hierarchy_lints(self) -> None:
         cases = (
@@ -39,11 +39,11 @@ class ComposedDirectSystemVerilogTests(unittest.TestCase):
                 self.assertEqual(completed.returncode, 0, completed.stderr)
 
     def test_nested_fft_examples_use_explicit_selected_tops(self) -> None:
-        source = (ROOT / "examples/fft/complex_multiply_implementation.zhl").read_text()
-        for top in ("FFTComplexMultiplyRealImplementation", "FFTComplexMultiplyImagImplementation"):
+        source = (ROOT / "examples/fft/complex_multiply_pipeline_auto.zhl").read_text()
+        for top in ("FFTComplexMultiplyRealAuto", "FFTComplexMultiplyImagAuto"):
             with self.subTest(top=top), tempfile.TemporaryDirectory() as temporary:
                 path = Path(temporary) / f"{top}.sv"
-                path.write_text(emit(compile_source(source, top=top).ir))
+                path.write_text(emit_experimental(compile_source(source, top=top).ir))
                 completed = subprocess.run(
                     ("verilator", "--lint-only", "-Wno-fatal", "-Wno-DECLFILENAME",
                      "-Wno-UNUSED", "-Wno-UNDRIVEN", "--top-module", top, str(path)),
@@ -55,7 +55,7 @@ class ComposedDirectSystemVerilogTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "FFTSDFStageNumericD4.sv"
             path.write_text(
-                emit(
+                emit_experimental(
                     compile_source(sdf, top="FFTSDFStageNumericD4").ir
                 )
             )
@@ -91,7 +91,7 @@ class ComposedDirectSystemVerilogTests(unittest.TestCase):
             "generate(i in 0..2) { c[i].x=values[i] } y=c[1].y }"
         )
         module = analyze(parse(source))
-        text = emit(module)
+        text = emit_experimental(module)
         self.assertIn(" c_0 (", text)
         self.assertIn(" c_1 (", text)
 
@@ -125,7 +125,7 @@ class ComposedDirectSystemVerilogTests(unittest.TestCase):
             bench = root / "tb.sv"
             rtl.write_text(
                 self.emit(source, top) if source_override is None
-                else emit(compile_source(source_override, top=top).ir)
+                else emit_experimental(compile_source(source_override, top=top).ir)
             )
             bench.write_text(testbench)
             obj = root / "obj"

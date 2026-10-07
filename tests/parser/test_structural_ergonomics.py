@@ -1,4 +1,4 @@
-from zlang.ast.nodes import ConnectionChainDecl
+from zlang.ast import ConnectionChainDecl
 from zlang.parser import parse
 
 

@@ -175,19 +175,25 @@ def validate_equivalence_artifact_domain(
 
 def validate_prepared_equivalence_domains(
     property_: EquivalenceProperty,
-    reference_artifact: BackendArtifact,
-    implementation_artifact: BackendArtifact,
+    reference_artifact: BackendArtifact | None,
+    implementation_artifact: BackendArtifact | None,
 ) -> None:
     """Validate all retained artifacts of one prepared semantic-reference equivalence leg."""
 
-    validate_equivalence_artifact_domain(
-        property_, reference_artifact, side=BindingSide.REFERENCE,
-        label="reference",
-    )
-    validate_equivalence_artifact_domain(
-        property_, implementation_artifact, side=BindingSide.IMPLEMENTATION,
-        label="implementation",
-    )
+    if reference_artifact is not None:
+        validate_equivalence_artifact_domain(
+            property_,
+            reference_artifact,
+            side=BindingSide.REFERENCE,
+            label="reference",
+        )
+    if implementation_artifact is not None:
+        validate_equivalence_artifact_domain(
+            property_,
+            implementation_artifact,
+            side=BindingSide.IMPLEMENTATION,
+            label="implementation",
+        )
 
 
 __all__ = [

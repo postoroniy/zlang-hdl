@@ -13,9 +13,8 @@ from zlang.backend.manifest import BackendArtifact
 from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
 from zlang.compiler import compile_file, compile_source
 from zlang.formal import build_recursive_formal_design
-from zlang.ir.expressions import Concat, Constant
-from zlang.opt.ir import OptimizationStage
-from zlang.opt.lowering import lower, restore
+from zlang.ir import Concat, Constant
+from zlang.opt import OptimizationStage, lower, restore
 from zlang.semantic import SemanticError
 from zlang.native_simulation import simulate, simulate_cycles
 from zlang.toolchain import lint_with_verilator

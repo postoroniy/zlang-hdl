@@ -9,8 +9,7 @@ from zlang import exploration as exploration_module
 from zlang.compiler import compile_source
 from zlang.ir import expressions as expr
 from zlang.ir.types import BitType, BitsType, UIntType, VecType
-from zlang.opt.lowering import CanonicalizationError, lower, restore
-from zlang.opt.ir import OptimizationStage
+from zlang.opt import CanonicalizationError, OptimizationStage, lower, restore
 from zlang.opt.ir import ExpressionOp, pure_metadata
 from zlang.semantic import SemanticError
 from zlang.native_simulation import simulate
@@ -166,6 +165,33 @@ def test_packed_bits_use_lsb_zero_single_bit_indexing() -> None:
     assert restore(lower(module, stage=OptimizationStage.HIGH_LEVEL)) == module
 
 
+def test_runtime_packed_index_and_dynamic_slice_preserve_lsb_layout() -> None:
+    module = _compile(
+        "module PackedRuntime { in raw:bits<8> in bit_index:u3 in offset:u2 "
+        "out selected:bit out window:bits<3> "
+        "selected=raw[bit_index] window=raw[offset +: 3] }"
+    )
+    values = _assignments(module)
+    assert isinstance(values["selected"], expr.Bitcast)
+    assert isinstance(values["selected"].expression, expr.Truncate)
+    assert isinstance(values["window"], expr.Truncate)
+    assert isinstance(values["window"].expression, expr.Binary)
+    for raw in range(1 << 8):
+        for bit_index in range(8):
+            for offset in range(4):
+                result = simulate(
+                    module,
+                    raw=raw,
+                    bit_index=bit_index,
+                    offset=offset,
+                )
+                assert result == {
+                    "selected": (raw >> bit_index) & 1,
+                    "window": (raw >> offset) & 0b111,
+                }
+    assert restore(lower(module, stage=OptimizationStage.HIGH_LEVEL)) == module
+
+
 @pytest.mark.parametrize(
     ("source", "message"),
     (
@@ -174,8 +200,12 @@ def test_packed_bits_use_lsb_zero_single_bit_indexing() -> None:
             "packed bit index 8 is out of range for bits<8>",
         ),
         (
-            "module M { in x:bits<8> in i:u3 out y:bit y=x[i] }",
-            "packed bit indexing requires a compile-time-proven selector",
+            "module M { in x:bits<8> in i:u4 out y:bit y=x[i] }",
+            "runtime packed-bit index range 0..15 is not provably within packed width 8",
+        ),
+        (
+            "module M { in x:bits<8> in i:u3 out y:bits<3> y=x[i +: 3] }",
+            "dynamic bit-slice offset range 0..7 with width 3 is not provably within packed width 8",
         ),
     ),
 )

@@ -14,6 +14,7 @@ from zlang.formal import (
     build_recursive_formal_design,
     connect_formal_design,
     emit_harness,
+    emit_sby,
 )
 from zlang.formal_exploration import FormalPolicy
 from zlang.exploration import TransformFamily
@@ -107,6 +108,7 @@ def test_safety_verification_harness_uses_the_exact_safe_async_reset_contract() 
         "((!($past(zlang_formal_reset_active))" in harness
     )
     assert "non-executable property report" not in harness
+    assert "mode bmc" in emit_sby(connected)
 
 
 def test_low_level_safety_verification_connector_rejects_an_exact_reset_contract_mismatch() -> None:
@@ -319,7 +321,7 @@ def test_elastic_pipeline_rejects_safe_async_reset_before_planning() -> None:
     session = CompilationSession(source)
 
     with patch(
-        "zlang.implementation_plans.plan_backend_implementations",
+        "zlang.compilation_session.plan_backend_implementations",
         side_effect=AssertionError("elastic reset rejection must precede planning"),
     ) as planner:
         with pytest.raises(
