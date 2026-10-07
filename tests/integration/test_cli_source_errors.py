@@ -35,7 +35,11 @@ def test_parse_error_is_concise_and_does_not_publish_artifact(tmp_path: Path) ->
         "error[ZL-PARSE-001]:"
     )
     assert "Traceback" not in result.stderr
-    assert str(ROOT) not in result.stderr
+    # The prescribed runner deliberately creates test files beneath this
+    # checkout's ignored build/tmp root.  The diagnostic must name that exact
+    # caller-owned source file, but must not leak the checkout path elsewhere.
+    diagnostic_without_source_path = result.stderr.replace(str(tmp_path), "<tmp>")
+    assert str(ROOT) not in diagnostic_without_source_path
     assert not output.exists()
 
 

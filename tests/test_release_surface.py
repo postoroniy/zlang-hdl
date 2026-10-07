@@ -8,7 +8,8 @@ import pytest
 
 import zlang
 from zlang._version import __version__
-from zlang import cli
+from zlang import cli, project_cli, verification_cli
+from zlang.lsp import server as lsp_server
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -23,18 +24,31 @@ def test_root_license_is_unmodified_apache_2_0() -> None:
     )
 
 
-def test_public_cli_reports_the_distribution_version(capsys) -> None:
+@pytest.mark.parametrize(
+    ("entrypoint", "program"),
+    (
+        (cli.main, "zlang"),
+        (project_cli.main, "zlang-lock"),
+        (verification_cli.main, "zlang-verify"),
+        (lsp_server.main, "zlang-lsp"),
+    ),
+)
+def test_every_public_cli_reports_the_distribution_version(
+    entrypoint,
+    program: str,
+    capsys,
+) -> None:
     with pytest.raises(SystemExit) as raised:
-        cli.main(["--version"])
+        entrypoint(["--version"])
 
     assert raised.value.code == 0
-    assert capsys.readouterr().out == f"zlang {__version__}\n"
+    assert capsys.readouterr().out == f"{program} {__version__}\n"
 
 
 def test_package_and_build_metadata_share_one_version_source() -> None:
     configuration = tomllib.loads((ROOT / "pyproject.toml").read_text())
 
-    assert zlang.__version__ == __version__ == "0.1.0a19"
+    assert zlang.__version__ == __version__ == "0.1.0a20"
     assert configuration["project"]["dynamic"] == ["version"]
     assert configuration["project"]["license"] == "Apache-2.0"
     assert configuration["project"]["requires-python"] == ">=3.12,<3.13"
@@ -51,7 +65,7 @@ def test_package_and_build_metadata_share_one_version_source() -> None:
     assert "tool" not in configuration or "maturin" not in configuration["tool"]
     native = configuration["project"]["optional-dependencies"]["native"]
     assert native == [
-        "zlang-native-sim==0.1.0a19; "
+        "zlang-native-sim==0.1.0a20; "
         "platform_system == 'Linux' and platform_machine == 'x86_64'",
     ]
 

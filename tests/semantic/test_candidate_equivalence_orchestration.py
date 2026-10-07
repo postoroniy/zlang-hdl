@@ -16,11 +16,9 @@ from zlang.candidate_sites import (
     CandidateSiteRecord,
     SelectedCandidateSite,
 )
-from zlang.equivalence import MiterTraceMetadata
 from zlang.formal_candidate import PreparedCandidateEquivalence
 from zlang.formal_orchestration import CandidateEquivalencePlanReference
-from zlang.ir.types import BitType
-from zlang.ir.comparison_window import ComparisonWindow
+from zlang.ir import BitType, ComparisonWindow
 from zlang.ir.equivalence import (
     BindingSide,
     EquivalenceBinding,
@@ -63,7 +61,6 @@ def _prepared() -> PreparedCandidateEquivalence:
         reference.artifact_hash, implementation.artifact_hash, "d" * 64,
         property_.id, "e" * 64, "f" * 64, "direct_systemverilog",
         reference, implementation, (),
-        MiterTraceMetadata("reference_result", "implementation_result"),
     )
 
 
@@ -71,7 +68,7 @@ def _selected() -> SelectedCandidateSite:
     candidate = type("Candidate", (), {"implementation_identity": CANDIDATE})()
     rank = CandidateRankRecord(CANDIDATE, "semantic:candidate", 1, (0,))
     site = CandidateSiteRecord(
-        CandidateSiteKind.IMPLEMENT, "owner", "y", "source:expression",
+        CandidateSiteKind.SOURCE_EXPLORE, "owner", "y", "source:expression",
         CANDIDATE, (rank,), CandidateRewriteKind.OUTPUT_ASSIGNMENT,
     )
     return SelectedCandidateSite(site, candidate, object(), "guarded_rewrite")

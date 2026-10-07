@@ -18,19 +18,20 @@ from zlang.costs import (
     UnifiedConstraint,
     extract_best,
 )
-from zlang.candidate_expression import (
-    candidate_expression_children as _expression_children,
-    candidate_input_refs as _input_refs,
-)
 from zlang.ir import expressions as ir_expr
 from zlang.ir.cdc import ClockDomain
 from zlang.ir.expression_graph import ExpressionDagIndex
+from zlang.ir.traversal import (
+    ExpressionTraversalPolicy,
+    expression_children as typed_expression_children,
+)
 from zlang.timing import TimingRelation, timing_info, validate_timed_candidate
 
 
 class TransformFamily(str, Enum):
     PIPELINE = "pipeline"
     DSP = "dsp"
+    MULTIPLIER = "multiplier"
     REDUCTION = "reduction"
     REASSOCIATE = "reassociate"
     ADAPTER = "adapter"
@@ -59,7 +60,7 @@ class ExplorationContext:
     # that boundary lets compiler orchestration apply formal-aware selection after semantic
     # typing, without re-running the analyzer with a live verifier.
     site_owner: str | None = None
-    site_kind: str = "implement"
+    site_kind: str = "source_explore"
     clock_domain: str | None = None
 
 
@@ -215,12 +216,12 @@ class ExplorationResult:
     search_complete: bool
     termination_reason: str
     formal_records: tuple[object, ...] = ()
-    # Selection-only locator metadata. Expression-local regions leave
-    # ``site_output`` unset and are rewritten by exact retained object identity;
-    # complete output/profile regions retain their public boundary.
+    # Selection-only locator metadata.  Expression-local explores deliberately
+    # leave ``site_output`` unset and are rewritten by exact retained object
+    # identity; complete output/profile regions retain their public boundary.
     site_owner: str | None = None
     site_output: str | None = None
-    site_kind: str = "implement"
+    site_kind: str = "expression_explore"
 
     @property
     def selected(self) -> ExplorationCandidate:
@@ -314,6 +315,58 @@ def explore(
         complete, termination, value_truncated, "value expansion"
     )
 
+    if TransformFamily.MULTIPLIER in allowed:
+        # The structural family is target-neutral generic logic.  Target
+        # resources are deliberately considered later by the target planner,
+        # where source-declared capabilities and physical bindings are known.
+        from zlang.structural_multiplier import csa_multiplier_candidate
+
+        expanded = list(candidates)
+        for parent in candidates:
+            # Build one canonical hardware structure from the source root.
+            # Repeating it for value-egraph spellings only duplicates the same
+            # physical candidate and needlessly grows the bounded catalog.
+            if parent.stages != ("source",):
+                continue
+            structural = csa_multiplier_candidate(parent.expression)
+            if structural is None:
+                continue
+            # A compressor tree is a physical structure, not an optimistic
+            # alternative cost for the language-level '*' spelling.  Keep the
+            # native generic expression as the cheaper baseline unless source
+            # constraints make the structural candidate the legal choice.
+            base = estimate_expression_cost(structural.expression)
+            cost = CandidateCost.estimate(
+                lut=int(base.lut.value or 0),
+                ff=int(base.ff.value or 0),
+                dsp=0,
+                bram=int(base.bram.value or 0),
+                latency=timing_info(structural.expression).latency,
+                ii=1,
+                fmax_est=base.fmax_est.value,
+                structural_cost=base.structural_cost,
+            )
+            expanded.append(
+                _candidate(
+                    structural.expression,
+                    (*parent.stages, structural.strategy),
+                    cost,
+                    architecture=structural,
+                    value_relation=(
+                        "exact typed multiplication via bounded CSA-tree "
+                        "generic logic"
+                    ),
+                    provenance=(*parent.provenance, "structural multiplier CSA tree"),
+                )
+            )
+        candidates, truncated = _bounded_deduplicate(
+            expanded, request.bounds.max_architectures, request.bounds.max_candidates
+        )
+        counts.append(("multiplier", len(candidates)))
+        complete, termination = _merge_completion(
+            complete, termination, truncated, "structural multiplier expansion"
+        )
+
     if TransformFamily.DSP in allowed:
         expanded: list[ExplorationCandidate] = list(candidates)
         from zlang.architecture import (
@@ -347,6 +400,11 @@ def explore(
         expanded = list(candidates)
         from zlang.reductions import expand_reduction, reduction_cost
         for parent in candidates:
+            # CSA is already a deliberately selected structural reduction
+            # network.  Reduction topology search owns source reductions, not
+            # a second pass over this materialized implementation candidate.
+            if "multiply:csa_tree" in parent.stages:
+                continue
             try:
                 reductions = expand_reduction(parent.expression)
             except ValueError as error:
@@ -663,9 +721,7 @@ def _value_candidates(
 ) -> tuple[list[ExplorationCandidate], bool, list[RejectedCandidate]]:
     try:
         from zlang.ir.module import Assignment, Module, Port, PortDirection
-        from zlang.opt.module_lowering import lower
-        from zlang.opt.rewrite_model import term_to_expression
-        from zlang.opt.saturation import saturate
+        from zlang.opt import lower, saturate, term_to_expression
 
         inputs = _input_refs(request.root)
         output_name = "__zlang_explore_result"
@@ -695,7 +751,7 @@ def _value_candidates(
             for certificate in saturation.certificates
         }
         from hashlib import sha256
-        from zlang.opt.rewrite_model import render_term
+        from zlang.opt import render_term
         for term in saturation.alternatives:
             expression = term_to_expression(term)
             certificate = certificates[sha256(render_term(term).encode()).hexdigest()]
@@ -801,6 +857,30 @@ def _merge_completion(
     if truncated:
         return False, f"search truncated at {stage}"
     return complete, reason
+
+
+def _expression_children(value: ir_expr.Expression) -> tuple[ir_expr.Expression, ...]:
+    # Exploration keeps exact reductions compact and follows only a selected
+    # implementation.  All other node coverage is owned by the closed-union
+    # traversal, so a future expression kind cannot silently become a leaf.
+    if isinstance(value, ir_expr.Reduce):
+        return (value.collection,)
+    return typed_expression_children(
+        value,
+        policy=ExpressionTraversalPolicy.SELECTED_IMPLEMENTATION,
+    )
+
+
+def _input_refs(value: ir_expr.Expression) -> dict[str, object]:
+    result: dict[str, object] = {}
+    graph = ExpressionDagIndex((value,), children=_expression_children)
+    for item in graph.preorder():
+        if isinstance(item, ir_expr.InputRef):
+            previous = result.get(item.name)
+            if previous is not None and previous != item.type:
+                raise ValueError(f"input '{item.name}' has inconsistent types")
+            result[item.name] = item.type
+    return result
 
 
 def _logic_depth(value: ir_expr.Expression) -> int:

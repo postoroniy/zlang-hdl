@@ -5,18 +5,25 @@ from __future__ import annotations
 from dataclasses import fields, is_dataclass, replace
 import hashlib
 
-from zlang.backend import identifiers as identifiers
-from zlang.ir import cdc as ir_cdc
+from zlang.backend.identifiers import allocate_private_rtl_identifier
+from zlang.ir.cdc import (
+    ClockDomain,
+    ClockEdge,
+    PowerUpPolicy,
+    ResetMode,
+    ResetPolarity,
+    ResetReleaseMode,
+)
 from zlang.ir.expressions import Delay, Pipeline
 from zlang.ir.interfaces import InterfaceProtocol
-from zlang.ir import module as ir_module
+from zlang.ir.module import Module
 
 
 class PhysicalDomainError(ValueError):
     pass
 
 
-def module_domain(module: ir_module.Module, clock: str | None = None) -> ir_cdc.ClockDomain:
+def module_domain(module: Module, clock: str | None = None) -> ClockDomain:
     selected = clock or module.clock
     matches = tuple(
         domain for domain in module.clock_domains if domain.clock == selected
@@ -27,7 +34,7 @@ def module_domain(module: ir_module.Module, clock: str | None = None) -> ir_cdc.
             f"for clock '{selected or 'none'}'"
         )
     domain = matches[0]
-    if domain.power_up is ir_cdc.PowerUpPolicy.RESET:
+    if domain.power_up is PowerUpPolicy.RESET:
         raise PhysicalDomainError(
             "direct SystemVerilog does not yet publish power_up reset contracts; "
             "a portable common initialization mechanism is not frozen"
@@ -35,7 +42,7 @@ def module_domain(module: ir_module.Module, clock: str | None = None) -> ir_cdc.
     return domain
 
 
-def _domain_token(domain: ir_cdc.ClockDomain) -> str:
+def _domain_token(domain: ClockDomain) -> str:
     """Return a deterministic backend-private token for one typed domain."""
 
     payload = (
@@ -51,7 +58,7 @@ def _domain_token(domain: ir_cdc.ClockDomain) -> str:
     return hashlib.sha256(repr(payload).encode()).hexdigest()[:12]
 
 
-def _module_scope_identifiers(module: ir_module.Module, identifier) -> set[str]:
+def _module_scope_identifiers(module: Module, identifier) -> set[str]:
     """Return conservative physical names already owned by one SV module.
 
     The reset conditioner lives in the same lexical scope as public ports and
@@ -88,7 +95,7 @@ def _module_scope_identifiers(module: ir_module.Module, identifier) -> set[str]:
 
 
 def _reset_conditioning_names(
-    module: ir_module.Module,
+    module: Module,
     identifier,
     clock: str | None = None,
 ) -> tuple[str, str]:
@@ -107,12 +114,12 @@ def _reset_conditioning_names(
         domain.reset_release_mode.value,
         str(domain.reset_release_cycles),
     ))
-    stages = identifiers.allocate_private_rtl_identifier(
+    stages = allocate_private_rtl_identifier(
         f"zlang_reset_release_{token}",
         semantic_identity=f"{semantic_identity}|stages",
         used=used,
     )
-    effective = identifiers.allocate_private_rtl_identifier(
+    effective = allocate_private_rtl_identifier(
         f"zlang_reset_effective_{token}",
         semantic_identity=f"{semantic_identity}|effective",
         used=used,
@@ -138,7 +145,7 @@ def _contains_staged_expression(value: object, seen: set[int]) -> bool:
     )
 
 
-def module_requires_reset_conditioner(module: ir_module.Module) -> bool:
+def module_requires_reset_conditioner(module: Module) -> bool:
     """Return whether emitted state consumes the conditioned root reset.
 
     A clocked but purely combinational module has no reset epoch to release and
@@ -193,7 +200,7 @@ def module_requires_reset_conditioner(module: ir_module.Module) -> bool:
 
 
 def effective_reset_signal(
-    module: ir_module.Module,
+    module: Module,
     identifier,
     clock: str | None = None,
 ) -> str:
@@ -206,14 +213,14 @@ def effective_reset_signal(
 
     domain = module_domain(module, clock)
     if (
-        domain.reset_release_mode is not ir_cdc.ResetReleaseMode.SYNCHRONIZED
+        domain.reset_release_mode is not ResetReleaseMode.SYNCHRONIZED
         or not module_requires_reset_conditioner(module)
     ):
         return identifier(domain.reset)
     return _reset_conditioning_names(module, identifier, domain.clock)[1]
 
 
-def native_release_module(module: ir_module.Module) -> ir_module.Module:
+def native_release_module(module: Module) -> Module:
     """Return a backend-local internal-component reset ABI.
 
     A composed child receives its already-conditioned reset from its parent.
@@ -223,7 +230,7 @@ def native_release_module(module: ir_module.Module) -> ir_module.Module:
     """
 
     if not any(
-        domain.reset_release_mode is ir_cdc.ResetReleaseMode.SYNCHRONIZED
+        domain.reset_release_mode is ResetReleaseMode.SYNCHRONIZED
         for domain in module.clock_domains
     ):
         return module
@@ -232,7 +239,7 @@ def native_release_module(module: ir_module.Module) -> ir_module.Module:
         clock_domains=tuple(
             replace(
                 domain,
-                reset_release_mode=ir_cdc.ResetReleaseMode.NATIVE,
+                reset_release_mode=ResetReleaseMode.NATIVE,
                 reset_release_cycles=0,
             )
             for domain in module.clock_domains
@@ -240,7 +247,7 @@ def native_release_module(module: ir_module.Module) -> ir_module.Module:
     )
 
 
-def reset_conditioner_lines(module: ir_module.Module, identifier) -> tuple[str, ...]:
+def reset_conditioner_lines(module: Module, identifier) -> tuple[str, ...]:
     """Emit one async-assert/sync-release conditioner per physical domain.
 
     The semantic module owns the complete physical-domain table.  A
@@ -252,7 +259,7 @@ def reset_conditioner_lines(module: ir_module.Module, identifier) -> tuple[str, 
     synchronized = tuple(
         domain
         for domain in module.clock_domains
-        if domain.reset_release_mode is ir_cdc.ResetReleaseMode.SYNCHRONIZED
+        if domain.reset_release_mode is ResetReleaseMode.SYNCHRONIZED
     )
     if not synchronized or not module_requires_reset_conditioner(module):
         return ()
@@ -267,25 +274,25 @@ def reset_conditioner_lines(module: ir_module.Module, identifier) -> tuple[str, 
         )
         clock = identifier(domain.clock)
         reset = identifier(domain.reset)
-        clock_edge = "posedge" if domain.edge is ir_cdc.ClockEdge.RISING else "negedge"
+        clock_edge = "posedge" if domain.edge is ClockEdge.RISING else "negedge"
         reset_edge = (
             "posedge"
-            if domain.reset_polarity is ir_cdc.ResetPolarity.ACTIVE_HIGH
+            if domain.reset_polarity is ResetPolarity.ACTIVE_HIGH
             else "negedge"
         )
         asserted = (
             reset
-            if domain.reset_polarity is ir_cdc.ResetPolarity.ACTIVE_HIGH
+            if domain.reset_polarity is ResetPolarity.ACTIVE_HIGH
             else f"!{reset}"
         )
         asserted_bits = (
             "2'b11"
-            if domain.reset_polarity is ir_cdc.ResetPolarity.ACTIVE_HIGH
+            if domain.reset_polarity is ResetPolarity.ACTIVE_HIGH
             else "2'b00"
         )
         deasserted_bit = (
             "1'b0"
-            if domain.reset_polarity is ir_cdc.ResetPolarity.ACTIVE_HIGH
+            if domain.reset_polarity is ResetPolarity.ACTIVE_HIGH
             else "1'b1"
         )
         lines.extend((
@@ -300,43 +307,43 @@ def reset_conditioner_lines(module: ir_module.Module, identifier) -> tuple[str, 
     return tuple(lines)
 
 
-def clock_event(module: ir_module.Module, identifier, clock: str | None = None) -> str:
+def clock_event(module: Module, identifier, clock: str | None = None) -> str:
     domain = module_domain(module, clock)
-    edge = "posedge" if domain.edge is ir_cdc.ClockEdge.RISING else "negedge"
+    edge = "posedge" if domain.edge is ClockEdge.RISING else "negedge"
     event = f"{edge} {identifier(domain.clock)}"
-    if domain.reset_mode is ir_cdc.ResetMode.ASYNCHRONOUS:
+    if domain.reset_mode is ResetMode.ASYNCHRONOUS:
         reset_edge = (
             "posedge"
-            if domain.reset_polarity is ir_cdc.ResetPolarity.ACTIVE_HIGH
+            if domain.reset_polarity is ResetPolarity.ACTIVE_HIGH
             else "negedge"
         )
         event += f" or {reset_edge} {effective_reset_signal(module, identifier, clock)}"
     return event
 
 
-def active_clock_event(module: ir_module.Module, identifier, clock: str | None = None) -> str:
+def active_clock_event(module: Module, identifier, clock: str | None = None) -> str:
     """Return only the active clock edge, without any reset sensitivity."""
 
     domain = module_domain(module, clock)
-    edge = "posedge" if domain.edge is ir_cdc.ClockEdge.RISING else "negedge"
+    edge = "posedge" if domain.edge is ClockEdge.RISING else "negedge"
     return f"{edge} {identifier(domain.clock)}"
 
 
-def reset_asserted(module: ir_module.Module, identifier, clock: str | None = None) -> str:
+def reset_asserted(module: Module, identifier, clock: str | None = None) -> str:
     domain = module_domain(module, clock)
     reset = effective_reset_signal(module, identifier, clock)
     return (
         reset
-        if domain.reset_polarity is ir_cdc.ResetPolarity.ACTIVE_HIGH
+        if domain.reset_polarity is ResetPolarity.ACTIVE_HIGH
         else f"!{reset}"
     )
 
 
-def reset_deasserted(module: ir_module.Module, identifier, clock: str | None = None) -> str:
+def reset_deasserted(module: Module, identifier, clock: str | None = None) -> str:
     domain = module_domain(module, clock)
     reset = effective_reset_signal(module, identifier, clock)
     return (
         f"!{reset}"
-        if domain.reset_polarity is ir_cdc.ResetPolarity.ACTIVE_HIGH
+        if domain.reset_polarity is ResetPolarity.ACTIVE_HIGH
         else reset
     )

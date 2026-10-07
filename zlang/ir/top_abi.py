@@ -37,7 +37,7 @@ from zlang.ir.types import (
 from zlang.source import SourceOrigin
 
 
-class TopPhysicalABIError(ValueError):
+class TopAggregateABIError(ValueError):
     """A top-level value cannot be represented by the public leaf ABI."""
 
 
@@ -49,12 +49,18 @@ class PackedElementSlice:
     msb: int
     lsb: int
 
+    @property
+    def width(self) -> int:
+        return self.msb - self.lsb + 1
+
+
 @dataclass(frozen=True)
-class ExternalTopLeaf:
+class ExternalProtocolLeaf:
     """One typed public top leaf.
 
-    Ordinary ports, clocks, resets, request/response channels, and aggregate
-    protocol members use the same representation. ``aggregate_id`` is the containing
+    The historical name is retained as a compatibility API. Ordinary ports,
+    clocks, resets, request/response channels, and aggregate protocol members
+    now use the same representation. ``aggregate_id`` is the containing
     semantic object identity; it is not necessarily an aggregate protocol.
     """
 
@@ -95,6 +101,36 @@ class ExternalTopLeaf:
             type_ = type_.element_type
         return type_
 
+    @property
+    def element_width(self) -> int:
+        return _width(self.element_type)
+
+
+# The clearer general name is preferred by new callers. Keeping a true alias
+# makes isinstance checks and the old aggregate-only API remain compatible.
+ExternalTopLeaf = ExternalProtocolLeaf
+
+
+@dataclass(frozen=True)
+class TopAggregateABI:
+    """Compatibility view containing aggregate-protocol leaves only."""
+
+    module: str
+    leaves: tuple[ExternalProtocolLeaf, ...]
+
+    @property
+    def endpoints(self) -> tuple[str, ...]:
+        return tuple(dict.fromkeys(leaf.aggregate_id for leaf in self.leaves))
+
+    @property
+    def inputs(self) -> tuple[ExternalProtocolLeaf, ...]:
+        return _leaves_with_direction(self.leaves, PortDirection.INPUT)
+
+    @property
+    def outputs(self) -> tuple[ExternalProtocolLeaf, ...]:
+        return _leaves_with_direction(self.leaves, PortDirection.OUTPUT)
+
+
 @dataclass(frozen=True)
 class TopPhysicalABI:
     """Complete, deterministic public top-level leaf contract."""
@@ -103,8 +139,24 @@ class TopPhysicalABI:
     leaves: tuple[ExternalTopLeaf, ...]
 
     @property
+    def inputs(self) -> tuple[ExternalTopLeaf, ...]:
+        return _leaves_with_direction(self.leaves, PortDirection.INPUT)
+
+    @property
+    def outputs(self) -> tuple[ExternalTopLeaf, ...]:
+        return _leaves_with_direction(self.leaves, PortDirection.OUTPUT)
+
+    @property
     def aggregate_leaves(self) -> tuple[ExternalTopLeaf, ...]:
         return tuple(leaf for leaf in self.leaves if leaf.category == "aggregate")
+
+
+def _leaves_with_direction(
+    leaves: tuple[ExternalTopLeaf, ...],
+    direction: PortDirection,
+) -> tuple[ExternalTopLeaf, ...]:
+    return tuple(leaf for leaf in leaves if leaf.direction is direction)
+
 
 def build_top_physical_abi(module: Module) -> TopPhysicalABI:
     """Project every public top object into deterministic typed leaves."""
@@ -158,6 +210,16 @@ def build_top_physical_abi(module: Module) -> TopPhysicalABI:
 
     _validate_external_names(leaves)
     return TopPhysicalABI(module.name, tuple(leaves))
+
+
+def build_top_aggregate_abi(module: Module) -> TopAggregateABI:
+    """Compatibility projection of explicitly declared aggregate endpoints."""
+
+    leaves = tuple(
+        leaf for leaf in build_top_physical_abi(module).leaves
+        if leaf.category == "aggregate"
+    )
+    return TopAggregateABI(module.name, leaves)
 
 
 def _port_leaves(module: Module, port: Port) -> tuple[ExternalTopLeaf, ...]:
@@ -217,7 +279,7 @@ def _port_leaves(module: Module, port: Port) -> tuple[ExternalTopLeaf, ...]:
                    ("send", BitType(), forward), ("return", BitType(), reverse),
                    ("return_vc", UIntType(vc_width), reverse)]
     else:  # pragma: no cover - closed enum, retained for defensive restoration
-        raise TopPhysicalABIError(
+        raise TopAggregateABIError(
             f"top port '{port.name}' protocol '{port.protocol.value}' is unsupported"
         )
     result: list[ExternalTopLeaf] = []
@@ -358,7 +420,7 @@ def _aggregate_leaves(module: Module, endpoint: AggregateProtocolEndpoint) -> tu
                 packed_root_external_name=f"{endpoint.name}__{member.name}", **common,
             ))
         else:
-            raise TopPhysicalABIError(
+            raise TopAggregateABIError(
                 f"top aggregate '{endpoint.name}.{member.name}' protocol "
                 f"'{member.protocol.value}' is unsupported by the public ABI"
             )
@@ -411,7 +473,7 @@ def _public_layout(
 
     if is_bit_packable(type_):
         if packed_width(type_) != _width(type_):  # pragma: no cover - invariant
-            raise TopPhysicalABIError("public packing width disagrees with canonical type")
+            raise TopAggregateABIError("public packing width disagrees with canonical type")
 
     groups: dict[tuple[tuple[str, ...], HardwareType, tuple[int, ...]], list[PackedElementSlice]] = {}
     order: list[tuple[tuple[str, ...], HardwareType, tuple[int, ...]]] = []
@@ -420,7 +482,7 @@ def _public_layout(
               dimensions: tuple[int, ...], indices: tuple[int, ...]) -> None:
         if isinstance(current, StructType):
             if not current.fields:
-                raise TopPhysicalABIError(f"empty public struct at '{'.'.join(current_path)}'")
+                raise TopAggregateABIError(f"empty public struct at '{'.'.join(current_path)}'")
             cursor = base_lsb + _width(current)
             for field in current.fields:
                 cursor -= _width(field.type)
@@ -499,7 +561,7 @@ def _validate_external_names(leaves: list[ExternalTopLeaf]) -> None:
     for leaf in leaves:
         previous = names.get(leaf.external_name)
         if previous is not None:
-            raise TopPhysicalABIError(
+            raise TopAggregateABIError(
                 f"top public leaf name collision '{leaf.external_name}' between "
                 f"'{previous.leaf_semantic_id}' and '{leaf.leaf_semantic_id}'"
             )
@@ -522,7 +584,7 @@ def _external_leaf_name(
     """Render typed path separators without guessing positional field names."""
 
     if leaf_path[:len(root_path)] != root_path:
-        raise TopPhysicalABIError("public leaf path does not extend its root path")
+        raise TopAggregateABIError("public leaf path does not extend its root path")
     rendered = "_".join(_encode_segment(part) for part in root_path)
     current = root_type
     for part in leaf_path[len(root_path):]:
@@ -531,7 +593,7 @@ def _external_leaf_name(
         if isinstance(current, StructType):
             field = current.field(part)
             if field is None:
-                raise TopPhysicalABIError(
+                raise TopAggregateABIError(
                     f"unknown public struct field '{part}' in {current}"
                 )
             rendered += "_" + _encode_segment(part)
@@ -540,14 +602,14 @@ def _external_leaf_name(
         if isinstance(current, TupleType):
             match = re.fullmatch(r"item([0-9]+)", part)
             if match is None or int(match.group(1)) >= len(current.elements):
-                raise TopPhysicalABIError(
+                raise TopAggregateABIError(
                     f"invalid public tuple component '{part}' in {current}"
                 )
             index = int(match.group(1))
             rendered += "__" + _encode_segment(part)
             current = current.elements[index]
             continue
-        raise TopPhysicalABIError(
+        raise TopAggregateABIError(
             f"public leaf path '{'.'.join(leaf_path)}' traverses scalar {current}"
         )
     return rendered
@@ -557,15 +619,18 @@ def _width(type_: HardwareType) -> int:
     try:
         return physical_width(type_)
     except ValueError as error:
-        raise TopPhysicalABIError(
+        raise TopAggregateABIError(
             f"unsupported top public leaf type: {type_!r}"
         ) from error
 
 
 __all__ = [
+    "ExternalProtocolLeaf",
     "ExternalTopLeaf",
     "PackedElementSlice",
+    "TopAggregateABI",
     "TopPhysicalABI",
-    "TopPhysicalABIError",
+    "TopAggregateABIError",
+    "build_top_aggregate_abi",
     "build_top_physical_abi",
 ]

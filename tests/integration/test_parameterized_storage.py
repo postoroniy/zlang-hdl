@@ -6,7 +6,7 @@ import tempfile
 
 import pytest
 
-from zlang.backend.systemverilog import emit
+from zlang.backend.systemverilog import emit_experimental
 from zlang.compiler import compile_source
 
 
@@ -77,7 +77,7 @@ def run_verilator(files: list[Path], root: Path, module_name: str, depth: int) -
 @pytest.mark.skipif(VERILATOR is None, reason="Verilator unavailable")
 def test_parameterized_fifo_direct_sv_is_concrete_and_simulates(depth: int) -> None:
     compilation = compile_source(fifo_source(depth))
-    text = emit(compilation.ir)
+    text = emit_experimental(compilation.ir)
     assert "DEPTH" not in text
     assert f"[0:{depth - 1}]" in text
     with tempfile.TemporaryDirectory() as temporary:

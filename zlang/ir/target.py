@@ -11,7 +11,6 @@ from hashlib import sha256
 
 from zlang.ir.expressions import Expression
 from zlang.ir.scheduled import ScheduledValueGraph
-from zlang.source import SourceOrigin
 
 
 @dataclass(frozen=True)
@@ -55,6 +54,26 @@ class PhysicalBinding:
     primitive: str | None
     pipeline_site_map: tuple[tuple[str, str], ...]
     dedicated_edge_map: tuple[tuple[str, str, str], ...]
+
+
+@dataclass(frozen=True)
+class ResourceConstraint:
+    name: str
+    relation: str
+    value: int | str
+
+
+@dataclass(frozen=True)
+class ResourceInventory:
+    resource_definition_identity: str
+    available: int
+
+
+@dataclass(frozen=True)
+class TimingEvidence:
+    name: str
+    value_ps: int
+    provenance: str  # estimated, synthesis_measured, or route_measured
 
 
 @dataclass(frozen=True)
@@ -184,7 +203,7 @@ class TimingNode:
     pipeline_site_identity: str | None = None
     latency: int = 0
     estimated_delay_ps: int = 0
-    source_origin: SourceOrigin | None = field(default=None, compare=False)
+    source_origin: str | None = field(default=None, compare=False)
     target_identity: str | None = None
 
 
@@ -219,7 +238,7 @@ class ImplementationDelay:
     width: int
     ff_cost: int
     semantic_identity: str | None = None
-    source_origin: SourceOrigin | None = field(default=None, compare=False)
+    source_origin: str | None = field(default=None, compare=False)
 
 
 @dataclass(frozen=True)
@@ -234,8 +253,15 @@ class TimingDAG:
 
     @property
     def identity(self) -> str:
-        """Return the exact physical timing identity."""
+        return self._identity(include_estimates=False)
 
+    @property
+    def legacy_identity(self) -> str:
+        """Pre-physical-identity digest for exact historical evidence matching."""
+
+        return self._identity(include_estimates=True)
+
+    def _identity(self, *, include_estimates: bool) -> str:
         # Source provenance is diagnostic metadata, not implementation
         # semantics.  In particular, migrating a region from a compatibility
         # spelling to ``implement`` must not invalidate otherwise identical
@@ -250,6 +276,7 @@ class TimingDAG:
                 item.resource_instance_identity,
                 item.pipeline_site_identity,
                 item.latency,
+                *((item.estimated_delay_ps,) if include_estimates else ()),
                 item.target_identity,
             )
             for item in self.nodes
@@ -262,23 +289,30 @@ class TimingDAG:
                 item.destination_node,
                 item.cycles,
                 item.width,
+                *((item.ff_cost,) if include_estimates else ()),
                 item.semantic_identity,
             )
             for item in (*self.alignment_delays, *self.compensation_delays)
         )
-        edges = tuple(
-            (
-                item.identity, item.kind, item.source_node,
-                item.destination_node, item.latency,
-                item.dedicated_edge_identity,
+        edges = (
+            self.edges
+            if include_estimates else tuple(
+                (
+                    item.identity, item.kind, item.source_node,
+                    item.destination_node, item.latency,
+                    item.dedicated_edge_identity,
+                )
+                for item in self.edges
             )
-            for item in self.edges
         )
         values = (
             node_identity, edges, self.cuts, delay_identity,
             self.output_latency,
         )
-        values = ("zlang-timing-dag-physical-v1", *values)
+        if include_estimates:
+            values = (*values, self.estimated_critical_delay_ps)
+        else:
+            values = ("zlang-timing-dag-physical-v1", *values)
         return sha256(repr(values).encode()).hexdigest()
 
 
@@ -316,12 +350,24 @@ class ImplementationGraph:
 
     @property
     def identity(self) -> str:
-        """Return the exact current physical implementation identity."""
+        return self._identity(legacy=False)
 
+    @property
+    def legacy_identity(self) -> str:
+        """Previous graph serializer over the present region identity.
+
+        DSP/FIR regions retain their historical semantic key; the generic
+        Module region deliberately migrated to a physical-only namespace and
+        cannot claim compatibility with old generic measurements.
+        """
+
+        return self._identity(legacy=True)
+
+    def _identity(self, *, legacy: bool) -> str:
         # The selected DSP resource may leave a typed rescale/rounding boundary
         # in fabric.  It changes emitted RTL even when the accumulator and DSP
         # configuration are identical, so the new physical key must include it.
-        if self.quantization is not None:
+        if not legacy and self.quantization is not None:
             from zlang.ir.signed_reductions import expression_semantic_identity
 
             boundary_identity = expression_semantic_identity(self.quantization)
@@ -329,21 +375,29 @@ class ImplementationGraph:
             boundary_identity = None
         values = (
             self.semantic_region_identity, self.architecture_template_identity,
-            boundary_identity,
+            *((boundary_identity,) if not legacy else ()),
             self.target_identity, self.target_hash, self.resource_definition_hashes,
             self.resources, self.dedicated_edges, self.latency,
             self.initiation_interval,
+            *((self.legality_evidence,) if legacy else ()),
             self.architecture_template_hash, self.target_family_identity,
             self.target_dependency_hashes, self.architecture_dependency_hashes,
             self.selection_policy,
             self.target_part,
             self.pipeline_configuration_identity, self.active_pipeline_sites,
             self.physical_binding_identities,
-            self.timing_dag.identity if self.timing_dag is not None else None,
+            (
+                self.timing_dag.legacy_identity if legacy else self.timing_dag.identity
+            ) if self.timing_dag is not None else None,
         )
+        # Preserve accepted evidence identities for legacy graphs.  The new
+        # scheduled graph participates only when it is actually present.
         if self.scheduled_value_graph is not None:
-            values = (*values, self.scheduled_value_graph.identity)
-        payload = repr(("zlang-implementation-physical-v1", values))
+            values = (*values, (
+                self.scheduled_value_graph.legacy_identity
+                if legacy else self.scheduled_value_graph.identity
+            ))
+        payload = repr(values if legacy else ("zlang-implementation-physical-v1", values))
         return sha256(payload.encode()).hexdigest()
 
     @property
@@ -354,6 +408,7 @@ class ImplementationGraph:
 __all__ = [
     "ArchitectureTemplate", "DedicatedPhysicalEdge", "ImplementationGraph",
     "PhysicalBinding", "PipelineConfiguration", "PipelineSite",
+    "ResourceConstraint", "ResourceInventory", "TimingEvidence",
     "ResourceDedicatedLink", "ResourceDefinition", "ResourceInstance",
     "ResourcePort", "ResourceRegisterSite", "SemanticPortMapping",
     "TargetFamilyDefinition", "TargetInstance", "TimingCut", "TimingDAG",

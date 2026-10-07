@@ -9,7 +9,7 @@ from zlang.ir import expressions as expr
 from zlang.ir.pipelines import PipelineCostSource, PipelinePlan
 from zlang.ir.traversal import walk_expression
 from zlang.ir.types import UIntType
-from zlang.opt.lowering import CanonicalizationError, lower, restore
+from zlang.opt import CanonicalizationError, lower, restore
 from zlang.opt.ir import ExpressionOp
 from zlang.pipeline_scheduling import (
     TargetResourceOperationCostModel,

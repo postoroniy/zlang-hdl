@@ -23,7 +23,7 @@ from typing import Iterable, Protocol, runtime_checkable
 
 from zlang.common.graph import DependencyCycle, dependency_postorder
 from zlang.parser import parse
-from zlang.source_identity import SOURCE_SUFFIX, attach_source_identity
+from zlang.source_identity import SOURCE_SUFFIX
 from zlang.workspace_parse_cache import load_parse_index, publish_parse_index
 
 
@@ -123,6 +123,47 @@ class ResolvedModuleSource:
     validate_physical_digest: bool = True
     pending_source: bytes | None = None
     cached_imports: bool = False
+
+    @property
+    def path(self) -> str:
+        """Compatibility spelling used by the original stdlib semantic path."""
+
+        return self.logical_path
+
+
+def attach_source_identity(module: object, logical_path: str, digest: str) -> object:
+    """Attach one logical unit/digest to its declaration-bearing AST nodes."""
+
+    return replace(
+        module,
+        source_identity=logical_path,
+        source_hash=digest,
+        enums=tuple(
+            replace(item, source_identity=logical_path) for item in module.enums
+        ),
+        tagged_unions=tuple(
+            replace(item, source_identity=logical_path)
+            for item in module.tagged_unions
+        ),
+        structs=tuple(
+            replace(item, source_identity=logical_path) for item in module.structs
+        ),
+        operators=tuple(
+            replace(item, source_identity=logical_path) for item in module.operators
+        ),
+        functions=tuple(
+            replace(item, source_identity=logical_path) for item in module.functions
+        ),
+        module_interfaces=tuple(
+            replace(item, source_identity=logical_path)
+            for item in module.module_interfaces
+        ),
+        submodules=tuple(
+            attach_source_identity(child, logical_path, digest)
+            for child in module.submodules
+        ),
+    )
+
 
 def annotate_source(record: ResolvedModuleSource) -> ResolvedModuleSource:
     """Attach logical identity to declarations without changing source syntax."""
@@ -268,11 +309,22 @@ def load_indexed_module(
     )
 
 
+def _record_path(record: ModuleSourceRecord) -> str:
+    logical = getattr(record, "logical_path", None)
+    if logical is None:
+        # Compatibility with StdlibSource before all callers migrate to the
+        # resolver protocol.  New project records must use ``logical_path``.
+        logical = getattr(record, "path", None)
+    if not isinstance(logical, str):
+        raise ModuleResolutionError("module source record has no logical path")
+    validate_logical_module_path(logical)
+    return logical
+
+
 def _validated_record(record: ModuleSourceRecord) -> ModuleSourceRecord:
     """Reject stale or physically escaped indexed records before use."""
 
-    logical = record.logical_path
-    validate_logical_module_path(logical)
+    logical = _record_path(record)
     source_path = Path(record.source_path)
     root_value = getattr(record, "source_root", None)
     if root_value is not None:
@@ -379,8 +431,7 @@ class IndexedModuleResolver:
         index: dict[str, ModuleSourceRecord] = {}
         casefolded: dict[str, str] = {}
         for source in sources:
-            logical = source.logical_path
-            validate_logical_module_path(logical)
+            logical = _record_path(source)
             if logical == "std" or logical.startswith("std."):
                 raise ModuleResolutionError(
                     "the 'std' namespace is reserved for the compiler-shipped library"

@@ -7,53 +7,96 @@ independent compilation attempts.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, fields, is_dataclass, replace
 import hashlib
 from pathlib import Path
 from threading import RLock
 from types import SimpleNamespace
-from typing import Callable, Iterable, Mapping, TypeVar, cast
+from typing import Callable, Generic, Iterable, Mapping, TypeVar, cast
 
+from zlang.architectures import render_architecture_report
 from zlang.analysis_needs import AnalysisNeeds
 from zlang.ast.nodes import Module as AstModule
-from zlang import costs as costs
-from zlang import candidate_sites as candidate_sites
-from zlang.compilation_inputs import PhysicalCompilationInputs
-from zlang import compilation_selection
-from zlang import compilation_outputs
-from zlang.compilation_selection import inline_locals
-from zlang.compilation_products import (
-    AnalysisProduct as _AnalysisProduct,
-    CompilationResult,
-    CompilationProductKey,
-    CompilationSnapshot,
-    DocumentProduct as _DocumentProduct,
-    FormalProduct as _FormalProduct,
-    PlanningProduct as _PlanningProduct,
-    ReportProduct as _ReportProduct,
-    SelectionProduct as _SelectionProduct,
+from zlang.backend.systemverilog import emit_contracts
+from zlang.costs import (
+    CostExtractionError,
+    SourcePolicy,
+    extract_estimated_costs,
+    render_cost_report,
 )
+from zlang.candidate_sites import (
+    CandidateRewriteKind,
+    CandidateSiteError,
+    CandidateSiteLedger,
+    build_candidate_site_ledger,
+    gate_retained_explorations,
+    gate_structured_candidate_sites,
+    module_candidate_owner_identity,
+    exploration_site_key,
+    pipeline_site_key,
+)
+from zlang.compilation_inputs import PhysicalCompilationInputs
+from zlang.compilation_products import CompilationResult
 from zlang.completion_resolution import CompletionScope
-from zlang.exploration import ExplorationResult
+from zlang.csr import emit_csr_json, emit_csr_markdown
+from zlang.exploration import ExplorationResult, render_exploration_report
+from zlang.formal import (
+    build_formal_design,
+    build_recursive_formal_design,
+    emit_harness,
+    emit_recursive_harness,
+)
 from zlang.formal_artifact_provider import FormalArtifactProvider
+from zlang.formal_temporal_stream import build_capacity_one_transaction_relation
 from zlang.formal_tooling import FormalToolResolver
-from zlang import formal_exploration as formal_exploration
-from zlang import implementation_plans as implementation_plans
-from zlang import implementation_policy as implementation_policy_api
-from zlang import implementation_request as implementation_request_api
+from zlang.formal_exploration import (
+    CACHE_STATE_NOT_RUN,
+    FormalExplorationConfig,
+    FormalExplorationRecord,
+    FormalPolicy,
+)
+from zlang.implementation_plans import (
+    BackendImplementationPlanningResult,
+    plan_backend_implementations,
+)
+from zlang.implementation_policy import (
+    ModuleImplementationPolicy,
+    apply_external_region_exploration,
+    normalize_implementation_policy,
+)
+from zlang.implementation_request import (
+    ArchitectureRequest,
+    BackendKind,
+    BackendRequest,
+    ImplementationContribution,
+    ImplementationRequest,
+    PolicyOrigin,
+    RequirementMode,
+    merge_implementation_contributions,
+)
+from zlang.implementations import render_implementation_report
+from zlang.ir import expressions as ir_expr
+from zlang.ir.formal import FormalDesign, FormalStatus, ProofMode
 from zlang.ir.module import Module as IrModule, dependency_context_identity
-from zlang.opt.identity import canonical_ir_identity
-from zlang.opt.ir import CanonicalModule, OptimizationStage
-from zlang.opt.module_lowering import lower
+from zlang.ir.signed_reductions import (
+    selection_expression_semantic_identity,
+)
+from zlang.opt import (
+    CanonicalModule,
+    OptimizationStage,
+    canonical_ir_identity,
+    lower,
+    restore,
+)
+from zlang.opt.render import render_identity as render_canonical_identity
 from zlang.parser import parse
-from zlang.semantic import analyze
+from zlang.pipelines import render_pipeline_report
+from zlang.semantic import SemanticError, analyze
 from zlang.definition_resolution import DefinitionResolution, DefinitionTarget
-from zlang.target_catalog import ArchitectureSelectionMode
+from zlang.target_planner import TargetPlanningResult
+from zlang.targets import ArchitectureSelectionMode
 from zlang.stdlib import track_resolved_stdlib_source_paths
 from zlang.signature_help_resolution import SignatureHelpCall
-
-
-_Product = TypeVar("_Product")
 
 
 class SessionTopSelectionError(ValueError):
@@ -64,11 +107,446 @@ class SessionTopSelectionError(ValueError):
     """
 
 
+_UNSUPPORTED_RESET_FORMAL_REASON = (
+    "formal-aware selection authoritative semantic-reference equivalence route requires one physical domain with "
+    "power_up unspecified"
+)
+
+
+def _canonical_round_trip_matches(
+    expected: CanonicalModule,
+    restored: CanonicalModule,
+) -> bool:
+    """Compare canonical semantics without recursively expanding a typed DAG.
+
+    ``restore`` necessarily reconstructs diagnostic provenance from the
+    canonical expression table.  Re-lowering can therefore merge a different
+    (but equivalent) set of source occurrences into a node.  The old typed-IR
+    dataclass equality already ignored that provenance, but recursively walked
+    every incoming expression edge and expanded a shared DAG as a tree.
+
+    The canonical identity renderer is the complete, origin-insensitive
+    semantic representation used by build identities.  Both inputs are flat
+    node tables, so this comparison is bounded by unique canonical nodes.
+    Comparing the rendered bytes rather than only their digest also keeps this
+    a strict round-trip validation rather than a hash-collision assumption.
+    """
+
+    return render_canonical_identity(expected) == render_canonical_identity(restored)
+
+
+def _nondefault_reset_formal_record(
+    candidate_identity: str,
+    config: FormalExplorationConfig,
+    origin=None,
+    *,
+    reason: str = _UNSUPPORTED_RESET_FORMAL_REASON,
+) -> FormalExplorationRecord:
+    """Publish one explicit not-run record without constructing a verifier."""
+
+    return FormalExplorationRecord(
+        candidate_identity=candidate_identity,
+        rank=1,
+        semantic_legality="typed_legal",
+        formal_route="unsupported_physical_reset_contract",
+        policy=FormalPolicy.AVAILABLE,
+        mode=ProofMode.BMC,
+        depth=config.bmc_depth,
+        status=FormalStatus.SKIPPED,
+        cache_state=CACHE_STATE_NOT_RUN,
+        eligible=True,
+        reason=reason,
+        source_origin=origin,
+    )
+
+
+def _map_modules(module: IrModule, transform) -> IrModule:
+    """Apply one selection-phase transform to every specialization once."""
+
+    children = tuple(_map_modules(child, transform) for child in module.children)
+    # Formal records are deliberately ``compare=False`` metadata.  Equality
+    # therefore cannot tell whether a descendant received selection evidence;
+    # always reconnect the recursively transformed children.
+    current = replace(module, children=children)
+    return transform(current)
+
+
+def _gate_all_standalone_pipelines(
+    module: IrModule,
+    config: FormalExplorationConfig,
+    verifier: object | None,
+    canonical_site_keys: Iterable[tuple[str, str | None, str]] = (),
+    *,
+    backend: str = "direct_systemverilog",
+) -> IrModule:
+    from zlang.formal_candidate import gate_standalone_pipelines
+
+    keys = frozenset(canonical_site_keys)
+    return _map_modules(
+        module,
+        lambda item: gate_standalone_pipelines(
+            item, config, verifier, canonical_site_keys=keys, backend=backend
+        ),
+    )
+
+
+def _defer_one_root_pipeline_to_physical_formal_selection(module: IrModule) -> bool:
+    """Return whether planning can construct one complete physical candidate.
+
+    The pre-planning formal-aware selection route must not prove a raw ``Pipeline`` expression
+    which has not yet received its internal schedule.  The target planner's
+    bounded physical route currently owns exactly one root scalar pipeline;
+    all other standalone forms retain the historical gate/diagnostic.
+    """
+
+    pipelines = tuple(
+        item.expression
+        for item in module.assignments
+        if isinstance(item.expression, ir_expr.Pipeline)
+    )
+    return len(pipelines) == 1 and len(module.pipeline_explorations) <= 1
+
+
+def _attach_unified_pipeline_formal_records(
+    module: IrModule,
+    results: Iterable[ExplorationResult],
+) -> IrModule:
+    """Mirror one unified formal-aware selection record into planner-only pipeline metadata.
+
+    ``implement`` owns the formal candidate site.  Its retained pipeline
+    table is still useful to reports and target planning, but must not trigger
+    another proof route.  Copying the already-produced records keeps those
+    reports informative without changing the candidate/cache identity.
+    """
+
+    retained = tuple(results)
+
+    def transform(current: IrModule) -> IrModule:
+        pipelines = []
+        changed = False
+        for pipeline in current.pipeline_explorations:
+            key = pipeline_site_key(current, pipeline)
+            matches = tuple(
+                result for result in retained if exploration_site_key(result) == key
+            )
+            if not matches:
+                pipelines.append(pipeline)
+                continue
+            if len(matches) == 1:
+                result = matches[0]
+                # The unified implement gate may select a different
+                # architecture than the planner's initial catalog choice.
+                # Rebind the catalog's selected name by stable implementation
+                # identity before comparing expressions, so only the actually
+                # emitted candidate receives the retained formal record.
+                emitted_identity = result.selected_candidate.implementation_identity
+                matching_candidate = next(
+                    (
+                        candidate
+                        for candidate in pipeline.candidates
+                        if selection_expression_semantic_identity(
+                            candidate.expression
+                        )
+                        == selection_expression_semantic_identity(
+                            result.selected_candidate.expression
+                        )
+                    ),
+                    None,
+                )
+                if matching_candidate is None:
+                    # Unified exploration records carry the architecture name
+                    # in their deterministic stage provenance even when the
+                    # implementation-site wrapper has a distinct identity
+                    # schema.  Use that typed name as a conservative fallback.
+                    stage_names = tuple(
+                        str(stage).split(":", 1)[1]
+                        for stage in getattr(result.selected_candidate, "stages", ())
+                        if str(stage).startswith("pipeline:")
+                    )
+                    matching_candidate = next(
+                        (
+                            candidate for candidate in pipeline.candidates
+                            if candidate.name in stage_names
+                        ),
+                        None,
+                    )
+                selected_name_changed = (
+                    matching_candidate is not None
+                    and pipeline.selected != matching_candidate.name
+                )
+                if selected_name_changed:
+                    pipeline = replace(pipeline, selected=matching_candidate.name)
+                # Unified implementation candidates carry the enclosing
+                # Pipeline value, whereas planner catalog entries carry the
+                # inner value DAG.  Keep the catalog's selected entry aligned
+                # with the emitted implementation so report emission checks
+                # compare the same typed value (without changing candidate
+                # identity or scheduling semantics).
+                if matching_candidate is not None:
+                    selected_value = (
+                        result.selected_candidate.expression.expression
+                        if isinstance(
+                            result.selected_candidate.expression,
+                            ir_expr.Pipeline,
+                        )
+                        else result.selected_candidate.expression
+                    )
+                    candidates = tuple(
+                        replace(candidate, expression=selected_value)
+                        if candidate.name == matching_candidate.name
+                        else candidate
+                        for candidate in pipeline.candidates
+                    )
+                    # Avoid dataclass equality here: candidate expressions are
+                    # shared DAGs and recursive equality expands them as trees.
+                    # Replacing this tiny catalog tuple is deterministic and
+                    # cheaper than asking whether the selected value object is
+                    # structurally equal to its predecessor.
+                    pipeline = replace(pipeline, candidates=candidates)
+                # A planner catalog is allowed to carry evidence only when
+                # its exact selected expression is the one emitted by the
+                # unified implementation result.  Matching only the region
+                # would attach proof for a different (often zero-cycle)
+                # candidate to a positive-latency catalog entry.
+                selected_matches = (
+                    matching_candidate is not None
+                    or
+                    selection_expression_semantic_identity(
+                        result.selected_candidate.expression
+                    )
+                    == selection_expression_semantic_identity(
+                        pipeline.selected_candidate.expression
+                    )
+                )
+                records = (
+                    tuple(
+                        record
+                        for record in result.formal_records
+                        if getattr(record, "candidate_identity", None)
+                        == emitted_identity
+                    )
+                    if selected_matches else ()
+                )
+                updated = replace(pipeline, formal_records=records)
+                pipelines.append(updated)
+                # Pipeline formal metadata is intentionally compare=False, so
+                # dataclass equality cannot detect this report-only update.
+                changed = changed or selected_name_changed or (
+                    pipeline.formal_records != records
+                )
+            else:
+                # A duplicate typed site is malformed; leave metadata empty so
+                # a report cannot claim evidence whose owner is ambiguous.
+                pipelines.append(replace(pipeline, formal_records=()))
+                changed = changed or bool(pipeline.formal_records)
+        return replace(
+            current,
+            pipeline_explorations=tuple(pipelines),
+        ) if changed else current
+
+    return _map_modules(module, transform)
+
+
+def _with_elastic_formal_records(
+    module: IrModule,
+    config: FormalExplorationConfig,
+    *,
+    nondefault_reset: bool,
+    domain_reason: str | None = None,
+) -> IrModule:
+    def records(region: object) -> tuple[FormalExplorationRecord, ...]:
+        if nondefault_reset:
+            return (_nondefault_reset_formal_record(
+                getattr(region, "selected"), config, getattr(region, "source_origin"),
+                reason=(domain_reason or _UNSUPPORTED_RESET_FORMAL_REASON),
+            ),)
+        temporal_graph = getattr(region, "temporal_graph", None)
+        relation = (
+            build_capacity_one_transaction_relation(region)
+            if temporal_graph is not None else None
+        )
+        return (FormalExplorationRecord(
+            candidate_identity=(
+                temporal_graph.implementation_identity
+                if temporal_graph is not None else getattr(region, "selected")
+            ),
+            rank=1,
+            semantic_legality="typed_legal",
+            formal_route=(
+                "transaction_stream_equivalence_bmc_unbound"
+                if relation is not None else "unsupported_variable_latency_elastic"
+            ),
+            policy=FormalPolicy.AVAILABLE,
+            mode=ProofMode.BMC,
+            depth=config.bmc_depth,
+            status=FormalStatus.SKIPPED,
+            cache_state=CACHE_STATE_NOT_RUN,
+            eligible=True,
+            reason=(
+                "capacity-one transaction-stream BMC miter exists, but no "
+                "candidate-selection evidence route is attached"
+                if relation is not None else
+                "semantic-reference equivalence fixed-latency equivalence does not apply "
+                "to a stalled elastic relation"
+            ),
+            property_identity=(None if relation is None else relation.property_identity),
+            source_origin=getattr(region, "source_origin"),
+        ),)
+
+    def transform(item: IrModule) -> IrModule:
+        regions = tuple(
+            replace(
+                region,
+                formal_records=records(region),
+            )
+            for region in item.elastic_pipeline_regions
+        )
+        return replace(item, elastic_pipeline_regions=regions)
+
+    return _map_modules(module, transform)
+
+
+def _restore_selection_formal_records(
+    reference: IrModule,
+    restored: IrModule,
+) -> IrModule:
+    """Reconnect compare-false orchestration evidence after canonical restore."""
+
+    def has_records(item: IrModule) -> bool:
+        return bool(
+            any(
+                assignment.expression.formal_records
+                or assignment.expression.formal_eligible
+                for assignment in item.assignments
+                if assignment.signal is None
+                and assignment.channel is None
+                and isinstance(
+                    assignment.expression,
+                    ir_expr.ImplementationChoice,
+                )
+            )
+            or any(value.formal_records for value in item.pipeline_explorations)
+            or any(value.formal_records for value in item.elastic_pipeline_regions)
+            or any(value.formal_records for value in item.architecture_explorations)
+            or any(has_records(child) for child in item.children)
+        )
+
+    if not has_records(reference):
+        return restored
+
+    reference_choices = {
+        assignment.target.name: (
+            assignment.expression.formal_records,
+            assignment.expression.formal_eligible,
+        )
+        for assignment in reference.assignments
+        if assignment.signal is None
+        and assignment.channel is None
+        and isinstance(assignment.expression, ir_expr.ImplementationChoice)
+    }
+    assignments = tuple(
+        replace(
+            assignment,
+            expression=replace(
+                assignment.expression,
+                formal_records=reference_choices.get(
+                    assignment.target.name,
+                    (assignment.expression.formal_records, ()),
+                )[0],
+                formal_eligible=reference_choices.get(
+                    assignment.target.name,
+                    ((), assignment.expression.formal_eligible),
+                )[1],
+            ),
+        )
+        if assignment.signal is None
+        and assignment.channel is None
+        and isinstance(assignment.expression, ir_expr.ImplementationChoice)
+        else assignment
+        for assignment in restored.assignments
+    )
+    pipeline_records = {
+        item.output: item.formal_records
+        for item in reference.pipeline_explorations
+    }
+    elastic_records = {
+        item.semantic_id: item.formal_records
+        for item in reference.elastic_pipeline_regions
+    }
+    architecture_records = {
+        item.output: item.formal_records
+        for item in reference.architecture_explorations
+    }
+    def selection_record_payload(item: IrModule) -> tuple[object, ...]:
+        return (
+            tuple(
+                (
+                    assignment.target.name,
+                    assignment.expression.formal_records,
+                    assignment.expression.formal_eligible,
+                )
+                for assignment in item.assignments
+                if assignment.signal is None
+                and assignment.channel is None
+                and isinstance(assignment.expression, ir_expr.ImplementationChoice)
+            ),
+            tuple(
+                (pipeline.output, pipeline.formal_records)
+                for pipeline in item.pipeline_explorations
+            ),
+            tuple(
+                (region.semantic_id, region.formal_records)
+                for region in item.elastic_pipeline_regions
+            ),
+            tuple(
+                (architecture.output, architecture.formal_records)
+                for architecture in item.architecture_explorations
+            ),
+        )
+
+    reference_children: dict[str, IrModule] = {}
+    for item in reference.children:
+        owner = module_candidate_owner_identity(item)
+        previous = reference_children.get(owner)
+        if (
+            previous is not None
+            and selection_record_payload(previous) != selection_record_payload(item)
+        ):
+            raise CandidateSiteError(
+                "selection formal records contain incompatible children for "
+                f"specialization owner '{owner}'"
+            )
+        reference_children.setdefault(owner, item)
+    children = tuple(
+        _restore_selection_formal_records(reference_children[owner], child)
+        if (owner := module_candidate_owner_identity(child)) in reference_children
+        else child
+        for child in restored.children
+    )
+    return replace(
+        restored,
+        assignments=assignments,
+        pipeline_explorations=tuple(
+            replace(item, formal_records=pipeline_records.get(item.output, ()))
+            for item in restored.pipeline_explorations
+        ),
+        elastic_pipeline_regions=tuple(
+            replace(item, formal_records=elastic_records.get(item.semantic_id, ()))
+            for item in restored.elastic_pipeline_regions
+        ),
+        architecture_explorations=tuple(
+            replace(item, formal_records=architecture_records.get(item.output, ()))
+            for item in restored.architecture_explorations
+        ),
+        children=children,
+    )
+
+
 @dataclass(frozen=True)
 class CompilationSessionOptions:
     """Immutable snapshot of every option which can affect a session product."""
 
-    formal_policy: formal_exploration.FormalPolicy | str | None
+    formal_policy: FormalPolicy | str | None
     formal_depth: int
     formal_max_candidates: int
     formal_timeout: int
@@ -79,7 +557,7 @@ class CompilationSessionOptions:
     target: str | None
     architecture: str | None
     architecture_mode: ArchitectureSelectionMode | str | None
-    target_evidence_policy: costs.SourcePolicy | str | None
+    target_evidence_policy: SourcePolicy | str | None
     target_evidence: tuple[object, ...] | None
     target_evidence_path: Path | None
     target_tool: str
@@ -89,16 +567,268 @@ class CompilationSessionOptions:
     module_resolver: object | None
     root_module_identity: object | None
     dependency_closure: object | None
-    implementation_backend: implementation_request_api.BackendKind | str | None
-    implementation_backend_mode: implementation_request_api.RequirementMode | str
-    implementation_contributions: tuple[implementation_request_api.ImplementationContribution, ...]
+    implementation_backend: BackendKind | str | None
+    implementation_backend_mode: RequirementMode | str
+    implementation_contributions: tuple[ImplementationContribution, ...]
     # Editor/tooling may analyze a project module in its legal child context;
     # production compilation keeps the public top boundary closed by default.
     allow_external_enum_inputs: bool
 
 
+@dataclass(frozen=True)
+class _AnalysisProduct:
+    module: IrModule
+    exploration_results: tuple[ExplorationResult, ...]
+    definition_resolutions: tuple[DefinitionResolution, ...] = ()
+    definition_declarations: tuple[DefinitionTarget, ...] = ()
+    completion_scopes: tuple[CompletionScope, ...] = ()
+    signature_help_calls: tuple[SignatureHelpCall, ...] = ()
+
+
+@dataclass(frozen=True)
+class _SelectionProduct:
+    module: IrModule
+    high_level_ir: CanonicalModule
+    optimization_ir: CanonicalModule
+    extraction: object
+    implementation_policy: ModuleImplementationPolicy
+    implementation_request: ImplementationRequest
+    exploration_results: tuple[ExplorationResult, ...]
+    candidate_site_ledger: CandidateSiteLedger
+
+
+@dataclass(frozen=True)
+class _FormalProduct:
+    design: FormalDesign
+    harness: str
+    recursive_design: object | None
+    recursive_harness: str
+
+
+@dataclass(frozen=True)
+class _PlanningProduct:
+    module: IrModule
+    backend_plans: BackendImplementationPlanningResult
+    target_planning_result: TargetPlanningResult | None
+    implementation_graph: object | None
+    physical_formal_records: tuple[FormalExplorationRecord, ...] = ()
+
+
+@dataclass(frozen=True)
+class _DirectSystemVerilogProduct:
+    """Exactly the selected products required to publish Direct-SV."""
+
+    ir: IrModule
+    selected_ir_identity: str
+    implementation_graph: object | None
+    physical_inputs: PhysicalCompilationInputs
+
+
+def _gate_physical_target_candidates(
+    module: IrModule,
+    plans: BackendImplementationPlanningResult,
+    config: FormalExplorationConfig,
+    injected_verifier: object | None,
+) -> tuple[
+    BackendImplementationPlanningResult,
+    TargetPlanningResult | None,
+    object | None,
+    tuple[FormalExplorationRecord, ...],
+]:
+    """Apply formal-aware selection to complete value+schedule+resource candidates.
+
+    Earlier formal-aware selection sites validate typed value alternatives.  This bounded
+    planning-phase gate additionally validates the exact physical graph which
+    direct-SV will publish.  It is intentionally limited to the current
+    single-output scalar target planner; unsupported shapes remain explicit.
+    """
+
+    result = plans.target_planning_result
+    if config.policy is FormalPolicy.OFF or result is None:
+        graph = result.selected_graph if result is not None else None
+        return plans, result, graph, ()
+    if result.extraction is None:
+        raise SemanticError(
+            "physical formal policy requires a ranked target candidate set",
+            code="ZL-FORMAL-PHYSICAL-CANDIDATE",
+        )
+
+    from zlang.formal_candidate import (
+        SemanticEquivalenceDirectSystemVerilogCandidateVerifier,
+        PhysicalTargetFormalCandidate,
+    )
+    from zlang.formal_exploration import gate_candidates
+    from zlang.pipeline_scheduling import erase_pipeline_timing
+
+    assignments = tuple(
+        assignment
+        for assignment in module.assignments
+        if isinstance(assignment.expression, ir_expr.Pipeline)
+        and hasattr(assignment.target, "name")
+    )
+    selected_quantization = result.selected_graph.quantization
+    if selected_quantization is not None:
+        assignments = tuple(
+            assignment
+            for assignment in assignments
+            if erase_pipeline_timing(assignment.expression)
+            == selected_quantization
+        )
+    if len(assignments) != 1:
+        raise SemanticError(
+            "physical formal-aware selection gate requires exactly one target-planned scalar "
+            "pipeline output",
+            code="ZL-FORMAL-PHYSICAL-CANDIDATE",
+        )
+    source_assignment = assignments[0]
+    plan = source_assignment.expression.pipeline_plan
+    reference = (
+        plan.source_expression
+        if plan is not None and plan.source_expression is not None
+        else erase_pipeline_timing(source_assignment.expression)
+    )
+    selected_value = erase_pipeline_timing(source_assignment.expression)
+    if (
+        selected_quantization is not None
+        and selection_expression_semantic_identity(reference)
+        != selection_expression_semantic_identity(selected_quantization)
+    ):
+        if selection_expression_semantic_identity(
+            selected_value
+        ) != selection_expression_semantic_identity(selected_quantization):
+            raise SemanticError(
+                "physical formal-aware selection selected value does not match the target region",
+                code="ZL-FORMAL-PHYSICAL-CANDIDATE",
+            )
+
+    target_by_identity = {
+        candidate.implementation_identity: candidate
+        for candidate in result.generated_candidates
+    }
+    wrappers = []
+    evaluations = []
+    for evaluation in result.extraction.evaluations:
+        target_candidate = evaluation.candidate
+        implementation = source_assignment.expression
+        if implementation.stages != target_candidate.graph.latency:
+            implementation = replace(
+                implementation,
+                stages=target_candidate.graph.latency,
+                expression=selected_value,
+                pipeline_plan=None,
+            )
+        physical_module = replace(
+            module,
+            assignments=tuple(
+                replace(item, expression=implementation)
+                if item is source_assignment else item
+                for item in module.assignments
+            ),
+        )
+        wrapper = PhysicalTargetFormalCandidate(
+            expression=implementation,
+            module=physical_module,
+            implementation_graph=target_candidate.graph,
+            semantic_identity=target_candidate.graph.semantic_region_identity,
+            implementation_identity=target_candidate.implementation_identity,
+            cost=target_candidate.cost,
+        )
+        wrappers.append(wrapper)
+        evaluations.append(replace(evaluation, candidate=wrapper))
+
+    domain = module.clock_domains[0] if len(module.clock_domains) == 1 else None
+    verifier = injected_verifier or SemanticEquivalenceDirectSystemVerilogCandidateVerifier(
+        reference,
+        candidate_class="pipeline",
+        artifact_provider=getattr(config, "artifact_provider", None),
+        clock_domain_contract=domain,
+        unavailable_reason=(
+            None
+            if domain is not None
+            else "physical target candidate requires exactly one formal domain"
+        ),
+    )
+    gate = gate_candidates(
+        tuple(wrappers),
+        tuple(evaluations),
+        config,
+        verifier,
+        route="semantic_equivalence_direct_systemverilog",
+    )
+    selected_identity = (
+        result.selected_candidate.implementation_identity
+        if config.policy is FormalPolicy.AVAILABLE
+        else gate.eligible[0].implementation_identity
+    )
+    selected = target_by_identity[selected_identity]
+    extraction = replace(
+        result.extraction,
+        selected=selected,
+        selected_cost=selected.cost,
+        reason=(
+            result.extraction.reason
+            + "; complete physical candidate passed formal-aware selection policy "
+            + config.policy.value
+        ),
+    )
+    result = replace(
+        result,
+        selected_candidate=selected,
+        extraction=extraction,
+        formal_records=gate.records,
+    )
+    previous_graph = plans.target_planning_result.selected_graph
+    updated_plans = tuple(
+        replace(plan, graph=selected.graph)
+        if plan.graph is not None
+        and plan.backend == "systemverilog"
+        and plan.graph.identity == previous_graph.identity
+        else plan
+        for plan in plans.plans
+    )
+    plans = replace(
+        plans,
+        plans=updated_plans,
+        target_planning_result=result,
+    )
+    return plans, result, selected.graph, gate.records
+
+
+@dataclass(frozen=True)
+class _DocumentProduct:
+    csr_markdown: str
+    csr_json: str
+    contracts_sva: str
+
+
+@dataclass(frozen=True)
+class _ReportProduct:
+    implementation: str
+    cost: str
+    pipeline: str
+    architecture: str
+    exploration: str
+
+
+_Product = TypeVar("_Product")
+
+
+@dataclass(frozen=True)
+class CompilationProductKey(Generic[_Product]):
+    """Typed identity for one node in the compilation demand graph."""
+
+    name: str
+
+    def __post_init__(self) -> None:
+        if not self.name:
+            raise ValueError("compilation product name must not be empty")
+
+
 SYNTAX_PRODUCT = CompilationProductKey[AstModule]("syntax")
 SEMANTIC_PRODUCT = CompilationProductKey[_AnalysisProduct]("semantic")
+CONFIGURED_SEMANTIC_PRODUCT = CompilationProductKey[_AnalysisProduct](
+    "configured_semantic"
+)
 SELECTION_PRODUCT = CompilationProductKey[_SelectionProduct]("selection")
 FORMAL_PRODUCT = CompilationProductKey[_FormalProduct]("formal")
 PLANNING_PRODUCT = CompilationProductKey[_PlanningProduct]("planning")
@@ -107,6 +837,9 @@ TARGET_INSTANCE_PRODUCT = CompilationProductKey[object | None]("target_instance"
 DOCUMENT_PRODUCT = CompilationProductKey[_DocumentProduct]("documents")
 REPORT_PRODUCT = CompilationProductKey[_ReportProduct]("reports")
 MATERIALIZED_PRODUCT = CompilationProductKey[CompilationResult]("materialized")
+DIRECT_SYSTEMVERILOG_PRODUCT = CompilationProductKey[_DirectSystemVerilogProduct](
+    "direct_systemverilog"
+)
 
 
 _TYPED_PRODUCT_DEPENDENCIES: Mapping[
@@ -114,7 +847,8 @@ _TYPED_PRODUCT_DEPENDENCIES: Mapping[
 ] = {
     SYNTAX_PRODUCT: (),
     SEMANTIC_PRODUCT: (SYNTAX_PRODUCT,),
-    SELECTION_PRODUCT: (SEMANTIC_PRODUCT,),
+    CONFIGURED_SEMANTIC_PRODUCT: (SYNTAX_PRODUCT,),
+    SELECTION_PRODUCT: (CONFIGURED_SEMANTIC_PRODUCT,),
     FORMAL_PRODUCT: (SELECTION_PRODUCT,),
     PLANNING_PRODUCT: (SELECTION_PRODUCT,),
     SIMULATION_PLAN_PRODUCT: (PLANNING_PRODUCT,),
@@ -130,6 +864,7 @@ _TYPED_PRODUCT_DEPENDENCIES: Mapping[
         DOCUMENT_PRODUCT,
         REPORT_PRODUCT,
     ),
+    DIRECT_SYSTEMVERILOG_PRODUCT: (SELECTION_PRODUCT, PLANNING_PRODUCT),
 }
 
 
@@ -140,6 +875,22 @@ COMPILATION_PRODUCT_DEPENDENCIES: Mapping[str, tuple[str, ...]] = {
     key.name: tuple(dependency.name for dependency in dependencies)
     for key, dependencies in _TYPED_PRODUCT_DEPENDENCIES.items()
 }
+
+
+@dataclass(frozen=True)
+class CompilationSnapshot:
+    """Read-only view of products already computed by one session."""
+
+    source_identity: str
+    computed_products: tuple[str, ...]
+    syntax: AstModule | None
+    semantic: IrModule | None
+    selected: IrModule | None
+    planned: IrModule | None
+    simulation_plan: object | None
+    semantic_identity: str | None
+    selected_identity: str | None
+    planned_identity: str | None
 
 
 class CompilationSession:
@@ -155,7 +906,7 @@ class CompilationSession:
         self,
         source: str,
         *,
-        formal_policy: formal_exploration.FormalPolicy | str | None = None,
+        formal_policy: FormalPolicy | str | None = None,
         formal_depth: int = 32,
         formal_max_candidates: int = 8,
         formal_timeout: int = 120,
@@ -166,7 +917,7 @@ class CompilationSession:
         target: str | None = None,
         architecture: str | None = None,
         architecture_mode: ArchitectureSelectionMode | str | None = None,
-        target_evidence_policy: costs.SourcePolicy | str | None = None,
+        target_evidence_policy: SourcePolicy | str | None = None,
         target_evidence: Iterable[object] | None = None,
         target_evidence_path: Path | str | None = None,
         target_tool: str = "Vivado",
@@ -176,12 +927,18 @@ class CompilationSession:
         module_resolver=None,
         root_module_identity=None,
         dependency_closure=None,
-        implementation_backend: implementation_request_api.BackendKind | str | None = None,
-        implementation_backend_mode: implementation_request_api.RequirementMode | str = implementation_request_api.RequirementMode.REQUIRED,
-        implementation_contributions: tuple[implementation_request_api.ImplementationContribution, ...] = (),
+        implementation_backend: BackendKind | str | None = None,
+        implementation_backend_mode: RequirementMode | str = RequirementMode.REQUIRED,
+        implementation_contributions: tuple[ImplementationContribution, ...] = (),
         allow_external_enum_inputs: bool = False,
         physical_inputs: PhysicalCompilationInputs | None = None,
         analysis_needs: AnalysisNeeds = AnalysisNeeds.NONE,
+        # Kept as a narrow compatibility adapter for callers that used the
+        # pre-demand-driven session spelling.  Internally there is one needs
+        # bitmask, never three independent collection switches.
+        collect_definitions: bool = False,
+        collect_completion_scopes: bool = False,
+        collect_signature_help: bool = False,
     ) -> None:
         if not isinstance(source, str):
             raise TypeError("source must be text")
@@ -190,6 +947,12 @@ class CompilationSession:
             self._analysis_needs = AnalysisNeeds(analysis_needs)
         except (TypeError, ValueError) as error:
             raise TypeError("analysis_needs must be an AnalysisNeeds value") from error
+        if collect_definitions:
+            self._analysis_needs |= AnalysisNeeds.DEFINITIONS
+        if collect_completion_scopes:
+            self._analysis_needs |= AnalysisNeeds.DEFINITIONS | AnalysisNeeds.COMPLETION
+        if collect_signature_help:
+            self._analysis_needs |= AnalysisNeeds.SIGNATURE_HELP
         self._options = CompilationSessionOptions(
             formal_policy=formal_policy,
             formal_depth=formal_depth,
@@ -281,6 +1044,17 @@ class CompilationSession:
         ):
             raise AttributeError(f"compilation session option '{name}' is read-only")
         object.__setattr__(self, name, value)
+
+    def __getattr__(self, name: str):
+        # Preserve readable option attributes without exposing mutation.  This
+        # hook runs only after ordinary instance lookup fails.
+        options = self.__dict__.get("_options")
+        if (
+            options is not None
+            and name in CompilationSessionOptions.__dataclass_fields__
+        ):
+            return getattr(options, name)
+        raise AttributeError(name)
 
     @property
     def computed_products(self) -> tuple[str, ...]:
@@ -385,17 +1159,12 @@ class CompilationSession:
 
     def _build_syntax(self) -> AstModule:
         syntax = parse(self.source)
-        if self._options.top is None:
+        if self.top is None:
             return syntax
         candidates = (syntax, *syntax.submodules)
-        selected = next(
-            (item for item in candidates if item.name == self._options.top),
-            None,
-        )
+        selected = next((item for item in candidates if item.name == self.top), None)
         if selected is None:
-            raise SessionTopSelectionError(
-                f"top module '{self._options.top}' was not found"
-            )
+            raise SessionTopSelectionError(f"top module '{self.top}' was not found")
         return replace(
             selected,
             type_aliases=syntax.type_aliases,
@@ -407,71 +1176,58 @@ class CompilationSession:
             imports=syntax.imports,
             protocols=syntax.protocols,
             module_interfaces=syntax.module_interfaces,
-            submodules=tuple(
-                item for item in candidates if item.name != self._options.top
-            ),
+            submodules=tuple(item for item in candidates if item.name != self.top),
         )
 
-    def _contributions(self) -> tuple[implementation_request_api.ImplementationContribution, ...]:
-        explicit = implementation_request_api.ImplementationContribution(
-            implementation_request_api.PolicyOrigin("explicit compiler options"),
+    def _contributions(self) -> tuple[ImplementationContribution, ...]:
+        explicit = ImplementationContribution(
+            PolicyOrigin("explicit compiler options"),
             backend=(
                 None
-                if self._options.implementation_backend is None
-                else implementation_request_api.BackendRequest(
-                    implementation_request_api.BackendKind(
-                        self._options.implementation_backend
-                    ),
-                    implementation_request_api.RequirementMode(
-                        self._options.implementation_backend_mode
-                    ),
+                if self.implementation_backend is None
+                else BackendRequest(
+                    BackendKind(self.implementation_backend),
+                    RequirementMode(self.implementation_backend_mode),
                 )
             ),
-            target=self._options.target,
+            target=self.target,
             architecture=(
                 None
-                if (
-                    self._options.architecture is None
-                    and self._options.architecture_mode is None
-                )
-                else implementation_request_api.ArchitectureRequest(
-                    self._options.architecture,
+                if self.architecture is None and self.architecture_mode is None
+                else ArchitectureRequest(
+                    self.architecture,
                     ArchitectureSelectionMode(
-                        self._options.architecture_mode
-                        if self._options.architecture_mode is not None
+                        self.architecture_mode
+                        if self.architecture_mode is not None
                         else ArchitectureSelectionMode.PREFERRED
                     ),
                 )
             ),
             evidence_policy=(
                 None
-                if self._options.target_evidence_policy is None
-                else costs.SourcePolicy(self._options.target_evidence_policy)
+                if self.target_evidence_policy is None
+                else SourcePolicy(self.target_evidence_policy)
             ),
             formal_policy=(
-                None
-                if self._options.formal_policy is None
-                else formal_exploration.FormalPolicy(
-                    self._options.formal_policy
-                )
+                None if self.formal_policy is None else FormalPolicy(self.formal_policy)
             ),
         )
-        return (*self._options.implementation_contributions, explicit)
+        return (*self.implementation_contributions, explicit)
 
-    def _formal_config(self, *, check_only: bool) -> formal_exploration.FormalExplorationConfig:
-        preliminary = implementation_request_api.merge_implementation_contributions(*self._contributions())
+    def _formal_config(self, *, check_only: bool) -> FormalExplorationConfig:
+        preliminary = merge_implementation_contributions(*self._contributions())
         dependency_identity = dependency_context_identity(
             SimpleNamespace(
-                root_module_identity=self._options.root_module_identity,
-                dependency_closure=self._options.dependency_closure,
+                root_module_identity=self.root_module_identity,
+                dependency_closure=self.dependency_closure,
             )
         )
-        return formal_exploration.FormalExplorationConfig(
-            policy=(formal_exploration.FormalPolicy.OFF if check_only else preliminary.formal_policy),
-            bmc_depth=self._options.formal_depth,
-            max_formal_candidates=self._options.formal_max_candidates,
-            timeout_seconds=self._options.formal_timeout,
-            cache_directory=self._options.formal_cache,
+        return FormalExplorationConfig(
+            policy=(FormalPolicy.OFF if check_only else preliminary.formal_policy),
+            bmc_depth=self.formal_depth,
+            max_formal_candidates=self.formal_max_candidates,
+            timeout_seconds=self.formal_timeout,
+            cache_directory=self.formal_cache,
             work_directory=self._options.formal_work_directory,
             dependency_identity=dependency_identity,
             artifact_provider=self.formal_artifact_provider,
@@ -504,15 +1260,15 @@ class CompilationSession:
                     # statically.  formal-aware selection execution is owned by selection below.
                     formal_config=self._formal_config(check_only=True),
                     formal_verifier=None,
-                    source_unit=self._options.source_unit,
+                    source_unit=self.source_unit,
                     source_digest=(
                         hashlib.sha256(self.source.encode()).hexdigest()
-                        if self._options.source_unit is not None
+                        if self.source_unit is not None
                         else None
                     ),
-                    module_resolver=self._options.module_resolver,
-                    root_module_identity=self._options.root_module_identity,
-                    dependency_closure=self._options.dependency_closure,
+                    module_resolver=self.module_resolver,
+                    root_module_identity=self.root_module_identity,
+                    dependency_closure=self.dependency_closure,
                     analysis_needs=self._analysis_needs,
                     definition_resolutions=definition_resolutions,
                     definition_declarations=definition_declarations,
@@ -526,14 +1282,11 @@ class CompilationSession:
             self._physical_inputs = self._physical_inputs.with_stdlib_sources(
                 stdlib_sources
             )
-        if (
-            self._options.root_module_identity is not None
-            or self._options.dependency_closure is not None
-        ):
+        if self.root_module_identity is not None or self.dependency_closure is not None:
             module = replace(
                 module,
-                root_module_identity=self._options.root_module_identity,
-                dependency_closure=self._options.dependency_closure,
+                root_module_identity=self.root_module_identity,
+                dependency_closure=self.dependency_closure,
             )
         return _AnalysisProduct(
             module,
@@ -585,26 +1338,230 @@ class CompilationSession:
         return self.semantic_ir
 
     @property
-    def semantic_candidate_site_ledger(self) -> candidate_sites.CandidateSiteLedger:
+    def semantic_candidate_site_ledger(self) -> CandidateSiteLedger:
         """OFF-policy candidate catalog without selection or verifier work."""
 
         product = self._demand(SEMANTIC_PRODUCT, self._analyze)
-        return compilation_selection.candidate_site_ledger(
+        return self._candidate_site_ledger(
             product.module, product.exploration_results
         )
+
+    @staticmethod
+    def _candidate_site_ledger(
+        module: IrModule,
+        exploration_results: Iterable[ExplorationResult],
+    ) -> CandidateSiteLedger:
+        """Build one ledger while preserving established source diagnostics."""
+
+        try:
+            return build_candidate_site_ledger(
+                module, exploration_results
+            )
+        except CostExtractionError:
+            # Candidate-site ranking uses the common deterministic cost selection extractor.  For an
+            # impossible legacy ``choice(auto)`` its generic error is less
+            # useful than the established source-level diagnostic, which
+            # names the output and every failed candidate constraint.
+            extract_estimated_costs(module)
+            raise
+        except CandidateSiteError as error:
+            raise SemanticError(str(error)) from error
+
+    def _configured_analysis(self) -> _AnalysisProduct:
+        # Compatibility product name retained for the stable demand graph.
+        # It is now an alias of the one OFF-policy semantic analysis; all
+        # configured formal work happens in ``_build_selection``.
+        return self._demand(SEMANTIC_PRODUCT, self._analyze)
 
     @property
     def _selection(self) -> _SelectionProduct:
         return self._demand(SELECTION_PRODUCT, self._build_selection)
 
     def _build_selection(self) -> _SelectionProduct:
-        analysis = self._demand(SEMANTIC_PRODUCT, self._analyze)
-        return compilation_selection.SelectionBuilder().build(
-            analysis,
-            self._formal_config(check_only=False),
-            self._options.formal_verifier,
-            self.options.target,
-            self._contributions(),
+        analysis = self._demand(
+            CONFIGURED_SEMANTIC_PRODUCT, self._configured_analysis
+        )
+        semantic_ir = analysis.module
+        exploration_results = analysis.exploration_results
+        configured_formal = self._formal_config(check_only=False)
+        static_ledger = self._candidate_site_ledger(
+            semantic_ir, exploration_results
+        )
+        static_only = tuple(
+            item for item in static_ledger.sites
+            if item.rewrite_kind is CandidateRewriteKind.STATIC_ONLY
+        )
+        if (
+            static_only
+            and configured_formal.policy in {
+                FormalPolicy.REQUIRED_BMC,
+                FormalPolicy.REQUIRED_PROVEN,
+            }
+        ):
+            kinds = ", ".join(sorted({item.kind.value for item in static_only}))
+            raise SemanticError(
+                "formal-required policy cannot gate retained candidate sites "
+                f"without an formal-aware selection evidence attachment: {kinds}"
+            )
+        if configured_formal.policy is not FormalPolicy.OFF:
+            has_elastic = any(
+                item.kind.value == "elastic_pipeline"
+                for item in static_ledger.sites
+            )
+            if has_elastic and configured_formal.policy in {
+                FormalPolicy.REQUIRED_BMC,
+                FormalPolicy.REQUIRED_PROVEN,
+            }:
+                raise SemanticError(
+                    "formal-required policy has no semantic-reference equivalence route for variable-latency "
+                    "elastic pipeline(auto); safety verification ready/valid safety remains available"
+                )
+            try:
+                defer_physical = (
+                    _defer_one_root_pipeline_to_physical_formal_selection(semantic_ir)
+                    and len(exploration_results) == 1
+                    and exploration_results[0].site_kind == "implement"
+                    and self.options.target not in {None, "generic"}
+                )
+                if not defer_physical:
+                    semantic_ir, exploration_results = gate_retained_explorations(
+                        semantic_ir,
+                        exploration_results,
+                        configured_formal,
+                        self.formal_verifier,
+                        backend=configured_formal.backend,
+                    )
+                else:
+                    # Policy belongs to the implementation site even though
+                    # execution is deferred until target planning has formed
+                    # the complete value+schedule+resource candidates.
+                    exploration_results = tuple(
+                        replace(
+                            item,
+                            request=replace(
+                                item.request,
+                                formal_config=configured_formal,
+                                formal_verifier=None,
+                            ),
+                        )
+                        for item in exploration_results
+                    )
+                semantic_ir = _attach_unified_pipeline_formal_records(
+                    semantic_ir,
+                    exploration_results,
+                )
+                if not defer_physical and not _defer_one_root_pipeline_to_physical_formal_selection(semantic_ir):
+                    semantic_ir = _gate_all_standalone_pipelines(
+                        semantic_ir,
+                        configured_formal,
+                        self.formal_verifier,
+                        canonical_site_keys=(
+                            exploration_site_key(item)
+                            for item in exploration_results
+                            if item.site_kind == "implement"
+                        ),
+                        backend=configured_formal.backend,
+                    )
+                semantic_ir = gate_structured_candidate_sites(
+                    semantic_ir,
+                    configured_formal,
+                    self.formal_verifier,
+                    backend=configured_formal.backend,
+                )
+            except ValueError as error:
+                raise SemanticError(str(error)) from error
+            if has_elastic and configured_formal.policy is FormalPolicy.AVAILABLE:
+                semantic_ir = _with_elastic_formal_records(
+                    semantic_ir,
+                    configured_formal,
+                    nondefault_reset=False,
+                )
+        backend_ir = inline_locals(semantic_ir)
+        contributions = self._contributions()
+        implementation_policy = normalize_implementation_policy(
+            backend_ir,
+            source_module=semantic_ir,
+            exploration_results=exploration_results,
+            external_contributions=contributions,
+        )
+        external_formal = replace(configured_formal, policy=FormalPolicy.OFF)
+        backend_ir, external_explorations = apply_external_region_exploration(
+            backend_ir,
+            implementation_policy,
+            external_contributions=contributions,
+            formal_config=external_formal,
+            formal_verifier=None,
+        )
+        if (
+            external_explorations
+            and configured_formal.policy is not FormalPolicy.OFF
+            # A concrete target turns this external value site into a complete
+            # value+schedule+resource candidate during planning. Gating the
+            # pre-planning expression here would prove a different artifact
+            # and, for newly partitioned DAGs, cannot emit the nested physical
+            # boundaries. The planning-phase formal-aware selection gate below owns that route.
+            and implementation_policy.request.target in {None, "generic"}
+            and not _defer_one_root_pipeline_to_physical_formal_selection(backend_ir)
+        ):
+            try:
+                backend_ir, external_explorations = gate_retained_explorations(
+                    backend_ir,
+                    external_explorations,
+                    configured_formal,
+                    self.formal_verifier,
+                    backend=configured_formal.backend,
+                )
+            except ValueError as error:
+                raise SemanticError(str(error)) from error
+        exploration_results = (*exploration_results, *external_explorations)
+        high_level_ir = lower(backend_ir, stage=OptimizationStage.HIGH_LEVEL)
+        source_typed_ir = restore(high_level_ir)
+        # Semantic IR is a DAG.  Dataclass equality recursively follows every
+        # incoming edge and therefore turns shared expressions into their
+        # exponentially large tree expansion.  Validate the round trip in the
+        # flat canonical representation instead, where node references are
+        # integer IDs and comparison is bounded by unique DAG size.
+        if not _canonical_round_trip_matches(
+            high_level_ir,
+            lower(
+                source_typed_ir,
+                stage=OptimizationStage.HIGH_LEVEL,
+            ),
+        ):
+            raise RuntimeError("canonical optimization IR did not restore semantic IR")
+        source_typed_ir = _restore_selection_formal_records(
+            backend_ir, source_typed_ir
+        )
+        extraction = extract_estimated_costs(source_typed_ir)
+        optimization_ir = lower(
+            extraction.module,
+            stage=OptimizationStage.SELECTED_ARCHITECTURE,
+        )
+        typed_ir = restore(optimization_ir)
+        if not _canonical_round_trip_matches(
+            optimization_ir,
+            lower(
+                typed_ir,
+                stage=OptimizationStage.SELECTED_ARCHITECTURE,
+            ),
+        ):
+            raise RuntimeError("extracted optimization IR did not restore semantic IR")
+        # Solver/cache records are orchestration evidence and intentionally do
+        # not participate in canonical IR identity.  Restore them recursively
+        # after the semantic round-trip for reports and callers.
+        typed_ir = _restore_selection_formal_records(backend_ir, typed_ir)
+        candidate_site_ledger = self._candidate_site_ledger(
+            typed_ir, exploration_results
+        )
+        return _SelectionProduct(
+            module=typed_ir,
+            high_level_ir=high_level_ir,
+            optimization_ir=optimization_ir,
+            extraction=extraction,
+            implementation_policy=implementation_policy,
+            implementation_request=implementation_policy.request,
+            exploration_results=tuple(exploration_results),
+            candidate_site_ledger=candidate_site_ledger,
         )
 
     @property
@@ -620,15 +1577,15 @@ class CompilationSession:
         return self._selection.optimization_ir
 
     @property
-    def implementation_policy(self) -> implementation_policy_api.ModuleImplementationPolicy:
+    def implementation_policy(self) -> ModuleImplementationPolicy:
         return self._selection.implementation_policy
 
     @property
-    def implementation_request(self) -> implementation_request_api.ImplementationRequest:
+    def implementation_request(self) -> ImplementationRequest:
         return self._selection.implementation_request
 
     @property
-    def candidate_site_ledger(self) -> candidate_sites.CandidateSiteLedger:
+    def candidate_site_ledger(self) -> CandidateSiteLedger:
         """Deterministic retained candidate sites after configured selection."""
 
         return self._selection.candidate_site_ledger
@@ -638,11 +1595,42 @@ class CompilationSession:
         return self._demand(FORMAL_PRODUCT, self._build_formal)
 
     def _build_formal(self) -> _FormalProduct:
-        return compilation_outputs.build_formal(self.selected_ir)
+        design = build_formal_design(self.selected_ir)
+        recursive = build_recursive_formal_design(self.selected_ir)
+        return _FormalProduct(
+            design,
+            emit_harness(design),
+            recursive,
+            emit_recursive_harness(recursive),
+        )
 
     @property
     def planning(self) -> _PlanningProduct:
         return self._demand(PLANNING_PRODUCT, self._build_planning)
+
+    @property
+    def direct_systemverilog_input(self) -> _DirectSystemVerilogProduct:
+        """Return the exact selected/planned products required by Direct-SV.
+
+        This deliberately omits formal, documentation, report, and target
+        instance products.  ``materialize()`` remains the eager compatibility
+        facade for callers that require the complete ``CompilationResult``.
+        """
+
+        return self._demand(
+            DIRECT_SYSTEMVERILOG_PRODUCT,
+            self._build_direct_systemverilog_input,
+        )
+
+    def _build_direct_systemverilog_input(self) -> _DirectSystemVerilogProduct:
+        selection = self._selection
+        planning = self.planning
+        return _DirectSystemVerilogProduct(
+            ir=planning.module,
+            selected_ir_identity=canonical_ir_identity(selection.optimization_ir),
+            implementation_graph=planning.implementation_graph,
+            physical_inputs=self.physical_inputs,
+        )
 
     @property
     def simulation_plan(self):
@@ -661,7 +1649,7 @@ class CompilationSession:
             return self._values.get(SIMULATION_PLAN_PRODUCT)
 
     def accept_simulation_plan(self, plan):
-        from zlang.simulation_plan_model import SimulationPlan
+        from zlang.simulation_plan import SimulationPlan
 
         if not isinstance(plan, SimulationPlan):
             raise TypeError("restored simulation plan must be strictly decoded")
@@ -673,24 +1661,102 @@ class CompilationSession:
         return self._demand(SIMULATION_PLAN_PRODUCT, lambda: checked)
 
     def _build_simulation_plan(self):
-        from zlang.simulation_plan_build import build_simulation_plan
+        from zlang.simulation_plan import build_simulation_plan
 
         return build_simulation_plan(self.planning.module)
 
     @property
-    def backend_implementation_plans(self) -> implementation_plans.BackendImplementationPlanningResult:
+    def backend_implementation_plans(self) -> BackendImplementationPlanningResult:
         return self.planning.backend_plans
 
     def _build_planning(self) -> _PlanningProduct:
-        return compilation_selection.PlanningBuilder().build(
-            self._selection,
-            target_evidence=self._options.target_evidence,
-            target_evidence_path=self._options.target_evidence_path,
-            target_tool=self._options.target_tool,
-            target_tool_version=self._options.target_tool_version,
-            target_clock_period_ns=self._options.target_clock_period_ns,
-            formal_config=self._formal_config(check_only=False),
-            formal_verifier=self._options.formal_verifier,
+        selection = self._selection
+        request = selection.implementation_request
+        from zlang.pipeline_scheduling import (
+            PipelineSchedulingError,
+            TargetResourceOperationCostModel,
+            schedule_module_fixed_pipelines,
+        )
+
+        try:
+            cost_model = None
+            if request.target not in {None, "generic"}:
+                from zlang.targets import load_target
+
+                _, _, resources = load_target(request.target)
+                cost_model = TargetResourceOperationCostModel(resources)
+            planned_module = schedule_module_fixed_pipelines(
+                selection.module,
+                cost_model=cost_model,
+            )
+        except PipelineSchedulingError as error:
+            raise SemanticError(
+                f"fixed pipeline cannot schedule the typed expression: {error}",
+                code="ZL-PIPELINE-SCHEDULE",
+                notes=(
+                    "fixed pipeline scheduling accepts only pure combinational "
+                    "typed values and never moves state, protocol, storage, or "
+                    "CDC effects",
+                ),
+            ) from error
+        plans = plan_backend_implementations(
+            planned_module,
+            backend_requests=(
+                (request.backend,) if request.backend is not None else ()
+            ),
+            target=request.target,
+            architecture=request.architecture.identity,
+            architecture_mode=request.architecture.mode,
+            source_policy=request.evidence_policy,
+            evidence=self.target_evidence,
+            evidence_path=self.target_evidence_path,
+            tool=self.target_tool,
+            tool_version=self.target_tool_version,
+            clock_period_ns=self.target_clock_period_ns,
+            strict_target_planning=request.backend is None,
+        )
+        target_result = plans.target_planning_result
+        physical_formal_records: tuple[FormalExplorationRecord, ...] = ()
+        if (
+            target_result is not None
+            and request.formal_policy is not FormalPolicy.OFF
+            # The bounded single-root path owns one complete
+            # value+schedule+resource gate here. Multi-site designs retain the
+            # established selection-time formal-aware selection route and never receive a second
+            # solver invocation.
+            and _defer_one_root_pipeline_to_physical_formal_selection(planned_module)
+            and (
+                not planned_module.pipeline_explorations
+                or request.target not in {None, "generic"}
+            )
+        ):
+            try:
+                plans, target_result, _, physical_formal_records = (
+                    _gate_physical_target_candidates(
+                        planned_module,
+                        plans,
+                        self._formal_config(check_only=False),
+                        self.formal_verifier,
+                    )
+                )
+            except ValueError as error:
+                raise SemanticError(str(error)) from error
+        if request.backend is None:
+            graph = (
+                target_result.selected_graph
+                if target_result is not None
+                else plans.selected_graph
+            )
+            if graph is None:
+                raise AssertionError("selected SystemVerilog plan has no graph")
+        else:
+            graph = plans.plan_for(request.backend.kind).graph
+        return _PlanningProduct(
+            planned_module,
+            plans,
+            target_result,
+            graph,
+            physical_formal_records,
         )
 
     @property
@@ -698,23 +1764,58 @@ class CompilationSession:
         return self._demand(TARGET_INSTANCE_PRODUCT, self._build_target_instance)
 
     def _build_target_instance(self):
-        return compilation_outputs.build_target_instance(self._selection)
+        request = self._selection.implementation_request
+        if request.target is None or request.target == "generic":
+            return None
+        from zlang.targets import load_target
+
+        return load_target(request.target)[0]
 
     @property
     def documents(self) -> _DocumentProduct:
         return self._demand(DOCUMENT_PRODUCT, self._build_documents)
 
     def _build_documents(self) -> _DocumentProduct:
-        return compilation_outputs.build_documents(self.selected_ir)
+        module = self.selected_ir
+        return _DocumentProduct(
+            emit_csr_markdown(module) if module.csr_blocks else "",
+            emit_csr_json(module) if module.csr_blocks else "",
+            emit_contracts(module)
+            if module.contracts or module.verification_scopes else "",
+        )
 
     @property
     def reports(self) -> _ReportProduct:
         return self._demand(REPORT_PRODUCT, self._build_reports)
 
     def _build_reports(self) -> _ReportProduct:
-        return compilation_outputs.build_reports(
-            self._selection,
-            self.planning,
+        selection = self._selection
+        planning = self.planning
+        implementation_report = render_implementation_report(planning.module)
+        if not implementation_report and selection.exploration_results:
+            implementation_report = render_exploration_report(
+                selection.exploration_results
+            )
+        architecture_report = render_architecture_report(planning.module)
+        if not architecture_report and selection.exploration_results:
+            # ``--architecture-report`` remains a compatibility output alias,
+            # but canonical ``implement`` regions no longer manufacture a
+            # source-level ArchitectureExploration node.  Expose the same
+            # unified candidate report instead of returning an empty artifact.
+            architecture_report = render_exploration_report(
+                selection.exploration_results
+            )
+        return _ReportProduct(
+            implementation_report,
+            render_cost_report(selection.extraction),
+            render_pipeline_report(planning.module)
+            + (
+                planning.target_planning_result.report
+                if planning.target_planning_result
+                else ""
+            ),
+            architecture_report,
+            render_exploration_report(selection.exploration_results),
         )
 
     def materialize(self) -> CompilationResult:
@@ -723,18 +1824,177 @@ class CompilationSession:
         return self._demand(MATERIALIZED_PRODUCT, self._build_materialized)
 
     def _build_materialized(self) -> CompilationResult:
-        return compilation_outputs.build_materialized(
-            syntax=self.syntax,
-            selection=self._selection,
-            formal=self.formal_products,
-            planning=self.planning,
-            target_instance=self.target_instance,
-            documents=self.documents,
-            reports=self.reports,
+        selection = self._selection
+        formal = self.formal_products
+        planning = self.planning
+        target_instance = self.target_instance
+        documents = self.documents
+        reports = self.reports
+        return CompilationResult(
+            ast=self.syntax,
+            ir=planning.module,
+            optimization_ir=selection.optimization_ir,
+            csr_markdown=documents.csr_markdown,
+            csr_json=documents.csr_json,
+            contracts_sva=documents.contracts_sva,
+            implementation_report=reports.implementation,
+            cost_report=reports.cost,
+            pipeline_report=reports.pipeline,
+            architecture_report=reports.architecture,
+            high_level_ir=selection.high_level_ir,
+            exploration_report=reports.exploration,
+            exploration_results=selection.exploration_results,
+            formal_design=formal.design,
+            formal_harness=formal.harness,
+            recursive_formal_design=formal.recursive_design,
+            recursive_formal_harness=formal.recursive_harness,
+            target_instance=target_instance,
+            implementation_graph=planning.implementation_graph,
+            target_planning_result=planning.target_planning_result,
+            target_planner_report=(
+                planning.target_planning_result.report
+                if planning.target_planning_result
+                else ""
+            ),
+            implementation_policy=selection.implementation_policy,
+            implementation_request=selection.implementation_request,
+            implementation_regions=tuple(
+                item.region for item in selection.implementation_policy.regions
+            ),
+            implementation_policy_report=selection.implementation_policy.report,
+            backend_implementation_plans=planning.backend_plans,
+            backend_implementation_report=planning.backend_plans.report,
             physical_inputs=self.physical_inputs,
             formal_artifact_provider=self.formal_artifact_provider,
             formal_tool_resolver=self.formal_tool_resolver,
+            candidate_site_ledger=selection.candidate_site_ledger,
+            physical_formal_records=planning.physical_formal_records,
         )
+
+
+def inline_locals(module: IrModule) -> IrModule:
+    """Erase pure local bindings before canonical and backend stages."""
+
+    children = tuple(inline_locals(child) for child in module.children)
+    if not module.locals:
+        return (
+            replace(module, children=children)
+            if any(
+                updated is not original
+                for updated, original in zip(
+                    children, module.children, strict=True
+                )
+            )
+            else module
+        )
+    values = {local.name: local.expression for local in module.locals}
+    local_cache: dict[str, object] = {}
+    node_cache: dict[int, object] = {}
+
+    def walk(value):
+        if isinstance(value, ir_expr.InputRef) and value.name in values:
+            cached_local = local_cache.get(value.name)
+            if cached_local is not None:
+                return cached_local
+            expanded_local = walk(values[value.name])
+            local_cache[value.name] = expanded_local
+            return expanded_local
+        if isinstance(value, tuple):
+            cache_key = id(value)
+            cached_node = node_cache.get(cache_key)
+            if cached_node is not None:
+                return cached_node
+            expanded_tuple = tuple(walk(item) for item in value)
+            node_cache[cache_key] = expanded_tuple
+            return expanded_tuple
+        if is_dataclass(value):
+            cache_key = id(value)
+            cached_node = node_cache.get(cache_key)
+            if cached_node is not None:
+                return cached_node
+            updates = {}
+            for item in fields(value):
+                current = getattr(value, item.name)
+                if item.name == "origin" or not item.init:
+                    continue
+                if isinstance(current, tuple):
+                    updates[item.name] = tuple(walk(v) for v in current)
+                elif is_dataclass(current):
+                    updates[item.name] = walk(current)
+                else:
+                    updates[item.name] = current
+            try:
+                expanded_value = replace(value, **updates)
+            except (TypeError, ValueError):
+                expanded_value = value
+            node_cache[cache_key] = expanded_value
+            return expanded_value
+        return value
+
+    return replace(
+        module,
+        assignments=tuple(
+            replace(item, expression=walk(item.expression))
+            for item in module.assignments
+        ),
+        next_assignments=tuple(
+            replace(
+                item,
+                expression=walk(item.expression),
+                activation=(
+                    walk(item.activation)
+                    if item.activation is not None else None
+                ),
+            )
+            for item in module.next_assignments
+        ),
+        rules=tuple(
+            replace(
+                rule,
+                guard=walk(rule.guard),
+                actions=tuple(
+                    replace(
+                        action,
+                        expression=walk(action.expression),
+                        activation=(
+                            walk(action.activation)
+                            if action.activation is not None else None
+                        ),
+                    )
+                    for action in rule.actions
+                ),
+            )
+            for rule in module.rules
+        ),
+        registers=tuple(
+            replace(
+                register,
+                initial=(
+                    walk(register.initial)
+                    if register.initial is not None else None
+                ),
+            )
+            for register in module.registers
+        ),
+        instance_bindings=tuple(
+            replace(binding, expression=walk(binding.expression))
+            for binding in module.instance_bindings
+        ),
+        pipeline_explorations=tuple(
+            replace(
+                exploration,
+                source_expression=walk(exploration.source_expression),
+                candidates=tuple(
+                    replace(candidate, expression=walk(candidate.expression))
+                    for candidate in exploration.candidates
+                ),
+            )
+            for exploration in module.pipeline_explorations
+        ),
+        resolved_transition=walk(module.resolved_transition),
+        locals=(),
+        children=children,
+    )
 
 
 __all__ = [

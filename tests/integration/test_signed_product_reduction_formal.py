@@ -5,13 +5,13 @@ from zlang.backend.systemverilog import emit_artifact
 from zlang.compiler import compile_source
 from zlang.equivalence import (
     artifact_hash,
-    emit_miter_with_metadata,
+    emit_miter,
     emit_reference_model,
+    formal_tools_available,
     make_equivalence_property,
     publish_bindings,
     run_equivalence_formal,
 )
-from tests.support.formal import formal_tools_available
 from zlang.ir.equivalence import (
     BindingMap,
     BindingSide,
@@ -57,18 +57,13 @@ def _formal_source(implementation: str):
         selected_ir_identity=selected, backend="direct_systemverilog",
         artifact_hash_value=artifact_hash(implementation), rtl_names=names,
     )
-    miter = emit_miter_with_metadata(
+    miter = emit_miter(
         property_, BindingMap((*reference_bindings, *implementation_bindings)),
         reference_module="SignedProductReference",
         implementation_module=module.name,
     )
     top = "semantic_equivalence_" + property_.id.replace(".", "_")
-    return (
-        property_,
-        reference + "\n" + implementation + "\n" + miter.source,
-        top,
-        miter.trace_metadata,
-    )
+    return property_, reference + "\n" + implementation + "\n" + miter, top
 
 
 @pytest.mark.skipif(
@@ -80,10 +75,9 @@ def test_correct_signed_product_reduction_is_proven() -> None:
     implementation = emit_artifact(
         module, selected_ir_identity="selected:signed-product-reduction"
     ).text
-    property_, source, top, trace_metadata = _formal_source(implementation)
+    property_, source, top = _formal_source(implementation)
     result = run_equivalence_formal(
         property_, source, top=top, mode=EquivalenceMode.PROVE, depth=4,
-        trace_metadata=trace_metadata,
     )
     assert result.status is EquivalenceStatus.PROVEN
 
@@ -115,10 +109,9 @@ module SignedProductFormal(
   {body}
 endmodule
 """
-    property_, source, top, trace_metadata = _formal_source(implementation)
+    property_, source, top = _formal_source(implementation)
     result = run_equivalence_formal(
         property_, source, top=top, mode=EquivalenceMode.BMC, depth=4,
-        trace_metadata=trace_metadata,
     )
     assert result.status is EquivalenceStatus.FAILED
     assert result.counterexample is not None

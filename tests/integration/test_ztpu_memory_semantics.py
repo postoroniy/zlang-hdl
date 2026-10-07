@@ -7,9 +7,9 @@ import subprocess
 
 import pytest
 
-from zlang.backend.systemverilog import emit
+from zlang.backend.systemverilog import emit_experimental
 from zlang.compiler import compile_source
-from zlang.opt.lowering import lower, restore
+from zlang.opt import lower, restore
 from zlang.native_simulation import simulate_cycles
 
 
@@ -133,8 +133,8 @@ def test_ztpu_async_memory_direct_sv_lints_and_simulates(
     tmp_path: Path, collision: str,
 ) -> None:
     module = compile_source(_source(collision)).ir
-    text = emit(module)
-    assert emit(module) == text
+    text = emit_experimental(module)
+    assert emit_experimental(module) == text
     assert "initial begin" in text
     assert "Memory contents and read result hold across reset" in text
     rtl = tmp_path / "ZtpuAsyncMemory.sv"
@@ -400,7 +400,7 @@ def test_reset_profile_matrix_direct_sv_matches_simulator(tmp_path: Path) -> Non
             ),
         ).ir
         rtl = tmp_path / f"{name}.sv"
-        rtl.write_text(emit(module))
+        rtl.write_text(emit_experimental(module))
         rtl_files.append(rtl)
     assert _run_reset_profile_matrix(
         tuple(rtl_files), tmp_path, strict_lint=True

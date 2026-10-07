@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
-from zlang.backend.systemverilog import emit
+from zlang.backend.systemverilog import emit_experimental
 from zlang.compiler import compile_source
 from zlang.fixed_point import quantize_rational
 from zlang.ir import expressions as expr
@@ -133,12 +133,12 @@ def test_all_variants_share_one_post_accumulation_quantization_contract() -> Non
 
 def test_direct_sv_materializes_large_quantize_operand_once_and_deterministically() -> None:
     module = compile_source(SOURCE, top="FixedFIRBalanced").ir
-    first = emit(module)
-    second = emit(module)
+    first = emit_experimental(module)
+    second = emit_experimental(module)
     assert first == second
     assert "logic signed [26:0] zlang_expr_0;" in first
     assert first.count("assign zlang_expr_0 =") == 1
-    assert first.count("samples[7]") == 1
+    assert first.count("samples[95:84]") == 1
     assert "$signed(zlang_expr_0)" in first
     core = first.split("module FixedFIRBalanced (", 1)[0]
     assert len(core.encode()) < 4_000
@@ -156,10 +156,10 @@ def test_combinational_quantize_materializes_but_trivial_conversion_does_not() -
         "module S { in a:fixed<12,10> out y:fixed<16,14> "
         "y=quantize<fixed<16,14>>(a){round nearest_even overflow saturate} }"
     ).ir
-    large_sv = emit(large)
-    small_sv = emit(small)
+    large_sv = emit_experimental(large)
+    small_sv = emit_experimental(small)
     assert "logic signed [26:0] zlang_expr_0;" in large_sv
-    assert large_sv.count("a[7]") == 1
+    assert large_sv.count("a[95:84]") == 1
     assert "zlang_expr_" not in small_sv
 
 

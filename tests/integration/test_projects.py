@@ -9,8 +9,7 @@ from zlang.backend.manifest import BackendArtifact
 from zlang.backend.systemverilog import emit_artifact
 from zlang.compiler import compile_file
 from zlang.dependencies import LOCK_SCHEMA
-from zlang.opt.render import render
-from zlang.opt.lowering import restore
+from zlang.opt import render, restore
 from zlang.workspace import update_project_lock
 
 

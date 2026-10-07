@@ -24,7 +24,7 @@ from zlang.build_manifest import (
 from zlang.backend.companions import (
     collect_rom_companions,
 )
-import zlang.cli_command as cli_command
+import zlang.cli as cli_module
 from zlang.cli import main
 from zlang.compiler import compile_file, compile_file_snapshot
 from zlang.workspace import WorkspaceError, update_project_lock
@@ -178,7 +178,8 @@ def _publish_timed_build(root: Path) -> tuple[WholeBuildManifest, dict[str, Path
     source = _write_source(root, "timed", TIMED_NAMED_SOURCE)
     direct = root / "build" / "systemverilog" / "TimedTop.sv"
     evidence = root / "reports" / "evidence.json"
-    verification_bundle = root / "formal" / "bundle"
+    harness = root / "formal" / "TimedTop.formal.sv"
+    sby = root / "formal" / "TimedTop.sby"
     manifest_path = root / "build.json"
     status, stdout, stderr = _invoke(
         source,
@@ -186,7 +187,9 @@ def _publish_timed_build(root: Path) -> tuple[WholeBuildManifest, dict[str, Path
             "--systemverilog", str(direct),
             "--evidence-report", str(evidence),
             "--evidence-format", "json",
-            "--verification-bundle", str(verification_bundle),
+            "--formal-harness", str(harness),
+            "--formal-sby", str(sby),
+            "--formal-depth", "7",
             "--build-manifest", str(manifest_path),
         ],
     )
@@ -232,18 +235,23 @@ def test_two_report_sinks_must_be_distinct_before_any_write(
     assert not report.parent.exists()
 
 
-def test_removed_direct_systemverilog_compatibility_alias_is_rejected(
+def test_identical_direct_systemverilog_compatibility_aliases_share_one_sink(
     tmp_path: Path,
 ) -> None:
     source = _write_source(tmp_path, "packing", PACKING_SOURCE)
     output = tmp_path / "published" / "PacketPacking.sv"
 
-    _assert_cli_usage_error(
+    status, stdout, stderr = _invoke(
         source,
-        ["--systemverilog", str(output), "--experimental-systemverilog", str(output)],
-        "unrecognized arguments: --experimental-systemverilog",
+        [
+            "--systemverilog", str(output),
+            "--experimental-systemverilog", str(output),
+        ],
     )
-    assert not output.exists()
+    assert status == 0, stderr
+    assert stdout == ""
+    assert stderr == ""
+    assert output.read_text(encoding="utf-8").startswith("`default_nettype none")
 
 
 
@@ -440,10 +448,16 @@ def test_cli_publishes_direct_backend_truthful_evidence_and_manifest(
     assert direct.selected_ir_identity == compilation.selected_ir_identity
 
     statuses = {item.status for item in manifest.evidence}
-    assert {"typed_legal", "timing_validated"} <= statuses
+    assert {"typed_legal", "timing_validated", "not_run"} <= statuses
     assert "bounded_pass" not in statuses
     assert "proven" not in statuses
-    assert all(item.property_id is None for item in manifest.evidence)
+    generated_properties = [
+        item for item in manifest.evidence
+        if item.property_id is not None
+    ]
+    assert generated_properties
+    assert all(item.status == "not_run" for item in generated_properties)
+    assert all(item.mode is None and item.depth is None for item in generated_properties)
     timing = next(item for item in manifest.evidence if item.status == "timing_validated")
     assert dict(timing.details)["latency"] == "0"
 
@@ -452,15 +466,14 @@ def test_cli_publishes_direct_backend_truthful_evidence_and_manifest(
     }
     report_kinds = {item.kind for item in manifest.reports}
     assert any(path.endswith("evidence.json") for path in report_paths)
-    assert report_kinds == {"evidence"}
+    assert {"formal_harness", "formal_configuration"} <= report_kinds
 
     evidence_payload = (tmp_path / "reports" / "evidence.json").read_text(
         encoding="utf-8"
     )
     assert '"status": "typed_legal"' in evidence_payload
     assert '"status": "timing_validated"' in evidence_payload
-    assert '"formal_execution_plan"' in evidence_payload
-    assert '"status": "not_run"' not in evidence_payload
+    assert '"status": "not_run"' in evidence_payload
     assert '"status": "proven"' not in evidence_payload
     validate_manifest_file_map(manifest, physical)
 
@@ -569,7 +582,7 @@ def test_cli_compiles_captured_snapshot_and_rejects_later_source_mutation(
     replacement = b"module MutatedTop { in x:u8 out y:u8 y=x }\n"
     rtl = tmp_path / "build" / "SnapshotTop.sv"
     manifest_path = tmp_path / "build" / "SnapshotTop.build.json"
-    real_compile_snapshot = cli_command.compiler_api.compile_file_snapshot
+    real_compile_snapshot = cli_module.compile_file_snapshot
     compiled_modules: list[str] = []
 
     def compile_after_mutation(*args, **kwargs):
@@ -581,11 +594,7 @@ def test_cli_compiles_captured_snapshot_and_rejects_later_source_mutation(
         compiled_modules.append(result.ir.name)
         return result
 
-    monkeypatch.setattr(
-        cli_command.compiler_api,
-        "compile_file_snapshot",
-        compile_after_mutation,
-    )
+    monkeypatch.setattr(cli_module, "compile_file_snapshot", compile_after_mutation)
     stdout = io.StringIO()
     stderr = io.StringIO()
     with redirect_stdout(stdout), redirect_stderr(stderr):

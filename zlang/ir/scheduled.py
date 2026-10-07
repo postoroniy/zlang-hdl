@@ -151,6 +151,13 @@ class ScheduledValueGraph:
             )).encode("utf-8")
         ).hexdigest()
 
+    @property
+    def legacy_identity(self) -> str:
+        """Exact pre-v1 identity for matching previously published QoR keys."""
+
+        return sha256(repr((self.schema, self)).encode("utf-8")).hexdigest()
+
+
 __all__ = [
     "SCHEDULED_VALUE_GRAPH_SCHEMA",
     "SCHEDULED_VALUE_GRAPH_IDENTITY_SCHEMA",

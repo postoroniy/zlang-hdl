@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 from zlang.compiler import compile_source
 from zlang.ir import expressions as expr
-from zlang.opt.lowering import lower, restore
+from zlang.opt import lower, restore
 from zlang.synthesis import (
     SynthesisFeedbackError,
     characterize_with_yosys,

@@ -25,7 +25,7 @@ from zlang.simulation_errors import (
     VerificationCoverWitness,
     VerificationRequirementViolation,
 )
-from zlang.simulation_plan_build import build_simulation_plan
+from zlang.simulation_plan import build_simulation_plan
 from zlang.simulation_csr import csr_field_state_register_name
 from zlang.simulation_primitives import int_from_limbs
 from zlang.verification_monitor import VerificationMonitor, VerificationSampleResult

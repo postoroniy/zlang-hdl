@@ -5,10 +5,14 @@ from pathlib import Path
 from zlang import compile_source
 from zlang.backend.manifest import BackendArtifact
 from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
-from zlang.ir.cdc import Crossing, CrossingKind
-from zlang.ir.module import PortDirection
-from zlang.ir.top_abi import build_top_physical_abi
-from zlang.opt.lowering import CanonicalizationError, lower, restore
+from zlang.ir import (
+    Crossing,
+    CrossingKind,
+    PortDirection,
+    build_top_aggregate_abi,
+    build_top_physical_abi,
+)
+from zlang.opt import CanonicalizationError, lower, restore
 from zlang.semantic import SemanticError
 
 
@@ -57,23 +61,30 @@ module Shapes {
 class TopAggregateABITests(unittest.TestCase):
     def test_recursive_flattening_and_roles(self):
         module = compile_source(SOURCE).ir
-        abi = build_top_physical_abi(module)
+        abi = build_top_aggregate_abi(module)
         self.assertEqual(
             [leaf.external_name for leaf in abi.leaves],
-            [
-                "clk", "rst", "bus_req_payload_addr", "bus_req_payload_data",
-                "bus_req_valid", "bus_req_ready", "bus_irq",
-            ],
+            ["bus_req_payload_addr", "bus_req_payload_data", "bus_req_valid", "bus_req_ready", "bus_irq"],
         )
         self.assertEqual(
             [leaf.direction for leaf in abi.leaves],
-            [
-                PortDirection.INPUT, PortDirection.INPUT,
-                PortDirection.INPUT, PortDirection.INPUT, PortDirection.INPUT,
-                PortDirection.OUTPUT, PortDirection.OUTPUT,
-            ],
+            [PortDirection.INPUT, PortDirection.INPUT, PortDirection.INPUT,
+             PortDirection.OUTPUT, PortDirection.OUTPUT],
         )
-        self.assertEqual(abi.leaves[3].width, 16)
+        self.assertEqual(abi.leaves[1].width, 16)
+
+    def test_backend_manifest_is_the_semantic_to_physical_port_map(self):
+        artifact = emit_sv_artifact(compile_source(SHAPES_SOURCE).ir)
+        request_bindings = {
+            binding.member_path: binding
+            for binding in artifact.bindings
+            if binding.member_path[:1] == ("request",)
+        }
+
+        self.assertEqual(
+            request_bindings[("request", "tag")].rtl_path,
+            "request_tag",
+        )
 
     def test_same_role_delegation_is_explicit(self):
         module = compile_source(SOURCE).ir
@@ -197,14 +208,14 @@ class TopAggregateABITests(unittest.TestCase):
     def test_collision_is_diagnostic(self):
         source = SOURCE.replace("member irq:bit sink -> source", "member irq:bit sink -> source member irq_:bit sink -> source")
         with self.assertRaisesRegex(ValueError, "collision"):
-            build_top_physical_abi(compile_source(source).ir)
+            build_top_aggregate_abi(compile_source(source).ir)
 
     def test_vector_protocol_leaf_uses_canonical_physical_width(self):
         source = SOURCE.replace(
             "member irq:bit sink -> source",
             "member irq:bit sink -> source member lanes:vec<2,u8> sink -> source",
         ).replace("bus.irq=0", "bus.irq=0 bus.lanes=generate(i in 0..2) 0")
-        abi = build_top_physical_abi(compile_source(source).ir)
+        abi = build_top_aggregate_abi(compile_source(source).ir)
         lanes = next(leaf for leaf in abi.leaves if leaf.member_path == ("bus", "lanes"))
         self.assertEqual(lanes.width, 16)
         self.assertEqual(lanes.signedness, "unsigned")

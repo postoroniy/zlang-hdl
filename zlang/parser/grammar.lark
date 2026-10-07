@@ -319,6 +319,7 @@ width_expression: width_atom WIDTH_OP width_atom (WIDTH_OP width_atom)*
 ?atom: primary
      | atom "." NAME -> field_expr
      | atom "[" expr _RANGE expr "]" -> vector_range_expr
+     | atom "[" expr DYNAMIC_SLICE expr "]" -> dynamic_slice_expr
      | atom "[" expr ":" expr "]" -> slice_expr
      | atom "[" expr "]" -> index_expr
      | atom _WITH "{" struct_field_value+ "}" -> struct_update_expr
@@ -356,7 +357,10 @@ width_expression: width_atom WIDTH_OP width_atom (WIDTH_OP width_atom)*
      | switch_expr
      | delay_expr
      | pipeline_expr
+     | removed_pipeline_auto_expr
+     | removed_architecture_expr
      | implementation_choice_expr
+     | removed_explore_expr
      | implement_expr
      | struct_construct_expr
      | tagged_union_construct_expr
@@ -416,15 +420,27 @@ _angle_call_close: ">" | _CALL_RANGLE
 pipeline_expr: _PIPELINE "(" PIPELINE_DEPTH ("," pipeline_constraint)* ")" [_AT NAME] "{" expr "}"
 protocol_transform_expr: _PIPELINE "(" _AUTO ("," pipeline_constraint)* ")" "{" expr "}"
 pipeline_constraint: PIPELINE_METRIC PIPELINE_RELATION NUMBER
+removed_pipeline_auto_expr: _PIPELINE "(" _AUTO ("," pipeline_constraint)* ")" "{" expr "}"
+removed_architecture_expr: _ARCHITECTURE "(" _AUTO ("," architecture_constraint)* ")" "{" expr "}"
+architecture_constraint: ARCHITECTURE_METRIC "<=" NUMBER
 implementation_choice_expr: _CHOICE "(" implementation_selection ")" "{" implementation_arm implementation_arm+ "}"
 ?implementation_selection: IMPLEMENTATION_KIND -> explicit_implementation_selection
                          | _AUTO "," _MINIMIZE "=" COST_METRIC ["," feedback_policy] ("," cost_constraint)* -> cost_implementation_selection
 feedback_policy: _FEEDBACK "=" SYNTHESIS_FEEDBACK
 cost_constraint: COST_METRIC "<=" NUMBER
 implementation_arm: IMPLEMENTATION_KIND "=>" expr
+removed_explore_expr: _EXPLORE "{" expr explore_clause* "}"
+?explore_clause: _ALLOW EXPLORATION_FAMILY -> explore_allow
+               | _AVOID EXPLORATION_FAMILY -> explore_avoid
+               | _ALLOW "{" [EXPLORATION_FAMILY (","? EXPLORATION_FAMILY)*] "}" -> explore_allow_group
+               | _AVOID "{" [EXPLORATION_FAMILY (","? EXPLORATION_FAMILY)*] "}" -> explore_avoid_group
+               | _REQUIRE COST_METRIC EXPLORE_RELATION NUMBER -> explore_require
+               | _REQUIRE "{" [COST_METRIC EXPLORE_RELATION NUMBER (","? COST_METRIC EXPLORE_RELATION NUMBER)*] "}" -> explore_require_group
+               | _MINIMIZE COST_METRIC -> explore_minimize
+               | _MAXIMIZE COST_METRIC -> explore_maximize
 implement_expr: _IMPLEMENT "{" expr implement_intent "}"
-implement_intent: _INTENT "{" implement_intent_clause+ "}"
-?implement_intent_clause: COST_METRIC IMPLEMENT_RELATION NUMBER -> implement_constraint
+implement_intent: _INTENT "{" implement_intent_clause* "}"
+?implement_intent_clause: COST_METRIC EXPLORE_RELATION NUMBER -> implement_constraint
                         | _MINIMIZE COST_METRIC -> implement_minimize
                         | _MAXIMIZE COST_METRIC -> implement_maximize
 mux_expr: _MUX "(" expr "," expr "," expr ")"
@@ -510,6 +526,7 @@ WIDTH: /[1-9][0-9]*/
 PIPELINE_DEPTH.3: /[1-9][0-9]*/
 PIPELINE_METRIC.3: /latency(?![A-Za-z0-9_])/ | /throughput(?![A-Za-z0-9_])/ | /ii(?![A-Za-z0-9_])/ | /dsp(?![A-Za-z0-9_])/ | /fmax(?![A-Za-z0-9_])/
 PIPELINE_RELATION.3: "<=" | "==" | ">="
+ARCHITECTURE_METRIC.3: /parallelism(?![A-Za-z0-9_])/ | /depth(?![A-Za-z0-9_])/ | /candidates(?![A-Za-z0-9_])/
 ORDERING.3: /in_order(?![A-Za-z0-9_])/ | /out_of_order(?![A-Za-z0-9_])/
 ADAPTER.3: /rv_to_credit(?![A-Za-z0-9_])/ | /credit_to_rv(?![A-Za-z0-9_])/
 CSR_ACCESS.3: /(?:rw|ro|wo|w1c|pulse|reserved)(?![A-Za-z0-9_])/
@@ -531,7 +548,8 @@ _VERIFICATION_CONTRACT.4: /contract(?=[ \t\r\n]+[A-Za-z_][A-Za-z0-9_]*(?:[ \t]*@
 _VERIFICATION_REQUIRE.4: /require(?=[ \t\r\n]+[A-Za-z_][A-Za-z0-9_]*[ \t\r\n]*\{)/
 IMPLEMENTATION_KIND.3: /mul_add(?![A-Za-z0-9_])/ | /dsp_mac(?![A-Za-z0-9_])/
 COST_METRIC.3: /lut(?![A-Za-z0-9_])/ | /ff(?![A-Za-z0-9_])/ | /dsp(?![A-Za-z0-9_])/ | /bram(?![A-Za-z0-9_])/ | /latency(?![A-Za-z0-9_])/ | /ii(?![A-Za-z0-9_])/ | /fmax_est(?![A-Za-z0-9_])/ | /fmax(?![A-Za-z0-9_])/
-IMPLEMENT_RELATION.3: "<=" | ">=" | "=="
+EXPLORATION_FAMILY.3: /pipeline(?![A-Za-z0-9_])/ | /dsp(?![A-Za-z0-9_])/ | /reduction(?![A-Za-z0-9_])/ | /reassociate(?![A-Za-z0-9_])/ | /adapter(?![A-Za-z0-9_])/
+EXPLORE_RELATION.3: "<=" | ">=" | "=="
 SYNTHESIS_FEEDBACK.3: /optional_yosys(?![A-Za-z0-9_])/
 ROUNDING_MODE.4: /toward_zero(?![A-Za-z0-9_])/ | /floor(?![A-Za-z0-9_])/ | /away_zero(?![A-Za-z0-9_])/ | /nearest_even(?![A-Za-z0-9_])/
 OVERFLOW_MODE.4: /wrap(?![A-Za-z0-9_])/ | /saturate(?![A-Za-z0-9_])/
@@ -551,9 +569,13 @@ RESOURCE_DIRECTION.3: /input(?![A-Za-z0-9_])/ | /output(?![A-Za-z0-9_])/
 RESOURCE_SIGNEDNESS.3: /signed(?![A-Za-z0-9_])/ | /unsigned(?![A-Za-z0-9_])/
 DEVICE_PART: /[A-Za-z0-9][A-Za-z0-9_.-]*/
 NAME: /[A-Za-z_][A-Za-z0-9_]*/
+_EXPLORE.4: /explore(?![A-Za-z0-9_])/
 _IMPLEMENT.4: /implement(?![A-Za-z0-9_])/
 _INTENT.4: /intent(?![A-Za-z0-9_])/
 _OPERATOR.4: /operator(?![A-Za-z0-9_])/
+_ALLOW.4: /allow(?![A-Za-z0-9_])/
+_AVOID.4: /avoid(?![A-Za-z0-9_])/
+_REQUIRE.4: /require(?![A-Za-z0-9_])/
 _MAXIMIZE.4: /maximize(?![A-Za-z0-9_])/
 _TYPE.3: /type(?![A-Za-z0-9_])/
 _RESOURCE.3: /resource(?![A-Za-z0-9_])/
@@ -693,6 +715,7 @@ _ROUND.4: /round(?![A-Za-z0-9_])/
 _OVERFLOW.4: /overflow(?![A-Za-z0-9_])/
 _IN.3: /in(?![A-Za-z0-9_])/
 _RANGE.4: ".."
+DYNAMIC_SLICE.7: "+:"
 PATTERN_CONST.5: /zero(?![A-Za-z0-9_])/ | /zeros(?![A-Za-z0-9_])/ | /ones(?![A-Za-z0-9_])/
 GUARD_ATOM: /(unsigned|signed|bits|bit|width|same_type|constant|power_of_two)\([^()]*\)(\s*==\s*[0-9]+)?/
 _EQUIV_OP.6: "<=>"

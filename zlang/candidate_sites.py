@@ -13,31 +13,115 @@ import json
 from typing import Iterable, Mapping
 
 from zlang.common import stable_digest, stable_json
-from zlang.candidate_classification import candidate_equivalence_class
-from zlang.candidate_identity import (
-    CandidateIdentityError as CandidateSiteError,
-    candidate_owner_formal_domain,
-    candidate_site_key,
-    module_candidate_owner_identity,
-)
 from zlang.costs import (
     candidate_cost_from_alternative,
     extract_best,
 )
 from zlang.exploration import ExplorationResult
 from zlang.ir import expressions as expr
+from zlang.ir.cdc import ClockDomain, PowerUpPolicy
+from zlang.ir.hierarchy import candidate_specialization_identity
 from zlang.ir.module import Module
 from zlang.ir.signed_reductions import expression_semantic_identity
-from zlang.pipeline_candidate_space import standalone_pipeline_candidate_space
 from zlang.source import SourceOrigin, SourceSpan
 
 
-CANDIDATE_SITE_LEDGER_SCHEMA = 2
+CANDIDATE_SITE_LEDGER_SCHEMA = 1
+
+
+class CandidateSiteError(ValueError):
+    """A retained candidate-site catalog is malformed or ambiguous."""
+
+
+def module_candidate_owner_identity(module: Module) -> str:
+    """Return the candidate owner encoded by a concrete typed module."""
+
+    return candidate_specialization_identity(module.name, module.parameters)
+
+
+def candidate_owner_formal_domain(
+    module: Module,
+    owner_identity: str | None,
+) -> tuple[ClockDomain | None, str | None]:
+    """Resolve the exact physical domain of one retained candidate owner.
+
+    Candidate execution is intentionally delayed until after semantic analysis,
+    so a verifier must recover its domain from the typed module tree rather than
+    fabricate the historical ``clock/reset`` pair.  A callable-owned
+    implementation region is associated with the module that publishes that
+    monomorphic definition.
+
+    Zero-domain combinational candidates retain the existing same-cycle route.
+    Multi-domain owners are outside the frozen semantic-reference equivalence/formal-aware selection subset and therefore fail
+    closed before a verifier can be constructed.
+    """
+
+    matches: list[Module] = []
+
+    def visit(current: Module) -> None:
+        module_owner = module_candidate_owner_identity(current)
+        owns_callable = False
+        if owner_identity is not None and owner_identity.startswith("callable:"):
+            callee = owner_identity.removeprefix("callable:")
+            owns_callable = any(
+                item.callee_identity == callee
+                for item in (*current.functions, *current.callable_definitions)
+            )
+        if (
+            owner_identity is None
+            or owner_identity == "<anonymous-module>"
+            or owner_identity == module_owner
+            or owns_callable
+        ):
+            matches.append(current)
+        for child in current.children:
+            visit(child)
+
+    visit(module)
+    # An anonymous result belongs to the root rather than every descendant.
+    if owner_identity in {None, "<anonymous-module>"}:
+        matches = [module]
+    if len(matches) != 1:
+        raise CandidateSiteError(
+            "formal candidate owner does not resolve to one typed module: "
+            f"{owner_identity or '<anonymous-module>'}"
+        )
+    domains = matches[0].clock_domains
+    if not domains:
+        return None, None
+    if len(domains) != 1:
+        return None, (
+            "semantic-reference equivalence/formal-aware selection candidate equivalence requires exactly one physical "
+            "clock/reset domain per candidate owner"
+        )
+    domain = domains[0]
+    if domain.power_up is not PowerUpPolicy.UNSPECIFIED:
+        return None, (
+            "semantic-reference equivalence/formal-aware selection candidate equivalence does not support power_up reset "
+            "semantics"
+        )
+    return domain, None
+
+
+def candidate_owner_clock_domain(
+    module: Module,
+    owner_identity: str | None,
+) -> ClockDomain | None:
+    """Return one executable owner domain, rejecting an unsupported owner."""
+
+    domain, limitation = candidate_owner_formal_domain(module, owner_identity)
+    if limitation is not None:
+        raise CandidateSiteError(limitation)
+    return domain
 
 
 class CandidateSiteKind(str, Enum):
     IMPLEMENT = "implement"
+    SOURCE_EXPLORE = "source_explore"
+    EXPRESSION_EXPLORE = "expression_explore"
     CHOICE_AUTO = "choice_auto"
+    ARCHITECTURE_AUTO = "architecture_auto"
+    STANDALONE_PIPELINE = "standalone_pipeline"
     ELASTIC_PIPELINE = "elastic_pipeline"
     EXTERNAL_PROFILE = "external_profile"
 
@@ -442,12 +526,15 @@ def _exploration_site(result: ExplorationResult) -> CandidateSiteRecord:
     )
 
 
-def _elastic_pipeline_site(
+def _pipeline_site(
     module: Module,
     pipeline: object,
     *,
+    elastic: bool = False,
     owner_identity: str | None = None,
 ):
+    from zlang.formal_candidate import standalone_pipeline_candidate_space
+
     _, _, extraction = standalone_pipeline_candidate_space(pipeline)
     candidates = _rank_records(extraction.evaluations)
     selected_name = getattr(pipeline, "selected")
@@ -458,17 +545,44 @@ def _elastic_pipeline_site(
     if len(wrapped) != 1:
         raise CandidateSiteError("retained pipeline selected candidate is ambiguous")
     return CandidateSiteRecord(
-        CandidateSiteKind.ELASTIC_PIPELINE,
+        (
+            CandidateSiteKind.ELASTIC_PIPELINE
+            if elastic else CandidateSiteKind.IMPLEMENT
+        ),
         owner_identity or module_candidate_owner_identity(module),
-        getattr(pipeline, "destination_endpoint"),
+        (
+            getattr(pipeline, "destination_endpoint")
+            if elastic else getattr(pipeline, "output")
+        ),
         expression_semantic_identity(pipeline.source_expression),
         wrapped[0].candidate.implementation_identity,
         candidates,
-        CandidateRewriteKind.UNSUPPORTED,
-        "variable-latency elastic pipelines have no semantic-reference equivalence candidate route",
+        (
+            CandidateRewriteKind.UNSUPPORTED
+            if elastic else CandidateRewriteKind.OUTPUT_ASSIGNMENT
+        ),
+        (
+            "variable-latency elastic pipelines have no semantic-reference equivalence candidate route"
+            if elastic else None
+        ),
         getattr(pipeline, "source_origin", None)
         or getattr(pipeline.source_expression, "origin", None),
     )
+
+
+def candidate_site_key(
+    owner_identity: str | None,
+    output: str | None,
+    source_identity: str,
+) -> tuple[str, str | None, str]:
+    """Return the shared typed key used to join one implementation region.
+
+    Site classification is semantic bookkeeping, not source provenance.  The
+    key intentionally contains only the monomorphic owner, output boundary,
+    and origin-insensitive typed source identity.
+    """
+
+    return (owner_identity or "<anonymous-module>", output, source_identity)
 
 
 def exploration_site_key(result: ExplorationResult) -> tuple[str, str | None, str]:
@@ -478,6 +592,73 @@ def exploration_site_key(result: ExplorationResult) -> tuple[str, str | None, st
         result.site_owner,
         result.site_output,
         expression_semantic_identity(result.request.root),
+    )
+
+
+def pipeline_site_key(
+    module: Module,
+    pipeline: object,
+) -> tuple[str, str | None, str]:
+    """Key retained pipeline metadata using the same typed site contract."""
+
+    return candidate_site_key(
+        module_candidate_owner_identity(module),
+        getattr(pipeline, "output", None),
+        expression_semantic_identity(pipeline.source_expression),
+    )
+
+
+def unified_implementation_site_keys(
+    results: Iterable[ExplorationResult],
+) -> set[tuple[str, str | None, str]]:
+    """Collect canonical implementation owners from retained results."""
+
+    return {
+        exploration_site_key(result)
+        for result in results
+        if result.site_kind == CandidateSiteKind.IMPLEMENT.value
+    }
+
+
+def _pipeline_is_canonical_implement(
+    module: Module,
+    pipeline: object,
+    unified_site_keys: set[tuple[str, str | None, str]],
+) -> bool:
+    """Return whether a pipeline record is derived metadata for ``implement``.
+
+    Canonical implementation regions retain a typed ``PipelineExploration`` so
+    target planning and reports can inspect pipeline candidates.  The unified
+    bounded exploration exploration result is nevertheless the one public formal-aware selection/semantic-reference equivalence candidate
+    site.  Older persisted modules may contain a standalone pipeline record;
+    those remain formal sites when no matching unified result exists.
+    """
+
+    return pipeline_site_key(module, pipeline) in unified_site_keys
+
+
+def _architecture_site(
+    module: Module,
+    architecture: object,
+    *,
+    owner_identity: str | None = None,
+) -> CandidateSiteRecord:
+    wrapped, extraction = _architecture_candidate_space(architecture)
+    ranks = _rank_records(extraction.evaluations)
+    source = expression_semantic_identity(architecture.source_expression)
+    selected_identity = next(
+        item.implementation_identity for item in wrapped
+        if item.stages[-1] == architecture.selected
+    )
+    return CandidateSiteRecord(
+        CandidateSiteKind.ARCHITECTURE_AUTO,
+        owner_identity or module_candidate_owner_identity(module),
+        architecture.output,
+        source,
+        selected_identity,
+        ranks,
+        CandidateRewriteKind.OUTPUT_ASSIGNMENT,
+        source_origin=architecture.source_expression.origin,
     )
 
 
@@ -564,6 +745,46 @@ def _choice_candidate_space(choice: object):
     return wrapped, adapted
 
 
+def _architecture_candidate_space(architecture: object):
+    from zlang.architectures import _architecture_cost
+
+    source = expression_semantic_identity(architecture.source_expression)
+    wrapped = tuple(
+        _FormalSelectionCandidate(
+            candidate.expression,
+            source,
+            _candidate_identity(
+                "zlang-architecture-ledger-candidate-v1",
+                source,
+                candidate.name,
+                candidate.expression,
+            ),
+            _architecture_cost(candidate),
+            "exact_reduction",
+            ("architecture_auto", candidate.name),
+        )
+        for candidate in architecture.candidates
+    )
+    by_name = {
+        item.name: wrapped[index]
+        for index, item in enumerate(architecture.candidates)
+    }
+    extraction = extract_best(
+        tuple(item for item in architecture.candidates if item.legal),
+        objective=expr.CostMetric.FMAX_EST,
+        cost_fn=_architecture_cost,
+    )
+    adapted = replace(
+        extraction,
+        selected=by_name[extraction.selected.name],
+        evaluations=tuple(
+            replace(item, candidate=by_name[item.candidate.name])
+            for item in extraction.evaluations
+        ),
+    )
+    return wrapped, adapted
+
+
 def build_candidate_site_ledger(
     module: Module,
     exploration_results: Iterable[ExplorationResult] = (),
@@ -572,6 +793,7 @@ def build_candidate_site_ledger(
 
     retained_results = tuple(exploration_results)
     sites = [_exploration_site(item) for item in retained_results]
+    unified_site_keys = unified_implementation_site_keys(retained_results)
 
     def visit(current: Module) -> None:
         owner_identity = module_candidate_owner_identity(current)
@@ -586,8 +808,19 @@ def build_candidate_site_ledger(
                     current, assignment, owner_identity=owner_identity
                 ))
         sites.extend(
-            _elastic_pipeline_site(
-                current, item, owner_identity=owner_identity
+            _architecture_site(current, item, owner_identity=owner_identity)
+            for item in current.architecture_explorations
+        )
+        sites.extend(
+            _pipeline_site(current, item, owner_identity=owner_identity)
+            for item in current.pipeline_explorations
+            if not _pipeline_is_canonical_implement(
+                current, item, unified_site_keys
+            )
+        )
+        sites.extend(
+            _pipeline_site(
+                current, item, elastic=True, owner_identity=owner_identity
             )
             for item in current.elastic_pipeline_regions
         )
@@ -619,8 +852,11 @@ def selected_candidate_sites(
     """
 
     selected: list[SelectedCandidateSite] = []
+    unified_site_keys: set[tuple[str, str | None, str]] = set()
 
     for exploration in exploration_results:
+        from zlang.formal_candidate import candidate_equivalence_class
+
         site = _exploration_site(exploration)
         candidate = exploration.selected_candidate
         selected.append(SelectedCandidateSite(
@@ -629,6 +865,8 @@ def selected_candidate_sites(
             exploration.request.root,
             candidate_equivalence_class(candidate),
         ))
+        if site.kind is CandidateSiteKind.IMPLEMENT:
+            unified_site_keys.add(exploration_site_key(exploration))
 
     def chosen(
         site: CandidateSiteRecord,
@@ -664,6 +902,24 @@ def selected_candidate_sites(
                 )
                 wrapped, _ = _choice_candidate_space(choice)
                 chosen(site, wrapped, choice.alternatives[0].expression, "architecture_alternatives")
+        for architecture in current.architecture_explorations:
+            site = _architecture_site(
+                current, architecture, owner_identity=owner_identity
+            )
+            wrapped, _ = _architecture_candidate_space(architecture)
+            chosen(site, wrapped, architecture.source_expression, "exact_reduction")
+        for pipeline in current.pipeline_explorations:
+            if _pipeline_is_canonical_implement(
+                current, pipeline, unified_site_keys
+            ):
+                continue
+            from zlang.formal_candidate import standalone_pipeline_candidate_space
+
+            site = _pipeline_site(
+                current, pipeline, owner_identity=owner_identity
+            )
+            wrapped, _, _ = standalone_pipeline_candidate_space(pipeline)
+            chosen(site, wrapped, pipeline.source_expression, "pipeline_scheduler")
         for child in current.children:
             visit(child)
 
@@ -980,6 +1236,61 @@ def gate_structured_candidate_sites(
             ),
         )
 
+    architectures = []
+    for architecture in module.architecture_explorations:
+        wrapped, extraction = _architecture_candidate_space(architecture)
+        domain, domain_limitation = candidate_owner_formal_domain(
+            module, module_candidate_owner_identity(module)
+        )
+        selected_verifier = (
+            verifier
+            if verifier is not None and domain_limitation is None
+            else SemanticEquivalenceDirectSystemVerilogCandidateVerifier(
+                architecture.source_expression,
+                candidate_class="exact_reduction",
+                artifact_provider=getattr(config, "artifact_provider", None),
+                clock_domain_contract=domain,
+                unavailable_reason=domain_limitation,
+            )
+        )
+        gate = gate_candidates(
+            wrapped,
+            extraction.evaluations,
+            config,
+            selected_verifier,
+        )
+        selected = extract_best(
+            gate.eligible,
+            objective=expr.CostMetric.FMAX_EST,
+            cost_fn=lambda item: item.cost,
+        ).selected
+        selected_name = selected.stages[-1]
+        architectures.append(replace(
+            architecture,
+            selected=selected_name,
+            formal_records=gate.records,
+        ))
+        matches = tuple(
+            assignment_index
+            for assignment_index, assignment in enumerate(assignments)
+            if assignment.signal is None
+            and assignment.channel is None
+            and assignment.target.name == architecture.output
+        )
+        if len(matches) != 1:
+            raise CandidateSiteError(
+                "architecture(auto) formal gate requires one exact output assignment"
+            )
+        selected_expression = next(
+            item.expression for item in architecture.candidates
+            if item.name == selected_name
+        )
+        assignment_index = matches[0]
+        assignments[assignment_index] = replace(
+            assignments[assignment_index],
+            expression=selected_expression,
+        )
+
     children = tuple(
         gate_structured_candidate_sites(
             child, config, verifier, backend=backend
@@ -989,6 +1300,7 @@ def gate_structured_candidate_sites(
     return replace(
         module,
         assignments=tuple(assignments),
+        architecture_explorations=tuple(architectures),
         children=children,
     )
 
@@ -1001,6 +1313,7 @@ def candidate_formal_records(
 
     records: list[object] = []
     retained = tuple(exploration_results)
+    unified_site_keys = unified_implementation_site_keys(retained)
     records.extend(
         record
         for exploration in retained
@@ -1016,10 +1329,21 @@ def candidate_formal_records(
             and isinstance(assignment.expression, expr.ImplementationChoice)
             for record in assignment.expression.formal_records
         )
+        for exploration in current.pipeline_explorations:
+            if _pipeline_is_canonical_implement(
+                current, exploration, unified_site_keys
+            ):
+                continue
+            records.extend(exploration.formal_records)
         records.extend(
             record
             for region in current.elastic_pipeline_regions
             for record in region.formal_records
+        )
+        records.extend(
+            record
+            for exploration in current.architecture_explorations
+            for record in exploration.formal_records
         )
         for child in current.children:
             visit(child)
@@ -1042,6 +1366,7 @@ def candidate_formal_record_sites(
 
     result: list[tuple[CandidateSiteRecord, object]] = []
     retained = tuple(exploration_results)
+    unified_site_keys = unified_implementation_site_keys(retained)
     for exploration in retained:
         site = _exploration_site(exploration)
         result.extend((site, record) for record in exploration.formal_records)
@@ -1059,9 +1384,22 @@ def candidate_formal_record_sites(
                     (site, record)
                     for record in assignment.expression.formal_records
                 )
+        for exploration in current.pipeline_explorations:
+            if _pipeline_is_canonical_implement(
+                current, exploration, unified_site_keys
+            ):
+                # Formal records for canonical implementation regions are
+                # already attached to their unified ExplorationResult.  The
+                # planner-only pipeline table must not publish a second site.
+                continue
+            site = _pipeline_site(current, exploration)
+            result.extend((site, record) for record in exploration.formal_records)
         for region in current.elastic_pipeline_regions:
-            site = _elastic_pipeline_site(current, region)
+            site = _pipeline_site(current, region, elastic=True)
             result.extend((site, record) for record in region.formal_records)
+        for exploration in current.architecture_explorations:
+            site = _architecture_site(current, exploration)
+            result.extend((site, record) for record in exploration.formal_records)
         for child in current.children:
             visit(child)
 
@@ -1082,10 +1420,13 @@ __all__ = [
     "candidate_site_key",
     "candidate_formal_records",
     "candidate_formal_record_sites",
+    "candidate_owner_clock_domain",
     "candidate_owner_formal_domain",
     "exploration_site_key",
     "gate_retained_explorations",
     "gate_structured_candidate_sites",
     "module_candidate_owner_identity",
+    "pipeline_site_key",
     "selected_candidate_sites",
+    "unified_implementation_site_keys",
 ]

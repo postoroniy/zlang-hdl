@@ -8,7 +8,6 @@ suffixes.
 
 from __future__ import annotations
 
-from dataclasses import replace
 from pathlib import Path
 
 
@@ -25,40 +24,6 @@ MIME_TYPE = "text/x-zlang-hdl"
 
 class SourceExtensionError(ValueError):
     """A physical compiler input does not use the canonical source suffix."""
-
-
-def attach_source_identity(module: object, logical_path: str, digest: str) -> object:
-    """Attach one logical unit/digest to its declaration-bearing AST nodes."""
-
-    return replace(
-        module,
-        source_identity=logical_path,
-        source_hash=digest,
-        enums=tuple(
-            replace(item, source_identity=logical_path) for item in module.enums
-        ),
-        tagged_unions=tuple(
-            replace(item, source_identity=logical_path)
-            for item in module.tagged_unions
-        ),
-        structs=tuple(
-            replace(item, source_identity=logical_path) for item in module.structs
-        ),
-        operators=tuple(
-            replace(item, source_identity=logical_path) for item in module.operators
-        ),
-        functions=tuple(
-            replace(item, source_identity=logical_path) for item in module.functions
-        ),
-        module_interfaces=tuple(
-            replace(item, source_identity=logical_path)
-            for item in module.module_interfaces
-        ),
-        submodules=tuple(
-            attach_source_identity(child, logical_path, digest)
-            for child in module.submodules
-        ),
-    )
 
 
 def validate_source_path(path: Path | str) -> Path:

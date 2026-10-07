@@ -13,7 +13,7 @@ module RuleCounter (
       count <= 8'd0;
     end else begin
       if (clear) count <= 8'd0;
-      else if (increment) count <= 8'(({{1{1'b0}}, count} + {{1{1'b0}}, 8'd1}));
+      else if (increment) count <= 8'(({{1{1'b0}}, count} + 9'd1));
       else count <= count;
     end
   end

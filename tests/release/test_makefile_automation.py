@@ -15,25 +15,36 @@ def test_makefile_exposes_bounded_test_and_release_entry_points() -> None:
     text = MAKEFILE.read_text(encoding="utf-8")
     assert ".ONESHELL:" in text
     assert ".SHELLFLAGS := -eu -o pipefail -c" in text
+    assert "VENV ?= $(CURDIR)/.venv" in text
+    assert "PYTHON := $(VENV)/bin/python" in text
+    assert "env-check:" in text
+    assert "make venv" in text
+    assert "release-review-clean:" in text
+    assert (
+        "release-review: release-review-clean release-regressions "
+        "community-pdf-check public-check static test-release-twice" in text
+    )
+    assert "release review requires a clean committed public checkout" in text
+    assert "tools/run_local_env.sh" in text
+    assert "${TMPDIR:-/tmp}" not in text
     assert "release-preflight: release-regressions" in text
     assert "tools/release_regressions.py" in text
     assert (
-        "release-candidate: release-preflight native-release-set community-pdf-check public-check static jit-check jit-audit "
+        "release-candidate: release-preflight native-release-install community-pdf-check public-check static jit-check jit-audit "
         "jit-advisory-audit audit release-tools test-release-twice" in text
     )
     assert "tools/release_preflight.py" in text
-    assert 'PYTHONPATH="$(CURDIR)" $(PYTHON) tools/release_preflight.py' in text
+    assert 'PYTHONPATH="$(CURDIR)" $(call RUN_PYTHON,release-preflight) tools/release_preflight.py' in text
     assert "--mode candidate" in text
     assert "--require-clean" in text
     assert "community-pdf:" not in text
     assert "tools/build_community_pdf.py" not in text
     assert (
-        'PYTHONPATH="$(CURDIR)" $(PYTHON) tools/release_status.py check '
+        'PYTHONPATH="$(CURDIR)" $(call RUN_PYTHON,community-pdf) tools/release_status.py check '
         '--root . --tag "$(TAG)"'
     ) in text
     assert "-p tools.pytest_no_skips" in text
-    assert text.count('--junitxml="$$report_root/release-') == 4
-    assert text.count('--performance-junit "$$report_root/release-performance-') == 2
+    assert text.count('--junitxml="$$report_root/release-') == 2
     assert "test \"$${#first_wheels[@]}\" -eq 1" in text
     assert "cmp -- \"$${first_wheels[0]}\" \"$${second_wheels[0]}\"" in text
     assert "public package requires a clean committed checkout" in text
@@ -52,13 +63,13 @@ def test_makefile_exposes_bounded_test_and_release_entry_points() -> None:
     assert '-m reuse --root . lint' in text
     assert '-m pip_audit . --progress-spinner off' in text
     assert "--check-tools" in text
-    assert "PYTHON_SCRIPTS ?=" in text
+    assert "PYTHON_SCRIPTS := $(VENV)/bin" in text
     assert 'export PATH="$(PYTHON_SCRIPTS):$$PATH"' in text
     assert 'export PATH="$$(dirname "$$python_bin"):$$PATH"' in text
     assert text.count("tools/public_tree.py export") == 5
     assert 'check-export --source "$$public_root"' in text
-    assert 'PYTHONPATH="$(CURDIR)" $(PYTHON) tools/public_tree.py export' in text
-    assert text.count('PYTHONPATH="$$public_root" $(PYTHON)') >= 3
+    assert 'PYTHONPATH="$(CURDIR)" $(call RUN_PYTHON,public-check) tools/public_tree.py export' in text
+    assert text.count("$(call RUN_PYTHON") >= 15
     assert "git archive --format=tar HEAD" in text
     assert '-m build "$$source_root" --no-isolation' in text
     assert 'cd "$$public_root"' in text
@@ -81,65 +92,20 @@ def test_release_workflow_uses_curated_changelog_notes_and_native_set() -> None:
     assert "zlang_native_sim-*.whl" in workflow
     assert "tools/audit_native_vulnerabilities.py" in workflow
     assert "tools/stage_release_pdf.py" in workflow
+    assert "BASH_ENV: ${{ github.workspace }}/.github/workflows/local-venv-env.sh" in workflow
     assert "workflow_dispatch:" in workflow
-    assert "python -m tools.release_preflight" in workflow
+    assert "tools/release_preflight.py" in workflow
     assert '--mode "$mode"' in workflow
-    assert '--selected-ref "$GITHUB_REF_NAME"' in workflow
-    assert "--protected-main-ref origin/main" in workflow
-    assert (
-        "git fetch --no-tags origin "
-        "+refs/heads/main:refs/remotes/origin/main"
-    ) in workflow
     assert "release-preflight.json" in workflow
     assert "if: ${{ github.event_name == 'push' }}\n    needs: [validate, eda]" in workflow
     assert "Exercise the installed exact-tag VSIX" in workflow
     assert "zlang-hdl-*-language-reference.pdf" in workflow
-    assert '"$environment/bin/zlang" lock --version' in workflow
-    assert '"$environment/bin/zlang" verify --version' in workflow
-    assert '"$environment/bin/zlang-lock"' not in workflow
-    assert '"$environment/bin/zlang-verify"' not in workflow
     assert workflow.count("--maxfail=1") == 4
-    assert workflow.count("--performance-junit") == 2
     assert 'printf \'%s\\n\' "$python_scripts" >> "$GITHUB_PATH"' in workflow
     assert 'export PATH="$python_scripts:$PATH"' in workflow
     assert workflow.index('export PATH="$python_scripts:$PATH"') < workflow.index(
         "python tools/release_status.py check --root . --check-tools"
     )
-
-
-@pytest.mark.parametrize(
-    ("workflow_name", "deterministic_report", "performance_report"),
-    (
-        ("eda.yml", "build/eda.xml", "build/eda-performance.xml"),
-        (
-            "daily-regression.yml",
-            "build/daily-deterministic.xml",
-            "build/daily-performance.xml",
-        ),
-    ),
-)
-def test_hosted_combined_gates_validate_both_test_partitions(
-    workflow_name: str,
-    deterministic_report: str,
-    performance_report: str,
-) -> None:
-    workflow = (ROOT / ".github" / "workflows" / workflow_name).read_text(
-        encoding="utf-8"
-    )
-    assert f"--junit {deterministic_report}" in workflow
-    assert f"--performance-junit {performance_report}" in workflow
-    assert workflow.index(f"--junitxml={performance_report}") < workflow.index(
-        f"--performance-junit {performance_report}"
-    )
-
-
-def test_hosted_performance_job_validates_its_isolated_report() -> None:
-    workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(
-        encoding="utf-8"
-    )
-    assert "--junit build/ci-full.xml" in workflow
-    assert "--junitxml=build/ci-performance.xml" in workflow
-    assert "--performance-junit build/ci-performance.xml" in workflow
 
 
 def test_makefile_help_is_executable_and_documents_nonpublishing_gate() -> None:
@@ -151,6 +117,7 @@ def test_makefile_help_is_executable_and_documents_nonpublishing_gate() -> None:
         text=True,
     )
     assert "make test-release-twice" in completed.stdout
+    assert "make release-review" in completed.stdout
     assert "make release-regressions" in completed.stdout
     assert "make release-preflight" in completed.stdout
     assert "make community-pdf-check" in completed.stdout
@@ -159,6 +126,7 @@ def test_makefile_help_is_executable_and_documents_nonpublishing_gate() -> None:
     assert "make jit-audit" in completed.stdout
     assert "make jit-advisory-audit" in completed.stdout
     assert "make native-release-set" in completed.stdout
+    assert "make native-release-install" in completed.stdout
     assert "make release-tools" in completed.stdout
     assert "make release-candidate" in completed.stdout
     assert "make editor-host-test" in completed.stdout

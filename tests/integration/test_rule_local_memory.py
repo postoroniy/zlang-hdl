@@ -8,7 +8,7 @@ import subprocess
 import pytest
 
 from zlang.backend.manifest import BackendArtifact
-from zlang.backend.systemverilog import emit_artifact, emit
+from zlang.backend.systemverilog import emit_artifact, emit_experimental
 from zlang.compiler import compile_source
 
 
@@ -68,8 +68,8 @@ def _simulate(files: tuple[Path, ...] | list[Path], root: Path) -> None:
 @pytest.mark.skipif(VERILATOR is None, reason="Verilator unavailable")
 def test_rule_local_memory_direct_sv_lints_and_simulates(tmp_path: Path) -> None:
     module = compile_source(SOURCE).ir
-    first = emit(module)
-    assert emit(module) == first
+    first = emit_experimental(module)
+    assert emit_experimental(module) == first
     artifact = emit_artifact(module)
     restored = BackendArtifact.from_json(artifact.to_json())
     assert restored.artifact_hash == artifact.artifact_hash

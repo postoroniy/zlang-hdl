@@ -4,7 +4,7 @@ import subprocess
 import tempfile
 import unittest
 
-from zlang.backend.systemverilog import emit
+from zlang.backend.systemverilog import emit_experimental
 from zlang.compiler import compile_source
 
 
@@ -19,12 +19,12 @@ class BackendBindingTests(unittest.TestCase):
     def test_direct_reductions_are_lowered_from_typed_ir(self):
         for name in ("dot_product.zhl", "generated_reduce.zhl", "mapped_sum.zhl"):
             with self.subTest(name=name):
-                text = emit(self.compile(name).ir)
+                text = emit_experimental(self.compile(name).ir)
                 self.assertNotIn("unsupported direct SystemVerilog expression Reduce", text)
                 self.assertIn("assign y", text)
 
     def test_direct_fifo_is_emitted_and_lints_when_available(self):
-        text = emit(self.compile("fifo_bridge.zhl").ir)
+        text = emit_experimental(self.compile("fifo_bridge.zhl").ir)
         self.assertIn("queue_storage", text)
         self.assertIn("queue_count", text)
         verilator = shutil.which("verilator")
@@ -55,15 +55,15 @@ class BackendBindingTests(unittest.TestCase):
             """,
             top="FifoProjection",
         )
-        text = emit(result.ir)
+        text = emit_experimental(result.ir)
         self.assertIn("logic [15:0] queue_front;", text)
         self.assertIn(
             "assign queue_front = (queue_count == '0) ? '0 : "
             "queue_storage[queue_rd];",
             text,
         )
-        self.assertIn("assign tx_payload = {", text)
-        self.assertNotIn("zlang_packed_tx_payload", text)
+        self.assertIn("assign zlang_packed_tx_payload = {", text)
+        self.assertIn("assign tx_payload = zlang_packed_tx_payload;", text)
         self.assertNotIn("assign tx_payload = queue_storage", text)
         verilator = shutil.which("verilator")
         if verilator:
@@ -95,7 +95,7 @@ class BackendBindingTests(unittest.TestCase):
             """,
             top="PackedParity",
         )
-        text = emit(result.ir)
+        text = emit_experimental(result.ir)
         self.assertNotRegex(text, r"\$unsigned\([^\n]+\)\[[0-9]+\]")
         verilator = shutil.which("verilator")
         if verilator:
@@ -131,7 +131,7 @@ class BackendBindingTests(unittest.TestCase):
             """,
             top="ReservedSequence",
         )
-        text = emit(result.ir)
+        text = emit_experimental(result.ir)
         self.assertIn("logic [6:0] zlang_sequence;", text)
         self.assertNotRegex(text, r"\blogic \[6:0\] sequence;")
         verilator = shutil.which("verilator")
@@ -166,7 +166,7 @@ class BackendBindingTests(unittest.TestCase):
             """,
             top="ReservedJoin",
         )
-        text = emit(result.ir)
+        text = emit_experimental(result.ir)
         self.assertIn("Child_s", text)
         self.assertRegex(text, r"\bzlang_join \(")
         self.assertNotRegex(text, r"\n\s+join \(")

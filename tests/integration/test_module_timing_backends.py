@@ -13,7 +13,7 @@ from zlang.backend.manifest import (
     INLINE_TOP_BOUNDARY_MANIFEST_VERSION,
 )
 from zlang.backend.naming import module_rtl_names
-from zlang.backend.systemverilog import emit
+from zlang.backend.systemverilog import emit_experimental
 from zlang.backend.systemverilog.target import emit_target_artifact
 from zlang.compiler import compile_source
 from zlang.ir import expressions as expr
@@ -152,8 +152,8 @@ def test_direct_sv_keeps_timed_child_pipeline_physical_and_deterministic(
     tmp_path: Path,
 ) -> None:
     module = compile_source(SOURCE, top="Top").ir
-    first = emit(module)
-    second = emit(module)
+    first = emit_experimental(module)
+    second = emit_experimental(module)
     assert first == second
     child_names = module_rtl_names(module.children[0])
     for stage in (1, 2):

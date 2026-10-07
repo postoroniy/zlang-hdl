@@ -8,6 +8,7 @@ no change is made so existing DAG sharing survives rendering.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import fields, is_dataclass, replace
 
 from zlang.fixed_point import quantize_rational
@@ -15,15 +16,9 @@ from zlang.ir import expressions as expr
 from zlang.ir import packing
 from zlang.ir.functional_regions import CompileTimeExpr, evaluate_compile_time
 from zlang.ir.types import (
-    BitType,
-    BitsType,
-    EnumType,
     FixedType,
     HardwareType,
     SIntType,
-    TaggedUnionType,
-    UFixedType,
-    UIntType,
     VecType,
 )
 
@@ -375,13 +370,15 @@ class BackendConstantFolder:
             values = tuple(_constant_value(value) for _, value in expression.fields)
             if any(value is None for value in values):
                 return expression
-            raw = packing.concat_runtime(
+            raw = _aggregate_raw_bits(
                 (
                     _unsigned_raw(value, value_expr.type),
                     value_expr.type.width,
                 )
                 for value, (_, value_expr) in zip(values, expression.fields, strict=True)
             )
+            if raw is None:
+                return expression
             return self._constant(raw, expression.type, expression)
         if isinstance(expression, expr.TupleConstruct):
             values = tuple(_constant_value(value) for value in expression.elements)
@@ -401,19 +398,19 @@ class BackendConstantFolder:
         variant = expression.type.variant(expression.variant)
         if variant is None:
             return expression
-        payload = packing.concat_runtime(
+        payload = _aggregate_raw_bits(
             (
                 _unsigned_raw(value, value_expr.type),
                 value_expr.type.width,
             )
             for value, (_, value_expr) in zip(values, expression.fields, strict=True)
         ) if values else 0
+        assert payload is not None
         padding = expression.type.payload_width - variant.payload_width
         raw = (expression.type.tag(expression.variant) << expression.type.payload_width) | (
             payload << padding
         )
         return self._constant(raw, expression.type, expression)
-
     def _fold_unary_raw(
         self,
         operand: expr.Expression,
@@ -438,6 +435,25 @@ def fold_constants(expression: expr.Expression) -> expr.Expression:
     """Fold constants in *expression* with a fresh local memo table."""
 
     return BackendConstantFolder().fold(expression)
+
+
+def _aggregate_raw_bits(parts: Iterable[tuple[int, int]]) -> int | None:
+    """Pack backend aggregate fields without redefining source ``concat``.
+
+    ``packing.concat_runtime`` deliberately rejects fewer than two operands,
+    matching the source ``concat`` contract. A struct or tagged-union payload
+    is an aggregate layout operation instead: one-field aggregates are legal
+    and have exactly their field's raw bits, while a zero-field struct is not
+    packable and therefore remains unfurled here.
+    """
+
+    packed = tuple(parts)
+    if not packed:
+        return None
+    if len(packed) == 1:
+        value, width = packed[0]
+        return value & packing.bit_mask(width)
+    return packing.concat_runtime(packed)
 
 
 def _constant_value(expression: expr.Expression) -> int | None:

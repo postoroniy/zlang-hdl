@@ -5,9 +5,9 @@ import shutil
 
 import pytest
 
-from zlang.backend.systemverilog import emit
+from zlang.backend.systemverilog import emit_experimental
 from zlang.compiler import compile_source
-from zlang.ir.expressions import FunctionalRegion
+from zlang.ir import FunctionalRegion
 from zlang.opt.lowering import lower
 from zlang.toolchain import lint_with_verilator
 
@@ -28,12 +28,12 @@ def test_lifted_generic_has_deterministic_canonical_and_rtl_identity() -> None:
     second = compile_source(LIFTED_SOURCE, top="LiftedBackend").ir
     assert isinstance(first.assignments[0].expression, FunctionalRegion)
     assert lower(first) == lower(second)
-    assert emit(first) == emit(second)
+    assert emit_experimental(first) == emit_experimental(second)
 
 
 @pytest.mark.skipif(shutil.which("verilator") is None, reason="Verilator unavailable")
 def test_lifted_generic_direct_sv_passes_strict_verilator(tmp_path: Path) -> None:
     module = compile_source(LIFTED_SOURCE, top="LiftedBackend").ir
     rtl = tmp_path / "LiftedBackend.sv"
-    rtl.write_text(emit(module), encoding="utf-8")
+    rtl.write_text(emit_experimental(module), encoding="utf-8")
     lint_with_verilator((rtl,), module.name)

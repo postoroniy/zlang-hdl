@@ -311,13 +311,13 @@ def publish_relative_files(
     return tuple(directory / relative for relative, _ in normalized)
 
 
-def _validate_relative_content(
+def validate_relative_files(
     directory: Path,
-    normalized: Iterable[tuple[Path, bytes | str]],
+    files: Iterable[tuple[Path, bytes]],
 ) -> None:
-    """Validate normalized payloads or hashes through one safe traversal."""
+    """Validate exact relative payloads without following any path symlink."""
 
-    normalized = tuple(normalized)
+    normalized = _normalized_files(files)
     if not normalized:
         return
     directory = Path(directory)
@@ -335,27 +335,12 @@ def _validate_relative_content(
                 raise SafePublicationError(
                     f"required publication '{relative}' is missing"
                 )
-            actual = (
-                hashlib.sha256(current[0]).hexdigest()
-                if isinstance(expected, str)
-                else current[0]
-            )
-            if actual != expected:
+            if current[0] != expected:
                 raise SafePublicationError(
-                    f"published file '{relative}' does not match its expected "
-                    f"{'hash' if isinstance(expected, str) else 'contents'}"
+                    f"published file '{relative}' does not match its expected contents"
                 )
     finally:
         os.close(root_descriptor)
-
-
-def validate_relative_files(
-    directory: Path,
-    files: Iterable[tuple[Path, bytes]],
-) -> None:
-    """Validate exact relative payloads without following any path symlink."""
-
-    _validate_relative_content(directory, _normalized_files(files))
 
 
 def validate_relative_hashes(
@@ -386,8 +371,30 @@ def validate_relative_hashes(
             )
         seen.add(relative)
         normalized.append((relative, expected_hash))
+    if not normalized:
+        return
     normalized.sort(key=lambda item: item[0].as_posix())
-    _validate_relative_content(directory, normalized)
+    directory = Path(directory)
+    root_descriptor = _open_root(directory, create=False)
+    try:
+        for relative, expected_hash in normalized:
+            parent_descriptor, leaf = _open_parent(
+                root_descriptor, relative, create=False
+            )
+            try:
+                current = _read_leaf(parent_descriptor, leaf, relative)
+            finally:
+                os.close(parent_descriptor)
+            if current is None:
+                raise SafePublicationError(
+                    f"required publication '{relative}' is missing"
+                )
+            if hashlib.sha256(current[0]).hexdigest() != expected_hash:
+                raise SafePublicationError(
+                    f"published file '{relative}' does not match its expected hash"
+                )
+    finally:
+        os.close(root_descriptor)
 
 
 __all__ = [

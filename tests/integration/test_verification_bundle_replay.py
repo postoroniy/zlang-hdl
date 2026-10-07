@@ -6,7 +6,6 @@ import shutil
 
 import pytest
 
-from zlang.backend.source_map import GeneratedSourceMap
 from zlang.verification_bundle import (
     VerificationBundleInput,
     VerificationJob,
@@ -15,7 +14,6 @@ from zlang.verification_bundle import (
     run_verification_bundle,
     verification_identity_for,
 )
-from tests.support.current_verification import current_verification_fixture
 
 
 FORMAL_TOOLS = all(
@@ -42,31 +40,28 @@ endmodule
 """
     property_id = "bundle.output_identity"
     hardware_identity = "hardware:" + _digest(implementation)
-    source_map = GeneratedSourceMap(
-        "direct_systemverilog",
-        "BundleDut",
-        hardware_identity,
-        hashlib.sha256(implementation.encode()).hexdigest(),
-        (),
-    )
-    fixture = current_verification_fixture(
-        hardware_identity=hardware_identity,
-        jobs=(VerificationJob(
-            property_id,
-            "safety",
-            "bundle_formal",
-            (
-                "implementation/BundleDut.sv",
-                "harness/output_identity.sv",
-            ),
-            ("config/output_identity.json",),
-            ("source-map/output_identity.json",),
-        ),),
-        source_identity="source:" + _digest(implementation),
-        dependency_identity="dependency:" + _digest("none"),
-        compiler_identity="compiler:" + _digest("test"),
-    )
-    payload = fixture.payload
+    payload = {
+        "formal_ir_version": 1,
+        "identities": {
+            "source": "source:" + _digest(implementation),
+            "dependency": "dependency:" + _digest("none"),
+            "compiler": "compiler:" + _digest("test"),
+        },
+        "hardware": {
+            "high_level_ir_identity": hardware_identity,
+            "selected_ir_identity": hardware_identity,
+        },
+        "scopes": [],
+        "properties": [{
+            "id": property_id,
+            "kind": "safety",
+            "generated_from": None,
+            "predicate": {"kind": "constant", "value": 1},
+            "source_origin": None,
+        }],
+        "bindings": [],
+        "vacuity_dependencies": {},
+    }
     verification_identity = verification_identity_for(
         top="BundleDut",
         hardware_identity=hardware_identity,
@@ -91,12 +86,20 @@ endmodule
                 "config/output_identity.json", "config", b'{"binding_schema":1}\n'
             ),
             VerificationBundleInput(
-                "source-map/output_identity.json",
-                "source_map",
-                source_map.to_json().encode(),
+                "source-map/output_identity.json", "source_map", b'{"mappings":[]}\n'
             ),
         ),
-        jobs=fixture.jobs,
+        jobs=(VerificationJob(
+            property_id,
+            "safety",
+            "bundle_formal",
+            (
+                "implementation/BundleDut.sv",
+                "harness/output_identity.sv",
+            ),
+            ("config/output_identity.json",),
+            ("source-map/output_identity.json",),
+        ),),
     )
 
 

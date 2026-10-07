@@ -11,7 +11,7 @@ EXT = ROOT / "editors" / "vscode" / "zlang-hdl"
 
 
 def test_named_module_interface_is_registry_owned_and_documented() -> None:
-    assert CAPABILITY_REGISTRY.schema_version == 31
+    assert CAPABILITY_REGISTRY.schema_version == 30
     assert "interface" in CAPABILITY_REGISTRY.keywords
     requirement = next(
         item

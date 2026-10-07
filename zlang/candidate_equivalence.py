@@ -19,7 +19,7 @@ from zlang.candidate_sites import (
     candidate_owner_formal_domain,
     selected_candidate_sites,
 )
-from zlang.common import ObjectReader, stable_digest
+from zlang.common import stable_digest
 from zlang.equivalence import run_equivalence_formal
 from zlang.equivalence_result_codec import (
     equivalence_result_from_data,
@@ -135,7 +135,7 @@ class FrozenCandidateEquivalenceSite:
             raise FormalOrchestrationError(
                 f"frozen semantic-reference equivalence physical domain is invalid: {error}"
             ) from error
-        if plan.route is None:
+        if prepared.implementation_artifact is None or plan.route is None:
             raise FormalOrchestrationError(
                 "frozen direct-SystemVerilog semantic-reference equivalence route is incomplete"
             )
@@ -169,31 +169,25 @@ class FrozenCandidateEquivalenceSite:
 
     @classmethod
     def from_data(cls, value: object) -> "FrozenCandidateEquivalenceSite":
-        try:
-            data = ObjectReader(
-                value,
-                "frozen candidate equivalence",
-                FormalOrchestrationError,
-            ).exact_keys({
-                "schema", "plan", "direct_systemverilog", "replay_identity",
-            })
-        except FormalOrchestrationError as error:
+        if not isinstance(value, dict) or set(value) != {
+            "schema", "plan", "direct_systemverilog", "replay_identity",
+        }:
             raise FormalOrchestrationError(
                 "frozen candidate equivalence fields differ from the current schema"
-            ) from error
-        if data["schema"] != "zlang-frozen-candidate-equivalence-site-v3":
+            )
+        if value["schema"] != "zlang-frozen-candidate-equivalence-site-v3":
             raise FormalOrchestrationError(
                 "unsupported frozen candidate equivalence schema"
             )
         try:
-            plan = CandidateEquivalencePlanReference.from_data(data["plan"])
+            plan = CandidateEquivalencePlanReference.from_data(value["plan"])
             prepared = prepared_candidate_equivalence_from_data(
-                data["direct_systemverilog"]
+                value["direct_systemverilog"]
             )
         except (TypeError, ValueError) as error:
             raise FormalOrchestrationError(str(error)) from error
         restored = cls(plan, prepared.property, prepared)
-        if data["replay_identity"] != restored.replay_identity:
+        if value["replay_identity"] != restored.replay_identity:
             raise FormalOrchestrationError(
                 "frozen candidate replay identity does not match its contents"
             )
@@ -205,6 +199,10 @@ def _semantic_equivalence_plan(
     property_: EquivalenceProperty,
     prepared: PreparedCandidateEquivalence,
 ) -> FormalGoalPlan:
+    if prepared.implementation_artifact is None:
+        raise FormalOrchestrationError(
+            "prepared direct-SystemVerilog semantic-reference equivalence route has no implementation artifact"
+        )
     route = FormalExecutableRoute(
         FormalRouteKind.SEMANTIC_EQUIVALENCE,
         (formal_backend_artifact_ref(prepared.implementation_artifact),),
@@ -630,10 +628,26 @@ def execute_frozen_candidate_equivalence(
     )
 
 
+def execute_selected_candidate_equivalence(
+    compilation: object,
+    compiler_plan: CompilerFormalExecutionPlan,
+    config: FormalExplorationConfig,
+    *,
+    jobs: int = 1,
+) -> tuple[CompilerFormalExecutionPlan, tuple[CandidateEquivalenceExecutionReport, ...]]:
+    enriched, prepared = prepare_selected_candidate_equivalence(
+        compilation, compiler_plan, config
+    )
+    return enriched, execute_prepared_candidate_equivalence(
+        compilation, enriched, prepared, config, jobs=jobs
+    )
+
+
 __all__ = [
     "FrozenCandidateEquivalenceSite",
     "PreparedCandidateEquivalenceSite",
     "execute_frozen_candidate_equivalence",
     "execute_prepared_candidate_equivalence",
+    "execute_selected_candidate_equivalence",
     "prepare_selected_candidate_equivalence",
 ]

@@ -8,8 +8,7 @@ import subprocess
 import sys
 
 from zlang.incremental_workspace import IncrementalWorkspaceSession
-from zlang.simulation_plan import SimulationPlan
-from zlang.simulation_plan_model import identity_bytes
+from zlang.simulation_plan import SimulationPlan, _identity_bytes
 from zlang.source_rebinding import TriviaRebinding
 
 
@@ -116,14 +115,14 @@ def test_execution_identity_ignores_only_provenance() -> None:
         {**node, "origins": [{"changed": "source-only"}]}
         for node in plan.payload["nodes"]
     ]
-    encoded, _ = identity_bytes(changed)
+    encoded, _ = _identity_bytes(changed)
     restored = SimulationPlan.from_bytes(encoded)
     assert restored.identity != plan.identity
     assert restored.execution_identity == plan.execution_identity
 
     code_changed = dict(plan.payload)
     code_changed["module"] = "DifferentTop"
-    encoded, _ = identity_bytes(code_changed)
+    encoded, _ = _identity_bytes(code_changed)
     assert (
         SimulationPlan.from_bytes(encoded).execution_identity != plan.execution_identity
     )
@@ -224,7 +223,7 @@ def test_lsp_navigation_rebinds_trivia_without_semantic_recompilation(
         definition_at,
         references_at,
     )
-    import zlang.tooling_session as tooling_session
+    import zlang.tooling as tooling
 
     source = tmp_path / "top.zhl"
     text = "fn inc(x:u8) -> u9 { x + 1 }\nmodule Top { in a:u8 out y:u9 y=inc(a) }\n"
@@ -233,7 +232,7 @@ def test_lsp_navigation_rebinds_trivia_without_semantic_recompilation(
     session.set_editor_workspace(
         EditorWorkspaceSnapshot((EditorDocumentSnapshot(source, text, 1),))
     )
-    original = tooling_session.check_file_snapshot
+    original = tooling.check_file_snapshot
     calls = 0
 
     def observed(*args, **kwargs):
@@ -242,7 +241,7 @@ def test_lsp_navigation_rebinds_trivia_without_semantic_recompilation(
         assert kwargs["analysis_needs"] & AnalysisNeeds.DEFINITIONS
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(tooling_session, "check_file_snapshot", observed)
+    monkeypatch.setattr(tooling, "check_file_snapshot", observed)
     position = text.splitlines()[1].index("inc")
     first = definition_at(source, text, 1, position, _session=session)
     assert first is not None and first.target_origin.start_line == 1
@@ -278,7 +277,7 @@ def test_project_navigation_rebinds_trivia_with_logical_source_units(
         definition_at,
     )
     from zlang.workspace import update_project_lock
-    import zlang.tooling_session as tooling_session
+    import zlang.tooling as tooling
 
     src = tmp_path / "src"
     src.mkdir()
@@ -294,7 +293,7 @@ def test_project_navigation_rebinds_trivia_with_logical_source_units(
     session.set_editor_workspace(
         EditorWorkspaceSnapshot((EditorDocumentSnapshot(path, text, 1),))
     )
-    original = tooling_session.check_file_snapshot
+    original = tooling.check_file_snapshot
     calls = 0
 
     def observed(*args, **kwargs):
@@ -302,7 +301,7 @@ def test_project_navigation_rebinds_trivia_with_logical_source_units(
         calls += 1
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(tooling_session, "check_file_snapshot", observed)
+    monkeypatch.setattr(tooling, "check_file_snapshot", observed)
     assert (
         definition_at(
             path, text, 1, text.splitlines()[1].index("inc"), _session=session
@@ -327,7 +326,7 @@ def test_lsp_exact_cache_rechecks_new_project_source(
 ) -> None:
     from zlang.tooling import ToolingSession
     from zlang.workspace import update_project_lock
-    import zlang.tooling_session as tooling_session
+    import zlang.tooling as tooling
 
     src = tmp_path / "src"
     src.mkdir()
@@ -339,7 +338,7 @@ def test_lsp_exact_cache_rechecks_new_project_source(
     text = "module Top { out y:u8 y=1 }\n"
     top.write_text(text)
     update_project_lock(manifest)
-    original = tooling_session.check_file_snapshot
+    original = tooling.check_file_snapshot
     calls = 0
 
     def observed(*args, **kwargs):
@@ -347,7 +346,7 @@ def test_lsp_exact_cache_rechecks_new_project_source(
         calls += 1
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(tooling_session, "check_file_snapshot", observed)
+    monkeypatch.setattr(tooling, "check_file_snapshot", observed)
     session = ToolingSession()
     session.semantic_snapshot(top, text)
     session.semantic_snapshot(top, text)

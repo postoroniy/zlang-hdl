@@ -3,7 +3,7 @@
   "release": {
     "channel": "alpha",
     "repository": "https://github.com/postoroniy/zlang-hdl",
-    "version": "0.1.0a19"
+    "version": "0.1.0a20"
   },
   "platform": {
     "operating_system": "Linux",
@@ -11,7 +11,7 @@
     "architecture": "x86_64"
   },
   "native_runtime": {
-    "version": "0.1.0a19",
+    "version": "0.1.0a20",
     "abi": "cp312-abi3",
     "source_distribution": false,
     "platforms": [
@@ -19,10 +19,8 @@
     ]
   },
   "validation": {
-    "minimum_deterministic_tests_passed": 4153,
-    "minimum_deterministic_tests_collected": 4153,
-    "minimum_performance_tests_passed": 6,
-    "minimum_performance_tests_collected": 6,
+    "minimum_tests_passed": 4122,
+    "minimum_tests_collected": 4122,
     "maximum_tests_skipped": 0,
     "example_corpus": {
       "source_files": 109,
@@ -41,29 +39,29 @@
     "z3": "4.13.4"
   },
   "documentation": {
-    "builder_sha256": "6135aa1e6bc0c44e6ac2386d223bb5031e7befc1f2c369d02149279b057bb738",
-    "cover_sha256": "22c31a7a75b6db59293b6bf334d1499c891fb03ec5e45b5afac471116ab0d5d2",
+    "builder_sha256": "0e509413a12cef6426bf92dea364bba62c40ec1cc0684e429e255365359cd75a",
+    "cover_sha256": "660f0c16b2fdbb6f21a48ed56bf6aa9d79f539f1e33e9f002d78c1f7744d55ae",
     "examples": {
-      "linked_sources": 17,
+      "linked_sources": 21,
       "json_blocks": 1,
       "python_blocks": 1,
       "referenced_tops": 5,
-      "shell_blocks": 38,
+      "shell_blocks": 39,
       "standalone_compiled": 20,
-      "syntax_fragments": 104,
+      "syntax_fragments": 109,
       "toml_blocks": 3,
-      "zlang_fences": 124
+      "zlang_fences": 129
     },
     "format": "PDF-1.5",
-    "pages": 70,
+    "pages": 89,
     "pdf": "docs/ZLang-HDL-Language-Reference.pdf",
-    "pdf_sha256": "3403a6488a3e575c243df1626f8f44968fb37d5f6f028000c23cdfe509b6816a",
-    "syntax_grammar_sha256": "e568449f05bf36bb7f6aeaa5da013a09421724211e54f5ae0f506fa01be9a8f2",
+    "pdf_sha256": "726f64ca8c1acb0050973e9ea5ec85cbab8bc93edec3768de1aa34b3736b6f91",
+    "syntax_grammar_sha256": "f63945e59c4a8bde6e4b1a95b4512ca787d8a91b4c8333e160398a26de83526d",
     "sources": {
-      "docs/language-quick-reference.md": "c8560bcd63a32c1fd492e42bc74ae492459574505faf61ee9727d93fa29f474e",
-      "docs/language-reference.md": "163667e6dc1aaac694e96e6371e31d13b479b8caac843717578855ff5bc02d5f"
+      "docs/language-quick-reference.md": "e037efdc44878a955451793802cc15623ee2b6f7c26c1625c5cee09925b5b8dc",
+      "docs/language-reference.md": "5575b321c7a9bdceb3fc57f44a1d63afe1831bb55fcc5617df18443c1b6d176a"
     },
-    "source_date_epoch": 1789792159
+    "source_date_epoch": 1791295200
   },
   "generated_by": "tools/release_status.py"
 }

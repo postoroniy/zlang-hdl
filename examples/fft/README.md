@@ -2,9 +2,9 @@
 
 These sources are deliberately split into two bounded validation designs:
 
-- `complex_multiply_implementation.zhl` contains two independently selectable
-  pure scalar kernels, `FFTComplexMultiplyRealImplementation` and
-  `FFTComplexMultiplyImagImplementation`. Each has one fixed-point quantization boundary,
+- `complex_multiply_pipeline_auto.zhl` contains two independently selectable
+  pure scalar kernels, `FFTComplexMultiplyRealAuto` and
+  `FFTComplexMultiplyImagAuto`. Each has one fixed-point quantization boundary,
   latency 1 for the generic fallback, and II=1. The target planner publishes
   the four DSP48E1 pipeline configurations; routed MREG evidence selects
   latency 2 at 100 MHz on `xc7z030ffg676-1`.
@@ -27,36 +27,36 @@ These sources are deliberately split into two bounded validation designs:
 Generate generic direct SystemVerilog for the real and imaginary components:
 
 ```sh
-.venv/bin/zlang examples/fft/complex_multiply_implementation.zhl \
-  --top FFTComplexMultiplyRealImplementation \
-  --systemverilog build/FFTComplexMultiplyRealImplementation.sv
-.venv/bin/zlang examples/fft/complex_multiply_implementation.zhl \
-  --top FFTComplexMultiplyImagImplementation \
-  --systemverilog build/FFTComplexMultiplyImagImplementation.sv
+.venv/bin/zlang examples/fft/complex_multiply_pipeline_auto.zhl \
+  --top FFTComplexMultiplyRealAuto \
+  --systemverilog build/FFTComplexMultiplyRealAuto.sv
+.venv/bin/zlang examples/fft/complex_multiply_pipeline_auto.zhl \
+  --top FFTComplexMultiplyImagAuto \
+  --systemverilog build/FFTComplexMultiplyImagAuto.sv
 ```
 
 Generate and Verilator-lint the same direct-SystemVerilog artifacts:
 
 ```sh
-.venv/bin/zlang examples/fft/complex_multiply_implementation.zhl \
-  --top FFTComplexMultiplyRealImplementation \
-  --systemverilog build/FFTComplexMultiplyRealImplementation.sv --verilator-lint
-.venv/bin/zlang examples/fft/complex_multiply_implementation.zhl \
-  --top FFTComplexMultiplyImagImplementation \
-  --systemverilog build/FFTComplexMultiplyImagImplementation.sv --verilator-lint
+.venv/bin/zlang examples/fft/complex_multiply_pipeline_auto.zhl \
+  --top FFTComplexMultiplyRealAuto \
+  --systemverilog build/FFTComplexMultiplyRealAuto.sv --verilator-lint
+.venv/bin/zlang examples/fft/complex_multiply_pipeline_auto.zhl \
+  --top FFTComplexMultiplyImagAuto \
+  --systemverilog build/FFTComplexMultiplyImagAuto.sv --verilator-lint
 ```
 
 Emit the supported direct-SystemVerilog path and target-planner report:
 
 ```sh
-.venv/bin/zlang examples/fft/complex_multiply_implementation.zhl \
-  --top FFTComplexMultiplyRealImplementation --target xc7z030ffg676-1 \
-  --systemverilog build/FFTComplexMultiplyRealImplementation.sv \
-  --pipeline-report build/FFTComplexMultiplyRealImplementation.pipeline
-.venv/bin/zlang examples/fft/complex_multiply_implementation.zhl \
-  --top FFTComplexMultiplyImagImplementation --target xc7z030ffg676-1 \
-  --systemverilog build/FFTComplexMultiplyImagImplementation.sv \
-  --pipeline-report build/FFTComplexMultiplyImagImplementation.pipeline
+.venv/bin/zlang examples/fft/complex_multiply_pipeline_auto.zhl \
+  --top FFTComplexMultiplyRealAuto --target xc7z030ffg676-1 \
+  --systemverilog build/FFTComplexMultiplyRealAuto.sv \
+  --pipeline-report build/FFTComplexMultiplyRealAuto.pipeline
+.venv/bin/zlang examples/fft/complex_multiply_pipeline_auto.zhl \
+  --top FFTComplexMultiplyImagAuto --target xc7z030ffg676-1 \
+  --systemverilog build/FFTComplexMultiplyImagAuto.sv \
+  --pipeline-report build/FFTComplexMultiplyImagAuto.pipeline
 ```
 
 The routed evidence sweep is reproducible with:

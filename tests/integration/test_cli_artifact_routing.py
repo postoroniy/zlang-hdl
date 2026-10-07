@@ -37,12 +37,11 @@ class CliArtifactRoutingTests(unittest.TestCase):
             status = main([self.source, *arguments])
         return status, stdout.getvalue(), stderr.getvalue()
 
-    def test_no_option_rejects_implicit_artifact_emission(self) -> None:
-        stderr = io.StringIO()
-        with redirect_stderr(stderr), self.assertRaises(SystemExit) as raised:
-            self.invoke([])
-        self.assertEqual(raised.exception.code, 2)
-        self.assertIn("select --check, --systemverilog", stderr.getvalue())
+    def test_no_option_emits_production_systemverilog_stdout(self) -> None:
+        status, stdout = self.invoke([])
+        self.assertEqual(status, 0)
+        self.assertIn("module ALU", stdout)
+        self.assertNotIn("module ALU where", stdout)
 
 
     def test_explicit_backend_can_publish_structured_source_map(self) -> None:
@@ -134,13 +133,18 @@ class CliArtifactRoutingTests(unittest.TestCase):
             self.assertEqual(raised.exception.code, 2)
             self.assertFalse(output.exists())
 
-    def test_removed_systemverilog_alias_is_rejected(self) -> None:
+    def test_compatibility_systemverilog_alias_has_same_silent_policy(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             output = Path(temporary) / "ALU-compat.sv"
-            with self.assertRaises(SystemExit) as raised:
-                self.invoke(["--experimental-systemverilog", str(output)])
-            self.assertEqual(raised.exception.code, 2)
-            self.assertFalse(output.exists())
+            status, stdout = self.invoke(
+                ["--experimental-systemverilog", str(output)]
+            )
+            self.assertEqual(status, 0)
+            self.assertEqual(stdout, "")
+            self.assertEqual(
+                output.read_text(),
+                (ROOT / "examples/generated/ALU.direct.sv").read_text(),
+            )
 
 
 

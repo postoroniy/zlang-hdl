@@ -11,6 +11,19 @@ from enum import Enum
 from typing import Any, TypeVar
 
 
+_COMPACT_JSON_ENCODER = json.JSONEncoder(
+    sort_keys=True,
+    separators=(",", ":"),
+    default=str,
+)
+_ACYCLIC_COMPACT_JSON_ENCODER = json.JSONEncoder(
+    sort_keys=True,
+    separators=(",", ":"),
+    default=str,
+    check_circular=False,
+)
+
+
 class CanonicalSerializationError(ValueError):
     """A value cannot participate in a compiler-owned canonical identity."""
 
@@ -145,10 +158,12 @@ def _validate_canonical_value(value: object, path: str = "payload") -> None:
 
 def stable_json(value: Any, *, indent: int | None = None) -> str:
     """Serialize values with deterministic keys and fallback scalar text."""
+    if indent is None:
+        return _COMPACT_JSON_ENCODER.encode(value)
     return json.dumps(
         value,
         sort_keys=True,
-        separators=(",", ":") if indent is None else None,
+        separators=None,
         indent=indent,
         default=str,
     )
@@ -173,6 +188,18 @@ def stable_digest(value: Any, *, length: int | None = None) -> str:
     # Preserve the established text-identity behavior used by candidate
     # hashes; structured values use the shared canonical JSON form.
     payload = value.encode("utf-8") if isinstance(value, str) else stable_json_bytes(value)
+    digest = hashlib.sha256(payload).hexdigest()
+    return digest if length is None else digest[:length]
+
+
+def stable_acyclic_digest(value: Any, *, length: int | None = None) -> str:
+    """Hash one compiler-built acyclic JSON value with established bytes."""
+
+    payload = (
+        value.encode("utf-8")
+        if isinstance(value, str)
+        else _ACYCLIC_COMPACT_JSON_ENCODER.encode(value).encode("utf-8")
+    )
     digest = hashlib.sha256(payload).hexdigest()
     return digest if length is None else digest[:length]
 

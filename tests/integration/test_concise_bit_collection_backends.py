@@ -12,13 +12,13 @@ from zlang.backend.systemverilog import emit_artifact
 from zlang.compiler import compile_source
 from zlang.equivalence import (
     artifact_hash,
-    emit_miter_with_metadata,
+    emit_miter,
     emit_reference_model,
+    formal_tools_available,
     make_equivalence_property,
     publish_bindings,
     run_equivalence_formal,
 )
-from tests.support.formal import formal_tools_available
 from zlang.ir.equivalence import (
     BindingMap,
     BindingSide,
@@ -181,17 +181,13 @@ def _semantic_equivalence_sources(module, implementation: str):
             ),
         )
     )
-    miter = emit_miter_with_metadata(
+    miter = emit_miter(
         property_,
         bindings,
         reference_module="ConciseBitsReference",
         implementation_module=module.name,
     )
-    return (
-        property_,
-        reference + "\n" + implementation + "\n" + miter.source,
-        miter.trace_metadata,
-    )
+    return property_, reference + "\n" + implementation + "\n" + miter
 
 
 @pytest.mark.skipif(
@@ -201,24 +197,18 @@ def _semantic_equivalence_sources(module, implementation: str):
 def test_semantic_equivalence_concise_collections_pass_and_parity_mutation_fails() -> None:
     module = compile_source(SOURCE).ir
     implementation = emit_artifact(module).text
-    property_, source, trace_metadata = _semantic_equivalence_sources(
-        module, implementation
-    )
+    property_, source = _semantic_equivalence_sources(module, implementation)
     top = "semantic_equivalence_" + property_.id.replace(".", "_")
     correct = run_equivalence_formal(
-        property_, source, top=top, mode=EquivalenceMode.BMC, depth=2,
-        trace_metadata=trace_metadata,
+        property_, source, top=top, mode=EquivalenceMode.BMC, depth=2
     )
     assert correct.status is EquivalenceStatus.BOUNDED_PASS
 
     mutated = implementation.replace(" ^ ", " | ", 1)
     assert mutated != implementation
-    _, broken_source, broken_trace_metadata = _semantic_equivalence_sources(
-        module, mutated
-    )
+    _, broken_source = _semantic_equivalence_sources(module, mutated)
     failed = run_equivalence_formal(
-        property_, broken_source, top=top, mode=EquivalenceMode.BMC, depth=2,
-        trace_metadata=broken_trace_metadata,
+        property_, broken_source, top=top, mode=EquivalenceMode.BMC, depth=2
     )
     assert failed.status is EquivalenceStatus.FAILED
     assert failed.counterexample is not None

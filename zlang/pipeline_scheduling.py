@@ -242,132 +242,6 @@ def _cached_expression_identity(
     return result
 
 
-def _schedule_trivial_pipeline(
-    source: expr.Expression,
-    semantic_source: expr.Expression,
-    nodes: tuple[_DagNode, ...],
-    requested_latency: int,
-    allocate_instance: Callable[[], int],
-    model: OperationCostModel,
-    rewrite_certificate: tuple[str, ...],
-    domain: str | None,
-) -> expr.Pipeline:
-    """Publish the exact fixed-latency shape for a zero/one-operation DAG."""
-
-    scheduled = expr.Pipeline(
-        requested_latency,
-        source,
-        allocate_instance(),
-        source.type,
-        origin=source.origin,
-        domain=domain,
-    )
-    semantic_source_identity = expression_semantic_identity(semantic_source)
-    selected_value_identity = expression_semantic_identity(source)
-    scheduled_identity = expression_semantic_identity(scheduled)
-    operations = tuple(
-        ScheduledPipelineOperation(
-            _identity(
-                FIXED_PIPELINE_SCHEDULE_SCHEMA,
-                "operation",
-                node.semantic_identity,
-                node.ordinal,
-            ),
-            node.semantic_identity,
-            node.ordinal,
-            node.operation_class,
-            0,
-            tuple(
-                _identity(
-                    FIXED_PIPELINE_SCHEDULE_SCHEMA,
-                    "leaf",
-                    expression_semantic_identity(child),
-                )
-                for child in node.children
-            ),
-            tuple(child.type for child in node.children),
-            node.expression.type,
-            node.cost,
-            node.expression.origin,
-        )
-        for node in nodes
-    )
-    stages = tuple(
-        ScheduledPipelineStage(
-            index,
-            tuple(item.identity for item in operations) if index == 0 else (),
-            sum(item.cost.delay_ps for item in operations) if index == 0 else 0,
-        )
-        for index in range(requested_latency)
-    )
-    timing_nodes = tuple(
-        TimingNode(
-            item.identity,
-            item.operation,
-            item.identity,
-            item.semantic_identity,
-            estimated_delay_ps=item.cost.delay_ps,
-        )
-        for item in operations
-    )
-    cut_identity = _identity(
-        FIXED_PIPELINE_SCHEDULE_SCHEMA,
-        "trivial_output_cut",
-        selected_value_identity,
-        requested_latency,
-    )
-    timing_dag = TimingDAG(
-        timing_nodes,
-        (),
-        (
-            TimingCut(
-                cut_identity,
-                operations[0].identity if operations else selected_value_identity,
-                "generic",
-                requested_latency,
-            ),
-        ),
-        output_latency=requested_latency,
-        estimated_critical_delay_ps=stages[0].estimated_delay_ps,
-    )
-    graph = ScheduledValueGraph(
-        semantic_source_identity,
-        selected_value_identity,
-        tuple(item.identity for item in operations),
-        tuple((item.identity, item.semantic_identity) for item in operations),
-        (),
-        tuple((item.identity, item.stage) for item in operations),
-        tuple(item.estimated_delay_ps for item in stages),
-        requested_latency,
-        1,
-        model.source.value,
-        cut_identities=(cut_identity,),
-        rewrite_certificate=rewrite_certificate,
-        clock_domain=domain,
-    )
-    plan = PipelinePlan(
-        stage_boundaries=tuple(
-            f"stage_{index}" for index in range(requested_latency)
-        ),
-        inserted_registers=requested_latency,
-        scheduler=FIXED_PIPELINE_SCHEDULER,
-        requested_latency=requested_latency,
-        initiation_interval=1,
-        cost_source=model.source,
-        operations=operations,
-        stages=stages,
-        timing_dag=timing_dag,
-        source_expression_identity=semantic_source_identity,
-        scheduled_expression_identity=scheduled_identity,
-        timed_equivalence="verified",
-        scheduled_value_graph=graph,
-        selected_value_identity=selected_value_identity,
-        rewrite_certificate=rewrite_certificate,
-        source_expression=semantic_source,
-    )
-    return replace(scheduled, pipeline_plan=plan)
-
-
 def schedule_fixed_pipeline(
     source_expression: expr.Expression,
     requested_latency: int,
@@ -395,16 +269,118 @@ def schedule_fixed_pipeline(
     # but still publish a complete schedule so exact-value rewrites and target
     # planning remain observable and verifiable.
     if len(nodes) <= 1:
-        return _schedule_trivial_pipeline(
-            source,
-            semantic_source,
-            nodes,
+        scheduled = expr.Pipeline(
             requested_latency,
-            allocate_instance,
-            model,
-            rewrite_certificate,
-            domain,
+            source,
+            allocate_instance(),
+            source.type,
+            origin=source.origin,
+            domain=domain,
         )
+        semantic_source_identity = expression_semantic_identity(semantic_source)
+        selected_value_identity = expression_semantic_identity(source)
+        scheduled_identity = expression_semantic_identity(scheduled)
+        operations = tuple(
+            ScheduledPipelineOperation(
+                _identity(
+                    FIXED_PIPELINE_SCHEDULE_SCHEMA,
+                    "operation",
+                    node.semantic_identity,
+                    node.ordinal,
+                ),
+                node.semantic_identity,
+                node.ordinal,
+                node.operation_class,
+                0,
+                tuple(
+                    _identity(
+                        FIXED_PIPELINE_SCHEDULE_SCHEMA,
+                        "leaf",
+                        expression_semantic_identity(child),
+                    )
+                    for child in node.children
+                ),
+                tuple(child.type for child in node.children),
+                node.expression.type,
+                node.cost,
+                node.expression.origin,
+            )
+            for node in nodes
+        )
+        stages = tuple(
+            ScheduledPipelineStage(
+                index,
+                tuple(item.identity for item in operations) if index == 0 else (),
+                sum(item.cost.delay_ps for item in operations) if index == 0 else 0,
+            )
+            for index in range(requested_latency)
+        )
+        timing_nodes = tuple(
+            TimingNode(
+                item.identity,
+                item.operation,
+                item.identity,
+                item.semantic_identity,
+                estimated_delay_ps=item.cost.delay_ps,
+            )
+            for item in operations
+        )
+        cut_identity = _identity(
+            FIXED_PIPELINE_SCHEDULE_SCHEMA,
+            "trivial_output_cut",
+            selected_value_identity,
+            requested_latency,
+        )
+        timing_dag = TimingDAG(
+            timing_nodes,
+            (),
+            (
+                TimingCut(
+                    cut_identity,
+                    operations[0].identity if operations else selected_value_identity,
+                    "generic",
+                    requested_latency,
+                ),
+            ),
+            output_latency=requested_latency,
+            estimated_critical_delay_ps=stages[0].estimated_delay_ps,
+        )
+        graph = ScheduledValueGraph(
+            semantic_source_identity,
+            selected_value_identity,
+            tuple(item.identity for item in operations),
+            tuple((item.identity, item.semantic_identity) for item in operations),
+            (),
+            tuple((item.identity, item.stage) for item in operations),
+            tuple(item.estimated_delay_ps for item in stages),
+            requested_latency,
+            1,
+            model.source.value,
+            cut_identities=(cut_identity,),
+            rewrite_certificate=rewrite_certificate,
+            clock_domain=domain,
+        )
+        plan = PipelinePlan(
+            stage_boundaries=tuple(
+                f"stage_{index}" for index in range(requested_latency)
+            ),
+            inserted_registers=requested_latency,
+            scheduler=FIXED_PIPELINE_SCHEDULER,
+            requested_latency=requested_latency,
+            initiation_interval=1,
+            cost_source=model.source,
+            operations=operations,
+            stages=stages,
+            timing_dag=timing_dag,
+            source_expression_identity=semantic_source_identity,
+            scheduled_expression_identity=scheduled_identity,
+            timed_equivalence="verified",
+            scheduled_value_graph=graph,
+            selected_value_identity=selected_value_identity,
+            rewrite_certificate=rewrite_certificate,
+            source_expression=semantic_source,
+        )
+        return replace(scheduled, pipeline_plan=plan)
     placements, stage_delays = _partition(nodes, requested_latency)
 
     registered: dict[tuple[str, int], expr.Expression] = {}
@@ -875,9 +851,7 @@ def _exact_value_alternatives(
     if not _may_benefit_from_value_saturation(source):
         return (original,)
     try:
-        from zlang.opt.module_lowering import lower
-        from zlang.opt.rewrite_model import term_to_expression
-        from zlang.opt.saturation import saturate
+        from zlang.opt import lower, saturate, term_to_expression
 
         inputs: dict[str, HardwareType] = {}
         for item in walk_expression(
@@ -922,7 +896,7 @@ def _exact_value_alternatives(
                 alternative = replace(alternative, origin=source.origin)
             identity = expression_semantic_identity(alternative)
             from hashlib import sha256
-            from zlang.opt.rewrite_model import render_term
+            from zlang.opt import render_term
             term_identity = sha256(render_term(term).encode()).hexdigest()
             certificate = certificates[term_identity]
             by_identity.setdefault(

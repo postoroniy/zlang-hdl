@@ -15,12 +15,12 @@ class PipelineParserTests(unittest.TestCase):
         self.assertIsInstance(expression, PipelineExpr)
         self.assertEqual(expression.stages, 2)
 
-    def test_scalar_auto_pipeline_is_an_ordinary_parse_error(self) -> None:
+    def test_scalar_auto_pipeline_has_migration_diagnostic(self) -> None:
         source = (
             "module Auto { clock c reset r in a:u8 out y:u8 "
             "y=pipeline(auto, latency<=3, throughput==1, dsp<=4, fmax>=400){a} }"
         )
-        with self.assertRaises(ParseError):
+        with self.assertRaisesRegex(ParseError, "removed"):
             parse(source)
 
 

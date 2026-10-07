@@ -1,17 +1,10 @@
 # Changelog
 
-## Unreleased
-
-- Launch the configured `zlang` executable with its canonical `lsp` subcommand;
-  the standalone `zlang-lsp` compatibility executable is no longer required.
-- Build, package, and exercise the installed extension against the exact stable
-  VS Code 1.140.0 host and commit recorded by the editor toolchain manifest.
-
 ## 0.1.0
 
 - Bundle the exact language-client runtime into one deterministic file instead
   of shipping a copied dependency tree, reducing the VSIX to 13 files.
-- Require the current stable VS Code line (1.140.0 at this build) and test the
+- Require the current stable VS Code line (1.138.0 at this build) and test the
   installed VSIX on that exact host with pinned editor tooling.
 - Package the existing `.zhl` lexical support and a thin standard-LSP client as
   a self-contained Community VSIX.

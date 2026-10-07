@@ -55,6 +55,12 @@ from zlang.ir.elastic import (
     ElasticTimingContract,
     validate_elastic_region_metadata,
 )
+from zlang.ir.temporal import TemporalImplementationGraph
+from zlang.ir.architectures import (
+    ArchitectureConstraint,
+    ArchitectureEquivalence,
+    FirArchitectureKind,
+)
 from zlang.ir.types import (
     BitType,
     BitsType,
@@ -87,6 +93,12 @@ class NodeCategory(str, Enum):
     PROTOCOL = "protocol"
     TRANSACTION = "transaction"
     ARCHITECTURE = "architecture"
+
+    # Internal compatibility aliases for older optimization consumers. New reports and
+    # iteration use the five ZLang 0.2 category names above.
+    SEQUENTIAL = "state"
+    ARCHITECTURAL = "architecture"
+
 
 class OptimizationStage(str, Enum):
     HIGH_LEVEL = "high_level"
@@ -334,23 +346,25 @@ class CanonicalAssignment:
     channel: RequestResponseChannel | None = None
 
 
-@dataclass(frozen=True, kw_only=True)
+@dataclass(frozen=True)
 class CanonicalFunction:
     name: str
     parameters: tuple[FunctionParameter, ...]
     return_type: HardwareType
     body: NodeId
-    callee_identity: str
-    metadata: CallableMetadata
+    callee_identity: str = ""
+    metadata: CallableMetadata | None = None
 
     def __post_init__(self) -> None:
         expected_identity = stable_callee_identity(
-            self.parameters, self.return_type, self.metadata
+            self.name, self.parameters, self.return_type, self.metadata
         )
-        if self.callee_identity != expected_identity:
+        if self.callee_identity and self.callee_identity != expected_identity:
             raise ValueError(
                 f"canonical function '{self.name}' callee identity does not match"
             )
+        if not self.callee_identity:
+            object.__setattr__(self, "callee_identity", expected_identity)
 
 
 @dataclass(frozen=True)
@@ -445,7 +459,7 @@ class CanonicalMemoryPort:
     source_origin: SourceOrigin | None = None
 
 
-@dataclass(frozen=True, kw_only=True)
+@dataclass(frozen=True)
 class CanonicalMemory:
     name: str
     semantic_id: str
@@ -457,16 +471,17 @@ class CanonicalMemory:
     write_enable: NodeId | None
     write_address: NodeId | None
     write_data: NodeId | None
-    source_origin: SourceOrigin | None
-    write_mask_width: int | None
-    write_mask: NodeId | None
-    contents_reset: MemoryResetPolicy
-    read_data_reset: MemoryResetPolicy
-    domain: str | None
-    ports: tuple[CanonicalMemoryPort, ...]
-    async_memory: bool
-    write_priority: tuple[str, ...]
-    initial_value: NodeId | None
+    source_origin: SourceOrigin | None = None
+    write_mask_width: int | None = None
+    write_mask: NodeId | None = None
+    # Appended to preserve the historical positional constructor ABI.
+    contents_reset: MemoryResetPolicy = MemoryResetPolicy.CLEAR
+    read_data_reset: MemoryResetPolicy = MemoryResetPolicy.CLEAR
+    domain: str | None = None
+    ports: tuple[CanonicalMemoryPort, ...] = ()
+    async_memory: bool = False
+    write_priority: tuple[str, ...] = ()
+    initial_value: NodeId | None = None
 
 
 @dataclass(frozen=True)
@@ -600,14 +615,43 @@ class CanonicalElasticPipelineRegion:
     constraints: tuple[PipelineConstraint, ...]
     candidates: tuple[CanonicalPipelineCandidate, ...]
     selected: str
-    plan: ElasticPipelinePlan
+    plan: ElasticPipelinePlan | None
     timing: ElasticTimingContract
     clock: str
     reset: str
     source_origin: object | None = field(default=None, compare=False)
+    temporal_graph: TemporalImplementationGraph | None = None
 
     def __post_init__(self) -> None:
         validate_elastic_region_metadata(self)
+
+
+@dataclass(frozen=True)
+class CanonicalArchitectureCandidate:
+    name: str
+    expression: NodeId
+    kind: FirArchitectureKind
+    parallelism: int
+    add_depth: int
+    multiplier_count: int
+    adder_count: int
+    transformations: tuple[str, ...]
+    equivalence: ArchitectureEquivalence
+    violations: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class CanonicalArchitectureExploration:
+    output: str
+    result_type: HardwareType
+    source_expression: NodeId
+    constraints: tuple[ArchitectureConstraint, ...]
+    candidates: tuple[CanonicalArchitectureCandidate, ...]
+    selected: str
+    theoretical_candidates: int
+    search_bound: int
+    budget_pruned: int
+    constraint_pruned: int
 
 
 @dataclass(frozen=True)
@@ -638,6 +682,9 @@ class CanonicalModule:
     arbiters: tuple[PacketArbiter, ...] = ()
     contracts: tuple[CanonicalContract, ...] = ()
     pipeline_explorations: tuple[CanonicalPipelineExploration, ...] = ()
+    architecture_explorations: tuple[
+        CanonicalArchitectureExploration, ...
+    ] = ()
     equivalences: tuple[EquivalenceRule, ...] = ()
     locals: tuple[object, ...] = ()
     instances: tuple[object, ...] = ()
@@ -904,10 +951,14 @@ class CanonicalModule:
             function.callee_identity: function
             for function in (*self.functions, *self.callable_definitions)
         }
+        legacy_by_name = {function.name: function for function in self.functions}
+
         def resolve_call(node: CanonicalExpression) -> CanonicalFunction | None:
             attributes = dict(node.attributes)
             callee_identity = attributes.get("callee_identity")
-            return definitions_by_identity.get(callee_identity)
+            if callee_identity is not None:
+                return definitions_by_identity.get(callee_identity)
+            return legacy_by_name.get(attributes.get("function"))
 
         for function in (*self.functions, *self.callable_definitions):
             if function.body < 0 or function.body >= expression_count:
@@ -1184,12 +1235,15 @@ class CanonicalModule:
                         "expression root"
                     )
                 candidate_node = self.expressions[candidate.expression]
-                if (
-                    candidate_node.type != region.output_type
-                    or candidate_node.metadata.latency != candidate.latency
+                if candidate_node.type != region.output_type or candidate_node.metadata.domains != (region.clock,):
+                    raise ValueError(
+                        f"elastic candidate '{candidate.name}' metadata disagrees "
+                        "with its expression"
+                    )
+                if region.temporal_graph is None and (
+                    candidate_node.metadata.latency != candidate.latency
                     or candidate_node.metadata.initiation_interval
                     != candidate.initiation_interval
-                    or candidate_node.metadata.domains != (region.clock,)
                 ):
                     raise ValueError(
                         f"elastic candidate '{candidate.name}' metadata disagrees "
@@ -1201,6 +1255,9 @@ class CanonicalModule:
                 for candidate in region.candidates
                 if candidate.name == region.selected
             )
+            if region.temporal_graph is not None:
+                continue
+            assert region.plan is not None
             pending = [selected.expression]
             visited: set[NodeId] = set()
             stages: list[tuple[int, int]] = []
@@ -1237,6 +1294,36 @@ class CanonicalModule:
                     f"elastic candidate '{selected.name}' data stages disagree "
                     "with its plan"
                 )
+        for exploration in self.architecture_explorations:
+            if not 0 <= exploration.source_expression < expression_count:
+                raise ValueError(
+                    f"architecture exploration '{exploration.output}' has an "
+                    "invalid source expression"
+                )
+            names = [candidate.name for candidate in exploration.candidates]
+            if len(names) != len(set(names)):
+                raise ValueError(
+                    f"architecture exploration '{exploration.output}' has "
+                    "duplicate candidates"
+                )
+            if exploration.selected not in names:
+                raise ValueError(
+                    f"architecture exploration '{exploration.output}' has no "
+                    "selected candidate"
+                )
+            if exploration.search_bound != len(exploration.candidates):
+                raise ValueError(
+                    f"architecture exploration '{exploration.output}' search "
+                    "bound mismatch"
+                )
+            if exploration.theoretical_candidates != (
+                exploration.search_bound + exploration.budget_pruned
+            ):
+                raise ValueError(
+                    f"architecture exploration '{exploration.output}' pruning "
+                    "count mismatch"
+                )
+
     def nodes(self, category: NodeCategory) -> tuple[object, ...]:
         return tuple(
             node for node in self.expressions if node.category is category

@@ -10,7 +10,7 @@ from zlang.costs import (
 )
 from zlang.ir.expressions import CostMetric
 from zlang.compiler import compile_source
-from zlang.opt.saturation import saturate
+from zlang.opt import saturate
 from zlang.costs import extract_best_eclass
 
 

@@ -116,7 +116,7 @@ class Fifo:
         return max(1, self.depth.bit_length())
 
 
-@dataclass(frozen=True, kw_only=True)
+@dataclass(frozen=True)
 class Memory:
     name: str
     semantic_id: str
@@ -128,16 +128,17 @@ class Memory:
     write_enable: Expression | None
     write_address: Expression | None
     write_data: Expression | None
-    source_origin: SourceOrigin | None
-    write_mask_width: int | None
-    write_mask: Expression | None
-    contents_reset: MemoryResetPolicy
-    read_data_reset: MemoryResetPolicy
-    domain: str | None
-    ports: tuple[MemoryPort, ...]
-    async_memory: bool
-    write_priority: tuple[str, ...]
-    initial_value: Expression | None
+    source_origin: SourceOrigin | None = None
+    write_mask_width: int | None = None
+    write_mask: Expression | None = None
+    # Appended to preserve the historical positional constructor ABI.
+    contents_reset: MemoryResetPolicy = MemoryResetPolicy.CLEAR
+    read_data_reset: MemoryResetPolicy = MemoryResetPolicy.CLEAR
+    domain: str | None = None
+    ports: tuple[MemoryPort, ...] = ()
+    async_memory: bool = False
+    write_priority: tuple[str, ...] = ()
+    initial_value: Expression | None = None
 
     def __post_init__(self) -> None:
         if not self.semantic_id:

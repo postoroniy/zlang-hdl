@@ -14,6 +14,7 @@ from collections.abc import Iterator
 from typing import Callable, Iterable, Mapping
 
 from zlang.ir import expressions as expr
+from zlang.ir import types as ir_types
 from zlang.ir.expression_graph import ExpressionDagIndex
 from zlang.ir.functional import materialize_exact_reduction
 from zlang.ir.module import Module
@@ -25,7 +26,7 @@ from zlang.ir.traversal import (
 
 
 FUNCTIONAL_REGION_EMISSION_SCHEMA = "zlang-direct-sv-functional-region-v4"
-DIRECT_SV_DAG_SCHEMA = "zlang-direct-sv-dag-v2"
+DIRECT_SV_DAG_SCHEMA = "zlang-direct-sv-dag-v3"
 
 
 @dataclass(frozen=True)
@@ -152,15 +153,6 @@ def walk_expression(value: expr.Expression) -> Iterable[expr.Expression]:
     yield from ExpressionDagIndex(
         (value,), children=expression_children
     ).preorder()
-
-
-def expression_size(value: expr.Expression) -> int:
-    # Preserve the historical logical-occurrence metric while computing it
-    # once per unique DAG node.  Shared subtrees therefore no longer cause
-    # recursive host work proportional to their expanded tree.
-    return ExpressionDagIndex(
-        (value,), children=expression_children
-    ).logical_occurrences()
 
 
 def module_expression_roots(
@@ -361,11 +353,10 @@ def build_direct_sv_dag_plan(
             # vector as one backend-local value so every emitter can render a
             # simple reference without changing index order or element width.
             dynamic_index_prefixes.add(identity_of(value.expression))
-        if (
-            isinstance(value, expr.FieldAccess)
-            and isinstance(value.expression, expr.RuntimeIndex)
-        ):
-            aggregate_field_selections.add(identity_of(value.expression))
+        # A field selected from one runtime-indexed struct is rendered as one
+        # exact narrow packed projection by the Direct-SV expression owner.
+        # Materializing the complete struct here creates a wide temporary even
+        # when no consumer observes the other fields.
         if (
             isinstance(value, (expr.FieldAccess, expr.VectorIndex, expr.RuntimeIndex))
             and isinstance(value.expression, (expr.Unpack, expr.Bitcast, expr.Reshape))
@@ -384,6 +375,7 @@ def build_direct_sv_dag_plan(
         if isinstance(value, expr.FixedConvert)
         and size_of(value.expression) >= 8
     }
+
     base_selected: set[str] = set()
     for value in dependency_order:
         identity = identity_of(value)
@@ -391,6 +383,15 @@ def build_direct_sv_dag_plan(
             identity in preferred_by_identity
             or identity in aggregate_field_selections
             or identity in dynamic_index_prefixes
+            # A repeated runtime selection of a structured element must have
+            # one physical packed value even when its small expression tree
+            # falls below the generic sharing threshold.  Rule/state lowering
+            # may consume both a field projection and the complete value.
+            or (
+                fanout[identity] > 1
+                and isinstance(value, expr.RuntimeIndex)
+                and isinstance(value.type, ir_types.StructType)
+            )
             or (
                 fanout[identity] > 1
                 and size_of(value) >= minimum_shared_size

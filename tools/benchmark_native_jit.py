@@ -26,7 +26,7 @@ from tempfile import TemporaryDirectory
 from time import perf_counter
 from typing import Literal
 
-from zlang.backend.systemverilog import emit
+from zlang.backend.systemverilog import emit_experimental
 from zlang.compiler import create_file_compilation_session
 from zlang.sim import Program
 from zlang.simulation_plan import (
@@ -286,7 +286,7 @@ def _emit_direct_sv_worker(
     memory_bytes = memory_limit_mib * 1024 * 1024
     resource.setrlimit(resource.RLIMIT_AS, (memory_bytes, memory_bytes))
     try:
-        output.write_text(emit(module), encoding="utf-8")
+        output.write_text(emit_experimental(module), encoding="utf-8")
     except BaseException as error:  # pragma: no cover - child failure transport
         error_output.write_text(
             f"{type(error).__name__}: {error}", encoding="utf-8"

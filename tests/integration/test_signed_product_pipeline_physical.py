@@ -15,7 +15,7 @@ from zlang.backend.systemverilog import emit_target, emit_target_artifact
 from zlang.compiler import compile_source
 from zlang.costs import CandidateCost
 from zlang.fixed_point import quantize_rational
-from tests.support.formal import formal_tools_available
+from zlang.equivalence import formal_tools_available
 from zlang.formal_candidate import (
     SemanticEquivalenceDirectSystemVerilogCandidateVerifier,
     PhysicalTargetFormalCandidate,
@@ -34,7 +34,7 @@ from zlang.targets import (
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SOURCE = (ROOT / "examples/fft/complex_multiply_implementation.zhl").read_text()
+SOURCE = (ROOT / "examples/fft/complex_multiply_pipeline_auto.zhl").read_text()
 TARGET = "xc7z030ffg676-1"
 EXACT_SOURCE = """
 module ExactSignedProductPipeline {
@@ -123,8 +123,8 @@ def _literal(value: int, width: int) -> str:
 
 
 def test_target_planner_publishes_both_signed_fft_physical_candidate_families() -> None:
-    real = compile_source(SOURCE, top="FFTComplexMultiplyRealImplementation", target=TARGET)
-    imag = compile_source(SOURCE, top="FFTComplexMultiplyImagImplementation", target=TARGET)
+    real = compile_source(SOURCE, top="FFTComplexMultiplyRealAuto", target=TARGET)
+    imag = compile_source(SOURCE, top="FFTComplexMultiplyImagAuto", target=TARGET)
     for result in (real, imag):
         physical = tuple(
             item for item in result.target_planning_result.generated_candidates
@@ -139,8 +139,8 @@ def test_target_planner_publishes_both_signed_fft_physical_candidate_families() 
             in {"accumulator_plus_product", "accumulator_minus_product"}
             for item in physical for node in item.graph.resources
         )
-    _, real_graph = _physical_graph("unregistered", "FFTComplexMultiplyRealImplementation")
-    _, imag_graph = _physical_graph("unregistered", "FFTComplexMultiplyImagImplementation")
+    _, real_graph = _physical_graph("unregistered", "FFTComplexMultiplyRealAuto")
+    _, imag_graph = _physical_graph("unregistered", "FFTComplexMultiplyImagAuto")
     assert real_graph.resources[1].configuration != imag_graph.resources[1].configuration
     assert real.ir.pipeline_explorations and imag.ir.pipeline_explorations
     artifact = emit_target_artifact(real.ir, real_graph)
@@ -152,7 +152,7 @@ def test_target_planner_publishes_both_signed_fft_physical_candidate_families() 
 
 
 def test_packaged_catalog_selects_current_fft_dsp_without_explicit_path() -> None:
-    for top in ("FFTComplexMultiplyRealImplementation", "FFTComplexMultiplyImagImplementation"):
+    for top in ("FFTComplexMultiplyRealAuto", "FFTComplexMultiplyImagAuto"):
         result = compile_source(SOURCE, top=top, target=TARGET)
         selected = result.target_planning_result.selected_candidate
         assert not selected.graph.is_generic
@@ -171,7 +171,7 @@ def test_targeted_implement_formal_selection_gates_one_complete_physical_candida
     verifier = _BoundPhysicalVerifier()
     result = compile_source(
         SOURCE,
-        top="FFTComplexMultiplyRealImplementation",
+        top="FFTComplexMultiplyRealAuto",
         target=TARGET,
         formal_policy="required_bmc",
         formal_depth=8,
@@ -604,8 +604,9 @@ module IntegerMultiplyAdd {{
         top="IntegerMultiplyAdd",
         target=TARGET,
     )
+    provider = "Xilinx7Multiply" if expression == "a * b" else "Xilinx7MultiplyAdd"
     assert result.target_planning_result.selected_candidate.name == (
-        "Xilinx7MultiplyAdd/multiply_output_registered"
+        f"{provider}/multiply_output_registered"
     )
     assert len(result.implementation_graph.resources) == 1
     mappings = {
@@ -761,7 +762,7 @@ module IntegerProductSum {{
 def test_measured_required_uses_current_routed_signed_product_evidence(
     mode: str,
 ) -> None:
-    top = "FFTComplexMultiplyRealImplementation" if mode == "real" else "FFTComplexMultiplyImagImplementation"
+    top = "FFTComplexMultiplyRealAuto" if mode == "real" else "FFTComplexMultiplyImagAuto"
     result = compile_source(
         SOURCE,
         top=top,
@@ -810,8 +811,8 @@ def test_all_signed_fft_physical_variants_are_bit_exact_in_verilator(tmp_path: P
     }
     for mode in ("real", "imag"):
         module_top = (
-            "FFTComplexMultiplyRealImplementation"
-            if mode == "real" else "FFTComplexMultiplyImagImplementation"
+            "FFTComplexMultiplyRealAuto"
+            if mode == "real" else "FFTComplexMultiplyImagAuto"
         )
         for configuration, latency in CONFIGURATIONS:
             typed, graph = _physical_graph(configuration, module_top)

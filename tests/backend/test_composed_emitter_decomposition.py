@@ -23,37 +23,37 @@ VERILATOR = shutil.which("verilator")
 # normalization, connection-owned request/response admission/accounting, and
 # inline selected-top boundary, hierarchy-local naming schema v2, and exact
 # selected-value normalization schema v3, functional-region emission schema
-# v3, Direct-SV DAG schema v2, and hierarchy-local naming schema v3.  The
-# AXI/CSR case now retains shared nodes
+# v3, Direct-SV DAG schema v1, backend typed-constant-folding schema v1, and
+# hierarchy-local naming schema v3. The constant folder preserves typed values
+# while compacting exact extended constants, so both the affected RTL text and
+# its manifest are intentionally captured below. The AXI/CSR case retains shared nodes
 # once while inlining single-use nodes; the other RTL bodies remain unchanged.
 # They cover ready/valid hierarchy (including legal full-buffer simultaneous
 # pop/push and reset-suppressed public handshakes), unbuffered
 # request/response, directional request/response FIFOs with a stateful
 # mixed-port child, and source-authored aggregate bus/CSR hierarchy.
-# Manifest hashes use current structured origins and the always-leaf top ABI;
-# the Direct-SV hashes remain unchanged.
 EXPECTED_ARTIFACTS = {
     ("hierarchical_protocol.zhl", "ProtocolTop"): (
         "67ebdf5d5e204ace5eddf737c6cf5c6804ea3503d87f5353e15b7c7b1b89e238",
-        "c3f5ae15d347e3707c0590a7e1c41dc14a0e47e9fe97c44f3d4d4db41b5b1639",
+        "fbb48db257c5166cd818fe7371f454fff7e571defcb89c0929e332dd742b8530",
         19,
     ),
     ("hierarchical_request_response.zhl", "HierarchicalRequestResponse"): (
-        "2fb5e7ce3a95471fded0bf9500c2c4314ee16edcf64e1ff53f37454317031706",
-        "2a3a0a3f793fd99cc0f70ad7fbaa493d42834d0d3d351ae91a31bce54dd80fd3",
+        "48254a7a2da27640922978654b1dde628e4e5251ed7288e0d18b6fd713a7e4ec",
+        "944662f8a5814abae9a40d43d2c4a7e750895144a8dc8d1a6430bfc365755422",
         27,
     ),
     ("simple_dma.zhl", "SimpleDMA"): (
         # Request/response buffers retain their frozen conservative admission
         # rule and therefore use the explicitly distinct helper family after
         # ordinary ready/valid FIFOs gained full pop/push replacement.
-        "02c43b29110ea89358a40c6513cb4c0f2db64cd95cc442da099fdd4f317b92fd",
-        "4a226adc98063e19eab9e881557aaf90a02d376663e02a868bf003331e344288",
+        "73cb85917c83bf1f396135e2a396467b027a2f812bdfb3518c101f4b5c8341d2",
+        "68e20b0228e75cc57cef5c235e1bf1d23835562e97bf2255869a1aa3dd8cb936",
         29,
     ),
     ("axi_csr_top.zhl", "AxiCsrTop"): (
         "ce6becd67a964adb44c5c0f965d2262893215d72a1c3db51474bfd25728bd3f9",
-        "a3e971752f0ebb4adc3236af8156c0908153e56a60d22fdeaf720167fa2f9177",
+        "2274e9a1fb96c50e9cbf040b899f77ab79fa48c2514ed5fae39d3acf378f83c9",
         77,
     ),
 }

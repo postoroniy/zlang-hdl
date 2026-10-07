@@ -23,7 +23,7 @@ from zlang.equivalence_result_codec import (
     equivalence_result_from_data,
     equivalence_result_to_data,
 )
-from zlang.formal_evidence_adapters import (
+from zlang.evidence_report import (
     evidence_from_equivalence_result,
     evidence_from_formal_exploration_record,
 )
@@ -748,6 +748,42 @@ def build_compiler_formal_execution_plan(
     )
 
 
+def validate_legacy_formal_view(compilation: object, design: object) -> None:
+    """Reject legacy combined output when it would hide goals or change routes."""
+
+    connected = getattr(design, "connected_artifact_hash", None) is not None
+    unavailable = (
+        tuple(
+            item for item in getattr(design, "properties", ())
+            if getattr(item, "predicate", None) is None
+            or getattr(item, "non_executable_reason", None) is not None
+        )
+        if connected else ()
+    )
+    covers = tuple(getattr(design, "covers", ()))
+    recursive = getattr(compilation, "recursive_formal_design", None)
+    root_name = getattr(getattr(compilation, "ir", None), "name", None)
+    descendants = tuple(
+        item for item in getattr(recursive, "properties", ())
+        if tuple(getattr(item, "physical_instance_path", ())) != (root_name,)
+    )
+    if not unavailable and not covers and not descendants:
+        return
+    if unavailable:
+        detail = f"goal '{unavailable[0].id}' is not executable on the selected route"
+    elif covers:
+        detail = f"cover '{covers[0].id}' requires an independent cover job"
+    else:
+        detail = (
+            f"descendant goal '{descendants[0].concrete_property_id}' requires "
+            "per-instance routing"
+        )
+    raise FormalOrchestrationError(
+        "legacy combined formal output would be incomplete: "
+        f"{detail}. Use --verification-bundle for per-goal backend routing"
+    )
+
+
 __all__ = [
     "COMPILER_FORMAL_EXECUTION_PLAN_SCHEMA",
     "CandidateEquivalenceExecutionReport",
@@ -757,4 +793,5 @@ __all__ = [
     "FormalSelectionAttemptReference",
     "build_compiler_formal_execution_plan",
     "collect_formal_selection_evidence",
+    "validate_legacy_formal_view",
 ]

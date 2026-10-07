@@ -6,7 +6,7 @@ import pytest
 from zlang.ir.state import (
     FifoOccupancy,
     StateActionKind,
-    groups_may_conflict,
+    groups_conflict,
     ordered_groups,
     select_action_groups,
     selection_cubes,
@@ -111,7 +111,7 @@ module Pair { clock clk reset rst in x:u8 in fire:bit
 """
     module = analyze(parse(source))
     groups = module.resolved_transition.action_groups
-    assert not groups_may_conflict(groups[0], groups[1])
+    assert not groups_conflict(groups[0], groups[1])
     result = simulate_cycles(module, [
         {"x": 7, "fire": 1},  # empty: pop group suppressed, push group fires
         {"x": 8, "fire": 1},  # both fire, count remains one
@@ -207,6 +207,57 @@ def test_depth_independent_scheduler_regions_match_exact_selection() -> None:
             for name, items in regions.items()
             if any(
                 all(want is None or want == got for want, got in zip(item, values, strict=True))
+                for item in items
+            )
+        }
+        assert actual == expected
+
+
+def test_register_scheduler_regions_ignore_later_and_disconnected_guards() -> None:
+    module = analyze(parse("""module RegisterScheduler {
+      clock clk reset rst
+      in g0,g1,g2,g3:bit
+      out oa,ob,oc:u8
+      reg a:u8=0 reg b:u8=0 reg c:u8=0
+      rule first when g0 { a <- 1 }
+      rule bridge when g1 { a <- 2 b <- 2 }
+      rule third when g2 { b <- 3 }
+      rule separate when g3 { c <- 4 }
+      priority first > bridge
+      priority bridge > third
+      oa=a ob=b oc=c
+    }"""))
+    transition = module.resolved_transition
+    assert transition is not None
+    groups = ordered_groups(transition)
+    regions = {
+        group.rule_name: selection_regions(transition, group.rule_name)
+        for group in groups
+    }
+
+    # Later candidates and the disconnected writer are exact don't-cares for
+    # the already-decided first rule rather than global truth-table axes.
+    first_index = next(
+        index for index, group in enumerate(groups)
+        if group.rule_name == "first"
+    )
+    for region in regions["first"]:
+        assert all(value is None for value in region[first_index + 1 :])
+
+    for guard_bits in product((False, True), repeat=len(groups)):
+        guards = {
+            group.rule_name: value
+            for group, value in zip(groups, guard_bits, strict=True)
+        }
+        expected = set(select_action_groups(transition, guards, {}))
+        actual = {
+            name
+            for name, items in regions.items()
+            if any(
+                all(
+                    want is None or want == got
+                    for want, got in zip(item, guard_bits, strict=True)
+                )
                 for item in items
             )
         }

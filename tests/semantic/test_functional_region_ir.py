@@ -41,6 +41,7 @@ from zlang.ir.functional_regions import (
 from zlang.ir.signed_reductions import expression_semantic_identity
 from zlang.ir.module import (
     Assignment,
+    Function,
     FunctionParameter,
     Module,
     Port,
@@ -58,7 +59,6 @@ from zlang.opt.lowering import (
     restore_expression,
 )
 from zlang.native_simulation import simulate
-from tests.support.typed_callables import typed_function
 
 
 U8 = UIntType(8)
@@ -316,13 +316,13 @@ def test_builtin_exact_reduction_rejects_narrowed_intermediate_type() -> None:
 
 
 def test_nominal_exact_plan_validates_callable_identity_and_simulates() -> None:
-    add8 = typed_function(
+    add8 = Function(
         "add8",
         (FunctionParameter("left", U8), FunctionParameter("right", U8)),
         U9,
         Add(ParameterRef("left", U8), ParameterRef("right", U8), U9),
     )
-    add89 = typed_function(
+    add89 = Function(
         "add89",
         (FunctionParameter("left", U8), FunctionParameter("right", U9)),
         U10,
@@ -402,14 +402,14 @@ def test_nominal_exact_plan_validates_callable_identity_and_simulates() -> None:
 def test_compactor_builds_one_template_table_and_capture() -> None:
     vector_type = VecType(3, U8)
     binder = CompileTimeBinderRef("fixture:compact", "k", 0, 3)
-    combine = typed_function(
+    combine = Function(
         "combine",
         (FunctionParameter("left", U8), FunctionParameter("right", U8)),
         U9,
         Add(ParameterRef("left", U8), ParameterRef("right", U8), U9),
     )
-    constant_zero = typed_function("constant_zero", (), U8, Constant(0, U8))
-    constant_two = typed_function("constant_two", (), U8, Constant(2, U8))
+    constant_zero = Function("constant_zero", (), U8, Constant(0, U8))
+    constant_two = Function("constant_two", (), U8, Constant(2, U8))
     constants = (constant_zero, constant_two)
     selected_constants = (
         constant_zero,

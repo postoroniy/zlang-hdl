@@ -8,39 +8,34 @@ from typing import Callable
 from zlang.async_fifo import build_async_fifo_physical_plan
 from zlang.ir.cdc import CrossingKind
 from zlang.ir.interfaces import InterfaceProtocol
-from zlang.ir import module as ir_module
-from zlang.ir import storage as ir_storage
-from zlang.ir import types as ir_types
-from zlang.backend.systemverilog import boundary as sv_boundary
-from zlang.backend.systemverilog import rendering as sv_rendering
-from zlang.backend.systemverilog import sequential as sv_sequential
-from zlang.backend.systemverilog.errors import SystemVerilogEmissionError
+from zlang.ir.module import Module
+from zlang.ir.storage import Memory
+from zlang.ir.types import BitType, HardwareType
 
 
 @dataclass(frozen=True)
 class CDCRendering:
-    """Per-emission CDC capabilities that genuinely depend on caller state."""
+    """The small renderer surface needed by the isolated CDC subsystem."""
 
-    module: Callable[[ir_module.Module, list[str], list[str]], str]
-    ported_memory: Callable[[ir_module.Module, ir_storage.Memory], tuple[list[str], list[str]]]
+    error: Callable[[str], Exception]
+    identifier: Callable[[str], str]
+    logic_port: Callable[[str, str, HardwareType], str]
+    packed_width: Callable[[HardwareType], int]
+    packed_range: Callable[[int], str]
+    clock_event: Callable[[Module, str], str]
+    reset_asserted: Callable[[Module, str], str]
+    module: Callable[[Module, list[str], list[str]], str]
+    ported_memory: Callable[[Module, Memory], tuple[list[str], list[str]]]
 
 
-def _clock_event(module: ir_module.Module, clock: str) -> str:
-    return sv_sequential.clock_event(module, sv_rendering._identifier, clock)
-
-
-def _reset_asserted(module: ir_module.Module, clock: str) -> str:
-    return sv_sequential.reset_asserted(module, sv_rendering._identifier, clock)
-
-
-def _connection(module: ir_module.Module, kind: CrossingKind):
+def _connection(module: Module, kind: CrossingKind, rendering: CDCRendering):
     crossings = tuple(
         connection
         for connection in module.connections
         if connection.crossing is not None
     )
     if len(crossings) != 1 or len(module.connections) != 1:
-        raise SystemVerilogEmissionError(
+        raise rendering.error(
             f"direct {kind.value} CDC requires exactly one explicit crossing"
         )
     if (
@@ -51,7 +46,7 @@ def _connection(module: ir_module.Module, kind: CrossingKind):
         or module.elaborated_instances
         or module.hierarchical_connections
     ):
-        raise SystemVerilogEmissionError(
+        raise rendering.error(
             f"direct {kind.value} CDC cannot yet be mixed with storage, "
             "hierarchy, or CSR"
         )
@@ -59,12 +54,12 @@ def _connection(module: ir_module.Module, kind: CrossingKind):
     crossing = connection.crossing
     assert crossing is not None
     if crossing.kind is not kind:
-        raise SystemVerilogEmissionError(
+        raise rendering.error(
             f"direct CDC dispatcher expected {kind.value}, got {crossing.kind.value}"
         )
     source, destination = connection.source, connection.destination
     if source.domain is None or destination.domain is None:
-        raise SystemVerilogEmissionError(
+        raise rendering.error(
             f"direct {kind.value} CDC requires explicit endpoint domains"
         )
     domains = {domain.clock: domain for domain in module.clock_domains}
@@ -72,45 +67,45 @@ def _connection(module: ir_module.Module, kind: CrossingKind):
         source_domain = domains[source.domain]
         destination_domain = domains[destination.domain]
     except KeyError as error:
-        raise SystemVerilogEmissionError(
+        raise rendering.error(
             f"direct {kind.value} CDC references an unknown clock domain"
         ) from error
     if source.domain == destination.domain:
-        raise SystemVerilogEmissionError(
+        raise rendering.error(
             f"direct {kind.value} CDC requires distinct clock domains"
         )
     return connection, source_domain, destination_domain
 
 
-def _ports(module: ir_module.Module) -> list[str]:
-    identifier = sv_rendering._identifier
+def _ports(module: Module, rendering: CDCRendering) -> list[str]:
+    identifier = rendering.identifier
     return [
         *(f"input wire logic {identifier(domain.clock)}" for domain in module.clock_domains),
         *(f"input wire logic {identifier(domain.reset)}" for domain in module.clock_domains),
     ]
 
 
-def _emit_sync_level(module: ir_module.Module, rendering: CDCRendering) -> str:
-    connection, _, destination_domain = _connection(module, CrossingKind.SYNC_LEVEL)
+def _emit_sync_level(module: Module, rendering: CDCRendering) -> str:
+    connection, _, destination_domain = _connection(
+        module, CrossingKind.SYNC_LEVEL, rendering
+    )
     source, destination = connection.source, connection.destination
     if (
         source.protocol is not InterfaceProtocol.WIRE
         or destination.protocol is not InterfaceProtocol.WIRE
-        or not isinstance(source.type, ir_types.BitType)
-        or not isinstance(destination.type, ir_types.BitType)
+        or not isinstance(source.type, BitType)
+        or not isinstance(destination.type, BitType)
     ):
-        raise SystemVerilogEmissionError(
-            "direct sync_level CDC requires bit wire endpoints"
-        )
-    identifier = sv_rendering._identifier
+        raise rendering.error("direct sync_level CDC requires bit wire endpoints")
+    identifier = rendering.identifier
     src = identifier(source.name)
     dst = identifier(destination.name)
-    clock_event = _clock_event(module, destination_domain.clock)
-    reset = _reset_asserted(module, destination_domain.clock)
+    clock_event = rendering.clock_event(module, destination_domain.clock)
+    reset = rendering.reset_asserted(module, destination_domain.clock)
     ports = [
-        *_ports(module),
-        sv_boundary._logic_port("input", src, source.type),
-        sv_boundary._logic_port("output", dst, destination.type),
+        *_ports(module, rendering),
+        rendering.logic_port("input", src, source.type),
+        rendering.logic_port("output", dst, destination.type),
     ]
     lines = [
         '  (* ASYNC_REG = "TRUE" *) logic zlang_sync_stage1, zlang_sync_stage2;',
@@ -128,31 +123,29 @@ def _emit_sync_level(module: ir_module.Module, rendering: CDCRendering) -> str:
     return rendering.module(module, ports, lines)
 
 
-def _emit_pulse_toggle(module: ir_module.Module, rendering: CDCRendering) -> str:
+def _emit_pulse_toggle(module: Module, rendering: CDCRendering) -> str:
     connection, source_domain, destination_domain = _connection(
-        module, CrossingKind.PULSE_TOGGLE
+        module, CrossingKind.PULSE_TOGGLE, rendering
     )
     source, destination = connection.source, connection.destination
     if (
         source.protocol is not InterfaceProtocol.WIRE
         or destination.protocol is not InterfaceProtocol.WIRE
-        or not isinstance(source.type, ir_types.BitType)
-        or not isinstance(destination.type, ir_types.BitType)
+        or not isinstance(source.type, BitType)
+        or not isinstance(destination.type, BitType)
     ):
-        raise SystemVerilogEmissionError(
-            "direct pulse_toggle CDC requires bit wire endpoints"
-        )
-    identifier = sv_rendering._identifier
+        raise rendering.error("direct pulse_toggle CDC requires bit wire endpoints")
+    identifier = rendering.identifier
     src = identifier(source.name)
     dst = identifier(destination.name)
-    src_clock_event = _clock_event(module, source_domain.clock)
-    src_reset = _reset_asserted(module, source_domain.clock)
-    dst_clock_event = _clock_event(module, destination_domain.clock)
-    dst_reset = _reset_asserted(module, destination_domain.clock)
+    src_clock_event = rendering.clock_event(module, source_domain.clock)
+    src_reset = rendering.reset_asserted(module, source_domain.clock)
+    dst_clock_event = rendering.clock_event(module, destination_domain.clock)
+    dst_reset = rendering.reset_asserted(module, destination_domain.clock)
     ports = [
-        *_ports(module),
-        sv_boundary._logic_port("input", src, source.type),
-        sv_boundary._logic_port("output", dst, destination.type),
+        *_ports(module, rendering),
+        rendering.logic_port("input", src, source.type),
+        rendering.logic_port("output", dst, destination.type),
     ]
     lines = [
         "  logic zlang_source_toggle;",
@@ -179,9 +172,9 @@ def _emit_pulse_toggle(module: ir_module.Module, rendering: CDCRendering) -> str
     return rendering.module(module, ports, lines)
 
 
-def _emit_handshake(module: ir_module.Module, rendering: CDCRendering) -> str:
+def _emit_handshake(module: Module, rendering: CDCRendering) -> str:
     connection, source_domain, destination_domain = _connection(
-        module, CrossingKind.HANDSHAKE
+        module, CrossingKind.HANDSHAKE, rendering
     )
     source, destination = connection.source, connection.destination
     if (
@@ -189,28 +182,28 @@ def _emit_handshake(module: ir_module.Module, rendering: CDCRendering) -> str:
         or destination.protocol is not InterfaceProtocol.READY_VALID
         or source.type != destination.type
     ):
-        raise SystemVerilogEmissionError(
+        raise rendering.error(
             "direct handshake CDC requires matching typed ready/valid endpoints"
         )
-    identifier = sv_rendering._identifier
+    identifier = rendering.identifier
     src = identifier(source.name)
     dst = identifier(destination.name)
-    src_clock_event = _clock_event(module, source_domain.clock)
-    src_reset = _reset_asserted(module, source_domain.clock)
-    dst_clock_event = _clock_event(module, destination_domain.clock)
-    dst_reset = _reset_asserted(module, destination_domain.clock)
-    width = sv_rendering._width(source.type)
+    src_clock_event = rendering.clock_event(module, source_domain.clock)
+    src_reset = rendering.reset_asserted(module, source_domain.clock)
+    dst_clock_event = rendering.clock_event(module, destination_domain.clock)
+    dst_reset = rendering.reset_asserted(module, destination_domain.clock)
+    width = rendering.packed_width(source.type)
     ports = [
-        *_ports(module),
-        sv_boundary._logic_port("input", f"{src}_payload", source.type),
+        *_ports(module, rendering),
+        rendering.logic_port("input", f"{src}_payload", source.type),
         f"input wire logic {src}_valid",
         f"output logic {src}_ready",
-        sv_boundary._logic_port("output", f"{dst}_payload", destination.type),
+        rendering.logic_port("output", f"{dst}_payload", destination.type),
         f"output logic {dst}_valid",
         f"input wire logic {dst}_ready",
     ]
     lines = [
-        f"  logic {sv_rendering._range(width)}zlang_held_payload;",
+        f"  logic {rendering.packed_range(width)}zlang_held_payload;",
         "  logic zlang_source_request, zlang_destination_acknowledge;",
         '  (* ASYNC_REG = "TRUE" *) logic zlang_ack_sync1, zlang_ack_sync2;',
         '  (* ASYNC_REG = "TRUE" *) logic zlang_request_sync1, zlang_request_sync2;',
@@ -253,16 +246,14 @@ def _emit_handshake(module: ir_module.Module, rendering: CDCRendering) -> str:
     return rendering.module(module, ports, lines)
 
 
-def _emit_async_fifo(module: ir_module.Module, rendering: CDCRendering) -> str:
+def _emit_async_fifo(module: Module, rendering: CDCRendering) -> str:
     connection, source_domain, destination_domain = _connection(
-        module, CrossingKind.ASYNC_FIFO
+        module, CrossingKind.ASYNC_FIFO, rendering
     )
     crossing = connection.crossing
     assert crossing is not None
     if crossing.kind is not CrossingKind.ASYNC_FIFO or crossing.depth is None:
-        raise SystemVerilogEmissionError(
-            "direct CDC lowering requires an async_fifo depth"
-        )
+        raise rendering.error("direct CDC lowering requires an async_fifo depth")
     source, destination = connection.source, connection.destination
     if (
         source.protocol is not InterfaceProtocol.READY_VALID
@@ -270,13 +261,13 @@ def _emit_async_fifo(module: ir_module.Module, rendering: CDCRendering) -> str:
         or source.domain is None
         or destination.domain is None
     ):
-        raise SystemVerilogEmissionError(
+        raise rendering.error(
             "direct async_fifo CDC requires typed ready/valid endpoints and domains"
         )
     try:
         physical = build_async_fifo_physical_plan(module, connection)
     except ValueError as error:
-        raise SystemVerilogEmissionError(str(error)) from error
+        raise rendering.error(str(error)) from error
     address_width = physical.address_width
     pointer_width = physical.pointer_width
     memory_declarations, memory_logic = rendering.ported_memory(
@@ -293,14 +284,14 @@ def _emit_async_fifo(module: ir_module.Module, rendering: CDCRendering) -> str:
         )
         for item in physical.registers
     ]
-    payload_width = sv_rendering._width(source.type)
-    identifier = sv_rendering._identifier
+    payload_width = rendering.packed_width(source.type)
+    identifier = rendering.identifier
     src = identifier(source.name)
     dst = identifier(destination.name)
-    src_clock_event = _clock_event(module, source_domain.clock)
-    src_reset = _reset_asserted(module, source_domain.clock)
-    dst_clock_event = _clock_event(module, destination_domain.clock)
-    dst_reset = _reset_asserted(module, destination_domain.clock)
+    src_clock_event = rendering.clock_event(module, source_domain.clock)
+    src_reset = rendering.reset_asserted(module, source_domain.clock)
+    dst_clock_event = rendering.clock_event(module, destination_domain.clock)
+    dst_reset = rendering.reset_asserted(module, destination_domain.clock)
     controller_symbols = {
         "zlang_source_valid": f"{src}_valid",
         "zlang_destination_ready": f"{dst}_ready",
@@ -310,11 +301,11 @@ def _emit_async_fifo(module: ir_module.Module, rendering: CDCRendering) -> str:
         "zlang_destination_valid": f"{dst}_valid",
     }
     ports = [
-        *_ports(module),
-        sv_boundary._logic_port("input", f"{src}_payload", source.type),
+        *_ports(module, rendering),
+        rendering.logic_port("input", f"{src}_payload", source.type),
         f"input wire logic {src}_valid",
         f"output logic {src}_ready",
-        sv_boundary._logic_port("output", f"{dst}_payload", destination.type),
+        rendering.logic_port("output", f"{dst}_payload", destination.type),
         f"output logic {dst}_valid",
         f"input wire logic {dst}_ready",
     ]
@@ -373,7 +364,7 @@ def _emit_async_fifo(module: ir_module.Module, rendering: CDCRendering) -> str:
     return rendering.module(module, ports, lines)
 
 
-def emit_cdc_module(module: ir_module.Module, rendering: CDCRendering) -> str:
+def emit_cdc_module(module: Module, rendering: CDCRendering) -> str:
     crossing = next(
         connection.crossing
         for connection in module.connections

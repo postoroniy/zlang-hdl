@@ -25,8 +25,7 @@ from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
 from zlang.compiler import compile_file
 from zlang.ir import expressions as expr
 from zlang.ir.types import FixedType
-from zlang.opt.ir import OptimizationStage
-from zlang.opt.lowering import lower, restore
+from zlang.opt import OptimizationStage, lower, restore
 from zlang.parser import parse
 from zlang.semantic import analyze
 from zlang.native_simulation import simulate_cycles

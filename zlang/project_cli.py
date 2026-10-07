@@ -14,7 +14,7 @@ from zlang.workspace import WorkspaceError, update_project_lock
 def main(
     argv: Sequence[str] | None = None,
     *,
-    prog: str = "zlang lock",
+    prog: str = "zlang-lock",
 ) -> int:
     parser = argparse.ArgumentParser(
         prog=prog,

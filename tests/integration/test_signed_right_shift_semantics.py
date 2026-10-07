@@ -19,13 +19,13 @@ from zlang.backend.systemverilog import emit_artifact
 from zlang.compiler import compile_source
 from zlang.equivalence import (
     artifact_hash,
-    emit_miter_with_metadata,
+    emit_miter,
     emit_reference_model,
+    formal_tools_available,
     make_equivalence_property,
     publish_bindings,
     run_equivalence_formal,
 )
-from tests.support.formal import formal_tools_available
 from zlang.ir.equivalence import (
     BindingMap,
     BindingSide,
@@ -232,19 +232,14 @@ def _semantic_equivalence_source(implementation: str) -> tuple[object, str, str]
         artifact_hash_value=artifact_hash(implementation),
         rtl_names=names,
     )
-    miter = emit_miter_with_metadata(
+    miter = emit_miter(
         property_,
         BindingMap((*reference_bindings, *implementation_bindings)),
         reference_module="SignedShiftReference",
         implementation_module=module.name,
     )
     top = "semantic_equivalence_" + property_.id.replace(".", "_")
-    return (
-        property_,
-        reference + "\n" + implementation + "\n" + miter.source,
-        top,
-        miter.trace_metadata,
-    )
+    return property_, reference + "\n" + implementation + "\n" + miter, top
 
 
 @pytest.mark.skipif(
@@ -258,24 +253,18 @@ def test_semantic_equivalence_signed_shift_reference_passes_and_logical_mutation
     ).text
     assert ">>>" in implementation
 
-    property_, correct_source, top, trace_metadata = _semantic_equivalence_source(
-        implementation
-    )
+    property_, correct_source, top = _semantic_equivalence_source(implementation)
     assert "assign y" in correct_source and ">>>" in correct_source
     correct = run_equivalence_formal(
-        property_, correct_source, top=top, mode=EquivalenceMode.BMC, depth=2,
-        trace_metadata=trace_metadata,
+        property_, correct_source, top=top, mode=EquivalenceMode.BMC, depth=2
     )
     assert correct.status is EquivalenceStatus.BOUNDED_PASS
 
     mutated_implementation = implementation.replace(">>>", ">>", 1)
     assert mutated_implementation != implementation
-    property_, mutated_source, top, trace_metadata = _semantic_equivalence_source(
-        mutated_implementation
-    )
+    property_, mutated_source, top = _semantic_equivalence_source(mutated_implementation)
     mutated = run_equivalence_formal(
-        property_, mutated_source, top=top, mode=EquivalenceMode.BMC, depth=2,
-        trace_metadata=trace_metadata,
+        property_, mutated_source, top=top, mode=EquivalenceMode.BMC, depth=2
     )
     assert mutated.status is EquivalenceStatus.FAILED
     assert mutated.counterexample is not None

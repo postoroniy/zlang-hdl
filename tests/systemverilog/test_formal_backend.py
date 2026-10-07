@@ -4,7 +4,7 @@ from pathlib import Path
 import shutil
 import unittest
 
-from zlang.backend.systemverilog import emit
+from zlang.backend.systemverilog import emit_experimental
 from zlang.compiler import compile_source
 from zlang.formal import run_verilog_formal
 from zlang.ir.formal import FormalStatus
@@ -16,7 +16,7 @@ TOOLS_AVAILABLE = all(shutil.which(tool) for tool in ("yosys", "sby", "z3"))
 
 def emitted(name: str, *, top: str | None = None) -> str:
     module = compile_source((ROOT / "examples" / name).read_text(), top=top).ir
-    return emit(module)
+    return emit_experimental(module)
 
 
 RULE_HARNESS = r"""
@@ -148,23 +148,28 @@ class DirectSystemVerilogFormalTests(unittest.TestCase):
         fifo = emitted("rv_buffer.zhl")
         csr = emitted("control_csr.zhl")
         rr = emitted("hierarchical_request_response.zhl", top="HierarchicalRequestResponse")
+        def mutate(source: str, old: str, new: str) -> str:
+            self.assertIn(old, source)
+            mutated = source.replace(old, new, 1)
+            self.assertNotEqual(mutated, source)
+            return mutated
+
         mutations = (
-            (rule.replace("count} + {{1{1'b0}}, 8'd1", "count} - {{1{1'b0}}, 8'd1"),
+            (mutate(rule, "count} + 9'd1", "count} - 9'd1"),
              RULE_HARNESS, "DirectRuleFormal", "arithmetic"),
-            (counter.replace(
-                "count <= 8'(({{1{1'b0}}, count} + {{1{1'b0}}, 8'd1}));",
-                "count <= count;"), COUNTER_HARNESS, "DirectStateFormal", "state_transition"),
-            (fifo.replace("count <= count + 1'b1", "count <= count - 1'b1"),
+            (mutate(counter, "count <= 8'(({{1{1'b0}}, count} + 9'd1));", "count <= count;"),
+             COUNTER_HARNESS, "DirectStateFormal", "state_transition"),
+            (mutate(fifo, "count <= count + 1'b1", "count <= count - 1'b1"),
              FIFO_HARNESS, "DirectFifoFormal", "fifo_accounting"),
-            (rr.replace(
+            (mutate(rr,
                 "assign bus_response_valid = (bus_request_valid && bus_request_ready);",
                 "assign bus_response_valid = (bus_request_valid || bus_request_ready);"),
              RR_HARNESS, "DirectRrFormal", "response_accounting"),
-            (csr.replace(
+            (mutate(csr,
                 "csr_control_status_error & ~wdata[1]",
                 "csr_control_status_error | wdata[1]"),
              CSR_HARNESS, "DirectCsrFormal", "w1c"),
-            (rule.replace(
+            (mutate(rule,
                 "if (clear) count <= 8'd0;\n      else if (increment)",
                 "if (increment) count <= 8'd0;\n      else if (clear)"),
              RULE_HARNESS, "DirectRuleFormal", "priority"),

@@ -144,26 +144,25 @@ def explore_pipeline(
     products = _flatten_products(expression)
     if len(products) < 4:
         raise PipelineExplorationError(
-            "implementation pipeline candidate requires a sum of at least four products"
+            "pipeline(auto) requires a sum of at least four products"
         )
     if len(products) & (len(products) - 1):
         raise PipelineExplorationError(
-            "implementation pipeline candidate requires a power-of-two product count"
+            "pipeline(auto) currently requires a power-of-two product count"
         )
     if not isinstance(result_type, (UIntType, SIntType)):
         raise PipelineExplorationError(
-            "implementation pipeline candidate requires an integer scalar result"
+            "pipeline(auto) currently requires an integer scalar result"
         )
     validate_full_precision_products(
         products,
         result_type,
         error_type=PipelineExplorationError,
-        context="implementation pipeline candidate",
+        context="pipeline(auto)",
     )
     if not sum_fits(products, result_type):
         raise PipelineExplorationError(
-            "implementation pipeline candidate cannot prove reassociation "
-            f"lossless at {result_type}"
+            f"pipeline(auto) cannot prove reassociation lossless at {result_type}"
         )
 
     linear = coerce_integer_result(
@@ -668,6 +667,15 @@ def render_pipeline_report(module: Module) -> str:
             )
     for region in module.elastic_pipeline_regions:
         constraints = ",".join(item.render() for item in region.constraints)
+        temporal = region.temporal_graph
+        valid_ff = (
+            region.plan.valid_stage_count
+            if region.plan is not None else temporal.resource_cost.ff
+        )
+        ready_control = (
+            region.plan.ready_control_lut_estimate
+            if region.plan is not None else temporal.resource_cost.lut
+        )
         lines.append(
             f"elastic_region id={region.semantic_id} "
             f"source={region.source_endpoint} destination={region.destination_endpoint} "
@@ -676,8 +684,8 @@ def render_pipeline_report(module: Module) -> str:
             f"ii_no_stall={region.timing.ii_no_stall} "
             f"capacity={region.timing.capacity} wall_clock_latency=variable "
             f"stall_policy={region.timing.stall_policy.value} "
-            f"valid_ff_estimate={region.plan.valid_stage_count} "
-            f"ready_control_lut_estimate={region.plan.ready_control_lut_estimate} "
+            f"valid_ff_estimate={valid_ff} "
+            f"ready_control_lut_estimate={ready_control} "
             "timing_relation=not_applicable semantic_equivalence=unsupported"
         )
         selected = region.selected_candidate
@@ -731,7 +739,7 @@ def _validate_constraints(constraints: tuple[PipelineConstraint, ...]) -> None:
     if len(metrics) != len(set(metrics)):
         duplicate = next(metric for metric in metrics if metrics.count(metric) > 1)
         raise PipelineExplorationError(
-            f"implementation pipeline candidate repeats '{duplicate.value}' constraint"
+            f"pipeline(auto) repeats '{duplicate.value}' constraint"
         )
     required_relations = {
         PipelineMetric.THROUGHPUT: PipelineRelation.EXACT,
@@ -780,8 +788,7 @@ def _explore_fixed_output(
     """
     if not isinstance(expression, expr.FixedConvert) or expression.type != result_type:
         raise PipelineExplorationError(
-            "fixed implementation pipeline candidate requires one explicit final "
-            "FixedConvert"
+            "fixed pipeline(auto) requires one explicit final FixedConvert"
         )
     reduction = recognize_signed_product_reduction(expression.expression)
     if reduction is None:
@@ -790,8 +797,7 @@ def _explore_fixed_output(
         products = tuple(term.product_expression for term in reduction.terms)
     if len(products) < 2:
         raise PipelineExplorationError(
-            "fixed implementation pipeline candidate requires a full-precision "
-            "product reduction"
+            "fixed pipeline(auto) requires a full-precision product reduction"
         )
     exact = next((item.value for item in constraints
                   if item.metric is PipelineMetric.LATENCY
@@ -880,6 +886,21 @@ def _violations(
     return tuple(violations)
 
 
+def pipeline_candidate_violations(
+    candidate: PipelineCandidate,
+    constraints: tuple[PipelineConstraint, ...],
+) -> tuple[str, ...]:
+    """Evaluate the existing pipeline constraint vocabulary for one provider.
+
+    Operation-specific providers may contribute a candidate without duplicating
+    the source-visible latency/II/DSP constraint semantics.  This is a narrow
+    public helper, not a second selector.
+    """
+
+    _validate_constraints(constraints)
+    return _violations(candidate, constraints)
+
+
 def _flatten_products(expression: expr.Expression) -> tuple[expr.Binary, ...]:
     terms: list[expr.Expression] = []
 
@@ -904,8 +925,7 @@ def _flatten_products(expression: expr.Expression) -> tuple[expr.Binary, ...]:
         for term in terms
     ):
         raise PipelineExplorationError(
-            "implementation pipeline candidate accepts only a sum of "
-            "full-precision products"
+            "pipeline(auto) currently accepts only a sum of full-precision products"
         )
     return tuple(term for term in terms if isinstance(term, expr.Binary))
 

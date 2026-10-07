@@ -563,7 +563,9 @@ class FormalAwareExplorationTests(unittest.TestCase):
 
             self.assertEqual(len(calls), 1)
             self.assertEqual(len(reruns), 1)
-            self.assertEqual(cached.records[0].cache_state, "executed")
+            self.assertTrue(
+                cached.records[0].cache_state.startswith("corrupt-ignored")
+            )
             self.assertTrue(legacy.is_file())
             self.assertTrue(canonical.exists())
 

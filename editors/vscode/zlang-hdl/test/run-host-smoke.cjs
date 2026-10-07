@@ -58,7 +58,7 @@ async function main() {
     const settings = path.join(workspace, '.vscode');
     fs.mkdirSync(settings);
     fs.writeFileSync(path.join(settings, 'settings.json'), `${JSON.stringify({
-      'zlang.lsp.path': executableOnPath('zlang'),
+      'zlang.lsp.path': executableOnPath('zlang-lsp'),
     }, null, 2)}\n`);
     const executable = await downloadAndUnzipVSCode(toolchain.vscodeStable.version);
     await runVSCodeCommand(

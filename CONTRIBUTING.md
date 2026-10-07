@@ -27,6 +27,12 @@ uv pip install -e '.[test]'
 .venv/bin/python -m pytest -q
 ```
 
+Each checkout and Git worktree owns its own `.venv`; never borrow an
+interpreter from a sibling checkout.  The supported bootstrap command is
+`make venv`, followed by `source .venv/bin/activate` for interactive work.
+Make targets always select the local environment themselves and fail closed if
+an unrelated `VIRTUAL_ENV` is active.
+
 See the [installation chapter](docs/language-reference.md#reference-installing-toolchain) for a conventional
 `venv`/pip alternative, WSL2 setup and optional external EDA tools.
 
@@ -39,8 +45,8 @@ make test-fast
 make test
 ```
 
-`PYTHON` and `WORKERS` are overridable, for example
-`make test PYTHON=python WORKERS=4`. `make release-candidate` runs the license
+`WORKERS` is overridable, for example `make test WORKERS=4`; `PYTHON` is
+intentionally pinned to this checkout's `.venv`. `make release-candidate` runs the license
 and dependency audits, pinned-tool check, two-pass zero-skip regression, editor
 tests and reproducible package build, but never creates a tag or publishes
 anything.

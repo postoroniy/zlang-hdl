@@ -80,10 +80,13 @@ class AggregateSemanticTests(unittest.TestCase):
         with self.assertRaisesRegex(SemanticError, "index 2 is out of range"):
             analyze(parse(source))
 
-    def test_indexing_scalar_is_rejected(self) -> None:
-        source = "module Bad { in x:u8 out y:u8 y=x[0] }"
-        with self.assertRaisesRegex(SemanticError, "indexing requires a vector"):
-            analyze(parse(source))
+    def test_packed_scalar_index_is_a_typed_bit(self) -> None:
+        # Integer storage has the same packed-bit layout as ``bits<N>``.
+        # Runtime packed selection deliberately supports this shape; only
+        # aggregate/vector indexing follows the vector-specific route.
+        source = "module Packed { in x:u8 out y:bit y=x[0] }"
+        expression = analyze(parse(source)).assignments[0].expression
+        self.assertEqual(expression.type, BitType())
 
     def test_duplicate_function_and_parameter_are_rejected(self) -> None:
         duplicate_function = """
