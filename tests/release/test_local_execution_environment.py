@@ -10,6 +10,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[2]
 RUNNER = ROOT / "tools" / "run_local_env.sh"
 WORKFLOW_AUDIT = ROOT / "tools" / "audit_workflow_local_env.py"
+WORKFLOW_STRUCTURE_AUDIT = ROOT / "tools" / "audit_workflow_structure.py"
 
 
 def _run(*arguments: str, **kwargs: object) -> subprocess.CompletedProcess[str]:
@@ -73,3 +74,37 @@ def test_env_check_reports_a_missing_local_venv(tmp_path: Path) -> None:
 def test_python_workflows_require_the_local_venv_hook() -> None:
     completed = _run(sys.executable, str(WORKFLOW_AUDIT), "--root", str(ROOT))
     assert completed.returncode == 0, completed.stderr
+
+
+def test_workflows_have_unique_top_level_keys() -> None:
+    completed = _run(
+        sys.executable,
+        str(WORKFLOW_STRUCTURE_AUDIT),
+        "--root",
+        str(ROOT),
+    )
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_workflow_structure_audit_rejects_duplicate_top_level_key(
+    tmp_path: Path,
+) -> None:
+    workflows = tmp_path / ".github" / "workflows"
+    workflows.mkdir(parents=True)
+    workflow = workflows / "release.yml"
+    workflow.write_text(
+        "name: Release\nenv:\n  RELEASE_TAG: candidate\njobs: {}\nenv:\n"
+        "  BASH_ENV: local-env.sh\n",
+        encoding="utf-8",
+    )
+
+    completed = _run(
+        sys.executable,
+        str(WORKFLOW_STRUCTURE_AUDIT),
+        "--root",
+        str(tmp_path),
+    )
+
+    assert completed.returncode == 2
+    assert "duplicate top-level key 'env'" in completed.stderr
+    assert "first declared on line 2" in completed.stderr
