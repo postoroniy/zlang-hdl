@@ -35,8 +35,10 @@ optimization. Never move narrowing or rounding to improve QoR without a new
 bit-exact contract.
 
 Standard buses should use the source-authored `std.bus.*` modules and their
-existing oracle tests. Do not add AXI/AHB/APB/Wishbone special cases to semantic
-or backend code.
+existing oracle tests. Choose the exact supported profile from
+[types and interfaces](types-and-interfaces.md), then start from its runnable
+example. Do not add AXI/AHB/APB/Wishbone special cases to semantic or backend
+code.
 
 If the current language cannot express the design without repetitive source,
 first distinguish:

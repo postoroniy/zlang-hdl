@@ -13,6 +13,7 @@ import pytest
 from zlang.backend.manifest import BackendArtifact
 from zlang.backend.systemverilog import emit_artifact, emit_formal_artifact
 from zlang.backend.systemverilog import emitter as sv_emitter
+from zlang.backend.systemverilog import formal as sv_formal
 from zlang.compiler import compile_source
 from zlang.formal import (
     build_recursive_formal_design,
@@ -54,7 +55,7 @@ def _instrumented(compilation):
         item.semantic_binding_id: f"zlang_formal_obs_{index}"
         for index, item in enumerate(observations)
     }
-    return sv_emitter._instrument_direct_formal_module(
+    return sv_formal.instrument_direct_formal_module(
         compilation.ir, recursive, tokens
     )
 

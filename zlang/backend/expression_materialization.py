@@ -310,7 +310,9 @@ def build_direct_sv_dag_plan(
     fanout: dict[str, int] = {}
     dependency_order: list[expr.Expression] = []
     aggregate_field_selections: set[str] = set()
+    runtime_struct_field_selections: set[str] = set()
     dynamic_index_prefixes: set[str] = set()
+    full_value_uses: set[str] = set()
     sizes: dict[str, int] = {}
     payload_cache: dict[int, str] = {}
 
@@ -353,20 +355,31 @@ def build_direct_sv_dag_plan(
             # vector as one backend-local value so every emitter can render a
             # simple reference without changing index order or element width.
             dynamic_index_prefixes.add(identity_of(value.expression))
-        # A field selected from one runtime-indexed struct is rendered as one
-        # exact narrow packed projection by the Direct-SV expression owner.
-        # Materializing the complete struct here creates a wide temporary even
-        # when no consumer observes the other fields.
+        if (
+            isinstance(value, expr.FieldAccess)
+            and isinstance(value.expression, expr.RuntimeIndex)
+            and isinstance(value.expression.type, ir_types.StructType)
+        ):
+            runtime_struct_field_selections.add(identity_of(value.expression))
         if (
             isinstance(value, (expr.FieldAccess, expr.VectorIndex, expr.RuntimeIndex))
             and isinstance(value.expression, (expr.Unpack, expr.Bitcast, expr.Reshape))
         ):
             aggregate_field_selections.add(identity_of(value.expression))
         for child in expression_children(value):
+            narrow_projection = (
+                isinstance(value, expr.FieldAccess)
+                and child is value.expression
+                and isinstance(child, expr.RuntimeIndex)
+                and isinstance(child.type, ir_types.StructType)
+            )
+            if not narrow_projection:
+                full_value_uses.add(identity_of(child))
             visit(child)
         dependency_order.append(value)
 
     for root in roots:
+        full_value_uses.add(identity_of(root))
         visit(root)
 
     expensive_conversion_inputs = {
@@ -375,26 +388,25 @@ def build_direct_sv_dag_plan(
         if isinstance(value, expr.FixedConvert)
         and size_of(value.expression) >= 8
     }
-
     base_selected: set[str] = set()
     for value in dependency_order:
         identity = identity_of(value)
         if (
             identity in preferred_by_identity
             or identity in aggregate_field_selections
-            or identity in dynamic_index_prefixes
-            # A repeated runtime selection of a structured element must have
-            # one physical packed value even when its small expression tree
-            # falls below the generic sharing threshold.  Rule/state lowering
-            # may consume both a field projection and the complete value.
             or (
-                fanout[identity] > 1
-                and isinstance(value, expr.RuntimeIndex)
-                and isinstance(value.type, ir_types.StructType)
+                identity in runtime_struct_field_selections
+                and identity in full_value_uses
             )
+            or identity in dynamic_index_prefixes
             or (
                 fanout[identity] > 1
                 and size_of(value) >= minimum_shared_size
+                and not (
+                    isinstance(value, expr.RuntimeIndex)
+                    and isinstance(value.type, ir_types.StructType)
+                    and identity not in full_value_uses
+                )
             )
             or identity in expensive_conversion_inputs
         ):

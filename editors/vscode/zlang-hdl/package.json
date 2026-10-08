@@ -1,7 +1,7 @@
 {
   "name": "zlang-hdl",
   "displayName": "ZLang HDL",
-  "description": "ZLang HDL .zhl editing support with the Community zlang-lsp client.",
+  "description": "ZLang HDL .zhl editing support with the Community language server.",
   "version": "0.1.0",
   "publisher": "postoroniy",
   "author": "Viacheslav Vinogradov",
@@ -16,7 +16,7 @@
   },
   "homepage": "https://github.com/postoroniy/zlang-hdl",
   "engines": {
-    "vscode": "^1.138.0"
+    "vscode": "^1.141.0"
   },
   "main": "./extension.js",
   "categories": [
@@ -34,7 +34,7 @@
   "capabilities": {
     "untrustedWorkspaces": {
       "supported": false,
-      "description": "The extension starts the configured local zlang-lsp executable only in a trusted workspace."
+      "description": "The extension starts the configured local zlang lsp process only in a trusted workspace."
     },
     "virtualWorkspaces": false
   },
@@ -96,7 +96,7 @@
         "zlang.lsp.path": {
           "type": "string",
           "default": "",
-          "description": "Direct path or PATH command for the Community zlang-lsp executable. Use ${workspaceFolder}/.venv/bin/zlang-lsp for a repository checkout."
+          "description": "Direct path or PATH command for the Community zlang executable. Use ${workspaceFolder}/.venv/bin/zlang for a repository checkout."
         }
       }
     }

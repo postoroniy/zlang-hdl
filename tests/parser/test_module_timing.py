@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from zlang.ast import ModuleTimingDecl
+from zlang.ast.nodes import ModuleTimingDecl
 from zlang.parser import ParseError, parse
 
 

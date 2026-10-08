@@ -11,7 +11,6 @@ from zlang.common import (
     stable_pretty_json,
     subprocess_text,
 )
-from zlang.common.serialization import stable_acyclic_digest
 
 
 def test_stable_json_is_order_independent() -> None:
@@ -29,11 +28,6 @@ def test_stable_digest_preserves_text_identity_and_structured_identity() -> None
     assert stable_digest("candidate") == stable_digest("candidate")
     assert stable_digest({"a": 1, "b": 2}) == stable_digest({"b": 2, "a": 1})
     assert stable_digest("candidate") != stable_digest({"value": "candidate"})
-
-
-def test_acyclic_digest_preserves_canonical_json_identity() -> None:
-    value = {"nested": [1, {"b": 2, "a": "µ"}], "flag": True}
-    assert stable_acyclic_digest(value) == stable_digest(value)
 
 
 def test_object_reader_reports_nested_paths_with_domain_error() -> None:

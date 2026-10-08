@@ -1,21 +1,18 @@
 """Focused coverage for the bounded structural compile-time slice."""
 
-import importlib
-
 import pytest
 
 from zlang.compiler import compile_source
 from zlang.parser import parse
 from zlang.semantic import analyze
 from zlang.semantic import compile_time_real as ct_real
+from zlang.semantic import compile_time_evaluation
+from zlang.semantic import limits as semantic_limits
 from zlang.ir import expressions as ir_expr
 from zlang.ir.callables import expand_callable_calls
 from zlang.ir.functional import materialize_functional_region
 from zlang.ir.types import BitType, SIntType, UIntType, VecType
 from zlang.semantic import SemanticError
-
-
-semantic_analyze = importlib.import_module("zlang.semantic.analyze")
 
 
 def _expanded(result, expression):
@@ -185,7 +182,7 @@ def test_over_budget_parameterized_range_fails_without_truncation() -> None:
 def test_cached_specialization_replays_logical_generation_budget(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(semantic_analyze, "_TOTAL_GENERATED_LIMIT", 7)
+    monkeypatch.setattr(semantic_limits, "TOTAL_GENERATED", 7)
     with pytest.raises(SemanticError, match="generation exceeds 7 elements"):
         analyze(
             parse(
@@ -407,8 +404,8 @@ def test_periodic_quantization_cache_replays_logical_operation_cost() -> None:
     )
 
     def operations(source: str) -> int:
-        budget = semantic_analyze._CompileTimeBudget()
-        semantic_analyze.analyze(parse(source), compile_time_budget=budget)
+        budget = compile_time_evaluation.CompileTimeBudget()
+        analyze(parse(source), compile_time_budget=budget)
         return budget.operations
 
     assert operations(combined_source) == (
@@ -417,7 +414,7 @@ def test_periodic_quantization_cache_replays_logical_operation_cost() -> None:
 
 
 def test_real_intrinsic_precision_retries_use_compile_time_operation_budget(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(semantic_analyze, "_COMPILE_TIME_OPERATION_LIMIT", 4)
+    monkeypatch.setattr(semantic_limits, "COMPILE_TIME_OPERATIONS", 4)
     with pytest.raises(SemanticError, match="compile-time evaluator exceeded"):
         compile_source(
             "module G { out y:SF2.14 "

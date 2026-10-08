@@ -3,11 +3,11 @@ from __future__ import annotations
 import json
 from dataclasses import replace
 from pathlib import Path
-from types import SimpleNamespace
 
 
-import zlang.formal_candidate as candidate_module
 import zlang.verification_publication as publication_module
+from zlang import formal as formal_api
+from zlang.backend import systemverilog
 from zlang.backend.systemverilog import (
     emit_formal_artifact as emit_systemverilog_formal_artifact,
 )
@@ -20,9 +20,6 @@ from zlang.formal_artifact_provider import (
     FormalArtifactProvider,
     FormalArtifactRecipe,
 )
-from zlang.ir.comparison_window import ComparisonWindow
-from zlang.ir.equivalence import EquivalenceProperty, EquivalenceRelation
-from zlang.ir.types import BitType
 
 
 SOURCE = "module ArtifactProviderSmoke { in a:u8 out y:u8 y=a }"
@@ -197,80 +194,6 @@ def test_codec_backed_entry_is_atomic_and_hash_corruption_is_a_miss(
 
 
 
-def test_retained_formal_selection_workspace_is_unique_to_exact_property_recipe(
-    tmp_path: Path,
-) -> None:
-    property_ = EquivalenceProperty(
-        "property",
-        EquivalenceRelation.SAME_CYCLE_VALUE,
-        "reference",
-        "candidate",
-        BitType(),
-        (),
-        "port:result",
-        "port:result",
-        0,
-        0,
-        1,
-        1,
-        None,
-        None,
-        None,
-        None,
-        0,
-        ComparisonWindow.same_cycle(),
-    )
-    first = candidate_module._ProofBundle(
-        property_,
-        "module proof_bundle; endmodule\n",
-        "proof_bundle",
-        "a" * 64,
-        "b" * 64,
-        "c" * 64,
-        "property-a",
-        "assumptions",
-        "backend",
-    )
-    second = replace(
-        first,
-        property_identity="property-b",
-        reference_artifact_hash="d" * 64,
-        harness_hash="e" * 64,
-    )
-    config = candidate_module.FormalExplorationConfig(
-        dependency_identity="f" * 64,
-        work_directory=tmp_path / "work",
-    )
-    candidate = SimpleNamespace()
-
-    first_path = candidate_module._formal_selection_work_directory(
-        candidate,
-        "same-selected-candidate",
-        first,
-        config,
-        candidate_module.ProofMode.BMC,
-    )
-    repeated_path = candidate_module._formal_selection_work_directory(
-        candidate,
-        "same-selected-candidate",
-        first,
-        config,
-        candidate_module.ProofMode.BMC,
-    )
-    second_path = candidate_module._formal_selection_work_directory(
-        candidate,
-        "same-selected-candidate",
-        second,
-        config,
-        candidate_module.ProofMode.BMC,
-    )
-
-    assert first_path == repeated_path
-    assert first_path != second_path
-    assert first_path.parent == (tmp_path / "work" / "formal_selection").resolve()
-    assert second_path.parent == first_path.parent
-
-
 def test_unknown_timeout_and_environment_skip_are_not_memoized(
     tmp_path: Path,
 ) -> None:
@@ -351,7 +274,7 @@ def test_repeated_publication_reuses_direct_route_and_exact_safety_verification_
         selected_ir_identity=compilation.selected_ir_identity,
     )
     calls = {"route": 0, "checker": 0}
-    original_harness = publication_module.emit_harness
+    original_harness = formal_api.emit_harness
 
     def emit_route(*_args: object, **_kwargs: object):
         calls["route"] += 1
@@ -361,8 +284,8 @@ def test_repeated_publication_reuses_direct_route_and_exact_safety_verification_
         calls["checker"] += 1
         return original_harness(*args, **kwargs)
 
-    monkeypatch.setattr(publication_module, "emit_formal_artifact", emit_route)
-    monkeypatch.setattr(publication_module, "emit_harness", emit_checker)
+    monkeypatch.setattr(systemverilog, "emit_formal_artifact", emit_route)
+    monkeypatch.setattr(formal_api, "emit_harness", emit_checker)
 
     first = publication_module.publish_compilation_verification_bundle(
         compilation,

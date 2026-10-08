@@ -6,7 +6,7 @@ from zlang.compiler import compile_source
 from zlang.ir import expressions as expr
 from zlang.ir.callables import expand_callable_calls
 from zlang.ir.traversal import walk_expression
-from zlang.opt import lower, restore
+from zlang.opt.lowering import lower, restore
 from zlang.reductions import expand_reduction
 from zlang.semantic import SemanticError
 from zlang.native_simulation import simulate

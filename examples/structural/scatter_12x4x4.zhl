@@ -1,0 +1,38 @@
+// SPDX-License-Identifier: Apache-2.0
+// Public synthetic regression for a 12 x 4 x 4 addressed OR-scatter.
+// This independently authored witness contains no excluded project source.
+fn scatter_index<K>() -> u8 { K }
+
+module Scatter12x4x4Witness {
+    in valid : bit
+    in addresses : vec<12,vec<4,vec<4,u8>>>
+    in values : vec<12,vec<4,vec<4,u8>>>
+    out hit : vec<192,bit>
+    out result : vec<192,u8>
+
+    hit = generate(dst in 0..192) {
+        reduce(|, generate(lane in 0..12) {
+            reduce(|, generate(group in 0..4) {
+                reduce(|, generate(byte in 0..4) {
+                    valid &
+                    (addresses[lane][group][byte] == scatter_index<K=dst>())
+                })
+            })
+        })
+    }
+
+    result = generate(dst in 0..192) {
+        reduce(|, generate(lane in 0..12) {
+            reduce(|, generate(group in 0..4) {
+                reduce(|, generate(byte in 0..4) {
+                    mux(
+                        valid &
+                        (addresses[lane][group][byte] == scatter_index<K=dst>()),
+                        values[lane][group][byte],
+                        0
+                    )
+                })
+            })
+        })
+    }
+}

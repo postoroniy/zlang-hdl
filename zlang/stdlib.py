@@ -18,8 +18,7 @@ from typing import Iterable, Iterator
 
 from zlang.common.graph import DependencyCycle, dependency_postorder
 from zlang.parser import parse
-from zlang.module_resolver import attach_source_identity
-from zlang.source_identity import SOURCE_GLOB, SOURCE_SUFFIX
+from zlang.source_identity import SOURCE_GLOB, SOURCE_SUFFIX, attach_source_identity
 
 
 _COMPONENT = re.compile(r"[A-Za-z][A-Za-z0-9_]*\Z")
@@ -176,18 +175,7 @@ def resolve_stdlib(imports: Iterable[str]) -> tuple[StdlibSource, ...]:
     return tuple(loaded[path] for path in ordered)
 
 
-def stdlib_source(path: str) -> tuple[object, str, str]:
-    """Compatibility API returning one parsed source, identity, and hash."""
-    item = load_stdlib_source(path)
-    return item.ast, item.path, item.digest
-
-
-def stdlib_source_hash(path: str) -> str:
-    return load_stdlib_source(path).digest
-
-
 __all__ = [
     "StdlibSource", "available_stdlib_modules", "load_stdlib_source",
-    "resolve_stdlib", "stdlib_source", "stdlib_source_hash",
-    "track_resolved_stdlib_source_paths",
+    "resolve_stdlib", "track_resolved_stdlib_source_paths",
 ]

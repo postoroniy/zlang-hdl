@@ -11,7 +11,7 @@ import pytest
 
 from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
 from zlang.compiler import compile_source
-from zlang.ir import RuntimeIndex
+from zlang.ir.expressions import RuntimeIndex
 from zlang.ir.recursive_formal import build_recursive_formal_design
 from zlang.native_simulation import simulate, simulate_cycles
 from zlang.toolchain import lint_with_verilator

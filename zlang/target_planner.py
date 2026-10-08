@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 from hashlib import sha256
 import json
 from pathlib import Path
@@ -32,26 +32,24 @@ from zlang.ir.pipelines import (
 )
 from zlang.ir.target import ImplementationGraph
 from zlang.ir.signed_reductions import (
-    expression_semantic_identity,
     recognize_signed_product_reduction,
 )
 from zlang.pipelines import pipeline_constraints_to_unified
 from zlang.target_timing import build_signed_product_timing_dag, delay_ff_cost
 from zlang.target_candidate_providers import CandidateRequest, candidate_provider_for
-from zlang.targets import (
+from zlang.target_catalog import (
     TargetArchitectureError,
-    generic_implementation_graph,
     load_architecture_templates,
     load_target,
+)
+from zlang.target_mapping_selection import (
+    generic_implementation_graph,
 )
 from zlang.pipeline_scheduling import erase_pipeline_timing
 
 
-# v2 removes source-provenance spelling from the implementation-graph
-# identity.  v1 records are intentionally rejected rather than interpreted as
-# evidence for a canonical ``implement`` region.
-EVIDENCE_SCHEMA = "zlang-target-qor-v2"
-EVIDENCE_CATALOG_SCHEMA = "zlang-target-qor-catalog-v2"
+EVIDENCE_SCHEMA = "zlang-target-qor-v3"
+EVIDENCE_CATALOG_SCHEMA = "zlang-target-qor-catalog-v3"
 DEFAULT_EVIDENCE_CATALOG = Path(__file__).with_name("data") / "target_qor_catalog.json"
 
 
@@ -83,10 +81,6 @@ class QoREvidence:
     fmax_mhz: float
     wns_ns: float | None = None
     provenance: str = ""
-    # A historical graph key did not encode a final fabric FixedConvert.
-    # Historical evidence files pin that exact boundary separately; it is
-    # restoration metadata, not a new measurement or part of the old digest.
-    quantization_identity: str | None = field(default=None, compare=False, repr=False)
 
     def __post_init__(self) -> None:
         if self.stage not in {
@@ -94,11 +88,6 @@ class QoREvidence:
             MetricSource.ROUTED_MEASUREMENT,
         }:
             raise ValueError("physical QoR evidence must be synthesis or routed")
-        if self.quantization_identity is not None and (
-            len(self.quantization_identity) != 64
-            or any(character not in "0123456789abcdef" for character in self.quantization_identity)
-        ):
-            raise ValueError("physical QoR boundary identity must be a SHA-256 digest")
 
     @property
     def identity(self) -> str:
@@ -359,25 +348,11 @@ def _compatible_evidence(
     an ``implement`` candidate must never borrow a measurement for a different
     semantic graph merely because its physical configuration happens to match.
     """
-    # Packaged v2 measurements were recorded before delay estimates were
-    # removed from the physical identity.  The legacy digest is recomputed
-    # from this exact current graph; there is no template/target-only fallback.
-    accepted_graph_ids = {graph.identity, graph.legacy_identity}
-    fixed_boundary_identity = (
-        expression_semantic_identity(graph.quantization)
-        if isinstance(graph.quantization, expr.FixedConvert)
-        else None
-    )
     matches = tuple(item for item in records if (
         item.key.target_identity == graph.target_identity
         and item.key.target_part == graph.target_part
         and item.key.architecture_template_identity == graph.architecture_template_identity
-        and item.key.implementation_graph_identity in accepted_graph_ids
-        and (
-            item.key.implementation_graph_identity == graph.identity
-            or fixed_boundary_identity is None
-            or item.quantization_identity == fixed_boundary_identity
-        )
+        and item.key.implementation_graph_identity == graph.identity
         and item.key.pipeline_configuration_identity == graph.pipeline_configuration_identity
         and item.key.backend == backend
         and item.key.tool == tool
@@ -388,7 +363,6 @@ def _compatible_evidence(
         return None
     return max(matches, key=lambda item: (
         item.stage is MetricSource.ROUTED_MEASUREMENT,
-        item.key.implementation_graph_identity == graph.identity,
         item.identity,
     ))
 
@@ -414,7 +388,6 @@ def _load_qor_evidence_file(selected: Path) -> tuple[QoREvidence, ...]:
             int(item["dsp"]), int(item["bram"]), float(item["fmax_mhz"]),
             float(item["wns_ns"]) if item.get("wns_ns") is not None else None,
             item.get("provenance", ""),
-            quantization_identity=key.get("quantization_identity"),
         ))
     return tuple(records)
 
@@ -608,17 +581,15 @@ def plan_target_pipeline(
 def _candidate_operations(source: expr.Expression) -> tuple[str, ...]:
     """Choose source-shape-compatible provider families without text matching.
 
-    A bare product has its own exact ``multiply`` provider.  Letting the
-    historical multiply-add provider cover it as well would make two distinct
-    templates claim the same target operation and make tie-breaking rather
-    than source semantics decide the reported family.
+    A bare product has its own exact ``multiply`` provider.  A product with an
+    explicit pre-add operand remains a ``multiply_add`` operation because the
+    target provider owns the DSP pre-adder binding.  Letting both providers
+    claim either shape would make tie-breaking rather than source semantics
+    decide the reported family.
     """
 
     arithmetic = source.expression if isinstance(source, expr.FixedConvert) else source
     if isinstance(arithmetic, expr.Binary) and arithmetic.operator is expr.BinaryOperator.MULTIPLY:
-        # A pre-add product is one DSP MAC shape, not a plain product.  Keep
-        # the provider families disjoint so architecture selection follows
-        # the typed operation graph rather than template enumeration order.
         if isinstance(arithmetic.left, expr.Add) or isinstance(arithmetic.right, expr.Add):
             return ("multiply_add",)
         return ("multiply",)

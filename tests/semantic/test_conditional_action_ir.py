@@ -17,7 +17,8 @@ from zlang.ir.state import (
     StateResourceKind,
     conditional_activation_predicates,
     conditional_actions,
-    groups_conflict,
+    active_groups_conflict,
+    groups_may_conflict,
     select_action_groups,
     selection_regions,
 )
@@ -148,11 +149,11 @@ def test_output_conflict_participates_only_while_its_effect_is_active() -> None:
         (("high", "low"),),
     )
 
-    assert groups_conflict(high, low)
-    assert not groups_conflict(
+    assert groups_may_conflict(high, low)
+    assert not active_groups_conflict(
         high, low, {"action:high-output": False}
     )
-    assert groups_conflict(high, low, {"action:high-output": True})
+    assert active_groups_conflict(high, low, {"action:high-output": True})
     assert select_action_groups(
         transition,
         {"high": True, "low": True},

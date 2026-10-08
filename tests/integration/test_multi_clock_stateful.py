@@ -8,7 +8,7 @@ import subprocess
 
 import pytest
 
-from zlang.backend.systemverilog import emit_artifact, emit_experimental
+from zlang.backend.systemverilog import emit_artifact, emit
 from zlang.compiler import compile_source
 from zlang.opt.lowering import CanonicalizationError, lower, restore
 from zlang.opt.capabilities import RewriteBarrier, module_rewrite_barriers
@@ -58,7 +58,7 @@ def test_domain_ownership_round_trips_and_emits_independent_processes() -> None:
     ] == ["clk_a", "clk_b"]
     assert restore(lower(module)) == module
 
-    text = emit_experimental(module)
+    text = emit(module)
     assert text.count("always_ff @(posedge clk_a)") == 1
     assert text.count("always_ff @(posedge clk_b)") == 1
     assert "if (rst_a) begin\n      a <= 8'd0;" in text
@@ -229,7 +229,7 @@ module DualPipeline {
         for item in pipelines
     ] == ["clk_a", "clk_b"]
 
-    text = emit_experimental(module)
+    text = emit(module)
     assert "always_ff @(posedge clk_a)" in text
     assert "always_ff @(posedge clk_b)" in text
     assert "product_pipe_s2 <= product_pipe_s1;" in text
@@ -289,7 +289,7 @@ module DualDomainFsm {
     module = compile_source(source).ir
     assert module.registers[0].domain == "clk_b"
     assert {rule.domain for rule in module.rules} == {"clk_b"}
-    text = emit_experimental(module)
+    text = emit(module)
     assert "always_ff @(posedge clk_b)" in text
     assert "always_ff @(posedge clk_a)" not in text
 
@@ -313,7 +313,7 @@ module DualQueue {
 """
     module = compile_source(source).ir
     assert [fifo.domain for fifo in module.fifos] == ["clk_a", "clk_b"]
-    text = emit_experimental(module)
+    text = emit(module)
     assert text.count("always_ff @(posedge clk_a)") == 1
     assert text.count("always_ff @(posedge clk_b)") == 1
     assert "if (rst_a) begin" in text
@@ -362,7 +362,7 @@ module DualDomainCsr {
     block = module.csr_blocks[0]
     assert (block.domain, block.reset) == ("apb_clk", "apb_rst")
     assert restore(lower(module)) == module
-    text = emit_experimental(module)
+    text = emit(module)
     assert "always_ff @(posedge apb_clk)" in text
     assert "always_ff @(posedge dsp_clk)" in text
     assert "if (apb_rst) begin" in text
@@ -420,7 +420,7 @@ module StateAndCdc {
 """
     module = compile_source(source).ir
     assert module.rules[0].domain == "clk_b"
-    text = emit_experimental(module)
+    text = emit(module)
     assert '(* ASYNC_REG = "TRUE" *)' in text
     assert "always_ff @(posedge clk_b)" in text
     assert "assign rule_Observe_guard = flag_b;" in text
@@ -452,7 +452,7 @@ module MultiClockParent {
     module = compile_source(source).ir
     instance = module.elaborated_instances[0]
     assert (instance.clock, instance.reset) == ("clk_a", "rst_a")
-    text = emit_experimental(module)
+    text = emit(module)
     assert ".clk_a(clk_a)" in text
     assert ".rst_a(rst_a)" in text
 
@@ -547,7 +547,7 @@ module DualAsync {
     right <- truncate<8>(right + 1)
 }
 """
-    text = emit_experimental(compile_source(source).ir)
+    text = emit(compile_source(source).ir)
     assert text.count('(* ASYNC_REG = "TRUE" *) logic [1:0]') == 2
     assert "always_ff @(posedge a or posedge ra)" in text
     assert "always_ff @(posedge b or posedge rb)" in text
@@ -557,7 +557,7 @@ module DualAsync {
 @pytest.mark.skipif(shutil.which("verilator") is None, reason="Verilator unavailable")
 def test_two_domain_rtl_passes_strict_verilator_lint(tmp_path: Path) -> None:
     rtl = tmp_path / "DualClockCounter.sv"
-    rtl.write_text(emit_experimental(compile_source(DUAL_COUNTER).ir))
+    rtl.write_text(emit(compile_source(DUAL_COUNTER).ir))
     completed = subprocess.run(
         (
             "verilator",
@@ -577,7 +577,7 @@ def test_two_domain_rtl_passes_strict_verilator_lint(tmp_path: Path) -> None:
 @pytest.mark.skipif(shutil.which("verilator") is None, reason="Verilator unavailable")
 def test_two_unrelated_clocks_evolve_independently_in_rtl(tmp_path: Path) -> None:
     rtl = tmp_path / "DualClockCounter.sv"
-    rtl.write_text(emit_experimental(compile_source(DUAL_COUNTER).ir))
+    rtl.write_text(emit(compile_source(DUAL_COUNTER).ir))
     bench = tmp_path / "tb.sv"
     bench.write_text(
         """
@@ -649,7 +649,7 @@ module StatefulCrossing {
 }
 """
     rtl = tmp_path / "StatefulCrossing.sv"
-    rtl.write_text(emit_experimental(compile_source(source).ir))
+    rtl.write_text(emit(compile_source(source).ir))
     bench = tmp_path / "tb.sv"
     bench.write_text(
         """

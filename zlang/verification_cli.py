@@ -12,22 +12,10 @@ from typing import Sequence
 from zlang._version import __version__
 from zlang.ir.formal import FormalError, ProofMode
 from zlang.candidate_equivalence import execute_frozen_candidate_equivalence
-from zlang.compiler_verification_report import (
-    CompilerVerificationReport,
-    CompilerVerificationReportError,
-)
+from zlang import compiler_verification_report as compiler_verification_report
 from zlang.formal_exploration import FormalExplorationConfig
-from zlang.formal_orchestration import (
-    CompilerFormalExecutionPlan,
-    FormalOrchestrationError,
-)
-from zlang.verification_bundle import (
-    VerificationBundleError,
-    VerificationRunConfig,
-    load_candidate_equivalence_replay,
-    load_verification_bundle,
-    run_verification_bundle_staged,
-)
+from zlang import formal_orchestration as formal_orchestration
+from zlang import verification_bundle as verification_bundle
 
 
 def _write_atomically(path: Path, content: str) -> None:
@@ -60,7 +48,7 @@ def _write_atomically(path: Path, content: str) -> None:
 def main(
     argv: Sequence[str] | None = None,
     *,
-    prog: str = "zlang-verify",
+    prog: str = "zlang verify",
 ) -> int:
     parser = argparse.ArgumentParser(
         prog=prog,
@@ -97,8 +85,8 @@ def main(
     )
     arguments = parser.parse_args(argv)
     try:
-        bundle = load_verification_bundle(arguments.bundle)
-        config = VerificationRunConfig(
+        bundle = verification_bundle.load_verification_bundle(arguments.bundle)
+        config = verification_bundle.VerificationRunConfig(
             mode=ProofMode(arguments.mode),
             engine=arguments.engine,
             solver=arguments.solver,
@@ -115,15 +103,15 @@ def main(
         }
         if arguments.cache is not None:
             run_keywords["cache_directory"] = arguments.cache
-        report = run_verification_bundle_staged(bundle, **run_keywords)
-        frozen_sites = load_candidate_equivalence_replay(bundle)
+        report = verification_bundle.run_verification_bundle_staged(bundle, **run_keywords)
+        frozen_sites = verification_bundle.load_candidate_equivalence_replay(bundle)
         if frozen_sites:
             payload = bundle.verification_ir.get("payload")
             if not isinstance(payload, dict):
-                raise VerificationBundleError(
+                raise verification_bundle.VerificationBundleError(
                     "verification bundle has no compiler formal plan payload"
                 )
-            compiler_plan = CompilerFormalExecutionPlan.from_data(
+            compiler_plan = formal_orchestration.CompilerFormalExecutionPlan.from_data(
                 payload.get("compiler_execution_plan")
             )
             candidate_config = FormalExplorationConfig(
@@ -141,7 +129,7 @@ def main(
                 candidate_config,
                 jobs=arguments.jobs,
             )
-            report = CompilerVerificationReport(
+            report = compiler_verification_report.CompilerVerificationReport(
                 report, compiler_plan, candidate_reports
             )
         rendered = report.to_json() if arguments.report_format == "json" else report.to_text()
@@ -153,15 +141,15 @@ def main(
             except ValueError:
                 pass
             else:
-                raise VerificationBundleError(
+                raise verification_bundle.VerificationBundleError(
                     "run reports must be written outside the immutable bundle"
                 )
             _write_atomically(arguments.report, rendered)
     except (
-        CompilerVerificationReportError,
+        compiler_verification_report.CompilerVerificationReportError,
         FormalError,
-        FormalOrchestrationError,
-        VerificationBundleError,
+        formal_orchestration.FormalOrchestrationError,
+        verification_bundle.VerificationBundleError,
         OSError,
     ) as error:
         print(f"{prog}: error: {error}", file=sys.stderr)

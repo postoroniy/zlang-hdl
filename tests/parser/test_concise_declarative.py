@@ -1,9 +1,9 @@
 from pathlib import Path
 import unittest
 
-from zlang.backend.systemverilog import emit_artifact, emit_experimental
+from zlang.backend.systemverilog import emit_artifact, emit
 from zlang.compiler import compile_source
-from zlang.opt import lower, restore
+from zlang.opt.lowering import lower, restore
 from zlang.opt.identity import canonical_ir_identity
 from zlang.parser import parse
 from zlang.semantic import SemanticError, analyze
@@ -117,7 +117,7 @@ class ConciseDeclarativeSyntaxTests(unittest.TestCase):
         verbose_ir = compile_source(verbose, top="AxiCsrTop").ir
         concise_ir = compile_source(concise, top="AxiCsrTop").ir
         self.assertEqual(verbose_ir, concise_ir)
-        self.assertEqual(emit_experimental(verbose_ir), emit_experimental(concise_ir))
+        self.assertEqual(emit(verbose_ir), emit(concise_ir))
         verbose_artifact = emit_artifact(verbose_ir)
         concise_artifact = emit_artifact(concise_ir)
         self.assertEqual(

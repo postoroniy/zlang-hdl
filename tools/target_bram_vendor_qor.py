@@ -9,7 +9,7 @@ from pathlib import Path
 import shutil
 import subprocess
 
-from zlang.backend.systemverilog import emit_experimental, emit_target
+from zlang.backend.systemverilog import emit, emit_target
 from zlang.compiler import compile_source
 
 
@@ -51,7 +51,7 @@ def main() -> int:
     )
     rows = []
     for name, rtl_text in (
-        ("generic", emit_experimental(generic.ir)),
+        ("generic", emit(generic.ir)),
         ("selected_ramb36", emit_target(selected.ir, selected.implementation_graph)),
     ):
         work = args.output / name

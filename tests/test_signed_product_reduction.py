@@ -6,17 +6,9 @@ import pytest
 from zlang.backend.manifest import BackendArtifact
 from zlang.backend.systemverilog import emit_target_artifact
 from zlang.compiler import compile_source
-from zlang.ir import (
-    Add,
-    Binary,
-    BinaryOperator,
-    FixedConvert,
-    FixedType,
-    UFixedType,
-    ProductTermSign,
-    SignedProductJoinOperator,
-    recognize_signed_product_reduction,
-)
+from zlang.ir.expressions import Add, Binary, BinaryOperator, FixedConvert
+from zlang.ir.types import FixedType, UFixedType
+from zlang.ir.signed_reductions import ProductTermSign, SignedProductJoinOperator, recognize_signed_product_reduction
 from zlang.targets import (
     TargetArchitectureError,
     load_architecture_templates,
@@ -256,9 +248,9 @@ def test_graph_and_descriptor_identities_are_deterministic():
 
 
 def test_fft_real_and_imag_are_recognized_without_width_annotations():
-    source = (ROOT / "examples/fft/complex_multiply_pipeline_auto.zhl").read_text()
+    source = (ROOT / "examples/fft/complex_multiply_implementation.zhl").read_text()
     real = compile_source(
-        source, top="FFTComplexMultiplyRealAuto"
+        source, top="FFTComplexMultiplyRealImplementation"
     ).ir.pipeline_explorations[0].source_expression
     real_reduction = recognize_signed_product_reduction(real.expression)
     assert real_reduction is not None
@@ -269,7 +261,7 @@ def test_fft_real_and_imag_are_recognized_without_width_annotations():
     assert real_reduction.result_type == FixedType(35, 30)
 
     imag = compile_source(
-        source, top="FFTComplexMultiplyImagAuto"
+        source, top="FFTComplexMultiplyImagImplementation"
     ).ir.pipeline_explorations[0].source_expression
     imag_reduction = recognize_signed_product_reduction(imag.expression)
     assert imag_reduction is not None

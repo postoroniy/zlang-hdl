@@ -11,7 +11,6 @@ from concurrent.futures import ThreadPoolExecutor
 import pytest
 
 import zlang
-import zlang.simulation_plan as simulation_plan_module
 from zlang.compiler import compile_file, create_file_compilation_session
 from zlang.native_simulation import simulate, simulate_cycles
 from zlang.simulation_plan import (
@@ -21,6 +20,8 @@ from zlang.simulation_plan import (
     SimulationPlan,
     SimulationPlanError,
 )
+from zlang.simulation_plan_build import build_simulation_plan
+from zlang.simulation_plan_policy import SimulationPlanPolicy
 from tools.benchmark_frontend_scalability import mixer_source
 
 
@@ -299,7 +300,6 @@ def test_python_and_native_reject_excessive_dynamic_region_work(
 
 def test_primitive_lowering_stops_at_node_bound_before_plan_serialization(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     source = _source(
         tmp_path,
@@ -310,9 +310,11 @@ def test_primitive_lowering_stops_at_node_bound_before_plan_serialization(
     # The semantic DAG has three nodes.  Exact-width primitive lowering needs
     # additional resize nodes, so this specifically exercises the expansion
     # guard rather than the earlier semantic-DAG guard.
-    monkeypatch.setattr(simulation_plan_module, "MAX_PLAN_NODES", 3)
     with pytest.raises(SimulationPlanError, match="primitive simulation plan"):
-        simulation_plan_module.build_simulation_plan(session.planning.module)
+        build_simulation_plan(
+            session.planning.module,
+            policy=SimulationPlanPolicy(max_nodes=3),
+        )
 
 
 def test_64_step_shared_dag_remains_compact_and_matches_independent_formula() -> None:
@@ -585,7 +587,6 @@ def test_native_generated_collections_concat_reshape_dot_and_reduce(
 
 def test_nested_functional_regions_match_explicit_oracle_in_native_engine(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     source = _source(
         tmp_path,
@@ -652,9 +653,11 @@ def test_nested_functional_regions_match_explicit_oracle_in_native_engine(
 
     with pytest.raises(ValueError, match="functional region"):
         _zlang_native_sim.compile_plan_bytes(_resign(damaged))
-    monkeypatch.setattr(simulation_plan_module, "MAX_PLAN_DYNAMIC_NODE_WORK", 1)
     with pytest.raises(SimulationPlanError, match="dynamic node work"):
-        SimulationPlan.from_bytes(native.program.plan.to_bytes())
+        SimulationPlan.from_bytes(
+            native.program.plan.to_bytes(),
+            policy=SimulationPlanPolicy(max_dynamic_node_work=1),
+        )
 
 
 def test_functional_region_in_edge_program_matches_typed_cycles(tmp_path: Path) -> None:

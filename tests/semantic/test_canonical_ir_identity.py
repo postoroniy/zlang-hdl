@@ -6,9 +6,9 @@ from pathlib import Path
 
 from zlang.compiler import compile_file, compile_source
 from zlang.ir.expressions import ImplementationKind
-from zlang.opt import canonical_ir_identity
+from zlang.opt.identity import canonical_ir_identity
 from zlang.opt.ir import ExpressionOp
-from zlang.opt.render import canonical_identity_matches, render_identity
+from zlang.opt.render import render_identity
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -56,8 +56,6 @@ module Add {
     assert compact.ir.assignments[0].expression.origin != relocated.ir.assignments[0].expression.origin
     assert compact.high_level_ir_identity == relocated.high_level_ir_identity
     assert compact.selected_ir_identity == relocated.selected_ir_identity
-    assert canonical_identity_matches(compact.high_level_ir, relocated.high_level_ir)
-    assert canonical_identity_matches(compact.optimization_ir, relocated.optimization_ir)
 
 
 def test_moving_same_standalone_source_does_not_change_identity(tmp_path: Path) -> None:
@@ -99,8 +97,6 @@ def test_semantic_expression_change_alters_both_canonical_identities() -> None:
 
     assert xor.high_level_ir_identity != bit_or.high_level_ir_identity
     assert xor.selected_ir_identity != bit_or.selected_ir_identity
-    assert not canonical_identity_matches(xor.high_level_ir, bit_or.high_level_ir)
-    assert not canonical_identity_matches(xor.optimization_ir, bit_or.optimization_ir)
 
 
 def test_selected_extraction_is_part_of_selected_ir_identity() -> None:

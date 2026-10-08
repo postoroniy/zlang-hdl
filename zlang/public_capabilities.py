@@ -100,7 +100,7 @@ class PublicCapabilityRegistry:
 
 
 CAPABILITY_REGISTRY = PublicCapabilityRegistry(
-    schema_version=30,
+    schema_version=31,
     keywords=(
         "import", "module", "extern", "model", "struct", "enum", "union", "type", "fn", "operator", "equiv",
         "protocol", "role", "channel", "member", "resource", "target", "device",
@@ -122,7 +122,7 @@ CAPABILITY_REGISTRY = PublicCapabilityRegistry(
         "collision", "read_port", "write_port", "read_write_port",
         "write_priority", "contents", "read_data", "reg", "delay",
         "timing",
-        "pipeline", "choice", "auto", "explore", "allow", "avoid", "require",
+        "pipeline", "choice", "auto", "implement", "intent", "require",
         "minimize", "maximize", "generate", "map", "sum", "reduce", "dot", "quantize",
         "round", "overflow", "with", "if", "else", "switch", "match", "mux",
         "assume", "guarantee", "assert", "cover", "contract", "ensure",

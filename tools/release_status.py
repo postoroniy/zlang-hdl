@@ -153,30 +153,7 @@ def _example_counts(root: Path) -> dict[str, int]:
         from zlang.parser import parse
     except ImportError as exc:
         raise StatusError("ZLang must be importable to inspect the example corpus") from exc
-    # This status record describes the Community release, not every private
-    # development witness that happens to coexist in the integration tree.
-    # When a projection manifest is present, apply its inclusion boundary at
-    # counting time so preflight on the integration checkout and validation of
-    # the exported public tree produce the same inventory.  Small unit-test
-    # fixtures intentionally omit that manifest and retain the raw-tree mode.
-    config_path = root / "release/public-tree.toml"
-    if config_path.is_file():
-        try:
-            from tools.public_tree import _load_config, selected_files
-
-            config = _load_config(root, config_path)
-            sources = tuple(
-                path
-                for path in selected_files(root, config)
-                if path.suffix == ".zhl"
-                and path.is_relative_to(root / "examples")
-            )
-        except Exception as exc:
-            raise StatusError(
-                f"cannot determine the projected Community example corpus: {exc}"
-            ) from exc
-    else:
-        sources = tuple(sorted((root / "examples").rglob("*.zhl")))
+    sources = tuple(sorted((root / "examples").rglob("*.zhl")))
     roots = 0
     for path in sources:
         syntax = parse(path.read_text(encoding="utf-8"))
@@ -241,6 +218,36 @@ def _junit_counts(path: Path) -> tuple[int, int, int, int]:
     return passed, skipped, failures, errors
 
 
+def _validate_junit_report(
+    path: Path,
+    *,
+    suite: str,
+    minimum_passed: int,
+    minimum_collected: int,
+    maximum_skipped: int,
+) -> None:
+    passed, skipped, failures, errors = _junit_counts(path)
+    if failures or errors:
+        raise StatusError(
+            f"{suite} JUnit report contains {failures} failures and {errors} errors"
+        )
+    if skipped > maximum_skipped:
+        raise StatusError(
+            f"{skipped} tests skipped in {suite} JUnit report; release allows at "
+            f"most {maximum_skipped}"
+        )
+    if passed + skipped < minimum_collected:
+        raise StatusError(
+            f"only {passed + skipped} tests collected in {suite} JUnit report; "
+            f"release requires {minimum_collected}"
+        )
+    if passed < minimum_passed:
+        raise StatusError(
+            f"only {passed} tests passed in {suite} JUnit report; release requires "
+            f"{minimum_passed}"
+        )
+
+
 def _command_output(command: tuple[str, ...]) -> str:
     executable = shutil.which(command[0])
     if executable is None:
@@ -282,6 +289,7 @@ def validate(
     status_path: Path = DEFAULT_STATUS,
     *,
     junit: Path | None = None,
+    performance_junit: Path | None = None,
     check_tools: bool = False,
     tag: str | None = None,
 ) -> None:
@@ -337,35 +345,52 @@ def validate(
             "example corpus status is stale: "
             f"recorded={validation.get('example_corpus')!r}, actual={actual_corpus!r}"
         )
-    minimum = validation.get("minimum_tests_passed")
-    minimum_collected = validation.get("minimum_tests_collected")
+    minimum = validation.get("minimum_deterministic_tests_passed")
+    minimum_collected = validation.get("minimum_deterministic_tests_collected")
+    minimum_performance = validation.get("minimum_performance_tests_passed")
+    minimum_performance_collected = validation.get(
+        "minimum_performance_tests_collected"
+    )
     maximum_skipped = validation.get("maximum_tests_skipped")
     if not isinstance(minimum, int) or minimum <= 0:
-        raise StatusError("minimum_tests_passed must be a positive integer")
+        raise StatusError(
+            "minimum_deterministic_tests_passed must be a positive integer"
+        )
     if not isinstance(minimum_collected, int) or minimum_collected < minimum:
         raise StatusError(
-            "minimum_tests_collected must be an integer at least as large as "
-            "minimum_tests_passed"
+            "minimum_deterministic_tests_collected must be an integer at least "
+            "as large as minimum_deterministic_tests_passed"
+        )
+    if not isinstance(minimum_performance, int) or minimum_performance <= 0:
+        raise StatusError(
+            "minimum_performance_tests_passed must be a positive integer"
+        )
+    if (
+        not isinstance(minimum_performance_collected, int)
+        or minimum_performance_collected < minimum_performance
+    ):
+        raise StatusError(
+            "minimum_performance_tests_collected must be an integer at least as "
+            "large as minimum_performance_tests_passed"
         )
     if not isinstance(maximum_skipped, int) or maximum_skipped < 0:
         raise StatusError("maximum_tests_skipped must be a non-negative integer")
     if junit is not None:
-        passed, skipped, failures, errors = _junit_counts(junit)
-        if failures or errors:
-            raise StatusError(
-                f"JUnit report contains {failures} failures and {errors} errors"
-            )
-        if skipped > maximum_skipped:
-            raise StatusError(
-                f"{skipped} tests skipped; release allows at most {maximum_skipped}"
-            )
-        if passed + skipped < minimum_collected:
-            raise StatusError(
-                f"only {passed + skipped} tests collected; release requires "
-                f"{minimum_collected}"
-            )
-        if passed < minimum:
-            raise StatusError(f"only {passed} tests passed; release requires {minimum}")
+        _validate_junit_report(
+            junit,
+            suite="deterministic",
+            minimum_passed=minimum,
+            minimum_collected=minimum_collected,
+            maximum_skipped=maximum_skipped,
+        )
+    if performance_junit is not None:
+        _validate_junit_report(
+            performance_junit,
+            suite="performance",
+            minimum_passed=minimum_performance,
+            minimum_collected=minimum_performance_collected,
+            maximum_skipped=maximum_skipped,
+        )
     if check_tools:
         _check_tools(tools)
 
@@ -376,6 +401,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--root", type=Path, default=Path("."))
     parser.add_argument("--status", type=Path, default=DEFAULT_STATUS)
     parser.add_argument("--junit", type=Path)
+    parser.add_argument("--performance-junit", type=Path)
     parser.add_argument("--check-tools", action="store_true")
     parser.add_argument("--tag")
     return parser
@@ -388,6 +414,7 @@ def main(argv: list[str] | None = None) -> int:
             args.root,
             args.status,
             junit=args.junit,
+            performance_junit=args.performance_junit,
             check_tools=args.check_tools,
             tag=args.tag,
         )

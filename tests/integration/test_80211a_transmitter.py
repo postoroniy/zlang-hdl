@@ -25,8 +25,10 @@ from zlang.backend.companions import publish_companion_bundle
 from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
 import zlang.backend.systemverilog.emitter as direct_sv_emitter
 import zlang.cli as cli_module
+import zlang.cli_command as cli_command
 from zlang.compiler import compile_file
-from zlang.opt import OptimizationStage, lower, restore
+from zlang.opt.ir import OptimizationStage
+from zlang.opt.lowering import lower, restore
 from zlang.native_simulation import simulate_cycles
 from zlang.toolchain import lint_with_verilator
 
@@ -202,7 +204,9 @@ def test_full_ieee_chain_canonical_and_direct_sv(
 
     monkeypatch.setattr(direct_sv_emitter, "emit", counted_render)
     monkeypatch.setattr(
-        cli_module, "compile_file_snapshot", lambda *_args, **_kwargs: compilation
+        cli_command.compiler_api,
+        "compile_file_snapshot",
+        lambda *_args, **_kwargs: compilation,
     )
     cli_rtl = tmp_path / f"{TOP}.sv"
     cli_manifest = tmp_path / f"{TOP}.artifact.json"

@@ -25,8 +25,8 @@ def _add_module():
 
 def _target_module():
     return compile_source(
-        (ROOT / "examples/symmetric_fixed_fir_auto.zhl").read_text(),
-        top="SymmetricFixedFIRAuto",
+        (ROOT / "examples/symmetric_fixed_fir_implementation.zhl").read_text(),
+        top="SymmetricFixedFIRImplementation",
     ).ir
 
 

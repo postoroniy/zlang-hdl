@@ -8,7 +8,7 @@ import tempfile
 
 import pytest
 
-from zlang.backend.systemverilog import emit_artifact, emit_experimental
+from zlang.backend.systemverilog import emit_artifact, emit
 from zlang.compiler import compile_source
 from zlang.toolchain import lint_with_verilator
 
@@ -81,7 +81,7 @@ def _build_and_run(rtl: tuple[Path, ...], tmp_path: Path) -> None:
 
 def test_direct_sv_contains_real_internal_boundaries() -> None:
     result = compile_source(SOURCE)
-    direct = emit_experimental(result.ir)
+    direct = emit(result.ir)
 
     # Stage zero registers the two products and the short f bypass is delayed
     # to the final add.  The production backend does not contain a single full
@@ -108,7 +108,7 @@ def test_shared_dag_node_is_materialized_once_in_direct_sv() -> None:
         "t=a*b y=pipeline(3){(t+c)*(t+d)} }"
     )
     result = compile_source(source)
-    direct = emit_experimental(result.ir)
+    direct = emit(result.ir)
     assert direct.count("assign zlang_stage_expr_0 = ") == 1
     assert direct.count("zlang_stage_expr_0}") == 2
 
@@ -139,41 +139,38 @@ def test_scheduled_pipeline_reduces_measured_logic_depth(tmp_path: Path) -> None
     ))
 
     def depth(path: Path, top: str) -> int:
-        # Yosys/ABC 0.69 can stall when a long pytest TMPDIR is inherited.
-        # Give it a short, unique worktree-local workspace rather than falling
-        # back to a shared system temporary directory.
-        environment = os.environ.copy()
-        tool_root = Path.cwd() / "build" / "t"
-        tool_root.mkdir(parents=True, exist_ok=True)
-        with tempfile.TemporaryDirectory(prefix="yosys-", dir=tool_root) as scratch:
-            for variable in ("TMPDIR", "TMP", "TEMP"):
-                environment[variable] = scratch
-            command = (
-                "yosys", "-Q", "-p",
-                # ``synth -lut 6`` already performs the requested ABC LUT
-                # mapping.  Running a second standalone ``abc`` repeats the
-                # expensive optimization pass and can hang when Yosys and ABC
-                # are resolved from different tool suites.
-                f"read_verilog -sv {path}; hierarchy -top {top}; synth -top {top} -flatten -lut 6; clean; ltp -noff",
-            )
-            try:
+        short_root = Path(__file__).resolve().parents[2] / "build" / "t"
+        short_root.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix="y.", dir=short_root) as scratch:
+            environment = {
+                **os.environ,
+                "TMPDIR": scratch,
+                "TMP": scratch,
+                "TEMP": scratch,
+            }
+            log_path = Path(scratch) / "yosys.log"
+            with log_path.open("w+") as log:
                 completed = subprocess.run(
-                    command,
-                    capture_output=True,
+                    (
+                        "yosys",
+                        "-Q",
+                        "-p",
+                        f"read_verilog -sv {path}; hierarchy -top {top}; "
+                        f"synth -top {top} -flatten -lut 6; "
+                        "clean; ltp -noff",
+                    ),
+                    stdout=log,
+                    stderr=subprocess.STDOUT,
                     text=True,
                     check=False,
-                    timeout=60,
                     env=environment,
+                    timeout=120,
                 )
-            except subprocess.TimeoutExpired as error:
-                pytest.fail(
-                    "Yosys depth measurement timed out after "
-                    f"{error.timeout}s for {path} (top {top}); generated RTL is retained "
-                    "in the pytest temporary directory"
-                )
-        assert completed.returncode == 0, completed.stderr
+                log.seek(0)
+                output = log.read()
+        assert completed.returncode == 0, output
         marker = "Longest topological path"
-        line = next(line for line in completed.stdout.splitlines() if marker in line)
+        line = next(line for line in output.splitlines() if marker in line)
         return int(line.rsplit("length=", 1)[1].split(")", 1)[0])
 
     scheduled_depth = depth(scheduled_path, "GeneralExpressionPipeline")
@@ -184,6 +181,6 @@ def test_scheduled_pipeline_reduces_measured_logic_depth(tmp_path: Path) -> None
 @pytest.mark.skipif(shutil.which("verilator") is None, reason="Verilator required")
 def test_direct_sv_staged_pipeline_is_cycle_exact(tmp_path: Path) -> None:
     rtl = tmp_path / "GeneralExpressionPipeline.sv"
-    rtl.write_text(emit_experimental(compile_source(SOURCE).ir))
+    rtl.write_text(emit(compile_source(SOURCE).ir))
     lint_with_verilator((rtl,), "GeneralExpressionPipeline")
     _build_and_run((rtl,), tmp_path)

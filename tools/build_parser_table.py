@@ -13,7 +13,6 @@ import argparse
 import hashlib
 from io import BytesIO
 from pathlib import Path
-import sys
 
 import lark
 from lark import Lark
@@ -22,10 +21,6 @@ from lark import Lark
 ROOT = Path(__file__).resolve().parents[1]
 GRAMMAR = ROOT / "zlang/parser/grammar.lark"
 TABLE = ROOT / "zlang/parser/lalr-1.3.1.larkbin"
-
-# Validate the checkout being regenerated, not an older installed wheel when
-# the script is invoked by path from a release worktree.
-sys.path.insert(0, str(ROOT))
 
 
 def generate() -> bytes:

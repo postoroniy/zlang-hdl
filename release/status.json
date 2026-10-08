@@ -19,13 +19,15 @@
     ]
   },
   "validation": {
-    "minimum_tests_passed": 4122,
-    "minimum_tests_collected": 4122,
+    "minimum_deterministic_tests_passed": 4153,
+    "minimum_deterministic_tests_collected": 4153,
+    "minimum_performance_tests_passed": 6,
+    "minimum_performance_tests_collected": 6,
     "maximum_tests_skipped": 0,
     "example_corpus": {
-      "source_files": 109,
-      "module_roots": 214,
-      "standalone_supported": 197,
+      "source_files": 110,
+      "module_roots": 215,
+      "standalone_supported": 198,
       "child_or_template_only": 17,
       "direct_unsupported": 0
     }
@@ -40,28 +42,28 @@
   },
   "documentation": {
     "builder_sha256": "0e509413a12cef6426bf92dea364bba62c40ec1cc0684e429e255365359cd75a",
-    "cover_sha256": "660f0c16b2fdbb6f21a48ed56bf6aa9d79f539f1e33e9f002d78c1f7744d55ae",
+    "cover_sha256": "22c31a7a75b6db59293b6bf334d1499c891fb03ec5e45b5afac471116ab0d5d2",
     "examples": {
-      "linked_sources": 21,
+      "linked_sources": 18,
       "json_blocks": 1,
       "python_blocks": 1,
       "referenced_tops": 5,
-      "shell_blocks": 39,
+      "shell_blocks": 38,
       "standalone_compiled": 20,
-      "syntax_fragments": 109,
+      "syntax_fragments": 106,
       "toml_blocks": 3,
-      "zlang_fences": 129
+      "zlang_fences": 126
     },
     "format": "PDF-1.5",
-    "pages": 89,
+    "pages": 72,
     "pdf": "docs/ZLang-HDL-Language-Reference.pdf",
-    "pdf_sha256": "726f64ca8c1acb0050973e9ea5ec85cbab8bc93edec3768de1aa34b3736b6f91",
-    "syntax_grammar_sha256": "f63945e59c4a8bde6e4b1a95b4512ca787d8a91b4c8333e160398a26de83526d",
+    "pdf_sha256": "988405bacb21f180764f49c939237e973e9fdec1b739620d39a4b69f8cea3cf7",
+    "syntax_grammar_sha256": "e568449f05bf36bb7f6aeaa5da013a09421724211e54f5ae0f506fa01be9a8f2",
     "sources": {
-      "docs/language-quick-reference.md": "e037efdc44878a955451793802cc15623ee2b6f7c26c1625c5cee09925b5b8dc",
-      "docs/language-reference.md": "5575b321c7a9bdceb3fc57f44a1d63afe1831bb55fcc5617df18443c1b6d176a"
+      "docs/language-quick-reference.md": "07b7c6e101a74a528fcc952b300530d71cc26d325a0fc53056391657aa996f27",
+      "docs/language-reference.md": "ff02d9ca16ec83b03e363bf739233f8f2d03939252903894c79bbaeaada70393"
     },
-    "source_date_epoch": 1791295200
+    "source_date_epoch": 1791381600
   },
   "generated_by": "tools/release_status.py"
 }

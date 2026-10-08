@@ -2,14 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from zlang.ast import (
-    FsmDecl,
-    FsmStateDecl,
-    FsmTransitionDecl,
-    NameExpr,
-    NextAssignment,
-    TypeName,
-)
+from zlang.ast.nodes import FsmDecl, FsmStateDecl, FsmTransitionDecl, NameExpr, NextAssignment, TypeName
 from zlang.parser import ParseError, parse
 
 

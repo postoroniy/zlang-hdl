@@ -12,9 +12,10 @@ release evidence until it is represented in the candidate's
 
 ## Operator checklist
 
-This is the canonical operator procedure. Do not substitute an ambient Python,
-an old installed wheel, an arbitrary Git branch, or an untracked reproducer for
-one of these checks.
+This is the canonical operator procedure, including the hosted-policy detail.
+Do not substitute
+an ambient Python, an old installed wheel, an arbitrary Git branch, or an
+untracked reproducer for one of these checks.
 
 ### 1. Establish the correct release tree
 
@@ -125,6 +126,10 @@ the exact-main identity preflight plus native audits, external-tool inventory,
 an installed-VSIX host smoke, and reproducible package construction in addition
 to the review checks.
 
+Each regression pass runs the ordinary deterministic suite and the six
+isolated `performance` regressions as separate JUnit reports. Release status
+validates both partitions; neither report may contain a skip, failure, or error.
+
 Release commands never borrow a sibling worktree's interpreter. Every run uses
 the candidate's `.venv` and creates collision-safe transient files below that
 candidate's `build/tmp`; `KEEP_TMP=1` retains a failed run's scratch directory.
@@ -138,8 +143,6 @@ release.
 The Community tree carries the Markdown reference sources and the reviewed PDF
 artifact. `make community-pdf-check` validates the PDF digest, page count,
 metadata and source identities recorded in `release/status.json`. PDF authoring
-is host-owned: build the final PDF against the exact exported public snapshot,
-recording the audited host builder digest, before committing that snapshot.
 is host-owned: build the final PDF against the exact exported public snapshot,
 recording the audited host builder digest, before committing that snapshot.
 Assets are release-maintainer inputs and are not advertised as a public build
@@ -232,7 +235,7 @@ missing or renamed regression therefore fails before tagging.
 - Bug fixes test the first incorrect boundary, not only a broad end-to-end path.
 - Compiler and native-runtime fixes include an independent behavioral oracle
   where practical, normally Direct SystemVerilog with Verilator or Icarus.
-- LSP regressions exercise real JSON-RPC and compiler-owned tooling facts;
+- LSP regressions exercise real JSON-RPC and current compiler tooling results;
   mocked protocol tests alone are insufficient.
 - Performance fixes use bounded permanent fixtures and assert a completion
   limit or deterministic fail-closed budget diagnostic.

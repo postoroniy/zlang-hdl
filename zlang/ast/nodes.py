@@ -1464,23 +1464,21 @@ class MemoryResetPolicy(str, Enum):
     PRESERVE = "preserve"
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class MemoryDecl:
     name: str
     element_type: TypeSyntax
     depth: int | str
     read_latency: int
     collision: MemoryCollision
-    origin: SourceSpan | None = field(default=None, compare=False)
-    # Trailing defaults preserve the positional constructor used before reset
-    # policy became source-visible.
-    contents_reset: MemoryResetPolicy = MemoryResetPolicy.CLEAR
-    read_data_reset: MemoryResetPolicy = MemoryResetPolicy.CLEAR
-    domain: str | None = None
-    ports: tuple[MemoryPortDecl, ...] = ()
-    async_memory: bool = False
-    write_priority: tuple[str, ...] = ()
-    initializer: Expression | None = None
+    origin: SourceSpan | None = field(compare=False)
+    contents_reset: MemoryResetPolicy
+    read_data_reset: MemoryResetPolicy
+    domain: str | None
+    ports: tuple[MemoryPortDecl, ...]
+    async_memory: bool
+    write_priority: tuple[str, ...]
+    initializer: Expression | None
 
 
 @dataclass(frozen=True)
@@ -1556,11 +1554,14 @@ class ModuleInterfaceRef:
     origin: SourceSpan | None = field(default=None, compare=False)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class Module:
     name: str
     ports: tuple[PortDecl, ...]
     assignments: tuple[Assignment, ...]
+    # Parser-owned declaration order is mandatory for every current syntax
+    # module. Declaration-only and external modules provide the empty tuple.
+    ordered_items: tuple[object, ...]
     type_aliases: tuple[TypeAlias, ...] = ()
     enums: tuple[EnumDecl, ...] = ()
     structs: tuple[StructDecl, ...] = ()
@@ -1606,11 +1607,6 @@ class Module:
     architecture_templates: tuple[ArchitectureTemplateDecl, ...] = ()
     compile_time_ifs: tuple["CompileTimeIfDecl", ...] = ()
     generate_blocks: tuple["GenerateBlock", ...] = ()
-    # Module declarations retain their source order at the syntax boundary.
-    # Category-specific tuples above remain the compatibility view consumed by
-    # existing semantic passes; ordered_items is used when elaboration must
-    # splice compile-time branches without changing dependency order.
-    ordered_items: tuple[object, ...] = ()
     timing: ModuleTimingDecl | None = None
     module_interfaces: tuple[ModuleInterfaceDecl, ...] = ()
     conforms_to: ModuleInterfaceRef | None = None
@@ -1621,10 +1617,9 @@ class Module:
     # function is the complete backend-independent semantic model.
     external_model: str | None = None
     external_origin: SourceSpan | None = field(default=None, compare=False)
-    # Appended to preserve the historical positional constructor ABI.
     tagged_unions: tuple[TaggedUnionDecl, ...] = ()
-    # Declaration-only source units use one syntax carrier because the legacy
-    # parser API returns Module.  Import merging consumes its declarations but
+    # Declaration-only source units use one syntax carrier. Import merging
+    # consumes its declarations but
     # never publishes the carrier as an elaborated child.
     declaration_only: bool = False
     # One bounded compile-time legality condition over exact type/value module

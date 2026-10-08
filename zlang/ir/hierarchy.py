@@ -13,6 +13,7 @@ from enum import Enum
 from pathlib import Path
 
 from zlang.common import stable_digest
+from zlang.common.serialization import stable_acyclic_digest
 from zlang.ir.interfaces import (
     InterfaceProtocol,
     ReadyValidSignal,
@@ -81,12 +82,18 @@ class HierarchyTraversalCache:
     def __init__(self) -> None:
         self._fingerprints: dict[int, tuple[Module, str]] = {}
         self._indexes: dict[int, tuple[Module, HierarchyIndex]] = {}
+        self._callable_definition_values: dict[int, tuple[object, str]] = {}
+        self._callable_uses: dict[int, tuple[object, tuple[object, ...]]] = {}
 
     def fingerprint(self, module: Module) -> str:
         cached = self._fingerprints.get(id(module))
         if cached is not None and cached[0] is module:
             return cached[1]
-        fingerprint = specialization_fingerprint(module)
+        fingerprint = specialization_fingerprint(
+            module,
+            _definition_values=self._callable_definition_values,
+            _uses=self._callable_uses,
+        )
         self._fingerprints[id(module)] = (module, fingerprint)
         return fingerprint
 
@@ -125,13 +132,6 @@ _SPECIALIZATION_VISIBLE_CATALOG_FIELDS = frozenset({
     # helpers or discover the same helpers in a different order.  The exact
     # executable closure is added explicitly by specialization_fingerprint().
     "functions", "callable_definitions",
-    # Named type declarations are also inherited from the source-visible
-    # compilation context.  Any type that affects the reusable component is
-    # already retained through its typed ports, state, expressions, storage,
-    # or reachable callable closure.  Hashing the whole catalog makes two
-    # otherwise identical children disagree merely because their parents
-    # import different unrelated declarations.
-    "structs", "enums", "tagged_unions",
 })
 
 
@@ -238,7 +238,7 @@ def _specialization_digest(value: object) -> str:
             content = [
                 (name, memo[id(item)][1]) for name, item in parts
             ]
-        digest = stable_digest({
+        digest = stable_acyclic_digest({
             "schema": "zlang-typed-specialization-node-v1",
             "kind": kind,
             "content": content,
@@ -248,7 +248,12 @@ def _specialization_digest(value: object) -> str:
     return memo[id(value)][1]
 
 
-def specialization_fingerprint(module: Module) -> str:
+def specialization_fingerprint(
+    module: Module,
+    *,
+    _definition_values: dict[int, tuple[object, str]] | None = None,
+    _uses: dict[int, tuple[object, tuple[object, ...]]] | None = None,
+) -> str:
     """Fingerprint one reusable typed module specialization.
 
     The digest covers the complete reusable semantic component definition but
@@ -271,14 +276,16 @@ def specialization_fingerprint(module: Module) -> str:
         reachable_callables = reachable_module_callables(
             module,
             include_hierarchy=False,
+            _definition_values=_definition_values,
+            _uses=_uses,
         )
     except CallableReachabilityError as error:
         raise HierarchyError(
             f"typed specialization callable graph is invalid: {error}"
         ) from error
 
-    return stable_digest({
-        "schema": "zlang-typed-module-specialization-v4",
+    return stable_acyclic_digest({
+        "schema": "zlang-typed-module-specialization-v3",
         "content": _specialization_digest(module),
         "reachable_callables": _specialization_digest(reachable_callables),
     })
@@ -481,12 +488,6 @@ class HierarchyIndex:
             )
         return match
 
-    def specialization_catalog(self) -> tuple[HierarchySpecialization, ...]:
-        """Compatibility spelling for the immutable specialization view."""
-
-        return self.specializations
-
-
 def build_hierarchy_index(
     module: Module,
     *,
@@ -502,7 +503,7 @@ def build_hierarchy_index(
     entries: list[HierarchyEntry] = []
     paths: set[tuple[str, ...]] = set()
     active_modules: set[int] = set()
-    specializations: dict[HierarchySpecializationKey, str] = {}
+    specialization_representatives: dict[HierarchySpecializationKey, Module] = {}
 
     def visit(
         current: Module,
@@ -626,11 +627,13 @@ def build_hierarchy_index(
                     child.name,
                     elaborated.specialization_identity,
                 )
-                fingerprint = selected_cache.fingerprint(child)
-                previous_fingerprint = specializations.get(specialization_key)
-                if (
-                    previous_fingerprint is not None
-                    and previous_fingerprint != fingerprint
+                previous = specialization_representatives.get(specialization_key)
+                if previous is None:
+                    specialization_representatives[specialization_key] = child
+                elif (
+                    previous is not child
+                    and selected_cache.fingerprint(previous)
+                    != selected_cache.fingerprint(child)
                 ):
                     raise HierarchyError(
                         "specialization identity "
@@ -638,7 +641,6 @@ def build_hierarchy_index(
                         f"is reused for incompatible '{child.name}'; "
                         "incompatible typed specialization content"
                     )
-                specializations[specialization_key] = fingerprint
                 visit(child, path + (instance_name,), elaborated)
         finally:
             active_modules.remove(id(current))

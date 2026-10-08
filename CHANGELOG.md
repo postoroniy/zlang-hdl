@@ -11,7 +11,7 @@ incompatible input explicitly.
 
 ## Unreleased
 
-## 0.1.0a20 — 2026-10-07
+## 0.1.0a20 — 2026-10-08
 
 Community alpha carrying bounded runtime packed selection, target-neutral
 implementation-provider foundations, and a deliberately narrow ready/valid
@@ -57,13 +57,16 @@ remain unchanged outside the documented new candidate forms.
   signedness, origins and expression DAG sharing while folding exact constant
   subexpressions before rendering. This bounds redundant generated expression
   work without changing emitted hardware semantics.
+- The permanent public layout-DMA witnesses keep both the medium FSM and
+  sticky-state scheduling cliffs bounded in simulation planning, native
+  execution and Direct-SystemVerilog emission.
 
-## 0.1.0a19 — 2026-09-29
+## 0.1.0a19 — 2026-10-05
 
-Community alpha carrying two compiler-owned CSR interoperability fixes and a
-safer pre-tag release-candidate path. Language timing, numerical semantics,
-generated RTL behavior outside the corrected CSR cases, and formal policy are
-unchanged.
+Community alpha carrying two CSR interoperability fixes,
+bounded Direct-SystemVerilog expression and wide-scatter lowering, and a safer
+pre-tag release-candidate path. Language timing, numerical semantics and formal
+policy are unchanged.
 
 ### Added
 
@@ -77,12 +80,54 @@ unchanged.
   source paths and focused tests. Release preflight now fails closed when a
   recorded fix, source, test selector, baseline tag or disposition is missing.
 
+### Changed
+
+- Semantic editor observations are demand-driven owners separate from the
+  expression-checking façade, and native simulation keeps its public API while
+  plan construction and strict payload validation live in focused modules.
+- The VS Code extension now launches the canonical `zlang lsp` subcommand from
+  the configured `zlang` executable.
+- Python-only standard-bus and protocol reference models moved to test support
+  and are no longer runtime package modules. ZLang standard-library sources are
+  unchanged.
+
+### Removed
+
+- The retired scalar `pipeline(auto)`, `architecture(auto)`, and `explore`
+  compatibility parser productions have been removed. Compiler-discovered
+  scalar implementation selection uses `implement`; exact `pipeline(N)`,
+  user-authored `choice`, and protocol `transform pipeline(auto)` remain.
+- Removed the standalone `zlang-lsp`, `zlang-lock`, and `zlang-verify` console
+  aliases. Use `zlang lsp`, `zlang lock`, and `zlang verify`.
+- Removed the `--experimental-systemverilog`, `--formal-harness`, and
+  `--formal-sby` compatibility options. Use `--systemverilog` and immutable
+  `--verification-bundle` publication.
+- Bare compiler invocation without `--check`, `--verify`, or an explicit
+  artifact output is no longer an implicit RTL-emission path.
+
 ### Fixed
 
 - CSR `ro` and sticky-W1C bindings can consume exact members of typed aggregate
   input ports. The compiler retains the member expression and rejects missing
   fields, type mismatches, command-member targets and implicit clock-domain
   crossings.
+- Primitive credit, virtual-channel credit, and packet simulation plans retain
+  canonical scalar field names when their resolved signal identities are
+  string-backed enums. Native protocol input updates no longer target a
+  mismatched Python enum spelling.
+- Hosted and local release gates validate the deterministic and isolated
+  performance JUnit partitions separately. A complete deterministic run is no
+  longer rejected for not containing the intentionally isolated performance
+  tests, while either partition still fails closed on missing tests or skips.
+- Direct SystemVerilog emission now gives selected expression definitions the
+  same bounded-DAG treatment as their use sites, emits large aggregate values
+  through bounded slices, and shares exact binder-free region invariants.
+  Candidate-addressed OR scatters use a structural tree only while its
+  intermediate size is bounded. Wider scatters use deterministic binder-aligned
+  chunks of at most sixteen writes, independent accumulators, and a balanced OR
+  tree instead of a whole-vector procedural update chain. This avoids frontend
+  and Yosys memory blow-ups without changing typed IR, collision/range/fixed-
+  width value semantics, or enabling additional e-graph rewrites.
 
 ### Compatibility
 
@@ -161,7 +206,7 @@ semantics are unchanged.
   instantiated, preventing exponential compiler and editor memory growth.
 - LSP requests have bounded supervision so an unexpectedly expensive analysis
   cannot leave the editor waiting indefinitely; ordinary diagnostics and
-  navigation retain compiler-owned semantics.
+  navigation retain language semantics.
 - Reference and native simulators now lower nested pure functional regions
   into bounded primitive-plan regions without duplicating their bodies. A large
   structural stress case now runs with exact reference/native/typed cycle
@@ -225,8 +270,8 @@ development collateral are excluded from the Community source tree.
   failures while related open project files are being edited, and current spans
   are retained for diagnostics and navigation.
 - Child protocol member projection and aggregate protocol simulation now use
-  the compiler-owned typed composition model consistently across reference,
-  native and Direct-SV execution.
+  the same typed composition semantics across reference, native and Direct-SV
+  execution.
 
 ## 0.1.0a13 — 2026-09-23
 
@@ -382,7 +427,7 @@ language and RTL semantics are unchanged from `0.1.0a8`.
   Uniform compile-time `init VALUE` preserves generic reset and FPGA power-up
   initialization semantics without claiming analog collision guarantees.
 - Community `zlang-lsp` and the independently packaged VS Code language client,
-  with compiler-owned Definition/References, content-bound symbol shards and
+  with resolved Definition/References, content-bound symbol caches and
   real installed-editor navigation acceptance.
 - A tracked Community-only Qwen project skill with concise routing for `.zhl`
   authoring, compiler work, direct-SystemVerilog integration, optimization,
@@ -407,7 +452,7 @@ language and RTL semantics are unchanged from `0.1.0a8`.
 - Definition and References now share bounded multi-module top selection.
   References validates project-root bytes and candidate bounds instead of
   publishing stale or truncated sets; same-file enum and resource navigation
-  retain exact compiler-owned identifier spans.
+  retain exact resolved identifier spans.
 
 ## 0.1.0a6 — 2026-09-11
 
@@ -416,9 +461,9 @@ language and RTL semantics are unchanged from `0.1.0a8`.
 - Removed the retired Clash emitter, its hidden compatibility CLI, generated
   Haskell artifacts, packaging surface, test suite, and tool discovery. Direct
   SystemVerilog is now the only production RTL backend in both policy and code.
-- Retired executable retired cross-backend equivalence cross-backend comparison without reusing its name for
-  another relation. safety verification safety, direct-SV semantic-reference equivalence semantic-reference equivalence,
-  and formal-aware selection formal-aware selection remain supported.
+- Retired executable cross-backend comparison without reusing its name for
+  another relation. Safety verification, Direct-SV semantic-reference
+  equivalence, and formal-aware selection remain supported.
 - Release acceptance now requires zero skipped tests and no GHC/Clash tooling.
 
 ## 0.1.0a5 — 2026-09-11
@@ -437,8 +482,9 @@ language and RTL semantics are unchanged from `0.1.0a8`.
 - Direct SystemVerilog is the sole production RTL backend. The public Clash
   output options and `zlang-compare-backends` command are retired; the legacy
   emitter remains internal compatibility code only.
-- formal-aware selection and compiler-owned selected-candidate equivalence now use the direct-SV
-  semantic-reference equivalence route. retired cross-backend equivalence is retained only as unavailable historical schema data.
+- Formal-aware selection and selected-candidate equivalence now use the
+  Direct-SV semantic-reference equivalence route. Cross-backend equivalence is
+  retained only as unavailable historical schema data.
 - Exact `pipeline(N)` scheduling is deferred until target/profile planning,
   preserving semantic latency while allowing real internal register cuts.
 
@@ -493,10 +539,10 @@ remain unchanged; publication is subject to `RELEASING.md`.
   architecture and four-stage `explore` implementations. Recorded Vivado
   out-of-context timing uses the same device and 10 ns constraint; it is not a
   board-level timing guarantee.
-- Independent semantic-reference equivalence semantic-reference and retired cross-backend equivalence cross-backend bounded checks for
-  the pipelined example, plus deliberate arithmetic and latency mutations.
-  BMC remains bounded evidence; the separately timed-out formal-aware selection architecture route
-  remains explicitly `unknown`.
+- Independent semantic-reference equivalence and cross-backend bounded checks
+  for the pipelined example, plus deliberate arithmetic and latency mutations.
+  BMC remains bounded evidence; the separately timed-out formal-aware selection
+  route remains explicitly `unknown`.
 - A static VS Code extension for `.zhl`, independently versioned 0.1.0, with
   compiler-checked snippets, real TextMate/Oniguruma tests and three optional
   highlighting styles. No LSP, compiler runtime or telemetry is included.
@@ -540,7 +586,7 @@ Release was not published; the installer inventory gate is corrected in a2.
   Future CSR C/C++ and UVM helper generators are classified Enterprise, not
   implemented additions; existing CSR and simulation exports remain Community.
 - Typed semantic and canonical IR, simulation, Clash and direct-SystemVerilog
-  backends, compiler-owned standard library, project locking, manifests, and
+  backends, built-in standard library, project locking, manifests, and
   bounded optimization and verification workflows.
 - Real-design validation including DMA, standard-bus CSR paths, fixed-point FIR,
   FFT512, and an attributed IEEE 802.11a transmitter project.

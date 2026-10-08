@@ -80,8 +80,10 @@ def _same_affected_closure(
     new_inputs = current.physical_inputs
     if (
         old_inputs.project_manifest is None
-        or previous.root_module_identity != current.root_module_identity
-        or previous.dependency_closure != current.dependency_closure
+        or previous.options.root_module_identity
+        != current.options.root_module_identity
+        or previous.options.dependency_closure
+        != current.options.dependency_closure
         or replace(old_inputs, stdlib_sources=()) != new_inputs
     ):
         return False

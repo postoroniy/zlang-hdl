@@ -2,7 +2,7 @@ import unittest
 
 from zlang.parser import parse
 from zlang.semantic import analyze, SemanticError
-from zlang.standard_bus import Axi4LiteToRegBus, AxiLiteInput, AxiAw, AxiW, ApbToRegBus, ApbInput, RegResponse
+from tests.support.standard_bus import Axi4LiteToRegBus, AxiLiteInput, AxiAw, AxiW, ApbToRegBus, ApbInput, RegResponse
 
 class StandardBusLibraryTests(unittest.TestCase):
     def test_std_import_and_schema_identity(self):

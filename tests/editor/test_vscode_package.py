@@ -43,14 +43,14 @@ GENERATED_RUNTIME = {
 }
 RUNTIME_PACKAGES = {
     "balanced-match": "4.0.4",
-    "brace-expansion": "5.0.9",
+    "brace-expansion": "5.0.12",
     "minimatch": "10.2.6",
     "semver": "7.8.5",
-    "vscode-jsonrpc": "9.0.2",
+    "vscode-jsonrpc": "9.0.3",
     "vscode-languageclient": TOOLCHAIN["vscodeLanguageClient"],
-    "vscode-languageserver-protocol": "3.18.3",
-    "vscode-languageserver-textdocument": "1.0.14",
-    "vscode-languageserver-types": "3.18.3",
+    "vscode-languageserver-protocol": "3.18.4",
+    "vscode-languageserver-textdocument": "1.0.15",
+    "vscode-languageserver-types": "3.18.4",
 }
 VSIX_NS = "http://schemas.microsoft.com/developer/vsx-schema/2011"
 CONTENT_NS = "http://schemas.openxmlformats.org/package/2006/content-types"
@@ -108,8 +108,8 @@ def _contributes() -> dict:
                 "zlang.lsp.path": {
                     "type": "string", "default": "",
                     "description": (
-                        "Direct path or PATH command for the Community zlang-lsp "
-                        "executable. Use ${workspaceFolder}/.venv/bin/zlang-lsp "
+                        "Direct path or PATH command for the Community zlang "
+                        "executable. Use ${workspaceFolder}/.venv/bin/zlang "
                         "for a repository checkout."
                     ),
                 },
@@ -140,7 +140,7 @@ def validate_metadata(package: dict, *, packaged: bool = False) -> None:
         "untrustedWorkspaces": {
             "supported": False,
             "description": (
-                "The extension starts the configured local zlang-lsp executable "
+                "The extension starts the configured local zlang lsp process "
                 "only in a trusted workspace."
             ),
         },

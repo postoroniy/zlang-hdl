@@ -9,6 +9,7 @@ import threading
 
 import pytest
 
+from zlang import verification_bundle_codec as bundle_codec
 from zlang.backend.source_map import (
     GeneratedLineRange,
     GeneratedSourceMap,
@@ -51,6 +52,7 @@ from zlang.verification_bundle import (
     verification_result_cache_key,
 )
 from zlang.verification_cli import main as verification_main
+from tests.support.current_verification import current_verification_fixture
 
 
 def _digest(value: str) -> str:
@@ -72,44 +74,43 @@ def _payload(
     *,
     vacuity_dependencies: dict[str, str] | None = None,
 ) -> dict[str, object]:
-    dependencies = vacuity_dependencies or {}
-    feasibility = set(dependencies.values())
-    return {
-        "formal_ir_version": 1,
-        "identities": {
-            "source": "source:" + _digest("counter-source"),
-            "dependency": "dependency:" + _digest("counter-dependency"),
-            "compiler": "compiler:" + _digest("counter-compiler"),
-        },
-        "hardware": {
-            "high_level_ir_identity": hardware_identity,
-            "selected_ir_identity": hardware_identity,
-        },
-        "scopes": [],
-        "properties": [
-            {
-                "id": property_id,
-                "kind": kinds[property_id],
-                "generated_from": (
-                    "verification-feasibility:test"
-                    if property_id in feasibility else None
-                ),
-                "predicate": {"kind": "constant", "value": 1},
-                "source_origin": _origin().to_data(),
-            }
-            for property_id in sorted(kinds)
-        ],
-        "bindings": [],
-        "vacuity_dependencies": dependencies,
-    }
+    return _fixture(
+        hardware_identity,
+        tuple(_job(property_id, kind=kind) for property_id, kind in kinds.items()),
+        vacuity_dependencies=vacuity_dependencies,
+    ).payload
+
+
+def _fixture(
+    hardware_identity: str,
+    jobs: tuple[VerificationJob, ...],
+    *,
+    vacuity_dependencies: dict[str, str] | None = None,
+):
+    return current_verification_fixture(
+        hardware_identity=hardware_identity,
+        jobs=jobs,
+        source_identity="source:" + _digest("counter-source"),
+        dependency_identity="dependency:" + _digest("counter-dependency"),
+        compiler_identity="compiler:" + _digest("counter-compiler"),
+        vacuity_dependencies=vacuity_dependencies,
+    )
 
 
 def _inputs(*, reverse: bool = False) -> tuple[VerificationBundleInput, ...]:
+    implementation = b"module Counter(input logic clk); endmodule\n"
+    source_map = GeneratedSourceMap(
+        "direct_systemverilog",
+        "Counter",
+        "hardware:" + _digest("counter-hardware"),
+        hashlib.sha256(implementation).hexdigest(),
+        (),
+    )
     values = (
         VerificationBundleInput(
             "implementation/Counter.sv",
             "implementation",
-            b"module Counter(input logic clk); endmodule\n",
+            implementation,
         ),
         VerificationBundleInput(
             "harness/count_within.sv",
@@ -120,7 +121,9 @@ def _inputs(*, reverse: bool = False) -> tuple[VerificationBundleInput, ...]:
             "config/count_within.json", "config", b'{"binding_schema":1}\n'
         ),
         VerificationBundleInput(
-            "source-map/count_within.json", "source_map", b'{"mappings":[]}\n'
+            "source-map/count_within.json",
+            "source_map",
+            source_map.to_json().encode(),
         ),
     )
     return tuple(reversed(values)) if reverse else values
@@ -147,10 +150,8 @@ def _publish(
 ):
     hardware_identity = "hardware:" + _digest("counter-hardware")
     selected_jobs = jobs or tuple(_job(item) for item in reversed(property_ids))
-    payload = _payload(
-        hardware_identity,
-        {item.property_id: item.kind for item in selected_jobs},
-    )
+    fixture = _fixture(hardware_identity, selected_jobs)
+    payload = fixture.payload
     verification_identity = verification_identity_for(
         top="Counter",
         hardware_identity=hardware_identity,
@@ -165,7 +166,7 @@ def _publish(
         property_ids=reversed(property_ids),
         verification_ir=payload,
         files=_inputs(reverse=reverse_files),
-        jobs=selected_jobs,
+        jobs=fixture.jobs,
     )
 
 
@@ -179,6 +180,12 @@ def test_bundle_is_deterministic_immutable_and_strictly_round_trips(tmp_path: Pa
     restored = load_verification_bundle(tmp_path / "left")
     assert restored.manifest == left
     assert restored.verification_ir["verification_identity"] == left.verification_identity
+    assert restored.verification_ir["schema"] == "zlang-verification-ir-snapshot-v4"
+
+    legacy = dict(restored.verification_ir)
+    legacy["schema"] = "zlang-verification-ir-snapshot-v3"
+    with pytest.raises(VerificationBundleError, match="unsupported verification IR schema"):
+        bundle_codec._validate_verification_ir(legacy)
 
     # Re-publishing byte-identical inputs is permitted; changing an immutable
     # payload at the same destination is not.
@@ -187,7 +194,8 @@ def test_bundle_is_deterministic_immutable_and_strictly_round_trips(tmp_path: Pa
     changed[0] = replace(changed[0], content=b"module Counter; endmodule\n")
     with pytest.raises(VerificationBundleError, match="collides"):
         hardware = "hardware:" + _digest("counter-hardware")
-        payload = _payload(hardware, {"user.count_within": "safety"})
+        fixture = _fixture(hardware, (_job(),))
+        payload = fixture.payload
         publish_verification_bundle(
             tmp_path / "left",
             top="Counter",
@@ -199,7 +207,7 @@ def test_bundle_is_deterministic_immutable_and_strictly_round_trips(tmp_path: Pa
             property_ids=("user.count_within",),
             verification_ir=payload,
             files=changed,
-            jobs=(_job(),),
+            jobs=fixture.jobs,
         )
 
 
@@ -315,7 +323,7 @@ def test_bundle_identity_excludes_execution_configuration(tmp_path: Path, monkey
             tool_versions=keywords["toolchain"].versions,  # type: ignore[union-attr]
         )
 
-    monkeypatch.setattr("zlang.verification_bundle.run_verilog_formal", run)
+    monkeypatch.setattr("zlang.verification_bundle_execution.run_verilog_formal", run)
     bmc = run_verification_bundle(
         loaded, config=VerificationRunConfig(ProofMode.BMC, "sby", "z3", 7, 9),
         work_directory=tmp_path / "work-left",
@@ -376,7 +384,7 @@ def test_staged_execution_uses_the_compilation_session_tool_resolver_once(
             tool_versions=context.versions,
         )
 
-    monkeypatch.setattr("zlang.verification_bundle.run_verilog_formal", run)
+    monkeypatch.setattr("zlang.verification_bundle_execution.run_verilog_formal", run)
     monkeypatch.setattr(
         "zlang.verification_bundle.FormalToolchainContext.discover",
         lambda **_keywords: pytest.fail("session-owned resolver was bypassed"),
@@ -421,7 +429,7 @@ def test_parallel_jobs_overlap_but_report_in_manifest_order(
             tool_versions=keywords["toolchain"].versions,  # type: ignore[union-attr]
         )
 
-    monkeypatch.setattr("zlang.verification_bundle.run_verilog_formal", run)
+    monkeypatch.setattr("zlang.verification_bundle_execution.run_verilog_formal", run)
     report = run_verification_bundle(
         tmp_path / "bundle",
         config=VerificationRunConfig(jobs=2),
@@ -465,7 +473,7 @@ def test_identical_concurrent_runs_serialize_one_deterministic_workspace(
             tool_versions=keywords["toolchain"].versions,  # type: ignore[union-attr]
         )
 
-    monkeypatch.setattr("zlang.verification_bundle.run_verilog_formal", run)
+    monkeypatch.setattr("zlang.verification_bundle_execution.run_verilog_formal", run)
     arguments = {
         "config": VerificationRunConfig(depth=8),
         "work_directory": tmp_path / "work",
@@ -500,7 +508,7 @@ def test_distinct_bundles_use_distinct_work_roots_with_same_config(
             tool_versions=keywords["toolchain"].versions,  # type: ignore[union-attr]
         )
 
-    monkeypatch.setattr("zlang.verification_bundle.run_verilog_formal", run)
+    monkeypatch.setattr("zlang.verification_bundle_execution.run_verilog_formal", run)
     config = VerificationRunConfig()
     left = run_verification_bundle(
         tmp_path / "left", config=config, work_directory=tmp_path / "work",
@@ -551,8 +559,8 @@ def test_staged_prove_runs_cover_once_and_only_proves_after_bounded_safety(
             tool_versions=keywords["toolchain"].versions,  # type: ignore[union-attr]
         )
 
-    monkeypatch.setattr("zlang.verification_bundle.run_verilog_formal", formal)
-    monkeypatch.setattr("zlang.verification_bundle.run_verilog_cover", cover)
+    monkeypatch.setattr("zlang.verification_bundle_execution.run_verilog_formal", formal)
+    monkeypatch.setattr("zlang.verification_bundle_execution.run_verilog_cover", cover)
     monkeypatch.setattr(
         "zlang.verification_bundle.FormalToolchainContext.discover",
         lambda **_kwargs: _available_toolchain(),
@@ -607,7 +615,7 @@ def test_staged_prove_does_not_block_clean_safety_on_unrelated_skipped_cover(
             tool_versions=keywords["toolchain"].versions,  # type: ignore[union-attr]
         )
 
-    monkeypatch.setattr("zlang.verification_bundle.run_verilog_formal", formal)
+    monkeypatch.setattr("zlang.verification_bundle_execution.run_verilog_formal", formal)
     monkeypatch.setattr(
         "zlang.verification_bundle.FormalToolchainContext.discover",
         lambda **_kwargs: _available_toolchain(),
@@ -659,7 +667,8 @@ def test_bundle_executor_consumes_hash_bound_generated_source_map(
 ) -> None:
     implementation = "module Counter(input logic clk); endmodule\n"
     implementation_hash = hashlib.sha256(implementation.encode()).hexdigest()
-    selected_identity = "selected:test:counter"
+    hardware = "hardware:" + _digest("mapped-counter-hardware")
+    selected_identity = hardware
     source_map = GeneratedSourceMap(
         "direct_systemverilog",
         "Counter",
@@ -697,8 +706,8 @@ def test_bundle_executor_consumes_hash_bound_generated_source_map(
         _job(),
         source_map_files=("source-map/count_within.json",),
     )
-    hardware = "hardware:" + _digest("mapped-counter-hardware")
-    payload = _payload(hardware, {job.property_id: job.kind})
+    fixture = _fixture(hardware, (job,))
+    payload = fixture.payload
     identity = verification_identity_for(
         top="Counter",
         hardware_identity=hardware,
@@ -713,7 +722,7 @@ def test_bundle_executor_consumes_hash_bound_generated_source_map(
         property_ids=(job.property_id,),
         verification_ir=payload,
         files=files,
-        jobs=(job,),
+        jobs=fixture.jobs,
     )
     seen = []
 
@@ -736,7 +745,7 @@ def test_bundle_executor_consumes_hash_bound_generated_source_map(
         (("yosys", "test"), ("sby", "test"),
          ("yosys-smtbmc", "test"), ("z3", "test")),
     )
-    monkeypatch.setattr("zlang.verification_bundle.run_verilog_formal", run)
+    monkeypatch.setattr("zlang.verification_bundle_execution.run_verilog_formal", run)
     report = run_verification_bundle(
         tmp_path / "bundle",
         toolchain=FormalToolchainContext("sby", "z3", inventory),
@@ -769,7 +778,8 @@ def test_verification_identity_excludes_source_attribution() -> None:
 
 def test_payload_rejects_wrong_job_kind_and_vacuity_links(tmp_path: Path) -> None:
     hardware = "hardware:" + _digest("counter-hardware")
-    cover_payload = _payload(hardware, {"user.count_within": "cover"})
+    cover_fixture = _fixture(hardware, (_job(kind="cover"),))
+    cover_payload = cover_fixture.payload
     cover_identity = verification_identity_for(
         top="Counter", hardware_identity=hardware,
         property_ids=("user.count_within",), payload=cover_payload,
@@ -779,7 +789,7 @@ def test_payload_rejects_wrong_job_kind_and_vacuity_links(tmp_path: Path) -> Non
             tmp_path / "wrong-kind", top="Counter", hardware_identity=hardware,
             verification_identity=cover_identity,
             property_ids=("user.count_within",), verification_ir=cover_payload,
-            files=_inputs(), jobs=(_job(),),
+            files=_inputs(), jobs=(replace(cover_fixture.jobs[0], kind="safety"),),
         )
 
     invalid_dependency = _payload(
@@ -897,7 +907,7 @@ def test_failure_and_counterexample_metadata_are_preserved(tmp_path: Path, monke
             "formal counterexample reported",
         )
 
-    monkeypatch.setattr("zlang.verification_bundle.run_verilog_formal", fail)
+    monkeypatch.setattr("zlang.verification_bundle_execution.run_verilog_formal", fail)
     report = run_verification_bundle(loaded, config=VerificationRunConfig(depth=8))
     assert report.outcome == "failed"
     assert report.exit_code == 1
@@ -921,10 +931,10 @@ def test_failure_and_counterexample_metadata_are_preserved(tmp_path: Path, monke
 
 def test_cover_job_uses_bounded_reachability_executor(tmp_path: Path, monkeypatch) -> None:
     _publish(tmp_path / "bundle", jobs=(_job(kind="cover"),))
-    monkeypatch.setattr("zlang.verification_bundle.run_verilog_formal",
+    monkeypatch.setattr("zlang.verification_bundle_execution.run_verilog_formal",
                         lambda *_args, **_kwargs: pytest.fail("cover used safety executor"))
     monkeypatch.setattr(
-        "zlang.verification_bundle.run_verilog_cover",
+        "zlang.verification_bundle_execution.run_verilog_cover",
         lambda _source, **kwargs: CoverResult(
             str(kwargs["property_id"]), CoverStatus.WITNESSED,
             str(kwargs["engine"]), str(kwargs["solver"]), int(kwargs["depth"]),
@@ -948,11 +958,12 @@ def test_unreached_feasibility_cover_marks_dependent_success_vacuous(
     safety_id = "user.count_within"
     feasibility_id = "scope.requirements_feasible"
     hardware = "hardware:" + _digest("counter-hardware")
-    payload = _payload(
+    fixture = _fixture(
         hardware,
-        {safety_id: "safety", feasibility_id: "cover"},
+        (_job(safety_id), _job(feasibility_id, kind="cover")),
         vacuity_dependencies={safety_id: feasibility_id},
     )
+    payload = fixture.payload
     identity = verification_identity_for(
         top="Counter", hardware_identity=hardware,
         property_ids=(safety_id, feasibility_id), payload=payload,
@@ -962,10 +973,10 @@ def test_unreached_feasibility_cover_marks_dependent_success_vacuous(
         verification_identity=identity,
         property_ids=(safety_id, feasibility_id), verification_ir=payload,
         files=_inputs(),
-        jobs=(_job(safety_id), _job(feasibility_id, kind="cover")),
+        jobs=fixture.jobs,
     )
     monkeypatch.setattr(
-        "zlang.verification_bundle.run_verilog_formal",
+        "zlang.verification_bundle_execution.run_verilog_formal",
         lambda _source, **kwargs: FormalResult(
             str(kwargs["property_id"]), FormalStatus.BOUNDED_PASS,
             ProofMode.BMC, str(kwargs["engine"]), str(kwargs["solver"]),
@@ -974,7 +985,7 @@ def test_unreached_feasibility_cover_marks_dependent_success_vacuous(
         ),
     )
     monkeypatch.setattr(
-        "zlang.verification_bundle.run_verilog_cover",
+        "zlang.verification_bundle_execution.run_verilog_cover",
         lambda _source, **kwargs: CoverResult(
             str(kwargs["property_id"]), CoverStatus.BOUNDED_UNREACHED,
             str(kwargs["engine"]), str(kwargs["solver"]), int(kwargs["depth"]),
@@ -1001,7 +1012,8 @@ def test_unbound_safety_job_is_an_explicit_skip(tmp_path: Path, monkeypatch) -> 
         source_origin=_origin(),
     )
     hardware = "hardware:" + _digest("counter-hardware")
-    payload = _payload(hardware, {job.property_id: "safety"})
+    fixture = _fixture(hardware, (job,))
+    payload = fixture.payload
     identity = verification_identity_for(
         top="Counter", hardware_identity=hardware,
         property_ids=(job.property_id,), payload=payload,
@@ -1014,7 +1026,7 @@ def test_unbound_safety_job_is_an_explicit_skip(tmp_path: Path, monkeypatch) -> 
         property_ids=(job.property_id,),
         verification_ir=payload,
         files=(),
-        jobs=(job,),
+        jobs=fixture.jobs,
     )
     monkeypatch.setattr(
         "zlang.verification_bundle.FormalToolchainContext.discover",
@@ -1038,7 +1050,8 @@ def test_unbound_cover_job_keeps_cover_mode(tmp_path: Path, monkeypatch) -> None
         source_origin=_origin(),
     )
     hardware = "hardware:" + _digest("counter-hardware")
-    payload = _payload(hardware, {job.property_id: "cover"})
+    fixture = _fixture(hardware, (job,))
+    payload = fixture.payload
     identity = verification_identity_for(
         top="Counter", hardware_identity=hardware,
         property_ids=(job.property_id,), payload=payload,
@@ -1046,7 +1059,7 @@ def test_unbound_cover_job_keeps_cover_mode(tmp_path: Path, monkeypatch) -> None
     publish_verification_bundle(
         tmp_path / "bundle", top="Counter", hardware_identity=hardware,
         verification_identity=identity, property_ids=(job.property_id,),
-        verification_ir=payload, files=(), jobs=(job,),
+        verification_ir=payload, files=(), jobs=fixture.jobs,
     )
     report = run_verification_bundle(tmp_path / "bundle")
     assert report.results[0].status == "skipped"
@@ -1112,22 +1125,23 @@ def test_bundle_rejects_unsafe_paths_wrong_ids_and_python_only_ir(tmp_path: Path
             payload={},
         )
     with pytest.raises(VerificationBundleError, match="verification identity"):
+        fixture = _fixture(hardware, (_job(),))
         publish_verification_bundle(
             tmp_path / "bundle",
             top="Counter",
             hardware_identity=hardware,
             verification_identity="verification:" + _digest("wrong"),
             property_ids=("user.count_within",),
-            verification_ir=_payload(hardware, {"user.count_within": "safety"}),
+            verification_ir=fixture.payload,
             files=_inputs(),
-            jobs=(_job(),),
+            jobs=fixture.jobs,
         )
 
 
 def test_runner_rejects_misattributed_result(tmp_path: Path, monkeypatch) -> None:
     _publish(tmp_path / "bundle")
     monkeypatch.setattr(
-        "zlang.verification_bundle.run_verilog_formal",
+        "zlang.verification_bundle_execution.run_verilog_formal",
         lambda *_args, **_kwargs: FormalResult(
             "wrong.property", FormalStatus.BOUNDED_PASS, ProofMode.BMC,
             "sby", "z3", 20,
@@ -1140,7 +1154,7 @@ def test_runner_rejects_misattributed_result(tmp_path: Path, monkeypatch) -> Non
 def test_runner_rejects_mismatched_execution_metadata(tmp_path: Path, monkeypatch) -> None:
     _publish(tmp_path / "bundle")
     monkeypatch.setattr(
-        "zlang.verification_bundle.run_verilog_formal",
+        "zlang.verification_bundle_execution.run_verilog_formal",
         lambda *_args, **kwargs: FormalResult(
             str(kwargs["property_id"]), FormalStatus.BOUNDED_PASS, ProofMode.BMC,
             "sby", "z3", 19, source_origin=kwargs["source_origin"],
@@ -1164,7 +1178,7 @@ def test_cli_emits_text_or_json_report_without_mutating_bundle(
             tool_versions=keywords["toolchain"].versions,  # type: ignore[union-attr]
         )
 
-    monkeypatch.setattr("zlang.verification_bundle.run_verilog_formal", pass_result)
+    monkeypatch.setattr("zlang.verification_bundle_execution.run_verilog_formal", pass_result)
     report_path = tmp_path / "reports" / "formal.json"
     status = verification_main([
         str(tmp_path / "bundle"), "--depth", "6", "--format", "json",

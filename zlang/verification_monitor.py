@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 
 from zlang.ir import expressions as expr
@@ -144,10 +144,6 @@ class VerificationMonitor:
         self,
         scopes: Iterable[VerificationScope],
         functions: Iterable[Function] = (),
-        *,
-        evaluator: Callable[
-            [expr.Expression, Mapping[str, object], Mapping[str, Function]], object
-        ] = _evaluate,
     ) -> None:
         self.scopes = tuple(scopes)
         validate_verification_overlay(self.scopes)
@@ -161,7 +157,6 @@ class VerificationMonitor:
             self.functions[function.name] = function
         self._requirement_violations: list[VerificationRequirementViolation] = []
         self._cover_witnesses: dict[str, VerificationCoverWitness] = {}
-        self._evaluator = evaluator
 
     @property
     def requirement_violations(self) -> tuple[VerificationRequirementViolation, ...]:
@@ -263,7 +258,7 @@ class VerificationMonitor:
         origin: SourceOrigin | None,
     ) -> bool:
         try:
-            value = self._evaluator(expression, values, self.functions)
+            value = _evaluate(expression, values, self.functions)
         except KeyError as error:
             raise SimulationError(
                 f"verification {label} cannot be sampled: missing value "

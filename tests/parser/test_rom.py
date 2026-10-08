@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from zlang.ast import GenerateExpr, RomDecl
+from zlang.ast.nodes import GenerateExpr, RomDecl
 from zlang.parser import ParseError, parse
 
 

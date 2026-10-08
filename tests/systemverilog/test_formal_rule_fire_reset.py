@@ -16,7 +16,7 @@ from zlang.backend.systemverilog import emit_artifact, emit_formal_artifact
 from zlang.compiler import compile_source
 from zlang.formal import build_recursive_formal_design
 from zlang.formal_artifact_provider import FormalArtifactProvider, FormalArtifactRecipe
-from zlang.verification_publication import _prepared_route_recipe
+from zlang.verification_prepared_routes import _prepared_route_recipe
 
 
 PROFILES = tuple(product(("sync", "raw", "safe"), (False, True), (False, True)))

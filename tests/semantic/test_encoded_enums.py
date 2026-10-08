@@ -11,7 +11,8 @@ from zlang.implementation_regions import canonical_type_data
 from zlang.ir.expressions import EnumDecode, EnumEncode, EnumValid, Switch
 from zlang.ir.formal import generate_properties
 from zlang.ir.types import BitType, BitsType, EnumType
-from zlang.opt import OptimizationStage, lower, restore
+from zlang.opt.ir import OptimizationStage
+from zlang.opt.lowering import lower, restore
 from zlang.opt.identity import canonical_ir_identity
 from zlang.opt.ir import ExpressionOp
 from zlang.semantic import SemanticError

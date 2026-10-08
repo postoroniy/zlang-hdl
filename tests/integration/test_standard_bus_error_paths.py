@@ -18,7 +18,7 @@ import pytest
 
 from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
 from zlang.compiler import compile_source
-from zlang.standard_bus import (
+from tests.support.standard_bus import (
     ApbInput,
     ApbToRegBus,
     Axi4LiteToRegBus,

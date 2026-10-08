@@ -7,7 +7,7 @@ import shutil
 
 import pytest
 
-from zlang.backend.systemverilog import emit_experimental
+from zlang.backend.systemverilog import emit
 from zlang.compiler import compile_file
 from zlang.toolchain import lint_with_verilator
 
@@ -34,5 +34,5 @@ def test_wifi_rate_boundary_direct_sv_passes_strict_verilator(
         top="WifiRateCodec",
     ).ir
     rtl = tmp_path / "WifiRateCodec.sv"
-    rtl.write_text(emit_experimental(module))
+    rtl.write_text(emit(module))
     lint_with_verilator((rtl,), module.name)

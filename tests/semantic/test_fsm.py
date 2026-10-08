@@ -3,7 +3,8 @@ from __future__ import annotations
 import pytest
 
 from zlang.compiler import compile_source
-from zlang.opt import OptimizationStage, lower, restore
+from zlang.opt.ir import OptimizationStage
+from zlang.opt.lowering import lower, restore
 from zlang.parser import parse
 from zlang.semantic import SemanticError, analyze
 from zlang.native_simulation import simulate_cycles

@@ -26,7 +26,9 @@ from zlang.ir.packing import (
 from zlang.ir.runtime_values import runtime_value_fits
 from zlang.ir.type_codec import canonical_type_data, canonical_type_from_data
 from zlang.ir.types import HardwareType, VecType
-from zlang.opt import OptimizationStage, canonical_ir_identity, lower
+from zlang.opt.identity import canonical_ir_identity
+from zlang.opt.ir import OptimizationStage
+from zlang.opt.module_lowering import lower
 from zlang.source import SourceOrigin
 
 
@@ -638,10 +640,8 @@ class SimulationStateSession:
         catalog: SimulationStateCatalog | None = None,
     ) -> None:
         from zlang.sim import Program, _native_runtime
-        from zlang.simulation_plan import (
-            _memory_read_register_name,
-            build_simulation_plan,
-        )
+        from zlang.simulation_expression_plan import _memory_read_register_name
+        from zlang.simulation_plan_build import build_simulation_plan
 
         module = getattr(compilation, "ir", None)
         selected = getattr(compilation, "selected_ir_identity", None)

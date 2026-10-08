@@ -144,25 +144,26 @@ def explore_pipeline(
     products = _flatten_products(expression)
     if len(products) < 4:
         raise PipelineExplorationError(
-            "pipeline(auto) requires a sum of at least four products"
+            "implementation pipeline candidate requires a sum of at least four products"
         )
     if len(products) & (len(products) - 1):
         raise PipelineExplorationError(
-            "pipeline(auto) currently requires a power-of-two product count"
+            "implementation pipeline candidate requires a power-of-two product count"
         )
     if not isinstance(result_type, (UIntType, SIntType)):
         raise PipelineExplorationError(
-            "pipeline(auto) currently requires an integer scalar result"
+            "implementation pipeline candidate requires an integer scalar result"
         )
     validate_full_precision_products(
         products,
         result_type,
         error_type=PipelineExplorationError,
-        context="pipeline(auto)",
+        context="implementation pipeline candidate",
     )
     if not sum_fits(products, result_type):
         raise PipelineExplorationError(
-            f"pipeline(auto) cannot prove reassociation lossless at {result_type}"
+            "implementation pipeline candidate cannot prove reassociation "
+            f"lossless at {result_type}"
         )
 
     linear = coerce_integer_result(
@@ -739,7 +740,7 @@ def _validate_constraints(constraints: tuple[PipelineConstraint, ...]) -> None:
     if len(metrics) != len(set(metrics)):
         duplicate = next(metric for metric in metrics if metrics.count(metric) > 1)
         raise PipelineExplorationError(
-            f"pipeline(auto) repeats '{duplicate.value}' constraint"
+            f"implementation pipeline candidate repeats '{duplicate.value}' constraint"
         )
     required_relations = {
         PipelineMetric.THROUGHPUT: PipelineRelation.EXACT,
@@ -788,7 +789,8 @@ def _explore_fixed_output(
     """
     if not isinstance(expression, expr.FixedConvert) or expression.type != result_type:
         raise PipelineExplorationError(
-            "fixed pipeline(auto) requires one explicit final FixedConvert"
+            "fixed implementation pipeline candidate requires one explicit final "
+            "FixedConvert"
         )
     reduction = recognize_signed_product_reduction(expression.expression)
     if reduction is None:
@@ -797,7 +799,8 @@ def _explore_fixed_output(
         products = tuple(term.product_expression for term in reduction.terms)
     if len(products) < 2:
         raise PipelineExplorationError(
-            "fixed pipeline(auto) requires a full-precision product reduction"
+            "fixed implementation pipeline candidate requires a full-precision "
+            "product reduction"
         )
     exact = next((item.value for item in constraints
                   if item.metric is PipelineMetric.LATENCY
@@ -925,7 +928,8 @@ def _flatten_products(expression: expr.Expression) -> tuple[expr.Binary, ...]:
         for term in terms
     ):
         raise PipelineExplorationError(
-            "pipeline(auto) currently accepts only a sum of full-precision products"
+            "implementation pipeline candidate accepts only a sum of "
+            "full-precision products"
         )
     return tuple(term for term in terms if isinstance(term, expr.Binary))
 

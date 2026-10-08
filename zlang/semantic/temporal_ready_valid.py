@@ -9,10 +9,22 @@ or protocol solver.
 
 from __future__ import annotations
 
-from dataclasses import fields, is_dataclass
+from dataclasses import dataclass, fields, is_dataclass
 
+from zlang.ast import nodes as ast
+from zlang.common import stable_digest
+from zlang.costs import CandidateCost, CostExtractionError, extract_best
+from zlang import exploration
 from zlang.ir import expressions as expr
 from zlang.ir.interfaces import InterfaceProtocol, ReadyValidSignal
+from zlang.ir import pipelines as ir_pipelines
+from zlang.ir.temporal import TemporalImplementationGraph
+from zlang.ir.types import HardwareType
+from zlang.ir.signed_reductions import expression_semantic_identity
+from zlang.shared_arithmetic import SharedArithmeticError, SharedArithmeticProvider
+
+from .errors import SemanticError
+from .implementation import ImplementationIntentAnalyzer
 
 
 class TemporalReadyValidDependencyError(ValueError):
@@ -20,6 +32,100 @@ class TemporalReadyValidDependencyError(ValueError):
 
 
 _Node = tuple[str, str, ReadyValidSignal]
+
+
+@dataclass(frozen=True)
+class TemporalReadyValidSelection:
+    """Selected bounded shared-arithmetic implementation for one RV transform."""
+
+    exploration: ir_pipelines.PipelineExploration
+    temporal_graph: TemporalImplementationGraph | None
+    semantic_identity: str
+
+
+def select_temporal_shared_arithmetic(
+    syntax: ast.ImplementExpr,
+    operand: expr.Expression,
+    *,
+    source_name: str,
+    destination_name: str,
+    destination_type: HardwareType,
+    input_type: HardwareType,
+    transform_constraints: tuple[ast.PipelineConstraint, ...],
+    pipeline_constraints: tuple[ir_pipelines.PipelineConstraint, ...],
+    allocate_instance,
+    domain: str,
+) -> TemporalReadyValidSelection:
+    """Select only the bounded ``a*b+c*d`` temporal/spatial RV alternatives."""
+
+    intent = ImplementationIntentAnalyzer()
+    if intent._contains_nested_site(syntax.expression):
+        raise SemanticError("nested implementation selection is not supported")
+    intent._validate_objective(syntax.objective)
+    objective = intent._objective_metric(syntax.objective)
+    policy_constraints = exploration.constraints_from_syntax((
+        *transform_constraints,
+        *syntax.constraints,
+    ))
+    semantic_identity = "elastic:" + stable_digest({
+        "source": source_name,
+        "destination": destination_name,
+        "kernel": expression_semantic_identity(operand),
+        "constraints": tuple(item.render() for item in pipeline_constraints),
+    })
+    provider = SharedArithmeticProvider()
+    try:
+        shared = provider.candidate(
+            operand,
+            semantic_region_identity=semantic_identity,
+            constraints=pipeline_constraints,
+            input_type=input_type,
+        )
+        spatial = provider.spatial_candidate(
+            operand,
+            allocate_instance=allocate_instance,
+            domain=domain,
+            constraints=pipeline_constraints,
+        )
+        candidates = (spatial, shared.pipeline_candidate)
+
+        def temporal_cost(candidate: ir_pipelines.PipelineCandidate) -> CandidateCost:
+            return CandidateCost.estimate(
+                lut=candidate.estimate.lut,
+                ff=candidate.estimate.ff,
+                dsp=candidate.estimate.dsp,
+                latency=candidate.latency,
+                ii=candidate.initiation_interval,
+                fmax_est=candidate.estimate.fmax_mhz,
+                structural_cost=3,
+            )
+
+        selected = extract_best(
+            candidates,
+            objective,
+            policy_constraints,
+            cost_fn=temporal_cost,
+        ).selected
+    except (SharedArithmeticError, CostExtractionError) as error:
+        raise SemanticError(str(error)) from error
+
+    selected_temporal = selected is shared.pipeline_candidate
+    selected_candidates = (
+        (shared.pipeline_candidate,) if selected_temporal else (spatial,)
+    )
+    return TemporalReadyValidSelection(
+        ir_pipelines.PipelineExploration(
+            f"{destination_name}.payload",
+            destination_type,
+            operand,
+            pipeline_constraints,
+            selected_candidates,
+            selected.name,
+            len(candidates),
+        ),
+        shared.temporal_graph if selected_temporal else None,
+        semantic_identity,
+    )
 
 
 def _ready_references(value: object) -> tuple[str, ...]:

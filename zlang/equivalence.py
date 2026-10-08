@@ -4,13 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass, fields, is_dataclass, replace
 import hashlib
-import shutil
 from pathlib import Path
 from typing import Iterable
 
 from zlang.backend.identifiers import allocate_private_rtl_identifier
 from zlang.backend.systemverilog.syntax import sized_decimal
-from zlang.common.tool_inventory import discover_tool_inventory
 from zlang.common.systemverilog import (
     render_ordered_comparison,
     render_right_shift,
@@ -677,31 +675,6 @@ def _timed_formal_domain(
         raise EquivalenceError(str(error)) from error
 
 
-def _timed_trace_reset_name(property_: EquivalenceProperty) -> str:
-    """Compatibility reset spelling for historical source-only runners.
-
-    This cannot see physical binding names and therefore is not authoritative
-    when a user port collides with a checker-private identifier.  Compiler-owned
-    routes instead retain :class:`MiterTraceMetadata` from the actual emission.
-    """
-
-    rendering = _timed_formal_domain(
-        property_,
-        clock_name="clock",
-        reset_name="reset",
-        used_names={
-            "clock",
-            "reset",
-            "reference_value",
-            "implementation_value",
-            "reference_history",
-            "sample_valid",
-            *property_.inputs,
-        },
-    )
-    return rendering.reset_active
-
-
 def emit_miter_with_metadata(
     property_: EquivalenceProperty,
     bindings: BindingMap,
@@ -867,10 +840,16 @@ def emit_miter_with_metadata(
     return MiterEmission("\n".join(lines), trace_metadata)
 
 
-def emit_miter(property_: EquivalenceProperty, bindings: BindingMap, *,
-              reference_module: str, implementation_module: str,
-              clock_name: str = "clock", reset_name: str = "reset") -> str:
-    """Emit a deterministic two-sided miter from explicit binding metadata."""
+def emit_miter(
+    property_: EquivalenceProperty,
+    bindings: BindingMap,
+    *,
+    reference_module: str,
+    implementation_module: str,
+    clock_name: str = "clock",
+    reset_name: str = "reset",
+) -> str:
+    """Emit the established miter source without trace metadata."""
 
     return emit_miter_with_metadata(
         property_,
@@ -910,7 +889,7 @@ def publish_bindings(module: Module, *, side: BindingSide, selected_ir_identity:
     if module.elastic_pipeline_regions:
         raise EquivalenceError(
             "semantic-reference equivalence fixed-latency equivalence does not support variable-latency "
-            "elastic pipeline(auto) regions"
+            "transform pipeline(auto) regions"
         )
     protocol_ports = tuple(
         port
@@ -970,14 +949,6 @@ def unavailable_result(property_: EquivalenceProperty, *, backend: str, reason: 
                              property_.selected_origin, reason=reason)
 
 
-def formal_tools_available() -> tuple[str, ...]:
-    return discover_tool_inventory(
-        ("yosys", "sby", "yosys-smtbmc"),
-        which=shutil.which,
-        require_truthy_path=True,
-    ).available
-
-
 def run_equivalence_formal(property_: EquivalenceProperty, source: str, *, top: str,
                            backend: str = "direct_sv", mode: EquivalenceMode = EquivalenceMode.BMC,
                            depth: int = 20, solver: str = "z3",
@@ -985,7 +956,7 @@ def run_equivalence_formal(property_: EquivalenceProperty, source: str, *, top: 
                            implementation_hash: str | None = None,
                            timeout_seconds: int = 120,
                            work_directory: Path | None = None,
-                           trace_metadata: MiterTraceMetadata | None = None,
+                           trace_metadata: MiterTraceMetadata,
                            ) -> EquivalenceResult:
     """Execute a published equivalence miter while preserving semantic-reference equivalence statuses."""
     if (
@@ -1012,27 +983,7 @@ def run_equivalence_formal(property_: EquivalenceProperty, source: str, *, top: 
         )
     from zlang.formal import run_verilog_formal
     from zlang.ir.formal import ProofMode
-    if trace_metadata is None:
-        # Compatibility for historical low-level callers which provide an
-        # already assembled source string.  Compiler-owned preparation always
-        # supplies emission metadata; only that path is collision-proof.
-        trace_metadata = MiterTraceMetadata(
-            "reference_value",
-            "implementation_value",
-            (
-                _timed_trace_reset_name(property_)
-                if property_.relation_kind
-                is EquivalenceRelation.FIXED_LATENCY_VALUE
-                else None
-            ),
-            (
-                "sample_valid"
-                if property_.relation_kind
-                is EquivalenceRelation.FIXED_LATENCY_VALUE
-                else None
-            ),
-        )
-    elif (
+    if (
         property_.relation_kind is EquivalenceRelation.SAME_CYCLE_VALUE
         and (
             trace_metadata.reset is not None
@@ -1128,10 +1079,8 @@ __all__ = [
     "MiterEmission",
     "MiterTraceMetadata",
     "artifact_hash",
-    "emit_miter",
     "emit_miter_with_metadata",
     "emit_reference_model",
-    "formal_tools_available",
     "make_equivalence_property",
     "publish_bindings",
     "run_equivalence_formal",

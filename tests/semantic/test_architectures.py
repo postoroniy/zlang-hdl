@@ -65,10 +65,8 @@ class ArchitectureSemanticTests(unittest.TestCase):
                     candidate.name,
                 )
 
-    def test_scalar_architecture_spelling_has_migration_diagnostic(self) -> None:
-        with self.assertRaisesRegex(
-            ParseError, "scalar architecture\\(auto\\) was removed"
-        ):
+    def test_scalar_architecture_spelling_is_not_in_the_grammar(self) -> None:
+        with self.assertRaises(ParseError):
             parse("module Legacy { in a:u8 out y:u8 y=architecture(auto){a} }")
 
     def test_scalar_pipeline_and_explore_are_not_architecture_sources(self) -> None:

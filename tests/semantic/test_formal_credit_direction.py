@@ -2,7 +2,7 @@ import unittest
 
 from zlang.compiler import compile_source
 from zlang.formal import build_formal_design, build_recursive_formal_design
-from zlang.ir import Ownership, PropertyKind, TemporalForm
+from zlang.ir.formal import Ownership, PropertyKind, TemporalForm
 
 
 class FormalCreditDirectionTests(unittest.TestCase):

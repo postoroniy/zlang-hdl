@@ -21,7 +21,7 @@ from zlang.formal_orchestration import (
     CandidateEquivalencePlanReference,
     CompilerFormalExecutionPlan,
 )
-from zlang.ir import ComparisonWindow
+from zlang.ir.comparison_window import ComparisonWindow
 from zlang.ir.equivalence import (
     EquivalenceCounterexample,
     EquivalenceMode,
@@ -56,7 +56,7 @@ PROPERTY = "semantic_equivalence.report"
 def _report(*, failed: bool = False) -> CompilerVerificationReport:
     rank = CandidateRankRecord(CANDIDATE, "semantic:candidate", 1, (0,))
     site = CandidateSiteRecord(
-        CandidateSiteKind.SOURCE_EXPLORE, "module:report", "y",
+        CandidateSiteKind.IMPLEMENT, "module:report", "y",
         "semantic:source", CANDIDATE, (rank,),
         CandidateRewriteKind.OUTPUT_ASSIGNMENT,
     )

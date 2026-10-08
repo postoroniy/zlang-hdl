@@ -13,12 +13,9 @@ from enum import Enum
 from typing import Iterable
 
 from zlang.common import stable_digest
+from zlang.common.identity_memo import IdentityMemo
 from zlang.ir import expressions as expr
-from zlang.ir.functional_regions import (
-    CompileTimeBinderRef,
-    ExactReductionCombine,
-    ExactReductionOperation,
-)
+from zlang.ir.functional_regions import CompileTimeBinderRef
 from zlang.ir.types import HardwareType
 
 
@@ -32,7 +29,22 @@ class CallableKind(str, Enum):
     OPERATOR = "operator"
 
 
-@dataclass(frozen=True, init=False)
+def source_function_metadata(
+    name: str,
+    source_identity: str,
+) -> "CallableMetadata":
+    """Build canonical metadata for one non-generic source function."""
+
+    if not source_identity:
+        raise ValueError("source function identity must not be empty")
+    return CallableMetadata(
+        CallableKind.FUNCTION,
+        name,
+        f"{source_identity}:{name}",
+    )
+
+
+@dataclass(frozen=True)
 class CallableMetadata:
     """Semantic provenance for one monomorphic callable definition.
 
@@ -44,38 +56,9 @@ class CallableMetadata:
 
     kind: CallableKind
     source_name: str
-    # Stored under the conventional diagnostic-provenance spelling so
-    # canonical identity rendering omits relocation-only source paths.  The
-    # stable specialization/callee identity remains semantic.
-    source_identity: str
+    declaration_identity: str
     specialization_identity: str | None = None
     arguments: tuple[tuple[str, str], ...] = ()
-
-    def __init__(
-        self,
-        kind: CallableKind,
-        source_name: str,
-        declaration_identity: str | None = None,
-        specialization_identity: str | None = None,
-        arguments: tuple[tuple[str, str], ...] = (),
-        *,
-        source_identity: str | None = None,
-    ) -> None:
-        if declaration_identity is not None and source_identity is not None:
-            raise ValueError(
-                "callable metadata cannot specify two declaration identities"
-            )
-        declaration = declaration_identity or source_identity or ""
-        object.__setattr__(self, "kind", kind)
-        object.__setattr__(self, "source_name", source_name)
-        object.__setattr__(self, "source_identity", declaration)
-        object.__setattr__(self, "specialization_identity", specialization_identity)
-        object.__setattr__(self, "arguments", arguments)
-        self.__post_init__()
-
-    @property
-    def declaration_identity(self) -> str:
-        return self.source_identity
 
     def __post_init__(self) -> None:
         if not isinstance(self.kind, CallableKind):
@@ -99,30 +82,20 @@ class CallableMetadata:
 
 
 def stable_callee_identity(
-    name: str,
     parameters: tuple[object, ...],
     return_type: HardwareType,
-    metadata: CallableMetadata | None = None,
+    metadata: CallableMetadata,
 ) -> str:
     """Return the stable semantic identity of one exact callable signature."""
 
-    if metadata is not None and metadata.specialization_identity is not None:
+    if metadata.specialization_identity is not None:
         return metadata.specialization_identity
-    provenance = (
-        {
-            "kind": metadata.kind.value,
-            "source_name": metadata.source_name,
-            "declaration_identity": metadata.declaration_identity,
-            "arguments": metadata.arguments,
-        }
-        if metadata is not None
-        else {
-            "kind": CallableKind.FUNCTION.value,
-            "source_name": name,
-            "declaration_identity": f"legacy:{name}",
-            "arguments": (),
-        }
-    )
+    provenance = {
+        "kind": metadata.kind.value,
+        "source_name": metadata.source_name,
+        "declaration_identity": metadata.declaration_identity,
+        "arguments": metadata.arguments,
+    }
     signature = tuple(
         (
             str(getattr(parameter, "name", "")),
@@ -162,8 +135,8 @@ def _identity_value(value: object) -> object:
     return str(value)
 
 
-def _callable_definition_value(value: object) -> object:
-    """Render one callable definition modulo bound local identities.
+def _callable_definition_value(value: object) -> str:
+    """Fingerprint one callable definition modulo bound local identities.
 
     A monomorphic source callable is typed in each physical module context that
     publishes it.  Compact functional regions inside that body consequently
@@ -181,6 +154,7 @@ def _callable_definition_value(value: object) -> object:
 
     binder_names: dict[str, str] = {}
     capture_names: dict[str, str] = {}
+    fingerprints: dict[int, str] = {}
 
     def bound_name(names: dict[str, str], identity: str, prefix: str) -> str:
         current = names.get(identity)
@@ -189,9 +163,17 @@ def _callable_definition_value(value: object) -> object:
             names[identity] = current
         return current
 
-    def render(current: object) -> object:
+    def fingerprint(current: object) -> object:
+        structured = (
+            isinstance(current, (tuple, list, dict))
+            or (is_dataclass(current) and not isinstance(current, type))
+        )
+        if structured:
+            cached = fingerprints.get(id(current))
+            if cached is not None:
+                return cached
         if isinstance(current, CompileTimeBinderRef):
-            return {
+            payload = {
                 "$type": (
                     f"{type(current).__module__}.{type(current).__qualname__}"
                 ),
@@ -202,255 +184,58 @@ def _callable_definition_value(value: object) -> object:
                     ["stop", current.stop],
                 ],
             }
-        if isinstance(current, expr.FunctionalCaptureRef):
-            return {
+        elif isinstance(current, expr.FunctionalCaptureRef):
+            payload = {
                 "$type": (
                     f"{type(current).__module__}.{type(current).__qualname__}"
                 ),
                 "fields": [
                     ["identity", bound_name(capture_names, current.identity, "c")],
                     ["display_name", current.display_name],
-                    ["type", render(current.type)],
+                    ["type", fingerprint(current.type)],
                 ],
             }
-        if isinstance(current, Enum):
+        elif isinstance(current, Enum):
             return {
                 "$enum": f"{type(current).__module__}.{type(current).__qualname__}",
                 "value": current.value,
             }
-        if is_dataclass(current) and not isinstance(current, type):
-            return {
+        elif is_dataclass(current) and not isinstance(current, type):
+            payload = {
                 "$type": f"{type(current).__module__}.{type(current).__qualname__}",
                 "fields": [
-                    [item.name, render(getattr(current, item.name))]
+                    [item.name, fingerprint(getattr(current, item.name))]
                     for item in fields(current)
                     if item.name not in {"origin", "source_origin"}
                 ],
             }
-        if isinstance(current, tuple):
-            return [render(item) for item in current]
-        if isinstance(current, list):
-            return [render(item) for item in current]
-        if isinstance(current, dict):
-            return {
-                str(key): render(item)
+        elif isinstance(current, tuple):
+            payload = ["tuple", [fingerprint(item) for item in current]]
+        elif isinstance(current, list):
+            payload = ["list", [fingerprint(item) for item in current]]
+        elif isinstance(current, dict):
+            payload = {
+                str(key): fingerprint(item)
                 for key, item in sorted(current.items(), key=lambda pair: str(pair[0]))
             }
-        if current is None or isinstance(current, (str, int, bool)):
+        elif current is None or isinstance(current, (str, int, bool)):
             return current
-        return str(current)
+        else:
+            return str(current)
+        result = stable_digest(payload)
+        fingerprints[id(current)] = result
+        return result
 
-    return render(value)
-
-
-def _callable_definition_order_key(value: object) -> str:
-    """Return a deterministic key for equivalent physical definitions.
-
-    The key intentionally retains concrete callee identities.  It is not an
-    equivalence relation; it merely chooses the same representative when a
-    semantically equivalent definition was published by several hierarchy
-    contexts in a different discovery order.
-    """
-
-    return repr(_callable_definition_value(value))
+    return str(fingerprint(value))
 
 
 def _callable_definitions_equivalent(
     left: object,
     right: object,
-    definitions: dict[str, tuple[object, ...]],
-    *,
-    seen: set[tuple[int, int]] | None = None,
 ) -> bool:
-    """Compare typed callable definitions modulo resolved call identities.
+    """Compare exact definitions modulo local binder and capture identities."""
 
-    Generic specialization identities include the dependency closure of the
-    physical module context that requested them.  Consequently one ordinary
-    source function may be published in a parent and a child with identical
-    executable semantics while its body calls two differently identified (but
-    structurally equal) generic specializations.  Raw dataclass equality makes
-    that valid hierarchy look like a conflicting definition.
-
-    Resolve those call edges and compare their definitions recursively.  This
-    is deliberately stricter than comparing source names: exact signatures,
-    bodies, metadata provenance, tables, and types must still agree.  Truly
-    different bodies carrying one identity therefore remain an error.
-    """
-
-    compared = seen if seen is not None else set()
-    pair = (id(left), id(right))
-    if pair in compared:
-        # Reachable recursive call graphs are rejected by the normal DFS.  A
-        # co-inductive guard here only keeps duplicate validation bounded; it
-        # does not make recursion executable.
-        return True
-    compared.add(pair)
-
-    def representative(identity: str) -> object | None:
-        candidates = definitions.get(identity, ())
-        if not candidates:
-            return None
-        return min(candidates, key=_callable_definition_order_key)
-
-    def callable_reference_equal(
-        left_name: str | None,
-        left_identity: str | None,
-        right_name: str | None,
-        right_identity: str | None,
-    ) -> bool:
-        if left_identity is None or right_identity is None:
-            return left_identity == right_identity and left_name == right_name
-        left_definition = representative(left_identity)
-        right_definition = representative(right_identity)
-        if left_definition is None or right_definition is None:
-            # Unknown edges are diagnosed if reachable.  Until then retain
-            # their exact identity so duplicate validation cannot hide one.
-            return left_identity == right_identity and left_name == right_name
-        # A typed call carries both the stable callee identity and the helper
-        # name consumed by backends.  Each name must agree with its own
-        # resolved definition even when the two context-specific helper names
-        # differ from one another.  Otherwise a malformed call could be hidden
-        # by selecting the other duplicate definition as the representative.
-        if (
-            left_name != getattr(left_definition, "name", None)
-            or right_name != getattr(right_definition, "name", None)
-        ):
-            return False
-        return _callable_definitions_equivalent(
-            left_definition,
-            right_definition,
-            definitions,
-            seen=compared,
-        )
-
-    left_binders: dict[str, str] = {}
-    right_binders: dict[str, str] = {}
-    left_captures: dict[str, str] = {}
-    right_captures: dict[str, str] = {}
-
-    def alpha_equal(
-        left_identity: str,
-        right_identity: str,
-        forward: dict[str, str],
-        reverse: dict[str, str],
-    ) -> bool:
-        mapped = forward.get(left_identity)
-        if mapped is not None:
-            return mapped == right_identity
-        if right_identity in reverse:
-            return False
-        forward[left_identity] = right_identity
-        reverse[right_identity] = left_identity
-        return True
-
-    def metadata_equal(
-        left_metadata: CallableMetadata | None,
-        right_metadata: CallableMetadata | None,
-    ) -> bool:
-        if left_metadata is None or right_metadata is None:
-            return left_metadata is right_metadata
-        return (
-            left_metadata.kind == right_metadata.kind
-            and left_metadata.source_name == right_metadata.source_name
-            and left_metadata.declaration_identity
-            == right_metadata.declaration_identity
-            and left_metadata.arguments == right_metadata.arguments
-        )
-
-    def value_equal(left_value: object, right_value: object) -> bool:
-        if type(left_value) is not type(right_value):
-            return False
-        if isinstance(left_value, CompileTimeBinderRef):
-            return (
-                left_value.display_name == right_value.display_name
-                and left_value.start == right_value.start
-                and left_value.stop == right_value.stop
-                and alpha_equal(
-                    left_value.identity,
-                    right_value.identity,
-                    left_binders,
-                    right_binders,
-                )
-            )
-        if isinstance(left_value, expr.FunctionalCaptureRef):
-            return (
-                left_value.display_name == right_value.display_name
-                and value_equal(left_value.type, right_value.type)
-                and alpha_equal(
-                    left_value.identity,
-                    right_value.identity,
-                    left_captures,
-                    right_captures,
-                )
-            )
-        if isinstance(left_value, expr.Call):
-            return (
-                value_equal(left_value.arguments, right_value.arguments)
-                and value_equal(left_value.type, right_value.type)
-                and callable_reference_equal(
-                    left_value.function,
-                    left_value.callee_identity,
-                    right_value.function,
-                    right_value.callee_identity,
-                )
-            )
-        if isinstance(left_value, (ExactReductionCombine, ExactReductionOperation)):
-            for item in fields(left_value):
-                if item.name in {"function", "callee_identity"}:
-                    continue
-                if not value_equal(
-                    getattr(left_value, item.name),
-                    getattr(right_value, item.name),
-                ):
-                    return False
-            return callable_reference_equal(
-                left_value.function,
-                left_value.callee_identity,
-                right_value.function,
-                right_value.callee_identity,
-            )
-        if isinstance(left_value, CallableMetadata):
-            return metadata_equal(left_value, right_value)
-        if isinstance(left_value, Enum):
-            return left_value == right_value
-        if is_dataclass(left_value) and not isinstance(left_value, type):
-            for item in fields(left_value):
-                if item.name in {"origin", "source_origin"}:
-                    continue
-                if not value_equal(
-                    getattr(left_value, item.name),
-                    getattr(right_value, item.name),
-                ):
-                    return False
-            return True
-        if isinstance(left_value, (tuple, list)):
-            return len(left_value) == len(right_value) and all(
-                value_equal(left_item, right_item)
-                for left_item, right_item in zip(
-                    left_value, right_value, strict=True
-                )
-            )
-        if isinstance(left_value, dict):
-            return left_value.keys() == right_value.keys() and all(
-                value_equal(left_value[key], right_value[key])
-                for key in left_value
-            )
-        return left_value == right_value
-
-    left_metadata = getattr(left, "metadata", None)
-    right_metadata = getattr(right, "metadata", None)
-    if not metadata_equal(left_metadata, right_metadata):
-        return False
-    # Generated specialization names contain the context-derived identity.
-    # Source-named/legacy callables retain their exact public helper name.
-    if left_metadata is None and getattr(left, "name", None) != getattr(
-        right, "name", None
-    ):
-        return False
-    for attribute in ("parameters", "return_type", "body"):
-        if not value_equal(getattr(left, attribute), getattr(right, attribute)):
-            return False
-    return True
+    return _callable_definition_value(left) == _callable_definition_value(right)
 
 
 class CallableExpansionError(ValueError):
@@ -466,10 +251,14 @@ class CallableUse:
     """One identity-bearing call edge retained by executable typed IR."""
 
     function: str
-    callee_identity: str | None
+    callee_identity: str
 
 
-def callable_uses(value: object) -> tuple[CallableUse, ...]:
+def callable_uses(
+    value: object,
+    *,
+    deduplicate: bool = True,
+) -> tuple[CallableUse, ...]:
     """Return every typed callable edge reachable inside ``value``.
 
     Exact nominal reductions deliberately retain their combine operations in
@@ -487,9 +276,9 @@ def callable_uses(value: object) -> tuple[CallableUse, ...]:
     visited: dict[int, object] = {}
 
     def visit(current: object) -> None:
-        if isinstance(current, (tuple, list, dict)) or (
+        if deduplicate and (isinstance(current, (tuple, list, dict)) or (
             is_dataclass(current) and not isinstance(current, type)
-        ):
+        )):
             previous = visited.get(id(current))
             if previous is current:
                 return
@@ -532,6 +321,9 @@ def callable_uses(value: object) -> tuple[CallableUse, ...]:
 def reachable_callable_definitions(
     definitions: Iterable[object],
     roots: Iterable[object],
+    *,
+    _definition_values: dict[int, tuple[object, str]] | None = None,
+    _uses: dict[int, tuple[object, tuple[CallableUse, ...]]] | None = None,
 ) -> tuple[object, ...]:
     """Select the deterministic transitive callable closure of ``roots``.
 
@@ -560,6 +352,9 @@ def reachable_callable_definitions(
         identity: tuple(items)
         for identity, items in definitions_by_identity.items()
     }
+    definition_values = IdentityMemo(_definition_values)
+    uses_by_object = IdentityMemo(_uses)
+
     by_identity: dict[str, object] = {}
     for identity in sorted(grouped_definitions):
         candidates = grouped_definitions[identity]
@@ -567,16 +362,42 @@ def reachable_callable_definitions(
         # full validation below (including nested callee-name consistency).
         representative = (
             candidates[0] if len(candidates) == 1
-            else min(candidates, key=_callable_definition_order_key)
+            else min(
+                candidates,
+                key=lambda item: definition_values.get_or_compute(
+                    item, _callable_definition_value
+                ),
+            )
+        )
+        representative_value = (
+            definition_values.get_or_compute(
+                representative, _callable_definition_value
+            )
+            if len(candidates) > 1
+            else None
         )
         for definition in candidates:
+            inconsistent_reference = any(
+                targets
+                and all(
+                    getattr(target, "name", None) != use.function
+                    for target in targets
+                )
+                for use in uses_by_object.get_or_compute(
+                    getattr(definition, "body"), callable_uses
+                )
+                if (targets := grouped_definitions.get(use.callee_identity, ()))
+            )
             if (
                 getattr(definition, "name", None)
                 != getattr(representative, "name", None)
-                or not _callable_definitions_equivalent(
-                    representative,
-                    definition,
-                    grouped_definitions,
+                or inconsistent_reference
+                or (
+                    representative_value is not None
+                    and representative_value
+                    != definition_values.get_or_compute(
+                        definition, _callable_definition_value
+                    )
                 )
             ):
                 raise CallableReachabilityError(
@@ -584,35 +405,22 @@ def reachable_callable_definitions(
                 )
         by_identity[identity] = representative
 
-    by_name: dict[str, list[object]] = {}
-    for definition in by_identity.values():
-        name = str(getattr(definition, "name"))
-        by_name.setdefault(name, []).append(definition)
-
     def use_key(use: CallableUse) -> tuple[str, str]:
-        return (use.callee_identity or f"name:{use.function}", use.function)
+        return (use.callee_identity, use.function)
 
     def resolve(use: CallableUse) -> object:
-        if use.callee_identity is not None:
-            definition = by_identity.get(use.callee_identity)
-            if definition is None:
-                raise CallableReachabilityError(
-                    f"call '{use.function}' references unknown typed callable "
-                    f"'{use.callee_identity}'"
-                )
-            if getattr(definition, "name") != use.function:
-                raise CallableReachabilityError(
-                    f"call name '{use.function}' does not match typed callable "
-                    f"'{use.callee_identity}'"
-                )
-            return definition
-        candidates = by_name.get(use.function, ())
-        if len(candidates) != 1:
-            detail = "unknown" if not candidates else "ambiguous"
+        definition = by_identity.get(use.callee_identity)
+        if definition is None:
             raise CallableReachabilityError(
-                f"{detail} legacy typed function call '{use.function}'"
+                f"call '{use.function}' references unknown typed callable "
+                f"'{use.callee_identity}'"
             )
-        return candidates[0]
+        if getattr(definition, "name") != use.function:
+            raise CallableReachabilityError(
+                f"call name '{use.function}' does not match typed callable "
+                f"'{use.callee_identity}'"
+            )
+        return definition
 
     state: dict[str, int] = {}
     stack: list[str] = []
@@ -632,7 +440,9 @@ def reachable_callable_definitions(
         state[identity] = 1
         stack.append(identity)
         dependencies = sorted(
-            callable_uses(getattr(definition, "body")),
+            uses_by_object.get_or_compute(
+                getattr(definition, "body"), callable_uses
+            ),
             key=use_key,
         )
         for dependency in dependencies:
@@ -645,7 +455,7 @@ def reachable_callable_definitions(
         (
             use
             for root in roots
-            for use in callable_uses(root)
+            for use in uses_by_object.get_or_compute(root, callable_uses)
         ),
         key=use_key,
     )
@@ -671,6 +481,8 @@ def reachable_module_callables(
     module: object,
     *,
     include_hierarchy: bool = False,
+    _definition_values: dict[int, tuple[object, str]] | None = None,
+    _uses: dict[int, tuple[object, tuple[CallableUse, ...]]] | None = None,
 ) -> tuple[object, ...]:
     """Return callables reachable from one typed module or module hierarchy.
 
@@ -706,7 +518,12 @@ def reachable_module_callables(
             if item.name in {"functions", "callable_definitions", "children"}:
                 continue
             roots.append(getattr(current, item.name))
-    return reachable_callable_definitions(definitions, roots)
+    return reachable_callable_definitions(
+        definitions,
+        roots,
+        _definition_values=_definition_values,
+        _uses=_uses,
+    )
 
 
 def expand_callable_calls(
@@ -730,7 +547,6 @@ def expand_callable_calls(
         raise ValueError("callable expansion max_nodes must be positive")
     ordered = tuple(definitions)
     by_identity: dict[str, object] = {}
-    by_name: dict[str, list[object]] = {}
     for definition in ordered:
         identity = str(getattr(definition, "callee_identity", ""))
         name = str(getattr(definition, "name", ""))
@@ -740,11 +556,12 @@ def expand_callable_calls(
             )
         previous = by_identity.get(identity)
         if previous is not None:
-            raise CallableExpansionError(
-                f"duplicate callable identity '{identity}'"
-            )
+            if not _callable_definitions_equivalent(previous, definition):
+                raise CallableExpansionError(
+                    f"duplicate callable identity '{identity}'"
+                )
+            continue
         by_identity[identity] = definition
-        by_name.setdefault(name, []).append(definition)
 
     nodes = 0
 
@@ -757,25 +574,21 @@ def expand_callable_calls(
             )
 
     def resolve(call: expr.Call) -> object:
-        if call.callee_identity is not None:
-            definition = by_identity.get(call.callee_identity)
-            if definition is None:
-                raise CallableExpansionError(
-                    f"unknown callable identity '{call.callee_identity}'"
-                )
-            if getattr(definition, "name") != call.function:
-                raise CallableExpansionError(
-                    f"call name '{call.function}' does not match callable identity "
-                    f"'{call.callee_identity}'"
-                )
-            return definition
-        candidates = by_name.get(call.function, ())
-        if len(candidates) != 1:
-            detail = "unknown" if not candidates else "ambiguous"
+        if call.callee_identity is None:
             raise CallableExpansionError(
-                f"{detail} legacy callable name '{call.function}'"
+                f"call '{call.function}' has no typed callable identity"
             )
-        return candidates[0]
+        definition = by_identity.get(call.callee_identity)
+        if definition is None:
+            raise CallableExpansionError(
+                f"unknown callable identity '{call.callee_identity}'"
+            )
+        if getattr(definition, "name") != call.function:
+            raise CallableExpansionError(
+                f"call name '{call.function}' does not match callable identity "
+                f"'{call.callee_identity}'"
+            )
+        return definition
 
     mapped: dict[
         tuple[int, tuple[str, ...]], tuple[object, object, int]
@@ -921,6 +734,7 @@ __all__ = [
     "CallableUse",
     "CallableKind",
     "CallableMetadata",
+    "source_function_metadata",
     "expand_callable_calls",
     "callable_uses",
     "reachable_callable_definitions",

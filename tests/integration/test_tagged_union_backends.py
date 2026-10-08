@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 
@@ -67,6 +68,16 @@ module UnionOutput {
     in data : u8
     out current : Message
     current = Message.Data { value = data }
+}
+"""
+
+
+UNION_BOUNDARY_SOURCE = """
+union Message { Idle Data { value : u8 } }
+module UnionBoundary {
+    in message : Message
+    out forwarded : Message
+    forwarded = message
 }
 """
 
@@ -143,6 +154,92 @@ def test_direct_sv_union_artifact_is_deterministic_and_bound() -> None:
     assert current.canonical_type.startswith("union<Message:")
     assert "::union::Message>" in current.canonical_type
     assert "logic [9:0] message" in first.text
+
+
+def test_direct_sv_union_boundary_uses_named_packed_type() -> None:
+    module = compile_source(UNION_BOUNDARY_SOURCE, top="UnionBoundary").ir
+    first = emit_sv_artifact(module)
+    second = emit_sv_artifact(module)
+
+    assert first.text == second.text
+    match = re.search(
+        r"typedef struct packed \{\n"
+        r"  logic tag;\n"
+        r"  logic \[7:0\] payload;\n"
+        r"\} (zlang_tagged_union_Message_[0-9a-f]{10}_t);",
+        first.text,
+    )
+    assert match is not None
+    assert first.text.count("typedef struct packed {") == 1
+    type_name = match.group(1)
+    assert f"input wire {type_name} message" in first.text
+    assert f"output {type_name} forwarded" in first.text
+    assert "input wire logic [8:0] message" not in first.text
+    assert "output logic [8:0] forwarded" not in first.text
+
+
+@pytest.mark.skipif(
+    any(shutil.which(tool) is None for tool in ("iverilog", "verilator", "yosys")),
+    reason="Icarus, Verilator, and Yosys are required",
+)
+def test_direct_sv_union_boundary_lints_synthesizes_and_preserves_bits(
+    tmp_path: Path,
+) -> None:
+    module = compile_source(UNION_BOUNDARY_SOURCE, top="UnionBoundary").ir
+    rtl = tmp_path / "UnionBoundary.sv"
+    rtl.write_text(emit_sv_artifact(module).text)
+    bench = tmp_path / "tb.sv"
+    bench.write_text(r"""
+module tb;
+  logic [8:0] message;
+  wire [8:0] forwarded;
+  UnionBoundary dut(.message(message), .forwarded(forwarded));
+  initial begin
+    message = {1'b1, 8'ha5};
+    #1;
+    if (forwarded !== message) $fatal(1, "tagged-union boundary mismatch");
+    $finish;
+  end
+endmodule
+""")
+    object_dir = tmp_path / "obj_boundary"
+    completed = subprocess.run(
+        (
+            "verilator", "--binary", "--timing", "-Wno-fatal",
+            "--top-module", "tb", "--Mdir", str(object_dir),
+            str(rtl), str(bench),
+        ),
+        capture_output=True,
+        text=True,
+        check=False,
+        env={**os.environ, "CCACHE_DISABLE": "1"},
+    )
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    executed = subprocess.run(
+        (str(object_dir / "Vtb"),), capture_output=True, text=True, check=False,
+    )
+    assert executed.returncode == 0, executed.stdout + executed.stderr
+    synthesized = subprocess.run(
+        (
+            "yosys", "-Q", "-p",
+            f"read_verilog -sv {rtl}; hierarchy -top UnionBoundary; "
+            "proc; opt; check",
+        ),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert synthesized.returncode == 0, synthesized.stdout + synthesized.stderr
+    compiled = subprocess.run(
+        (
+            "iverilog", "-g2012", "-s", "UnionBoundary",
+            "-o", str(tmp_path / "union_boundary.vvp"), str(rtl),
+        ),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert compiled.returncode == 0, compiled.stdout + compiled.stderr
 
 
 

@@ -70,9 +70,8 @@ class SourceOrigin:
 
     span: SourceSpan
     construct: str
-    # These fields are serialized explicitly, but excluded from ``repr`` so
-    # legacy identity code that historically embedded ``repr(SourceOrigin)``
-    # cannot accidentally turn provenance into value/implementation semantics.
+    # These fields are serialized explicitly and excluded from ``repr`` so
+    # provenance cannot accidentally become value/implementation semantics.
     source_unit: str | None = field(default=None, repr=False)
     digest: str | None = field(default=None, repr=False)
 
@@ -117,22 +116,16 @@ class SourceOrigin:
         }
 
     @classmethod
-    def from_data(cls, data: Mapping[str, object] | str) -> "SourceOrigin":
-        """Restore a structured origin, accepting legacy rendered strings.
-
-        Rendered strings cannot contain the source unit or digest, but accepting
-        them keeps old BackendArtifact manifests readable.
-        """
-        if isinstance(data, str):
-            match = re.fullmatch(r"(\d+):(\d+)-(\d+):(\d+):(.+)", data)
-            if match is None:
-                raise ValueError("invalid rendered source origin")
-            return cls(
-                SourceSpan(*(int(value) for value in match.groups()[:4])),
-                match.group(5),
-            )
+    def from_data(cls, data: Mapping[str, object]) -> "SourceOrigin":
+        """Restore the current structured source-origin representation."""
         if not isinstance(data, Mapping):
-            raise ValueError("source origin must be an object or rendered string")
+            raise ValueError("source origin must be an object")
+        expected = {"construct", "digest", "source_unit", "span"}
+        if set(data) != expected:
+            raise ValueError(
+                "source origin fields differ: expected "
+                f"{sorted(expected)}, got {sorted(data)}"
+            )
         try:
             span = SourceSpan.from_data(data["span"])
             construct = data["construct"]
@@ -140,8 +133,8 @@ class SourceOrigin:
             raise ValueError(f"source origin is missing {error.args[0]}") from error
         if not isinstance(construct, str):
             raise ValueError("source-origin construct must be a string")
-        source_unit = data.get("source_unit")
-        digest = data.get("digest")
+        source_unit = data["source_unit"]
+        digest = data["digest"]
         if source_unit is not None and not isinstance(source_unit, str):
             raise ValueError("source-origin source unit must be a string")
         if digest is not None and not isinstance(digest, str):

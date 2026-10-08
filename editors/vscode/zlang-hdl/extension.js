@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Thin Community client for the repository's standard zlang-lsp process.
+// Thin Community client for the repository's standard ``zlang lsp`` process.
 'use strict';
 
 const fs = require('node:fs');
@@ -68,17 +68,17 @@ function resolveServerCommand() {
   if (typeof configured !== 'string') {
     throw new Error('zlang.lsp.path must be a direct executable path or command name');
   }
-  const requested = configured.trim() || 'zlang-lsp';
+  const requested = configured.trim() || 'zlang';
   const expanded = expandConfiguredPath(requested);
   const candidate = path.isAbsolute(expanded)
     ? expanded
     : (expanded.includes(path.sep) ? path.resolve(workspaceRoot() ?? process.cwd(), expanded) : expanded);
   const resolved = findOnPath(candidate);
   if (resolved === null) {
-    const hint = requested === 'zlang-lsp'
+    const hint = requested === 'zlang'
       ? 'Install ZLang in the active environment or set zlang.lsp.path.'
-      : 'Set zlang.lsp.path to an executable zlang-lsp path.';
-    throw new Error(`Cannot find zlang-lsp (${requested}). ${hint}`);
+      : 'Set zlang.lsp.path to an executable zlang path.';
+    throw new Error(`Cannot find zlang (${requested}). ${hint}`);
   }
   return resolved;
 }
@@ -105,10 +105,10 @@ async function activate(context) {
     return;
   }
 
-  output.appendLine(`Starting zlang-lsp: ${command}`);
+  output.appendLine(`Starting zlang lsp: ${command}`);
   const serverOptions = {
-    run: { command, transport: TransportKind.stdio },
-    debug: { command, transport: TransportKind.stdio },
+    run: { command, args: ['lsp'], transport: TransportKind.stdio },
+    debug: { command, args: ['lsp'], transport: TransportKind.stdio },
   };
   const clientOptions = {
     documentSelector: [{ scheme: 'file', language: LANGUAGE_ID }],

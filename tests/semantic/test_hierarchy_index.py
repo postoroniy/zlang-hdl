@@ -192,15 +192,18 @@ def test_stage_local_cache_reuses_exact_fingerprint_and_immutable_index(
     original = ir_hierarchy.specialization_fingerprint
     calls: list[object] = []
 
-    def counted(child):
+    def counted(child, **kwargs):
         calls.append(child)
-        return original(child)
+        return original(child, **kwargs)
 
     monkeypatch.setattr(ir_hierarchy, "specialization_fingerprint", counted)
     cache = HierarchyTraversalCache()
+    first_fingerprint = cache.fingerprint(module.children[0])
+    second_fingerprint = cache.fingerprint(module.children[0])
     first = build_hierarchy_index(module, cache=cache)
     second = build_hierarchy_index(module, cache=cache)
 
+    assert first_fingerprint == second_fingerprint
     assert first is second
     assert calls == [module.children[0]]
 
@@ -216,9 +219,9 @@ def test_hierarchy_caches_are_independent_and_never_process_global(
     original = ir_hierarchy.specialization_fingerprint
     calls: list[object] = []
 
-    def counted(child):
+    def counted(child, **kwargs):
         calls.append(child)
-        return original(child)
+        return original(child, **kwargs)
 
     monkeypatch.setattr(ir_hierarchy, "specialization_fingerprint", counted)
     first_module = CompilationSession(
@@ -227,17 +230,19 @@ def test_hierarchy_caches_are_independent_and_never_process_global(
     second_module = CompilationSession(
         source, top="Top"
     ).check()
-    first = build_hierarchy_index(first_module)
-    second = build_hierarchy_index(second_module)
+    first_cache = HierarchyTraversalCache()
+    second_cache = HierarchyTraversalCache()
+    first_cache.fingerprint(first_module.children[0])
+    first_cache.fingerprint(first_module.children[0])
+    second_cache.fingerprint(second_module.children[0])
+    second_cache.fingerprint(second_module.children[0])
+    first = build_hierarchy_index(first_module, cache=first_cache)
+    second = build_hierarchy_index(second_module, cache=second_cache)
 
     assert first is not second
-    # Each session owns one cache during recursive semantic analysis.  The two
-    # uncached inspection calls above add one more fingerprint per session.
-    assert len(calls) == 4
+    assert len(calls) == 2
     assert calls[0] is first_module.children[0]
     assert calls[1] is second_module.children[0]
-    assert calls[2] is first_module.children[0]
-    assert calls[3] is second_module.children[0]
     assert tuple(item.physical_path for item in first.entries) == tuple(
         item.physical_path for item in second.entries
     )
