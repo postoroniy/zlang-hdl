@@ -9,7 +9,7 @@ import pytest
 from zlang.backend.systemverilog.emitter import emit
 from zlang.compiler import compile_source
 from zlang.equivalence import (
-    emit_miter,
+    emit_miter_with_metadata,
     emit_reference_model,
     make_equivalence_property,
     run_equivalence_formal,
@@ -145,18 +145,19 @@ def test_structural_candidate_is_formally_equivalent_when_tools_are_available() 
             ),
         )
 
+    miter = emit_miter_with_metadata(
+        property_,
+        BindingMap((
+            *bindings(BindingSide.REFERENCE, "MulReference", "reference"),
+            *bindings(BindingSide.IMPLEMENTATION, "MulCsa", "implementation"),
+        )),
+        reference_module="MulReference",
+        implementation_module="MulCsa",
+    )
     source = "\n".join((
         emit_reference_model("MulReference", "y", reference.type, inputs, reference),
         emit_reference_model("MulCsa", "y", implementation.type, inputs, implementation),
-        emit_miter(
-            property_,
-            BindingMap((
-                *bindings(BindingSide.REFERENCE, "MulReference", "reference"),
-                *bindings(BindingSide.IMPLEMENTATION, "MulCsa", "implementation"),
-            )),
-            reference_module="MulReference",
-            implementation_module="MulCsa",
-        ),
+        miter.source,
     ))
     result = run_equivalence_formal(
         property_,
@@ -164,6 +165,7 @@ def test_structural_candidate_is_formally_equivalent_when_tools_are_available() 
         top=f"semantic_equivalence_{property_.id.replace('.', '_')}",
         depth=1,
         timeout_seconds=30,
+        trace_metadata=miter.trace_metadata,
     )
     if result.status is not EquivalenceStatus.SKIPPED:
         assert result.status is EquivalenceStatus.BOUNDED_PASS

@@ -56,6 +56,7 @@ class CsrIntegrationTests(unittest.TestCase):
         ])
         self.assertEqual(results[2]["rdata"], 0x89ABCDEF)
         self.assertEqual(results[3]["rdata"], 0x01234567)
+
     def test_implicit_reserved_bits_read_zero_and_ignore_writes(self) -> None:
         module = compile_source(
             "module Gaps { clock clk reset rst csr registers @0 { "

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from zlang.ast import EnumMemberRef, FieldExpr, SwitchExpr, TypeName, TypeValueExpr
+from zlang.ast.nodes import EnumMemberRef, FieldExpr, SwitchExpr, TypeName, TypeValueExpr
 from zlang.parser import ParseError, parse
 
 

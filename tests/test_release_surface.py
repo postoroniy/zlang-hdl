@@ -8,8 +8,7 @@ import pytest
 
 import zlang
 from zlang._version import __version__
-from zlang import cli, project_cli, verification_cli
-from zlang.lsp import server as lsp_server
+from zlang import cli
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -24,25 +23,12 @@ def test_root_license_is_unmodified_apache_2_0() -> None:
     )
 
 
-@pytest.mark.parametrize(
-    ("entrypoint", "program"),
-    (
-        (cli.main, "zlang"),
-        (project_cli.main, "zlang-lock"),
-        (verification_cli.main, "zlang-verify"),
-        (lsp_server.main, "zlang-lsp"),
-    ),
-)
-def test_every_public_cli_reports_the_distribution_version(
-    entrypoint,
-    program: str,
-    capsys,
-) -> None:
+def test_public_cli_reports_the_distribution_version(capsys) -> None:
     with pytest.raises(SystemExit) as raised:
-        entrypoint(["--version"])
+        cli.main(["--version"])
 
     assert raised.value.code == 0
-    assert capsys.readouterr().out == f"{program} {__version__}\n"
+    assert capsys.readouterr().out == f"zlang {__version__}\n"
 
 
 def test_package_and_build_metadata_share_one_version_source() -> None:

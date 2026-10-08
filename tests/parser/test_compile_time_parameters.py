@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from zlang.ast import CallableRef, TypeName, VectorTypeName
+from zlang.ast.nodes import CallableRef, TypeName, VectorTypeName
 from zlang.parser import ParseError, parse
 
 

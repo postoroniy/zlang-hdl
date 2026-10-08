@@ -10,7 +10,8 @@ from zlang.compiler import compile_source
 from zlang.ir import expressions as expr
 from zlang.ir.runtime_values import minimum_signed_width, minimum_unsigned_width
 from zlang.ir.types import BitsType, SIntType, UIntType
-from zlang.opt import CanonicalizationError, OptimizationStage, lower, restore
+from zlang.opt.lowering import CanonicalizationError, lower, restore
+from zlang.opt.ir import OptimizationStage
 from zlang.opt.ir import ExpressionOp
 from zlang.parser import parse
 from zlang.semantic import SemanticError

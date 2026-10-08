@@ -2,19 +2,9 @@ import math
 
 import pytest
 
-from zlang.ir import (
-    Add,
-    Generate,
-    InputRef,
-    Mux,
-    RegisterRef,
-    RuntimeIndex,
-    Truncate,
-    ValueRange,
-    VectorIndex,
-)
+from zlang.ir.expressions import Add, Generate, InputRef, Mux, RegisterRef, RuntimeIndex, Truncate, ValueRange, VectorIndex
 from zlang.ir.signed_reductions import expression_semantic_identity
-from zlang.opt import lower, restore
+from zlang.opt.lowering import lower, restore
 from zlang.parser import parse
 from zlang.semantic import SemanticError, analyze
 from zlang.native_simulation import simulate, simulate_cycles

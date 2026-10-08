@@ -6,16 +6,11 @@ from unittest.mock import patch
 from zlang.compiler import compile_source
 from zlang.ir.expressions import BinaryOperator
 from zlang.ir.types import BitType, FixedType, UIntType
-from zlang.opt import (
-    EquivalenceMode,
-    RewriteRule,
-    SaturationError,
-    lower,
-    render_saturation,
-    saturate,
-    Term,
-    term_to_expression,
-)
+from zlang.opt.ir import EquivalenceMode
+from zlang.opt.rewrite_spec import RewriteRule
+from zlang.opt.saturation import SaturationError, saturate
+from zlang.opt.lowering import lower
+from zlang.opt.rewrite_model import render_saturation, Term, term_to_expression
 from zlang.opt.ir import ExpressionOp, NodeCategory, Observation
 import zlang.opt.saturation as saturation_module
 from zlang.opt.value_certificate import (

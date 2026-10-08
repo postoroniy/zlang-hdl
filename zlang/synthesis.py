@@ -15,7 +15,8 @@ from zlang.implementations import select_implementation
 from zlang.ir import expressions as expr
 from zlang.ir.module import Assignment, Module
 from zlang.ir.module import dependency_context_identity
-from zlang.opt import lower, render
+from zlang.opt.module_lowering import lower
+from zlang.opt.render import render
 from zlang.common import stable_digest
 
 
@@ -463,8 +464,7 @@ def _measure_candidate(
             (
                 f"read_verilog -sv {_yosys_quote(rtl_path)}",
                 f"hierarchy -check -top {candidate_module.name}",
-                f"synth -top {candidate_module.name} -flatten",
-                f"abc -lut {target.lut_inputs}",
+                f"synth -top {candidate_module.name} -flatten -lut {target.lut_inputs}",
                 "clean",
                 f"tee -o {_yosys_quote(stats_path)} stat -json",
                 f"tee -o {_yosys_quote(depth_path)} ltp -noff",

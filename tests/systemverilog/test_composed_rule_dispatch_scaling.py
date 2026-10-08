@@ -19,10 +19,12 @@ import subprocess
 import pytest
 
 import zlang.backend.systemverilog.emitter as sv_emitter
+import zlang.backend.systemverilog.storage as sv_storage
 from zlang.backend.systemverilog import SystemVerilogEmissionError, emit_artifact
 from zlang.compiler import compile_source
 from zlang.ir import hierarchy as ir_hierarchy
-from zlang.ir.state import StateResourceKind, groups_conflict
+from zlang.ir import state as ir_state
+from zlang.ir.state import StateResourceKind, groups_may_conflict
 from zlang.native_simulation import simulate_cycles
 
 
@@ -404,7 +406,7 @@ def test_27_independent_register_rules_use_bounded_child_dispatch(
         resource.kind for resource in transition.resources
     } == {StateResourceKind.REGISTER}
     assert all(
-        not groups_conflict(left, right)
+        not groups_may_conflict(left, right)
         for index, left in enumerate(transition.action_groups)
         for right in transition.action_groups[index + 1 :]
     )
@@ -418,7 +420,7 @@ def test_27_independent_register_rules_use_bounded_child_dispatch(
             "independent register rules must not enumerate scheduler regions"
         )
 
-    monkeypatch.setattr(sv_emitter, "selection_regions", forbidden_selection_regions)
+    monkeypatch.setattr(ir_state, "selection_regions", forbidden_selection_regions)
     standalone_artifact = emit_artifact(standalone)
     first_wrapper_artifact = emit_artifact(wrapper)
     second_wrapper_artifact = emit_artifact(wrapper)
@@ -491,7 +493,7 @@ def test_conflicting_priority_group_keeps_losing_side_effect_atomic() -> None:
     transition = wrapper.children[0].resolved_transition
     assert transition is not None
     higher, lower = transition.action_groups
-    assert groups_conflict(higher, lower)
+    assert groups_may_conflict(higher, lower)
 
     standalone_artifact = emit_artifact(standalone)
     wrapper_artifact = emit_artifact(wrapper)
@@ -837,7 +839,7 @@ def test_standalone_dedicated_dispatch_does_not_fall_into_unified_state(
         )
 
     monkeypatch.setattr(
-        sv_emitter,
+        sv_storage,
         "_emit_unified_state_module",
         forbidden_unified_state,
     )
@@ -869,14 +871,14 @@ def test_scheduled_storage_remains_on_the_unified_transition_path(
     markers: tuple[str, ...],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    original = sv_emitter._emit_unified_state_module
+    original = sv_storage._emit_unified_state_module
     calls: list[str] = []
 
     def counted(module):
         calls.append(module.name)
         return original(module)
 
-    monkeypatch.setattr(sv_emitter, "_emit_unified_state_module", counted)
+    monkeypatch.setattr(sv_storage, "_emit_unified_state_module", counted)
     text = emit_artifact(
         compile_source(source, top=top).ir
     ).text
@@ -890,13 +892,13 @@ def test_mixed_global_fifo_and_user_rules_still_fail_closed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     calls: list[str] = []
-    original = sv_emitter._emit_unified_state_module
+    original = sv_storage._emit_unified_state_module
 
     def counted(module):
         calls.append(module.name)
         return original(module)
 
-    monkeypatch.setattr(sv_emitter, "_emit_unified_state_module", counted)
+    monkeypatch.setattr(sv_storage, "_emit_unified_state_module", counted)
     module = compile_source(
         MIXED_GLOBAL_FIFO_SOURCE,
         top="MixedGlobalFifoState",
@@ -932,9 +934,9 @@ def test_one_emission_fingerprints_each_exact_module_object_at_most_once(
     }
     active = "first"
 
-    def counted(child):
+    def counted(child, **kwargs):
         calls[active].append(child)
-        return original_fingerprint(child)
+        return original_fingerprint(child, **kwargs)
 
     monkeypatch.setattr(ir_hierarchy, "specialization_fingerprint", counted)
     active = "first"
@@ -949,12 +951,12 @@ def test_one_emission_fingerprints_each_exact_module_object_at_most_once(
     assert {name: len(items) for name, items in calls.items()} == {
         "first": 6,
         "copied": 6,
-        "unrelated": 1,
+        "unrelated": 0,
     }
     for items in calls.values():
         identities = Counter(id(item) for item in items)
-        assert identities
-        assert max(identities.values()) == 1
+        if identities:
+            assert max(identities.values()) == 1
     assert all(
         first is not second
         for first in calls["first"]

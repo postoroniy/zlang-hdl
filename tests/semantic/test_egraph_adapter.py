@@ -4,18 +4,12 @@ from dataclasses import replace
 
 from zlang.compiler import compile_source
 from zlang.ir.types import UIntType
-from zlang.opt import RewriteRule, SaturationError, saturate, term_to_expression
+from zlang.opt.rewrite_spec import RewriteRule
+from zlang.opt.saturation import SaturationError, saturate
+from zlang.opt.rewrite_model import term_to_expression
 from zlang.opt.ir import ExpressionOp, pure_metadata
 from zlang.native_simulation import simulate
-from zlang.opt import (
-    EGraphAdapterError,
-    canonical_to_egraph,
-    deserialize_egraph,
-    egraph_to_canonical,
-    egraph_to_expression,
-    render_egraph,
-    serialize_egraph,
-)
+from zlang.opt.egraph import EGraphAdapterError, canonical_to_egraph, deserialize_egraph, egraph_to_canonical, egraph_to_expression, render_egraph, serialize_egraph
 from zlang.source import SourceOrigin
 
 

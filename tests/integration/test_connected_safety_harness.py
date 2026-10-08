@@ -16,6 +16,7 @@ from zlang.formal import (
     run_verilog_formal,
 )
 from zlang.ir.formal import FormalStatus
+from zlang.verification_bundle import load_verification_bundle
 
 
 COUNTER = """
@@ -139,20 +140,21 @@ def test_real_connected_pass_and_reset_mutation_counterexample() -> None:
     assert failed.counterexample.raw_trace
 
 
-def test_cli_sby_requires_and_references_connected_harness(tmp_path: Path) -> None:
+def test_cli_bundle_publishes_connected_harness_route(tmp_path: Path) -> None:
     source = tmp_path / "counter.zhl"
     source.write_text(COUNTER)
     rtl = tmp_path / "counter.sv"
-    harness = tmp_path / "proof" / "counter_formal.sv"
-    config = tmp_path / "run" / "counter.sby"
+    bundle = tmp_path / "proof"
     assert main([
         str(source), "--systemverilog", str(rtl),
-        "--formal-harness", str(harness),
-        "--formal-sby", str(config), "--formal-depth", "6",
+        "--verification-bundle", str(bundle),
     ]) == 0
-    assert "non-executable property report" not in harness.read_text()
-    relative = str(Path("..") / "proof" / "counter_formal.sv")
-    assert f"read_verilog -sv -formal {relative}" in config.read_text()
+    loaded = load_verification_bundle(bundle)
+    job = loaded.manifest.jobs[0]
+    harness_path = next(path for path in job.source_files if path.startswith("harness/"))
+    assert "non-executable property report" not in loaded.read_bytes(harness_path).decode()
+    assert job.config_files == ()
+    assert job.route is not None
 
 
 @pytest.mark.skipif(

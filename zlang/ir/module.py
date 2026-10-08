@@ -32,7 +32,6 @@ from zlang.ir.verification import (
 )
 from zlang.ir.pipelines import PipelineExploration
 from zlang.ir.elastic import ElasticPipelineRegion
-from zlang.ir.architectures import ArchitectureExploration
 from zlang.ir.state import ResolvedTransition
 from zlang.ir.timing import (
     InstanceOutputTiming,
@@ -656,18 +655,18 @@ class LocalValue:
     semantic_identity: str | None = None
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class Specialization:
     name: str
     value: int | str
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class Instance:
     name: str
     module: str
-    specializations: tuple[Specialization, ...] = ()
-    array_length: int | None = None
+    specializations: tuple[Specialization, ...]
+    array_length: int | None
 
 
 @dataclass(frozen=True)
@@ -677,7 +676,7 @@ class InstancePortBinding:
     expression: Expression
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class ElaboratedInstance:
     """Concrete child instance with an explicit inherited clock/reset domain."""
 
@@ -686,11 +685,10 @@ class ElaboratedInstance:
     clock: str | None
     reset: str | None
     # Stable semantic identities are deliberately separate from backend RTL
-    # names.  Defaults preserve the pre-recursive IR constructor ABI; semantic
-    # elaboration fills these for physical instances.
-    instance_identity: str | None = None
-    semantic_path: tuple[str, ...] = ()
-    specialization_identity: str | None = None
+    # names and are required for every physical instance.
+    instance_identity: str
+    semantic_path: tuple[str, ...]
+    specialization_identity: str
 
 
 @dataclass(frozen=True)
@@ -744,14 +742,14 @@ class FunctionParameter:
     type: HardwareType
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class Function:
     name: str
     parameters: tuple[FunctionParameter, ...]
     return_type: HardwareType
     body: Expression
-    callee_identity: str = ""
-    metadata: CallableMetadata | None = None
+    callee_identity: str
+    metadata: CallableMetadata
 
     def __post_init__(self) -> None:
         if not self.name:
@@ -767,14 +765,12 @@ class Function:
                 f"return type {self.return_type}"
             )
         expected_identity = stable_callee_identity(
-            self.name, self.parameters, self.return_type, self.metadata
+            self.parameters, self.return_type, self.metadata
         )
-        if self.callee_identity and self.callee_identity != expected_identity:
+        if self.callee_identity != expected_identity:
             raise ValueError(
                 f"function '{self.name}' callee identity does not match its metadata"
             )
-        if not self.callee_identity:
-            object.__setattr__(self, "callee_identity", expected_identity)
 
 
 @dataclass(frozen=True)
@@ -922,7 +918,6 @@ class Module:
     arbiters: tuple[PacketArbiter, ...] = ()
     contracts: tuple[Contract, ...] = ()
     pipeline_explorations: tuple[PipelineExploration, ...] = ()
-    architecture_explorations: tuple[ArchitectureExploration, ...] = ()
     equivalences: tuple[EquivalenceRule, ...] = ()
     locals: tuple[LocalValue, ...] = ()
     instances: tuple[Instance, ...] = ()
@@ -1103,11 +1098,6 @@ class Module:
         return bool(self.request_responses) or any(
             port.protocol is not InterfaceProtocol.WIRE for port in self.ports
         )
-
-    @property
-    def top_aggregate_abi(self):
-        from zlang.ir.top_abi import build_top_aggregate_abi
-        return build_top_aggregate_abi(self)
 
     @property
     def top_physical_abi(self):

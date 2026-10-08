@@ -4,16 +4,16 @@ from pathlib import Path
 
 from zlang.parser import parse
 from zlang.semantic import analyze
-from zlang.stdlib import stdlib_source
+from zlang.stdlib import load_stdlib_source
 
 
 class StandardBusSourceMigrationTests(unittest.TestCase):
     def test_import_loads_real_source_with_identity_and_hash(self):
-        source_module, identity, digest = stdlib_source("std.bus.reg")
-        self.assertEqual(identity, "std.bus.reg")
-        self.assertEqual(source_module.source_identity, identity)
+        source = load_stdlib_source("std.bus.reg")
+        self.assertEqual(source.path, "std.bus.reg")
+        self.assertEqual(source.ast.source_identity, source.path)
         self.assertEqual(
-            digest,
+            source.digest,
             hashlib.sha256(
                 Path("stdlib/bus/reg.zhl").read_bytes()
             ).hexdigest(),

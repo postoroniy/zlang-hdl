@@ -30,7 +30,6 @@ from zlang.ir.formal import (
     FormalStatus,
     ProofMode,
     connect_formal_design as _connect_formal_design,
-    cover_harness_top,
     emit_cover_harness,
     emit_harness,
     generate_properties,
@@ -39,7 +38,6 @@ from zlang.ir.formal import (
 from zlang.ir.module import Module
 from zlang.ir.recursive_formal import (
     RecursiveFormalDesign,
-    RecursiveFormalResult,
     build_recursive_formal_design as _build_recursive_formal_design,
 )
 
@@ -69,9 +67,9 @@ def connect_formal_design(design: FormalDesign, artifact: object) -> FormalDesig
 
     if design.non_executable_reason is not None:
         # Preserve property generation as a useful report, but deliberately do
-        # not attach implementation text or an artifact hash.  ``emit_sby``
-        # consequently remains fail-closed and cannot execute cycle-synchronous
-        # assumptions against a non-default physical reset contract.
+        # not attach implementation text or an artifact hash.  Executable
+        # route publication consequently remains fail-closed and cannot run
+        # cycle-synchronous assumptions against a non-default reset contract.
         return design
     return _connect_formal_design(design, artifact)
 
@@ -79,65 +77,6 @@ def connect_formal_design(design: FormalDesign, artifact: object) -> FormalDesig
 def build_recursive_formal_design(module: Module, *, selected_ir_identity: str | None = None) -> RecursiveFormalDesign:
     """Build recursive safety verification properties without consulting backend signal names."""
     return _build_recursive_formal_design(module, selected_ir_identity=selected_ir_identity)
-
-
-def emit_recursive_harness(design: RecursiveFormalDesign, *, mode: ProofMode = ProofMode.BMC,
-                           depth: int = 20) -> str:
-    """Emit the deterministic whole-top observation harness skeleton.
-
-    Physical observation connections are supplied by the backend-published v4
-    artifact.  The harness therefore declares one explicit observation port per
-    semantic binding and never reconstructs an RTL path from an instance name.
-    """
-    if depth < 1:
-        raise FormalError("formal depth must be positive")
-    module_name = f"{design.root_instance_identity}__recursive_safety_verification_formal"
-    lines = ["`default_nettype none", f"module {module_name}(input wire clock, input wire reset,"]
-    observations = sorted(design.bindings, key=lambda item: item.semantic_binding_id)
-    ports = [f"  input wire [{item.width - 1}:0] zlang_formal_obs_{index}"
-             for index, item in enumerate(observations)]
-    lines.append(",\n".join(ports) + ");")
-    lines.append(f"  // schema={design.schema_version} mode={mode.value} depth={depth}")
-    for index, item in enumerate(observations):
-        lines.append(f"  // observation {item.semantic_binding_id} = zlang_formal_obs_{index}")
-    for item in sorted(design.properties, key=lambda value: value.concrete_property_id):
-        statement = "assume" if item.property.kind.value == "assumption" else "assert"
-        lines.append(f"  // {statement} {item.concrete_property_id} owned_by={item.ownership}")
-    lines.append("endmodule")
-    return "\n".join(lines) + "\n"
-
-
-def run_recursive_formal(design: RecursiveFormalDesign, *, mode: ProofMode = ProofMode.BMC,
-                         depth: int = 20, reason: str | None = None,
-                         artifact=None) -> tuple[RecursiveFormalResult, ...]:
-    """Return explicit skips until a backend supplies connected observations.
-
-    The semantic recursive layer must not claim a proof from an unconnected
-    observation input.  A backend adapter can replace this conservative result
-    path once its formal artifact publishes actual observation ports.
-    """
-    if artifact is not None:
-        unavailable = tuple(
-            item.semantic_binding_id for item in design.bindings
-            if not any(
-                observation.semantic_binding_id == item.semantic_binding_id
-                and observation.observation_token is not None
-                for observation in getattr(artifact, "formal_observations", ())
-            )
-        )
-        if unavailable and reason is None:
-            reason = "formal observations unavailable: " + ", ".join(unavailable[:4])
-    why = reason or "formal observation artifact is not connected to generated RTL"
-    return tuple(
-        RecursiveFormalResult(
-            item.concrete_property_id, item.source_property_id,
-            FormalStatus.SKIPPED, mode, "sby", "z3", depth,
-            item.defining_module, item.specialization_identity,
-            item.instance_identity, item.physical_instance_path,
-            item.property.source_origin, reason=why,
-        )
-        for item in design.properties
-    )
 
 
 def _version_commands_for(names: tuple[str, ...]) -> tuple[tuple[str, tuple[str, ...]], ...]:
@@ -226,32 +165,6 @@ def use_formal_toolchain(context: FormalToolchainContext):
         yield context
     finally:
         _FORMAL_TOOLCHAIN_OVERRIDE.reset(token)
-
-
-def run_formal(design: FormalDesign, *, mode: ProofMode = ProofMode.BMC,
-               depth: int = 20, engine: str = "sby", solver: str | None = None,
-               executable: str | None = None) -> tuple[FormalResult, ...]:
-    """Execute only through an explicitly configured result adapter.
-
-    safety verification deliberately refuses to infer solver semantics from arbitrary command
-    output. A future backend can provide a wrapper that creates ``FormalResult``
-    records while preserving property IDs and source origins.
-    """
-    versions = tool_versions()
-    reason = (
-        "formal execution unavailable: no runner executable configured"
-        if executable is None else f"formal runner not found: {executable}"
-    )
-    if executable is None and solver and shutil.which("sby") and shutil.which(solver):
-        # The design-level API remains conservative: callers must provide an
-        # implementation-bound harness for meaningful target proofs. This
-        # branch is intentionally not used for unbound semantic placeholders.
-        reason = "selected IR has no backend-bound formal harness"
-    if executable is None or shutil.which(executable) is None:
-        return tuple(FormalResult(p.id, FormalStatus.SKIPPED, mode, engine, solver, depth,
-                                  source_origin=p.source_origin, tool_versions=versions,
-                                  reason=reason) for p in design.properties)
-    raise FormalError("custom formal execution requires an safety verification result adapter")
 
 
 def _publish_formal_auxiliary_files(
@@ -532,15 +445,6 @@ def run_verilog_formal(source: str, *, top: str, property_id: str,
             temporary_workspace.cleanup()
 
 
-def run_verilog_targets(targets: tuple[tuple[str, str, str], ...], *,
-                        mode: ProofMode = ProofMode.BMC, depth: int = 20,
-                        solver: str = "z3") -> tuple[FormalResult, ...]:
-    """Run a set of backend-published ``(property_id, top, source)`` targets."""
-    return tuple(run_verilog_formal(source, top=top, property_id=property_id,
-                                    mode=mode, depth=depth, solver=solver)
-                 for property_id, top, source in targets)
-
-
 def run_verilog_cover(
     source: str,
     *,
@@ -719,107 +623,7 @@ def run_verilog_cover(
             temporary_workspace.cleanup()
 
 
-def emit_sby(
-    design: FormalDesign,
-    *,
-    depth: int = 20,
-    top: str | None = None,
-    mode: ProofMode = ProofMode.BMC,
-    solver: str = "z3",
-    source_file: str | None = None,
-) -> str:
-    """Emit SBY only for an implementation-bound executable harness."""
-    if depth < 1:
-        raise FormalError("formal depth must be positive")
-    if design.connected_artifact_hash is None:
-        raise FormalError(
-            "executable SBY output requires a connected backend formal artifact"
-        )
-    unavailable = next((
-        item for item in design.properties
-        if item.non_executable_reason is not None or item.predicate is None
-    ), None)
-    if unavailable is not None:
-        why = (
-            unavailable.non_executable_reason
-            or "structured predicate unavailable"
-        )
-        raise FormalError(
-            "combined executable SBY view requires every safety property and "
-            f"assumption on one backend; '{unavailable.id}' is unavailable: "
-            f"{why}. Use --verification-bundle for per-goal backend routing"
-        )
-    if not solver or any(character.isspace() for character in solver):
-        raise FormalError("formal solver name must be one non-empty token")
-    top = top or f"{design.module_name}__safety_verification_formal"
-    source_file = source_file or f"{top}.sv"
-    if not source_file or any(character in source_file for character in "\n\r"):
-        raise FormalError("formal harness filename must be one non-empty line")
-    return "\n".join((
-        "[options]", f"mode {mode.value}", f"depth {depth}", "", "[engines]",
-        f"smtbmc {solver}", "", "[script]",
-        f"read_verilog -sv -formal {source_file}", f"prep -top {top}", "", "[files]",
-        source_file, "",
-    ))
-
-
-def emit_cover_sby(
-    design: FormalDesign,
-    *,
-    cover_id: str,
-    depth: int = 20,
-    top: str | None = None,
-    solver: str = "z3",
-    source_file: str | None = None,
-) -> str:
-    """Emit a deterministic per-goal SBY cover configuration."""
-
-    if depth < 1:
-        raise FormalError("formal depth must be positive")
-    if design.connected_artifact_hash is None:
-        raise FormalError(
-            "executable cover SBY output requires a connected backend formal artifact"
-        )
-    matches = tuple(item for item in design.covers if item.id == cover_id)
-    if len(matches) != 1:
-        if not matches:
-            raise FormalError(f"unknown cover property: {cover_id}")
-        raise FormalError(f"duplicate cover property id: {cover_id}")
-    if matches[0].non_executable_reason is not None:
-        raise FormalError(
-            f"cover property '{cover_id}' is not executable: "
-            f"{matches[0].non_executable_reason}"
-        )
-    unavailable_assumption = next((
-        item for item in design.properties
-        if item.kind.value == "assumption"
-        and (item.non_executable_reason is not None or item.predicate is None)
-    ), None)
-    if unavailable_assumption is not None:
-        why = (
-            unavailable_assumption.non_executable_reason
-            or "structured predicate unavailable"
-        )
-        raise FormalError(
-            f"cover property '{cover_id}' requires executable assumption "
-            f"'{unavailable_assumption.id}': {why}"
-        )
-    if not solver or any(character.isspace() for character in solver):
-        raise FormalError("formal solver name must be one non-empty token")
-    top = top or cover_harness_top(design, cover_id)
-    source_file = source_file or f"{top}.sv"
-    if not source_file or any(character in source_file for character in "\n\r"):
-        raise FormalError("formal harness filename must be one non-empty line")
-    return "\n".join((
-        "[options]", "mode cover", f"depth {depth}", "", "[engines]",
-        f"smtbmc {solver}", "", "[script]",
-        f"read_verilog -sv -formal {source_file}", f"prep -top {top}", "",
-        "[files]", source_file, "",
-    ))
-
-
 __all__ = ["FormalToolchainContext", "build_formal_design", "build_recursive_formal_design", "connect_formal_design",
-           "emit_cover_harness", "emit_cover_sby", "emit_harness",
-           "emit_recursive_harness", "emit_sby", "run_formal", "run_recursive_formal",
-           "run_verilog_cover", "run_verilog_formal", "run_verilog_targets", "tool_versions",
+           "emit_cover_harness", "emit_harness",
+           "run_verilog_cover", "run_verilog_formal", "tool_versions",
            "use_formal_toolchain"]

@@ -7,7 +7,7 @@ import subprocess
 
 import pytest
 
-from zlang.backend.systemverilog import emit_experimental
+from zlang.backend.systemverilog import emit
 from zlang.compiler import compile_source
 
 
@@ -21,7 +21,7 @@ SOURCE = (
 
 def test_direct_sv_runtime_packed_selection_uses_sized_shift_and_truncate() -> None:
     module = compile_source(SOURCE).ir
-    text = emit_experimental(module)
+    text = emit(module)
 
     assert "assign selected =" in text
     assert "$unsigned((raw)) >>" in text
@@ -32,7 +32,7 @@ def test_direct_sv_runtime_packed_selection_uses_sized_shift_and_truncate() -> N
 
 @pytest.mark.skipif(shutil.which("verilator") is None, reason="Verilator unavailable")
 def test_direct_sv_runtime_packed_selection_matches_lsb_reference(tmp_path: Path) -> None:
-    artifact = emit_experimental(compile_source(SOURCE).ir)
+    artifact = emit(compile_source(SOURCE).ir)
     rtl = tmp_path / "RuntimePackedSelection.sv"
     harness = tmp_path / "test.cpp"
     rtl.write_text(artifact)

@@ -5,7 +5,7 @@ import subprocess
 import tempfile
 import unittest
 
-from zlang.backend.systemverilog import emit_experimental
+from zlang.backend.systemverilog import emit
 from zlang.compiler import compile_source
 from zlang.native_simulation import simulate_cycles
 
@@ -54,7 +54,7 @@ class RuleIntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             rtl = root / "RuleCounter.sv"
-            rtl.write_text(emit_experimental(module))
+            rtl.write_text(emit(module))
             harness = root / "rules_test.cpp"
             harness.write_text(
                 '#include "VRuleCounter.h"\n'

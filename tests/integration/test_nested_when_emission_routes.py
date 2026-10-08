@@ -13,7 +13,7 @@ import shutil
 
 import pytest
 
-from zlang.backend.systemverilog import emit_experimental as emit_systemverilog
+from zlang.backend.systemverilog import emit as emit_systemverilog
 from zlang.compiler import compile_source
 from zlang.toolchain import lint_with_verilator
 

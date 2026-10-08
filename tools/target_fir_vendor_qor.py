@@ -10,7 +10,7 @@ import shutil
 import subprocess
 import time
 
-from zlang.backend.systemverilog import emit_experimental, emit_target
+from zlang.backend.systemverilog import emit, emit_target
 from zlang.compiler import compile_source
 
 
@@ -78,7 +78,7 @@ def main() -> int:
     rows = []
     for name, rtl_text in (
         ("target_dsp48e1", emit_target(selected.ir, selected.implementation_graph)),
-        ("generic_direct_sv", emit_experimental(generic.ir)),
+        ("generic_direct_sv", emit(generic.ir)),
     ):
         work = args.output / name
         work.mkdir(parents=True, exist_ok=True)

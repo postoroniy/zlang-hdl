@@ -40,20 +40,25 @@ Use this order:
 
 1. the user's current request and applicable `AGENTS.md`;
 2. grammar, typed semantics, validators, and passing tests in this checkout;
-3. `zlang/public_capabilities.py` and `docs/syntax-support-matrix.md`;
-4. `docs/language-quick-reference.md` and the relevant topic guide;
+3. `zlang/public_capabilities.py` and the support matrix in
+   `docs/language-reference.md`;
+4. `docs/language-quick-reference.md` and the relevant section of
+   `docs/language-reference.md`;
 5. compiling examples and source-authored `stdlib/**/*.zhl`;
 6. editor grammar only for lexical behavior.
 
-`docs/language-guide.md` is an index, not a root-level file. Do not create a
-duplicate. `examples/all_syntax.zhl` is a representative language tour, not an
-exhaustive capability contract. Historical development history/design-freeze prose does
-not override current executable behavior.
+`docs/language-reference.md` is the complete public guide; do not invent or
+recreate older split topic guides. `examples/all_syntax.zhl` is a representative
+language tour, not an exhaustive capability contract. Historical development
+prose does not override current executable behavior.
 
 Read only the reference relevant to the task:
 
-- Source authoring, state, storage, hierarchy, protocols, numeric rules, and
-  production commands: [references/language-and-rtl.md](references/language-and-rtl.md).
+- Type selection, exact conversions, aggregate manipulation, ready/valid,
+  credit, request/response, packets, and standard AXI/APB/AHB interfaces:
+  [references/types-and-interfaces.md](references/types-and-interfaces.md).
+- General source authoring, state, storage, hierarchy, and production commands:
+  [references/language-and-rtl.md](references/language-and-rtl.md).
 - `implement`, exact pipelines, egglog, target/resource planning, and formal:
   [references/optimization-and-formal.md](references/optimization-and-formal.md).
 - Parser/semantic/IR/backend/tooling changes and regression discipline:
@@ -110,6 +115,10 @@ path. A backend failure or missing tool is never a successful result.
 - `=` is a current-cycle drive; `<-` is an atomic next-edge state update.
 - Types, widths, signedness, fixed scale, reset behavior, latency, II, protocol
   ownership, and clock domains are exact.
+- Use compiler-defined `extend`, `truncate`, `quantize`, `bitcast`, and
+  `reshape` operations. Never substitute an implicit cast or reinterpret a
+  protocol observation such as `.transfer`, `.credits`, or `.return` as a
+  writable field.
 - Do not invent `let`, `const`, `var`, `return`, semicolons, runtime procedural
   `if`, implicit casts, protocol adapters, or CDC.
 - Compile-time `if` elaborates. Runtime values use `?:`/`mux`/`switch`; runtime
@@ -120,11 +129,6 @@ path. A backend failure or missing tool is never a successful result.
   `transform pipeline(auto, ...)` is a separate bounded ready/valid feature.
 - Egglog proposes exact pure-value alternatives; it never places registers or
   chooses DSP primitives. Scheduling and resource matching are separate.
-- II greater than one is not available to ordinary scalar `implement`. The
-  only current temporal-sharing form is the checked ready/valid `a*b + c*d`
-  kernel: one shared multiplier, capacity one, latency four, II four, and no
-  interleaving. Do not generalize it into HLS scheduling or claim unbounded
-  formal proof; required-formal selection remains fail-closed.
 - Never move fixed-point quantization, silently resize, guess physical RTL names,
   or weaken fail-closed publication to make a design compile.
 

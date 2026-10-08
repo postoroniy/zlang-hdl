@@ -5,37 +5,26 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import replace
 
-from zlang.backend.manifest import (
-    IMPLEMENTATION_MANIFEST_VERSION,
-    ImplementationEdgeManifest,
-    ImplementationManifest,
-    ImplementationResourceManifest,
-    publish_artifact,
-)
+from zlang.backend import manifest as backend_manifest
 from zlang.backend.companions import collect_rom_companions
 from zlang.backend.systemverilog.sequential import clock_event, reset_asserted
-from zlang.backend.systemverilog.emitter import (
-    SystemVerilogEmissionError,
-    _build_top_boundary_plan,
-    _expression,
-    _emit_memory,
-    _emit_target_async_fifo,
-    _identifier,
-    _module,
-    _physical_port_declarations,
-    _top_boundary_scope,
-    emit_artifact as emit_generic_artifact,
-)
+from zlang.backend.systemverilog import expression as sv_expression
+from zlang.backend.systemverilog import boundary as sv_boundary
+from zlang.backend.systemverilog import module_rendering as sv_module_rendering
+from zlang.backend.systemverilog import storage as sv_storage
+from zlang.backend.systemverilog import rendering as sv_rendering
+from zlang.backend.systemverilog.context import emission_scope, top_boundary_scope
+from zlang.backend.systemverilog import emitter as sv_emitter
 from zlang.ir import expressions as expr
 from zlang.ir.physical_types import signed_arithmetic_port_width
-from zlang.ir.module import Module, Register
+from zlang.ir import module as ir_module
 from zlang.ir.target import ImplementationGraph, ResourceDefinition, ResourceInstance
-from zlang.ir.types import FixedType, SIntType, UFixedType, UIntType
-from zlang.targets import load_target
+from zlang.ir import types as ir_types
+from zlang.target_catalog import load_target
 from zlang.pipeline_scheduling import erase_pipeline_timing
 
 
-def _implementation_output(module: Module, conversion: expr.Expression) -> str | None:
+def _implementation_output(module: ir_module.Module, conversion: expr.Expression) -> str | None:
     """Resolve the source output from typed implementation identity only."""
 
     exploration = next(
@@ -61,13 +50,13 @@ def _implementation_output(module: Module, conversion: expr.Expression) -> str |
     return assignment.target.name if assignment is not None else None
 
 
-def emit_target(module: Module, graph: ImplementationGraph, *, simulation_model: bool = False) -> str:
+def emit_target(module: ir_module.Module, graph: ImplementationGraph, *, simulation_model: bool = False) -> str:
     """Emit one already-selected graph; no semantic matching occurs here."""
     unsupported_domains = tuple(
         domain for domain in module.clock_domains if not domain.is_legacy_default
     )
     if unsupported_domains:
-        raise SystemVerilogEmissionError(
+        raise sv_emitter.SystemVerilogEmissionError(
             "selected DSP/BRAM resource emission supports only the legacy "
             "rising-edge synchronous active-high reset contract; non-default "
             "physical reset contracts require a target resource binding that "
@@ -78,14 +67,14 @@ def emit_target(module: Module, graph: ImplementationGraph, *, simulation_model:
         not graph.is_generic
         and graph.realization_backend != "direct_systemverilog"
     ):
-        raise SystemVerilogEmissionError(
+        raise sv_emitter.SystemVerilogEmissionError(
             "direct SystemVerilog cannot emit an implementation graph realized "
             f"by '{graph.realization_backend}'"
         )
     if graph.is_generic:
-        raise SystemVerilogEmissionError("generic implementation graphs use the ordinary direct-SV emitter")
+        raise sv_emitter.SystemVerilogEmissionError("generic implementation graphs use the ordinary direct-SV emitter")
     if graph.target_identity is None:
-        raise SystemVerilogEmissionError("selected resource graph has no target identity")
+        raise sv_emitter.SystemVerilogEmissionError("selected resource graph has no target identity")
     target, _, definitions = load_target(graph.target_identity)
     resources = {item.identity: item for item in definitions}
     node_definitions: dict[str, ResourceDefinition] = {}
@@ -93,12 +82,12 @@ def emit_target(module: Module, graph: ImplementationGraph, *, simulation_model:
     for node in graph.resources:
         definition = resources.get(node.resource_definition_identity)
         if definition is None:
-            raise SystemVerilogEmissionError(
+            raise sv_emitter.SystemVerilogEmissionError(
                 f"backend cannot emit selected resource '{node.resource_definition_identity}' on target '{target.identity}'"
             )
         binding = dict(definition.backend_bindings).get("systemverilog")
         if binding not in {"dsp48e1_explicit", "xilinx_bram_inference"}:
-            raise SystemVerilogEmissionError(
+            raise sv_emitter.SystemVerilogEmissionError(
                 f"backend cannot emit selected resource '{definition.identity}': "
                 f"unsupported systemverilog binding '{binding or 'missing'}'",
                 code="ZL-BACKEND-BINDING",
@@ -106,44 +95,45 @@ def emit_target(module: Module, graph: ImplementationGraph, *, simulation_model:
             )
         node_definitions[node.identity] = definition
         emitters.add(binding)
-    boundary = _build_top_boundary_plan(module)
-    with _top_boundary_scope(boundary):
-        if emitters == {"dsp48e1_explicit"}:
-            # Signed-product graphs carry one explicit accumulator mode per
-            # resource instance. This is a graph/configuration property, not a
-            # source-name or RTL-text heuristic. Keep the older symmetric FIR
-            # emitter unchanged and use the ordered-cascade emitter for FFT paths.
-            if graph.resources and all(
-                "accumulator_mode" in dict(item.configuration)
-                for item in graph.resources
-            ):
-                packed = _emit_signed_product_dsp48e1_graph(
-                    module, graph, node_definitions, simulation_model
-                )
+    with emission_scope(module.name):
+        boundary = sv_boundary._build_top_boundary_plan(module)
+        with top_boundary_scope(boundary):
+            if emitters == {"dsp48e1_explicit"}:
+                # Signed-product graphs carry one explicit accumulator mode per
+                # resource instance. This is a graph/configuration property, not a
+                # source-name or RTL-text heuristic. Keep the older symmetric FIR
+                # emitter unchanged and use the ordered-cascade emitter for FFT paths.
+                if graph.resources and all(
+                    "accumulator_mode" in dict(item.configuration)
+                    for item in graph.resources
+                ):
+                    packed = _emit_signed_product_dsp48e1_graph(
+                        module, graph, node_definitions, simulation_model
+                    )
+                else:
+                    packed = _emit_dsp48e1_graph(
+                        module, graph, node_definitions, simulation_model
+                    )
+            elif emitters == {"xilinx_bram_inference"} and len(graph.resources) == 1:
+                if dict(graph.resources[0].configuration).get("fifo_memory") == 1:
+                    packed = sv_emitter._emit_target_async_fifo(module)
+                else:
+                    packed = (
+                        "`default_nettype none\n"
+                        + sv_storage._emit_memory(module, ram_style="block")
+                        + "`default_nettype wire\n"
+                    )
             else:
-                packed = _emit_dsp48e1_graph(
-                    module, graph, node_definitions, simulation_model
+                raise sv_emitter.SystemVerilogEmissionError(
+                    "selected resource graph mixes unsupported physical emitters"
                 )
-        elif emitters == {"xilinx_bram_inference"} and len(graph.resources) == 1:
-            if dict(graph.resources[0].configuration).get("fifo_memory") == 1:
-                packed = _emit_target_async_fifo(module)
-            else:
-                packed = (
-                    "`default_nettype none\n"
-                    + _emit_memory(module, ram_style="block")
-                    + "`default_nettype wire\n"
-                )
-        else:
-            raise SystemVerilogEmissionError(
-                "selected resource graph mixes unsupported physical emitters"
-            )
     return packed
 
 
 def _mapping(node: ResourceInstance, port: str):
     item = next((value for value in node.semantic_mappings if value.resource_port == port), None)
     if item is None or item.expression is None:
-        raise SystemVerilogEmissionError(
+        raise sv_emitter.SystemVerilogEmissionError(
             f"selected resource '{node.identity}' has no expression mapping for port '{port}'"
         )
     return item.expression
@@ -180,13 +170,13 @@ def _dsp48e1_parameters(
 
 
 def _signed_extend(value, width: int) -> str:
-    rendered = _expression(value)
+    rendered = sv_expression._expression(value)
     source_width = signed_arithmetic_port_width(value.type)
     if source_width > width:
-        raise SystemVerilogEmissionError(
+        raise sv_emitter.SystemVerilogEmissionError(
             f"selected expression width {source_width} exceeds physical port width {width}"
         )
-    if isinstance(value.type, (UIntType, UFixedType)):
+    if isinstance(value.type, (ir_types.UIntType, ir_types.UFixedType)):
         widened = f"$signed({{1'b0, {rendered}}})"
     else:
         widened = f"$signed({rendered})"
@@ -202,19 +192,19 @@ def _physical_result_expression(boundary: expr.Expression, accumulator: str) -> 
     """Project a DSP accumulator through the exact typed public boundary."""
 
     if isinstance(boundary, expr.FixedConvert) and isinstance(
-        boundary.expression.type, FixedType
+        boundary.expression.type, ir_types.FixedType
     ):
-        accumulator_type = FixedType(48, boundary.expression.type.fraction)
+        accumulator_type = ir_types.FixedType(48, boundary.expression.type.fraction)
         conversion = replace(
             boundary,
             expression=expr.InputRef(accumulator, accumulator_type),
         )
-        return _expression(conversion)
-    if isinstance(boundary.type, (FixedType, SIntType)):
+        return sv_expression._expression(conversion)
+    if isinstance(boundary.type, (ir_types.FixedType, ir_types.SIntType)):
         return f"$signed({accumulator}[{boundary.type.width - 1}:0])"
-    if isinstance(boundary.type, (UFixedType, UIntType)):
+    if isinstance(boundary.type, (ir_types.UFixedType, ir_types.UIntType)):
         return f"{accumulator}[{boundary.type.width - 1}:0]"
-    raise SystemVerilogEmissionError(
+    raise sv_emitter.SystemVerilogEmissionError(
         "selected DSP graph has no exact integer/fixed result boundary"
     )
 
@@ -229,11 +219,11 @@ def _emit_signed_product_dsp48e1_graph(module, graph, _definitions, simulation_m
     two-term reduction. Complex/aggregate pipeline outputs remain excluded.
     """
     if not graph.resources or len(graph.dedicated_edges) != len(graph.resources) - 1:
-        raise SystemVerilogEmissionError(
+        raise sv_emitter.SystemVerilogEmissionError(
             "signed-product DSP cascade requires one dedicated edge between adjacent resources"
         )
     if module.clock is None or module.reset is None:
-        raise SystemVerilogEmissionError(
+        raise sv_emitter.SystemVerilogEmissionError(
             "selected signed-product cascade requires one explicit clock and reset"
         )
     physical_names = {
@@ -249,11 +239,11 @@ def _emit_signed_product_dsp48e1_graph(module, graph, _definitions, simulation_m
         )
         expected = (source, "pcout", destination, "pcin", 48)
         if actual != expected or edge.kind != "pcascade":
-            raise SystemVerilogEmissionError(
+            raise sv_emitter.SystemVerilogEmissionError(
                 "illegal signed-product dedicated edge: expected adjacent 48-bit PCOUT -> PCIN cascade"
             )
 
-    ports = _physical_port_declarations(module)
+    ports = sv_boundary._physical_port_declarations(module)
     lines: list[str] = [
         "  // Selected ordered signed-product target implementation graph.",
     ]
@@ -265,7 +255,7 @@ def _emit_signed_product_dsp48e1_graph(module, graph, _definitions, simulation_m
             "accumulator_minus_product",
             "product_minus_accumulator",
         }:
-            raise SystemVerilogEmissionError(
+            raise sv_emitter.SystemVerilogEmissionError(
                 f"signed-product resource '{node.identity}' has unsupported accumulator mode '{mode}'"
             )
         physical = physical_names[node.identity]
@@ -274,7 +264,7 @@ def _emit_signed_product_dsp48e1_graph(module, graph, _definitions, simulation_m
         p_value = _mapping(node, "p")
         d_value = _optional_mapping(node, "d")
         if a_value.type.width > 25 or b_value.type.width > 18:
-            raise SystemVerilogEmissionError(
+            raise sv_emitter.SystemVerilogEmissionError(
                 f"signed-product resource '{node.identity}' mapping exceeds DSP48E1 ports"
             )
         terminal = index == len(graph.resources) - 1
@@ -331,22 +321,22 @@ def _emit_signed_product_dsp48e1_graph(module, graph, _definitions, simulation_m
             "    .CARRYCASCIN(1'b0), .MULTSIGNIN(1'b0),",
             f"    .ALUMODE({alumode}), .CARRYIN({carryin}), .CARRYINSEL(3'b000),",
             "    .INMODE(5'b00100), .OPMODE(7'b0010101),",
-            f"    .CLK({_identifier(module.clock)}),",
+            f"    .CLK({sv_rendering._identifier(module.clock)}),",
             "    .CEA1(1'b1), .CEA2(1'b1), .CEAD(1'b1), .CEALUMODE(1'b1),",
             "    .CEB1(1'b1), .CEB2(1'b1), .CEC(1'b1), .CECARRYIN(1'b1),",
             "    .CECTRL(1'b1), .CED(1'b1), .CEINMODE(1'b1), .CEM(1'b1), .CEP(1'b1),",
-            f"    .RSTA({_identifier(module.reset)}), .RSTB({_identifier(module.reset)}),",
-            f"    .RSTC({_identifier(module.reset)}), .RSTD({_identifier(module.reset)}),",
-            f"    .RSTM({_identifier(module.reset)}), .RSTP({_identifier(module.reset)}),",
-            f"    .RSTCTRL({_identifier(module.reset)}), .RSTINMODE({_identifier(module.reset)}),",
-            f"    .RSTALUMODE({_identifier(module.reset)}), .RSTALLCARRYIN({_identifier(module.reset)}),",
+            f"    .RSTA({sv_rendering._identifier(module.reset)}), .RSTB({sv_rendering._identifier(module.reset)}),",
+            f"    .RSTC({sv_rendering._identifier(module.reset)}), .RSTD({sv_rendering._identifier(module.reset)}),",
+            f"    .RSTM({sv_rendering._identifier(module.reset)}), .RSTP({sv_rendering._identifier(module.reset)}),",
+            f"    .RSTCTRL({sv_rendering._identifier(module.reset)}), .RSTINMODE({sv_rendering._identifier(module.reset)}),",
+            f"    .RSTALUMODE({sv_rendering._identifier(module.reset)}), .RSTALLCARRYIN({sv_rendering._identifier(module.reset)}),",
             f"    .P({physical}_p), .PCOUT({physical}_pcout)",
             "  );",
         ))
 
     conversion = graph.quantization
     if conversion is None:
-        raise SystemVerilogEmissionError(
+        raise sv_emitter.SystemVerilogEmissionError(
             "selected signed-product cascade has no typed result boundary"
         )
     physical_result = _physical_result_expression(
@@ -357,7 +347,7 @@ def _emit_signed_product_dsp48e1_graph(module, graph, _definitions, simulation_m
     register_assignment = next(
         (item for item in module.next_assignments if item.expression == conversion), None
     )
-    if register_assignment is not None and isinstance(register_assignment.target, Register):
+    if register_assignment is not None and isinstance(register_assignment.target, ir_module.Register):
         final_register = _final_conversion_register(module, register_assignment.target)
         output_assignment = next(
             (item for item in module.assignments
@@ -365,23 +355,23 @@ def _emit_signed_product_dsp48e1_graph(module, graph, _definitions, simulation_m
              and item.expression.name == final_register.name), None,
         )
         if output_assignment is None or not hasattr(output_assignment.target, "name"):
-            raise SystemVerilogEmissionError(
+            raise sv_emitter.SystemVerilogEmissionError(
                 "selected signed-product cascade output register is not exposed by one module output"
             )
         lines.extend((
             "  logic signed [47:0] zlang_signed_product_acc;",
-            f"  logic signed [{final_register.type.width - 1}:0] {_identifier(final_register.name)};",
+            f"  logic signed [{final_register.type.width - 1}:0] {sv_rendering._identifier(final_register.name)};",
             f"  assign zlang_signed_product_acc = {last_physical}_p;",
-            f"  always_ff @({clock_event(module, _identifier)}) begin",
-            f"    if ({reset_asserted(module, _identifier)}) {_identifier(final_register.name)} <= {_expression(final_register.initial)};",
-            f"    else {_identifier(final_register.name)} <= {physical_result};",
+            f"  always_ff @({clock_event(module, sv_rendering._identifier)}) begin",
+            f"    if ({reset_asserted(module, sv_rendering._identifier)}) {sv_rendering._identifier(final_register.name)} <= {sv_expression._expression(final_register.initial)};",
+            f"    else {sv_rendering._identifier(final_register.name)} <= {physical_result};",
             "  end",
-            f"  assign {_identifier(output_assignment.target.name)} = {_identifier(final_register.name)};",
+            f"  assign {sv_rendering._identifier(output_assignment.target.name)} = {sv_rendering._identifier(final_register.name)};",
         ))
     else:
         output = _implementation_output(module, conversion)
         if output is None:
-            raise SystemVerilogEmissionError(
+            raise sv_emitter.SystemVerilogEmissionError(
                 "selected signed-product cascade has neither a registered boundary nor a typed implementation pipeline region"
             )
         compensation = sum(
@@ -397,8 +387,8 @@ def _emit_signed_product_dsp48e1_graph(module, graph, _definitions, simulation_m
             "  logic signed [47:0] zlang_signed_product_acc;",
             *(f"  logic signed [{conversion.type.width - 1}:0] {name};" for name in names),
             f"  assign zlang_signed_product_acc = {last_physical}_p;",
-            f"  always_ff @({clock_event(module, _identifier)}) begin",
-            f"    if ({reset_asserted(module, _identifier)}) begin",
+            f"  always_ff @({clock_event(module, sv_rendering._identifier)}) begin",
+            f"    if ({reset_asserted(module, sv_rendering._identifier)}) begin",
             *(f"      {name} <= '0;" for name in names),
             "    end else begin",
             f"      {names[0]} <= {physical_result};",
@@ -406,27 +396,27 @@ def _emit_signed_product_dsp48e1_graph(module, graph, _definitions, simulation_m
               for index in range(1, len(names))),
             "    end",
             "  end",
-            f"  assign {_identifier(output)} = {names[-1]};",
+            f"  assign {sv_rendering._identifier(output)} = {names[-1]};",
         ))
-    top = _module(module, ports, lines).rstrip()
+    top = sv_module_rendering._module(module, ports, lines).rstrip()
     model = _dsp48e1_simulation_model() + "\n" if simulation_model else ""
     return f"`default_nettype none\n{model}{top}\n`default_nettype wire\n"
 
 
 def _emit_dsp48e1_graph(module, graph, _definitions, simulation_model):
     if len(graph.resources) != 4 or len(graph.dedicated_edges) != 3:
-        raise SystemVerilogEmissionError("bounded DSP cascade emitter requires four resources and three dedicated edges")
+        raise sv_emitter.SystemVerilogEmissionError("bounded DSP cascade emitter requires four resources and three dedicated edges")
     if module.clock is None or module.reset is None:
-        raise SystemVerilogEmissionError("selected DSP cascade requires one explicit clock and reset")
+        raise sv_emitter.SystemVerilogEmissionError("selected DSP cascade requires one explicit clock and reset")
     for index, edge in enumerate(graph.dedicated_edges):
         expected = (f"dsp{index}", "pcout", f"dsp{index + 1}", "pcin", 48)
         actual = (edge.source_instance, edge.source_port, edge.destination_instance,
                   edge.destination_port, edge.width)
         if actual != expected or edge.kind != "pcascade":
-            raise SystemVerilogEmissionError(
+            raise sv_emitter.SystemVerilogEmissionError(
                 f"illegal dedicated edge '{edge.identity}': expected adjacent 48-bit PCOUT -> PCIN cascade"
             )
-    ports = _physical_port_declarations(module)
+    ports = sv_boundary._physical_port_declarations(module)
     lines: list[str] = ["  // Selected source-described target implementation graph."]
     for node in graph.resources:
         config = _configuration(node)
@@ -468,22 +458,22 @@ def _emit_dsp48e1_graph(module, graph, _definitions, simulation_model):
             "    .CARRYCASCIN(1'b0), .MULTSIGNIN(1'b0),",
             "    .ALUMODE(4'b0000), .CARRYIN(1'b0), .CARRYINSEL(3'b000),",
             "    .INMODE(5'b00100), .OPMODE(7'b0010101),",
-            f"    .CLK({_identifier(module.clock)}),",
+            f"    .CLK({sv_rendering._identifier(module.clock)}),",
             "    .CEA1(1'b1), .CEA2(1'b1), .CEAD(1'b1), .CEALUMODE(1'b1),",
             "    .CEB1(1'b1), .CEB2(1'b1), .CEC(1'b1), .CECARRYIN(1'b1),",
             "    .CECTRL(1'b1), .CED(1'b1), .CEINMODE(1'b1), .CEM(1'b1), .CEP(1'b1),",
-            f"    .RSTA({_identifier(module.reset)}), .RSTB({_identifier(module.reset)}),",
-            f"    .RSTC({_identifier(module.reset)}), .RSTD({_identifier(module.reset)}),",
-            f"    .RSTM({_identifier(module.reset)}), .RSTP({_identifier(module.reset)}),",
-            f"    .RSTCTRL({_identifier(module.reset)}), .RSTINMODE({_identifier(module.reset)}),",
-            f"    .RSTALUMODE({_identifier(module.reset)}), .RSTALLCARRYIN({_identifier(module.reset)}),",
+            f"    .RSTA({sv_rendering._identifier(module.reset)}), .RSTB({sv_rendering._identifier(module.reset)}),",
+            f"    .RSTC({sv_rendering._identifier(module.reset)}), .RSTD({sv_rendering._identifier(module.reset)}),",
+            f"    .RSTM({sv_rendering._identifier(module.reset)}), .RSTP({sv_rendering._identifier(module.reset)}),",
+            f"    .RSTCTRL({sv_rendering._identifier(module.reset)}), .RSTINMODE({sv_rendering._identifier(module.reset)}),",
+            f"    .RSTALUMODE({sv_rendering._identifier(module.reset)}), .RSTALLCARRYIN({sv_rendering._identifier(module.reset)}),",
             f"    .P({node.identity}_p), .PCOUT({node.identity}_pcout)",
             "  );",
         ))
     conversion = graph.quantization
-    if not isinstance(conversion, expr.FixedConvert) or not isinstance(conversion.expression.type, FixedType):
-        raise SystemVerilogEmissionError("selected DSP cascade has no typed final fixed-point conversion")
-    physical_accumulator_type = FixedType(48, conversion.expression.type.fraction)
+    if not isinstance(conversion, expr.FixedConvert) or not isinstance(conversion.expression.type, ir_types.FixedType):
+        raise sv_emitter.SystemVerilogEmissionError("selected DSP cascade has no typed final fixed-point conversion")
+    physical_accumulator_type = ir_types.FixedType(48, conversion.expression.type.fraction)
     physical_conversion = replace(
         conversion,
         expression=expr.InputRef("dsp_acc", physical_accumulator_type),
@@ -491,7 +481,7 @@ def _emit_dsp48e1_graph(module, graph, _definitions, simulation_model):
     register_assignment = next(
         (item for item in module.next_assignments if item.expression == conversion), None
     )
-    if register_assignment is not None and isinstance(register_assignment.target, Register):
+    if register_assignment is not None and isinstance(register_assignment.target, ir_module.Register):
         final_register = _final_conversion_register(module, register_assignment.target)
         output_assignment = next(
             (item for item in module.assignments
@@ -499,21 +489,21 @@ def _emit_dsp48e1_graph(module, graph, _definitions, simulation_model):
              and item.expression.name == final_register.name), None,
         )
         if output_assignment is None or not hasattr(output_assignment.target, "name"):
-            raise SystemVerilogEmissionError("selected DSP cascade output register is not exposed by one module output")
+            raise sv_emitter.SystemVerilogEmissionError("selected DSP cascade output register is not exposed by one module output")
         lines.extend((
             "  logic signed [47:0] dsp_acc;",
-            f"  logic signed [{final_register.type.width - 1}:0] {_identifier(final_register.name)};",
+            f"  logic signed [{final_register.type.width - 1}:0] {sv_rendering._identifier(final_register.name)};",
             "  assign dsp_acc = dsp3_p;",
-            f"  always_ff @({clock_event(module, _identifier)}) begin",
-            f"    if ({reset_asserted(module, _identifier)}) {_identifier(final_register.name)} <= {_expression(final_register.initial)};",
-            f"    else {_identifier(final_register.name)} <= {_expression(physical_conversion)};",
+            f"  always_ff @({clock_event(module, sv_rendering._identifier)}) begin",
+            f"    if ({reset_asserted(module, sv_rendering._identifier)}) {sv_rendering._identifier(final_register.name)} <= {sv_expression._expression(final_register.initial)};",
+            f"    else {sv_rendering._identifier(final_register.name)} <= {sv_expression._expression(physical_conversion)};",
             "  end",
-            f"  assign {_identifier(output_assignment.target.name)} = {_identifier(final_register.name)};",
+            f"  assign {sv_rendering._identifier(output_assignment.target.name)} = {sv_rendering._identifier(final_register.name)};",
         ))
     else:
         output = _implementation_output(module, conversion)
         if output is None:
-            raise SystemVerilogEmissionError(
+            raise sv_emitter.SystemVerilogEmissionError(
                 "selected DSP cascade has neither a registered boundary nor a typed implementation pipeline region"
             )
         compensation = sum(
@@ -527,23 +517,23 @@ def _emit_dsp48e1_graph(module, graph, _definitions, simulation_model):
             "  logic signed [47:0] dsp_acc;",
             *(f"  logic signed [{conversion.type.width - 1}:0] {name};" for name in names),
             "  assign dsp_acc = dsp3_p;",
-            f"  always_ff @({clock_event(module, _identifier)}) begin",
-            f"    if ({reset_asserted(module, _identifier)}) begin",
+            f"  always_ff @({clock_event(module, sv_rendering._identifier)}) begin",
+            f"    if ({reset_asserted(module, sv_rendering._identifier)}) begin",
             *(f"      {name} <= '0;" for name in names),
             "    end else begin",
-            f"      {names[0]} <= {_expression(physical_conversion)};",
+            f"      {names[0]} <= {sv_expression._expression(physical_conversion)};",
             *(f"      {names[index]} <= {names[index - 1]};"
               for index in range(1, len(names))),
             "    end",
             "  end",
-            f"  assign {_identifier(output)} = {names[-1]};",
+            f"  assign {sv_rendering._identifier(output)} = {names[-1]};",
         ))
-    top = _module(module, ports, lines).rstrip()
+    top = sv_module_rendering._module(module, ports, lines).rstrip()
     model = _dsp48e1_simulation_model() + "\n" if simulation_model else ""
     return f"`default_nettype none\n{model}{top}\n`default_nettype wire\n"
 
 
-def _final_conversion_register(module: Module, first: Register) -> Register:
+def _final_conversion_register(module: ir_module.Module, first: ir_module.Register) -> ir_module.Register:
     current = first
     visited = {current.name}
     while not any(
@@ -552,12 +542,12 @@ def _final_conversion_register(module: Module, first: Register) -> Register:
     ):
         followers = tuple(
             item.target for item in module.next_assignments
-            if isinstance(item.target, Register)
+            if isinstance(item.target, ir_module.Register)
             and isinstance(item.expression, expr.RegisterRef)
             and item.expression.name == current.name
         )
         if len(followers) != 1 or followers[0].name in visited:
-            raise SystemVerilogEmissionError(
+            raise sv_emitter.SystemVerilogEmissionError(
                 "selected DSP cascade has no deterministic output-delay chain"
             )
         current = followers[0]
@@ -649,7 +639,7 @@ endmodule'''
 
 
 def emit_target_artifact(
-    module: Module,
+    module: ir_module.Module,
     graph: ImplementationGraph,
     *,
     simulation_model: bool = False,
@@ -659,18 +649,18 @@ def emit_target_artifact(
         not graph.is_generic
         and graph.realization_backend != "direct_systemverilog"
     ):
-        raise SystemVerilogEmissionError(
+        raise sv_emitter.SystemVerilogEmissionError(
             "direct SystemVerilog cannot publish an implementation graph realized "
             f"by '{graph.realization_backend}'"
         )
     if graph.is_generic:
-        base = emit_generic_artifact(
+        base = sv_emitter.emit_artifact(
             module,
             selected_ir_identity=selected_ir_identity or graph.identity,
         )
     else:
         text = emit_target(module, graph, simulation_model=simulation_model)
-        base = publish_artifact(
+        base = backend_manifest.publish_artifact(
             module, text, backend="direct_systemverilog",
             selected_ir_identity=selected_ir_identity or graph.identity,
             companions=collect_rom_companions(module),
@@ -680,20 +670,20 @@ def emit_target_artifact(
     selected_cost = dict(
         (name, (value, source)) for name, value, source in graph.selected_cost
     )
-    implementation = ImplementationManifest(
+    implementation = backend_manifest.ImplementationManifest(
         graph.identity, graph.semantic_region_identity,
         graph.architecture_template_identity, graph.target_identity,
         graph.target_hash, graph.resource_definition_hashes,
-        tuple(ImplementationResourceManifest(
+        tuple(backend_manifest.ImplementationResourceManifest(
             item.identity, item.resource_definition_identity, item.operation,
             item.configuration,
             tuple((mapping.resource_port, mapping.semantic_identity)
                   for mapping in item.semantic_mappings),
-            next((mapping.expression.origin.render()
+            next((mapping.expression.origin
                   for mapping in item.semantic_mappings
                   if mapping.expression is not None and mapping.expression.origin is not None), None),
         ) for item in graph.resources),
-        tuple(ImplementationEdgeManifest(
+        tuple(backend_manifest.ImplementationEdgeManifest(
             item.identity, item.kind, item.source_instance, item.source_port,
             item.destination_instance, item.destination_port, item.width,
             item.placement_relation, item.latency, item.fabric_fallback,
@@ -754,7 +744,7 @@ def emit_target_artifact(
     return replace(
         base,
         manifest_version=max(
-            base.manifest_version, IMPLEMENTATION_MANIFEST_VERSION
+            base.manifest_version, backend_manifest.IMPLEMENTATION_MANIFEST_VERSION
         ),
         implementation=implementation,
     )

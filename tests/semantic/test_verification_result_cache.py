@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+from zlang import verification_bundle as verification_bundle_module
 from zlang.common import stable_digest
 from zlang.cli import main as compiler_main
 from zlang.ir.formal import (
@@ -28,9 +29,9 @@ from zlang.verification_cli import main as verification_main
 
 from tests.semantic.test_verification_bundle import (
     _digest,
+    _fixture,
     _inputs,
     _job,
-    _payload,
     _publish,
 )
 
@@ -61,7 +62,7 @@ def _toolchain(monkeypatch, versions=_VERSIONS) -> None:
 def test_decisive_result_cache_hit_bypasses_solver_and_strips_work_path(
     tmp_path: Path, monkeypatch,
 ) -> None:
-    routed_job = replace(
+    requested_job = replace(
         _job(),
         route="safety_verification_direct_sv",
         backend="systemverilog",
@@ -69,7 +70,8 @@ def test_decisive_result_cache_hit_bypasses_solver_and_strips_work_path(
         binding_identity=_digest("bindings"),
         selected_ir_identity=_digest("selected"),
     )
-    _publish(tmp_path / "bundle", jobs=(routed_job,))
+    manifest = _publish(tmp_path / "bundle", jobs=(requested_job,))
+    routed_job = manifest.jobs[0]
     _toolchain(monkeypatch, (*_VERSIONS, ("boolector", "Boolector old")))
     calls = 0
 
@@ -87,7 +89,7 @@ def test_decisive_result_cache_hit_bypasses_solver_and_strips_work_path(
             tool_versions=keywords["toolchain"].versions,  # type: ignore[union-attr]
         )
 
-    monkeypatch.setattr("zlang.verification_bundle.run_verilog_formal", run)
+    monkeypatch.setattr("zlang.verification_bundle_execution.run_verilog_formal", run)
     config = VerificationRunConfig(depth=9, timeout_seconds=17)
     cache = tmp_path / "cache"
     first = run_verification_bundle(
@@ -112,7 +114,7 @@ def test_decisive_result_cache_hit_bypasses_solver_and_strips_work_path(
     entries = _safety_verification_result_entries(cache)
     assert len(entries) == 1
     envelope = json.loads(entries[0].read_text())
-    assert envelope["schema"] == "zlang-verification-result-cache-v2"
+    assert envelope["schema"] == "zlang-verification-result-cache-v3"
     assert envelope["identity"]["route"] == {
         "artifact_hash": routed_job.artifact_hash,
         "backend": routed_job.backend,
@@ -122,7 +124,7 @@ def test_decisive_result_cache_hit_bypasses_solver_and_strips_work_path(
     }
 
 
-def test_legacy_flat_result_cache_entry_is_read_without_solver(
+def test_legacy_flat_result_cache_entry_is_ignored(
     tmp_path: Path, monkeypatch,
 ) -> None:
     _publish(tmp_path / "bundle")
@@ -143,25 +145,21 @@ def test_legacy_flat_result_cache_entry_is_read_without_solver(
             tool_versions=keywords["toolchain"].versions,  # type: ignore[union-attr]
         )
 
-    monkeypatch.setattr("zlang.verification_bundle.run_verilog_formal", run)
+    monkeypatch.setattr("zlang.verification_bundle_execution.run_verilog_formal", run)
     cache = tmp_path / "cache"
     run_verification_bundle(tmp_path / "bundle", cache_directory=cache)
     canonical = next(iter(_safety_verification_result_entries(cache)))
     legacy = cache / canonical.name
     canonical.replace(legacy)
 
-    def fail(*_args: object, **_keywords: object) -> FormalResult:
-        raise AssertionError("legacy cache hit reran solver")
-
-    monkeypatch.setattr("zlang.verification_bundle.run_verilog_formal", fail)
     report = run_verification_bundle(
         tmp_path / "bundle", cache_directory=cache
     )
 
-    assert calls == 1
+    assert calls == 2
     assert report.results[0].status == "bounded_pass"
     assert legacy.is_file()
-    assert not canonical.exists()
+    assert canonical.is_file()
 
 
 def test_failed_result_and_counterexample_are_reused(tmp_path: Path, monkeypatch) -> None:
@@ -186,7 +184,7 @@ def test_failed_result_and_counterexample_are_reused(tmp_path: Path, monkeypatch
             "formal counterexample reported",
         )
 
-    monkeypatch.setattr("zlang.verification_bundle.run_verilog_formal", fail)
+    monkeypatch.setattr("zlang.verification_bundle_execution.run_verilog_formal", fail)
     cache = tmp_path / "cache"
     first = run_verification_bundle(tmp_path / "bundle", cache_directory=cache)
     second = run_verification_bundle(tmp_path / "bundle", cache_directory=cache)
@@ -236,7 +234,7 @@ def test_staged_proof_reuses_bounded_and_proven_results(
             tool_versions=keywords["toolchain"].versions,  # type: ignore[union-attr]
         )
 
-    monkeypatch.setattr("zlang.verification_bundle.run_verilog_formal", run)
+    monkeypatch.setattr("zlang.verification_bundle_execution.run_verilog_formal", run)
     config = VerificationRunConfig(mode=ProofMode.PROVE, depth=6)
     cache = tmp_path / "cache"
     for _ in range(2):
@@ -271,7 +269,7 @@ def test_unknown_timeout_result_is_never_cached(tmp_path: Path, monkeypatch) -> 
             reason="formal execution timed out",
         )
 
-    monkeypatch.setattr("zlang.verification_bundle.run_verilog_formal", timeout)
+    monkeypatch.setattr("zlang.verification_bundle_execution.run_verilog_formal", timeout)
     cache = tmp_path / "cache"
     for _ in range(2):
         report = run_verification_bundle(
@@ -295,7 +293,7 @@ def test_skipped_job_is_never_cached(tmp_path: Path, monkeypatch) -> None:
     def fail(*_args: object, **_keywords: object) -> FormalResult:
         raise AssertionError("skipped job invoked the solver")
 
-    monkeypatch.setattr("zlang.verification_bundle.run_verilog_formal", fail)
+    monkeypatch.setattr("zlang.verification_bundle_execution.run_verilog_formal", fail)
     cache = tmp_path / "cache"
 
     for _ in range(2):
@@ -328,7 +326,7 @@ def test_tampered_cache_hash_is_a_miss_and_is_atomically_repaired(
             tool_versions=keywords["toolchain"].versions,  # type: ignore[union-attr]
         )
 
-    monkeypatch.setattr("zlang.verification_bundle.run_verilog_formal", run)
+    monkeypatch.setattr("zlang.verification_bundle_execution.run_verilog_formal", run)
     cache = tmp_path / "cache"
     run_verification_bundle(tmp_path / "bundle", cache_directory=cache)
     entry = next(iter(_safety_verification_result_entries(cache)))
@@ -396,12 +394,13 @@ def test_vacuous_unknown_is_not_cached_but_decisive_cover_is(
     safety_id = "user.count_within"
     cover_id = "scope.requirements_feasible"
     hardware = "hardware:" + _digest("counter-hardware")
-    jobs = (_job(safety_id), _job(cover_id, kind="cover"))
-    payload = _payload(
+    fixture = _fixture(
         hardware,
-        {safety_id: "safety", cover_id: "cover"},
+        (_job(safety_id), _job(cover_id, kind="cover")),
         vacuity_dependencies={safety_id: cover_id},
     )
+    payload = fixture.payload
+    jobs = fixture.jobs
     publish_verification_bundle(
         tmp_path / "bundle",
         top="Counter",
@@ -442,8 +441,8 @@ def test_vacuous_unknown_is_not_cached_but_decisive_cover_is(
             reason="cover was not reached",
         )
 
-    monkeypatch.setattr("zlang.verification_bundle.run_verilog_formal", safety)
-    monkeypatch.setattr("zlang.verification_bundle.run_verilog_cover", cover)
+    monkeypatch.setattr("zlang.verification_bundle_execution.run_verilog_formal", safety)
+    monkeypatch.setattr("zlang.verification_bundle_execution.run_verilog_cover", cover)
     cache = tmp_path / "cache"
     for _ in range(2):
         report = run_verification_bundle(
@@ -471,7 +470,11 @@ def test_standalone_cli_forwards_cache_directory(tmp_path: Path, monkeypatch, ca
             exit_code=0,
         )
 
-    monkeypatch.setattr("zlang.verification_cli.run_verification_bundle_staged", run)
+    monkeypatch.setattr(
+        verification_bundle_module,
+        "run_verification_bundle_staged",
+        run,
+    )
     cache = tmp_path / "cache"
     assert verification_main([
         str(tmp_path / "bundle"), "--cache", str(cache), "--format", "json",
@@ -504,7 +507,10 @@ module VerificationCacheCli {
             exit_code=0,
         )
 
-    monkeypatch.setattr("zlang.cli.run_verification_bundle_staged", run)
+    monkeypatch.setattr(
+        "zlang.cli_verification.bundle_api.run_verification_bundle_staged",
+        run,
+    )
     cache = tmp_path / "formal-cache"
     assert compiler_main((
         str(source),

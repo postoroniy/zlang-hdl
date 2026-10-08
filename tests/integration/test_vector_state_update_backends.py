@@ -132,6 +132,18 @@ int main(int argc, char **argv) {
 '''
 
 
+WIDE_VECTOR_SOURCE = """
+module WideVectorStateRTL {
+  clock clk reset rst
+  in write_en:bit in index:u8 in value:u8
+  out contents:vec<256,u8>
+  reg buffer:vec<256,u8>=repeat(0)
+  when write_en { buffer[index] <- value }
+  contents=buffer
+}
+"""
+
+
 def _simulate(
     files: tuple[Path, ...],
     tmp_path: Path,
@@ -166,15 +178,12 @@ def _simulate(
         text=True,
     )
     assert run.returncode == 0, run.stderr or run.stdout
-
-
-
-
 @pytest.mark.skipif(shutil.which("verilator") is None, reason="Verilator unavailable")
 def test_direct_sv_vector_update_strict_lint_and_cycle_behavior(tmp_path: Path) -> None:
     artifact = emit_sv_artifact(compile_source(SOURCE).ir)
-    assert "32'hff <<" in artifact.text
-    assert artifact.text.count("32'hff <<") == 1
+    assert "logic [31:0] samples;" in artifact.text
+    assert "if (fire) samples[(32'(index) << 3) +: 8] <= value;" in artifact.text
+    assert "32'hff <<" not in artifact.text
     assert "else samples <= samples;" in artifact.text
     rtl = tmp_path / "VectorStateRTL.sv"
     rtl.write_text(artifact.text)
@@ -182,10 +191,57 @@ def test_direct_sv_vector_update_strict_lint_and_cycle_behavior(tmp_path: Path) 
     _simulate((rtl,), tmp_path, "sv")
 
 
+def test_direct_sv_wide_vector_update_is_one_exact_element_write(
+    tmp_path: Path,
+) -> None:
+    artifact = emit_sv_artifact(compile_source(WIDE_VECTOR_SOURCE).ir)
 
+    assert "logic [2047:0] buffer;" in artifact.text
+    assert (
+        "if (write_en) buffer[(32'(index) << 3) +: 8] <= value;"
+        in artifact.text
+    )
+    assert "assign contents = buffer;" in artifact.text
+    assert "zlang_packed_contents" not in artifact.text
+    assert "2048'h" not in artifact.text
+    assert "2048'($unsigned(buffer))" not in artifact.text
 
-
-
+    rtl = tmp_path / "WideVectorStateRTL.sv"
+    rtl.write_text(artifact.text)
+    if shutil.which("verilator") is not None:
+        lint_with_verilator((rtl,), "WideVectorStateRTL")
+    if shutil.which("iverilog") is not None:
+        completed = subprocess.run(
+            (
+                "iverilog",
+                "-g2012",
+                "-s",
+                "WideVectorStateRTL",
+                "-o",
+                str(tmp_path / "wide_vector.vvp"),
+                str(rtl),
+            ),
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert completed.returncode == 0, completed.stdout + completed.stderr
+    if shutil.which("yosys") is not None:
+        completed = subprocess.run(
+            (
+                "yosys",
+                "-q",
+                "-p",
+                f"read_verilog -sv {rtl}; hierarchy -check "
+                "-top WideVectorStateRTL; proc; opt; check",
+            ),
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert completed.returncode == 0, completed.stdout + completed.stderr
 @pytest.mark.skipif(shutil.which("verilator") is None, reason="Verilator unavailable")
 def test_direct_sv_struct_projected_vector_update_cycle_behavior(
     tmp_path: Path,

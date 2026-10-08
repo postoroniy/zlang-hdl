@@ -1,6 +1,6 @@
 import pytest
 
-from zlang.ast import FixedRoundingMode, QuantizeExpr, RationalExpr
+from zlang.ast.nodes import FixedRoundingMode, QuantizeExpr, RationalExpr
 from zlang.parser import ParseError, parse
 
 

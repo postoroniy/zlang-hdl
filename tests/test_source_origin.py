@@ -15,7 +15,7 @@ from zlang.ir.equivalence import (
     EquivalenceBinding,
     SignalRole,
 )
-from zlang.ir import Call
+from zlang.ir.expressions import Call
 from zlang.source import SourceOrigin, SourceSpan
 from zlang.compiler import compile_source
 from zlang.backend.systemverilog import emit_artifact as emit_systemverilog_artifact
@@ -61,9 +61,8 @@ def test_source_origin_structured_data_is_deterministic_and_lossless() -> None:
 
     assert origin.to_data() == expected
     assert SourceOrigin.from_data(expected) == origin
-    assert SourceOrigin.from_data(origin.render()) == SourceOrigin(
-        origin.span, origin.construct
-    )
+    with pytest.raises(ValueError, match="object"):
+        SourceOrigin.from_data(origin.render())
     assert json.dumps(origin.to_data(), sort_keys=True) == json.dumps(
         SourceOrigin.from_data(origin.to_data()).to_data(), sort_keys=True
     )

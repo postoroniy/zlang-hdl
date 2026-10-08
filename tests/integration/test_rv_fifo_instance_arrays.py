@@ -11,7 +11,7 @@ import pytest
 from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
 from zlang.compiler import compile_source
 from zlang.ir.hierarchy import build_hierarchy_index
-from zlang.opt import lower, restore
+from zlang.opt.lowering import lower, restore
 from zlang.opt.lowering import CanonicalizationError
 from zlang.semantic import SemanticError
 from zlang.native_simulation import simulate_cycles

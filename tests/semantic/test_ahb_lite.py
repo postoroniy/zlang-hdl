@@ -6,7 +6,8 @@ from zlang.backend.manifest import BackendArtifact
 from zlang.backend.systemverilog import emit_artifact
 from zlang.compiler import compile_source
 from zlang.ir.cdc import ResetMode, ResetPolarity, ResetReleaseMode
-from zlang.opt import OptimizationStage, lower, restore
+from zlang.opt.ir import OptimizationStage
+from zlang.opt.lowering import lower, restore
 from zlang.semantic import SemanticError
 
 

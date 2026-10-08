@@ -52,6 +52,15 @@ Scalar `pipeline(auto)`, `architecture(auto)`, and `explore` are retired.
 Protocol `transform pipeline(auto, ...)` remains a distinct globally stalled
 ready/valid construct.
 
+One deliberately narrow temporal candidate exists inside that ready/valid
+boundary: exact integer `a*b + c*d`, one shared multiplier, non-interleaved,
+capacity one, latency four, II four, with same-edge output retirement and next
+input capture. II is derived from accepted transfers, not a required `ready`
+waveform. It is unavailable to scalar/fixed-rate `implement`; overlapping
+transactions, modulo scheduling, arbitrary DAGs, memory/CDC sharing and
+required-formal selection remain unsupported. Its transaction miter provides
+bounded evidence only, never an unbounded proof.
+
 Target-aware scheduling may bind legal operations to current resource models
 (including the bounded Xilinx 7-Series DSP48E1 path) and leave the rest in
 fabric. Do not embed vendor names in egglog or generic typed value IR. Preserve
@@ -61,8 +70,8 @@ semantics, latency, II, shared DAG nodes, and reconvergent alignment.
 ## Formal model
 
 - safety verification/source goals cover existing bindable safety properties and bounded cover.
-- semantic-reference equivalence compares a selected implementation against the compiler-owned semantic
-  reference with exact timing windows where supported.
+- semantic-reference equivalence compares a selected implementation against
+  typed source semantics with exact timing windows where supported.
 - formal-aware selection gates candidate selection according to its explicit policy.
 - retired cross-backend equivalence/Clash cross-backend execution is retired. Historical retired cross-backend equivalence records are not
   current evidence and must never gate selection.
@@ -77,7 +86,7 @@ semantic-reference equivalence controls.
   --verification-report build/verify.json --verification-format json
 .venv/bin/zlang design.zhl --top Top \
   --verification-bundle build/verify
-.venv/bin/zlang-verify build/verify --mode bmc --depth 20 \
+.venv/bin/zlang verify build/verify --mode bmc --depth 20 \
   --report build/replay.json
 ```
 
@@ -94,6 +103,6 @@ Never relabel BMC, representation invariants, compiler structural validation,
 estimated Fmax, or synthesis success as stronger evidence. Verification does not
 legalize unsafe hardware or feed range inference.
 
-Read `docs/optimization-formal.md`,
-`docs/egraph-optimization-infrastructure.md`, and the relevant
-`examples/verification/` witness before changing these paths.
+Read the implementation-intent, optimization, target, and formal chapters in
+`docs/language-reference.md`, plus the relevant `examples/verification/`
+witness, before changing these paths.

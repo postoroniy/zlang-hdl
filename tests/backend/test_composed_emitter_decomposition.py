@@ -23,24 +23,29 @@ VERILATOR = shutil.which("verilator")
 # normalization, connection-owned request/response admission/accounting, and
 # inline selected-top boundary, hierarchy-local naming schema v2, and exact
 # selected-value normalization schema v3, functional-region emission schema
-# v3, Direct-SV DAG schema v1, backend typed-constant-folding schema v1, and
-# hierarchy-local naming schema v3. The constant folder preserves typed values
-# while compacting exact extended constants, so both the affected RTL text and
-# its manifest are intentionally captured below. The AXI/CSR case retains shared nodes
+# v3, Direct-SV DAG schema v2, and hierarchy-local naming schema v3.  The
+# AXI/CSR case now retains shared nodes
 # once while inlining single-use nodes; the other RTL bodies remain unchanged.
 # They cover ready/valid hierarchy (including legal full-buffer simultaneous
 # pop/push and reset-suppressed public handshakes), unbuffered
 # request/response, directional request/response FIFOs with a stateful
 # mixed-port child, and source-authored aggregate bus/CSR hierarchy.
+# Manifest hashes use current structured origins, the always-leaf top ABI, and
+# canonical selected-value normalization identities.  Protocol/AXI RTL remains
+# byte-identical to the pre-recovery baseline.  SimpleDMA's old expected RTL
+# hash was already stale on that baseline; the value below is the identical
+# baseline/current artifact.  The request/response artifact additionally
+# records the repaired one-field aggregate fold that the baseline could not
+# emit.
 EXPECTED_ARTIFACTS = {
     ("hierarchical_protocol.zhl", "ProtocolTop"): (
         "67ebdf5d5e204ace5eddf737c6cf5c6804ea3503d87f5353e15b7c7b1b89e238",
-        "fbb48db257c5166cd818fe7371f454fff7e571defcb89c0929e332dd742b8530",
+        "e93c47ef792518c9a99bc55f82a3de3cdcb040869c6316eb48deedb91c6dee62",
         19,
     ),
     ("hierarchical_request_response.zhl", "HierarchicalRequestResponse"): (
         "48254a7a2da27640922978654b1dde628e4e5251ed7288e0d18b6fd713a7e4ec",
-        "944662f8a5814abae9a40d43d2c4a7e750895144a8dc8d1a6430bfc365755422",
+        "bc5a746a034bfc87aad6251e7b6fe239d4ab9ebd840147580b0e2f75acda49df",
         27,
     ),
     ("simple_dma.zhl", "SimpleDMA"): (
@@ -48,12 +53,12 @@ EXPECTED_ARTIFACTS = {
         # rule and therefore use the explicitly distinct helper family after
         # ordinary ready/valid FIFOs gained full pop/push replacement.
         "73cb85917c83bf1f396135e2a396467b027a2f812bdfb3518c101f4b5c8341d2",
-        "68e20b0228e75cc57cef5c235e1bf1d23835562e97bf2255869a1aa3dd8cb936",
+        "2c80c38cbdace521e31f1c55d3265f07e1e6ca6f6dc3e594361d729ff6d7d9c2",
         29,
     ),
     ("axi_csr_top.zhl", "AxiCsrTop"): (
         "ce6becd67a964adb44c5c0f965d2262893215d72a1c3db51474bfd25728bd3f9",
-        "2274e9a1fb96c50e9cbf040b899f77ab79fa48c2514ed5fae39d3acf378f83c9",
+        "842b78e48c6f9bd0fd269a57c0c9a6ad87e47fd47f9da929d8945a8503ae986a",
         77,
     ),
 }

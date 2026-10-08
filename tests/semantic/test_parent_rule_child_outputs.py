@@ -4,7 +4,7 @@ import pytest
 
 from zlang.ir import expressions as expr
 from zlang.ir.state import StateActionKind
-from zlang.opt import lower, restore
+from zlang.opt.lowering import lower, restore
 from zlang.parser import parse
 from zlang.semantic import SemanticError, analyze
 from zlang.native_simulation import simulate_cycles

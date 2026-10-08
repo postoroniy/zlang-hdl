@@ -17,11 +17,13 @@ from zlang.target_planner import (
     TargetPlanningResult,
     plan_target_pipeline,
 )
-from zlang.targets import (
+from zlang.target_catalog import (
     ArchitectureSelectionMode,
     TargetArchitectureError,
-    generic_implementation_graph,
     load_target,
+)
+from zlang.target_mapping_selection import (
+    generic_implementation_graph,
     select_implementation_graph,
 )
 
@@ -185,7 +187,7 @@ def plan_backend_implementations(
     ):
         physical_intent = True
         elastic_physical_error = (
-            "elastic pipeline(auto) physical mapping requires every selected "
+            "transform pipeline(auto) physical mapping requires every selected "
             "resource site to advertise one compatible clock-enable/stall input; "
             "the current target resource schema provides no such capability"
         )

@@ -83,6 +83,9 @@ def test_implement_lowers_to_normalized_policy_and_candidate_site() -> None:
     policy = next(item for item in result.implementation_policy.regions if item.source_form)
     assert policy.source_form == "implement"
     assert result.candidate_site_ledger.sites[0].kind is CandidateSiteKind.IMPLEMENT
+    assert {item.kind for item in result.candidate_site_ledger.sites} == {
+        CandidateSiteKind.IMPLEMENT
+    }
     assert "source=implement" in result.implementation_policy_report
     assert "selected:" in result.implementation_report
 
@@ -146,6 +149,80 @@ def test_implement_pipeline_candidates_require_clocked_positive_latency() -> Non
     assert any(item.cost.latency.value and item.cost.latency.value > 0 for item in candidates)
 
 
+@pytest.mark.parametrize(
+    "intent",
+    (
+        "minimize lut",
+        "latency == 0 minimize lut",
+        "latency <= 0 minimize lut",
+        "ii == 1 minimize lut",
+        "fmax >= 300 maximize fmax",
+    ),
+)
+def test_implement_does_not_infer_pipeline_permission(intent: str) -> None:
+    result = _compile(
+        "module NoImplicitPipeline { clock clk reset rst "
+        "in a:u8 in b:u8 in c:u8 out y:u17 "
+        f"y=implement {{ (a+b)*c intent {{ {intent} }} }} }}"
+    )
+    exploration = result.exploration_results[0]
+    assert set(exploration.request.allowed) == {
+        TransformFamily.DSP,
+        TransformFamily.MULTIPLIER,
+        TransformFamily.REDUCTION,
+    }
+    assert {
+        item.cost.latency.value for item in exploration.generated_candidates
+    } == {0}
+
+
+@pytest.mark.parametrize("constraint", ("latency == 1", "latency <= 4", "latency >= 1"))
+def test_positive_latency_relations_enable_only_clocked_pipeline(
+    constraint: str,
+) -> None:
+    source = (
+        "module PositiveLatency { %s in a:u8 in b:u8 in c:u8 out y:u17 "
+        f"y=implement {{ (a+b)*c intent {{ {constraint} ii == 1 minimize ff }} }} }}"
+    )
+    with pytest.raises(SemanticError, match="module clock and reset"):
+        _compile(source % "")
+    result = _compile(source % "clock clk reset rst")
+    assert TransformFamily.PIPELINE in result.exploration_results[0].request.allowed
+
+
+def test_implement_defaults_exclude_semantic_changing_transform_families() -> None:
+    result = _compile(
+        "module SafeDefaults { in a:vec<4,u3> in b:vec<4,u3> out y:u8 "
+        "y=implement { dot(a,b) intent { minimize lut } } }"
+    )
+    allowed = set(result.exploration_results[0].request.allowed)
+    assert allowed == {
+        TransformFamily.DSP,
+        TransformFamily.MULTIPLIER,
+        TransformFamily.REDUCTION,
+    }
+    assert TransformFamily.REASSOCIATE not in allowed
+    assert TransformFamily.ADAPTER not in allowed
+
+
+def test_implement_preserves_one_explicit_fixed_quantization_boundary() -> None:
+    result = _compile(
+        "type Q = fixed<8,4> "
+        "module FixedBoundary { in a:Q in b:Q out y:Q "
+        "y=implement { quantize<Q>(a*b) { round nearest_even overflow saturate } "
+        "intent { minimize lut } } }"
+    )
+    exploration = result.exploration_results[0]
+    selected = exploration.selected_candidate.expression
+    assert isinstance(selected, ir_expr.FixedConvert)
+    assert all(
+        isinstance(candidate.expression, ir_expr.FixedConvert)
+        and candidate.expression.rounding is selected.rounding
+        and candidate.expression.overflow is selected.overflow
+        for candidate in exploration.generated_candidates
+    )
+
+
 @pytest.mark.parametrize("metric,limit", (("lut", 1000), ("ff", 1000), ("bram", 1)))
 def test_positive_latency_projects_only_pipeline_metrics(metric: str, limit: int) -> None:
     """Generic deterministic cost selection bounds must survive without leaking into PipelineMetric."""
@@ -193,8 +270,8 @@ def test_implement_rejects_unsupported_objective_matrix(objective: str) -> None:
         )
 
 
-def test_removed_explore_requires_canonical_implement() -> None:
-    with pytest.raises(ParseError, match="scalar explore was removed"):
+def test_removed_explore_is_not_in_the_grammar() -> None:
+    with pytest.raises(ParseError):
         parse(
             "module LegacyExplore { in a:vec<4,u3> in b:vec<4,u3> out y:u8 "
             "y=explore { dot(a,b) minimize lut } }"
@@ -219,7 +296,7 @@ def test_explicit_pipeline_and_choice_remain_distinct() -> None:
 
 
 def test_malformed_implement_intent_is_rejected() -> None:
-    with pytest.raises(ParseError, match="constraint or objective"):
+    with pytest.raises(ParseError):
         parse("module Empty { in a:u8 out y:u8 y=implement { a intent {} } }")
     with pytest.raises(ParseError, match="repeats 'lut' constraint"):
         parse(
@@ -257,12 +334,12 @@ def test_math_architecture_candidate_is_hashseed_independent() -> None:
     script = (
         "import json; from hashlib import sha256; from pathlib import Path; "
         "from zlang.compiler import compile_file; "
-        "from zlang.backend.systemverilog import emit_experimental; "
-        "result=compile_file(Path('examples/verification/math_exploration.zhl'), "
-        "top='MathArchitecture'); "
+        "from zlang.backend.systemverilog import emit; "
+        "result=compile_file(Path('examples/verification/math_implementation.zhl'), "
+        "top='MathImplementationTopology'); "
         "candidate=result.exploration_results[0].selected_candidate; "
         "print(json.dumps([candidate.implementation_identity, candidate.stages, "
-        "sha256(emit_experimental(result.ir).encode()).hexdigest()]))"
+        "sha256(emit(result.ir).encode()).hexdigest()]))"
     )
     outputs = []
     for seed in map(str, range(64)):

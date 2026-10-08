@@ -23,6 +23,7 @@ from zlang.ir.equivalence import BindingMap, BindingSide, EquivalenceBinding, Si
 from zlang.ir.formal_observations import request_response_observation_id
 from zlang.ir.physical_types import physical_width
 from zlang.ir.packing import PACKING_LAYOUT_SCHEMA
+from zlang.ir.top_abi import build_top_physical_abi
 from zlang.ir.normalization import NORMALIZATION_SCHEMA
 from zlang.backend.expression_materialization import (
     DIRECT_SV_DAG_SCHEMA,
@@ -105,7 +106,7 @@ class PhysicalDomainManifest:
     reset_release_mode: str
     reset_release_cycles: int
     power_up: str
-    source_origin: SourceOrigin | str | None = None
+    source_origin: SourceOrigin | None = None
 
     @property
     def contract_data(self) -> dict[str, object]:
@@ -382,7 +383,7 @@ class InstanceManifest:
     specialization_identity: str
     clock_domain: str | None
     reset_domain: str | None
-    source_origin: SourceOrigin | str | None
+    source_origin: SourceOrigin | None
     component_identity: str
     children: tuple[str, ...] = ()
     physical_domain_identity: str | None = None
@@ -403,7 +404,7 @@ class RecursiveBindingManifest:
     clock_domain: str | None
     reset_domain: str | None
     ownership: str | None
-    source_origin: SourceOrigin | str | None
+    source_origin: SourceOrigin | None
     aggregate_endpoint_id: str | None
     member_path: tuple[str, ...]
     leaf_semantic_id: str | None
@@ -436,7 +437,7 @@ class ImplementationResourceManifest:
     operation: str
     configuration: tuple[tuple[str, int | str], ...]
     semantic_mappings: tuple[tuple[str, str], ...]
-    source_origin: SourceOrigin | str | None = None
+    source_origin: SourceOrigin | None = None
 
 
 @dataclass(frozen=True)
@@ -1016,6 +1017,127 @@ class BackendArtifact:
         validate_artifact_links(artifact)
         return artifact
 
+def _physical_top_bindings(
+    module: Module,
+    bindings: list[EquivalenceBinding],
+    *,
+    names: dict[str, str],
+    artifact_version: int,
+    side: BindingSide,
+    selected_ir_identity: str,
+    backend: str,
+    digest: str,
+    text: str,
+    validated_physical_paths: frozenset[str],
+) -> list[EquivalenceBinding]:
+    """Bind and validate every public physical ABI leaf exactly once."""
+
+    physical_leaves = tuple(module.top_physical_abi.leaves)
+    leaves_by_semantic = {
+        leaf.leaf_semantic_id: leaf for leaf in physical_leaves
+    }
+    leaves_by_root: dict[str, list[object]] = {}
+    for leaf in physical_leaves:
+        leaves_by_root.setdefault(leaf.packed_root_semantic_id, []).append(leaf)
+    split_roots = {
+        root
+        for root, root_leaves in leaves_by_root.items()
+        if not (
+            len(root_leaves) == 1
+            and root_leaves[0].leaf_semantic_id == root
+            and root_leaves[0].external_name
+            == root_leaves[0].packed_root_external_name
+        )
+    }
+    rebound: list[EquivalenceBinding] = []
+    rebound_ids: set[str] = set()
+    for binding in bindings:
+        leaf = leaves_by_semantic.get(binding.semantic_signal_id)
+        if leaf is not None:
+            binding = replace(
+                binding,
+                map_version=artifact_version,
+                rtl_module=module.name,
+                rtl_path=names.get(leaf.leaf_semantic_id, leaf.external_name),
+                width=leaf.width,
+                signedness=leaf.signedness,
+                role=(
+                    SignalRole.INPUT
+                    if leaf.direction is PortDirection.INPUT
+                    else SignalRole.OUTPUT
+                ) if leaf.signal_kind not in {"clock", "reset"} else (
+                    SignalRole.CLOCK
+                    if leaf.signal_kind == "clock" else SignalRole.RESET
+                ),
+                clock_domain=leaf.clock_domain,
+                reset_domain=leaf.reset_domain,
+                source_origin=leaf.source_origin or binding.source_origin,
+                aggregate_endpoint_id=(
+                    leaf.aggregate_id if leaf.category == "aggregate" else None
+                ),
+                protocol_specialization_id=leaf.protocol_specialization_id,
+                protocol_role=leaf.role,
+                member_path=leaf.member_path,
+                ownership=leaf.ownership,
+                signal_kind=leaf.signal_kind,
+                physical_available=True,
+                canonical_type=_canonical_type(leaf.canonical_type),
+            )
+        elif binding.semantic_signal_id in split_roots:
+            binding = replace(binding, rtl_path="", physical_available=False)
+        rebound.append(binding)
+        rebound_ids.add(binding.semantic_signal_id)
+    for leaf in physical_leaves:
+        if leaf.leaf_semantic_id in rebound_ids:
+            continue
+        rebound.append(EquivalenceBinding(
+            artifact_version,
+            side,
+            leaf.leaf_semantic_id,
+            selected_ir_identity,
+            module.name,
+            names.get(leaf.leaf_semantic_id, leaf.external_name),
+            leaf.width,
+            leaf.signedness,
+            (
+                SignalRole.CLOCK if leaf.signal_kind == "clock" else
+                SignalRole.RESET if leaf.signal_kind == "reset" else
+                SignalRole.INPUT if leaf.direction is PortDirection.INPUT else
+                SignalRole.OUTPUT
+            ),
+            leaf.clock_domain,
+            leaf.reset_domain,
+            backend,
+            digest,
+            leaf.source_origin,
+            leaf.aggregate_id if leaf.category == "aggregate" else None,
+            leaf.protocol_specialization_id,
+            leaf.role,
+            leaf.member_path,
+            leaf.ownership,
+            leaf.signal_kind,
+            True,
+            _canonical_type(leaf.canonical_type),
+        ))
+
+    validated: list[EquivalenceBinding] = []
+    for binding in rebound:
+        token = binding.rtl_path.rsplit(".", 1)[-1] if binding.rtl_path else ""
+        available = bool(token) and (
+            binding.rtl_path in validated_physical_paths
+            or re.search(
+                rf"(?<![A-Za-z0-9_$]){re.escape(token)}(?![A-Za-z0-9_$])",
+                text,
+            )
+        )
+        validated.append(replace(
+            binding,
+            physical_available=binding.physical_available and bool(available),
+            rtl_path=binding.rtl_path if available else "",
+        ))
+    return validated
+
+
 def publish_artifact(module: Module, text: str, *, backend: str,
                      selected_ir_identity: str | None = None,
                      rtl_names: dict[str, str] | None = None,
@@ -1028,7 +1150,7 @@ def publish_artifact(module: Module, text: str, *, backend: str,
         selected_ir_identity or default_selected_ir_identity(module)
     )
     names = dict(rtl_names or {})
-    top_abi = module.top_aggregate_abi
+    top_abi = build_top_physical_abi(module)
     # Packing-layout-v2 artifacts are current physical contracts.  Once an
     # artifact is clocked, even the historical single-domain shorthand must
     # publish the exact domain rather than relying on an implicit legacy
@@ -1060,77 +1182,22 @@ def publish_artifact(module: Module, text: str, *, backend: str,
                if getattr(a.expression, "origin", None) is not None}
     bindings: list[EquivalenceBinding] = []
     for port in module.ports:
-        if top_abi.leaves and "__" in port.name:
+        if "__" in port.name or port.protocol is InterfaceProtocol.WIRE:
             continue
         semantic = f"port:{port.name}"
-        forward_role = (
-            SignalRole.INPUT
-            if port.direction is PortDirection.INPUT
-            else SignalRole.OUTPUT
-        )
-        reverse_role = (
-            SignalRole.OUTPUT
-            if forward_role is SignalRole.INPUT
-            else SignalRole.INPUT
-        )
         port_clock = port.domain or module.clock
         bindings.append(EquivalenceBinding(
             artifact_version, side, semantic, selected_ir_identity, module.name,
             names.get(semantic, port.name), _width(port.type), signedness(port.type),
-            forward_role,
+            (
+                SignalRole.INPUT
+                if port.direction is PortDirection.INPUT
+                else SignalRole.OUTPUT
+            ),
             port_clock, reset_for_clock(module, port_clock), backend, digest,
             origins.get(port.name),
-            physical_available=port.protocol is InterfaceProtocol.WIRE,
+            physical_available=False,
             canonical_type=_canonical_type(port.type)))
-        fields: tuple[tuple[str, int, str, SignalRole], ...] = ()
-        if port.protocol is InterfaceProtocol.READY_VALID:
-            fields = (
-                ("payload", _width(port.type), signedness(port.type), forward_role),
-                ("valid", 1, "bit", forward_role),
-                ("ready", 1, "bit", reverse_role),
-            )
-        elif port.protocol is InterfaceProtocol.CREDIT:
-            fields = (
-                ("payload", _width(port.type), signedness(port.type), forward_role),
-                ("send", 1, "bit", forward_role),
-                ("return", 1, "bit", reverse_role),
-            )
-        elif port.protocol is InterfaceProtocol.VC_CREDIT:
-            vc_width = max(1, ((port.virtual_channels or 1) - 1).bit_length())
-            fields = (
-                ("payload", _width(port.type), signedness(port.type), forward_role),
-                ("vc", vc_width, "unsigned", forward_role),
-                ("send", 1, "bit", forward_role),
-                ("return", 1, "bit", reverse_role),
-                ("return_vc", vc_width, "unsigned", reverse_role),
-            )
-        elif port.protocol is InterfaceProtocol.PACKET:
-            fields = (
-                ("payload", _width(port.type), signedness(port.type), forward_role),
-                ("valid", 1, "bit", forward_role),
-                ("last", 1, "bit", forward_role),
-                ("ready", 1, "bit", reverse_role),
-            )
-        for field, width, field_signedness, field_role in fields:
-            field_id = f"{semantic}.{field}"
-            bindings.append(EquivalenceBinding(
-                artifact_version, side, field_id, selected_ir_identity,
-                module.name, names.get(field_id, f"{port.name}_{field}"),
-                width, field_signedness, field_role,
-                port_clock, reset_for_clock(module, port_clock), backend, digest,
-                origins.get(port.name), canonical_type=(
-                    _canonical_type(port.type) if field == "payload" else
-                    f"uint<{width}>" if width > 1 else "bit"
-                ),
-            ))
-    if module.clock:
-        bindings.append(EquivalenceBinding(artifact_version, side, "clock", selected_ir_identity,
-            module.name, names.get("clock", module.clock), 1, "bit", SignalRole.CLOCK,
-            module.clock, module.reset, backend, digest))
-    if module.reset:
-        bindings.append(EquivalenceBinding(artifact_version, side, "reset", selected_ir_identity,
-            module.name, names.get("reset", module.reset), 1, "bit", SignalRole.RESET,
-            module.clock, module.reset, backend, digest))
     for endpoint in module.protocol_endpoints:
         channel_suffix = f".{endpoint.channel.value}" if endpoint.channel is not None else ""
         physical_suffix = f"_{endpoint.channel.value}" if endpoint.channel is not None else ""
@@ -1188,18 +1255,6 @@ def publish_artifact(module: Module, text: str, *, backend: str,
                 protocol_role=aggregate.role,
                 signal_kind="aggregate",
                 physical_available=False,
-            ))
-        for leaf in top_abi.leaves:
-            bindings.append(EquivalenceBinding(
-                artifact_version, side, leaf.leaf_semantic_id,
-                selected_ir_identity, module.name,
-                names.get(leaf.leaf_semantic_id, leaf.external_name),
-                leaf.width, leaf.signedness,
-                SignalRole.INPUT if leaf.direction is PortDirection.INPUT else SignalRole.OUTPUT,
-                leaf.clock_domain, leaf.reset_domain, backend, digest, leaf.source_origin,
-                leaf.aggregate_id, leaf.protocol_specialization_id, leaf.role,
-                leaf.member_path, leaf.ownership, leaf.signal_kind,
-                canonical_type=_canonical_type(leaf.canonical_type),
             ))
     else:
         for aggregate in module.aggregate_protocol_endpoints:
@@ -1291,120 +1346,18 @@ def publish_artifact(module: Module, text: str, *, backend: str,
             module.name, rtl, 1, "bit", SignalRole.OUTPUT, module.clock, module.reset,
             backend, digest))
 
-    # The public physical ABI is the shared truth for both backends.  Private
-    # component roots may remain packed, but a split public root is not a real
-    # top-level signal and must never be advertised as one.  Conversely every
-    # typed leaf names the actual public RTL port, including user structs and
-    # multidimensional packed vector arrays.
-    physical_leaves = tuple(module.top_physical_abi.leaves)
-    leaves_by_semantic = {
-        leaf.leaf_semantic_id: leaf for leaf in physical_leaves
-    }
-    leaves_by_root: dict[str, list[object]] = {}
-    for leaf in physical_leaves:
-        leaves_by_root.setdefault(leaf.packed_root_semantic_id, []).append(leaf)
-    split_roots = {
-        root
-        for root, root_leaves in leaves_by_root.items()
-        if not (
-            len(root_leaves) == 1
-            and root_leaves[0].leaf_semantic_id == root
-            and root_leaves[0].external_name
-            == root_leaves[0].packed_root_external_name
-        )
-    }
-    rebound: list[EquivalenceBinding] = []
-    rebound_ids: set[str] = set()
-    for binding in bindings:
-        leaf = leaves_by_semantic.get(binding.semantic_signal_id)
-        if leaf is not None:
-            binding = replace(
-                binding,
-                map_version=artifact_version,
-                rtl_module=module.name,
-                rtl_path=names.get(leaf.leaf_semantic_id, leaf.external_name),
-                width=leaf.width,
-                signedness=leaf.signedness,
-                role=(
-                    SignalRole.INPUT
-                    if leaf.direction is PortDirection.INPUT
-                    else SignalRole.OUTPUT
-                ) if leaf.signal_kind not in {"clock", "reset"} else (
-                    SignalRole.CLOCK
-                    if leaf.signal_kind == "clock" else SignalRole.RESET
-                ),
-                clock_domain=leaf.clock_domain,
-                reset_domain=leaf.reset_domain,
-                source_origin=leaf.source_origin or binding.source_origin,
-                aggregate_endpoint_id=(
-                    leaf.aggregate_id if leaf.category == "aggregate" else None
-                ),
-                protocol_specialization_id=leaf.protocol_specialization_id,
-                protocol_role=leaf.role,
-                member_path=leaf.member_path,
-                ownership=leaf.ownership,
-                signal_kind=leaf.signal_kind,
-                physical_available=True,
-                canonical_type=_canonical_type(leaf.canonical_type),
-            )
-        elif binding.semantic_signal_id in split_roots:
-            binding = replace(binding, rtl_path="", physical_available=False)
-        rebound.append(binding)
-        rebound_ids.add(binding.semantic_signal_id)
-    for leaf in physical_leaves:
-        if leaf.leaf_semantic_id in rebound_ids:
-            continue
-        rebound.append(EquivalenceBinding(
-            artifact_version,
-            side,
-            leaf.leaf_semantic_id,
-            selected_ir_identity,
-            module.name,
-            names.get(leaf.leaf_semantic_id, leaf.external_name),
-            leaf.width,
-            leaf.signedness,
-            (
-                SignalRole.CLOCK if leaf.signal_kind == "clock" else
-                SignalRole.RESET if leaf.signal_kind == "reset" else
-                SignalRole.INPUT if leaf.direction is PortDirection.INPUT else
-                SignalRole.OUTPUT
-            ),
-            leaf.clock_domain,
-            leaf.reset_domain,
-            backend,
-            digest,
-            leaf.source_origin,
-            leaf.aggregate_id if leaf.category == "aggregate" else None,
-            leaf.protocol_specialization_id,
-            leaf.role,
-            leaf.member_path,
-            leaf.ownership,
-            leaf.signal_kind,
-            True,
-            _canonical_type(leaf.canonical_type),
-        ))
-        rebound_ids.add(leaf.leaf_semantic_id)
-    bindings = rebound
-
-    # Never publish a physical locator merely because a semantic object exists.
-    # A backend may leave a semantic binding available while explicitly marking
-    # its physical observation unavailable until formal instrumentation exists.
-    validated: list[EquivalenceBinding] = []
-    for binding in bindings:
-        token = binding.rtl_path.rsplit(".", 1)[-1] if binding.rtl_path else ""
-        available = bool(token) and (
-            binding.rtl_path in validated_physical_paths
-            or re.search(
-                rf"(?<![A-Za-z0-9_$]){re.escape(token)}(?![A-Za-z0-9_$])",
-                text,
-            )
-        )
-        validated.append(replace(
-            binding,
-            physical_available=binding.physical_available and bool(available),
-            rtl_path=binding.rtl_path if available else "",
-        ))
-    bindings = validated
+    bindings = _physical_top_bindings(
+        module,
+        bindings,
+        names=names,
+        artifact_version=artifact_version,
+        side=side,
+        selected_ir_identity=selected_ir_identity,
+        backend=backend,
+        digest=digest,
+        text=text,
+        validated_physical_paths=validated_physical_paths,
+    )
     physical_domains: tuple[PhysicalDomainManifest, ...] = ()
     physical_domain_by_names: dict[tuple[str, str], str] = {}
     if publishes_physical_domains:

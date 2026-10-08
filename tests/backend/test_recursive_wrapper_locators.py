@@ -11,7 +11,7 @@ import pytest
 
 from zlang.backend.manifest import BackendArtifact
 from zlang.backend.systemverilog import emit_artifact, emit_formal_artifact
-from zlang.backend.systemverilog.emitter import physical_state_root_path
+from zlang.backend.systemverilog.boundary import physical_state_root_path
 from zlang.backend.systemverilog.simulation_state import (
     build_systemverilog_simulation_state_bundle,
 )

@@ -10,9 +10,9 @@ import subprocess
 import pytest
 
 from zlang.backend.manifest import BackendArtifact
-from zlang.backend.systemverilog import emit_artifact, emit_experimental
+from zlang.backend.systemverilog import emit_artifact, emit
 from zlang.compiler import compile_source
-from zlang.opt import lower, restore
+from zlang.opt.lowering import lower, restore
 from zlang.semantic import SemanticError
 from zlang.native_simulation import simulate_csr_cycles
 
@@ -132,8 +132,8 @@ def test_csr_and_user_state_round_trip_and_simulate_from_one_snapshot() -> None:
 
 def test_csr_composed_direct_artifact_is_deterministic_and_complete() -> None:
     module = compile_source(SOURCE).ir
-    text = emit_experimental(module)
-    assert emit_experimental(module) == text
+    text = emit(module)
+    assert emit(module) == text
     assert "logic [7:0] counter;" in text
     assert "csr_control_control_start" in text
     assert "assign count = counter;" in text
@@ -168,7 +168,7 @@ def test_csr_command_and_rule_cannot_drive_the_same_output() -> None:
 def test_csr_composed_direct_sv_lints_and_simulates(tmp_path: Path) -> None:
     rtl = tmp_path / "CsrCounter.sv"
     rtl.write_text(
-        emit_experimental(compile_source(SOURCE).ir)
+        emit(compile_source(SOURCE).ir)
     )
     subprocess.run(
         (

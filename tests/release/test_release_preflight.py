@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import importlib.util
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 
@@ -73,7 +74,13 @@ def test_current_candidate_binds_release_sources_native_wheel_and_git(
     assert report["version"] == "0.1.0a20"
     assert report["tag"] == "v0.1.0a20"
     assert report["previous_tag"] == "v0.1.0a19"
-    assert report["regressions"]["included"] == ["ZL-041", "ZL-042", "ZL-043", "ZL-044"]
+    assert report["regressions"]["included"] == [
+        "ZL-046",
+        "ZL-047",
+        "ZL-048",
+        "ZL-049",
+        "ZL-050",
+    ]
     assert "release/regressions.json" in report["identities"]
     assert report["git"]["previous_commit"] == _git(
         release_repository, "rev-list", "-n", "1", "v0.1.0a19"
@@ -86,6 +93,58 @@ def test_current_candidate_binds_release_sources_native_wheel_and_git(
             "version": "0.1.0a20",
         }
     ]
+
+
+def test_hosted_candidate_requires_selected_protected_main(
+    release_repository: Path,
+) -> None:
+    head = _git(release_repository, "rev-parse", "HEAD")
+    _git(release_repository, "update-ref", "refs/remotes/origin/main", head)
+    report = preflight(
+        release_repository,
+        tag="v0.1.0a20",
+        previous_tag="v0.1.0a19",
+        mode="candidate",
+        require_clean=False,
+        selected_ref="main",
+        protected_main_ref="origin/main",
+    )
+    assert report["git"]["commit"] == head
+
+
+def test_hosted_candidate_rejects_non_main_selected_ref(
+    release_repository: Path,
+) -> None:
+    head = _git(release_repository, "rev-parse", "HEAD")
+    _git(release_repository, "update-ref", "refs/remotes/origin/main", head)
+    with pytest.raises(ReleasePreflightError, match="select the 'main' branch"):
+        preflight(
+            release_repository,
+            tag="v0.1.0a20",
+            previous_tag="v0.1.0a19",
+            mode="candidate",
+            require_clean=False,
+            selected_ref="feature",
+            protected_main_ref="origin/main",
+        )
+
+
+def test_hosted_candidate_rejects_head_not_at_protected_main(
+    tmp_path: Path, release_repository: Path,
+) -> None:
+    root = tmp_path / "non-main-candidate"
+    shutil.copytree(release_repository, root)
+    _git(root, "update-ref", "refs/remotes/origin/main", "HEAD^")
+    with pytest.raises(ReleasePreflightError, match="does not match protected"):
+        preflight(
+            root,
+            tag="v0.1.0a20",
+            previous_tag="v0.1.0a19",
+            mode="candidate",
+            require_clean=False,
+            selected_ref="main",
+            protected_main_ref="origin/main",
+        )
 
 
 @pytest.mark.parametrize(

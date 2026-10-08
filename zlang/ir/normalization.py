@@ -14,6 +14,7 @@ from enum import Enum
 from typing import get_args
 
 from zlang.fixed_point import apply_overflow, quantize_rational, round_ratio
+from zlang.common.identity_memo import IdentityMemo
 from zlang.ir import expressions as expr
 from zlang.ir.callables import (
     CallableReachabilityError,
@@ -256,7 +257,7 @@ def _call_counts(module: Module) -> Counter[str]:
                 return
             visited[id(value)] = value
         if isinstance(value, expr.Call):
-            identity = value.callee_identity or f"name:{value.function}"
+            identity = value.callee_identity
             # A local aggregate call projected at several fields is
             # represented by several traced Call nodes at ``name local``
             # references, but is one executable value and one materialized
@@ -302,7 +303,7 @@ def _call_counts(module: Module) -> Counter[str]:
     # every elaboration/provenance definition makes a physically single-use
     # specialization look multi-use and defeats bounded inlining before DCE.
     try:
-        reachable = reachable_module_callables(module)
+        reachable = reachable_module_callables(module, include_hierarchy=False)
     except CallableReachabilityError as error:
         raise SelectedValueNormalizationError(str(error)) from error
     for definition in reachable:
@@ -322,9 +323,6 @@ class _Normalizer:
     ) -> None:
         definitions = (*module.functions, *module.callable_definitions)
         self.by_identity = {item.callee_identity: item for item in definitions}
-        self.by_name: dict[str, list[Function]] = {}
-        for item in definitions:
-            self.by_name.setdefault(item.name, []).append(item)
         self.call_counts = _call_counts(module)
         self.dependencies = {
             item.callee_identity: _parameter_dependencies(item.body)
@@ -358,11 +356,8 @@ class _Normalizer:
         )
 
     def resolve(self, call: expr.Call) -> Function | None:
-        if call.callee_identity is not None:
-            candidate = self.by_identity.get(call.callee_identity)
-            return candidate if candidate is not None and candidate.name == call.function else None
-        candidates = self.by_name.get(call.function, ())
-        return candidates[0] if len(candidates) == 1 else None
+        candidate = self.by_identity.get(call.callee_identity)
+        return candidate if candidate is not None and candidate.name == call.function else None
 
     def rewrite_expression(self, value: expr.Expression) -> expr.Expression:
         self.expression_requests += 1
@@ -459,13 +454,12 @@ class _Normalizer:
                 result = call
             else:
                 identity = definition.callee_identity
-                key = identity if call.callee_identity is not None else f"name:{call.function}"
                 parameter_independent = not (
                     self.dependencies[identity]
                     & {parameter.name for parameter in definition.parameters}
                 )
                 constant_arguments = all(isinstance(item, expr.Constant) for item in arguments)
-                single_use = self.call_counts[key] == 1
+                single_use = self.call_counts[identity] == 1
                 body_nodes = self.body_nodes[identity]
                 bounded_inline = (
                     single_use
@@ -575,21 +569,12 @@ def normalize_selected_values(
 
     if single_use_inline_nodes < 0 or total_inline_nodes < 0:
         raise SelectedValueNormalizationError("normalization budgets must be non-negative")
-    # Child modules may deliberately share one immutable elaborated object.
-    # Keep that sharing while normalizing: repeated rewriting would do the
-    # same work and would turn one selected child graph into distinct Python
-    # objects despite no semantic difference.
-    module_memo: dict[int, tuple[Module, Module]] = {}
+    module_memo: IdentityMemo[Module, Module] = IdentityMemo()
 
     def normalize_module(current: Module) -> Module:
-        cached = module_memo.get(id(current))
-        if cached is not None and cached[0] is current:
-            return cached[1]
-        result = normalize_current_module(current)
-        module_memo[id(current)] = (current, result)
-        return result
+        return module_memo.get_or_compute(current, _normalize_module)
 
-    def normalize_current_module(current: Module) -> Module:
+    def _normalize_module(current: Module) -> Module:
         children = tuple(normalize_module(child) for child in current.children)
         normalizer = _Normalizer(
             current,
@@ -637,7 +622,9 @@ def normalize_selected_values(
         live = {function.callee_identity for function in reachable}
         return replace(
             rewritten,
-            functions=tuple(item for item in functions if item.callee_identity in live),
+            functions=tuple(
+                item for item in functions if item.callee_identity in live
+            ),
             callable_definitions=tuple(
                 item for item in callables if item.callee_identity in live
             ),

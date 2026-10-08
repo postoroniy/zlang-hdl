@@ -248,26 +248,28 @@ def _active_actions(
     )
 
 
-def groups_conflict(
+def groups_may_conflict(
     left: ActionGroup,
     right: ActionGroup,
-    activation_values: dict[str, bool] | None = None,
 ) -> bool:
-    """Return a potential, or for supplied predicates an active, conflict.
+    """Return the conservative conflict relation for semantic validation."""
 
-    The two-argument compatibility form deliberately retains the historical
-    conservative relation used by semantic validation and existing safety verification code.
-    Runtime scheduling passes exact activation values and ignores inactive
-    effects.
-    """
-
-    if activation_values is None:
-        left_actions, right_actions = left.actions, right.actions
-    else:
-        left_actions = _active_actions(left, activation_values)
-        right_actions = _active_actions(right, activation_values)
     return any(
-        actions_conflict(a, b) for a in left_actions for b in right_actions
+        actions_conflict(a, b) for a in left.actions for b in right.actions
+    )
+
+
+def active_groups_conflict(
+    left: ActionGroup,
+    right: ActionGroup,
+    activation_values: dict[str, bool],
+) -> bool:
+    """Return the exact conflict relation for one activation snapshot."""
+
+    return any(
+        actions_conflict(a, b)
+        for a in _active_actions(left, activation_values)
+        for b in _active_actions(right, activation_values)
     )
 
 
@@ -316,7 +318,7 @@ def select_action_groups(
         selected: list[ActionGroup] = []
         for candidate in candidates:
             if not any(
-                groups_conflict(candidate, prior, active)
+                active_groups_conflict(candidate, prior, active)
                 for prior in selected
             ):
                 selected.append(candidate)
@@ -339,7 +341,7 @@ def select_action_groups(
     conflicts = tuple(
         sum(
             1 << later for later in range(index + 1, len(candidates))
-            if groups_conflict(group, candidates[later], active)
+            if active_groups_conflict(group, candidates[later], active)
         )
         for index, group in enumerate(candidates)
     )
@@ -815,7 +817,7 @@ def _guard_only_selection_regions(
     for index, group in enumerate(groups):
         blockers = 0
         for prior, prior_fire in zip(groups[:index], fires, strict=True):
-            if groups_conflict(group, prior):
+            if groups_may_conflict(group, prior):
                 blockers = bdd.apply("or", blockers, prior_fire)
         fires.append(
             bdd.apply(

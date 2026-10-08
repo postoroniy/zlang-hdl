@@ -3,8 +3,8 @@ from __future__ import annotations
 import pytest
 
 from zlang.backend.systemverilog import emit_artifact
-from zlang.ir import FixedConvert
-from zlang.opt import lower, restore
+from zlang.ir.expressions import FixedConvert
+from zlang.opt.lowering import lower, restore
 from zlang.parser import parse
 from zlang.semantic import SemanticError, analyze
 

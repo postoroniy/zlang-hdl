@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from zlang import compile_source
-from zlang.ir import build_top_physical_abi
+from zlang.ir.top_abi import build_top_physical_abi
 
 
 SOURCE = """

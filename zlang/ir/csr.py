@@ -66,9 +66,9 @@ def csr_hardware_source(
 ) -> Expression:
     """Return the typed hardware value owned by a status/sticky binding.
 
-    ``source`` is present for new typed member projections.  The scalar
-    fallback preserves restoration of older canonical IR whose binding stored
-    only one port name.
+    ``source`` retains an aggregate member projection.  The scalar fallback
+    preserves restoration of canonical IR written before member paths were
+    first-class CSR sources.
     """
 
     if binding.kind is CsrBindingKind.COMMAND:

@@ -7,7 +7,7 @@ import subprocess
 
 import pytest
 
-from zlang.backend.systemverilog import emit_experimental
+from zlang.backend.systemverilog import emit
 from zlang.compiler import compile_source
 
 
@@ -21,7 +21,7 @@ def _run(top: str, source_name: str, harness: str, tmp_path: Path) -> None:
     ).ir
     rtl = tmp_path / f"{top}.sv"
     cpp = tmp_path / "test.cpp"
-    rtl.write_text(emit_experimental(module))
+    rtl.write_text(emit(module))
     cpp.write_text(harness)
     obj = tmp_path / "obj"
     environment = os.environ.copy()
@@ -59,7 +59,7 @@ def test_implement_intent_uses_composed_direct_sv_lowering() -> None:
         }
         """,
     ).ir
-    rtl = emit_experimental(module)
+    rtl = emit(module)
     assert "module ImplementSV" in rtl
     assert "input wire logic clk" in rtl
     assert "output logic" in rtl

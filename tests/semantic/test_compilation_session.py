@@ -4,6 +4,10 @@ from __future__ import annotations
 import pytest
 
 import zlang.compilation_session as session_module
+import zlang.compilation_outputs as output_api
+from zlang import costs
+from zlang import formal as formal_api
+from zlang import implementation_plans
 from zlang import (
     CompilationSession as ExportedCompilationSession,
     create_file_compilation_session,
@@ -20,7 +24,6 @@ from zlang.compiler import (
     compile_file_snapshot,
     compile_source,
 )
-from zlang.backend.systemverilog import emit_artifact
 from zlang.ir import expressions as ir_expr
 from zlang.source_identity import SourceExtensionError
 from zlang.semantic import SemanticError
@@ -38,22 +41,29 @@ def _forbidden(name):
 def test_semantic_demand_has_an_explicit_bounded_dependency_frontier(
     monkeypatch,
 ) -> None:
-    for name in (
-        "plan_backend_implementations",
-        "build_formal_design",
-        "build_recursive_formal_design",
-        "emit_harness",
-        "emit_recursive_harness",
-        "render_implementation_report",
-        "render_cost_report",
-        "render_pipeline_report",
-        "render_architecture_report",
-        "render_exploration_report",
-        "emit_csr_markdown",
-        "emit_csr_json",
-        "emit_contracts",
+    for owner, names in (
+        (implementation_plans, ("plan_backend_implementations",)),
+        (
+            formal_api,
+            (
+                "build_formal_design",
+                "build_recursive_formal_design",
+            ),
+        ),
+        (costs, ("render_cost_report",)),
+        (
+            output_api,
+            (
+                "build_formal",
+                "build_target_instance",
+                "build_documents",
+                "build_reports",
+                "build_materialized",
+            ),
+        ),
     ):
-        monkeypatch.setattr(session_module, name, _forbidden(name))
+        for name in names:
+            monkeypatch.setattr(owner, name, _forbidden(name))
 
     verifier_calls = 0
 
@@ -88,9 +98,9 @@ def test_products_and_failures_are_memoized_once_per_session(monkeypatch) -> Non
         session_module, "analyze", counted("analyze", session_module.analyze)
     )
     monkeypatch.setattr(
-        session_module,
+        implementation_plans,
         "plan_backend_implementations",
-        counted("planning", session_module.plan_backend_implementations),
+        counted("planning", implementation_plans.plan_backend_implementations),
     )
     session = CompilationSession(SOURCE)
     assert session.semantic_ir is session.semantic_ir
@@ -113,32 +123,6 @@ def test_products_and_failures_are_memoized_once_per_session(monkeypatch) -> Non
     assert first.value is second.value
     assert broken_calls == 1
     assert broken.failed_products == ("syntax", "semantic")
-
-
-def test_direct_systemverilog_input_omits_unrequested_eager_products(
-    monkeypatch,
-) -> None:
-    for name in (
-        "build_formal_design",
-        "build_recursive_formal_design",
-        "emit_harness",
-        "emit_recursive_harness",
-        "render_implementation_report",
-        "render_cost_report",
-        "render_pipeline_report",
-        "render_architecture_report",
-        "render_exploration_report",
-        "emit_csr_markdown",
-        "emit_csr_json",
-        "emit_contracts",
-    ):
-        monkeypatch.setattr(session_module, name, _forbidden(name))
-
-    product = CompilationSession(SOURCE).direct_systemverilog_input
-
-    assert product.ir.name == "Add"
-    assert product.selected_ir_identity
-    assert product.implementation_graph is not None
 
 
 def test_inline_locals_preserves_shared_expression_dag() -> None:
@@ -239,25 +223,23 @@ def test_file_facades_reject_noncanonical_source_extensions(tmp_path) -> None:
 def test_cli_check_demands_only_semantics(tmp_path, monkeypatch, capsys) -> None:
     source = tmp_path / "add.zhl"
     source.write_text(SOURCE)
-    for name in (
+    monkeypatch.setattr(
+        implementation_plans,
         "plan_backend_implementations",
+        _forbidden("plan_backend_implementations"),
+    )
+    monkeypatch.setattr(
+        formal_api,
         "build_formal_design",
-        "render_implementation_report",
-    ):
-        monkeypatch.setattr(session_module, name, _forbidden(name))
+        _forbidden("build_formal_design"),
+    )
+    monkeypatch.setattr(
+        output_api,
+        "build_reports",
+        _forbidden("build_reports"),
+    )
     assert main([str(source), "--check"]) == 0
     assert "syntax and semantics valid" in capsys.readouterr().out
-
-
-def test_direct_systemverilog_cli_product_matches_eager_artifact(tmp_path) -> None:
-    source = tmp_path / "add.zhl"
-    output = tmp_path / "add.sv"
-    source.write_text(SOURCE)
-
-    expected = emit_artifact(compile_file_snapshot(source, SOURCE).ir).text
-
-    assert main([str(source), "--systemverilog", str(output)]) == 0
-    assert output.read_text() == expected
 
 
 def test_dependency_dag_is_complete_and_acyclic() -> None:
@@ -300,7 +282,6 @@ def test_public_policy_and_plan_properties_demand_declared_nodes_only() -> None:
     assert policy_session.computed_products == (
         "syntax",
         "semantic",
-        "configured_semantic",
         "selection",
     )
     assert policy_session.backend_implementation_plans is (
@@ -309,7 +290,6 @@ def test_public_policy_and_plan_properties_demand_declared_nodes_only() -> None:
     assert policy_session.computed_products == (
         "syntax",
         "semantic",
-        "configured_semantic",
         "selection",
         "planning",
     )

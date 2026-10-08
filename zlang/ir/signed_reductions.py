@@ -29,8 +29,7 @@ from zlang.source import SourceOrigin
 
 
 SIGNED_PRODUCT_REDUCTION_SCHEMA = "zlang-signed-product-reduction-v1"
-VALUE_SEMANTIC_IDENTITY_SCHEMA = "zlang-value-semantic-identity-v2"
-_LEGACY_IDENTITY_EXPANSION_LIMIT = 4096
+VALUE_SEMANTIC_IDENTITY_SCHEMA = "zlang-value-semantic-identity-v3"
 
 
 class ProductTermSign(str, Enum):
@@ -91,16 +90,6 @@ class SignedProductReduction:
 def expression_semantic_identity(value: expr.Expression) -> str:
     """Stable identity for typed value semantics, excluding source provenance."""
 
-    # Preserve existing physical/QoR identities while their exact historical
-    # spelling has bounded cost.  A linear preflight computes the size of that
-    # fully expanded spelling without materializing it.  Above the fixed cap,
-    # switch to the versioned Merkle spelling whose work is proportional to
-    # unique DAG nodes.  The choice depends on value structure, not Python
-    # object sharing, so equal trees retain equal identities.
-    if _expanded_identity_work(value, {}, _LEGACY_IDENTITY_EXPANSION_LIMIT) <= (
-        _LEGACY_IDENTITY_EXPANSION_LIMIT
-    ):
-        return sha256(_legacy_semantic_payload(value).encode()).hexdigest()
     payload = _semantic_payload(value, {})
     return sha256(
         f"{VALUE_SEMANTIC_IDENTITY_SCHEMA}:{payload}".encode()
@@ -113,11 +102,8 @@ def expression_merkle_identity(
 ) -> str:
     """Return the always-DAG-linear exact identity for internal graph work.
 
-    Public physical identities retain their bounded legacy spelling through
-    :func:`expression_semantic_identity`.  Compiler passes that only need an
-    equality key must not repeatedly cross that compatibility path: near its
-    cutoff, otherwise ordinary shared DAGs can still materialize large legacy
-    payloads.  This identity is deliberately versioned and internal.
+    The public semantic identity uses the same bounded algorithm. This helper
+    accepts a caller-owned memo for repeated internal graph work.
     """
 
     payload = _semantic_payload(value, {} if memo is None else memo)
@@ -315,59 +301,6 @@ _NON_VALUE_FIELDS = frozenset(
         "measurement",
     }
 )
-
-
-def _expanded_identity_work(
-    value: object,
-    memo: dict[int, tuple[object, int]],
-    limit: int,
-) -> int:
-    """Count historical serializer visits without expanding a shared DAG."""
-
-    if isinstance(value, Enum):
-        return 1
-    if isinstance(value, tuple) or is_dataclass(value):
-        cached = memo.get(id(value))
-        if cached is not None and cached[0] is value:
-            return cached[1]
-        children = (
-            value
-            if isinstance(value, tuple)
-            else tuple(
-                getattr(value, item.name)
-                for item in fields(value)
-                if item.name not in _NON_VALUE_FIELDS
-            )
-        )
-        # The temporary saturated value handles malformed cycles without
-        # allowing the compatibility path to recurse forever.
-        memo[id(value)] = (value, limit + 1)
-        total = 1
-        for child in children:
-            total += _expanded_identity_work(child, memo, limit)
-            if total > limit:
-                total = limit + 1
-                break
-        memo[id(value)] = (value, total)
-        return total
-    return 1
-
-
-def _legacy_semantic_payload(value: object) -> str:
-    """Historical exact spelling, called only after the bounded preflight."""
-
-    if isinstance(value, tuple):
-        return "(" + ",".join(_legacy_semantic_payload(item) for item in value) + ")"
-    if isinstance(value, Enum):
-        return f"{type(value).__module__}.{type(value).__name__}.{value.value}"
-    if is_dataclass(value):
-        body = ",".join(
-            f"{item.name}={_legacy_semantic_payload(getattr(value, item.name))}"
-            for item in fields(value)
-            if item.name not in _NON_VALUE_FIELDS
-        )
-        return f"{type(value).__module__}.{type(value).__name__}({body})"
-    return repr(value)
 
 
 def _semantic_payload(value, memo: dict[int, str] | None = None) -> str:

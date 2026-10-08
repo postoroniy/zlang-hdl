@@ -2,12 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from zlang.ast import (
-    IndexExpr,
-    TupleDestructureDecl,
-    TupleLiteralExpr,
-    TupleTypeName,
-)
+from zlang.ast.nodes import IndexExpr, TupleDestructureDecl, TupleLiteralExpr, TupleTypeName
 from zlang.parser import ParseError, parse
 
 

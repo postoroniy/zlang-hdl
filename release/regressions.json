@@ -1,10 +1,10 @@
 {
   "entries": [
     {
-      "id": "ZL-041",
+      "id": "ZL-046",
       "source_paths": [
         "zlang/parser/grammar.lark",
-        "zlang/semantic/analyze.py"
+        "zlang/semantic/expression_packed.py"
       ],
       "status": "included",
       "summary": "Runtime packed indexing and fixed-width slices require compiler-proven ranges and retain LSB-zero semantics.",
@@ -15,7 +15,7 @@
       ]
     },
     {
-      "id": "ZL-042",
+      "id": "ZL-047",
       "source_paths": [
         "zlang/backend/expression_constant_folding.py",
         "zlang/compilation_session.py"
@@ -24,11 +24,11 @@
       "summary": "Direct-SV constant normalization and requested-product materialization preserve typed identities while avoiding redundant work.",
       "tests": [
         "tests/backend/test_expression_constant_folding.py::test_constant_folder_folds_mux_switch_concat_slice_and_vector_ops",
-        "tests/semantic/test_compilation_session.py::test_direct_systemverilog_input_omits_unrequested_eager_products"
+        "tests/integration/test_compile_latency_profile.py::test_sv_profile_uses_actual_cli_and_reports_requested_products"
       ]
     },
     {
-      "id": "ZL-043",
+      "id": "ZL-048",
       "source_paths": [
         "zlang/target_candidate_providers.py",
         "zlang/target_capabilities.py",
@@ -37,13 +37,13 @@
       "status": "included",
       "summary": "Operation-specific target candidate providers and typed capability predicates select only published compatible resource facts.",
       "tests": [
+        "tests/semantic/test_structural_multiplier_candidates.py::test_implement_exposes_one_bounded_structural_multiply_candidate",
         "tests/test_low_level_resources.py::test_memory_capability_assessment_preserves_every_catalog_fact",
-        "tests/test_target_pipeline_planner.py::test_target_candidate_provider_registry_is_exact_and_fail_closed",
-        "tests/test_target_pipeline_planner.py::test_typed_bare_multiply_uses_its_own_provider_family"
+        "tests/test_target_pipeline_planner.py::test_target_candidate_provider_registry_is_exact_and_fail_closed"
       ]
     },
     {
-      "id": "ZL-044",
+      "id": "ZL-049",
       "source_paths": [
         "zlang/ir/temporal.py",
         "zlang/shared_arithmetic.py",
@@ -55,6 +55,20 @@
         "tests/integration/test_temporal_shared_arithmetic.py::test_capacity_one_transaction_stream_miter_bounded_passes",
         "tests/integration/test_temporal_shared_arithmetic.py::test_public_temporal_shared_multiply_example_emits_and_simulates",
         "tests/integration/test_temporal_shared_arithmetic.py::test_randomized_native_verilator_transaction_scoreboard"
+      ]
+    },
+    {
+      "id": "ZL-050",
+      "source_paths": [
+        "tests/fixtures/regressions/layout_dma_fsm.zhl",
+        "tests/fixtures/regressions/layout_dma_sticky.zhl"
+      ],
+      "status": "included",
+      "summary": "Permanent public layout-DMA witnesses keep medium-FSM and sticky-state scheduler preparation bounded and deterministic.",
+      "tests": [
+        "tests/integration/test_ztpu_scheduler_scaling.py::test_layout_dma_native_matches_direct_sv_cycle_for_cycle",
+        "tests/integration/test_ztpu_scheduler_scaling.py::test_layout_dma_native_trace_is_deterministic",
+        "tests/integration/test_ztpu_scheduler_scaling.py::test_layout_dma_plan_and_direct_sv_remain_bounded"
       ]
     }
   ],

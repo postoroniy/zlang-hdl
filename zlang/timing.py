@@ -114,28 +114,6 @@ def validate_timed_candidate(original, candidate, *, original_timing=None,
     return TimingRelation(TimingRelationKind.TIMED_EQUIVALENT, candidate, original, -delta, "generated_pipeline_candidate")
 
 
-def compare_timing(lhs: TimingInfo, rhs: TimingInfo) -> TimingRelation:
-    lhs = _as_timing(lhs)
-    rhs = _as_timing(rhs)
-    if lhs.ii != rhs.ii:
-        return TimingRelation(TimingRelationKind.INCOMPATIBLE_II, None, None, None, "initiation intervals differ")
-    if lhs.clock_domain != rhs.clock_domain:
-        return TimingRelation(TimingRelationKind.INCOMPATIBLE_CLOCK, None, None, None, "clock domains differ")
-    if lhs.reset_domain != rhs.reset_domain:
-        return TimingRelation(TimingRelationKind.INCOMPATIBLE_RESET, None, None, None, "reset domains differ")
-    delta = abs(lhs.latency - rhs.latency)
-    return TimingRelation(TimingRelationKind.SAME_CYCLE if delta == 0 else TimingRelationKind.TIMED_EQUIVALENT,
-                          None, None, delta, "timing contract comparison")
-
-
-def _as_timing(value) -> TimingInfo:
-    if isinstance(value, TimingInfo):
-        return value
-    return TimingInfo(value.latency, value.initiation_interval,
-                      getattr(value, "clock_domain", None),
-                      getattr(value, "reset_domain", None))
-
-
 def align_operands(operands: Iterable[expr.Expression], *, target_latency: int | None = None,
                    clock_domain=None, reset_domain=None, ii=1) -> AlignmentPlan:
     values = tuple(operands)

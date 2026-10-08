@@ -6,7 +6,7 @@ import pytest
 
 from zlang.ir.csr import CsrAccess, CsrStateBindingError, validate_state_bindings
 from zlang.ir.formal import generate_properties
-from zlang.opt import lower, restore
+from zlang.opt.lowering import lower, restore
 
 
 ROOT = Path(__file__).resolve().parents[2]

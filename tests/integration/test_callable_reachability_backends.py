@@ -4,15 +4,10 @@ from pathlib import Path
 
 import pytest
 
-from zlang.backend.systemverilog import emit_experimental
+from zlang.backend.systemverilog import emit
 from zlang.compiler import compile_file
-from zlang.ir import (
-    Call,
-    Constant,
-    Function,
-    FunctionParameter,
-    ParameterRef,
-)
+from zlang.ir.expressions import Call, Constant, ParameterRef
+from zlang.ir.module import FunctionParameter
 from zlang.ir.callables import (
     CallableKind,
     CallableMetadata,
@@ -20,6 +15,7 @@ from zlang.ir.callables import (
     reachable_callable_definitions,
 )
 from zlang.ir.types import UIntType
+from tests.support.typed_callables import typed_function
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -106,7 +102,7 @@ module CallableGenericTop {
 
 
 
-def test_same_outer_identity_accepts_equivalent_context_specific_nested_ids() -> None:
+def test_same_outer_identity_rejects_distinct_nested_callable_identities() -> None:
     u8 = UIntType(8)
     parameter = FunctionParameter("x", u8)
     nested_metadata = dict(
@@ -115,7 +111,7 @@ def test_same_outer_identity_accepts_equivalent_context_specific_nested_ids() ->
         declaration_identity="test:identity",
         arguments=(("T", "u8"),),
     )
-    nested_a = Function(
+    nested_a = typed_function(
         "zlang_spec_a",
         (parameter,),
         u8,
@@ -125,7 +121,7 @@ def test_same_outer_identity_accepts_equivalent_context_specific_nested_ids() ->
             specialization_identity="nested-a",
         ),
     )
-    nested_b = Function(
+    nested_b = typed_function(
         "zlang_spec_b",
         (parameter,),
         u8,
@@ -141,7 +137,7 @@ def test_same_outer_identity_accepts_equivalent_context_specific_nested_ids() ->
         "test:outer",
         specialization_identity="outer-id",
     )
-    outer_a = Function(
+    outer_a = typed_function(
         "outer",
         (parameter,),
         u8,
@@ -153,7 +149,7 @@ def test_same_outer_identity_accepts_equivalent_context_specific_nested_ids() ->
         ),
         metadata=outer_metadata,
     )
-    outer_b = Function(
+    outer_b = typed_function(
         "outer",
         (parameter,),
         u8,
@@ -167,25 +163,22 @@ def test_same_outer_identity_accepts_equivalent_context_specific_nested_ids() ->
     )
     root = Call("outer", (Constant(1, u8),), u8, outer_a.callee_identity)
 
-    first = reachable_callable_definitions(
+    for definitions in (
         (nested_a, nested_b, outer_a, outer_b),
-        (root,),
-    )
-    second = reachable_callable_definitions(
         (outer_b, outer_a, nested_b, nested_a),
-        (root,),
-    )
-    assert tuple(item.callee_identity for item in first) == tuple(
-        item.callee_identity for item in second
-    )
-    assert len(first) == 2
+    ):
+        with pytest.raises(
+            CallableReachabilityError,
+            match="outer-id.*conflicting definitions",
+        ):
+            reachable_callable_definitions(definitions, (root,))
 
 
 def test_same_callable_identity_with_different_body_remains_a_conflict() -> None:
     u8 = UIntType(8)
     parameter = FunctionParameter("x", u8)
-    first = Function("same", (parameter,), u8, ParameterRef("x", u8))
-    conflicting = Function(
+    first = typed_function("same", (parameter,), u8, ParameterRef("x", u8))
+    conflicting = typed_function(
         "same",
         (parameter,),
         u8,
@@ -204,21 +197,21 @@ def test_same_callable_identity_with_different_body_remains_a_conflict() -> None
 def test_same_identity_rejects_a_call_name_that_disagrees_with_its_callee() -> None:
     u8 = UIntType(8)
     parameter = FunctionParameter("x", u8)
-    inner = Function("inner", (parameter,), u8, ParameterRef("x", u8))
+    inner = typed_function("inner", (parameter,), u8, ParameterRef("x", u8))
     outer_metadata = CallableMetadata(
         CallableKind.FUNCTION,
         "outer",
         "test:outer",
         specialization_identity="outer-id",
     )
-    valid = Function(
+    valid = typed_function(
         "outer",
         (parameter,),
         u8,
         Call("inner", (ParameterRef("x", u8),), u8, inner.callee_identity),
         metadata=outer_metadata,
     )
-    malformed = Function(
+    malformed = typed_function(
         "outer",
         (parameter,),
         u8,
@@ -243,14 +236,14 @@ def test_same_identity_rejects_different_definition_helper_names() -> None:
         "test:source-name",
         specialization_identity="same-id",
     )
-    first = Function(
+    first = typed_function(
         "aaa",
         (parameter,),
         u8,
         ParameterRef("x", u8),
         metadata=metadata,
     )
-    conflicting = Function(
+    conflicting = typed_function(
         "zzz",
         (parameter,),
         u8,
@@ -269,7 +262,7 @@ def test_same_identity_rejects_different_definition_helper_names() -> None:
 def test_distinct_reachable_identities_cannot_share_an_emitted_name() -> None:
     u8 = UIntType(8)
     parameter = FunctionParameter("x", u8)
-    first = Function(
+    first = typed_function(
         "same",
         (parameter,),
         u8,
@@ -281,7 +274,7 @@ def test_distinct_reachable_identities_cannot_share_an_emitted_name() -> None:
             specialization_identity="same-a",
         ),
     )
-    second = Function(
+    second = typed_function(
         "same",
         (parameter,),
         u8,
@@ -318,7 +311,7 @@ def test_ieee_framed_ifft_does_not_emit_unused_mapper_helpers() -> None:
         source,
         top="IeeeFramedIFFT64Raw",
     ).ir
-    generated = emit_experimental(module)
+    generated = emit(module)
 
     # Before reachable-only publication this artifact was about 1.61 MiB and
     # contained 441 helper declarations merely because the mapper dependency was

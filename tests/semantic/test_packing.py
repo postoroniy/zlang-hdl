@@ -9,7 +9,6 @@ from zlang.ir import expressions as expr
 from zlang.ir.packing import (
     PACKING_LAYOUT_SCHEMA,
     pack_runtime,
-    struct_field_lsb,
     tuple_element_lsb,
     unpack_runtime,
     vector_element_lsb,
@@ -25,7 +24,8 @@ from zlang.ir.types import (
     UIntType,
     VecType,
 )
-from zlang.opt import OptimizationStage, lower, restore
+from zlang.opt.ir import OptimizationStage
+from zlang.opt.lowering import lower, restore
 from zlang.semantic import SemanticError
 from zlang.native_simulation import simulate
 
@@ -138,8 +138,6 @@ def test_indexed_aggregate_layout_is_recursive_lsb_first_and_exhaustive() -> Non
     assert tuple_element_lsb(tuple_type, 0) == 0
     assert tuple_element_lsb(tuple_type, 1) == 1
     assert tuple_element_lsb(tuple_type, 2) == 3
-    assert struct_field_lsb(mixed, "header") == 4
-    assert struct_field_lsb(mixed, "items") == 0
     assert pack_runtime(string, [ord("A"), ord("B")]) == 0x4241
     assert pack_runtime(nested, [[0, 1], [1, 0]]) == 0b0110
     # Struct declaration order remains MSB-first while its vector field is
@@ -165,7 +163,7 @@ def test_packing_survives_canonical_and_artifact_round_trips() -> None:
     restored_artifact = BackendArtifact.from_json(artifact.to_json())
     assert restored_artifact.artifact_hash == artifact.artifact_hash
     for signal, type_name in (
-        ("port:pair_out", "Pair"),
+        ("port:pair_out", None),
         ("port:samples_out", "vec<2,u4>"),
         ("port:signed_out", "s8"),
         ("port:fixed_out", "fixed<8,4>"),

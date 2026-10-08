@@ -11,7 +11,7 @@ from zlang.backend.manifest import (
     BackendArtifact,
     INLINE_TOP_BOUNDARY_MANIFEST_VERSION,
 )
-from zlang.backend.systemverilog import emit_experimental, emit_target, emit_target_artifact
+from zlang.backend.systemverilog import emit, emit_target, emit_target_artifact
 from zlang.backend.systemverilog.emitter import SystemVerilogEmissionError
 from zlang.compiler import compile_source
 from zlang.fixed_point import quantize_rational
@@ -97,7 +97,7 @@ def test_sky130_target_emits_generic_rtl_for_downstream_liberty_mapping() -> Non
         "std.target.asic.sky130.sky130_fd_sc_hd"
     )
     assert result.implementation_graph.target_part == "sky130_fd_sc_hd"
-    rtl = emit_experimental(result.ir)
+    rtl = emit(result.ir)
     assert rtl.count("module Add (") == 1
     assert "_zlang_core" not in rtl
 
@@ -288,7 +288,7 @@ def test_target_dsp_model_is_bit_exact_in_verilator(tmp_path: Path) -> None:
     rtl.write_text(target_text)
     generic_rtl = tmp_path / "generic.sv"
     generic_rtl.write_text(
-        emit_experimental(compile_source(SOURCE).ir).replace(
+        emit(compile_source(SOURCE).ir).replace(
             "module SymmetricFixedFIR (", "module SymmetricFixedFIRGeneric (", 1
         )
     )

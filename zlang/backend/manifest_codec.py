@@ -212,28 +212,20 @@ def decode_artifact_payload(
     return data
 
 
-def origin_to_data(
-    origin: SourceOrigin | str | None,
-) -> dict[str, object] | str | None:
-    """Encode structured origins while retaining legacy manifest strings."""
+def origin_to_data(origin: SourceOrigin | None) -> dict[str, object] | None:
+    """Encode one optional structured source origin."""
 
-    return origin.to_data() if isinstance(origin, SourceOrigin) else origin
+    return None if origin is None else origin.to_data()
 
 
-def origin_from_data(
-    origin: object,
-    *,
-    parse_legacy: bool = False,
-) -> SourceOrigin | str | None:
-    """Decode structured origins and optionally recover legacy rendered text."""
+def origin_from_data(origin: object) -> SourceOrigin | None:
+    """Decode one optional structured source origin."""
 
     if origin is None:
         return None
-    if isinstance(origin, dict):
-        return SourceOrigin.from_data(origin)
-    if isinstance(origin, str):
-        return SourceOrigin.from_data(origin) if parse_legacy else origin
-    raise ValueError("backend manifest source_origin must be an object, string, or null")
+    if not isinstance(origin, dict):
+        raise ValueError("backend manifest source_origin must be an object or null")
+    return SourceOrigin.from_data(origin)
 
 
 def binding_to_data(item: EquivalenceBinding) -> dict[str, object]:
@@ -327,7 +319,7 @@ def binding_from_data(data: object, *, manifest_version: int) -> EquivalenceBind
         data.get("reset_domain"),
         data["backend"],
         data["artifact_hash"],
-        source_origin=origin_from_data(data.get("source_origin"), parse_legacy=True),
+        source_origin=origin_from_data(data.get("source_origin")),
         aggregate_endpoint_id=data.get("aggregate_endpoint_id"),
         protocol_specialization_id=data.get("protocol_specialization_id"),
         protocol_role=data.get("protocol_role"),

@@ -11,12 +11,12 @@ from pathlib import Path
 import pytest
 
 from zlang.backend.systemverilog import (
+    emit,
     emit_artifact,
     emit_artifact_with_source_map,
-    emit_experimental,
     emit_formal_artifact,
 )
-from zlang.backend.systemverilog.emitter import _expression
+from zlang.backend.systemverilog.expression import _expression
 from zlang.compiler import compile_source
 from zlang.compilation_session import CompilationSession
 from zlang.formal import build_recursive_formal_design, run_verilog_formal
@@ -684,8 +684,8 @@ def test_direct_sv_is_deterministic_and_contains_no_ready_valid_loop(tmp_path: P
     module = _module()
     graph = module.elastic_pipeline_regions[0].temporal_graph
     assert graph is not None
-    first = emit_experimental(module)
-    assert first == emit_experimental(module)
+    first = emit(module)
+    assert first == emit(module)
     assert "shared_noninterleaved" not in first  # schedule is typed, not raw provider SV.
     assert "zlang_temporal_" in first
     assert "assign zlang_packed_input_ready = !rst" in first
