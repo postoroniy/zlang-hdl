@@ -51,8 +51,11 @@ async function checkHost() {
     'ZLANG_EDITOR_SMOKE_EXTENSION must identify the absolute installed VSIX directory');
   const installedPath = fs.realpathSync(expectedPath);
   const sourceRepository = fs.realpathSync(path.resolve(__dirname, '../../../..'));
-  assert.equal(inside(sourceRepository, installedPath), false,
-    'The smoke must exercise an isolated installed VSIX, not repository sources');
+  const sourceExtension = fs.realpathSync(path.resolve(__dirname, '..'));
+  // Project policy keeps temporary files below the checkout, so repository
+  // containment alone no longer distinguishes source from an installed VSIX.
+  assert.equal(inside(sourceExtension, installedPath), false,
+    'The smoke must exercise an isolated installed VSIX, not extension sources');
   assert.equal(inside(fs.realpathSync(os.tmpdir()), installedPath), true,
     'The installed extension must be in the isolated temporary directory');
 
@@ -100,7 +103,8 @@ async function checkHost() {
   const workspace = fs.realpathSync(folders[0].uri.fsPath);
   assert.equal(inside(fs.realpathSync(os.tmpdir()), workspace), true,
     'Never run the smoke in a personal or repository workspace');
-  assert.equal(inside(sourceRepository, workspace), false);
+  assert.equal(inside(sourceExtension, workspace), false,
+    'Never run the smoke in the extension source workspace');
   assert.equal(inside(installedPath, workspace), false);
   const scratch = fs.mkdtempSync(path.join(workspace, 'zlang-editor-smoke-'));
   const sourceText = 'module Smoke {\n    in x : u8\n    out y : u8 = x\n}\n';
