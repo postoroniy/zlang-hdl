@@ -153,6 +153,7 @@ static:
 	$(call RUN_PYTHON,static-ruff) -m ruff check zlang tests tools
 	$(call RUN_PYTHON,static-ruff-args) -m ruff check --select ARG001,ARG002 zlang
 	$(call RUN_PYTHON,static-source-audit) tools/python_source_audit.py zlang
+	$(call RUN_PYTHON,static-workflow-structure) tools/audit_workflow_structure.py --root .
 	$(call RUN_PYTHON,static-workflow-env) tools/audit_workflow_local_env.py --root .
 	$(call RUN_PYTHON,static-compileall) -m compileall -q zlang tests tools
 	git diff --check

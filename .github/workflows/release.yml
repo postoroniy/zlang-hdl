@@ -17,12 +17,10 @@ on:
 
 env:
   RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  BASH_ENV: ${{ github.workspace }}/.github/workflows/local-venv-env.sh
 
 permissions:
   contents: read
-
-env:
-  BASH_ENV: ${{ github.workspace }}/.github/workflows/local-venv-env.sh
 
 jobs:
   validate:
