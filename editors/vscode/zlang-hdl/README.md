@@ -66,7 +66,7 @@ the semantic authority.
 
 From a repository checkout, use Node 22 and the checked-in dependency lockfile.
 The extension supports the current stable VS Code release and later compatible
-1.x releases; the checked toolchain currently names VS Code 1.140.0. Build tools
+1.x releases; the checked toolchain currently names VS Code 1.141.0. Build tools
 are dev-only and are not shipped inside the VSIX.
 
 ```sh

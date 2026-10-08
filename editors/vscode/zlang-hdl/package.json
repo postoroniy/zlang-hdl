@@ -16,7 +16,7 @@
   },
   "homepage": "https://github.com/postoroniy/zlang-hdl",
   "engines": {
-    "vscode": "^1.140.0"
+    "vscode": "^1.141.0"
   },
   "main": "./extension.js",
   "categories": [

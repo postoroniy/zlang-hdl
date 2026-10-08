@@ -82,7 +82,7 @@ async function checkHost() {
   const language = manifest.contributes.languages.find((item) => item.id === languageId);
   assert.ok(language, 'Missing installed language contribution');
   assert.deepEqual(language.extensions, ['.zhl']);
-  // VS Code 1.140 correctly focus-gates UI keybinding commands in the
+  // VS Code 1.141 correctly focus-gates UI keybinding commands in the
   // extension-test host.  Inspect the isolated installed contribution here;
   // the package tests separately compile every shipped snippet default.
   const languageConfiguration = JSON.parse(fs.readFileSync(
