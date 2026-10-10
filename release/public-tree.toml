@@ -184,6 +184,8 @@ required = [
   "setup.py",
   "tools/audit_native_binary.py",
   "tools/audit_native_vulnerabilities.py",
+  "tools/audit_editor_vulnerabilities.py",
+  "tools/audit_review_commits.py",
   "tools/release_status.py",
   "tools/random_regression.py",
   "tools/release_preflight.py",

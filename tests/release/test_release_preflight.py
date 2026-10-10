@@ -2,8 +2,10 @@
 # Copyright 2026 Viacheslav Vinogradov
 from __future__ import annotations
 
+import hashlib
 import json
 import importlib.util
+from datetime import date
 from pathlib import Path
 import subprocess
 import sys
@@ -16,6 +18,7 @@ from tools.release_preflight import (
     main,
     preflight,
 )
+from tools.release_status import _example_counts
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -44,6 +47,38 @@ def release_repository(tmp_path_factory: pytest.TempPathFactory) -> Path:
     sys.modules[spec.name] = public_tree
     spec.loader.exec_module(public_tree)
     public_tree.export_tree(ROOT, root)
+    changelog = root / "CHANGELOG.md"
+    changelog_text = changelog.read_text(encoding="utf-8")
+    unreleased_start = changelog_text.index("## Unreleased")
+    release_start = changelog_text.index("## 0.1.0a21", unreleased_start)
+    changelog_text = (
+        changelog_text[:unreleased_start]
+        + "## Unreleased\n\n"
+        + changelog_text[release_start:]
+    )
+    changelog_text = changelog_text.replace(
+        "## 0.1.0a21 — 2026-10-10",
+        f"## 0.1.0a21 — {date.today().isoformat()}",
+    )
+    changelog.write_text(changelog_text, encoding="utf-8")
+    status_path = root / "release/status.json"
+    status = json.loads(status_path.read_text(encoding="utf-8"))
+    grammar = root / "editors/vscode/zlang-hdl/syntaxes/zlang.tmLanguage.json"
+    status["documentation"]["syntax_grammar_sha256"] = hashlib.sha256(
+        grammar.read_bytes()
+    ).hexdigest()
+    for source in (
+        "docs/language-reference.md",
+        "docs/language-quick-reference.md",
+    ):
+        status["documentation"]["sources"][source] = hashlib.sha256(
+            (root / source).read_bytes()
+        ).hexdigest()
+    status["validation"]["example_corpus"] = _example_counts(root)
+    status_path.write_text(
+        json.dumps(status, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
     _git(root, "init", "-q")
     _git(root, "config", "user.name", "Release Preflight Test")
     _git(root, "config", "user.email", "release-preflight@example.invalid")

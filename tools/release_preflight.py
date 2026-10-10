@@ -11,6 +11,7 @@ bytes to one Git tree, and writes a deterministic review manifest.
 from __future__ import annotations
 
 import argparse
+from datetime import date
 import hashlib
 import json
 from pathlib import Path
@@ -23,7 +24,7 @@ from tools.audit_native_binary import (
     NativeBinaryAuditError,
     audit_native_release_set,
 )
-from tools.release_notes import release_notes
+from tools.release_notes import validate_release_changelog
 from tools.release_regressions import (
     RegressionLedgerError,
     validate_regression_ledger,
@@ -137,6 +138,10 @@ def preflight(
     if mode not in {"candidate", "tagged"}:
         raise ReleasePreflightError("mode must be 'candidate' or 'tagged'")
     _alpha_sequence(tag, previous_tag)
+    candidate_commit = _git(root, "rev-parse", "HEAD")
+    candidate_date = date.fromisoformat(
+        _git(root, "show", "-s", "--format=%cs", candidate_commit)
+    )
     try:
         validate_release_status(root, tag=tag)
     except StatusError as exc:
@@ -157,8 +162,10 @@ def preflight(
         raise ReleasePreflightError(str(exc)) from exc
 
     try:
-        notes = release_notes(
-            (root / "CHANGELOG.md").read_text(encoding="utf-8"), tag
+        notes = validate_release_changelog(
+            (root / "CHANGELOG.md").read_text(encoding="utf-8"),
+            tag,
+            expected_date=candidate_date,
         )
     except (OSError, UnicodeDecodeError, ValueError) as exc:
         raise ReleasePreflightError(f"release notes are invalid: {exc}") from exc
@@ -183,7 +190,6 @@ def preflight(
     previous_commit = _git(root, "rev-list", "-n", "1", previous_tag)
     if not previous_commit:
         raise ReleasePreflightError(f"previous tag {previous_tag!r} is unavailable")
-    candidate_commit = _git(root, "rev-parse", "HEAD")
     candidate_tree = _git(root, "rev-parse", "HEAD^{tree}")
     if not _git_succeeds(root, "merge-base", "--is-ancestor", previous_tag, "HEAD"):
         raise ReleasePreflightError(f"candidate is not descended from {previous_tag}")

@@ -2,11 +2,12 @@
 # Copyright 2026 Viacheslav Vinogradov
 from __future__ import annotations
 
+from datetime import date
 from pathlib import Path
 
 import pytest
 
-from tools.release_notes import release_notes
+from tools.release_notes import release_notes, validate_release_changelog
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -32,3 +33,31 @@ def test_release_notes_reject_missing_duplicate_and_empty_sections() -> None:
         release_notes("## 1.2.3\na\n## 1.2.3\nb\n", "v1.2.3")
     with pytest.raises(ValueError, match="is empty"):
         release_notes("## 1.2.3\n\n## 1.2.2\nold\n", "v1.2.3")
+
+
+def test_final_changelog_requires_empty_unreleased_and_exact_candidate_date() -> None:
+    valid = "## Unreleased\n\n## 1.2.3 — 2026-10-10\n\n- shipped\n"
+    assert validate_release_changelog(
+        valid,
+        "v1.2.3",
+        expected_date=date(2026, 10, 10),
+    ) == "- shipped\n"
+
+    with pytest.raises(ValueError, match="Unreleased still contains"):
+        validate_release_changelog(
+            valid.replace("## Unreleased\n", "## Unreleased\n\n- not moved\n"),
+            "v1.2.3",
+            expected_date=date(2026, 10, 10),
+        )
+    with pytest.raises(ValueError, match="does not match exact candidate"):
+        validate_release_changelog(
+            valid,
+            "v1.2.3",
+            expected_date=date(2026, 10, 11),
+        )
+    with pytest.raises(ValueError, match="must use"):
+        validate_release_changelog(
+            valid.replace(" — 2026-10-10", ""),
+            "v1.2.3",
+            expected_date=date(2026, 10, 10),
+        )

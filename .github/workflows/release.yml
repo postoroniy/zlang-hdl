@@ -196,39 +196,19 @@ jobs:
         working-directory: editors/vscode/zlang-hdl
         run: npm ci --ignore-scripts
       - name: Require a fresh full locked editor advisory audit
-        working-directory: editors/vscode/zlang-hdl
         shell: bash
         run: |
           report="$GITHUB_WORKSPACE/build/editor-npm-audit.json"
-          npm audit --package-lock-only --include=dev --include=optional --include=peer \
+          set +e
+          npm --prefix editors/vscode/zlang-hdl audit \
+            --package-lock-only --include=dev --include=optional --include=peer \
             --audit-level=info --json > "$report"
-          python - "$report" <<'PY'
-          import json
-          import sys
-          from pathlib import Path
-
-          report = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-          if (not isinstance(report, dict) or report.get("auditReportVersion") != 2
-                  or "error" in report or report.get("vulnerabilities") != {}):
-              raise SystemExit("Editor advisory audit is incomplete or has findings")
-          metadata = report.get("metadata", {})
-          counts = metadata.get("vulnerabilities", {})
-          for severity in ("info", "low", "moderate", "high", "critical", "total"):
-              if type(counts.get(severity)) is not int or counts[severity] != 0:
-                  raise SystemExit("Editor advisory audit has findings or missing totals")
-          dependencies = metadata.get("dependencies", {})
-          for kind in ("dev", "total"):
-              if type(dependencies.get(kind)) is not int or dependencies[kind] <= 0:
-                  raise SystemExit("Editor advisory audit did not include build tooling")
-          lock = json.loads(Path("package-lock.json").read_text(encoding="utf-8"))
-          packages = lock.get("packages")
-          if lock.get("lockfileVersion") != 3 or not isinstance(packages, dict) or "" not in packages:
-              raise SystemExit("Editor lockfile inventory is incomplete")
-          if dependencies["total"] != len(packages) - 1:
-              raise SystemExit("Editor advisory audit does not cover the full lockfile")
-          print(f"Editor advisory audit: {dependencies['total']} locked dependencies, "
-                f"including {dependencies['dev']} dev dependencies; zero findings")
-          PY
+          scanner_exit_code=$?
+          set -e
+          python -m tools.audit_editor_vulnerabilities \
+            --lock editors/vscode/zlang-hdl/package-lock.json \
+            --report "$report" \
+            --scanner-exit-code "$scanner_exit_code"
       - name: Exercise real TextMate and Oniguruma tokenization
         working-directory: editors/vscode/zlang-hdl
         run: npm test
@@ -332,15 +312,19 @@ jobs:
           python -m pytest -p tools.pytest_no_skips \
             -n 8 --dist=loadscope -q --maxfail=1 -m 'not performance' \
             --junitxml=build/release-1.xml
-          python -m tools.release_status check --root . --junit build/release-1.xml
           python -m pytest -p tools.pytest_no_skips -q --maxfail=1 -m performance \
             --junitxml=build/release-performance-1.xml
+          python -m tools.release_status check --root . \
+            --junit build/release-1.xml \
+            --junit build/release-performance-1.xml
           python -m pytest -p tools.pytest_no_skips \
             -n 8 --dist=loadscope -q --maxfail=1 -m 'not performance' \
             --junitxml=build/release-2.xml
-          python -m tools.release_status check --root . --junit build/release-2.xml
           python -m pytest -p tools.pytest_no_skips -q --maxfail=1 -m performance \
             --junitxml=build/release-performance-2.xml
+          python -m tools.release_status check --root . \
+            --junit build/release-2.xml \
+            --junit build/release-performance-2.xml
 
   publish:
     if: ${{ github.event_name == 'push' }}

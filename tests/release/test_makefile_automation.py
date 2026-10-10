@@ -6,6 +6,8 @@ import sys
 
 import pytest
 
+from tools.release_status import StatusError, _combined_junit_counts
+
 
 ROOT = Path(__file__).resolve().parents[2]
 MAKEFILE = ROOT / "Makefile"
@@ -21,8 +23,13 @@ def test_makefile_exposes_bounded_test_and_release_entry_points() -> None:
     assert "make venv" in text
     assert "release-review-clean:" in text
     assert (
-        "release-review: release-review-clean release-regressions "
-        "community-pdf-check public-check static test-release-twice" in text
+        "release-review: release-review-clean review-commits release-sanity "
+        "test-release-twice" in text
+    )
+    assert "-m tools.audit_review_commits --root ." in text
+    assert (
+        "release-sanity: release-regressions community-pdf-check public-check "
+        "static editor-advisory-audit" in text
     )
     assert "release review requires a clean committed public checkout" in text
     assert "tools/run_local_env.sh" in text
@@ -30,7 +37,7 @@ def test_makefile_exposes_bounded_test_and_release_entry_points() -> None:
     assert "release-preflight: release-regressions" in text
     assert "tools/release_regressions.py" in text
     assert (
-        "release-candidate: release-preflight native-release-install community-pdf-check public-check static jit-check jit-audit "
+        "release-candidate: release-preflight release-sanity native-release-install jit-check jit-audit "
         "jit-advisory-audit audit release-tools test-release-twice" in text
     )
     assert "tools/release_preflight.py" in text
@@ -40,7 +47,7 @@ def test_makefile_exposes_bounded_test_and_release_entry_points() -> None:
     assert "community-pdf:" not in text
     assert "tools/build_community_pdf.py" not in text
     assert (
-        'PYTHONPATH="$(CURDIR)" $(call RUN_PYTHON,community-pdf) tools/release_status.py check '
+        'PYTHONPATH="$(CURDIR)" $(call RUN_PYTHON,community-pdf) -m tools.release_status check '
         '--root . --tag "$(TAG)"'
     ) in text
     assert "-p tools.pytest_no_skips" in text
@@ -52,6 +59,9 @@ def test_makefile_exposes_bounded_test_and_release_entry_points() -> None:
     assert "tools/materialize_native_test_extension.py" in text
     assert "tests/editor/test_vscode_package.py" in text
     assert "npm --prefix editors/vscode/zlang-hdl run test:host" in text
+    assert "editor-advisory-audit: editor-test" in text
+    assert "-m tools.audit_editor_vulnerabilities" in text
+    assert "npm --prefix editors/vscode/zlang-hdl audit" in text
     assert (
         'PYTHONPATH="$(CURDIR)" ZLANG_VENV="$(VENV)" "$(LOCAL_RUNNER)"'
     ) in text
@@ -109,13 +119,32 @@ def test_release_workflow_uses_curated_changelog_notes_and_native_set() -> None:
     )
 
 
-def test_hosted_workflows_invoke_release_status_as_a_repo_module() -> None:
+def test_hosted_workflows_invoke_release_status_as_a_repo_module(
+    tmp_path: Path,
+) -> None:
     workflows = ROOT / ".github" / "workflows"
     for path in sorted(workflows.glob("*.yml")):
         text = path.read_text(encoding="utf-8")
         assert "python tools/release_status.py" not in text, path
         if "release_status" in text:
             assert "python -m tools.release_status" in text, path
+
+    ci = (workflows / "ci.yml").read_text(encoding="utf-8")
+    assert "Validate the complete split-suite release floor" in ci
+    assert "--junit build/ci-suites/ci-full.xml" in ci
+    assert "--junit build/ci-suites/ci-performance.xml" in ci
+
+    deterministic = tmp_path / "deterministic.xml"
+    performance = tmp_path / "performance.xml"
+    deterministic.write_text(
+        '<testsuite><testcase name="deterministic"/></testsuite>', encoding="utf-8"
+    )
+    performance.write_text(
+        '<testsuite><testcase name="performance"/></testsuite>', encoding="utf-8"
+    )
+    assert _combined_junit_counts((deterministic, performance)) == (2, 0, 0, 0)
+    with pytest.raises(StatusError, match="cannot be counted more than once"):
+        _combined_junit_counts((deterministic, deterministic))
 
 
 def test_makefile_help_is_executable_and_documents_nonpublishing_gate() -> None:
@@ -128,6 +157,8 @@ def test_makefile_help_is_executable_and_documents_nonpublishing_gate() -> None:
     )
     assert "make test-release-twice" in completed.stdout
     assert "make release-review" in completed.stdout
+    assert "make review-commits" in completed.stdout
+    assert "make release-sanity" in completed.stdout
     assert "make release-regressions" in completed.stdout
     assert "make release-preflight" in completed.stdout
     assert "make community-pdf-check" in completed.stdout
@@ -140,6 +171,7 @@ def test_makefile_help_is_executable_and_documents_nonpublishing_gate() -> None:
     assert "make release-tools" in completed.stdout
     assert "make release-candidate" in completed.stdout
     assert "make editor-host-test" in completed.stdout
+    assert "make editor-advisory-audit" in completed.stdout
     assert "non-publishing" in completed.stdout
 
 

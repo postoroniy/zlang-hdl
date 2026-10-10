@@ -108,3 +108,25 @@ def test_workflow_structure_audit_rejects_duplicate_top_level_key(
     assert completed.returncode == 2
     assert "duplicate top-level key 'env'" in completed.stderr
     assert "first declared on line 2" in completed.stderr
+
+
+def test_workflow_structure_audit_rejects_direct_release_status_script(
+    tmp_path: Path,
+) -> None:
+    workflows = tmp_path / ".github" / "workflows"
+    workflows.mkdir(parents=True)
+    (workflows / "release.yml").write_text(
+        "name: Release\njobs:\n  validate:\n    steps:\n"
+        "      - run: python tools/release_status.py check --root .\n",
+        encoding="utf-8",
+    )
+
+    completed = _run(
+        sys.executable,
+        str(WORKFLOW_STRUCTURE_AUDIT),
+        "--root",
+        str(tmp_path),
+    )
+
+    assert completed.returncode == 2
+    assert "python -m tools.release_status" in completed.stderr

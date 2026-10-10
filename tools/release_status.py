@@ -241,6 +241,21 @@ def _junit_counts(path: Path) -> tuple[int, int, int, int]:
     return passed, skipped, failures, errors
 
 
+def _combined_junit_counts(paths: tuple[Path, ...]) -> tuple[int, int, int, int]:
+    if not paths:
+        raise StatusError("at least one JUnit report is required")
+    resolved = tuple(path.resolve() for path in paths)
+    if len(set(resolved)) != len(resolved):
+        raise StatusError("the same JUnit report cannot be counted more than once")
+    counts = tuple(_junit_counts(path) for path in paths)
+    return (
+        sum(item[0] for item in counts),
+        sum(item[1] for item in counts),
+        sum(item[2] for item in counts),
+        sum(item[3] for item in counts),
+    )
+
+
 def _command_output(command: tuple[str, ...]) -> str:
     executable = shutil.which(command[0])
     if executable is None:
@@ -281,7 +296,7 @@ def validate(
     root: Path,
     status_path: Path = DEFAULT_STATUS,
     *,
-    junit: Path | None = None,
+    junit: Path | tuple[Path, ...] | None = None,
     check_tools: bool = False,
     tag: str | None = None,
 ) -> None:
@@ -350,7 +365,8 @@ def validate(
     if not isinstance(maximum_skipped, int) or maximum_skipped < 0:
         raise StatusError("maximum_tests_skipped must be a non-negative integer")
     if junit is not None:
-        passed, skipped, failures, errors = _junit_counts(junit)
+        reports = (junit,) if isinstance(junit, Path) else junit
+        passed, skipped, failures, errors = _combined_junit_counts(reports)
         if failures or errors:
             raise StatusError(
                 f"JUnit report contains {failures} failures and {errors} errors"
@@ -375,7 +391,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("command", choices=("check",))
     parser.add_argument("--root", type=Path, default=Path("."))
     parser.add_argument("--status", type=Path, default=DEFAULT_STATUS)
-    parser.add_argument("--junit", type=Path)
+    parser.add_argument("--junit", type=Path, action="append")
     parser.add_argument("--check-tools", action="store_true")
     parser.add_argument("--tag")
     return parser
@@ -387,7 +403,7 @@ def main(argv: list[str] | None = None) -> int:
         validate(
             args.root,
             args.status,
-            junit=args.junit,
+            junit=None if args.junit is None else tuple(args.junit),
             check_tools=args.check_tools,
             tag=args.tag,
         )

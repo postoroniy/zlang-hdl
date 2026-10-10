@@ -35,21 +35,23 @@ FAST_TEST_PATHS := \
 	tests/parser tests/semantic tests/conformance tests/editor \
 	tests/packaging tests/release
 
-.PHONY: help venv env-check release-review-clean release-review release-regressions release-preflight public-check static jit-check jit-audit jit-advisory-audit native-release-set native-release-install audit release-tools test-fast test test-structural \
+.PHONY: help venv env-check release-review-clean review-commits release-review release-sanity release-regressions release-preflight public-check static jit-check jit-audit jit-advisory-audit native-release-set native-release-install audit release-tools test-fast test test-structural \
 	structural-baseline \
-	community-pdf-check test-release-twice editor-test editor-host-test package release-candidate
+	community-pdf-check test-release-twice editor-test editor-advisory-audit editor-host-test package release-candidate
 
 LOCAL_ENV_TARGETS := \
 	release-regressions release-preflight public-check static jit-check jit-audit \
 	jit-advisory-audit native-release-set native-release-install audit release-tools test-fast test \
 	test-structural structural-baseline community-pdf-check test-release-twice \
-	editor-test editor-host-test release-review release-candidate
+	editor-test editor-advisory-audit editor-host-test review-commits release-review release-sanity release-candidate
 
 $(LOCAL_ENV_TARGETS): env-check
 
 help:
 	@printf '%s\n' \
 		'make release-review     validate a clean public review branch before merge' \
+		'make review-commits     require signed, DCO-complete public review commits' \
+		'make release-sanity     run fast release metadata, projection, static and editor gates' \
 		'make release-regressions validate fix inclusion and permanent regression selectors' \
 		'make release-preflight  bind version, tag, Git tree and release artifacts' \
 		'make public-check       validate the public projection and release metadata' \
@@ -68,6 +70,7 @@ help:
 		'make community-pdf-check validate PDF and release-status identities' \
 		'make test-release-twice run two zero-skip suites and validate both JUnit files' \
 		'make editor-test        install locked editor dependencies and run its tests' \
+		'make editor-advisory-audit audit the complete locked editor dependency inventory' \
 		'make editor-host-test   build, audit and run the installed VSIX host smoke' \
 		'make package            build one sdist and two byte-identical wheels' \
 		'make release-candidate  run the local non-publishing release gate'
@@ -117,7 +120,14 @@ release-review-clean:
 		exit 2; \
 	fi
 
-release-review: release-review-clean release-regressions community-pdf-check public-check static test-release-twice
+review-commits:
+	$(call RUN_PYTHON,review-commits) -m tools.audit_review_commits --root .
+
+release-review: release-review-clean review-commits release-sanity test-release-twice
+
+# Fail quickly on release metadata, projection, workflow, PDF and editor issues
+# before provisioning and running two complete zero-skip regressions.
+release-sanity: release-regressions community-pdf-check public-check static editor-advisory-audit
 
 release-regressions:
 	PYTHONPATH="$(CURDIR)" $(call RUN_PYTHON,release-regressions) tools/release_regressions.py \
@@ -142,9 +152,10 @@ public-check:
 		trap 'rm -rf -- "$$public_root"' EXIT
 		PYTHONPATH="$(CURDIR)" $(call RUN_PYTHON,public-check) tools/public_tree.py export --source . --destination "$$public_root"
 		PYTHONPATH="$$public_root" $(call RUN_PYTHON,public-check) tools/public_tree.py check-export --source "$$public_root" --config "$(CURDIR)/release/public-tree.toml"
-		PYTHONPATH="$$public_root" $(call RUN_PYTHON,public-check) "$$public_root/tools/release_status.py" check --root "$$public_root" --tag "$(TAG)"
+		cd "$$public_root"
+		PYTHONPATH="$$public_root" $(call RUN_PYTHON,public-check) -m tools.release_status check --root . --tag "$(TAG)"
 	else
-		PYTHONPATH="$(CURDIR)" $(call RUN_PYTHON,public-check) tools/release_status.py check --root . --tag "$(TAG)"
+		PYTHONPATH="$(CURDIR)" $(call RUN_PYTHON,public-check) -m tools.release_status check --root . --tag "$(TAG)"
 	fi
 
 static:
@@ -232,10 +243,11 @@ release-tools:
 		public_root="$$(mktemp -d "$(TMP_ROOT)/public-tools.XXXXXX")"
 		trap 'rm -rf -- "$$public_root"' EXIT
 		PYTHONPATH="$(CURDIR)" $(call RUN_PYTHON,release-tools) tools/public_tree.py export --source . --destination "$$public_root"
-		PYTHONPATH="$$public_root" $(call RUN_PYTHON,release-tools) "$$public_root/tools/release_status.py" check \
-			--root "$$public_root" --check-tools --tag "$(TAG)"
+		cd "$$public_root"
+		PYTHONPATH="$$public_root" $(call RUN_PYTHON,release-tools) -m tools.release_status check \
+			--root . --check-tools --tag "$(TAG)"
 	else
-		PYTHONPATH="$(CURDIR)" $(call RUN_PYTHON,release-tools) tools/release_status.py check --root . --check-tools --tag "$(TAG)"
+		PYTHONPATH="$(CURDIR)" $(call RUN_PYTHON,release-tools) -m tools.release_status check --root . --check-tools --tag "$(TAG)"
 	fi
 
 test-fast:
@@ -255,7 +267,7 @@ structural-baseline:
 		--markdown "$(STRUCTURAL_REPORT_DIR)/$(STRUCTURAL_PROFILE).md"
 
 community-pdf-check:
-	PYTHONPATH="$(CURDIR)" $(call RUN_PYTHON,community-pdf) tools/release_status.py check --root . --tag "$(TAG)"
+	PYTHONPATH="$(CURDIR)" $(call RUN_PYTHON,community-pdf) -m tools.release_status check --root . --tag "$(TAG)"
 
 test-release-twice:
 	mkdir -p "$(TMP_ROOT)"
@@ -308,16 +320,32 @@ test-release-twice:
 	export PYTHONPATH="$$public_root"
 	"$$python_bin" -m pytest -p tools.pytest_no_skips \
 		-n "$(WORKERS)" --dist=loadscope -q --junitxml="$$report_root/release-1.xml"
-	"$$python_bin" tools/release_status.py check \
+	"$$python_bin" -m tools.release_status check \
 		--root . --junit "$$report_root/release-1.xml"
 	"$$python_bin" -m pytest -p tools.pytest_no_skips \
 		-n "$(WORKERS)" --dist=loadscope -q --junitxml="$$report_root/release-2.xml"
-	"$$python_bin" tools/release_status.py check \
+	"$$python_bin" -m tools.release_status check \
 		--root . --junit "$$report_root/release-2.xml"
 
 editor-test:
 	npm --prefix editors/vscode/zlang-hdl ci --ignore-scripts
 	npm --prefix editors/vscode/zlang-hdl test
+
+editor-advisory-audit: editor-test
+	mkdir -p "$(TMP_ROOT)"
+	run_tmp="$$(mktemp -d "$(TMP_ROOT)/editor-advisory.XXXXXX")"
+	trap 'rm -rf -- "$$run_tmp"' EXIT
+	report="$$run_tmp/npm-audit.json"
+	set +e
+	npm --prefix editors/vscode/zlang-hdl audit \
+		--package-lock-only --include=dev --include=optional --include=peer \
+		--audit-level=info --json > "$$report"
+	scanner_exit_code=$$?
+	set -e
+	$(call RUN_PYTHON,editor-advisory-audit) -m tools.audit_editor_vulnerabilities \
+		--lock editors/vscode/zlang-hdl/package-lock.json \
+		--report "$$report" \
+		--scanner-exit-code "$$scanner_exit_code"
 
 editor-host-test: editor-test
 	if [[ -e "$(EDITOR_VSIX)" ]]; then
@@ -405,4 +433,4 @@ package:
 
 # This target prepares and validates local candidate artifacts. It deliberately
 # does not create commits/tags, upload artifacts, or publish a GitHub release.
-release-candidate: release-preflight native-release-install community-pdf-check public-check static jit-check jit-audit jit-advisory-audit audit release-tools test-release-twice editor-host-test package
+release-candidate: release-preflight release-sanity native-release-install jit-check jit-audit jit-advisory-audit audit release-tools test-release-twice editor-host-test package
