@@ -116,11 +116,17 @@ venv:
 	# a separate build-isolation environment.
 	if command -v uv >/dev/null; then
 		uv pip install --python "$(PYTHON)" "pip==$(PIP_VERSION)" "setuptools==$(SETUPTOOLS_VERSION)"
-		uv pip install --python "$(PYTHON)" -e '.[test]' $(RELEASE_PYTHON_TOOLS)
+		uv pip install --python "$(PYTHON)" -e '.[test]'
+		uv pip install --python "$(PYTHON)" $(RELEASE_PYTHON_TOOLS)
 	else
 		"$(PYTHON)" -m pip install --disable-pip-version-check --upgrade \
 			"pip==$(PIP_VERSION)" "setuptools==$(SETUPTOOLS_VERSION)"
-		"$(PYTHON)" -m pip install --disable-pip-version-check --no-build-isolation -e '.[test]' $(RELEASE_PYTHON_TOOLS)
+		# The repository build backend is installed above, so the local editable
+		# package does not need a second isolated build environment.  Keep external
+		# release tools in a separate command: sdists such as reuse own different
+		# build backends and must retain normal PEP 517 build isolation.
+		"$(PYTHON)" -m pip install --disable-pip-version-check --no-build-isolation -e '.[test]'
+		"$(PYTHON)" -m pip install --disable-pip-version-check $(RELEASE_PYTHON_TOOLS)
 	fi
 
 env-check:

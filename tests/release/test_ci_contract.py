@@ -92,6 +92,30 @@ def test_dependency_pins_have_one_repository_owner() -> None:
         assert obsolete_or_duplicated not in migrated
 
 
+def test_bootstrap_isolates_external_release_tool_builds() -> None:
+    completed = subprocess.run(
+        ("make", "-n", "venv"),
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    pip_commands = [
+        line.strip()
+        for line in completed.stdout.splitlines()
+        if " -m pip install " in line
+    ]
+    assert len(pip_commands) == 3
+    editable = next(line for line in pip_commands if " -e '.[test]'" in line)
+    release_tools = next(
+        line for line in pip_commands if "reuse==" in line and " -e '.[test]'" not in line
+    )
+    assert "--no-build-isolation" in editable
+    assert "--no-build-isolation" not in release_tools
+    assert "reuse==5.1.1" in release_tools
+
+
 def test_split_suite_floor_runs_without_site_packages(tmp_path: Path) -> None:
     status_root = _status_root(tmp_path / "status-root")
     deterministic = tmp_path / "deterministic.xml"
