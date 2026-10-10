@@ -136,7 +136,21 @@ def test_hosted_workflows_invoke_release_status_as_a_repo_module(
 
     ci = (workflows / "ci.yml").read_text(encoding="utf-8")
     assert "Validate the complete split-suite release floor" in ci
-    assert "release_status check-junit --root ." in ci
+    full_status_step = (
+        "- name: Validate release status\n"
+        "        run: |\n"
+        "          python -m tools.release_status check --root ."
+    )
+    aggregate_status_step = (
+        "- name: Validate the complete split-suite release floor\n"
+        "        if: needs.full-regression.result == 'success' && "
+        "needs.performance-regression.result == 'success'\n"
+        "        run: >-\n"
+        "          python -m tools.release_status check-junit --root ."
+    )
+    assert full_status_step in ci
+    assert aggregate_status_step in ci
+    assert ci.count("release_status check-junit --root .") == 1
     assert "--junit build/ci-suites/ci-full.xml" in ci
     assert "--junit build/ci-suites/ci-performance.xml" in ci
 
