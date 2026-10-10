@@ -25,7 +25,7 @@ from zlang.ir.top_abi import build_top_physical_abi
 from zlang.ir.traversal import ExpressionTraversalPolicy, expression_children
 
 
-RTL_NAMING_SCHEMA = "zlang-hierarchy-local-names-v4"
+RTL_NAMING_SCHEMA = "zlang-hierarchy-local-names-v5"
 Identifier = Callable[[str], str]
 
 
@@ -390,7 +390,9 @@ def module_rtl_names(
             requests.append(_Request("child_signal", (owner, port), f"{identity}:port:{port}", _private_base(f"{instance_names[owner]}_{port}")))
     anonymous_index = 0
     for rule in module.rules:
-        if re.fullmatch(r"__anonymous_rule_[0-9a-f]{16}", rule.name):
+        if rule.physical_name_hint is not None:
+            label = rule.physical_name_hint
+        elif re.fullmatch(r"__anonymous_rule_[0-9a-f]{16}", rule.name):
             label = f"when_{anonymous_index:02d}"
             anonymous_index += 1
         else:

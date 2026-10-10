@@ -14,6 +14,7 @@ from zlang import formal_trace as formal_trace
 from zlang.ir import cdc as ir_cdc
 from zlang.ir import formal as ir_formal
 from zlang import source as source
+from zlang.formal_routes import formal_engine_route
 
 
 from zlang import verification_bundle_codec as bundle_codec
@@ -27,6 +28,7 @@ class VerificationRunConfig:
     depth: int = 20
     timeout_seconds: int = 120
     jobs: int = 1
+    route: str = "smtbmc"
 
     def __post_init__(self) -> None:
         if not isinstance(self.mode, ir_formal.ProofMode):
@@ -36,6 +38,13 @@ class VerificationRunConfig:
                 raise codec_support.VerificationBundleError(
                     f"verification {description} must be one non-empty token"
                 )
+        try:
+            formal_engine_route(self.route).validate_request(
+                solver=self.solver,
+                mode=self.mode.value,
+            )
+        except ir_formal.FormalError as error:
+            raise codec_support.VerificationBundleError(str(error)) from error
         codec_support.require_integer(self.depth, "verification depth", minimum=1)
         codec_support.require_integer(self.timeout_seconds, "verification timeout", minimum=1)
         codec_support.require_integer(self.jobs, "verification jobs", minimum=1)
@@ -45,6 +54,7 @@ class VerificationRunConfig:
             "depth": self.depth,
             "engine": self.engine,
             "mode": self.mode.value,
+            "route": self.route,
             "solver": self.solver,
             "timeout_seconds": self.timeout_seconds,
             "jobs": self.jobs,
@@ -56,7 +66,10 @@ class VerificationRunConfig:
             raise codec_support.VerificationBundleError("verification run config must be an object")
         codec_support.require_exact_keys(
             data,
-            required={"depth", "engine", "jobs", "mode", "solver", "timeout_seconds"},
+            required={
+                "depth", "engine", "jobs", "mode", "route", "solver",
+                "timeout_seconds",
+            },
             description="verification run config",
         )
         try:
@@ -66,6 +79,7 @@ class VerificationRunConfig:
         return cls(
             mode=mode,
             engine=codec_support.require_string(data["engine"], "verification engine"),
+            route=codec_support.require_string(data["route"], "verification route"),
             solver=codec_support.require_string(data["solver"], "verification solver"),
             depth=codec_support.require_integer(data["depth"], "verification depth", minimum=1),
             timeout_seconds=codec_support.require_integer(

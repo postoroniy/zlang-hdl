@@ -1,8 +1,11 @@
 from dataclasses import replace
 from pathlib import Path
+import shutil
+import subprocess
 
 import pytest
 
+import zlang.stdlib as stdlib
 from zlang.backend.manifest import (
     BackendArtifact,
     INLINE_TOP_BOUNDARY_MANIFEST_VERSION,
@@ -15,12 +18,18 @@ from zlang.ir.pipelines import PipelineMetric, PipelineRelation
 from zlang.ir.types import UIntType
 from zlang.target_planner import MeasurementKey, QoREvidence, load_qor_evidence
 from zlang.target_candidate_providers import candidate_provider_for
+from zlang.target_capabilities import (
+    DotListCapability,
+    PhysicalBindingRequirement,
+    capabilities_satisfied,
+    evaluate_capabilities,
+)
 from zlang.target_timing import alignment_delays
-from zlang.targets import TargetArchitectureError
+from zlang.targets import TargetArchitectureError, load_target
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = (ROOT / "examples/symmetric_fixed_fir_implementation.zhl").read_text()
+SOURCE = (ROOT / "examples/symmetric_fixed_fir_auto.zhl").read_text()
 TARGET = "xc7z030ffg676-1"
 
 
@@ -28,6 +37,7 @@ def test_target_candidate_provider_registry_is_exact_and_fail_closed() -> None:
     assert candidate_provider_for("signed_product_reduction").operation == (
         "signed_product_reduction"
     )
+    assert candidate_provider_for("multiply").operation == "multiply"
     assert candidate_provider_for("multiply_add").operation == "multiply_add"
     assert candidate_provider_for("symmetric_fir_cascade").operation == (
         "symmetric_fir_cascade"
@@ -36,7 +46,119 @@ def test_target_candidate_provider_registry_is_exact_and_fail_closed() -> None:
         candidate_provider_for("unreviewed_operation")
 
 
-def _compile(top="SymmetricFixedFIRImplementation", **kwargs):
+def test_target_capabilities_require_source_published_resource_facts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(stdlib, "_ROOTS", (ROOT / "stdlib",))
+    _, _, resources = load_target(TARGET)
+    dsp = next(item for item in resources if item.name == "DSP48E1")
+    signed_product = DotListCapability(
+        "physical_architectures", "signed_product_reduction"
+    )
+    binding = PhysicalBindingRequirement(
+        "systemverilog", "dsp48e1_explicit", "DSP48E1"
+    )
+    evidence = evaluate_capabilities(dsp, (signed_product, binding))
+    assert tuple(item.satisfied for item in evidence) == (True, True)
+    assert capabilities_satisfied(dsp, (signed_product, binding))
+    assert not capabilities_satisfied(
+        dsp, (DotListCapability("physical_architectures", "unreviewed_operation"),)
+    )
+
+
+def test_typed_bare_multiply_uses_its_own_provider_family(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The repository can coexist with an installed wheel during development.
+    # Keep this source-catalog test independent from that wheel's older stdlib
+    # copy; production resolution still rejects divergent duplicates.
+    monkeypatch.setattr(stdlib, "_ROOTS", (ROOT / "stdlib",))
+    result = compile_source(
+        "module Mul { clock clk reset rst in a:u8 in b:u8 out y:u16 "
+        "y=implement { a*b intent { latency == 1 ii == 1 minimize lut } } }",
+        target=TARGET,
+    )
+    planning = result.target_planning_result
+    assert planning is not None
+    assert planning.extraction.objective is expr.CostMetric.LUT
+    assert planning.selected_candidate.name == "Xilinx7Multiply/unregistered"
+    assert planning.selected_graph.objective == "lut"
+    assert all(
+        item.graph.architecture_template_identity != "std.arch.xilinx7_multiply_add.Xilinx7MultiplyAdd"
+        for item in planning.generated_candidates
+    )
+    selected = planning.selected_graph
+    assert len(selected.resources) == 1
+    assert selected.resources[0].identity == "multiply0"
+    assert selected.resources[0].operation == "preadd_multiply_accumulate"
+
+
+@pytest.mark.skipif(
+    shutil.which("iverilog") is None or shutil.which("vvp") is None,
+    reason="Icarus Verilog unavailable",
+)
+@pytest.mark.parametrize(
+    ("input_type", "output_type", "left", "right", "expected"),
+    (
+        ("u8", "u16", "8'd3", "8'd7", "16'd21"),
+        ("s8", "s16", "-8'sd3", "8'sd7", "-16'sd21"),
+    ),
+)
+def test_target_hard_multiply_simulation_model_preserves_product(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    input_type: str,
+    output_type: str,
+    left: str,
+    right: str,
+    expected: str,
+) -> None:
+    """Exercise the provider-selected DSP model, not merely its graph facts."""
+
+    monkeypatch.setattr(stdlib, "_ROOTS", (ROOT / "stdlib",))
+    result = compile_source(
+        f"module Mul {{ clock clk reset rst in a:{input_type} in b:{input_type} out y:{output_type} "
+        "y=implement { a*b intent { latency == 1 ii == 1 minimize lut } } }",
+        target=TARGET,
+    )
+    artifact = emit_target_artifact(
+        result.ir, result.implementation_graph, simulation_model=True
+    )
+    rtl = tmp_path / "Mul.sv"
+    rtl.write_text(
+        artifact.text
+        + "\nmodule MulTb;\n"
+        "  logic clk = 0; logic rst = 1;\n"
+        f"  logic signed [7:0] a = 0; logic signed [7:0] b = 0; logic signed [15:0] y;\n"
+        "  Mul dut(.*);\n"
+        "  always #5 clk = ~clk;\n"
+        "  initial begin\n"
+        f"    repeat (2) @(posedge clk); rst = 0; a = {left}; b = {right};\n"
+        "    repeat (2) @(posedge clk); #1;\n"
+        f"    if (y !== {expected}) $fatal(1, \"hard multiply result mismatch\");\n"
+        "    $finish;\n"
+        "  end\n"
+        "endmodule\n",
+        encoding="utf-8",
+    )
+    executable = tmp_path / "mul.vvp"
+    compiled = subprocess.run(
+        ("iverilog", "-g2012", "-s", "MulTb", "-o", str(executable), str(rtl)),
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert compiled.returncode == 0, compiled.stdout + compiled.stderr
+    simulated = subprocess.run(
+        ("vvp", str(executable)),
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert simulated.returncode == 0, simulated.stdout + simulated.stderr
+
+
+def _compile(top="SymmetricFixedFIRAuto", **kwargs):
     return compile_source(SOURCE, top=top, target=TARGET, **kwargs)
 
 
@@ -83,7 +205,7 @@ def test_packaged_qor_catalog_keys_match_current_emitted_graphs() -> None:
         if item.key.architecture_template_identity == fir_template
     }
     bounded = _compile()
-    exact = _compile(top="SymmetricFixedFIRImplementationExact8")
+    exact = _compile(top="SymmetricFixedFIRAutoExact8")
     current_fir = {
         item.graph.identity
         for item in bounded.target_planning_result.generated_candidates
@@ -93,10 +215,10 @@ def test_packaged_qor_catalog_keys_match_current_emitted_graphs() -> None:
     assert packaged_fir == current_fir
 
     fft_source = (
-        ROOT / "examples/fft/complex_multiply_implementation.zhl"
+        ROOT / "examples/fft/complex_multiply_pipeline_auto.zhl"
     ).read_text()
     current_signed = set()
-    for top in ("FFTComplexMultiplyRealImplementation", "FFTComplexMultiplyImagImplementation"):
+    for top in ("FFTComplexMultiplyRealAuto", "FFTComplexMultiplyImagAuto"):
         result = compile_source(fft_source, top=top, target=TARGET)
         current_signed.update(
             item.graph.identity
@@ -120,7 +242,7 @@ def test_generic_candidate_uses_computed_structural_fmax_not_placeholder():
 
 
 def test_ii_alias_normalizes_to_existing_throughput_constraint_and_exact_latency():
-    result = _compile(top="SymmetricFixedFIRImplementationExact8")
+    result = _compile(top="SymmetricFixedFIRAutoExact8")
     constraints = result.ir.pipeline_explorations[0].constraints
     assert constraints[0].metric is PipelineMetric.LATENCY
     assert constraints[0].relation is PipelineRelation.EXACT
@@ -144,6 +266,25 @@ def test_measured_bounded_contract_selects_lower_latency_100mhz_configuration():
     assert "103.17787866281469 MHz (routed_measurement)" in report
 
 
+def test_target_planner_preserves_maximize_fmax_objective_after_mapping():
+    source = SOURCE.replace("fmax >= 100", "fmax >= 70")
+    result = compile_source(
+        source,
+        top="SymmetricFixedFIRAuto",
+        target=TARGET,
+        target_evidence_policy="measured_preferred",
+    )
+    planning = result.target_planning_result
+    assert planning.extraction.objective is expr.CostMetric.FMAX_EST
+    assert planning.selected_candidate.graph.pipeline_configuration_identity.endswith(
+        "multiply_output_registered"
+    )
+    assert planning.selected_candidate.cost.fmax_est.value == pytest.approx(
+        103.17787866281469
+    )
+    assert "objective: maximize fmax_est" in result.target_planner_report
+
+
 def test_candidate_set_is_generic_plus_four_resource_configurations():
     result = _compile()
     candidates = result.target_planning_result.generated_candidates
@@ -155,7 +296,7 @@ def test_candidate_set_is_generic_plus_four_resource_configurations():
 
 def test_exact_latency_adds_only_explicit_compensation():
     result = _compile(
-        top="SymmetricFixedFIRImplementationExact8",
+        top="SymmetricFixedFIRAutoExact8",
         target_evidence_policy="measured_required",
     )
     selected = result.implementation_graph
@@ -225,7 +366,7 @@ def test_independent_coefficients_do_not_match_symmetric_template():
     ).replace(
         "samples[7] * coefficients[0]", "samples[7] * coefficients[7]"
     )
-    result = compile_source(source, top="SymmetricFixedFIRImplementation", target=TARGET)
+    result = compile_source(source, top="SymmetricFixedFIRAuto", target=TARGET)
     assert result.implementation_graph.is_generic
     assert any("four semantically reused coefficients" in reason
                for item in result.target_planning_result.rejected_candidates
@@ -234,14 +375,14 @@ def test_independent_coefficients_do_not_match_symmetric_template():
 
 def test_illegal_exact_width_rejects_target_and_keeps_generic():
     source = SOURCE.replace("vec<8,SF2.10>", "vec<8,SF20.10>")
-    result = compile_source(source, top="SymmetricFixedFIRImplementation", target=TARGET)
+    result = compile_source(source, top="SymmetricFixedFIRAuto", target=TARGET)
     assert result.implementation_graph.is_generic
     assert any("preadder width exceeded" in reason
                for item in result.target_planning_result.rejected_candidates
                for reason in item.rejection_reasons)
     with pytest.raises(TargetArchitectureError, match="required target architecture"):
         compile_source(
-            source, top="SymmetricFixedFIRImplementation", target=TARGET,
+            source, top="SymmetricFixedFIRAuto", target=TARGET,
             architecture="Xilinx7SymmetricDSPCascade",
             architecture_mode="required",
         )
@@ -276,7 +417,7 @@ def test_manifest_v7_retains_policy_timing_cost_evidence_and_backend():
     assert implementation.policy_requirements == (
         ("latency", "<=", 8), ("ii", "==", 1), ("fmax", ">=", 100),
     )
-    assert implementation.objective == "lut"
+    assert implementation.objective == "fmax_est"
     assert implementation.timing_dag_identity
     assert len(implementation.timing_nodes) == 7
     assert len(tuple(item for item in implementation.timing_edges if item[1] == "dedicated")) == 3

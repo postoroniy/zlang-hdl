@@ -10,6 +10,7 @@ import time
 
 from zlang._version import __version__
 from zlang.common.serialization import stable_digest
+from zlang.common.cache_paths import user_cache_root
 from zlang.dependencies import DependencyModelError
 from zlang.definition_resolution import DefinitionResolution, DefinitionTarget
 from zlang.module_resolver import ModuleResolutionError
@@ -55,12 +56,7 @@ def _inventory_matches(entry: models._ToolingSnapshotEntry | models._ToolingSymb
 
 
 def _symbol_cache_root() -> Path:
-    selected = os.environ.get("XDG_CACHE_HOME")
-    if selected:
-        candidate = Path(selected).expanduser()
-        if candidate.is_absolute():
-            return candidate / "zlang-hdl" / "lsp" / "symbol-v1"
-    return Path.home() / ".cache" / "zlang-hdl" / "lsp" / "symbol-v1"
+    return user_cache_root("lsp", "symbol-v1")
 
 
 def _cache_origin_sort_key(origin: SourceOrigin) -> tuple[object, ...]:

@@ -10,6 +10,7 @@ from typing import Iterable
 
 from zlang.costs import SourcePolicy
 from zlang.diagnostics import DiagnosticError
+from zlang.ir.expressions import CostMetric
 from zlang.ir.module import Module
 from zlang.ir.target import ImplementationGraph
 from zlang.target_planner import (
@@ -151,6 +152,7 @@ def plan_backend_implementations(
     target: str | None = None,
     architecture: str | None = None,
     architecture_mode: ArchitectureSelectionMode | str = ArchitectureSelectionMode.GENERIC,
+    objective: CostMetric | str = CostMetric.LUT,
     source_policy: SourcePolicy | str = SourcePolicy.MEASURED_PREFERRED,
     evidence: Iterable[QoREvidence] | None = None,
     evidence_path=None,
@@ -199,6 +201,7 @@ def plan_backend_implementations(
         physical_result = plan_target_pipeline(
             module,
             target=target,
+            objective=objective,
             source_policy=source_policy,
             evidence=evidence,
             evidence_path=evidence_path,

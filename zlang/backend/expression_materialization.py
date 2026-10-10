@@ -538,44 +538,26 @@ def dependency_ordered_materialization(
         return _cached_expression_identity(value, identity_cache, payload_cache)
 
     by_identity = {identity_of(item.expression): item for item in planned}
-    state: dict[str, int] = {}
+    if len(by_identity) != len(planned):
+        raise ValueError("materialized expressions must have unique identities")
+
+    # ExpressionDagIndex already owns cycle detection and dependency-first
+    # traversal.  Building one index for all selected roots avoids rediscovering
+    # the same unmaterialized subgraph separately for every temporary.
+    graph = ExpressionDagIndex(
+        (item.expression for item in planned),
+        children=expression_children,
+    )
     ordered: list[MaterializedExpression] = []
-
-    def dependencies(value: expr.Expression) -> tuple[str, ...]:
-        found: list[str] = []
-        seen: set[str] = set()
-
-        def visit(current: expr.Expression) -> None:
-            for child in expression_children(current):
-                child_identity = identity_of(child)
-                if child_identity in seen:
-                    continue
-                seen.add(child_identity)
-                if child_identity in by_identity:
-                    found.append(child_identity)
-                else:
-                    visit(child)
-
-        visit(value)
-        return tuple(found)
-
-    def visit(identity: str) -> None:
-        status = state.get(identity, 0)
-        if status == 2:
-            return
-        if status == 1:
-            raise ValueError(
-                "materialized expression dependency graph contains a cycle"
-            )
-        state[identity] = 1
-        item = by_identity[identity]
-        for dependency in dependencies(item.expression):
-            visit(dependency)
-        state[identity] = 2
-        ordered.append(item)
-
-    for item in planned:
-        visit(identity_of(item.expression))
+    emitted: set[str] = set()
+    for value in graph:
+        identity = identity_of(value)
+        item = by_identity.get(identity)
+        if item is not None and identity not in emitted:
+            ordered.append(item)
+            emitted.add(identity)
+    if len(emitted) != len(planned):
+        raise ValueError("materialized expression dependency graph is incomplete")
     return tuple(ordered)
 
 

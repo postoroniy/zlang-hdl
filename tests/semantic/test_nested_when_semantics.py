@@ -23,14 +23,14 @@ def test_outer_chain_and_nested_actions_remain_one_atomic_rule() -> None:
         out event : bit
         reg status : u2 = 0
         choose: when fault {
-          when valid { status <- 3 event <- 1 }
-          else { status <- 2 event <- 0 }
+          when valid { status <- 3 drive event = 1 }
+          else { status <- 2 drive event = 0 }
         } else when clear {
           status <- 0
-          event <- 0
+          drive event = 0
         } else {
           status <- 1
-          event <- 1
+          drive event = 1
         }
       }
     """)
@@ -62,8 +62,8 @@ def test_opposite_branches_may_write_one_target_but_overlapping_paths_may_not() 
       module Exclusive {
         clock clk reset rst in fire,select:bit out y:u8 reg x:u8=0
         when fire {
-          when select { x <- 1 y <- 1 }
-          else { x <- 2 y <- 2 }
+          when select { x <- 1 drive y = 1 }
+          else { x <- 2 drive y = 2 }
         }
       }
     """)
@@ -222,7 +222,7 @@ def test_child_output_dependency_includes_nested_activation_predicates() -> None
     source = """
       module ConditionalEcho {
         clock clk reset rst in x:bit out y:bit
-        when 1 { when x { y <- 1 } else { y <- 0 } }
+        when 1 { when x { drive y = 1 } else { drive y = 0 } }
       }
       module ConditionalLoop {
         clock clk reset rst out y:bit

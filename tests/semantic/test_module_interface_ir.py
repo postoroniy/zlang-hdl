@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from zlang.compiler import compile_source
-from zlang.opt.lowering import lower, restore
+from zlang.opt import lower, restore
 
 
 def test_module_signature_round_trips_through_both_canonical_stages() -> None:

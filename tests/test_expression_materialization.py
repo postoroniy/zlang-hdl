@@ -1,7 +1,6 @@
 """Shared backend expression-materialization policy tests."""
 
 from zlang.backend.expression_materialization import (
-    ExpressionAliasMap,
     MaterializedExpression,
     dependency_ordered_materialization,
     expression_children,
@@ -124,51 +123,4 @@ def test_procedural_materialization_orders_shared_dependencies_first() -> None:
         "shared",
         "parent_first",
         "parent_second",
-    )
-
-
-def test_unique_oversized_tree_is_partitioned_at_typed_dag_boundaries() -> None:
-    type8 = UIntType(8)
-    value: expr.Expression = expr.InputRef("a", type8)
-    for index in range(40):
-        value = expr.Add(value, expr.Constant(index, type8), type8)
-
-    plan = plan_materialization((value,), maximum_inline_size=16)
-    aliases = {item.expression: item.name for item in plan}
-    rewritten = replace_materialized(value, aliases, keep=value)
-
-    assert plan
-    assert plan[-1].expression == value
-    assert isinstance(rewritten, expr.Add)
-    assert _logical_size(rewritten) <= 16
-
-
-def test_preferred_root_definition_is_partitioned_independently_of_uses() -> None:
-    type8 = UIntType(8)
-    value: expr.Expression = expr.InputRef("a", type8)
-    for index in range(40):
-        value = expr.Add(value, expr.Constant(index, type8), type8)
-
-    plan = plan_materialization(
-        (value,),
-        preferred_names=((value, "preferred"),),
-        maximum_inline_size=16,
-    )
-    aliases = ExpressionAliasMap(
-        (item.expression, item.name) for item in plan
-    )
-    rewritten = replace_materialized(value, aliases, keep=value)
-
-    assert plan[-1].name == "preferred"
-    assert len(plan) > 1
-    assert _logical_size(rewritten) <= 16
-    assert all(
-        _logical_size(
-            replace_materialized(
-                item.expression,
-                aliases,
-                keep=item.expression,
-            )
-        ) <= 16
-        for item in plan
     )

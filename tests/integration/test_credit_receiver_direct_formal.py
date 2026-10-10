@@ -11,8 +11,12 @@ import subprocess
 import pytest
 
 from zlang.backend.manifest import BackendArtifact
-from zlang.backend.systemverilog import emit_artifact, emit_formal_artifact
-from zlang.backend.systemverilog import emitter as sv_emitter
+from zlang.backend.systemverilog import (
+    SystemVerilogEmissionError,
+    emit,
+    emit_artifact,
+    emit_formal_artifact,
+)
 from zlang.backend.systemverilog import formal as sv_formal
 from zlang.compiler import compile_source
 from zlang.formal import (
@@ -126,17 +130,17 @@ def test_malformed_receiver_credit_count_descriptors_and_links_fail_closed() -> 
     )
     for item in malformed:
         with pytest.raises(
-            sv_emitter.SystemVerilogEmissionError,
+            SystemVerilogEmissionError,
             match="projection disagrees with the typed",
         ):
-            sv_emitter.emit(
+            emit(
                 formal_module, _formal_adapter_counts=(item,)
             )
     with pytest.raises(
-        sv_emitter.SystemVerilogEmissionError,
+        SystemVerilogEmissionError,
         match="duplicate formal count projections",
     ):
-        sv_emitter.emit(
+        emit(
             formal_module,
             _formal_adapter_counts=(projection, projection),
         )
@@ -148,17 +152,17 @@ def test_malformed_receiver_credit_count_descriptors_and_links_fail_closed() -> 
         ),),
     )
     with pytest.raises(
-        sv_emitter.SystemVerilogEmissionError,
+        SystemVerilogEmissionError,
         match="projection disagrees with the typed",
     ):
-        sv_emitter.emit(
+        emit(
             broken_link, _formal_adapter_counts=(projection,)
         )
     with pytest.raises(
-        sv_emitter.SystemVerilogEmissionError,
+        SystemVerilogEmissionError,
         match="closed clocked connection",
     ):
-        sv_emitter.emit(formal_module)
+        emit(formal_module)
 
 
 @pytest.mark.skipif(

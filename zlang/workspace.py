@@ -19,6 +19,7 @@ import tempfile
 from typing import Iterable, Mapping
 
 from zlang.common.graph import DependencyCycle, dependency_postorder
+from zlang.common.atomic_io import publish_text_atomically
 from zlang.dependencies import (
     DependencyClosure,
     DependencyModuleIdentity,
@@ -981,18 +982,7 @@ def update_project_lock(project: Path | str = Path("zlang.toml")) -> ProjectLock
                 source.rename(destination)
 
         lock_path = manifest.project_root / "zlang.lock"
-        with tempfile.NamedTemporaryFile(
-            "w",
-            encoding="utf-8",
-            dir=manifest.project_root,
-            prefix=".zlang.lock.",
-            delete=False,
-        ) as output:
-            output.write(lock.render())
-            output.flush()
-            os.fsync(output.fileno())
-            staged_lock = Path(output.name)
-        os.replace(staged_lock, lock_path)
+        publish_text_atomically(lock_path, lock.render())
         return lock
 
 

@@ -29,8 +29,7 @@ from zlang.compiler import compile_file
 from zlang.ir import expressions as expr
 from zlang.ir.functional_regions import evaluate_compile_time
 from zlang.ir.types import FixedType, StructType, VecType
-from zlang.opt.ir import OptimizationStage
-from zlang.opt.lowering import lower, restore
+from zlang.opt import OptimizationStage, lower, restore
 from zlang.native_simulation import simulate
 from zlang.simulation_plan import SimulationPlanError, build_simulation_plan
 from zlang.toolchain import lint_with_verilator
@@ -446,8 +445,7 @@ def test_ifft64_semantic_and_canonical_subprocess_has_a_bounded_regression_ceili
 import json, resource, sys
 from time import perf_counter
 from zlang.compiler import compile_file
-from zlang.opt.ir import OptimizationStage
-from zlang.opt.lowering import lower, restore
+from zlang.opt import OptimizationStage, lower, restore
 started = perf_counter()
 result = compile_file(sys.argv[1], top="IFFT64WholeVectorElaboration")
 semantic_elapsed = perf_counter() - started

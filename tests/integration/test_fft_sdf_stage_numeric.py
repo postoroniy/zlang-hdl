@@ -20,17 +20,15 @@ import tempfile
 
 import pytest
 
-from zlang.backend.systemverilog import emit
+from zlang.backend.systemverilog import emit_experimental
 from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
 from zlang.build_manifest import WholeBuildManifest
-from zlang.compilation_session import inline_locals
 from zlang.compiler import compile_file, compile_source
-from zlang.formal import build_formal_design
-from zlang.ir.expressions import FixedConvert
-from zlang.ir.types import FixedType
+from zlang.compilation_selection import inline_locals as _inline_locals
+from zlang.formal import build_formal_design, run_formal
+from zlang.ir import FixedConvert, FixedType, FormalStatus, ProofMode
 from zlang.ir.callables import expand_callable_calls
-from zlang.opt.ir import OptimizationStage
-from zlang.opt.lowering import lower, restore
+from zlang.opt import OptimizationStage, lower, restore
 from zlang.parser import parse
 from zlang.semantic import analyze
 from zlang.native_simulation import simulate_cycles
@@ -66,7 +64,7 @@ def test_concrete_d4_wrapper_elaborates_explicit_protocol_hierarchy() -> None:
         ("FFTSDFStageNumericD4", "input", "stage", "input"),
         ("stage", "output", "FFTSDFStageNumericD4", "output"),
     }
-    assert "module FFTSDFStageNumericD4" in emit(result.ir)
+    assert "module FFTSDFStageNumericD4" in emit_experimental(result.ir)
 
 
 
@@ -108,7 +106,7 @@ def _semantic_stage(depth: int = D):
 
 
 def _stage(depth: int = D):
-    return inline_locals(_semantic_stage(depth))
+    return _inline_locals(_semantic_stage(depth))
 
 
 def _fixed_converts(value: object) -> list[FixedConvert]:
@@ -350,7 +348,7 @@ def test_named_complex_quantization_has_one_typed_boundary_per_result() -> None:
     assert _input_ref_names(high_actions) | _input_ref_names(module.resolved_transition) >= {
         "high_sum", "high_diff",
     }
-    rtl = emit(_stage())
+    rtl = emit_experimental(_stage())
     push_assignment = next(
         line for line in rtl.splitlines() if "assign feedback_push_data =" in line
     )
@@ -360,10 +358,14 @@ def test_named_complex_quantization_has_one_typed_boundary_per_result() -> None:
     assert push_assignment.count("zlang_spec_") == 1
 
 
-def test_stage_safety_verification_generation_is_complete() -> None:
+def test_stage_safety_verification_generation_and_unbound_execution_are_explicitly_skipped() -> None:
     design = build_formal_design(_stage())
     families = {item.id.split(".")[1] for item in design.properties}
     assert {"register", "fifo", "ready_valid", "rules"} <= families
+    results = run_formal(design, mode=ProofMode.BMC, depth=4, solver="z3")
+    assert results
+    assert all(item.status is FormalStatus.SKIPPED for item in results)
+    assert all(item.reason for item in results)
 
 
 @pytest.mark.parametrize("depth", (8, 16))

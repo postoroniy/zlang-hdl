@@ -2,7 +2,17 @@ from __future__ import annotations
 
 from zlang.backend.expression_constant_folding import BackendConstantFolder
 from zlang.ir import expressions as expr
-from zlang.ir.types import BitsType, SIntType, StructField, StructType, UIntType, VecType
+from zlang.ir.types import (
+    BitsType,
+    SIntType,
+    StructField,
+    StructType,
+    TaggedUnionField,
+    TaggedUnionType,
+    TaggedUnionVariant,
+    UIntType,
+    VecType,
+)
 
 
 def _fold(expression: expr.Expression) -> expr.Expression:
@@ -107,21 +117,6 @@ def test_constant_folder_folds_mux_switch_concat_slice_and_vector_ops() -> None:
     assert updated.value == 0x4433AA11
 
 
-def test_constant_folder_folds_single_field_struct_without_concat() -> None:
-    wrapper = StructType("Wrapper", (StructField("value", UIntType(8)),))
-    folded = _fold(
-        expr.StructConstruct(
-            "Wrapper",
-            (("value", _constant(0xA5, 8)),),
-            wrapper,
-        )
-    )
-
-    assert isinstance(folded, expr.Constant)
-    assert folded.value == 0xA5
-    assert folded.type == wrapper
-
-
 def test_constant_folder_preserves_runtime_expression_identity_when_unchanged() -> None:
     u8 = UIntType(8)
     runtime = expr.InputRef("value", u8)
@@ -136,3 +131,29 @@ def test_constant_folder_applies_safe_algebraic_identity_only_with_exact_type() 
     expression = expr.Add(runtime, _constant(0, 8), u8)
 
     assert BackendConstantFolder().fold(expression) is runtime
+
+
+def test_constant_folder_packs_single_field_aggregates_without_source_concat() -> None:
+    u8 = UIntType(8)
+    struct_type = StructType("OneField", (StructField("value", u8),))
+    struct_value = _fold(expr.StructConstruct(
+        "OneField", (("value", _constant(0xA5, 8)),), struct_type
+    ))
+    assert isinstance(struct_value, expr.Constant)
+    assert struct_value.type == struct_type
+    assert struct_value.value == 0xA5
+
+    union_type = TaggedUnionType(
+        "OneFieldUnion",
+        (
+            TaggedUnionVariant("Empty"),
+            TaggedUnionVariant("Value", (TaggedUnionField("value", u8),)),
+        ),
+        "test:one-field-union",
+    )
+    union_value = _fold(expr.UnionConstruct(
+        "Value", (("value", _constant(0x3C, 8)),), union_type
+    ))
+    assert isinstance(union_value, expr.Constant)
+    assert union_value.type == union_type
+    assert union_value.value == (1 << union_type.payload_width) | 0x3C

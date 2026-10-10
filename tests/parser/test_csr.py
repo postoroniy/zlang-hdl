@@ -1,7 +1,7 @@
 from pathlib import Path
 import unittest
 
-from zlang.ast.nodes import CsrAccess
+from zlang.ast.nodes import CsrAccess, CsrEventPhase
 from zlang.parser import parse
 
 
@@ -38,8 +38,25 @@ class CsrParserTests(unittest.TestCase):
         self.assertEqual(module.csr_groups[0].name, "Window")
         block = module.csr_blocks[0]
         self.assertEqual(block.registers[0].events[0].signal, "clear")
+        self.assertEqual(
+            block.registers[0].events[0].phase,
+            CsrEventPhase.ACTIVE_TRANSFER,
+        )
         self.assertEqual(block.group_uses[0].count, 4)
         self.assertEqual(block.split_registers[0].field_name, "value")
+
+    def test_csr_event_phase_is_explicit_and_defaults_to_active_transfer(self) -> None:
+        module = parse(
+            "module Bank { clock clk reset rst out active:bit out delayed:bit "
+            "csr registers @0 { R @0 { value bit @0 rw=0 "
+            "active_event bit @0 on_read active_transfer -> active "
+            "delayed_event bit @0 on_read post_accept -> delayed } } }"
+        )
+        events = module.csr_blocks[0].registers[0].events
+        self.assertEqual(
+            [event.phase for event in events],
+            [CsrEventPhase.ACTIVE_TRANSFER, CsrEventPhase.POST_ACCEPT],
+        )
 
     def test_csr_group_accepts_native_split_values(self) -> None:
         module = parse(

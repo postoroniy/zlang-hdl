@@ -43,9 +43,20 @@ from zlang.ir.functional import (
 from zlang.ir.interfaces import InterfaceProtocol
 from zlang.fixed_point import quantize_rational
 from zlang.timing import TimingInfo, timing_info
+from zlang.common.tool_inventory import discover_tool_inventory
+import shutil
 
 
 _SUPPORTED_CLASSES = {"value", "guarded_rewrite", "architecture_alternatives", "exact_reduction", "pipeline_scheduler", "pipeline"}
+
+
+def formal_tools_available() -> tuple[str, ...]:
+    """Return the exact formal front-end tool set visible to this process."""
+
+    return discover_tool_inventory(
+        ("yosys", "sby", "yosys-smtbmc"),
+        which=shutil.which,
+    ).available
 
 
 @dataclass(frozen=True)

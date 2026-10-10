@@ -6,7 +6,8 @@ from zlang.backend.manifest import (
     INLINE_TOP_BOUNDARY_MANIFEST_VERSION,
 )
 from zlang.backend.systemverilog import emit_formal_artifact
-from zlang.formal import build_recursive_formal_design
+from zlang.formal import build_recursive_formal_design, emit_recursive_harness, run_recursive_formal
+from zlang.ir.formal import FormalStatus
 from zlang.parser import parse
 from zlang.semantic import analyze
 
@@ -49,7 +50,7 @@ class RecursiveFormalBindingTests(unittest.TestCase):
         self.assertEqual(len({item.concrete_property_id for item in properties}), len(properties))
         self.assertEqual({item.physical_instance_path[-1] for item in children}, {"fifo0", "fifo1"})
 
-    def test_manifest_v4_round_trip_and_observations(self):
+    def test_manifest_v4_round_trip_and_observation_harness(self):
         source = (ROOT / "examples/axi_csr_top.zhl").read_text()
         module = analyze(parse(source))
         design = build_recursive_formal_design(module)
@@ -64,6 +65,9 @@ class RecursiveFormalBindingTests(unittest.TestCase):
         restored = BackendArtifact.from_json(artifact.to_json())
         self.assertEqual(restored.instances, artifact.instances)
         self.assertEqual(restored.recursive_bindings, artifact.recursive_bindings)
+        harness = emit_recursive_harness(design)
+        self.assertIn("recursive_safety_verification_formal", harness)
+        self.assertIn("observation", harness)
 
     def test_deterministic_serialization_and_cache_identity(self):
         source = (ROOT / "examples/hierarchical_request_response.zhl").read_text()
@@ -72,6 +76,18 @@ class RecursiveFormalBindingTests(unittest.TestCase):
         second = build_recursive_formal_design(module)
         self.assertEqual(first.to_json(), second.to_json())
         self.assertEqual(first.required_observations, tuple(sorted(first.required_observations)))
+
+    def test_unconnected_nested_observations_are_explicit_skips(self):
+        module = analyze(parse((ROOT / "examples/axi_csr_top.zhl").read_text()))
+        design = build_recursive_formal_design(module)
+        results = run_recursive_formal(design)
+        self.assertTrue(results)
+        self.assertTrue(all(item.status is FormalStatus.SKIPPED for item in results))
+        self.assertTrue(all(item.physical_instance_path for item in results))
+        self.assertIn("not connected", results[0].reason)
+
+
+
 
 if __name__ == "__main__":
     unittest.main()

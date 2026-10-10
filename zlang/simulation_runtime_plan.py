@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
 from typing import Any
 
 from zlang.ir import state as ir_state
@@ -30,6 +31,28 @@ class RuntimeStatePlanProduct:
     direct_next: list[dict[str, Any]]
 
 
+def registered_output_runtime_names(
+    module: object,
+    canonical: object,
+) -> dict[str, str]:
+    """Return collision-free native state names for same-named output storage."""
+
+    registered_outputs = {
+        port.name for port in module.ports if port.registered
+    }
+    return {
+        register.name: (
+            "$zlang_jit_registered_output_"
+            + hashlib.sha256(
+                f"{canonical.name}:{register.name}".encode("utf-8")
+            ).hexdigest()[:16]
+            if register.name in registered_outputs
+            else register.name
+        )
+        for register in canonical.registers
+    }
+
+
 @dataclass
 class RuntimeStatePlanBuilder:
     """Own public ports, scalar state, staged expressions, and ROM state."""
@@ -39,6 +62,7 @@ class RuntimeStatePlanBuilder:
     _staged_expressions: list[dict[str, Any]]
     _rom_result_names: dict[str, str]
     _packed_register_initials: dict[str, int]
+    _register_names: dict[str, str]
 
     def _ports_and_outputs(self) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         canonical = self._canonical
@@ -244,7 +268,7 @@ class RuntimeStatePlanBuilder:
         ports, outputs = self._ports_and_outputs()
         registers = [
             {
-                "name": register.name,
+                "name": self._register_names[register.name],
                 "type": _type_payload(register.type),
                 "initial": register.initial,
                 "initial_limbs": _u64_limbs(
@@ -258,7 +282,9 @@ class RuntimeStatePlanBuilder:
         domains = self._domains()
         direct_next = [
             {
-                "target": item.target_name,
+                "target": self._register_names.get(
+                    item.target_name, item.target_name
+                ),
                 "node": item.expression,
                 "activation": item.activation,
                 "domain": next(

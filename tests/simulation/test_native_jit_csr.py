@@ -130,6 +130,35 @@ def test_csr_hardware_bindings_match_the_independent_oracle(engine: str) -> None
 
 
 @pytest.mark.parametrize("engine", ("native",))
+def test_post_accept_event_matches_registered_oracle(
+    engine: str,
+    tmp_path: Path,
+) -> None:
+    source = _source(
+        tmp_path,
+        "post_accept_event",
+        "module PostAcceptEvent { clock clk reset rst out clear:bits<2> "
+        "csr registers @0 { R @0 { value u32 @31:0 ro "
+        "clear_event bits<2> @1:0 on_write post_accept -> clear } } }",
+    )
+    cycles = [
+        {"addr": 0, "write": 1, "wdata": 3, "read": 0},
+        {"addr": 0, "write": 0, "wdata": 0, "read": 0},
+        {"addr": 0, "write": 0, "wdata": 0, "read": 0},
+    ]
+    expected = simulate_csr_cycles(compile_source(source.read_text()).ir, cycles)
+    actual = _persistent_trace(
+        source,
+        top="PostAcceptEvent",
+        engine=engine,
+        cycles=cycles,
+    )
+
+    assert [item["clear"] for item in expected] == [0, 3, 0]
+    assert [item["clear"] for item in actual] == [0, 3, 0]
+
+
+@pytest.mark.parametrize("engine", ("native",))
 def test_software_priority_clear_wins_without_runtime_csr_semantics(
     engine: str,
     tmp_path: Path,

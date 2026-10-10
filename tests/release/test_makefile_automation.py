@@ -1,10 +1,17 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import subprocess
 import sys
 
 import pytest
+
+from tools.release_status import (
+    StatusError,
+    _combined_junit_counts,
+    main as release_status_main,
+)
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -21,8 +28,13 @@ def test_makefile_exposes_bounded_test_and_release_entry_points() -> None:
     assert "make venv" in text
     assert "release-review-clean:" in text
     assert (
-        "release-review: release-review-clean release-regressions "
-        "community-pdf-check public-check static test-release-twice" in text
+        "release-review: release-review-clean review-commits release-sanity "
+        "test-release-twice" in text
+    )
+    assert "-m tools.audit_review_commits --root ." in text
+    assert (
+        "release-sanity: release-regressions community-pdf-check public-check "
+        "static ci-contract-smoke editor-advisory-audit" in text
     )
     assert "release review requires a clean committed public checkout" in text
     assert "tools/run_local_env.sh" in text
@@ -30,22 +42,21 @@ def test_makefile_exposes_bounded_test_and_release_entry_points() -> None:
     assert "release-preflight: release-regressions" in text
     assert "tools/release_regressions.py" in text
     assert (
-        "release-candidate: release-preflight native-release-install community-pdf-check public-check static jit-check jit-audit "
+        "release-candidate: release-preflight release-sanity native-release-install jit-check jit-audit "
         "jit-advisory-audit audit release-tools test-release-twice" in text
     )
     assert "tools/release_preflight.py" in text
     assert 'PYTHONPATH="$(CURDIR)" $(call RUN_PYTHON,release-preflight) tools/release_preflight.py' in text
-    assert "--mode candidate" in text
+    assert '--mode "$(RELEASE_MODE)"' in text
     assert "--require-clean" in text
     assert "community-pdf:" not in text
     assert "tools/build_community_pdf.py" not in text
     assert (
-        'PYTHONPATH="$(CURDIR)" $(call RUN_PYTHON,community-pdf) tools/release_status.py check '
+        'PYTHONPATH="$(CURDIR)" $(call RUN_PYTHON,community-pdf) -m tools.release_status check '
         '--root . --tag "$(TAG)"'
     ) in text
     assert "-p tools.pytest_no_skips" in text
-    assert text.count('--junitxml="$$report_root/release-') == 4
-    assert text.count('--performance-junit "$$report_root/release-performance-') == 2
+    assert text.count('--junitxml="$$report_root/release-') == 2
     assert "test \"$${#first_wheels[@]}\" -eq 1" in text
     assert "cmp -- \"$${first_wheels[0]}\" \"$${second_wheels[0]}\"" in text
     assert "public package requires a clean committed checkout" in text
@@ -53,10 +64,14 @@ def test_makefile_exposes_bounded_test_and_release_entry_points() -> None:
     assert "tools/materialize_native_test_extension.py" in text
     assert "tests/editor/test_vscode_package.py" in text
     assert "npm --prefix editors/vscode/zlang-hdl run test:host" in text
+    assert "editor-advisory-audit: editor-test" in text
+    assert "-m tools.audit_editor_vulnerabilities" in text
+    assert "npm --prefix editors/vscode/zlang-hdl audit" in text
     assert (
-        'PYTHONPATH="$(CURDIR)" xvfb-run -a npm '
-        '--prefix editors/vscode/zlang-hdl run test:host'
+        'PYTHONPATH="$(CURDIR)" ZLANG_VENV="$(VENV)" "$(LOCAL_RUNNER)"'
     ) in text
+    assert '--purpose "editor-vsix-host" --' in text
+    assert 'PYTHONPATH="$(CURDIR)" xvfb-run -a npm' not in text
     assert "--compatibility off" in text
     assert "ZLANG_NATIVE_RUNTIME_WHEEL" in text
     assert '-m reuse --root "$$public_root" lint' in text
@@ -95,64 +110,105 @@ def test_release_workflow_uses_curated_changelog_notes_and_native_set() -> None:
     assert "tools/stage_release_pdf.py" in workflow
     assert "BASH_ENV: ${{ github.workspace }}/.github/workflows/local-venv-env.sh" in workflow
     assert "workflow_dispatch:" in workflow
-    assert "python -m tools.release_preflight" in workflow
-    assert '--mode "$mode"' in workflow
-    assert '--selected-ref "$GITHUB_REF_NAME"' in workflow
-    assert "--protected-main-ref origin/main" in workflow
-    assert (
-        "git fetch --no-tags origin "
-        "+refs/heads/main:refs/remotes/origin/main"
-    ) in workflow
+    assert "make -s release-preflight" in workflow
+    assert 'RELEASE_MODE="$mode"' in workflow
     assert "release-preflight.json" in workflow
     assert "if: ${{ github.event_name == 'push' }}\n    needs: [validate, eda]" in workflow
-    assert "Exercise the installed exact-tag VSIX" in workflow
+    assert "Test, build, audit, and exercise the exact-tag Community VSIX" in workflow
     assert "zlang-hdl-*-language-reference.pdf" in workflow
-    assert '"$environment/bin/zlang" lock --version' in workflow
-    assert '"$environment/bin/zlang" verify --version' in workflow
-    assert '"$environment/bin/zlang-lock"' not in workflow
-    assert '"$environment/bin/zlang-verify"' not in workflow
-    assert workflow.count("--maxfail=1") == 4
-    assert workflow.count("--performance-junit") == 2
-    assert 'printf \'%s\\n\' "$python_scripts" >> "$GITHUB_PATH"' in workflow
-    assert 'export PATH="$python_scripts:$PATH"' in workflow
-    assert workflow.index('export PATH="$python_scripts:$PATH"') < workflow.index(
-        "python tools/release_status.py check --root . --check-tools"
-    )
+    assert workflow.count("CI_PYTEST_MAXFAIL=1") == 4
+    assert "make -s ci-bootstrap" in workflow
+    assert "make -s package" in workflow
+    assert "make -s ci-editor" in workflow
 
 
-@pytest.mark.parametrize(
-    ("workflow_name", "deterministic_report", "performance_report"),
-    (
-        ("eda.yml", "build/eda.xml", "build/eda-performance.xml"),
-        (
-            "daily-regression.yml",
-            "build/daily-deterministic.xml",
-            "build/daily-performance.xml",
-        ),
-    ),
-)
-def test_hosted_combined_gates_validate_both_test_partitions(
-    workflow_name: str,
-    deterministic_report: str,
-    performance_report: str,
+def test_hosted_workflows_delegate_acceptance_to_make_lanes(
+    tmp_path: Path,
 ) -> None:
-    workflow = (ROOT / ".github" / "workflows" / workflow_name).read_text(
-        encoding="utf-8"
-    )
-    assert f"--junit {deterministic_report}" in workflow
-    assert f"--performance-junit {performance_report}" in workflow
-    assert workflow.index(f"--junitxml={performance_report}") < workflow.index(
-        f"--performance-junit {performance_report}"
-    )
+    workflows = ROOT / ".github" / "workflows"
+    for name in ("ci.yml", "daily-regression.yml", "eda.yml", "release.yml"):
+        path = workflows / name
+        text = path.read_text(encoding="utf-8")
+        assert "python tools/release_status.py" not in text, path
+        assert "python -m pytest" not in text, path
+        assert "python -m pip install" not in text, path
 
-
-def test_hosted_performance_job_validates_its_isolated_report() -> None:
-    workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(
-        encoding="utf-8"
+    ci = (workflows / "ci.yml").read_text(encoding="utf-8")
+    assert "Validate the complete split-suite release floor" in ci
+    aggregate_status_step = (
+        "- name: Validate the complete split-suite release floor\n"
+        "        if: needs.full-regression.result == 'success' && "
+        "needs.performance-regression.result == 'success'\n"
+        "        run: >-\n"
+        "          make -s ci-test-floor"
     )
-    assert "--junit build/ci-full.xml" in workflow
-    assert "--junitxml=build/ci-performance.xml" in workflow
-    assert "--performance-junit build/ci-performance.xml" in workflow
+    assert aggregate_status_step in ci
+    assert ci.count("make -s ci-test-floor") == 1
+    assert "CI_DETERMINISTIC_JUNIT=build/ci-suites/ci-full.xml" in ci
+    assert "CI_PERFORMANCE_JUNIT=build/ci-suites/ci-performance.xml" in ci
+
+    deterministic = tmp_path / "deterministic.xml"
+    performance = tmp_path / "performance.xml"
+    deterministic.write_text(
+        '<testsuite><testcase name="deterministic"/></testsuite>', encoding="utf-8"
+    )
+    performance.write_text(
+        '<testsuite><testcase name="performance"/></testsuite>', encoding="utf-8"
+    )
+    assert _combined_junit_counts((deterministic, performance)) == (2, 0, 0, 0)
+    with pytest.raises(StatusError, match="cannot be counted more than once"):
+        _combined_junit_counts((deterministic, deterministic))
+
+    release_root = tmp_path / "release-root"
+    (release_root / "release").mkdir(parents=True)
+    (release_root / "release" / "status.json").write_text(
+        json.dumps(
+            {
+                "schema": 2,
+                "validation": {
+                    "minimum_tests_passed": 2,
+                    "minimum_tests_collected": 2,
+                    "maximum_tests_skipped": 0,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert (
+        release_status_main(
+            [
+                "check-junit",
+                "--root",
+                str(release_root),
+                "--junit",
+                str(deterministic),
+                "--junit",
+                str(performance),
+            ]
+        )
+        == 0
+    )
+    minimal_python = subprocess.run(
+        [
+            sys.executable,
+            "-S",
+            "-m",
+            "tools.release_status",
+            "check-junit",
+            "--root",
+            str(release_root),
+            "--junit",
+            str(deterministic),
+            "--junit",
+            str(performance),
+        ],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert minimal_python.returncode == 0, minimal_python.stderr
+    assert minimal_python.stdout.strip() == "release test reports valid"
 
 
 def test_makefile_help_is_executable_and_documents_nonpublishing_gate() -> None:
@@ -165,6 +221,8 @@ def test_makefile_help_is_executable_and_documents_nonpublishing_gate() -> None:
     )
     assert "make test-release-twice" in completed.stdout
     assert "make release-review" in completed.stdout
+    assert "make review-commits" in completed.stdout
+    assert "make release-sanity" in completed.stdout
     assert "make release-regressions" in completed.stdout
     assert "make release-preflight" in completed.stdout
     assert "make community-pdf-check" in completed.stdout
@@ -177,6 +235,7 @@ def test_makefile_help_is_executable_and_documents_nonpublishing_gate() -> None:
     assert "make release-tools" in completed.stdout
     assert "make release-candidate" in completed.stdout
     assert "make editor-host-test" in completed.stdout
+    assert "make editor-advisory-audit" in completed.stdout
     assert "non-publishing" in completed.stdout
 
 

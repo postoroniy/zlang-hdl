@@ -21,7 +21,9 @@ from zlang import candidate_sites as candidate_sites
 from zlang.compilation_inputs import PhysicalCompilationInputs
 from zlang import compilation_selection
 from zlang import compilation_outputs
-from zlang.compilation_selection import inline_locals
+from zlang.compilation_selection import (
+    inline_locals,
+)
 from zlang.compilation_products import (
     AnalysisProduct as _AnalysisProduct,
     CompilationResult,
@@ -33,6 +35,7 @@ from zlang.compilation_products import (
     ReportProduct as _ReportProduct,
     SelectionProduct as _SelectionProduct,
 )
+from zlang.intent_structural_exploration import IntentStructuralExplorationCache
 from zlang.completion_resolution import CompletionScope
 from zlang.exploration import ExplorationResult
 from zlang.formal_artifact_provider import FormalArtifactProvider
@@ -182,6 +185,7 @@ class CompilationSession:
         allow_external_enum_inputs: bool = False,
         physical_inputs: PhysicalCompilationInputs | None = None,
         analysis_needs: AnalysisNeeds = AnalysisNeeds.NONE,
+        intent_structural_cache: IntentStructuralExplorationCache | None = None,
     ) -> None:
         if not isinstance(source, str):
             raise TypeError("source must be text")
@@ -230,6 +234,13 @@ class CompilationSession:
         self._failures: dict[CompilationProductKey[object], Exception] = {}
         self._evaluating: set[CompilationProductKey[object]] = set()
         self._lock = RLock()
+        if intent_structural_cache is not None and not isinstance(
+            intent_structural_cache, IntentStructuralExplorationCache
+        ):
+            raise TypeError("intent structural cache must be typed")
+        self._intent_structural_cache = (
+            intent_structural_cache or IntentStructuralExplorationCache()
+        )
         self._physical_inputs = physical_inputs or PhysicalCompilationInputs()
         self._formal_artifact_provider = FormalArtifactProvider(
             None
@@ -253,6 +264,12 @@ class CompilationSession:
         """Physical inputs discovered by products demanded so far."""
 
         return self._physical_inputs
+
+    @property
+    def intent_structural_cache(self) -> IntentStructuralExplorationCache:
+        """Return the session-owned exact structural exploration cache."""
+
+        return self._intent_structural_cache
 
     @property
     def formal_artifact_provider(self) -> FormalArtifactProvider:
@@ -500,6 +517,12 @@ class CompilationSession:
                 module = analyze(
                     self.syntax,
                     exploration_results=exploration_results,
+                    intent_structural_cache=self._intent_structural_cache,
+                    intent_exploration_limits=(
+                        implementation_request_api.merge_implementation_contributions(
+                            *self._contributions()
+                        ).exploration_limits
+                    ),
                     # Semantic typing always generates and ranks candidates
                     # statically.  formal-aware selection execution is owned by selection below.
                     formal_config=self._formal_config(check_only=True),
@@ -605,6 +628,7 @@ class CompilationSession:
             self._options.formal_verifier,
             self.options.target,
             self._contributions(),
+            self._intent_structural_cache,
         )
 
     @property

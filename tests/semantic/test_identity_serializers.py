@@ -210,7 +210,6 @@ def test_fixed_quantization_participates_in_physical_qor_identity() -> None:
         graph, quantization=replace(conversion, rounding=expr.FixedRounding.FLOOR)
     )
     assert graph.identity != changed.identity
-
     key = MeasurementKey(
         "target", "part", "fir", graph.identity, "configuration",
         "direct_systemverilog", "Vivado", "2024.2", 5.0,

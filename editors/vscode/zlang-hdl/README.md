@@ -7,9 +7,9 @@ Lightweight Community editing support for ZLang HDL `.zhl` files:
 - eight concise snippets, with defaults checked by the ZLang compiler;
 - ordinary indentation-based folding.
 
-The extension starts the Community `zlang lsp` server over standard stdio.
+The extension also starts the existing Community `zlang-lsp` over standard stdio.
 Diagnostics, symbols, hover, navigation, references, rename, completion,
-signature help, semantic tokens and compiler-provided quick fixes come from that
+signature help, semantic tokens and compiler-owned quick fixes come from that
 server through the standard VS Code language-client library. The extension does
 not contain a second parser, type checker, semantic provider, compiler or AI
 service. Lexical highlighting remains useful when the server is unavailable;
@@ -49,8 +49,8 @@ state the required insertion scope and signals.
 
 The client resolves the server without a shell. Set `zlang.lsp.path` to an
 absolute executable path, or to a workspace-relative path such as
-`${workspaceFolder}/.venv/bin/zlang`. If the setting is empty, the client
-uses `zlang` from `PATH` and passes the `lsp` subcommand. Missing or non-executable paths are reported in the
+`${workspaceFolder}/.venv/bin/zlang-lsp`. If the setting is empty, the client
+uses `zlang-lsp` from `PATH`. Missing or non-executable paths are reported in the
 `ZLang HDL` output channel with a link to the setting; the extension never scans
 for virtual environments, installs packages, or downloads a server.
 
@@ -59,8 +59,8 @@ only for trusted workspaces. Review a project before granting workspace trust.
 
 The initial client supports local `file://` documents and full-document
 synchronization. It deliberately does not add parser recovery, unsaved
-dependency overlays, or generated-RTL navigation; the language server remains
-the semantic authority.
+dependency overlays, or generated-RTL navigation; the compiler/LSP remain the
+semantic authority.
 
 ## Build and install locally
 
@@ -105,7 +105,7 @@ From the repository root:
 npm --prefix editors/vscode/zlang-hdl test
 ```
 
-Tests reuse `examples/all_syntax.zhl` and machine-readable capability metadata.
+Tests reuse `examples/all_syntax.zhl` and compiler-owned capability metadata.
 Real TextMate/Oniguruma tests cover nested generic calls, complete operators,
 contextual identifiers, comments, byte escapes and incomplete editor input.
 Python tests compile expanded snippets in their documented contexts. The VSIX
@@ -130,8 +130,8 @@ channel when starting or stopping the server.
 
 1. Build and audit the VSIX, then install that exact file in an isolated VS Code
    profile.
-2. Make `zlang` available on `PATH`, or set `zlang.lsp.path` to the local
-   executable in the workspace `.venv`; the extension supplies the `lsp` subcommand.
+2. Make `zlang-lsp` available on `PATH`, or set `zlang.lsp.path` to the local
+   executable in the workspace `.venv`.
 3. Open a real `.zhl` file and confirm diagnostics update after edits; check the
    output channel for the server command and startup failures.
 4. Exercise compiler-backed hover, document symbols, F12 definition, Find All
@@ -142,11 +142,13 @@ channel when starting or stopping the server.
    should publish diagnostics and safely return empty/unsupported results where
    compiler facts are unavailable.
 
-Saved-project navigation results may be reused across requests and LSP restarts.
-Reuse is content-bound: changes to source, manifests, locks, dependencies, or
-compiler/tooling versions invalidate the saved result. Persistent data uses the
-platform XDG cache, never the source tree. Set `ZLANG_LSP_SYMBOL_CACHE=memory`
-for memory-only operation or `off` to disable the cache while debugging.
+The first F12/References lookup for a saved project root performs normal
+semantic analysis. Later lookups reuse a normalized compiler-symbol shard,
+including after the heavy semantic LRU evicts the root or the LSP restarts.
+Persistent shards use the platform XDG cache, never the source tree. Set
+`ZLANG_LSP_SYMBOL_CACHE=memory` for memory-only operation or `off` to disable
+the symbol cache while debugging; content identities, not elapsed time, decide
+whether a shard is reusable.
 
 This first client is intentionally local and conservative: it uses full
 document sync, has no parser-recovery layer or unsaved dependency overlay, and

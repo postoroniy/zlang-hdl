@@ -18,11 +18,17 @@ from zlang.formal_candidate import (
     validate_prepared_equivalence_domains,
 )
 from zlang.equivalence import MiterTraceMetadata
-from zlang.ir.module import Assignment, Module, Port, PortDirection
-from zlang.ir.types import BitType
-from zlang.ir.comparison_window import ComparisonWindow
-from zlang.ir.expressions import Constant
-from zlang.ir.equivalence import EquivalenceProperty, EquivalenceRelation
+from zlang.ir import (
+    Assignment,
+    BitType,
+    ComparisonWindow,
+    Constant,
+    EquivalenceProperty,
+    EquivalenceRelation,
+    Module,
+    Port,
+    PortDirection,
+)
 from zlang.ir.cdc import (
     ClockDomain,
     ClockEdge,

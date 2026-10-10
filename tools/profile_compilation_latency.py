@@ -15,16 +15,24 @@ initialized JIT disguises cold cost. The generated RTL is temporary.
 from __future__ import annotations
 
 import argparse
+import json
+import resource
+import sys
+import tempfile
 from collections import defaultdict
 from contextlib import contextmanager
 from dataclasses import dataclass, fields, is_dataclass
 from functools import wraps
-import json
+from importlib import import_module
 from pathlib import Path
-import resource
-import tempfile
 from time import perf_counter_ns
 from typing import Any
+
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+if str(REPOSITORY_ROOT) not in sys.path:
+    # This script is also invoked directly by CI and operators.  Prefer the
+    # checkout under inspection over an unrelated installed zlang package.
+    sys.path.insert(0, str(REPOSITORY_ROOT))
 
 
 @dataclass
@@ -90,15 +98,25 @@ def _ast_nodes(value: Any) -> int:
     return visit(value)
 
 
+def _expression_nodes(value: Any) -> tuple[int, int]:
+    """Return logical and unique nodes for one executable expression root."""
+
+    try:
+        from zlang.backend.expression_materialization import walk_expression
+        from zlang.ir.expressions import Expression
+    except ImportError:
+        return (0, 0)
+    if not isinstance(value, Expression):
+        return (0, 0)
+    nodes = tuple(walk_expression(value))
+    return (len(nodes), len({id(item) for item in nodes}))
+
+
 def _wrap(timeline: _Timeline, owner: Any, attribute: str, name: str) -> None:
     original = getattr(owner, attribute)
 
     @wraps(original)
     def measured(*args: Any, **kwargs: Any) -> Any:
-        if attribute == "_instance_expression":
-            timeline.counters["instance_expression_calls"] = (
-                timeline.counters.get("instance_expression_calls", 0) + 1
-            )
         with timeline.span(name):
             value = original(*args, **kwargs)
         if attribute == "_build_syntax":
@@ -147,47 +165,198 @@ def _wrap(timeline: _Timeline, owner: Any, attribute: str, name: str) -> None:
                 "pipelines",
             ):
                 timeline.counters[field] = len(getattr(module, field, ()))
-        elif attribute == "_materialization_plan":
+        elif attribute == "explore_intent_structures":
+            statistics = value.stats
+            for field in (
+                "saturation_iterations",
+                "eclasses",
+                "enodes",
+                "raw_extractions",
+                "structurally_unique_extractions",
+                "retained_structures",
+            ):
+                key = f"intent_egraph_{field}"
+                timeline.counters[key] = (
+                    timeline.counters.get(key, 0) + getattr(statistics, field)
+                )
+            timeline.counters["intent_egraph_sites"] = (
+                timeline.counters.get("intent_egraph_sites", 0) + 1
+            )
+            timeline.counters["intent_egraph_limited_sites"] = (
+                timeline.counters.get("intent_egraph_limited_sites", 0)
+                + int(statistics.truncated)
+            )
+        elif attribute in {"_materialization_plan", "_build_materialization_plan"}:
             timeline.counters["sv_materialization_plan_builds"] = (
                 timeline.counters.get("sv_materialization_plan_builds", 0) + 1
             )
-            timeline.counters["sv_materialized_nodes"] = len(value)
+            timeline.counters["sv_materialized_nodes_total"] = (
+                timeline.counters.get("sv_materialized_nodes_total", 0) + len(value)
+            )
+            timeline.counters["sv_materialized_nodes_max"] = max(
+                timeline.counters.get("sv_materialized_nodes_max", 0), len(value)
+            )
         elif attribute == "build_direct_sv_dag_plan":
+            from zlang.backend.expression_materialization import expression_children
+
             timeline.counters["sv_dag_plan_builds"] = (
                 timeline.counters.get("sv_dag_plan_builds", 0) + 1
             )
-            timeline.counters["sv_dag_nodes"] = len(value.nodes)
+            timeline.counters["sv_dag_nodes_total"] = (
+                timeline.counters.get("sv_dag_nodes_total", 0) + len(value.nodes)
+            )
+            timeline.counters["sv_dag_nodes_max"] = max(
+                timeline.counters.get("sv_dag_nodes_max", 0), len(value.nodes)
+            )
+            timeline.counters["sv_dag_edges_total"] = (
+                timeline.counters.get("sv_dag_edges_total", 0)
+                + sum(len(expression_children(item.expression)) for item in value.nodes)
+            )
         return value
 
     setattr(owner, attribute, measured)
 
 
+def _wrap_expression_counter(
+    timeline: _Timeline,
+    owner: Any,
+    attribute: str,
+    *,
+    prefix: str,
+    expression_argument: int = 0,
+    timed_name: str | None = None,
+) -> Any:
+    """Count recursive expression work while timing only outermost calls."""
+
+    original = getattr(owner, attribute)
+    depth = 0
+    unique_roots: set[int] = set()
+
+    @wraps(original)
+    def measured(*args: Any, **kwargs: Any) -> Any:
+        nonlocal depth
+        depth += 1
+        is_outermost = depth == 1
+        try:
+            timeline.counters[f"{prefix}_calls"] = (
+                timeline.counters.get(f"{prefix}_calls", 0) + 1
+            )
+            if len(args) > expression_argument:
+                expression = args[expression_argument]
+                if is_outermost:
+                    nodes, unique_nodes = _expression_nodes(expression)
+                    timeline.counters[f"{prefix}_logical_nodes"] = (
+                        timeline.counters.get(f"{prefix}_logical_nodes", 0) + nodes
+                    )
+                    timeline.counters[f"{prefix}_unique_nodes"] = (
+                        timeline.counters.get(f"{prefix}_unique_nodes", 0) + unique_nodes
+                    )
+                    if unique_nodes:
+                        unique_roots.add(id(expression))
+                        timeline.counters[f"{prefix}_unique_roots"] = len(unique_roots)
+            if is_outermost and timed_name is not None:
+                with timeline.span(timed_name):
+                    return original(*args, **kwargs)
+            return original(*args, **kwargs)
+        finally:
+            depth -= 1
+
+    setattr(owner, attribute, measured)
+    return measured
+
+
+def _wrap_dependency_ordering(timeline: _Timeline, owner: Any) -> None:
+    """Measure the exact selected graphs presented to dependency ordering."""
+
+    original = owner.dependency_ordered_materialization
+
+    @wraps(original)
+    def measured(*args: Any, **kwargs: Any) -> Any:
+        with timeline.span("dependency_ordered_materialization"):
+            value = original(*args, **kwargs)
+        timeline.counters["materialization_dependency_order_calls"] = (
+            timeline.counters.get("materialization_dependency_order_calls", 0) + 1
+        )
+        roots = tuple(item.expression for item in value)
+        logical_nodes = 0
+        unique_nodes: set[int] = set()
+        for root in roots:
+            nodes, _ = _expression_nodes(root)
+            logical_nodes += nodes
+            from zlang.backend.expression_materialization import walk_expression
+
+            unique_nodes.update(id(item) for item in walk_expression(root))
+        timeline.counters["materialization_dependency_roots"] = (
+            timeline.counters.get("materialization_dependency_roots", 0) + len(roots)
+        )
+        timeline.counters["materialization_dependency_logical_nodes"] = (
+            timeline.counters.get("materialization_dependency_logical_nodes", 0)
+            + logical_nodes
+        )
+        timeline.counters["materialization_dependency_unique_nodes"] = (
+            timeline.counters.get("materialization_dependency_unique_nodes", 0)
+            + len(unique_nodes)
+        )
+        return value
+
+    owner.dependency_ordered_materialization = measured
+
+
 def _instrument(timeline: _Timeline) -> None:
-    import zlang.backend.systemverilog.emitter as emitter
-    import zlang.backend.systemverilog.materialized as sv_materialized
-    import zlang.compilation_session as session
-    import zlang.compilation_selection as selection
-    import zlang.costs as costs
-    import zlang.implementation_plans as implementation_plans
-    import zlang.implementation_policy as implementation_policy
-    import zlang.ir.callables as ir_callables
-    import zlang.ir.normalization as normalization
-    import zlang.opt.module_lowering as module_lowering
-    import zlang.opt.module_restoration as module_restoration
-    import zlang.opt.render as opt_render
-    import zlang.pipeline_scheduling as scheduling
-    import zlang.simulation_plan_build as simulation_plan_build
-    import zlang.simulation_plan_codec as simulation_plan_codec
-    import zlang.simulation_plan_model as simulation_plan_model
-    import zlang.workspace as workspace
-    import zlang.module_resolver as module_resolver
-    import zlang.parser.parser as parser_module
-    import zlang.backend.expression_materialization as materialization
+    # Some package facades intentionally re-export names that also name a
+    # submodule. Resolve owners explicitly so profiling never instruments a
+    # facade function by accident.
+    backend_naming = import_module("zlang.backend.naming")
+    constant_folding = import_module("zlang.backend.expression_constant_folding")
+    compilation_selection = import_module("zlang.compilation_selection")
+    costs = import_module("zlang.costs")
+    emitter = import_module("zlang.backend.systemverilog.emitter")
+    sv_composed = import_module("zlang.backend.systemverilog.composed")
+    sv_materialized = import_module("zlang.backend.systemverilog.materialized")
+    implementation_plans = import_module("zlang.implementation_plans")
+    implementation_policy = import_module("zlang.implementation_policy")
+    exploration = import_module("zlang.exploration")
+    structural_exploration = import_module("zlang.intent_structural_exploration")
+    serialization = import_module("zlang.common.serialization")
+    session = import_module("zlang.compilation_session")
+    signed_reductions = import_module("zlang.ir.signed_reductions")
+    normalization = import_module("zlang.ir.normalization")
+    opt_identity = import_module("zlang.opt.identity")
+    opt_render = import_module("zlang.opt.render")
+    scheduling = import_module("zlang.pipeline_scheduling")
+    simulation_plan_build = import_module("zlang.simulation_plan_build")
+    simulation_plan_codec = import_module("zlang.simulation_plan_codec")
+    workspace = import_module("zlang.workspace")
+    module_resolver = import_module("zlang.module_resolver")
+    parser_module = import_module("zlang.parser.parser")
+    materialization = import_module("zlang.backend.expression_materialization")
 
     for name in ("formal", "documents", "reports", "target_instance"):
         timeline.counters[f"{name}_product_built"] = 0
-    timeline.counters["instance_expression_calls"] = 0
-    timeline.counters["sv_dag_plan_builds"] = 0
+
+    original_cache_lookup = (
+        structural_exploration.IntentStructuralExplorationCache.get_or_compute
+    )
+
+    @wraps(original_cache_lookup)
+    def cache_lookup(self: Any, key: Any, compute: Any) -> Any:
+        before = self.info()
+        value = original_cache_lookup(self, key, compute)
+        after = self.info()
+        for name in ("hits", "misses", "waits", "evictions"):
+            counter = f"intent_egraph_cache_{name}"
+            timeline.counters[counter] = (
+                timeline.counters.get(counter, 0)
+                + getattr(after, name)
+                - getattr(before, name)
+            )
+        timeline.counters["intent_egraph_cache_entries"] = after.entries
+        timeline.counters["intent_egraph_cache_enodes"] = after.total_enodes
+        return value
+
+    structural_exploration.IntentStructuralExplorationCache.get_or_compute = (
+        cache_lookup
+    )
 
     # Demand products record the real call graph, including eager products
     # which native simulation never requests. Individual inner passes expose
@@ -200,10 +369,7 @@ def _instrument(timeline: _Timeline) -> None:
         with timeline.span(f"product.{key.name}"):
             value = original_demand(self, key, builder)
         if not was_computed and key.name in {
-            "formal",
-            "documents",
-            "reports",
-            "target_instance",
+            "formal", "documents", "reports", "target_instance"
         }:
             timeline.counters[f"{key.name}_product_built"] += 1
         return value
@@ -218,53 +384,48 @@ def _instrument(timeline: _Timeline) -> None:
         "_build_formal",
         "_build_documents",
         "_build_reports",
+        "_build_target_instance",
         "_build_materialized",
     ):
         _wrap(timeline, session.CompilationSession, name, name.removeprefix("_build_"))
     for owner, names in (
+        (session, ("analyze", "canonical_ir_identity")),
         (
-            session,
-            (
-                "analyze",
-                "inline_locals",
-            ),
+            compilation_selection,
+            ("inline_locals", "lower", "restore", "canonical_round_trip_matches"),
         ),
-        (selection, ("canonical_round_trip_matches",)),
-        (opt_render, ("render_identity",)),
         (
             implementation_policy,
-            (
-                "normalize_implementation_policy",
-                "apply_external_region_exploration",
-            ),
+            ("normalize_implementation_policy", "apply_external_region_exploration"),
         ),
         (costs, ("extract_estimated_costs",)),
-        (module_lowering, ("lower",)),
-        (module_restoration, ("restore",)),
         (implementation_plans, ("plan_backend_implementations",)),
+        (exploration, ("explore_intent_structures",)),
+        (structural_exploration, ("saturate",)),
+        (opt_render, ("render_identity",)),
         (scheduling, ("schedule_module_fixed_pipelines",)),
         (normalization, ("normalize_selected_values",)),
         (
             simulation_plan_build,
-            (
-                "_build_leaf_simulation_plan",
-            ),
+            ("_build_leaf_simulation_plan", "identity_bytes"),
         ),
-        (simulation_plan_model, ("identity_bytes",)),
-        (simulation_plan_codec, ("validate_plan_payload",)),
+        (simulation_plan_codec, ("_validate_plan_payload",)),
         (
             emitter,
-            ("emit",),
+            (
+                "emit",
+                "emit_artifact",
+                "normalize_selected_values",
+            ),
         ),
         (
             sv_materialized,
             (
-                "_instance_expression",
-                "_materialization_plan",
+                "_embedded_staging_emission",
                 "_materialized_emission",
             ),
         ),
-        (normalization, ("normalize_selected_values",)),
+        (sv_composed, ("_emit_composed_component",)),
         (
             materialization,
             (
@@ -273,7 +434,6 @@ def _instrument(timeline: _Timeline) -> None:
                 "dependency_ordered_materialization",
             ),
         ),
-        (ir_callables, ("reachable_module_callables",)),
         (
             workspace,
             (
@@ -287,6 +447,46 @@ def _instrument(timeline: _Timeline) -> None:
     ):
         for name in names:
             _wrap(timeline, owner, name, name)
+    for name in ("_build_roots", "_build_materialization_plan"):
+        _wrap(
+            timeline,
+            sv_materialized.ModuleMaterializationOwner,
+            name,
+            name,
+        )
+    _wrap_expression_counter(
+        timeline,
+        sv_materialized.ModuleMaterializationOwner,
+        "physicalize",
+        prefix="instance_expression",
+        expression_argument=1,
+        timed_name="instance_expression",
+    )
+    _wrap_expression_counter(
+        timeline,
+        materialization,
+        "replace_materialized",
+        prefix="replace_materialized",
+        timed_name="replace_materialized",
+    )
+    _wrap_expression_counter(
+        timeline,
+        constant_folding.BackendConstantFolder,
+        "fold",
+        prefix="constant_fold",
+        expression_argument=1,
+        timed_name="constant_fold",
+    )
+    _wrap_dependency_ordering(timeline, materialization)
+    for owner, attribute, name in (
+        (signed_reductions, "expression_merkle_identity", "identity.expression_merkle"),
+        (signed_reductions, "expression_semantic_identity", "identity.expression_semantic"),
+        (opt_identity, "canonical_ir_identity", "identity.canonical"),
+        (opt_render, "render_identity", "identity.render"),
+        (serialization, "stable_digest", "identity.stable_digest"),
+        (backend_naming, "module_rtl_names", "naming.module_rtl_names"),
+    ):
+        _wrap(timeline, owner, attribute, name)
     # Local imports in product builders resolve module attributes at call time.
     _wrap(
         timeline,
@@ -352,19 +552,27 @@ def _native(
 
 
 def _sv(timeline: _Timeline, source: Path, project: Path | None, top: str) -> None:
+    import zlang.backend.systemverilog as systemverilog
+    import zlang.backend.systemverilog.emitter as emitter
     import zlang.cli as cli
     import zlang.cli_command as cli_command
-    import zlang.backend.systemverilog.emitter as emitter
+    import zlang.compiler as compiler
 
     _wrap(
         timeline,
-        cli_command.compiler_api,
-        "compile_file_snapshot",
-        "compile_file_snapshot",
+        compiler,
+        "create_file_compilation_session_snapshot",
+        "create_file_compilation_session_snapshot",
     )
     _wrap(
         timeline,
-        cli_command.sv_backend,
+        cli_command,
+        "_compile_artifact_snapshot",
+        "compile_artifact_snapshot",
+    )
+    _wrap(
+        timeline,
+        systemverilog,
         "emit_artifact",
         "emit_systemverilog_artifact",
     )

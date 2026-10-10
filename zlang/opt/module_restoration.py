@@ -252,6 +252,7 @@ def restore(module: CanonicalModule) -> Module:
                 for action in rule.actions
             ),
             rule.domain,
+            rule.physical_name_hint,
         )
         for rule in module.rules
     )

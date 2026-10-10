@@ -243,7 +243,7 @@ class TargetAndGenericRules:
     def protocol_role(self, items: list[object]) -> tuple[str, str]:
         return ("role", str(items[0]))
 
-    def target_role_name(self, items: list[object]) -> str:
+    def target_role_name(self, _items: list[object]) -> str:
         return "target"
 
     @staticmethod
@@ -496,11 +496,7 @@ class TargetAndGenericRules:
 
     @v_args(meta=True)
     def generic_type_body(self, meta: object, items: list[object]) -> tuple[object, ...]:
-        type_origin = (
-            self._name_span_from_meta(meta, items[0].text)
-            if isinstance(items[0], ast_nodes.TypeName)
-            else self._span(meta)
-        )
+        type_origin = items[0].origin
         return ("generic_type", items[0], items[1], type_origin or self._span(meta))
 
     def instance_array_length(self, items: list[object]) -> tuple[str, object]:
@@ -570,6 +566,32 @@ class TargetAndGenericRules:
     def generate_instances(self, meta: object, items: list[object]) -> ast_nodes.GenerateBlock:
         index, start, stop = items[0]
         return ast_nodes.GenerateBlock(index, start, stop, tuple(items[1:]), self._span(meta))
+
+    @v_args(meta=True)
+    def structural_generate_if(
+        self, meta: object, items: list[object]
+    ) -> ast_nodes.CompileTimeIfDecl:
+        condition = items[0]
+        true_items = tuple(
+            item for item in items[1:]
+            if item is not None
+            and not _tagged(item, "structural_generate_else")
+        )
+        false = next(
+            (
+                item[1] for item in items[1:]
+                if _tagged(item, "structural_generate_else")
+            ),
+            (),
+        )
+        return ast_nodes.CompileTimeIfDecl(
+            condition, true_items, tuple(false), self._span(meta)
+        )
+
+    def structural_generate_else(
+        self, items: list[object]
+    ) -> tuple[str, tuple[object, ...]]:
+        return ("structural_generate_else", tuple(items))
 
     @v_args(meta=True)
     def compile_time_if_decl(self, meta: object, items: list[object]) -> ast_nodes.CompileTimeIfDecl:

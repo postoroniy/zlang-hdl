@@ -8,7 +8,7 @@ type Twiddle = fixed<16,14>
 type CSample = Complex<Sample>
 type CTwiddle = Complex<Twiddle>
 
-module FFTComplexMultiplyRealImplementation {
+module FFTComplexMultiplyRealAuto {
     clock clk
     reset rst
     in sample : CSample
@@ -31,7 +31,7 @@ module FFTComplexMultiplyRealImplementation {
     }
 }
 
-module FFTComplexMultiplyImagImplementation {
+module FFTComplexMultiplyImagAuto {
     clock clk
     reset rst
     in sample : CSample

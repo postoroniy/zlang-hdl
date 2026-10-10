@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from tools.target_implementation_fir_qor import build_evidence_payload
+from tools.target_auto_fir_qor import build_evidence_payload
 from zlang.target_planner import EVIDENCE_SCHEMA, load_qor_evidence
 
 

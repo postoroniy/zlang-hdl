@@ -2,8 +2,9 @@ Implementation selection: result
 allowed: multiplier,dsp,reduction; avoided: none
 objective: minimize lut
 search: source=1 value=1 multiplier=1 architecture=3 reduction=16 legal=16 rejected=1
+value exploration: unavailable; source retained
 search complete: no; search truncated at reduction expansion
-selected: source/dsp_mac identity=e764ff77b95603561f54b397d80339079ebbd9d8238a2cf11bca62d95eee35e9
+selected: source/dsp_mac value=cc3fa3ecc8a47f4a75d34f7a4bd9cc5be85a57962bb9f4d170edebb4b4a94ed8 identity=e764ff77b95603561f54b397d80339079ebbd9d8238a2cf11bca62d95eee35e9
 semantics: value=architecture alternatives exact typed value semantics; timing=same-cycle; protocol=not applicable
 architecture intent: backend-independent metadata; physical DSP mapping is not claimed
 cost source: estimate_only; metrics retain per-field provenance

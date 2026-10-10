@@ -1,8 +1,8 @@
 # ZLang HDL concise source-authoring reference
 
-This page is a concise guide to executable ZLang HDL source. ZLang source
-defines semantics; generated SystemVerilog is an implementation artifact, not
-a second language specification.
+This page is a concise guide to current executable ZLang HDL source, not a
+historical proposal. The compiler's typed IR defines semantics; generated
+SystemVerilog is not a second language specification.
 
 For an unfamiliar construct, consult the
 [syntax support matrix](language-reference.md#reference-syntax-support-matrix) and
@@ -13,7 +13,8 @@ width tables and backend limits, follow the linked topic guide.
 
 - Source files use `.zhl`. The old `.zl` suffix is rejected.
 - Run `zlang SOURCE --check`; highlighting is lexical and is not validation.
-- Native simulation requires the matching native-simulation package.
+- Native simulation needs a matching platform wheel and fails explicitly when
+  it is unavailable; there is no second Python execution engine.
 - Hardware assignments are concurrent. `=` drives the current cycle and `<-`
   schedules next state at the active clock edge.
 - Assignment types are exact. There is no implicit resize, signedness change,
@@ -28,8 +29,8 @@ width tables and backend limits, follow the linked topic guide.
 - `pipeline(N) { expression }` is exact N-cycle hardware, not an optimization
   request. Protocol `transform pipeline(auto, ...)` is a separate bounded
   ready/valid construct and remains supported.
-- Unsupported combinations are diagnosed explicitly. Never work around a
-  diagnostic by guessing generated signal names.
+- Unsupported combinations must fail closed. Never work around a diagnostic by
+  guessing backend signal names or duplicating compiler semantics in source.
 
 ## Smallest valid modules
 
@@ -59,9 +60,9 @@ module Accumulator {
 }
 ```
 
-All operands are read from one pre-edge snapshot. The effects selected by one
-action commit atomically; reset has priority. Multiple conflicting actions
-require an explicit `priority` relation or are rejected.
+All operands are read from one pre-edge snapshot. An accepted action group
+commits atomically; reset has priority. Multiple conflicting actions require an
+explicit `priority` relation or are rejected.
 
 Multiple domains use the same declarations with one `@clock` owner:
 
@@ -140,8 +141,8 @@ module Queue<type T,D=4> where D >= 2 && is_power_of_two(D) {
 }
 ```
 
-Imports are logical. For example `import std.bus.reg` resolves through the
-built-in `std` namespace; `import std.math.complex as cx` adds a source-local
+Imports are logical. For example `import std.bus.reg` resolves compiler-shipped
+`stdlib/bus/reg.zhl`; `import std.math.complex as cx` adds a source-local
 qualifier but does not create a runtime namespace.
 
 ## State, hierarchy, and protocols
@@ -157,24 +158,14 @@ qualifier but does not create a runtime namespace.
 - A concise child declaration is `child : ChildModule`; `inst child : ChildModule`
   remains accepted. Bind only typed ports/endpoints.
 - `rv<T>`, `credit<T,N>`, and `request_response` properties such as `.transfer`
-  are typed protocol status values, not ordinary struct fields.
+  are typed observations, not ordinary struct fields.
 - Use explicit `connect`/`source -> sink`, adapters, and CDC crossings. The
   compiler never inserts these silently.
-- Standard buses are source-authored profiles under `std.bus.*`: use
-  `axi_lite`, `apb`, or `ahb_lite` with their provided RegBus bridges; use
-  `axi_burst` for the bounded no-ID/single-outstanding profile; use `axi4` only
-  for its documented five-channel bounded model. No import implies automatic
-  adaptation or general endpoint compliance.
 - Top-level structs and tuples become recursively named leaf ports; vectors use
   multidimensional packed arrays in the production Direct-SV ABI.
-- Top-level tagged unions are valid inputs and outputs. Direct-SV exposes their
-  exact tag and payload through a named packed structure; external producers
-  must drive a declared tag code.
 
 Read [sequential state/storage](language-reference.md#reference-sequential-state-storage) and
 [hierarchy/protocols](language-reference.md#reference-hierarchy-protocols) before composing stateful children.
-The exact bus inventory and runnable examples are in
-[standard buses](language-reference.md#reference-standard-bus-library).
 
 ## Functional datapath and implementation intent
 
@@ -198,16 +189,18 @@ y = implement {
 ```
 
 The expression is the hardware meaning. `intent` contains hard constraints and
-one supported objective; it does not name optimization passes. Positive-latency
-alternatives require a valid clock/reset context. `choice` is reserved for
-user-authored equivalent alternatives. Pure scalar optimization never schedules
-pipelines or state.
-
-The only current II>1 implementation is the bounded ready/valid
-`a*b + c*d` transform: one shared multiplier, capacity one, unstalled latency
-four, and II four with same-edge retire/reload. It is not available to scalar
-`implement`, does not overlap transactions, and has only bounded
-transaction-stream evidence; required-formal selection remains fail-closed.
+one supported objective; it does not name optimization passes. For an eligible
+pure value, the compiler retains the source plus a bounded, structurally
+distinct set of checked exact egglog alternatives, then applies the same intent
+to the resulting provider candidates. This is deterministic bounded
+exploration, not exhaustive optimality. Positive-latency candidates require a
+valid clock/reset context. `choice` is reserved for user-authored equivalent
+alternatives. Egglog supplies only frozen pure scalar value rewrites; it does
+not schedule pipelines, resources, protocols, or state.
+Selected project profiles may set bounded `intent-exploration` count limits;
+there is no source-level timeout. Exact roots can reuse checked in-memory
+session/workspace recipes, while constraints, ranking, target selection and
+formal evidence are always evaluated again.
 
 See [optimization and formal](language-reference.md#reference-optimization-formal) before adding or changing
 an implementation policy.
@@ -228,9 +221,9 @@ reachability; a missed cover is not an unreachability proof. BMC produces
 `bounded_pass`, never `proven`. Verification syntax does not legalize invalid
 hardware or feed optimizer range inference.
 
-Liveness, arbitrary SVA/SMT, temporal sequences, and user-defined formal
-observation sets are not supported. See the
-[formal examples](../examples/verification/README.md) for the available flows.
+Do not add liveness, arbitrary SVA/SMT, temporal sequences, new observation
+families or source-level semantic-reference equivalence controls. Use the existing
+[formal examples](../examples/verification/README.md) and compiler-owned routes.
 
 ## Commands and completion check
 

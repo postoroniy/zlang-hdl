@@ -82,6 +82,13 @@ class ModuleHierarchyAnalyzer:
                 endpoint_resolver,
             )
         )
+        module_context.scope.instance_protocol_transfers.update(
+            {
+                (owner, path): expression
+                for owner, path, expression
+                in connection_product.instance_protocol_transfers
+            }
+        )
         connections = list(connection_product.connections)
         assigned_outputs = set(connection_product.assigned_outputs)
 
@@ -302,6 +309,9 @@ class ModuleHierarchyAnalyzer:
                 ),
                 instance_protocol_outputs=dict(
                     module_context.scope.instance_protocol_outputs
+                ),
+                instance_protocol_transfers=dict(
+                    module_context.scope.instance_protocol_transfers
                 ),
                 instance_csr_state_paths=dict(
                     module_context.scope.instance_csr_state_paths

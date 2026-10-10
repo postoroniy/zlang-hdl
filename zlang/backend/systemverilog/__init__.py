@@ -21,6 +21,10 @@ from zlang.backend.systemverilog.simulation_state import (
     build_systemverilog_simulation_state_bundle,
 )
 
+# Historical spelling retained as a thin compatibility alias.  The sole
+# implementation remains the production direct-SystemVerilog emitter.
+emit_experimental = emit
+
 __all__ = [
     "ContractEmissionError",
     "SystemVerilogEmissionError",
@@ -28,6 +32,7 @@ __all__ = [
     "capability_report",
     "emit_contracts",
     "emit",
+    "emit_experimental",
     "emit_artifact",
     "emit_artifact_with_source_map",
     "emit_formal_artifact",

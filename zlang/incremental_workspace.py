@@ -16,6 +16,7 @@ from typing import Mapping
 
 from zlang.analysis_needs import AnalysisNeeds
 from zlang.compilation_session import CompilationSession
+from zlang.intent_structural_exploration import IntentStructuralExplorationCache
 from zlang.project import ProjectModelError, discover_project_manifest
 
 
@@ -134,6 +135,7 @@ class IncrementalWorkspaceSession:
         allow_external_enum_inputs: bool = False,
         allow_unsaved_root: bool = False,
         source_overlays: Mapping[Path | str, str] | None = None,
+        intent_structural_cache: IntentStructuralExplorationCache | None = None,
     ) -> CompilationSession:
         from zlang.compiler import create_file_compilation_session_snapshot
 
@@ -183,6 +185,7 @@ class IncrementalWorkspaceSession:
                 allow_external_enum_inputs=allow_external_enum_inputs,
                 allow_unsaved_root=allow_unsaved_root,
                 source_overlays=source_overlays,
+                intent_structural_cache=intent_structural_cache,
             )
             if cached is not None and _same_affected_closure(
                 session,

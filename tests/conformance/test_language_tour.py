@@ -12,8 +12,7 @@ from tests.conformance.catalog import (
 )
 from zlang.backend.systemverilog import emit_artifact
 from zlang.compiler import compile_source
-from zlang.opt.ir import OptimizationStage
-from zlang.opt.lowering import lower, restore
+from zlang.opt import OptimizationStage, lower, restore
 
 
 @pytest.mark.conformance

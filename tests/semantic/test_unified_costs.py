@@ -4,13 +4,14 @@ from dataclasses import dataclass
 from zlang.costs import (
     CandidateCost,
     MetricSource,
+    MetricValue,
     SourcePolicy,
     UnifiedConstraint,
     extract_best,
 )
 from zlang.ir.expressions import CostMetric
 from zlang.compiler import compile_source
-from zlang.opt.saturation import saturate
+from zlang.opt import saturate
 from zlang.costs import extract_best_eclass
 
 
@@ -55,6 +56,32 @@ class UnifiedCostExtractionTests(unittest.TestCase):
         self.assertIs(estimate.lut.source, MetricSource.STRUCTURAL_ESTIMATE)
         with self.assertRaises(ValueError):
             extract_best([("x", estimate)], source_policy=SourcePolicy.MEASURED_REQUIRED)
+
+    def test_measured_preferred_ranks_evidence_before_fmax_value(self) -> None:
+        estimate = CandidateCost.estimate(lut=1, fmax_est=776)
+        routed = CandidateCost(
+            *(MetricValue(value, MetricSource.ROUTED_MEASUREMENT) for value in (
+                10, 10, 1, 0, 3, 1, 103,
+            )),
+            structural_cost=10,
+        )
+        selected = extract_best(
+            (("estimate", estimate), ("routed", routed)),
+            objective=CostMetric.FMAX_EST,
+            source_policy=SourcePolicy.MEASURED_PREFERRED,
+        )
+        self.assertEqual(selected.selected, "routed")
+
+        # Preference never bypasses legality.  If the measured cohort cannot
+        # meet the hard bound, the legal structural estimate remains the
+        # deterministic fallback.
+        fallback = extract_best(
+            (("estimate", estimate), ("routed", routed)),
+            objective=CostMetric.FMAX_EST,
+            constraints=(UnifiedConstraint(CostMetric.FMAX_EST, minimum=500),),
+            source_policy=SourcePolicy.MEASURED_PREFERRED,
+        )
+        self.assertEqual(fallback.selected, "estimate")
 
     def test_minimize_each_supported_resource_dimension(self) -> None:
         candidates = [

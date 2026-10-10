@@ -56,28 +56,36 @@ module ScalarRom<D=4> {
 # backend DAG-planning schema, and canonical schema v18; semantic behavior is
 # unchanged. Physical input snapshots now use filename/content pairs rather
 # than absolute-path order or duplicate installed stdlib copies; file-backed
-# hashes were recaptured accordingly. The current-only result surface omits
-# executable harness strings, requires canonical callable identities, and
-# publishes candidate-site schema v2. Every value below was reproduced in two
-# independent compilations.
+# hashes were recaptured accordingly. Every value below was reproduced in two
+# independent compilations.  The a21 readable-private-FSM-name change advances
+# only the backend RTL naming schema to v5; that schema is deliberately present
+# in the eager result/build surface, so all cases were independently compiled
+# twice again before this recapture.  Existing canonical value identities stay
+# stable; the hierarchy fixture additionally carries the intentional ZL-048
+# declaration/binding/content-owned specialization identity.
 EXPECTED = {
-    "add": "87ca14e58c40b772f99cefd9867bba367033de25f56a207cdb87190ec5c81d9c",
-    "stateful_protocol": "b187ee147087e2ffd2705b4a2784ca9d82122d1c2477031c7f436a219d49d238",
-    "fixed_dsp": "35dd7cd140741bfe5da990eca25ef2f553a36abb94b4c0c836cba9603c60db1b",
-    "csr": "6c21dd6f6e15239cac1265461cd944dd968ab75a1defc9c128ca8dbc5a9c4996",
-    "hierarchy": "8a8405a5d5f7e027716f62dbd96ff82512932ff37da46d8d1421e05757527664",
+    "add": "667a1da22e2850aefec1afde4249179246e9a43f99ed58726b093b8a36799b0b",
+    "stateful_protocol": "9bd0500d44afe4bd17e77ba3e406fe378e4b30d476eeeed9b65261bff4984180",
+    "fixed_dsp": "1bedb847fb9bfe59f22fc53fa28a11ce7151f4a6a4d48cf37b76f7b72e2fd81d",
+    "csr": "885be490e9b873ba51e9356dbea8a86a78759b1a143be0835740dde57bf0405b",
+    "hierarchy": "3c0db1ddc95a0567aaa55299f7b1ebb0663ef9c1066f42a5fde87738d6da14a4",
     # Companion filenames use exact typed ROM contents/layout rather than
     # source provenance, so equivalent spellings retain one physical image.
     # Compile-time evaluator schema v2 records the expanded deterministic-real
     # surface in ROM identity; this snapshot was reproduced in separate runs.
-    "rom": "0534454426105c2b8847b52b4738e8795a8910755aaa8b60774ed7ecc49ad135",
+    "rom": "56bd250f1ec130ed696a0f4676c766f06b58ad1302b91b6409a5e344639ada2b",
     # The concise Wi-Fi source refactor uses slices, shared raw views, vector
     # generation and struct update while retaining the public ABI and IEEE
     # behavior.  Its large shared value DAG now uses the bounded Merkle value
     # identity rather than materializing the historical expanded-tree
     # spelling.  This source/dependency-sensitive eager-result snapshot was
-    # independently compiled twice before being locked here.
-    "wifi": "7756c7e3941510c4ffca401964cd0cb09c75be9ee6a2b578ea26c4553a28b58a",
+    # independently compiled twice before being locked here. Adding the
+    # source-owned RvMux2/RvDemux2 declarations advances the content-addressed
+    # std.stream.core dependency identity.  The resulting Direct-SV diff is
+    # limited to the private child-specialization suffix; its logic and public
+    # module/port ABI remain unchanged.  Two fresh processes reproduced this
+    # eager surface before recapture.
+    "wifi": "c235223b97f3c6184be253c2df87c05c14ba80df2b7500b387ca5f38e0fc8c40",
 }
 
 

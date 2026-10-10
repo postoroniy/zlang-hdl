@@ -8,7 +8,7 @@ import subprocess
 import pytest
 
 from zlang.backend.manifest import BackendArtifact
-from zlang.backend.systemverilog import emit_artifact, emit
+from zlang.backend.systemverilog import emit_artifact, emit_experimental
 from zlang.compiler import compile_source
 from zlang.toolchain import lint_with_verilator
 
@@ -190,8 +190,8 @@ def test_masked_memory_direct_sv_is_deterministic_and_simulates(
     tmp_path: Path,
 ) -> None:
     module = compile_source(SOURCE).ir
-    emitted = emit(module)
-    assert emit(module) == emitted
+    emitted = emit_experimental(module)
+    assert emit_experimental(module) == emitted
     assert "table_write_mask_expanded" in emitted
     assert "table_write_merged" in emitted
     artifact = emit_artifact(module)
@@ -222,5 +222,5 @@ def test_all_partial_byte_width_classes_are_strict_direct_sv(tmp_path: Path) -> 
                 partial_lane_source(scheduled=scheduled, width=width),
             ).ir
             rtl = tmp_path / f"{top}.sv"
-            rtl.write_text(emit(module))
+            rtl.write_text(emit_experimental(module))
             lint_with_verilator((rtl,), top, VERILATOR)

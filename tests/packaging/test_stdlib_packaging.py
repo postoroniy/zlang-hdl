@@ -117,10 +117,6 @@ def test_wheel_contains_and_resolves_every_shipped_stdlib_module(tmp_path: Path)
     assert not any(name.endswith(".rs") for name in wheel_members)
     assert not any("Cargo.toml" in name or "Cargo.lock" in name for name in wheel_members)
     assert not any("native-runtime" in name for name in wheel_members)
-    assert not any(
-        name.endswith(("zlang/standard_bus.py", "zlang/protocols.py"))
-        for name in wheel_members
-    )
     assert packaged == expected
     assert "stdlib/math/complex.zhl" in packaged
     assert "stdlib/stream/core.zhl" in packaged
@@ -133,7 +129,7 @@ def test_wheel_contains_and_resolves_every_shipped_stdlib_module(tmp_path: Path)
     assert "stdlib/bus/ahb_lite.zhl" in packaged
     assert "stdlib/autodiscovery/deep/nested.zhl" in packaged
     assert "Requires-Python: <3.13,>=3.12\n" in metadata
-    assert "Version: 0.1.0a20\n" in metadata
+    assert "Version: 0.1.0a21\n" in metadata
     assert "License-Expression: Apache-2.0\n" in metadata
     assert "License-File: LICENSE\n" in metadata
     assert "License-File: NOTICE\n" in metadata
@@ -167,10 +163,6 @@ def test_wheel_contains_and_resolves_every_shipped_stdlib_module(tmp_path: Path)
     assert not any(name.endswith(".rs") for name in sdist_members)
     assert not any("/Cargo.toml" in name or "/Cargo.lock" in name for name in sdist_members)
     assert not any("/native-runtime/" in name for name in sdist_members)
-    assert not any(
-        name.endswith(("/zlang/standard_bus.py", "/zlang/protocols.py"))
-        for name in sdist_members
-    )
 
     installed = tmp_path / "installed"
     install = subprocess.run(
@@ -261,20 +253,22 @@ def test_wheel_contains_and_resolves_every_shipped_stdlib_module(tmp_path: Path)
         **os.environ,
         "PYTHONPATH": str(installed),
     }
-    version_result = subprocess.run(
-        [sys.executable, str(installed / "bin" / "zlang"), "--version"],
-        cwd=tmp_path,
-        env=installed_environment,
-        capture_output=True,
-        text=True,
-    )
-    assert version_result.returncode == 0, (
-        version_result.stdout + version_result.stderr
-    )
-    assert version_result.stdout == "zlang 0.1.0a20\n"
-    assert not (installed / "bin" / "zlang-lock").exists()
-    assert not (installed / "bin" / "zlang-verify").exists()
-    assert not (installed / "bin" / "zlang-lsp").exists()
+    for program, display_name in (
+        ("zlang", "zlang"),
+        ("zlang-lock", "zlang lock"),
+        ("zlang-verify", "zlang verify"),
+    ):
+        version_result = subprocess.run(
+            [sys.executable, str(installed / "bin" / program), "--version"],
+            cwd=tmp_path,
+            env=installed_environment,
+            capture_output=True,
+            text=True,
+        )
+        assert version_result.returncode == 0, (
+            version_result.stdout + version_result.stderr
+        )
+        assert version_result.stdout == f"{display_name} 0.1.0a21\n"
     lock_result = subprocess.run(
         [
             sys.executable, "-m", "zlang.project_cli", "update",

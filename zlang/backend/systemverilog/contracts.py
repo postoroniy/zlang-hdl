@@ -13,6 +13,8 @@ import re
 from zlang.ir import formal as ir_formal
 from zlang.ir import module as ir_module
 from zlang.ir.top_abi import build_top_physical_abi
+from zlang.ir.types import FixedType, SIntType
+from zlang.backend.systemverilog.syntax import sized_decimal
 from zlang.formal_domain import (
     FormalDomainRenderingError,
     formal_domain_applicability_reason,
@@ -35,6 +37,19 @@ class _Clause:
 
 
 _IDENTIFIER = re.compile(r"[^A-Za-z0-9_$]+")
+
+
+def _emit_constant(value: int, type_: object) -> str:
+    """Spell one fixed-width constant through the shared SV literal owner."""
+
+    width = getattr(type_, "width", None)
+    if not isinstance(width, int):
+        raise ContractEmissionError("contract constant requires a fixed-width type")
+    return sized_decimal(
+        width,
+        value,
+        signed=isinstance(type_, (SIntType, FixedType)),
+    )
 
 
 def _source_generated(value: str | None) -> bool:

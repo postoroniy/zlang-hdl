@@ -8,7 +8,13 @@ import sys
 import pytest
 
 from zlang.compiler import compile_file
-from zlang.implementation_request import ImplementationRequestError
+from zlang.implementation_request import (
+    ImplementationContribution,
+    ImplementationRequestError,
+    IntentExplorationLimits,
+    PolicyOrigin,
+    merge_implementation_contributions,
+)
 from zlang.workspace import update_project_lock
 
 
@@ -68,6 +74,75 @@ evidence-policy = "estimate_only"
     assert "backend systemverilog: selected" in first.backend_implementation_report
 
 
+def test_profile_owns_deterministic_intent_exploration_limits(tmp_path: Path) -> None:
+    _, top = _project(
+        tmp_path,
+        "module Limits { in x:u8 out y:u8 "
+        "y=implement { x|0 intent { minimize lut } } }",
+        """
+[profiles.bounded]
+objective = "minimize lut"
+[profiles.bounded.intent-exploration]
+max-saturation-iterations = 3
+max-eclasses = 128
+max-enodes = 512
+max-raw-extractions = 4
+max-structural-alternatives = 2
+max-candidates-per-structure = 3
+max-total-candidates = 7
+""",
+    )
+    result = compile_file(top, profile="bounded")
+    limits = result.implementation_request.exploration_limits
+
+    assert limits.max_saturation_iterations == 3
+    assert limits.max_eclasses == 128
+    assert limits.max_enodes == 512
+    assert limits.max_value_alternatives == 4
+    assert limits.max_structural_alternatives == 2
+    assert limits.max_candidates_per_structure == 3
+    assert limits.max_candidates == 7
+    assert result.exploration_results[0].request.bounds == limits
+    assert result.exploration_results[0].structural_stats is not None
+    assert result.exploration_results[0].structural_stats.retained_structures == 2
+    assert result.implementation_request.to_identity_data()["exploration_limits"] == limits.to_data()
+
+
+def test_intent_exploration_limit_conflicts_and_invalid_values_fail_closed() -> None:
+    small = IntentExplorationLimits(max_enodes=256)
+    large = IntentExplorationLimits(max_enodes=512)
+    with pytest.raises(ImplementationRequestError, match="exploration_limits"):
+        merge_implementation_contributions(
+            ImplementationContribution(PolicyOrigin("one"), exploration_limits=small),
+            ImplementationContribution(PolicyOrigin("two"), exploration_limits=large),
+        )
+    with pytest.raises(ValueError, match="integers"):
+        IntentExplorationLimits(max_enodes=True)
+
+
+@pytest.mark.parametrize(
+    ("table", "message"),
+    (
+        ("max-enodes = true", "must be an integer"),
+        ("unknown-limit = 3", "unknown intent-exploration limit"),
+    ),
+)
+def test_profile_intent_exploration_limits_are_strict(
+    tmp_path: Path,
+    table: str,
+    message: str,
+) -> None:
+    _, top = _project(
+        tmp_path,
+        "module BadLimit { out y:u8 y=1 }",
+        "[profiles.bad]\n"
+        "[profiles.bad.intent-exploration]\n"
+        f"{table}\n",
+    )
+    with pytest.raises(ImplementationRequestError, match=message):
+        compile_file(top, profile="bad")
+
+
 def test_region_selector_is_exact_and_profile_constraint_executes_bounded_exploration(
     tmp_path: Path,
 ) -> None:
@@ -87,7 +162,13 @@ def test_region_selector_is_exact_and_profile_constraint_executes_bounded_explor
     selected = compile_file(top, profile="small")
     assert selected.implementation_request.regions == (region.identity,)
     assert len(selected.exploration_results) == 1
-    assert selected.exploration_results[0].selected_candidate.stages == ("value",)
+    exploration = selected.exploration_results[0]
+    # Commuting ``a + b`` changes spelling but not the target-neutral operation
+    # DAG family.  Intent exploration retains the mandatory source candidate
+    # rather than letting an alias consume the bounded structural catalog.
+    assert exploration.selected_candidate.stages == ("source",)
+    assert exploration.structural_stats is not None
+    assert exploration.structural_stats.retained_structures == 1
 
     manifest.write_text(manifest.read_text().replace(region.identity, "0" * 64))
     with pytest.raises(Exception, match="unknown or stale implementation region"):

@@ -6,6 +6,7 @@ from __future__ import annotations
 
 
 from zlang.ir import interfaces as ir_interfaces
+from zlang.ir import expressions as expr
 from zlang.ir import module as ir_module
 from zlang.ir import storage as ir_storage
 from zlang.ir import state as ir_state
@@ -17,115 +18,6 @@ from zlang import memory_planning as memory_planning
 
 from zlang.backend.systemverilog.errors import SystemVerilogEmissionError
 from zlang.backend.systemverilog import rendering as sv_rendering
-
-
-def uses_dedicated_legacy_storage(module: ir_module.Module) -> bool:
-    """Return whether the frozen global-control storage emitter owns state."""
-
-    transition = module.resolved_transition
-    if (
-        transition is None
-        or transition.action_groups
-        or module.registers
-        or module.rules
-        or module.next_assignments
-        or module.elaborated_instances
-        or module.children
-        or module.connections
-        or module.hierarchical_connections
-        or module.request_response_connections
-        or module.aggregate_protocol_connections
-    ):
-        return False
-    resource_kinds = {resource.kind for resource in transition.resources}
-    if (
-        module.fifos
-        and all(not fifo.scheduled for fifo in module.fifos)
-        and not module.memories
-        and not module.roms
-    ):
-        return resource_kinds <= {ir_state.StateResourceKind.FIFO}
-    if (
-        module.memories
-        and all(not memory.scheduled for memory in module.memories)
-        and not module.fifos
-        and not module.roms
-    ):
-        return resource_kinds <= {ir_state.StateResourceKind.MEMORY}
-    return False
-
-
-def requires_unified_state(module: ir_module.Module) -> bool:
-    """Return whether typed state needs the exact unified scheduler.
-
-    The compact rule emitter is deliberately limited to scalar register writes
-    whose accepted effects are exactly representable by its per-register
-    conditional chains.  A conflict between two one-effect groups is safe on
-    that path; a conflict involving any multi-effect group is not, because it
-    could commit part of a lower-priority rule after that rule lost elsewhere.
-    Protocol state, storage legality, conditional action activation, output
-    effects, and those atomic multi-effect conflicts therefore stay on the
-    unified path.
-    """
-
-    transition = module.resolved_transition
-    if transition is None:
-        return False
-    if uses_dedicated_legacy_storage(module):
-        return False
-    if not (
-        transition.resources
-        or transition.action_groups
-        or module.registers
-        or module.rules
-        or module.next_assignments
-        or any(fifo.scheduled for fifo in module.fifos)
-        or any(memory.scheduled for memory in module.memories)
-        or module.roms
-    ):
-        return False
-    # Closed zero-rule sequential state historically uses the unified body,
-    # including its begin/end reset spelling.  It has no rule dimensions to
-    # enumerate, so retaining that route is both byte-compatible and bounded.
-    if (
-        not module.rules
-        and not transition.action_groups
-        and (module.registers or module.next_assignments)
-    ):
-        return True
-    if (
-        any(fifo.scheduled for fifo in module.fifos)
-        or any(memory.scheduled for memory in module.memories)
-        or bool(module.roms)
-        or bool(module.request_responses)
-        or bool(module.aggregate_protocol_endpoints)
-        or any(
-            port.protocol is not ir_interfaces.InterfaceProtocol.WIRE
-            for port in module.ports
-        )
-        or any(
-            endpoint.protocol is not ir_interfaces.InterfaceProtocol.WIRE
-            for endpoint in module.protocol_endpoints
-        )
-        or any(
-            resource.kind is not ir_state.StateResourceKind.REGISTER
-            for resource in transition.resources
-        )
-        or any(
-            action.kind is not ir_state.StateActionKind.REGISTER_WRITE
-            or action.activation is not None
-            for group in transition.action_groups
-            for action in group.actions
-        )
-    ):
-        return True
-    groups = transition.action_groups
-    return any(
-        ir_state.groups_may_conflict(left, right)
-        and (len(left.actions) != 1 or len(right.actions) != 1)
-        for index, left in enumerate(groups)
-        for right in groups[index + 1 :]
-    )
 
 
 def _memory_byte_mask_concatenation(
@@ -646,7 +538,7 @@ def _append_unified_state(
     if any(not fifo.scheduled for fifo in module.fifos):
         raise SystemVerilogEmissionError("mixed legacy and scheduled FIFO resources are not implemented")
     transition = module.resolved_transition
-    local_names = emission_context.module_rtl_names(module)
+    local_names = emission_context.cached_module_rtl_names(module)
     groups = ir_state.ordered_groups(transition)
     activation_predicates = ir_state.conditional_activation_predicates(transition)
     activation_names = tuple(
@@ -711,11 +603,16 @@ def _append_unified_state(
         return lines
 
     for register in module.registers:
-        declarations.append(
-            sv_rendering._logic_declaration(
-                identifiers.rtl_register_state_identifier(register.name), register.type
+        if not any(
+            port.name == register.name and port.registered
+            for port in module.outputs
+        ):
+            declarations.append(
+                sv_rendering._logic_declaration(
+                    identifiers.rtl_register_state_identifier(register.name),
+                    register.type,
+                )
             )
-        )
     for fifo in module.fifos:
         width = sv_rendering._width(fifo.element_type)
         ptr_width = max(1, (fifo.depth - 1).bit_length())
@@ -948,6 +845,8 @@ def _append_unified_state(
     for output in module.outputs:
         if output.protocol is not ir_interfaces.InterfaceProtocol.WIRE:
             continue
+        if output.registered:
+            continue
         resource = next(
             (
                 item for item in transition.resources
@@ -985,6 +884,13 @@ def _append_unified_state(
         # the direct output assignment a second time after boundary inlining.
         emitted_scalar_outputs.add(sv_rendering._identifier(output.name))
     for assignment in module.assignments:
+        if (
+            isinstance(assignment.target, ir_module.Port)
+            and assignment.target.registered
+            and isinstance(assignment.expression, expr.RegisterRef)
+            and assignment.expression.name == assignment.target.name
+        ):
+            continue
         name = sv_rendering._assignment_name(assignment)
         if name in emitted_scalar_outputs or name in excluded_assignment_names:
             continue

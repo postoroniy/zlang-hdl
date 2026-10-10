@@ -11,6 +11,7 @@ bytes to one Git tree, and writes a deterministic review manifest.
 from __future__ import annotations
 
 import argparse
+from datetime import date
 import hashlib
 import json
 from pathlib import Path
@@ -23,7 +24,7 @@ from tools.audit_native_binary import (
     NativeBinaryAuditError,
     audit_native_release_set,
 )
-from tools.release_notes import release_notes
+from tools.release_notes import validate_release_changelog
 from tools.release_regressions import (
     RegressionLedgerError,
     validate_regression_ledger,
@@ -79,7 +80,13 @@ def _git_succeeds(root: Path, *arguments: str) -> bool:
 
 
 def _require_exact_candidate_main(root: Path, candidate_commit: str) -> None:
-    """Reject a candidate unless it is the checked-out protected main tip."""
+    """Reject a candidate unless it is the checked-out protected main tip.
+
+    A manual candidate validates the prospective release *before* a tag exists.
+    Checking only ancestry would allow an arbitrary feature branch to be treated
+    as releasable.  The hosted workflow fetches this same remote-tracking ref;
+    local candidates must establish it explicitly too.
+    """
 
     current_branch = _git(root, "branch", "--show-current")
     if current_branch != "main":
@@ -124,8 +131,6 @@ def preflight(
     previous_tag: str,
     mode: str,
     require_clean: bool,
-    selected_ref: str | None = None,
-    protected_main_ref: str | None = None,
 ) -> dict[str, object]:
     """Return the deterministic manifest for one accepted release candidate."""
 
@@ -133,6 +138,10 @@ def preflight(
     if mode not in {"candidate", "tagged"}:
         raise ReleasePreflightError("mode must be 'candidate' or 'tagged'")
     _alpha_sequence(tag, previous_tag)
+    candidate_commit = _git(root, "rev-parse", "HEAD")
+    candidate_date = date.fromisoformat(
+        _git(root, "show", "-s", "--format=%cs", candidate_commit)
+    )
     try:
         validate_release_status(root, tag=tag)
     except StatusError as exc:
@@ -153,8 +162,10 @@ def preflight(
         raise ReleasePreflightError(str(exc)) from exc
 
     try:
-        notes = release_notes(
-            (root / "CHANGELOG.md").read_text(encoding="utf-8"), tag
+        notes = validate_release_changelog(
+            (root / "CHANGELOG.md").read_text(encoding="utf-8"),
+            tag,
+            expected_date=candidate_date,
         )
     except (OSError, UnicodeDecodeError, ValueError) as exc:
         raise ReleasePreflightError(f"release notes are invalid: {exc}") from exc
@@ -179,27 +190,9 @@ def preflight(
     previous_commit = _git(root, "rev-list", "-n", "1", previous_tag)
     if not previous_commit:
         raise ReleasePreflightError(f"previous tag {previous_tag!r} is unavailable")
-    candidate_commit = _git(root, "rev-parse", "HEAD")
     candidate_tree = _git(root, "rev-parse", "HEAD^{tree}")
     if not _git_succeeds(root, "merge-base", "--is-ancestor", previous_tag, "HEAD"):
         raise ReleasePreflightError(f"candidate is not descended from {previous_tag}")
-
-    if (selected_ref is None) != (protected_main_ref is None):
-        raise ReleasePreflightError(
-            "selected ref and protected main ref must be provided together"
-        )
-    if selected_ref is not None and protected_main_ref is not None:
-        if selected_ref != "main":
-            raise ReleasePreflightError(
-                "hosted release candidate must select the 'main' branch"
-            )
-        protected_main_commit = _git(
-            root, "rev-parse", "--verify", protected_main_ref
-        )
-        if candidate_commit != protected_main_commit:
-            raise ReleasePreflightError(
-                f"candidate HEAD does not match protected {protected_main_ref}"
-            )
 
     tag_type = _git(root, "cat-file", "-t", f"refs/tags/{tag}", check=False)
     if mode == "candidate":
@@ -261,8 +254,6 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--previous-tag", required=True)
     parser.add_argument("--mode", choices=("candidate", "tagged"), default="candidate")
     parser.add_argument("--require-clean", action="store_true")
-    parser.add_argument("--selected-ref")
-    parser.add_argument("--protected-main-ref")
     parser.add_argument("--output", type=Path, required=True)
     arguments = parser.parse_args(argv)
     try:
@@ -272,8 +263,6 @@ def main(argv: list[str] | None = None) -> int:
             previous_tag=arguments.previous_tag,
             mode=arguments.mode,
             require_clean=arguments.require_clean,
-            selected_ref=arguments.selected_ref,
-            protected_main_ref=arguments.protected_main_ref,
         )
         arguments.output.parent.mkdir(parents=True, exist_ok=True)
         arguments.output.write_text(

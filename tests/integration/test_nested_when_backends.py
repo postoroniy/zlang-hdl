@@ -109,11 +109,11 @@ module NestedResourceChild {
 
     priority {
         higher: when high {
-            event_flag <- 1
+            drive event_flag = 1
             high_state <- 1
         }
         lower: when low {
-            event_flag <- 0
+            drive event_flag = 0
             low_state <- 1
         }
     }

@@ -9,7 +9,7 @@ remains outside this slice.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, fields, is_dataclass, replace
+from dataclasses import dataclass, fields, replace
 import hashlib
 import json
 from typing import Callable
@@ -17,6 +17,7 @@ from typing import Callable
 from zlang.ir import expressions as expr
 from zlang.ir.interfaces import InterfaceProtocol
 from zlang.ir.module import Assignment, Module, Port, PortDirection
+from zlang.simulation_rewrite import SimulationExpressionRewriter
 
 
 class HierarchicalSimulationError(ValueError):
@@ -69,64 +70,26 @@ def _allocate_private_name(
     return candidate
 
 
-def _rewrite_instance_outputs(
-    value: object,
-    names: dict[tuple[str, str], str],
-    memo: dict[int, tuple[object, object]],
-) -> object:
-    cached = memo.get(id(value))
-    if cached is not None and cached[0] is value:
-        return cached[1]
-    if isinstance(value, expr.InstanceOutputRef):
+class _InstanceOutputRewriter(SimulationExpressionRewriter):
+    """Resolve child outputs through the shared immutable rewrite owner."""
+
+    def __init__(self, names: dict[tuple[str, str], str]) -> None:
+        super().__init__()
+        self._names = names
+
+    def rewrite_special(
+        self,
+        value: expr.Expression,
+    ) -> expr.Expression | None:
+        if not isinstance(value, expr.InstanceOutputRef):
+            return None
         try:
-            name = names[(value.instance, value.port)]
+            name = self._names[(value.instance, value.port)]
         except KeyError as error:
             raise HierarchicalSimulationError(
                 f"unresolved hierarchical output '{value.instance}.{value.port}'"
             ) from error
-        result: object = expr.InputRef(
-            name,
-            value.type,
-            origin=value.origin,
-        )
-    elif isinstance(value, tuple):
-        rewritten = tuple(
-            _rewrite_instance_outputs(item, names, memo) for item in value
-        )
-        result = value if all(a is b for a, b in zip(rewritten, value, strict=True)) else rewritten
-    elif isinstance(value, list):
-        rewritten_list = [
-            _rewrite_instance_outputs(item, names, memo) for item in value
-        ]
-        result = (
-            value
-            if all(a is b for a, b in zip(rewritten_list, value, strict=True))
-            else rewritten_list
-        )
-    elif isinstance(value, dict):
-        rewritten_dict = {
-            key: _rewrite_instance_outputs(item, names, memo)
-            for key, item in value.items()
-        }
-        result = (
-            value
-            if all(rewritten_dict[key] is item for key, item in value.items())
-            else rewritten_dict
-        )
-    elif is_dataclass(value) and not isinstance(value, type):
-        updates = {}
-        for field in fields(value):
-            if not field.init or field.name in {"origin", "source_origin"}:
-                continue
-            current = getattr(value, field.name)
-            rewritten = _rewrite_instance_outputs(current, names, memo)
-            if rewritten is not current:
-                updates[field.name] = rewritten
-        result = replace(value, **updates) if updates else value
-    else:
-        result = value
-    memo[id(value)] = (value, result)
-    return result
+        return expr.InputRef(name, value.type, origin=value.origin)
 
 
 def _scalar_shell(
@@ -183,7 +146,7 @@ def _scalar_shell(
                 Port(PortDirection.INPUT, name, port.type, domain=port.domain)
             )
 
-    memo: dict[int, tuple[object, object]] = {}
+    output_rewriter = _InstanceOutputRewriter(child_outputs)
     bindings = {(item.instance, item.port): item for item in module.instance_bindings}
     if len(bindings) != len(module.instance_bindings):
         raise HierarchicalSimulationError(
@@ -206,9 +169,7 @@ def _scalar_shell(
             child_inputs[(owner, port.name)] = name
             target = Port(PortDirection.OUTPUT, name, port.type, domain=port.domain)
             synthetic_ports.append(target)
-            expression = _rewrite_instance_outputs(
-                binding.expression, child_outputs, memo
-            )
+            expression = output_rewriter.expression(binding.expression)
             assert isinstance(expression, expr.Expression)
             synthetic_assignments.append(Assignment(target, expression))
     extra = set(bindings) - set(child_inputs)
@@ -235,11 +196,11 @@ def _scalar_shell(
         if not field.init or field.name in skip:
             continue
         current = getattr(module, field.name)
-        rewritten = _rewrite_instance_outputs(current, child_outputs, memo)
+        rewritten = output_rewriter.value(current)
         if rewritten is not current:
             updates[field.name] = rewritten
     assignments = tuple(
-        _rewrite_instance_outputs(item, child_outputs, memo)
+        output_rewriter.value(item)
         for item in module.assignments
     )
     shell = replace(

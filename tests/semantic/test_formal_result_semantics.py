@@ -74,6 +74,8 @@ def _run_with(
     traces: tuple[Path, ...] = (),
     counterexample_pre_edge: bool = False,
     trace_bindings: tuple[TraceBinding, ...] = (),
+    route: str = "smtbmc",
+    solver: str = "z3",
 ):
     parsed = (
         (None, "SymbiYosys status artifact is missing")
@@ -93,6 +95,8 @@ def _run_with(
             "module top; endmodule", top="top", property_id="p", depth=2,
             counterexample_pre_edge=counterexample_pre_edge,
             trace_bindings=trace_bindings,
+            route=route,
+            solver=solver,
         )
 
 
@@ -177,6 +181,56 @@ b1010 n4
     assert result.counterexample is not None
     assert result.counterexample.cycle is None
     assert result.counterexample.values == ()
+
+
+@pytest.mark.parametrize(
+    ("route", "solver", "log_line"),
+    (
+        ("btor-pono", "pono", "BMC check at bound 12 satisfiable\n"),
+        (
+            "btor-btormc",
+            "btormc",
+            "bad state property 0 reachable at bound k = 12 SATISFIABLE\n",
+        ),
+    ),
+)
+def test_btor_failure_maps_bound_to_pre_edge_clock_frame(
+    tmp_path: Path,
+    route: str,
+    solver: str,
+    log_line: str,
+) -> None:
+    trace = tmp_path / f"{route}.vcd"
+    frames = [
+        "$scope module top $end",
+        "$var wire 1 ! clk $end",
+        '$var wire 4 " count $end',
+        "$upscope $end",
+        "$enddefinitions $end",
+    ]
+    for cycle in range(13):
+        frames.extend((
+            f"#{cycle * 10}",
+            "1!",
+            f"b{min(cycle, 10):04b} \"",
+            f"#{cycle * 10 + 5}",
+            "0!",
+        ))
+    trace.write_text("\n".join(frames) + "\n", encoding="ascii")
+
+    result = _run_with(
+        CompletedProcess(("sby",), 2, stdout=log_line, stderr=""),
+        status=("FAIL", 2, 0),
+        traces=(trace,),
+        counterexample_pre_edge=True,
+        trace_bindings=(TraceBinding("register:count", "count", 4),),
+        route=route,
+        solver=solver,
+    )
+
+    assert result.counterexample is not None
+    assert result.counterexample.cycle == 11
+    assert dict(result.counterexample.values)["register:count"] == "0b1010"
 
 
 def test_log_text_cannot_replace_missing_authoritative_status() -> None:

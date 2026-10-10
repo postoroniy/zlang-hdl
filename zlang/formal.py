@@ -40,6 +40,9 @@ from zlang.ir.recursive_formal import (
     RecursiveFormalDesign,
     build_recursive_formal_design as _build_recursive_formal_design,
 )
+from zlang.formal_configuration import emit_cover_sby, emit_sby
+from zlang.formal_routes import formal_engine_route
+from zlang.formal_recursive import emit_recursive_harness, run_recursive_formal
 
 if TYPE_CHECKING:
     from zlang.toolchain import GeneratedDiagnosticContext
@@ -54,7 +57,24 @@ _FORMAL_VERSION_COMMANDS = (
     ("yosys-smtbmc", ("yosys-smtbmc", "--version")),
     ("z3", ("z3", "-version")),
     ("boolector", ("boolector", "--version")),
+    ("bitwuzla", ("bitwuzla", "--version")),
+    ("yices", ("yices", "--version")),
     ("cvc5", ("cvc5", "--version")),
+    ("yosys-abc", ("yosys-abc", "-c", "version")),
+    ("yosys-witness", ("yosys-witness", "--help")),
+    ("avy", ("avy", "--version")),
+    ("pono", ("pono", "--version")),
+    ("btormc", ("btormc", "--version")),
+    ("btorsim", ("btorsim", "-h")),
+)
+
+_DEFAULT_FORMAL_VERSION_NAMES = (
+    "yosys",
+    "sby",
+    "yosys-smtbmc",
+    "z3",
+    "boolector",
+    "cvc5",
 )
 
 
@@ -79,6 +99,65 @@ def build_recursive_formal_design(module: Module, *, selected_ir_identity: str |
     return _build_recursive_formal_design(module, selected_ir_identity=selected_ir_identity)
 
 
+def run_formal(
+    design: FormalDesign,
+    *,
+    mode: ProofMode = ProofMode.BMC,
+    depth: int = 20,
+    engine: str = "sby",
+    solver: str | None = None,
+    executable: str | None = None,
+) -> tuple[FormalResult, ...]:
+    """Return explicit skips until an implementation-bound runner is supplied."""
+
+    versions = tool_versions()
+    reason = (
+        "formal execution unavailable: no runner executable configured"
+        if executable is None
+        else f"formal runner not found: {executable}"
+    )
+    if executable is None and solver and shutil.which("sby") and shutil.which(solver):
+        reason = "selected IR has no backend-bound formal harness"
+    if executable is None or shutil.which(executable) is None:
+        return tuple(
+            FormalResult(
+                item.id,
+                FormalStatus.SKIPPED,
+                mode,
+                engine,
+                solver,
+                depth,
+                source_origin=item.source_origin,
+                tool_versions=versions,
+                reason=reason,
+            )
+            for item in design.properties
+        )
+    raise FormalError("custom formal execution requires an safety verification result adapter")
+
+
+def run_verilog_targets(
+    targets: tuple[tuple[str, str, str], ...],
+    *,
+    mode: ProofMode = ProofMode.BMC,
+    depth: int = 20,
+    solver: str = "z3",
+) -> tuple[FormalResult, ...]:
+    """Run backend-published ``(property_id, top, source)`` targets."""
+
+    return tuple(
+        run_verilog_formal(
+            source,
+            top=top,
+            property_id=property_id,
+            mode=mode,
+            depth=depth,
+            solver=solver,
+        )
+        for property_id, top, source in targets
+    )
+
+
 def _version_commands_for(names: tuple[str, ...]) -> tuple[tuple[str, tuple[str, ...]], ...]:
     requested = set(names)
     return tuple(
@@ -98,7 +177,7 @@ def tool_versions(
     unrelated installed solver cannot perturb a proof identity.
     """
 
-    names = requested or tuple(name for name, _ in _FORMAL_VERSION_COMMANDS)
+    names = requested or _DEFAULT_FORMAL_VERSION_NAMES
     return discover_tool_inventory(
         names,
         version_commands=_version_commands_for(names),
@@ -114,10 +193,12 @@ class FormalToolchainContext:
     engine: str
     solver: str
     inventory: ToolInventory
+    route: str = "smtbmc"
 
     def __post_init__(self) -> None:
         if not self.engine or not self.solver:
             raise FormalError("formal engine and solver must be non-empty tokens")
+        formal_engine_route(self.route)
 
     @property
     def versions(self) -> tuple[tuple[str, str], ...]:
@@ -128,9 +209,12 @@ class FormalToolchainContext:
         return self.inventory.missing
 
     @classmethod
-    def discover(cls, *, engine: str = "sby", solver: str = "z3") -> "FormalToolchainContext":
+    def discover(
+        cls, *, engine: str = "sby", solver: str = "z3", route: str = "smtbmc"
+    ) -> "FormalToolchainContext":
+        engine_route = formal_engine_route(route)
         requested = (
-            ("yosys", "sby", "yosys-smtbmc", solver)
+            engine_route.tool_names(solver=solver)
             if engine == "sby"
             else (engine, solver)
         )
@@ -141,7 +225,7 @@ class FormalToolchainContext:
             which=shutil.which,
             runner=subprocess.run,
         )
-        return cls(engine, solver, inventory)
+        return cls(engine, solver, inventory, route)
 
 
 _FORMAL_TOOLCHAIN_OVERRIDE: ContextVar[FormalToolchainContext | None] = (
@@ -244,7 +328,7 @@ def _sby_trace_files(root: Path, top: str) -> tuple[Path, ...]:
     return tuple(sorted(work.glob("**/trace*.vcd")))
 
 
-def _sby_failed_sample_step(output: str) -> int | None:
+def _sby_failed_sample_step(output: str, *, route: str = "smtbmc") -> int | None:
     """Locate the pre-edge DUT frame for one clocked SBY assertion failure.
 
     The SBY status artifact, not log prose, determines FAIL.  Once FAIL is
@@ -254,13 +338,19 @@ def _sby_failed_sample_step(output: str) -> int | None:
     Ambiguous or absent step records never license a guessed observation.
     """
 
-    steps = {
-        int(match.group(1))
-        for match in re.finditer(
-            r"(?m)\bsummary:\s+failed assertion\b[^\n]*\bstep\s+([0-9]+)\b",
-            output,
+    if route == "btor-pono":
+        pattern = r"(?m)\bBMC check at bound ([0-9]+) satisfiable\b"
+    elif route == "btor-btormc":
+        pattern = (
+            r"(?m)\bbad state property [0-9]+ reachable at bound "
+            r"k = ([0-9]+) SATISFIABLE\b"
         )
-    }
+    else:
+        pattern = (
+            r"(?m)\bsummary:\s+failed assertion\b[^\n]*"
+            r"\bstep\s+([0-9]+)\b"
+        )
+    steps = {int(match.group(1)) for match in re.finditer(pattern, output)}
     if len(steps) != 1:
         return None
     return max(0, steps.pop() - 1)
@@ -295,6 +385,7 @@ def _execution_error_reason(
 def run_verilog_formal(source: str, *, top: str, property_id: str,
                        mode: ProofMode = ProofMode.BMC, depth: int = 20,
                        solver: str = "z3", engine: str = "sby",
+                       route: str = "smtbmc",
                        source_origin=None, systemverilog: bool = False,
                        timeout_seconds: int = 120,
                        work_directory: Path | None = None,
@@ -311,10 +402,19 @@ def run_verilog_formal(source: str, *, top: str, property_id: str,
     by safety verification/semantic-reference equivalence integration tests and by backend adapters that have published a
     complete binding map. Missing tools return ``skipped``.
     """
+    engine_route = formal_engine_route(route)
+    mode_name = "bmc" if mode is ProofMode.BMC else "prove"
+    engine_route.validate_request(solver=solver, mode=mode_name)
     context = toolchain or _FORMAL_TOOLCHAIN_OVERRIDE.get()
     if context is None:
-        context = FormalToolchainContext.discover(engine=engine, solver=solver)
-    if context.engine != engine or context.solver != solver:
+        context = FormalToolchainContext.discover(
+            engine=engine, solver=solver, route=route
+        )
+    if (
+        context.engine != engine
+        or context.solver != solver
+        or context.route != route
+    ):
         raise FormalError("formal toolchain context does not match the requested route")
     missing = context.missing
     if missing:
@@ -340,10 +440,10 @@ def run_verilog_formal(source: str, *, top: str, property_id: str,
         auxiliary_names = _publish_formal_auxiliary_files(
             root, auxiliary_files or {}
         )
-        mode_name = "bmc" if mode is ProofMode.BMC else "prove"
         config.write_text("\n".join((
-            "[options]", f"mode {mode_name}", f"depth {depth}", "", "[engines]",
-            f"smtbmc {solver}", "", "[script]",
+            "[options]", f"mode {mode_name}", f"depth {depth}",
+            *engine_route.sby_options, "", "[engines]",
+            engine_route.engine_line(solver=solver), "", "[script]",
             f"read_verilog {'-sv ' if systemverilog else ''}-formal {verilog.name}",
             f"prep -top {top}", "", "[files]", verilog.name,
             *auxiliary_names, "",
@@ -398,7 +498,7 @@ def run_verilog_formal(source: str, *, top: str, property_id: str,
                 )
             from zlang.ir.formal import Counterexample
             sample_step = (
-                _sby_failed_sample_step(output)
+                _sby_failed_sample_step(output, route=route)
                 if counterexample_pre_edge else None
             )
             # A clocked assertion samples pre-edge state.  Do not publish the
@@ -411,6 +511,7 @@ def run_verilog_formal(source: str, *, top: str, property_id: str,
                     cycle=sample_step,
                     bindings=trace_bindings,
                     comparison_window=comparison_window,
+                    clock_edge_frames=engine_route.counterexample_clock_frames,
                 )
                 if not counterexample_pre_edge or sample_step is not None
                 else None
@@ -453,6 +554,7 @@ def run_verilog_cover(
     depth: int = 20,
     solver: str = "z3",
     engine: str = "sby",
+    route: str = "smtbmc",
     source_origin=None,
     systemverilog: bool = False,
     timeout_seconds: int = 120,
@@ -468,10 +570,18 @@ def run_verilog_cover(
     safety vocabulary's ``failed`` or ``proven``.
     """
 
+    engine_route = formal_engine_route(route)
+    engine_route.validate_request(solver=solver, mode="cover")
     context = toolchain or _FORMAL_TOOLCHAIN_OVERRIDE.get()
     if context is None:
-        context = FormalToolchainContext.discover(engine=engine, solver=solver)
-    if context.engine != engine or context.solver != solver:
+        context = FormalToolchainContext.discover(
+            engine=engine, solver=solver, route=route
+        )
+    if (
+        context.engine != engine
+        or context.solver != solver
+        or context.route != route
+    ):
         raise FormalError("formal toolchain context does not match the requested route")
     missing = context.missing
     if missing:
@@ -504,8 +614,9 @@ def run_verilog_cover(
             root, auxiliary_files or {}
         )
         config.write_text("\n".join((
-            "[options]", "mode cover", f"depth {depth}", "", "[engines]",
-            f"smtbmc {solver}", "", "[script]",
+            "[options]", "mode cover", f"depth {depth}",
+            *engine_route.sby_options, "", "[engines]",
+            engine_route.engine_line(solver=solver), "", "[script]",
             f"read_verilog {'-sv ' if systemverilog else ''}-formal {verilog.name}",
             f"prep -top {top}", "", "[files]", verilog.name,
             *auxiliary_names, "",
@@ -624,6 +735,7 @@ def run_verilog_cover(
 
 
 __all__ = ["FormalToolchainContext", "build_formal_design", "build_recursive_formal_design", "connect_formal_design",
-           "emit_cover_harness", "emit_harness",
-           "run_verilog_cover", "run_verilog_formal", "tool_versions",
+           "emit_cover_harness", "emit_cover_sby", "emit_harness",
+           "emit_recursive_harness", "emit_sby", "run_formal", "run_recursive_formal",
+           "run_verilog_cover", "run_verilog_formal", "run_verilog_targets", "tool_versions",
            "use_formal_toolchain"]

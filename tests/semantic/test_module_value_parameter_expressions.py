@@ -4,11 +4,11 @@ from pathlib import Path
 import pytest
 
 from zlang.equivalence import make_equivalence_property
-from zlang.ir.expressions import Constant, ParameterRef
-from zlang.ir.equivalence import EquivalenceRelation
+from zlang.ir import Constant, ParameterRef
+from zlang.ir import EquivalenceRelation
 from zlang.ir.callables import expand_callable_calls
 from zlang.ir.signed_reductions import expression_semantic_identity
-from zlang.opt.lowering import lower, restore
+from zlang.opt import lower, restore
 from zlang.parser import parse
 from zlang.semantic import SemanticError, analyze
 

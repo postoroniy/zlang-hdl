@@ -198,12 +198,9 @@ def test_stage_local_cache_reuses_exact_fingerprint_and_immutable_index(
 
     monkeypatch.setattr(ir_hierarchy, "specialization_fingerprint", counted)
     cache = HierarchyTraversalCache()
-    first_fingerprint = cache.fingerprint(module.children[0])
-    second_fingerprint = cache.fingerprint(module.children[0])
     first = build_hierarchy_index(module, cache=cache)
     second = build_hierarchy_index(module, cache=cache)
 
-    assert first_fingerprint == second_fingerprint
     assert first is second
     assert calls == [module.children[0]]
 
@@ -230,21 +227,65 @@ def test_hierarchy_caches_are_independent_and_never_process_global(
     second_module = CompilationSession(
         source, top="Top"
     ).check()
-    first_cache = HierarchyTraversalCache()
-    second_cache = HierarchyTraversalCache()
-    first_cache.fingerprint(first_module.children[0])
-    first_cache.fingerprint(first_module.children[0])
-    second_cache.fingerprint(second_module.children[0])
-    second_cache.fingerprint(second_module.children[0])
-    first = build_hierarchy_index(first_module, cache=first_cache)
-    second = build_hierarchy_index(second_module, cache=second_cache)
+    first = build_hierarchy_index(first_module)
+    second = build_hierarchy_index(second_module)
 
     assert first is not second
-    assert len(calls) == 2
+    # Each session owns one cache during recursive semantic analysis.  The two
+    # uncached inspection calls above add one more fingerprint per session.
+    assert len(calls) == 4
     assert calls[0] is first_module.children[0]
     assert calls[1] is second_module.children[0]
+    assert calls[2] is first_module.children[0]
+    assert calls[3] is second_module.children[0]
     assert tuple(item.physical_path for item in first.entries) == tuple(
         item.physical_path for item in second.entries
+    )
+
+
+def test_aggregate_consumption_and_parent_context_do_not_change_child_identity() -> None:
+    module = compile_source("""
+    struct View { valid:bit value:u8 }
+    enum Phase { Idle Active }
+    module Leaf {
+        clock clk reset rst
+        in step:bit out view:View
+        reg value:u8=0
+        fsm phase:Phase=Idle {
+            Idle { when step -> Active { value <- 1 } }
+            Active { -> Idle { value <- truncate<8>(value+1) } }
+        }
+        view=View { valid=phase == Phase.Active value=value }
+    }
+    module ConsumingParent {
+        clock clk reset rst in step:bit out observed:u8
+        child:Leaf{step}
+        observed=child.view.value
+    }
+    module IgnoringParent {
+        clock clk reset rst in step:bit out observed:u8
+        child:Leaf{step}
+        observed=0
+    }
+    module Top {
+        clock clk reset rst in step:bit out left,right:u8
+        consuming:ConsumingParent{step}
+        ignoring:IgnoringParent{step}
+        left=consuming.observed right=ignoring.observed
+    }
+    """, top="Top").ir
+    hierarchy = build_hierarchy_index(module)
+    consumed = hierarchy.child(("Top", "consuming"), "child")
+    ignored = hierarchy.child(("Top", "ignoring"), "child")
+    assert consumed.module.name == ignored.module.name == "Leaf"
+    assert consumed.specialization_identity == ignored.specialization_identity
+    leaf_catalog = tuple(
+        item for item in hierarchy.specializations if item.key.module_name == "Leaf"
+    )
+    assert len(leaf_catalog) == 1
+    assert leaf_catalog[0].occurrence_paths == (
+        ("Top", "consuming", "child"),
+        ("Top", "ignoring", "child"),
     )
 
 

@@ -19,6 +19,7 @@ from zlang.costs import SourcePolicy, UnifiedConstraint
 from zlang.diagnostics import DiagnosticError
 from zlang.exploration import TransformFamily
 from zlang.formal_exploration import FormalPolicy
+from zlang.implementation_limits import IntentExplorationLimits
 from zlang.ir.expressions import CostMetric
 from zlang.ir.timing import ModuleTimingContract
 from zlang.project import ProjectManifest
@@ -299,6 +300,7 @@ class ImplementationContribution:
     evidence_policy: SourcePolicy | None = None
     formal_policy: FormalPolicy | None = None
     regions: tuple[str, ...] | None = None
+    exploration_limits: IntentExplorationLimits | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.origin, PolicyOrigin):
@@ -313,6 +315,10 @@ class ImplementationContribution:
             object.__setattr__(self, "formal_policy", FormalPolicy(self.formal_policy))
         if self.regions is not None:
             object.__setattr__(self, "regions", _normalize_regions(self.regions))
+        if self.exploration_limits is not None and not isinstance(
+            self.exploration_limits, IntentExplorationLimits
+        ):
+            raise ValueError("implementation exploration limits must be typed")
 
 
 @dataclass(frozen=True)
@@ -327,6 +333,10 @@ class ImplementationRequest:
     architecture: ArchitectureRequest = field(default_factory=ArchitectureRequest)
     evidence_policy: SourcePolicy = SourcePolicy.MEASURED_PREFERRED
     formal_policy: FormalPolicy = FormalPolicy.OFF
+    exploration_limits: IntentExplorationLimits = field(
+        default_factory=IntentExplorationLimits,
+        repr=False,
+    )
     exact_timing: ExactTiming | None = None
     regions: tuple[str, ...] = ()
     schema: str = field(default=IMPLEMENTATION_REQUEST_SCHEMA, init=False)
@@ -339,13 +349,15 @@ class ImplementationRequest:
         object.__setattr__(self, "evidence_policy", SourcePolicy(self.evidence_policy))
         object.__setattr__(self, "formal_policy", FormalPolicy(self.formal_policy))
         object.__setattr__(self, "regions", _normalize_regions(self.regions))
+        if not isinstance(self.exploration_limits, IntentExplorationLimits):
+            raise ValueError("implementation exploration limits must be typed")
 
     @property
     def identity(self) -> str:
         return stable_digest(self.to_identity_data())
 
     def to_identity_data(self) -> dict[str, object]:
-        return {
+        data = {
             "architecture": self.architecture.to_data(),
             "backend": None if self.backend is None else self.backend.to_data(),
             "constraints": [item.to_data() for item in self.constraints],
@@ -358,6 +370,12 @@ class ImplementationRequest:
             "target": self.target,
             "transforms": self.transforms.to_data(),
         }
+        # Preserve the established identity byte-for-byte for default policy.
+        # Non-default work limits can change the bounded candidate catalog and
+        # therefore participate explicitly in that request's identity.
+        if self.exploration_limits != IntentExplorationLimits():
+            data["exploration_limits"] = self.exploration_limits.to_data()
+        return data
 
     def to_data(self) -> dict[str, object]:
         return {
@@ -387,6 +405,7 @@ def _parse_selected_profile_unchecked(
         "backend", "backend-mode", "target", "allowed-transforms",
         "avoided-transforms", "constraints", "objective", "architecture",
         "architecture-mode", "evidence-policy", "formal-policy", "regions",
+        "intent-exploration",
         # Physical clock publication is parsed separately from implementation
         # policy so it cannot affect semantic legality or candidate selection.
         "platform",
@@ -466,6 +485,16 @@ def _parse_selected_profile_unchecked(
                 None if "formal-policy" not in raw
                 else _enum(FormalPolicy, raw["formal-policy"], "formal policy")
             ),
+            exploration_limits=(
+                None
+                if "intent-exploration" not in raw
+                else _parse_intent_exploration(
+                    _mapping(
+                        raw["intent-exploration"],
+                        "profile intent-exploration",
+                    )
+                )
+            ),
             regions=(
                 None if "regions" not in raw
                 else _string_array(raw["regions"], "regions")
@@ -509,6 +538,7 @@ def merge_implementation_contributions(
         for field_name in (
             "backend", "target", "transforms", "objective", "architecture",
             "evidence_policy", "formal_policy", "regions",
+            "exploration_limits",
         ):
             value = getattr(contribution, field_name)
             if value is None:
@@ -540,6 +570,9 @@ def merge_implementation_contributions(
             "evidence_policy", (SourcePolicy.MEASURED_PREFERRED, None)
         )[0],
         formal_policy=selected.get("formal_policy", (FormalPolicy.OFF, None))[0],
+        exploration_limits=selected.get(
+            "exploration_limits", (IntentExplorationLimits(), None)
+        )[0],
         regions=selected.get("regions", ((), None))[0],
         contributions=tuple(contribution.origin for contribution in contributions),
     )
@@ -589,6 +622,7 @@ def apply_exact_timing_contract(
         architecture=request.architecture,
         evidence_policy=request.evidence_policy,
         formal_policy=request.formal_policy,
+        exploration_limits=request.exploration_limits,
         exact_timing=exact,
         regions=request.regions,
         contributions=request.contributions + ((origin,) if origin is not None else ()),
@@ -629,6 +663,43 @@ def _parse_constraints(raw: Mapping[str, object]) -> tuple[ImplementationConstra
                 metric, _DEFAULT_RELATION[metric], _number(specification, f"constraint '{name}'")
             ))
     return _normalize_constraints(values)
+
+
+def _parse_intent_exploration(
+    raw: Mapping[str, object],
+) -> IntentExplorationLimits:
+    names = {
+        "max-total-candidates": "max_candidates",
+        "max-raw-extractions": "max_value_alternatives",
+        "max-structural-alternatives": "max_structural_alternatives",
+        "max-candidates-per-structure": "max_candidates_per_structure",
+        "max-saturation-iterations": "max_saturation_iterations",
+        "max-eclasses": "max_eclasses",
+        "max-enodes": "max_enodes",
+        "max-architectures": "max_architectures",
+        "max-reductions": "max_reductions",
+        "max-pipeline-candidates": "max_pipeline_candidates",
+    }
+    unknown = set(raw) - set(names)
+    if unknown:
+        raise ImplementationRequestError(
+            "unknown intent-exploration limit "
+            f"'{sorted(unknown)[0]}'"
+        )
+    defaults = IntentExplorationLimits().to_data()
+    for source_name, field_name in names.items():
+        if source_name not in raw:
+            continue
+        value = raw[source_name]
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ImplementationRequestError(
+                f"intent-exploration limit '{source_name}' must be an integer"
+            )
+        defaults[field_name] = value
+    try:
+        return IntentExplorationLimits(**defaults)
+    except ValueError as error:
+        raise ImplementationRequestError(str(error)) from error
 
 
 def _parse_objective(raw: object) -> ImplementationObjective:
@@ -812,6 +883,7 @@ __all__ = [
     "ImplementationObjective",
     "ImplementationRequest",
     "ImplementationRequestError",
+    "IntentExplorationLimits",
     "MAXIMIZABLE_METRICS",
     "MINIMIZABLE_METRICS",
     "ObjectiveDirection",

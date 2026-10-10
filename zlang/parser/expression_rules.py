@@ -20,6 +20,34 @@ class ExpressionRules:
     """Stateless grammar callbacks for one bounded parser domain."""
 
     @v_args(meta=True)
+    def removed_pipeline_auto_expr(
+        self, _meta: object, _items: list[object]
+    ) -> object:
+        raise ParseError(
+            "scalar pipeline(auto) was removed; use implement { expression "
+            "intent { ... } } for compiler-selected implementation, or "
+            "pipeline(N) for exact latency"
+        )
+
+    @v_args(meta=True)
+    def removed_architecture_expr(
+        self, _meta: object, _items: list[object]
+    ) -> object:
+        raise ParseError(
+            "scalar architecture(auto) was removed; use implement { expression "
+            "intent { ... } } for compiler-selected implementation"
+        )
+
+    @v_args(meta=True)
+    def removed_explore_expr(
+        self, _meta: object, _items: list[object]
+    ) -> object:
+        raise ParseError(
+            "scalar explore was removed; use implement { expression intent "
+            "{ ... } } for compiler-selected implementation"
+        )
+
+    @v_args(meta=True)
     def name_expr(self, meta: object, items: list[object]) -> ast_nodes.NameExpr:
         return ast_nodes.NameExpr(str(items[0]), origin=self._span(meta))
 

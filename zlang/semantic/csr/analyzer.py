@@ -355,8 +355,13 @@ class CsrAnalyzer:
                             "than once"
                         )
                     bound_command_outputs.add(output.name)
+                    event_binding = (
+                        ir_csr.CsrPostAcceptEventBinding
+                        if event_decl.phase is ast.CsrEventPhase.POST_ACCEPT
+                        else ir_csr.CsrEventBinding
+                    )
                     events.append(
-                        ir_csr.CsrEventBinding(
+                        event_binding(
                             ir_csr.CsrEventIdentity(
                                 register_identity, event_ordinal
                             ),

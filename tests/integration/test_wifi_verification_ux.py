@@ -24,8 +24,7 @@ from zlang.formal import (
     run_verilog_formal,
 )
 from zlang.ir.formal import FormalError, FormalStatus, PropertyKind
-from zlang.opt.ir import OptimizationStage
-from zlang.opt.lowering import lower, restore
+from zlang.opt import OptimizationStage, lower, restore
 from zlang.native_simulation import VerificationMonitor, simulate_cycles
 from zlang.toolchain import lint_with_verilator
 from zlang.verification_publication import (

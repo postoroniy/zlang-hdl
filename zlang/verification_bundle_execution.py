@@ -19,6 +19,7 @@ from zlang.formal import (
     run_verilog_cover,
     run_verilog_formal,
 )
+from zlang.formal_routes import formal_engine_route
 from zlang import formal_trace as formal_trace
 from zlang.ir.comparison_window import ComparisonWindow
 from zlang.ir import formal as ir_formal
@@ -30,6 +31,7 @@ from zlang import verification_bundle_codec as bundle_codec
 from zlang import verification_codec_support as codec_support
 from zlang import verification_bundle_io as bundle_io
 from zlang import verification_bundle_report as bundle_report
+from zlang.verification_execution_context import prepare_execution_context
 
 class _ExecutionRootLease:
     """Process-wide exclusive lease for one deterministic solver workspace.
@@ -228,6 +230,7 @@ def _semantic_trace_snapshot(
     *,
     cycle: int | None,
     bindings: tuple[formal_trace.TraceBinding, ...],
+    clock_edge_frames: bool = False,
 ) -> formal_trace.FormalTraceSnapshot:
     """Decode one same-cycle safety verification frame through the common trace utility."""
 
@@ -241,6 +244,7 @@ def _semantic_trace_snapshot(
         cycle=cycle,
         bindings=bindings,
         comparison_window=ComparisonWindow.same_cycle(),
+        clock_edge_frames=clock_edge_frames,
     )
 
 
@@ -251,7 +255,7 @@ def _relevant_verification_tool_versions(
     """Return only tools which can affect the configured execution route."""
 
     required = (
-        {"yosys", "sby", "yosys-smtbmc", config.solver}
+        set(formal_engine_route(config.route).tool_names(solver=config.solver))
         if config.engine == "sby"
         else {config.engine, config.solver}
     )
@@ -289,6 +293,7 @@ def _verification_result_cache_identity(
         "depth": config.depth,
         "engine": config.engine,
         "mode": "cover" if job.kind == "cover" else config.mode.value,
+        "route": config.route,
         "solver": config.solver,
         "timeout_seconds": config.timeout_seconds,
     }
@@ -558,67 +563,19 @@ def _run_verification_bundle_unlocked(
         if isinstance(bundle, Path)
         else bundle
     )
-    bundle_root = loaded.directory.resolve(strict=False)
-    execution_root: Path | None = None
-    if work_directory is not None:
-        candidate = Path(work_directory).resolve(strict=False)
-        try:
-            candidate.relative_to(bundle_root)
-        except ValueError:
-            pass
-        else:
-            raise codec_support.VerificationBundleError(
-                "verification work directory must be outside the immutable bundle"
-            )
-        bundle_token = stable_digest(
-            loaded.manifest.bundle_identity or loaded.manifest.computed_identity
-        )[:16]
-        run_token = stable_digest(config.to_data())[:16]
-        execution_root = candidate / (
-            f"{bundle_token}-{config.mode.value}-{run_token}"
-        )
-        execution_root.mkdir(parents=True, exist_ok=True)
-    cache_root: Path | None = None
-    if cache_directory is not None:
-        candidate = Path(cache_directory).resolve(strict=False)
-        try:
-            candidate.relative_to(bundle_root)
-        except ValueError:
-            pass
-        else:
-            raise codec_support.VerificationBundleError(
-                "verification cache directory must be outside the immutable bundle"
-            )
-        cache_root = candidate
-    selected_jobs = tuple(
-        (ordinal, job)
-        for ordinal, job in enumerate(loaded.manifest.jobs)
-        if job_kinds is None or job.kind in job_kinds
+    execution = prepare_execution_context(
+        loaded,
+        config=config,
+        work_directory=work_directory,
+        cache_directory=cache_directory,
+        job_kinds=job_kinds,
+        toolchain=toolchain,
     )
-    if not selected_jobs:
-        raise codec_support.VerificationBundleError("verification execution selected no jobs")
-
-    # Structured skips are reports, not solver requests.  In particular, a
-    # bundle whose assumptions or observations could not be connected must be
-    # replayable without probing the host for Yosys/SBY/a solver.  Discover one
-    # immutable snapshot only when at least one selected job can actually use
-    # the supported executor.
-    needs_toolchain = config.engine == "sby" and any(
-        job.executable and job.kind in {"safety", "cover"}
-        for _, job in selected_jobs
-    )
-    if needs_toolchain:
-        toolchain = toolchain or FormalToolchainContext.discover(
-            engine=config.engine, solver=config.solver
-        )
-        if toolchain.engine != config.engine or toolchain.solver != config.solver:
-            raise codec_support.VerificationBundleError(
-                "verification toolchain context does not match the run configuration"
-            )
-        versions = toolchain.versions
-    else:
-        toolchain = None
-        versions = ()
+    execution_root = execution.execution_root
+    cache_root = execution.cache_root
+    selected_jobs = execution.selected_jobs
+    toolchain = execution.toolchain
+    versions = execution.tool_versions
 
     def result_mode(job: bundle_codec.VerificationJob) -> str:
         return "cover" if job.kind == "cover" else config.mode.value
@@ -726,6 +683,7 @@ def _run_verification_bundle_unlocked(
                 depth=config.depth,
                 solver=config.solver,
                 engine=config.engine,
+                route=config.route,
                 source_origin=job.source_origin,
                 systemverilog=job.systemverilog,
                 timeout_seconds=config.timeout_seconds,
@@ -785,6 +743,7 @@ def _run_verification_bundle_unlocked(
             depth=config.depth,
             solver=config.solver,
             engine=config.engine,
+            route=config.route,
             source_origin=job.source_origin,
             systemverilog=job.systemverilog,
             timeout_seconds=config.timeout_seconds,
@@ -792,6 +751,8 @@ def _run_verification_bundle_unlocked(
             auxiliary_files=auxiliary_files,
             toolchain=toolchain,
             counterexample_pre_edge=True,
+            trace_bindings=trace_bindings,
+            comparison_window=ComparisonWindow.same_cycle(),
             diagnostic_sources=diagnostic_sources,
         )
         if formal_result.property_id != job.property_id:
@@ -827,6 +788,9 @@ def _run_verification_bundle_unlocked(
                 job_work_directory,
                 cycle=formal_result.counterexample.cycle,
                 bindings=trace_bindings,
+                clock_edge_frames=formal_engine_route(
+                    config.route
+                ).counterexample_clock_frames,
             )
             formal_result = replace(
                 formal_result,
@@ -996,10 +960,16 @@ def run_verification_bundle_staged(
     if needs_toolchain:
         resolve = getattr(tool_resolver, "formal_context", None)
         toolchain = (
-            resolve(engine=config.engine, solver=config.solver)
+            resolve(
+                engine=config.engine,
+                solver=config.solver,
+                route=config.route,
+            )
             if callable(resolve)
             else FormalToolchainContext.discover(
-                engine=config.engine, solver=config.solver
+                engine=config.engine,
+                solver=config.solver,
+                route=config.route,
             )
         )
     if config.mode is ir_formal.ProofMode.BMC:

@@ -417,7 +417,7 @@ def _build_top_boundary_plan(
         elif direct_vector:
             direct_vector_bases.add(base)
 
-    used = set(emission_context.module_rtl_names(module).allocated_names)
+    used = set(emission_context.cached_module_rtl_names(module).allocated_names)
     used.update(identifiers.rtl_identifier(leaf.external_name) for leaf in selected_leaves)
     aliases: dict[str, str] = {}
     for base in sorted(bases_requiring_alias):

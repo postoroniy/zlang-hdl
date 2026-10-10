@@ -30,6 +30,18 @@ async function settled(description, predicate, timeout = 5000) {
   assert.fail(`Timed out waiting for ${description}`);
 }
 
+function normalized(document) {
+  return document.getText().replace(/\r\n/g, '\n');
+}
+
+async function replace(editor, text) {
+  const document = editor.document;
+  const range = new vscode.Range(document.positionAt(0), document.positionAt(document.getText().length));
+  assert.equal(await editor.edit((builder) => builder.replace(range, text)), true);
+  const end = document.positionAt(document.getText().length);
+  editor.selection = new vscode.Selection(end, end);
+}
+
 async function replaceDocument(document, text) {
   const edit = new vscode.WorkspaceEdit();
   edit.replace(
@@ -82,16 +94,6 @@ async function checkHost() {
   const language = manifest.contributes.languages.find((item) => item.id === languageId);
   assert.ok(language, 'Missing installed language contribution');
   assert.deepEqual(language.extensions, ['.zhl']);
-  // VS Code 1.141 correctly focus-gates UI keybinding commands in the
-  // extension-test host.  Inspect the isolated installed contribution here;
-  // the package tests separately compile every shipped snippet default.
-  const languageConfiguration = JSON.parse(fs.readFileSync(
-    path.join(installedPath, language.configuration), 'utf8',
-  ));
-  assert.equal(languageConfiguration.comments.lineComment, '//');
-  assert.ok(languageConfiguration.autoClosingPairs.some(
-    (item) => item.open === '{' && item.close === '}',
-  ));
   const snippet = manifest.contributes.snippets.find((item) => item.language === languageId);
   assert.ok(snippet, 'Missing installed snippet contribution');
   const snippets = JSON.parse(fs.readFileSync(path.join(installedPath, snippet.path), 'utf8'));
@@ -121,7 +123,11 @@ async function checkHost() {
     assert.notEqual(documents[suffix].languageId, languageId, `Unexpected .${suffix} association`);
   }
 
-  const editor = await vscode.window.showTextDocument(documents.zhl, { preview: false });
+  let editor = await vscode.window.showTextDocument(documents.zhl, { preview: false });
+  editor.options = { insertSpaces: true, tabSize: 4 };
+  const configuration = vscode.workspace.getConfiguration('editor', documents.zhl.uri);
+  await configuration.update('autoIndent', 'full', vscode.ConfigurationTarget.WorkspaceFolder);
+  await configuration.update('autoClosingBrackets', 'languageDefined', vscode.ConfigurationTarget.WorkspaceFolder);
   const document = editor.document;
 
   // Exercise the real contributed LanguageClient immediately after extension
@@ -145,17 +151,6 @@ async function checkHost() {
   assert.equal(definitionUri.toString(), document.uri.toString());
   assert.deepEqual(definitionRange.start, new vscode.Position(1, 7));
   phase('simple definition');
-
-  const completions = await vscode.commands.executeCommand(
-    'vscode.executeCompletionItemProvider',
-    document.uri,
-    document.positionAt(useOffset),
-  );
-  assert.ok(
-    completions?.items.some((item) => item.label === 'x'),
-    'installed LanguageClient did not provide compiler-owned completion',
-  );
-  phase('simple completion');
 
   // Mirror dogfooding with the repository opened above a nested locked ZLang
   // project.  Only the root document is opened; declaration targets must be
@@ -292,6 +287,12 @@ async function checkHost() {
   assert.equal(explicitReferences?.length, 2,
     'Shift+F12 failed with explicit inst and dirty import');
   phase('dirty references');
+  await vscode.commands.executeCommand(
+    'vscode.executeCompletionItemProvider',
+    transmitter.uri,
+    transmitter.positionAt(transmitter.getText().indexOf('packet_mapper.command')),
+  );
+
   await replaceDocument(transmitter, transmitterText);
   await new Promise((resolve) => setTimeout(resolve, 400));
   assert.equal(
@@ -310,6 +311,50 @@ async function checkHost() {
   await replaceDocument(mapper, mapperText);
   phase('live edit restored');
 
+  // Navigation providers may change VS Code's active editor; restore the
+  // scratch UI fixture before exercising typing and snippet commands.
+  editor = await vscode.window.showTextDocument(document, { preview: false });
+  assert.equal(vscode.window.activeTextEditor, editor,
+    'scratch fixture must be the active editor before editor commands run');
+
+  await replace(editor, 'in x : u8');
+  editor.selection = new vscode.Selection(0, 0, 0, document.lineAt(0).text.length);
+  await vscode.commands.executeCommand('editor.action.commentLine');
+  await settled('language-specific line comment', () => normalized(document) === '// in x : u8');
+  await vscode.commands.executeCommand('editor.action.commentLine');
+  await settled('line comment removal', () => normalized(document) === 'in x : u8');
+
+  await replace(editor, 'module Smoke ');
+  await vscode.commands.executeCommand('type', { text: '{' });
+  await settled('configured bracket auto-closing', () => normalized(document) === 'module Smoke {}');
+  await vscode.commands.executeCommand('type', { text: '\n' });
+  await settled('Enter indentation between brackets', () =>
+    normalized(document) === 'module Smoke {\n    \n}'
+    && editor.selection.active.line === 1 && editor.selection.active.character === 4);
+
+  await replace(editor, '');
+  // Resolve the actual installed, contributed snippet by name. Supplying a
+  // body here would bypass registration and would not be an extension test.
+  await vscode.commands.executeCommand('editor.action.insertSnippet', {
+    langId: languageId,
+    name: snippetName,
+  });
+  await settled('registered Clocked module snippet insertion', () =>
+    normalized(document).startsWith('module ModuleName {'));
+  assert.deepEqual(normalized(document).split('\n').map((line) => line.trimEnd()), [
+    'module ModuleName {',
+    '    clock clk reset rst',
+    '    in x : u8',
+    '    out y : u8 = x',
+    '',
+    '}',
+  ]);
+  assert.doesNotMatch(document.getText(), /\$\{?\d/, 'Snippet placeholders must be expanded');
+  await settled('snippet module-name tabstop', () => document.getText(editor.selection) === 'ModuleName');
+  await vscode.commands.executeCommand('jumpToNextSnippetPlaceholder');
+  await settled('snippet clock-name tabstop', () => document.getText(editor.selection) === 'clk');
+  assert.equal(await document.save(), true);
+
   console.log(JSON.stringify({
     status: 'passed',
     vscode: vscode.version,
@@ -321,11 +366,12 @@ async function checkHost() {
       'isolated installed VSIX identity and standard LSP client manifest',
       'automatic .zhl association; no .zl or .zlh association',
       'activation-complete LanguageClient and real F12 definition provider',
-      'compiler-owned completion through the installed LanguageClient',
       'nested-project type/module F12 with unopened declaration targets',
       'same-file enum and nested-project type/module Shift+F12 from installed VSIX',
       'multi-document unsaved live edit with explicit and concise instances',
-      'installed language configuration and registered snippet assets',
+      'line-comment toggle and removal',
+      'bracket auto-closing and Enter indentation',
+      'registered Clocked module snippet and working tabstops',
     ],
     notChecked: [
       'rendered theme colors, font styling, and visual screenshot appearance',

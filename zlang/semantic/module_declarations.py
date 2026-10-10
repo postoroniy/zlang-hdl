@@ -18,6 +18,7 @@ from .errors import SemanticError
 from . import context as semantic_context
 from . import callables as semantic_callables
 from . import compile_time_evaluation
+from . import concise_module_items
 from . import imports as semantic_imports
 from . import limits as semantic_limits
 from . import module_preparation
@@ -226,10 +227,12 @@ class DeclarationAndCallablePreparer:
             enum_identity_namespace,
             tagged_unions=module.tagged_unions,
         )
-        module = module_preparation.normalize_concise_module_items(
+        module = concise_module_items.normalize_concise_module_items(
             module,
             type_resolver,
             context.hierarchy.inherited_domain,
+            source_unit=effective_source_unit,
+            source_digest=effective_source_digest,
         )
         module_validation.validate_value_parameter_shadowing(module)
         parameter_values, unresolved_parameter_names = _resolved_module_value_parameters(
@@ -431,6 +434,8 @@ class DeclarationAndCallablePreparer:
                 compile_time_budget=selected_budget,
                 compile_time_real_quantize_cache=selected_real_quantize_cache,
                 exploration_results=context.implementation.exploration_results,
+                intent_structural_cache=context.implementation.structural_cache,
+                intent_exploration_limits=context.implementation.exploration_limits,
                 tooling=context.tooling,
             ),
             semantic_context.ExpressionScope(

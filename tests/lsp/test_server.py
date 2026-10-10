@@ -163,6 +163,52 @@ def test_stdio_publishes_exact_output_error_and_register_warning(
     }
 
 
+def test_wire_state_update_reports_exact_target_without_unsafe_quick_fix(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "MisleadingOutputUpdate.zhl"
+    text = (
+        "enum Phase { Idle Header }\n"
+        "module Decoder {\n"
+        "  clock clk reset rst\n"
+        "  in start:bit in length:s32\n"
+        "  out remaining:s32\n"
+        "  fsm phase:Phase=Idle {\n"
+        "    Idle { when start -> Header { remaining <- length } }\n"
+        "    Header { hold }\n"
+        "  }\n"
+        "}\n"
+    )
+    source.write_text(text, encoding="utf-8")
+    uri = path_to_uri(source)
+    server = LspServer()
+    published = server.dispatch({
+        "jsonrpc": "2.0",
+        "method": "textDocument/didOpen",
+        "params": {"textDocument": {"uri": uri, "version": 1, "text": text}},
+    })
+    diagnostic = published[0]["params"]["diagnostics"][0]
+    assert diagnostic["code"] == "ZL-SEMANTIC-WIRE-NEXT-ASSIGNMENT"
+    assert diagnostic["range"] == {
+        "start": {"line": 6, "character": 34},
+        "end": {"line": 6, "character": 43},
+    }
+    assert "out reg remaining" in diagnostic["message"]
+    assert "drive remaining" in diagnostic["message"]
+
+    response = server.dispatch({
+        "jsonrpc": "2.0",
+        "id": 59,
+        "method": "textDocument/codeAction",
+        "params": {
+            "textDocument": {"uri": uri},
+            "range": diagnostic["range"],
+            "context": {"diagnostics": [diagnostic], "only": ["quickfix"]},
+        },
+    })
+    assert response == [{"jsonrpc": "2.0", "id": 59, "result": []}]
+
+
 def test_stdio_supervisor_terminates_a_stalled_compiler_worker(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -1070,6 +1116,36 @@ def test_syntax_diagnostic_marks_the_failing_line_instead_of_file_start(
         "end": {"line": 4, "character": 1},
     }
     assert diagnostic["data"]["construct"] == "syntax error"
+
+
+def test_unknown_concise_vector_type_marks_its_exact_occurrence(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "ConciseTypeError.zhl"
+    text = "module Top {\n  bad : vec<192,b1> = 0\n}\n"
+    source.write_text(text, encoding="utf-8")
+    response = LspServer().dispatch({
+        "jsonrpc": "2.0",
+        "method": "textDocument/didOpen",
+        "params": {
+            "textDocument": {
+                "uri": path_to_uri(source),
+                "version": 1,
+                "text": text,
+            },
+        },
+    })
+
+    diagnostic = response[0]["params"]["diagnostics"][0]
+    assert diagnostic["code"] == "ZL-SEMANTIC-001"
+    assert diagnostic["range"] == {
+        "start": {"line": 1, "character": 8},
+        "end": {"line": 1, "character": 19},
+    }
+    assert diagnostic["data"]["construct"] == (
+        "type of concise declaration bad"
+    )
+    assert diagnostic["data"]["source_unit"] == source.name
 
 
 def test_large_state_captured_region_reports_downstream_type_error(

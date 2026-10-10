@@ -26,7 +26,7 @@ def _compile_witness(source_path: str, top: str):
 
 
 def test_registry_is_versioned_unique_and_deterministic() -> None:
-    assert CAPABILITY_REGISTRY.schema_version == 31
+    assert CAPABILITY_REGISTRY.schema_version == 32
     assert CAPABILITY_REGISTRY.production_backend == "direct_systemverilog"
     surface = CAPABILITY_REGISTRY.editor_surface()
     assert tuple(surface) == ("keywords", "types", "intrinsics", "modes", "operators")
@@ -83,6 +83,18 @@ def test_registry_documentation_contract_is_satisfied() -> None:
                 f"{requirement.capability!r} is missing documentation marker "
                 f"{marker!r} in {requirement.document}"
             )
+
+
+def test_current_docs_reject_the_retired_experimental_sv_option() -> None:
+    documents = (
+        "README.md",
+        "docs/language-quick-reference.md",
+        "docs/language-reference.md",
+    )
+    for document in documents:
+        text = (ROOT / document).read_text()
+        assert "--experimental-systemverilog` remains" not in text
+        assert "--experimental-systemverilog PATH` | Compatibility" not in text
 
 
 INTRINSIC_FAMILY_WITNESSES = (
@@ -214,6 +226,9 @@ def test_new_generic_table_and_elastic_surfaces_are_registry_owned() -> None:
         "generic-rom-and-table-gather",
         "runtime-instance-output-projection",
         "elastic-ready-valid-pipeline",
+        "registered-outputs-and-drive",
+        "bounded-intent-structural-exploration",
+        "capacity-one-temporal-sharing",
     } <= names
 
 

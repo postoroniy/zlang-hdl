@@ -14,9 +14,9 @@ from zlang.backend.systemverilog import (
     SystemVerilogEmissionError,
     emit_artifact,
     emit_contracts,
-    emit,
+    emit_experimental,
 )
-from zlang.backend.systemverilog.syntax import sized_decimal
+from zlang.backend.systemverilog.contracts import _emit_constant
 from zlang.compiler import compile_source
 from zlang.formal import build_recursive_formal_design, run_verilog_formal
 from zlang.ir import expressions as expr
@@ -86,7 +86,7 @@ def _negative_contract_module():
 def test_contract_negative_constants_use_legal_shared_sv_spelling() -> None:
     module = _negative_contract_module()
     contracts = emit_contracts(module)
-    assert sized_decimal(8, -1, signed=True) == "-8'sd1"
+    assert _emit_constant(-1, SIntType(8)) == "-8'sd1"
     assert contracts.count("-8'sd1") == 2
     assert "8'sd-1" not in contracts
 
@@ -147,7 +147,7 @@ def test_negative_constant_and_switch_contracts_lint_with_verilator() -> None:
     module = _negative_contract_module()
     with tempfile.TemporaryDirectory() as directory:
         source = Path(directory) / "negative_contract.sv"
-        source.write_text(emit(module) + emit_contracts(module))
+        source.write_text(emit_experimental(module) + emit_contracts(module))
         completed = subprocess.run(
             (
                 "verilator",
@@ -168,7 +168,7 @@ def test_negative_constant_and_switch_contracts_lint_with_verilator() -> None:
     reason="Yosys, SymbiYosys, and Z3 unavailable",
 )
 def test_contract_negative_literal_executes_through_sby_parser() -> None:
-    literal = sized_decimal(8, -1, signed=True)
+    literal = _emit_constant(-1, SIntType(8))
     source = f"""
 module NegativeContractLiteral(input clk, input signed [7:0] x);
   always @(posedge clk) assert((x == {literal}) || (x != {literal}));
@@ -191,12 +191,12 @@ def test_composed_hierarchy_rejects_incomplete_or_mismatched_metadata() -> None:
     ).ir
     incomplete = replace(module, children=module.children[:-1])
     with pytest.raises(SystemVerilogEmissionError, match="typed children"):
-        emit(incomplete)
+        emit_experimental(incomplete)
 
     wrong_child = replace(module.children[0], name="WrongChild")
     mismatched = replace(module, children=(wrong_child, *module.children[1:]))
     with pytest.raises(SystemVerilogEmissionError, match="not typed child"):
-        emit(mismatched)
+        emit_experimental(mismatched)
 
     wrong_path = replace(
         module.elaborated_instances[0],
@@ -207,7 +207,7 @@ def test_composed_hierarchy_rejects_incomplete_or_mismatched_metadata() -> None:
         elaborated_instances=(wrong_path, *module.elaborated_instances[1:]),
     )
     with pytest.raises(SystemVerilogEmissionError, match="semantic path"):
-        emit(mismatched_path)
+        emit_experimental(mismatched_path)
 
 
 def test_recursive_artifact_rejects_missing_path_and_specialization_mismatch() -> None:
@@ -257,7 +257,7 @@ def test_same_prefix_specializations_extend_their_component_names() -> None:
         replace(item, specialization_identity=identity)
         for item, identity in zip(module.elaborated_instances, identities, strict=True)
     )
-    text = emit(replace(module, elaborated_instances=elaborated))
+    text = emit_experimental(replace(module, elaborated_instances=elaborated))
     assert "module Child_saaaaaaaaaa11 (" in text
     assert "module Child_saaaaaaaaaa22 (" in text
     assert text.count("module Child_s") == 2
@@ -280,7 +280,7 @@ def test_same_prefix_specialization_components_lint_with_verilator() -> None:
     with tempfile.TemporaryDirectory() as directory:
         source = Path(directory) / "same_prefix.sv"
         source.write_text(
-            emit(replace(module, elaborated_instances=elaborated))
+            emit_experimental(replace(module, elaborated_instances=elaborated))
         )
         completed = subprocess.run(
             (

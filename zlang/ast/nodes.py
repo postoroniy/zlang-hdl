@@ -305,6 +305,7 @@ class PortDecl:
     name_origins: tuple[SourceSpan | None, ...] = field(
         default=(), compare=False, repr=False
     )
+    registered: bool = False
 
 
 @dataclass(frozen=True)
@@ -632,6 +633,13 @@ class CsrEventKind(str, Enum):
     WRITE = "on_write"
 
 
+class CsrEventPhase(str, Enum):
+    """Cycle phase in which a non-owning CSR access event is published."""
+
+    ACTIVE_TRANSFER = "active_transfer"
+    POST_ACCEPT = "post_accept"
+
+
 @dataclass(frozen=True)
 class CsrEventDecl:
     """A non-owning observation of one CSR access.
@@ -647,6 +655,7 @@ class CsrEventDecl:
     signal: str
     msb: int | None = None
     lsb: int | None = None
+    phase: CsrEventPhase = CsrEventPhase.ACTIVE_TRANSFER
     origin: SourceSpan | None = field(default=None, compare=False)
 
 
@@ -1304,6 +1313,17 @@ class NextAssignment:
 
 
 @dataclass(frozen=True)
+class OutputDrive:
+    """One explicit transient output effect in an atomic action block."""
+
+    target: str
+    expression: Expression
+    target_origin: SourceSpan | None = field(
+        default=None, compare=False, repr=False
+    )
+
+
+@dataclass(frozen=True)
 class IndexedAssignmentTarget:
     """One-dimensional element target used only by atomic rule actions."""
 
@@ -1335,9 +1355,13 @@ class ConditionalAction:
     """
 
     guard: Expression
-    when_true: tuple[NextAssignment | ResourceAction | "ConditionalAction", ...]
+    when_true: tuple[
+        NextAssignment | OutputDrive | ResourceAction | "ConditionalAction", ...
+    ]
     when_false: (
-        tuple[NextAssignment | ResourceAction | "ConditionalAction", ...] | None
+        tuple[
+            NextAssignment | OutputDrive | ResourceAction | "ConditionalAction", ...
+        ] | None
     ) = None
     origin: SourceSpan | None = field(default=None, compare=False)
 
@@ -1346,15 +1370,23 @@ class ConditionalAction:
 class RuleDecl:
     name: str
     guard: Expression
-    actions: tuple[NextAssignment | ResourceAction | ConditionalAction, ...]
+    actions: tuple[
+        NextAssignment | OutputDrive | ResourceAction | ConditionalAction, ...
+    ]
     origin: SourceSpan | None = field(default=None, compare=False)
     domain: str | None = None
+    # Backend-private readability hint.  Semantic rule identity remains
+    # ``name``; concise FSM lowering may attach a source-derived spelling for
+    # physical helper signals without changing scheduling or observations.
+    physical_name_hint: str | None = field(default=None, compare=False)
 
 
 @dataclass(frozen=True)
 class AnonymousRuleDecl:
     guard: Expression
-    actions: tuple[NextAssignment | ResourceAction | ConditionalAction, ...]
+    actions: tuple[
+        NextAssignment | OutputDrive | ResourceAction | ConditionalAction, ...
+    ]
     origin: SourceSpan | None = field(default=None, compare=False)
     domain: str | None = None
 
@@ -1365,7 +1397,9 @@ class PriorityRuleArm:
 
     label: str | None
     guard: Expression | None
-    actions: tuple[NextAssignment | ResourceAction | ConditionalAction, ...]
+    actions: tuple[
+        NextAssignment | OutputDrive | ResourceAction | ConditionalAction, ...
+    ]
     origin: SourceSpan | None = field(default=None, compare=False)
 
 
@@ -1382,7 +1416,9 @@ class FsmTransitionDecl:
     """One guarded or unconditional transition in concise FSM syntax."""
 
     target: str
-    actions: tuple[NextAssignment | ResourceAction | ConditionalAction, ...]
+    actions: tuple[
+        NextAssignment | OutputDrive | ResourceAction | ConditionalAction, ...
+    ]
     guard: Expression | None = None
     origin: SourceSpan | None = field(default=None, compare=False)
 

@@ -7,7 +7,11 @@ import unittest
 
 from zlang.cli import main
 from zlang.compiler import compile_source
+from zlang.csr import emit_csr_json, emit_csr_markdown
+from zlang.ir.csr import CsrEventPhase
 from zlang.native_simulation import simulate_csr_cycles
+from zlang.opt import lower
+from zlang.opt.identity import canonical_ir_identity
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -26,6 +30,21 @@ class CsrIntegrationTests(unittest.TestCase):
             {"addr": 0x10, "write": 0, "wdata": 3, "read": 1},
         ])
         self.assertEqual([item["clear"] for item in results], [3, 0, 0])
+
+    def test_post_accept_event_is_registered_for_exactly_one_cycle(self) -> None:
+        module = compile_source(
+            "module Bank { clock clk reset rst out clear:bits<2> "
+            "csr registers @0 { FAULT @0x10 { value u32 @31:0 ro "
+            "clear_event bits<2> @1:0 on_write post_accept -> clear } } }"
+        ).ir
+        event = module.csr_blocks[0].registers[0].events[0]
+        self.assertEqual(event.phase, CsrEventPhase.POST_ACCEPT)
+        results = simulate_csr_cycles(module, [
+            {"addr": 0x10, "write": 1, "wdata": 3, "read": 0},
+            {"addr": 0x10, "write": 0, "wdata": 0, "read": 0},
+            {"addr": 0x10, "write": 0, "wdata": 0, "read": 0},
+        ])
+        self.assertEqual([item["clear"] for item in results], [0, 3, 0])
 
     def test_split_halves_remain_independently_writable(self) -> None:
         module = compile_source(
@@ -56,7 +75,6 @@ class CsrIntegrationTests(unittest.TestCase):
         ])
         self.assertEqual(results[2]["rdata"], 0x89ABCDEF)
         self.assertEqual(results[3]["rdata"], 0x01234567)
-
     def test_implicit_reserved_bits_read_zero_and_ignore_writes(self) -> None:
         module = compile_source(
             "module Gaps { clock clk reset rst csr registers @0 { "
@@ -129,6 +147,66 @@ class CsrIntegrationTests(unittest.TestCase):
             markdown = markdown_path.read_text()
             self.assertIn("`0x40000004`", markdown)
             self.assertIn("| error | 1 | `bit` | `w1c` | `0x1` |", markdown)
+
+    def test_checked_in_csr_maps_match_current_typed_ir(self) -> None:
+        for stem, source_name in (
+            ("ControlCsr", "control_csr.zhl"),
+            ("EngineCsr", "engine_csr.zhl"),
+        ):
+            with self.subTest(stem=stem):
+                module = compile_source(
+                    (ROOT / "examples" / source_name).read_text()
+                ).ir
+                self.assertEqual(
+                    emit_csr_markdown(module),
+                    (ROOT / "examples/generated" / f"{stem}.md").read_text(),
+                )
+                self.assertEqual(
+                    emit_csr_json(module),
+                    (ROOT / "examples/generated" / f"{stem}.json").read_text(),
+                )
+
+    def test_csr_documentation_exposes_event_phase(self) -> None:
+        module = compile_source(
+            "module Bank { clock clk reset rst out clear:bits<2> "
+            "csr registers @0 { R @0 { value u32 @31:0 ro "
+            "clear_event bits<2> @1:0 on_write post_accept -> clear } } }"
+        ).ir
+        document = json.loads(emit_csr_json(module))
+        self.assertEqual(
+            document["blocks"][0]["registers"][0]["events"][0]["phase"],
+            "post_accept",
+        )
+        self.assertIn(
+            "`on_write` `post_accept` bits 1:0 -> `clear`",
+            emit_csr_markdown(module),
+        )
+
+    def test_event_phase_is_deterministic_canonical_semantics(self) -> None:
+        prefix = (
+            "module Bank { clock clk reset rst out clear:bits<2> "
+            "csr registers @0 { R @0 { value u32 @31:0 ro "
+        )
+        suffix = " -> clear } } }"
+        implicit = compile_source(
+            prefix + "clear_event bits<2> @1:0 on_write" + suffix
+        ).ir
+        explicit = compile_source(
+            prefix
+            + "clear_event bits<2> @1:0 on_write active_transfer"
+            + suffix
+        ).ir
+        delayed = compile_source(
+            prefix + "clear_event bits<2> @1:0 on_write post_accept" + suffix
+        ).ir
+        self.assertEqual(
+            canonical_ir_identity(lower(implicit)),
+            canonical_ir_identity(lower(explicit)),
+        )
+        self.assertNotEqual(
+            canonical_ir_identity(lower(implicit)),
+            canonical_ir_identity(lower(delayed)),
+        )
 
 
 if __name__ == "__main__":

@@ -653,7 +653,7 @@ def test_completion_query_still_collects_function_metadata(
     original = observations.record_completion_scope
     calls: list[str] = []
 
-    def observed(*args: object, **kwargs: object) -> None:
+    def observed(*args: object, **kwargs: object) -> str:
         calls.append("scope")
         return original(*args, **kwargs)
 
@@ -1154,9 +1154,7 @@ def test_symbol_cache_concurrent_publication_is_atomic_and_deterministic(
         text,
         analysis_needs=AnalysisNeeds.DEFINITIONS,
     )
-    _, payload = tooling_symbol_cache._normalized_symbol_payload(
-        top, result, session
-    )
+    _, payload = tooling_symbol_cache._normalized_symbol_payload(top, result, session)
     shard = next(iter(cache_root.rglob("*.json")))
     expected = shard.read_bytes()
     shard.unlink()

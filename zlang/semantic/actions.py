@@ -14,7 +14,7 @@ from zlang.source import SourceSpan
 class ConditionalActionLeaf:
     """One source effect and its exact path inside one atomic action tree."""
 
-    action: ast.NextAssignment | ast.ResourceAction
+    action: ast.NextAssignment | ast.OutputDrive | ast.ResourceAction
     activation: ast.Expression | None
     branch_path: tuple[tuple[tuple[int, ...], bool], ...]
     conditions: tuple[tuple[ast.Expression, bool], ...] = ()
@@ -37,7 +37,11 @@ def _combine_action_activation(
 
 def conditional_action_leaves(
     actions: tuple[
-        ast.NextAssignment | ast.ResourceAction | ast.ConditionalAction, ...
+        ast.NextAssignment
+        | ast.OutputDrive
+        | ast.ResourceAction
+        | ast.ConditionalAction,
+        ...,
     ],
     *,
     activation: ast.Expression | None = None,

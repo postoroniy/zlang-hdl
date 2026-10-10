@@ -31,7 +31,7 @@ except ModuleNotFoundError:  # Direct ``python tools/<script>.py`` execution.
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = ROOT / "examples" / "fft" / "complex_multiply_implementation.zhl"
+SOURCE = ROOT / "examples" / "fft" / "complex_multiply_pipeline_auto.zhl"
 CONFIGURATIONS = (
     "unregistered", "multiply_registered", "multiply_output_registered",
     "fully_pipelined",
@@ -130,8 +130,8 @@ def _run(
     vivado: str, part: str, period: float,
 ) -> dict[str, object]:
     top = (
-        "FFTComplexMultiplyRealImplementation"
-        if mode == "real" else "FFTComplexMultiplyImagImplementation"
+        "FFTComplexMultiplyRealAuto"
+        if mode == "real" else "FFTComplexMultiplyImagAuto"
     )
     typed = compile_source(SOURCE.read_text(), top=top)
     target, family, resources = load_target(part)

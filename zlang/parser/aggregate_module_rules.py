@@ -176,7 +176,7 @@ class AggregateCallableModuleRules:
         )
 
     @v_args(meta=True)
-    def enum_member(self, meta: object, items: list[object]) -> tuple[str, int | None, SourceSpan | None]:
+    def enum_member(self, _meta: object, items: list[object]) -> tuple[str, int | None, SourceSpan | None]:
         return (
             str(items[0]),
             self._parse_number(items[1])
@@ -257,7 +257,7 @@ class AggregateCallableModuleRules:
         return ast_nodes.AggregateInterfaceDecl(str(items[0]), protocol, arguments, role, domain)
 
     @v_args(meta=True)
-    def parameter(self, meta: object, items: list[object]) -> ast_nodes.Parameter:
+    def parameter(self, _meta: object, items: list[object]) -> ast_nodes.Parameter:
         return ast_nodes.Parameter(
             str(items[0]),
             items[1],
@@ -417,7 +417,7 @@ class AggregateCallableModuleRules:
         )
 
     @v_args(meta=True)
-    def module(self, meta: object, items: list[object]) -> ast_nodes.Module:
+    def module(self, _meta: object, items: list[object]) -> ast_nodes.Module:
         name = str(items[0])
         body: list[object] = []
         for item in items[1:]:

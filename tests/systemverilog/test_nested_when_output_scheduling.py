@@ -22,8 +22,8 @@ module OutputPriorityOnly {
     reg low_state : bit = 0
 
     priority {
-        higher: when high { event <- 1 high_state <- 1 }
-        lower: when low { event <- 0 low_state <- 1 }
+        higher: when high { drive event = 1 high_state <- 1 }
+        lower: when low { drive event = 0 low_state <- 1 }
     }
 
     high_seen = high_state

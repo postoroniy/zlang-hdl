@@ -25,6 +25,7 @@ class TransitionPlanBuilder:
     """Encode the compiler-resolved scheduler without rediscovering policy."""
 
     _canonical: object
+    _register_names: dict[str, str]
 
     def build(self) -> TransitionPlanProduct:
         canonical = self._canonical
@@ -81,7 +82,9 @@ class TransitionPlanBuilder:
                 actions.append(
                     {
                         "kind": action.kind.value,
-                        "target": resource.name,
+                        "target": self._register_names.get(
+                            resource.name, resource.name
+                        ),
                         "node": action.operands[0] if action.operands else None,
                         "operands": list(action.operands),
                         "activation": action.activation,

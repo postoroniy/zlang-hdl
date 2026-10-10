@@ -1,9 +1,10 @@
-from pathlib import Path
+import hashlib
 import unittest
+from pathlib import Path
 
-from zlang.backend.systemverilog import emit_artifact, emit
+from zlang.backend.systemverilog import emit_artifact, emit_experimental
 from zlang.compiler import compile_source
-from zlang.opt.lowering import lower, restore
+from zlang.opt import lower, restore
 from zlang.opt.identity import canonical_ir_identity
 from zlang.parser import parse
 from zlang.semantic import SemanticError, analyze
@@ -96,6 +97,33 @@ class ConciseDeclarativeSyntaxTests(unittest.TestCase):
         with self.assertRaisesRegex(SemanticError, "requires an initializer"):
             analyze(parse("module T { value:u8 }"))
 
+    def test_unknown_concise_vector_type_reports_exact_type_span(self) -> None:
+        source = "module Top {\n  bad : vec<192,b1> = 0\n}\n"
+        syntax = parse(source)
+        declaration = syntax.generic_declarations[0]
+        self.assertIsNotNone(declaration.type_origin)
+        self.assertEqual(
+            (
+                declaration.type_origin.start_line,
+                declaration.type_origin.start_column,
+                declaration.type_origin.end_line,
+                declaration.type_origin.end_column,
+            ),
+            (2, 9, 2, 20),
+        )
+
+        with self.assertRaises(SemanticError) as raised:
+            compile_source(source, source_unit="diagnostics.concise")
+        diagnostic = raised.exception.diagnostic
+        self.assertEqual(diagnostic.code, "ZL-SEMANTIC-001")
+        self.assertIsNotNone(diagnostic.primary)
+        self.assertEqual(diagnostic.primary.source_unit, "diagnostics.concise")
+        self.assertEqual(
+            diagnostic.primary.digest,
+            hashlib.sha256(source.encode("utf-8")).hexdigest(),
+        )
+        self.assertEqual(diagnostic.primary.span, declaration.type_origin)
+
     def test_module_type_collision_is_ambiguous_but_inst_is_escape(self) -> None:
         declarations = "struct Child { x:bit } module Child { in x:bit }"
         with self.assertRaisesRegex(SemanticError, "is ambiguous"):
@@ -117,7 +145,7 @@ class ConciseDeclarativeSyntaxTests(unittest.TestCase):
         verbose_ir = compile_source(verbose, top="AxiCsrTop").ir
         concise_ir = compile_source(concise, top="AxiCsrTop").ir
         self.assertEqual(verbose_ir, concise_ir)
-        self.assertEqual(emit(verbose_ir), emit(concise_ir))
+        self.assertEqual(emit_experimental(verbose_ir), emit_experimental(concise_ir))
         verbose_artifact = emit_artifact(verbose_ir)
         concise_artifact = emit_artifact(concise_ir)
         self.assertEqual(

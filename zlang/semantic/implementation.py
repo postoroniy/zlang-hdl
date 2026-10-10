@@ -126,6 +126,11 @@ class ImplementationIntentAnalyzer:
                     (),
                     constraints,
                     objective_metric,
+                    bounds=(
+                        context.services.intent_exploration_limits
+                        or exploration.ExplorationBounds()
+                    ),
+                    structural_cache=context.services.intent_structural_cache,
                     source_origin=syntax.origin,
                     equivalences=equivalences,
                     formal_config=formal_config,

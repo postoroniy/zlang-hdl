@@ -9,11 +9,10 @@ from zlang.equivalence import (
 )
 from zlang.formal import run_verilog_formal
 from zlang.ir.equivalence import EquivalenceStatus
-from zlang.ir.expressions import InputRef
-from zlang.ir.types import UIntType
+from zlang.ir.expressions import InputRef, Pipeline
 from zlang.ir.formal import FormalStatus, ProofMode
+from zlang.ir.types import UIntType
 from zlang.timing import TimingInfo
-from zlang.ir.expressions import Pipeline
 
 
 SAFE = """module safety_verification(input clk, input [7:0] a, b);

@@ -39,7 +39,7 @@ def _module(definitions: tuple[Function, ...], root: Function) -> Module:
     )
 
 
-def test_singleton_selection_skips_structural_ordering_and_fingerprinting(
+def test_singleton_selection_skips_only_ordering_and_retains_self_validation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     origin = SourceOrigin(
@@ -54,27 +54,19 @@ def test_singleton_selection_skips_structural_ordering_and_fingerprinting(
     unused = _leaf("unused")
     module = _module((leaf, parent), parent)
     before = canonical_ir_identity(lower(module))
-    value_calls: list[Function] = []
-    validations: list[tuple[Function, Function]] = []
-    original_value = callables._callable_definition_value
-    original_equivalent = callables._callable_definitions_equivalent
+    key_calls: list[Function] = []
+    original_key = callables._callable_definition_value
 
-    def definition_value(value):
-        value_calls.append(value)
-        return original_value(value)
+    def order_key(value):
+        key_calls.append(value)
+        return original_key(value)
 
-    def equivalent(left, right):
-        validations.append((left, right))
-        return original_equivalent(left, right)
-
-    monkeypatch.setattr(callables, "_callable_definition_value", definition_value)
-    monkeypatch.setattr(callables, "_callable_definitions_equivalent", equivalent)
+    monkeypatch.setattr(callables, "_callable_definition_value", order_key)
     selected = callables.reachable_callable_definitions(
         (unused, parent, leaf), (_call(parent),)
     )
 
-    assert value_calls == []
-    assert validations == []
+    assert key_calls == []
     assert len(selected) == 2
     assert selected[0] is leaf
     assert selected[1] is parent

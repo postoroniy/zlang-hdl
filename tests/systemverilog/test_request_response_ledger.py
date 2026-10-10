@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from zlang.backend.manifest import BackendArtifact
-from zlang.backend.systemverilog import emit_artifact, emit, emit_formal_artifact
+from zlang.backend.systemverilog import emit_artifact, emit_experimental, emit_formal_artifact
 from zlang.compiler import compile_source
 from zlang.formal import build_recursive_formal_design
 
@@ -19,7 +19,7 @@ def _module(maximum: int):
 
 def test_direct_hierarchy_emits_accepted_outstanding_ledger_for_supported_limits():
     for maximum in (1, 2, 4):
-        generated = emit(_module(maximum))
+        generated = emit_experimental(_module(maximum))
         assert "rr_engine_mem_engine_outstanding" in generated
         assert "request_transfer" in generated
         assert "response_transfer" in generated

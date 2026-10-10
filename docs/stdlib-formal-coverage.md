@@ -1,11 +1,31 @@
 # Stdlib formal coverage
 
-The nightly matrix pins Z3 4.13.4.0 because the system Z3 4.8.12 stalls on
-the minimized AXI4 read-endpoint query. A successful formal RTL
+The nightly matrix uses the exact solver executables supplied by its pinned OSS
+CAD Suite. Z3 4.13.4 or newer is required because Z3 4.8.12 stalls on the
+minimized AXI4 read-endpoint query. A successful formal RTL
 artifact build is not a solver result. The nightly job runs executable
-Yosys/SymbiYosys/Z3 contracts and retains its JUnit, solver traces and the
+Yosys/SymbiYosys contracts and retains its JUnit, solver traces and the
 compiler-parser-owned declaration inventory. It is deliberately not a pull
 request gate.
+
+The same job additionally publishes one immutable positive bundle and one
+deliberately failing bundle, then replays each through required Z3, Boolector
+and Bitwuzla routes plus corroborating Yices and cvc5 routes. Every route must
+produce the same property/status vector and the expected overall outcome.
+Results remain independent solver records; agreement is not represented as a
+new proof status and does not promote bounded evidence to `proven`.
+
+The nightly also qualifies independent engine families against those same
+immutable bundles.  ABC PDR supplies an independent unbounded safety route;
+Pono and btormc supply independent bounded BTOR routes.  Their records are
+qualification evidence only: they are not accepted by the public
+`zlang verify --route` option and cannot satisfy required-formal selection.
+The Avy/AIGER route is retained as a visible observation because the pinned
+Avy build in OSS CAD Suite 2026-09-30 reproducibly crashes on one positive
+property; that incomplete observation is never counted as a required gate.
+BTOR failures are mapped back through exact compiler bindings using route-owned
+rising-clock frames because BTOR witness VCDs do not carry the SMT route's
+`smt_step` marker.
 
 Run locally with the repository's test environment:
 
@@ -42,6 +62,7 @@ Current executable contracts:
 | `axi4_address_valid` | Legal address implies `size == 0` for `AW=8,DW=8,IW=1`; a constant-legal mutation fails | `BOUNDED_PASS(4)` for this property only |
 | `AXI4ReadSubordinate` | Held R payload/valid under backpressure at `AW=8,DW=8,IW=1,D=2,BW=1`, with fixed legal request/backend beat; output-bypass mutation fails | `PROVEN` for this harness property only; module `partial` |
 | `RvRegisterSlice` | Ready/valid stability with `T=u8`; an output-bypass mutation fails | `PROVEN` for this property only; module `partial` |
+| `RvMux2`, `RvDemux2` | Selected payload/valid and selected-path backpressure at `T=u8`; inverted-select mutations fail | `BOUNDED_PASS(3)` for these routing properties only |
 | `RvSkidBuffer`, `RvFifo` | Ready/valid stability at `T=u8,D=2` and `T=FrameBeat<u8,u2>,D=4`; output-bypass mutations fail | `BOUNDED_PASS(6)` only |
 | `axi_burst` ZTPU reader/writer compositions | Generated ready/valid safety, depth 6 | `BOUNDED_PASS`, not complete AXI4 compliance |
 

@@ -94,7 +94,8 @@ callable_parameter_types: type_name ("," type_name)*
 module_timing_decl: _TIMING "{" module_timing_item* "}"
 ?module_timing_item: _LATENCY NUMBER -> module_timing_latency
                    | _II NUMBER -> module_timing_ii
-port_decl: DIRECTION port_name_list ":" port_type [_AT NAME] ["=" source_expr]
+port_decl: DIRECTION [port_storage] port_name_list ":" port_type [_AT NAME] ["=" source_expr]
+port_storage: _REG -> registered_port_storage
 port_name_list: NAME ("," NAME)*
 ?port_type: type_name
           | _WIRE "<" type_name ">" -> wire_interface_type
@@ -140,7 +141,12 @@ specialization_arguments: "<" specialization_argument ("," specialization_argume
                             | callable_specialization_ref
                             | NAME -> parameter_name
 generate_instances: _GENERATE "(" range_binder ")" "{" instance_generate_item+ "}"
-?instance_generate_item: instance_input_binding | connect_decl
+?instance_generate_item: instance_input_binding
+                       | connect_decl
+                       | generate_instances
+                       | structural_generate_if
+structural_generate_if: _IF compile_time_condition "{" instance_generate_item+ "}" [structural_generate_else]
+structural_generate_else: _ELSE "{" instance_generate_item+ "}"
 compile_time_if_decl: _IF compile_time_condition "{" module_item+ "}" [compile_time_else_decl]
 compile_time_else_decl: _ELSE "{" module_item+ "}"
 ?compile_time_condition: compile_time_logical_or
@@ -217,7 +223,7 @@ csr_group_use: NAME ":" NAME "[" storage_depth "]" _AT storage_depth _STRIDE sto
 csr_split_register: NAME _AT NUMBER _SPLIT "<" WIDTH ">" NAME type_name CSR_ACCESS ["=" NUMBER] _ORDER CSR_SPLIT_ORDER
 csr_register: NAME _AT NUMBER "{" (csr_field | csr_event)* "}"
 csr_field: NAME type_name [csr_position] CSR_ACCESS ["=" NUMBER] [csr_binding]
-csr_event: NAME type_name [csr_position] CSR_EVENT _ARROW signal_ref
+csr_event: NAME type_name [csr_position] CSR_EVENT [CSR_EVENT_PHASE] _ARROW signal_ref
 csr_position: _AT NUMBER [":" NUMBER]
 ?csr_binding: _NEXT_ASSIGN signal_ref -> csr_status_binding
             | _NEXT_ASSIGN _STICKY "(" signal_ref ")" [_PRIORITY CSR_PRIORITY] -> csr_sticky_binding
@@ -241,6 +247,7 @@ conditional_action: _WHEN source_expr action_block [conditional_else]
 ?conditional_else: _ELSE action_block -> conditional_else_block
                  | _ELSE conditional_action -> conditional_else_when
 ?rule_action: rule_assignment_target _NEXT_ASSIGN source_expr -> rule_assignment
+            | _DRIVE NAME "=" source_expr -> output_drive
             | NAME "." NAME "(" [source_expr ("," source_expr)*] ")" -> resource_action
             | QUALIFIED_CALL_HEAD "(" [source_expr ("," source_expr)*] ")" -> qualified_resource_action
 ?rule_assignment_target: NAME                         -> scalar_rule_target
@@ -357,7 +364,10 @@ width_expression: width_atom WIDTH_OP width_atom (WIDTH_OP width_atom)*
      | switch_expr
      | delay_expr
      | pipeline_expr
+     | removed_pipeline_auto_expr
+     | removed_architecture_expr
      | implementation_choice_expr
+     | removed_explore_expr
      | implement_expr
      | struct_construct_expr
      | tagged_union_construct_expr
@@ -417,12 +427,15 @@ _angle_call_close: ">" | _CALL_RANGLE
 pipeline_expr: _PIPELINE "(" PIPELINE_DEPTH ("," pipeline_constraint)* ")" [_AT NAME] "{" expr "}"
 protocol_transform_expr: _PIPELINE "(" _AUTO ("," pipeline_constraint)* ")" "{" expr "}"
 pipeline_constraint: PIPELINE_METRIC PIPELINE_RELATION NUMBER
+removed_pipeline_auto_expr: _PIPELINE "(" _AUTO ("," pipeline_constraint)* ")" "{" expr "}"
+removed_architecture_expr: _ARCHITECTURE "(" _AUTO ")" "{" expr "}"
 implementation_choice_expr: _CHOICE "(" implementation_selection ")" "{" implementation_arm implementation_arm+ "}"
 ?implementation_selection: IMPLEMENTATION_KIND -> explicit_implementation_selection
                          | _AUTO "," _MINIMIZE "=" COST_METRIC ["," feedback_policy] ("," cost_constraint)* -> cost_implementation_selection
 feedback_policy: _FEEDBACK "=" SYNTHESIS_FEEDBACK
 cost_constraint: COST_METRIC "<=" NUMBER
 implementation_arm: IMPLEMENTATION_KIND "=>" expr
+removed_explore_expr: _EXPLORE "{" expr [_MINIMIZE COST_METRIC] "}"
 implement_expr: _IMPLEMENT "{" expr implement_intent "}"
 implement_intent: _INTENT "{" implement_intent_clause+ "}"
 ?implement_intent_clause: COST_METRIC IMPLEMENT_RELATION NUMBER -> implement_constraint
@@ -516,6 +529,7 @@ ADAPTER.3: /rv_to_credit(?![A-Za-z0-9_])/ | /credit_to_rv(?![A-Za-z0-9_])/
 CSR_ACCESS.3: /(?:rw|ro|wo|w1c|pulse|reserved)(?![A-Za-z0-9_])/
 CSR_PRIORITY.3: /hardware(?![A-Za-z0-9_])/ | /software(?![A-Za-z0-9_])/
 CSR_EVENT.3: /(?:on_read|on_write)(?![A-Za-z0-9_])/
+CSR_EVENT_PHASE.3: /(?:active_transfer|post_accept)(?![A-Za-z0-9_])/
 CSR_SPLIT_ORDER.3: /(?:low_first|high_first)(?![A-Za-z0-9_])/
 MEMORY_COLLISION.3: /read_first(?![A-Za-z0-9_])/ | /write_first(?![A-Za-z0-9_])/ | /old(?![A-Za-z0-9_])/ | /new(?![A-Za-z0-9_])/ | /no_change(?![A-Za-z0-9_])/
 MEMORY_PORT_KIND.3: /read_write_port(?![A-Za-z0-9_])/ | /read_port(?![A-Za-z0-9_])/ | /write_port(?![A-Za-z0-9_])/
@@ -552,6 +566,7 @@ RESOURCE_DIRECTION.3: /input(?![A-Za-z0-9_])/ | /output(?![A-Za-z0-9_])/
 RESOURCE_SIGNEDNESS.3: /signed(?![A-Za-z0-9_])/ | /unsigned(?![A-Za-z0-9_])/
 DEVICE_PART: /[A-Za-z0-9][A-Za-z0-9_.-]*/
 NAME: /[A-Za-z_][A-Za-z0-9_]*/
+_EXPLORE.4: /explore(?![A-Za-z0-9_])/
 _IMPLEMENT.4: /implement(?![A-Za-z0-9_])/
 _INTENT.4: /intent(?![A-Za-z0-9_])/
 _OPERATOR.4: /operator(?![A-Za-z0-9_])/
@@ -669,6 +684,7 @@ _RELEASE.3: /release(?![A-Za-z0-9_])/
 // Keep keyword matching from consuming the prefix of identifiers such as
 // `regbus`, which are valid ordinary source names.
 _REG.3: /reg(?![A-Za-z0-9_])/
+_DRIVE.3: /drive(?![A-Za-z0-9_])/
 // ``delay`` remains a legal user identifier.  The intrinsic keyword is only
 // selected when its mandatory specialization delimiter follows, avoiding a
 // contextual-lexer collision in declarations such as ``fifo delay : ...``.

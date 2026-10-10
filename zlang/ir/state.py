@@ -273,6 +273,18 @@ def active_groups_conflict(
     )
 
 
+def groups_conflict(
+    left: ActionGroup,
+    right: ActionGroup,
+    activation_values: dict[str, bool] | None = None,
+) -> bool:
+    """Compatibility dispatcher to the explicit conservative/exact APIs."""
+
+    if activation_values is None:
+        return groups_may_conflict(left, right)
+    return active_groups_conflict(left, right, activation_values)
+
+
 def ordered_groups(transition: ResolvedTransition) -> tuple[ActionGroup, ...]:
     remaining = {item.rule_name: item for item in transition.action_groups}
     ordered: list[ActionGroup] = []

@@ -13,6 +13,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 import json
 import tempfile
+from typing import Iterable
 
 from zlang.backend.systemverilog import (
     SystemVerilogEmissionError,
@@ -24,7 +25,8 @@ from zlang.backend.naming import RTL_NAMING_SCHEMA
 from zlang.common import stable_digest
 from zlang.candidate_classification import candidate_equivalence_class
 from zlang.candidate_expression import candidate_input_refs as _input_refs
-from zlang.costs import CandidateCost
+from zlang.costs import CandidateCost, extract_best
+from zlang.pipeline_candidate_space import standalone_pipeline_candidate_space
 from zlang.equivalence import (
     MiterTraceMetadata,
     artifact_hash,
@@ -77,6 +79,98 @@ from zlang.timing import TimingInfo, timing_info
 
 class FormalCandidateUnavailable(FormalExplorationError):
     """The frozen candidate cannot reach the production semantic-reference equivalence route."""
+
+
+def gate_standalone_pipelines(
+    module: Module,
+    config: FormalExplorationConfig,
+    verifier: object | None = None,
+    *,
+    canonical_site_keys: Iterable[tuple[str, str | None, str]] = (),
+    backend: str = "direct_systemverilog",
+) -> Module:
+    """Apply formal-aware selection to retained standalone pipeline sites."""
+
+    if config.policy is FormalPolicy.OFF or not module.pipeline_explorations:
+        return module
+    from zlang.candidate_identity import (
+        candidate_owner_formal_domain,
+        module_candidate_owner_identity,
+        pipeline_site_key,
+    )
+    from zlang.formal_exploration import gate_candidates
+    from zlang.ir.expressions import CostMetric
+
+    assignments = list(module.assignments)
+    canonical_keys = frozenset(canonical_site_keys)
+    standalone = tuple(
+        (index, exploration)
+        for index, exploration in enumerate(module.pipeline_explorations)
+        if pipeline_site_key(module, exploration) not in canonical_keys
+    )
+    if not standalone:
+        return module
+    updated_explorations = list(module.pipeline_explorations)
+    for pipeline_index, exploration in standalone:
+        wrapped, constraints, extraction = standalone_pipeline_candidate_space(
+            exploration
+        )
+        domain, domain_limitation = candidate_owner_formal_domain(
+            module, module_candidate_owner_identity(module)
+        )
+        if backend != "direct_systemverilog":
+            raise FormalCandidateUnavailable(
+                f"formal backend '{backend}' is retired; use direct_systemverilog"
+            )
+        selected_verifier = (
+            verifier
+            if verifier is not None and domain_limitation is None
+            else SemanticEquivalenceDirectSystemVerilogCandidateVerifier(
+                exploration.source_expression,
+                candidate_class="pipeline_scheduler",
+                artifact_provider=getattr(config, "artifact_provider", None),
+                clock_domain_contract=domain,
+                unavailable_reason=domain_limitation,
+            )
+        )
+        gate = gate_candidates(
+            wrapped,
+            extraction.evaluations,
+            config,
+            selected_verifier,
+        )
+        gated = extract_best(
+            gate.eligible,
+            objective=CostMetric.FMAX_EST,
+            constraints=constraints,
+            cost_fn=lambda item: item.cost,
+        )
+        selected = gated.selected.pipeline_candidate
+        updated_explorations[pipeline_index] = replace(
+            exploration,
+            selected=selected.name,
+            formal_records=gate.records,
+        )
+        matches = [
+            index
+            for index, assignment in enumerate(assignments)
+            if assignment.target.name == exploration.output
+            and assignment.signal is None
+            and assignment.channel is None
+        ]
+        if len(matches) != 1:
+            raise FormalCandidateUnavailable(
+                "standalone pipeline formal gate requires one exact output assignment"
+            )
+        assignment_index = matches[0]
+        assignments[assignment_index] = replace(
+            assignments[assignment_index], expression=selected.expression
+        )
+    return replace(
+        module,
+        assignments=tuple(assignments),
+        pipeline_explorations=tuple(updated_explorations),
+    )
 
 
 @dataclass(frozen=True)

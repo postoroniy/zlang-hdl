@@ -12,6 +12,7 @@ from zlang._version import __version__
 from zlang.analysis_needs import AnalysisNeeds
 from zlang.compiler import check_file_snapshot
 from zlang.module_resolver import ModuleResolutionError
+from zlang.intent_structural_exploration import IntentStructuralExplorationCache
 from zlang.project import ProjectModelError, discover_project_manifest
 from zlang.source import SourceOrigin
 from zlang.source_identity import SOURCE_SUFFIX
@@ -42,6 +43,10 @@ class ToolingSession:
         from zlang.incremental_workspace import IncrementalWorkspaceSession
 
         self._incremental_workspace = IncrementalWorkspaceSession()
+        self._intent_structural_cache = IntentStructuralExplorationCache(
+            max_entries=128,
+            max_total_enodes=524_288,
+        )
         self._entries: OrderedDict[tuple[object, ...], models._ToolingSnapshotEntry] = (
             OrderedDict()
         )
@@ -337,6 +342,7 @@ class ToolingSession:
                     allow_unsaved_root=True,
                     source_overlays=overlays,
                     incremental_workspace=self._incremental_workspace,
+                    intent_structural_cache=self._intent_structural_cache,
                 )
                 break
             except (ModuleResolutionError, workspace_api.WorkspaceError) as error:
@@ -725,6 +731,7 @@ class ToolingSession:
         """Release all session-owned snapshots."""
 
         self._incremental_workspace.clear()
+        self._intent_structural_cache.clear()
         self._entries.clear()
         self._symbol_entries.clear()
         self._trivia_symbols.clear()

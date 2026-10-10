@@ -336,6 +336,17 @@ def _expression(expression: expr.Expression) -> str:
         _CURRENT_RENDER_MEMO.reset(token)
 
 
+def render_expression(expression: expr.Expression) -> str:
+    """Render one already-typed expression through the production SV spelling.
+
+    Formal harnesses use this narrow entry point so arithmetic widths and
+    signedness are never reconstructed independently from the backend.  Module
+    emission still owns names, materialization, and statement placement.
+    """
+
+    return _expression(expression)
+
+
 def _render_expression(expression: expr.Expression) -> str:
     if isinstance(expression, (expr.InputRef, expr.ParameterRef, expr.RegisterRef)):
         return sv_rendering._identifier(expression.name)

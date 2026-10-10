@@ -190,8 +190,7 @@ def _semantic_equivalence(module, implementation: str, implementation_module: st
         implementation_module=implementation_module,
     )
     return (
-        property_,
-        reference + "\n" + implementation + "\n" + miter.source,
+        property_, reference + "\n" + implementation + "\n" + miter.source,
         miter.trace_metadata,
     )
 
@@ -213,7 +212,14 @@ def test_semantic_equivalence_packing_reference_is_visible_and_mutation_fails() 
     )
     assert correct.status is EquivalenceStatus.BOUNDED_PASS
 
-    mutated = implementation.replace(">> 4", ">> 3", 1)
+    # Target the live signed-nibble projection of ``y``.  Mutating the first
+    # textual shift would only alter the independent ``reversed`` output and
+    # cannot falsify this ``y`` equivalence property.
+    mutated = implementation.replace(
+        "4'(4'(($unsigned(signed_value)) >> 4))",
+        "4'(4'(($unsigned(signed_value)) >> 3))",
+        1,
+    )
     assert mutated != implementation
     _, bad_source, bad_trace_metadata = _semantic_equivalence(
         module, mutated, module.name, "direct_systemverilog"

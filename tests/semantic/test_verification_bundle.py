@@ -365,9 +365,11 @@ def test_staged_execution_uses_the_compilation_session_tool_resolver_once(
     class Resolver:
         calls = 0
 
-        def formal_context(self, *, engine: str, solver: str) -> FormalToolchainContext:
+        def formal_context(
+            self, *, engine: str, solver: str, route: str
+        ) -> FormalToolchainContext:
             self.calls += 1
-            assert (engine, solver) == ("sby", "z3")
+            assert (engine, route, solver) == ("sby", "smtbmc", "z3")
             return context
 
     resolver = Resolver()
@@ -778,8 +780,7 @@ def test_verification_identity_excludes_source_attribution() -> None:
 
 def test_payload_rejects_wrong_job_kind_and_vacuity_links(tmp_path: Path) -> None:
     hardware = "hardware:" + _digest("counter-hardware")
-    cover_fixture = _fixture(hardware, (_job(kind="cover"),))
-    cover_payload = cover_fixture.payload
+    cover_payload = _payload(hardware, {"user.count_within": "cover"})
     cover_identity = verification_identity_for(
         top="Counter", hardware_identity=hardware,
         property_ids=("user.count_within",), payload=cover_payload,
@@ -789,7 +790,7 @@ def test_payload_rejects_wrong_job_kind_and_vacuity_links(tmp_path: Path) -> Non
             tmp_path / "wrong-kind", top="Counter", hardware_identity=hardware,
             verification_identity=cover_identity,
             property_ids=("user.count_within",), verification_ir=cover_payload,
-            files=_inputs(), jobs=(replace(cover_fixture.jobs[0], kind="safety"),),
+            files=_inputs(), jobs=(_job(),),
         )
 
     invalid_dependency = _payload(
@@ -1125,16 +1126,15 @@ def test_bundle_rejects_unsafe_paths_wrong_ids_and_python_only_ir(tmp_path: Path
             payload={},
         )
     with pytest.raises(VerificationBundleError, match="verification identity"):
-        fixture = _fixture(hardware, (_job(),))
         publish_verification_bundle(
             tmp_path / "bundle",
             top="Counter",
             hardware_identity=hardware,
             verification_identity="verification:" + _digest("wrong"),
             property_ids=("user.count_within",),
-            verification_ir=fixture.payload,
+            verification_ir=_payload(hardware, {"user.count_within": "safety"}),
             files=_inputs(),
-            jobs=fixture.jobs,
+            jobs=(_job(),),
         )
 
 

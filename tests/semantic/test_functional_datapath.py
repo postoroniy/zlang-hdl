@@ -3,9 +3,8 @@ import unittest
 
 from zlang.ir.expressions import Dot, Generate, Map, Reduce, ReductionOperator
 from zlang.ir.types import BitsType, UIntType, VecType
-from zlang.opt.lowering import lower, restore
-from zlang.opt.render import render
-from zlang.opt.ir import OptimizationStage
+from zlang.opt import lower, render, restore
+from zlang.opt import OptimizationStage
 from zlang.opt.ir import ExpressionOp
 from zlang.parser import parse
 from zlang.semantic import SemanticError, analyze

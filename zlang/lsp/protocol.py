@@ -23,6 +23,22 @@ def error_response(request_id: Any, code: int, message: str) -> dict[str, Any]:
     }
 
 
+def response(request_id: Any, result: Any = None) -> dict[str, Any]:
+    """Build one successful JSON-RPC response."""
+
+    return {"jsonrpc": JSON_RPC_VERSION, "id": request_id, "result": result}
+
+
+def notification(method: str, message: str) -> dict[str, Any]:
+    """Build one LSP window notification carrying a user-visible message."""
+
+    return {
+        "jsonrpc": JSON_RPC_VERSION,
+        "method": method,
+        "params": {"type": 1, "message": message},
+    }
+
+
 def read_message(stream: BinaryIO) -> object | None:
     """Read one standard LSP message from a binary stream."""
 
@@ -81,6 +97,8 @@ __all__ = [
     "JSON_RPC_VERSION",
     "LspProtocolError",
     "error_response",
+    "notification",
     "read_message",
+    "response",
     "write_message",
 ]

@@ -12,9 +12,10 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import tempfile
 
 from zlang._version import __version__
+from zlang.common.atomic_io import publish_bytes_atomically
+from zlang.common.cache_paths import user_cache_root
 from zlang.compilation_session import CompilationSession
 from zlang.opt.identity import canonical_ir_identity
 from zlang.opt.ir import OptimizationStage
@@ -46,10 +47,7 @@ def _compiler_code_identity() -> str:
 
 
 def _cache_root() -> Path:
-    selected = os.environ.get("XDG_CACHE_HOME")
-    if selected and Path(selected).expanduser().is_absolute():
-        return Path(selected).expanduser() / "zlang-hdl" / "simulation-plan-v1"
-    return Path.home() / ".cache" / "zlang-hdl" / "simulation-plan-v1"
+    return user_cache_root("simulation-plan-v1")
 
 
 def _recipe(session: CompilationSession) -> str:
@@ -168,24 +166,15 @@ def load_or_build(session: CompilationSession) -> SimulationPlan:
         # primitive schema.  Such a plan remains executable in memory but is
         # never published to the source-free persistent cache.
         return plan
-    temporary = None
     try:
         directory.mkdir(mode=0o700, parents=True, exist_ok=True)
-        with tempfile.NamedTemporaryFile(
-            mode="wb",
-            dir=directory,
-            prefix=".plan-",
-            delete=False,
-        ) as stream:
-            temporary = Path(stream.name)
-            os.chmod(temporary, 0o600)
-            stream.write(_encode_cached_plan(plan, recipe))
-        os.replace(temporary, directory / f"{recipe}.json")
+        publish_bytes_atomically(
+            directory / f"{recipe}.json",
+            _encode_cached_plan(plan, recipe),
+            mode=0o600,
+            fsync=False,
+        )
         _clean_old_entries(directory)
     except OSError:
-        if temporary is not None:
-            try:
-                temporary.unlink(missing_ok=True)
-            except OSError:
-                pass
+        pass
     return plan

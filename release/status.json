@@ -3,7 +3,7 @@
   "release": {
     "channel": "alpha",
     "repository": "https://github.com/postoroniy/zlang-hdl",
-    "version": "0.1.0a20"
+    "version": "0.1.0a21"
   },
   "platform": {
     "operating_system": "Linux",
@@ -11,7 +11,7 @@
     "architecture": "x86_64"
   },
   "native_runtime": {
-    "version": "0.1.0a20",
+    "version": "0.1.0a21",
     "abi": "cp312-abi3",
     "source_distribution": false,
     "platforms": [
@@ -19,15 +19,13 @@
     ]
   },
   "validation": {
-    "minimum_deterministic_tests_passed": 4153,
-    "minimum_deterministic_tests_collected": 4153,
-    "minimum_performance_tests_passed": 6,
-    "minimum_performance_tests_collected": 6,
+    "minimum_tests_passed": 4284,
+    "minimum_tests_collected": 4284,
     "maximum_tests_skipped": 0,
     "example_corpus": {
-      "source_files": 110,
-      "module_roots": 215,
-      "standalone_supported": 198,
+      "source_files": 111,
+      "module_roots": 216,
+      "standalone_supported": 199,
       "child_or_template_only": 17,
       "direct_unsupported": 0
     }
@@ -38,32 +36,32 @@
     "verilator": "5.053",
     "vvp": "14.0",
     "yosys": "0.69",
-    "z3": "4.13.4"
+    "z3": "5.1.0"
   },
   "documentation": {
-    "builder_sha256": "0e509413a12cef6426bf92dea364bba62c40ec1cc0684e429e255365359cd75a",
-    "cover_sha256": "22c31a7a75b6db59293b6bf334d1499c891fb03ec5e45b5afac471116ab0d5d2",
+    "builder_sha256": "6030a48d6dbee9cdeaf7d16444adc5506ab80549826628b4ba64497a25cfdee8",
+    "cover_sha256": "0fce57ecf48f48430f6819ba6d776b94ca2f3b6c80210ab3a45df028467fa6bb",
     "examples": {
-      "linked_sources": 18,
+      "linked_sources": 21,
       "json_blocks": 1,
       "python_blocks": 1,
       "referenced_tops": 5,
-      "shell_blocks": 38,
+      "shell_blocks": 39,
       "standalone_compiled": 20,
-      "syntax_fragments": 106,
+      "syntax_fragments": 112,
       "toml_blocks": 3,
-      "zlang_fences": 126
+      "zlang_fences": 132
     },
     "format": "PDF-1.5",
-    "pages": 72,
+    "pages": 89,
     "pdf": "docs/ZLang-HDL-Language-Reference.pdf",
-    "pdf_sha256": "988405bacb21f180764f49c939237e973e9fdec1b739620d39a4b69f8cea3cf7",
-    "syntax_grammar_sha256": "e568449f05bf36bb7f6aeaa5da013a09421724211e54f5ae0f506fa01be9a8f2",
+    "pdf_sha256": "f4cb80c779e3e1ba699fe136f0d3cb628e579449baa0f710a6715accbb1b4872",
+    "syntax_grammar_sha256": "9fb3b256b93f4678bfc68464818f257996e5022107ea88d51a7a8f2e4431a5b2",
     "sources": {
-      "docs/language-quick-reference.md": "07b7c6e101a74a528fcc952b300530d71cc26d325a0fc53056391657aa996f27",
-      "docs/language-reference.md": "ff02d9ca16ec83b03e363bf739233f8f2d03939252903894c79bbaeaada70393"
+      "docs/language-quick-reference.md": "6cd52729240f1ab961eab819afc37fde149223da954f53ad8ed6679cd94f7a3a",
+      "docs/language-reference.md": "1298453d4d1abb9fdd2c4a263e265bcc8df1cf1b145cdd9ee96eb2cb5350440e"
     },
-    "source_date_epoch": 1791381600
+    "source_date_epoch": 1791468000
   },
   "generated_by": "tools/release_status.py"
 }

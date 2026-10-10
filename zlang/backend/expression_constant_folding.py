@@ -398,13 +398,20 @@ class BackendConstantFolder:
         variant = expression.type.variant(expression.variant)
         if variant is None:
             return expression
-        payload = packing.concat_runtime(
+        parts = tuple(
             (
                 _unsigned_raw(value, value_expr.type),
                 value_expr.type.width,
             )
             for value, (_, value_expr) in zip(values, expression.fields, strict=True)
-        ) if values else 0
+        )
+        payload = (
+            0
+            if not parts
+            else parts[0][0]
+            if len(parts) == 1
+            else packing.concat_runtime(parts)
+        )
         padding = expression.type.payload_width - variant.payload_width
         raw = (expression.type.tag(expression.variant) << expression.type.payload_width) | (
             payload << padding

@@ -27,7 +27,7 @@ def tracker_name(
 ) -> str:
     """Return the shared physical ledger token for one typed RR connection."""
 
-    instance_identifier = emission_context.module_rtl_names(module).instance
+    instance_identifier = emission_context.cached_module_rtl_names(module).instance
     request_owner = instance_identifier(descriptor.request.source.owner)
     response_owner = instance_identifier(descriptor.response.destination.owner)
     return identifier(

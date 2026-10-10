@@ -1,7 +1,18 @@
 from __future__ import annotations
 
 from zlang.compiler import compile_source
-from zlang.ir.expressions import Add, Binary, Call, Constant, Extend, Generate, Reduce, RuntimeIndex, Truncate, VectorIndex
+from zlang.ir import (
+    Add,
+    Binary,
+    Call,
+    Constant,
+    Extend,
+    Generate,
+    Reduce,
+    RuntimeIndex,
+    Truncate,
+    VectorIndex,
+)
 from zlang.ir.traversal import walk_expression
 from zlang.ir.normalization import normalize_selected_values
 from zlang.native_simulation import simulate

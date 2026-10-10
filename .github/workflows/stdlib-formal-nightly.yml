@@ -12,7 +12,7 @@ env:
   BASH_ENV: ${{ github.workspace }}/.github/workflows/local-venv-env.sh
 
 jobs:
-  z3-contracts:
+  solver-matrix-contracts:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -33,14 +33,23 @@ jobs:
       - name: Install Community test dependencies
         run: |
           python -m pip install --disable-pip-version-check -e '.[test]'
-          python -m pip install --disable-pip-version-check z3-solver==4.13.4.0
           python -c 'import sysconfig; print(sysconfig.get_path("scripts"))' >> "$GITHUB_PATH"
-      - name: Require actual Z3 formal tools
+      - name: Require the exact multi-solver formal closure
         run: |
           yosys -V
           sby --version
           yosys-smtbmc --help > /dev/null
           z3 --version
+          boolector --version
+          bitwuzla --version
+          yices --version
+          cvc5 --version
+          command -v yosys-abc
+          command -v yosys-witness
+          command -v pono
+          command -v btormc
+          command -v btorsim
+          command -v avy
       - name: Run executable contracts and fail-closed coverage inventory
         run: |
           mkdir -p build/stdlib-formal-tmp
@@ -55,6 +64,41 @@ jobs:
           python tools/stdlib_formal_coverage.py \
             --junit build/stdlib-formal.xml \
             > build/stdlib-formal-coverage.json
+      - name: Replay one immutable bundle across independent SMT solvers
+        run: |
+          mkdir -p build/formal-solver-matrix
+          zlang examples/verification/bounded_counter.zhl \
+            --verification-bundle build/formal-solver-matrix/bounded
+          python tools/formal_solver_matrix.py \
+            build/formal-solver-matrix/bounded \
+            --solver z3 --solver boolector --solver bitwuzla \
+            --corroborating-solver yices --corroborating-solver cvc5 \
+            --mode prove --depth 8 --timeout 60 --jobs 2 \
+            --work-root build/formal-solver-matrix/bounded-work \
+            --expect passed \
+            --output build/formal-solver-matrix/bounded.json
+          zlang examples/verification/rare_overflow_bug.zhl \
+            --verification-bundle build/formal-solver-matrix/rare
+          python tools/formal_solver_matrix.py \
+            build/formal-solver-matrix/rare \
+            --solver z3 --solver boolector --solver bitwuzla \
+            --corroborating-solver yices --corroborating-solver cvc5 \
+            --mode bmc --depth 16 --timeout 60 --jobs 2 \
+            --work-root build/formal-solver-matrix/rare-work \
+            --expect failed \
+            --output build/formal-solver-matrix/rare.json
+      - name: Qualify independent non-SMT formal engines
+        run: |
+          python tools/formal_engine_matrix.py \
+            build/formal-solver-matrix/bounded \
+            --expect passed --depth 8 --timeout 60 --jobs 2 \
+            --work-root build/formal-solver-matrix/engine-bounded-work \
+            --output build/formal-solver-matrix/engine-bounded.json
+          python tools/formal_engine_matrix.py \
+            build/formal-solver-matrix/rare \
+            --expect failed --depth 16 --timeout 60 --jobs 2 \
+            --work-root build/formal-solver-matrix/engine-rare-work \
+            --output build/formal-solver-matrix/engine-rare.json
       - name: Retain coverage, solver traces and test result
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -64,5 +108,7 @@ jobs:
             build/stdlib-formal.xml
             build/stdlib-formal-coverage.json
             build/stdlib-formal-tmp/
+            build/formal-solver-matrix/*.json
+            build/formal-solver-matrix/*-work/
           if-no-files-found: warn
           retention-days: 14

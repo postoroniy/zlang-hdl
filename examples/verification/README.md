@@ -1,8 +1,8 @@
 # Formal verification you can run
 
 For arithmetic optimization rather than state safety, see
-[From a long expression to a checked pipeline](math-implementation.md): exact
-eight-product `implement` selection, latency-aware Z3 equivalence,
+[From a long expression to a checked pipeline](math-exploration.md): exact
+eight-product math, `architecture`/`explore`, latency-aware Z3 equivalence,
 deliberate RTL mutations, and a separate routed 100 MHz experiment.
 
 These four small designs demonstrate the existing ZLang HDL verification flow.
@@ -10,9 +10,11 @@ The counterexample example is **deliberately broken**; it is not a known bug in
 the compiler, Wi-Fi transmitter, or other example.
 
 Run commands from the repository root after installing ZLang in `.venv`.
-Put `yosys`, `sby`, `yosys-smtbmc`, and `z3` on `PATH`. These are real external
-tool runs, not mocked tests. The examples use the connected direct-SystemVerilog
-formal route; Clash is not required for these commands.
+Put `yosys`, `sby`, `yosys-smtbmc`, and the selected solver on `PATH`. Z3 is the
+default; immutable bundles can also be replayed with `--solver boolector`,
+`bitwuzla`, `yices`, or `cvc5`. These are real external tool runs, not mocked
+tests. The examples use the connected direct-SystemVerilog formal route; Clash
+is not required for these commands.
 
 `--check` only checks syntax and types; it does not run Z3. Verification
 declarations do not add gates or alter production RTL. `--verify` explicitly

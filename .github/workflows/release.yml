@@ -42,6 +42,8 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
+      - name: Bootstrap the repository-owned release environment
+        run: make -s ci-bootstrap
       - name: Verify annotated tag and GitHub signature
         if: ${{ github.event_name == 'push' }}
         env:
@@ -102,64 +104,33 @@ jobs:
           path: build/native-vulnerability/
           if-no-files-found: error
           retention-days: 30
-      - name: Install exact release tooling and ZLang HDL
-        run: |
-          python -m pip install --disable-pip-version-check --upgrade pip==26.2.1
-          python -m pip install --disable-pip-version-check \
-            -e '.[test]' \
-            build==1.6.1 \
-            cyclonedx-bom==7.0.0 \
-            pip-audit==2.10.1 \
-            reuse==5.1.1 \
-            setuptools==84.0.0 \
-            twine==6.2.0 \
-            wheel==0.46.3
       - name: Bind the candidate or signed tag to one release manifest
         env:
           PREVIOUS_TAG_INPUT: ${{ inputs.previous_tag }}
         shell: bash
         run: |
           git fetch --force --tags origin
-          protected_main_arguments=()
           if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
             mode=candidate
             previous_tag="$PREVIOUS_TAG_INPUT"
-            git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
-            protected_main_arguments=(
-              --selected-ref "$GITHUB_REF_NAME"
-              --protected-main-ref origin/main
-            )
           else
             mode=tagged
             previous_tag="$(git describe --tags --abbrev=0 "${RELEASE_TAG}^")"
           fi
-          python -m tools.release_preflight \
-            --root . \
-            --tag "$RELEASE_TAG" \
-            --previous-tag "$previous_tag" \
-            --mode "$mode" \
-            "${protected_main_arguments[@]}" \
-            --output build/release-preflight.json
+          make -s release-preflight \
+            TAG="$RELEASE_TAG" \
+            PREVIOUS_TAG="$previous_tag" \
+            RELEASE_MODE="$mode" \
+            RELEASE_PREFLIGHT_REPORT=build/release-preflight.json
       - name: Validate public tree
-        run: |
-          python tools/release_status.py check --root . --tag "$RELEASE_TAG"
-          reuse lint
-          pip-audit . --progress-spinner off
+        run: make -s public-check audit TAG="$RELEASE_TAG"
       - name: Build one sdist and a byte-reproducible wheel
         shell: bash
         run: |
-          umask 022
-          export SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
-          mkdir -p build/dist-first build/dist-second
-          python -m build --no-isolation --sdist --wheel --outdir build/dist-first
-          python -m build --no-isolation --wheel --outdir build/dist-second
-          sha256sum build/dist-first/*.whl | sed 's#build/dist-first/##' > build/first-wheel.sha256
-          sha256sum build/dist-second/*.whl | sed 's#build/dist-second/##' > build/second-wheel.sha256
-          diff -u build/first-wheel.sha256 build/second-wheel.sha256
-          mkdir -p dist
-          cp build/dist-first/* dist/
-          cp release/native-wheels/zlang_native_sim-*.whl dist/
-          python -m twine check dist/*
+          make -s package \
+            TAG="$RELEASE_TAG" \
+            BUILD_ROOT=build/release-package \
+            DIST_DIR=dist
           python -m venv --without-pip build/wheel-venv
           python -m pip --python build/wheel-venv/bin/python install \
             --disable-pip-version-check pip==26.2.1 dist/zlang_hdl-*.whl
@@ -176,8 +147,8 @@ jobs:
             > "$smoke_dir/package-smoke.zhl"
           for environment in "$PWD/build/wheel-venv" "$PWD/build/sdist-venv"; do
             test "$("$environment/bin/zlang" --version)" = "zlang ${RELEASE_TAG#v}"
-            test "$("$environment/bin/zlang" lock --version)" = "zlang lock ${RELEASE_TAG#v}"
-            test "$("$environment/bin/zlang" verify --version)" = "zlang verify ${RELEASE_TAG#v}"
+            test "$("$environment/bin/zlang-lock" --version)" = "zlang-lock ${RELEASE_TAG#v}"
+            test "$("$environment/bin/zlang-verify" --version)" = "zlang-verify ${RELEASE_TAG#v}"
             (cd "$smoke_dir" && "$environment/bin/zlang" package-smoke.zhl --check)
           done
           for kind in wheel sdist; do
@@ -199,61 +170,30 @@ jobs:
           node-version: "22.23.2"
           cache: npm
           cache-dependency-path: editors/vscode/zlang-hdl/package-lock.json
-      - name: Install locked editor tooling without lifecycle scripts
-        working-directory: editors/vscode/zlang-hdl
-        run: npm ci --ignore-scripts
       - name: Require a fresh full locked editor advisory audit
-        working-directory: editors/vscode/zlang-hdl
         shell: bash
         run: |
           report="$GITHUB_WORKSPACE/build/editor-npm-audit.json"
-          npm audit --package-lock-only --include=dev --include=optional --include=peer \
+          set +e
+          npm --prefix editors/vscode/zlang-hdl audit \
+            --package-lock-only --include=dev --include=optional --include=peer \
             --audit-level=info --json > "$report"
-          python - "$report" <<'PY'
-          import json
-          import sys
-          from pathlib import Path
-
-          report = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-          if (not isinstance(report, dict) or report.get("auditReportVersion") != 2
-                  or "error" in report or report.get("vulnerabilities") != {}):
-              raise SystemExit("Editor advisory audit is incomplete or has findings")
-          metadata = report.get("metadata", {})
-          counts = metadata.get("vulnerabilities", {})
-          for severity in ("info", "low", "moderate", "high", "critical", "total"):
-              if type(counts.get(severity)) is not int or counts[severity] != 0:
-                  raise SystemExit("Editor advisory audit has findings or missing totals")
-          dependencies = metadata.get("dependencies", {})
-          for kind in ("dev", "total"):
-              if type(dependencies.get(kind)) is not int or dependencies[kind] <= 0:
-                  raise SystemExit("Editor advisory audit did not include build tooling")
-          lock = json.loads(Path("package-lock.json").read_text(encoding="utf-8"))
-          packages = lock.get("packages")
-          if lock.get("lockfileVersion") != 3 or not isinstance(packages, dict) or "" not in packages:
-              raise SystemExit("Editor lockfile inventory is incomplete")
-          if dependencies["total"] != len(packages) - 1:
-              raise SystemExit("Editor advisory audit does not cover the full lockfile")
-          print(f"Editor advisory audit: {dependencies['total']} locked dependencies, "
-                f"including {dependencies['dev']} dev dependencies; zero findings")
-          PY
-      - name: Exercise real TextMate and Oniguruma tokenization
-        working-directory: editors/vscode/zlang-hdl
-        run: npm test
-      - name: Build and audit the exact-tag Community VSIX
-        shell: bash
-        run: |
-          npm --prefix editors/vscode/zlang-hdl run package -- "$RUNNER_TEMP/zlang-hdl-0.1.0.vsix"
-          python tests/editor/test_vscode_package.py "$RUNNER_TEMP/zlang-hdl-0.1.0.vsix" \
-            > "$RUNNER_TEMP/zlang-hdl-0.1.0-vsix-audit.json"
-      - name: Exercise the installed exact-tag VSIX on the pinned current stable host
-        working-directory: editors/vscode/zlang-hdl
+          scanner_exit_code=$?
+          set -e
+          python -m tools.audit_editor_vulnerabilities \
+            --lock editors/vscode/zlang-hdl/package-lock.json \
+            --report "$report" \
+            --scanner-exit-code "$scanner_exit_code"
+      - name: Test, build, audit, and exercise the exact-tag Community VSIX
         run: >-
-          xvfb-run -a npm run test:host --
-          "$RUNNER_TEMP/zlang-hdl-0.1.0.vsix"
+          make -s ci-editor
+          CI_VSIX="$RUNNER_TEMP/zlang-hdl-0.1.0.vsix"
       - name: Stage the accepted exact-tag Community VSIX
         run: |
           cp -- "$RUNNER_TEMP/zlang-hdl-0.1.0.vsix" \
-            "$RUNNER_TEMP/zlang-hdl-0.1.0-vsix-audit.json" dist/
+            "$RUNNER_TEMP/zlang-hdl-0.1.0.vsix.audit.json" dist/
+          mv -- dist/zlang-hdl-0.1.0.vsix.audit.json \
+            dist/zlang-hdl-0.1.0-vsix-audit.json
       - name: Stage the exact reviewed language-reference PDF
         run: >-
           python tools/stage_release_pdf.py
@@ -320,38 +260,26 @@ jobs:
         with:
           github-token: ${{ github.token }}
           version: "2026-09-22"
-      - name: Install release test environment and require the EDA toolchain
-        run: |
-          python -m pip install --disable-pip-version-check --upgrade pip==26.2.1
-          python -m pip install --disable-pip-version-check -e '.[test]' \
-            release/native-wheels/*manylinux_2_28_x86_64.whl \
-            build==1.6.1 z3-solver==4.13.4.0
-          python_scripts="$(python -c 'import sysconfig; print(sysconfig.get_path("scripts"))')"
-          printf '%s\n' "$python_scripts" >> "$GITHUB_PATH"
-          export PATH="$python_scripts:$PATH"
-          python tools/audit_native_binary.py \
-            --expected-version "${RELEASE_TAG#v}" \
-            release/native-wheels/*manylinux_2_28_x86_64.whl
-          python tools/release_status.py check --root . --check-tools
+      - name: Bootstrap the repository-owned release test environment
+        run: make -s ci-bootstrap
+      - name: Audit and install the reviewed Linux native wheel
+        run: make -s native-release-install TAG="$RELEASE_TAG"
       - name: Run full regression twice with no unexpected skips
         run: |
-          mkdir -p build
-          python -m pytest -p tools.pytest_no_skips \
-            -n 8 --dist=loadscope -q --maxfail=1 -m 'not performance' \
-            --junitxml=build/release-1.xml
-          python -m pytest -p tools.pytest_no_skips -q --maxfail=1 -m performance \
-            --junitxml=build/release-performance-1.xml
-          python tools/release_status.py check --root . \
-            --junit build/release-1.xml \
-            --performance-junit build/release-performance-1.xml
-          python -m pytest -p tools.pytest_no_skips \
-            -n 8 --dist=loadscope -q --maxfail=1 -m 'not performance' \
-            --junitxml=build/release-2.xml
-          python -m pytest -p tools.pytest_no_skips -q --maxfail=1 -m performance \
-            --junitxml=build/release-performance-2.xml
-          python tools/release_status.py check --root . \
-            --junit build/release-2.xml \
-            --performance-junit build/release-performance-2.xml
+          make -s ci-full-regression WORKERS=8 CI_PYTEST_MAXFAIL=1 \
+            CI_JUNIT=build/release-1.xml
+          make -s ci-performance-regression CI_PYTEST_MAXFAIL=1 \
+            CI_JUNIT=build/release-performance-1.xml
+          make -s ci-test-floor \
+            CI_DETERMINISTIC_JUNIT=build/release-1.xml \
+            CI_PERFORMANCE_JUNIT=build/release-performance-1.xml
+          make -s ci-full-regression WORKERS=8 CI_PYTEST_MAXFAIL=1 \
+            CI_JUNIT=build/release-2.xml
+          make -s ci-performance-regression CI_PYTEST_MAXFAIL=1 \
+            CI_JUNIT=build/release-performance-2.xml
+          make -s ci-test-floor \
+            CI_DETERMINISTIC_JUNIT=build/release-2.xml \
+            CI_PERFORMANCE_JUNIT=build/release-performance-2.xml
 
   publish:
     if: ${{ github.event_name == 'push' }}

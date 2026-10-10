@@ -572,16 +572,13 @@ def test_cli_compiles_captured_snapshot_and_rejects_later_source_mutation(
     real_create_session = (
         cli_command.compiler_api.create_file_compilation_session_snapshot
     )
-    compiled_modules: list[str] = []
 
     def create_session_after_mutation(*args, **kwargs):
         # The physical file changes after CLI acquisition but before semantic
-        # analysis.  Compilation must still consume the captured text; final
-        # publication must reject attributing that IR to the replacement file.
+        # analysis.  The session boundary must reject attributing the captured
+        # source text to the replacement file before any artifact is emitted.
         source.write_bytes(replacement)
-        session = real_create_session(*args, **kwargs)
-        compiled_modules.append(session.planning.module.name)
-        return session
+        return real_create_session(*args, **kwargs)
 
     monkeypatch.setattr(
         cli_command.compiler_api,
@@ -601,7 +598,6 @@ def test_cli_compiles_captured_snapshot_and_rejects_later_source_mutation(
     assert raised.value.code == 2
     assert stdout.getvalue() == ""
     assert "hash/size mismatch" in stderr.getvalue()
-    assert compiled_modules == ["SnapshotTop"]
     assert "module SnapshotTop" in rtl.read_text(encoding="utf-8")
     assert not manifest_path.exists()
 

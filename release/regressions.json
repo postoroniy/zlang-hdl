@@ -1,78 +1,72 @@
 {
   "entries": [
     {
-      "id": "ZL-046",
+      "id": "ZL-045",
       "source_paths": [
-        "zlang/parser/grammar.lark",
-        "zlang/semantic/expression_packed.py"
+        "zlang/ir/hierarchy.py",
+        "zlang/semantic/hierarchy.py"
       ],
       "status": "included",
-      "summary": "Runtime packed indexing and fixed-width slices require compiler-proven ranges and retain LSB-zero semantics.",
+      "summary": "Aggregate child-output consumption and parent physical context no longer change an already identified child specialization.",
       "tests": [
-        "tests/semantic/test_concise_bit_collections.py::test_runtime_packed_index_and_dynamic_slice_preserve_lsb_layout",
-        "tests/simulation/test_runtime_packed_selection.py::test_native_runtime_packed_index_and_slice_use_existing_scalar_ops",
-        "tests/systemverilog/test_runtime_packed_selection.py::test_direct_sv_runtime_packed_selection_matches_lsb_reference"
+        "tests/semantic/test_hierarchy_index.py::test_aggregate_consumption_and_parent_context_do_not_change_child_identity"
+      ]
+    },
+    {
+      "id": "ZL-046",
+      "source_paths": [
+        "zlang/ir/top_abi.py",
+        "zlang/semantic/module_finalization.py"
+      ],
+      "status": "included",
+      "summary": "Public aggregate ABI finalization rejects colliding flattened leaf names and identifies both logical owners.",
+      "tests": [
+        "tests/semantic/test_registered_outputs.py::test_public_aggregate_leaf_collision_is_rejected_with_both_paths"
       ]
     },
     {
       "id": "ZL-047",
       "source_paths": [
-        "zlang/backend/expression_constant_folding.py",
-        "zlang/compilation_session.py"
+        "zlang/parser/grammar.lark",
+        "zlang/semantic/concise_module_items.py"
       ],
       "status": "included",
-      "summary": "Direct-SV constant normalization and requested-product materialization preserve typed identities while avoiding redundant work.",
+      "summary": "Nested structural generate and compile-time conditional expansion use the bounded canonical unroller.",
       "tests": [
-        "tests/backend/test_expression_constant_folding.py::test_constant_folder_folds_mux_switch_concat_slice_and_vector_ops",
-        "tests/integration/test_compile_latency_profile.py::test_sv_profile_uses_actual_cli_and_reports_requested_products"
+        "tests/semantic/test_instance_arrays.py::test_nested_structural_generate_respects_total_expansion_limit",
+        "tests/semantic/test_instance_arrays.py::test_nested_structural_generate_with_compile_time_if_is_bounded_and_exact"
       ]
     },
     {
       "id": "ZL-048",
       "source_paths": [
-        "zlang/target_candidate_providers.py",
-        "zlang/target_capabilities.py",
-        "zlang/target_planner.py"
+        "zlang/backend/naming.py",
+        "zlang/ir/hierarchy.py"
       ],
       "status": "included",
-      "summary": "Operation-specific target candidate providers and typed capability predicates select only published compatible resource facts.",
+      "summary": "Hierarchy specialization and private RTL naming remain declaration/binding/content-owned rather than parent-context-owned.",
       "tests": [
-        "tests/semantic/test_structural_multiplier_candidates.py::test_implement_exposes_one_bounded_structural_multiply_candidate",
-        "tests/test_low_level_resources.py::test_memory_capability_assessment_preserves_every_catalog_fact",
-        "tests/test_target_pipeline_planner.py::test_target_candidate_provider_registry_is_exact_and_fail_closed"
+        "tests/backend/test_composed_emitter_decomposition.py::test_composed_extraction_preserves_sv_artifact_and_binding_bytes",
+        "tests/backend/test_hierarchy_local_naming.py::test_reused_parent_component_names_ignore_physical_ancestor_identities"
       ]
     },
     {
       "id": "ZL-049",
       "source_paths": [
-        "zlang/ir/temporal.py",
-        "zlang/shared_arithmetic.py",
-        "zlang/simulation_elastic.py"
+        "tools/audit_native_vulnerabilities.py"
       ],
       "status": "included",
-      "summary": "The bounded ready/valid shared-multiply candidate preserves capacity-one transaction ordering, II, backpressure and identity semantics.",
+      "summary": "OSV Scanner findings exits are parsed as completed scans while inconsistent reports and infrastructure failures remain fail-closed.",
       "tests": [
-        "tests/integration/test_temporal_shared_arithmetic.py::test_capacity_one_transaction_stream_miter_bounded_passes",
-        "tests/integration/test_temporal_shared_arithmetic.py::test_public_temporal_shared_multiply_example_emits_and_simulates",
-        "tests/integration/test_temporal_shared_arithmetic.py::test_randomized_native_verilator_transaction_scoreboard"
-      ]
-    },
-    {
-      "id": "ZL-050",
-      "source_paths": [
-        "tests/fixtures/regressions/layout_dma_fsm.zhl",
-        "tests/fixtures/regressions/layout_dma_sticky.zhl"
-      ],
-      "status": "included",
-      "summary": "Permanent public layout-DMA witnesses keep medium-FSM and sticky-state scheduler preparation bounded and deterministic.",
-      "tests": [
-        "tests/integration/test_ztpu_scheduler_scaling.py::test_layout_dma_native_matches_direct_sv_cycle_for_cycle",
-        "tests/integration/test_ztpu_scheduler_scaling.py::test_layout_dma_native_trace_is_deterministic",
-        "tests/integration/test_ztpu_scheduler_scaling.py::test_layout_dma_plan_and_direct_sv_remain_bounded"
+        "tests/release/test_native_vulnerability_audit.py::test_affected_report_with_clean_exit_code_is_rejected",
+        "tests/release/test_native_vulnerability_audit.py::test_clean_complete_osv_report_is_accepted",
+        "tests/release/test_native_vulnerability_audit.py::test_clean_report_with_findings_exit_code_is_rejected",
+        "tests/release/test_native_vulnerability_audit.py::test_exact_reviewed_exceptions_accept_only_the_matching_findings",
+        "tests/release/test_native_vulnerability_audit.py::test_real_advisory_fixture_fails_without_exact_exceptions"
       ]
     }
   ],
-  "previous_tag": "v0.1.0a19",
-  "release": "0.1.0a20",
+  "previous_tag": "v0.1.0a20",
+  "release": "0.1.0a21",
   "schema": 1
 }

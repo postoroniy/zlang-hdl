@@ -33,6 +33,10 @@ _CACHEABLE_FORMAL_STATUSES = frozenset({
     FormalStatus.PROVEN,
     FormalStatus.FAILED,
 })
+_DECISIVE_DIRECT_SV_ROUTES = frozenset({
+    "semantic_equivalence_direct_systemverilog",
+    "transaction_stream_equivalence_bmc",
+})
 
 
 class FormalExplorationError(ValueError):
@@ -541,9 +545,12 @@ class _CachedProof:
         if self.status is FormalStatus.PROVEN and self.mode is not ProofMode.PROVE:
             raise FormalExplorationError("cached proven result requires prove mode")
         if self.status is FormalStatus.FAILED:
-            if not isinstance(self.counterexample, EquivalenceCounterexample):
+            if not isinstance(
+                self.counterexample,
+                (Counterexample, EquivalenceCounterexample),
+            ):
                 raise FormalExplorationError(
-                    "failed formal-aware selection proof requires typed semantic-reference equivalence counterexample metadata"
+                    "failed formal-aware selection proof requires typed counterexample metadata"
                 )
         if self.status in {
             FormalStatus.BOUNDED_PASS,
@@ -860,9 +867,9 @@ def _proof_from_verifier(
                 "decisive formal-aware selection verifier result has no bound cache identity for: "
                 + ", ".join(missing_identity)
             )
-        if route != "semantic_equivalence_direct_systemverilog":
+        if route not in _DECISIVE_DIRECT_SV_ROUTES:
             raise FormalExplorationError(
-                "decisive formal-aware selection proof evidence requires a supported semantic-reference equivalence RTL route"
+                "decisive formal-aware selection proof evidence requires a supported direct-SystemVerilog formal route"
             )
         if depth != config.bmc_depth:
             raise FormalExplorationError(

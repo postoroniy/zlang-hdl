@@ -12,7 +12,7 @@ from zlang.ir import expressions as expr
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SOURCE = (ROOT / "examples/symmetric_fixed_fir_implementation.zhl").read_text()
+SOURCE = (ROOT / "examples/symmetric_fixed_fir_auto.zhl").read_text()
 TARGET = "xc7z030ffg676-1"
 
 
@@ -73,7 +73,7 @@ def _bench(top, latency):
 
 @pytest.mark.skipif(shutil.which("verilator") is None, reason="Verilator unavailable")
 @pytest.mark.parametrize(
-    "top,latency", (("SymmetricFixedFIRImplementation", 3), ("SymmetricFixedFIRImplementationExact8", 8)),
+    "top,latency", (("SymmetricFixedFIRAuto", 3), ("SymmetricFixedFIRAutoExact8", 8)),
 )
 def test_selected_target_pipeline_is_bit_exact_in_verilator(tmp_path, top, latency):
     result = _compile(top)

@@ -6,6 +6,7 @@ from zlang.ir import csr as ir_csr
 from zlang.ir import module as ir_module
 from zlang.ir import external as ir_external
 from zlang.ir import hierarchy as ir_hierarchy
+from zlang.ir import top_abi as ir_top_abi
 from zlang.ir import types as ir_types
 from zlang.source import SourceOrigin
 from .errors import SemanticError
@@ -371,6 +372,31 @@ class SemanticModuleFinalizer:
         # Verification identity finalization remains demand-driven and has one
         # compiler-owned semantic owner.
         result = _VERIFICATION_IDENTITIES.finalize(result)
+        try:
+            ir_top_abi.build_top_physical_abi(result)
+        except ir_top_abi.TopPhysicalABIError as error:
+            if error.first is None or error.second is None:
+                raise SemanticError(
+                    str(error),
+                    code="ZL-SEMANTIC-PUBLIC-ABI",
+                ) from error
+            first_path = ".".join(error.first.member_path)
+            second_path = ".".join(error.second.member_path)
+            notes = [
+                f"first logical path '{first_path}'",
+                f"second logical path '{second_path}'",
+            ]
+            if error.first.source_origin is not None:
+                notes.append(
+                    "first declaration/assignment span: "
+                    + error.first.source_origin.render()
+                )
+            raise SemanticError(
+                str(error),
+                code="ZL-SEMANTIC-PUBLIC-ABI-COLLISION",
+                primary=error.second.source_origin,
+                notes=tuple(notes),
+            ) from error
         try:
             ir_hierarchy.validate_hierarchical_connections(result, cache=selected_hierarchy_cache)
             ir_hierarchy.validate_instance_port_bindings(result, cache=selected_hierarchy_cache)

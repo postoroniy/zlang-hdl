@@ -10,7 +10,6 @@ from dataclasses import fields, is_dataclass, replace
 from typing import TYPE_CHECKING
 
 from zlang.ast import nodes as ast
-from zlang.ir import cdc as ir_cdc
 from zlang.ir import types as ir_types
 from zlang.source import SourceOrigin
 
@@ -178,427 +177,6 @@ def select_compile_time_module_items(
 
     select(module.ordered_items)
     return normalize_selected_module_items(module, tuple(selected), type_resolver)
-
-
-def _reference_parts(
-    type_name: ast.TypeSyntax,
-) -> tuple[str, tuple[ast.SpecializationArgument, ...]]:
-    if not isinstance(type_name, ast.TypeName):
-        return ("", ())
-    text = type_name.text
-    if "<" not in text:
-        return (text, ())
-    base, body = text.split("<", 1)
-    body = body[:-1]
-    values: list[str] = []
-    start = 0
-    angle_depth = 0
-    paren_depth = 0
-    for index, character in enumerate(body):
-        if character == "<":
-            angle_depth += 1
-        elif character == ">":
-            angle_depth -= 1
-        elif character == "(":
-            paren_depth += 1
-        elif character == ")":
-            paren_depth -= 1
-        elif character == "," and angle_depth == 0 and paren_depth == 0:
-            values.append(body[start:index])
-            start = index + 1
-    values.append(body[start:])
-    return (
-        base,
-        tuple(
-            ast.SpecializationArgument(
-                None,
-                int(value) if value.isdigit() else value,
-            )
-            for value in values
-        ),
-    )
-
-
-def normalize_concise_module_items(
-    module: ast.Module,
-    type_resolver: TypeResolver,
-    inherited_domain: tuple[str, str] | ir_cdc.ClockDomain | None,
-) -> ast.Module:
-    """Resolve concise surface declarations into canonical AST kinds."""
-
-    known_modules = {item.name for item in (*module.submodules, module)}
-    known_protocols = {item.name for item in module.protocols}
-    instances = list(module.instances)
-    interfaces = list(module.aggregate_interfaces)
-    destructure_ordinal = 0
-
-    occupied_value_names = {
-        *[item.name for item in module.ports],
-        *[item.name for item in module.registers],
-        *[item.name for item in module.instances],
-        *[item.name for item in module.fifos],
-        *[item.name for item in module.memories],
-        *[item.name for item in module.roms],
-        *[item.name for item in module.aggregate_interfaces],
-        *[item.name for item in module.generic_declarations],
-        *[item.target for item in module.assignments if "." not in item.target],
-        *module.clocks,
-        *module.resets,
-    }
-
-    def destructure_bindings(
-        expression: ast.Expression,
-        origin: object | None,
-        names: tuple[str, ...],
-        type_name: ast.TypeSyntax | None,
-    ) -> tuple[ast.Assignment, ...]:
-        nonlocal destructure_ordinal
-        is_struct = type_name is not None
-        duplicate = next(
-            (name for name in names if names.count(name) > 1),
-            None,
-        )
-        if duplicate is not None:
-            description = (
-                f"struct destructuring repeats field '{duplicate}'"
-                if is_struct
-                else f"tuple destructuring repeats binding '{duplicate}'"
-            )
-            raise SemanticError(description)
-        collision = next(
-            (name for name in names if name in occupied_value_names),
-            None,
-        )
-        if collision is not None:
-            description = (
-                f"destructured field '{collision}' shadows an existing symbol"
-                if is_struct
-                else f"tuple binding '{collision}' shadows an existing symbol"
-            )
-            raise SemanticError(description)
-        span = (
-            origin.render() if origin is not None else str(destructure_ordinal)
-        )
-        suffix = "" if is_struct else "|tuple"
-        hidden_hash = hashlib.sha256(
-            (
-                f"{module.source_identity or module.name}|{span}|"
-                f"{destructure_ordinal}{suffix}"
-            ).encode()
-        ).hexdigest()[:16]
-        hidden_name = (
-            f"__destructure_{hidden_hash}"
-            if is_struct
-            else f"__tuple_destructure_{hidden_hash}"
-        )
-        bindings = [ast.Assignment(
-            hidden_name,
-            expression,
-            type_name,
-            origin=origin,
-            tuple_destructure_arity=None if is_struct else len(names),
-        )]
-        for index, name in enumerate(names):
-            projection: ast.Expression = (
-                ast.FieldExpr(
-                    ast.NameExpr(hidden_name, origin=origin),
-                    name,
-                    origin=origin,
-                )
-                if is_struct
-                else ast.IndexExpr(
-                    ast.NameExpr(hidden_name, origin=origin),
-                    index,
-                    origin=origin,
-                )
-            )
-            bindings.append(ast.Assignment(name, projection, origin=origin))
-            occupied_value_names.add(name)
-        destructure_ordinal += 1
-        return tuple(bindings)
-
-    def expand_port(declaration: ast.PortDecl) -> tuple[object, ...]:
-        names = declaration.names or (declaration.name,)
-        if declaration.initializer is not None and len(names) > 1:
-            raise SemanticError(
-                "grouped port declarations cannot have an initializer; "
-                "use one inline output declaration per driven output"
-            )
-        if declaration.initializer is not None:
-            if declaration.direction is ast.Direction.INPUT:
-                raise SemanticError(
-                    f"input port '{declaration.name}' cannot have an initializer; "
-                    "inputs are driven by the parent/environment"
-                )
-            if isinstance(declaration.type_name, ast.InterfaceTypeName):
-                raise SemanticError(
-                    f"protocol port '{declaration.name}' cannot have an initializer"
-                )
-        expanded: list[object] = []
-        for index, name in enumerate(names):
-            name_origin = (
-                declaration.name_origins[index]
-                if index < len(declaration.name_origins)
-                else None
-            )
-            expanded.append(replace(
-                declaration,
-                name=name,
-                names=(),
-                initializer=None,
-                name_origins=(() if name_origin is None else (name_origin,)),
-            ))
-        if declaration.initializer is not None:
-            expanded.append(ast.Assignment(
-                declaration.name,
-                declaration.initializer,
-                origin=declaration.origin,
-                name_origin=(
-                    declaration.name_origins[0]
-                    if declaration.name_origins else None
-                ),
-            ))
-        return tuple(expanded)
-
-    def normalize_generic(declaration: ast.GenericDeclaration) -> object:
-        reference, parsed_arguments = _reference_parts(declaration.type_name)
-        arguments = declaration.specializations or parsed_arguments
-        is_module = reference in known_modules
-        is_protocol = reference in known_protocols
-        try:
-            type_resolver.resolve(declaration.type_name)
-            is_value_type = True
-        except SemanticError:
-            is_value_type = False
-        if declaration.role is not None:
-            if not is_protocol:
-                raise SemanticError(
-                    f"concise declaration '{declaration.name}' references unknown "
-                    f"protocol '{reference}'"
-                )
-            if declaration.array_length is not None or declaration.bindings:
-                raise SemanticError(
-                    "protocol endpoints cannot have instance arrays or inline bindings"
-                )
-            inferred_domain = (
-                module.clocks[0]
-                if len(module.clocks) == 1
-                else (
-                    inherited_domain.clock
-                    if isinstance(inherited_domain, ir_cdc.ClockDomain)
-                    else inherited_domain[0]
-                )
-                if not module.clocks and inherited_domain is not None
-                else declaration.domain
-            )
-            result = ast.AggregateInterfaceDecl(
-                declaration.name,
-                reference,
-                arguments,
-                declaration.role,
-                inferred_domain,
-            )
-            interfaces.append(result)
-            return result
-        categories = sum((is_module, is_value_type, is_protocol))
-        if categories > 1:
-            raise SemanticError(
-                f"concise declaration '{declaration.name}' is ambiguous for "
-                f"'{reference}'; use explicit 'inst' for a module instance"
-            )
-        if is_module:
-            if declaration.initializer is not None:
-                raise SemanticError(
-                    f"module instance '{declaration.name}' cannot have a value initializer"
-                )
-            if declaration.domain is not None:
-                raise SemanticError(
-                    "module instance declarations do not accept @domain"
-                )
-            result = ast.InstanceDecl(
-                declaration.name,
-                reference,
-                arguments,
-                declaration.array_length,
-                declaration.bindings,
-                declaration.origin,
-                declaration.name_origin,
-                declaration.type_origin,
-            )
-            instances.append(result)
-            return result
-        if is_value_type:
-            if declaration.array_length is not None or declaration.bindings:
-                raise SemanticError(
-                    f"immutable value '{declaration.name}' cannot have instance options"
-                )
-            if declaration.initializer is None:
-                raise SemanticError(
-                    f"immutable value '{declaration.name}' requires an initializer"
-                )
-            result = ast.Assignment(
-                declaration.name,
-                declaration.initializer,
-                declaration.type_name,
-                origin=declaration.origin,
-                name_origin=declaration.name_origin,
-            )
-            return result
-        if is_protocol:
-            raise SemanticError(
-                f"protocol declaration '{declaration.name}' requires an explicit role"
-            )
-        raise SemanticError(
-            f"concise declaration '{declaration.name}' has unknown type, module, "
-            f"or protocol '{reference or declaration.type_name}'"
-        )
-
-    anonymous_rules: dict[int, ast.RuleDecl] = {}
-    anonymous_ordinal = 0
-
-    def register_anonymous(items: tuple[object, ...]) -> None:
-        nonlocal anonymous_ordinal
-        for item in items:
-            if isinstance(item, ast.AnonymousRuleDecl):
-                if id(item) in anonymous_rules:
-                    continue
-                span = (
-                    item.origin.render()
-                    if item.origin is not None
-                    else f"ordinal:{anonymous_ordinal}"
-                )
-                parameters = tuple(
-                    (parameter.name, parameter.kind, parameter.default)
-                    for parameter in module.parameters
-                )
-                payload = (
-                    f"{module.source_identity or module.name}|"
-                    f"{module.source_hash or ''}|{parameters}|{span}|"
-                    f"{anonymous_ordinal}"
-                )
-                identity = hashlib.sha256(payload.encode()).hexdigest()[:16]
-                anonymous_rules[id(item)] = ast.RuleDecl(
-                    f"__anonymous_rule_{identity}",
-                    item.guard,
-                    item.actions,
-                    item.origin,
-                )
-                anonymous_ordinal += 1
-            elif isinstance(item, ast.CompileTimeIfDecl):
-                register_anonymous(item.when_true)
-                register_anonymous(item.when_false)
-            elif isinstance(item, ast.GenerateBlock):
-                register_anonymous(item.items)
-
-    register_anonymous(module.ordered_items)
-
-    def normalize_items(items: tuple[object, ...]) -> tuple[object, ...]:
-        nonlocal destructure_ordinal
-        normalized: list[object] = []
-        for item in items:
-            if isinstance(item, ast.PortDecl):
-                normalized.extend(expand_port(item))
-            elif isinstance(item, ast.GenericDeclaration):
-                normalized.append(normalize_generic(item))
-            elif isinstance(item, ast.StructDestructureDecl):
-                resolved = type_resolver.resolve(item.type_name)
-                if not isinstance(resolved, ir_types.StructType):
-                    raise SemanticError(
-                        "immutable destructuring requires a nominal struct type, "
-                        f"got {resolved}"
-                    )
-                declared_fields = tuple(field.name for field in resolved.fields)
-                unknown = tuple(
-                    name for name in item.fields if name not in declared_fields
-                )
-                missing = tuple(
-                    name for name in declared_fields if name not in item.fields
-                )
-                if unknown or missing:
-                    details: list[str] = []
-                    if unknown:
-                        details.append("unknown: " + ", ".join(unknown))
-                    if missing:
-                        details.append("missing: " + ", ".join(missing))
-                    raise SemanticError(
-                        f"destructuring of '{resolved.name}' must name every field "
-                        f"exactly once ({'; '.join(details)})"
-                    )
-                normalized.extend(destructure_bindings(
-                    item.expression,
-                    item.origin,
-                    item.fields,
-                    item.type_name,
-                ))
-            elif isinstance(item, ast.TupleDestructureDecl):
-                normalized.extend(destructure_bindings(
-                    item.expression,
-                    item.origin,
-                    item.names,
-                    None,
-                ))
-            elif isinstance(item, ast.AnonymousRuleDecl):
-                normalized.append(anonymous_rules.get(id(item), item))
-            elif isinstance(item, ast.CompileTimeIfDecl):
-                normalized.append(replace(
-                    item,
-                    when_true=normalize_items(item.when_true),
-                    when_false=normalize_items(item.when_false),
-                ))
-            elif isinstance(item, ast.GenerateBlock):
-                normalized.append(replace(
-                    item,
-                    items=normalize_items(item.items),
-                ))
-            else:
-                normalized.append(item)
-        return tuple(normalized)
-
-    ordered_items = normalize_items(module.ordered_items)
-
-    default_domain = (
-        module.clocks[0]
-        if len(module.clocks) == 1
-        else (
-            inherited_domain.clock
-            if isinstance(inherited_domain, ir_cdc.ClockDomain)
-            else inherited_domain[0]
-        )
-        if not module.clocks and inherited_domain is not None
-        else None
-    )
-    normalized_interfaces: list[ast.AggregateInterfaceDecl] = []
-    for declaration in interfaces:
-        domain = declaration.domain
-        if domain is None:
-            if len(module.clocks) > 1:
-                raise SemanticError(
-                    f"protocol endpoint '{declaration.name}' requires an explicit domain"
-                )
-            domain = default_domain
-        normalized_interfaces.append(replace(declaration, domain=domain))
-
-    normalized_ports = tuple(
-        item for item in ordered_items if isinstance(item, ast.PortDecl)
-    )
-    normalized_assignments = tuple(
-        item for item in ordered_items if isinstance(item, ast.Assignment)
-    )
-    return replace(
-        module,
-        instances=tuple(instances),
-        ports=normalized_ports,
-        assignments=normalized_assignments,
-        aggregate_interfaces=tuple(normalized_interfaces),
-        generic_declarations=(),
-        rules=tuple(
-            declaration
-            if isinstance(declaration, ast.RuleDecl)
-            else anonymous_rules.get(id(declaration), declaration)
-            for declaration in module.rules
-        ),
-        ordered_items=ordered_items,
-    )
 
 
 def normalize_qualified_imports(
@@ -935,6 +513,7 @@ def _expand_fsms(
             f"{tuple((parameter.name, parameter.kind, parameter.default) for parameter in module.parameters)}|"
             f"{item.origin.render() if item.origin is not None else item.name}"
         )
+        physical_hint_counts: dict[str, int] = {}
         for state_ordinal, state in enumerate(item.states):
             if state.hold:
                 if state.transitions or state.priority:
@@ -1005,15 +584,28 @@ def _expand_fsms(
                 rule_name = "__fsm_" + hashlib.sha256(
                     payload.encode()
                 ).hexdigest()[:20]
+                physical_hint_base = (
+                    f"{item.name}_{state.member}_to_{transition.target}".lower()
+                )
+                physical_hint_ordinal = physical_hint_counts.get(
+                    physical_hint_base, 0
+                ) + 1
+                physical_hint_counts[physical_hint_base] = physical_hint_ordinal
+                physical_name_hint = (
+                    physical_hint_base
+                    if physical_hint_ordinal == 1
+                    else f"{physical_hint_base}_{physical_hint_ordinal:02d}"
+                )
                 expanded.append(ast.RuleDecl(
-                    rule_name,
-                    state_guard,
-                    (
+                    name=rule_name,
+                    guard=state_guard,
+                    actions=(
                         ast.NextAssignment(item.name, target_value),
                         *transition.actions,
                     ),
-                    transition.origin,
-                    item.domain,
+                    origin=transition.origin,
+                    domain=item.domain,
+                    physical_name_hint=physical_name_hint,
                 ))
                 if previous_rule is not None:
                     expanded.append(ast.RulePriority(previous_rule, rule_name))

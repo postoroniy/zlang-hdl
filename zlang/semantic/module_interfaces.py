@@ -391,6 +391,10 @@ def _signature_port(
     resolver: Any,
     clock_domains: tuple[ir_cdc.ClockDomain, ...],
 ) -> ir_module.Port:
+    if declaration.registered:
+        semantic_hierarchy.signature_error(
+            f"module interface port '{name}' cannot declare implementation storage"
+        )
     if declaration.initializer is not None:
         semantic_hierarchy.signature_error(
             f"module interface port '{name}' cannot have an initializer"

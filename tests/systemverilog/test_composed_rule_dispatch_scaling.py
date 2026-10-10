@@ -951,12 +951,12 @@ def test_one_emission_fingerprints_each_exact_module_object_at_most_once(
     assert {name: len(items) for name, items in calls.items()} == {
         "first": 6,
         "copied": 6,
-        "unrelated": 0,
+        "unrelated": 1,
     }
     for items in calls.values():
         identities = Counter(id(item) for item in items)
-        if identities:
-            assert max(identities.values()) == 1
+        assert identities
+        assert max(identities.values()) == 1
     assert all(
         first is not second
         for first in calls["first"]

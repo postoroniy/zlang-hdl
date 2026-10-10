@@ -20,6 +20,7 @@ from importlib.resources import files
 import lark
 
 from zlang.parser import parser as parser_module
+from zlang.common.cache_paths import user_cache_root
 
 
 PARSE_INDEX_SCHEMA = "zlang-workspace-parse-index-v1"
@@ -37,12 +38,7 @@ _GC_WRITES: dict[Path, int] = {}
 
 
 def _cache_root() -> Path:
-    selected = os.environ.get("XDG_CACHE_HOME")
-    if selected:
-        candidate = Path(selected).expanduser()
-        if candidate.is_absolute():
-            return candidate / "zlang-hdl" / "workspace" / "parse-v1"
-    return Path.home() / ".cache" / "zlang-hdl" / "workspace" / "parse-v1"
+    return user_cache_root("workspace", "parse-v1")
 
 
 def _shard_path(logical_path: str, digest: str) -> Path:

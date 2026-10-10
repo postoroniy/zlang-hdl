@@ -8,13 +8,13 @@ from pathlib import Path
 import pytest
 
 from zlang.compiler import compile_file, compile_source
-from zlang.ir.expressions import Constant
+from zlang.ir import Constant
 from zlang.ir.hierarchy import (
     HierarchyError,
     build_hierarchy_index,
     specialization_fingerprint,
 )
-from zlang.ir.types import UIntType
+from zlang.ir.types import StructField, StructType, UIntType
 from zlang.workspace import update_project_lock
 
 
@@ -218,3 +218,33 @@ def test_specialization_fingerprint_tracks_only_reachable_callable_bodies() -> N
         match="specialization identity .* is reused for incompatible",
     ):
         build_hierarchy_index(malformed)
+
+
+def test_specialization_fingerprint_ignores_unrelated_visible_structs() -> None:
+    child = compile_source(
+        "module Child { in x:u8 out y:u8 y=x } "
+        "module Top { in x:u8 out y:u8 child:Child child.x=x y=child.y }",
+        top="Top",
+    ).ir.children[0]
+    unrelated = StructType(
+        "ParentOnly",
+        (StructField("value", UIntType(9)),),
+    )
+
+    assert specialization_fingerprint(
+        replace(child, structs=(*child.structs, unrelated))
+    ) == specialization_fingerprint(child)
+
+
+def test_specialization_fingerprint_keeps_used_struct_shape() -> None:
+    def child_fingerprint(width: int) -> str:
+        child = compile_source(
+            f"struct Payload {{ value:u{width} }} "
+            f"module Child {{ in x:Payload out y:u{width} y=x.value }} "
+            f"module Top {{ in x:Payload out y:u{width} "
+            "child:Child child.x=x y=child.y }",
+            top="Top",
+        ).ir.children[0]
+        return specialization_fingerprint(child)
+
+    assert child_fingerprint(8) != child_fingerprint(9)
