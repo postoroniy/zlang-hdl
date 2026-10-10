@@ -73,7 +73,13 @@ def test_current_candidate_binds_release_sources_native_wheel_and_git(
     assert report["version"] == "0.1.0a21"
     assert report["tag"] == "v0.1.0a21"
     assert report["previous_tag"] == "v0.1.0a20"
-    assert report["regressions"]["included"] == ["ZL-045", "ZL-046", "ZL-047", "ZL-048"]
+    assert report["regressions"]["included"] == [
+        "ZL-045",
+        "ZL-046",
+        "ZL-047",
+        "ZL-048",
+        "ZL-049",
+    ]
     assert "release/regressions.json" in report["identities"]
     assert report["git"]["previous_commit"] == _git(
         release_repository, "rev-list", "-n", "1", "v0.1.0a20"

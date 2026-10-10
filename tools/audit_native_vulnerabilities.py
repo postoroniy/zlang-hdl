@@ -260,12 +260,19 @@ def audit_report(
 ) -> None:
     """Validate scanner completeness/findings and emit deterministic evidence."""
 
-    if scanner_exit_code != 0:
+    if scanner_exit_code not in {0, 1}:
         raise NativeVulnerabilityAuditError(
             f"OSV-Scanner failed with exit code {scanner_exit_code}"
         )
     packages = parse_cyclonedx_inventory(sbom)
     findings = parse_osv_report(report, packages)
+    completed_with_findings = scanner_exit_code == 1
+    if completed_with_findings != bool(findings):
+        result = "findings" if findings else "no findings"
+        raise NativeVulnerabilityAuditError(
+            "OSV-Scanner exit code and report are inconsistent: "
+            f"exit code {scanner_exit_code} with {result}"
+        )
     exception_records = parse_exceptions(exceptions, as_of=as_of)
     approvals = {record.finding: record for record in exception_records}
     unused = sorted(set(approvals) - set(findings))

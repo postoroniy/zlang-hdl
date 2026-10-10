@@ -49,6 +49,21 @@
         "tests/backend/test_composed_emitter_decomposition.py::test_composed_extraction_preserves_sv_artifact_and_binding_bytes",
         "tests/backend/test_hierarchy_local_naming.py::test_reused_parent_component_names_ignore_physical_ancestor_identities"
       ]
+    },
+    {
+      "id": "ZL-049",
+      "source_paths": [
+        "tools/audit_native_vulnerabilities.py"
+      ],
+      "status": "included",
+      "summary": "OSV Scanner findings exits are parsed as completed scans while inconsistent reports and infrastructure failures remain fail-closed.",
+      "tests": [
+        "tests/release/test_native_vulnerability_audit.py::test_affected_report_with_clean_exit_code_is_rejected",
+        "tests/release/test_native_vulnerability_audit.py::test_clean_complete_osv_report_is_accepted",
+        "tests/release/test_native_vulnerability_audit.py::test_clean_report_with_findings_exit_code_is_rejected",
+        "tests/release/test_native_vulnerability_audit.py::test_exact_reviewed_exceptions_accept_only_the_matching_findings",
+        "tests/release/test_native_vulnerability_audit.py::test_real_advisory_fixture_fails_without_exact_exceptions"
+      ]
     }
   ],
   "previous_tag": "v0.1.0a20",

@@ -11,7 +11,7 @@ incompatible input explicitly.
 
 ## Unreleased
 
-## 0.1.0a21 — 2026-10-09
+## 0.1.0a21 — 2026-10-10
 
 Community alpha making registered outputs and transient rule drives explicit,
 adding bounded exact-value implementation exploration, and connecting the
@@ -72,6 +72,10 @@ or unbounded temporal proof is claimed.
 
 ### Fixed
 
+- Native vulnerability auditing distinguishes OSV Scanner's documented
+  findings exit from infrastructure failure, parses complete reports before
+  applying exact reviewed exceptions, and rejects inconsistent exit/report
+  combinations, incomplete coverage, and stale exceptions.
 - Child specialization identity no longer depends on physical parent context
   or aggregate-output consumption, so repeated aggregate children and sibling
   FSM modules retain one declaration/binding/content-owned specialization.

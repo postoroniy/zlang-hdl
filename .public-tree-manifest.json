@@ -134,7 +134,7 @@
     {
       "mode": "0644",
       "path": "CHANGELOG.md",
-      "sha256": "8cb2880c30234ddbe2711df7fe2223389a51114fbca2e1312dff7b21373f0003"
+      "sha256": "db71f70af71e34a9b95ef87aa8e3755f89b48191709314292157eb887f69ebce"
     },
     {
       "mode": "0644",
@@ -1144,12 +1144,12 @@
     {
       "mode": "0644",
       "path": "release/regressions.json",
-      "sha256": "6ce05e38ca6a5a69eebfa29aefdd32590715ae6a7793983c9f080653ab2cbd54"
+      "sha256": "765b3235cfb4182345b11b8c671da0ad7f47156d4f521d567d3cac0ce157c420"
     },
     {
       "mode": "0644",
       "path": "release/status.json",
-      "sha256": "95013d9406b717a36c22db34ef6dc2b3fdb81442ad34149930adf64ed676dc62"
+      "sha256": "fb234e443af2b27ad284c491e5211839f3cde2f6401530bd3cfd5a8bd00d040d"
     },
     {
       "mode": "0644",
@@ -2759,7 +2759,7 @@
     {
       "mode": "0644",
       "path": "tests/release/test_native_vulnerability_audit.py",
-      "sha256": "cc938cd7b53126fda60de578d00a61e192e7dc7fbcc690826708c7de03619ba6"
+      "sha256": "fa2b1a1eb4e1ebb69299f722a488495196e29668772b58e3e8006a1fb02e84c5"
     },
     {
       "mode": "0644",
@@ -2789,12 +2789,12 @@
     {
       "mode": "0644",
       "path": "tests/release/test_release_preflight.py",
-      "sha256": "b88da57c8147f9a4b153077ddea8e23ece083bec44045ae77dd0800974e3d4fd"
+      "sha256": "8e3ee632356a4a6e033b1d143973bbce8eb11e7e3665b10d7ac264206123a1e6"
     },
     {
       "mode": "0644",
       "path": "tests/release/test_release_regressions.py",
-      "sha256": "f34270c3d535ed064e16aa449abeb3bc49042f6d432ea28ac80096a584461eba"
+      "sha256": "c49d9ba92bcd5c2e9be8216d4de0e8cc7b1049cd42d6a6807f8818fdd94f5090"
     },
     {
       "mode": "0644",
@@ -4004,7 +4004,7 @@
     {
       "mode": "0644",
       "path": "tools/audit_native_vulnerabilities.py",
-      "sha256": "6e1f7334ea9662a3c696d30df8f995a2db82608ea967e76ced557c6f3ba1be0d"
+      "sha256": "e00aefb0c230a1432a8505882202be8d4368cd8fc3271af357c267aea2f75a41"
     },
     {
       "mode": "0644",
