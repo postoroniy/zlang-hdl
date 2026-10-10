@@ -134,7 +134,7 @@
     {
       "mode": "0644",
       "path": "CHANGELOG.md",
-      "sha256": "db71f70af71e34a9b95ef87aa8e3755f89b48191709314292157eb887f69ebce"
+      "sha256": "35286db002211f367ce8e263ee0054c3860548a8c07c50035ed4295389287460"
     },
     {
       "mode": "0644",
@@ -324,7 +324,7 @@
     {
       "mode": "0644",
       "path": "editors/vscode/zlang-hdl/package-lock.json",
-      "sha256": "1a9ca95708b73a0438caebc287418d4651eb905bf1ba381c85a5275634a5671f"
+      "sha256": "304413971614e8cedd326f23c9784ae06c7013b9f3ab26ca292aa1190b9700eb"
     },
     {
       "mode": "0644",
@@ -1459,7 +1459,7 @@
     {
       "mode": "0644",
       "path": "tests/editor/test_vscode_package.py",
-      "sha256": "439030effc5f2c965b51b43d257a1749b4090dc4ef3e467b9143fefca5de2fdb"
+      "sha256": "a792b2c7b5796d0877b59fe3a5f538306db65e5b82ceba0ba3a832ff460be4cb"
     },
     {
       "mode": "0644",

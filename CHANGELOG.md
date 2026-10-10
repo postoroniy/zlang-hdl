@@ -76,6 +76,9 @@ or unbounded temporal proof is claimed.
   findings exit from infrastructure failure, parses complete reports before
   applying exact reviewed exceptions, and rejects inconsistent exit/report
   combinations, incomplete coverage, and stale exceptions.
+- The locked VS Code build inventory updates transitive `brace-expansion` to
+  5.0.12, closing the current nested-brace denial-of-service advisories before
+  VSIX packaging.
 - Child specialization identity no longer depends on physical parent context
   or aggregate-output consumption, so repeated aggregate children and sibling
   FSM modules retain one declaration/binding/content-owned specialization.
