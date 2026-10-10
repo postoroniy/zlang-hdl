@@ -18,6 +18,7 @@ from zlang.formal_artifact_provider import (
     FormalArtifactProviderError,
     FormalArtifactRecipe,
 )
+from zlang.formal_evidence_metadata import FormalEvidenceMetadata
 from zlang.ir.equivalence import EquivalenceCounterexample
 from zlang.ir.formal import Counterexample, FormalStatus, ProofMode
 from zlang.ir.module import dependency_context_identity
@@ -145,6 +146,8 @@ class FormalExplorationRecord:
     # Candidate semantic-reference equivalence orchestration may reuse a retained result only when this
     # identity matches its current timeout, tools, dependencies, and schemas.
     execution_recipe_identity: str | None = None
+    tool_versions: tuple[tuple[str, str], ...] = ()
+    evidence_metadata: FormalEvidenceMetadata | None = None
 
     def __str__(self) -> str:
         status = self.status.value if self.status else "not_requested"
@@ -1179,10 +1182,25 @@ def _record_for_stage(
     proof: _CachedProof,
     cache_state: str,
     execution_recipe_identity: str,
+    config: FormalExplorationConfig,
+    verifier: Callable[[Any, FormalExplorationConfig], Any] | None,
     *,
     eligible: bool,
     reason: str,
 ) -> FormalExplorationRecord:
+    metadata = None
+    metadata_owner = getattr(verifier, "evidence_metadata", None)
+    if callable(metadata_owner):
+        metadata = metadata_owner(candidate, config)
+        if not isinstance(metadata, FormalEvidenceMetadata):
+            raise FormalExplorationError(
+                "formal verifier evidence metadata must use FormalEvidenceMetadata"
+            )
+    requested_tools = tuple(dict.fromkeys(
+        ("yosys", "sby", "yosys-smtbmc", config.solver)
+        if config.engine == "sby"
+        else (config.engine, config.solver)
+    ))
     return FormalExplorationRecord(
         candidate.implementation_identity,
         rank,
@@ -1211,6 +1229,8 @@ def _record_for_stage(
         proof.selected_origin,
         proof.work_directory,
         execution_recipe_identity,
+        _formal_tool_versions(config, requested_tools),
+        metadata,
     )
 
 
@@ -1288,6 +1308,8 @@ def gate_candidates(candidates: tuple[Any, ...], evaluations: tuple[Any, ...],  
                 proof,
                 cache_state,
                 execution_recipe_identity,
+                config,
+                verifier,
                 eligible=eligible,
                 reason=reason,
             ))
@@ -1353,6 +1375,8 @@ def gate_candidates(candidates: tuple[Any, ...], evaluations: tuple[Any, ...],  
                 proof,
                 cache_state,
                 execution_recipe_identity,
+                stage_config,
+                verifier,
                 eligible=eligible and is_final_stage,
                 reason=reason,
             ))

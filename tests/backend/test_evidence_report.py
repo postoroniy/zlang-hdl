@@ -25,6 +25,7 @@ from zlang.formal_exploration import (
     FormalExplorationRecord,
     FormalPolicy,
 )
+from zlang.formal_evidence_metadata import FormalEvidenceMetadata
 from zlang.ir.equivalence import (
     EquivalenceMode,
     EquivalenceRelation,
@@ -42,6 +43,7 @@ from zlang.ir.formal import (
     PropertyKind,
     TemporalForm,
 )
+from zlang.ir.cdc import ClockDomain
 from zlang.source import SourceOrigin, SourceSpan
 from zlang.verification_bundle import (
     VerificationCounterexampleMetadata,
@@ -130,12 +132,14 @@ def test_typed_adapters_preserve_formal_equivalence_and_artifact_metadata() -> N
     assert json.loads(safety_verification_details["tool_versions"]) == [
         ["yosys", "0.68"], ["z3", "4.8.12"]
     ]
+    assert safety_verification_details["unbounded"] == "false"
 
     assert (semantic_equivalence.status, semantic_equivalence.mode, semantic_equivalence.depth) == ("bounded_pass", "bmc", 12)
     assert semantic_equivalence.reference_hash == "b" * 64
     assert semantic_equivalence.artifact_hash == "c" * 64
     assert semantic_equivalence.relation == "fixed_latency_value"
     assert semantic_equivalence.candidate_identity == "candidate.dot.pipeline3"
+    assert dict(semantic_equivalence.details)["unbounded"] == "false"
 
     # Attribution never participates in the evidence identity.
     moved = replace(
@@ -177,6 +181,60 @@ def test_formal_selection_not_run_and_executed_candidate_evidence_are_distinct()
     assert bounded.reference_hash == "5" * 64
     assert bounded.source_origin == ORIGIN
     assert "selected_origin" in dict(bounded.details)
+
+
+def test_temporal_formal_selection_reports_exact_bounded_relation_context() -> None:
+    metadata = FormalEvidenceMetadata(
+        relation="capacity_one_transaction_stream",
+        unbounded=False,
+        reset_contract_identity="reset:" + "a" * 64,
+        reset_contract=(("reset_mode", "synchronous"),),
+        latency=4,
+        initiation_interval=4,
+        capacity=1,
+        same_edge_retire_reload=True,
+        required_proven_supported=False,
+    )
+    evidence = evidence_from_formal_exploration_record(
+        FormalExplorationRecord(
+            "candidate.temporal",
+            1,
+            "valid",
+            "transaction_stream_equivalence_bmc",
+            FormalPolicy.REQUIRED_BMC,
+            ProofMode.BMC,
+            16,
+            FormalStatus.BOUNDED_PASS,
+            "executed",
+            True,
+            "bounded proof satisfied",
+            "direct_systemverilog",
+            "1" * 64,
+            engine="sby",
+            solver="z3",
+            tool_versions=(("yosys", "0.68"), ("z3", "4.13.4")),
+            evidence_metadata=metadata,
+            **FORMAL_SELECTION_BOUND,
+        )
+    )
+    details = dict(evidence.details)
+    assert evidence.relation == "capacity_one_transaction_stream"
+    assert details["unbounded"] == "false"
+    assert details["latency"] == "4"
+    assert details["ii"] == "4"
+    assert details["capacity"] == "1"
+    assert details["same_edge_retire_reload"] == "true"
+    assert details["required_proven_supported"] == "false"
+    assert json.loads(details["tool_versions"]) == [
+        ["yosys", "0.68"],
+        ["z3", "4.13.4"],
+    ]
+    text = render_evidence_text((evidence,))
+    assert "relation=capacity_one_transaction_stream" in text
+    assert "unbounded=false" in text
+    assert "latency=4" in text
+    assert "ii=4" in text
+    assert "capacity=1" in text
 
 
 def test_required_proven_bmc_and_prove_stages_remain_distinct_evidence() -> None:
@@ -395,6 +453,13 @@ def test_first_class_verification_report_adapts_safety_and_cover_truthfully() ->
                 source_origin=ORIGIN,
                 tool_versions=tool_versions,
                 work_directory="/host-a/safety",
+                artifact_hash="d" * 64,
+                binding_identity="binding:" + "e" * 64,
+                selected_ir_identity="selected:" + "f" * 64,
+                assumption_ids=("verification.assume.reset",),
+                clock_domain="clk",
+                reset_domain="rst",
+                clock_domain_contract=ClockDomain("clk", "rst"),
             ),
             VerificationJobResult(
                 "verification.assert.failed",
@@ -459,6 +524,15 @@ def test_first_class_verification_report_adapts_safety_and_cover_truthfully() ->
     assert (safety.claim, safety.status, safety.mode, safety.depth) == (
         "verification.safety_goal", "bounded_pass", "bmc", 9,
     )
+    safety_details = dict(safety.details)
+    assert safety_details["unbounded"] == "false"
+    assert json.loads(safety_details["assumption_ids"]) == [
+        "verification.assume.reset"
+    ]
+    assert json.loads(safety_details["reset_contract"])["reset_mode"] == (
+        "synchronous"
+    )
+    assert safety_details["binding_identity"].startswith("binding:")
     failed_details = dict(
         by_property["verification.assert.failed"].details
     )

@@ -1,13 +1,45 @@
 {
   "entries": [
     {
+      "id": "EDITOR-001",
+      "source_paths": [
+        "editors/vscode/zlang-hdl/package-lock.json",
+        "tests/editor/test_vscode_package.py"
+      ],
+      "status": "included",
+      "summary": "The locked VSIX dependency closure contains the reviewed brace-expansion remediation and remains exact during packaging.",
+      "tests": [
+        "tests/editor/test_vscode_package.py::VSCodePackageTests::test_source_metadata_and_lock_are_runtime_pinned"
+      ]
+    },
+    {
+      "id": "REL-001",
+      "source_paths": [
+        "tests/release/test_native_vulnerability_audit.py",
+        "tools/audit_native_vulnerabilities.py"
+      ],
+      "status": "included",
+      "summary": "Native vulnerability auditing distinguishes OSV findings from scanner failure and applies only exact reviewed exceptions to complete reports.",
+      "tests": [
+        "tests/release/test_native_vulnerability_audit.py::test_affected_report_with_clean_exit_code_is_rejected",
+        "tests/release/test_native_vulnerability_audit.py::test_clean_complete_osv_report_is_accepted",
+        "tests/release/test_native_vulnerability_audit.py::test_clean_report_with_findings_exit_code_is_rejected",
+        "tests/release/test_native_vulnerability_audit.py::test_exact_reviewed_exceptions_accept_only_the_matching_findings",
+        "tests/release/test_native_vulnerability_audit.py::test_exception_mismatch_or_expiry_fails_closed",
+        "tests/release/test_native_vulnerability_audit.py::test_real_advisory_fixture_fails_without_exact_exceptions",
+        "tests/release/test_native_vulnerability_audit.py::test_scanner_failure_is_not_converted_to_success",
+        "tests/release/test_native_vulnerability_audit.py::test_unused_exception_is_rejected_for_clean_scan",
+        "tests/release/test_native_vulnerability_audit.py::test_wrong_package_exception_is_rejected"
+      ]
+    },
+    {
       "id": "ZL-045",
       "source_paths": [
         "zlang/ir/hierarchy.py",
-        "zlang/semantic/hierarchy.py"
+        "zlang/semantic/instances.py"
       ],
       "status": "included",
-      "summary": "Aggregate child-output consumption and parent physical context no longer change an already identified child specialization.",
+      "summary": "Aggregate child-output consumption and parent physical context cannot mutate or distinguish the child specialization identity.",
       "tests": [
         "tests/semantic/test_hierarchy_index.py::test_aggregate_consumption_and_parent_context_do_not_change_child_identity"
       ]
@@ -19,7 +51,7 @@
         "zlang/semantic/module_finalization.py"
       ],
       "status": "included",
-      "summary": "Public aggregate ABI finalization rejects colliding flattened leaf names and identifies both logical owners.",
+      "summary": "Public aggregate ABI finalization rejects colliding flattened logical leaves and identifies both source owners.",
       "tests": [
         "tests/semantic/test_registered_outputs.py::test_public_aggregate_leaf_collision_is_rejected_with_both_paths"
       ]
@@ -27,11 +59,11 @@
     {
       "id": "ZL-047",
       "source_paths": [
-        "zlang/parser/grammar.lark",
-        "zlang/semantic/concise_module_items.py"
+        "zlang/semantic/instances.py",
+        "zlang/semantic/module_preparation.py"
       ],
       "status": "included",
-      "summary": "Nested structural generate and compile-time conditional expansion use the bounded canonical unroller.",
+      "summary": "Nested structural generate and compile-time branches elaborate exact instance bindings within the existing total expansion bound.",
       "tests": [
         "tests/semantic/test_instance_arrays.py::test_nested_structural_generate_respects_total_expansion_limit",
         "tests/semantic/test_instance_arrays.py::test_nested_structural_generate_with_compile_time_if_is_bounded_and_exact"
@@ -40,29 +72,13 @@
     {
       "id": "ZL-048",
       "source_paths": [
-        "zlang/backend/naming.py",
-        "zlang/ir/hierarchy.py"
+        "zlang/ir/hierarchy.py",
+        "zlang/semantic/instances.py"
       ],
       "status": "included",
-      "summary": "Hierarchy specialization and private RTL naming remain declaration/binding/content-owned rather than parent-context-owned.",
+      "summary": "Sibling native-FSM modules use declaration, binding and module-content specialization identity rather than client context.",
       "tests": [
-        "tests/backend/test_composed_emitter_decomposition.py::test_composed_extraction_preserves_sv_artifact_and_binding_bytes",
-        "tests/backend/test_hierarchy_local_naming.py::test_reused_parent_component_names_ignore_physical_ancestor_identities"
-      ]
-    },
-    {
-      "id": "ZL-049",
-      "source_paths": [
-        "tools/audit_native_vulnerabilities.py"
-      ],
-      "status": "included",
-      "summary": "OSV Scanner findings exits are parsed as completed scans while inconsistent reports and infrastructure failures remain fail-closed.",
-      "tests": [
-        "tests/release/test_native_vulnerability_audit.py::test_affected_report_with_clean_exit_code_is_rejected",
-        "tests/release/test_native_vulnerability_audit.py::test_clean_complete_osv_report_is_accepted",
-        "tests/release/test_native_vulnerability_audit.py::test_clean_report_with_findings_exit_code_is_rejected",
-        "tests/release/test_native_vulnerability_audit.py::test_exact_reviewed_exceptions_accept_only_the_matching_findings",
-        "tests/release/test_native_vulnerability_audit.py::test_real_advisory_fixture_fails_without_exact_exceptions"
+        "tests/semantic/test_state_selection_scaling.py::test_exact_ztpu_reader_controller_writer_hierarchy_emits_sv_bounded"
       ]
     }
   ],

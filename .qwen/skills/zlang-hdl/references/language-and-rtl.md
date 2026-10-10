@@ -51,6 +51,9 @@ project/compiler resolver rather than relative filesystem guesses.
   synchronized release. Do not emulate reset policy in datapath source.
 - FIFO, memory, ROM, register, CSR, and rule semantics include explicit reset,
   latency, ownership, conflict, and collision behavior.
+- `out name:T` is combinational. `out reg name:T [@clock] [= reset]` is
+  output-visible state updated with `<-`; `drive name = value` is the explicit
+  transient action for an ordinary output inside a rule or FSM.
 - Use typed `child : Module`/`inst child : Module`, explicit bindings, and
   explicit `connect`/`source -> sink`, adapters, and CDC crossings.
 - `rv<T>`, `credit<T,N>`, request/response, and bus observations are protocol
@@ -73,6 +76,16 @@ guess flattened signal names.
 For project work, inspect `zlang.toml`/`zlang.lock` and pass `--project` or
 `--profile` when the design requires them. Compilation is offline/non-mutating;
 dependency fetching belongs to an explicit lock update, not ordinary compile.
+
+Native simulation is deterministic two-state by default. `--logic-state`
+enables per-bit `0`/`1`/`U`/`X`; state without an initializer begins as `U`,
+while an accepted unresolved write produces `X`. Use `--initial-reg` for exact
+compiler-owned register-path overrides and repeat `--trace-signal` for a
+selective VCD. VCD represents both unresolved states as `x`, so ZLang emits
+`__zlang_meta/*_u_mask` companions for `U` provenance. The stricter
+`--strict-uninitialized` mode implies logic-state execution and rejects an
+observed `U` or `X`. These diagnostics do not model high impedance, electrical
+strength or Verilog event regions and never alter Direct-SV output.
 
 Read these authoritative topic guides as needed:
 

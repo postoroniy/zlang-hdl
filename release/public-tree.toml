@@ -50,6 +50,7 @@ include = [
   "docs/licensing/IP_CLASSIFICATION.md",
   "docs/licensing/README.md",
   "docs/release-process.md",
+  "docs/release-subsystem-map.md",
   "docs/reproducers/**",
   "docs/stdlib-formal-coverage.md",
   "docs/language-reference.md",

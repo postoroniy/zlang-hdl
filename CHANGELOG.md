@@ -13,19 +13,33 @@ incompatible input explicitly.
 
 ## 0.1.0a21 — 2026-10-10
 
-Community alpha making registered outputs and transient rule drives explicit,
-adding bounded exact-value implementation exploration, and connecting the
-capacity-one temporal candidate to honest transaction-stream BMC evidence.
-The value e-graph remains separate from temporal scheduling and no general HLS
-or unbounded temporal proof is claimed.
+Community alpha adding explicit output-state ownership, bounded exact
+implementation exploration, target-aware Fmax ranking, a narrow formally
+checked capacity-one sharing route, and opt-in per-bit native logic-state
+simulation. These facilities remain bounded by the documented alpha support
+matrix and do not introduce general HLS, unbounded temporal proof, or full
+electrical X/Z simulation.
 
 ### Added
 
+- Native simulation has an opt-in per-bit `0`/`1`/`U`/`X` logic-state mode.
+  Uninitialized register bits begin as `U`, accepted writes turn unresolved
+  `U` into computed `X`, controlling values resolve uncertainty where exact,
+  and strict observation reports `U` and `X` distinctly. Initial-register
+  overrides, logic-valued input events, selective VCD traces, and the companion
+  `__zlang_meta/*_u_mask` signals preserve the otherwise unrepresentable `U`
+  provenance. Initial overrides use compiler-owned hierarchical state paths;
+  failed edges roll back logic and trace state atomically, and storage-plane
+  synchronization writes only changed registers or memory cells. The ordinary
+  two-state path remains unchanged; `Z` and
+  electrical resolution are not modeled. The native plan/runtime contract
+  advances to ABI v12.
 - Formal bundle replay has an explicit immutable `smtbmc` execution-route
   identity and an opt-in deterministic solver matrix. Hosted nightly evidence
-  requires independent Z3, Boolector and Bitwuzla results and records Yices and
-  cvc5 as corroborating runs over the same immutable bundle; solver agreement
-  never promotes bounded evidence to an unbounded proof.
+  requires separate Z3, Boolector and Bitwuzla executions and records Yices and
+  cvc5 as corroborating executions over the same immutable bundle and compiler
+  lowering; solver agreement never promotes bounded evidence to an unbounded
+  proof or detects every shared front-end/lowering defect.
 - Eligible `implement` sites perform bounded, deterministic exact-value
   exploration and retain structurally distinct alternatives for the existing
   candidate providers. Count-based hard ceilings and session-owned,
@@ -34,7 +48,11 @@ or unbounded temporal proof is claimed.
 - The capacity-one ready/valid `a*b+c*d` implementation has an executable
   transaction-stream BMC route. `available` retains honest advisory evidence,
   `required_bmc` requires an actual `bounded_pass`, and `required_proven`
-  remains fail-closed because no unbounded proof is claimed.
+  remains fail-closed because no unbounded proof is claimed. Machine-readable
+  evidence now publishes the exact bounded relation, depth, solver/tool
+  context, reset contract when represented, latency, II, capacity and
+  same-edge retire/reload facts; solver matrices distinguish a shared immutable
+  problem from per-solver runs and report disagreements explicitly.
 - A vendor-neutral AI guide, an updated Qwen project skill, and a dedicated
   formal-verification guide describe exact types/interfaces, evidence status,
   and the typed-IR-to-Direct-SV binding and solver flow.
@@ -54,12 +72,11 @@ or unbounded temporal proof is claimed.
 
 ### Changed
 
-- Hosted build tooling now pins `build` 1.6.1 and `z3-solver` 5.1.0.0;
-  release evidence records the corresponding Z3 5.1.0 executable identity.
 - `maximize fmax` reaches target planning unchanged. Under
   `measured_preferred`, exact routed evidence ranks before synthesis evidence
   and structural estimates; `measured_required` remains fail-closed when no
-  matching measured evidence exists.
+  matching measured evidence exists. This is evidence-ranked candidate
+  selection, not an achieved device/silicon frequency guarantee.
 - Verification run reports advance to schema v9 and the result cache to v4 so
   the exact formal execution route participates in run and cache identities;
   older records fail closed rather than guessing a route.
@@ -491,9 +508,9 @@ language and RTL semantics are unchanged from `0.1.0a8`.
 - Removed the retired Clash emitter, its hidden compatibility CLI, generated
   Haskell artifacts, packaging surface, test suite, and tool discovery. Direct
   SystemVerilog is now the only production RTL backend in both policy and code.
-- Retired executable retired cross-backend equivalence cross-backend comparison without reusing its name for
-  another relation. safety verification safety, direct-SV semantic-reference equivalence semantic-reference equivalence,
-  and formal-aware selection formal-aware selection remain supported.
+- Retired executable cross-backend comparison without reusing its name for
+  another relation. Safety verification, direct-SV semantic-reference
+  equivalence, and formal-aware selection remain supported.
 - Release acceptance now requires zero skipped tests and no GHC/Clash tooling.
 
 ## 0.1.0a5 — 2026-09-11
@@ -568,9 +585,9 @@ remain unchanged; publication is subject to `RELEASING.md`.
   architecture and four-stage `explore` implementations. Recorded Vivado
   out-of-context timing uses the same device and 10 ns constraint; it is not a
   board-level timing guarantee.
-- Independent semantic-reference equivalence semantic-reference and retired cross-backend equivalence cross-backend bounded checks for
-  the pipelined example, plus deliberate arithmetic and latency mutations.
-  BMC remains bounded evidence; the separately timed-out formal-aware selection architecture route
+- Separate semantic-reference and retired cross-backend bounded checks for the
+  pipelined example, plus deliberate arithmetic and latency mutations. BMC
+  remains bounded evidence; the separately timed-out architecture route
   remains explicitly `unknown`.
 - A static VS Code extension for `.zhl`, independently versioned 0.1.0, with
   compiler-checked snippets, real TextMate/Oniguruma tests and three optional

@@ -54,12 +54,12 @@ def test_current_release_binds_included_fixes_to_permanent_tests() -> None:
     )
     assert report == {
         "schema": 1,
-        "entries": 5,
-        "included": ["ZL-045", "ZL-046", "ZL-047", "ZL-048", "ZL-049"],
+        "entries": 6,
+        "included": ["EDITOR-001", "REL-001", "ZL-045", "ZL-046", "ZL-047", "ZL-048"],
         "dispositions": {
             "deferred": 0,
             "excluded_experiment": 0,
-            "included": 5,
+            "included": 6,
             "private_only": 0,
         },
     }
@@ -81,7 +81,7 @@ def test_missing_or_renamed_regression_test_fails_closed(tmp_path: Path) -> None
 def test_missing_release_source_fails_closed(tmp_path: Path) -> None:
     root = _copy_ledger_tree(tmp_path)
     payload = _payload(root)
-    payload["entries"][0]["source_paths"][0] = "zlang/missing.py"
+    payload["entries"][0]["source_paths"][-1] = "zlang/missing.py"
     _write(root, payload)
     with pytest.raises(RegressionLedgerError, match="does not exist"):
         validate_regression_ledger(
@@ -111,11 +111,11 @@ def test_nonincluded_fix_requires_reason_and_durable_follow_up(tmp_path: Path) -
     root = _copy_ledger_tree(tmp_path)
     payload = _payload(root)
     payload["entries"][0] = {
-        "id": "ZL-045",
+        "id": "EDITOR-001",
         "status": "deferred",
         "summary": "Deferred example",
         "reason": "Requires a separately reviewed semantic change.",
-        "follow_up": "ZL-049",
+        "follow_up": "ZL-045",
     }
     _write(root, payload)
     report = validate_regression_ledger(
@@ -123,7 +123,7 @@ def test_nonincluded_fix_requires_reason_and_durable_follow_up(tmp_path: Path) -
         release="0.1.0a21",
         previous_tag="v0.1.0a20",
     )
-    assert report["included"] == ["ZL-046", "ZL-047", "ZL-048", "ZL-049"]
+    assert report["included"] == ["REL-001", "ZL-045", "ZL-046", "ZL-047", "ZL-048"]
 
     del payload["entries"][0]["follow_up"]
     _write(root, payload)
@@ -155,5 +155,5 @@ def test_cli_reports_the_validated_inclusion_count(capsys: pytest.CaptureFixture
         "--previous-tag", "v0.1.0a20",
     ]) == 0
     assert capsys.readouterr().out == (
-        "release regressions valid: 5 entries, 5 included\n"
+        "release regressions valid: 6 entries, 6 included\n"
     )

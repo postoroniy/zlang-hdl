@@ -19,13 +19,13 @@
     ]
   },
   "validation": {
-    "minimum_tests_passed": 4284,
-    "minimum_tests_collected": 4284,
+    "minimum_tests_passed": 4348,
+    "minimum_tests_collected": 4348,
     "maximum_tests_skipped": 0,
     "example_corpus": {
-      "source_files": 111,
-      "module_roots": 216,
-      "standalone_supported": 199,
+      "source_files": 112,
+      "module_roots": 217,
+      "standalone_supported": 200,
       "child_or_template_only": 17,
       "direct_unsupported": 0
     }
@@ -39,8 +39,8 @@
     "z3": "5.1.0"
   },
   "documentation": {
-    "builder_sha256": "6030a48d6dbee9cdeaf7d16444adc5506ab80549826628b4ba64497a25cfdee8",
-    "cover_sha256": "0fce57ecf48f48430f6819ba6d776b94ca2f3b6c80210ab3a45df028467fa6bb",
+    "builder_sha256": "d3481afc9cc5ea54f7563d51d96e4ad6e53cc987036c762d6abdd5ae46d79c0a",
+    "cover_sha256": "660f0c16b2fdbb6f21a48ed56bf6aa9d79f539f1e33e9f002d78c1f7744d55ae",
     "examples": {
       "linked_sources": 21,
       "json_blocks": 1,
@@ -53,15 +53,15 @@
       "zlang_fences": 132
     },
     "format": "PDF-1.5",
-    "pages": 89,
+    "pages": 91,
     "pdf": "docs/ZLang-HDL-Language-Reference.pdf",
-    "pdf_sha256": "f4cb80c779e3e1ba699fe136f0d3cb628e579449baa0f710a6715accbb1b4872",
+    "pdf_sha256": "dee85fbe4f03652fa521b37fa59accf7adbe2fbd4677231c7070e82f27698f89",
     "syntax_grammar_sha256": "9fb3b256b93f4678bfc68464818f257996e5022107ea88d51a7a8f2e4431a5b2",
     "sources": {
-      "docs/language-quick-reference.md": "6cd52729240f1ab961eab819afc37fde149223da954f53ad8ed6679cd94f7a3a",
-      "docs/language-reference.md": "1298453d4d1abb9fdd2c4a263e265bcc8df1cf1b145cdd9ee96eb2cb5350440e"
+      "docs/language-quick-reference.md": "3f53dd8e481c10742e1f393cac8c244eb74cb101e8d4cb69b5d8383cea1c0c9f",
+      "docs/language-reference.md": "f616fceb3717f5f219a67777b0233ffd6b0f2380efbab006abd17d456580f53c"
     },
-    "source_date_epoch": 1791468000
+    "source_date_epoch": 1791612534
   },
   "generated_by": "tools/release_status.py"
 }

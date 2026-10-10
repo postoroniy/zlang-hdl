@@ -36,6 +36,15 @@ def _assignment(value: str) -> tuple[str, object]:
     return name, decoded
 
 
+def _logic_assignment(value: str) -> tuple[str, str]:
+    name, separator, payload = value.partition("=")
+    if not separator or not name or not payload:
+        raise argparse.ArgumentTypeError("expected NAME=01ux")
+    if any(item.lower() not in "01ux_" for item in payload):
+        raise argparse.ArgumentTypeError("logic value may contain only 0, 1, u, x, and _")
+    return name, payload
+
+
 def _read_events(path: Path) -> list[dict[str, object]]:
     result = []
     for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
@@ -94,7 +103,30 @@ def _vcd_identifier(index: int) -> str:
             return result
 
 
-def _write_vcd(path: Path, instance: sim.Simulator, samples: list[dict[str, int]]) -> None:
+def _json_values(value: object) -> object:
+    if isinstance(value, sim.LogicVector):
+        return value.to_bits()
+    if isinstance(value, dict):
+        return {str(name): _json_values(item) for name, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_values(item) for item in value]
+    return value
+
+
+def _unique_assignments(
+    values: list[tuple[str, object]], *, label: str
+) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for name, value in values:
+        if name in result:
+            raise sim.SimulationRuntimeError(
+                f"{label} specifies '{name}' more than once"
+            )
+        result[name] = value
+    return result
+
+
+def _write_vcd(path: Path, instance: sim.Simulator, samples: list[dict[str, object]]) -> None:
     widths = instance.trace_widths
     names = sorted({name for sample in samples for name in sample if name != "$event"})
     missing = [name for name in names if name not in widths]
@@ -102,7 +134,16 @@ def _write_vcd(path: Path, instance: sim.Simulator, samples: list[dict[str, int]
         raise sim.SimulationRuntimeError(
             f"trace signal '{missing[0]}' has no compiler-owned packed width"
         )
+    logic_trace = any(
+        isinstance(value, sim.LogicVector)
+        for sample in samples
+        for name, value in sample.items()
+        if name != "$event"
+    )
     identifiers = {name: _vcd_identifier(index) for index, name in enumerate(names)}
+    u_identifiers = {
+        name: _vcd_identifier(len(names) + index) for index, name in enumerate(names)
+    }
     lines = [
         "$date deterministic $end",
         "$version ZLang HDL simulation $end",
@@ -113,12 +154,28 @@ def _write_vcd(path: Path, instance: sim.Simulator, samples: list[dict[str, int]
         f"$var wire {widths[name]} {identifiers[name]} {name} $end"
         for name in names
     )
-    lines.extend(("$upscope $end", "$enddefinitions $end"))
+    lines.append("$upscope $end")
+    if logic_trace:
+        lines.append("$scope module __zlang_meta $end")
+        lines.extend(
+            f"$var wire {widths[name]} {u_identifiers[name]} {name}_u_mask $end"
+            for name in names
+        )
+        lines.append("$upscope $end")
+    lines.append("$enddefinitions $end")
     for sample in samples:
         lines.append(f"#{sample['$event']}")
         for name in names:
             value = sample.get(name, 0)
-            lines.append(f"b{value:0{widths[name]}b} {identifiers[name]}")
+            if isinstance(value, sim.LogicVector):
+                bits = value.to_bits()
+                lines.append(
+                    f"b{bits.replace('u', 'x')} {identifiers[name]}"
+                )
+                u_mask = "".join("1" if item == "u" else "0" for item in bits)
+                lines.append(f"b{u_mask} {u_identifiers[name]}")
+            else:
+                lines.append(f"b{int(value):0{widths[name]}b} {identifiers[name]}")
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
@@ -158,6 +215,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         ),
     )
     execution_options.add_argument(
+        "--strict-uninitialized",
+        action="store_true",
+        help=(
+            "enable per-bit logic state and fail when a typed read observes U/X"
+        ),
+    )
+    execution_options.add_argument(
+        "--logic-state",
+        action="store_true",
+        help="enable opt-in per-bit 0/1/U/X simulation",
+    )
+    execution_options.add_argument(
         "--clock", help="clock to tick when using --cycles"
     )
     execution_options.add_argument(
@@ -174,6 +243,24 @@ def main(argv: Sequence[str] | None = None) -> int:
         default=[],
         metavar="NAME=JSON",
         help="set an input before execution; may be repeated",
+    )
+    execution_options.add_argument(
+        "--set-logic",
+        dest="logic_assignments",
+        action="append",
+        type=_logic_assignment,
+        default=[],
+        metavar="NAME=01ux",
+        help="set one packed input with 0/1/U/X bits; may be repeated",
+    )
+    execution_options.add_argument(
+        "--initial-reg",
+        dest="initial_registers",
+        action="append",
+        type=_logic_assignment,
+        default=[],
+        metavar="NAME=01ux",
+        help="override one initial register value; may be repeated",
     )
     execution_options.add_argument(
         "--compare-with",
@@ -198,6 +285,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--trace", type=Path, help="write simulation transitions as VCD"
     )
     output_options.add_argument(
+        "--trace-signal",
+        action="append",
+        default=[],
+        metavar="NAME",
+        help="include only this signal in VCD output; may be repeated",
+    )
+    output_options.add_argument(
         "--json", action="store_true", help="print compact JSON output"
     )
     arguments = parser.parse_args(argv)
@@ -211,13 +305,39 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.error("--compare-artifacts requires --compare-with")
     if arguments.compare_timeout <= 0:
         parser.error("--compare-timeout must be positive")
+    ordinary_names = {name for name, _ in arguments.assignments}
+    logic_names = {name for name, _ in arguments.logic_assignments}
+    if ordinary_names & logic_names:
+        parser.error(
+            f"input '{sorted(ordinary_names & logic_names)[0]}' is present in both "
+            "--set and --set-logic"
+        )
+    if (arguments.logic_assignments or arguments.initial_registers) and not (
+        arguments.logic_state or arguments.strict_uninitialized
+    ):
+        parser.error("--set-logic/--initial-reg require --logic-state")
+    if arguments.trace_signal and arguments.trace is None:
+        parser.error("--trace-signal requires --trace")
+    if arguments.compare_with is not None and (
+        arguments.logic_state
+        or arguments.strict_uninitialized
+        or arguments.logic_assignments
+        or arguments.initial_registers
+    ):
+        parser.error("external RTL comparison currently accepts binary simulation only")
     try:
+        initial_registers = _unique_assignments(
+            arguments.initial_registers,
+            label="--initial-reg",
+        )
         program = sim.compile(
             arguments.source,
             top=arguments.top,
             project=arguments.project,
             profile=arguments.profile,
             engine=arguments.engine,
+            strict_uninitialized=arguments.strict_uninitialized,
+            logic_state=arguments.logic_state,
         )
         if (
             arguments.cycles is not None
@@ -248,12 +368,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         # comparison uses a fresh native instance so the external proof and
         # optional VCD cannot share mutable state accidentally.
         if arguments.compare_with is None or arguments.trace is not None:
-            instance = program.create()
+            instance = program.create(initial_registers=initial_registers)
             with instance:
                 for name, value in arguments.assignments:
                     instance.set(name, value)
+                for name, value in arguments.logic_assignments:
+                    instance.set_logic(name, value)
                 if arguments.trace is not None:
-                    instance.enable_trace()
+                    instance.enable_trace(arguments.trace_signal or None)
                 if arguments.events is not None:
                     native_outputs: object = instance.run_events(
                         _read_events(arguments.events)
@@ -263,13 +385,22 @@ def main(argv: Sequence[str] | None = None) -> int:
                         arguments.clock, arguments.cycles
                     )
                 else:
-                    native_outputs = instance.eval()
+                    if program.logic_state and not program.strict_uninitialized:
+                        instance._native.eval()
+                        assert instance._logic is not None
+                        instance._logic.evaluate()
+                        native_outputs = instance.outputs_logic()
+                    else:
+                        native_outputs = instance.eval()
                 if arguments.compare_with is None:
                     outputs = native_outputs
                 if arguments.trace is not None:
-                    _write_vcd(
-                        arguments.trace, instance, instance.drain_trace()
+                    samples = (
+                        instance.drain_logic_trace()
+                        if program.logic_state
+                        else instance.drain_trace()
                     )
+                    _write_vcd(arguments.trace, instance, samples)
         assert outputs is not None
     except (
         OSError,
@@ -280,9 +411,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"zlang sim: error: {error}", file=sys.stderr)
         return 2
     if arguments.json:
-        print(json.dumps(outputs, sort_keys=True, separators=(",", ":")))
+        print(json.dumps(_json_values(outputs), sort_keys=True, separators=(",", ":")))
     else:
-        print(json.dumps(outputs, sort_keys=True, indent=2))
+        print(json.dumps(_json_values(outputs), sort_keys=True, indent=2))
     return 0
 
 

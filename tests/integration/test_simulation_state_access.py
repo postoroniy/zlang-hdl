@@ -340,8 +340,8 @@ def test_native_state_access_plan_rejects_older_schema_and_abi() -> None:
     assert _zlang_native_sim.runtime_abi() == SIMULATION_RUNTIME_ABI
     plan = build_simulation_plan(_compile().ir)
     for current, previous, message in (
-        (b"zlang-simulation-plan-v11", b"zlang-simulation-plan-v10", "unsupported simulation plan schema"),
-        (b"zlang-native-simulation-abi-v11", b"zlang-native-simulation-abi-v10", "unsupported native simulation ABI"),
+        (b"zlang-simulation-plan-v12", b"zlang-simulation-plan-v11", "unsupported simulation plan schema"),
+        (b"zlang-native-simulation-abi-v12", b"zlang-native-simulation-abi-v11", "unsupported native simulation ABI"),
     ):
         with pytest.raises(SimulationPlanError, match=message):
             SimulationPlan.from_bytes(plan.to_bytes().replace(current, previous))

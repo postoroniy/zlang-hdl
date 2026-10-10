@@ -572,8 +572,8 @@ def compose_hierarchical_primitive_payload(
                     rewritten["memory"] = _state_name(
                         frame, str(rewritten["memory"])
                     )
-                for name in ("node", "address", "enable"):
-                    if name in rewritten:
+                for name in ("node", "address", "enable", "refresh"):
+                    if name in rewritten and rewritten[name] is not None:
                         rewritten[name] = lower(frame, int(rewritten[name]))
                 destination.append(rewritten)
             probe_destination = probes_by_clock.setdefault(clock, [])

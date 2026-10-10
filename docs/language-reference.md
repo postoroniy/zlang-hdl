@@ -337,10 +337,12 @@ Boolector and Bitwuzla, with Yices and cvc5 as corroborating routes. Each run
 retains its own solver, tool versions, result identity and counterexample. An
 agreement report is a consistency check, not a stronger proof status: a BMC
 result remains bounded, and one solver's `unknown`, timeout, or malformed
-result never becomes success because another solver completed.
+result never becomes success because another solver completed. All of these
+executions consume the same compiler/formal lowering, so solver agreement
+cannot detect every defect shared by that front end or lowering.
 
 Nightly qualification additionally replays the same immutable safety bundles
-through ABC PDR and bounded Pono/btormc BTOR routes.  These independent engine
+through ABC PDR and bounded Pono/btormc BTOR routes. These separate engine
 records are qualification-only: the public CLI and required-formal policy
 continue to expose only the accepted SMTBMC route.  Avy/AIGER is recorded as
 an observation rather than a gate while its pinned-suite crash remains
@@ -1724,6 +1726,33 @@ or reset sensitivity; its hardware value is unspecified until written. Native
 two-state simulation starts it from a deterministic zero seed for tool parity,
 which is not a power-up or reset guarantee in generated RTL.
 
+Use `zlang sim --logic-state` to opt into the per-bit simulation lattice
+`0`/`1`/`U`/`X`. State without an initializer begins `U` (never refreshed).
+An accepted state write converts unresolved `U` bits to `X` (refreshed but
+unknown), while a non-write holds `U`. Exact controlling values still resolve:
+`U | 1` and `X | 1` are `1`, while `U & 0` and `X & 0` are `0`.
+`--strict-uninitialized` implies logic-state execution and turns a typed read
+of either `U` or `X` into an error that identifies which state was observed.
+
+Python callers may use `set_logic`, `get_logic`, `outputs_logic`, and
+`Program.create(initial_registers=...)`. Packed spellings are MSB-first,
+case-insensitive `0`, `1`, `u`, or `x`; a single character broadcasts to the
+full width. Register names are resolved through the compiler-owned state
+catalog, including explicit child paths such as `child.counter`; ambiguous or
+non-register names fail before any state is changed. An edge that fails because
+of an unknown stateful control or native execution error rolls back logic state,
+event flags, and trace state atomically. CLI equivalents are `--set-logic` and
+`--initial-reg`. Standard VCD
+represents both `U` and `X` as `x`; ZLang emits a same-width companion
+`__zlang_meta/*_u_mask` whose set bits distinguish `U`. `--trace-signal` may be
+repeated to select the traced surface, and the initial sample is emitted at
+time zero.
+
+This is not full Verilog simulation: high impedance (`Z`), electrical
+resolution/strength, and Verilog event-region semantics are not modeled.
+Ordinary simulation remains deterministic two-state simulation, and generated
+Direct-SV is unchanged by these simulator options.
+
 An ordinary output is a combinational wire. Output-visible state is declared
 explicitly with `out reg`:
 
@@ -1741,6 +1770,11 @@ ordinary register without an initializer. The type must be register-storable.
 Ready/valid, credit, packet, request/response and other protocol endpoints are
 not `out reg` ports; their individual protocol fields retain their existing
 ownership and flow-control rules.
+
+ZLang `out reg` names actual architectural storage. It is not the historical
+Verilog/SystemVerilog `output reg` declaration category: a ZLang registered
+output has hold behavior, one explicit state owner, and the same clock/reset
+and atomic-update rules as an ordinary ZLang register.
 
 Control registers may use nominal enums. Reset and next-state values must be
 members of the exact same declaration, and an exhaustive enum `switch` is the
@@ -1925,6 +1959,17 @@ effects. `drive` cannot target a register or `out reg`, and a registered output
 cannot also have a combinational assignment. Because changing a wire update to
 stored state is a semantic choice, the compiler reports both alternatives but
 does not apply an automatic editor fix.
+
+`drive` is a logical transient output assignment. It does not model a
+tri-state driver, high impedance (`Z`), electrical or pad drive strength,
+analog behavior, or Verilog multiple-driver resolution. Its zero default is
+therefore pulse/event semantics, not retained state.
+
+| Form | Cycle semantics | What it is not |
+| --- | --- | --- |
+| `out value : T` with `value = expression` | Continuously defined combinational value | Stored state |
+| `out reg value : T [@clock] [= reset]` with `value <- expression` | Clocked architectural state that holds when not updated | Verilog's historical output declaration category |
+| `drive value = expression` in an action | Scheduled transient wire effect; zero when no owning action fires | Tri-state/electrical drive or implicit storage |
 
 Named compatibility spelling remains supported:
 
@@ -2472,7 +2517,10 @@ reg datapath : u8    // no reset branch or reset sensitivity
 The unreset register continues to accept enabled clocked updates while reset is
 asserted. Its RTL power-up value is unspecified until the design writes it.
 Native two-state simulation uses a deterministic zero startup seed, which is
-not a source-level power-up or reset guarantee.
+not a source-level power-up or reset guarantee. The opt-in logic-state mode
+represents unrefreshed bits as `U`; strict observation rejects `U` or computed
+`X` rather than collapsing either to a binary value. See
+[Registers and next state](#reference-sequential-state-storage-registers-and-next-state).
 
 A falling-edge clock uses falling edges for the two release cycles as well.
 Polarity affects the external pin and generated RTL; the simulator still
@@ -4338,6 +4386,16 @@ freeze the exact selected-candidate semantic-reference equivalence inputs as has
 companions; `zlang verify` then executes those inputs without source compilation
 or formal-aware selection reselection. Base bundles contain no candidate replay inputs.
 The common evidence report validates those links without merging result types.
+For an executed BMC route it publishes the exact status, route, depth,
+property or relation identity, solver, known tool versions, and
+`unbounded: false`. Reset contracts and assumptions are serialized only when
+the compiler-owned route already represents them; the report does not infer
+missing context. Capacity-one temporal evidence also records the
+`capacity_one_transaction_stream` relation, latency 4, II 4, capacity 1,
+same-edge retire/reload, and that `required_proven` is unsupported. A solver
+matrix preserves one shared immutable problem identity and independent
+per-solver run identities/results, with disagreements represented explicitly;
+agreement never upgrades the underlying result status.
 Repeated candidate implementations are associated by semantic site and rank,
 not by candidate identity alone. With policy `off`, the ledger remains visible
 but there are no formal-aware selection attempt/evidence records.
@@ -4466,6 +4524,12 @@ ii = { exact = 1 }
 fmax = { minimum = 100 }
 dsp = { maximum = 8 }
 ```
+
+`maximize fmax` ranks legal candidates using the strongest compatible
+frequency evidence available under the selected evidence policy. It does not
+guarantee achieved FPGA-device or ASIC-silicon frequency. Reports retain the
+evidence kind and matching target/tool/constraint identity; a structural
+estimate is never presented as routed timing.
 
 Schematic use inside a project containing the shown `src/fir.zhl` and profile:
 
@@ -4860,7 +4924,8 @@ result = implement {
 
 `ii` and the compatibility spelling `throughput` normalize to one canonical II
 constraint. Fmax values are MHz. `latency<=N` is a bound. `latency==N` is an
-exact observable sample latency.
+exact observable sample latency. `maximize fmax` is an evidence-ranked
+selection objective, not an achieved-frequency guarantee.
 
 The target is build configuration, for example:
 
@@ -6405,6 +6470,7 @@ the specific eligible relations rather than promising arbitrary proof.
 | `bounded-intent-structural-exploration` | bounded | not applicable | selected typed alternatives |
 | `capacity-one-temporal-sharing` | bounded | supported | supported |
 | `elastic-ready-valid-pipeline` | bounded | supported | supported |
+| `per-bit-native-logic-state` | bounded | supported | unchanged |
 | `combinational-instance-arrays` | bounded | supported | supported |
 | `runtime-instance-output-projection` | bounded | supported | supported |
 | `sequential-instance-arrays` | bounded | supported | supported |
@@ -6447,6 +6513,7 @@ the specific eligible relations rather than promising arbitrary proof.
 | `bounded-intent-structural-exploration` | exact-value alternatives retain equivalence provenance before implementation evidence is evaluated |
 | `capacity-one-temporal-sharing` | capacity-one transaction-stream bounded model checking; unbounded proof is not claimed |
 | `elastic-ready-valid-pipeline` | ready/valid stability safety only; end-to-end equivalence is not supported |
+| `per-bit-native-logic-state` | simulation-only diagnostic semantics; not a formal proof relation |
 | `combinational-instance-arrays` | hierarchical equivalence is not supported |
 | `runtime-instance-output-projection` | hierarchical equivalence is not supported |
 | `sequential-instance-arrays` | bounded safety for exposed child state and events; no general recursive hierarchy proof |
