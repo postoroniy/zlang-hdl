@@ -256,6 +256,61 @@ def _combined_junit_counts(paths: tuple[Path, ...]) -> tuple[int, int, int, int]
     )
 
 
+def _test_thresholds(validation: dict) -> tuple[int, int, int]:
+    minimum = validation.get("minimum_tests_passed")
+    minimum_collected = validation.get("minimum_tests_collected")
+    maximum_skipped = validation.get("maximum_tests_skipped")
+    if not isinstance(minimum, int) or minimum <= 0:
+        raise StatusError("minimum_tests_passed must be a positive integer")
+    if not isinstance(minimum_collected, int) or minimum_collected < minimum:
+        raise StatusError(
+            "minimum_tests_collected must be an integer at least as large as "
+            "minimum_tests_passed"
+        )
+    if not isinstance(maximum_skipped, int) or maximum_skipped < 0:
+        raise StatusError("maximum_tests_skipped must be a non-negative integer")
+    return minimum, minimum_collected, maximum_skipped
+
+
+def _check_junit_policy(validation: dict, reports: tuple[Path, ...]) -> None:
+    minimum, minimum_collected, maximum_skipped = _test_thresholds(validation)
+    passed, skipped, failures, errors = _combined_junit_counts(reports)
+    if failures or errors:
+        raise StatusError(
+            f"JUnit report contains {failures} failures and {errors} errors"
+        )
+    if skipped > maximum_skipped:
+        raise StatusError(
+            f"{skipped} tests skipped; release allows at most {maximum_skipped}"
+        )
+    if passed + skipped < minimum_collected:
+        raise StatusError(
+            f"only {passed + skipped} tests collected; release requires "
+            f"{minimum_collected}"
+        )
+    if passed < minimum:
+        raise StatusError(f"only {passed} tests passed; release requires {minimum}")
+
+
+def validate_test_reports(
+    root: Path,
+    status_path: Path = DEFAULT_STATUS,
+    *,
+    junit: tuple[Path, ...],
+) -> None:
+    """Validate split-suite JUnit evidence without importing the compiler."""
+
+    root = root.resolve()
+    path = status_path if status_path.is_absolute() else root / status_path
+    status = _load_json(path)
+    if status.get("schema") != 2:
+        raise StatusError("release status schema must be 2")
+    validation = status.get("validation")
+    if not isinstance(validation, dict):
+        raise StatusError("release status is missing validation metadata")
+    _check_junit_policy(validation, junit)
+
+
 def _command_output(command: tuple[str, ...]) -> str:
     executable = shutil.which(command[0])
     if executable is None:
@@ -352,43 +407,17 @@ def validate(
             "example corpus status is stale: "
             f"recorded={validation.get('example_corpus')!r}, actual={actual_corpus!r}"
         )
-    minimum = validation.get("minimum_tests_passed")
-    minimum_collected = validation.get("minimum_tests_collected")
-    maximum_skipped = validation.get("maximum_tests_skipped")
-    if not isinstance(minimum, int) or minimum <= 0:
-        raise StatusError("minimum_tests_passed must be a positive integer")
-    if not isinstance(minimum_collected, int) or minimum_collected < minimum:
-        raise StatusError(
-            "minimum_tests_collected must be an integer at least as large as "
-            "minimum_tests_passed"
-        )
-    if not isinstance(maximum_skipped, int) or maximum_skipped < 0:
-        raise StatusError("maximum_tests_skipped must be a non-negative integer")
+    _test_thresholds(validation)
     if junit is not None:
         reports = (junit,) if isinstance(junit, Path) else junit
-        passed, skipped, failures, errors = _combined_junit_counts(reports)
-        if failures or errors:
-            raise StatusError(
-                f"JUnit report contains {failures} failures and {errors} errors"
-            )
-        if skipped > maximum_skipped:
-            raise StatusError(
-                f"{skipped} tests skipped; release allows at most {maximum_skipped}"
-            )
-        if passed + skipped < minimum_collected:
-            raise StatusError(
-                f"only {passed + skipped} tests collected; release requires "
-                f"{minimum_collected}"
-            )
-        if passed < minimum:
-            raise StatusError(f"only {passed} tests passed; release requires {minimum}")
+        _check_junit_policy(validation, reports)
     if check_tools:
         _check_tools(tools)
 
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("check",))
+    parser.add_argument("command", choices=("check", "check-junit"))
     parser.add_argument("--root", type=Path, default=Path("."))
     parser.add_argument("--status", type=Path, default=DEFAULT_STATUS)
     parser.add_argument("--junit", type=Path, action="append")
@@ -400,17 +429,32 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
-        validate(
-            args.root,
-            args.status,
-            junit=None if args.junit is None else tuple(args.junit),
-            check_tools=args.check_tools,
-            tag=args.tag,
-        )
+        reports = None if args.junit is None else tuple(args.junit)
+        if args.command == "check-junit":
+            if reports is None:
+                raise StatusError("check-junit requires at least one --junit report")
+            if args.check_tools or args.tag is not None:
+                raise StatusError("check-junit does not accept --check-tools or --tag")
+            validate_test_reports(
+                args.root,
+                args.status,
+                junit=reports,
+            )
+        else:
+            validate(
+                args.root,
+                args.status,
+                junit=reports,
+                check_tools=args.check_tools,
+                tag=args.tag,
+            )
     except StatusError as exc:
         print(f"release-status: error: {exc}", file=sys.stderr)
         return 1
-    print("release status valid")
+    if args.command == "check-junit":
+        print("release test reports valid")
+    else:
+        print("release status valid")
     return 0
 
 

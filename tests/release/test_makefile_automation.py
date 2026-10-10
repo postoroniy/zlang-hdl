@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import subprocess
 import sys
 
 import pytest
 
-from tools.release_status import StatusError, _combined_junit_counts
+from tools.release_status import (
+    StatusError,
+    _combined_junit_counts,
+    main as release_status_main,
+)
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -131,6 +136,7 @@ def test_hosted_workflows_invoke_release_status_as_a_repo_module(
 
     ci = (workflows / "ci.yml").read_text(encoding="utf-8")
     assert "Validate the complete split-suite release floor" in ci
+    assert "release_status check-junit --root ." in ci
     assert "--junit build/ci-suites/ci-full.xml" in ci
     assert "--junit build/ci-suites/ci-performance.xml" in ci
 
@@ -145,6 +151,57 @@ def test_hosted_workflows_invoke_release_status_as_a_repo_module(
     assert _combined_junit_counts((deterministic, performance)) == (2, 0, 0, 0)
     with pytest.raises(StatusError, match="cannot be counted more than once"):
         _combined_junit_counts((deterministic, deterministic))
+
+    release_root = tmp_path / "release-root"
+    (release_root / "release").mkdir(parents=True)
+    (release_root / "release" / "status.json").write_text(
+        json.dumps(
+            {
+                "schema": 2,
+                "validation": {
+                    "minimum_tests_passed": 2,
+                    "minimum_tests_collected": 2,
+                    "maximum_tests_skipped": 0,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert (
+        release_status_main(
+            [
+                "check-junit",
+                "--root",
+                str(release_root),
+                "--junit",
+                str(deterministic),
+                "--junit",
+                str(performance),
+            ]
+        )
+        == 0
+    )
+    minimal_python = subprocess.run(
+        [
+            sys.executable,
+            "-S",
+            "-m",
+            "tools.release_status",
+            "check-junit",
+            "--root",
+            str(release_root),
+            "--junit",
+            str(deterministic),
+            "--junit",
+            str(performance),
+        ],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert minimal_python.returncode == 0, minimal_python.stderr
+    assert minimal_python.stdout.strip() == "release test reports valid"
 
 
 def test_makefile_help_is_executable_and_documents_nonpublishing_gate() -> None:
