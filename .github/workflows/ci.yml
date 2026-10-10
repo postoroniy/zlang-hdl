@@ -49,7 +49,7 @@ jobs:
             release/native-wheels/*manylinux_2_28_x86_64.whl
       - name: Validate release status
         run: |
-          python tools/release_status.py check --root .
+          python -m tools.release_status check --root .
       - name: Static correctness
         run: |
           python -m ruff check --select E9,F63,F7,F82 zlang tests tools
@@ -193,14 +193,14 @@ jobs:
           yosys -V
           sby --version
           z3 --version
-          python tools/release_status.py check --root . --check-tools
+          python -m tools.release_status check --root . --check-tools
       - name: Run complete public regression with no skips
         run: |
           mkdir -p build
           python -m pytest -p tools.pytest_no_skips -n 4 --dist=loadscope -q \
             -m 'not performance' \
             --junitxml=build/ci-full.xml
-          python tools/release_status.py check --root . --junit build/ci-full.xml
+          python -m tools.release_status check --root . --junit build/ci-full.xml
       - name: Retain full regression report on failure
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

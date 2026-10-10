@@ -44,7 +44,7 @@
     {
       "mode": "0644",
       "path": ".github/workflows/ci.yml",
-      "sha256": "e39e3ca1e3c83501256e0fdc0d900748d9d54f48833b9fa1b832909761152b36"
+      "sha256": "9d3b3e6bae25294809d856ac580584e97707b2d72c7550066167eb8fc4f8ce37"
     },
     {
       "mode": "0644",
@@ -54,7 +54,7 @@
     {
       "mode": "0644",
       "path": ".github/workflows/daily-regression.yml",
-      "sha256": "5aedc7ed42c183c08686bf4aa779fdc58210d09430a9abe35cec75a904890437"
+      "sha256": "15cfbbfa21a9874c121779c0b147653b1b51d4fd63188af3299f81ec44b92a62"
     },
     {
       "mode": "0644",
@@ -64,7 +64,7 @@
     {
       "mode": "0644",
       "path": ".github/workflows/eda.yml",
-      "sha256": "038b220ff684994caef24785877ea871103f3551f101ebdaa37ffd72cdfda5d4"
+      "sha256": "c2beb761cd4f24c4ad129a58a7f21ef0b3b3491147dd6773fd13889bf95b75d6"
     },
     {
       "mode": "0644",
@@ -74,7 +74,7 @@
     {
       "mode": "0644",
       "path": ".github/workflows/release.yml",
-      "sha256": "db943761a70a7ffaceecdc2afc43b337ac51f351d84af7bf3fc3c7efe8a2f173"
+      "sha256": "70d9371f8a2e4ba0fcc40602ac29765b2d03f708325b3f0d789551cfae06d937"
     },
     {
       "mode": "0644",
@@ -2744,7 +2744,7 @@
     {
       "mode": "0644",
       "path": "tests/release/test_makefile_automation.py",
-      "sha256": "faecf3c5848544505b0ed2864b1ecaf136a7fd59ba5fbd24488edbc5c73a0436"
+      "sha256": "2e01ef46f1b6a3d2469371cbb4a0376d65e919bcfa04121bfee2b4c9c5eeb770"
     },
     {
       "mode": "0644",

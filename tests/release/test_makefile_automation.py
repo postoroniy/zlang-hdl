@@ -105,8 +105,17 @@ def test_release_workflow_uses_curated_changelog_notes_and_native_set() -> None:
     assert 'printf \'%s\\n\' "$python_scripts" >> "$GITHUB_PATH"' in workflow
     assert 'export PATH="$python_scripts:$PATH"' in workflow
     assert workflow.index('export PATH="$python_scripts:$PATH"') < workflow.index(
-        "python tools/release_status.py check --root . --check-tools"
+        "python -m tools.release_status check --root . --check-tools"
     )
+
+
+def test_hosted_workflows_invoke_release_status_as_a_repo_module() -> None:
+    workflows = ROOT / ".github" / "workflows"
+    for path in sorted(workflows.glob("*.yml")):
+        text = path.read_text(encoding="utf-8")
+        assert "python tools/release_status.py" not in text, path
+        if "release_status" in text:
+            assert "python -m tools.release_status" in text, path
 
 
 def test_makefile_help_is_executable_and_documents_nonpublishing_gate() -> None:

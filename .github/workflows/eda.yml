@@ -47,13 +47,13 @@ jobs:
             release/native-wheels/*manylinux_2_28_x86_64.whl
       - name: Require the frozen EDA toolchain
         run: |
-          python tools/release_status.py check --root . --check-tools
+          python -m tools.release_status check --root . --check-tools
       - name: Run the complete regression with no unexpected skips
         run: |
           mkdir -p build
           python -m pytest -p tools.pytest_no_skips \
             -n 8 --dist=loadscope -q -m 'not performance' \
             --junitxml=build/eda.xml
-          python tools/release_status.py check --root . --junit build/eda.xml
+          python -m tools.release_status check --root . --junit build/eda.xml
           python -m pytest -p tools.pytest_no_skips -q -m performance \
             --junitxml=build/eda-performance.xml

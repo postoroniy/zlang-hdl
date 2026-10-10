@@ -64,7 +64,7 @@ jobs:
           python -m pytest -p tools.pytest_no_skips -n 4 --dist=loadscope -q \
             -m 'not performance' \
             --junitxml=build/daily-deterministic.xml
-          python tools/release_status.py check --root . \
+          python -m tools.release_status check --root . \
             --junit build/daily-deterministic.xml
           python -m pytest -p tools.pytest_no_skips -q -m performance \
             --junitxml=build/daily-performance.xml

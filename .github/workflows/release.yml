@@ -135,7 +135,7 @@ jobs:
             --output build/release-preflight.json
       - name: Validate public tree
         run: |
-          python tools/release_status.py check --root . --tag "$RELEASE_TAG"
+          python -m tools.release_status check --root . --tag "$RELEASE_TAG"
           reuse lint
           pip-audit . --progress-spinner off
       - name: Build one sdist and a byte-reproducible wheel
@@ -325,20 +325,20 @@ jobs:
           python tools/audit_native_binary.py \
             --expected-version "${RELEASE_TAG#v}" \
             release/native-wheels/*manylinux_2_28_x86_64.whl
-          python tools/release_status.py check --root . --check-tools
+          python -m tools.release_status check --root . --check-tools
       - name: Run full regression twice with no unexpected skips
         run: |
           mkdir -p build
           python -m pytest -p tools.pytest_no_skips \
             -n 8 --dist=loadscope -q --maxfail=1 -m 'not performance' \
             --junitxml=build/release-1.xml
-          python tools/release_status.py check --root . --junit build/release-1.xml
+          python -m tools.release_status check --root . --junit build/release-1.xml
           python -m pytest -p tools.pytest_no_skips -q --maxfail=1 -m performance \
             --junitxml=build/release-performance-1.xml
           python -m pytest -p tools.pytest_no_skips \
             -n 8 --dist=loadscope -q --maxfail=1 -m 'not performance' \
             --junitxml=build/release-2.xml
-          python tools/release_status.py check --root . --junit build/release-2.xml
+          python -m tools.release_status check --root . --junit build/release-2.xml
           python -m pytest -p tools.pytest_no_skips -q --maxfail=1 -m performance \
             --junitxml=build/release-performance-2.xml
 
