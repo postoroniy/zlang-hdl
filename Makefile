@@ -11,25 +11,43 @@ LOCAL_RUNNER := $(CURDIR)/tools/run_local_env.sh
 RUN_PYTHON = ZLANG_VENV="$(VENV)" "$(LOCAL_RUNNER)" --purpose "$(1)" -- "$(PYTHON)"
 CARGO_AUDIT ?= cargo-audit
 CARGO_AUDIT_VERSION ?= 0.22.2
+PIP_VERSION ?= 26.2.1
 SETUPTOOLS_VERSION ?= 84.0.0
 RUFF_VERSION ?= 0.12.12
 PIP_AUDIT_VERSION ?= 2.10.1
 REUSE_VERSION ?= 5.1.1
 TWINE_VERSION ?= 6.2.0
+WHEEL_VERSION ?= 0.46.3
+CYCLONEDX_BOM_VERSION ?= 7.0.0
 RELEASE_PYTHON_TOOLS := \
+	"cyclonedx-bom==$(CYCLONEDX_BOM_VERSION)" \
 	"pip-audit==$(PIP_AUDIT_VERSION)" \
 	"reuse==$(REUSE_VERSION)" \
 	"ruff==$(RUFF_VERSION)" \
-	"twine==$(TWINE_VERSION)"
+	"twine==$(TWINE_VERSION)" \
+	"wheel==$(WHEEL_VERSION)"
 WORKERS ?= 16
 BUILD_ROOT ?= build/local-release
 DIST_DIR ?= $(BUILD_ROOT)/dist
 TAG ?= v$(shell if test -x "$(PYTHON)"; then "$(PYTHON)" -c 'from zlang._version import __version__; print(__version__)'; else printf unknown; fi)
 PREVIOUS_TAG ?= $(shell git describe --tags --abbrev=0 HEAD)
 RELEASE_PREFLIGHT_REPORT ?= build/release-preflight.json
+RELEASE_MODE ?= candidate
 EDITOR_VSIX ?= build/editor-release/zlang-hdl-0.1.0.vsix
 STRUCTURAL_PROFILE ?= small
 STRUCTURAL_REPORT_DIR ?= build/structural
+CI_JUNIT ?=
+CI_DETERMINISTIC_JUNIT ?=
+CI_PERFORMANCE_JUNIT ?=
+CI_STATUS_ROOT ?= $(CURDIR)
+CI_RANDOM_SUITE ?=
+CI_RANDOM_MASTER_SEED ?= pr-20260923-v1
+CI_RANDOM_TESTS ?= 128
+CI_RANDOM_SHARD ?=
+CI_RANDOM_SHARDS ?=
+CI_VSIX ?= build/ci-editor/zlang-hdl-0.1.0.vsix
+CI_BUILD_ROOT ?= build/ci-fast-package
+CI_PYTEST_MAXFAIL ?=
 
 FAST_TEST_PATHS := \
 	tests/parser tests/semantic tests/conformance tests/editor \
@@ -37,13 +55,17 @@ FAST_TEST_PATHS := \
 
 .PHONY: help venv env-check release-review-clean review-commits release-review release-sanity release-regressions release-preflight public-check static jit-check jit-audit jit-advisory-audit native-release-set native-release-install audit release-tools test-fast test test-structural \
 	structural-baseline \
-	community-pdf-check test-release-twice editor-test editor-advisory-audit editor-host-test package release-candidate
+	community-pdf-check test-release-twice editor-test editor-advisory-audit editor-host-test package release-candidate \
+	ci-bootstrap ci-fast-core ci-full-regression ci-performance-regression ci-hosted-edge \
+	ci-random-smoke ci-editor ci-test-floor ci-contract-smoke
 
 LOCAL_ENV_TARGETS := \
 	release-regressions release-preflight public-check static jit-check jit-audit \
 	jit-advisory-audit native-release-set native-release-install audit release-tools test-fast test \
 	test-structural structural-baseline community-pdf-check test-release-twice \
-	editor-test editor-advisory-audit editor-host-test review-commits release-review release-sanity release-candidate
+	editor-test editor-advisory-audit editor-host-test review-commits release-review release-sanity release-candidate \
+	ci-fast-core ci-full-regression ci-performance-regression ci-hosted-edge \
+	ci-random-smoke ci-editor ci-contract-smoke
 
 $(LOCAL_ENV_TARGETS): env-check
 
@@ -72,6 +94,7 @@ help:
 		'make editor-test        install locked editor dependencies and run its tests' \
 		'make editor-advisory-audit audit the complete locked editor dependency inventory' \
 		'make editor-host-test   build, audit and run the installed VSIX host smoke' \
+		'make ci-contract-smoke  reproduce hosted workflow contracts locally' \
 		'make package            build one sdist and two byte-identical wheels' \
 		'make release-candidate  run the local non-publishing release gate'
 
@@ -92,10 +115,11 @@ venv:
 	# guaranteed to include setuptools, while the editable install below avoids
 	# a separate build-isolation environment.
 	if command -v uv >/dev/null; then
-		uv pip install --python "$(PYTHON)" "setuptools==$(SETUPTOOLS_VERSION)"
+		uv pip install --python "$(PYTHON)" "pip==$(PIP_VERSION)" "setuptools==$(SETUPTOOLS_VERSION)"
 		uv pip install --python "$(PYTHON)" -e '.[test]' $(RELEASE_PYTHON_TOOLS)
 	else
-		"$(PYTHON)" -m pip install --disable-pip-version-check "setuptools==$(SETUPTOOLS_VERSION)"
+		"$(PYTHON)" -m pip install --disable-pip-version-check --upgrade \
+			"pip==$(PIP_VERSION)" "setuptools==$(SETUPTOOLS_VERSION)"
 		"$(PYTHON)" -m pip install --disable-pip-version-check --no-build-isolation -e '.[test]' $(RELEASE_PYTHON_TOOLS)
 	fi
 
@@ -127,7 +151,7 @@ release-review: release-review-clean review-commits release-sanity test-release-
 
 # Fail quickly on release metadata, projection, workflow, PDF and editor issues
 # before provisioning and running two complete zero-skip regressions.
-release-sanity: release-regressions community-pdf-check public-check static editor-advisory-audit
+release-sanity: release-regressions community-pdf-check public-check static ci-contract-smoke editor-advisory-audit
 
 release-regressions:
 	PYTHONPATH="$(CURDIR)" $(call RUN_PYTHON,release-regressions) tools/release_regressions.py \
@@ -141,7 +165,7 @@ release-preflight: release-regressions
 		--root . \
 		--tag "$(TAG)" \
 		--previous-tag "$(PREVIOUS_TAG)" \
-		--mode candidate \
+		--mode "$(RELEASE_MODE)" \
 		--require-clean \
 		--output "$(RELEASE_PREFLIGHT_REPORT)"
 
@@ -249,6 +273,103 @@ release-tools:
 	else
 		PYTHONPATH="$(CURDIR)" $(call RUN_PYTHON,release-tools) -m tools.release_status check --root . --check-tools --tag "$(TAG)"
 	fi
+
+# GitHub workflows own only host provisioning and artifact transport.  These
+# targets own the repository commands and are intentionally runnable unchanged
+# from a checkout-local environment.
+ci-bootstrap:
+	$(MAKE) --no-print-directory venv
+
+ci-fast-core:
+	$(call RUN_PYTHON,ci-fast-status) -m tools.release_status check --root .
+	$(MAKE) --no-print-directory static
+	$(MAKE) --no-print-directory audit
+	$(MAKE) --no-print-directory test-fast
+	$(MAKE) --no-print-directory package \
+		BUILD_ROOT="$(CI_BUILD_ROOT)" DIST_DIR="$(CI_BUILD_ROOT)/dist"
+
+ci-full-regression:
+	if [[ -z "$(CI_JUNIT)" ]]; then
+		echo 'ci-full-regression requires CI_JUNIT' >&2
+		exit 2
+	fi
+	mkdir -p "$(dir $(CI_JUNIT))"
+	export PATH="$(PYTHON_SCRIPTS):$$PATH"
+	$(call RUN_PYTHON,ci-full-status) -m tools.release_status check --root . --check-tools
+	$(call RUN_PYTHON,ci-full-regression) -m pytest -p tools.pytest_no_skips \
+		-n "$(WORKERS)" --dist=loadscope -q -m 'not performance' \
+		$(if $(CI_PYTEST_MAXFAIL),--maxfail="$(CI_PYTEST_MAXFAIL)") \
+		--junitxml="$(CI_JUNIT)"
+
+ci-performance-regression:
+	if [[ -z "$(CI_JUNIT)" ]]; then
+		echo 'ci-performance-regression requires CI_JUNIT' >&2
+		exit 2
+	fi
+	mkdir -p "$(dir $(CI_JUNIT))"
+	export PATH="$(PYTHON_SCRIPTS):$$PATH"
+	$(call RUN_PYTHON,ci-performance-status) -m tools.release_status check --root . --check-tools
+	$(call RUN_PYTHON,ci-performance-regression) -m pytest -p tools.pytest_no_skips \
+		-q -m performance \
+		$(if $(CI_PYTEST_MAXFAIL),--maxfail="$(CI_PYTEST_MAXFAIL)") \
+		--junitxml="$(CI_JUNIT)"
+
+ci-hosted-edge:
+	if [[ -z "$(CI_JUNIT)" ]]; then
+		echo 'ci-hosted-edge requires CI_JUNIT' >&2
+		exit 2
+	fi
+	mkdir -p "$(dir $(CI_JUNIT))"
+	$(call RUN_PYTHON,ci-hosted-edge) -m pytest -p tools.pytest_no_skips -q \
+		tests/lsp/test_server.py::test_stdio_transport_argument_starts_a_real_json_rpc_process \
+		'tests/integration/test_verification_examples.py::test_real_verification_examples_and_rare_bug_shallow_replay[rare_overflow_bug]' \
+		tests/packaging/test_stdlib_packaging.py::test_wheel_contains_and_resolves_every_shipped_stdlib_module \
+		--junitxml="$(CI_JUNIT)"
+
+ci-random-smoke:
+	if [[ -z "$(CI_RANDOM_SUITE)" ]]; then
+		echo 'ci-random-smoke requires CI_RANDOM_SUITE' >&2
+		exit 2
+	fi
+	arguments=(
+		"--suite" "$(CI_RANDOM_SUITE)"
+		"--master-seed" "$(CI_RANDOM_MASTER_SEED)"
+		"--tests" "$(CI_RANDOM_TESTS)"
+		"--save-failures" build/random-failures
+	)
+	if [[ -n "$(CI_RANDOM_SHARD)" || -n "$(CI_RANDOM_SHARDS)" ]]; then
+		if [[ -z "$(CI_RANDOM_SHARD)" || -z "$(CI_RANDOM_SHARDS)" ]]; then
+			echo 'CI_RANDOM_SHARD and CI_RANDOM_SHARDS must be provided together' >&2
+			exit 2
+		fi
+		arguments+=(--shard "$(CI_RANDOM_SHARD)" --shards "$(CI_RANDOM_SHARDS)")
+	fi
+	$(call RUN_PYTHON,ci-random-smoke) tools/random_regression.py "$${arguments[@]}"
+
+ci-editor:
+	$(MAKE) --no-print-directory editor-host-test EDITOR_VSIX="$(CI_VSIX)"
+
+# The aggregate lane deliberately runs without site-packages.  It validates
+# retained evidence only and cannot accidentally grow a compiler dependency.
+ci-test-floor:
+	if [[ -z "$(CI_DETERMINISTIC_JUNIT)" || -z "$(CI_PERFORMANCE_JUNIT)" ]]; then
+		echo 'ci-test-floor requires CI_DETERMINISTIC_JUNIT and CI_PERFORMANCE_JUNIT' >&2
+		exit 2
+	fi
+	test -x "$(PYTHON)"
+	case "$(PYTHON)" in "$(CURDIR)"/*) ;; *) \
+		echo 'ci-test-floor requires the checkout-local Python' >&2; exit 2 ;; esac
+	PYTHONNOUSERSITE=1 "$(PYTHON)" -S -m tools.release_status check-junit \
+		--root "$(CI_STATUS_ROOT)" \
+		--junit "$(CI_DETERMINISTIC_JUNIT)" \
+		--junit "$(CI_PERFORMANCE_JUNIT)"
+
+ci-contract-smoke:
+	$(call RUN_PYTHON,ci-contract-smoke) -m pytest -q \
+		tests/release/test_ci_contract.py \
+		tests/release/test_local_execution_environment.py \
+		tests/release/test_makefile_automation.py
+	$(call RUN_PYTHON,ci-contract-workflows) tools/audit_workflow_structure.py --root .
 
 test-fast:
 	$(call RUN_PYTHON,test-fast) -m pytest -n "$(WORKERS)" --dist=loadscope -q $(FAST_TEST_PATHS)

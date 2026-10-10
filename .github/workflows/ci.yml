@@ -29,47 +29,12 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      - name: Install exact test tooling and ZLang HDL
-        run: >-
-          python -m pip install --disable-pip-version-check
-          -e '.[test]'
-          build==1.6.1
-          pip-audit==2.10.1
-          reuse==5.1.1
-          ruff==0.12.12
-          setuptools==84.0.0
-          twine==6.2.0
-          wheel==0.46.3
+      - name: Bootstrap the repository-owned test environment
+        run: make -s ci-bootstrap
       - name: Audit and install the reviewed Linux native wheel
-        run: |
-          python tools/audit_native_binary.py \
-            --expected-version "$(python -c 'from zlang._version import __version__; print(__version__)')" \
-            release/native-wheels/*manylinux_2_28_x86_64.whl
-          python -m pip install --disable-pip-version-check \
-            release/native-wheels/*manylinux_2_28_x86_64.whl
-      - name: Validate release status
-        run: |
-          python -m tools.release_status check --root .
-      - name: Static correctness
-        run: |
-          python -m ruff check --select E9,F63,F7,F82 zlang tests tools
-          python -m compileall -q zlang tests tools
-          reuse lint
-          pip-audit . --progress-spinner off
-          git diff --check
-      - name: Fast compiler and packaging regression
-        run: >-
-          python -m pytest -n 8 --dist=loadscope -q
-          tests/parser
-          tests/semantic
-          tests/conformance
-          tests/editor
-          tests/packaging
-          tests/release
-      - name: Build and inspect distributions
-        run: |
-          python -m build --sdist --wheel
-          python -m twine check dist/*
+        run: make -s native-release-install
+      - name: Run the canonical fast acceptance lane
+        run: make -s ci-fast-core WORKERS=8
 
   lexical-editor:
     runs-on: ubuntu-24.04
@@ -83,39 +48,25 @@ jobs:
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
-      - name: Install the Community language server for host testing
-        run: python -m pip install --disable-pip-version-check -e .
+      - name: Bootstrap the repository-owned editor environment
+        run: make -s ci-bootstrap
       - name: Set up pinned Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "22.23.2"
           cache: npm
           cache-dependency-path: editors/vscode/zlang-hdl/package-lock.json
-      - name: Install locked editor tooling without lifecycle scripts
-        working-directory: editors/vscode/zlang-hdl
-        run: npm ci --ignore-scripts
-      - name: Exercise real TextMate and Oniguruma tokenization
-        working-directory: editors/vscode/zlang-hdl
-        run: npm test
-      - name: Build the Community VSIX in temporary storage
-        working-directory: editors/vscode/zlang-hdl
-        run: npm run package -- "$RUNNER_TEMP/zlang-hdl-0.1.0.vsix"
-      - name: Audit actual VSIX contents, licensing and package identity
+      - name: Test, package, audit, and exercise the Community VSIX
         run: >-
-          python tests/editor/test_vscode_package.py "$RUNNER_TEMP/zlang-hdl-0.1.0.vsix"
-          > "$RUNNER_TEMP/zlang-hdl-0.1.0-audit.json"
-      - name: Exercise the installed VSIX on the pinned current stable host
-        working-directory: editors/vscode/zlang-hdl
-        run: >-
-          xvfb-run -a npm run test:host --
-          "$RUNNER_TEMP/zlang-hdl-0.1.0.vsix"
+          make -s ci-editor
+          CI_VSIX="$RUNNER_TEMP/zlang-hdl-0.1.0.vsix"
       - name: Retain the successfully audited Community VSIX
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: zlang-hdl-0.1.0-vsix
           path: |
             ${{ runner.temp }}/zlang-hdl-0.1.0.vsix
-            ${{ runner.temp }}/zlang-hdl-0.1.0-audit.json
+            ${{ runner.temp }}/zlang-hdl-0.1.0.vsix.audit.json
           if-no-files-found: error
           retention-days: 14
 
@@ -141,15 +92,14 @@ jobs:
         with:
           github-token: ${{ github.token }}
           version: "2026-09-22"
-      - name: Install public compiler
-        run: python -m pip install --disable-pip-version-check -e .
+      - name: Bootstrap the repository-owned random-test environment
+        run: make -s ci-bootstrap
       - name: Run reproducible PR random cases
         run: >-
-          python tools/random_regression.py
-          --suite "${{ matrix.suite }}"
-          --master-seed pr-20260923-v1
-          --tests 128
-          --save-failures build/random-failures
+          make -s ci-random-smoke
+          CI_RANDOM_SUITE="${{ matrix.suite }}"
+          CI_RANDOM_MASTER_SEED=pr-20260923-v1
+          CI_RANDOM_TESTS=128
       - name: Retain random failures
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -177,29 +127,15 @@ jobs:
         with:
           github-token: ${{ github.token }}
           version: "2026-09-22"
-      - name: Install public compiler and audited Linux native wheel
-        run: |
-          python -m pip install --disable-pip-version-check -e '.[test]' \
-            release/native-wheels/*manylinux_2_28_x86_64.whl \
-            build==1.6.1 z3-solver==5.1.0.0
-          python -c 'import sysconfig; print(sysconfig.get_path("scripts"))' >> "$GITHUB_PATH"
-          python tools/audit_native_binary.py \
-            --expected-version "$(python -c 'from zlang._version import __version__; print(__version__)')" \
-            release/native-wheels/*manylinux_2_28_x86_64.whl
-      - name: Record and require the open EDA toolchain
-        run: |
-          verilator --version
-          iverilog -V
-          yosys -V
-          sby --version
-          z3 --version
-          python -m tools.release_status check --root . --check-tools
+      - name: Bootstrap the repository-owned regression environment
+        run: make -s ci-bootstrap
+      - name: Audit and install the reviewed Linux native wheel
+        run: make -s native-release-install
       - name: Run complete public regression with no skips
-        run: |
-          mkdir -p build
-          python -m pytest -p tools.pytest_no_skips -n 4 --dist=loadscope -q \
-            -m 'not performance' \
-            --junitxml=build/ci-full.xml
+        run: >-
+          make -s ci-full-regression
+          WORKERS=4
+          CI_JUNIT=build/ci-full.xml
       - name: Retain deterministic regression report
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -227,25 +163,14 @@ jobs:
         with:
           github-token: ${{ github.token }}
           version: "2026-09-22"
-      - name: Install public compiler and audited Linux native wheel
-        run: |
-          python -m pip install --disable-pip-version-check -e '.[test]' \
-            release/native-wheels/*manylinux_2_28_x86_64.whl \
-            z3-solver==5.1.0.0
-          python -c 'import sysconfig; print(sysconfig.get_path("scripts"))' >> "$GITHUB_PATH"
-          python tools/audit_native_binary.py \
-            --expected-version "$(python -c 'from zlang._version import __version__; print(__version__)')" \
-            release/native-wheels/*manylinux_2_28_x86_64.whl
-      - name: Require bounded formal tools
-        run: |
-          yosys -V
-          sby --version
-          z3 --version
+      - name: Bootstrap the repository-owned performance environment
+        run: make -s ci-bootstrap
+      - name: Audit and install the reviewed Linux native wheel
+        run: make -s native-release-install
       - name: Run isolated bounded performance regressions
         run: >-
-          python -m pytest -p tools.pytest_no_skips -q
-          -m performance
-          --junitxml=build/ci-performance.xml
+          make -s ci-performance-regression
+          CI_JUNIT=build/ci-performance.xml
       - name: Retain performance regression report
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -272,18 +197,12 @@ jobs:
         with:
           github-token: ${{ github.token }}
           version: "2026-09-22"
-      - name: Install public compiler and package builder
-        run: |
-          python -m pip install --disable-pip-version-check -e '.[test]' build==1.6.1 z3-solver==5.1.0.0
-          python -c 'import sysconfig; print(sysconfig.get_path("scripts"))' >> "$GITHUB_PATH"
+      - name: Bootstrap the repository-owned hosted-edge environment
+        run: make -s ci-bootstrap
       - name: Recheck hosted lifecycle, formal counterexample, and packaging
-        run: |
-          mkdir -p build
-          python -m pytest -p tools.pytest_no_skips -q \
-            tests/lsp/test_server.py::test_stdio_transport_argument_starts_a_real_json_rpc_process \
-            'tests/integration/test_verification_examples.py::test_real_verification_examples_and_rare_bug_shallow_replay[rare_overflow_bug]' \
-            tests/packaging/test_stdlib_packaging.py::test_wheel_contains_and_resolves_every_shipped_stdlib_module \
-            --junitxml=build/hosted-edge.xml
+        env:
+          KEEP_TMP: "1"
+        run: make -s ci-hosted-edge CI_JUNIT=build/hosted-edge.xml
       - name: Retain hosted edge failure evidence
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -291,9 +210,9 @@ jobs:
           name: hosted-edge-${{ github.run_id }}
           path: |
             build/hosted-edge.xml
-            /tmp/pytest-of-runner/pytest-*/verify-example-rare_overflow_bug*/report.json
-            /tmp/pytest-of-runner/pytest-*/verify-example-rare_overflow_bug*/work/**/*.vcd
-            /tmp/pytest-of-runner/pytest-*/verify-example-rare_overflow_bug*/work/**/*.log
+            build/tmp/ci-hosted-edge.*/pytest-of-runner/pytest-*/verify-example-rare_overflow_bug*/report.json
+            build/tmp/ci-hosted-edge.*/pytest-of-runner/pytest-*/verify-example-rare_overflow_bug*/work/**/*.vcd
+            build/tmp/ci-hosted-edge.*/pytest-of-runner/pytest-*/verify-example-rare_overflow_bug*/work/**/*.log
           if-no-files-found: warn
           retention-days: 14
 
@@ -326,9 +245,9 @@ jobs:
       - name: Validate the complete split-suite release floor
         if: needs.full-regression.result == 'success' && needs.performance-regression.result == 'success'
         run: >-
-          python -m tools.release_status check-junit --root .
-          --junit build/ci-suites/ci-full.xml
-          --junit build/ci-suites/ci-performance.xml
+          make -s ci-test-floor
+          CI_DETERMINISTIC_JUNIT=build/ci-suites/ci-full.xml
+          CI_PERFORMANCE_JUNIT=build/ci-suites/ci-performance.xml
       - name: Require every public PR acceptance lane
         env:
           FAST_CORE: ${{ needs['fast-core'].result }}

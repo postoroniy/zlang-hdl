@@ -72,6 +72,15 @@ tests, and a fresh complete npm advisory report. It deliberately runs before
 the two full zero-skip suites. A failure here is cheaper to diagnose and must
 not be bypassed by starting the long regression manually.
 
+Hosted jobs do not own compiler commands. They provision the requested host,
+install pinned external EDA actions, and transport retained artifacts; the
+repository-owned `ci-*` Make targets own dependency installation, test
+partitioning, status validation, random seeds, editor validation, and the
+split-suite floor. `make ci-contract-smoke` checks that each migrated hosted job
+invokes its exact target and rejects direct pip, pytest, or release-status
+commands in those jobs. This keeps a command reproducible locally instead of
+maintaining a second implementation inside workflow YAML.
+
 On the public review branch, `make review-commits` additionally requires every
 commit after `origin/main` to have a valid cryptographic signature and an exact
 author DCO trailer. Private integration commits are outside this rule; private
@@ -177,8 +186,9 @@ found; do not leave the recovery solely in shell history or chat notes.
 | --- | --- | --- | --- |
 | A hosted job could not import a repository `tools` module | a package-aware tool was executed as a script; local `PYTHONPATH` masked the error | workflows and Make use module execution; the workflow audit rejects the direct hosted form; public checks run from the exported root | change the invocation, run `make release-sanity`, and rerun the failed hosted job |
 | GitHub rejected `release.yml` before jobs started | duplicate top-level YAML key | the workflow structure audit runs in `make static` and `release-sanity` | remove the duplicate key and rerun static checks before pushing |
-| A split deterministic/performance run passed but failed the aggregate test floor | the full-suite minimum was applied to the non-performance JUnit alone | `release_status` combines distinct JUnit reports; CI, EDA, daily and Release gates validate both partitions together | retain both reports and validate them in one aggregate command; never lower the release floor |
-| The aggregate test-floor job could not import ZLang, or the narrow validator leaked into a prepared lane | full and aggregate steps used visually similar commands without asserting their exact ownership | contextual workflow tests require full `check` in prepared lanes and exactly one compiler-independent `check-junit` in the aggregate lane | use `check-junit` only for retained JUnit aggregation; never replace or skip the full release-status gates elsewhere |
+| A split deterministic/performance run passed but failed the aggregate test floor | the full-suite minimum was applied to the non-performance JUnit alone | `ci-test-floor` combines two distinct JUnit reports through the dependency-free `check-junit` command; CI, EDA, daily and Release use that same target | retain both reports and call `make ci-test-floor`; never lower or apply the full floor to one partition |
+| The aggregate test-floor job could not import ZLang, or the narrow validator leaked into a prepared lane | workflow YAML duplicated visually similar full-status and report-only commands | `ci-full-regression` owns prepared compiler/tool validation; `ci-test-floor` runs under `python -S`; `ci-contract-smoke` enforces their distinct job ownership | fix the Make target or its contract test, not a one-off workflow command |
+| Hosted and local release lanes used different dependency pins or commands | pip/pytest commands were copied into several workflows and drifted independently | project test dependencies live in `pyproject.toml`, release-tool pins live in `Makefile`, and migrated jobs may invoke only canonical `ci-*`/release Make targets | update one authoritative pin/target, run `make ci-contract-smoke`, then rerun the affected hosted lane |
 | The VSIX lock contained a newly disclosed vulnerable transitive package | editor tests did not perform a complete current advisory query | `editor-advisory-audit` validates npm exit semantics, report schema, dev-tool coverage and exact lock inventory locally and in Release | update the lock intentionally, rerun editor tests/audit, then rebuild the VSIX |
 | The extension was packaged against a stale VS Code host assumption | editor unit tests did not exercise the pinned stable host | `editor-host-test` installs the exact built VSIX into the pinned host and checks navigation/LSP startup | update the engine/test host deliberately, rerun unit plus installed-host tests, then rebuild the VSIX |
 | `npm run package` failed with `EEXIST` or reused stale bytes | output path already existed | packaging targets reject an existing `EDITOR_VSIX` or `BUILD_ROOT` | choose a fresh ignored build path; never overwrite review evidence |

@@ -46,9 +46,11 @@ native = [
 ]
 test = [
     "build==1.6.1",
+    "PyYAML==6.0.3",
     "pytest>=8,<10",
     "pytest-xdist>=3.6,<4",
     "setuptools>=77",
+    "z3-solver==5.1.0.0",
 ]
 
 [project.scripts]

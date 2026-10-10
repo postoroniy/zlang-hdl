@@ -34,7 +34,7 @@ def test_makefile_exposes_bounded_test_and_release_entry_points() -> None:
     assert "-m tools.audit_review_commits --root ." in text
     assert (
         "release-sanity: release-regressions community-pdf-check public-check "
-        "static editor-advisory-audit" in text
+        "static ci-contract-smoke editor-advisory-audit" in text
     )
     assert "release review requires a clean committed public checkout" in text
     assert "tools/run_local_env.sh" in text
@@ -47,7 +47,7 @@ def test_makefile_exposes_bounded_test_and_release_entry_points() -> None:
     )
     assert "tools/release_preflight.py" in text
     assert 'PYTHONPATH="$(CURDIR)" $(call RUN_PYTHON,release-preflight) tools/release_preflight.py' in text
-    assert "--mode candidate" in text
+    assert '--mode "$(RELEASE_MODE)"' in text
     assert "--require-clean" in text
     assert "community-pdf:" not in text
     assert "tools/build_community_pdf.py" not in text
@@ -110,49 +110,42 @@ def test_release_workflow_uses_curated_changelog_notes_and_native_set() -> None:
     assert "tools/stage_release_pdf.py" in workflow
     assert "BASH_ENV: ${{ github.workspace }}/.github/workflows/local-venv-env.sh" in workflow
     assert "workflow_dispatch:" in workflow
-    assert "tools/release_preflight.py" in workflow
-    assert '--mode "$mode"' in workflow
+    assert "make -s release-preflight" in workflow
+    assert 'RELEASE_MODE="$mode"' in workflow
     assert "release-preflight.json" in workflow
     assert "if: ${{ github.event_name == 'push' }}\n    needs: [validate, eda]" in workflow
-    assert "Exercise the installed exact-tag VSIX" in workflow
+    assert "Test, build, audit, and exercise the exact-tag Community VSIX" in workflow
     assert "zlang-hdl-*-language-reference.pdf" in workflow
-    assert workflow.count("--maxfail=1") == 4
-    assert 'printf \'%s\\n\' "$python_scripts" >> "$GITHUB_PATH"' in workflow
-    assert 'export PATH="$python_scripts:$PATH"' in workflow
-    assert workflow.index('export PATH="$python_scripts:$PATH"') < workflow.index(
-        "python -m tools.release_status check --root . --check-tools"
-    )
+    assert workflow.count("CI_PYTEST_MAXFAIL=1") == 4
+    assert "make -s ci-bootstrap" in workflow
+    assert "make -s package" in workflow
+    assert "make -s ci-editor" in workflow
 
 
-def test_hosted_workflows_invoke_release_status_as_a_repo_module(
+def test_hosted_workflows_delegate_acceptance_to_make_lanes(
     tmp_path: Path,
 ) -> None:
     workflows = ROOT / ".github" / "workflows"
-    for path in sorted(workflows.glob("*.yml")):
+    for name in ("ci.yml", "daily-regression.yml", "eda.yml", "release.yml"):
+        path = workflows / name
         text = path.read_text(encoding="utf-8")
         assert "python tools/release_status.py" not in text, path
-        if "release_status" in text:
-            assert "python -m tools.release_status" in text, path
+        assert "python -m pytest" not in text, path
+        assert "python -m pip install" not in text, path
 
     ci = (workflows / "ci.yml").read_text(encoding="utf-8")
     assert "Validate the complete split-suite release floor" in ci
-    full_status_step = (
-        "- name: Validate release status\n"
-        "        run: |\n"
-        "          python -m tools.release_status check --root ."
-    )
     aggregate_status_step = (
         "- name: Validate the complete split-suite release floor\n"
         "        if: needs.full-regression.result == 'success' && "
         "needs.performance-regression.result == 'success'\n"
         "        run: >-\n"
-        "          python -m tools.release_status check-junit --root ."
+        "          make -s ci-test-floor"
     )
-    assert full_status_step in ci
     assert aggregate_status_step in ci
-    assert ci.count("release_status check-junit --root .") == 1
-    assert "--junit build/ci-suites/ci-full.xml" in ci
-    assert "--junit build/ci-suites/ci-performance.xml" in ci
+    assert ci.count("make -s ci-test-floor") == 1
+    assert "CI_DETERMINISTIC_JUNIT=build/ci-suites/ci-full.xml" in ci
+    assert "CI_PERFORMANCE_JUNIT=build/ci-suites/ci-performance.xml" in ci
 
     deterministic = tmp_path / "deterministic.xml"
     performance = tmp_path / "performance.xml"
