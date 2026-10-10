@@ -1,7 +1,7 @@
 // Portable high-level target-aware FIR.  The source states numerical and
 // timing requirements; target libraries decide whether generic logic or a
 // physical resource graph implements them.
-module SymmetricFixedFIRImplementation {
+module SymmetricFixedFIRAuto {
     clock clk
     reset rst
     in samples : vec<8,SF2.10>
@@ -28,7 +28,7 @@ module SymmetricFixedFIRImplementation {
     }
 }
 
-module SymmetricFixedFIRImplementationExact8 {
+module SymmetricFixedFIRAutoExact8 {
     clock clk
     reset rst
     in samples : vec<8,SF2.10>

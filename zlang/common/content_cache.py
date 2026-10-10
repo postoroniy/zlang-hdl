@@ -8,11 +8,10 @@ concurrent reader never observes a partially written entry.
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
-import tempfile
 from typing import Mapping
 
+from .atomic_io import publish_text_atomically
 from .serialization import stable_json
 
 
@@ -39,36 +38,7 @@ def load_json_object(path: Path) -> tuple[Mapping[str, object] | None, str | Non
 def publish_json_atomically(path: Path, value: Mapping[str, object]) -> None:
     """Durably replace one JSON cache entry without exposing partial text."""
 
-    destination = Path(path)
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    temporary_name: str | None = None
-    try:
-        with tempfile.NamedTemporaryFile(
-            "w",
-            encoding="utf-8",
-            dir=destination.parent,
-            prefix=f".{destination.name}.",
-            suffix=".tmp",
-            delete=False,
-        ) as temporary:
-            temporary.write(stable_json(value) + "\n")
-            temporary.flush()
-            os.fsync(temporary.fileno())
-            temporary_name = temporary.name
-        os.replace(temporary_name, destination)
-        temporary_name = None
-        flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
-        descriptor = os.open(destination.parent, flags)
-        try:
-            os.fsync(descriptor)
-        finally:
-            os.close(descriptor)
-    finally:
-        if temporary_name is not None:
-            try:
-                os.unlink(temporary_name)
-            except FileNotFoundError:
-                pass
+    publish_text_atomically(path, stable_json(value) + "\n")
 
 
 __all__ = ["load_json_object", "publish_json_atomically"]

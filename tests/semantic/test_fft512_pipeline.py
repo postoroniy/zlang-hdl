@@ -1,8 +1,14 @@
 from pathlib import Path
 
 from zlang.compiler import compile_source
-from zlang.ir.expressions import FixedConvert, RuntimeIndex, Truncate, RegisterRef
-from zlang.ir.signed_reductions import ProductTermSign, recognize_signed_product_reduction
+from zlang.ir import (
+    FixedConvert,
+    ProductTermSign,
+    RuntimeIndex,
+    Truncate,
+    RegisterRef,
+    recognize_signed_product_reduction,
+)
 from zlang.parser import parse
 from zlang.semantic import analyze
 
@@ -12,10 +18,10 @@ ROOT = Path(__file__).resolve().parents[2]
 
 def test_exact_complex_real_pipeline_uses_current_packaged_dsp48_evidence() -> None:
     source = (
-        ROOT / "examples" / "fft" / "complex_multiply_implementation.zhl"
+        ROOT / "examples" / "fft" / "complex_multiply_pipeline_auto.zhl"
     ).read_text()
     result = compile_source(
-        source, top="FFTComplexMultiplyRealImplementation", target="xc7z030ffg676-1"
+        source, top="FFTComplexMultiplyRealAuto", target="xc7z030ffg676-1"
     )
     exploration = result.ir.pipeline_explorations[0]
     assert isinstance(exploration.source_expression, FixedConvert)
@@ -34,12 +40,12 @@ def test_exact_complex_real_pipeline_uses_current_packaged_dsp48_evidence() -> N
     assert not result.implementation_graph.is_generic
     assert len(result.implementation_graph.resources) == 2
     assert result.implementation_graph.pipeline_configuration_identity.endswith(
-        ".multiply_registered"
+        ".multiply_output_registered"
     )
-    assert result.implementation_graph.timing_dag.output_latency == 2
+    assert result.implementation_graph.timing_dag.output_latency == 3
     scheduled = result.implementation_graph.scheduled_value_graph
     assert scheduled is not None
-    assert scheduled.exact_latency == 2
+    assert scheduled.exact_latency == 3
     assert len(scheduled.resource_bindings) == 3
     selected_cost = {
         metric: (value, source)

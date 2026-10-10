@@ -7,7 +7,7 @@ transaction, and architecture categories without depending on a backend.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, fields, is_dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 
 from zlang.ir.arbitration import PacketArbiter
@@ -76,6 +76,7 @@ from zlang.ir.timing import (
     OutputTiming,
 )
 from zlang.dependencies import DependencyClosure, DependencyModuleIdentity
+from zlang.opt.module_validation import validate_declared_union_types
 
 
 NodeId = int
@@ -387,6 +388,7 @@ class CanonicalRule:
     guard: NodeId
     actions: tuple[CanonicalNextAssignment, ...]
     domain: str | None = None
+    physical_name_hint: str | None = field(default=None, compare=False)
 
 
 @dataclass(frozen=True)
@@ -699,74 +701,7 @@ class CanonicalModule:
             self.reset,
             self.clock_domains,
         )
-        declaration_names = tuple(item.name for item in self.tagged_unions)
-        declaration_identities = tuple(
-            item.declaration_identity for item in self.tagged_unions
-        )
-        if len(declaration_names) != len(set(declaration_names)):
-            raise ValueError(
-                "canonical tagged-union declaration names must be unique"
-            )
-        if len(declaration_identities) != len(set(declaration_identities)):
-            raise ValueError(
-                "canonical tagged-union declaration identities must be unique"
-            )
-        declared_unions = {
-            item.declaration_identity: item for item in self.tagged_unions
-        }
-
-        def validate_union_types(value: object, seen: set[int]) -> None:
-            if isinstance(value, TaggedUnionType):
-                declared = declared_unions.get(value.declaration_identity)
-                if declared is None or declared != value:
-                    raise ValueError(
-                        f"tagged-union type '{value.name}' is absent from the "
-                        "exact canonical declaration table"
-                    )
-                return
-            if isinstance(value, tuple):
-                for item in value:
-                    validate_union_types(item, seen)
-                return
-            if is_dataclass(value) and not isinstance(value, type):
-                identity = id(value)
-                if identity in seen:
-                    return
-                seen.add(identity)
-                for item in fields(value):
-                    if item.name in {"origin", "source_origin", "children"}:
-                        continue
-                    validate_union_types(getattr(value, item.name), seen)
-
-        validate_union_types(
-            (
-                self.ports,
-                self.expressions,
-                self.entities,
-                self.functions,
-                self.registers,
-                self.next_assignments,
-                self.request_responses,
-                self.connections,
-                self.rules,
-                self.fifos,
-                self.memories,
-                self.roms,
-                self.locals,
-                self.instance_bindings,
-                self.elaborated_instances,
-                self.protocol_endpoints,
-                self.hierarchical_connections,
-                self.request_response_connections,
-                self.protocol_schemas,
-                self.aggregate_protocol_endpoints,
-                self.aggregate_protocol_connections,
-                self.callable_definitions,
-                self.module_signature,
-                self.external_contract,
-            ),
-            set(),
-        )
+        validate_declared_union_types(self)
         for expected, node in enumerate(self.expressions):
             if node.id != expected:
                 raise ValueError("canonical expression IDs must be contiguous")

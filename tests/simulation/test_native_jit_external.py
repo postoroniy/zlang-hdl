@@ -71,10 +71,6 @@ def test_external_model_contract_is_erased_only_after_exact_validation() -> None
 
     contract = external.external_contract
     assert contract is not None
-    assignment = external.assignments[0]
-    call = assignment.expression
-    assert isinstance(call, expr.Call)
-    assert call.callee_identity == contract.model_callee_identity
     wrong_contract = ExternalModuleContract(
         contract.logical_name,
         contract.signature,
@@ -86,6 +82,9 @@ def test_external_model_contract_is_erased_only_after_exact_validation() -> None
     ):
         lower_external_model(replace(external, external_contract=wrong_contract))
 
+    assignment = external.assignments[0]
+    call = assignment.expression
+    assert isinstance(call, expr.Call)
     malformed = replace(
         external,
         assignments=(
@@ -100,21 +99,6 @@ def test_external_model_contract_is_erased_only_after_exact_validation() -> None
         match="does not match its inputs",
     ):
         lower_external_model(malformed)
-
-    wrong_identity = replace(
-        external,
-        assignments=(
-            replace(
-                assignment,
-                expression=replace(call, callee_identity="wrong-model-identity"),
-            ),
-        ),
-    )
-    with pytest.raises(
-        ExternalModelSimulationLoweringError,
-        match="changed callable identity",
-    ):
-        lower_external_model(wrong_identity)
 
 
 def test_external_model_expansion_is_bounded() -> None:

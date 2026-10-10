@@ -13,7 +13,10 @@ from zlang import implementation_policy as implementation_policy_api
 from zlang import implementation_plans
 from zlang.candidate_identity import pipeline_site_key
 from zlang.exploration import ExplorationResult
-from zlang.formal_temporal_stream import build_capacity_one_transaction_relation
+from zlang.formal_temporal_stream import (
+    gate_capacity_one_transaction_region,
+)
+from zlang.intent_structural_exploration import IntentStructuralExplorationCache
 from zlang.compilation_products import (
     AnalysisProduct,
     PlanningProduct,
@@ -90,6 +93,7 @@ class SelectionBuilder:
         formal_verifier: object | None,
         target: str | None,
         contributions: tuple[object, ...],
+        structural_cache: IntentStructuralExplorationCache | None = None,
     ) -> SelectionProduct:
         semantic_ir = analysis.module
         exploration_results = analysis.exploration_results
@@ -113,17 +117,34 @@ class SelectionBuilder:
                 f"without an formal-aware selection evidence attachment: {kinds}"
             )
         if configured_formal.policy is not formal_exploration.FormalPolicy.OFF:
-            has_elastic = any(
-                item.kind.value == "elastic_pipeline"
-                for item in static_ledger.sites
+            elastic_regions = tuple(
+                region
+                for current in iter_modules(semantic_ir)
+                for region in current.elastic_pipeline_regions
             )
-            if has_elastic and configured_formal.policy in {
+            has_elastic = bool(elastic_regions)
+            has_unsupported_elastic = any(
+                region.temporal_graph is None for region in elastic_regions
+            )
+            has_temporal = any(
+                region.temporal_graph is not None for region in elastic_regions
+            )
+            if has_unsupported_elastic and configured_formal.policy in {
                 formal_exploration.FormalPolicy.REQUIRED_BMC,
                 formal_exploration.FormalPolicy.REQUIRED_PROVEN,
             }:
                 raise SemanticError(
                     "formal-required policy has no semantic-reference equivalence route for variable-latency "
                     "transform pipeline(auto); safety verification ready/valid safety remains available"
+                )
+            if (
+                has_temporal
+                and configured_formal.policy
+                is formal_exploration.FormalPolicy.REQUIRED_PROVEN
+            ):
+                raise SemanticError(
+                    "required_proven is unavailable for capacity-one transaction-stream "
+                    "equivalence; only bounded BMC evidence is supported"
                 )
             try:
                 defer_physical = (
@@ -169,12 +190,18 @@ class SelectionBuilder:
                 )
             except ValueError as error:
                 raise SemanticError(str(error)) from error
-            if has_elastic and configured_formal.policy is formal_exploration.FormalPolicy.AVAILABLE:
-                semantic_ir = with_elastic_formal_records(
-                    semantic_ir,
-                    configured_formal,
-                    nondefault_reset=False,
-                )
+            if has_elastic and configured_formal.policy in {
+                formal_exploration.FormalPolicy.AVAILABLE,
+                formal_exploration.FormalPolicy.REQUIRED_BMC,
+            }:
+                try:
+                    semantic_ir = with_elastic_formal_records(
+                        semantic_ir,
+                        configured_formal,
+                        nondefault_reset=False,
+                    )
+                except formal_exploration.FormalExplorationError as error:
+                    raise SemanticError(str(error)) from error
         backend_ir = inline_locals(semantic_ir)
         implementation_policy = implementation_policy_api.normalize_implementation_policy(
             backend_ir,
@@ -189,6 +216,7 @@ class SelectionBuilder:
             external_contributions=contributions,
             formal_config=external_formal,
             formal_verifier=None,
+            structural_cache=structural_cache,
         )
         if (
             external_explorations
@@ -298,6 +326,14 @@ def map_modules(module: IrModule, transform) -> IrModule:
     # always reconnect the recursively transformed children.
     current = replace(module, children=children)
     return transform(current)
+
+
+def iter_modules(module: IrModule):
+    """Yield each specialization once for selection-owned inspections."""
+
+    yield module
+    for child in module.children:
+        yield from iter_modules(child)
 
 
 def defer_one_root_pipeline_to_physical_formal_selection(
@@ -460,7 +496,10 @@ def with_elastic_formal_records(
     nondefault_reset: bool,
     domain_reason: str | None = None,
 ) -> IrModule:
-    def records(region: object) -> tuple[formal_exploration.FormalExplorationRecord, ...]:
+    def records(
+        current: IrModule,
+        region: object,
+    ) -> tuple[formal_exploration.FormalExplorationRecord, ...]:
         if nondefault_reset:
             return (_nondefault_reset_formal_record(
                 getattr(region, "selected"),
@@ -469,24 +508,17 @@ def with_elastic_formal_records(
                 reason=(domain_reason or _UNSUPPORTED_RESET_FORMAL_REASON),
             ),)
         temporal_graph = getattr(region, "temporal_graph", None)
-        relation = (
-            build_capacity_one_transaction_relation(region)
-            if temporal_graph is not None
-            else None
-        )
+        if temporal_graph is not None:
+            return gate_capacity_one_transaction_region(
+                current,
+                region,
+                config,
+            ).records
         return (formal_exploration.FormalExplorationRecord(
-            candidate_identity=(
-                temporal_graph.implementation_identity
-                if temporal_graph is not None
-                else getattr(region, "selected")
-            ),
+            candidate_identity=getattr(region, "selected"),
             rank=1,
             semantic_legality="typed_legal",
-            formal_route=(
-                "transaction_stream_equivalence_bmc_unbound"
-                if relation is not None
-                else "unsupported_variable_latency_elastic"
-            ),
+            formal_route="unsupported_variable_latency_elastic",
             policy=formal_exploration.FormalPolicy.AVAILABLE,
             mode=ProofMode.BMC,
             depth=config.bmc_depth,
@@ -494,13 +526,10 @@ def with_elastic_formal_records(
             cache_state=formal_exploration.CACHE_STATE_NOT_RUN,
             eligible=True,
             reason=(
-                "capacity-one transaction-stream BMC miter exists, but no "
-                "candidate-selection evidence route is attached"
-                if relation is not None
-                else "semantic-reference equivalence fixed-latency equivalence "
+                "semantic-reference equivalence fixed-latency equivalence "
                 "does not apply to a stalled elastic relation"
             ),
-            property_identity=(None if relation is None else relation.property_identity),
+            property_identity=None,
             source_origin=getattr(region, "source_origin"),
         ),)
 
@@ -508,7 +537,7 @@ def with_elastic_formal_records(
         regions = tuple(
             replace(
                 region,
-                formal_records=records(region),
+                formal_records=records(item, region),
             )
             for region in item.elastic_pipeline_regions
         )
@@ -974,6 +1003,19 @@ class PlanningBuilder:
                     "CDC effects",
                 ),
             ) from error
+        objective = request.objective.metric
+        pipeline_outputs = tuple(sorted({
+            exploration.output for exploration in planned_module.pipeline_explorations
+        }))
+        if len(pipeline_outputs) == 1:
+            output = pipeline_outputs[0]
+            matching_regions = tuple(
+                item
+                for item in selection.implementation_policy.regions
+                if item.region.output_name == output
+            )
+            if len(matching_regions) == 1:
+                objective = matching_regions[0].request.objective.metric
         plans = implementation_plans.plan_backend_implementations(
             planned_module,
             backend_requests=(
@@ -982,6 +1024,7 @@ class PlanningBuilder:
             target=request.target,
             architecture=request.architecture.identity,
             architecture_mode=request.architecture.mode,
+            objective=objective,
             source_policy=request.evidence_policy,
             evidence=target_evidence,
             evidence_path=target_evidence_path,

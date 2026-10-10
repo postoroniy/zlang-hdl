@@ -4,10 +4,14 @@ from pathlib import Path
 
 import pytest
 
-from zlang.backend.systemverilog import emit
+from zlang.backend.systemverilog import emit_experimental
 from zlang.compiler import compile_file
-from zlang.ir.expressions import Call, Constant, ParameterRef
-from zlang.ir.module import FunctionParameter
+from zlang.ir import (
+    Call,
+    Constant,
+    FunctionParameter,
+    ParameterRef,
+)
 from zlang.ir.callables import (
     CallableKind,
     CallableMetadata,
@@ -311,7 +315,7 @@ def test_ieee_framed_ifft_does_not_emit_unused_mapper_helpers() -> None:
         source,
         top="IeeeFramedIFFT64Raw",
     ).ir
-    generated = emit(module)
+    generated = emit_experimental(module)
 
     # Before reachable-only publication this artifact was about 1.61 MiB and
     # contained 441 helper declarations merely because the mapper dependency was

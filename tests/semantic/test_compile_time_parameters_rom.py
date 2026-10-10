@@ -10,7 +10,7 @@ from zlang.compiler import compile_source
 from zlang.ir import expressions as expr
 from zlang.ir.module import SpecializationBindingKind
 from zlang.ir.types import FixedType, StructType, UIntType, VecType
-from zlang.opt.lowering import lower, restore
+from zlang.opt import lower, restore
 from zlang.semantic import SemanticError
 from zlang.native_simulation import simulate_cycles
 

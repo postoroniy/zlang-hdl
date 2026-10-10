@@ -10,7 +10,7 @@ from zlang.ir.pipelines import (
     PipelineRelation,
     RegisterPlacement,
 )
-from zlang.opt.lowering import lower, restore
+from zlang.opt import lower, restore
 from zlang.ir.types import UIntType
 from zlang.parser import parse
 from zlang.semantic import SemanticError, analyze

@@ -44,9 +44,9 @@ class BoundedExplorationTests(unittest.TestCase):
         self.assertEqual(result.ir.assignments[0].expression.type.width, 8)
         self.assertEqual(len(result.exploration_results), 1)
 
-    def test_removed_scalar_forms_are_not_in_the_grammar(self):
+    def test_removed_scalar_forms_have_migration_diagnostics(self):
         for spelling in ("explore { a }", "pipeline(auto){a}", "architecture(auto){a}"):
-            with self.assertRaises(ParseError):
+            with self.assertRaisesRegex(ParseError, "removed"):
                 parse(f"module Removed {{ in a:u8 out y:u8 y={spelling} }}")
 
     def test_defaults_use_exact_value_rewrites_without_pipeline(self):
@@ -151,7 +151,7 @@ class BoundedExplorationTests(unittest.TestCase):
         self.assertLessEqual(len(exploration.generated_candidates), exploration.request.bounds.max_candidates)
 
     def test_implement_rejects_nested_selection_and_bad_objective(self):
-        with self.assertRaises(ParseError):
+        with self.assertRaisesRegex(ParseError, "removed"):
             parse("module N { in a:u8 out y:u8 y=explore { explore { a } } }")
         with self.assertRaisesRegex(SemanticError, "maximize currently supports"):
             compile_source("module Max { in a:u8 out y:u8 y=implement { a intent { maximize lut } } }")

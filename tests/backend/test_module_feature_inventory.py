@@ -20,7 +20,7 @@ from zlang.backend.module_features import (
 )
 from zlang.backend.systemverilog import (
     SystemVerilogEmissionError,
-    emit,
+    emit_experimental,
 )
 from zlang.compiler import compile_source
 
@@ -72,7 +72,7 @@ def test_legacy_specialized_emitters_reject_unclaimed_user_state(
     assert inventory.of_kind(ModuleFeatureKind.RULE)
 
     with pytest.raises(SystemVerilogEmissionError, match=engine) as caught:
-        emit(module)
+        emit_experimental(module)
     assert caught.value.code == "ZL-BACKEND-SYSTEMVERILOG-UNCLAIMED-STATE"
     assert caught.value.semantic_path == ("Mixed",)
     assert "before artifact publication" in caught.value.notes[0]

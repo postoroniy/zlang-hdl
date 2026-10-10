@@ -7,7 +7,7 @@ import subprocess
 
 import pytest
 
-from zlang.backend.systemverilog import emit
+from zlang.backend.systemverilog import emit_experimental
 from zlang.compiler import compile_source
 
 
@@ -21,7 +21,7 @@ def test_hardware_connected_csr_matches_frozen_priority_and_pulse(tmp_path: Path
     ).ir
     rtl = tmp_path / "EngineCsr.sv"
     harness = tmp_path / "test.cpp"
-    rtl.write_text(emit(module))
+    rtl.write_text(emit_experimental(module))
     harness.write_text(r'''
 #include "VEngineCsr.h"
 static void tick(VEngineCsr& d) {
@@ -58,5 +58,50 @@ int main() {
     assert result.returncode == 0, result.stderr
     run = subprocess.run(
         (str(obj / "VEngineCsr"),), capture_output=True, text=True
+    )
+    assert run.returncode == 0, run.stderr or run.stdout
+
+
+@pytest.mark.skipif(shutil.which("verilator") is None, reason="Verilator is required")
+def test_post_accept_csr_event_matches_registered_phase(tmp_path: Path) -> None:
+    module = compile_source(
+        "module PostAccept { clock clk reset rst out clear:bits<2> "
+        "csr registers @0 { R @0 { value u32 @31:0 ro "
+        "clear_event bits<2> @1:0 on_write post_accept -> clear } } }"
+    ).ir
+    rtl = tmp_path / "PostAccept.sv"
+    harness = tmp_path / "test.cpp"
+    rtl.write_text(emit_experimental(module))
+    harness.write_text(r'''
+#include "VPostAccept.h"
+static void tick(VPostAccept& d) {
+  d.clk=0; d.eval(); d.clk=1; d.eval(); d.clk=0; d.eval();
+}
+int main() {
+  VPostAccept d; d.addr=0; d.write=0; d.wdata=0; d.read=0;
+  d.rst=1; tick(d); d.rst=0;
+  d.addr=0; d.write=1; d.wdata=3; d.eval();
+  if (d.clear != 0) return 1;
+  tick(d); if (d.clear != 3) return 2;
+  d.write=0; tick(d); if (d.clear != 0) return 3;
+  return 0;
+}
+''')
+    obj = tmp_path / "obj"
+    environment = os.environ.copy()
+    environment["CCACHE_DISABLE"] = "1"
+    result = subprocess.run(
+        (
+            "verilator", "--cc", "--exe", "--build", "--top-module",
+            "PostAccept", "--Mdir", str(obj), str(rtl), str(harness),
+        ),
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    run = subprocess.run(
+        (str(obj / "VPostAccept"),), capture_output=True, text=True
     )
     assert run.returncode == 0, run.stderr or run.stdout

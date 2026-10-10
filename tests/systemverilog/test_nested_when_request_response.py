@@ -39,15 +39,15 @@ module NestedRequester {
     accept: when bus.request.transfer {
       when choose {
         state <- 9
-        event <- 0xa5
+        drive event = 0xa5
       } else {
         state <- 3
-        event <- 0x3c
+        drive event = 0x3c
       }
     }
     fallback: when competing {
       state <- 0xee
-      event <- 0xee
+      drive event = 0xee
     }
   }
   observed=state
@@ -70,10 +70,10 @@ module NestedResponder {
   update: when bus.request.transfer {
     when choose {
       state <- 9
-      event <- 0xa5
+      drive event = 0xa5
     } else {
       state <- 3
-      event <- 0x3c
+      drive event = 0x3c
     }
   }
   observed=state

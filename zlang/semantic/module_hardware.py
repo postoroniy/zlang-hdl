@@ -4,21 +4,19 @@ from __future__ import annotations
 
 import hashlib
 
-from zlang.ast import nodes as ast
 from zlang.ir import module as ir_module
 from zlang.ir import cdc as ir_cdc
 from zlang.ir import arbitration as ir_arbitration
 from zlang.ir import interfaces as ir_interfaces
 from zlang.ir import types as ir_types
-from zlang.source import SourceOrigin
 from .errors import SemanticError
 from . import context as semantic_context
 from . import csr as semantic_csr
 from . import hierarchy as semantic_hierarchy
 from . import module_pipeline
-from . import module_interfaces as semantic_module_interfaces
-from . import observations as _observations
-from . import type_resolution
+from .hardware_interface_validation import validate_hardware_interface
+from .external_model_analysis import resolve_external_model_function
+from .port_analysis import analyze_ports
 
 
 _CSR_LAYOUT_BUILDER = semantic_csr.CsrLayoutBuilder()
@@ -52,151 +50,25 @@ class HardwareInterfacePreparer:
         clock = domain_product.default_clock
         reset = domain_product.default_reset
         timing_names = domain_product.timing_names
-        symbols: dict[str, ir_module.Port] = {}
-        ports: list[ir_module.Port] = []
-        port_origins: dict[str, SourceOrigin | None] = {}
-        for declaration in module.ports:
-            if declaration.name in symbols:
-                raise SemanticError(f"duplicate port '{declaration.name}'")
-            direction = (
-                ir_module.PortDirection.INPUT
-                if declaration.direction is ast.Direction.INPUT
-                else ir_module.PortDirection.OUTPUT
-            )
-            port_syntax = declaration.type_name
-            if isinstance(port_syntax, ast.InterfaceTypeName):
-                protocol = semantic_module_interfaces.interface_protocol(
-                    port_syntax.kind
-                )
-                payload_syntax = port_syntax.payload_type
-                capacity = port_syntax.capacity
-                virtual_channels = port_syntax.virtual_channels
-            else:
-                protocol = ir_interfaces.InterfaceProtocol.WIRE
-                payload_syntax = port_syntax
-                capacity = None
-                virtual_channels = None
-            port = ir_module.Port(
-                direction=direction,
-                name=declaration.name,
-                type=type_resolver.resolve(payload_syntax),
-                protocol=protocol,
-                capacity=capacity,
-                domain=declaration.domain if declaration.domain is not None else clock,
-                virtual_channels=virtual_channels,
-            )
-            if (
-                direction is ir_module.PortDirection.INPUT
-                and not allow_external_enum_inputs
-                and type_resolution.contains_nominal_type(port.type, ir_types.EnumType)
-            ):
-                boundary_message = (
-                    f"top-level input '{port.name}' cannot expose enum type "
-                    f"{port.type.name}; use an internal child interface"
-                    if isinstance(port.type, ir_types.EnumType)
-                    else f"top-level input '{port.name}' cannot expose type "
-                    f"{port.type} because it contains an enum-valued field; "
-                    "use an internal child interface"
-                )
-                raise SemanticError(boundary_message)
-            if protocol is ir_interfaces.InterfaceProtocol.VC_CREDIT:
-                if (
-                    virtual_channels is None
-                    or virtual_channels < 2
-                    or virtual_channels & (virtual_channels - 1)
-                ):
-                    raise SemanticError(
-                        f"vc_credit interface '{port.name}' virtual-channel count "
-                        "must be a power of two and at least 2"
-                    )
-                if capacity is None or capacity < 1:
-                    raise SemanticError(
-                        f"vc_credit interface '{port.name}' requires at least one "
-                        "credit per virtual channel"
-                    )
-            if declaration.domain is not None and declaration.domain not in module.clocks:
-                raise SemanticError(
-                    f"port '{declaration.name}' references unknown clock domain "
-                    f"'{declaration.domain}'"
-                )
-            if len(clock_domains) > 1 and port.domain is None:
-                raise SemanticError(
-                    f"port '{declaration.name}' requires an explicit clock domain"
-                )
-            symbols[port.name] = port
-            port_origin = _observations.declaration_origin(
-                declaration.name_origins[0]
-                if declaration.name_origins else declaration.origin,
-                f"port {declaration.name}",
-                pure_context,
-            )
-            port_origins[port.name] = port_origin
-            _observations.remember_definition_target(
-                pure_context, port, port_origin,
-                name=declaration.name, kind="port",
-            )
-            ports.append(port)
+        port_product = analyze_ports(
+            module,
+            type_resolver=type_resolver,
+            expression_context=pure_context,
+            default_clock=clock,
+            clock_domain_count=len(clock_domains),
+            allow_external_enum_inputs=allow_external_enum_inputs,
+        )
+        symbols = port_product.symbols
+        ports = list(port_product.ports)
+        port_origins = port_product.origins
+        source_scalar_ports = port_product.ports
 
-        source_scalar_ports = tuple(ports)
-
-        external_model_function: ir_module.Function | None = None
-        if module.external_model is not None:
-            aggregate_port = next(
-                (
-                    port
-                    for port in source_scalar_ports
-                    if isinstance(port.type, (ir_types.StructType, ir_types.TupleType, ir_types.VecType))
-                ),
-                None,
-            )
-            if aggregate_port is not None:
-                raise SemanticError(
-                    f"external module '{module.name}' port '{aggregate_port.name}' "
-                    "must be a scalar wire in this first slice",
-                    code="ZL-EXTERN-UNSUPPORTED",
-                )
-            external_model_function = next(
-                (item for item in preparation.functions if item.name == module.external_model),
-                None,
-            )
-            if external_model_function is None:
-                if module.external_model in preparation.generic_functions:
-                    detail = "must be non-generic"
-                else:
-                    detail = "does not name an existing function"
-                raise SemanticError(
-                    f"external module '{module.name}' model '{module.external_model}' "
-                    f"{detail}",
-                    code="ZL-EXTERN-MODEL",
-                )
-            external_inputs = tuple(
-                port for port in source_scalar_ports
-                if port.direction is ir_module.PortDirection.INPUT
-            )
-            external_outputs = tuple(
-                port for port in source_scalar_ports
-                if port.direction is ir_module.PortDirection.OUTPUT
-            )
-            expected_parameters = tuple(
-                (port.name, port.type) for port in external_inputs
-            )
-            actual_parameters = tuple(
-                (parameter.name, parameter.type)
-                for parameter in external_model_function.parameters
-            )
-            if actual_parameters != expected_parameters:
-                raise SemanticError(
-                    f"external module '{module.name}' model parameters must exactly "
-                    f"match inputs {expected_parameters}, got {actual_parameters}",
-                    code="ZL-EXTERN-MODEL",
-                )
-            if external_model_function.return_type != external_outputs[0].type:
-                raise SemanticError(
-                    f"external module '{module.name}' model returns "
-                    f"{external_model_function.return_type}, expected "
-                    f"{external_outputs[0].type}",
-                    code="ZL-EXTERN-MODEL",
-                )
+        external_model_function = resolve_external_model_function(
+            module,
+            source_scalar_ports,
+            preparation.functions,
+            preparation.generic_functions,
+        )
 
         csr_module_payload = (
             f"{module.source_identity or module.name}|{module.source_hash or ''}|"
@@ -565,54 +437,19 @@ class HardwareInterfacePreparer:
             request_responses.append(interface)
             request_response_symbols[interface.name] = interface
 
-        # A sequential ready/valid module has the same typed semantics whether it
-        # is selected as the top or elaborated as a child.  Backend capability is
-        # validated after this context-independent semantic lowering; do not make
-        # source legality depend on the private child-specialization entry point.
-        if not clock_domains and any(
-            port.protocol is ir_interfaces.InterfaceProtocol.CREDIT for port in ports
-        ):
-            raise SemanticError("credit interfaces require a module clock and reset")
-        if not clock_domains and any(
-            port.protocol is ir_interfaces.InterfaceProtocol.VC_CREDIT for port in ports
-        ):
-            raise SemanticError(
-                "virtual-channel credit interfaces require a module clock and reset"
-            )
-        if any(port.protocol is ir_interfaces.InterfaceProtocol.VC_CREDIT for port in ports) and (
-            clock is None or reset is None
-        ):
-            raise SemanticError(
-                "virtual-channel credit interfaces require one module clock and reset"
-            )
-        if any(port.protocol is ir_interfaces.InterfaceProtocol.PACKET for port in ports) and not arbiters:
-            raise SemanticError(
-                "packet interfaces currently require an explicit packet arbiter"
-            )
-        if not clock_domains and request_responses:
-            raise SemanticError(
-                "request/response interfaces require a module clock and reset"
-            )
-        if not clock_domains and csr_blocks:
-            raise SemanticError("CSR blocks require a module clock and reset")
-        if not clock_domains and any(
-            connection.buffer_depth or connection.adapter is not None
-            for connection in connections
-        ):
-            raise SemanticError(
-                "buffered and adapted connections require a module clock and reset"
-            )
-        for timing_name in timing_names:
-            if timing_name in symbols or timing_name in request_response_symbols:
-                raise SemanticError(
-                    f"clock/reset name '{timing_name}' conflicts with a port"
-                )
-        csr_names = {block.name for block in csr_blocks}
-        if csr_names & (symbols.keys() | request_response_symbols.keys()):
-            conflict = sorted(
-                csr_names & (symbols.keys() | request_response_symbols.keys())
-            )[0]
-            raise SemanticError(f"CSR block name '{conflict}' conflicts with a port")
+        csr_names = validate_hardware_interface(
+            clock_domains=clock_domains,
+            clock=clock,
+            reset=reset,
+            timing_names=timing_names,
+            symbols=symbols,
+            ports=ports,
+            csr_blocks=csr_blocks,
+            connections=connections,
+            arbiters=arbiters,
+            request_responses=request_responses,
+            request_response_symbols=request_response_symbols,
+        )
 
         return module_pipeline.HardwareInterfaceProduct(
             tuple(clock_domains),
@@ -632,5 +469,5 @@ class HardwareInterfacePreparer:
             tuple(arbiters),
             tuple(request_responses),
             request_response_symbols,
-            frozenset(csr_names),
+            csr_names,
         )

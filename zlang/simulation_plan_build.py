@@ -26,7 +26,10 @@ from zlang.simulation_plan_policy import (
 )
 from zlang.simulation_plan_model import SimulationPlan, identity_bytes
 from zlang.simulation_plan_codec import validate_plan_payload as _validate_plan_payload
-from zlang.simulation_runtime_plan import RuntimeStatePlanBuilder
+from zlang.simulation_runtime_plan import (
+    RuntimeStatePlanBuilder,
+    registered_output_runtime_names,
+)
 from zlang.simulation_storage_plan import StoragePlanBuilder
 from zlang.simulation_transition_plan import TransitionPlanBuilder
 from zlang.simulation_verification_plan import VerificationOverlayBuilder
@@ -284,12 +287,14 @@ def _build_leaf_simulation_plan(
             f"simulation plan exceeds {max_nodes} expression nodes"
         )
 
+    register_names = registered_output_runtime_names(module, canonical)
     expression_plan = PrimitiveExpressionPlanBuilder(
         module,
         canonical,
         max_memory_width,
         max_memory_bits,
         max_width,
+        register_names,
     ).build()
 
     # Verification remains an execution overlay with its own canonical DAG so
@@ -308,6 +313,7 @@ def _build_leaf_simulation_plan(
         expression_plan.staged_expressions,
         expression_plan.rom_result_names,
         expression_plan.packed_register_initials,
+        register_names,
     ).build()
     storage_plan = StoragePlanBuilder(
         module,
@@ -324,7 +330,7 @@ def _build_leaf_simulation_plan(
             "sequential-state materialization"
         )
 
-    transition_plan = TransitionPlanBuilder(canonical).build()
+    transition_plan = TransitionPlanBuilder(canonical, register_names).build()
 
     payload: dict[str, Any] = {
         "schema": policy.schema,

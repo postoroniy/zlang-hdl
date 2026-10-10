@@ -19,6 +19,10 @@ from .rules_support import (
 class ProtocolAndCsrRules:
     """Stateless grammar callbacks for one bounded parser domain."""
 
+    def registered_port_storage(self, items: list[object]) -> tuple[str, bool]:
+        del items
+        return ("port_storage", True)
+
     @v_args(meta=True)
     def port_decl(self, meta: object, items: list[object]) -> ast_nodes.PortDecl:
         names_item = next(item for item in items if _tagged(item, "port_names"))
@@ -27,9 +31,13 @@ class ProtocolAndCsrRules:
             item for item in items
             if isinstance(item, (ast_nodes.TypeName, ast_nodes.VectorTypeName, ast_nodes.TupleTypeName, ast_nodes.InterfaceTypeName))
         )
+        registered = any(_tagged(item, "port_storage") for item in items)
         trailing = [
-            item for item in items[2:]
-            if item is not type_name and item is not None
+            item for item in items[1:]
+            if item is not type_name
+            and item is not names_item
+            and not _tagged(item, "port_storage")
+            and item is not None
         ]
         domain = next((str(item) for item in trailing if isinstance(item, str)), None)
         initializer = next((item for item in trailing if not isinstance(item, str)), None)
@@ -39,6 +47,7 @@ class ProtocolAndCsrRules:
             initializer,
             self._span(meta),
             tuple(names_item[2]) if len(names_item) > 2 else (),
+            registered,
         )
 
     def wire_interface_type(self, items: list[object]) -> ast_nodes.InterfaceTypeName:
@@ -298,13 +307,29 @@ class ProtocolAndCsrRules:
             index for index, item in enumerate(items[2:], start=2)
             if str(item) in {kind.value for kind in ast_nodes.CsrEventKind}
         )
+        phase = next(
+            (
+                ast_nodes.CsrEventPhase(str(item))
+                for item in items[kind_index + 1 :]
+                if str(item) in {
+                    value.value for value in ast_nodes.CsrEventPhase
+                }
+            ),
+            ast_nodes.CsrEventPhase.ACTIVE_TRANSFER,
+        )
+        signal = next(
+            str(item)
+            for item in reversed(items[kind_index + 1 :])
+            if item is not None
+        )
         return ast_nodes.CsrEventDecl(
             str(items[0]),
             items[1],
             ast_nodes.CsrEventKind(str(items[kind_index])),
-            str(items[kind_index + 1]),
+            signal,
             position[1] if position is not None else None,
             position[2] if position is not None else None,
+            phase,
             self._span(meta),
         )
 

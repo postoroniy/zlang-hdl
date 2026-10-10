@@ -8,8 +8,8 @@ from tests.case_matrix import check_cases
 from zlang.compiler import compile_source
 from zlang.ir import expressions as expr
 from zlang.ir.types import BitType, SIntType, TupleType, UIntType, VecType
-from zlang.opt.egraph import EGraphAdapterError, canonical_to_egraph
-from zlang.opt.lowering import lower, restore
+from zlang.opt import EGraphAdapterError, canonical_to_egraph
+from zlang.opt import lower, restore
 from zlang.semantic import SemanticError
 from zlang.native_simulation import simulate, simulate_cycles
 

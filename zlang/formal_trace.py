@@ -228,8 +228,15 @@ def decode_vcd_trace(
     cycle: int | None,
     bindings: Iterable[TraceBinding],
     comparison_window: ComparisonWindow | None = None,
+    clock_edge_frames: bool = False,
 ) -> FormalTraceSnapshot:
-    """Decode one SBY trace frame through exact, caller-owned bindings."""
+    """Decode one SBY trace frame through exact, caller-owned bindings.
+
+    SMT-backed SBY traces carry an explicit ``smt_step`` marker.  BTOR witness
+    traces do not, so their route owner may explicitly request rising-clock
+    frames.  That fallback is never selected from signal spelling or tool log
+    heuristics alone.
+    """
 
     try:
         lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
@@ -262,16 +269,38 @@ def decode_vcd_trace(
                     step_symbol = symbol
         elif stripped.startswith("$enddefinitions"):
             break
-    if step_symbol is None:
+    clock_symbol: str | None = None
+    if step_symbol is None and clock_edge_frames:
+        clock_candidates = [
+            (full.count("."), symbol)
+            for symbol, (full, leaf, width) in symbols.items()
+            if leaf == "clk" and width == 1
+        ]
+        if clock_candidates:
+            shallowest = min(depth for depth, _ in clock_candidates)
+            shallow = [
+                symbol for depth, symbol in clock_candidates if depth == shallowest
+            ]
+            if len(shallow) == 1:
+                clock_symbol = shallow[0]
+    if step_symbol is None and clock_symbol is None:
         return FormalTraceSnapshot(cycle, None, None, None, (), str(path))
 
     current: dict[str, str] = {}
     selected: dict[str, str] | None = None
     selected_step: int | None = None
     current_step: int | None = None
+    previous_clock: str | None = None
+    next_clock_step = 0
 
     def finish_frame() -> None:
-        nonlocal selected, selected_step
+        nonlocal current_step, next_clock_step, previous_clock, selected, selected_step
+        if clock_symbol is not None:
+            clock = current.get(clock_symbol)
+            if clock == "1" and previous_clock != "1":
+                current_step = next_clock_step
+                next_clock_step += 1
+            previous_clock = clock
         if current_step is None:
             return
         if cycle is None:

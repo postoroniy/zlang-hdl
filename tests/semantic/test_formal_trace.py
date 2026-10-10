@@ -187,3 +187,71 @@ def test_missing_or_non_solver_vcd_fails_closed(tmp_path: Path) -> None:
     plain = decode_vcd_trace(path, cycle=3, bindings=())
     assert plain.values == ()
     assert plain.failure_cycle == 3
+
+
+def test_btor_trace_uses_explicit_rising_clock_frames(tmp_path: Path) -> None:
+    path = tmp_path / "btor.vcd"
+    path.write_text("""$scope module top $end
+$var wire 1 ! clk $end
+$var wire 4 \" count $end
+$scope module dut $end
+$var wire 1 # clk $end
+$var wire 4 $ count $end
+$upscope $end
+$upscope $end
+$enddefinitions $end
+#0
+1!
+1#
+b0000 \"
+b0000 $
+#5
+0!
+0#
+#10
+1!
+1#
+b0001 \"
+b0001 $
+#15
+0!
+0#
+#20
+1!
+1#
+b0010 \"
+b0010 $
+""", encoding="ascii")
+
+    decoded = decode_vcd_trace(
+        path,
+        cycle=1,
+        bindings=(TraceBinding("count", "count", 4),),
+        clock_edge_frames=True,
+    )
+
+    assert decoded.failure_cycle == 1
+    assert decoded.values == (("count", "0b0001"),)
+
+
+def test_plain_vcd_does_not_infer_clock_frames_without_route_request(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "plain-clock.vcd"
+    path.write_text("""$scope module top $end
+$var wire 1 ! clk $end
+$var wire 1 \" value $end
+$upscope $end
+$enddefinitions $end
+#0
+1!
+1\"
+""", encoding="ascii")
+
+    decoded = decode_vcd_trace(
+        path,
+        cycle=0,
+        bindings=(TraceBinding("value", "value", 1),),
+    )
+
+    assert decoded.values == ()

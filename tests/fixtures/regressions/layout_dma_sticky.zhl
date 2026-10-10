@@ -2,18 +2,23 @@
 
 module LayoutDmaStickyRegression {
     clock clk reset rst
-    in enable, layout_valid : bit
+    in enable : bit
+    in layout_valid : bit
     in layout_in_addr, layout_out_addr : u64
-    out layout_ready, busy, done, error : bit
+    out layout_ready : bit
+    out busy, done, error : bit
+
     out read_ar_valid : bit
     out read_ar_addr : u64
     out read_ar_len : u8
     out read_ar_size : u3
-    in read_ar_ready, read_r_valid : bit
+    in read_ar_ready : bit
+    in read_r_valid : bit
     in read_r_data : u32
     in read_r_last : bit
     in read_r_resp : bits<2>
     out read_r_ready : bit
+
     out write_aw_valid : bit
     out write_aw_addr : u64
     out write_aw_len : u8
@@ -22,7 +27,8 @@ module LayoutDmaStickyRegression {
     out write_w_valid : bit
     out write_w_data : u32
     out write_w_last : bit
-    in write_w_ready, write_b_valid : bit
+    in write_w_ready : bit
+    in write_b_valid : bit
     in write_b_resp : bits<2>
     out write_b_ready : bit
 
@@ -45,8 +51,10 @@ module LayoutDmaStickyRegression {
     write_aw_transfer : bit = (state == 7) & write_aw_ready
     write_w_transfer : bit = (state == 8) & write_w_ready
     write_b_transfer : bit = (state == 9) & write_b_valid
-    read_failed : bit = read_r_transfer & ((read_r_resp != 0) | (read_r_last == 0))
+    read_failed : bit = read_r_transfer &
+        ((read_r_resp != 0) | (read_r_last == 0))
     write_failed : bit = write_b_transfer & (write_b_resp != 0)
+
     next_state : u4 = switch state {
         0 => mux(layout_transfer, 1, 0)
         1 => mux(read_unaligned, 2, 3)
@@ -68,11 +76,13 @@ module LayoutDmaStickyRegression {
     busy = enable & (state != 0)
     done = state == 11
     error = failed
+
     read_ar_valid = state == 3
     read_ar_addr = read_address
     read_ar_len = 0
     read_ar_size = 2
     read_r_ready = state == 4
+
     write_aw_valid = state == 7
     write_aw_addr = write_address
     write_aw_len = 0
@@ -86,9 +96,15 @@ module LayoutDmaStickyRegression {
         input_address <- layout_in_addr
         output_address <- layout_out_addr
     }
-    when (state == 1) & !read_unaligned { read_address <- input_address }
-    when (state == 5) & !write_unaligned { write_address <- output_address }
-    when read_r_transfer & !read_failed { buffered_data <- read_r_data }
+    when (state == 1) & !read_unaligned {
+        read_address <- input_address
+    }
+    when (state == 5) & !write_unaligned {
+        write_address <- output_address
+    }
+    when read_r_transfer & !read_failed {
+        buffered_data <- read_r_data
+    }
     priority {
         when (state == 1) & !read_unaligned { reader_error <- 0 }
         when (state == 1) & read_unaligned { reader_error <- 1 }

@@ -64,10 +64,8 @@ def _formal_source(implementation: str):
     )
     top = "semantic_equivalence_" + property_.id.replace(".", "_")
     return (
-        property_,
-        reference + "\n" + implementation + "\n" + miter.source,
-        top,
-        miter.trace_metadata,
+        property_, reference + "\n" + implementation + "\n" + miter.source,
+        top, miter.trace_metadata,
     )
 
 

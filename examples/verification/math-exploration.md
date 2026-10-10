@@ -1,7 +1,7 @@
 # From a long expression to a checked pipeline
 
 This Community example exercises the compiler's general scalar scheduling and
-formal flow. [math_implementation.zhl](math_implementation.zhl) implements an exact
+formal flow. [math_exploration.zhl](math_exploration.zhl) implements an exact
 eight-product correlator:
 
 ```zlang
@@ -22,8 +22,8 @@ visible; they do not require a compiler-specific function or DSP primitive.
 | Top | What changes? | Internal latency | II |
 | --- | --- | ---: | ---: |
 | `MathOneCycle` | Original combinational expression | 0 | 1 |
-| `MathImplementationTopology` | Compiler-selected value/resource intent | 0 | 1 |
-| `MathImplementationPipeline` | Compiler-selected value and exact one-cycle schedule | 1 | 1 |
+| `MathArchitecture` | Compiler-selected value/resource intent | 0 | 1 |
+| `MathExplore` | Compiler-selected value and exact one-cycle schedule | 1 | 1 |
 
 The first two have **no internal pipeline registers**. The timing experiment
 places identical launch and capture registers around every kernel; their entire
@@ -63,13 +63,13 @@ routed timing evidence.
 Run from the repository root with ZLang installed in `.venv`:
 
 ```sh
-.venv/bin/zlang examples/verification/math_implementation.zhl \
+.venv/bin/zlang examples/verification/math_exploration.zhl \
   --top MathOneCycle --systemverilog build/math/MathOneCycle.sv
-.venv/bin/zlang examples/verification/math_implementation.zhl \
-  --top MathImplementationTopology --systemverilog build/math/MathImplementationTopology.sv \
+.venv/bin/zlang examples/verification/math_exploration.zhl \
+  --top MathArchitecture --systemverilog build/math/MathArchitecture.sv \
   --architecture-report build/math/architecture.txt
-.venv/bin/zlang examples/verification/math_implementation.zhl \
-  --top MathImplementationPipeline --systemverilog build/math/MathImplementationPipeline.sv \
+.venv/bin/zlang examples/verification/math_exploration.zhl \
+  --top MathExplore --systemverilog build/math/MathExplore.sv \
   --exploration-report build/math/explore.txt \
   --evidence-report build/math/evidence.json
 ```
@@ -81,7 +81,7 @@ No solver runs just because ordinary RTL was generated.
 Put `sby`, `yosys`, `yosys-smtbmc`, and `z3` on `PATH`:
 
 ```sh
-.venv/bin/python -m tools.math_implementation_formal \
+.venv/bin/python -m tools.math_exploration_formal \
   --output build/math/formal --depth 10 --timeout 120
 ```
 
@@ -125,7 +125,7 @@ property family or optimizer rewrite is added.
 With Vivado 2024.2 available:
 
 ```sh
-.venv/bin/python -m tools.math_implementation_qor \
+.venv/bin/python -m tools.math_exploration_qor \
   --output build/math/qor --vivado /path/to/Vivado/2024.2/bin/vivado \
   --part xc7z030ffg676-1 --period-ns 10 --jobs 2 --timeout 300
 ```
@@ -186,29 +186,29 @@ retired cross-backend equivalence rows are historical evidence.
 
 | Check | Recorded result |
 | --- | --- |
-| `MathImplementationPipeline`: canonical reference ↔ Clash | `bounded_pass depth=10` |
-| `MathImplementationPipeline`: canonical reference ↔ direct-SV | `bounded_pass depth=10` |
-| `MathImplementationPipeline`: Clash ↔ direct-SV | `bounded_pass depth=10` |
+| `MathExplore`: canonical reference ↔ Clash | `bounded_pass depth=10` |
+| `MathExplore`: canonical reference ↔ direct-SV | `bounded_pass depth=10` |
+| `MathExplore`: Clash ↔ direct-SV | `bounded_pass depth=10` |
 | Too-shallow pipeline comparison | depth 7 `unknown`, minimum meaningful depth 8 |
 | Output-bit-flip mutation | `failed`, counterexample at formal cycle 8 |
 | Missing-final-stage mutation | `failed`, counterexample at formal cycle 8 |
-| `MathImplementationTopology`: separate topology formal-aware selection check | `unknown` after 45 s and 120 s timeouts |
+| `MathArchitecture`: separate topology formal-aware selection check | `unknown` after 45 s and 120 s timeouts |
 
 The two mutation results demonstrate that checking arithmetic alone is insufficient:
 the formal comparison must preserve the originating sample and pipeline latency.
 No bounded result above is labeled `proven`.
 
-The separate `MathImplementationTopology` rank-1 `folded_p4` equivalence problem timed out
+The separate `MathArchitecture` rank-1 `folded_p4` equivalence problem timed out
 while checking its first symbolic step. It passes the numerical/RTL tests and
 the timing experiment, but **does not have a successful formal equivalence
-result in this record**. The faster `MathImplementationPipeline` proof is for its own selected
+result in this record**. The faster `MathExplore` proof is for its own selected
 candidate and must not be transferred to another topology. Required formal-aware selection policy
 correctly stops on the inconclusive result rather than accepting it or silently
 trying a different implementation:
 
 ```sh
-.venv/bin/zlang examples/verification/math_implementation.zhl \
-  --top MathImplementationTopology --formal-policy required_bmc \
+.venv/bin/zlang examples/verification/math_exploration.zhl \
+  --top MathArchitecture --formal-policy required_bmc \
   --formal-depth 4 --formal-timeout 120 \
   --systemverilog build/math/architecture-checked.sv
 ```
@@ -221,8 +221,8 @@ changing arithmetic semantics to make the proof easier is not acceptable.
 ## Regression
 
 ```sh
-.venv/bin/python -m pytest -q tests/integration/test_math_implementation_example.py \
-  tests/semantic/test_math_implementation_formal_tool.py tests/test_math_implementation_qor.py
+.venv/bin/python -m pytest -q tests/integration/test_math_exploration_example.py \
+  tests/semantic/test_math_exploration_formal_tool.py tests/test_math_exploration_qor.py
 ```
 
 The consolidated witness checks exact boundary/random samples, continuous

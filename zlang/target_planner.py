@@ -437,6 +437,7 @@ def plan_target_pipeline(
     module: Module,
     *,
     target: str | None,
+    objective: expr.CostMetric | str = expr.CostMetric.LUT,
     source_policy: SourcePolicy | str = SourcePolicy.MEASURED_PREFERRED,
     evidence: Iterable[QoREvidence] | None = None,
     evidence_path: Path | None = None,
@@ -450,6 +451,7 @@ def plan_target_pipeline(
     exploration, requirements, exact_latency, maximum_latency = _requirements(module)
     if exploration is None:
         return None
+    objective = expr.CostMetric(objective)
     policy = SourcePolicy(source_policy)
     selected_target = family = None
     resources = ()
@@ -530,7 +532,7 @@ def plan_target_pipeline(
                     graph = replace(
                         graph,
                         policy_requirements=requirements,
-                        objective="lut",
+                        objective=objective.value,
                         selected_cost=_cost_items(cost),
                         evidence_identity=route.identity if route else None,
                     )
@@ -546,7 +548,7 @@ def plan_target_pipeline(
     try:
         extraction = extract_best(
             eligible,
-            objective=expr.CostMetric.LUT,
+            objective=objective,
             constraints=pipeline_constraints_to_unified(exploration.constraints),
             source_policy=policy,
             cost_fn=lambda item: item.cost,
@@ -612,13 +614,22 @@ def _cost_items(cost: CandidateCost) -> tuple[tuple[str, int | float | None, str
 
 
 def render_target_planner_report(result: TargetPlanningResult) -> str:
+    objective = (
+        result.extraction.objective
+        if result.extraction is not None
+        else expr.CostMetric.LUT
+    )
+    objective_direction = (
+        "maximize" if objective is expr.CostMetric.FMAX_EST else "minimize"
+    )
     lines = [
         "Target-aware pipeline planner: scheduled scalar value graph",
         f"target: {result.target or 'none'}",
         "requirements: " + ", ".join(
             f"{metric} {relation} {value}" for metric, relation, value in result.requirements
         ),
-        f"source policy: {result.source_policy.value}; objective: minimize lut",
+        f"source policy: {result.source_policy.value}; "
+        f"objective: {objective_direction} {objective.value}",
         f"semantic region: {result.selected_candidate.graph.semantic_region_identity}",
         f"selected realization backend: {result.selected_candidate.graph.realization_backend}",
         f"candidates considered: {len(result.generated_candidates)}; search bound: {result.search_bound}",

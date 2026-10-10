@@ -287,10 +287,15 @@ class RuleAnalyzer:
                     continue
                 target_name = (
                     source_action.target.register
-                    if isinstance(source_action.target, ast.IndexedAssignmentTarget)
+                    if isinstance(source_action, ast.NextAssignment)
+                    and isinstance(source_action.target, ast.IndexedAssignmentTarget)
                     else source_action.target
                 )
-                target = register_symbols.get(target_name) or outputs.get(target_name)
+                target = (
+                    outputs.get(target_name)
+                    if isinstance(source_action, ast.OutputDrive)
+                    else register_symbols.get(target_name)
+                )
                 if target is not None:
                     target_domains.add(target.domain)
             rule_domain = hardware.state_domains.resolve(
@@ -358,7 +363,7 @@ class RuleAnalyzer:
             typed_condition_cache: dict[int, ir_expr.Expression] = {}
 
             def effect_origin(
-                action: ast.NextAssignment | ast.ResourceAction,
+                action: ast.NextAssignment | ast.OutputDrive | ast.ResourceAction,
             ) -> SourceOrigin | None:
                 if isinstance(action, ast.ResourceAction) and action.origin is not None:
                     return SourceOrigin(
@@ -374,7 +379,7 @@ class RuleAnalyzer:
                         and isinstance(action.target, ast.IndexedAssignmentTarget)
                     )
                     else action.expression.origin
-                    if isinstance(action, ast.NextAssignment)
+                    if isinstance(action, (ast.NextAssignment, ast.OutputDrive))
                     else None
                 )
                 return (
@@ -495,7 +500,10 @@ class RuleAnalyzer:
 
             def validate_conditional_guards(
                 source_actions: tuple[
-                    ast.NextAssignment | ast.ResourceAction | ast.ConditionalAction,
+                    ast.NextAssignment
+                    | ast.OutputDrive
+                    | ast.ResourceAction
+                    | ast.ConditionalAction,
                     ...,
                 ],
                 conditions: tuple[tuple[ast.Expression, bool], ...] = (),
@@ -678,7 +686,10 @@ class RuleAnalyzer:
                         (kind, resource.name, operands, origin, activation)
                     )
                     continue
-                if isinstance(action.target, ast.IndexedAssignmentTarget):
+                if (
+                    isinstance(action, ast.NextAssignment)
+                    and isinstance(action.target, ast.IndexedAssignmentTarget)
+                ):
                     indexed = action.target
                     target = register_symbols.get(indexed.register)
                     if target is None:
@@ -791,14 +802,63 @@ class RuleAnalyzer:
                         target, update, activation
                     ))
                     continue
-                target = register_symbols.get(action.target)
-                if target is None:
+                if isinstance(action, ast.OutputDrive):
                     target = outputs.get(action.target)
-                if target is None:
-                    raise SemanticError(
-                        f"rule '{declaration.name}' target '{action.target}' is not a "
-                        "register or output wire"
-                    )
+                    if target is None:
+                        if action.target in register_symbols:
+                            raise SemanticError(
+                                f"drive target '{action.target}' is stored state; "
+                                "use '<-' to update a register or registered output",
+                                code="ZL-SEMANTIC-DRIVE-TARGET",
+                                primary=semantic_observations.declaration_origin(
+                                    action.target_origin,
+                                    f"drive target {action.target}",
+                                    action_context,
+                                ),
+                            )
+                        raise SemanticError(
+                            f"rule '{declaration.name}' drive target "
+                            f"'{action.target}' is not an output wire",
+                            code="ZL-SEMANTIC-DRIVE-TARGET",
+                            primary=semantic_observations.declaration_origin(
+                                action.target_origin,
+                                f"drive target {action.target}",
+                                action_context,
+                            ),
+                        )
+                    if target.registered:
+                        raise SemanticError(
+                            f"registered output '{action.target}' is stored state; "
+                            "use '<-' to update it",
+                            code="ZL-SEMANTIC-DRIVE-TARGET",
+                            primary=semantic_observations.declaration_origin(
+                                action.target_origin,
+                                f"drive target {action.target}",
+                                action_context,
+                            ),
+                        )
+                else:
+                    target = register_symbols.get(action.target)
+                    if target is None:
+                        output = outputs.get(action.target)
+                        if output is not None:
+                            raise SemanticError(
+                                f"output wire '{action.target}' is not stored and "
+                                "cannot be updated with '<-'; declare 'out reg "
+                                f"{action.target} : {output.type}' for held state, "
+                                f"or use 'drive {action.target} = ...' for a "
+                                "transient rule output",
+                                code="ZL-SEMANTIC-WIRE-NEXT-ASSIGNMENT",
+                                primary=semantic_observations.declaration_origin(
+                                    action.target_origin,
+                                    f"output target {action.target}",
+                                    action_context,
+                                ),
+                            )
+                        raise SemanticError(
+                            f"rule '{declaration.name}' target '{action.target}' "
+                            "is not a register or output wire"
+                        )
                 if target.domain != rule_domain:
                     raise SemanticError(
                         f"clock-domain mismatch in rule '{declaration.name}': "
@@ -888,7 +948,13 @@ class RuleAnalyzer:
                             primary=origin,
                         )
             rules.append(
-                ir_module.Rule(declaration.name, guard, tuple(actions), rule_domain)
+                ir_module.Rule(
+                    declaration.name,
+                    guard,
+                    tuple(actions),
+                    rule_domain,
+                    declaration.physical_name_hint,
+                )
             )
             rule_resource_actions[declaration.name] = resource_actions
 

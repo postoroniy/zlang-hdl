@@ -5,7 +5,7 @@ import subprocess
 
 import pytest
 
-from zlang.backend.systemverilog import emit, emit_target, emit_target_artifact
+from zlang.backend.systemverilog import emit_experimental, emit_target, emit_target_artifact
 from zlang.compiler import compile_source
 
 
@@ -32,7 +32,7 @@ def test_generic_and_selected_memory_keep_one_cycle_read_first_semantics() -> No
     assert "RAMB36E1" not in target_rtl  # inference binding, not a guessed primitive ABI
     artifact = emit_target_artifact(selected.ir, selected.implementation_graph)
     assert artifact.implementation.intended_resource_counts == artifact.implementation.emitted_resource_counts
-    assert emit(generic.ir)
+    assert emit_experimental(generic.ir)
 
 
 @pytest.mark.skipif(shutil.which("verilator") is None, reason="Verilator unavailable")
@@ -44,7 +44,7 @@ def test_generic_and_selected_memory_are_bit_exact_in_verilator(
     rtl = tmp_path / "TargetBRAMMemory.sv"
     rtl.write_text(
         emit_target(compilation.ir, compilation.implementation_graph)
-        if selected else emit(compilation.ir)
+        if selected else emit_experimental(compilation.ir)
     )
     bench = tmp_path / "tb.sv"
     bench.write_text("""

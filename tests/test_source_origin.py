@@ -15,7 +15,7 @@ from zlang.ir.equivalence import (
     EquivalenceBinding,
     SignalRole,
 )
-from zlang.ir.expressions import Call
+from zlang.ir import Call
 from zlang.source import SourceOrigin, SourceSpan
 from zlang.compiler import compile_source
 from zlang.backend.systemverilog import emit_artifact as emit_systemverilog_artifact

@@ -43,13 +43,7 @@ def test_semantic_demand_has_an_explicit_bounded_dependency_frontier(
 ) -> None:
     for owner, names in (
         (implementation_plans, ("plan_backend_implementations",)),
-        (
-            formal_api,
-            (
-                "build_formal_design",
-                "build_recursive_formal_design",
-            ),
-        ),
+        (formal_api, ("build_formal_design", "build_recursive_formal_design")),
         (costs, ("render_cost_report",)),
         (
             output_api,

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 from zlang.compiler import compile_source
-from zlang.ir.expressions import Call, Constant
+from zlang.ir import Call, Constant
 from zlang.ir.normalization import normalize_selected_values
 from zlang.parser import parse
 from zlang.semantic import analyze
@@ -73,3 +75,17 @@ def test_selected_normalization_visits_each_shared_dag_node_once() -> None:
     assert statistics.unique_expression_visits == (
         statistics.expression_requests - statistics.expression_cache_hits
     )
+
+
+def test_selected_normalization_keeps_shared_child_module_object() -> None:
+    child = compile_source("module Child{out y:u8 y=extend<8>(1+2)}").ir
+    root = replace(
+        compile_source("module Root{out y:u8 y=0}").ir,
+        children=(child, child),
+    )
+
+    normalized = normalize_selected_values(root)
+
+    assert normalized.children[0] is normalized.children[1]
+    assert isinstance(normalized.children[0].assignments[0].expression, Constant)
+    assert normalized.children[0].assignments[0].expression.value == 3

@@ -222,7 +222,7 @@ def _run_yosys(
 
 
 def _measure_one(slug: str, profile: str, *, rtl_output: Path) -> dict[str, object]:
-    from zlang.backend.systemverilog import emit
+    from zlang.backend.systemverilog import emit_experimental
     from zlang.compilation_session import CompilationSession
     from zlang.ir.expressions import FunctionalRegion
     from zlang.ir.functional_regions import FunctionalSpecializationCertificate
@@ -334,7 +334,7 @@ def _measure_one(slug: str, profile: str, *, rtl_output: Path) -> dict[str, obje
     }
     try:
         rtl = _timed_stage(
-            "rtl_emission", lambda: emit(compilation.ir), stages
+            "rtl_emission", lambda: emit_experimental(compilation.ir), stages
         )
     except Exception as error:  # baseline must retain the first failing phase
         return {

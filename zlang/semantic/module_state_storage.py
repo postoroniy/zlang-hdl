@@ -14,6 +14,7 @@ from . import module_pipeline
 from . import module_interfaces as semantic_module_interfaces
 from . import observations as _observations
 from . import expression_coercion
+from . import expression_origins
 from . import storage_validation as storage_validation
 from .storage_symbols import FifoSymbol, MemorySymbol, RomSymbol
 from . import symbols as semantic_symbols
@@ -112,6 +113,56 @@ class StateStoragePreparer:
                 kind="register",
             )
 
+        registered_output_declarations = {
+            declaration.name: declaration
+            for declaration in module.ports
+            if declaration.registered
+        }
+        for name, declaration in registered_output_declarations.items():
+            port = outputs.get(name)
+            if port is None or not port.registered:
+                raise SemanticError(
+                    f"registered output '{name}' has no matching output port",
+                    code="ZL-SEMANTIC-REGISTERED-OUTPUT",
+                )
+            if name in register_symbols:
+                raise SemanticError(
+                    f"registered output '{name}' conflicts with register '{name}'",
+                    code="ZL-SEMANTIC-REGISTERED-OUTPUT",
+                    primary=hardware.port_origins.get(name),
+                )
+            initial = None
+            if declaration.initializer is not None:
+                initial = pure_context.expressions.check_typed_boundary(
+                    declaration.initializer, {}, port.type, pure_context
+                )
+                initial_analysis = semantic_callables._expand_analysis_calls(
+                    initial,
+                    pure_context,
+                    purpose=f"registered output '{name}' reset value",
+                )
+                if initial.type != port.type or not expression_coercion.is_constant_expression(
+                    initial_analysis
+                ):
+                    raise SemanticError(
+                        f"reset value for registered output '{name}' must be a "
+                        f"constant of type {port.type}",
+                        code="ZL-SEMANTIC-REGISTERED-OUTPUT",
+                        primary=expression_origins.semantic_origin(
+                            declaration.initializer, pure_context
+                        ),
+                    )
+            register = ir_module.Register(name, port.type, initial, port.domain)
+            registers.append(register)
+            register_symbols[name] = register
+            _observations.remember_definition_target(
+                pure_context,
+                register,
+                hardware.port_origins.get(name),
+                name=name,
+                kind="registered output",
+            )
+
         module_context = pure_context.with_environment(
             clock_domains=tuple(domain.clock for domain in clock_domains),
             default_clock_domain=clock,
@@ -132,7 +183,9 @@ class StateStoragePreparer:
             candidate_site_owner=preparation.candidate_site_owner,
             source_unit=effective_source_unit,
             source_digest=preparation.source_digest,
-            write_only_outputs=outputs,
+            write_only_outputs={
+                name: port for name, port in outputs.items() if not port.registered
+            },
             readable_cdc_outputs=set(hardware.readable_cdc_outputs),
         )
         value_symbols: dict[str, semantic_symbols.ValueSymbol] = {

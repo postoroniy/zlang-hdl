@@ -16,11 +16,21 @@ storage, numeric behavior, simulation, or direct-SystemVerilog integration.
 
 ## Types and representation
 
-Read [types and interfaces](types-and-interfaces.md) before choosing a numeric,
-aggregate, storage, or protocol type. It contains the current type catalogue,
-exact manipulation rules, endpoint ownership, standard-bus selection, and
-runnable witnesses. The invariant here is simple: width, signedness, fixed
-scale, nominal identity, shape, role, and clock domain never change implicitly.
+Common scalars are `bit`, `u8`, `s16`, `uint<N>`, `sint<N>`, `bits<N>`, and
+fixed-point types. `char` is canonical `u8`; `string<N>` is canonical
+`vec<N,u8>`. Structs/enums/unions are nominal; tuples are structural.
+
+Arithmetic, assignment, and fixed-point conversions are exact. Use:
+
+- `extend<N>`/`truncate<N>` for explicit width change;
+- `quantize<T>` for explicit fixed rounding and overflow;
+- `bitcast<T>` only for equal-width representation change;
+- `concat(a,b,...)` with the first operand at the MSB;
+- `x[MSB:LSB]` for inclusive static packed slices.
+
+Do not infer numeric conversion from a successful raw equal-width boundary. The
+only implicit representation exception is an explicitly typed equal-width
+boundary where one side is `bits<N>` or flat `vec<N,bit>`.
 
 ## Functions, collections, and generics
 
@@ -29,12 +39,10 @@ state/protocol/timing. Generic functions/modules are monomorphized by exact
 type/value/callable arguments. `generate`, `map`, `reduce`, `sum`, and `dot` are
 compile-time-bounded hardware expressions, not runtime loops.
 
-Prefer source-authored modules from the built-in `std` namespace; buses are
-ordinary typed modules and protocols, never backend name dispatch. Select the
-bus profile and example through
-[types and interfaces](types-and-interfaces.md). Logical imports such as
-`import std.bus.ahb_lite` and qualified imports resolve through the language's
-module system rather than relative filesystem guesses.
+Prefer source-authored stdlib declarations under `stdlib/**/*.zhl`; buses are
+ordinary typed modules/protocols, never backend name dispatch. Logical imports
+such as `import std.bus.ahb_lite` and qualified imports must resolve through the
+project/compiler resolver rather than relative filesystem guesses.
 
 ## State, hierarchy, and protocols
 
@@ -45,15 +53,14 @@ module system rather than relative filesystem guesses.
   latency, ownership, conflict, and collision behavior.
 - Use typed `child : Module`/`inst child : Module`, explicit bindings, and
   explicit `connect`/`source -> sink`, adapters, and CDC crossings.
-- `rv<T>`, `credit<T,N>`, packet, request/response, and bus observations are
-  protocol semantics, not arbitrary struct fields. Endpoint ownership and
-  concrete examples are in [types and interfaces](types-and-interfaces.md).
+- `rv<T>`, `credit<T,N>`, request/response, and bus observations are protocol
+  semantics, not arbitrary struct fields.
 - Runtime-selected child output is a projection over already existing physical
   children; it does not select which child executes.
 
 The public top ABI recursively exposes struct and tuple leaves and preserves
-vector leaves as multidimensional packed SystemVerilog arrays. Use the emitted
-artifact's logical bindings and source map; never guess flattened signal names.
+vectors as native unpacked arrays. Use BackendArtifact logical bindings; never
+guess flattened signal names.
 
 ## Compile and validate
 
@@ -67,6 +74,11 @@ For project work, inspect `zlang.toml`/`zlang.lock` and pass `--project` or
 `--profile` when the design requires them. Compilation is offline/non-mutating;
 dependency fetching belongs to an explicit lock update, not ordinary compile.
 
-Use `docs/language-reference.md` as the authoritative topic guide, especially
-its chapters on types and numerics, expressions and generics, sequential state
-and storage, hierarchy and protocols, projects and dependencies, and Direct-SV.
+Read these authoritative topic guides as needed:
+
+- `docs/types-and-numerics.md`
+- `docs/expressions-functions-generics.md`
+- `docs/sequential-state-storage.md`
+- `docs/hierarchy-protocols.md`
+- `docs/projects-dependencies.md`
+- `docs/direct-systemverilog.md`

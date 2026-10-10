@@ -386,6 +386,22 @@ class Port:
     capacity: int | None = None
     domain: str | None = None
     virtual_channels: int | None = None
+    # A registered output is simultaneously the public module boundary and
+    # one unified-state storage resource.  The matching Register deliberately
+    # retains the same source name so every backend consumes one state owner.
+    registered: bool = False
+    source_origin: object | None = field(
+        default=None,
+        compare=False,
+        repr=False,
+    )
+
+    def __post_init__(self) -> None:
+        if self.registered and (
+            self.direction is not PortDirection.OUTPUT
+            or self.protocol is not InterfaceProtocol.WIRE
+        ):
+            raise ValueError("only ordinary output wires may be registered")
 
 
 def validate_elastic_module_regions(
@@ -526,6 +542,7 @@ class ModuleSignature:
                 "domain": port.domain,
                 "name": port.name,
                 "protocol": port.protocol.value,
+                "registered": port.registered,
                 "type": str(port.type),
                 "virtual_channels": port.virtual_channels,
             }
@@ -802,6 +819,7 @@ class Rule:
     guard: Expression
     actions: tuple[NextAssignment, ...]
     domain: str | None = None
+    physical_name_hint: str | None = field(default=None, compare=False)
 
 
 @dataclass(frozen=True)
@@ -983,6 +1001,23 @@ class Module:
 
     def __post_init__(self) -> None:
         validate_verification_overlay(self.verification_scopes)
+        registers_by_name = {item.name: item for item in self.registers}
+        for port in self.ports:
+            register = registers_by_name.get(port.name)
+            if port.registered:
+                if register is None:
+                    raise ValueError(
+                        f"registered output '{port.name}' has no storage resource"
+                    )
+                if register.type != port.type or register.domain != port.domain:
+                    raise ValueError(
+                        f"registered output '{port.name}' storage does not match "
+                        "its public type/domain"
+                    )
+            elif register is not None:
+                raise ValueError(
+                    f"ordinary port '{port.name}' conflicts with register storage"
+                )
         for domain in self.clock_domains:
             domain.validate()
         if len(self.clock_domains) > 1:

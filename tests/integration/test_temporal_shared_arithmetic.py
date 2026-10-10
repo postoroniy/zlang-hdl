@@ -11,18 +11,23 @@ from pathlib import Path
 import pytest
 
 from zlang.backend.systemverilog import (
-    emit,
     emit_artifact,
     emit_artifact_with_source_map,
+    emit_experimental,
     emit_formal_artifact,
 )
-from zlang.backend.systemverilog.expression import _expression
+from zlang.backend.systemverilog.expression import render_expression
 from zlang.compiler import compile_source
 from zlang.compilation_session import CompilationSession
-from zlang.formal import build_recursive_formal_design, run_verilog_formal
+from zlang.formal import build_recursive_formal_design
 from zlang.formal_exploration import FormalPolicy
-from zlang.formal_temporal_stream import emit_capacity_one_transaction_miter
-from zlang.ir.formal import FormalStatus, ProofMode
+from zlang.formal_orchestration import collect_formal_selection_evidence
+from zlang.formal_temporal_stream import (
+    CapacityOneTransactionVerifier,
+    build_capacity_one_transaction_relation,
+    emit_capacity_one_transaction_miter,
+)
+from zlang.ir.formal import FormalResult, FormalStatus, ProofMode
 from zlang.native_simulation import simulate_cycles
 from zlang.semantic import SemanticError
 from tests.simulation.differential import run_differential
@@ -627,17 +632,104 @@ def test_ii_one_constraint_selects_the_spatial_control_candidate() -> None:
     assert region.semantic_id == temporal_region.semantic_id
 
 
-def test_temporal_candidate_does_not_reuse_fixed_latency_formal_evidence() -> None:
+def test_temporal_candidate_uses_only_transaction_stream_bmc_evidence(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    calls = []
+
+    def bounded_pass(_source: str, **kwargs):
+        calls.append(kwargs["property_id"])
+        return FormalResult(
+            kwargs["property_id"],
+            FormalStatus.BOUNDED_PASS,
+            ProofMode.BMC,
+            kwargs["engine"],
+            kwargs["solver"],
+            kwargs["depth"],
+        )
+
+    monkeypatch.setattr(
+        "zlang.formal_temporal_stream.run_verilog_formal",
+        bounded_pass,
+    )
     selected = CompilationSession(
-        SOURCE, formal_policy=FormalPolicy.AVAILABLE,
+        FORMAL_SOURCE,
+        formal_policy=FormalPolicy.AVAILABLE,
+        formal_depth=10,
+        formal_cache=tmp_path / "cache",
     ).selected_ir
     record = selected.elastic_pipeline_regions[0].formal_records[0]
-    assert record.formal_route == "transaction_stream_equivalence_bmc_unbound"
-    assert record.status.value == "skipped"
+    assert record.formal_route == "transaction_stream_equivalence_bmc"
+    assert record.status is FormalStatus.BOUNDED_PASS
+    assert record.mode is ProofMode.BMC
     assert record.property_identity is not None
-    for policy in (FormalPolicy.REQUIRED_BMC, FormalPolicy.REQUIRED_PROVEN):
-        with pytest.raises(SemanticError, match="no semantic-reference equivalence route"):
-            CompilationSession(SOURCE, formal_policy=policy).selected_ir
+    assert record.implementation_artifact_hash == record.artifact_hash
+    assert record.reference_artifact_hash is not None
+    assert len(calls) == 1
+
+    required_session = CompilationSession(
+        FORMAL_SOURCE,
+        formal_policy=FormalPolicy.REQUIRED_BMC,
+        formal_depth=10,
+        formal_cache=tmp_path / "cache",
+    )
+    required = required_session.selected_ir
+    required_record = required.elastic_pipeline_regions[0].formal_records[0]
+    assert required_record.status is FormalStatus.BOUNDED_PASS
+    assert required_record.eligible
+    assert required_record.cache_state == "hit"
+    assert len(calls) == 1
+    evidence = collect_formal_selection_evidence(required_session.materialize())
+    assert len(evidence) == 1
+    assert evidence[0].route == "transaction_stream_equivalence_bmc"
+    assert evidence[0].status == "bounded_pass"
+
+    with pytest.raises(
+        SemanticError,
+        match="required_proven is unavailable.*bounded BMC",
+    ):
+        CompilationSession(
+            FORMAL_SOURCE,
+            formal_policy=FormalPolicy.REQUIRED_PROVEN,
+        ).selected_ir
+
+
+def test_temporal_proof_identity_binds_value_implementation_and_artifact() -> None:
+    first_module = compile_source(FORMAL_SOURCE).ir
+    changed_module = compile_source(
+        FORMAL_SOURCE.replace(
+            "input.payload.c * input.payload.d",
+            "input.payload.a * input.payload.d",
+        )
+    ).ir
+    first_region = first_module.elastic_pipeline_regions[0]
+    changed_region = changed_module.elastic_pipeline_regions[0]
+    first = CapacityOneTransactionVerifier(first_module, first_region)
+    changed = CapacityOneTransactionVerifier(changed_module, changed_region)
+    from zlang.formal_exploration import FormalExplorationConfig
+
+    config = FormalExplorationConfig(
+        policy=FormalPolicy.AVAILABLE,
+        bmc_depth=10,
+    )
+    first_identity = first.cache_identity(object(), config)
+    changed_identity = changed.cache_identity(object(), config)
+    assert first_identity["property_identity"] != changed_identity["property_identity"]
+    assert first_identity["artifact_hash"] != changed_identity["artifact_hash"]
+    assert first_identity["harness_hash"] != changed_identity["harness_hash"]
+
+    graph = first_region.temporal_graph
+    assert graph is not None
+    different_implementation = replace(
+        graph,
+        implementation_identity="temporal:" + "0" * 64,
+    )
+    relation = build_capacity_one_transaction_relation(
+        replace(first_region, temporal_graph=different_implementation)
+    )
+    assert relation.expression_identity == first.relation.expression_identity
+    assert relation.property_identity != first.relation.property_identity
 
 
 @pytest.mark.skipif(
@@ -655,21 +747,21 @@ def test_capacity_one_transaction_stream_miter_bounded_passes(tmp_path: Path) ->
     miter = emit_capacity_one_transaction_miter(
         region,
         artifact=artifact,
-        render_expression=_expression,
+        render_expression=render_expression,
     )
     assert "zlang_temporal_output_transfer" in miter.source
     assert "if (zlang_temporal_input_transfer)" in miter.source
-    result = run_verilog_formal(
-        miter.source,
-        top=miter.top,
-        property_id=miter.relation.property_identity,
-        mode=ProofMode.BMC,
-        depth=10,
-        systemverilog=True,
-        timeout_seconds=60,
-        work_directory=tmp_path.resolve(),
-    )
-    assert result.status is FormalStatus.BOUNDED_PASS
+    selected = CompilationSession(
+        FORMAL_SOURCE,
+        formal_policy=FormalPolicy.REQUIRED_BMC,
+        formal_depth=10,
+        formal_timeout=60,
+        formal_work_directory=tmp_path.resolve(),
+    ).selected_ir
+    record = selected.elastic_pipeline_regions[0].formal_records[0]
+    assert record.formal_route == "transaction_stream_equivalence_bmc"
+    assert record.status is FormalStatus.BOUNDED_PASS
+    assert record.eligible
 
 
 def test_temporal_admission_cycle_through_hierarchy_is_rejected() -> None:
@@ -684,8 +776,8 @@ def test_direct_sv_is_deterministic_and_contains_no_ready_valid_loop(tmp_path: P
     module = _module()
     graph = module.elastic_pipeline_regions[0].temporal_graph
     assert graph is not None
-    first = emit(module)
-    assert first == emit(module)
+    first = emit_experimental(module)
+    assert first == emit_experimental(module)
     assert "shared_noninterleaved" not in first  # schedule is typed, not raw provider SV.
     assert "zlang_temporal_" in first
     assert "assign zlang_packed_input_ready = !rst" in first

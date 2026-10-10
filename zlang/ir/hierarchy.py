@@ -29,6 +29,7 @@ from zlang.ir.module import (
     PortDirection,
     ProtocolEndpoint,
     ProtocolMember,
+    specialization_bindings_identity,
 )
 from zlang.ir.types import BitType
 
@@ -38,6 +39,7 @@ class HierarchyError(ValueError):
 
 
 _CANDIDATE_OWNER_SCHEMA = "zlang-candidate-owner-specialization-v1"
+_MODULE_SPECIALIZATION_SCHEMA = "zlang-module-specialization-v2"
 
 
 def candidate_specialization_identity(
@@ -63,6 +65,38 @@ def candidate_specialization_identity(
         "module": module_name,
         "parameters": parameters,
     })
+
+
+def module_specialization_identity(
+    module: Module,
+    *,
+    typed_content_identity: str | None = None,
+) -> str:
+    """Identify one reusable typed module specialization, never its parent.
+
+    The declaration and exact applied bindings identify the source intent;
+    the typed specialization fingerprint commits to module-local ports, state,
+    FSM/rule content and executable callable closure.  Physical instance paths,
+    parent connections and diagnostic provenance are intentionally excluded by
+    :func:`specialization_fingerprint`.
+    """
+
+    declaration_identity = (
+        module.module_signature.declaration_identity
+        if module.module_signature is not None
+        else None
+    )
+    return stable_digest({
+        "schema": _MODULE_SPECIALIZATION_SCHEMA,
+        "module": module.name,
+        "declaration": declaration_identity,
+        "bindings": specialization_bindings_identity(
+            module.specialization_bindings
+        ),
+        "typed_content": (
+            typed_content_identity or specialization_fingerprint(module)
+        ),
+    })[:24]
 
 
 class HierarchyTraversalCache:
@@ -112,6 +146,7 @@ _SPECIALIZATION_ORIGIN_FIELDS = frozenset({
     "source_path", "root_module_identity", "dependency_closure",
     "semantic_expression_arena_statistics", "semantic_expression_provenance",
     "selected_value_normalization_statistics",
+    "physical_name_hint",
 })
 
 _SPECIALIZATION_APPLICATION_FIELDS = frozenset({
@@ -131,6 +166,7 @@ _SPECIALIZATION_VISIBLE_CATALOG_FIELDS = frozenset({
     # not reusable component content: two parents may contribute unrelated
     # helpers or discover the same helpers in a different order.  The exact
     # executable closure is added explicitly by specialization_fingerprint().
+    "structs", "enums", "tagged_unions",
     "functions", "callable_definitions",
 })
 
@@ -289,6 +325,51 @@ def specialization_fingerprint(
         "content": _specialization_digest(module),
         "reachable_callables": _specialization_digest(reachable_callables),
     })
+
+
+def _specialization_category_digests(module: Module) -> dict[str, str]:
+    """Return review-facing fingerprints for incompatible-content diagnostics."""
+
+    categories = {
+        "public interface/timing": (
+            module.ports,
+            module.clock_domains,
+            module.module_signature,
+            module.timing_contract,
+            module.output_timings,
+        ),
+        "state/storage/FSM": (
+            module.registers,
+            module.next_assignments,
+            module.rules,
+            module.rule_priorities,
+            module.resolved_transition,
+            module.fifos,
+            module.memories,
+            module.roms,
+            module.csr_blocks,
+        ),
+        "combinational/protocol logic": (
+            module.assignments,
+            module.locals,
+            module.connections,
+            module.request_responses,
+            module.elastic_pipeline_regions,
+        ),
+        "implementation bindings": (
+            module.specialization_bindings,
+            module.generic_specializations,
+            module.pipeline_explorations,
+        ),
+        "verification overlay": (
+            module.contracts,
+            module.verification_scopes,
+        ),
+    }
+    return {
+        name: _specialization_digest(value)
+        for name, value in categories.items()
+    }
 
 
 @dataclass(frozen=True)
@@ -503,7 +584,10 @@ def build_hierarchy_index(
     entries: list[HierarchyEntry] = []
     paths: set[tuple[str, ...]] = set()
     active_modules: set[int] = set()
-    specialization_representatives: dict[HierarchySpecializationKey, Module] = {}
+    specialization_representatives: dict[
+        HierarchySpecializationKey,
+        tuple[str, tuple[str, ...], Module],
+    ] = {}
 
     def visit(
         current: Module,
@@ -627,20 +711,34 @@ def build_hierarchy_index(
                     child.name,
                     elaborated.specialization_identity,
                 )
+                fingerprint = selected_cache.fingerprint(child)
                 previous = specialization_representatives.get(specialization_key)
-                if previous is None:
-                    specialization_representatives[specialization_key] = child
-                elif (
-                    previous is not child
-                    and selected_cache.fingerprint(previous)
-                    != selected_cache.fingerprint(child)
+                previous_fingerprint = None if previous is None else previous[0]
+                if (
+                    previous_fingerprint is not None
+                    and previous_fingerprint != fingerprint
                 ):
+                    assert previous is not None
+                    previous_path, previous_module = previous[1], previous[2]
+                    before = _specialization_category_digests(previous_module)
+                    after = _specialization_category_digests(child)
+                    categories = tuple(
+                        name for name in before if before[name] != after[name]
+                    ) or ("callable closure or other module-local content",)
                     raise HierarchyError(
                         "specialization identity "
                         f"'{elaborated.specialization_identity}' "
                         f"is reused for incompatible '{child.name}'; "
-                        "incompatible typed specialization content"
+                        "incompatible typed specialization content between "
+                        f"'{'.'.join(previous_path)}' and "
+                        f"'{'.'.join(path + (instance_name,))}' "
+                        f"(differing: {', '.join(categories)})"
                     )
+                specialization_representatives[specialization_key] = (
+                    fingerprint,
+                    path + (instance_name,),
+                    child,
+                )
                 visit(child, path + (instance_name,), elaborated)
         finally:
             active_modules.remove(id(current))

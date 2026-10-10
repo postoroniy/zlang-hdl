@@ -64,5 +64,6 @@ success, run retired Clash tests, or claim release acceptance from a focused
 suite. Preserve unrelated dirty/untracked work and generated artifacts outside
 tracked source.
 
-Read `CONTRIBUTING.md`, `docs/release-process.md`, and the relevant sections of
-`docs/language-reference.md` when those surfaces are touched.
+Read `docs/testing.md`, `docs/compiler-library-audit.md`,
+`docs/backends-tooling.md`, and `docs/tooling-integration-api.md` when those
+surfaces are touched.

@@ -1,4 +1,4 @@
-from zlang.ast.nodes import StructDestructureDecl, StructUpdateExpr, VectorLiteralExpr
+from zlang.ast import StructDestructureDecl, StructUpdateExpr, VectorLiteralExpr
 from zlang.parser import parse
 
 

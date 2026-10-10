@@ -101,6 +101,34 @@ WITNESSES = {
             connect skid.output -> output
         }
     """,
+    "stream_mux2": """
+        import std.stream.core
+        module Top {
+            in select : bit
+            in input0 : rv<u8>
+            in input1 : rv<u8>
+            out output : rv<u8>
+            inst route : RvMux2<T=u8>
+            route.select = select
+            connect input0 -> route.input0
+            connect input1 -> route.input1
+            connect route.output -> output
+        }
+    """,
+    "stream_demux2": """
+        import std.stream.core
+        module Top {
+            in select : bit
+            in input : rv<u8>
+            out output0 : rv<u8>
+            out output1 : rv<u8>
+            inst route : RvDemux2<T=u8>
+            route.select = select
+            connect input -> route.input
+            connect route.output0 -> output0
+            connect route.output1 -> output1
+        }
+    """,
     "serializer": """
         import std.stream.serialization
         module Top {
@@ -436,6 +464,68 @@ def test_new_stdlib_families_have_concrete_semantic_witnesses() -> None:
         result = compile_source(source, top="Top")
         assert result.ir.name == "Top", name
         assert result.ir.library_dependencies, name
+
+
+@pytest.mark.parametrize(
+    ("select", "ready", "payload"),
+    ((0, 1, 11), (1, 1, 22), (0, 0, 11), (1, 0, 22)),
+)
+def test_stdlib_ready_valid_mux_routes_only_the_selected_transaction(
+    select: int,
+    ready: int,
+    payload: int,
+) -> None:
+    module = compile_source(WITNESSES["stream_mux2"], top="Top").ir
+    result = simulate(
+        module,
+        select=select,
+        input0={"payload": 11, "valid": 1},
+        input1={"payload": 22, "valid": 1},
+        output={"ready": ready},
+    )
+    selected = f"input{select}"
+    unselected = f"input{1 - select}"
+    assert result[selected] == {"ready": ready, "transfer": ready}
+    assert result[unselected] == {"ready": 0, "transfer": 0}
+    assert result["output"] == {
+        "payload": payload,
+        "valid": 1,
+        "transfer": ready,
+    }
+
+
+@pytest.mark.parametrize(
+    ("select", "ready0", "ready1"),
+    ((0, 1, 0), (1, 0, 1), (0, 0, 1), (1, 1, 0)),
+)
+def test_stdlib_ready_valid_demux_routes_backpressure_from_selected_sink_only(
+    select: int,
+    ready0: int,
+    ready1: int,
+) -> None:
+    module = compile_source(WITNESSES["stream_demux2"], top="Top").ir
+    result = simulate(
+        module,
+        select=select,
+        input={"payload": 33, "valid": 1},
+        output0={"ready": ready0},
+        output1={"ready": ready1},
+    )
+    selected_ready = ready1 if select else ready0
+    assert result["input"] == {
+        "ready": selected_ready,
+        "transfer": selected_ready,
+    }
+    assert result[f"output{select}"] == {
+        "payload": 33,
+        "valid": 1,
+        "transfer": selected_ready,
+    }
+    assert result[f"output{1 - select}"] == {
+        "payload": 33,
+        "valid": 0,
+        "transfer": 0,
+    }
 
 
 def test_stdlib_table_gather_preserves_source_order_without_assuming_permutation() -> None:

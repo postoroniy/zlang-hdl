@@ -14,6 +14,7 @@ from zlang.formal import (
     build_recursive_formal_design,
     connect_formal_design,
     emit_harness,
+    emit_sby,
 )
 from zlang.formal_exploration import FormalPolicy
 from zlang.exploration import TransformFamily
@@ -107,6 +108,7 @@ def test_safety_verification_harness_uses_the_exact_safe_async_reset_contract() 
         "((!($past(zlang_formal_reset_active))" in harness
     )
     assert "non-executable property report" not in harness
+    assert "mode bmc" in emit_sby(connected)
 
 
 def test_low_level_safety_verification_connector_rejects_an_exact_reset_contract_mismatch() -> None:

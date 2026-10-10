@@ -29,137 +29,206 @@ _FUNCTIONAL_REGION_PLANNER = functional.FunctionalRegionPlanner(
 )
 
 
-def _instance_expression(
-    module: ir_module.Module, expression: expr.Expression,
-    names: naming.ModuleRtlNames | None = None,
-    *,
-    _memo: dict[int, tuple[object, object]] | None = None,
-) -> expr.Expression:
-    instance_names = {item.instance.name for item in module.elaborated_instances}
-    if not instance_names:
-        return expression
-    local_names = names or emission_context.module_rtl_names(module)
-    memo = {} if _memo is None else _memo
+class ModuleMaterializationOwner:
+    """Own physical expression preparation for one emitted module.
 
-    def walk(value):
-        if isinstance(value, (expr.Expression, tuple)) or (
+    Namespace validation, staging discovery, and the final renderer all inspect
+    the same immutable expression DAG.  This owner retains the physicalized
+    nodes, roots, and materialization plan so those consumers cannot rebuild
+    subtly different copies or repeat graph work.
+    """
+
+    def __init__(
+        self,
+        module: ir_module.Module,
+        names: naming.ModuleRtlNames,
+    ) -> None:
+        self.module = module
+        self.names = names
+        self._instance_names = frozenset(
+            item.instance.name for item in module.elaborated_instances
+        )
+        self._physicalized: dict[int, tuple[object, object]] = {}
+        self._roots: tuple[expr.Expression, ...] | None = None
+        self._plan: tuple[materialization.MaterializedExpression, ...] | None = None
+
+    def physicalize(self, expression: expr.Expression) -> expr.Expression:
+        """Replace hierarchical references once while preserving DAG sharing."""
+
+        if not self._instance_names:
+            return expression
+        result = self._rewrite_value(expression)
+        if not isinstance(result, expr.Expression):
+            raise SystemVerilogEmissionError(
+                "module expression physicalization lost typed expression IR"
+            )
+        return result
+
+    def _rewrite_value(self, value: object) -> object:
+        cacheable = isinstance(value, (expr.Expression, tuple)) or (
             is_dataclass(value) and not isinstance(value, type)
-        ):
-            cached = memo.get(id(value))
+        )
+        if cacheable:
+            cached = self._physicalized.get(id(value))
             if cached is not None and cached[0] is value:
                 return cached[1]
+
         if isinstance(value, expr.InstanceOutputRef):
             protocol_field = ir_interfaces.parse_ready_valid_field_name(value.port)
-            result = expr.InputRef(
+            result: object = expr.InputRef(
                 (
-                    local_names.child_signal(
+                    self.names.child_signal(
                         value.instance,
                         protocol_field[0],
                         protocol_field[1].value,
                     )
                     if protocol_field is not None
-                    else local_names.child_signal(value.instance, value.port)
+                    else self.names.child_signal(value.instance, value.port)
                 ),
-                value.type, origin=value.origin,
-            )
-            memo[id(value)] = (value, result)
-            return result
-        if (
-            isinstance(value, expr.FieldAccess)
-            and isinstance(value.expression, expr.InputRef)
-            and value.expression.name in instance_names
-        ):
-            result = expr.InputRef(
-                local_names.child_signal(value.expression.name, value.field), value.type,
+                value.type,
                 origin=value.origin,
             )
-            memo[id(value)] = (value, result)
-            return result
-        if isinstance(value, tuple):
-            result = tuple(walk(item) for item in value)
-            memo[id(value)] = (value, result)
-            return result
-        if is_dataclass(value) and not isinstance(value, type):
-            updates = {}
-            for field in fields(value):
-                if field.name == "origin" or not field.init:
+        elif (
+            isinstance(value, expr.FieldAccess)
+            and isinstance(value.expression, expr.InputRef)
+            and value.expression.name in self._instance_names
+        ):
+            result = expr.InputRef(
+                self.names.child_signal(value.expression.name, value.field),
+                value.type,
+                origin=value.origin,
+            )
+        elif isinstance(value, tuple):
+            rewritten = tuple(self._rewrite_value(item) for item in value)
+            result = (
+                value
+                if all(
+                    before is after
+                    for before, after in zip(value, rewritten, strict=True)
+                )
+                else rewritten
+            )
+        elif is_dataclass(value) and not isinstance(value, type):
+            updates: dict[str, object] = {}
+            for descriptor in fields(value):
+                if descriptor.name == "origin" or not descriptor.init:
                     continue
-                updates[field.name] = walk(getattr(value, field.name))
-            try:
-                result = replace(value, **updates)
-            except (TypeError, ValueError):
+                current = getattr(value, descriptor.name)
+                rewritten = self._rewrite_value(current)
+                if rewritten is not current:
+                    updates[descriptor.name] = rewritten
+            if updates:
+                try:
+                    result = replace(value, **updates)
+                except (TypeError, ValueError):
+                    result = value
+            else:
                 result = value
-            memo[id(value)] = (value, result)
-            return result
-        return value
+        else:
+            result = value
 
-    return walk(expression)
+        if cacheable:
+            self._physicalized[id(value)] = (value, result)
+        return result
 
+    @property
+    def roots(self) -> tuple[expr.Expression, ...]:
+        if self._roots is None:
+            self._roots = self._build_roots()
+        return self._roots
 
-def _module_expression_roots(
-    module: ir_module.Module, names: naming.ModuleRtlNames | None = None,
-    *,
-    _memo: dict[int, tuple[object, object]] | None = None,
-) -> tuple[expr.Expression, ...]:
-    names = names or emission_context.module_rtl_names(module)
-    return materialization.module_expression_roots(
-        module,
-        normalize=lambda value: _instance_expression(
-            module, value, names, _memo=_memo
-        ),
-    )
-
-
-def _materialization_plan(
-    module: ir_module.Module, names: naming.ModuleRtlNames | None = None,
-) -> tuple[materialization.MaterializedExpression, ...]:
-    names = names or emission_context.module_rtl_names(module)
-    instance_memo: dict[int, tuple[object, object]] = {}
-    roots = _module_expression_roots(module, names, _memo=instance_memo)
-    preferred = tuple(
-        (
-            _instance_expression(
-                module, local.expression, names, _memo=instance_memo
-            ),
-            sv_rendering._identifier(local.name),
+    def _build_roots(self) -> tuple[expr.Expression, ...]:
+        return materialization.module_expression_roots(
+            self.module,
+            normalize=self.physicalize,
         )
-        for local in module.locals
-        if not local.compile_time
-    )
-    reserved_names = {
-        sv_rendering._identifier(item.name) for item in (*module.ports, *module.registers, *module.locals)
-    }
-    reserved_names.update(item.physical_name for item in names.entries)
-    planned = list(materialization.plan_materialization(
-        roots,
-        preferred_names=preferred,
-        reserved_names=reserved_names,
-    ))
-    region_identity_memo: dict[int, str] = {}
-    planned_regions = {
-        signed_reductions.expression_merkle_identity(item.expression, region_identity_memo)
-        for item in planned
-        if isinstance(item.expression, expr.FunctionalRegion)
-    }
-    used_names = reserved_names | {item.name for item in planned}
-    for root in roots:
-        for region in _FUNCTIONAL_REGION_PLANNER.regions(root):
-            internal_identity = signed_reductions.expression_merkle_identity(
-                region, region_identity_memo
+
+    @property
+    def materialization_plan(
+        self,
+    ) -> tuple[materialization.MaterializedExpression, ...]:
+        if self._plan is None:
+            self._plan = self._build_materialization_plan()
+        return self._plan
+
+    def _build_materialization_plan(
+        self,
+    ) -> tuple[materialization.MaterializedExpression, ...]:
+        preferred = tuple(
+            (
+                self.physicalize(local.expression),
+                sv_rendering._identifier(local.name),
             )
-            if internal_identity in planned_regions:
-                continue
-            identity = signed_reductions.expression_semantic_identity(region)
-            name = identifiers.allocate_private_rtl_identifier(
-                f"region_{identity[:10]}",
-                semantic_identity=(
-                    f"{materialization.FUNCTIONAL_REGION_EMISSION_SCHEMA}:module:{identity}"
-                ),
-                used=used_names,
+            for local in self.module.locals
+            if not local.compile_time
+        )
+        reserved_names = {
+            sv_rendering._identifier(item.name)
+            for item in (
+                *self.module.ports,
+                *self.module.registers,
+                *self.module.locals,
             )
-            planned.append(materialization.MaterializedExpression(region, name))
-            planned_regions.add(internal_identity)
-    return tuple(planned)
+        }
+        reserved_names.update(item.physical_name for item in self.names.entries)
+        planned = list(
+            materialization.plan_materialization(
+                self.roots,
+                preferred_names=preferred,
+                reserved_names=reserved_names,
+            )
+        )
+        region_identity_memo: dict[int, str] = {}
+        planned_regions = {
+            signed_reductions.expression_merkle_identity(
+                item.expression, region_identity_memo
+            )
+            for item in planned
+            if isinstance(item.expression, expr.FunctionalRegion)
+        }
+        used_names = reserved_names | {item.name for item in planned}
+        for root in self.roots:
+            for region in _FUNCTIONAL_REGION_PLANNER.regions(root):
+                internal_identity = signed_reductions.expression_merkle_identity(
+                    region, region_identity_memo
+                )
+                if internal_identity in planned_regions:
+                    continue
+                identity = signed_reductions.expression_semantic_identity(region)
+                name = identifiers.allocate_private_rtl_identifier(
+                    f"region_{identity[:10]}",
+                    semantic_identity=(
+                        f"{materialization.FUNCTIONAL_REGION_EMISSION_SCHEMA}:"
+                        f"module:{identity}"
+                    ),
+                    used=used_names,
+                )
+                planned.append(materialization.MaterializedExpression(region, name))
+                planned_regions.add(internal_identity)
+        return tuple(planned)
+
+
+def module_materialization_owner(
+    module: ir_module.Module,
+) -> ModuleMaterializationOwner:
+    """Return the design-local owner for one exact module object."""
+
+    names = emission_context.cached_module_rtl_names(module)
+    emission = emission_context.current_emission_context()
+    if emission is None:
+        return ModuleMaterializationOwner(module, names)
+    key = (id(module), id(names))
+    cached = emission.materialization_owners.get(key)
+    if cached is not None and cached[0] is module and cached[1] is names:
+        owner = cached[2]
+        if not isinstance(owner, ModuleMaterializationOwner):
+            raise SystemVerilogEmissionError(
+                "module materialization cache contains an incompatible owner"
+            )
+        return owner
+    owner = ModuleMaterializationOwner(module, names)
+    emission.materialization_owners[key] = (module, names, owner)
+    return owner
 
 
 def _continuous_value_assignments(
@@ -331,8 +400,9 @@ def _append_materialized_functional_region(
 
 
 def _materialized_emission(module: ir_module.Module):
-    names = emission_context.module_rtl_names(module)
-    materialized = _materialization_plan(module, names)
+    owner = module_materialization_owner(module)
+    names = owner.names
+    materialized = owner.materialization_plan
     aliases = materialization.ExpressionAliasMap(
         (item.expression, item.name) for item in materialized
     )
@@ -370,7 +440,7 @@ def _materialized_emission(module: ir_module.Module):
     )
 
     def render(value: expr.Expression, *, keep: expr.Expression | None = None) -> str:
-        physical = _instance_expression(module, value, names)
+        physical = owner.physicalize(value)
         return sv_expression._expression(materialization.replace_materialized(physical, aliases, keep=keep))
 
     declarations = []
@@ -404,7 +474,7 @@ def _materialized_emission(module: ir_module.Module):
                 statements=assignments,
             )
         else:
-            physical = _instance_expression(module, item.expression, names)
+            physical = owner.physicalize(item.expression)
             rewritten = materialization.replace_materialized(
                 physical,
                 aliases,
@@ -429,7 +499,8 @@ def _embedded_staging_emission(
     """
 
     staged: list[expr.Delay | expr.Pipeline] = []
-    local_names = emission_context.module_rtl_names(module)
+    owner = module_materialization_owner(module)
+    local_names = owner.names
     seen: set[tuple[type[expr.Expression], int]] = set()
 
     def collect(value: expr.Expression) -> None:
@@ -441,7 +512,7 @@ def _embedded_staging_emission(
                 seen.add(key)
                 staged.append(value)
 
-    for root in _module_expression_roots(module, local_names):
+    for root in owner.roots:
         collect(root)
 
     if staged and not module.clock_domains:
@@ -481,7 +552,7 @@ def _embedded_staging_emission(
     # exact typed DAG plan is authoritative for both cases; Delay/Pipeline
     # nodes already have their timing-preserving stage aliases above and must
     # not acquire a second combinational temporary.
-    planned_items = _materialization_plan(module, local_names)
+    planned_items = owner.materialization_plan
     materialized_items = tuple(
         item
         for item in planned_items
@@ -582,7 +653,7 @@ def _embedded_staging_emission(
             f"  logic{signed} {sv_rendering._range(sv_rendering._width(item.expression.type))}{item.name};"
         )
     for item in materialization.dependency_ordered_materialization(ordinary_items):
-        physical = _instance_expression(module, item.expression, local_names)
+        physical = owner.physicalize(item.expression)
         rewritten = materialization.replace_materialized(
             physical,
             aliases,
@@ -619,7 +690,7 @@ def _embedded_staging_emission(
         )
 
     def render(value: expr.Expression) -> str:
-        physical = _instance_expression(module, value, local_names)
+        physical = owner.physicalize(value)
         return sv_expression._expression(materialization.replace_materialized(physical, aliases))
 
     return declarations, [*combinational_logic, *sequential], render

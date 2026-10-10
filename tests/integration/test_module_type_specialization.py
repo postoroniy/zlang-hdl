@@ -6,7 +6,7 @@ import tempfile
 
 import pytest
 
-from zlang.backend.systemverilog import emit
+from zlang.backend.systemverilog import emit_experimental
 from zlang.compiler import compile_source
 
 
@@ -84,5 +84,5 @@ def test_module_type_specialization_direct_sv_simulates(
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
         rtl = root / "generic.sv"
-        rtl.write_text(emit(module))
+        rtl.write_text(emit_experimental(module))
         simulate([rtl], root, "GenericTop", value, type_name)

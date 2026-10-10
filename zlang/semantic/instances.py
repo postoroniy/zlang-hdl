@@ -4,7 +4,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass, fields, is_dataclass, replace
 import hashlib
 from typing import Any
@@ -15,6 +14,7 @@ from zlang.ir import cdc as ir_cdc
 from zlang.ir import csr as ir_csr
 from zlang.ir import expressions as ir_expr
 from zlang.ir import interfaces as ir_interfaces
+from zlang.ir import hierarchy as ir_hierarchy
 from zlang.ir import module as ir_module
 from zlang.ir import types as ir_types
 from zlang.ir.constants import ConstantExpressionError, constant_runtime_value
@@ -31,6 +31,7 @@ from . import expression_support
 from . import observations as semantic_observations
 from . import type_resolution
 from .imports import dependency_identity_for_source
+from .recursive_analysis import RecursiveModuleAnalyzer
 
 
 _HIERARCHY_ANALYZER = semantic_hierarchy.HierarchyAnalyzer()
@@ -611,7 +612,7 @@ class InstanceElaborationContext:
     """Recursive-analysis inputs used only while elaborating child modules."""
 
     specializer: InstanceSpecializer
-    recursive_analyze: Callable[..., ir_module.Module]
+    recursive_analyzer: RecursiveModuleAnalyzer
     analysis: semantic_context.AnalysisContext
     preparation: module_pipeline.DeclarationPreparationProduct
     active_instance_stack: tuple[str, ...]
@@ -706,9 +707,15 @@ class InstanceElaborator:
         instance_clock, instance_reset = self._matched_domain(
             declaration.name, child_ir
         )
-        specialization_identity = hashlib.sha256(
-            f"{declaration.module}|{tuple(sorted(resolved_arguments.items()))}".encode()
-        ).hexdigest()[:24]
+        if not isinstance(
+            self.context.hierarchy_cache,
+            ir_hierarchy.HierarchyTraversalCache,
+        ):
+            raise TypeError("instance elaboration requires a hierarchy traversal cache")
+        specialization_identity = ir_hierarchy.module_specialization_identity(
+            child_ir,
+            typed_content_identity=self.context.hierarchy_cache.fingerprint(child_ir),
+        )
         for physical_name in physical_names:
             instance = next(
                 item for item in self.instances if item.name == physical_name
@@ -807,6 +814,7 @@ class InstanceElaborator:
             id(analysis.verification.formal_config),
             id(analysis.verification.formal_verifier),
             id(analysis.implementation.exploration_results),
+            analysis.implementation.exploration_limits,
             id(preparation.compile_time_budget),
             id(preparation.real_quantize_cache),
             context.active_instance_stack,
@@ -816,9 +824,11 @@ class InstanceElaborator:
             cached = self._child_specializations.get(cache_key)
             if cached is not None:
                 return cached
-        result = context.recursive_analyze(
+        result = context.recursive_analyzer.analyze_module(
             child,
             exploration_results=analysis.implementation.exploration_results,
+            intent_structural_cache=analysis.implementation.structural_cache,
+            intent_exploration_limits=analysis.implementation.exploration_limits,
             formal_config=analysis.verification.formal_config,
             formal_verifier=analysis.verification.formal_verifier,
             specialization_type_bindings=resolved_types,

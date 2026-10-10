@@ -13,20 +13,14 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_current_release_notes_are_curated_from_exact_changelog_section() -> None:
-    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-    notes = release_notes(changelog, "v0.1.0a20")
-    unreleased = changelog.split("## Unreleased", 1)[1].split("## 0.1.0a20", 1)[0]
-
-    assert not unreleased.strip()
-    assert "## 0.1.0a20 — 2026-10-08" in changelog
-    assert "Runtime packed-bit indexing" in notes
-    assert "target candidate-provider boundary" in notes
-    assert "one shared multiplier" in notes
-    assert "capacity one, latency four and II four" in notes
-    assert "ABI v11" in notes
-    assert "general HLS scheduler" in notes
+    notes = release_notes(
+        (ROOT / "CHANGELOG.md").read_text(encoding="utf-8"), "v0.1.0a21"
+    )
+    assert "registered outputs" in notes
+    assert "transaction-stream BMC" in notes
+    assert "bounded, deterministic exact-value" in notes
     assert "ABI-v10" not in notes
-    assert "0.1.0a19 —" not in notes
+    assert "0.1.0a10 —" not in notes
 
 
 def test_release_notes_reject_missing_duplicate_and_empty_sections() -> None:

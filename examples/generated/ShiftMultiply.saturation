@@ -1,7 +1,7 @@
 saturation root=%2
 equivalence mathematical observations=typed_value
 bounds max_iterations=8 max_terms=256
-result saturated=true truncated=false iterations=2 eclasses=5 candidates=3
+result saturated=true truncated=false iterations=2 eclasses=5 enodes=32 candidates=3
 rules multiply_commute,multiply_power_of_two
 rewrite bit_or_zero enabled=true fired=false direction=equality provenance=builtin:bit_or_zero guards=none
 rewrite bit_xor_zero enabled=true fired=false direction=equality provenance=builtin:bit_xor_zero guards=none

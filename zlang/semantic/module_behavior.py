@@ -21,6 +21,7 @@ from .errors import SemanticError
 from . import context as semantic_context
 from . import callables as semantic_callables
 from . import instances as semantic_instances
+from . import hierarchical_connections
 from . import limits as semantic_limits
 from . import module_pipeline
 from . import observations as _observations
@@ -30,13 +31,14 @@ from . import equivalences as semantic_equivalences
 from . import storage_validation as storage_validation
 from . import state as semantic_state
 from .temporal_ready_valid import select_temporal_shared_arithmetic
+from .recursive_analysis import RecursiveModuleAnalyzer
 
 
 class ModuleBehaviorAnalyzer:
     """Own locals, state transitions, and pre-hierarchy behavior."""
 
-    def __init__(self, recursive_analyze):
-        self._recursive_analyze = recursive_analyze
+    def __init__(self, recursive_analyzer: RecursiveModuleAnalyzer):
+        self._recursive_analyzer = recursive_analyzer
 
     def analyze(
         self,
@@ -86,7 +88,7 @@ class ModuleBehaviorAnalyzer:
         instance_product = semantic_instances.InstanceElaborator(
             semantic_instances.InstanceElaborationContext(
                 specializer=instance_specializer,
-                recursive_analyze=self._recursive_analyze,
+                recursive_analyzer=self._recursive_analyzer,
                 analysis=context,
                 preparation=preparation,
                 active_instance_stack=active_instance_stack,
@@ -94,6 +96,19 @@ class ModuleBehaviorAnalyzer:
                 analysis_needs=analysis_needs,
             )
         ).analyze()
+        # Rule guards are checked before the final hierarchy product is built.
+        # Delegation already has a complete typed top/child contract here, so
+        # publish its derived transfer value without duplicating connection
+        # validation or backend wiring decisions.
+        module_context.scope.instance_protocol_transfers.update({
+            (owner, path): expression
+            for owner, path, expression
+            in hierarchical_connections.predeclare_delegated_instance_transfer_projections(
+                module,
+                dict(instance_product.child_irs),
+                state_storage.aggregate_protocol_endpoints,
+            )
+        })
         constant_local_cache = instance_specializer.constant_locals
         # Locals are pure bindings, but next-state expressions may use them.  Make
         # the bindings available before checking register transitions; the later

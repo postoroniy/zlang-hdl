@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+import random
 
+from tests.semantic.test_stdlib_coherence import WITNESSES
 from tests.simulation.differential import run_differential
 
 
@@ -14,6 +16,57 @@ def _source(tmp_path: Path, name: str, text: str) -> Path:
     path = tmp_path / f"{name}.zhl"
     path.write_text(text, encoding="utf-8")
     return path
+
+
+def _random_ready_valid_value(rng: random.Random) -> dict[str, int]:
+    return {"payload": rng.randrange(256), "valid": rng.randrange(2)}
+
+
+def test_stdlib_ready_valid_mux_and_demux_match_direct_sv(
+    tmp_path: Path,
+) -> None:
+    """Exercise routing, stalls, valid gaps, and changing blocked payloads."""
+
+    rng = random.Random(0x5A17)
+    mux_events = tuple(
+        {
+            "set": {
+                "select": rng.randrange(2),
+                "input0": _random_ready_valid_value(rng),
+                "input1": _random_ready_valid_value(rng),
+                "output": {"ready": rng.randrange(2)},
+            }
+        }
+        for _ in range(64)
+    )
+    mux_source = _source(tmp_path, "rv_mux2", WITNESSES["stream_mux2"])
+    mux = run_differential(
+        mux_source,
+        top="Top",
+        events=mux_events,
+        directory=tmp_path / "mux_rtl",
+    )
+    assert mux.native == mux.direct_sv
+
+    demux_events = tuple(
+        {
+            "set": {
+                "select": rng.randrange(2),
+                "input": _random_ready_valid_value(rng),
+                "output0": {"ready": rng.randrange(2)},
+                "output1": {"ready": rng.randrange(2)},
+            }
+        }
+        for _ in range(64)
+    )
+    demux_source = _source(tmp_path, "rv_demux2", WITNESSES["stream_demux2"])
+    demux = run_differential(
+        demux_source,
+        top="Top",
+        events=demux_events,
+        directory=tmp_path / "demux_rtl",
+    )
+    assert demux.native == demux.direct_sv
 
 
 def test_odd_and_wide_combinational_values_match_all_paths(tmp_path: Path) -> None:

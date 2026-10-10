@@ -4,14 +4,16 @@ from __future__ import annotations
 
 import json
 
+from zlang.csr_documentation import build_csr_documentation
 from zlang.ir.module import Module
 
 
 def emit_csr_json(module: Module) -> str:
+    csr = build_csr_documentation(module)
     document = {
-        "module": module.name,
-        "data_width": 32,
-        "address_width": 32,
+        "module": csr.module_name,
+        "data_width": csr.data_width,
+        "address_width": csr.address_width,
         "blocks": [
             {
                 "name": block.name,
@@ -20,8 +22,8 @@ def emit_csr_json(module: Module) -> str:
                     {
                         "name": register.name,
                         **(
-                            {"logical_path": list(register.projection_path)}
-                            if register.projection_path
+                            {"logical_path": list(register.logical_path)}
+                            if register.logical_path
                             else {}
                         ),
                         "offset": register.offset,
@@ -29,8 +31,8 @@ def emit_csr_json(module: Module) -> str:
                         "fields": [
                             {
                                 "name": field.name,
-                                "type": str(field.type),
-                                "access": field.access.value,
+                                "type": field.type_name,
+                                "access": field.access,
                                 "msb": field.msb,
                                 "lsb": field.lsb,
                                 "width": field.width,
@@ -38,16 +40,12 @@ def emit_csr_json(module: Module) -> str:
                                 **(
                                     {
                                         "hardware": {
-                                            "kind": field.binding.kind.value,
-                                            "signal": field.binding.signal,
-                                            "priority": (
-                                                field.binding.priority.value
-                                                if field.binding.priority is not None
-                                                else None
-                                            ),
+                                            "kind": field.hardware.kind,
+                                            "signal": field.hardware.signal,
+                                            "priority": field.hardware.priority,
                                         }
                                     }
-                                    if field.binding is not None
+                                    if field.hardware is not None
                                     else {}
                                 ),
                             }
@@ -56,8 +54,9 @@ def emit_csr_json(module: Module) -> str:
                         "events": [
                             {
                                 "name": event.name,
-                                "kind": event.kind.value,
-                                "type": str(event.canonical_type),
+                                "kind": event.kind,
+                                "phase": event.phase,
+                                "type": event.type_name,
                                 "msb": event.msb,
                                 "lsb": event.lsb,
                                 "signal": event.signal,
@@ -71,39 +70,28 @@ def emit_csr_json(module: Module) -> str:
                     {
                         "name": view.name,
                         "field": view.field_name,
-                        "type": str(view.canonical_type),
-                        "order": "low_first" if view.low_first else "high_first",
-                        "physical_registers": [
-                            next(
-                                register.name
-                                for register in block.registers
-                                if any(field.identity == view.low_field_id for field in register.fields)
-                            ),
-                            next(
-                                register.name
-                                for register in block.registers
-                                if any(field.identity == view.high_field_id for field in register.fields)
-                            ),
-                        ],
+                        "type": view.type_name,
+                        "order": view.order,
+                        "physical_registers": list(view.physical_registers),
                     }
                     for view in block.split_views
                 ],
             }
-            for block in module.csr_blocks
+            for block in csr.blocks
         ],
     }
     return json.dumps(document, indent=2) + "\n"
 
 
 def emit_csr_markdown(module: Module) -> str:
-    lines = [f"# {module.name} CSR map", "", "Bus width: 32 bits.", ""]
-    has_hardware_bindings = any(
-        field.binding is not None
-        for block in module.csr_blocks
-        for register in block.registers
-        for field in register.fields
-    )
-    for block in module.csr_blocks:
+    csr = build_csr_documentation(module)
+    lines = [
+        f"# {csr.module_name} CSR map",
+        "",
+        f"Bus width: {csr.data_width} bits.",
+        "",
+    ]
+    for block in csr.blocks:
         lines.extend(
             (
                 f"## {block.name}",
@@ -113,26 +101,21 @@ def emit_csr_markdown(module: Module) -> str:
             )
         )
         for register in block.registers:
-            address = block.base_address + register.offset
-            logical_name = (
-                ".".join(register.projection_path)
-                if register.projection_path
-                else register.name
-            )
             lines.extend(
                 (
-                    f"### {logical_name}",
+                    f"### {register.logical_name}",
                     "",
-                    f"Offset `0x{register.offset:02x}`, address `0x{address:08x}`.",
+                    f"Offset `0x{register.offset:02x}`, address "
+                    f"`0x{register.address:08x}`.",
                     "",
                     (
                         "| Field | Bits | Type | Access | Reset | Hardware | Priority |"
-                        if has_hardware_bindings
+                        if csr.has_hardware_bindings
                         else "| Field | Bits | Type | Access | Reset |"
                     ),
                     (
                         "|---|---:|---|---|---:|---|---|"
-                        if has_hardware_bindings
+                        if csr.has_hardware_bindings
                         else "|---|---:|---|---|---:|"
                     ),
                 )
@@ -144,19 +127,19 @@ def emit_csr_markdown(module: Module) -> str:
                     else f"{field.msb}:{field.lsb}"
                 )
                 row = (
-                    f"| {field.name} | {bits} | `{field.type}` | "
-                    f"`{field.access.value}` | `0x{field.reset:x}` |"
+                    f"| {field.name} | {bits} | `{field.type_name}` | "
+                    f"`{field.access}` | `0x{field.reset:x}` |"
                 )
-                if has_hardware_bindings:
+                if csr.has_hardware_bindings:
                     hardware = (
-                        f"`{field.binding.kind.value}:{field.binding.signal}`"
-                        if field.binding is not None
+                        f"`{field.hardware.kind}:{field.hardware.signal}`"
+                        if field.hardware is not None
                         else "—"
                     )
                     priority = (
-                        f"`{field.binding.priority.value}`"
-                        if field.binding is not None
-                        and field.binding.priority is not None
+                        f"`{field.hardware.priority}`"
+                        if field.hardware is not None
+                        and field.hardware.priority is not None
                         else "—"
                     )
                     row += f" {hardware} | {priority} |"
@@ -170,16 +153,16 @@ def emit_csr_markdown(module: Module) -> str:
                         else f"{event.msb}:{event.lsb}"
                     )
                     lines.append(
-                        f"- `{event.name}`: `{event.kind.value}` bits {bits} -> "
-                        f"`{event.signal}`"
+                        f"- `{event.name}`: `{event.kind}` `{event.phase}` bits "
+                        f"{bits} -> `{event.signal}`"
                     )
             lines.append("")
         if block.split_views:
             lines.extend(("### Logical split values", ""))
             for view in block.split_views:
                 lines.append(
-                    f"- `{view.name}.{view.field_name}`: `{view.canonical_type}` "
-                    f"(`{'low_first' if view.low_first else 'high_first'}`)"
+                    f"- `{view.name}.{view.field_name}`: `{view.type_name}` "
+                    f"(`{view.order}`)"
                 )
             lines.append("")
     return "\n".join(lines)

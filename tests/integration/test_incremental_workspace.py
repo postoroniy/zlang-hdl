@@ -322,6 +322,39 @@ def test_project_navigation_rebinds_trivia_with_logical_source_units(
     assert calls == 1
 
 
+def test_tooling_session_reuses_intent_structures_across_project_roots(
+    tmp_path: Path,
+) -> None:
+    from zlang.tooling import ToolingSession
+    from zlang.workspace import update_project_lock
+
+    source_root = tmp_path / "src"
+    source_root.mkdir()
+    manifest = tmp_path / "zlang.toml"
+    manifest.write_text(
+        'schema=1\n[project]\nname="intent_cache"\nversion="1"\n'
+        'source-root="src"\n'
+    )
+    first = source_root / "first.zhl"
+    second = source_root / "second.zhl"
+    first_text = (
+        "module First { in x:u8 out y:u8 "
+        "y=implement { x|0 intent { minimize lut } } }"
+    )
+    second_text = first_text.replace("First", "Second")
+    first.write_text(first_text)
+    second.write_text(second_text)
+    update_project_lock(manifest)
+    session = ToolingSession()
+
+    session.semantic_snapshot(first, first_text, project=manifest)
+    session.semantic_snapshot(second, second_text, project=manifest)
+
+    info = session._intent_structural_cache.info()
+    assert info.misses == 1
+    assert info.hits == 1
+
+
 def test_lsp_exact_cache_rechecks_new_project_source(
     tmp_path: Path, monkeypatch
 ) -> None:

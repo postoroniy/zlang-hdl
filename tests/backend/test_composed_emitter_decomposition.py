@@ -23,42 +23,42 @@ VERILATOR = shutil.which("verilator")
 # normalization, connection-owned request/response admission/accounting, and
 # inline selected-top boundary, hierarchy-local naming schema v2, and exact
 # selected-value normalization schema v3, functional-region emission schema
-# v3, Direct-SV DAG schema v2, and hierarchy-local naming schema v3.  The
-# AXI/CSR case now retains shared nodes
+# v3, Direct-SV DAG schema v1, backend typed-constant-folding schema v1, and
+# hierarchy-local naming schema v3. The constant folder preserves typed values
+# while compacting exact extended constants, so both the affected RTL text and
+# its manifest are intentionally captured below. The AXI/CSR case retains shared nodes
 # once while inlining single-use nodes; the other RTL bodies remain unchanged.
+# ZL-048 makes child specialization suffixes declaration/binding/content-owned
+# instead of parent-context-owned, and readable private FSM naming advances the
+# naming schema to v5.  A baseline/current byte diff proved that the four RTL
+# bodies below differ only in those child module/instance suffixes; binding
+# counts and public ports are unchanged.
 # They cover ready/valid hierarchy (including legal full-buffer simultaneous
 # pop/push and reset-suppressed public handshakes), unbuffered
 # request/response, directional request/response FIFOs with a stateful
 # mixed-port child, and source-authored aggregate bus/CSR hierarchy.
-# Manifest hashes use current structured origins, the always-leaf top ABI, and
-# canonical selected-value normalization identities.  Protocol/AXI RTL remains
-# byte-identical to the pre-recovery baseline.  SimpleDMA's old expected RTL
-# hash was already stale on that baseline; the value below is the identical
-# baseline/current artifact.  The request/response artifact additionally
-# records the repaired one-field aggregate fold that the baseline could not
-# emit.
 EXPECTED_ARTIFACTS = {
     ("hierarchical_protocol.zhl", "ProtocolTop"): (
-        "67ebdf5d5e204ace5eddf737c6cf5c6804ea3503d87f5353e15b7c7b1b89e238",
-        "e93c47ef792518c9a99bc55f82a3de3cdcb040869c6316eb48deedb91c6dee62",
+        "f5d21496e9bf9f2ab7ec2bc22425eed42112200c9ab1de1339bab221973377f9",
+        "93fe3622edfcf7f4184ac2e11a06f39a7af1a3fbb3a7affa5c8173be11cd502a",
         19,
     ),
     ("hierarchical_request_response.zhl", "HierarchicalRequestResponse"): (
-        "48254a7a2da27640922978654b1dde628e4e5251ed7288e0d18b6fd713a7e4ec",
-        "bc5a746a034bfc87aad6251e7b6fe239d4ab9ebd840147580b0e2f75acda49df",
+        "1db32dac9bbd1efdc3a4a320d224b764ddcf36d3823163b0e4c7e19597327d5f",
+        "53490762ed38db2948b077383e087eb2ea598ad57a4471c00ec6208ba90f0f96",
         27,
     ),
     ("simple_dma.zhl", "SimpleDMA"): (
         # Request/response buffers retain their frozen conservative admission
         # rule and therefore use the explicitly distinct helper family after
         # ordinary ready/valid FIFOs gained full pop/push replacement.
-        "73cb85917c83bf1f396135e2a396467b027a2f812bdfb3518c101f4b5c8341d2",
-        "2c80c38cbdace521e31f1c55d3265f07e1e6ca6f6dc3e594361d729ff6d7d9c2",
+        "e3bfb9419d22d605c8fa636e8e8c7b6e841eceaff3fa14271983eed8631ae3b2",
+        "5300f768dc79b674ae3dc926e8bc1963ad187d9b2e6ec5421d9f447eb3c934d1",
         29,
     ),
     ("axi_csr_top.zhl", "AxiCsrTop"): (
-        "ce6becd67a964adb44c5c0f965d2262893215d72a1c3db51474bfd25728bd3f9",
-        "842b78e48c6f9bd0fd269a57c0c9a6ad87e47fd47f9da929d8945a8503ae986a",
+        "7c4af9f2943a8b213fc4571db73fe60beff54e3a134ab6eafd0e0657b5a8516f",
+        "9e8737b0df3344f198de940fe402b77c04e1117873cdde10be40e151791f90ea",
         77,
     ),
 }

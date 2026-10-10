@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 import argparse
-import os
 from pathlib import Path
 import sys
-import tempfile
 from typing import Sequence
 
 from zlang._version import __version__
+from zlang.common.atomic_io import publish_text_atomically
 from zlang.ir.formal import FormalError, ProofMode
+from zlang.formal_routes import public_formal_route_identities
 from zlang.candidate_equivalence import execute_frozen_candidate_equivalence
 from zlang import compiler_verification_report as compiler_verification_report
 from zlang.formal_exploration import FormalExplorationConfig
@@ -19,30 +19,7 @@ from zlang import verification_bundle as verification_bundle
 
 
 def _write_atomically(path: Path, content: str) -> None:
-    destination = Path(path)
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    temporary_name: str | None = None
-    try:
-        with tempfile.NamedTemporaryFile(
-            "w",
-            encoding="utf-8",
-            dir=destination.parent,
-            prefix=f".{destination.name}.",
-            suffix=".tmp",
-            delete=False,
-        ) as temporary:
-            temporary.write(content)
-            temporary.flush()
-            os.fsync(temporary.fileno())
-            temporary_name = temporary.name
-        os.replace(temporary_name, destination)
-        temporary_name = None
-    finally:
-        if temporary_name is not None:
-            try:
-                os.unlink(temporary_name)
-            except FileNotFoundError:
-                pass
+    publish_text_atomically(path, content)
 
 
 def main(
@@ -62,6 +39,9 @@ def main(
     parser.add_argument("bundle", type=Path, help="verification bundle directory")
     parser.add_argument("--mode", choices=("bmc", "prove"), default="bmc")
     parser.add_argument("--engine", default="sby")
+    parser.add_argument(
+        "--route", choices=public_formal_route_identities(), default="smtbmc"
+    )
     parser.add_argument("--solver", default="z3")
     parser.add_argument("--depth", type=int, default=20)
     parser.add_argument("--timeout", type=int, default=120, dest="timeout_seconds")
@@ -89,6 +69,7 @@ def main(
         config = verification_bundle.VerificationRunConfig(
             mode=ProofMode(arguments.mode),
             engine=arguments.engine,
+            route=arguments.route,
             solver=arguments.solver,
             depth=arguments.depth,
             timeout_seconds=arguments.timeout_seconds,

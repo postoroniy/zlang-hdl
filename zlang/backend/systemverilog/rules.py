@@ -33,6 +33,10 @@ def _append_rule_state(
             identifiers.rtl_register_state_identifier(register.name), register.type
         )
         for register in module.registers
+        if not any(
+            port.name == register.name and port.registered
+            for port in module.outputs
+        )
     )
     for register in module.registers:
         if register.domain is None:
@@ -103,6 +107,12 @@ def _append_rule_state(
         f"  assign {sv_rendering._assignment_name(assignment)} = "
         f"{render(assignment.expression)};"
         for assignment in module.assignments
+        if not (
+            isinstance(assignment.target, ir_module.Port)
+            and assignment.target.registered
+            and isinstance(assignment.expression, expr.RegisterRef)
+            and assignment.expression.name == assignment.target.name
+        )
     )
 
 

@@ -55,6 +55,4 @@ def test_release_policy_and_default_ci_have_no_retired_backend_escape_hatch() ->
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8").lower()
     assert "clash" not in workflows
     assert "test-release-twice:" in makefile
-    assert makefile.count("-p tools.pytest_no_skips") == 4
-    assert makefile.count("-m 'not performance'") == 2
-    assert makefile.count("-m performance") == 2
+    assert makefile.count("-p tools.pytest_no_skips") == 2

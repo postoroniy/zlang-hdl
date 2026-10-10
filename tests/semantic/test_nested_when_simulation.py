@@ -123,8 +123,8 @@ module OutputConflictPriority {
   reg rh : bit = 0
   reg rl : bit = 0
   priority {
-    higher: when high { y <- 1 rh <- 1 }
-    lower: when low { y <- 0 rl <- 1 }
+    higher: when high { drive y = 1 rh <- 1 }
+    lower: when low { drive y = 0 rl <- 1 }
   }
   high_seen = rh
   low_seen = rl
@@ -162,7 +162,7 @@ module ResetConditionalFifo {
   operate: when go {
     when choose {
       q.push(data)
-      event <- 1
+      drive event = 1
     }
   }
   count = q.count
@@ -209,10 +209,10 @@ module DelayedNestedRule {{
   update: when {guard} {{
     when {activation} {{
       state <- 9
-      event <- 0xa5
+      drive event = 0xa5
     }} else {{
       state <- 3
-      event <- 0x3c
+      drive event = 0x3c
     }}
   }}
   observed = state

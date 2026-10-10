@@ -28,8 +28,17 @@ from zlang.lsp.protocol import (
     JSON_RPC_VERSION,
     LspProtocolError,
     error_response as _error,
+    notification as _message,
     read_message,
+    response as _response,
     write_message,
+)
+from zlang.lsp.request_values import (
+    best_effort_uri as _best_effort_uri,
+    integer as _integer,
+    mapping as _mapping,
+    optional_version as _optional_version,
+    string as _string,
 )
 from zlang.tooling import (
     EditorDocumentSnapshot,
@@ -589,18 +598,6 @@ def _publish(uri: str, diagnostics: list[dict[str, Any]]) -> dict[str, Any]:
         "method": "textDocument/publishDiagnostics",
         "params": {"uri": uri, "diagnostics": diagnostics},
     }
-
-
-def _message(method: str, message: str) -> dict[str, Any]:
-    return {
-        "jsonrpc": JSON_RPC_VERSION,
-        "method": method,
-        "params": {"type": 1, "message": message},
-    }
-
-
-def _response(request_id: Any, result: Any = None) -> dict[str, Any]:
-    return {"jsonrpc": JSON_RPC_VERSION, "id": request_id, "result": result}
 
 
 class LspServer:
@@ -1378,50 +1375,6 @@ class LspServer:
             for outbound in self.dispatch(message):
                 write_message(output_stream, outbound)
         return 0 if self.shutdown_requested else 1
-
-
-def _mapping(value: object, key: str | None = None) -> dict[str, Any]:
-    if not isinstance(value, dict):
-        raise LspProtocolError("LSP parameters must be an object")
-    if key is None:
-        return value
-    nested = value.get(key)
-    if not isinstance(nested, dict):
-        raise LspProtocolError(f"LSP parameters are missing object '{key}'")
-    return nested
-
-
-def _string(value: object, key: str) -> str:
-    if not isinstance(value, dict) or not isinstance(value.get(key), str):
-        raise LspProtocolError(f"LSP field '{key}' must be a string")
-    return value[key]
-
-
-def _optional_version(value: object) -> int | None:
-    if value is None:
-        return None
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise LspProtocolError("document version must be an integer")
-    return value
-
-
-def _integer(value: object, key: str) -> int:
-    if not isinstance(value, dict):
-        raise LspProtocolError("LSP position must be an object")
-    candidate = value.get(key)
-    if isinstance(candidate, bool) or not isinstance(candidate, int):
-        raise LspProtocolError(f"LSP position field '{key}' must be an integer")
-    if candidate < 0:
-        raise LspProtocolError(f"LSP position field '{key}' must not be negative")
-    return candidate
-
-
-def _best_effort_uri(params: object) -> str:
-    if isinstance(params, dict):
-        item = params.get("textDocument")
-        if isinstance(item, dict) and isinstance(item.get("uri"), str):
-            return item["uri"]
-    return ""
 
 
 def run_server() -> int:

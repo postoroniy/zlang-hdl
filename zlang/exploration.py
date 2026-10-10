@@ -5,11 +5,15 @@ timing, pipeline, and cost layers.  It does not create new equivalence rules.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, fields, is_dataclass, replace
+from dataclasses import dataclass, field, fields, is_dataclass
 from enum import Enum
 from hashlib import sha256
 from typing import Any, Callable, Iterable
 
+from zlang.candidate_expression import (
+    candidate_expression_children as _expression_children,
+    candidate_input_refs,
+)
 from zlang.costs import (
     CandidateCost,
     CostExtractionError,
@@ -18,14 +22,21 @@ from zlang.costs import (
     UnifiedConstraint,
     extract_best,
 )
-from zlang.candidate_expression import (
-    candidate_expression_children as _expression_children,
-    candidate_input_refs as _input_refs,
+from zlang.intent_structural_exploration import (
+    IntentStructuralExplorationCache,
+    StructuralExplorationStats,
+    explore_intent_structures,
 )
 from zlang.ir import expressions as ir_expr
 from zlang.ir.cdc import ClockDomain
 from zlang.ir.expression_graph import ExpressionDagIndex
+from zlang.implementation_limits import IntentExplorationLimits
 from zlang.timing import TimingRelation, timing_info, validate_timed_candidate
+
+
+# Tested internal compatibility name; the algorithm is owned only by
+# ``candidate_expression`` and is not copied here.
+_input_refs = candidate_input_refs
 
 
 class TransformFamily(str, Enum):
@@ -37,18 +48,9 @@ class TransformFamily(str, Enum):
     ADAPTER = "adapter"
 
 
-@dataclass(frozen=True)
-class ExplorationBounds:
-    max_candidates: int = 64
-    max_value_alternatives: int = 16
-    max_architectures: int = 16
-    max_reductions: int = 16
-    max_pipeline_candidates: int = 32
-
-    def __post_init__(self) -> None:
-        values = tuple(getattr(self, item.name) for item in fields(self))
-        if any(value < 1 or value > 256 for value in values):
-            raise ValueError("exploration bounds must be between 1 and 256")
+# Tested compatibility name; the immutable policy is owned by the normalized
+# implementation request rather than by the exploration algorithm.
+ExplorationBounds = IntentExplorationLimits
 
 
 @dataclass(frozen=True)
@@ -73,6 +75,11 @@ class ExplorationRequest:
     objective: ir_expr.CostMetric = ir_expr.CostMetric.LUT
     source_policy: SourcePolicy = SourcePolicy.ESTIMATE_ONLY
     bounds: ExplorationBounds = ExplorationBounds()
+    structural_cache: IntentStructuralExplorationCache | None = field(
+        default=None,
+        compare=False,
+        repr=False,
+    )
     source_origin: object | None = None
     equivalences: tuple[object, ...] = ()
     formal_config: object | None = None
@@ -101,6 +108,7 @@ class ExplorationRequest:
 class ExplorationCandidate:
     expression: ir_expr.Expression
     semantic_identity: str
+    selected_value_identity: str
     implementation_identity: str
     stages: tuple[str, ...]
     cost: CandidateCost
@@ -222,6 +230,7 @@ class ExplorationResult:
     site_owner: str | None = None
     site_output: str | None = None
     site_kind: str = "implement"
+    structural_stats: StructuralExplorationStats | None = None
 
     @property
     def selected(self) -> ExplorationCandidate:
@@ -302,13 +311,14 @@ def explore(
     rejected: list[RejectedCandidate] = []
     complete = True
     termination = "all enabled bounded stages completed"
-    source = _candidate(request.root, ("source",), estimate_expression_cost(request.root))
-    candidates = [source]
+    # Exact typed structures are local to this implementation site.  Source is
+    # always retained first; egglog alternatives are certificate-checked and
+    # target-neutrally deduplicated before any implementation provider runs.
+    candidates, value_truncated, value_rejections, structural_stats = (
+        _value_candidates(request)
+    )
+    source = candidates[0]
     counts: list[tuple[str, int]] = [("source", 1)]
-
-    # e-graph optimization/guarded exact rewrite exact, type-preserving alternatives are always safe defaults.
-    value_candidates, value_truncated, value_rejections = _value_candidates(request)
-    candidates = _deduplicate([*candidates, *value_candidates])
     rejected.extend(value_rejections)
     counts.append(("value", len(candidates)))
     complete, termination = _merge_completion(
@@ -323,11 +333,6 @@ def explore(
 
         expanded = list(candidates)
         for parent in candidates:
-            # Build one canonical hardware structure from the source root.
-            # Repeating it for value-egraph spellings only duplicates the same
-            # physical candidate and needlessly grows the bounded catalog.
-            if parent.stages != ("source",):
-                continue
             structural = csa_multiplier_candidate(parent.expression)
             if structural is None:
                 continue
@@ -357,10 +362,14 @@ def explore(
                         "generic logic"
                     ),
                     provenance=(*parent.provenance, "structural multiplier CSA tree"),
+                    selected_value_identity=parent.selected_value_identity,
                 )
             )
         candidates, truncated = _bounded_deduplicate(
-            expanded, request.bounds.max_architectures, request.bounds.max_candidates
+            expanded,
+            request.bounds.max_architectures,
+            request.bounds.max_candidates,
+            request.bounds.max_candidates_per_structure,
         )
         counts.append(("multiplier", len(candidates)))
         complete, termination = _merge_completion(
@@ -386,10 +395,14 @@ def explore(
                         architecture=architecture,
                         value_relation="architecture alternatives exact typed value semantics",
                         provenance=(*parent.provenance, "architecture alternatives architecture"),
+                        selected_value_identity=parent.selected_value_identity,
                     )
                 )
         candidates, truncated = _bounded_deduplicate(
-            expanded, request.bounds.max_architectures, request.bounds.max_candidates
+            expanded,
+            request.bounds.max_architectures,
+            request.bounds.max_candidates,
+            request.bounds.max_candidates_per_structure,
         )
         counts.append(("architecture", len(candidates)))
         complete, termination = _merge_completion(
@@ -432,10 +445,14 @@ def explore(
                         architecture=reduction,
                         value_relation="exact reduction planning exact canonical reduction semantics",
                         provenance=(*parent.provenance, "exact reduction planning reduction"),
+                        selected_value_identity=parent.selected_value_identity,
                     )
                 )
         candidates, truncated = _bounded_deduplicate(
-            expanded, request.bounds.max_reductions, request.bounds.max_candidates
+            expanded,
+            request.bounds.max_reductions,
+            request.bounds.max_candidates,
+            request.bounds.max_candidates_per_structure,
         )
         counts.append(("reduction", len(candidates)))
         complete, termination = _merge_completion(
@@ -543,12 +560,14 @@ def explore(
                         architecture=pipeline,
                         value_relation=parent.value_relation,
                         provenance=(*parent.provenance, "pipeline scheduling pipeline/timing alignment timing"),
+                        selected_value_identity=parent.selected_value_identity,
                     )
                 )
         candidates, truncated = _bounded_deduplicate(
             expanded,
             request.bounds.max_pipeline_candidates,
             request.bounds.max_candidates,
+            request.bounds.max_candidates_per_structure,
         )
         counts.append(("pipeline", len(candidates)))
         complete, termination = _merge_completion(
@@ -626,6 +645,7 @@ def explore(
         None if context is None else context.site_owner,
         None if context is None else context.output,
         "expression_explore" if context is None else context.site_kind,
+        structural_stats,
     )
 
 
@@ -690,6 +710,20 @@ def render_result(result: ExplorationResult) -> str:
     counts = " ".join(f"{name}={count}" for name, count in result.stage_counts)
     rejected = len(result.rejected_candidates)
     selected = result.selected_candidate
+    structural = result.structural_stats
+    structural_line = (
+        "value exploration: unavailable; source retained"
+        if structural is None
+        else (
+            "value exploration: "
+            f"iterations={structural.saturation_iterations} "
+            f"eclasses={structural.eclasses} enodes={structural.enodes} "
+            f"raw={structural.raw_extractions} "
+            f"structural={structural.structurally_unique_extractions} "
+            f"retained={structural.retained_structures} "
+            f"limited={'yes' if structural.truncated else 'no'}"
+        )
+    )
     return "\n".join(
         (
             "Implementation selection: result"
@@ -698,8 +732,11 @@ def render_result(result: ExplorationResult) -> str:
             f"allowed: {allowed}; avoided: {avoided}",
             f"objective: {'maximize' if request.objective is ir_expr.CostMetric.FMAX_EST else 'minimize'} {request.objective.value}",
             f"search: {counts} legal={sum(item.legal for item in result.extraction.evaluations)} rejected={rejected}",
+            structural_line,
             f"search complete: {'yes' if result.search_complete else 'no'}; {result.termination_reason}",
-            f"selected: {'/'.join(selected.stages)} identity={selected.implementation_identity}",
+            f"selected: {'/'.join(selected.stages)} "
+            f"value={selected.selected_value_identity} "
+            f"identity={selected.implementation_identity}",
             f"semantics: value={selected.value_relation}; timing={_timing_text(selected.timing_relation)}; protocol={'not applicable' if selected.protocol_relation is None else selected.protocol_relation.reason}",
             "architecture intent: backend-independent metadata; physical DSP mapping is not claimed",
             f"cost source: {request.source_policy.value}; metrics retain per-field provenance",
@@ -718,67 +755,67 @@ def render_exploration_report(results: Iterable[ExplorationResult]) -> str:
 
 def _value_candidates(
     request: ExplorationRequest,
-) -> tuple[list[ExplorationCandidate], bool, list[RejectedCandidate]]:
+) -> tuple[
+    list[ExplorationCandidate],
+    bool,
+    list[RejectedCandidate],
+    StructuralExplorationStats | None,
+]:
     try:
-        from zlang.ir.module import Assignment, Module, Port, PortDirection
-        from zlang.opt.module_lowering import lower
-        from zlang.opt.rewrite_model import term_to_expression
-        from zlang.opt.saturation import saturate
-
-        inputs = _input_refs(request.root)
-        output_name = "__zlang_explore_result"
-        while output_name in inputs:
-            output_name += "_"
-        ports = tuple(
-            Port(PortDirection.INPUT, name, type_)
-            for name, type_ in sorted(inputs.items())
+        explored = explore_intent_structures(
+            request.root,
+            request.equivalences,
+            max_saturation_iterations=request.bounds.max_saturation_iterations,
+            max_eclasses=request.bounds.max_eclasses,
+            max_enodes=request.bounds.max_enodes,
+            max_raw_extractions=request.bounds.max_value_alternatives,
+            max_structural_alternatives=(
+                request.bounds.max_structural_alternatives
+            ),
+            cache=request.structural_cache,
         )
-        output = Port(PortDirection.OUTPUT, output_name, request.root.type)
-        module = Module(
-            "__ZLangExplore",
-            (*ports, output),
-            (Assignment(output, request.root),),
-            equivalences=request.equivalences,
-        )
-        canonical = lower(module)
-        root = canonical.assignments[0].expression
-        saturation = saturate(
-            canonical,
-            root,
-            max_terms=request.bounds.max_value_alternatives,
-        )
-        candidates = []
-        certificates = {
-            certificate.selected_identity: certificate
-            for certificate in saturation.certificates
-        }
-        from hashlib import sha256
-        from zlang.opt.rewrite_model import render_term
-        for term in saturation.alternatives:
-            expression = term_to_expression(term)
-            certificate = certificates[sha256(render_term(term).encode()).hexdigest()]
-            if request.root.origin is not None:
-                expression = replace(expression, origin=request.root.origin)
+        candidates: list[ExplorationCandidate] = []
+        for alternative in explored.alternatives:
+            certificate = alternative.certificate
             candidates.append(
                 _candidate(
-                    expression,
-                    ("value",),
-                    estimate_expression_cost(expression),
+                    alternative.expression,
+                    ("source",) if alternative.is_source else ("value",),
+                    estimate_expression_cost(alternative.expression),
                     value_relation=(
-                        "compiler checked exact typed equality; "
-                        f"certificate={certificate.checker_version}"
+                        "exact_source_value"
+                        if certificate is None
+                        else (
+                            "compiler checked exact typed equality; "
+                            f"certificate={certificate.checker_version}"
+                        )
                     ),
                     provenance=(
-                        "egglog candidate",
-                        f"checked-value:{certificate.normal_form_identity}",
+                        ()
+                        if certificate is None
+                        else (
+                            "egglog candidate",
+                            f"checked-value:{certificate.normal_form_identity}",
+                        )
                     ),
+                    selected_value_identity=alternative.selected_value_identity,
                 )
             )
-        return candidates, saturation.truncated, []
+        return candidates, explored.stats.truncated, [], explored.stats
     except (TypeError, ValueError) as error:
         # Ineligible roots are not a compiler failure: source remains a legal
         # candidate.  Keep the structured reason for explainability.
-        return [], False, [RejectedCandidate(None, "value", str(error))]
+        source = _candidate(
+            request.root,
+            ("source",),
+            estimate_expression_cost(request.root),
+        )
+        return (
+            [source],
+            False,
+            [RejectedCandidate(None, "value", str(error))],
+            None,
+        )
 
 
 def _candidate(
@@ -791,14 +828,32 @@ def _candidate(
     architecture: object | None = None,
     protocol_relation: object | None = None,
     provenance: tuple[str, ...] = (),
+    selected_value_identity: str | None = None,
 ) -> ExplorationCandidate:
     semantic = _semantic_identity(expression)
+    selected_value = selected_value_identity or semantic
     architecture_identity = getattr(architecture, "identity", None)
-    payload = repr((semantic, stages, architecture_identity, timing_info(expression)))
+    # Preserve the established identity schema for the source structure.  The
+    # selected value identity is additional implementation evidence only when
+    # egglog supplied a distinct exact structure; source-derived candidates
+    # must remain byte-for-byte compatible with the pre-exploration catalog.
+    identity_parts: tuple[object, ...] = (
+        semantic,
+        stages,
+        architecture_identity,
+        timing_info(expression),
+    )
+    if stages and stages[0] == "value":
+        identity_parts = (
+            *identity_parts,
+            ("selected_exact_value", selected_value),
+        )
+    payload = repr(identity_parts)
     implementation = sha256(payload.encode()).hexdigest()
     return ExplorationCandidate(
         expression,
         semantic,
+        selected_value,
         implementation,
         stages,
         cost,
@@ -844,10 +899,25 @@ def _bounded_deduplicate(
     candidates: Iterable[ExplorationCandidate],
     stage_limit: int,
     global_limit: int,
+    per_structure_limit: int,
 ) -> tuple[list[ExplorationCandidate], bool]:
     ordered = _deduplicate(candidates)
     limit = min(stage_limit, global_limit)
-    return ordered[:limit], len(ordered) > limit
+    by_structure: dict[str, list[ExplorationCandidate]] = {}
+    for candidate in ordered:
+        group = by_structure.setdefault(candidate.selected_value_identity, [])
+        if len(group) < per_structure_limit:
+            group.append(candidate)
+    # Round-robin prevents the source spelling from consuming the bounded
+    # catalog before another exact structure reaches the same providers.
+    bounded: list[ExplorationCandidate] = []
+    for ordinal in range(per_structure_limit):
+        for group in by_structure.values():
+            if ordinal < len(group):
+                bounded.append(group[ordinal])
+                if len(bounded) == limit:
+                    return bounded, len(ordered) > len(bounded)
+    return bounded, len(ordered) > len(bounded)
 
 
 def _merge_completion(

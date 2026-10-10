@@ -51,7 +51,46 @@ def test_sv_profile_uses_actual_cli_and_reports_requested_products(tmp_path: Pat
     assert result["counters"]["formal_product_built"] == 0
     assert result["counters"]["documents_product_built"] == 0
     assert result["counters"]["reports_product_built"] == 0
-    assert result["counters"]["sv_dag_plan_builds"] >= 1
+    # The public module and the composed renderer's physical component are
+    # distinct immutable Module products.  Each exact object owns one plan;
+    # staging and final rendering must reuse the component plan.
+    assert result["counters"]["sv_materialization_plan_builds"] == 2
+    assert result["counters"]["sv_dag_plan_builds"] == 2
     assert result["counters"]["instance_expression_calls"] >= 1
     assert "product.formal" not in result["timings"]
     assert result["timings"]["emit_systemverilog_artifact"]["calls"] == 1
+
+
+def test_profile_reports_session_structural_cache_reuse(tmp_path: Path) -> None:
+    source = tmp_path / "intent_cache.zhl"
+    source.write_text(
+        """
+module IntentCache {
+  in x:u8
+  out first:u8
+  out second:u8
+  first=implement { x|0 intent { minimize lut } }
+  second=implement { x|0 intent { minimize latency } }
+}
+"""
+    )
+    completed = subprocess.run(
+        (
+            sys.executable,
+            str(ROOT / "tools/profile_compilation_latency.py"),
+            str(source),
+            "--top",
+            "IntentCache",
+            "--mode",
+            "sv",
+        ),
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    counters = json.loads(completed.stdout)["counters"]
+
+    assert counters["intent_egraph_cache_misses"] == 1
+    assert counters["intent_egraph_cache_hits"] == 1
+    assert counters["intent_egraph_cache_waits"] == 0
+    assert counters["intent_egraph_cache_entries"] == 1

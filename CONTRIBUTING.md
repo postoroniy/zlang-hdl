@@ -63,16 +63,19 @@ Before calling a source change complete:
 4. Run applicable formal tests without inventing new claims.
 5. Run the regression gate and `git diff --check` required by the change.
 
-## Language-reference PDF
+## Building the language-reference PDF
 
-The Community tree carries the Markdown sources and the reviewed PDF, but not
-the host-owned publication builder or cover asset. Contributors should edit and
-review the Markdown normally; `make community-pdf-check TAG=v0.1.0a20`
-verifies that a release candidate contains the exact reviewed PDF and recorded
-source identities. Release maintainers build the final PDF from the exact
-history-free public projection, record the audited builder and cover digests,
-and visually inspect the rendered cover and representative code-heavy pages
-before publication. This workflow is not required to install or use ZLang.
+This is a documentation-maintainer workflow, not a prerequisite for installing
+or using ZLang. Install Pandoc, XeLaTeX, qpdf, and Poppler tools, then build
+the PDF with the cover asset supplied to the builder:
+
+```bash
+python tools/build_community_pdf.py --root . --cover /path/to/ZLang-HDL_cover.jpg
+python tools/build_community_pdf.py --root . --check
+```
+
+The builder validates examples and links and checks reproducibility. Review the
+rendered pages before publishing the generated artifact.
 
 ## Pull requests
 

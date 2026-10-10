@@ -17,6 +17,7 @@ from zlang.exploration import (
     TransformFamily,
     explore,
 )
+from zlang.intent_structural_exploration import IntentStructuralExplorationCache
 from zlang.implementation_regions import (
     ImplementationRegion,
     ImplementationRegionError,
@@ -171,6 +172,7 @@ def apply_external_region_exploration(
     external_contributions: Iterable[ImplementationContribution],
     formal_config=None,
     formal_verifier=None,
+    structural_cache: IntentStructuralExplorationCache | None = None,
 ) -> tuple[Module, tuple[ExplorationResult, ...]]:
     """Execute profile/API bounded exploration policy only for plain selected wire regions.
 
@@ -242,6 +244,8 @@ def apply_external_region_exploration(
                     tuple(constraints),
                     request.objective.metric,
                     request.evidence_policy,
+                    bounds=request.exploration_limits,
+                    structural_cache=structural_cache,
                     source_origin=assignment.expression.origin,
                     equivalences=module.equivalences,
                     formal_config=formal_config,

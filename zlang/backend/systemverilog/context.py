@@ -30,6 +30,13 @@ class EmissionContext:
     rtl_name_plans: dict[tuple[int, tuple[str, ...]], tuple[object, object]] = field(
         default_factory=dict
     )
+    # Materialization owns module-local physical expression rewrites and the
+    # exact DAG plan.  Keep those owners here so validation and rendering of
+    # the same module share one preparation without making the context know
+    # their backend-specific implementation.
+    materialization_owners: dict[
+        tuple[int, int], tuple[object, object, object]
+    ] = field(default_factory=dict)
     functional: FunctionalEmissionContext = field(
         default_factory=FunctionalEmissionContext
     )
@@ -96,7 +103,9 @@ def top_physical_abi(module: object) -> object:
     return abi
 
 
-def module_rtl_names(module: object, *, reserved: tuple[str, ...] = ()) -> object:
+def cached_module_rtl_names(
+    module: object, *, reserved: tuple[str, ...] = ()
+) -> object:
     """Return one module's RTL names within the active emission."""
 
     emission = _CURRENT_EMISSION.get()
@@ -147,7 +156,7 @@ __all__ = [
     "current_top_boundary",
     "emission_scope",
     "functional_expression_scope",
-    "module_rtl_names",
+    "cached_module_rtl_names",
     "top_physical_abi",
     "top_boundary_scope",
 ]

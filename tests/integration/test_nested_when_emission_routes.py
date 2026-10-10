@@ -13,7 +13,7 @@ import shutil
 
 import pytest
 
-from zlang.backend.systemverilog import emit as emit_systemverilog
+from zlang.backend.systemverilog import emit_experimental as emit_systemverilog
 from zlang.compiler import compile_source
 from zlang.toolchain import lint_with_verilator
 
@@ -60,7 +60,7 @@ module ConditionalMixed {
   update: when input.transfer {
     when choose {
       state <- input.payload
-      event <- 1
+      drive event = 1
     }
   }
 }
@@ -90,7 +90,7 @@ module ConditionalRvTop {
   track: when input.transfer {
     when choose {
       seen <- input.payload
-      event <- 1
+      drive event = 1
     }
   }
   observed=seen
@@ -125,7 +125,7 @@ module ConditionalAggregateTop {
   update: when gate {
     when choose {
       state <- 9
-      event <- 1
+      drive event = 1
     }
   }
   observed=state
@@ -154,12 +154,12 @@ module ConditionalStorage {
       queue.push(data)
       table.write(address,data)
       state <- data
-      event <- 1
+      drive event = 1
     } else {
       queue.pop()
       table.read(address)
       state <- truncate<8>(state + 1)
-      event <- 0
+      drive event = 0
     }
   }
   count=queue.count
@@ -207,12 +207,12 @@ module ConditionalStorageRvTop {
       queue.push(input.payload)
       table.write(address,input.payload)
       state <- input.payload
-      event <- 1
+      drive event = 1
     } else {
       queue.pop()
       table.read(address)
       state <- truncate<8>(state + 1)
-      event <- 0
+      drive event = 0
     }
   }
   count=queue.count
@@ -265,12 +265,12 @@ module ConditionalStorageAggregateTop {
       queue.push(bus.data.payload)
       table.write(address,bus.data.payload)
       state <- bus.data.payload
-      event <- 1
+      drive event = 1
     } else {
       queue.pop()
       table.read(address)
       state <- truncate<8>(state + 1)
-      event <- 0
+      drive event = 0
     }
   }
   count=queue.count
@@ -335,7 +335,7 @@ module ConditionalRequester {
   mark: when bus.request.transfer {
     when choose {
       state <- 1
-      event <- 1
+      drive event = 1
     }
   }
   marker=state
@@ -393,7 +393,7 @@ module ConditionalTaggedRequester {
   update: when bus.request.transfer {
     when choose {
       state <- 1
-      event <- 1
+      drive event = 1
     }
   }
   observed=state
@@ -411,7 +411,7 @@ module ConditionalBufferedConnection {
   connect input -> output { buffer 1 }
   armed=go & choose
   event_value=choose
-  update: when go { when armed { event <- event_value } }
+  update: when go { when armed { drive event = event_value } }
 }
 """
 
@@ -430,7 +430,7 @@ module UnnestedMixedOutput {
   output.valid=input.valid
   update: when go {
     state <- input.payload
-    fired <- 1
+    drive fired = 1
   }
 }
 """

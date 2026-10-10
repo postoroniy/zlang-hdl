@@ -175,9 +175,15 @@ class CsrSemanticTests(unittest.TestCase):
         )
         self.assertEqual(
             [item.name for item in block.split_views],
-            ["rows_0_BASE", "rows_0_LIMIT", "rows_1_BASE", "rows_1_LIMIT"],
+            [
+                "rows_0_BASE", "rows_0_LIMIT",
+                "rows_1_BASE", "rows_1_LIMIT",
+            ],
         )
-        self.assertEqual(block.split_views[0].projection_path, ("rows[0]", "BASE"))
+        self.assertEqual(
+            block.split_views[0].projection_path,
+            ("rows[0]", "BASE"),
+        )
 
         with self.assertRaisesRegex(SemanticError, "smaller than group extent"):
             analyze(parse(

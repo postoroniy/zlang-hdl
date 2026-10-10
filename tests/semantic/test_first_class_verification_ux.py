@@ -11,7 +11,7 @@ from zlang.ir.formal import PropertyKind
 from zlang.ir import verification as ir_verification
 from zlang.ir.verification import ContractKind, VerificationGoalKind
 from zlang.module_resolver import attach_source_identity
-from zlang.opt.lowering import CanonicalizationError, lower, restore
+from zlang.opt import CanonicalizationError, lower, restore
 from zlang.parser import parse
 from zlang.semantic import SemanticError, analyze
 from zlang.native_simulation import VerificationAssertionError, simulate_cycles

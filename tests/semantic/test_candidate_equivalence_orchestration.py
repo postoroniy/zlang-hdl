@@ -19,7 +19,6 @@ from zlang.candidate_sites import (
 from zlang.equivalence import MiterTraceMetadata
 from zlang.formal_candidate import PreparedCandidateEquivalence
 from zlang.formal_orchestration import CandidateEquivalencePlanReference
-from zlang.ir.types import BitType
 from zlang.ir.comparison_window import ComparisonWindow
 from zlang.ir.equivalence import (
     BindingSide,
@@ -28,6 +27,7 @@ from zlang.ir.equivalence import (
     EquivalenceRelation,
     SignalRole,
 )
+from zlang.ir.types import BitType
 
 
 CANDIDATE = "selected:candidate"

@@ -457,15 +457,40 @@ def _elastic_pipeline_site(
     )
     if len(wrapped) != 1:
         raise CandidateSiteError("retained pipeline selected candidate is ambiguous")
+    selected_identity = wrapped[0].candidate.implementation_identity
+    temporal_graph = getattr(pipeline, "temporal_graph", None)
+    if temporal_graph is not None:
+        # The selected temporal graph is the complete HOW/WHEN/WHERE
+        # candidate proved by the transaction-stream route.  The generic
+        # pipeline wrapper identity describes only the value/catalog entry and
+        # must not be used as evidence identity for the emitted FSM.
+        candidates = tuple(
+            replace(
+                item,
+                candidate_identity=temporal_graph.implementation_identity,
+            )
+            if item.candidate_identity == selected_identity
+            else item
+            for item in candidates
+        )
+        selected_identity = temporal_graph.implementation_identity
     return CandidateSiteRecord(
         CandidateSiteKind.ELASTIC_PIPELINE,
         owner_identity or module_candidate_owner_identity(module),
         getattr(pipeline, "destination_endpoint"),
         expression_semantic_identity(pipeline.source_expression),
-        wrapped[0].candidate.implementation_identity,
+        selected_identity,
         candidates,
-        CandidateRewriteKind.UNSUPPORTED,
-        "variable-latency elastic pipelines have no semantic-reference equivalence candidate route",
+        (
+            CandidateRewriteKind.EXPRESSION_IDENTITY
+            if temporal_graph is not None
+            else CandidateRewriteKind.UNSUPPORTED
+        ),
+        (
+            None
+            if temporal_graph is not None
+            else "variable-latency elastic pipelines have no semantic-reference equivalence candidate route"
+        ),
         getattr(pipeline, "source_origin", None)
         or getattr(pipeline.source_expression, "origin", None),
     )

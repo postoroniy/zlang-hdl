@@ -12,14 +12,14 @@ from zlang.ir.expression_arena import (
 )
 from zlang.ir.types import UIntType
 from zlang.ir.module import LocalValue
-from zlang.opt.identity import canonical_ir_identity
-from zlang.opt.lowering import lower
+from zlang.opt import canonical_ir_identity, lower
 from zlang.parser import parse
 from zlang.semantic import analyze
 from zlang.semantic.callables import _expand_analysis_calls
-from zlang.semantic.expression_support import _expand_immutable_locals
-from zlang.semantic import SemanticError
 from zlang.semantic.context import AnalysisServices
+from zlang.semantic.expression_support import _expand_immutable_locals
+from zlang.semantic import limits as semantic_limits
+from zlang.semantic import SemanticError
 from zlang.source import SourceOrigin, SourceSpan
 
 
@@ -116,8 +116,7 @@ def test_call_free_analysis_keeps_original_typed_dag() -> None:
 def test_immutable_local_expansion_has_a_shared_analysis_work_bound(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    limits = importlib.import_module("zlang.semantic.limits")
-    monkeypatch.setattr(limits, "MAX_ANALYSIS_LOCAL_EXPANSION_NODES", 2)
+    monkeypatch.setattr(semantic_limits, "MAX_ANALYSIS_LOCAL_EXPANSION_NODES", 2)
     budget = AnalysisServices()
     expression = expr.Add(
         expr.InputRef("x", UIntType(8)),

@@ -43,9 +43,16 @@ from tests.simulation.differential import run_differential
 ROOT = Path(__file__).resolve().parents[2]
 ZTPU_FIXTURE = ROOT / "tests" / "fixtures" / "ztpu_zl038"
 ZTPU_CANONICAL_IDENTITIES = {
-    "fsm": "high-level:890e6bb709bbd4deb9404bc86760eebb894a237edad2588b62d01ccb28381518",
-    "flat": "high-level:fe0d8d29842819703e4d97c7674e4e7ce9da3502b1dd62d0622f417543a10788",
-    "hierarchy": "high-level:3774acd4c1ae664d6367302cc2c130cf52786c18030fe6a5764db8c62fac435c",
+    # Canonical schema v21 removes the retired architecture-exploration field;
+    # value identity v3 supplies the transition identity without the legacy
+    # expanded-tree compatibility serializer.  Independent fresh-process
+    # captures proved that no other canonical node changed for these scalar
+    # witnesses.
+    "fsm": "high-level:27502fc0adea30f0d129b52d3aa1bcdd2665809a754b7750462752bd38e59e8b",
+    "flat": "high-level:12d52261ecdcd6b60b00c20826080ceda77f52ccf3f43337a2a51d37e8c807c6",
+    # ZL-048: hierarchy specialization identity is declaration/binding/content
+    # owned and therefore no longer incorporates physical parent context.
+    "hierarchy": "high-level:83a2536ef165d55584c42d0bb81c1b0016583969014c9b0bd369bee8925eb1fb",
 }
 
 

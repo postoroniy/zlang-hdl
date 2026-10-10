@@ -18,7 +18,14 @@ from zlang.equivalence import (
     run_equivalence_formal,
 )
 from tests.support.formal import formal_tools_available
-from zlang.ir.equivalence import BindingMap, BindingSide, EquivalenceBinding, EquivalenceMode, EquivalenceStatus, SignalRole
+from zlang.ir import (
+    BindingMap,
+    BindingSide,
+    EquivalenceBinding,
+    EquivalenceMode,
+    EquivalenceStatus,
+    SignalRole,
+)
 
 
 SOURCE = """

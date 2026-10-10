@@ -57,7 +57,8 @@
               "width": 24,
               "reset": 0
             }
-          ]
+          ],
+          "events": []
         },
         {
           "name": "STATUS",
@@ -91,9 +92,11 @@
               "width": 30,
               "reset": 0
             }
-          ]
+          ],
+          "events": []
         }
-      ]
+      ],
+      "split_views": []
     }
   ]
 }

@@ -9,8 +9,7 @@ unchanged by simulation and the production direct-SystemVerilog backend.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, fields, is_dataclass, replace
-from hashlib import sha256
+from dataclasses import dataclass, replace
 from typing import Callable, Protocol
 
 from zlang.ir import expressions as expr
@@ -50,14 +49,16 @@ from zlang.resource_matching import (
     ResourceMatcher,
 )
 from zlang.timing import timing_info, validate_timed_candidate
+from zlang.pipeline_schedule_graph import (
+    PipelineSchedulingError,
+    producer_stage as _producer_stage,
+    replace_direct_children as _replace_direct_children,
+    schedule_identity as _identity,
+)
 
 
 FIXED_PIPELINE_SCHEDULER = "dag_partition_v1"
 FIXED_PIPELINE_SCHEDULE_SCHEMA = "zlang-fixed-pipeline-schedule-v1"
-
-
-class PipelineSchedulingError(ValueError):
-    """A fixed pipeline body cannot be represented by the bounded scheduler."""
 
 
 class OperationCostModel(Protocol):
@@ -1283,60 +1284,6 @@ def _validate_leaf(value: expr.Expression) -> None:
     raise PipelineSchedulingError(
         f"pipeline scheduling does not accept state/protocol leaf {type(value).__name__}"
     )
-
-
-def _replace_direct_children(
-    value: expr.Expression,
-    original: tuple[expr.Expression, ...],
-    rewritten: tuple[expr.Expression, ...],
-) -> expr.Expression:
-    if len(original) != len(rewritten):
-        raise PipelineSchedulingError("expression child replacement is incomplete")
-    replacements = {id(before): after for before, after in zip(original, rewritten, strict=True)}
-
-    def walk(item: object, *, root: bool = False) -> object:
-        if isinstance(item, expr.Expression) and not root:
-            replacement = replacements.get(id(item))
-            return replacement if replacement is not None else item
-        if isinstance(item, tuple):
-            return tuple(walk(child) for child in item)
-        if is_dataclass(item) and not isinstance(item, type):
-            updates: dict[str, object] = {}
-            for field_ in fields(item):
-                if not field_.init or field_.name in {
-                    "origin", "source_origin", "type", "pipeline_plan",
-                }:
-                    continue
-                current = getattr(item, field_.name)
-                changed = walk(current)
-                if changed is not current and changed != current:
-                    updates[field_.name] = changed
-                elif changed is not current:
-                    updates[field_.name] = changed
-            return replace(item, **updates) if updates else item
-        return item
-
-    result = walk(value, root=True)
-    if not isinstance(result, expr.Expression):
-        raise PipelineSchedulingError("expression rewrite did not return typed IR")
-    return result
-
-
-def _producer_stage(
-    identity: str,
-    operations: tuple[ScheduledPipelineOperation, ...],
-    leaves: dict[str, str],
-) -> int:
-    operation = next((item for item in operations if item.identity == identity), None)
-    if operation is not None:
-        return operation.stage
-    if identity in leaves.values():
-        return 0
-    raise PipelineSchedulingError("timing edge references an unknown producer")
-
-
-def _identity(*items: object) -> str:
-    return sha256(repr(items).encode("utf-8")).hexdigest()
 
 
 __all__ = [

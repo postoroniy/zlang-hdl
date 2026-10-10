@@ -15,6 +15,7 @@ class SimulationExpressionRewriter:
             int,
             tuple[expr.Expression, expr.Expression],
         ] = {}
+        self._value_memo: dict[int, tuple[object, object]] = {}
 
     def expression(self, value: expr.Expression) -> expr.Expression:
         cached = self._expression_memo.get(id(value))
@@ -40,14 +41,40 @@ class SimulationExpressionRewriter:
     def value(self, value: object) -> object:
         if isinstance(value, expr.Expression):
             return self.expression(value)
+        cacheable = isinstance(value, (tuple, list, dict)) or (
+            is_dataclass(value) and not isinstance(value, type)
+        )
+        if cacheable:
+            cached = self._value_memo.get(id(value))
+            if cached is not None and cached[0] is value:
+                return cached[1]
         if isinstance(value, tuple):
             rewritten = tuple(self.value(item) for item in value)
-            return (
+            result: object = (
                 value
                 if all(a is b for a, b in zip(value, rewritten, strict=True))
                 else rewritten
             )
-        if is_dataclass(value) and not isinstance(value, type):
+        elif isinstance(value, list):
+            rewritten_list = [self.value(item) for item in value]
+            result = (
+                value
+                if all(
+                    before is after
+                    for before, after in zip(value, rewritten_list, strict=True)
+                )
+                else rewritten_list
+            )
+        elif isinstance(value, dict):
+            rewritten_dict = {
+                key: self.value(item) for key, item in value.items()
+            }
+            result = (
+                value
+                if all(rewritten_dict[key] is item for key, item in value.items())
+                else rewritten_dict
+            )
+        elif is_dataclass(value) and not isinstance(value, type):
             updates: dict[str, object] = {}
             for descriptor in fields(value):
                 if not descriptor.init or descriptor.name in {
@@ -60,8 +87,12 @@ class SimulationExpressionRewriter:
                 rewritten = self.value(current)
                 if rewritten is not current:
                     updates[descriptor.name] = rewritten
-            return replace(value, **updates) if updates else value
-        return value
+            result = replace(value, **updates) if updates else value
+        else:
+            result = value
+        if cacheable:
+            self._value_memo[id(value)] = (value, result)
+        return result
 
     def rewrite_special(
         self,

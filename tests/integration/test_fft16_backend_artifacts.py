@@ -14,8 +14,7 @@ from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
 from zlang.build_manifest import WholeBuildManifest
 from zlang.compiler import compile_file
 from zlang.formal import build_recursive_formal_design
-from zlang.opt.ir import OptimizationStage
-from zlang.opt.lowering import lower, restore
+from zlang.opt import OptimizationStage, lower, restore
 
 
 ROOT = Path(__file__).resolve().parents[2]

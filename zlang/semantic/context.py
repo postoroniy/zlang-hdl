@@ -17,19 +17,38 @@ from zlang.ir.expression_arena import SemanticExpressionArena
 from zlang.ir import functional_regions as functional_regions
 from zlang.ir.interfaces import InterfaceProtocol
 from zlang.ir.types import HardwareType, StructType
+from zlang.implementation_limits import IntentExplorationLimits
+from zlang.intent_structural_exploration import IntentStructuralExplorationCache
 from zlang.signature_help_resolution import SignatureHelpCall
 from zlang.source import SourceOrigin
 
 from .callable_state import CallableSpecializationCache
-from .callable_bodies import CallableBodyAnalyzer
-from .callable_specialization import CallableSpecializer
-from .expressions import ExpressionAnalyzer
-
 if TYPE_CHECKING:
     from zlang.dependencies import DependencyClosure, DependencyModuleIdentity
     from zlang.ir.cdc import ClockDomain
     from zlang.ir.hierarchy import HierarchyTraversalCache
     from zlang.module_resolver import ModuleResolutionContext, ModuleResolver
+    from .callable_bodies import CallableBodyAnalyzer
+    from .callable_specialization import CallableSpecializer
+    from .expressions import ExpressionAnalyzer
+
+
+def _new_callable_specializer() -> CallableSpecializer:
+    from .callable_specialization import CallableSpecializer
+
+    return CallableSpecializer()
+
+
+def _new_callable_body_analyzer() -> CallableBodyAnalyzer:
+    from .callable_bodies import CallableBodyAnalyzer
+
+    return CallableBodyAnalyzer()
+
+
+def _new_expression_analyzer() -> ExpressionAnalyzer:
+    from .expressions import ExpressionAnalyzer
+
+    return ExpressionAnalyzer()
 
 
 @dataclass(frozen=True)
@@ -85,6 +104,8 @@ class ImplementationAnalysisContext:
     """Implementation-intent observations produced by semantic analysis."""
 
     exploration_results: list[object] | None = None
+    structural_cache: IntentStructuralExplorationCache | None = None
+    exploration_limits: IntentExplorationLimits | None = None
 
 
 @dataclass(frozen=True)
@@ -164,17 +185,21 @@ class AnalysisServices:
         default_factory=CallableSpecializationCache
     )
     callable_specializer: CallableSpecializer = field(
-        default_factory=CallableSpecializer
+        default_factory=_new_callable_specializer
     )
     callable_bodies: CallableBodyAnalyzer = field(
-        default_factory=CallableBodyAnalyzer
+        default_factory=_new_callable_body_analyzer
     )
-    expression_analysis: ExpressionAnalyzer = field(default_factory=ExpressionAnalyzer)
+    expression_analysis: ExpressionAnalyzer = field(
+        default_factory=_new_expression_analyzer
+    )
     compile_time_real_quantize_cache: dict[tuple[object, ...], object] = field(
         default_factory=dict
     )
     compile_time_budget: object | None = None
     exploration_results: list[object] | None = None
+    intent_structural_cache: IntentStructuralExplorationCache | None = None
+    intent_exploration_limits: IntentExplorationLimits | None = None
     tooling: ToolingObservationContext = field(default_factory=ToolingObservationContext)
     expression_arena: SemanticExpressionArena = field(
         default_factory=SemanticExpressionArena
@@ -200,6 +225,9 @@ class ExpressionScope:
     )
     instance_protocol_outputs: dict[
         tuple[str, str], tuple[str, HardwareType, str | None]
+    ] = field(default_factory=dict)
+    instance_protocol_transfers: dict[
+        tuple[str, str], ir_expr.Expression
     ] = field(default_factory=dict)
     instance_csr_state_paths: dict[
         tuple[str, ...], tuple[str, HardwareType, str | None]

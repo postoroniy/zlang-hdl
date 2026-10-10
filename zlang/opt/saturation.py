@@ -7,17 +7,19 @@ engine does not schedule cycles, bind resources, or admit state/protocol nodes.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
 import ast
-from hashlib import sha256
 import json
+from dataclasses import dataclass, field, replace
+from hashlib import sha256
 from itertools import product
 from typing import Any
 
-from egglog import EGraph, Expr as EggExpr, StringLike, String, function, rewrite, var
-from egglog.egraph import to_runtime_expr
+from egglog import EGraph, String, StringLike, function, rewrite, var
+from egglog import Expr as EggExpr
 from egglog.deconstruct import get_callable_args, get_callable_fn
+from egglog.egraph import to_runtime_expr
 
+from zlang.ir.callables import CallableExpansionError, expand_callable_calls
 from zlang.ir.expressions import (
     BinaryOperator,
     FixedConversionKind,
@@ -27,6 +29,13 @@ from zlang.ir.expressions import (
 from zlang.ir.module import (
     EquivalenceRule,
 )
+from zlang.ir.type_codec import (
+    TypeCodecError,
+    scalar_type_from_name,
+)
+from zlang.ir.type_codec import (
+    scalar_type_name as _type_name,
+)
 from zlang.ir.types import (
     BitType,
     FixedType,
@@ -35,11 +44,14 @@ from zlang.ir.types import (
     UFixedType,
     UIntType,
 )
-from zlang.ir.type_codec import (
-    TypeCodecError,
-    scalar_type_from_name,
-    scalar_type_name as _type_name,
+from zlang.opt.egraph import (
+    EGraphAdapterError,
+    canonical_nodes_to_egraph,
+    egraph_to_canonical,
+    validate_scalar_pure_nodes,
 )
+from zlang.opt.expression_lowering import lower_expression_graph
+from zlang.opt.expression_restoration import restore_expression
 from zlang.opt.ir import (
     CanonicalExpression,
     CanonicalModule,
@@ -49,39 +61,34 @@ from zlang.opt.ir import (
     NodeId,
     equivalence_definition,
 )
-from zlang.ir.callables import CallableExpansionError, expand_callable_calls
-from zlang.opt.egraph import (
-    EGraphAdapterError,
-    canonical_nodes_to_egraph,
-    egraph_to_canonical,
-    validate_scalar_pure_nodes,
-)
-from zlang.opt.expression_lowering import lower_expression_graph
-from zlang.opt.expression_restoration import restore_expression
 from zlang.opt.module_restoration import restore
-from zlang.opt.rewrite_spec import (
-    RewriteRegistration,
-    RewriteRule,
-    TypedRewriteSpec,
-    builtin_rewrite_spec,
-)
-from zlang.opt.rewrite_model import (
-    EquivalenceClass,
-    SaturationResult,
-    Term,
-    render_saturation as render_saturation,
-    render_term,
-    term_constant_value,
-    term_to_expression,
-)
 from zlang.opt.rewrite_guards import (
     PatternValue,
     RewriteGuardError,
     guard_holds,
     pattern_options,
 )
+from zlang.opt.rewrite_model import (
+    CheckedValueCertificate,
+    EquivalenceClass,
+    SaturationResult,
+    Term,
+    render_term,
+    term_constant_value,
+    term_to_expression,
+)
+from zlang.opt.rewrite_model import (
+    render_saturation as render_saturation,
+)
+from zlang.opt.rewrite_spec import (
+    RewriteRegistration,
+    RewriteRule,
+    TypedRewriteSpec,
+    builtin_rewrite_spec,
+)
 from zlang.opt.value_certificate import (
     checked_value_certificate,
+    verify_checked_value_certificate,
 )
 
 
@@ -89,10 +96,20 @@ class SaturationError(ValueError):
     """A root or requested equality-saturation mode is not eligible."""
 
 
+SATURATION_ENGINE_SCHEMA = "zlang-egglog-exact-value-v1"
+INTENT_STRUCTURAL_REWRITE_POLICY = "zlang-intent-structural-rewrites-v1"
+
+
 _MAX_GRAPH_SNAPSHOT_NODES = 16_384
 
 
-def _extract_root_graph(graph: EGraph, root: _EggNode, max_terms: int) -> tuple[Term, ...]:
+def _extract_root_graph(
+    graph: EGraph,
+    root: _EggNode,
+    max_terms: int,
+    *,
+    max_enodes: int,
+) -> tuple[Term, ...]:
     """Decode a root-scoped egglog graph without its termdag/Python extractor.
 
     The serialized node IDs are only graph edges.  They never participate in
@@ -109,8 +126,12 @@ def _extract_root_graph(graph: EGraph, root: _EggNode, max_terms: int) -> tuple[
     data = json.loads(snapshot.to_json())
     nodes = data.get("nodes")
     roots = data.get("root_eclasses")
-    if not isinstance(nodes, dict) or len(nodes) > _MAX_GRAPH_SNAPSHOT_NODES:
-        raise SaturationError("egglog root graph snapshot is absent or exceeds 16384 nodes")
+    node_limit = min(max_enodes, _MAX_GRAPH_SNAPSHOT_NODES)
+    if not isinstance(nodes, dict) or len(nodes) > node_limit:
+        raise SaturationError(
+            "egglog root graph snapshot is absent or exceeds "
+            f"{node_limit} nodes"
+        )
     if not isinstance(roots, list) or len(roots) != 1 or roots[0] not in {
         node.get("eclass") for node in nodes.values()
     }:
@@ -309,6 +330,9 @@ def saturate(
     mode: EquivalenceMode = EquivalenceMode.MATHEMATICAL,
     max_iterations: int = 8,
     max_terms: int = 256,
+    max_eclasses: int = 4_096,
+    max_enodes: int = _MAX_GRAPH_SNAPSHOT_NODES,
+    include_commutative_aliases: bool = True,
 ) -> SaturationResult:
     """Saturate one pure scalar root with the pinned egglog engine.
 
@@ -325,6 +349,10 @@ def saturate(
         raise SaturationError("max_iterations must be at least 1")
     if max_terms < 1:
         raise SaturationError("max_terms must be at least 1")
+    if max_eclasses < 1:
+        raise SaturationError("max_eclasses must be at least 1")
+    if max_enodes < 1:
+        raise SaturationError("max_enodes must be at least 1")
     _require_pure_value_root(module, root)
     try:
         semantic_module = restore(module)
@@ -347,7 +375,11 @@ def saturate(
         raise SaturationError(str(error)) from error
     original = _term_from_root(adapter_nodes, adapter_root)
     egg_root = _term_to_egg(original)
-    compiled, disabled = _compile_egg_rewrites(module.equivalences, original)
+    compiled, disabled = _compile_egg_rewrites(
+        module.equivalences,
+        original,
+        include_commutative_aliases=include_commutative_aliases,
+    )
     graph = EGraph(*(
         engine_rule
         for item in compiled
@@ -355,20 +387,47 @@ def saturate(
     ))
     graph.let("root", egg_root)
     report = graph.run(max_iterations)
-    eclass_count = _engine_typed_eclass_count(graph)
+    eclass_count, enode_count = _engine_graph_counts(graph)
     extraction_rejections: list[str] = []
+    graph_limit_reasons = tuple(
+        reason
+        for reason in (
+            (
+                f"e-class limit exceeded: {eclass_count} > {max_eclasses}"
+                if eclass_count > max_eclasses
+                else None
+            ),
+            (
+                f"e-node limit exceeded: {enode_count} > {max_enodes}"
+                if enode_count > max_enodes
+                else None
+            ),
+        )
+        if reason is not None
+    )
+    extraction_rejections.extend(graph_limit_reasons)
     any_rule_fired = any(
         report.num_matches_per_rule.get(engine_rule.decl, 0) > 0
         for item in compiled for engine_rule in item.engine_rules
     )
-    if not any_rule_fired:
+    if graph_limit_reasons:
+        # The exact source root remains independently validated and is added
+        # below.  Never enumerate a graph after it crossed a configured hard
+        # bound: bounded intent exploration safely falls back to source.
+        extracted = ()
+    elif not any_rule_fired:
         # With no equality edge there is exactly one semantic member.  Do not
         # ask an engine deconstruction API to rebuild it: that historical path
         # is precisely where carry-growing child structure was lost.
         extracted = (original,)
     else:
         try:
-            extracted = _extract_root_graph(graph, egg_root, max_terms + 1)
+            extracted = _extract_root_graph(
+                graph,
+                egg_root,
+                max_terms + 1,
+                max_enodes=max_enodes,
+            )
         except (SaturationError, ValueError, TypeError, KeyError) as error:
             extracted = ()
             extraction_rejections.append(f"graph extraction rejected: {error}")
@@ -419,7 +478,7 @@ def saturate(
         for key, term in sorted(unique.items())
         if key != original_key
     ]
-    truncated = len(ordered) > max_terms
+    truncated = bool(graph_limit_reasons) or len(ordered) > max_terms
     if len(ordered) > max_terms:
         ordered = ordered[:max_terms]
     alternatives = tuple(term for term in ordered if term != original)
@@ -475,12 +534,43 @@ def saturate(
             and any(source.startswith("source:") for source in item.provenance)
         )),
         eclass_count,
+        enode_count,
         admitted_certificates,
     )
 
 
-def _engine_typed_eclass_count(graph: EGraph) -> int:
-    """Count exact-typed expression e-classes in the saturated egglog graph.
+def replay_checked_alternative(
+    source: Term,
+    candidate: Term,
+    certificate: CheckedValueCertificate,
+    equivalences: tuple[EquivalenceRule, ...],
+    *,
+    include_commutative_aliases: bool = True,
+) -> None:
+    """Replay one cached alternative through the current exact rule set.
+
+    Cache ownership deliberately lives above the saturation engine.  This
+    narrow entry point reconstructs only the typed rewrite specifications and
+    invokes the independent certificate checker; it never runs egglog or
+    trusts a cached e-class association.
+    """
+
+    compiled, _ = _compile_egg_rewrites(
+        equivalences,
+        source,
+        include_commutative_aliases=include_commutative_aliases,
+    )
+    verify_checked_value_certificate(
+        certificate,
+        source,
+        candidate,
+        tuple(item.spec for item in compiled),
+        equivalences,
+    )
+
+
+def _engine_graph_counts(graph: EGraph) -> tuple[int, int]:
+    """Count exact-typed e-classes and all serialized e-nodes.
 
     ``egglog==14.0.0`` does not expose a public scalar e-class counter.  Its
     deterministic serialized graph does expose the engine e-class assigned to
@@ -493,16 +583,19 @@ def _engine_typed_eclass_count(graph: EGraph) -> int:
     serialized = json.loads(
         graph._serialize(include_temporary_functions=True).to_json()
     )
+    nodes = serialized.get("nodes", {})
     return len({
         node["eclass"]
-        for node in serialized.get("nodes", {}).values()
+        for node in nodes.values()
         if node.get("op") == "_egg_typed"
-    })
+    }), len(nodes)
 
 
 def _compile_egg_rewrites(
     equivalences: tuple[EquivalenceRule, ...],
     original: Term,
+    *,
+    include_commutative_aliases: bool = True,
 ) -> tuple[tuple[_CompiledRewrite, ...], tuple[RewriteRegistration, ...]]:
     """Build the exact bounded rule set used for one typed root.
 
@@ -529,9 +622,17 @@ def _compile_egg_rewrites(
             continue
         compiled.append(_CompiledRewrite(spec, engine_rule))
 
-    for spec, engine_rule in _typed_arithmetic_egg_rewrites(
-        original
-    ):
+    arithmetic = _typed_arithmetic_egg_rewrites(original)
+    if not include_commutative_aliases:
+        arithmetic = tuple(
+            item
+            for item in arithmetic
+            if item[0].rule not in {
+                RewriteRule.ADD_COMMUTE,
+                RewriteRule.MULTIPLY_COMMUTE,
+            }
+        )
+    for spec, engine_rule in arithmetic:
         compiled.append(_CompiledRewrite(spec, engine_rule))
 
     for rule in sorted(equivalences, key=lambda item: item.name):

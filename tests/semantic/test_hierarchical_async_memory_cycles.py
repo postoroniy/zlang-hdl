@@ -116,7 +116,7 @@ def test_rule_driven_child_output_dependencies_are_not_hidden() -> None:
     source = """
 module RuleEcho {
     clock clk reset rst in x:bit out y:bit
-    rule emit when x { y <- x }
+    rule emit when x { drive y = x }
 }
 module RuleLoop {
     clock clk reset rst out y:bit
@@ -137,7 +137,7 @@ module ScheduledOutput {
     clock clk reset rst in x:bit out y:bit
     reg shared:bit=0
     rule high when x { shared <- 0 }
-    rule emit when 1 { shared <- 1 y <- 1 }
+    rule emit when 1 { shared <- 1 drive y = 1 }
     priority high > emit
 }
 module ScheduledLoop {
@@ -157,7 +157,7 @@ module IndependentOutput {
     clock clk reset rst in x:bit out y:bit
     reg left:bit=0 reg right:bit=0
     rule high when x { left <- 1 }
-    rule emit when 1 { right <- 1 y <- 1 }
+    rule emit when 1 { right <- 1 drive y = 1 }
     priority high > emit
 }
 module IndependentFeedback {

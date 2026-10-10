@@ -10,8 +10,10 @@ from typing import Any
 
 from zlang.ast import nodes as ast
 from zlang.ir import cdc as ir_cdc
+from zlang.ir import expressions as ir_expr
 from zlang.ir import module as ir_module
 from zlang.ir import interfaces as ir_interfaces
+from zlang.ir import types as ir_types
 from zlang.source import SourceOrigin, SourceSpan
 
 from . import module_pipeline
@@ -26,6 +28,9 @@ class HierarchicalConnectionProduct:
     hierarchical_connections: tuple[ir_module.HierarchicalConnection, ...]
     request_response_connections: tuple[ir_module.RequestResponseConnection, ...]
     aggregate_protocol_connections: tuple[ir_module.AggregateProtocolConnection, ...]
+    instance_protocol_transfers: tuple[
+        tuple[str, str, ir_expr.Expression], ...
+    ]
     assigned_outputs: frozenset[tuple[str, object | None, object | None]]
 
 
@@ -711,10 +716,217 @@ class HierarchicalConnectionAnalyzer:
                             "has no compile-time indexed connection"
                         )
 
+        instance_protocol_transfers = _instance_protocol_transfer_projections(
+            module,
+            child_irs,
+            tuple(hierarchical_connections),
+            tuple(aggregate_protocol_connections),
+            tuple(aggregate_protocol_endpoints),
+        )
         return HierarchicalConnectionProduct(
             tuple(connections),
             tuple(hierarchical_connections),
             tuple(request_response_connections),
             tuple(aggregate_protocol_connections),
+            instance_protocol_transfers,
             frozenset(assigned_outputs),
         )
+
+
+def _instance_protocol_transfer_projections(
+    module: ast.Module,
+    child_irs: dict[str, ir_module.Module],
+    connections: tuple[ir_module.HierarchicalConnection, ...],
+    aggregate_connections: tuple[ir_module.AggregateProtocolConnection, ...],
+    top_aggregates: tuple[ir_module.AggregateProtocolEndpoint, ...],
+) -> tuple[tuple[str, str, ir_expr.Expression], ...]:
+    """Build exact child ``transfer`` values from the typed connection graph.
+
+    A child owns only one direction of a ready/valid endpoint, so ``transfer``
+    cannot be represented by one child output projection.  Hierarchy analysis
+    is the first stage that owns both the forward-valid and backward-ready
+    paths; keep the derived value here rather than rediscovering connectivity
+    in expression checking.
+    """
+
+    bit = ir_types.BitType()
+
+    def signal(
+        endpoint: ir_module.ProtocolEndpoint,
+        field: ir_interfaces.ReadyValidSignal,
+    ) -> ir_expr.Expression:
+        if endpoint.owner == module.name:
+            return ir_expr.ReadyValidRef(endpoint.name, field, bit)
+        return ir_expr.InstanceOutputRef(
+            endpoint.owner,
+            ir_interfaces.ready_valid_field_name(endpoint.name, field),
+            bit,
+            domain=endpoint.domain,
+        )
+
+    def transfer(
+        valid: ir_expr.Expression,
+        ready: ir_expr.Expression,
+    ) -> ir_expr.Expression:
+        return ir_expr.Binary(
+            ir_expr.BinaryOperator.BIT_AND,
+            valid,
+            ready,
+            bit,
+            bit,
+        )
+
+    def logical_names(owner: str, physical: str) -> tuple[str, ...]:
+        child = child_irs[owner]
+        names = [physical]
+        names.extend(
+            f"{aggregate.name}.{member.name}"
+            for aggregate in child.aggregate_protocol_endpoints
+            for member in aggregate.members
+            if physical == f"{aggregate.name}__{member.name}"
+        )
+        return tuple(names)
+
+    projections: dict[tuple[str, str], ir_expr.Expression] = {}
+    for connection in connections:
+        if (
+            connection.source.protocol
+            is not ir_interfaces.InterfaceProtocol.READY_VALID
+            or connection.buffer_depth
+            or connection.request_buffer_depth
+            or connection.response_buffer_depth
+            or connection.adapter is not None
+            or connection.crossing is not None
+        ):
+            continue
+        value = transfer(
+            signal(connection.source, ir_interfaces.ReadyValidSignal.VALID),
+            signal(connection.destination, ir_interfaces.ReadyValidSignal.READY),
+        )
+        for endpoint in (connection.source, connection.destination):
+            if endpoint.owner == module.name:
+                continue
+            for logical in logical_names(endpoint.owner, endpoint.name):
+                projections[(endpoint.owner, f"{logical}.transfer")] = value
+
+    projections.update({
+        (owner, path): value
+        for owner, path, value in delegated_instance_transfer_projections(
+            child_irs, aggregate_connections, top_aggregates
+        )
+    })
+
+    return tuple(
+        (owner, path, value)
+        for (owner, path), value in sorted(projections.items())
+    )
+
+
+def delegated_instance_transfer_projections(
+    child_irs: dict[str, ir_module.Module],
+    aggregate_connections: tuple[ir_module.AggregateProtocolConnection, ...],
+    top_aggregates: tuple[ir_module.AggregateProtocolEndpoint, ...],
+) -> tuple[tuple[str, str, ir_expr.Expression], ...]:
+    """Project delegated child transfers before rule guards are analyzed."""
+
+    bit = ir_types.BitType()
+    projections: dict[tuple[str, str], ir_expr.Expression] = {}
+    for connection in aggregate_connections:
+        if not connection.delegation or "." not in connection.destination:
+            continue
+        child_owner, child_aggregate_name = connection.destination.split(".", 1)
+        child = child_irs[child_owner]
+        child_aggregate = next(
+            item
+            for item in child.aggregate_protocol_endpoints
+            if item.name == child_aggregate_name
+        )
+        top_aggregate = next(
+            item
+            for item in top_aggregates
+            if item.name == connection.source
+        )
+        for member in child_aggregate.members:
+            if member.protocol is not ir_interfaces.InterfaceProtocol.READY_VALID:
+                continue
+            physical = f"{child_aggregate.name}__{member.name}"
+            child_port = next(item for item in child.ports if item.name == physical)
+            top_physical = f"{top_aggregate.name}__{member.name}"
+            if child_port.direction is ir_module.PortDirection.OUTPUT:
+                valid = ir_expr.InstanceOutputRef(
+                    child_owner,
+                    ir_interfaces.ready_valid_field_name(
+                        physical, ir_interfaces.ReadyValidSignal.VALID
+                    ),
+                    bit,
+                    domain=child_port.domain,
+                )
+                ready = ir_expr.ReadyValidRef(
+                    top_physical, ir_interfaces.ReadyValidSignal.READY, bit
+                )
+            else:
+                valid = ir_expr.ReadyValidRef(
+                    top_physical, ir_interfaces.ReadyValidSignal.VALID, bit
+                )
+                ready = ir_expr.InstanceOutputRef(
+                    child_owner,
+                    ir_interfaces.ready_valid_field_name(
+                        physical, ir_interfaces.ReadyValidSignal.READY
+                    ),
+                    bit,
+                    domain=child_port.domain,
+                )
+            projections[
+                (child_owner, f"{child_aggregate.name}.{member.name}.transfer")
+            ] = ir_expr.Binary(
+                ir_expr.BinaryOperator.BIT_AND,
+                valid,
+                ready,
+                bit,
+                bit,
+            )
+
+    return tuple(
+        (owner, path, value)
+        for (owner, path), value in sorted(projections.items())
+    )
+
+
+def predeclare_delegated_instance_transfer_projections(
+    module: ast.Module,
+    child_irs: dict[str, ir_module.Module],
+    top_aggregates: tuple[ir_module.AggregateProtocolEndpoint, ...],
+) -> tuple[tuple[str, str, ir_expr.Expression], ...]:
+    """Expose only syntactically unambiguous delegation transfers early.
+
+    Full role, specialization, and connection validation remains in
+    :class:`HierarchicalConnectionAnalyzer`.  This early product exists solely
+    because rule guards precede the finalized hierarchy product.
+    """
+
+    connections = tuple(
+        ir_module.AggregateProtocolConnection(
+            (
+                declaration.destination
+                if "." in declaration.source
+                else declaration.source
+            ),
+            (
+                declaration.source
+                if "." in declaration.source
+                else declaration.destination
+            ),
+            top.protocol,
+            top.specialization_identity,
+            delegation=True,
+        )
+        for declaration in module.connections
+        for top in top_aggregates
+        if (
+            (declaration.source == top.name and "." in declaration.destination)
+            or (declaration.destination == top.name and "." in declaration.source)
+        )
+    )
+    return delegated_instance_transfer_projections(
+        child_irs, connections, top_aggregates
+    )

@@ -100,7 +100,7 @@ class PublicCapabilityRegistry:
 
 
 CAPABILITY_REGISTRY = PublicCapabilityRegistry(
-    schema_version=31,
+    schema_version=32,
     keywords=(
         "import", "module", "extern", "model", "struct", "enum", "union", "type", "fn", "operator", "equiv",
         "protocol", "role", "channel", "member", "resource", "target", "device",
@@ -116,7 +116,7 @@ CAPABILITY_REGISTRY = PublicCapabilityRegistry(
         "max_outstanding", "ordering", "match_by", "buffer", "request_buffer",
         "response_buffer", "adapter", "crossing", "async_fifo", "arbiter", "policy",
         "grant", "disable", "iff", "csr", "group", "split", "stride", "order",
-        "sticky", "rule", "when", "priority",
+        "sticky", "rule", "when", "priority", "drive",
         "fsm", "hold",
         "fifo", "memory", "mem", "async_mem", "rom", "read_latency", "init",
         "collision", "read_port", "write_port", "read_write_port",
@@ -147,6 +147,7 @@ CAPABILITY_REGISTRY = PublicCapabilityRegistry(
     ),
     modes=(
         "rw", "ro", "wo", "w1c", "pulse", "reserved", "on_read", "on_write",
+        "active_transfer", "post_accept",
         "low_first", "high_first", "in_order", "out_of_order",
         "fixed_priority", "round_robin", "beat", "packet", "sync_level",
         "pulse_toggle", "handshake", "async_fifo", "rv_to_credit", "credit_to_rv",
@@ -271,6 +272,21 @@ CAPABILITY_REGISTRY = PublicCapabilityRegistry(
                 "participate in whole-rule conflict scheduling",
                 "multiple domains have independent schedulers; cross-domain "
                 "atomicity is never inferred",
+            ),
+        ),
+        PublicCapability(
+            "registered-outputs-and-drive",
+            "explicit stored and transient module outputs",
+            "supported",
+            "supported",
+            "supported",
+            "supported",
+            "inherits register/rule safety properties where observable",
+            CapabilityWitness("examples/registered_output.zhl", "RegisteredOutput"),
+            (
+                "out reg is real state with hold behavior; drive is a transient "
+                "rule/FSM action and defaults to zero when no owning action fires",
+                "protocol ports cannot be out reg and drive cannot target stored state",
             ),
         ),
         PublicCapability(
@@ -432,6 +448,40 @@ CAPABILITY_REGISTRY = PublicCapabilityRegistry(
             ),
         ),
         PublicCapability(
+            "bounded-intent-structural-exploration",
+            "eligible implement value roots",
+            "bounded",
+            "not applicable",
+            "selected typed alternatives",
+            "selected typed alternatives",
+            "selected alternatives retain exact-value provenance before implementation evidence",
+            CapabilityWitness("examples/all_syntax.zhl", "ExplorationSyntax"),
+            (
+                "site-local egglog saturation, structurally diverse extraction, and "
+                "provider expansion have deterministic count limits",
+                "session caching is keyed by the exact semantic root, rewrite policy, "
+                "limits, and compiler identity; no exhaustive/global optimality claim",
+            ),
+        ),
+        PublicCapability(
+            "capacity-one-temporal-sharing",
+            "single-domain ready/valid transform",
+            "bounded",
+            "supported",
+            "supported",
+            "supported",
+            "capacity-one transaction-stream BMC; unbounded proof is not claimed",
+            CapabilityWitness(
+                "examples/temporal_shared_multiply.zhl", "TemporalSharedMultiply"
+            ),
+            (
+                "exact integer a*b+c*d only, one shared multiplier, latency 4, "
+                "II 4, capacity 1, non-interleaved RETIRE_AND_RELOAD admission",
+                "required_bmc needs bounded_pass evidence; required_proven remains "
+                "fail-closed; no scalar II>1, modulo scheduling, memory, or CDC sharing",
+            ),
+        ),
+        PublicCapability(
             "elastic-ready-valid-pipeline",
             "single-domain ready/valid transform",
             "bounded",
@@ -568,6 +618,9 @@ CAPABILITY_REGISTRY = PublicCapabilityRegistry(
             "state", "docs/language-reference.md", ('<a id="reference-sequential-state-storage-registers-and-next-state"></a>',)
         ),
         DocumentationRequirement(
+            "registered-outputs-and-drive", "docs/language-reference.md", ('<a id="reference-sequential-state-storage-registers-and-next-state"></a>',)
+        ),
+        DocumentationRequirement(
             "runtime-atomic-actions", "docs/language-reference.md", ('<a id="reference-sequential-state-storage-guarded-atomic-actions"></a>',)
         ),
         DocumentationRequirement(
@@ -614,6 +667,12 @@ CAPABILITY_REGISTRY = PublicCapabilityRegistry(
         ),
         DocumentationRequirement(
             "exploration", "docs/language-reference.md", ('<a id="reference-optimization-formal-one-implementation-policy-path"></a>',)
+        ),
+        DocumentationRequirement(
+            "bounded-intent-structural-exploration", "docs/language-reference.md", ('<a id="reference-optimization-formal-one-implementation-policy-path"></a>',)
+        ),
+        DocumentationRequirement(
+            "capacity-one-temporal-sharing", "docs/language-reference.md", ('<a id="reference-optimization-formal"></a>',)
         ),
         DocumentationRequirement(
             "compile-time-math", "docs/language-reference.md", ('<a id="reference-stdlib-fixed-point-math"></a>',)

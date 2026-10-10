@@ -17,8 +17,7 @@ from zlang.ir.state import (
     StateResourceKind,
     conditional_activation_predicates,
     conditional_actions,
-    active_groups_conflict,
-    groups_may_conflict,
+    groups_conflict,
     select_action_groups,
     selection_regions,
 )
@@ -149,11 +148,11 @@ def test_output_conflict_participates_only_while_its_effect_is_active() -> None:
         (("high", "low"),),
     )
 
-    assert groups_may_conflict(high, low)
-    assert not active_groups_conflict(
+    assert groups_conflict(high, low)
+    assert not groups_conflict(
         high, low, {"action:high-output": False}
     )
-    assert active_groups_conflict(high, low, {"action:high-output": True})
+    assert groups_conflict(high, low, {"action:high-output": True})
     assert select_action_groups(
         transition,
         {"high": True, "low": True},
@@ -253,7 +252,7 @@ module ConditionalCanonical {
 
     update: when enable {
         when select {
-            event <- 1
+            drive event = 1
             state <- 1
         }
     }

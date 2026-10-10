@@ -187,12 +187,16 @@ module StateSyntax {
     clock clk reset rst
     in enable : bit
     out value : u8
+    out incremented : bit
     reg count : u8 = 0
     local : u8 = truncate<8>(count + 1)
     latched_value : u8 = delay<1>(count)
     pipe_value : u8 = pipeline(1) { count }
     priority {
-        increment: when enable { count <- local }
+        increment: when enable {
+            count <- local
+            drive incremented = 1
+        }
         hold: when enable == 0 { count <- count }
     }
     value = mux(enable, pipe_value, latched_value)

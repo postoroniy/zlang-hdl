@@ -156,6 +156,7 @@ class PrimitiveExpressionPlanBuilder:
     _max_memory_width: int
     _max_memory_bits: int
     _max_width: int
+    _register_names: dict[str, str]
 
     def build(self) -> ExpressionPlanProduct:
         module = self._module
@@ -479,6 +480,12 @@ class PrimitiveExpressionPlanBuilder:
                 }
             else:
                 attributes = native_expression_attributes(node)
+            if node.op is ExpressionOp.REGISTER_REF:
+                register_name = attributes.get("name")
+                if isinstance(register_name, str):
+                    attributes["name"] = self._register_names.get(
+                        register_name, register_name
+                    )
             nodes.append(
                 _expression_node_payload(
                     node,

@@ -12,6 +12,7 @@ include = [
   ".qwen/skills/zlang-hdl/**",
   ".github/**",
   ".gitignore",
+  "AI_GUIDE.md",
   "CHANGELOG.md",
   "benchmarks/native_jit/large_combinational.zhl",
   "CODE_OF_CONDUCT.md",
@@ -40,9 +41,10 @@ include = [
   "tools/**",
   "zlang/**",
 
-  # Community carries the two maintained Markdown references and one PDF.
+  # Community carries three maintained Markdown guides and one PDF.
   # Separate design/build collateral remains on the release host.
   "docs/language-quick-reference.md",
+  "docs/formal-verification.md",
   "docs/licensing/COMMUNITY_BASELINE.md",
   "docs/licensing/GENERATED_OUTPUT_POLICY.md",
   "docs/licensing/IP_CLASSIFICATION.md",
@@ -77,6 +79,7 @@ exclude = [
   "*.vsix",
   ".codex/**",
   ".tmp-public-tests-*/**",
+  ".tmp-zagent-*/**",
   ".npmrc",
   ".pytest-tmp/**",
   ".tmp/**",
@@ -140,6 +143,8 @@ required = [
   ".github/workflows/secret-scan.yml",
   ".gitleaks.toml",
   ".qwen/skills/zlang-hdl/SKILL.md",
+  ".qwen/skills/zlang-hdl/references/types-and-interfaces.md",
+  "AI_GUIDE.md",
   "CHANGELOG.md",
   "CODE_OF_CONDUCT.md",
   "CONTRIBUTING.md",
@@ -158,6 +163,7 @@ required = [
   "TRADEMARKS.md",
   "docs/language-reference.md",
   "docs/language-quick-reference.md",
+  "docs/formal-verification.md",
   "docs/ZLang-HDL-Language-Reference.pdf",
   "docs/licensing/COMMUNITY_BASELINE.md",
   "docs/licensing/GENERATED_OUTPUT_POLICY.md",
@@ -167,6 +173,7 @@ required = [
   "docs/stdlib-formal-coverage.md",
   "editors/vscode/zlang-hdl/package.json",
   "examples/all_syntax.zhl",
+  "examples/structural/scatter_12x4x4.zhl",
   "examples/projects/80211a_transmitter/LICENSE",
   "examples/projects/80211a_transmitter/NOTICE",
   "pyproject.toml",
@@ -183,6 +190,7 @@ required = [
   "tools/release_regressions.py",
   "tools/public_tree.py",
   "tools/stage_release_pdf.py",
+  "tests/backend/test_wide_scatter_emission.py",
   "zlang/__init__.py",
   "zlang/native_simulation.py",
 ]
@@ -260,5 +268,5 @@ text_extensions = [
 reviewed_binary_files = [
   "docs/ZLang-HDL-Language-Reference.pdf",
   "zlang/parser/lalr-1.3.1.larkbin",
-  "release/native-wheels/zlang_native_sim-0.1.0a20-cp312-abi3-manylinux_2_28_x86_64.whl",
+  "release/native-wheels/zlang_native_sim-0.1.0a21-cp312-abi3-manylinux_2_28_x86_64.whl",
 ]

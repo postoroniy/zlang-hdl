@@ -8,7 +8,7 @@ import shutil
 import pytest
 
 import zlang.sim
-from zlang.backend.systemverilog import emit
+from zlang.backend.systemverilog import emit_experimental
 from zlang.compiler import compile_source
 from zlang.simulation_plan import build_simulation_plan
 from tests.simulation.differential import run_differential
@@ -45,12 +45,15 @@ def _trace(instance: object) -> list[dict[str, int]]:
         ({"layout_valid": 1}, None),
         ({"layout_valid": 0}, None),
         ({"read_ar_ready": 1}, None),
-        ({
-            "read_ar_ready": 0,
-            "read_r_valid": 1,
-            "read_r_data": 0x12345678,
-            "read_r_last": 1,
-        }, None),
+        (
+            {
+                "read_ar_ready": 0,
+                "read_r_valid": 1,
+                "read_r_data": 0x12345678,
+                "read_r_last": 1,
+            },
+            None,
+        ),
         ({"read_r_valid": 0, "read_r_last": 0}, None),
         ({"write_aw_ready": 1}, None),
         ({"write_aw_ready": 0, "write_w_ready": 1}, None),
@@ -68,6 +71,8 @@ def _trace(instance: object) -> list[dict[str, int]]:
 
 
 def _events() -> tuple[dict[str, object], ...]:
+    """The ZL-038 trace in the public native/Direct-SV event format."""
+
     inputs: dict[str, int] = {
         "enable": 1,
         "layout_valid": 0,
@@ -119,9 +124,11 @@ def test_layout_dma_plan_and_direct_sv_remain_bounded(
 ) -> None:
     path = FIXTURES / fixture
     compiled = compile_source(path.read_text(), top=top, source_unit=str(path))
+
     plan = build_simulation_plan(compiled.ir)
-    first_rtl = emit(compiled.ir)
-    second_rtl = emit(compiled.ir)
+    first_rtl = emit_experimental(compiled.ir)
+    second_rtl = emit_experimental(compiled.ir)
+
     assert len(plan.payload["nodes"]) < 1_000
     assert len(plan.to_bytes()) < 100_000
     assert first_rtl == second_rtl
@@ -140,6 +147,7 @@ def test_layout_dma_native_trace_is_deterministic(
         native_trace = _trace(native)
     with zlang.sim.load(path, top=top, engine="native") as repeated_native:
         repeated_trace = _trace(repeated_native)
+
     assert native_trace == repeated_trace
     assert native_trace[-1]["done"] == 1
     assert native_trace[-1]["error"] == 0
@@ -155,6 +163,8 @@ def test_layout_dma_native_matches_direct_sv_cycle_for_cycle(
     inactive_wlast: int,
     tmp_path: Path,
 ) -> None:
+    """The public RTL oracle replaces the retired Python reference simulator."""
+
     path = FIXTURES / fixture
     trace = run_differential(
         path,

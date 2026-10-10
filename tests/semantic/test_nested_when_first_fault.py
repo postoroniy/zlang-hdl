@@ -9,8 +9,7 @@ from pathlib import Path
 from zlang.compiler import compile_source
 from zlang.backend.systemverilog import emit_formal_artifact
 from zlang.formal import build_recursive_formal_design
-from zlang.opt.ir import OptimizationStage
-from zlang.opt.lowering import lower, restore
+from zlang.opt import OptimizationStage, lower, restore
 from zlang.native_simulation import simulate_cycles
 
 

@@ -40,6 +40,21 @@ from zlang.source import SourceOrigin
 class TopPhysicalABIError(ValueError):
     """A top-level value cannot be represented by the public leaf ABI."""
 
+    def __init__(
+        self,
+        message: str,
+        *,
+        first: "ExternalTopLeaf | None" = None,
+        second: "ExternalTopLeaf | None" = None,
+    ) -> None:
+        super().__init__(message)
+        self.first = first
+        self.second = second
+
+
+# The failure contract predates the complete physical boundary projection.
+TopAggregateABIError = TopPhysicalABIError
+
 
 @dataclass(frozen=True)
 class PackedElementSlice:
@@ -95,6 +110,34 @@ class ExternalTopLeaf:
             type_ = type_.element_type
         return type_
 
+    @property
+    def element_width(self) -> int:
+        return _width(self.element_type)
+
+
+# The old name remains a true type alias; there is one leaf representation.
+ExternalProtocolLeaf = ExternalTopLeaf
+
+
+@dataclass(frozen=True)
+class TopAggregateABI:
+    """Aggregate-only compatibility view of the physical top ABI."""
+
+    module: str
+    leaves: tuple[ExternalTopLeaf, ...]
+
+    @property
+    def endpoints(self) -> tuple[str, ...]:
+        return tuple(dict.fromkeys(leaf.aggregate_id for leaf in self.leaves))
+
+    @property
+    def inputs(self) -> tuple[ExternalTopLeaf, ...]:
+        return _leaves_with_direction(self.leaves, PortDirection.INPUT)
+
+    @property
+    def outputs(self) -> tuple[ExternalTopLeaf, ...]:
+        return _leaves_with_direction(self.leaves, PortDirection.OUTPUT)
+
 @dataclass(frozen=True)
 class TopPhysicalABI:
     """Complete, deterministic public top-level leaf contract."""
@@ -103,8 +146,23 @@ class TopPhysicalABI:
     leaves: tuple[ExternalTopLeaf, ...]
 
     @property
+    def inputs(self) -> tuple[ExternalTopLeaf, ...]:
+        return _leaves_with_direction(self.leaves, PortDirection.INPUT)
+
+    @property
+    def outputs(self) -> tuple[ExternalTopLeaf, ...]:
+        return _leaves_with_direction(self.leaves, PortDirection.OUTPUT)
+
+    @property
     def aggregate_leaves(self) -> tuple[ExternalTopLeaf, ...]:
         return tuple(leaf for leaf in self.leaves if leaf.category == "aggregate")
+
+
+def _leaves_with_direction(
+    leaves: tuple[ExternalTopLeaf, ...],
+    direction: PortDirection,
+) -> tuple[ExternalTopLeaf, ...]:
+    return tuple(leaf for leaf in leaves if leaf.direction is direction)
 
 def build_top_physical_abi(module: Module) -> TopPhysicalABI:
     """Project every public top object into deterministic typed leaves."""
@@ -160,6 +218,17 @@ def build_top_physical_abi(module: Module) -> TopPhysicalABI:
     return TopPhysicalABI(module.name, tuple(leaves))
 
 
+def build_top_aggregate_abi(module: Module) -> TopAggregateABI:
+    """Return the aggregate-protocol subset of the physical top ABI."""
+
+    leaves = tuple(
+        leaf
+        for leaf in build_top_physical_abi(module).leaves
+        if leaf.category == "aggregate"
+    )
+    return TopAggregateABI(module.name, leaves)
+
+
 def _port_leaves(module: Module, port: Port) -> tuple[ExternalTopLeaf, ...]:
     semantic = port_observation_id(port.name)
     forward = port.direction
@@ -186,7 +255,13 @@ def _port_leaves(module: Module, port: Port) -> tuple[ExternalTopLeaf, ...]:
             signal_kind="wire", direction=forward,
             ownership=_direction_owner(forward),
             packed_root_external_name=port.name,
-            origin=(root_expression.origin if root_expression is not None else None),
+            origin=(
+                root_expression.origin
+                if root_expression is not None
+                else port.source_origin
+                if isinstance(port.source_origin, SourceOrigin)
+                else None
+            ),
             **common,
         )
         if root_expression is None:
@@ -501,7 +576,10 @@ def _validate_external_names(leaves: list[ExternalTopLeaf]) -> None:
         if previous is not None:
             raise TopPhysicalABIError(
                 f"top public leaf name collision '{leaf.external_name}' between "
-                f"'{previous.leaf_semantic_id}' and '{leaf.leaf_semantic_id}'"
+                f"'{'.'.join(previous.member_path)}' and "
+                f"'{'.'.join(leaf.member_path)}'",
+                first=previous,
+                second=leaf,
             )
         names[leaf.external_name] = leaf
 

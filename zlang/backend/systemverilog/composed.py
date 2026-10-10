@@ -8,12 +8,11 @@ renderers are injected.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from typing import Callable
 
 from zlang.ir import expressions as ir_expr
 from zlang.ir.expressions import Expression
-from zlang.ir import hierarchy as ir_hierarchy
 from zlang.ir import interfaces as ir_interfaces
 from zlang.ir import module as ir_module
 from zlang.ir.traversal import walk_expression
@@ -32,38 +31,16 @@ from zlang.backend.systemverilog import rules as sv_rules
 from zlang.backend.systemverilog import sequential as sv_sequential
 from zlang.backend.systemverilog import request_response as sv_request_response
 from zlang.backend.systemverilog import state as sv_state
+from zlang.backend.systemverilog import state_planning as sv_state_planning
 from zlang.backend.systemverilog import storage as sv_storage
 from zlang.backend.systemverilog.errors import SystemVerilogEmissionError
+from zlang.backend.systemverilog.composed_model import (
+    ComposedRendering,
+    FormalBufferCountProjection,
+)
 
 
 ExpressionRenderer = Callable[[Expression], str]
-
-
-@dataclass(frozen=True)
-class FormalBufferCountProjection:
-    """One typed formal-only request for a directional FIFO count output.
-
-    The request/response semantic identity plus channel identifies the exact
-    ``HierarchicalConnection``.  ``signal`` is an explicitly allocated local
-    ABI wire, not a name recovered from generated RTL.
-    """
-
-    request_response_semantic_id: str
-    channel: ir_interfaces.RequestResponseChannel
-    signal: str
-    width: int
-    depth: int
-
-
-@dataclass(frozen=True)
-class ComposedRendering:
-    """Per-emission capabilities that genuinely depend on caller state."""
-
-    emit_external: Callable[[ir_module.Module, str], str]
-    emit_cdc_child: Callable[[ir_module.Module], str]
-    hierarchy_cache: ir_hierarchy.HierarchyTraversalCache
-    formal_buffer_counts: tuple[FormalBufferCountProjection, ...] = ()
-    component_names: naming.ComponentNamePlan | None = None
 
 
 def component_name(
@@ -212,7 +189,7 @@ def emit_composed_design(module: ir_module.Module, rendering: ComposedRendering)
             )
         elif (
             closed_state_component
-            and sv_state.requires_unified_state(emitted_current)
+            and sv_state_planning.requires_unified_state(emitted_current)
         ):
             definitions.append(
                 sv_storage._emit_unified_state_module(
@@ -338,7 +315,7 @@ def composed_component_identifier_claims(
     typed hierarchy/delegation edge already supplies that connection.
     """
 
-    local_names = emission_context.module_rtl_names(module)
+    local_names = emission_context.cached_module_rtl_names(module)
     sv_physicalization.validated_hierarchy(
         module, cache=rendering.hierarchy_cache
     )
@@ -835,7 +812,7 @@ def _emit_composed_component(
     child_names: dict[str, str],
     rendering: ComposedRendering,
 ) -> str:
-    local_names = emission_context.module_rtl_names(module)
+    local_names = emission_context.cached_module_rtl_names(module)
     identifier = sv_rendering._identifier
     packed_width = sv_rendering._width
     packed_range = sv_rendering._range
@@ -919,7 +896,7 @@ def _emit_composed_component(
     rom_declarations, rom_lines = sv_storage._emit_rom_logic(module, render)
     declarations.extend(rom_declarations)
     logic.extend(rom_lines)
-    has_unified_state = sv_state.requires_unified_state(module)
+    has_unified_state = sv_state_planning.requires_unified_state(module)
     if has_unified_state:
         sv_state._append_unified_state(module, declarations, logic, render)
     rr_edges = {

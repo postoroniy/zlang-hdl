@@ -11,6 +11,7 @@ from zlang.common.tool_inventory import (
 from tests.support.formal import formal_tools_available
 from zlang.compilation_session import CompilationSession
 from zlang.formal import (
+    FormalToolchainContext,
     run_verilog_formal,
     tool_versions,
 )
@@ -135,6 +136,33 @@ def test_safety_verification_inventory_versions_yosys_smtbmc_explicitly() -> Non
         versions = dict(tool_versions())
 
     assert versions["yosys-smtbmc"] == "yosys-smtbmc version"
+
+
+@pytest.mark.parametrize("solver", ("boolector", "bitwuzla", "yices", "cvc5"))
+def test_smtbmc_route_discovers_exact_selected_solver_only(solver: str) -> None:
+    requested = {"yosys", "sby", "yosys-smtbmc", solver}
+    with patch(
+        "zlang.formal.shutil.which",
+        side_effect=lambda name: f"/tools/{name}" if name in requested else None,
+    ), patch(
+        "zlang.formal.subprocess.run",
+        side_effect=lambda command, **_: SimpleNamespace(
+            stdout=f"{command[0]} version", stderr=""
+        ),
+    ):
+        context = FormalToolchainContext.discover(
+            engine="sby", solver=solver, route="smtbmc"
+        )
+
+    assert context.route == "smtbmc"
+    assert context.inventory.requested == (
+        "yosys",
+        "sby",
+        "yosys-smtbmc",
+        solver,
+    )
+    assert context.missing == ()
+    assert dict(context.versions)[solver] == f"{solver} version"
 
 
 def test_compilation_without_formal_policy_does_not_probe_formal_tools(

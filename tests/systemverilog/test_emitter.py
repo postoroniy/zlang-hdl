@@ -4,7 +4,7 @@ import tempfile
 import unittest
 
 from zlang.backend.systemverilog import (
-    emit,
+    emit_experimental,
 )
 from zlang.compiler import compile_source
 from zlang.toolchain import lint_with_verilator
@@ -39,7 +39,7 @@ class DirectSystemVerilogEmitterTests(unittest.TestCase):
                     (ROOT / "examples" / SOURCES[module_name]).read_text()
                 )
                 self.assertEqual(
-                    emit(result.ir),
+                    emit_experimental(result.ir),
                     (
                         ROOT
                         / "examples/generated"
@@ -49,7 +49,7 @@ class DirectSystemVerilogEmitterTests(unittest.TestCase):
 
     def test_backend_consumes_typed_ir_and_marks_the_boundary(self) -> None:
         result = compile_source((ROOT / "examples/alu.zhl").read_text())
-        generated = emit(result.ir)
+        generated = emit_experimental(result.ir)
 
         self.assertIn("Generated from backend-independent typed ZLang IR", generated)
         self.assertIn("module ALU", generated)
@@ -59,12 +59,12 @@ class DirectSystemVerilogEmitterTests(unittest.TestCase):
         result = compile_source(
             "module Invert { in x:bit out y:bit y = !x }",
         )
-        generated = emit(result.ir)
+        generated = emit_experimental(result.ir)
         self.assertIn("assign y = ((x) == (1'd0));", generated)
 
     def test_pure_typed_function_is_emitted_once_and_called(self) -> None:
         result = compile_source((ROOT / "examples/fir2.zhl").read_text())
-        generated = emit(result.ir)
+        generated = emit_experimental(result.ir)
         self.assertIn("module FIR2", generated)
         self.assertEqual(generated.count("function automatic logic [15:0] tap("), 1)
         self.assertEqual(generated.count("tap = "), 1)
@@ -92,7 +92,7 @@ module NestedSwitchCall {
 }
 """
         result = compile_source(source)
-        generated = emit(result.ir)
+        generated = emit_experimental(result.ir)
 
         self.assertIn("module NestedSwitchCall", generated)
         self.assertNotIn("function automatic", generated)
@@ -126,7 +126,7 @@ module SwitchShared {
 }
 """,
         )
-        generated = emit(result.ir)
+        generated = emit_experimental(result.ir)
         temporary = next(
             line.split()[1]
             for line in generated.splitlines()
@@ -146,7 +146,7 @@ module SwitchShared {
             "y=quantize<fixed<16,14>>(-0.7071067811865475) { "
             "round nearest_even overflow saturate } }",
         )
-        generated = emit(result.ir)
+        generated = emit_experimental(result.ir)
         self.assertIn("-16'sd11585", generated)
         self.assertNotIn("16'sd-11585", generated)
 
@@ -162,7 +162,7 @@ module SwitchShared {
             "module ReservedOutput { in input:s16 out output:s16 "
             "output=input }",
         )
-        generated = emit(result.ir)
+        generated = emit_experimental(result.ir)
         self.assertIn("input wire logic signed [15:0] zlang_input", generated)
         self.assertIn("output logic signed [15:0] zlang_output", generated)
         self.assertIn("assign zlang_output = zlang_input;", generated)

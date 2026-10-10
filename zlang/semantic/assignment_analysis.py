@@ -19,6 +19,7 @@ from . import expression_coercion
 from . import expression_support
 from . import context as semantic_context
 from . import module_pipeline
+from . import observations as semantic_observations
 from .errors import SemanticError
 from .hierarchical_connections import HierarchicalConnectionProduct
 from .connection_validation import render_assignment_target
@@ -287,6 +288,22 @@ class AssignmentAnalyzer:
                 target, signal, target_type = assignment_targets.resolve_port_target(
                     target_text, symbols
                 )
+            if (
+                isinstance(target, ir_module.Port)
+                and target.registered
+                and signal is None
+                and channel is None
+            ):
+                raise SemanticError(
+                    f"registered output '{target.name}' cannot also have a "
+                    "combinational assignment; update it with '<-'",
+                    code="ZL-SEMANTIC-REGISTERED-OUTPUT-DRIVER",
+                    primary=semantic_observations.declaration_origin(
+                        assignment.name_origin or assignment.origin,
+                        f"registered output {target.name}",
+                        module_context,
+                    ),
+                )
             target_key = (target.name, channel, signal)
             if target_key in assigned_outputs:
                 rendered = render_assignment_target(
@@ -382,6 +399,18 @@ class AssignmentAnalyzer:
                 )
             assignments.append(ir_module.Assignment(target, expression, signal, channel))
             assigned_outputs.add(target_key)
+
+        # A registered output has one public port and one same-named unified-state
+        # register.  This assignment exposes the stored value to every backend.
+        for port in state_storage.outputs.values():
+            if not port.registered:
+                continue
+            register = register_symbols[port.name]
+            assignments.append(ir_module.Assignment(
+                port,
+                ir_expr.RegisterRef(register.name, register.type),
+            ))
+            assigned_outputs.add((port.name, None, None))
 
         for (child_owner, child_name), field_bindings in sorted(
             child_protocol_payload_fields.items()

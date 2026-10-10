@@ -231,8 +231,8 @@ class SemanticEquivalenceTests(unittest.TestCase):
             reference_module="Ref",
             implementation_module="Impl",
         )
-        text = emission.source
 
+        text = emission.source
         self.assertIn("initial begin", text)
         self.assertIn("assume(!reset);", text)
         self.assertIn("assign zlang_formal_reset_active = !reset;", text)

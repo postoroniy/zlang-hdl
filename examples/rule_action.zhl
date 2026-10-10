@@ -9,6 +9,6 @@ module RuleAction {
 
   when enable {
     count <- truncate<8>(count + 1)
-    fired <- 1
+    drive fired = 1
   }
 }

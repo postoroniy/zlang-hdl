@@ -20,7 +20,7 @@ from zlang.formal_orchestration import (
     FormalSelectionAttemptReference,
     collect_formal_selection_evidence,
 )
-from zlang.ir.formal import FormalStatus, ProofMode
+from zlang.ir.formal import FormalResult, FormalStatus, ProofMode
 from zlang.verification_bundle import load_verification_bundle
 from zlang.verification_publication import (
     publish_compilation_verification_bundle,
@@ -159,6 +159,45 @@ def test_formal_policy_off_retains_ledger_but_has_no_formal_selection_attempts(
     assert EvidenceReportPayload.from_json(
         render_evidence_json((), formal_execution_plan=plan)
     ).formal_execution_plan == plan
+
+
+def test_temporal_bmc_evidence_is_retained_in_verification_bundle(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    source = (
+        Path("examples/temporal_shared_multiply.zhl")
+        .read_text(encoding="utf-8")
+        .replace("u16", "u2")
+        .replace("u33", "u5")
+    )
+
+    def bounded_pass(_source: str, **kwargs):
+        return FormalResult(
+            kwargs["property_id"],
+            FormalStatus.BOUNDED_PASS,
+            ProofMode.BMC,
+            kwargs["engine"],
+            kwargs["solver"],
+            kwargs["depth"],
+        )
+
+    monkeypatch.setattr(
+        "zlang.formal_temporal_stream.run_verilog_formal",
+        bounded_pass,
+    )
+    compilation = compile_source(
+        source,
+        formal_policy=FormalPolicy.REQUIRED_BMC,
+        formal_depth=10,
+    )
+    publish_compilation_verification_bundle(compilation, tmp_path / "bundle")
+    plan = _compiler_plan(tmp_path / "bundle")
+    assert len(plan.formal_selection_attempts) == 1
+    attempt = plan.formal_selection_attempts[0]
+    assert attempt.route == "transaction_stream_equivalence_bmc"
+    assert attempt.status == FormalStatus.BOUNDED_PASS.value
+    assert attempt.policy is FormalPolicy.REQUIRED_BMC
 
 
 def test_common_evidence_json_rejects_missing_or_corrupted_plan_links(

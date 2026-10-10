@@ -63,11 +63,12 @@ def _emit_pipeline(module: ir_module.Module) -> str:
         raise SystemVerilogEmissionError(
             "direct pipeline emission requires every output to have one assignment"
         )
+    materialization_owner = sv_materialized.module_materialization_owner(module)
     staged_assignments: list[ir_module.Assignment] = []
     for candidate in module.assignments:
         candidate_staging: dict[int, expr.Delay | expr.Pipeline] = {}
         _collect_staged_expressions(
-            sv_materialized._instance_expression(module, candidate.expression),
+            materialization_owner.physicalize(candidate.expression),
             candidate_staging,
         )
         if candidate_staging:
@@ -77,7 +78,7 @@ def _emit_pipeline(module: ir_module.Module) -> str:
             "direct pipeline emission requires exactly one staged output assignment"
         )
     assignment = staged_assignments[0]
-    root = sv_materialized._instance_expression(module, assignment.expression)
+    root = materialization_owner.physicalize(assignment.expression)
     staged: dict[int, expr.Delay | expr.Pipeline] = {}
     _collect_staged_expressions(root, staged)
     if not staged:
@@ -165,7 +166,7 @@ def _emit_pipeline(module: ir_module.Module) -> str:
         f"  assign {sv_rendering._identifier(assignment.target.name)} = {render(root)};",
         *(
             f"  assign {sv_rendering._identifier(item.target.name)} = "
-            f"{render(sv_materialized._instance_expression(module, item.expression))};"
+            f"{render(materialization_owner.physicalize(item.expression))};"
             for item in module.assignments
             if item is not assignment
         ),

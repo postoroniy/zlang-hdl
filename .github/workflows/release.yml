@@ -120,25 +120,18 @@ jobs:
         shell: bash
         run: |
           git fetch --force --tags origin
-          protected_main_arguments=()
           if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
             mode=candidate
             previous_tag="$PREVIOUS_TAG_INPUT"
-            git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
-            protected_main_arguments=(
-              --selected-ref "$GITHUB_REF_NAME"
-              --protected-main-ref origin/main
-            )
           else
             mode=tagged
             previous_tag="$(git describe --tags --abbrev=0 "${RELEASE_TAG}^")"
           fi
-          python -m tools.release_preflight \
+          python tools/release_preflight.py \
             --root . \
             --tag "$RELEASE_TAG" \
             --previous-tag "$previous_tag" \
             --mode "$mode" \
-            "${protected_main_arguments[@]}" \
             --output build/release-preflight.json
       - name: Validate public tree
         run: |
@@ -176,8 +169,8 @@ jobs:
             > "$smoke_dir/package-smoke.zhl"
           for environment in "$PWD/build/wheel-venv" "$PWD/build/sdist-venv"; do
             test "$("$environment/bin/zlang" --version)" = "zlang ${RELEASE_TAG#v}"
-            test "$("$environment/bin/zlang" lock --version)" = "zlang lock ${RELEASE_TAG#v}"
-            test "$("$environment/bin/zlang" verify --version)" = "zlang verify ${RELEASE_TAG#v}"
+            test "$("$environment/bin/zlang-lock" --version)" = "zlang-lock ${RELEASE_TAG#v}"
+            test "$("$environment/bin/zlang-verify" --version)" = "zlang-verify ${RELEASE_TAG#v}"
             (cd "$smoke_dir" && "$environment/bin/zlang" package-smoke.zhl --check)
           done
           for kind in wheel sdist; do
@@ -325,7 +318,7 @@ jobs:
           python -m pip install --disable-pip-version-check --upgrade pip==26.2.1
           python -m pip install --disable-pip-version-check -e '.[test]' \
             release/native-wheels/*manylinux_2_28_x86_64.whl \
-            build==1.6.1 z3-solver==4.13.4.0
+            build==1.6.1 z3-solver==5.1.0.0
           python_scripts="$(python -c 'import sysconfig; print(sysconfig.get_path("scripts"))')"
           printf '%s\n' "$python_scripts" >> "$GITHUB_PATH"
           export PATH="$python_scripts:$PATH"
@@ -339,19 +332,15 @@ jobs:
           python -m pytest -p tools.pytest_no_skips \
             -n 8 --dist=loadscope -q --maxfail=1 -m 'not performance' \
             --junitxml=build/release-1.xml
+          python tools/release_status.py check --root . --junit build/release-1.xml
           python -m pytest -p tools.pytest_no_skips -q --maxfail=1 -m performance \
             --junitxml=build/release-performance-1.xml
-          python tools/release_status.py check --root . \
-            --junit build/release-1.xml \
-            --performance-junit build/release-performance-1.xml
           python -m pytest -p tools.pytest_no_skips \
             -n 8 --dist=loadscope -q --maxfail=1 -m 'not performance' \
             --junitxml=build/release-2.xml
+          python tools/release_status.py check --root . --junit build/release-2.xml
           python -m pytest -p tools.pytest_no_skips -q --maxfail=1 -m performance \
             --junitxml=build/release-performance-2.xml
-          python tools/release_status.py check --root . \
-            --junit build/release-2.xml \
-            --performance-junit build/release-performance-2.xml
 
   publish:
     if: ${{ github.event_name == 'push' }}

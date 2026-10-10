@@ -16,6 +16,41 @@ from zlang.backend.systemverilog import rendering as sv_rendering
 from zlang.backend.systemverilog import state as sv_state
 
 
+def _csr_event_state_name(
+    event: ir_csr.CsrEventBinding,
+) -> str:
+    identity = event.identity
+    return (
+        "zlang_csr_event_"
+        f"{identity.register.block.declaration_ordinal}_"
+        f"{identity.register.declaration_ordinal}_"
+        f"{identity.declaration_ordinal}_state"
+    )
+
+
+def _csr_event_active_value(
+    access: ir_csr.CsrAccessInterface,
+    block: ir_csr.CsrBlock,
+    register: ir_csr.CsrRegister,
+    event: ir_csr.CsrEventBinding,
+) -> str:
+    hit_port = (
+        access.write_port
+        if event.kind is ir_csr.CsrEventKind.WRITE
+        else access.read_port
+    )
+    hit = (
+        f"({hit_port} && {access.address_port} == "
+        f"32'h{block.base_address + register.offset:08x})"
+    )
+    if event.kind is ir_csr.CsrEventKind.WRITE:
+        selected = sv_rendering._slice(
+            access.write_data_port, event.msb, event.lsb
+        )
+        return f"({hit} ? {selected} : '0)"
+    return hit
+
+
 def _emit_csr(module: ir_module.Module, *, expose_internal_abi: bool = False) -> str:
     blocks = module.csr_blocks
     if not blocks:
@@ -127,10 +162,22 @@ def _emit_csr(module: ir_module.Module, *, expose_internal_abi: bool = False) ->
         for field in register.fields
         if ir_csr.access_owns_state(field.access)
     )
+    registered_events = tuple(
+        (block, register, event)
+        for block in blocks
+        for register in block.registers
+        for event in register.events
+        if event.phase is ir_csr.CsrEventPhase.POST_ACCEPT
+    )
     lines = [
         *(
             f"  logic {sv_rendering._range(field.width)}{_csr_field_name(block, register, field)};"
             for block, register, field in stored
+        ),
+        *(
+            f"  logic {sv_rendering._range(event.canonical_type.width)}"
+            f"{_csr_event_state_name(event)};"
+            for block, register, event in registered_events
         ),
         f"  always_ff @({sv_sequential.clock_event(module, sv_rendering._identifier, csr_clock)}) begin",
         f"    if ({sv_sequential.reset_asserted(module, sv_rendering._identifier, csr_clock)}) begin",
@@ -138,6 +185,10 @@ def _emit_csr(module: ir_module.Module, *, expose_internal_abi: bool = False) ->
             f"      {_csr_field_name(block, register, field)} <= "
             f"{field.width}'d{field.reset};"
             for block, register, field in stored
+        ),
+        *(
+            f"      {_csr_event_state_name(event)} <= '0;"
+            for block, register, event in registered_events
         ),
         "    end else begin",
     ]
@@ -176,6 +227,11 @@ def _emit_csr(module: ir_module.Module, *, expose_internal_abi: bool = False) ->
             lines.append(f"      {name} <= {hit} ? {incoming} : '0;")
         else:
             lines.append(f"      if ({hit}) {name} <= {incoming};")
+    for block, register, event in registered_events:
+        lines.append(
+            f"      {_csr_event_state_name(event)} <= "
+            f"{_csr_event_active_value(access, block, register, event)};"
+        )
     lines.extend((
         "    end", "  end", "  always_comb begin",
         f"    {access.read_data_port} = 32'b0;",
@@ -281,24 +337,13 @@ def _emit_csr(module: ir_module.Module, *, expose_internal_abi: bool = False) ->
                 )
     for block in blocks:
         for register in block.registers:
-            address = block.base_address + register.offset
             for event in register.events:
-                hit_port = (
-                    access.write_port
-                    if event.kind is ir_csr.CsrEventKind.WRITE
-                    else access.read_port
-                )
-                hit = (
-                    f"({hit_port} && {access.address_port} == "
-                    f"32'h{address:08x})"
-                )
-                if event.kind is ir_csr.CsrEventKind.WRITE:
-                    selected = sv_rendering._slice(
-                        access.write_data_port, event.msb, event.lsb
-                    )
-                    value = f"({hit} ? {selected} : '0)"
+                if event.phase is ir_csr.CsrEventPhase.POST_ACCEPT:
+                    value = _csr_event_state_name(event)
                 else:
-                    value = hit
+                    value = _csr_event_active_value(
+                        access, block, register, event
+                    )
                 lines.append(f"  assign {sv_rendering._identifier(event.signal)} = {value};")
                 if expose_internal_abi:
                     lines.append(

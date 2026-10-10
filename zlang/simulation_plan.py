@@ -12,6 +12,7 @@ from zlang.simulation_plan_policy import (
 )
 from zlang.simulation_plan_model import (
     SimulationPlan,
+    identity_bytes as _identity_bytes,
 )
 from zlang.simulation_plan_build import build_simulation_plan
 
@@ -27,4 +28,5 @@ __all__ = [
     "SimulationPlan",
     "SimulationPlanError",
     "build_simulation_plan",
+    "_identity_bytes",
 ]

@@ -34,7 +34,7 @@ def test_public_cli_reports_the_distribution_version(capsys) -> None:
 def test_package_and_build_metadata_share_one_version_source() -> None:
     configuration = tomllib.loads((ROOT / "pyproject.toml").read_text())
 
-    assert zlang.__version__ == __version__ == "0.1.0a20"
+    assert zlang.__version__ == __version__ == "0.1.0a21"
     assert configuration["project"]["dynamic"] == ["version"]
     assert configuration["project"]["license"] == "Apache-2.0"
     assert configuration["project"]["requires-python"] == ">=3.12,<3.13"
@@ -51,7 +51,7 @@ def test_package_and_build_metadata_share_one_version_source() -> None:
     assert "tool" not in configuration or "maturin" not in configuration["tool"]
     native = configuration["project"]["optional-dependencies"]["native"]
     assert native == [
-        "zlang-native-sim==0.1.0a20; "
+        "zlang-native-sim==0.1.0a21; "
         "platform_system == 'Linux' and platform_machine == 'x86_64'",
     ]
 

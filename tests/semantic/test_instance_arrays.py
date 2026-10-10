@@ -4,7 +4,7 @@ import pytest
 
 from zlang.ir import expressions as expr
 from zlang.ir.signed_reductions import expression_semantic_identity
-from zlang.opt.lowering import lower, restore
+from zlang.opt import lower, restore
 from zlang.parser import parse
 from zlang.semantic import SemanticError, analyze
 
@@ -499,3 +499,39 @@ module CsrLaneArray {
         ("lane[0]", "ready"),
         ("lane[1]", "ready"),
     ]
+
+
+def test_nested_structural_generate_with_compile_time_if_is_bounded_and_exact() -> None:
+    module = analyze(parse("""
+    module Lane { in x:u8 out y:u8 y=x }
+    module Top {
+        in values:vec<2,u8> out result:vec<2,u8>
+        inst lane[2]:Lane
+        generate(i in 0..2) {
+            generate(j in 0..2) {
+                if i == j { lane[i].x=values[j] }
+            }
+        }
+        result=generate(k in 0..2) lane[k].y
+    }
+    """))
+    assert tuple(
+        (binding.instance, binding.port)
+        for binding in module.instance_bindings
+    ) == (("lane[0]", "x"), ("lane[1]", "x"))
+
+
+def test_nested_structural_generate_respects_total_expansion_limit() -> None:
+    with pytest.raises(SemanticError, match="compile-time generation exceeds 65536"):
+        analyze(parse("""
+        module Lane { in x:u8 out y:u8 y=x }
+        module Top {
+            in values:vec<257,u8>
+            inst lane[257]:Lane
+            generate(i in 0..257) {
+                generate(j in 0..257) {
+                    if i == j { lane[i].x=values[j] }
+                }
+            }
+        }
+        """))

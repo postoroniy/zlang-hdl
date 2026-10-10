@@ -23,15 +23,19 @@ For a release wheel, editor setup, and the optional Verilator/Yosys/SBY/Z3
 toolchain, use the
 [installation chapter](docs/language-reference.md#reference-installing-toolchain).
 
-Clone the repository and let [`uv`](https://docs.astral.sh/uv/) provision the
-verified Python runtime and editable development environment:
+Clone the repository and create the checkout-local development environment:
 
 ```bash
 git clone https://github.com/postoroniy/zlang-hdl.git
 cd zlang-hdl
-uv venv --python '>=3.12,<3.13'
-uv pip install -e '.[test]'
+make venv
+source .venv/bin/activate
 ```
+
+Every checkout owns its own `.venv`; the Make gates reject an ambient or sibling
+environment. `uv` is used when available to provision CPython 3.12, otherwise
+`make venv` validates a local Python 3.12 interpreter before creating the
+environment.
 
 For an ordinary release-wheel installation, install the commands in an isolated
 environment:
@@ -45,9 +49,9 @@ uv tool install --python '>=3.12,<3.13' \
 The native wheel must match the operating system and CPU; WSL2 uses the Linux
 x86-64 wheel. A compiler-only installation may omit `--with`, but `zlang sim`
 then fails explicitly because native simulation has no fallback executor. The
-native runtime implementation source is not distributed in this Community
-repository; the matching wheel uses a versioned simulation ABI. This packaging
-boundary does not alter language or RTL semantics. See the
+Rust/Cranelift source is not distributed in this Community repository; the
+versioned plan/ABI remains compiler-owned and does not alter language or RTL
+semantics. See the
 [native simulation section](docs/language-reference.md#reference-native-simulation)
 and the installation chapter for PATH, pip/venv and WSL2 details.
 
@@ -111,20 +115,23 @@ The validated language includes:
   deterministic specialization;
 - per-domain registers, rules, FSMs, fixed pipelines, FIFOs, synchronous
   memories, hierarchy, and instance arrays inside single- or multi-clock
-  modules;
+  modules, including explicit stored `out reg` ports and transient rule/FSM
+  `drive` actions;
 - ready/valid, credit, request/response, aggregate protocols, explicit buffering,
   arbitration, and mandatory explicit named-domain CDC;
 - source-authored RegBus, AHB-Lite, AXI4-Lite, APB, Wishbone, AXI-Stream, CSR,
   math, stream, storage, coding, and target-library components;
-- direct-SystemVerilog emission with source maps and versioned backend artifact
+- direct-SystemVerilog emission with source maps and versioned BackendArtifact
   manifests;
-- bounded equality saturation, implementation exploration, synthesis evidence,
+- bounded equality saturation, structurally diverse site-local `implement`
+  exploration with deterministic limits/session caching, synthesis evidence,
   safety checks, semantic-reference equivalence, formal-aware selection, and
-  source-level verification goals;
+  source-level verification goals.
 - range-proven runtime packed indexing and fixed-width packed slices; and one
   deliberately narrow ready/valid temporal-sharing candidate for the integer
   kernel `a*b + c*d` (one shared multiplier, capacity one, latency four,
-  II four). It is not general HLS scheduling.
+  II four). Its transaction-stream route supports bounded `required_bmc`
+  evidence but not unbounded `required_proven`; it is not general HLS scheduling.
 
 The executable [language tour](examples/all_syntax.zhl) is representative, not a
 complete support contract. Use the
@@ -134,6 +141,9 @@ for the current, bounded surface.
 Qwen users can also rely on the tracked
 [ZLang HDL project skill](.qwen/skills/zlang-hdl/SKILL.md), which routes work to
 the same current guides and executable compiler contracts.
+Other coding assistants should start with the vendor-neutral
+[AI guide](AI_GUIDE.md); it shares the same sources of truth instead of
+maintaining model-specific copies of the language rules.
 
 Representative real-design validations include:
 
@@ -156,7 +166,7 @@ combination is supported or that measured FPGA timing is guaranteed.
 | Yosys/SymbiYosys/Z3 | Optional bounded/proven safety and equivalence execution |
 
 The current GitHub-hosted external-tool configuration is Verilator 5.053, Yosys
-0.69, SymbiYosys 0.69, Z3 4.13.4, and Icarus Verilog/VVP 14.0. These are
+0.69, SymbiYosys 0.69, Z3 5.1.0, and Icarus Verilog/VVP 14.0. These are
 evidence versions, not compatibility bounds; see the
 [installation chapter](docs/language-reference.md#reference-installing-toolchain-verify-the-installation) and
 machine-readable [`release/status.json`](release/status.json).
@@ -180,8 +190,10 @@ Create and replay an immutable verification bundle:
   --report build/verification-report.json
 ```
 
-`zlang` is the single installed command surface: use `zlang sim`, `zlang verify`,
-`zlang lock`, and `zlang lsp`.
+`zlang` is the unified command surface: use `zlang sim`, `zlang verify`,
+`zlang lock`, and `zlang lsp`. The installed `zlang-verify`, `zlang-lock`, and
+`zlang-lsp` executables remain compatibility aliases for scripts and editor
+configuration.
 
 Bounded model checking is reported as `bounded_pass`, never promoted to
 `proven`. Missing tools, bindings, reset semantics, or unsupported routes remain
@@ -191,15 +203,19 @@ Try the [runnable formal examples](examples/verification/README.md): prove a
 counter invariant, find a rare 64-bit-triggered overflow, check scoped contracts,
 and verify ready/valid stalls. The intentionally broken example passes shallow
 BMC but fails at a deeper bound, with a source-attributed counterexample.
+The [formal verification guide](docs/formal-verification.md) explains policies,
+result statuses, immutable replay, and how typed source obligations are bound
+to generated Direct-SV formal harnesses without guessing RTL names.
 
 ## Documentation
 
 - [Complete Community language reference](docs/language-reference.md)
 - [Concise language quick reference](docs/language-quick-reference.md)
 - [Printable PDF reference](docs/ZLang-HDL-Language-Reference.pdf)
+- [Formal verification workflow and evidence](docs/formal-verification.md)
 - [Non-publishing candidate and signed release process](docs/release-process.md)
 
-The machine-readable capability registry and release CI are authoritative for
+The compiler-owned capability registry and release CI are authoritative for
 executable support. Documentation should describe semantics and boundaries
 without copying mutable pass totals into multiple files.
 

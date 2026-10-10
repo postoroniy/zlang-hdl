@@ -950,7 +950,10 @@ def generate_properties(module: Module) -> FormalDesign:
             module,
             registers=(), fifos=(), csr_blocks=(), rules=(), rule_priorities=(),
             resolved_transition=None,
-            ports=tuple(port for port in module.ports if port.protocol is InterfaceProtocol.WIRE),
+            ports=tuple(
+                port for port in module.ports
+                if port.protocol is InterfaceProtocol.WIRE and not port.registered
+            ),
         )
     properties: list[FormalProperty] = []
     covers: list[CoverProperty] = []

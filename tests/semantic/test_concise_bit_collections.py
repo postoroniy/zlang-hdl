@@ -9,8 +9,7 @@ from zlang import exploration as exploration_module
 from zlang.compiler import compile_source
 from zlang.ir import expressions as expr
 from zlang.ir.types import BitType, BitsType, UIntType, VecType
-from zlang.opt.lowering import CanonicalizationError, lower, restore
-from zlang.opt.ir import OptimizationStage
+from zlang.opt import CanonicalizationError, OptimizationStage, lower, restore
 from zlang.opt.ir import ExpressionOp, pure_metadata
 from zlang.semantic import SemanticError
 from zlang.native_simulation import simulate

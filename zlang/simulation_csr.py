@@ -77,6 +77,10 @@ def csr_field_state_register_name(
     return _field_state_name(block_index, register_index, field_index, field)
 
 
+def _event_state_name(event: ir_csr.CsrEventBinding) -> str:
+    return f"$zlang_csr_event_state:{event.identity.render()}"
+
+
 def _stored(access: ir_csr.CsrAccess) -> bool:
     return ir_csr.access_owns_state(access)
 
@@ -97,6 +101,7 @@ class _CsrOutputPublisher:
         address_type: UIntType,
         data_type: UIntType,
         state_by_field: dict[ir_csr.CsrFieldIdentity, Register],
+        state_by_event: dict[ir_csr.CsrEventIdentity, Register],
         fields_by_identity: dict[
             ir_csr.CsrFieldIdentity,
             tuple[ir_csr.CsrBlock, ir_csr.CsrRegister, ir_csr.CsrField],
@@ -115,6 +120,7 @@ class _CsrOutputPublisher:
         self._address_type = address_type
         self._data_type = data_type
         self._state_by_field = state_by_field
+        self._state_by_event = state_by_event
         self._fields_by_identity = fields_by_identity
         self._address_matches = address_matches
         self._read_values = read_values
@@ -249,6 +255,20 @@ class _CsrOutputPublisher:
                 self._address_type,
             )
             for event in register.events:
+                if event.phase is ir_csr.CsrEventPhase.POST_ACCEPT:
+                    state = self._state_by_event.get(event.identity)
+                    if state is None:
+                        raise CsrSimulationLoweringError(
+                            f"post-accept CSR event '{event.name}' has no state owner"
+                        )
+                    value = expr.RegisterRef(
+                        state.name,
+                        state.type,
+                        origin=event.source_origin,
+                    )
+                    for name in (event.signal, ir_csr.csr_event_port_name(event)):
+                        self._assign(name, value, "event")
+                    continue
                 qualifier = (
                     self._write
                     if event.kind is ir_csr.CsrEventKind.WRITE
@@ -362,6 +382,7 @@ def lower_csr_module(module: Module) -> Module:
     generated_next: list[NextAssignment] = []
     generated_assignments: list[Assignment] = []
     state_by_field: dict[ir_csr.CsrFieldIdentity, Register] = {}
+    state_by_event: dict[ir_csr.CsrEventIdentity, Register] = {}
     fields_by_identity: dict[
         ir_csr.CsrFieldIdentity,
         tuple[ir_csr.CsrBlock, ir_csr.CsrRegister, ir_csr.CsrField],
@@ -570,6 +591,45 @@ def lower_csr_module(module: Module) -> Module:
                     shifted,
                     data_type,
                 )
+            for event in csr_register.events:
+                if event.phase is not ir_csr.CsrEventPhase.POST_ACCEPT:
+                    continue
+                qualifier = (
+                    write if event.kind is ir_csr.CsrEventKind.WRITE else read
+                )
+                event_hit = _bit_binary(
+                    expr.BinaryOperator.BIT_AND,
+                    qualifier,
+                    address_match,
+                )
+                if event.kind is ir_csr.CsrEventKind.WRITE:
+                    event_value: expr.Expression = expr.Mux(
+                        event_hit,
+                        expr.Slice(
+                            write_data,
+                            event.msb,
+                            event.lsb,
+                            event.canonical_type,
+                            origin=event.source_origin,
+                        ),
+                        expr.Constant(0, event.canonical_type),
+                        event.canonical_type,
+                    )
+                else:
+                    event_value = event_hit
+                event_state = Register(
+                    _event_state_name(event),
+                    event.canonical_type,
+                    expr.Constant(
+                        0,
+                        event.canonical_type,
+                        origin=event.source_origin,
+                    ),
+                    domain,
+                )
+                generated_registers.append(event_state)
+                generated_next.append(NextAssignment(event_state, event_value))
+                state_by_event[event.identity] = event_state
             read_hit = _bit_binary(
                 expr.BinaryOperator.BIT_AND,
                 read,
@@ -588,6 +648,7 @@ def lower_csr_module(module: Module) -> Module:
         address_type=address_type,
         data_type=data_type,
         state_by_field=state_by_field,
+        state_by_event=state_by_event,
         fields_by_identity=fields_by_identity,
         address_matches=address_matches,
         read_values=read_values,

@@ -11,6 +11,8 @@ from zlang.analysis_needs import AnalysisNeeds
 from zlang.ir import types as ir_types
 from zlang.completion_resolution import CompletionScope
 from zlang.definition_resolution import DefinitionResolution, DefinitionTarget
+from zlang.implementation_limits import IntentExplorationLimits
+from zlang.intent_structural_exploration import IntentStructuralExplorationCache
 from zlang.signature_help_resolution import SignatureHelpCall
 from .errors import SemanticError
 from . import context as semantic_context
@@ -28,6 +30,15 @@ from zlang import module_resolver as module_resolution
 
 class SemanticAnalyzer:
     """Orchestrate ordered semantic services over one analysis context."""
+
+    def analyze_module(
+        self,
+        module: ast.Module,
+        **options: object,
+    ) -> ir_module.Module:
+        """Recursively analyze a child through this analyzer instance."""
+
+        return analyze(module, _semantic_analyzer=self, **options)
 
     def analyze(
         self, context: semantic_context.AnalysisContext
@@ -61,7 +72,7 @@ class SemanticAnalyzer:
         state_storage = module_state_storage.StateStoragePreparer().prepare(
             preparation, hardware
         )
-        behavior = module_behavior.ModuleBehaviorAnalyzer(analyze).analyze(
+        behavior = module_behavior.ModuleBehaviorAnalyzer(self).analyze(
             context,
             preparation,
             hardware,
@@ -92,6 +103,8 @@ def analyze(
     module: ast.Module,
     *,
     exploration_results: list[object] | None = None,
+    intent_structural_cache: IntentStructuralExplorationCache | None = None,
+    intent_exploration_limits: IntentExplorationLimits | None = None,
     formal_config: object | None = None,
     formal_verifier: object | None = None,
     inherited_domain: tuple[str, str] | ir_cdc.ClockDomain | None = None,
@@ -118,6 +131,7 @@ def analyze(
     definition_declarations: list[DefinitionTarget] | None = None,
     completion_scopes: list[CompletionScope] | None = None,
     signature_help_calls: list[SignatureHelpCall] | None = None,
+    _semantic_analyzer: SemanticAnalyzer | None = None,
 ) -> ir_module.Module:
     """Resolve and type-check an AST module into backend-independent IR."""
 
@@ -152,6 +166,8 @@ def analyze(
         ),
         implementation=semantic_context.ImplementationAnalysisContext(
             exploration_results=exploration_results,
+            structural_cache=intent_structural_cache,
+            exploration_limits=intent_exploration_limits,
         ),
         verification=semantic_context.VerificationAnalysisContext(
             formal_config=formal_config,
@@ -165,4 +181,4 @@ def analyze(
             signature_help_calls=signature_help_calls,
         ),
     )
-    return SemanticAnalyzer().analyze(context)
+    return (_semantic_analyzer or SemanticAnalyzer()).analyze(context)

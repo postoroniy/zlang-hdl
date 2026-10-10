@@ -17,11 +17,11 @@ from zlang.backend.naming import (
     validate_component_name_plans,
 )
 from zlang.compiler import compile_source
-from zlang.ir.functional_regions import CompileTimeBinderRef, FunctionalRegionKind
-from zlang.ir.expressions import Constant, FunctionalRegion
-from zlang.ir.types import UIntType, VecType
+from zlang.backend.systemverilog import emit_artifact_with_source_map
+from zlang.ir import CompileTimeBinderRef, Constant, FunctionalRegion, FunctionalRegionKind, UIntType, VecType
 from zlang.ir.hierarchy import build_hierarchy_index
 from zlang.ir.module import LocalValue
+from zlang.opt import canonical_ir_identity, lower
 
 
 SPECIALIZED = """
@@ -143,7 +143,7 @@ def test_independent_compilation_registry_rejects_truncated_prefix_collisions(sp
 
 
 def test_source_names_win_over_generated_arrays_signals_and_rule_helpers(collision_module) -> None:
-    from zlang.backend.systemverilog.emitter import (
+    from zlang.backend.systemverilog import (
         SystemVerilogEmissionError,
         emit_artifact,
     )
@@ -212,6 +212,50 @@ module StageNames {
     retained_stages = {item.physical_name for item in module_rtl_names(retained).entries if item.kind == "stage"}
     assert retained_stages == {"acc_pipe_s1", "acc_pipe_s2", "z_delay_s1"}
     assert all(anonymous not in name for name in stages)
+
+
+def test_fsm_rules_keep_semantic_hashes_but_use_readable_private_names() -> None:
+    source = """
+    enum Phase { Idle Header }
+    module Controller {
+        clock clk reset rst
+        in first,second:bit
+        fsm phase:Phase=Idle {
+            Idle { priority {
+                when first -> Header {}
+                when second -> Header {}
+            } }
+            Header { -> Idle {} }
+        }
+    }
+    """
+    module = compile_source(source).ir
+    assert all(rule.name.startswith("__fsm_") for rule in module.rules)
+    assert tuple(rule.physical_name_hint for rule in module.rules) == (
+        "phase_idle_to_header",
+        "phase_idle_to_header_02",
+        "phase_header_to_idle",
+    )
+    plan = module_rtl_names(module)
+    assert tuple(plan.rule(rule.name) for rule in module.rules) == (
+        "rule_phase_idle_to_header_fire",
+        "rule_phase_idle_to_header_02_fire",
+        "rule_phase_header_to_idle_fire",
+    )
+    assert all("__fsm_" not in plan.rule(rule.name) for rule in module.rules)
+    repeated = compile_source(source).ir
+    assert module_rtl_names(repeated) == plan
+    without_hints = replace(
+        module,
+        rules=tuple(replace(rule, physical_name_hint=None) for rule in module.rules),
+    )
+    assert canonical_ir_identity(lower(module)) == canonical_ir_identity(
+        lower(without_hints)
+    )
+    first_artifact, first_map = emit_artifact_with_source_map(module)
+    second_artifact, second_map = emit_artifact_with_source_map(repeated)
+    assert first_artifact == second_artifact
+    assert first_map == second_map
 
 
 def test_reserved_identifier_policy_and_protocol_leaf_keys_are_supported() -> None:

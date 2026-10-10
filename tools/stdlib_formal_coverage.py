@@ -69,6 +69,28 @@ EVIDENCE: dict[str, dict[str, str]] = {
         "depth": "4",
         "assumptions": "initial reset and generated input ready/valid contract",
     },
+    "std.stream.core::module:RvMux2": {
+        "status": "partial",
+        "proof_level": "bounded-pass:3",
+        "case": "tests/integration/test_stdlib_stream_z3.py::"
+        "test_combinational_router_contract_and_mutation_with_z3[mux]",
+        "contract": "selected payload plus selected valid/backpressure routing",
+        "specialization": "T=u8",
+        "mode": "bmc",
+        "depth": "3",
+        "assumptions": "initial reset and generated input ready/valid contracts",
+    },
+    "std.stream.core::module:RvDemux2": {
+        "status": "partial",
+        "proof_level": "bounded-pass:3",
+        "case": "tests/integration/test_stdlib_stream_z3.py::"
+        "test_combinational_router_contract_and_mutation_with_z3[demux]",
+        "contract": "selected valid plus selected-sink backpressure routing",
+        "specialization": "T=u8",
+        "mode": "bmc",
+        "depth": "3",
+        "assumptions": "initial reset and generated input ready/valid contracts",
+    },
     "std.stream.core::module:RvSkidBuffer": {
         "status": "partial",
         "proof_level": "bounded-pass:6",

@@ -123,6 +123,13 @@ class CsrEventKind(str, Enum):
     WRITE = "on_write"
 
 
+class CsrEventPhase(str, Enum):
+    """Exact publication phase for one qualified access observation."""
+
+    ACTIVE_TRANSFER = "active_transfer"
+    POST_ACCEPT = "post_accept"
+
+
 @dataclass(frozen=True)
 class CsrAccessObservation:
     """Storage-independent compiler-qualified access observation."""
@@ -164,8 +171,21 @@ class CsrEventBinding:
     clock_domain: str | None = None
 
     @property
+    def phase(self) -> CsrEventPhase:
+        return CsrEventPhase.ACTIVE_TRANSFER
+
+    @property
     def semantic_value_id(self) -> str:
         return f"csr-event:{self.identity.render()}:value"
+
+
+@dataclass(frozen=True)
+class CsrPostAcceptEventBinding(CsrEventBinding):
+    """One event whose selected access value is published after acceptance."""
+
+    @property
+    def phase(self) -> CsrEventPhase:
+        return CsrEventPhase.POST_ACCEPT
 
 
 @dataclass(frozen=True)

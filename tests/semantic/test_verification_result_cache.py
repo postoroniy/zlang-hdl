@@ -5,7 +5,6 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
-from zlang import verification_bundle as verification_bundle_module
 from zlang.common import stable_digest
 from zlang.cli import main as compiler_main
 from zlang.ir.formal import (
@@ -54,6 +53,7 @@ def _toolchain(monkeypatch, versions=_VERSIONS) -> None:
         lambda **keywords: SimpleNamespace(
             engine=keywords["engine"],
             solver=keywords["solver"],
+            route=keywords["route"],
             versions=tuple(versions),
         ),
     )
@@ -114,7 +114,7 @@ def test_decisive_result_cache_hit_bypasses_solver_and_strips_work_path(
     entries = _safety_verification_result_entries(cache)
     assert len(entries) == 1
     envelope = json.loads(entries[0].read_text())
-    assert envelope["schema"] == "zlang-verification-result-cache-v3"
+    assert envelope["schema"] == "zlang-verification-result-cache-v4"
     assert envelope["identity"]["route"] == {
         "artifact_hash": routed_job.artifact_hash,
         "backend": routed_job.backend,
@@ -206,6 +206,7 @@ def test_staged_proof_reuses_bounded_and_proven_results(
         return SimpleNamespace(
             engine=keywords["engine"],
             solver=keywords["solver"],
+            route=keywords["route"],
             versions=_VERSIONS,
         )
 
@@ -470,11 +471,7 @@ def test_standalone_cli_forwards_cache_directory(tmp_path: Path, monkeypatch, ca
             exit_code=0,
         )
 
-    monkeypatch.setattr(
-        verification_bundle_module,
-        "run_verification_bundle_staged",
-        run,
-    )
+    monkeypatch.setattr("zlang.verification_bundle.run_verification_bundle_staged", run)
     cache = tmp_path / "cache"
     assert verification_main([
         str(tmp_path / "bundle"), "--cache", str(cache), "--format", "json",
@@ -508,8 +505,7 @@ module VerificationCacheCli {
         )
 
     monkeypatch.setattr(
-        "zlang.cli_verification.bundle_api.run_verification_bundle_staged",
-        run,
+        "zlang.cli_verification.bundle_api.run_verification_bundle_staged", run
     )
     cache = tmp_path / "formal-cache"
     assert compiler_main((

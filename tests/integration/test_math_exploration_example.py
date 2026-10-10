@@ -1,4 +1,4 @@
-"""One exact implementation example, independent oracle, and real RTL paths."""
+"""One exact arithmetic example, independent oracle, and both real RTL paths."""
 
 from __future__ import annotations
 
@@ -10,8 +10,8 @@ import pytest
 from zlang.compiler import compile_file
 
 
-SOURCE = Path(__file__).resolve().parents[2] / "examples/verification/math_implementation.zhl"
-LATENCIES = {"MathOneCycle": 0, "MathImplementationTopology": 0, "MathImplementationPipeline": 1}
+SOURCE = Path(__file__).resolve().parents[2] / "examples/verification/math_exploration.zhl"
+LATENCIES = {"MathOneCycle": 0, "MathArchitecture": 0, "MathExplore": 1}
 INPUTS = tuple(f"{side}{index}" for index in range(8) for side in "ab")
 
 

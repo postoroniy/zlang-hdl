@@ -48,6 +48,8 @@ from zlang.backend.systemverilog.errors import SystemVerilogEmissionError
 from zlang.backend.systemverilog import expression as sv_expression
 from zlang.backend.systemverilog import rendering as sv_rendering
 from zlang.backend.systemverilog import state as sv_state
+from zlang.backend.systemverilog import state_planning as sv_state_planning
+
 MAX_SCATTER_CHUNK_RESULT_BIT_UPDATES = (
     _functional_scatter.MAX_SCATTER_CHUNK_RESULT_BIT_UPDATES
 )
@@ -271,7 +273,8 @@ def _validate_state_storage_rtl_namespace(
         module, cache=selected_hierarchy_cache
     )
     tokens: dict[str, str] = {}
-    local_names = emission_context.module_rtl_names(module)
+    local_names = emission_context.cached_module_rtl_names(module)
+    materialization_owner = sv_materialized.module_materialization_owner(module)
 
     def claim(token: str, owner: str) -> None:
         previous = tokens.get(token)
@@ -302,9 +305,9 @@ def _validate_state_storage_rtl_namespace(
             _composed_rendering(hierarchy_cache=selected_hierarchy_cache),
         ):
             claim(token, owner)
-    for item in sv_materialized._materialization_plan(module):
+    for item in materialization_owner.materialization_plan:
         claim(item.name, f"materialized expression '{item.name}'")
-    for root in sv_materialized._module_expression_roots(module):
+    for root in materialization_owner.roots:
         for value in materialization.walk_expression(root):
             if isinstance(value, (expr.Delay, expr.Pipeline)):
                 count = value.cycles if isinstance(value, expr.Delay) else value.stages
@@ -315,6 +318,11 @@ def _validate_state_storage_rtl_namespace(
                         f"{kind} stage {value.instance}:{index}",
                     )
     for register in module.registers:
+        if any(
+            port.name == register.name and port.registered
+            for port in module.outputs
+        ):
+            continue
         claim(
             identifiers.rtl_register_state_identifier(register.name),
             f"register '{register.name}'",
@@ -398,7 +406,7 @@ def _validate_state_storage_rtl_namespace(
         claim(f"{name}_read_data", f"ROM '{rom.name}' read data")
     # The compact register path emits no guard/fire helpers. Claim only real
     # objects, and allocate emitted helpers around source state names.
-    if sv_state.requires_unified_state(module):
+    if sv_state_planning.requires_unified_state(module):
         for rule in module.rules:
             claim(local_names.rule(rule.name, "guard"), f"rule '{rule.name}' guard")
             claim(local_names.rule(rule.name, "fire"), f"rule '{rule.name}' fire")
@@ -579,7 +587,7 @@ def _emit_packed(
                 *sv_accounting.STATE_GROUPS,
             )
             body = sv_request_response._emit_request_response(module)
-        elif sv_state.requires_unified_state(module):
+        elif sv_state_planning.requires_unified_state(module):
             sv_accounting.account_emission_plan(
                 module, "unified_state",
                 *sv_accounting.STATE_GROUPS,
@@ -796,7 +804,7 @@ def emit_artifact(module: ir_module.Module, *, selected_ir_identity: str | None 
         )
         component_names = naming.build_component_name_plan(naming_hierarchy)
         local_plans = {
-            entry.physical_path: emission_context.module_rtl_names(entry.module)
+            entry.physical_path: emission_context.cached_module_rtl_names(entry.module)
             for entry in naming_hierarchy.entries
         }
         # The selected public top owns both boundary bridges and architectural

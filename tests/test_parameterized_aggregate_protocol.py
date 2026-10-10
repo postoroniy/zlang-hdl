@@ -7,11 +7,11 @@ from dataclasses import replace
 from pathlib import Path
 
 from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
-from zlang.backend.systemverilog import emit as emit_systemverilog
+from zlang.backend.systemverilog import emit_experimental as emit_systemverilog
 from zlang.ir.expressions import InputRef
 from zlang.ir.module import InstancePortBinding
 from zlang.ir.types import BitType
-from zlang.opt.lowering import CanonicalizationError, lower, restore
+from zlang.opt import CanonicalizationError, lower, restore
 from zlang.parser import parse
 from zlang.semantic import SemanticError, analyze
 

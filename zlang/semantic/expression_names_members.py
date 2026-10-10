@@ -328,6 +328,11 @@ def _check_protocol_field(
         field_path.append(field_root.name)
         field_path.reverse()
         if len(field_path) >= 3:
+            transfer = context.scope.instance_protocol_transfers.get(
+                (field_path[0], ".".join(field_path[1:]))
+            )
+            if transfer is not None:
+                return transfer
             projection = context.scope.instance_protocol_outputs.get(
                 (field_path[0], ".".join(field_path[1:]))
             )

@@ -10,6 +10,7 @@ from typing import get_args
 
 from zlang.common import stable_json
 from zlang.common.serialization import stable_acyclic_digest
+from zlang.ir.module import Port
 from zlang.ir.types import HardwareType
 from zlang.opt.ir import CanonicalModule, NodeCategory
 from zlang.source import SourceOrigin
@@ -187,6 +188,9 @@ _ORIGIN_FIELDS = frozenset(
         "semantic_expression_arena_statistics",
         "semantic_expression_provenance",
         "selected_value_normalization_statistics",
+        # Backend-private presentation hint.  The semantic rule name remains
+        # the canonical identity and scheduling key.
+        "physical_name_hint",
     }
 )
 _HARDWARE_TYPE_SET = frozenset(get_args(HardwareType))
@@ -317,6 +321,14 @@ def _identity_value(
                 ]
                 for item in fields(value)
                 if item.name not in _ORIGIN_FIELDS
+                # Keep the canonical identity of every pre-a21 ordinary port
+                # byte-for-byte stable.  The new field participates only when
+                # it expresses the new registered-output semantics.
+                and not (
+                    isinstance(value, Port)
+                    and item.name == "registered"
+                    and not value.registered
+                )
             ],
         }
     elif isinstance(value, Mapping):

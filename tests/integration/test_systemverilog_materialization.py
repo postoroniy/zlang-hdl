@@ -10,11 +10,11 @@ import subprocess
 import pytest
 
 from zlang.backend.expression_materialization import build_direct_sv_dag_plan
-from zlang.backend.systemverilog import emit
+from zlang.backend.systemverilog import emit_experimental
+from zlang.backend.systemverilog.context import emission_scope
 from zlang.backend.systemverilog import expression as sv_expression
-from zlang.backend.systemverilog import materialized as sv_materialized
-from zlang.compilation_session import inline_locals
-from zlang.compiler import compile_source
+from zlang.backend.systemverilog.materialized import module_materialization_owner
+from zlang.compilation_selection import inline_locals as _inline_locals
 from zlang.ir import expressions as expr
 from zlang.ir.types import UIntType, VecType
 from zlang.parser import parse
@@ -62,13 +62,39 @@ module CompoundRuntimePrefix {
 """
 
 
+FIELD_ONLY_RUNTIME_STRUCT_SOURCE = """
+struct WideEntry {
+    live_low : u8
+    unused : bits<1024>
+    live_high : u8
+}
+
+module FieldOnlyRuntimeStruct {
+    in entries : vec<4,WideEntry>
+    in index : u2
+    out low : u8
+    out high : u8
+
+    selected = entries[index]
+    low = selected.live_low
+    high = selected.live_high
+}
+"""
+
+
 def _rtl() -> str:
-    return emit(inline_locals(analyze(parse(SOURCE))))
+    return emit_experimental(_inline_locals(analyze(parse(SOURCE))))
 
 
 def _compound_runtime_prefix_rtl() -> str:
-    return emit(
-        inline_locals(analyze(parse(COMPOUND_RUNTIME_PREFIX_SOURCE)))
+    return emit_experimental(
+        _inline_locals(analyze(parse(COMPOUND_RUNTIME_PREFIX_SOURCE)))
+    )
+
+
+def _field_only_runtime_struct_rtl() -> str:
+    return emit_experimental(
+        _inline_locals(analyze(parse(FIELD_ONLY_RUNTIME_STRUCT_SOURCE)))
     )
 
 
@@ -91,34 +117,6 @@ def test_unified_state_materializes_runtime_selected_struct_once() -> None:
     assert f"{temporary}[15:8]" in rtl
     assert "+: 16][15:8]" not in rtl
     assert rtl.count(f"assign {temporary} =") == 1
-
-
-def test_embedded_sequential_renderer_uses_module_dag_materialization() -> None:
-    module = compile_source(
-        """
-module EmbeddedRuleDag {
-    clock clk
-    reset rst
-    in enable : bit
-    in a : u8
-    in b : u8
-    out y : u10
-    reg state : u10 = 0
-
-    heavy : u10 = extend<9>(a) + extend<9>(b)
-    step: when enable & (heavy != 0) { state <- heavy }
-    y = state
-}
-""",
-        top="EmbeddedRuleDag",
-    ).ir
-
-    declarations, logic, render = sv_materialized._embedded_staging_emission(module)
-    assert any("zlang_expr_" in line for line in declarations)
-    assert any("assign zlang_expr_" in line for line in logic)
-    assert module.resolved_transition is not None
-    guard = module.resolved_transition.action_groups[0].guard
-    assert "zlang_expr_" in render(guard)
 
 
 @pytest.mark.skipif(shutil.which("verilator") is None, reason="Verilator unavailable")
@@ -145,8 +143,23 @@ def test_dynamic_select_materializes_compound_prefix_once() -> None:
     assert first.count(
         "assign zlang_expr_0 = zlang_packed_frame[34:3];"
     ) == 1
-    assert "assign y = zlang_expr_0[(32'(index) << 3) +: 8];" in first
+    assert (
+        "assign y = zlang_expr_0[(32'(index) << 3) +: 8];"
+        in first
+    )
     assert "zlang_packed_frame[34:3][" not in first
+
+
+def test_runtime_selected_struct_projects_only_consumed_leaves() -> None:
+    rtl = _field_only_runtime_struct_rtl()
+
+    # A field-only consumer must not materialize the complete 1040-bit entry.
+    # Each live leaf is selected directly from the packed vector, leaving the
+    # 1024-bit unused member absent from generated temporary storage.
+    assert "logic [1039:0] zlang_expr_" not in rtl
+    assert "+: 1040]" not in rtl
+    assert "assign low =" in rtl
+    assert "assign high =" in rtl
 
 
 def test_runtime_select_from_compound_vector_avoids_postfix_part_select() -> None:
@@ -197,6 +210,18 @@ def test_direct_sv_dag_plan_materializes_one_shared_producer() -> None:
     assert tuple(item.expression for item in plan.materialized).count(shared) == 1
 
 
+def test_one_module_emission_reuses_its_materialization_owner() -> None:
+    module = _inline_locals(analyze(parse(COMPOUND_RUNTIME_PREFIX_SOURCE)))
+
+    with emission_scope(module.name):
+        first = module_materialization_owner(module)
+        second = module_materialization_owner(module)
+
+        assert second is first
+        assert first.roots is first.roots
+        assert first.materialization_plan is first.materialization_plan
+
+
 def test_shared_mixer_dag_emits_linearly_without_logical_path_expansion(
     tmp_path,
 ) -> None:
@@ -206,7 +231,7 @@ def test_shared_mixer_dag_emits_linearly_without_logical_path_expansion(
         source, top="FrontendSharedDagScalability"
     ).planning.module
 
-    rtl = emit(module)
+    rtl = emit_experimental(module)
 
     assert len(rtl.encode("utf-8")) < 16_384
     assert max(len(line.encode("utf-8")) for line in rtl.splitlines()) < 256

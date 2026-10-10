@@ -98,7 +98,7 @@ def test_output_dependency_keeps_activation_when_group_has_other_effects() -> No
         clock clk reset rst in x:bit out y:bit reg seen:bit=0
         step: when 1 {
           seen <- 1
-          when x { y <- 1 } else { y <- 0 }
+          when x { drive y = 1 } else { drive y = 0 }
         }
       }
       module Top {

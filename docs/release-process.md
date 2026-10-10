@@ -12,8 +12,8 @@ release evidence until it is represented in the candidate's
 
 ## Operator checklist
 
-This is the canonical operator procedure, including the hosted-policy detail.
-Do not substitute
+This is the canonical operator procedure. `RELEASING.md` records additional
+hosted-policy detail, but does not replace these ordered gates. Do not substitute
 an ambient Python, an old installed wheel, an arbitrary Git branch, or an
 untracked reproducer for one of these checks.
 
@@ -62,8 +62,8 @@ On the clean, committed public review branch, run:
 ```bash
 make venv
 make release-review \
-  TAG=v0.1.0a20 \
-  PREVIOUS_TAG=v0.1.0a19
+  TAG=v0.1.0a21 \
+  PREVIOUS_TAG=v0.1.0a20
 ```
 
 `release-review` rejects local modifications and untracked files, validates the
@@ -106,8 +106,8 @@ pre-merge review gate:
 ```bash
 make venv
 make release-review \
-  TAG=v0.1.0a20 \
-  PREVIOUS_TAG=v0.1.0a19
+  TAG=v0.1.0a21 \
+  PREVIOUS_TAG=v0.1.0a20
 ```
 
 After merge, exact protected `main` may run the stricter local candidate command
@@ -115,20 +115,16 @@ when its required host tools are available:
 
 ```bash
 make release-candidate \
-  TAG=v0.1.0a20 \
-  PREVIOUS_TAG=v0.1.0a19 \
-  BUILD_ROOT=build/a20-local \
-  EDITOR_VSIX=build/a20-editor/zlang-hdl-0.1.0.vsix
+  TAG=v0.1.0a21 \
+  PREVIOUS_TAG=v0.1.0a20 \
+  BUILD_ROOT=build/a21-local \
+  EDITOR_VSIX=build/a21-editor/zlang-hdl-0.1.0.vsix
 ```
 
 Neither command commits, tags, pushes, or publishes. The candidate command runs
 the exact-main identity preflight plus native audits, external-tool inventory,
 an installed-VSIX host smoke, and reproducible package construction in addition
 to the review checks.
-
-Each regression pass runs the ordinary deterministic suite and the six
-isolated `performance` regressions as separate JUnit reports. Release status
-validates both partitions; neither report may contain a skip, failure, or error.
 
 Release commands never borrow a sibling worktree's interpreter. Every run uses
 the candidate's `.venv` and creates collision-safe transient files below that
@@ -153,8 +149,8 @@ command when they are absent from the Community tree.
 After the release PR is reviewed and its required checks pass, merge it. Run the
 `Release` workflow manually on the exact `main` commit with:
 
-- `tag`: the prospective tag, for example `v0.1.0a20`;
-- `previous_tag`: the exact prior release, for example `v0.1.0a19`.
+- `tag`: the prospective tag, for example `v0.1.0a21`;
+- `previous_tag`: the exact prior release, for example `v0.1.0a20`.
 
 Manual dispatch runs validation and EDA jobs, uploads review artifacts and does
 not attest or publish. It checks out `main` explicitly and fails if the
@@ -235,7 +231,7 @@ missing or renamed regression therefore fails before tagging.
 - Bug fixes test the first incorrect boundary, not only a broad end-to-end path.
 - Compiler and native-runtime fixes include an independent behavioral oracle
   where practical, normally Direct SystemVerilog with Verilator or Icarus.
-- LSP regressions exercise real JSON-RPC and current compiler tooling results;
+- LSP regressions exercise real JSON-RPC and compiler-owned tooling facts;
   mocked protocol tests alone are insufficient.
 - Performance fixes use bounded permanent fixtures and assert a completion
   limit or deterministic fail-closed budget diagnostic.

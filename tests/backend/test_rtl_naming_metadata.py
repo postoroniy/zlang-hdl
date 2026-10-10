@@ -35,7 +35,7 @@ from zlang.formal_artifact_provider import FormalArtifactRecipe
 import zlang.formal_candidate as candidate_module
 from zlang.ir.hierarchy import build_hierarchy_index
 from zlang.simulation_state import SimulationStateError
-from zlang.verification_prepared_routes import _prepared_route_recipe
+from zlang.verification_publication import _prepared_route_recipe
 
 
 SIMPLE = "module NamingMetadata { in x:u8 out y:u8 y=x }"

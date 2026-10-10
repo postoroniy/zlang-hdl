@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from zlang.ast.nodes import (
+from zlang.ast import (
     BitcastExpr,
     ConcatExpr,
     DynamicSliceExpr,

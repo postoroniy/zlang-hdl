@@ -134,7 +134,7 @@ def extract_best(
         value = cost.metric(objective)
         objective_check = value.value is not None
         legal = objective_check and all(item.status == "satisfied" for item in checks)
-        key = _sort_key(candidate, cost, objective, value)
+        key = _sort_key(candidate, cost, objective, value, policy)
         evaluations.append(CandidateEvaluation(candidate, cost, checks, legal, value, key))
     legal = [item for item in evaluations if item.legal]
     if not legal:
@@ -238,7 +238,25 @@ def _check_constraint(cost: CandidateCost, constraint: UnifiedConstraint) -> Con
     return ConstraintResult(constraint, "satisfied", f"{constraint.metric.value} constraint satisfied")
 
 
-def _sort_key(candidate: Any, cost: CandidateCost, objective: expr.CostMetric, value: MetricValue) -> tuple[Any, ...]:
+def _sort_key(
+    candidate: Any,
+    cost: CandidateCost,
+    objective: expr.CostMetric,
+    value: MetricValue,
+    policy: SourcePolicy,
+) -> tuple[Any, ...]:
+    # A measured-preferred request means exactly that: compare the strongest
+    # compatible evidence cohort before comparing values.  Without this term,
+    # a coarse structural Fmax estimate (for example 776 MHz) can numerically
+    # defeat a routed measurement (for example 103 MHz), even though the two
+    # values do not have equivalent evidentiary strength.  Constraint legality
+    # is still evaluated for every candidate first, so estimates remain the
+    # deterministic fallback when no legal measured candidate exists.
+    evidence = (
+        _evidence_rank(value.source)
+        if policy is SourcePolicy.MEASURED_PREFERRED
+        else 0
+    )
     primary = value.value
     if primary is None:
         primary = inf if objective is not expr.CostMetric.FMAX_EST else -inf
@@ -255,7 +273,22 @@ def _sort_key(candidate: Any, cost: CandidateCost, objective: expr.CostMetric, v
         )
     )
     digest = sha256(canonical.encode()).hexdigest()
-    return ((-primary if objective is expr.CostMetric.FMAX_EST else primary), *tie, structural, canonical, digest)
+    return (
+        evidence,
+        (-primary if objective is expr.CostMetric.FMAX_EST else primary),
+        *tie,
+        structural,
+        canonical,
+        digest,
+    )
+
+
+def _evidence_rank(source: MetricSource) -> int:
+    return {
+        MetricSource.ROUTED_MEASUREMENT: 0,
+        MetricSource.SYNTHESIS_MEASUREMENT: 1,
+        MetricSource.STRUCTURAL_ESTIMATE: 2,
+    }[source]
 
 
 def _known(value: int | float | None) -> float:

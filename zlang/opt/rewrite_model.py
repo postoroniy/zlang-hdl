@@ -12,6 +12,7 @@ from enum import Enum
 
 from zlang.ir.expressions import Expression
 from zlang.ir.types import HardwareType
+from zlang.opt.expression_restoration import restore_expression
 from zlang.opt.ir import (
     CanonicalExpression,
     EquivalenceMode,
@@ -21,7 +22,6 @@ from zlang.opt.ir import (
     Observation,
     pure_metadata,
 )
-from zlang.opt.expression_restoration import restore_expression
 from zlang.opt.rewrite_spec import RewriteRegistration, RewriteRule
 from zlang.source import SourceOrigin
 
@@ -92,6 +92,7 @@ class SaturationResult:
     registrations: tuple[RewriteRegistration, ...] = ()
     rejection_reasons: tuple[str, ...] = ()
     eclass_count: int = 1
+    enode_count: int = 1
     certificates: tuple[CheckedValueCertificate, ...] = ()
 
     @property
@@ -149,7 +150,7 @@ def render_saturation(result: SaturationResult) -> str:
         f"result saturated={str(result.saturated).lower()} "
         f"truncated={str(result.truncated).lower()} "
         f"iterations={result.iterations} eclasses={result.eclass_count} "
-        f"candidates={len(terms)}",
+        f"enodes={result.enode_count} candidates={len(terms)}",
         f"rules {rules}",
     ]
     lines.extend(

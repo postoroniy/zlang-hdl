@@ -5,11 +5,33 @@ import shutil
 
 import pytest
 
-from zlang.backend.systemverilog import emit
+from zlang.backend.systemverilog import emit_experimental
 from zlang.compiler import compile_source
-from zlang.ir.expressions import Add, Call, Constant, FunctionalCaptureRef, FunctionalRegion, FunctionalTableLookup, InputRef, ParameterRef, Reduce, ReductionOperator, VectorIndex
-from zlang.ir.module import Assignment, Function, FunctionParameter, Module, Port, PortDirection
-from zlang.ir.functional_regions import CompileTimeBinderRef, CompileTimeExpr, ExactReductionCombine, FunctionalRegionKind, FunctionalTable, build_exact_reduction_plan
+from zlang.ir import (
+    Add,
+    Assignment,
+    Call,
+    CompileTimeBinderRef,
+    CompileTimeExpr,
+    Constant,
+    ExactReductionCombine,
+    Function,
+    FunctionParameter,
+    FunctionalCaptureRef,
+    FunctionalRegion,
+    FunctionalRegionKind,
+    FunctionalTable,
+    FunctionalTableLookup,
+    InputRef,
+    Module,
+    ParameterRef,
+    Port,
+    PortDirection,
+    Reduce,
+    ReductionOperator,
+    VectorIndex,
+    build_exact_reduction_plan,
+)
 from zlang.ir.functional import (
     materialize_functional_region,
 )
@@ -182,7 +204,7 @@ def test_final_region_materialization_substitutes_binder_and_capture_exactly() -
 def test_rule_emission_resolves_region_nested_below_state_capture() -> None:
     module = compile_source(STATE_CAPTURED_NESTED_REGION_SOURCE).ir
 
-    rtl = emit(module)
+    rtl = emit_experimental(module)
 
     assert "module StateCapturedNestedRegion" in rtl
     assert "StateCapturedNestedRegion_zlang_core" not in rtl
@@ -195,7 +217,7 @@ def test_state_captured_nested_region_passes_strict_verilator(
 ) -> None:
     module = compile_source(STATE_CAPTURED_NESTED_REGION_SOURCE).ir
     rtl = tmp_path / "StateCapturedNestedRegion.sv"
-    rtl.write_text(emit(module), encoding="utf-8")
+    rtl.write_text(emit_experimental(module), encoding="utf-8")
 
     lint_with_verilator((rtl,), module.name)
 
@@ -208,7 +230,7 @@ def test_ready_valid_payload_region_direct_sv_passes_strict_verilator(
 ) -> None:
     module = compile_source(RV_PAYLOAD_REGION_SOURCE).ir
     rtl = tmp_path / "ReadyValidPayloadRegion64.sv"
-    rtl.write_text(emit(module))
+    rtl.write_text(emit_experimental(module))
     lint_with_verilator((rtl,), module.name)
 
 
@@ -218,7 +240,7 @@ def test_ready_valid_payload_region_direct_sv_passes_strict_verilator(
 def test_length32_exact_plan_direct_sv_passes_strict_verilator(tmp_path: Path) -> None:
     module, _, _ = _nominal_reduction_module()
     rtl = tmp_path / "NominalRegion32.sv"
-    rtl.write_text(emit(module))
+    rtl.write_text(emit_experimental(module))
     lint_with_verilator((rtl,), module.name)
 
 
@@ -240,7 +262,7 @@ def test_compact_builtin_scalar_sum_direct_sv_passes_strict_verilator(
     )
     module = compile_source(source).ir
     rtl = tmp_path / f"ScalarRegionSum{length}.sv"
-    rtl.write_text(emit(module))
+    rtl.write_text(emit_experimental(module))
     lint_with_verilator((rtl,), module.name)
 
 

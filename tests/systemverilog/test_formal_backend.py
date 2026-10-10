@@ -4,7 +4,7 @@ from pathlib import Path
 import shutil
 import unittest
 
-from zlang.backend.systemverilog import emit
+from zlang.backend.systemverilog import emit_experimental
 from zlang.compiler import compile_source
 from zlang.formal import run_verilog_formal
 from zlang.ir.formal import FormalStatus
@@ -16,7 +16,7 @@ TOOLS_AVAILABLE = all(shutil.which(tool) for tool in ("yosys", "sby", "z3"))
 
 def emitted(name: str, *, top: str | None = None) -> str:
     module = compile_source((ROOT / "examples" / name).read_text(), top=top).ir
-    return emit(module)
+    return emit_experimental(module)
 
 
 RULE_HARNESS = r"""
@@ -143,22 +143,22 @@ class DirectSystemVerilogFormalTests(unittest.TestCase):
                 )
 
     def test_direct_rtl_mutations_fail_with_counterexamples(self) -> None:
-        def mutate(rtl: str, old: str, new: str) -> str:
-            mutated = rtl.replace(old, new)
-            self.assertNotEqual(mutated, rtl, f"mutation source not found: {old}")
-            return mutated
-
         rule = emitted("rule_counter.zhl")
         counter = emitted("counter.zhl")
         fifo = emitted("rv_buffer.zhl")
         csr = emitted("control_csr.zhl")
         rr = emitted("hierarchical_request_response.zhl", top="HierarchicalRequestResponse")
+        def mutate(source: str, old: str, new: str) -> str:
+            self.assertIn(old, source)
+            mutated = source.replace(old, new, 1)
+            self.assertNotEqual(mutated, source)
+            return mutated
+
         mutations = (
             (mutate(rule, "count} + 9'd1", "count} - 9'd1"),
              RULE_HARNESS, "DirectRuleFormal", "arithmetic"),
-            (mutate(counter,
-                "count <= 8'(({{1{1'b0}}, count} + 9'd1));",
-                "count <= count;"), COUNTER_HARNESS, "DirectStateFormal", "state_transition"),
+            (mutate(counter, "count <= 8'(({{1{1'b0}}, count} + 9'd1));", "count <= count;"),
+             COUNTER_HARNESS, "DirectStateFormal", "state_transition"),
             (mutate(fifo, "count <= count + 1'b1", "count <= count - 1'b1"),
              FIFO_HARNESS, "DirectFifoFormal", "fifo_accounting"),
             (mutate(rr,

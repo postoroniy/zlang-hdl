@@ -41,6 +41,10 @@ normalizes to its canonical type and does not create a nominal wrapper.
   `memory name : async_mem<T,D>`, and `rom name : rom<T,N>` are
   state/storage declarations with clock, reset, latency, port, and collision
   semantics. They are not freely interchangeable value types.
+- `out name : T` is a combinational output. `out reg name : T = RESET` is
+  output-visible stored state; update it with `<-`. Use `drive name = value`
+  inside a rule/FSM action for a transient ordinary output instead of implying
+  storage.
 
 Public struct and tuple ports become recursively named leaves. A vector leaf
 stays a multidimensional packed SystemVerilog array, for example `vec<8,u8>` is

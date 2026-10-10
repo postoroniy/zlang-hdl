@@ -238,6 +238,18 @@ class StateRules:
             return ast_nodes.NextAssignment(target.name, items[1], target.name_origin)
         return ast_nodes.NextAssignment(target, items[1])
 
+    @v_args(meta=True)
+    def output_drive(
+        self, meta: object, items: list[object]
+    ) -> ast_nodes.OutputDrive:
+        return ast_nodes.OutputDrive(
+            str(items[0]),
+            items[1],
+            self._token_span(items[0]) or self._name_span_from_meta(
+                meta, str(items[0])
+            ),
+        )
+
     @staticmethod
     def _action_block(value: object) -> tuple[object, ...]:
         if not _tagged(value, "action_block"):
@@ -249,7 +261,15 @@ class StateRules:
             "action_block",
             tuple(
                 item for item in items
-                if isinstance(item, (ast_nodes.NextAssignment, ast_nodes.ResourceAction, ast_nodes.ConditionalAction))
+                if isinstance(
+                    item,
+                    (
+                        ast_nodes.NextAssignment,
+                        ast_nodes.OutputDrive,
+                        ast_nodes.ResourceAction,
+                        ast_nodes.ConditionalAction,
+                    ),
+                )
             ),
         )
 

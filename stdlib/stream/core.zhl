@@ -60,3 +60,32 @@ module RvFifo<type T,D=2> {
     output.payload = storage.front
     output.valid = storage.valid
 }
+
+// Explicit two-way ready/valid routing for runtime-selected physical clients.
+// These modules route transactions; they do not create dynamic instances or
+// infer clock gating.  Wider fan-in/fan-out is built as a bounded tree so each
+// admission and backpressure edge remains visible in source.
+module RvMux2<type T> {
+    in select : bit
+    in input0 : rv<T>
+    in input1 : rv<T>
+    out output : rv<T>
+
+    input0.ready = ~select & output.ready
+    input1.ready = select & output.ready
+    output.payload = select ? input1.payload : input0.payload
+    output.valid = select ? input1.valid : input0.valid
+}
+
+module RvDemux2<type T> {
+    in select : bit
+    in input : rv<T>
+    out output0 : rv<T>
+    out output1 : rv<T>
+
+    input.ready = select ? output1.ready : output0.ready
+    output0.payload = input.payload
+    output0.valid = input.valid & ~select
+    output1.payload = input.payload
+    output1.valid = input.valid & select
+}

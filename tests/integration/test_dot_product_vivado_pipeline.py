@@ -5,7 +5,7 @@ import subprocess
 
 import pytest
 
-from zlang.backend.systemverilog import emit
+from zlang.backend.systemverilog import emit_experimental
 from zlang.compiler import compile_source
 from zlang.ir import expressions as expr
 from zlang.native_simulation import simulate_cycles
@@ -57,7 +57,7 @@ def test_dot_pipeline_semantic_latency_and_no_overflow(latency: int) -> None:
 def test_direct_sv_dot_pipeline_is_bit_exact(tmp_path: Path, latency: int) -> None:
     top = "DotProductPipelined" if latency == 8 else "DotProductPipelined12"
     rtl = tmp_path / f"{top}.sv"
-    rtl.write_text(emit(compile_source(SOURCES[latency]).ir))
+    rtl.write_text(emit_experimental(compile_source(SOURCES[latency]).ir))
 
     def packed(values):
         return "'{" + ",".join(f"8'd{value}" for value in values) + "}"
