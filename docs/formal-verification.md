@@ -246,6 +246,21 @@ provenance. A missing observation, unsupported reset/domain, malformed bundle,
 tool failure, timeout, or cache mismatch fails closed; it is never normalized
 to success.
 
+Machine-readable evidence reports expose the facts owned by the executed
+route rather than reconstructing them from report prose. For bounded model
+checking this includes the exact status, route, depth, property or relation
+identity, solver, recorded tool versions, and `unbounded: false`. Reset
+contract and assumption information is included only when it is present in the
+compiler-owned verification product; an absent fact is not guessed.
+
+The capacity-one temporal route additionally records relation type
+`capacity_one_transaction_stream`, latency 4, II 4, capacity 1, same-edge
+retire/reload, and `required_proven_supported: false`. These are properties of
+the selected temporal implementation and its proof recipe, not a claim of
+unbounded proof. Solver-matrix reports retain one shared immutable problem
+identity, a distinct run identity and result for each solver, and explicit
+disagreement records.
+
 ## Debugging failures
 
 1. Read the source-attributed diagnostic/report before inspecting RTL names.

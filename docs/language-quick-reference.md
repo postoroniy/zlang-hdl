@@ -153,6 +153,13 @@ qualifier but does not create a runtime namespace.
 - Add `release externally_synchronized` only when deassertion is already
   synchronized outside; no internal 2FF is emitted.
 - `reg q:T = VALUE` resets to `VALUE`; `reg q:T` has no reset branch.
+- `out q:T` is a combinational output wire.
+- `out reg q:T [@clock] [= VALUE]` is real architectural state: it holds when
+  not updated and follows register clock/reset scheduling. It is not Verilog's
+  historical `output reg` declaration category.
+- `drive q = expression` is a transient rule/FSM-owned logical wire effect,
+  zero when no owning action fires. It is not tri-state, high-impedance,
+  electrical-strength, pad, analog, or multiple-driver-resolution behavior.
 - `reg`, `fifo`, `memory`, and `rom` retain explicit typed state/storage
   semantics. Memory latency, collision, mask, and reset policies are not inferred.
 - A concise child declaration is `child : ChildModule`; `inst child : ChildModule`
@@ -187,6 +194,11 @@ y = implement {
     }
 }
 ```
+
+An Fmax constraint or objective compares candidates using their recorded
+evidence and provenance. It is not a guarantee of achieved device or silicon
+frequency; structural estimates, synthesis measurements, and routed
+measurements remain distinct.
 
 The expression is the hardware meaning. `intent` contains hard constraints and
 one supported objective; it does not name optimization passes. For an eligible
@@ -233,7 +245,18 @@ zlang source.zhl --top Top --systemverilog build/Top.sv
 zlang source.zhl --top Top --target sky130-fd-sc-hd --systemverilog build/Top.sv
 zlang source.zhl --top Top --verify
 zlang sim source.zhl --top Top --engine native --clock clk --cycles 100
+zlang sim source.zhl --top Top --logic-state --clock clk --cycles 100
+zlang sim source.zhl --top Top --strict-uninitialized --clock clk --cycles 100
 zlang verify build/verify --mode bmc --depth 20 --work-dir build/verify-work
 zlang lock update --project zlang.toml
 zlang lsp
 ```
+
+Ordinary native simulation retains its deterministic two-state zero seed.
+`--logic-state` enables per-bit `0`/`1`/`U`/`X`: unreset state starts as `U`,
+an accepted unresolved write becomes `X`, and controlling values such as
+`U | 1` still resolve exactly. `--initial-reg` overrides selected initial
+registers and `--trace-signal` selects VCD signals; companion
+`__zlang_meta/*_u_mask` traces distinguish `U` from VCD's shared `x` spelling.
+`--strict-uninitialized` implies this mode and rejects observed `U` or `X`.
+Neither mode models `Z`, electrical resolution, or Verilog event regions.

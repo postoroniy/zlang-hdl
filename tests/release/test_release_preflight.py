@@ -109,11 +109,7 @@ def test_current_candidate_binds_release_sources_native_wheel_and_git(
     assert report["tag"] == "v0.1.0a21"
     assert report["previous_tag"] == "v0.1.0a20"
     assert report["regressions"]["included"] == [
-        "ZL-045",
-        "ZL-046",
-        "ZL-047",
-        "ZL-048",
-        "ZL-049",
+        "EDITOR-001", "REL-001", "ZL-045", "ZL-046", "ZL-047", "ZL-048",
     ]
     assert "release/regressions.json" in report["identities"]
     assert report["git"]["previous_commit"] == _git(
@@ -123,7 +119,7 @@ def test_current_candidate_binds_release_sources_native_wheel_and_git(
         {
             "file": "zlang_native_sim-0.1.0a21-cp312-abi3-manylinux_2_28_x86_64.whl",
             "platform": "linux_x86_64",
-            "sha256": "23c10267b0d64acdd7fdee14ee2770971103b924f8e0dbaf1bfbe5cc8b6e1c61",
+            "sha256": "88196483faeb84b60cecd8c1931ade121559b64b27112dfe161b40592e223961",
             "version": "0.1.0a21",
         }
     ]

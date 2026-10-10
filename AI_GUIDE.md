@@ -44,9 +44,22 @@ borrow a sibling checkout's virtual environment.
   update of stored state.
 - `out name : T` is a wire. `out reg name : T = RESET` is stored output state.
   A rule or FSM uses `drive name = value` for a transient wire output.
+  ZLang `out reg` is real architectural state, not Verilog's declaration
+  category. `drive` is logical pulse/event assignment with a zero default, not
+  tri-state, electrical-strength, pad, analog, or multiple-driver behavior.
 - Width, signedness, fixed-point scale, quantization, reset, clock domain,
   latency, initiation interval, and protocol ownership are exact. Never insert
   an implicit conversion, CDC, or protocol adapter.
+- Native simulation normally uses deterministic two-state startup. Use
+  `zlang sim --logic-state` for the per-bit `0`/`1`/`U`/`X` lattice: unreset
+  registers start as `U` (never refreshed), accepted writes turn unresolved
+  `U` into computed `X`, and exact controlling values still resolve uncertainty.
+  `--initial-reg` supplies an explicit initial register value and
+  `--trace-signal` selects VCD signals; VCD writes both unresolved states as
+  `x` and emits `__zlang_meta/*_u_mask` companions to retain `U` provenance.
+  `--strict-uninitialized` implies logic-state execution and rejects an
+  observed `U` or `X`. This mode does not model `Z`, electrical strength or
+  Verilog event-region semantics, and it does not change generated Direct-SV.
 - Runtime control uses expressions, `when`, `priority`, or `fsm`. Compile-time
   `if` elaborates structure; do not invent procedural software syntax.
 - `implement { expression intent { ... } }` selects among bounded exact-value

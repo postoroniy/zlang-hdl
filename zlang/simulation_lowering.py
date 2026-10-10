@@ -502,6 +502,7 @@ def lower_to_primitive_plan(
         for item in payload["memories"]
     ]
     next_by_domain: dict[str, dict[str, int]] = {}
+    refresh_by_domain: dict[str, dict[str, int | None]] = {}
     for register in registers:
         domain = register["domain"]
         if domain is None:
@@ -509,6 +510,8 @@ def lower_to_primitive_plan(
         next_by_domain.setdefault(domain, {})[register["name"]] = builder.emit(
             "load_state", register["width"], attributes={"name": register["name"]}
         )
+        if not register["resettable"]:
+            refresh_by_domain.setdefault(domain, {})[register["name"]] = None
 
     def condition(identifier: int | None) -> int:
         return (
@@ -522,18 +525,39 @@ def lower_to_primitive_plan(
         if domain is None or item["target"] not in next_by_domain.get(domain, {}):
             continue
         old = next_by_domain[domain][item["target"]]
+        active = condition(item["activation"])
         next_by_domain[domain][item["target"]] = builder.select(
-            condition(item["activation"]),
+            active,
             builder.lower(item["node"]),
             old,
             builder.width(old),
         )
+        if item["target"] in refresh_by_domain.get(domain, {}):
+            previous = refresh_by_domain[domain][item["target"]]
+            refresh_by_domain[domain][item["target"]] = (
+                active
+                if previous is None
+                else builder.binary("or", previous, active, 1)
+            )
 
     scheduled_storage_actions = lower_scheduler_actions(
         payload,
         builder,
         next_by_domain,
     )
+    for action in scheduled_storage_actions:
+        if action["kind"] != "register_write":
+            continue
+        domain = str(action["domain"])
+        target = str(action["target"])
+        if target not in refresh_by_domain.get(domain, {}):
+            continue
+        previous = refresh_by_domain[domain][target]
+        refresh_by_domain[domain][target] = (
+            int(action["commit"])
+            if previous is None
+            else builder.binary("or", previous, int(action["commit"]), 1)
+        )
 
     edge_programs = EdgeProgramLowerer(
         payload,
@@ -541,6 +565,7 @@ def lower_to_primitive_plan(
         registers,
         memories,
         next_by_domain,
+        refresh_by_domain,
         scheduled_storage_actions,
     ).lower()
 
@@ -615,10 +640,7 @@ def lower_to_primitive_plan(
         {"name": item["name"], "node": output_nodes[item["name"]]}
         for item in payload["outputs"]
     ]
-    result["registers"] = [
-        {key: value for key, value in register.items() if key != "resettable"}
-        for register in registers
-    ]
+    result["registers"] = registers
     result["memories"] = memories
     result["edge_programs"] = edge_programs
     result.pop("direct_next")

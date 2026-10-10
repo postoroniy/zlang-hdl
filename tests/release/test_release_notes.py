@@ -17,9 +17,9 @@ def test_current_release_notes_are_curated_from_exact_changelog_section() -> Non
     notes = release_notes(
         (ROOT / "CHANGELOG.md").read_text(encoding="utf-8"), "v0.1.0a21"
     )
-    assert "registered outputs" in notes
+    assert "per-bit `0`/`1`/`U`/`X`" in notes
     assert "transaction-stream BMC" in notes
-    assert "bounded, deterministic exact-value" in notes
+    assert "ABI v12" in notes
     assert "ABI-v10" not in notes
     assert "0.1.0a10 —" not in notes
 

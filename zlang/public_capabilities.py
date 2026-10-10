@@ -100,7 +100,7 @@ class PublicCapabilityRegistry:
 
 
 CAPABILITY_REGISTRY = PublicCapabilityRegistry(
-    schema_version=32,
+    schema_version=33,
     keywords=(
         "import", "module", "extern", "model", "struct", "enum", "union", "type", "fn", "operator", "equiv",
         "protocol", "role", "channel", "member", "resource", "target", "device",
@@ -500,6 +500,23 @@ CAPABILITY_REGISTRY = PublicCapabilityRegistry(
             ),
         ),
         PublicCapability(
+            "per-bit-native-logic-state",
+            "opt-in native simulation",
+            "bounded",
+            "supported",
+            "unchanged",
+            "unchanged",
+            "not a formal semantics replacement",
+            CapabilityWitness(
+                "examples/logic_state_register.zhl",
+                "LogicStateRegister",
+            ),
+            (
+                "0/1/U/X only; U denotes never-refreshed register bits; no Z, "
+                "electrical resolution, or Verilog event-region semantics",
+            ),
+        ),
+        PublicCapability(
             "combinational-instance-arrays", "compile-time hierarchy", "bounded",
             "supported", "supported", "supported", "no hierarchical semantic-reference equivalence",
             CapabilityWitness("examples/indexed_instance_array.zhl", "IndexedInstanceArray"),
@@ -616,6 +633,9 @@ CAPABILITY_REGISTRY = PublicCapabilityRegistry(
         ),
         DocumentationRequirement(
             "state", "docs/language-reference.md", ('<a id="reference-sequential-state-storage-registers-and-next-state"></a>',)
+        ),
+        DocumentationRequirement(
+            "per-bit-native-logic-state", "docs/language-reference.md", ("--logic-state",)
         ),
         DocumentationRequirement(
             "registered-outputs-and-drive", "docs/language-reference.md", ('<a id="reference-sequential-state-storage-registers-and-next-state"></a>',)

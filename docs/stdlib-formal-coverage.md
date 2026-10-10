@@ -12,12 +12,14 @@ The same job additionally publishes one immutable positive bundle and one
 deliberately failing bundle, then replays each through required Z3, Boolector
 and Bitwuzla routes plus corroborating Yices and cvc5 routes. Every route must
 produce the same property/status vector and the expected overall outcome.
-Results remain independent solver records; agreement is not represented as a
-new proof status and does not promote bounded evidence to `proven`.
+Results remain separate solver-execution records over the same compiler-owned
+bundle and lowering. Agreement is cross-solver corroboration, not a new proof
+status, and does not promote bounded evidence to `proven` or detect every
+shared front-end/lowering defect.
 
-The nightly also qualifies independent engine families against those same
-immutable bundles.  ABC PDR supplies an independent unbounded safety route;
-Pono and btormc supply independent bounded BTOR routes.  Their records are
+The nightly also qualifies distinct engine families against those same
+immutable bundles. ABC PDR supplies a separate unbounded safety route; Pono
+and btormc supply separate bounded BTOR routes. Their records are
 qualification evidence only: they are not accepted by the public
 `zlang verify --route` option and cannot satisfy required-formal selection.
 The Avy/AIGER route is retained as a visible observation because the pinned

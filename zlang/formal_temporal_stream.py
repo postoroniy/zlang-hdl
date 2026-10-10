@@ -39,6 +39,7 @@ from zlang.formal_exploration import (
     FormalPolicy,
     gate_candidates,
 )
+from zlang.formal_evidence_metadata import FormalEvidenceMetadata
 from zlang.ir.cdc import clock_domain_contract_identity, clock_domain_data
 from zlang.ir.expressions import CostMetric
 from zlang.ir.formal import FormalStatus, ProofMode
@@ -421,6 +422,31 @@ class CapacityOneTransactionVerifier:
             "manifest_version": MANIFEST_VERSION,
             "backend": "direct_systemverilog",
         }
+
+    def evidence_metadata(
+        self,
+        _candidate: object,
+        _config: FormalExplorationConfig,
+    ) -> FormalEvidenceMetadata:
+        """Publish the exact bounded relation facts known by this route."""
+
+        graph = getattr(self.region, "temporal_graph")
+        reset_contract = clock_domain_data(self.domain)
+        assert isinstance(reset_contract, dict)
+        return FormalEvidenceMetadata(
+            relation="capacity_one_transaction_stream",
+            unbounded=False,
+            reset_contract_identity=clock_domain_contract_identity(self.domain),
+            reset_contract=tuple(sorted(reset_contract.items())),
+            latency=graph.latency,
+            initiation_interval=graph.initiation_interval,
+            capacity=graph.capacity,
+            same_edge_retire_reload=(
+                graph.admission_policy
+                is TemporalAdmissionPolicy.RETIRE_AND_RELOAD
+            ),
+            required_proven_supported=False,
+        )
 
     def prepare(
         self,

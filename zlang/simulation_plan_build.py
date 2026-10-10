@@ -192,7 +192,10 @@ def build_simulation_plan(
             module = lower_protocol_hierarchy(module)
             payload = compose_hierarchical_primitive_payload(
                 module,
-                lambda child: _build_leaf_simulation_plan(child, policy=policy),
+                lambda child: _build_leaf_simulation_plan(
+                    child,
+                    policy=policy,
+                ),
                 max_nodes=max_nodes,
             )
         except (HierarchicalSimulationError, ProtocolSimulationLoweringError) as error:
@@ -213,7 +216,10 @@ def build_simulation_plan(
             module = lower_protocol_module(module)
         except ProtocolSimulationLoweringError as error:
             raise JitUnsupportedFeatureError(str(error)) from error
-    return _build_leaf_simulation_plan(module, policy=policy)
+    return _build_leaf_simulation_plan(
+        module,
+        policy=policy,
+    )
 
 
 

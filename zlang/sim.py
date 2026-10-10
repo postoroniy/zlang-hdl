@@ -18,7 +18,11 @@ from zlang.ir import csr as ir_csr
 from zlang.ir.interfaces import InterfaceProtocol
 from zlang.ir.module import Module, PortDirection
 from zlang.ir.types import HardwareType
+from zlang.opt.identity import canonical_ir_identity
 from zlang.simulation_event_runner import SimulationEventRunner
+from zlang.simulation_initial_state import resolve_initial_registers
+from zlang.simulation_logic import LogicBit, LogicVector
+from zlang.simulation_logic_machine import LogicMachineSnapshot, LogicStateMachine
 from zlang.simulation_protocol_access import SimulationProtocolAccess
 from zlang.simulation_primitives import (
     int_from_limbs as _limbs_to_int,
@@ -88,19 +92,60 @@ class Program:
     plan: SimulationPlan
     module: Module
     _native: object
+    selected_ir_identity: str | None = None
+    strict_uninitialized: bool = False
+    logic_state: bool = False
 
     @property
     def identity(self) -> str:
         return self.plan.identity
 
-    def create(self) -> "Simulator":
-        return Simulator(self, self._native.create())
+    def create(
+        self,
+        *,
+        initial_registers: Mapping[str, str | LogicVector] | None = None,
+    ) -> "Simulator":
+        if initial_registers and not self.logic_state:
+            raise SimulationRuntimeError(
+                "initial_registers requires logic_state=True so U/X provenance "
+                "cannot be discarded"
+            )
+        if initial_registers and self.selected_ir_identity is None:
+            raise SimulationRuntimeError(
+                "initial_registers requires compiler-owned selected IR identity"
+            )
+        overrides = resolve_initial_registers(
+            self.module,
+            self.selected_ir_identity or "",
+            initial_registers,
+        )
+        native = self._native.create()
+        if overrides:
+            try:
+                native.write_state_batch([
+                    (
+                        "register",
+                        name,
+                        None,
+                        _int_to_limbs(value.value, value.width),
+                    )
+                    for name, value in overrides.items()
+                ])
+            except (ValueError, RuntimeError) as error:
+                raise SimulationRuntimeError(str(error)) from error
+        return Simulator(self, native, initial_registers=overrides)
 
 
 class Simulator:
     """A mutable native instance; distinct instances may execute in parallel."""
 
-    def __init__(self, program: Program, native: object) -> None:
+    def __init__(
+        self,
+        program: Program,
+        native: object,
+        *,
+        initial_registers: Mapping[str, LogicVector] | None = None,
+    ) -> None:
         self.program = program
         self._native = native
         self._closed = False
@@ -150,6 +195,14 @@ class Simulator:
         self._registers = {
             register.name: register for register in program.module.registers
         }
+        self._logic = (
+            LogicStateMachine(
+                program.plan.payload,
+                initial_registers=initial_registers,
+            )
+            if program.logic_state
+            else None
+        )
         self._trace_names: dict[str, str] = {}
         self._event_metadata = {
             int(item["id"]): item["metadata"]
@@ -265,12 +318,17 @@ class Simulator:
 
     def _set_scalar(self, name: str, type_: HardwareType, value: object) -> None:
         packed = _pack_value(type_, value)
+        if self._logic is not None:
+            self._logic.set_input(name, LogicVector.known(packed, type_.width))
         try:
             self._native.set_limbs(name, _int_to_limbs(packed, type_.width))
         except (ValueError, RuntimeError) as error:
             raise SimulationRuntimeError(str(error)) from error
 
     def _get_scalar(self, name: str, type_: HardwareType) -> object:
+        if self._logic is not None:
+            raw = self._logic.get(name)
+            return _unpack_value(type_, self._require_binary(name, raw))
         try:
             raw = _limbs_to_int(self._native.get_limbs(name))
         except (ValueError, RuntimeError) as error:
@@ -280,6 +338,19 @@ class Simulator:
     def _require_open(self) -> None:
         if self._closed:
             raise SimulationRuntimeError("simulation instance is closed")
+
+    def _require_binary(self, name: str, value: LogicVector) -> int:
+        try:
+            return value.require_binary(name="value")
+        except ValueError as error:
+            if self.program.strict_uninitialized:
+                raise SimulationRuntimeError(
+                    f"strict-uninitialized simulation observed '{name}': {error}"
+                ) from error
+            raise SimulationRuntimeError(
+                f"typed read of '{name}' requires a binary value; {error}; "
+                "use get_logic()"
+            ) from error
 
     def set(self, name: str, value: object) -> None:
         self._require_open()
@@ -315,9 +386,15 @@ class Simulator:
             raise SimulationRuntimeError(
                 f"value does not fit {port.type.width}-bit input '{name}'"
             )
+        previous_logic = self._logic.get(name) if self._logic is not None else None
+        if self._logic is not None:
+            self._logic.set_input(name, LogicVector.known(value, port.type.width))
         try:
             self._native.set_limbs(name, _int_to_limbs(value, port.type.width))
         except (ValueError, RuntimeError) as error:
+            if self._logic is not None:
+                assert previous_logic is not None
+                self._logic.set_input(name, previous_logic)
             raise SimulationRuntimeError(str(error)) from error
 
     def get(self, name: str) -> object:
@@ -344,6 +421,8 @@ class Simulator:
                 "get_packed requires a scalar wire port; use get() for a "
                 "protocol endpoint"
             )
+        if self._logic is not None:
+            return self._require_binary(name, self._logic.get(name))
         try:
             return _limbs_to_int(self._native.get_limbs(name))
         except (ValueError, RuntimeError) as error:
@@ -355,7 +434,98 @@ class Simulator:
             self._native.eval()
         except RuntimeError as error:
             raise SimulationRuntimeError(str(error)) from error
+        if self._logic is not None:
+            self._logic.evaluate()
+        return self._step_outputs()
+
+    def _step_outputs(self) -> dict[str, object]:
+        if self._logic is not None and not self.program.strict_uninitialized:
+            return self.outputs_logic()
         return self.outputs()
+
+    def set_logic(self, name: str, value: str | LogicVector) -> None:
+        """Set one scalar input with an exact 0/1/U/X packed value."""
+
+        self._require_open()
+        if self._logic is None:
+            raise SimulationRuntimeError("set_logic requires logic_state=True")
+        port = self._ports.get(name)
+        if port is None:
+            raise SimulationRuntimeError(f"unknown public port '{name}'")
+        if port.protocol is not InterfaceProtocol.WIRE:
+            raise SimulationRuntimeError("set_logic currently requires a scalar wire input")
+        try:
+            parsed = value if isinstance(value, LogicVector) else LogicVector.parse(value, port.type.width)
+        except ValueError as error:
+            raise SimulationRuntimeError(str(error)) from error
+        previous = self._logic.get(name)
+        self._logic.set_input(name, parsed)
+        try:
+            self._native.set_limbs(name, _int_to_limbs(parsed.value, parsed.width))
+        except (ValueError, RuntimeError) as error:
+            self._logic.set_input(name, previous)
+            raise SimulationRuntimeError(str(error)) from error
+
+    def get_logic(self, name: str) -> LogicVector:
+        """Read a scalar signal without collapsing U/X provenance."""
+
+        self._require_open()
+        if self._logic is None:
+            port = self._ports.get(name)
+            register = self._registers.get(name)
+            if port is None and register is None:
+                raise SimulationRuntimeError(f"unknown signal '{name}'")
+            width = port.type.width if port is not None else register.type.width
+            return LogicVector.known(self.get_packed(name), width)
+        return self._logic.get(name)
+
+    def outputs_logic(self) -> dict[str, LogicVector]:
+        if self._logic is None:
+            return {
+                port.name: self.get_logic(port.name)
+                for port in self._ports.values()
+                if port.direction is PortDirection.OUTPUT
+                and port.protocol is InterfaceProtocol.WIRE
+            }
+        return {
+            port.name: self._logic.get(port.name)
+            for port in self._ports.values()
+            if port.direction is PortDirection.OUTPUT
+            and port.protocol is InterfaceProtocol.WIRE
+        }
+
+    def _sync_logic_state_to_native(
+        self,
+        previous: LogicMachineSnapshot | None = None,
+    ) -> None:
+        if self._logic is None:
+            return
+        edits = [
+            ("register", name, None, _int_to_limbs(value.value, value.width))
+            for name, value in self._logic.states.items()
+            if previous is None
+            or previous.states.get(name) != value
+            or name in self._logic.refreshed_registers
+        ]
+        edits.extend(
+            (
+                "memory",
+                name,
+                index,
+                _int_to_limbs(value.value, value.width),
+            )
+            for name, cells in self._logic.memories.items()
+            for index, value in enumerate(cells)
+            if previous is None
+            or previous.memories.get(name, ())[index] != value
+            or (name, index) in self._logic.written_memory_cells
+        )
+        if not edits:
+            return
+        try:
+            self._native.write_state_batch(edits)
+        except (ValueError, RuntimeError) as error:
+            raise SimulationRuntimeError(str(error)) from error
 
     def outputs(self) -> dict[str, object]:
         outputs = {
@@ -372,36 +542,75 @@ class Simulator:
 
     def edge(self, clock: str) -> dict[str, object]:
         self._require_open()
+        logic_snapshot = self._logic.snapshot() if self._logic is not None else None
         try:
+            if self._logic is not None:
+                self._logic.edge([clock])
             self._native.edge(clock)
+        except SimulationRuntimeError:
+            if self._logic is not None:
+                assert logic_snapshot is not None
+                self._logic.restore(logic_snapshot)
+            raise
         except (ValueError, RuntimeError) as error:
+            if self._logic is not None:
+                assert logic_snapshot is not None
+                self._logic.restore(logic_snapshot)
             self._raise_instrumentation_failure(error)
             raise SimulationRuntimeError(str(error)) from error
+        if self._logic is not None:
+            self._sync_logic_state_to_native(logic_snapshot)
         self._raise_instrumentation_failure()
-        return self.outputs()
+        return self._step_outputs()
 
     def edge_many(self, clocks: Iterable[str]) -> dict[str, object]:
         self._require_open()
         selected = tuple(clocks)
         if len(selected) != len(set(selected)):
             raise SimulationRuntimeError("one event cannot contain a clock twice")
+        logic_snapshot = self._logic.snapshot() if self._logic is not None else None
         try:
+            if self._logic is not None:
+                self._logic.edge(list(selected))
             self._native.edge_many(list(selected))
+        except SimulationRuntimeError:
+            if self._logic is not None:
+                assert logic_snapshot is not None
+                self._logic.restore(logic_snapshot)
+            raise
         except (ValueError, RuntimeError) as error:
+            if self._logic is not None:
+                assert logic_snapshot is not None
+                self._logic.restore(logic_snapshot)
             self._raise_instrumentation_failure(error)
             raise SimulationRuntimeError(str(error)) from error
+        if self._logic is not None:
+            self._sync_logic_state_to_native(logic_snapshot)
         self._raise_instrumentation_failure()
-        return self.outputs()
+        return self._step_outputs()
 
     def reset(self, name: str, *, asserted: bool) -> dict[str, object]:
         self._require_open()
+        logic_snapshot = self._logic.snapshot() if self._logic is not None else None
         try:
+            if self._logic is not None:
+                self._logic.reset(name, asserted)
             self._native.reset(name, asserted)
+        except SimulationRuntimeError:
+            if self._logic is not None:
+                assert logic_snapshot is not None
+                self._logic.restore(logic_snapshot)
+            raise
         except (ValueError, RuntimeError) as error:
+            if self._logic is not None:
+                assert logic_snapshot is not None
+                self._logic.restore(logic_snapshot)
             self._raise_instrumentation_failure(error)
             raise SimulationRuntimeError(str(error)) from error
+        if self._logic is not None:
+            self._sync_logic_state_to_native(logic_snapshot)
         self._raise_instrumentation_failure()
-        return self.outputs()
+        return self._step_outputs()
 
     def tick(self, clock: str) -> dict[str, object]:
         return self.edge(clock)
@@ -410,13 +619,17 @@ class Simulator:
         self._require_open()
         if isinstance(count, bool) or not isinstance(count, int) or count < 0:
             raise SimulationRuntimeError("cycle count must be a non-negative integer")
+        if self._logic is not None:
+            for _ in range(count):
+                self.edge(clock)
+            return self._step_outputs()
         try:
             self._native.run_cycles(clock, count)
         except (ValueError, RuntimeError) as error:
             self._raise_instrumentation_failure(error)
             raise SimulationRuntimeError(str(error)) from error
         self._raise_instrumentation_failure()
-        return self.outputs()
+        return self._step_outputs()
 
     def run_events(
         self, events: Iterable[Mapping[str, object]]
@@ -470,6 +683,9 @@ class Simulator:
                 )
         if selected is None and self._hidden_csr_ports:
             selected = list(self._trace_names)
+        if self._logic is not None:
+            self._logic.enable_trace(tuple(selected or self._trace_names))
+            return
         try:
             self._native.enable_trace(selected)
         except (ValueError, RuntimeError) as error:
@@ -487,6 +703,18 @@ class Simulator:
             ]
         except RuntimeError as error:
             raise SimulationRuntimeError(str(error)) from error
+
+    def drain_logic_trace(self) -> list[dict[str, object]]:
+        self._require_open()
+        if self._logic is None:
+            return self.drain_trace()
+        return [
+            {
+                self._trace_names.get(name, name): value
+                for name, value in item.items()
+            }
+            for item in self._logic.drain_trace()
+        ]
 
     @property
     def trace_widths(self) -> dict[str, int]:
@@ -531,6 +759,8 @@ def compile(
     project: Path | str | None = None,
     profile: str | None = None,
     engine: str = "native",
+    strict_uninitialized: bool = False,
+    logic_state: bool = False,
 ) -> Program:
     """Compile one file into a reusable persistent simulation program."""
 
@@ -544,7 +774,13 @@ def compile(
     session = _COMPILATION_WORKSPACE.file_snapshot(
         source_path, source_text, project=project, profile=profile, top=top,
     )
-    plan = _load_simulation_plan(session)
+    logic_state = logic_state or strict_uninitialized
+    if logic_state:
+        from zlang.simulation_plan_build import build_simulation_plan
+
+        plan = build_simulation_plan(session.planning.module)
+    else:
+        plan = _load_simulation_plan(session)
     _COMPILATION_WORKSPACE.refresh(session)
     runtime = _native_runtime()
     cache_key = f"native:{plan.execution_identity}"
@@ -560,7 +796,14 @@ def compile(
                 _PROGRAM_CACHE.popitem(last=False)
         else:
             _PROGRAM_CACHE.move_to_end(cache_key)
-    return Program(plan=plan, module=session.planning.module, _native=native)
+    return Program(
+        plan=plan,
+        module=session.planning.module,
+        _native=native,
+        selected_ir_identity=canonical_ir_identity(session.selection.optimization_ir),
+        strict_uninitialized=strict_uninitialized,
+        logic_state=logic_state,
+    )
 
 
 def load(
@@ -570,6 +813,9 @@ def load(
     project: Path | str | None = None,
     profile: str | None = None,
     engine: str = "native",
+    strict_uninitialized: bool = False,
+    logic_state: bool = False,
+    initial_registers: Mapping[str, str | LogicVector] | None = None,
 ) -> Simulator:
     """Compile *source* and create one persistent simulation instance."""
 
@@ -579,11 +825,15 @@ def load(
         project=project,
         profile=profile,
         engine=engine,
-    ).create()
+        strict_uninitialized=strict_uninitialized,
+        logic_state=logic_state,
+    ).create(initial_registers=initial_registers)
 
 
 __all__ = [
     "JitUnsupportedFeatureError",
+    "LogicVector",
+    "LogicBit",
     "Program",
     "SimulationPlan",
     "SimulationPlanError",

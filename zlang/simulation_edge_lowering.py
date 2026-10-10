@@ -20,6 +20,7 @@ class EdgeProgramLowerer:
     registers: list[dict[str, Any]]
     memories: list[dict[str, Any]]
     next_by_domain: dict[str, dict[str, int]]
+    refresh_by_domain: dict[str, dict[str, int | None]]
     scheduled_storage_actions: list[dict[str, Any]]
 
     def __post_init__(self) -> None:
@@ -74,6 +75,7 @@ class EdgeProgramLowerer:
             )
             finalizer.commit_registers(
                 next_values,
+                self.refresh_by_domain.get(clock, {}),
                 effective_reset,
                 effects,
             )
@@ -827,12 +829,16 @@ class EdgeProgramFinalizer:
     def commit_registers(
         self,
         next_values: dict[str, int],
+        refresh_values: dict[str, int | None],
         effective_reset: int | None,
         effects: list[dict[str, Any]],
     ) -> None:
         builder = self.builder
         for name, value in sorted(next_values.items()):
             register = self._register_by_name[name]
+            refresh = refresh_values.get(name)
+            if not register["resettable"] and refresh is None:
+                refresh = builder.constant(0, 1)
             if (
                 effective_reset is not None
                 and register["resettable"]
@@ -852,6 +858,7 @@ class EdgeProgramFinalizer:
                 "op": "commit_state",
                 "target": name,
                 "node": value,
+                "refresh": refresh,
             })
 
     def instrumentation_probes(

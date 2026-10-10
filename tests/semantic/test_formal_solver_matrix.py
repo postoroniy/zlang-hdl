@@ -132,6 +132,8 @@ def test_solver_matrix_reuses_one_bundle_and_retains_independent_runs(
     )
 
     assert payload["agreement"] is True
+    assert payload["disagreements"] == []
+    assert payload["problem_identity"].startswith("formal-problem:")
     assert [item["role"] for item in payload["replays"]] == [
         "required",
         "required",
@@ -193,6 +195,61 @@ def test_solver_matrix_requires_semantic_counterexample_agreement(
     )
 
     assert payload["agreement"] is False
+    assert payload["disagreements"] == [
+        {
+            "reference_solver": "z3",
+            "solver": "boolector",
+            "result_vector_matches": True,
+            "counterexample_vector_matches": False,
+        }
+    ]
+
+
+def test_solver_matrix_problem_identity_is_shared_but_run_identity_is_per_solver(
+    monkeypatch, tmp_path: Path,
+) -> None:
+    loaded = SimpleNamespace(
+        manifest=SimpleNamespace(
+            bundle_identity="verification-bundle:" + "a" * 64,
+            computed_identity="verification-bundle:" + "b" * 64,
+        )
+    )
+
+    def run(_bundle, *, config, work_directory):
+        del work_directory
+        result = SimpleNamespace(
+            property_id="p",
+            kind="safety",
+            status="bounded_pass",
+            mode="bmc",
+            depth=config.depth,
+            counterexample=None,
+        )
+        return SimpleNamespace(
+            outcome="passed",
+            run_identity="verification-run:" + config.solver,
+            results=(result,),
+            tool_versions=((config.solver, "version"),),
+        )
+
+    monkeypatch.setattr(formal_solver_matrix, "load_verification_bundle", lambda _: loaded)
+    monkeypatch.setattr(formal_solver_matrix, "run_verification_bundle_staged", run)
+    first = formal_solver_matrix.replay_solver_matrix(
+        tmp_path / "bundle",
+        required_solvers=("z3", "boolector"),
+        mode=ProofMode.BMC,
+        depth=12,
+        work_root=tmp_path / "first",
+    )
+    second = formal_solver_matrix.replay_solver_matrix(
+        tmp_path / "bundle",
+        required_solvers=("z3", "boolector"),
+        mode=ProofMode.BMC,
+        depth=12,
+        work_root=tmp_path / "second",
+    )
+    assert first["problem_identity"] == second["problem_identity"]
+    assert len({item["run_identity"] for item in first["replays"]}) == 2
 
 
 def test_solver_matrix_rejects_duplicate_or_empty_required_sets(tmp_path: Path) -> None:

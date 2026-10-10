@@ -166,7 +166,7 @@ combination is supported or that measured FPGA timing is guaranteed.
 | Yosys/SymbiYosys/Z3 | Optional bounded/proven safety and equivalence execution |
 
 The current GitHub-hosted external-tool configuration is Verilator 5.053, Yosys
-0.69, SymbiYosys 0.69, Z3 5.1.0, and Icarus Verilog/VVP 14.0. These are
+0.69, SymbiYosys 0.69, Z3 4.13.4, and Icarus Verilog/VVP 14.0. These are
 evidence versions, not compatibility bounds; see the
 [installation chapter](docs/language-reference.md#reference-installing-toolchain-verify-the-installation) and
 machine-readable [`release/status.json`](release/status.json).

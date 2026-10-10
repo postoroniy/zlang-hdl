@@ -38,6 +38,7 @@ def test_sim_help_exposes_canonical_engines_and_examples(
     assert "--engine native" in output
     assert "--compare-with {iverilog,verilator}" in output
     assert "--events EVENTS" in output
+    assert "--strict-uninitialized" in output
     assert "zlang sim counter.zhl" in output
 
 
@@ -114,6 +115,33 @@ def test_sim_cli_defaults_to_native_engine(
 
     assert main(["sim", str(source), "--top", "DefaultNative", "--json"]) == 0
     assert json.loads(capsys.readouterr().out) == {"value": 7}
+
+
+def test_sim_cli_strict_uninitialized_fails_on_observed_unreset_state(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    source = _source(
+        tmp_path,
+        "strict_uninitialized",
+        """
+        module StrictUninitialized {
+          clock clk reset rst out value:u8 reg state:u8 value=state
+        }
+        """,
+    )
+
+    assert main([
+        "sim",
+        str(source),
+        "--top",
+        "StrictUninitialized",
+        "--strict-uninitialized",
+        "--json",
+    ]) == 2
+    error = capsys.readouterr().err
+    assert "observed 'value': value contains U (never refreshed) bits" in error
+    assert "never refreshed" in error
 
 
 @pytest.mark.parametrize("simulator", ("iverilog", "verilator"))

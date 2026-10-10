@@ -42,6 +42,8 @@ class SimulationEventRunner:
     ) -> list[dict[str, object]]:
         simulator = self._simulator
         simulator._require_open()
+        if simulator.program.logic_state:
+            return self._run_logic_events(events)
         protocol_ports = tuple(
             port
             for port in simulator.program.module.ports
@@ -73,6 +75,59 @@ class SimulationEventRunner:
             }
             for raw in raw_results
         ]
+
+    def _run_logic_events(
+        self,
+        events: Iterable[Mapping[str, object]],
+    ) -> list[dict[str, object]]:
+        simulator = self._simulator
+        results: list[dict[str, object]] = []
+        for event in events:
+            unknown = set(event) - {"set", "set_logic", "reset", "edges"}
+            if unknown:
+                raise SimulationRuntimeError(
+                    f"simulation event has unknown field '{sorted(unknown)[0]}'"
+                )
+            updates = event.get("set", {})
+            logic_updates = event.get("set_logic", {})
+            resets = event.get("reset", {})
+            edges = event.get("edges", ())
+            if not all(isinstance(item, Mapping) for item in (updates, logic_updates, resets)):
+                raise SimulationRuntimeError(
+                    "event set/set_logic/reset fields must be mappings"
+                )
+            if not isinstance(edges, Sequence) or isinstance(edges, (str, bytes)):
+                raise SimulationRuntimeError("event edges field must be a sequence")
+            duplicates = set(map(str, updates)) & set(map(str, logic_updates))
+            if duplicates:
+                raise SimulationRuntimeError(
+                    f"event specifies '{sorted(duplicates)[0]}' in both set and set_logic"
+                )
+            for name, value in updates.items():
+                simulator.set(str(name), value)
+            for name, value in logic_updates.items():
+                if not isinstance(value, str):
+                    raise SimulationRuntimeError("event set_logic values must be strings")
+                simulator.set_logic(str(name), value)
+            for name, asserted in resets.items():
+                if not isinstance(asserted, bool):
+                    raise SimulationRuntimeError("reset event values must be boolean")
+                simulator.reset(str(name), asserted=asserted)
+            selected = [str(item) for item in edges]
+            if len(selected) != len(set(selected)):
+                raise SimulationRuntimeError("one event cannot contain a clock twice")
+            if selected:
+                simulator.edge_many(selected)
+            else:
+                try:
+                    simulator._native.run_events([([], [], [])])
+                except (ValueError, RuntimeError) as error:
+                    simulator._raise_instrumentation_failure(error)
+                    raise SimulationRuntimeError(str(error)) from error
+                assert simulator._logic is not None
+                simulator._logic.evaluation_event()
+            results.append(simulator._step_outputs())
+        return results
 
     def _initial_protocol_values(
         self,

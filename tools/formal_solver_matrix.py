@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
 
-from zlang.common import stable_pretty_json
+from zlang.common import stable_digest, stable_pretty_json
 from zlang.ir.formal import ProofMode
 from zlang.verification_bundle import (
     VerificationRunConfig,
@@ -86,7 +86,7 @@ def replay_solver_matrix(
     jobs: int = 1,
     work_root: Path,
 ) -> dict[str, object]:
-    """Return independent reports and require exact status-vector agreement."""
+    """Return separate solver reports and require exact semantic agreement."""
 
     solvers = (*required_solvers, *corroborating_solvers)
     if not required_solvers:
@@ -98,6 +98,13 @@ def replay_solver_matrix(
 
     loaded = load_verification_bundle(bundle)
     bundle_identity = loaded.manifest.bundle_identity or loaded.manifest.computed_identity
+    problem_identity = "formal-problem:" + stable_digest({
+        "schema": "zlang-formal-solver-problem-v1",
+        "bundle_identity": bundle_identity,
+        "route": "smtbmc",
+        "mode": mode.value,
+        "depth": depth,
+    })
     replays: list[SolverReplay] = []
     for solver in solvers:
         report = run_verification_bundle_staged(
@@ -126,19 +133,31 @@ def replay_solver_matrix(
 
     reference = replays[0].result_vector
     reference_counterexamples = replays[0].counterexample_vector
-    agreement = all(
-        item.result_vector == reference
-        and item.counterexample_vector == reference_counterexamples
+    disagreements = tuple(
+        {
+            "reference_solver": replays[0].solver,
+            "solver": item.solver,
+            "result_vector_matches": item.result_vector == reference,
+            "counterexample_vector_matches": (
+                item.counterexample_vector == reference_counterexamples
+            ),
+        }
         for item in replays[1:]
+        if (
+            item.result_vector != reference
+            or item.counterexample_vector != reference_counterexamples
+        )
     )
     return {
-        "agreement": agreement,
+        "agreement": not disagreements,
         "bundle_identity": bundle_identity,
         "depth": depth,
+        "disagreements": list(disagreements),
         "mode": mode.value,
+        "problem_identity": problem_identity,
         "replays": [item.to_data() for item in replays],
         "route": "smtbmc",
-        "schema": "zlang-formal-solver-matrix-v1",
+        "schema": "zlang-formal-solver-matrix-v2",
     }
 
 

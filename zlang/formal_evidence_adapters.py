@@ -41,6 +41,7 @@ def evidence_from_equivalence_result(result: EquivalenceResult) -> EvidenceRecor
             binding_map_version=result.binding_map_version,
             latency_delta=result.latency_delta,
             reason=result.reason,
+            unbounded=(result.mode.value != "bmc"),
         ),
     )
 
@@ -115,6 +116,13 @@ def evidence_from_formal_exploration_record(
         raise EvidenceReportError(
             "failed formal-aware selection evidence requires counterexample metadata"
         )
+    context: dict[str, object] = {
+        "tool_versions": [list(item) for item in result.tool_versions],
+        "unbounded": False if mode == "bmc" else status == "proven",
+    }
+    metadata = result.evidence_metadata
+    if metadata is not None:
+        context.update(metadata.details())
     return build_evidence_record(
         "formal_selection",
         claim="formal_selection.formal_candidate_eligibility",
@@ -131,7 +139,7 @@ def evidence_from_formal_exploration_record(
         source_origin=result.source_origin,
         engine=result.engine,
         solver=result.solver,
-        relation=None,
+        relation=(None if metadata is None else metadata.relation),
         route=result.formal_route,
         counterexample=counterexample,
         details=evidence_details(
@@ -148,6 +156,7 @@ def evidence_from_formal_exploration_record(
             harness_hash=result.harness_hash,
             assumptions_identity=result.assumptions_identity,
             backend_identity=result.backend_identity,
+            **context,
             selected_origin=(
                 None
                 if result.selected_origin is None

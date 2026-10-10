@@ -27,6 +27,7 @@ from zlang.formal_evidence_adapters import (
 from zlang.formal_exploration import FormalExplorationRecord
 from zlang.ir.equivalence import EquivalenceResult
 from zlang.ir.formal import FormalProperty, FormalResult
+from zlang.ir.cdc import clock_domain_data
 from zlang.ir.interfaces import InterfaceProtocol
 from zlang.ir.module import Module, PortDirection
 from zlang.ir.timing import ModuleTimingContract, TimingKnowledge
@@ -270,6 +271,10 @@ def evidence_from_formal_result(
         details=_details(
             reason=result.reason,
             tool_versions=[list(item) for item in result.tool_versions],
+            unbounded=(
+                False if result.mode.value == "bmc"
+                else result.status.value == "proven"
+            ),
         ),
     )
 
@@ -374,6 +379,17 @@ def evidence_from_verification_job_result(
             reason=result.reason,
             timeout_seconds=report.config.timeout_seconds,
             tool_versions=[list(item) for item in result.tool_versions],
+            unbounded=(
+                False if result.mode == "bmc" else result.status == "proven"
+            ),
+            assumption_ids=list(result.assumption_ids),
+            clock_domain=result.clock_domain,
+            reset_domain=result.reset_domain,
+            reset_contract=clock_domain_data(result.clock_domain_contract),
+            physical_domain_identity=result.physical_domain_identity,
+            binding_identity=result.binding_identity,
+            selected_ir_identity=result.selected_ir_identity,
+            artifact_hash=result.artifact_hash,
             **counterexample_details,
             **witness_details,
         ),
@@ -635,6 +651,21 @@ def render_evidence_text(
             fields.append(f"solver={item.solver}")
         if item.route is not None:
             fields.append(f"route={item.route}")
+        if item.relation is not None:
+            fields.append(f"relation={item.relation}")
+        detail_map = dict(item.details)
+        for key in (
+            "unbounded",
+            "latency",
+            "ii",
+            "capacity",
+            "same_edge_retire_reload",
+            "required_proven_supported",
+            "reset_contract_identity",
+            "tool_versions",
+        ):
+            if key in detail_map:
+                fields.append(f"{key}={detail_map[key]}")
         if item.counterexample_digest is not None:
             fields.append(f"counterexample={item.counterexample_digest}")
         lines.append(" ".join(fields))

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import random
 import shutil
 import subprocess
@@ -666,6 +667,15 @@ def test_temporal_candidate_uses_only_transaction_stream_bmc_evidence(
     assert record.property_identity is not None
     assert record.implementation_artifact_hash == record.artifact_hash
     assert record.reference_artifact_hash is not None
+    assert record.tool_versions
+    assert record.evidence_metadata is not None
+    assert record.evidence_metadata.relation == "capacity_one_transaction_stream"
+    assert record.evidence_metadata.latency == 4
+    assert record.evidence_metadata.initiation_interval == 4
+    assert record.evidence_metadata.capacity == 1
+    assert record.evidence_metadata.same_edge_retire_reload is True
+    assert record.evidence_metadata.unbounded is False
+    assert record.evidence_metadata.required_proven_supported is False
     assert len(calls) == 1
 
     required_session = CompilationSession(
@@ -684,6 +694,16 @@ def test_temporal_candidate_uses_only_transaction_stream_bmc_evidence(
     assert len(evidence) == 1
     assert evidence[0].route == "transaction_stream_equivalence_bmc"
     assert evidence[0].status == "bounded_pass"
+    assert evidence[0].relation == "capacity_one_transaction_stream"
+    details = dict(evidence[0].details)
+    assert details["latency"] == "4"
+    assert details["ii"] == "4"
+    assert details["capacity"] == "1"
+    assert details["same_edge_retire_reload"] == "true"
+    assert details["required_proven_supported"] == "false"
+    assert details["unbounded"] == "false"
+    assert json.loads(details["reset_contract"])["reset_mode"] == "synchronous"
+    assert json.loads(details["tool_versions"])
 
     with pytest.raises(
         SemanticError,

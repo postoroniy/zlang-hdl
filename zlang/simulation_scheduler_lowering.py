@@ -133,6 +133,11 @@ def lower_scheduler_actions(
                 old,
                 builder.width(old),
             )
+            # Retain the exact accepted-write predicate for per-bit U/X state
+            # ownership. Storage-specific consumers ignore this action kind.
+            storage_actions.append(
+                {**action, "domain": domain, "commit": commit}
+            )
     return storage_actions
 
 

@@ -340,6 +340,7 @@ def _validate_plan_payload(
             "width",
             "initial_limbs",
             "domain",
+            "resettable",
         },
     }
     names: set[str] = set()
@@ -372,6 +373,10 @@ def _validate_plan_payload(
                     raise SimulationPlanError(
                         "simulation port API type width is inconsistent"
                     )
+            elif not isinstance(item.get("resettable"), bool):
+                raise SimulationPlanError(
+                    "simulation register resettable flag is invalid"
+                )
             if table == "ports" and item.get("direction") not in {"input", "output"}:
                 raise SimulationPlanError("simulation port direction is invalid")
     known_nodes = range(len(nodes))
@@ -737,9 +742,16 @@ def _validate_edge_programs(
                 raise SimulationPlanError("primitive edge effect is invalid")
             if effect["op"] == "commit_state":
                 if (
-                    set(effect) != {"op", "target", "node"}
+                    set(effect) != {"op", "target", "node", "refresh"}
                     or effect.get("target") not in registers
                     or effect.get("node") not in range(len(nodes))
+                    or (
+                        effect.get("refresh") is not None
+                        and (
+                            effect.get("refresh") not in range(len(nodes))
+                            or nodes[effect["refresh"]]["width"] != 1
+                        )
+                    )
                 ):
                     raise SimulationPlanError("primitive state commit is invalid")
             elif effect["op"] == "store_memory":

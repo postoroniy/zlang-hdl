@@ -435,11 +435,7 @@ def main(argv: list[str] | None = None) -> int:
                 raise StatusError("check-junit requires at least one --junit report")
             if args.check_tools or args.tag is not None:
                 raise StatusError("check-junit does not accept --check-tools or --tag")
-            validate_test_reports(
-                args.root,
-                args.status,
-                junit=reports,
-            )
+            validate_test_reports(args.root, args.status, junit=reports)
         else:
             validate(
                 args.root,
