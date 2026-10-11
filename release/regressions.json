@@ -33,6 +33,39 @@
       ]
     },
     {
+      "id": "REL-002",
+      "source_paths": [
+        ".github/actions/setup-pdf-tools/action.yml",
+        ".github/workflows/ci.yml",
+        ".github/workflows/daily-regression.yml",
+        ".github/workflows/eda.yml",
+        ".github/workflows/release.yml",
+        "tests/release/test_ci_contract.py",
+        "tests/release/test_release_status_geometry.py",
+        "tools/audit_workflow_structure.py",
+        "tools/release_status.py"
+      ],
+      "status": "included",
+      "summary": "Release validation checks actual PDF and cover geometry, and every hosted status lane provisions the required Poppler inspection tools.",
+      "tests": [
+        "tests/release/test_ci_contract.py::test_workflow_contract_requires_pdf_tools_for_status_lanes",
+        "tests/release/test_release_status_geometry.py::test_release_status_rejects_stale_pdf_geometry"
+      ]
+    },
+    {
+      "id": "REL-003",
+      "source_paths": [
+        "Makefile",
+        "tests/release/test_ci_contract.py",
+        "tools/release_status.py"
+      ],
+      "status": "included",
+      "summary": "The release floor is applied to deterministic JUnit evidence alone, while performance evidence is validated separately and cannot mask lost deterministic tests.",
+      "tests": [
+        "tests/release/test_ci_contract.py::test_split_suite_floor_runs_without_site_packages"
+      ]
+    },
+    {
       "id": "ZL-045",
       "source_paths": [
         "zlang/ir/hierarchy.py",

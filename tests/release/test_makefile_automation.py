@@ -56,7 +56,8 @@ def test_makefile_exposes_bounded_test_and_release_entry_points() -> None:
         '--root . --tag "$(TAG)"'
     ) in text
     assert "-p tools.pytest_no_skips" in text
-    assert text.count('--junitxml="$$report_root/release-') == 2
+    assert text.count('--junitxml="$$report_root/release-') == 4
+    assert text.count('--performance-junit "$$report_root/release-performance-') == 2
     assert "test \"$${#first_wheels[@]}\" -eq 1" in text
     assert "cmp -- \"$${first_wheels[0]}\" \"$${second_wheels[0]}\"" in text
     assert "public package requires a clean committed checkout" in text
@@ -150,12 +151,13 @@ def test_hosted_workflows_delegate_acceptance_to_make_lanes(
     deterministic = tmp_path / "deterministic.xml"
     performance = tmp_path / "performance.xml"
     deterministic.write_text(
-        '<testsuite><testcase name="deterministic"/></testsuite>', encoding="utf-8"
+        '<testsuite><testcase name="deterministic-a"/>'
+        '<testcase name="deterministic-b"/></testsuite>', encoding="utf-8"
     )
     performance.write_text(
         '<testsuite><testcase name="performance"/></testsuite>', encoding="utf-8"
     )
-    assert _combined_junit_counts((deterministic, performance)) == (2, 0, 0, 0)
+    assert _combined_junit_counts((deterministic, performance)) == (3, 0, 0, 0)
     with pytest.raises(StatusError, match="cannot be counted more than once"):
         _combined_junit_counts((deterministic, deterministic))
 
@@ -182,7 +184,7 @@ def test_hosted_workflows_delegate_acceptance_to_make_lanes(
                 str(release_root),
                 "--junit",
                 str(deterministic),
-                "--junit",
+                "--performance-junit",
                 str(performance),
             ]
         )
@@ -199,7 +201,7 @@ def test_hosted_workflows_delegate_acceptance_to_make_lanes(
             str(release_root),
             "--junit",
             str(deterministic),
-            "--junit",
+            "--performance-junit",
             str(performance),
         ],
         cwd=ROOT,

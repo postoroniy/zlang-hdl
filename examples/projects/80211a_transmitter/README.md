@@ -28,9 +28,11 @@ SystemVerilog is generated from the backend-independent typed ZLang hierarchy.
 | Source | Responsibility |
 |---|---|
 | `src/data_types.zhl` | declaration-only nominal rates, one typed raw-rate decoder, shared symbol-boundary policy, metadata, and aliases |
-| `src/controller.zhl` | SIGNAL construction, FSM-owned packet framing, and packet-epoch scrambling |
+| `src/controller.zhl` | SIGNAL construction and FSM-owned packet framing |
+| `src/scrambler.zhl` | packet-epoch scrambler with an independent ready/valid and reset contract |
 | `src/formal.zhl` | bounded formal wrapper for production SIGNAL encoding |
-| `src/interleaver.zhl` | K=7 convolutional encoding plus IEEE 48/96/192-bit interleaving and grouping |
+| `src/conv_encoder.zhl` | independently reusable K=7 convolutional encoder |
+| `src/interleaver.zhl` | IEEE 48/96/192-bit interleaving and grouping |
 | `src/mapper.zhl` | BPSK/QPSK/16-QAM, pilots, and bin serialization |
 | `src/ifft_library.zhl` | exact widened DIF-SDF stages and final quantization |
 | `src/ifft.zhl` | framed IFFT composition, bit-reversal reorder, cyclic prefix, and metadata alignment |
@@ -68,13 +70,17 @@ real ownership role here—CSR buses, tagged unions, temporal multiplier sharing
 and registered scalar outputs—are deliberately not inserted as showcase-only
 logic.
 
-The eight source units follow hardware ownership rather than placing every
-small helper module in a separate file. Within them, inferred immutable locals,
-struct destructuring and punning, `with` updates, generated vectors, concise
-child connections, and FSM transitions keep the dataflow readable. Comments at
-each non-obvious concise form explain the elaborated hardware meaning, so the
-example remains useful as a language guide rather than relying on shorthand
-without context.
+The ten source units follow hardware ownership rather than placing every small
+helper module in a separate file. The scrambler and convolutional encoder retain
+separate units because each is an IEEE-defined stage with an independent
+interface, state epoch, reuse boundary, and verification oracle. Reorder and
+cyclic-prefix emission stay with the IFFT output owner because they share one
+framed transform transaction and metadata pipeline. Within these units,
+inferred immutable locals, struct destructuring and punning, `with` updates,
+generated vectors, concise child connections, and FSM transitions keep the
+dataflow readable. Comments at each non-obvious concise form explain the
+elaborated hardware meaning, so the example remains useful as a language guide
+rather than relying on shorthand without context.
 
 ## Numerical and transaction contract
 
@@ -98,12 +104,18 @@ project's compiler, simulation, and direct-SystemVerilog validation tests.
 
 The project uses the ordinary ZLang CLI directly; there is no project-specific
 Makefile or Python task runner. From this directory, activate the checkout-local
-environment and validate the checked-in dependency lock:
+environment:
 
 ```sh
 source ../../../.venv/bin/activate
-zlang lock update
 ```
+
+Ordinary project compilation validates the checked-in `zlang.lock` read-only;
+this zero-dependency project needs no lock-update prerequisite before simulation
+or RTL generation. Run `zlang lock update` only after changing dependency
+declarations, dependency source contents, exact Git revisions, or other
+resolution inputs. Compilation never fetches dependencies or rewrites lock
+metadata, and stale or dirty locked content fails closed.
 
 All commands below discover `zlang.toml` and the matching `zlang.lock`
 automatically from the source path. The simulation schedule is eight JSONL
@@ -124,7 +136,9 @@ zlang sim src/transmitter.zhl --top Ieee80211aTransmitter \
 ```
 
 Generate a selective VCD from the same schedule. Physical `clk` and `rst` are
-always included, even when data/state signals are selected explicitly:
+always included, even when data/state signals are selected explicitly. The VCD
+faithfully visualizes event ordering and compiled clock/reset polarity; its two
+1 ns ticks per JSONL event are not a claim about analog radio timing:
 
 ```sh
 zlang sim src/transmitter.zhl --top Ieee80211aTransmitter \
@@ -183,6 +197,10 @@ Useful leaf checks:
 
 ```sh
 zlang src/controller.zhl --top IeeeDataFramer24 --check
+
+zlang src/scrambler.zhl --top IeeePacketFramerScrambler24 --check
+
+zlang src/conv_encoder.zhl --top IeeeConvolutionalEncoder24 --check
 
 zlang src/interleaver.zhl --top IeeePacketEncoderInterleaver24 --check
 

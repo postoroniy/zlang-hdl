@@ -12,6 +12,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import tomllib
 import xml.etree.ElementTree as ET
 
@@ -35,6 +36,87 @@ def _sha256(path: Path) -> str:
         return hashlib.sha256(path.read_bytes()).hexdigest()
     except OSError as exc:
         raise StatusError(f"cannot read {path}: {exc}") from exc
+
+
+def _run_pdf_tool(command: tuple[str, ...]) -> str:
+    executable = shutil.which(command[0])
+    if executable is None:
+        raise StatusError(f"required PDF inspection tool is missing: {command[0]}")
+    completed = subprocess.run(
+        (executable, *command[1:]),
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    if completed.returncode != 0:
+        raise StatusError(
+            f"{command[0]} failed while validating the reviewed PDF: "
+            f"{completed.stderr.strip()}"
+        )
+    return completed.stdout
+
+
+def _actual_pdf_geometry(path: Path) -> tuple[int, str, tuple[tuple[float, float], ...]]:
+    """Inspect every PDF page rather than trusting recorded geometry fields."""
+
+    summary = _run_pdf_tool(("pdfinfo", str(path)))
+    fields = {
+        key.strip(): value.strip()
+        for line in summary.splitlines()
+        if ":" in line
+        for key, value in (line.split(":", 1),)
+    }
+    try:
+        pages = int(fields["Pages"])
+        version = fields["PDF version"]
+    except (KeyError, ValueError) as exc:
+        raise StatusError("pdfinfo omitted the page count or PDF version") from exc
+    details = _run_pdf_tool(
+        ("pdfinfo", "-f", "1", "-l", str(pages), "-box", str(path))
+    )
+    pattern = re.compile(
+        r"^Page\s+(\d+)\s+size:\s+"
+        r"([0-9]+(?:\.[0-9]+)?)\s+x\s+"
+        r"([0-9]+(?:\.[0-9]+)?)\s+pts(?:\s+.*)?$"
+    )
+    by_page: dict[int, tuple[float, float]] = {}
+    for line in details.splitlines():
+        match = pattern.match(line)
+        if match is None:
+            continue
+        page, width, height = match.groups()
+        by_page[int(page)] = (float(width), float(height))
+    expected_pages = set(range(1, pages + 1))
+    if set(by_page) != expected_pages:
+        raise StatusError("pdfinfo omitted geometry for one or more PDF pages")
+    return pages, version, tuple(by_page[index] for index in range(1, pages + 1))
+
+
+def _actual_cover_record(path: Path) -> tuple[str, int, int]:
+    """Return digest and raster geometry for the sole reviewed cover image."""
+
+    listing = _run_pdf_tool(("pdfimages", "-list", str(path)))
+    pattern = re.compile(r"^\s*(\d+)\s+\d+\s+image\s+(\d+)\s+(\d+)\s+")
+    images = [
+        tuple(map(int, match.groups()))
+        for line in listing.splitlines()
+        if (match := pattern.match(line)) is not None
+    ]
+    if len(images) != 1 or images[0][0] != 1:
+        raise StatusError(
+            "Community reference must contain exactly one image on the cover page"
+        )
+    _page, width, height = images[0]
+    with tempfile.TemporaryDirectory(prefix="zlang-pdf-cover.") as directory:
+        prefix = Path(directory) / "cover"
+        _run_pdf_tool(("pdfimages", "-all", str(path), str(prefix)))
+        extracted = tuple(sorted(Path(directory).glob("cover-*")))
+        if len(extracted) != 1:
+            raise StatusError(
+                "Community reference cover did not extract as exactly one raster"
+            )
+        digest = _sha256(extracted[0])
+    return digest, width, height
 
 
 def _check_documentation(root: Path, documentation: object) -> None:
@@ -123,6 +205,46 @@ def _check_documentation(root: Path, documentation: object) -> None:
         value = documentation.get(field)
         if not isinstance(value, (int, float)) or value <= 0:
             raise StatusError(f"documentation {field} must be positive")
+    actual_pages, actual_version, page_geometry = _actual_pdf_geometry(pdf)
+    if actual_pages != pages:
+        raise StatusError(
+            f"documentation pages is stale: expected {pages}, got {actual_pages}"
+        )
+    if actual_version != documentation.get("format", "").removeprefix("PDF-"):
+        raise StatusError(
+            "documentation format does not match the reviewed PDF version"
+        )
+    expected_page_geometry = (
+        float(documentation["page_width_points"]),
+        float(documentation["page_height_points"]),
+    )
+    mismatched_page = next(
+        (
+            (index, geometry)
+            for index, geometry in enumerate(page_geometry, start=1)
+            if geometry != expected_page_geometry
+        ),
+        None,
+    )
+    if mismatched_page is not None:
+        page_number, geometry = mismatched_page
+        raise StatusError(
+            f"documentation page geometry mismatch on page {page_number}: "
+            f"expected {expected_page_geometry}, got {geometry}"
+        )
+    actual_cover_sha256, actual_cover_width, actual_cover_height = (
+        _actual_cover_record(pdf)
+    )
+    if actual_cover_sha256 != cover_sha256:
+        raise StatusError("documentation cover digest does not match the reviewed PDF")
+    if actual_cover_width != documentation["cover_width"]:
+        raise StatusError(
+            "documentation cover_width does not match the reviewed PDF cover"
+        )
+    if actual_cover_height != documentation["cover_height"]:
+        raise StatusError(
+            "documentation cover_height does not match the reviewed PDF cover"
+        )
     sources = documentation.get("sources")
     expected_sources = {path.as_posix() for path in COMMUNITY_PDF_SOURCES}
     if not isinstance(sources, dict) or set(sources) != expected_sources:
@@ -284,24 +406,53 @@ def _test_thresholds(validation: dict) -> tuple[int, int, int]:
     return minimum, minimum_collected, maximum_skipped
 
 
-def _check_junit_policy(validation: dict, reports: tuple[Path, ...]) -> None:
-    minimum, minimum_collected, maximum_skipped = _test_thresholds(validation)
+def _check_junit_health(
+    reports: tuple[Path, ...], *, maximum_skipped: int, label: str
+) -> tuple[int, int]:
     passed, skipped, failures, errors = _combined_junit_counts(reports)
     if failures or errors:
         raise StatusError(
-            f"JUnit report contains {failures} failures and {errors} errors"
+            f"{label} JUnit report contains {failures} failures and {errors} errors"
         )
     if skipped > maximum_skipped:
         raise StatusError(
-            f"{skipped} tests skipped; release allows at most {maximum_skipped}"
+            f"{skipped} {label} tests skipped; release allows at most "
+            f"{maximum_skipped}"
         )
+    return passed, skipped
+
+
+def _check_junit_policy(
+    validation: dict,
+    reports: tuple[Path, ...],
+    *,
+    performance_reports: tuple[Path, ...] = (),
+) -> None:
+    deterministic_paths = {path.resolve() for path in reports}
+    performance_paths = {path.resolve() for path in performance_reports}
+    if deterministic_paths & performance_paths:
+        raise StatusError(
+            "the same JUnit report cannot be deterministic and performance evidence"
+        )
+    minimum, minimum_collected, maximum_skipped = _test_thresholds(validation)
+    passed, skipped = _check_junit_health(
+        reports, maximum_skipped=maximum_skipped, label="deterministic"
+    )
     if passed + skipped < minimum_collected:
         raise StatusError(
-            f"only {passed + skipped} tests collected; release requires "
+            f"only {passed + skipped} deterministic tests collected; release requires "
             f"{minimum_collected}"
         )
     if passed < minimum:
-        raise StatusError(f"only {passed} tests passed; release requires {minimum}")
+        raise StatusError(
+            f"only {passed} deterministic tests passed; release requires {minimum}"
+        )
+    if performance_reports:
+        _check_junit_health(
+            performance_reports,
+            maximum_skipped=maximum_skipped,
+            label="performance",
+        )
 
 
 def validate_test_reports(
@@ -309,6 +460,7 @@ def validate_test_reports(
     status_path: Path = DEFAULT_STATUS,
     *,
     junit: tuple[Path, ...],
+    performance_junit: tuple[Path, ...] = (),
 ) -> None:
     """Validate split-suite JUnit evidence without importing the compiler."""
 
@@ -320,7 +472,9 @@ def validate_test_reports(
     validation = status.get("validation")
     if not isinstance(validation, dict):
         raise StatusError("release status is missing validation metadata")
-    _check_junit_policy(validation, junit)
+    _check_junit_policy(
+        validation, junit, performance_reports=performance_junit
+    )
 
 
 def _command_output(command: tuple[str, ...]) -> str:
@@ -364,6 +518,7 @@ def validate(
     status_path: Path = DEFAULT_STATUS,
     *,
     junit: Path | tuple[Path, ...] | None = None,
+    performance_junit: tuple[Path, ...] = (),
     check_tools: bool = False,
     tag: str | None = None,
 ) -> None:
@@ -422,7 +577,11 @@ def validate(
     _test_thresholds(validation)
     if junit is not None:
         reports = (junit,) if isinstance(junit, Path) else junit
-        _check_junit_policy(validation, reports)
+        _check_junit_policy(
+            validation, reports, performance_reports=performance_junit
+        )
+    elif performance_junit:
+        raise StatusError("performance JUnit requires deterministic --junit evidence")
     if check_tools:
         _check_tools(tools)
 
@@ -433,6 +592,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--root", type=Path, default=Path("."))
     parser.add_argument("--status", type=Path, default=DEFAULT_STATUS)
     parser.add_argument("--junit", type=Path, action="append")
+    parser.add_argument("--performance-junit", type=Path, action="append")
     parser.add_argument("--check-tools", action="store_true")
     parser.add_argument("--tag")
     return parser
@@ -442,17 +602,26 @@ def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
         reports = None if args.junit is None else tuple(args.junit)
+        performance_reports = (
+            () if args.performance_junit is None else tuple(args.performance_junit)
+        )
         if args.command == "check-junit":
             if reports is None:
                 raise StatusError("check-junit requires at least one --junit report")
             if args.check_tools or args.tag is not None:
                 raise StatusError("check-junit does not accept --check-tools or --tag")
-            validate_test_reports(args.root, args.status, junit=reports)
+            validate_test_reports(
+                args.root,
+                args.status,
+                junit=reports,
+                performance_junit=performance_reports,
+            )
         else:
             validate(
                 args.root,
                 args.status,
                 junit=reports,
+                performance_junit=performance_reports,
                 check_tools=args.check_tools,
                 tag=args.tag,
             )

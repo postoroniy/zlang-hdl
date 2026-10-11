@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
-"""Compare equivalent Amaranth and ZLang native simulation workloads.
+"""Compare equivalent Amaranth and ZLang native simulation microbenchmarks.
 
-The benchmark separates simulator construction from batched steady-state clock
-execution.  It is intentionally an observational host benchmark, not a release
-gate: absolute wall time varies by machine and Python build.
+This is a host-specific microbenchmark over a few selected steady-state
+workloads, not a general claim that ZLang simulation is faster than Amaranth.
+Construction is reported separately from execution.  Amaranth execution uses
+``Simulator.run_until()`` and therefore includes its scheduler; ZLang execution
+calls the native engine's batched ``run_cycles()`` directly and bypasses the
+JSONL/CLI layers.  The benchmark is observational, not a release gate: absolute
+wall time varies by machine and Python build.
 """
 
 from __future__ import annotations
@@ -324,6 +328,13 @@ def benchmark(*, cycles: int, samples: int) -> dict[str, object]:
         })
     return {
         "schema": REPORT_SCHEMA,
+        "methodology": {
+            "scope": "host-specific selected steady-state microbenchmarks",
+            "release_gate": False,
+            "amaranth_execution": "Simulator.run_until() including scheduler",
+            "zlang_execution": "direct native run_cycles(), excluding CLI/JSONL",
+            "construction_reported_separately": True,
+        },
         "host": {
             "machine": platform.machine(),
             "platform": platform.platform(),
@@ -342,6 +353,12 @@ def benchmark(*, cycles: int, samples: int) -> dict[str, object]:
 
 def markdown(report: dict[str, object]) -> str:
     lines = [
+        "This is a host-specific microbenchmark over selected steady-state workloads,",
+        "not a general simulator-speed claim. Amaranth execution uses",
+        "`Simulator.run_until()` (including scheduler overhead); ZLang uses",
+        "the native engine's direct batched `run_cycles()` path and",
+        "excludes CLI/JSONL overhead. Construction is reported separately.",
+        "",
         "| Workload | Cycles | Amaranth Mcycles/s | ZLang Mcycles/s | ZLang speedup |",
         "|---|---:|---:|---:|---:|",
     ]

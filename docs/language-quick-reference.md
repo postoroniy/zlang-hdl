@@ -252,8 +252,9 @@ zlang lock update --project zlang.toml
 zlang lsp
 ```
 
-In a `--events` JSONL schedule, `"repeat": N` repeats one event for a bounded
-positive number of steps without a project-specific generator.
+In a `--events` JSONL schedule, `"repeat": N` repeats one event lazily for a
+bounded positive number of steps (at most 1,000,000 expanded events) without a
+project-specific generator.
 
 Ordinary native simulation retains its deterministic two-state zero seed.
 `--logic-state` enables per-bit `0`/`1`/`U`/`X`: unreset state starts as `U`,
@@ -263,3 +264,5 @@ registers and `--trace-signal` selects VCD signals; companion
 `__zlang_meta/*_u_mask` traces distinguish `U` from VCD's shared `x` spelling.
 `--strict-uninitialized` implies this mode and rejects observed `U` or `X`.
 Neither mode models `Z`, electrical resolution, or Verilog event regions.
+CLI VCD output is an event-index visualization: physical clock/reset levels
+match each compiled domain, but the JSONL schedule does not define analog time.

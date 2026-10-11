@@ -67,7 +67,7 @@ CHILD_OR_TEMPLATE_ONLY = {
         "IFFT64DIFStageExactD4",
     ),
     (
-        "projects/80211a_transmitter/src/interleaver.zhl",
+        "projects/80211a_transmitter/src/conv_encoder.zhl",
         "IeeeConvolutionalEncoder24",
     ): ChildExpectation(
         "top-level input 'input' cannot expose (?:enum type|type .* because it contains an enum-valued field)",
@@ -89,12 +89,12 @@ CHILD_OR_TEMPLATE_ONLY = {
         "IeeePacketEncoderInterleaver24",
     ),
     (
-        "projects/80211a_transmitter/src/controller.zhl",
+        "projects/80211a_transmitter/src/scrambler.zhl",
         "IeeeDataScrambler24",
     ): ChildExpectation(
         "top-level input 'input' cannot expose (?:enum type|type .* because it contains an enum-valued field)",
         "IeeePacketFramerScrambler24",
-        "projects/80211a_transmitter/src/controller.zhl",
+        "projects/80211a_transmitter/src/scrambler.zhl",
     ),
     (
         "projects/80211a_transmitter/src/ifft.zhl",

@@ -87,6 +87,14 @@ _JOB_TARGETS: dict[str, dict[str, tuple[str, ...]]] = {
     },
 }
 
+_PDF_TOOL_ACTION = "./.github/actions/setup-pdf-tools"
+_PDF_TOOL_JOBS: dict[str, tuple[str, ...]] = {
+    "ci.yml": ("fast-core", "full-regression", "performance-regression"),
+    "daily-regression.yml": ("deterministic",),
+    "eda.yml": ("real-tools",),
+    "release.yml": ("validate", "eda"),
+}
+
 
 def duplicate_top_level_keys(path: Path) -> tuple[str, ...]:
     first_lines: dict[str, int] = {}
@@ -149,6 +157,20 @@ def _job_run_commands(job: object) -> tuple[str, ...]:
     )
 
 
+def _job_actions(job: object) -> tuple[str, ...]:
+    if not isinstance(job, dict):
+        return ()
+    steps = job.get("steps")
+    if not isinstance(steps, list):
+        return ()
+    return tuple(
+        action
+        for step in steps
+        if isinstance(step, dict)
+        and isinstance((action := step.get("uses")), str)
+    )
+
+
 def hosted_lane_contract_failures(path: Path) -> tuple[str, ...]:
     contracts = _JOB_TARGETS.get(path.name)
     if contracts is None:
@@ -159,7 +181,8 @@ def hosted_lane_contract_failures(path: Path) -> tuple[str, ...]:
         return (str(exc),)
     failures: list[str] = []
     for job_name, targets in contracts.items():
-        commands = _job_run_commands(jobs.get(job_name))
+        job = jobs.get(job_name)
+        commands = _job_run_commands(job)
         combined = "\n".join(commands)
         if not commands:
             failures.append(f"{path}: job {job_name!r} has no executable run steps")
@@ -176,6 +199,14 @@ def hosted_lane_contract_failures(path: Path) -> tuple[str, ...]:
                     f"with direct pip/pytest/release-status commands"
                 )
                 break
+        if (
+            job_name in _PDF_TOOL_JOBS.get(path.name, ())
+            and _PDF_TOOL_ACTION not in _job_actions(job)
+        ):
+            failures.append(
+                f"{path}: job {job_name!r} must provision PDF inspection "
+                f"through {_PDF_TOOL_ACTION!r}"
+            )
     return tuple(failures)
 
 

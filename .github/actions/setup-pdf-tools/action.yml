@@ -1,0 +1,18 @@
+# SPDX-FileCopyrightText: 2026 Viacheslav Vinogradov
+# SPDX-License-Identifier: Apache-2.0
+
+name: Set up PDF inspection tools
+description: Install the Poppler commands required by fail-closed release validation.
+
+runs:
+  using: composite
+  steps:
+    - name: Install Poppler inspection commands
+      shell: bash
+      run: |
+        set -euo pipefail
+        sudo apt-get update
+        sudo apt-get install --yes --no-install-recommends poppler-utils
+        command -v pdfinfo
+        command -v pdfimages
+        dpkg-query --show --showformat='poppler-utils=${Version}\n' poppler-utils

@@ -58,4 +58,4 @@ def test_release_policy_and_default_ci_have_no_retired_backend_escape_hatch() ->
     release_twice = makefile.split("test-release-twice:", 1)[1].split(
         "\neditor-test:", 1
     )[0]
-    assert release_twice.count("-p tools.pytest_no_skips") == 2
+    assert release_twice.count("-p tools.pytest_no_skips") == 4

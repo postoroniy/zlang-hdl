@@ -56,6 +56,12 @@ def test_makefile_owns_every_hosted_lane_entry_point() -> None:
         assert f"{target}:" in text
     assert "release-sanity: release-regressions community-pdf-check " in text
     assert "ci-contract-smoke" in text
+    release_twice = text.split("test-release-twice:", 1)[1].split(
+        "\neditor-test:", 1
+    )[0]
+    assert release_twice.count("-m 'not performance'") == 2
+    assert release_twice.count("-m performance") == 2
+    assert release_twice.count("--performance-junit") == 2
 
 
 def test_dependency_pins_have_one_repository_owner() -> None:
@@ -120,7 +126,11 @@ def test_split_suite_floor_runs_without_site_packages(tmp_path: Path) -> None:
     status_root = _status_root(tmp_path / "status-root")
     deterministic = tmp_path / "deterministic.xml"
     performance = tmp_path / "performance.xml"
-    _junit(deterministic, "deterministic")
+    deterministic.write_text(
+        '<testsuite tests="2"><testcase name="deterministic-a"/>'
+        '<testcase name="deterministic-b"/></testsuite>',
+        encoding="utf-8",
+    )
     _junit(performance, "performance")
 
     completed = subprocess.run(
@@ -201,4 +211,26 @@ def test_workflow_contract_rejects_direct_hosted_commands(tmp_path: Path) -> Non
     assert any("must invoke Make target 'native-release-install'" in item for item in failures)
     assert any("must invoke Make target 'ci-fast-core'" in item for item in failures)
     assert any("must not bypass its Make lane" in item for item in failures)
+
+
+def test_workflow_contract_requires_pdf_tools_for_status_lanes(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "ci.yml"
+    path.write_text(
+        "jobs:\n"
+        "  fast-core:\n"
+        "    steps:\n"
+        "      - run: make -s ci-bootstrap\n"
+        "      - run: make -s native-release-install\n"
+        "      - run: make -s ci-fast-core\n",
+        encoding="utf-8",
+    )
+
+    failures = hosted_lane_contract_failures(path)
+
+    assert any(
+        "job 'fast-core' must provision PDF inspection" in item
+        for item in failures
+    )
 

@@ -2412,7 +2412,7 @@ def test_child_module_boundary_is_checked_as_child_for_diagnostics_and_definitio
 
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
     source = Path(
-        "examples/projects/80211a_transmitter/src/controller.zhl"
+        "examples/projects/80211a_transmitter/src/scrambler.zhl"
     ).resolve()
     text = source.read_text(encoding="utf-8")
     from zlang.semantic import SemanticError

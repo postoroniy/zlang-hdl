@@ -76,7 +76,10 @@ def test_project_documentation_uses_zlang_commands_without_task_runner() -> None
     readme = (PROJECT / "README.md").read_text(encoding="utf-8")
     assert not (PROJECT / "Makefile").exists()
     assert not (PROJECT / "tools/demo.py").exists()
-    assert "zlang lock update" in readme
+    assert "Ordinary project compilation validates the checked-in `zlang.lock` read-only" in readme
+    assert "Run `zlang lock update` only after changing dependency" in readme
+    activation_block = readme.split("```sh", 1)[1].split("```", 1)[0]
+    assert "zlang lock update" not in activation_block
     assert "zlang sim src/transmitter.zhl" in readme
     assert "--compare-with verilator" in readme
     assert "--compare-artifacts" not in readme

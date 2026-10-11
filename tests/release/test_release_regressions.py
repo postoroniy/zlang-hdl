@@ -54,12 +54,15 @@ def test_current_release_binds_included_fixes_to_permanent_tests() -> None:
     )
     assert report == {
         "schema": 1,
-        "entries": 6,
-        "included": ["EDITOR-001", "REL-001", "ZL-045", "ZL-046", "ZL-047", "ZL-048"],
+        "entries": 8,
+        "included": [
+            "EDITOR-001", "REL-001", "REL-002", "REL-003",
+            "ZL-045", "ZL-046", "ZL-047", "ZL-048",
+        ],
         "dispositions": {
             "deferred": 0,
             "excluded_experiment": 0,
-            "included": 6,
+            "included": 8,
             "private_only": 0,
         },
     }
@@ -123,7 +126,10 @@ def test_nonincluded_fix_requires_reason_and_durable_follow_up(tmp_path: Path) -
         release="0.1.0a21",
         previous_tag="v0.1.0a20",
     )
-    assert report["included"] == ["REL-001", "ZL-045", "ZL-046", "ZL-047", "ZL-048"]
+    assert report["included"] == [
+        "REL-001", "REL-002", "REL-003",
+        "ZL-045", "ZL-046", "ZL-047", "ZL-048",
+    ]
 
     del payload["entries"][0]["follow_up"]
     _write(root, payload)
@@ -155,5 +161,5 @@ def test_cli_reports_the_validated_inclusion_count(capsys: pytest.CaptureFixture
         "--previous-tag", "v0.1.0a20",
     ]) == 0
     assert capsys.readouterr().out == (
-        "release regressions valid: 6 entries, 6 included\n"
+        "release regressions valid: 8 entries, 8 included\n"
     )

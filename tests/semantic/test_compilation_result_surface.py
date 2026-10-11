@@ -83,11 +83,14 @@ EXPECTED = {
     # source-owned RvMux2/RvDemux2 declarations advances the content-addressed
     # std.stream.core dependency identity.  The resulting Direct-SV diff is
     # limited to the private child-specialization suffix; its logic and public
-    # module/port ABI remain unchanged.  The current source-owned project then
-    # consolidated its explanatory source and simulator/formal workflow.
-    # Physical input bytes deliberately participate in this eager surface, so
-    # two fresh processes reproduced the updated value before recapture.
-    "wifi": "354b8f44cce7dad02849319dc7784222622cdaf42935e4d02dcad16479c38ea6",
+    # module/port ABI remain unchanged.  The a21 ownership cleanup then restores
+    # the independently reusable scrambler and convolutional encoder as their
+    # own source units.  Physical input bytes and module/dependency identities
+    # deliberately participate in this eager surface, so this source-layout
+    # change advances the digest while focused behavioral, RTL and source-map
+    # checks retain their separate contracts.  Two fresh processes reproduced
+    # the updated value before recapture.
+    "wifi": "6dfef30366e53ac5f82928b72ab783b9f23186bd592cb8c4b080516309e2219e",
 }
 
 

@@ -24,7 +24,8 @@ electrical X/Z simulation.
 
 - Native simulation JSONL schedules accept a bounded positive `repeat` count
   per event, allowing long idle, stall and backpressure intervals without a
-  project-specific generator.
+  project-specific generator. Repeated events retain one parsed record and are
+  consumed lazily instead of allocating one copied mapping per logical event.
 - Native simulation has an opt-in per-bit `0`/`1`/`U`/`X` logic-state mode.
   Uninitialized register bits begin as `U`, accepted writes turn unresolved
   `U` into computed `X`, controlling values resolve uncertainty where exact,
@@ -76,10 +77,11 @@ electrical X/Z simulation.
 ### Changed
 
 - Public examples now have one indexed ownership catalog. The IEEE 802.11a
-  project consolidates related coding/scrambling and IFFT/cyclic-prefix source
-  owners, uses manifest/lock-driven native simulation and formal commands, and
-  retains generated artifacts and reduced reproducers under explicitly
-  documented regression ownership.
+  project keeps the independently reusable scrambler and convolutional encoder
+  as separate IEEE-stage owners while IFFT reorder/cyclic-prefix logic remains
+  with its shared transform transaction owner. It uses manifest/lock-driven
+  native simulation and formal commands and retains generated artifacts and
+  reduced reproducers under explicitly documented regression ownership.
 - `zlang sim` is documented as the single native simulation command and no
   longer advertises a redundant engine selector. The previously accepted
   `--engine native` spelling remains a hidden migration no-op for this alpha;
@@ -101,6 +103,11 @@ electrical X/Z simulation.
 
 ### Fixed
 
+- Release validation derives the final PDF page geometry and sole cover-raster
+  dimensions from the artifact itself and rejects stale decorative metadata,
+  including the previously observed portrait-cover substitution. The release
+  test floor now counts only deterministic JUnit evidence; separately required
+  performance evidence cannot conceal lost deterministic coverage.
 - Native vulnerability auditing distinguishes OSV Scanner's documented
   findings exit from infrastructure failure, parses complete reports before
   applying exact reviewed exceptions, and rejects inconsistent exit/report
