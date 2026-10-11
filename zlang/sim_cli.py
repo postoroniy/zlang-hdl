@@ -12,6 +12,9 @@ from zlang import sim
 from zlang._version import __version__
 
 
+MAX_EXPANDED_EVENTS = 1_000_000
+
+
 def _engine(value: str) -> str:
     if value == "native":
         return value
@@ -46,7 +49,7 @@ def _logic_assignment(value: str) -> tuple[str, str]:
 
 
 def _read_events(path: Path) -> list[dict[str, object]]:
-    result = []
+    result: list[dict[str, object]] = []
     for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
         if not line.strip():
             continue
@@ -60,7 +63,17 @@ def _read_events(path: Path) -> list[dict[str, object]]:
             raise sim.SimulationRuntimeError(
                 f"{path}:{line_number}: event must be a JSON object"
             )
-        result.append(event)
+        repeat = event.pop("repeat", 1)
+        if isinstance(repeat, bool) or not isinstance(repeat, int) or repeat <= 0:
+            raise sim.SimulationRuntimeError(
+                f"{path}:{line_number}: event repeat must be a positive integer"
+            )
+        if len(result) + repeat > MAX_EXPANDED_EVENTS:
+            raise sim.SimulationRuntimeError(
+                f"{path}:{line_number}: expanded event schedule exceeds "
+                f"{MAX_EXPANDED_EVENTS} events"
+            )
+        result.extend(dict(event) for _ in range(repeat))
     return result
 
 
@@ -126,14 +139,41 @@ def _unique_assignments(
     return result
 
 
-def _write_vcd(path: Path, instance: sim.Simulator, samples: list[dict[str, object]]) -> None:
+def _control_levels(
+    instance: sim.Simulator,
+) -> tuple[dict[str, tuple[int, int]], dict[str, tuple[int, int]]]:
+    """Return physical idle/active levels for compiler-owned clocks and resets."""
+
+    clocks: dict[str, tuple[int, int]] = {}
+    resets: dict[str, tuple[int, int]] = {}
+    for domain in instance.program.module.clock_domains:
+        active_clock = 1 if domain.edge.value == "rising" else 0
+        clocks[domain.clock] = (1 - active_clock, active_clock)
+        active_reset = 1 if domain.reset_polarity.value == "active_high" else 0
+        resets[domain.reset] = (1 - active_reset, active_reset)
+    return clocks, resets
+
+
+def _write_vcd(
+    path: Path,
+    instance: sim.Simulator,
+    samples: list[dict[str, object]],
+    *,
+    events: Sequence[dict[str, object]] = (),
+) -> None:
     widths = instance.trace_widths
-    names = sorted({name for sample in samples for name in sample if name != "$event"})
-    missing = [name for name in names if name not in widths]
+    clocks, resets = _control_levels(instance)
+    traced_names = sorted(
+        {name for sample in samples for name in sample if name != "$event"}
+    )
+    missing = [name for name in traced_names if name not in widths]
     if missing:
         raise sim.SimulationRuntimeError(
             f"trace signal '{missing[0]}' has no compiler-owned packed width"
         )
+    control_names = sorted(set(clocks) | set(resets))
+    names = sorted(set(traced_names) | set(control_names))
+    widths = {**widths, **dict.fromkeys(control_names, 1)}
     logic_trace = any(
         isinstance(value, sim.LogicVector)
         for sample in samples
@@ -142,7 +182,8 @@ def _write_vcd(path: Path, instance: sim.Simulator, samples: list[dict[str, obje
     )
     identifiers = {name: _vcd_identifier(index) for index, name in enumerate(names)}
     u_identifiers = {
-        name: _vcd_identifier(len(names) + index) for index, name in enumerate(names)
+        name: _vcd_identifier(len(names) + index)
+        for index, name in enumerate(traced_names)
     }
     lines = [
         "$date deterministic $end",
@@ -159,23 +200,66 @@ def _write_vcd(path: Path, instance: sim.Simulator, samples: list[dict[str, obje
         lines.append("$scope module __zlang_meta $end")
         lines.extend(
             f"$var wire {widths[name]} {u_identifiers[name]} {name}_u_mask $end"
-            for name in names
+            for name in traced_names
         )
         lines.append("$upscope $end")
     lines.append("$enddefinitions $end")
+
+    timeline: dict[int, list[str]] = {}
+
+    def change(time: int, text: str) -> None:
+        timeline.setdefault(time, []).append(text)
+
+    for name, (idle, _active) in clocks.items():
+        change(0, f"b{idle} {identifiers[name]}")
+    reset_levels = {name: idle for name, (idle, _active) in resets.items()}
+    for name, value in reset_levels.items():
+        change(0, f"b{value} {identifiers[name]}")
+
     for sample in samples:
-        lines.append(f"#{sample['$event']}")
-        for name in names:
+        time = 2 * int(sample["$event"])
+        for name in traced_names:
             value = sample.get(name, 0)
             if isinstance(value, sim.LogicVector):
                 bits = value.to_bits()
-                lines.append(
+                change(
+                    time,
                     f"b{bits.replace('u', 'x')} {identifiers[name]}"
                 )
                 u_mask = "".join("1" if item == "u" else "0" for item in bits)
-                lines.append(f"b{u_mask} {u_identifiers[name]}")
+                change(time, f"b{u_mask} {u_identifiers[name]}")
             else:
-                lines.append(f"b{int(value):0{widths[name]}b} {identifiers[name]}")
+                change(
+                    time,
+                    f"b{int(value):0{widths[name]}b} {identifiers[name]}",
+                )
+
+    for event_index, event in enumerate(events, 1):
+        reset_updates = event.get("reset", {})
+        if isinstance(reset_updates, dict):
+            for raw_name, asserted in sorted(reset_updates.items()):
+                name = str(raw_name)
+                if name not in resets or not isinstance(asserted, bool):
+                    continue
+                idle, active = resets[name]
+                value = active if asserted else idle
+                if reset_levels[name] != value:
+                    reset_levels[name] = value
+                    change(2 * event_index - 1, f"b{value} {identifiers[name]}")
+        raw_edges = event.get("edges", ())
+        if not isinstance(raw_edges, Sequence) or isinstance(raw_edges, (str, bytes)):
+            continue
+        for raw_name in raw_edges:
+            name = str(raw_name)
+            if name not in clocks:
+                continue
+            idle, active = clocks[name]
+            change(2 * event_index, f"b{active} {identifiers[name]}")
+            change(2 * event_index + 1, f"b{idle} {identifiers[name]}")
+
+    for time in sorted(timeline):
+        lines.append(f"#{time}")
+        lines.extend(timeline[time])
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
@@ -183,7 +267,7 @@ def _write_vcd(path: Path, instance: sim.Simulator, samples: list[dict[str, obje
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="zlang sim",
-        description="Run a persistent ZLang simulation engine",
+        description="Run the persistent ZLang native simulator",
         epilog=(
             "examples:\n"
             "  zlang sim counter.zhl --top Counter --clock clk --cycles 100 --json\n"
@@ -210,9 +294,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         type=_engine,
         metavar="native",
         default="native",
-        help=(
-            "simulation executor (default: native)"
-        ),
+        # Native execution is the sole simulation path.  Keep the old selector
+        # as a hidden migration guard for one alpha rather than advertising a
+        # choice that no longer exists.
+        help=argparse.SUPPRESS,
     )
     execution_options.add_argument(
         "--strict-uninitialized",
@@ -233,7 +318,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--cycles", type=int, help="run N cycles (single-clock tops only)"
     )
     execution_options.add_argument(
-        "--events", type=Path, help="run the JSONL event schedule at PATH"
+        "--events",
+        type=Path,
+        help="run the JSONL event schedule at PATH (supports bounded repeat)",
     )
     execution_options.add_argument(
         "--set",
@@ -282,14 +369,19 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     output_options = parser.add_argument_group("simulation output")
     output_options.add_argument(
-        "--trace", type=Path, help="write simulation transitions as VCD"
+        "--trace",
+        type=Path,
+        help="write simulation transitions plus physical clocks/resets as VCD",
     )
     output_options.add_argument(
         "--trace-signal",
         action="append",
         default=[],
         metavar="NAME",
-        help="include only this signal in VCD output; may be repeated",
+        help=(
+            "include only this data/state signal in VCD output; may be repeated "
+            "(physical clocks/resets are always included)"
+        ),
     )
     output_options.add_argument(
         "--json", action="store_true", help="print compact JSON output"
@@ -376,11 +468,17 @@ def main(argv: Sequence[str] | None = None) -> int:
                     instance.set_logic(name, value)
                 if arguments.trace is not None:
                     instance.enable_trace(arguments.trace_signal or None)
+                trace_events: tuple[dict[str, object], ...] = ()
                 if arguments.events is not None:
+                    trace_events = tuple(_read_events(arguments.events))
                     native_outputs: object = instance.run_events(
-                        _read_events(arguments.events)
+                        trace_events
                     )
                 elif arguments.cycles is not None:
+                    trace_events = tuple(
+                        {"edges": (arguments.clock,)}
+                        for _ in range(arguments.cycles)
+                    )
                     native_outputs = instance.run_cycles(
                         arguments.clock, arguments.cycles
                     )
@@ -400,7 +498,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                         if program.logic_state
                         else instance.drain_trace()
                     )
-                    _write_vcd(arguments.trace, instance, samples)
+                    _write_vcd(
+                        arguments.trace,
+                        instance,
+                        samples,
+                        events=trace_events,
+                    )
         assert outputs is not None
     except (
         OSError,

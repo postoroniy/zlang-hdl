@@ -7,8 +7,72 @@
 // exploration or target-specific implementation choice.
 
 import wifi80211a_transmitter.ifft_library
-import wifi80211a_transmitter.cyclic_extender
 import wifi80211a_transmitter.mapper
+import std.coding.core
+import std.math.complex
+
+// The arithmetic chain below emits bit-reversed samples.  This output-stage
+// owner stores them at natural indices, then emits the concise 16+64 cyclic-
+// prefix sequence.  It is intentionally bounded storage, not runtime generate
+// or an implicit overlap/BRAM policy.
+type IFFTReorderSample = fixed<16,15>
+
+fn ifft64_bit_reverse(index : u6) -> u6 {
+    // The generic library helper expresses the six-bit permutation directly;
+    // bitcast changes representation only and emits no arithmetic hardware.
+    coding_reverse_bits<N=6>(bitcast<bits<6>>(index))
+}
+
+module IFFT64ReorderCPKernel {
+    clock clk reset rst
+
+    in input : rv<Complex<IFFTReorderSample>>
+    out output : rv<Complex<IFFTReorderSample>>
+
+    reg samples : vec<64,Complex<IFFTReorderSample>> =
+        repeat(Complex { re = 0 im = 0 })
+    reg fill_count : u6 = 0
+    reg emit_count : u7 = 0
+    reg emitting : bit = 0
+
+    // A conditional expression concisely maps output ordinals 0..15 to the
+    // prefix and 16..79 to the complete natural-order symbol.
+    emit_index : u6 = emit_count < 16
+        ? truncate(emit_count + 48)
+        : truncate(emit_count - 16)
+
+    input.ready = emitting == 0
+    output.valid = emitting
+    output.payload = samples[emit_index]
+
+    collect: when input.transfer {
+        // Indexed state update writes one statically typed lane; the compiler
+        // retains the bounded dynamic-index proof in the storage plan.
+        samples[ifft64_bit_reverse(fill_count)] <- input.payload
+        fill_count <- truncate(fill_count + 1)
+        emitting <- fill_count == 63
+    }
+
+    drain: when output.transfer {
+        emit_count <- emit_count == 79
+            ? 0
+            : truncate(emit_count + 1)
+        emitting <- emit_count != 79
+    }
+
+    priority collect > drain
+}
+
+module IFFT64ReorderCP {
+    clock clk reset rst
+
+    in input : rv<Complex<IFFTReorderSample>>
+    out output : rv<Complex<IFFTReorderSample>>
+
+    kernel : IFFT64ReorderCPKernel
+    input -> kernel.input
+    kernel.output -> output
+}
 
 struct WifiIFFTFrameMeta {
     rate : WifiRate
@@ -36,12 +100,9 @@ module IeeeIFFTFramedInputBoundary {
     in input : rv<WifiRawMappedSample>
     out output : rv<WifiMappedSample>
 
-    decoded_rate : WifiRate = enum_decode<WifiRate>(
-        input.payload.meta.rate,
-        WifiRate.Continue
-    )
-    accepted_rate = enum_valid<WifiRate>(input.payload.meta.rate)
-        & (decoded_rate != WifiRate.Continue)
+    decoded_input_rate = wifi_decode_rate(input.payload.meta.rate)
+    decoded_rate = decoded_input_rate.rate
+    accepted_rate = decoded_input_rate.valid
     output.payload = FrameBeat {
         data = input.payload.data
         meta = WifiSampleMeta {

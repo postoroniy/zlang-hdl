@@ -1,8 +1,9 @@
-# ZLang HDL Community Language Reference
+# ZLang HDL Language Reference
 
 Development reference toward 0.1.0a21 (unreleased)
 
-This is the complete user-facing reference for the ZLang HDL Community compiler.
+This is the complete user-facing reference for the ZLang HDL compiler in the
+Community distribution.
 The backend-independent typed IR defines language semantics, and Direct
 SystemVerilog (Direct-SV) is the supported production RTL path. Unsupported combinations
 fail closed rather than publishing guessed hardware.
@@ -219,7 +220,7 @@ Install other tools only for the workflows you actually use:
 | Workflow | Additional requirement | If it is missing |
 | --- | --- | --- |
 | `zlang SOURCE --check` and SystemVerilog emission | None beyond Python and `zlang-hdl` | Neither Verilator nor Yosys is needed; a missing compiler package or incompatible Python prevents `zlang` from starting. |
-| `zlang sim` (native engine) | Matching `zlang-native-sim` wheel for the host | Simulation fails explicitly; compiler checking and RTL emission remain available. |
+| `zlang sim` (native simulation) | Matching `zlang-native-sim` wheel for the host | Simulation fails explicitly; compiler checking and RTL emission remain available. |
 | VS Code diagnostics and navigation | Bundled extension plus `zlang-lsp` from the base package | Compiler CLI still works, but editor integration does not start. |
 | Strict RTL lint or Verilator execution | `verilator` | RTL can still be emitted; lint and Verilator simulation cannot run. |
 | Generic synthesis | `yosys` | RTL can still be emitted; synthesis cannot run. |
@@ -372,7 +373,7 @@ simulation semantics path:
 ```python
 from zlang import sim
 
-program = sim.compile("examples/counter.zhl", top="Counter", engine="native")
+program = sim.compile("examples/counter.zhl", top="Counter")
 instance = program.create()
 instance.tick("clk")
 print(instance.get("y"))
@@ -380,16 +381,23 @@ instance.close()
 
 ```
 
-The command-line interface supports the same explicit engine choice:
+The command-line interface uses the same native runtime directly; there is no
+simulation-engine selector:
 
 ```sh
-zlang sim examples/counter.zhl --top Counter --engine native \
+zlang sim examples/counter.zhl --top Counter \
   --clock clk --cycles 100 --json
 zlang sim examples/multi_clock_stateful.zhl --top MultiClockStateful \
-  --engine native --events events.jsonl --trace build/trace.vcd
+  --events events.jsonl --trace build/trace.vcd
 zlang sim examples/add.zhl --top Add --set a=200 --set b=55 \
   --compare-with iverilog --compare-artifacts build/sim-compare --json
 ```
+
+Each non-empty `--events` JSONL line is one simulation event. An event may add
+`"repeat": N` to apply the same updates, resets and edges for `N` consecutive
+events; `N` must be a positive integer and the expanded schedule is bounded to
+1,000,000 events. This keeps long idle or backpressure intervals declarative
+without requiring a project-specific event generator.
 
 `--compare-with iverilog` and `--compare-with verilator` emit the normal direct
 SystemVerilog artifact, execute it in the selected external simulator, and
@@ -418,11 +426,10 @@ simulator, not ZLang language semantics. Native simulation accepts at most:
 
 Generated functional work is also bounded to 8 nested regions, 1,000,000 total iterations, and an estimated runtime-work budget of 8,000,000 operations. Compilation fails with a diagnostic when a limit is exceeded.
 <!-- native-simulation-limits:end -->
-There is no silent fallback from native execution to an RTL simulator. The
-retired `reference`, `python`, and `jit` engine spellings produce deterministic
-migration diagnostics. Unsupported external
-stateful/protocol models remain unsupported instead of acquiring
-simulator-specific behavior.
+There is no silent fallback from native execution to an RTL simulator. Retired
+compatibility selector values produce deterministic migration diagnostics.
+Unsupported external stateful/protocol models remain unsupported instead of
+acquiring simulator-specific behavior.
 
 The native executor is distributed only as audited `cp312-abi3` binary wheels:
 
@@ -4031,11 +4038,23 @@ inspect the selection report. The sole exception is the explicitly
 flow-controlled foundation described below; ordinary scalar `implement` never
 gains transaction state or II>1 sharing.
 
-| Tested path | II statement | What it does **not** imply |
-| --- | --- | --- |
-| Scalar `implement` source, structural multiplier, reduction/DSP and legal fixed pipeline alternatives | Current selectable alternatives have `ii=1`; selection tests check the reported interval and constraints. | No automatic multi-cycle DSP reuse or routed Fmax guarantee. |
-| `transform pipeline(auto, ...)` on the supported ready/valid kernel | One beat per unstalled edge after fill; stall holds the entire pipeline. Simulation and Verilator tests cover bubbles/backpressure. | No beat-per-edge promise while `ready=0`, and no independent per-stage elasticity. |
-| `transform pipeline(auto) { implement { a*b + c*d intent { ... } } }` in the bounded shared-arithmetic subset | The compiler may choose one non-interleaved multiply resource with `ii=4`, latency `4`, and capacity `1`; output retirement may capture the next input on the same edge. | No modulo scheduling, transaction interleaving, arbitrary-DAG scheduling, memory sharing, or general HLS. |
+The tested II boundaries are easier to read as three separate contracts:
+
+- **Scalar `implement`.** Structural multiplier, reduction/DSP, and legal fixed
+  pipeline alternatives currently have `ii=1`; selection tests check the
+  reported interval and constraints. This does not imply automatic multi-cycle
+  DSP reuse or a routed Fmax guarantee.
+- **Ready/valid `transform pipeline(auto, ...)`.** The supported kernel accepts
+  one beat per unstalled edge after fill, while a stall holds the entire
+  pipeline. Simulation and Verilator cover bubbles and backpressure. This does
+  not promise one beat per edge while `ready=0` or independent per-stage
+  elasticity.
+- **Bounded shared arithmetic.** For
+  `transform pipeline(auto) { implement { a*b + c*d intent { ... } } }`, the
+  compiler may choose one non-interleaved multiply resource with `ii=4`,
+  latency `4`, and capacity `1`; output retirement may capture the next input
+  on the same edge. This does not add modulo scheduling, transaction
+  interleaving, arbitrary-DAG scheduling, memory sharing, or general HLS.
 
 An II metric is a candidate contract, not a request to synthesize a new
 time-multiplexed architecture. For actual resource use and timing, inspect the

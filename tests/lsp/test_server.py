@@ -8,6 +8,7 @@ import sys
 
 import pytest
 
+from zlang.compiler import compile_file
 from zlang.analysis_needs import AnalysisNeeds
 from zlang.lsp.server import (
     DocumentState,
@@ -1469,9 +1470,9 @@ def test_definition_request_resolves_80211a_module_instance_targets() -> None:
     })
 
     expected = {
-        "IeeePacketMapper64": (project / "src/mapper.zhl", 357, 7),
-        "IeeeFramedIFFT64": (project / "src/ifft.zhl", 167, 7),
-        "IeeeIFFTFramedOutputBoundary": (project / "src/ifft.zhl", 59, 7),
+        "IeeePacketMapper64": (project / "src/mapper.zhl", 351, 7),
+        "IeeeFramedIFFT64": (project / "src/ifft.zhl", 228, 7),
+        "IeeeIFFTFramedOutputBoundary": (project / "src/ifft.zhl", 120, 7),
     }
     for name, (target_path, target_line, target_character) in expected.items():
         line = next(
@@ -1589,7 +1590,7 @@ def test_framed_definition_resolves_nested_project_from_parent_workspace(
     uri = path_to_uri(source)
     lines = text.splitlines()
     expected = {
-        "IeeePacketMapper64": (project / "src/mapper.zhl", 357, 7),
+        "IeeePacketMapper64": (project / "src/mapper.zhl", 351, 7),
         "WifiTxCommand": (project / "src/data_types.zhl", 11, 7),
     }
 
@@ -1745,7 +1746,7 @@ def test_nested_project_unsaved_instance_spelling_uses_editor_snapshot(
     })
     location = definition[0]["result"]
     assert location["uri"] == path_to_uri(source.parent / "mapper.zhl")
-    assert location["range"]["start"] == {"line": 357, "character": 7}
+    assert location["range"]["start"] == {"line": 351, "character": 7}
 
     concise = server.dispatch({
         "jsonrpc": "2.0",
@@ -2411,16 +2412,15 @@ def test_child_module_boundary_is_checked_as_child_for_diagnostics_and_definitio
 
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
     source = Path(
-        "examples/projects/80211a_transmitter/src/scrambler.zhl"
+        "examples/projects/80211a_transmitter/src/controller.zhl"
     ).resolve()
     text = source.read_text(encoding="utf-8")
-    from zlang.compiler import check_file_snapshot
     from zlang.semantic import SemanticError
 
     with pytest.raises(
         SemanticError, match="top-level input 'input' cannot expose type"
     ):
-        check_file_snapshot(source, text)
+        compile_file(source, top="IeeeDataScrambler24")
     uri = path_to_uri(source)
     server = LspServer()
     opened = server.dispatch({
@@ -2456,7 +2456,7 @@ def test_child_module_boundary_is_checked_as_child_for_diagnostics_and_definitio
     assert location["uri"] == path_to_uri(
         source.parent / "data_types.zhl"
     )
-    assert location["range"]["start"] == {"line": 47, "character": 5}
+    assert location["range"]["start"] == {"line": 71, "character": 5}
 
 
 def test_generic_source_still_reports_parser_errors() -> None:
@@ -2777,11 +2777,11 @@ def test_references_request_collects_real_project_type_and_module_declaration(
         for item in type_response[0]["result"]
     ] == [
         ("data_types.zhl", 26),
-        ("ifft.zhl", 46),
-        ("ifft.zhl", 135),
-        ("mapper.zhl", 104),
-        ("mapper.zhl", 297),
-        ("mapper.zhl", 344),
+        ("ifft.zhl", 107),
+        ("ifft.zhl", 196),
+        ("mapper.zhl", 106),
+        ("mapper.zhl", 291),
+        ("mapper.zhl", 338),
     ]
 
     module_source = (tmp_path / "unused_module.zhl").resolve()

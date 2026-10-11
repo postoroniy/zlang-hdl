@@ -1,4 +1,4 @@
-# Frozen ZLang HDL Community baseline
+# Frozen ZLang HDL Community Edition baseline
 
 This is the minimum non-regression product baseline, not the current release
 identity. The current candidate or release is recorded in

@@ -77,7 +77,8 @@ For project work, inspect `zlang.toml`/`zlang.lock` and pass `--project` or
 `--profile` when the design requires them. Compilation is offline/non-mutating;
 dependency fetching belongs to an explicit lock update, not ordinary compile.
 
-Native simulation is deterministic two-state by default. `--logic-state`
+`zlang sim` always uses the native runtime; there is no reference-engine
+selector. Native simulation is deterministic two-state by default. `--logic-state`
 enables per-bit `0`/`1`/`U`/`X`; state without an initializer begins as `U`,
 while an accepted unresolved write produces `X`. Use `--initial-reg` for exact
 compiler-owned register-path overrides and repeat `--trace-signal` for a

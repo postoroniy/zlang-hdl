@@ -118,8 +118,4 @@ def test_compiler_architecture_regressions_remain_closed() -> None:
     assert "return repr(value)" not in arena
     assert report["unallowlisted_repr_identity_sites"] == ()
 
-    private_candidates = {
-        item["name"] for item in report["potential_dead_private_definitions"]
-    }
-    # Kept as a tested backend formatter despite its private historical name.
-    assert private_candidates <= {"zlang.backend.systemverilog.contracts:_emit_constant"}
+    assert report["potential_dead_private_definitions"] == []

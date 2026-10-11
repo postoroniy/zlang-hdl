@@ -30,12 +30,12 @@ _FROZEN_MATRICES: dict[str, tuple[int, str]] = {
         "82ef6924afb64b1ebcd4a3abbc8bb0702a0358b3b39cd023214c739675c2bd3f",
     ),
     "802_modules": (
-        32,
-        "08f7ba37eea9ce4d79fe57cf8ca1a4877886502901acaf6ce7ad6133e2019d16",
+        31,
+        "a03207b21011eb0dbc9a082ce2a7add3d11039bfe12ecb6635ee52a350016bef",
     ),
     "802_sources": (
-        10,
-        "3b2833eecd83bf478e0260723d89a052cb3ad45a462a9dd54d1f80a2b42d083c",
+        7,
+        "36a191fa0a1bcf5a11ddfb1ca18f6c27f59f51958833982e0839b9992b16929b",
     ),
     "literal_unsigned": (
         6,

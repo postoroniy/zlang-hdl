@@ -55,6 +55,12 @@ duplicate. `examples/all_syntax.zhl` is a representative language tour, not an
 exhaustive capability contract. Historical development history/design-freeze prose does
 not override current executable behavior.
 
+`docs/README.md` classifies maintained guides and dated evidence when it is
+present in the private source tree. In a slim Community projection where
+that map is absent, use `AI_GUIDE.md`, the two language references, the formal
+guide, capability registry and `release/status.json`. Treat the status file as
+checked-in candidate identity, not proof that a tag or release was published.
+
 Read only the reference relevant to the task:
 
 - Exact scalar/aggregate types, representation operations, ready/valid,
@@ -115,6 +121,10 @@ Use the repository environment and explicit top:
 
 The command is `zlang`, not `zlangc`. There is no supported Clash/Haskell output
 path. A backend failure or missing tool is never a successful result.
+
+`zlang sim` is the sole simulation command and always uses the native runtime.
+The hidden `--engine native` spelling is migration compatibility, not a second
+mode; removed reference/Python/JIT engine names must fail.
 
 ## Non-negotiable semantic guardrails
 

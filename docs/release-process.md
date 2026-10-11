@@ -1,7 +1,7 @@
 # Community release process
 
-ZLang Community releases use one reviewed source tree and two modes of the
-same GitHub `Release` workflow. The candidate mode validates and retains
+Community releases of ZLang HDL use one reviewed source tree and two modes of
+the same GitHub `Release` workflow. The candidate mode validates and retains
 artifacts but cannot publish. Only a signed annotated tag at the exact protected
 `main` commit enables the publish job.
 
@@ -56,10 +56,14 @@ Update all of these together, then commit the public candidate:
 | reviewability | `docs/release-subsystem-map.md` groups the candidate by language, optimization, temporal/formal, hierarchy/backend, tooling, and release/security ownership |
 
 The PDF builder is host-owned. Build the final PDF against the exact exported
-public snapshot, record the builder and cover digests, and visually inspect the
-rendered cover plus representative code-heavy pages before committing it. A
-matching PDF hash proves the reviewed bytes are retained; it does not replace
-that human visual check.
+public snapshot, record the builder and cover digests plus page/cover geometry,
+and render every page with Poppler at no less than 150 DPI. Human review must
+cover the cover, contents, ordinary prose, every table and code block, logic
+state, registered outputs, implementation intent/II, formal evidence,
+capability matrices, and the quick-reference appendix. The deterministic render
+smoke checks representative pages and obvious edge overflow; a matching PDF
+hash proves only that the reviewed bytes were retained and never replaces this
+full visual review.
 
 ### 3. Fail fast before the long regressions
 
@@ -67,10 +71,13 @@ Run the bounded release sanity gate as soon as the public projection is
 internally consistent:
 
 ```bash
-make release-sanity \
-  TAG=v0.1.0a21 \
-  PREVIOUS_TAG=v0.1.0a20
+make release-sanity
 ```
+
+The Makefile derives `TAG` from the checked-out package version and
+`PREVIOUS_TAG` from the nearest reachable release tag. Override either value
+only when deliberately validating a non-default release sequence; the
+regression ledger and preflight still require an exact match.
 
 This validates the regression ledger, PDF/status identity, exported Community
 surface, workflow structure and execution mode, static checks, locked editor
@@ -98,9 +105,7 @@ On the clean, committed public review branch, run:
 
 ```bash
 make venv
-make release-review \
-  TAG=v0.1.0a21 \
-  PREVIOUS_TAG=v0.1.0a20
+make release-review
 ```
 
 `release-review` rejects local modifications and untracked files, verifies the
@@ -143,20 +148,14 @@ pre-merge review gate:
 
 ```bash
 make venv
-make release-review \
-  TAG=v0.1.0a21 \
-  PREVIOUS_TAG=v0.1.0a20
+make release-review
 ```
 
 After merge, exact protected `main` may run the stricter local candidate command
 when its required host tools are available:
 
 ```bash
-make release-candidate \
-  TAG=v0.1.0a21 \
-  PREVIOUS_TAG=v0.1.0a20 \
-  BUILD_ROOT=build/a21-local \
-  EDITOR_VSIX=build/a21-editor/zlang-hdl-0.1.0.vsix
+make release-candidate
 ```
 
 Neither command commits, tags, pushes, or publishes. The candidate command runs
@@ -200,6 +199,7 @@ found; do not leave the recovery solely in shell history or chat notes.
 | The extension was packaged against a stale VS Code host assumption | editor unit tests did not exercise the currently pinned stable host | `editor-host-test` installs the exact built VSIX into the pinned hosted stable version and checks navigation/LSP startup; release status binds the reviewed host/tool identity | update the engine/test host deliberately, rerun unit plus installed-host tests, then rebuild the VSIX |
 | `npm run package` failed with `EEXIST` or reused stale bytes | output path already existed | packaging targets reject an existing `EDITOR_VSIX` or `BUILD_ROOT`; examples use versioned fresh paths | choose a fresh ignored build path; never overwrite review evidence |
 | The wrong ZLang version appeared in the PDF or release metadata | Markdown/PDF/status/package versions were updated independently | `community-pdf-check`, `release_status`, `stage_release_pdf`, and preflight bind source, cover, builder, PDF, package and tag identities | rebuild the PDF from the exact final public tree and update all bound metadata together |
+| The PDF cover changed while hashes and reproducibility remained green | a rasterized prior PDF cover was supplied as the next release's source asset and then cropped as if it were the reviewed banner | status records exact cover and embedded-image geometry; the Poppler render smoke and mandatory all-page visual review check appearance, not just bytes | restore the reviewed banner asset, rebuild twice, render every page, and update metadata only after visual acceptance |
 | Shipped changes remained under `Unreleased`, or the release date predated the final candidate | release notes were prepared before the exact release commit | release preflight requires an empty `Unreleased`, an exact dated version heading, and a date matching the exact candidate commit | move shipped entries into the exact version section and make a final metadata commit dated for the release candidate |
 | A public PR commit failed DCO or was not cryptographically signed | the public commit used private/default Git settings | `make review-commits` checks every commit after `origin/main`; hosted DCO/signature checks remain authoritative | amend or recreate the public commit with the maintainer's signing key and exact author `Signed-off-by` trailer |
 | A command imported an installed or sibling ZLang | ambient or sibling venv was active | `env-check`, `run_local_env.sh`, and workflow local-venv audit require the checkout-owned `.venv` and disable user site packages | deactivate, run `make venv`, activate this checkout's `.venv`, and rerun |
@@ -222,8 +222,8 @@ authoritative gate passes on the exact candidate tree.
 After the release PR is reviewed and its required checks pass, merge it. Run the
 `Release` workflow manually on the exact `main` commit with:
 
-- `tag`: the prospective tag, for example `v0.1.0a21`;
-- `previous_tag`: the exact prior release, for example `v0.1.0a20`.
+- `tag`: `v` followed by `release.version` from `release/status.json`;
+- `previous_tag`: the exact `previous_tag` from `release/regressions.json`.
 
 Manual dispatch runs validation and EDA jobs, uploads review artifacts and does
 not attest or publish. It checks out `main` explicitly and fails if the

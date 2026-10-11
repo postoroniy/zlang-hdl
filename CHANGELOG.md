@@ -11,7 +11,7 @@ incompatible input explicitly.
 
 ## Unreleased
 
-## 0.1.0a21 — 2026-10-10
+## 0.1.0a21 — 2026-10-11
 
 Community alpha adding explicit output-state ownership, bounded exact
 implementation exploration, target-aware Fmax ranking, a narrow formally
@@ -22,6 +22,9 @@ electrical X/Z simulation.
 
 ### Added
 
+- Native simulation JSONL schedules accept a bounded positive `repeat` count
+  per event, allowing long idle, stall and backpressure intervals without a
+  project-specific generator.
 - Native simulation has an opt-in per-bit `0`/`1`/`U`/`X` logic-state mode.
   Uninitialized register bits begin as `U`, accepted writes turn unresolved
   `U` into computed `X`, controlling values resolve uncertainty where exact,
@@ -72,6 +75,15 @@ electrical X/Z simulation.
 
 ### Changed
 
+- Public examples now have one indexed ownership catalog. The IEEE 802.11a
+  project consolidates related coding/scrambling and IFFT/cyclic-prefix source
+  owners, uses manifest/lock-driven native simulation and formal commands, and
+  retains generated artifacts and reduced reproducers under explicitly
+  documented regression ownership.
+- `zlang sim` is documented as the single native simulation command and no
+  longer advertises a redundant engine selector. The previously accepted
+  `--engine native` spelling remains a hidden migration no-op for this alpha;
+  removed `reference`, `python`, and `jit` selectors still fail explicitly.
 - `maximize fmax` reaches target planning unchanged. Under
   `measured_preferred`, exact routed evidence ranks before synthesis evidence
   and structural estimates; `measured_required` remains fail-closed when no

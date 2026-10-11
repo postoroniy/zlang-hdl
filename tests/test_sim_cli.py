@@ -8,6 +8,7 @@ import shutil
 
 import pytest
 
+from zlang import sim
 from zlang.cli import main
 
 
@@ -27,7 +28,7 @@ def test_primary_help_discovers_simulation_command(
     assert "--experimental-systemverilog" not in output
 
 
-def test_sim_help_exposes_canonical_engines_and_examples(
+def test_sim_help_exposes_native_simulation_without_engine_selector(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     with pytest.raises(SystemExit) as raised:
@@ -35,10 +36,12 @@ def test_sim_help_exposes_canonical_engines_and_examples(
 
     assert raised.value.code == 0
     output = capsys.readouterr().out
-    assert "--engine native" in output
+    assert "--engine" not in output
     assert "--compare-with {iverilog,verilator}" in output
     assert "--events EVENTS" in output
+    assert "supports bounded repeat" in " ".join(output.split())
     assert "--strict-uninitialized" in output
+    assert "physical clocks/resets are always included" in " ".join(output.split())
     assert "zlang sim counter.zhl" in output
 
 
@@ -65,7 +68,7 @@ def test_sim_cli_rejects_removed_engines_with_migration_diagnostic(
 
 
 @pytest.mark.parametrize("engine", ("native",))
-def test_sim_cycles_json_uses_one_persistent_instance(
+def test_hidden_native_selector_remains_compatible(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
     engine: str,
@@ -247,6 +250,48 @@ def test_sim_jsonl_events_support_coincident_clocks(
     assert trace[-1] == {"synced": 1}
 
 
+def test_sim_jsonl_events_support_bounded_repeat(tmp_path: Path) -> None:
+    from zlang.sim_cli import MAX_EXPANDED_EVENTS, _read_events
+
+    events = tmp_path / "events.jsonl"
+    events.write_text(
+        '\n'.join((
+            '{"set":{"level":1},"edges":["clk"],"repeat":2}',
+            '{"edges":["clk"],"repeat":3}',
+        )) + '\n',
+        encoding="utf-8",
+    )
+    expanded = _read_events(events)
+    assert expanded == [
+        {"set": {"level": 1}, "edges": ["clk"]},
+        {"set": {"level": 1}, "edges": ["clk"]},
+        {"edges": ["clk"]},
+        {"edges": ["clk"]},
+        {"edges": ["clk"]},
+    ]
+    assert all("repeat" not in event for event in expanded)
+
+    events.write_text(
+        '{"edges":["clk"],"repeat":0}\n',
+        encoding="utf-8",
+    )
+    with pytest.raises(
+        sim.SimulationRuntimeError,
+        match="event repeat must be a positive integer",
+    ):
+        _read_events(events)
+
+    events.write_text(
+        '{"edges":["clk"],"repeat":' + str(MAX_EXPANDED_EVENTS + 1) + '}\n',
+        encoding="utf-8",
+    )
+    with pytest.raises(
+        sim.SimulationRuntimeError,
+        match="expanded event schedule exceeds",
+    ):
+        _read_events(events)
+
+
 def test_sim_trace_uses_flattened_plan_widths_for_child_state(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
@@ -279,6 +324,31 @@ def test_sim_trace_uses_flattened_plan_widths_for_child_state(
     assert "$var wire 8" in text
     assert "lane[0].count $end" in text
     assert "lane[1].count $end" in text
+    clock_declaration = next(
+        line for line in text.splitlines() if line.endswith(" clk $end")
+    )
+    reset_declaration = next(
+        line for line in text.splitlines() if line.endswith(" rst $end")
+    )
+    clock_identifier = clock_declaration.split()[3]
+    reset_identifier = reset_declaration.split()[3]
+    assert f"b0 {clock_identifier}" in text
+    assert f"b1 {clock_identifier}" in text
+    assert f"b0 {reset_identifier}" in text
+    lines = text.splitlines()
+
+    def time_block(timestamp: str) -> tuple[str, ...]:
+        start = lines.index(timestamp) + 1
+        end = next(
+            (index for index in range(start, len(lines)) if lines[index].startswith("#")),
+            len(lines),
+        )
+        return tuple(lines[start:end])
+
+    first_edge = time_block("#2")
+    first_idle = time_block("#3")
+    assert f"b1 {clock_identifier}" in first_edge
+    assert f"b0 {clock_identifier}" in first_idle
 
 
 def test_sim_cycles_rejects_multiclock_top(

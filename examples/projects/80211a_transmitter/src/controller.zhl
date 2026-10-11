@@ -1,4 +1,5 @@
-// IEEE-authoritative packet framing for the bounded 6/12/24 Mbit/s profile.
+// IEEE-authoritative packet framing and scrambling for the bounded
+// 6/12/24 Mbit/s profile.
 //
 // This is ordinary ZLang source.  The input carries one to three valid PSDU
 // bytes in the low bytes of data.  Output bit zero is the earliest DATA bit:
@@ -7,7 +8,6 @@
 // the six bits that a following scrambler must force back to zero.
 
 import wifi80211a_transmitter.data_types
-import wifi80211a_transmitter.scrambler
 
 fn ieee_signal_rate_code(rate : WifiRate) -> bits<4> {
     switch rate {
@@ -28,18 +28,20 @@ fn ieee_signal_header(rate : WifiRate, length : u12) -> bits<24> {
     concat(zeros<6>, parity(signal_data), signal_data)
 }
 
+enum IeeeFramerPhase {
+    Idle
+    Active
+}
+
 module IeeeSignalHeader24 {
     in raw_rate : bits<3>
     in length : u12
     out valid : bit
     out header : bits<24>
 
-    rate : WifiRate = enum_decode<WifiRate>(
-        raw_rate,
-        WifiRate.Continue
-    )
-    valid = enum_valid<WifiRate>(raw_rate)
-        & (rate != WifiRate.Continue)
+    decoded_rate = wifi_decode_rate(raw_rate)
+    rate = decoded_rate.rate
+    valid = decoded_rate.valid
         & (length != 0)
     header = ieee_signal_header(rate, length)
 }
@@ -52,8 +54,7 @@ module IeeeDataFramer24 {
     out signal : rv<bits<24>>
     out data : rv<WifiFramedWord>
 
-    reg active : bit = 0
-    reg finishing : bit = 0
+    reg input_complete : bit = 0
     reg input_first : bit = 1
     reg output_first : bit = 1
     reg packet_rate : WifiRate = WifiRate.Continue
@@ -70,12 +71,9 @@ module IeeeDataFramer24 {
     fifo signal_words : fifo<bits<24>,2>
     fifo framed_words : fifo<WifiFramedWord,2>
 
-    decoded_rate : WifiRate = enum_decode<WifiRate>(
-        command.payload.rate,
-        WifiRate.Continue
-    )
-    command_rate_valid = enum_valid<WifiRate>(command.payload.rate)
-        & (decoded_rate != WifiRate.Continue)
+    decoded_command_rate = wifi_decode_rate(command.payload.rate)
+    decoded_rate = decoded_command_rate.rate
+    command_rate_valid = decoded_command_rate.valid
 
     expected_last = remaining_bytes <= 3
     expected_valid_bytes : u2 = expected_last
@@ -115,9 +113,7 @@ module IeeeDataFramer24 {
         ? truncate(combined_psdu_bytes - extend<4>(emitted_valid_bytes))
         : truncate(combined_psdu_bytes)
 
-    symbol_last = (packet_rate == WifiRate.Bpsk6)
-        | ((packet_rate == WifiRate.Qpsk12) & (symbol_slot == 1))
-        | ((packet_rate == WifiRate.Qam16_24) & (symbol_slot == 3))
+    symbol_last = wifi_symbol_slot_last(packet_rate, symbol_slot)
     next_symbol_slot : u2 = symbol_last
         ? 0
         : truncate(symbol_slot + 1)
@@ -130,7 +126,7 @@ module IeeeDataFramer24 {
         valid_bytes = emitted_valid_bytes
         tail_mask = 0
         symbol_first = symbol_slot == 0
-        symbol_last = symbol_last
+        symbol_last
     }
     emitted_beat : WifiFramedWord = FrameBeat {
         data = combined[23:0]
@@ -144,7 +140,7 @@ module IeeeDataFramer24 {
         valid_bytes = pending_psdu_bytes
         tail_mask = tail_mask_pending
         symbol_first = symbol_slot == 0
-        symbol_last = symbol_last
+        symbol_last
     }
     flush_beat : WifiFramedWord = FrameBeat {
         data = pending_word
@@ -153,12 +149,12 @@ module IeeeDataFramer24 {
         last = symbol_last
     }
 
-    command.ready = (active == 0)
+    command.ready = (phase == IeeeFramerPhase.Idle)
         & signal_words.ready
         & command_rate_valid
         & (command.payload.length != 0)
-    psdu.ready = active
-        & (finishing == 0)
+    psdu.ready = (phase == IeeeFramerPhase.Active)
+        & (input_complete == 0)
         & input_shape_valid
         & ((emits_word == 0) | framed_words.ready)
 
@@ -167,69 +163,70 @@ module IeeeDataFramer24 {
     data.payload = framed_words.front
     data.valid = framed_words.valid
 
-    accept_command: when command.transfer {
-        signal_words.push(ieee_signal_header(
-            decoded_rate,
-            command.payload.length
-        ))
-        active <- 1
-        finishing <- 0
-        input_first <- 1
-        output_first <- 1
-        packet_rate <- decoded_rate
-        remaining_bytes <- command.payload.length
-        pending_word <- 0
-        occupied_bytes <- 2
-        pending_psdu_bytes <- 0
-        tail_mask_pending <- 0
-        symbol_slot <- 0
-    }
-
-    accept_emit: when psdu.transfer & emits_word {
-        framed_words.push(emitted_beat)
-        remaining_bytes <- truncate(
-            remaining_bytes - extend<12>(psdu.payload.meta)
-        )
-        input_first <- 0
-        output_first <- 0
-        pending_word <- next_pending_word
-        occupied_bytes <- next_occupied
-        pending_psdu_bytes <- next_pending_psdu_bytes
-        symbol_slot <- next_symbol_slot
-        finishing <- psdu.payload.last
-        tail_mask_pending <- psdu.payload.last
-            ? tail_mask_after_input
-            : 0
-    }
-
-    accept_buffer: when psdu.transfer & (emits_word == 0) {
-        remaining_bytes <- truncate(
-            remaining_bytes - extend<12>(psdu.payload.meta)
-        )
-        input_first <- 0
-        pending_word <- next_pending_word
-        occupied_bytes <- next_occupied
-        pending_psdu_bytes <- next_pending_psdu_bytes
-        finishing <- psdu.payload.last
-        tail_mask_pending <- psdu.payload.last
-            ? tail_mask_after_input
-            : 0
-    }
-
-    flush_tail_and_pad: when active & finishing & framed_words.ready {
-        framed_words.push(flush_beat)
-        output_first <- 0
-        pending_word <- 0
-        occupied_bytes <- 0
-        pending_psdu_bytes <- 0
-        tail_mask_pending <- 0
-        symbol_slot <- next_symbol_slot
-        active <- symbol_last == 0
-        finishing <- symbol_last == 0
-        packet_rate <- symbol_last
-            ? WifiRate.Continue
-            : packet_rate
-        remaining_bytes <- 0
+    fsm phase : IeeeFramerPhase = Idle {
+        Idle {
+            when command.transfer -> Active {
+                signal_words.push(ieee_signal_header(
+                    decoded_rate,
+                    command.payload.length
+                ))
+                input_complete <- 0
+                input_first <- 1
+                output_first <- 1
+                packet_rate <- decoded_rate
+                remaining_bytes <- command.payload.length
+                pending_word <- 0
+                occupied_bytes <- 2
+                pending_psdu_bytes <- 0
+                tail_mask_pending <- 0
+                symbol_slot <- 0
+            }
+        }
+        Active {
+            priority {
+                when input_complete & framed_words.ready & symbol_last -> Idle {
+                    framed_words.push(flush_beat)
+                    input_complete <- 0
+                    output_first <- 0
+                    pending_word <- 0
+                    occupied_bytes <- 0
+                    pending_psdu_bytes <- 0
+                    tail_mask_pending <- 0
+                    symbol_slot <- next_symbol_slot
+                    packet_rate <- WifiRate.Continue
+                    remaining_bytes <- 0
+                }
+                when input_complete & framed_words.ready -> Active {
+                    framed_words.push(flush_beat)
+                    input_complete <- 1
+                    output_first <- 0
+                    pending_word <- 0
+                    occupied_bytes <- 0
+                    pending_psdu_bytes <- 0
+                    tail_mask_pending <- 0
+                    symbol_slot <- next_symbol_slot
+                    remaining_bytes <- 0
+                }
+                when psdu.transfer -> Active {
+                    when emits_word {
+                        framed_words.push(emitted_beat)
+                        output_first <- 0
+                        symbol_slot <- next_symbol_slot
+                    }
+                    remaining_bytes <- truncate(
+                        remaining_bytes - extend<12>(psdu.payload.meta)
+                    )
+                    input_complete <- psdu.payload.last
+                    input_first <- 0
+                    pending_word <- next_pending_word
+                    occupied_bytes <- next_occupied
+                    pending_psdu_bytes <- next_pending_psdu_bytes
+                    tail_mask_pending <- psdu.payload.last
+                        ? tail_mask_after_input
+                        : 0
+                }
+            }
+        }
     }
 
     retire_signal: when signal.transfer {
@@ -240,7 +237,49 @@ module IeeeDataFramer24 {
         framed_words.pop()
     }
 
-    priority accept_command > accept_emit > accept_buffer > flush_tail_and_pad
+}
+
+// Packet scrambling belongs beside framing because both share one accepted
+// packet epoch.  Concise inferred locals below are immutable combinational
+// values; only lfsr_state and the FIFO are stored across cycles.
+module IeeeDataScrambler24 {
+    clock clk reset rst
+
+    in input : rv<WifiFramedWord>
+    out output : rv<WifiFramedWord>
+
+    reg lfsr_state : u7 = 0x4b
+    fifo words : fifo<WifiFramedWord,2>
+
+    s0 = input.payload.first ? 0x4b : lfsr_state
+    feedback_taps : vec<24,u7> = [
+        0x09, 0x12, 0x24, 0x48, 0x19, 0x32, 0x64, 0x41,
+        0x0b, 0x16, 0x2c, 0x58, 0x39, 0x72, 0x6d, 0x53,
+        0x2f, 0x5e, 0x35, 0x6a, 0x5d, 0x33, 0x66, 0x45
+    ]
+    // generate concisely describes the 24 independent LFSR tap evaluations;
+    // the result is still a statically bounded vector, not a runtime loop.
+    feedback = generate(i in 0..24)
+        parity(s0 & feedback_taps[i])
+    feedback_mask : bits<24> = feedback
+    next_state : u7 = feedback_mask[23:17]
+    scrambled = input.payload.data ^ feedback_mask
+    forced_data = scrambled & ~input.payload.meta.tail_mask
+    // `with` preserves every FrameBeat member and replaces only data.
+    result : WifiFramedWord = input.payload with { data = forced_data }
+
+    input.ready = words.ready
+    output.payload = words.front
+    output.valid = words.valid
+
+    accept: when input.transfer {
+        words.push(result)
+        lfsr_state <- next_state
+    }
+
+    retire: when output.transfer {
+        words.pop()
+    }
 }
 
 module IeeePacketFramerScrambler24 {

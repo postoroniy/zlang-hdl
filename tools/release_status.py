@@ -42,10 +42,14 @@ def _check_documentation(root: Path, documentation: object) -> None:
         raise StatusError("release status is missing documentation metadata")
     expected_keys = {
         "builder_sha256",
+        "cover_height",
         "cover_sha256",
+        "cover_width",
         "examples",
         "format",
         "pages",
+        "page_height_points",
+        "page_width_points",
         "pdf",
         "pdf_sha256",
         "source_date_epoch",
@@ -111,6 +115,14 @@ def _check_documentation(root: Path, documentation: object) -> None:
     pages = documentation.get("pages")
     if not isinstance(pages, int) or pages <= 0:
         raise StatusError("documentation page count must be a positive integer")
+    for field in ("cover_width", "cover_height"):
+        value = documentation.get(field)
+        if not isinstance(value, int) or value <= 0:
+            raise StatusError(f"documentation {field} must be a positive integer")
+    for field in ("page_width_points", "page_height_points"):
+        value = documentation.get(field)
+        if not isinstance(value, (int, float)) or value <= 0:
+            raise StatusError(f"documentation {field} must be positive")
     sources = documentation.get("sources")
     expected_sources = {path.as_posix() for path in COMMUNITY_PDF_SOURCES}
     if not isinstance(sources, dict) or set(sources) != expected_sources:

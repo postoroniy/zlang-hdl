@@ -5,9 +5,19 @@ For arithmetic optimization rather than state safety, see
 eight-product math, `architecture`/`explore`, latency-aware Z3 equivalence,
 deliberate RTL mutations, and a separate routed 100 MHz experiment.
 
-These four small designs demonstrate the existing ZLang HDL verification flow.
+These focused designs demonstrate the existing ZLang HDL verification flow.
 The counterexample example is **deliberately broken**; it is not a known bug in
 the compiler, Wi-Fi transmitter, or other example.
+
+The focused roots are:
+
+| Source | Ownership |
+| --- | --- |
+| `bounded_counter.zhl` | Unbounded safety proof and cover reachability. |
+| `math_exploration.zhl` | Exact value exploration and equivalence evidence. |
+| `rare_overflow_bug.zhl` | Deliberate bounded counterexample and VCD trace. |
+| `rv_buffer.zhl` | Automatically derived ready/valid stall properties. |
+| `scoped_sum.zhl` | Global assertions plus scoped assumptions/guarantees. |
 
 Run commands from the repository root after installing ZLang in `.venv`.
 Put `yosys`, `sby`, `yosys-smtbmc`, and the selected solver on `PATH`. Z3 is the
@@ -203,8 +213,11 @@ Normal text reports show statuses and source spans. Add
 for machine-readable output. A prove run retains its earlier `bounded_results`.
 Raw logs and VCDs stay in the work directory, outside the immutable bundle.
 
-Recorded 2026-09-08 with Yosys/SBY 0.68 and Z3 4.8.12. The tests require actual
-solver execution and check status, assumption scope, retained traces and replay;
-they do not accept tool absence as success. See
+The original example evidence was recorded on 2026-09-08 with Yosys/SBY 0.68
+and Z3 4.8.12. Current release validation reruns these contracts with the exact
+tool identities in `release/status.json`; historical versions are not current
+installation guidance. The tests require actual solver execution and check
+status, assumption scope, retained traces and replay; they do not accept tool
+absence as success. See
 [the formal reference](../../docs/language-reference.md#reference-optimization-formal) for reset assumptions,
 backend routing, semantic-reference equivalence/retired cross-backend equivalence/formal-aware selection and current applicability boundaries.

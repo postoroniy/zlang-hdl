@@ -83,9 +83,11 @@ EXPECTED = {
     # source-owned RvMux2/RvDemux2 declarations advances the content-addressed
     # std.stream.core dependency identity.  The resulting Direct-SV diff is
     # limited to the private child-specialization suffix; its logic and public
-    # module/port ABI remain unchanged.  Two fresh processes reproduced this
-    # eager surface before recapture.
-    "wifi": "c235223b97f3c6184be253c2df87c05c14ba80df2b7500b387ca5f38e0fc8c40",
+    # module/port ABI remain unchanged.  The current source-owned project then
+    # consolidated its explanatory source and simulator/formal workflow.
+    # Physical input bytes deliberately participate in this eager surface, so
+    # two fresh processes reproduced the updated value before recapture.
+    "wifi": "354b8f44cce7dad02849319dc7784222622cdaf42935e4d02dcad16479c38ea6",
 }
 
 

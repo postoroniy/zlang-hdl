@@ -167,7 +167,7 @@ async function checkHost() {
   assert.equal(transmitter.languageId, languageId);
   for (const [name, target, line, character] of [
     ['WifiTxCommand', 'data_types.zhl', 11, 7],
-    ['IeeePacketMapper64', 'mapper.zhl', 357, 7],
+    ['IeeePacketMapper64', 'mapper.zhl', 351, 7],
   ]) {
     const offset = transmitter.getText().indexOf(name);
     assert.notEqual(offset, -1, `missing ${name} occurrence`);

@@ -1,8 +1,9 @@
 # Stdlib formal coverage
 
 The nightly matrix uses the exact solver executables supplied by its pinned OSS
-CAD Suite. Z3 4.13.4 or newer is required because Z3 4.8.12 stalls on the
-minimized AXI4 read-endpoint query. A successful formal RTL
+CAD Suite; the current exact versions are recorded in `release/status.json`.
+The historical minimum for the minimized AXI4 read-endpoint query is Z3
+4.13.4 because Z3 4.8.12 stalls. A successful formal RTL
 artifact build is not a solver result. The nightly job runs executable
 Yosys/SymbiYosys contracts and retains its JUnit, solver traces and the
 compiler-parser-owned declaration inventory. It is deliberately not a pull
@@ -33,16 +34,17 @@ Run locally with the repository's test environment:
 
 ```sh
 mkdir -p build
-python -m pytest -q -o junit_family=legacy \
+.venv/bin/python -m pytest -q -o junit_family=legacy \
   tests/integration/test_stdlib_axi4_z3.py \
   tests/integration/test_stdlib_stream_z3.py \
   tests/integration/test_ztpu_axi_burst.py::test_root_ready_valid_safety_verification_executes_with_real_sby_z3 \
   --junitxml=build/stdlib-formal.xml
-python tools/stdlib_formal_coverage.py --junit build/stdlib-formal.xml
+.venv/bin/python tools/stdlib_formal_coverage.py --junit build/stdlib-formal.xml
 ```
 
-Use Z3 4.13.4 or newer for the read-endpoint case. The test explicitly skips
-that case on older Z3; the nightly no-skips gate rejects such an environment.
+Use the exact release-status Z3 for acceptance. The test explicitly skips that
+case on versions older than the historical 4.13.4 minimum; the nightly no-skips
+gate rejects such an environment.
 
 The inventory includes every parsed stdlib module, function and declarative
 type/protocol/target item. New executable declarations enter as `unverified`;

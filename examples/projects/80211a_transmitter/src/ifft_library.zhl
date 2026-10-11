@@ -6,6 +6,9 @@
 // required by a physical single-delay SDF without inserting any intermediate
 // rounding, saturation, or narrowing.  It is a functionally exact validation
 // architecture, not yet the final one-bank storage implementation.
+// Generic parameters, inferred immutable locals, and direct `->` connections
+// are concise source forms; comments at each numerical boundary retain the
+// otherwise non-obvious width and quantization meaning.
 import std.math.complex
 import std.dsp.fft
 

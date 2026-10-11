@@ -16,7 +16,7 @@ from zlang.backend.systemverilog import (
     emit_contracts,
     emit_experimental,
 )
-from zlang.backend.systemverilog.contracts import _emit_constant
+from zlang.backend.systemverilog.syntax import sized_decimal
 from zlang.compiler import compile_source
 from zlang.formal import build_recursive_formal_design, run_verilog_formal
 from zlang.ir import expressions as expr
@@ -86,7 +86,7 @@ def _negative_contract_module():
 def test_contract_negative_constants_use_legal_shared_sv_spelling() -> None:
     module = _negative_contract_module()
     contracts = emit_contracts(module)
-    assert _emit_constant(-1, SIntType(8)) == "-8'sd1"
+    assert sized_decimal(8, -1, signed=True) == "-8'sd1"
     assert contracts.count("-8'sd1") == 2
     assert "8'sd-1" not in contracts
 
@@ -168,7 +168,7 @@ def test_negative_constant_and_switch_contracts_lint_with_verilator() -> None:
     reason="Yosys, SymbiYosys, and Z3 unavailable",
 )
 def test_contract_negative_literal_executes_through_sby_parser() -> None:
-    literal = _emit_constant(-1, SIntType(8))
+    literal = sized_decimal(8, -1, signed=True)
     source = f"""
 module NegativeContractLiteral(input clk, input signed [7:0] x);
   always @(posedge clk) assert((x == {literal}) || (x != {literal}));

@@ -215,11 +215,22 @@ def test_wifi_controller_priority_rules_are_connected_to_physical_fire() -> None
         item for item in connected.properties
         if (item.generated_from or "").startswith("priority:")
     ]
-    assert {item.generated_from for item in priorities} == {
-        "priority:accept_command>accept_emit",
-        "priority:accept_emit>accept_buffer",
-        "priority:accept_buffer>flush_tail_and_pad",
+    assert len(priorities) == 2
+    priority_edges = {
+        tuple((item.generated_from or "").removeprefix("priority:").split(">"))
+        for item in priorities
     }
+    assert all(len(edge) == 2 for edge in priority_edges)
+    assert all(
+        rule.startswith("__fsm_")
+        for edge in priority_edges
+        for rule in edge
+    )
+    assert len({rule for edge in priority_edges for rule in edge}) == 3
+    assert len(
+        {edge[0] for edge in priority_edges}
+        & {edge[1] for edge in priority_edges}
+    ) == 1
     assert all(item.non_executable_reason is None for item in priorities)
     assert all(item.source_origin is not None for item in priorities)
     rule_bindings = [

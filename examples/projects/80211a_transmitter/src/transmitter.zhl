@@ -20,6 +20,8 @@ module Ieee80211aTransmitter {
     transform : IeeeFramedIFFT64
     output_boundary : IeeeIFFTFramedOutputBoundary
 
+    // `->` connects the complete typed ready/valid interface in one statement,
+    // including reverse-direction ready; it is not a payload-only shortcut.
     command -> packet_mapper.command
     psdu -> packet_mapper.psdu
     packet_mapper.signal -> signal
