@@ -90,7 +90,7 @@ help:
 		'make test-structural    run reduced structural correctness/tool gates' \
 		'make structural-baseline measure the selected structural profile' \
 		'make community-pdf-check validate PDF and release-status identities' \
-		'make test-release-twice run two zero-skip suites and validate both JUnit files' \
+		'make test-release-twice run deterministic/performance partitions twice' \
 		'make editor-test        install locked editor dependencies and run its tests' \
 		'make editor-advisory-audit audit the complete locked editor dependency inventory' \
 		'make editor-host-test   build, audit and run the installed VSIX host smoke' \
@@ -368,7 +368,7 @@ ci-test-floor:
 	PYTHONNOUSERSITE=1 "$(PYTHON)" -S -m tools.release_status check-junit \
 		--root "$(CI_STATUS_ROOT)" \
 		--junit "$(CI_DETERMINISTIC_JUNIT)" \
-		--junit "$(CI_PERFORMANCE_JUNIT)"
+		--performance-junit "$(CI_PERFORMANCE_JUNIT)"
 
 ci-contract-smoke:
 	$(call RUN_PYTHON,ci-contract-smoke) -m pytest -q \
@@ -446,13 +446,21 @@ test-release-twice:
 	cd "$$public_root"
 	export PYTHONPATH="$$public_root"
 	"$$python_bin" -m pytest -p tools.pytest_no_skips \
-		-n "$(WORKERS)" --dist=loadscope -q --junitxml="$$report_root/release-1.xml"
+		-n "$(WORKERS)" --dist=loadscope -q -m 'not performance' \
+		--junitxml="$$report_root/release-1.xml"
+	"$$python_bin" -m pytest -p tools.pytest_no_skips -q -m performance \
+		--junitxml="$$report_root/release-performance-1.xml"
 	"$$python_bin" -m tools.release_status check \
-		--root . --junit "$$report_root/release-1.xml"
+		--root . --junit "$$report_root/release-1.xml" \
+		--performance-junit "$$report_root/release-performance-1.xml"
 	"$$python_bin" -m pytest -p tools.pytest_no_skips \
-		-n "$(WORKERS)" --dist=loadscope -q --junitxml="$$report_root/release-2.xml"
+		-n "$(WORKERS)" --dist=loadscope -q -m 'not performance' \
+		--junitxml="$$report_root/release-2.xml"
+	"$$python_bin" -m pytest -p tools.pytest_no_skips -q -m performance \
+		--junitxml="$$report_root/release-performance-2.xml"
 	"$$python_bin" -m tools.release_status check \
-		--root . --junit "$$report_root/release-2.xml"
+		--root . --junit "$$report_root/release-2.xml" \
+		--performance-junit "$$report_root/release-performance-2.xml"
 
 editor-test:
 	npm --prefix editors/vscode/zlang-hdl ci --ignore-scripts

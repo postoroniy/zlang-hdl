@@ -135,6 +135,7 @@ exclude = [
 
 required = [
   ".github/CODEOWNERS",
+  ".github/actions/setup-pdf-tools/action.yml",
   ".github/dependabot.yml",
   ".github/workflows/codeql.yml",
   ".github/workflows/ci.yml",
@@ -198,6 +199,7 @@ required = [
   "tools/public_tree.py",
   "tools/stage_release_pdf.py",
   "tests/backend/test_wide_scatter_emission.py",
+  "tests/release/test_release_status_geometry.py",
   "zlang/__init__.py",
   "zlang/native_simulation.py",
 ]

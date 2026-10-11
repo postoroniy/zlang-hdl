@@ -396,8 +396,10 @@ zlang sim examples/add.zhl --top Add --set a=200 --set b=55 \
 Each non-empty `--events` JSONL line is one simulation event. An event may add
 `"repeat": N` to apply the same updates, resets and edges for `N` consecutive
 events; `N` must be a positive integer and the expanded schedule is bounded to
-1,000,000 events. This keeps long idle or backpressure intervals declarative
-without requiring a project-specific event generator.
+1,000,000 events. The CLI retains one parsed mapping and repeat count per JSONL
+record rather than copying its nested payload `N` times. This keeps long idle
+or backpressure intervals declarative without requiring a project-specific
+event generator.
 
 `--compare-with iverilog` and `--compare-with verilator` emit the normal direct
 SystemVerilog artifact, execute it in the selected external simulator, and
@@ -1753,7 +1755,11 @@ event flags, and trace state atomically. CLI equivalents are `--set-logic` and
 represents both `U` and `X` as `x`; ZLang emits a same-width companion
 `__zlang_meta/*_u_mask` whose set bits distinguish `U`. `--trace-signal` may be
 repeated to select the traced surface, and the initial sample is emitted at
-time zero.
+time zero. The VCD is an event-index visualization: each JSONL event occupies
+two 1 ns trace ticks, reset changes precede that event's selected clock edges,
+and falling-edge, active-low, and coincident-domain levels follow the compiled
+domain contract. It does not reconstruct analog time or simulator delta-cycle
+regions that are absent from the event schedule.
 
 This is not full Verilog simulation: high impedance (`Z`), electrical
 resolution/strength, and Verilog event-region semantics are not modeled.

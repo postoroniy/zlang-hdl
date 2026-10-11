@@ -34,8 +34,8 @@ _FROZEN_MATRICES: dict[str, tuple[int, str]] = {
         "a03207b21011eb0dbc9a082ce2a7add3d11039bfe12ecb6635ee52a350016bef",
     ),
     "802_sources": (
-        7,
-        "36a191fa0a1bcf5a11ddfb1ca18f6c27f59f51958833982e0839b9992b16929b",
+        9,
+        "4623e3a4d50a09d1162ab362ce8ed638348ba27c2c1614c89ff6385b9f0c0c75",
     ),
     "literal_unsigned": (
         6,

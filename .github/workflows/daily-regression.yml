@@ -50,6 +50,8 @@ jobs:
         with:
           github-token: ${{ github.token }}
           version: "2026-09-22"
+      - name: Set up PDF inspection tools
+        uses: ./.github/actions/setup-pdf-tools
       - name: Bootstrap the repository-owned regression environment
         run: make -s ci-bootstrap
       - name: Audit and install the reviewed Linux native wheel

@@ -3,16 +3,86 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Iterator, Mapping, Sequence
+from dataclasses import dataclass
 import json
+from itertools import islice
 from pathlib import Path
 import sys
-from typing import Sequence
 
 from zlang import sim
 from zlang._version import __version__
 
 
 MAX_EXPANDED_EVENTS = 1_000_000
+
+
+@dataclass(frozen=True)
+class _EventRecord:
+    event: Mapping[str, object]
+    repeat: int
+    line_number: int
+
+
+@dataclass(frozen=True)
+class EventSchedule(Sequence[Mapping[str, object]]):
+    """A bounded JSONL schedule that retains one mapping per physical line.
+
+    Iteration expands repeat counts deterministically without allocating one
+    copied nested dictionary per logical event. The same immutable-by-contract
+    mapping may therefore be yielded more than once.
+    """
+
+    records: tuple[_EventRecord, ...]
+    event_count: int
+
+    def __len__(self) -> int:
+        return self.event_count
+
+    def __iter__(self) -> Iterator[Mapping[str, object]]:
+        for record in self.records:
+            for _ in range(record.repeat):
+                yield record.event
+
+    def __getitem__(
+        self, index: int | slice
+    ) -> Mapping[str, object] | tuple[Mapping[str, object], ...]:
+        if isinstance(index, slice):
+            start, stop, step = index.indices(self.event_count)
+            if step == 1:
+                return tuple(islice(self, start, stop))
+            return tuple(self[item] for item in range(start, stop, step))
+        normalized = index + self.event_count if index < 0 else index
+        if normalized < 0 or normalized >= self.event_count:
+            raise IndexError(index)
+        offset = 0
+        for record in self.records:
+            next_offset = offset + record.repeat
+            if normalized < next_offset:
+                return record.event
+            offset = next_offset
+        raise IndexError(index)
+
+    def with_first_updates(self, updates: Mapping[str, object]) -> EventSchedule:
+        """Apply CLI initial inputs only to logical event zero."""
+
+        if not self.records or not updates:
+            return self
+        first, *remaining = self.records
+        event = dict(first.event)
+        supplied = event.get("set", {})
+        if not isinstance(supplied, Mapping):
+            raise sim.SimulationRuntimeError("event set field must be a mapping")
+        merged = dict(updates)
+        merged.update(supplied)
+        event["set"] = merged
+        records = [_EventRecord(event, 1, first.line_number)]
+        if first.repeat > 1:
+            records.append(
+                _EventRecord(first.event, first.repeat - 1, first.line_number)
+            )
+        records.extend(remaining)
+        return EventSchedule(tuple(records), self.event_count)
 
 
 def _engine(value: str) -> str:
@@ -48,8 +118,9 @@ def _logic_assignment(value: str) -> tuple[str, str]:
     return name, payload
 
 
-def _read_events(path: Path) -> list[dict[str, object]]:
-    result: list[dict[str, object]] = []
+def _read_events(path: Path) -> EventSchedule:
+    records: list[_EventRecord] = []
+    event_count = 0
     for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
         if not line.strip():
             continue
@@ -63,36 +134,32 @@ def _read_events(path: Path) -> list[dict[str, object]]:
             raise sim.SimulationRuntimeError(
                 f"{path}:{line_number}: event must be a JSON object"
             )
-        repeat = event.pop("repeat", 1)
+        repeat = event.get("repeat", 1)
         if isinstance(repeat, bool) or not isinstance(repeat, int) or repeat <= 0:
             raise sim.SimulationRuntimeError(
                 f"{path}:{line_number}: event repeat must be a positive integer"
             )
-        if len(result) + repeat > MAX_EXPANDED_EVENTS:
+        if event_count + repeat > MAX_EXPANDED_EVENTS:
             raise sim.SimulationRuntimeError(
                 f"{path}:{line_number}: expanded event schedule exceeds "
                 f"{MAX_EXPANDED_EVENTS} events"
             )
-        result.extend(dict(event) for _ in range(repeat))
-    return result
+        normalized = dict(event)
+        normalized.pop("repeat", None)
+        records.append(_EventRecord(normalized, repeat, line_number))
+        event_count += repeat
+    return EventSchedule(tuple(records), event_count)
 
 
-def _comparison_events(arguments: argparse.Namespace) -> tuple[dict[str, object], ...]:
+def _comparison_events(
+    arguments: argparse.Namespace,
+) -> Sequence[Mapping[str, object]]:
     """Normalize the public CLI modes into the event contract used by RTL."""
 
     initial = dict(arguments.assignments)
     if arguments.events is not None:
         events = _read_events(arguments.events)
-        if events and initial:
-            first = dict(events[0])
-            updates = dict(initial)
-            supplied = first.get("set", {})
-            if not isinstance(supplied, dict):
-                raise sim.SimulationRuntimeError("event set field must be a mapping")
-            updates.update(supplied)
-            first["set"] = updates
-            events[0] = first
-        return tuple(events)
+        return events.with_first_updates(initial)
     if arguments.cycles is not None:
         count = max(arguments.cycles, 1)
         return tuple(
@@ -148,9 +215,21 @@ def _control_levels(
     resets: dict[str, tuple[int, int]] = {}
     for domain in instance.program.module.clock_domains:
         active_clock = 1 if domain.edge.value == "rising" else 0
-        clocks[domain.clock] = (1 - active_clock, active_clock)
+        clock_levels = (1 - active_clock, active_clock)
+        previous_clock = clocks.setdefault(domain.clock, clock_levels)
+        if previous_clock != clock_levels:
+            raise sim.SimulationRuntimeError(
+                f"clock '{domain.clock}' has inconsistent physical edges"
+            )
+        if domain.reset is None:
+            continue
         active_reset = 1 if domain.reset_polarity.value == "active_high" else 0
-        resets[domain.reset] = (1 - active_reset, active_reset)
+        reset_levels = (1 - active_reset, active_reset)
+        previous_reset = resets.setdefault(domain.reset, reset_levels)
+        if previous_reset != reset_levels:
+            raise sim.SimulationRuntimeError(
+                f"reset '{domain.reset}' has inconsistent physical polarities"
+            )
     return clocks, resets
 
 
@@ -159,7 +238,7 @@ def _write_vcd(
     instance: sim.Simulator,
     samples: list[dict[str, object]],
     *,
-    events: Sequence[dict[str, object]] = (),
+    events: Sequence[Mapping[str, object]] = (),
 ) -> None:
     widths = instance.trace_widths
     clocks, resets = _control_levels(instance)
@@ -188,6 +267,11 @@ def _write_vcd(
     lines = [
         "$date deterministic $end",
         "$version ZLang HDL simulation $end",
+        (
+            "$comment Event-index visualization: each simulation event occupies "
+            "two 1ns ticks; clock and reset transitions represent compiler event "
+            "semantics, not analog timing. $end"
+        ),
         "$timescale 1ns $end",
         f"$scope module {instance.program.module.name} $end",
     ]
@@ -468,9 +552,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                     instance.set_logic(name, value)
                 if arguments.trace is not None:
                     instance.enable_trace(arguments.trace_signal or None)
-                trace_events: tuple[dict[str, object], ...] = ()
+                trace_events: Sequence[Mapping[str, object]] = ()
                 if arguments.events is not None:
-                    trace_events = tuple(_read_events(arguments.events))
+                    trace_events = _read_events(arguments.events)
                     native_outputs: object = instance.run_events(
                         trace_events
                     )

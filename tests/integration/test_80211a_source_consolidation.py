@@ -1,4 +1,4 @@
-"""Canonical IEEE 802.11a source-layout and migration contracts.
+"""Canonical IEEE 802.11a source ownership and migration contracts.
 
 These cases replace the removed historical compatibility fixtures with tests
 over the one authoritative IEEE hierarchy.  They deliberately exercise
@@ -35,12 +35,16 @@ SOURCE_MODULES = {
     "controller.zhl": (
         "IeeeSignalHeader24",
         "IeeeDataFramer24",
+    ),
+    "scrambler.zhl": (
         "IeeeDataScrambler24",
         "IeeePacketFramerScrambler24",
     ),
-    "interleaver.zhl": (
+    "conv_encoder.zhl": (
         "IeeeConvolutionalEncode24",
         "IeeeConvolutionalEncoder24",
+    ),
+    "interleaver.zhl": (
         "IeeeInterleaverBlock48",
         "IeeeInterleaver48",
         "IeeeEncoderInterleaver24",
@@ -92,7 +96,7 @@ class ModuleCase:
 
 _OWNERS = {
     "IeeeDataScrambler24": (
-        "controller.zhl",
+        "scrambler.zhl",
         "IeeePacketFramerScrambler24",
     ),
     "IeeeConvolutionalEncoder24": (
@@ -276,6 +280,15 @@ def test_canonical_source_unit_has_one_ieee_authoritative_surface() -> None:
         else:
             assert actual == SOURCE_MODULES[source]
         assert all(marker not in text for marker in _RETIRED_SOURCE_MARKERS)
+
+    check_cases(((source, source) for source in SOURCE_MODULES), check, matrix="802_sources")
+
+
+def test_public_example_sources_prefer_canonical_concise_spelling() -> None:
+    """Documentation style is useful, but is not the hardware ownership ABI."""
+
+    def check(source: str) -> None:
+        text = (SOURCES / source).read_text()
         assert re.search(r"(?m)^\s*inst\s+", text) is None
         assert re.search(r"(?m)^\s*connect\s+", text) is None
         assert re.search(r"(?m)^\s*rule\s+\w+\s+when\b", text) is None
@@ -287,7 +300,8 @@ def test_canonical_source_unit_has_one_ieee_authoritative_surface() -> None:
             is None
         )
 
-    check_cases(((source, source) for source in SOURCE_MODULES), check, matrix="802_sources")
+    for source in SOURCE_MODULES:
+        check(source)
 
 
 def test_rate_and_symbol_boundary_policy_has_one_source_owner() -> None:
@@ -320,16 +334,16 @@ def test_rate_and_symbol_boundary_policy_has_one_source_owner() -> None:
         ),
         (
             ModuleCase(
-                "controller.zhl",
+                "scrambler.zhl",
                 "IeeeDataScrambler24",
-                "controller.zhl",
+                "scrambler.zhl",
                 "IeeePacketFramerScrambler24",
             ),
             {"register", "fifo", "ready_valid"},
         ),
         (
             ModuleCase(
-                "interleaver.zhl",
+                "conv_encoder.zhl",
                 "IeeeConvolutionalEncoder24",
                 "interleaver.zhl",
                 "IeeePacketEncoderInterleaver24",

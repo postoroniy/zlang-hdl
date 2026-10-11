@@ -23,6 +23,7 @@ from zlang.toolchain import lint_with_verilator
 ROOT = Path(__file__).resolve().parents[2]
 PROJECT = ROOT / "examples" / "projects" / "80211a_transmitter"
 SOURCE = PROJECT / "src" / "controller.zhl"
+SCRAMBLER_SOURCE = PROJECT / "src" / "scrambler.zhl"
 HEADER = "IeeeSignalHeader24"
 TOP = "IeeeDataFramer24"
 SCRAMBLED_TOP = "IeeePacketFramerScrambler24"
@@ -298,7 +299,7 @@ def test_ieee_scrambler_forces_tail_zero_and_restarts_packet_epoch(
     rate: int,
     length: int,
 ) -> None:
-    module = compile_file(SOURCE, top=SCRAMBLED_TOP).ir
+    module = compile_file(SCRAMBLER_SOURCE, top=SCRAMBLED_TOP).ir
     payload = bytes((0xA5 + 29 * index) & 0xFF for index in range(length))
     signals, actual = _run_packet(module, rate, payload)
     framed = _framed_words(rate, payload)
@@ -344,7 +345,7 @@ def test_framer_canonical_and_direct_sv_artifact_are_deterministic() -> None:
     ):
         assert bindings[semantic_id].physical_available
 
-    composed = compile_file(SOURCE, top=SCRAMBLED_TOP).ir
+    composed = compile_file(SCRAMBLER_SOURCE, top=SCRAMBLED_TOP).ir
     recursive = build_recursive_formal_design(composed)
     composed_artifact = emit_sv_artifact(composed, recursive_design=recursive)
     assert composed_artifact.instances
@@ -404,7 +405,7 @@ def test_framer_direct_sv_strict_lint_and_behavior(tmp_path: Path) -> None:
     composed_rtl = tmp_path / f"{SCRAMBLED_TOP}.sv"
     composed_rtl.write_text(
         emit_sv_artifact(
-            compile_file(SOURCE, top=SCRAMBLED_TOP).ir
+            compile_file(SCRAMBLER_SOURCE, top=SCRAMBLED_TOP).ir
         ).text
     )
     lint_with_verilator((composed_rtl,), SCRAMBLED_TOP)

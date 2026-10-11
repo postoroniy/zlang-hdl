@@ -29,6 +29,8 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
+      - name: Set up PDF inspection tools
+        uses: ./.github/actions/setup-pdf-tools
       - name: Bootstrap the repository-owned test environment
         run: make -s ci-bootstrap
       - name: Audit and install the reviewed Linux native wheel
@@ -127,6 +129,8 @@ jobs:
         with:
           github-token: ${{ github.token }}
           version: "2026-09-22"
+      - name: Set up PDF inspection tools
+        uses: ./.github/actions/setup-pdf-tools
       - name: Bootstrap the repository-owned regression environment
         run: make -s ci-bootstrap
       - name: Audit and install the reviewed Linux native wheel
@@ -163,6 +167,8 @@ jobs:
         with:
           github-token: ${{ github.token }}
           version: "2026-09-22"
+      - name: Set up PDF inspection tools
+        uses: ./.github/actions/setup-pdf-tools
       - name: Bootstrap the repository-owned performance environment
         run: make -s ci-bootstrap
       - name: Audit and install the reviewed Linux native wheel

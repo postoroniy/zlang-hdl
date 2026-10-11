@@ -29,7 +29,7 @@ SOURCE = (
     / "src"
     / "interleaver.zhl"
 )
-ENCODER_SOURCE = SOURCE
+ENCODER_SOURCE = SOURCE.with_name("conv_encoder.zhl")
 ENCODE_KERNEL = "IeeeConvolutionalEncode24"
 INTERLEAVE_KERNEL = "IeeeInterleaverBlock48"
 TOP = "IeeePacketEncoderInterleaver24"

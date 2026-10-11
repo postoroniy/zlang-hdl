@@ -19,11 +19,11 @@
     ]
   },
   "validation": {
-    "minimum_tests_passed": 4348,
-    "minimum_tests_collected": 4348,
+    "minimum_tests_passed": 4360,
+    "minimum_tests_collected": 4360,
     "maximum_tests_skipped": 0,
     "example_corpus": {
-      "source_files": 110,
+      "source_files": 112,
       "module_roots": 218,
       "standalone_supported": 201,
       "child_or_template_only": 17,
@@ -59,11 +59,11 @@
     "page_height_points": 841.89,
     "page_width_points": 595.28,
     "pdf": "docs/ZLang-HDL-Language-Reference.pdf",
-    "pdf_sha256": "031a63619ddf4e9a5a23816f500b38e4ca15b2162048e3c25da2272bbaea5059",
+    "pdf_sha256": "8152e26c9428898aef26e7e4d13b05312a40aface45130274569284815238322",
     "syntax_grammar_sha256": "9fb3b256b93f4678bfc68464818f257996e5022107ea88d51a7a8f2e4431a5b2",
     "sources": {
-      "docs/language-quick-reference.md": "17c128102c717567e13db018fa980cb5900a0e0297c0f7e4f47ba98213b8607d",
-      "docs/language-reference.md": "1736d77422e17e77b66e43178c607606de4d9783846643497441a7e2c75d41d6"
+      "docs/language-quick-reference.md": "a352bb74843d05f2c7797b6e4e870e4271fd2db9a626022d02a7431bed204114",
+      "docs/language-reference.md": "9e14d85094c16170df3e2fd75188c33f2fbe4d35636f8ad60a5217c546435a47"
     },
     "source_date_epoch": 1791612534
   },
