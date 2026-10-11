@@ -616,6 +616,8 @@ def test_event_set_logic_and_selective_vcd_preserve_u_x(tmp_path: Path) -> None:
     assert "$scope module __zlang_meta $end" in text
     assert "y_u_mask" in text
     assert "known $end" not in text
+    assert " clk $end" in text
+    assert " rst $end" in text
     assert "#0" in text
     assert "buuuu" not in text
     assert "bxxxx" in text

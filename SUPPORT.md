@@ -19,8 +19,8 @@ Before reporting a compiler problem, include:
 - operating system and Python version;
 - a minimal `.zhl` reproducer;
 - the complete command and structured diagnostic;
-- external tool versions when Clash, Verilator, Yosys, SBY, or a solver is
-  involved.
+- external tool versions when Verilator, Icarus, Yosys, SBY, a vendor tool, or
+  a solver is involved.
 
 The [language support matrix](docs/language-reference.md#reference-syntax-support-matrix)
 and [compiler reference](docs/language-reference.md) describe supported and

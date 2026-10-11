@@ -244,13 +244,16 @@ zlang source.zhl --check
 zlang source.zhl --top Top --systemverilog build/Top.sv
 zlang source.zhl --top Top --target sky130-fd-sc-hd --systemverilog build/Top.sv
 zlang source.zhl --top Top --verify
-zlang sim source.zhl --top Top --engine native --clock clk --cycles 100
+zlang sim source.zhl --top Top --clock clk --cycles 100
 zlang sim source.zhl --top Top --logic-state --clock clk --cycles 100
 zlang sim source.zhl --top Top --strict-uninitialized --clock clk --cycles 100
 zlang verify build/verify --mode bmc --depth 20 --work-dir build/verify-work
 zlang lock update --project zlang.toml
 zlang lsp
 ```
+
+In a `--events` JSONL schedule, `"repeat": N` repeats one event for a bounded
+positive number of steps without a project-specific generator.
 
 Ordinary native simulation retains its deterministic two-state zero seed.
 `--logic-state` enables per-bit `0`/`1`/`U`/`X`: unreset state starts as `U`,

@@ -67,3 +67,9 @@ tracked source.
 Read `docs/testing.md`, `docs/compiler-library-audit.md`,
 `docs/backends-tooling.md`, and `docs/tooling-integration-api.md` when those
 surfaces are touched.
+
+For documentation changes, use `docs/README.md` to distinguish maintained
+guides from dated evidence. Check all tracked Markdown links, but preserve
+historical versions, measurements and tool results. Current release/tool claims
+must come from `release/status.json`; public documentation must not turn a
+checked-in candidate identity into a publication claim.

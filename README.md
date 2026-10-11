@@ -138,6 +138,9 @@ complete support contract. Use the
 [language support matrix](docs/language-reference.md#reference-syntax-support-matrix)
 and [known limitations](docs/language-reference.md#reference-known-limitations)
 for the current, bounded surface.
+The [example catalog](examples/README.md) explains why small feature witnesses
+remain standalone, identifies the few real multi-file projects, and records the
+preferred concise source forms used by new examples.
 Qwen users can also rely on the tracked
 [ZLang HDL project skill](.qwen/skills/zlang-hdl/SKILL.md), which routes work to
 the same current guides and executable compiler contracts.
@@ -166,7 +169,7 @@ combination is supported or that measured FPGA timing is guaranteed.
 | Yosys/SymbiYosys/Z3 | Optional bounded/proven safety and equivalence execution |
 
 The current GitHub-hosted external-tool configuration is Verilator 5.053, Yosys
-0.69, SymbiYosys 0.69, Z3 4.13.4, and Icarus Verilog/VVP 14.0. These are
+0.69, SymbiYosys 0.69, Z3 5.1.0, and Icarus Verilog/VVP 14.0. These are
 evidence versions, not compatibility bounds; see the
 [installation chapter](docs/language-reference.md#reference-installing-toolchain-verify-the-installation) and
 machine-readable [`release/status.json`](release/status.json).
@@ -209,10 +212,11 @@ to generated Direct-SV formal harnesses without guessing RTL names.
 
 ## Documentation
 
-- [Complete Community language reference](docs/language-reference.md)
+- [Complete language reference](docs/language-reference.md)
 - [Concise language quick reference](docs/language-quick-reference.md)
 - [Printable PDF reference](docs/ZLang-HDL-Language-Reference.pdf)
 - [Formal verification workflow and evidence](docs/formal-verification.md)
+- [Standard-library formal coverage](docs/stdlib-formal-coverage.md)
 - [Non-publishing candidate and signed release process](docs/release-process.md)
 
 The compiler-owned capability registry and release CI are authoritative for

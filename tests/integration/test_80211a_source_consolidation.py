@@ -31,18 +31,16 @@ ROOT = Path(__file__).resolve().parents[2]
 SOURCES = ROOT / "examples/projects/80211a_transmitter/src"
 
 SOURCE_MODULES = {
-    "data_types.zhl": ("WifiRateCodec",),
+    "data_types.zhl": (),
     "controller.zhl": (
         "IeeeSignalHeader24",
         "IeeeDataFramer24",
+        "IeeeDataScrambler24",
         "IeeePacketFramerScrambler24",
     ),
-    "scrambler.zhl": ("IeeeDataScrambler24",),
-    "conv_encoder.zhl": (
+    "interleaver.zhl": (
         "IeeeConvolutionalEncode24",
         "IeeeConvolutionalEncoder24",
-    ),
-    "interleaver.zhl": (
         "IeeeInterleaverBlock48",
         "IeeeInterleaver48",
         "IeeeEncoderInterleaver24",
@@ -63,11 +61,9 @@ SOURCE_MODULES = {
         "IFFT64FinalQuantize",
         "IFFT64DIFExactChain",
     ),
-    "cyclic_extender.zhl": (
+    "ifft.zhl": (
         "IFFT64ReorderCPKernel",
         "IFFT64ReorderCP",
-    ),
-    "ifft.zhl": (
         "IeeeIFFTFramedInputBoundary",
         "IeeeIFFTFramedOutputBoundary",
         "IeeeIFFTInputStrip",
@@ -129,7 +125,7 @@ MODULE_CASES = tuple(
     for source, modules in SOURCE_MODULES.items()
     for module in modules
 )
-assert len(MODULE_CASES) == 32
+assert len(MODULE_CASES) == 31
 
 
 def _find_module(root, name: str):
@@ -265,7 +261,11 @@ def test_canonical_source_unit_has_one_ieee_authoritative_surface() -> None:
         path = SOURCES / source
         text = path.read_text()
         syntax = parse(text)
-        actual = tuple(module.name for module in (*syntax.submodules, syntax))
+        actual = tuple(
+            module.name
+            for module in (*syntax.submodules, syntax)
+            if module.name != "__declaration_unit__"
+        )
         if source == "ifft_library.zhl":
             # The parameterized implementation is deliberately a child/template;
             # SOURCE_MODULES lists the four concrete public roots.
@@ -290,6 +290,27 @@ def test_canonical_source_unit_has_one_ieee_authoritative_surface() -> None:
     check_cases(((source, source) for source in SOURCE_MODULES), check, matrix="802_sources")
 
 
+def test_rate_and_symbol_boundary_policy_has_one_source_owner() -> None:
+    texts = {
+        path.name: path.read_text(encoding="utf-8")
+        for path in sorted(SOURCES.glob("*.zhl"))
+    }
+    assert "fn wifi_decode_rate" in texts["data_types.zhl"]
+    assert "fn wifi_rate_supported" in texts["data_types.zhl"]
+    assert "fn wifi_symbol_slot_last" in texts["data_types.zhl"]
+    for name, text in texts.items():
+        if name == "data_types.zhl":
+            continue
+        assert "enum_decode<WifiRate>" not in text
+        assert "enum_valid<WifiRate>" not in text
+
+    assert "wifi_symbol_slot_last(packet_rate, symbol_slot)" in texts["controller.zhl"]
+    assert texts["interleaver.zhl"].count("wifi_symbol_slot_last(") == 2
+    assert "wifi_symbol_slot_last(effective_rate, input_count)" in texts["mapper.zhl"]
+    assert "wifi_decode_rate(input.payload.meta.rate)" in texts["ifft.zhl"]
+    assert "wifi_decode_rate(raw_rate)" in texts["formal.zhl"]
+
+
 @pytest.mark.parametrize(
     ("case", "required_families"),
     (
@@ -299,7 +320,7 @@ def test_canonical_source_unit_has_one_ieee_authoritative_surface() -> None:
         ),
         (
             ModuleCase(
-                "scrambler.zhl",
+                "controller.zhl",
                 "IeeeDataScrambler24",
                 "controller.zhl",
                 "IeeePacketFramerScrambler24",
@@ -308,7 +329,7 @@ def test_canonical_source_unit_has_one_ieee_authoritative_surface() -> None:
         ),
         (
             ModuleCase(
-                "conv_encoder.zhl",
+                "interleaver.zhl",
                 "IeeeConvolutionalEncoder24",
                 "interleaver.zhl",
                 "IeeePacketEncoderInterleaver24",

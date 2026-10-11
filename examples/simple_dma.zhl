@@ -19,7 +19,7 @@ module TransferEngine<AW=8> {
     mem.request.valid = start
     mem.request.payload = MemRequest {
         addr = truncate<8>(base + count)
-        data = data
+        data
         write = 1
     }
     mem.response.ready = start
@@ -36,7 +36,7 @@ module MemoryModel {
 
     mem.request.ready = accept
     mem.response.valid = mem.request.transfer
-    mem.response.payload = MemResponse { data = data }
+    mem.response.payload = MemResponse { data }
     seen = mem.response.transfer
 }
 

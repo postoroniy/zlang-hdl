@@ -52,6 +52,8 @@ fn frame_from_symbols(
     symbols : vec<48,ComplexRaw16>,
     polarity : bit
 ) -> vec<64,ComplexRaw16> {
+    // concat plus bounded generate states the fixed IEEE carrier layout
+    // directly; every range is elaborated statically into the 64-lane vector.
     concat(
         generate(i in 0..6) null_symbol(),
         generate(i in 0..5) symbols[i],
@@ -136,12 +138,9 @@ module IeeeMapperBlock64 {
     out valid : bit
     out frame : vec<64,WifiMapperComplex>
 
-    rate : WifiRate = enum_decode<WifiRate>(
-        raw_rate,
-        WifiRate.Continue
-    )
-    valid = enum_valid<WifiRate>(raw_rate)
-        & (rate != WifiRate.Continue)
+    decoded_rate = wifi_decode_rate(raw_rate)
+    rate = decoded_rate.rate
+    valid = decoded_rate.valid
     frame = ieee_mapper_frame(
         rate,
         [word0, word1, word2, word3],
@@ -155,10 +154,7 @@ module IeeeMapperFrame64 {
     in polarity : bit
     out frame : vec<64,WifiMapperComplex>
 
-    rate : WifiRate = enum_decode<WifiRate>(
-        raw_rate,
-        WifiRate.Continue
-    )
+    rate = wifi_decode_rate(raw_rate).rate
     frame = ieee_mapper_frame(
         rate,
         [word0, word1, word2, word3],
@@ -190,16 +186,12 @@ module IeeeMapper64 {
 
     incoming_rate = input.payload.meta.rate
     at_boundary = input_count == 0
-    rate_supported = (incoming_rate == WifiRate.Bpsk6)
-        | (incoming_rate == WifiRate.Qpsk12)
-        | (incoming_rate == WifiRate.Qam16_24)
+    rate_supported = wifi_rate_supported(incoming_rate)
     same_symbol_rate = at_boundary | (incoming_rate == current_rate)
     effective_rate : WifiRate = at_boundary
         ? incoming_rate
         : current_rate
-    completes = (effective_rate == WifiRate.Bpsk6)
-        | ((effective_rate == WifiRate.Qpsk12) & (input_count == 1))
-        | ((effective_rate == WifiRate.Qam16_24) & (input_count == 3))
+    completes = wifi_symbol_slot_last(effective_rate, input_count)
     metadata_shape = (input.payload.meta.symbol_first == at_boundary)
         & (input.payload.meta.symbol_last == completes)
         & ((input.payload.first == 0) | at_boundary)
@@ -213,6 +205,8 @@ module IeeeMapper64 {
     next_input_count : u2 = completes
         ? 0
         : truncate(input_count + 1)
+    // A generated vector update is the concise immutable value form.  The
+    // following rule commits that complete value only on an accepted transfer.
     next_words = generate(i in 0..3) {
         input_count == i ? input.payload.data : words[i]
     }

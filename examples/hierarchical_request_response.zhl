@@ -33,7 +33,7 @@ module Responder {
     out response_seen: bit
 
     bus.request.ready = accept_request
-    bus.response.payload = Response { data = data }
+    bus.response.payload = Response { data }
     bus.response.valid = bus.request.transfer
     response_seen = bus.response.valid
 }

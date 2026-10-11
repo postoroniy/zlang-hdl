@@ -503,7 +503,7 @@ def test_definition_projection_resolves_80211a_connection_endpoints(
     cases = (
         (source_text.index("command"), source, 14, 8, "port"),
         (source_text.index("packet_mapper"), source, 19, 5, "instance"),
-        (source_text.rindex("command"), project / "src/mapper.zhl", 361, 8, "port"),
+        (source_text.rindex("command"), project / "src/mapper.zhl", 355, 8, "port"),
     )
     session = ToolingSession()
     for position, target, target_line, target_column, kind in cases:
@@ -1451,11 +1451,11 @@ def test_references_projection_collects_exact_project_type_occurrences(
         for item in references
     ] == [
         ("data_types.zhl", 27, 8),
-        ("ifft.zhl", 47, 16),
-        ("ifft.zhl", 136, 16),
-        ("mapper.zhl", 105, 53),
-        ("mapper.zhl", 298, 16),
-        ("mapper.zhl", 345, 20),
+        ("ifft.zhl", 108, 16),
+        ("ifft.zhl", 197, 16),
+        ("mapper.zhl", 107, 53),
+        ("mapper.zhl", 292, 16),
+        ("mapper.zhl", 339, 20),
     ]
     cold_calls = calls
     assert cold_calls > 0

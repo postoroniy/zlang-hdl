@@ -22,6 +22,14 @@ Historical design-freeze documents explain past decisions; they do not
 override the current compiler. Generated SystemVerilog is an implementation
 artifact, not the definition of ZLang semantics.
 
+The private source tree's `docs/README.md` map distinguishes live product
+guidance from dated engineering evidence. Do not “repair” an old measurement,
+engineering checkpoint, release note, or backend comparison by replacing its
+recorded values with current ones. Fix current claims in the maintained guides
+and add an explicit supersession note when an archive could be mistaken for
+live guidance. `release/status.json` is the exact checked-in candidate/tool/
+artifact identity; it is not evidence that the matching tag was published.
+
 ## Work in the checkout's environment
 
 Preserve all existing tracked and untracked work. Use the checkout-local
@@ -50,7 +58,9 @@ borrow a sibling checkout's virtual environment.
 - Width, signedness, fixed-point scale, quantization, reset, clock domain,
   latency, initiation interval, and protocol ownership are exact. Never insert
   an implicit conversion, CDC, or protocol adapter.
-- Native simulation normally uses deterministic two-state startup. Use
+- `zlang sim` always selects the native runtime; there is no user-selectable
+  reference engine. Native simulation normally uses deterministic two-state
+  startup. Use
   `zlang sim --logic-state` for the per-bit `0`/`1`/`U`/`X` lattice: unreset
   registers start as `U` (never refreshed), accepted writes turn unresolved
   `U` into computed `X`, and exact controlling values still resolve uncertainty.

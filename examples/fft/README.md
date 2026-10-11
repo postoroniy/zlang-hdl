@@ -63,7 +63,7 @@ The routed evidence sweep is reproducible with:
 
 ```sh
 .venv/bin/python tools/signed_product_pipeline_qor.py \
-  --output /tmp/zlang-signed-product-qor \
+  --output build/tmp/zlang-signed-product-qor \
   --vivado "$ZLANG_VIVADO" --jobs 2
 ```
 

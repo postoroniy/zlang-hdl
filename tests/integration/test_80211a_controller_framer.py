@@ -332,7 +332,6 @@ def test_framer_canonical_and_direct_sv_artifact_are_deterministic() -> None:
     assert first.dependency_closure is not None
     assert [item.logical_path for item in first.dependency_closure.modules] == [
         "wifi80211a_transmitter.data_types",
-        "wifi80211a_transmitter.scrambler",
     ]
     bindings = {item.semantic_signal_id: item for item in first.bindings}
     for semantic_id in (

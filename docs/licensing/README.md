@@ -1,6 +1,6 @@
 # Licensing and design provenance
 
-ZLang HDL's Community compiler is distributed under
+The ZLang HDL Community distribution is provided under
 [Apache-2.0](../../LICENSE). Individual files and subtrees retain the licenses
 recorded in [REUSE.toml](../../REUSE.toml) and [NOTICE](../../NOTICE), including
 the MIT Wi-Fi reference project and the CC-BY-4.0 code of conduct.
@@ -8,15 +8,16 @@ the MIT Wi-Fi reference project and the CC-BY-4.0 code of conduct.
 The edition name does not determine ownership of a hardware design or replace
 the license applying to its source.
 
-There is one public Community compiler and language-server product. No
+There is one public ZLang HDL compiler and language-server product. No
 entitlement mechanism, restricted compiler feature, private service, or Agent
 Mode dependency is required to use the functionality in this repository. The
 machine-readable [`release/status.json`](../../release/status.json) identifies
 the current release; the baseline below records a frozen minimum Community
 boundary and is not a mutable current-version document.
 
-- [Community baseline](COMMUNITY_BASELINE.md): existing compiler features stay
-  Community, including local formal verification, exploration and proof caches.
+- [Community Edition baseline](COMMUNITY_BASELINE.md): existing compiler
+  features remain in the Community distribution, including local formal
+  verification, exploration and proof caches.
 - [Generated output](GENERATED_OUTPUT_POLICY.md): user designs, included
   libraries, helper bodies, ROM images and external-tool output are distinct
   provenance cases.

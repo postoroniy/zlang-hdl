@@ -26,6 +26,9 @@ EXCLUDED_EXAMPLE_PREFIXES = (
 )
 EXCLUDED_EXAMPLE_FILES = frozenset({"structural/test.zhl"})
 INITIALIZED_INTERNAL_WIRE = re.compile(r"(?m)^[ \t]*wire\b[^;\n]*=")
+EXAMPLE_CATALOG = EXAMPLES / "README.md"
+DECLARATIVE_CORPUS_SIZE_EXCEPTIONS = frozenset({"all_syntax.zhl"})
+MAX_REVIEWABLE_EXAMPLE_LINES = 400
 
 
 def _assert_explicit_internal_drivers(text: str, context: str) -> None:
@@ -64,7 +67,7 @@ CHILD_OR_TEMPLATE_ONLY = {
         "IFFT64DIFStageExactD4",
     ),
     (
-        "projects/80211a_transmitter/src/conv_encoder.zhl",
+        "projects/80211a_transmitter/src/interleaver.zhl",
         "IeeeConvolutionalEncoder24",
     ): ChildExpectation(
         "top-level input 'input' cannot expose (?:enum type|type .* because it contains an enum-valued field)",
@@ -86,7 +89,7 @@ CHILD_OR_TEMPLATE_ONLY = {
         "IeeePacketEncoderInterleaver24",
     ),
     (
-        "projects/80211a_transmitter/src/scrambler.zhl",
+        "projects/80211a_transmitter/src/controller.zhl",
         "IeeeDataScrambler24",
     ): ChildExpectation(
         "top-level input 'input' cannot expose (?:enum type|type .* because it contains an enum-valued field)",
@@ -167,6 +170,55 @@ def _roots():
         syntax = parse(source)
         for module in (*syntax.submodules, syntax):
             yield path, relative, source, module.name
+
+
+def _is_documented_example(path: Path, relative: str, catalog: str) -> bool:
+    if f"`{relative}`" in catalog or f"]({relative})" in catalog:
+        return True
+    for parent in path.parents:
+        if parent == EXAMPLES:
+            break
+        owner_readme = parent / "README.md"
+        if not owner_readme.is_file():
+            continue
+        owner_relative = path.relative_to(parent).as_posix()
+        owner_text = owner_readme.read_text()
+        return (
+            f"`{owner_relative}`" in owner_text
+            or f"]({owner_relative})" in owner_text
+        )
+    return False
+
+
+def test_public_example_sources_have_documented_ownership_and_bounded_size() -> None:
+    catalog = EXAMPLE_CATALOG.read_text()
+    checked: set[str] = set()
+    for path in sorted(EXAMPLES.rglob("*.zhl")):
+        relative = path.relative_to(EXAMPLES).as_posix()
+        if (
+            relative in EXCLUDED_EXAMPLE_FILES
+            or relative.startswith(EXCLUDED_EXAMPLE_PREFIXES)
+        ):
+            continue
+        assert _is_documented_example(path, relative, catalog), (
+            f"{relative} is neither listed in examples/README.md nor owned by "
+            "a focused directory README"
+        )
+        line_count = len(path.read_text().splitlines())
+        if relative not in DECLARATIVE_CORPUS_SIZE_EXCEPTIONS:
+            assert line_count <= MAX_REVIEWABLE_EXAMPLE_LINES, (
+                f"{relative} has {line_count} lines; split a real project by "
+                "domain ownership or document a reviewed declarative exception"
+            )
+        checked.add(relative)
+
+    assert "add.zhl" in checked
+    assert "projects/80211a_transmitter/src/transmitter.zhl" in checked
+    assert not any(
+        relative in EXCLUDED_EXAMPLE_FILES
+        or relative.startswith(EXCLUDED_EXAMPLE_PREFIXES)
+        for relative in checked
+    )
 
 
 @cache

@@ -4,3 +4,15 @@ schema = 1
 name = "wifi80211a_transmitter"
 version = "0.1.0"
 source-root = "src"
+
+# Target-neutral build policy for the checked-in Direct-SV witness.  The clock
+# constraint is a physical implementation request, not a claim of achieved
+# timing on any particular FPGA or standard-cell library.
+[profiles.portable]
+backend = "systemverilog"
+backend-mode = "required"
+formal-policy = "off"
+evidence-policy = "estimate_only"
+
+[profiles.portable.platform.clocks.clk]
+period-ns = 20
