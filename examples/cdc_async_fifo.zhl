@@ -1,0 +1,11 @@
+module CdcAsyncFifo {
+    clock source_clock
+    reset source_reset @ source_clock
+    clock destination_clock
+    reset destination_reset @ destination_clock
+
+    in  source      : rv<u8> @ source_clock
+    out destination : rv<u8> @ destination_clock
+
+    connect source -> destination { crossing async_fifo(4) }
+}

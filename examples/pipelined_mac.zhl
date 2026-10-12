@@ -1,0 +1,13 @@
+module PipelinedMAC {
+    clock clk
+    reset rst
+
+    in a  : u8
+    in b  : u8
+    in c  : u16
+    out y : u17
+
+    y = pipeline(2) {
+        a * b + c
+    }
+}

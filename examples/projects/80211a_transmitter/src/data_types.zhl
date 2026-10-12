@@ -1,0 +1,74 @@
+// IEEE-facing transaction types for the authoritative transmitter path.
+
+import std.stream.core
+
+enum WifiRate : bits<3> {
+    Continue = 0
+    Bpsk6 = 1
+    Qpsk12 = 2
+    Qam16_24 = 4
+}
+
+struct WifiTxCommand {
+    // The public boundary stays raw so every physical pattern is representable.
+    // enum_valid/enum_decode establish nominal validity inside the design.
+    rate : bits<3>
+    length : u12
+}
+
+struct WifiWordMeta {
+    rate : WifiRate
+    valid_bytes : u2
+    tail_mask : bits<24>
+    symbol_first : bit
+    symbol_last : bit
+}
+
+struct WifiSampleMeta {
+    rate : WifiRate
+    symbol_index : u12
+    symbol_first : bit
+    symbol_last : bit
+}
+
+// One authoritative interpretation of the sparse raw IEEE rate field.  Raw
+// bits remain at public boundaries; the nominal enum is carried only after
+// validity has been made explicit.
+struct WifiDecodedRate {
+    valid : bit
+    rate : WifiRate
+}
+
+fn wifi_decode_rate(raw : bits<3>) -> WifiDecodedRate {
+    rate = enum_decode<WifiRate>(raw, WifiRate.Continue)
+    // The bare `rate` member is struct field punning: it is equivalent to
+    // `rate = rate` and adds no hidden state or conversion.
+    WifiDecodedRate {
+        valid = enum_valid<WifiRate>(raw) & (rate != WifiRate.Continue)
+        rate
+    }
+}
+
+fn wifi_rate_supported(rate : WifiRate) -> bit {
+    (rate == WifiRate.Bpsk6)
+        | (rate == WifiRate.Qpsk12)
+        | (rate == WifiRate.Qam16_24)
+}
+
+fn wifi_symbol_slot_last(rate : WifiRate, slot : u2) -> bit {
+    (rate == WifiRate.Bpsk6)
+        | ((rate == WifiRate.Qpsk12) & (slot == 1))
+        | ((rate == WifiRate.Qam16_24) & (slot == 3))
+}
+
+// Exact raw constellation representation shared by numerical mapper helpers
+// and the historical whole-vector compatibility fixtures.
+struct ComplexRaw16 {
+    i : s16
+    q : s16
+}
+
+type WifiPsduBeat = FrameBeat<bits<24>,u2>
+type WifiFramedWord = FrameBeat<bits<24>,WifiWordMeta>
+type WifiEncodedWord = FrameBeat<bits<48>,WifiWordMeta>
+type WifiInterleavedWord = FrameBeat<bits<48>,WifiWordMeta>

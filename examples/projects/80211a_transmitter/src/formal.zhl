@@ -1,0 +1,33 @@
+// Bounded formal witness for the production IEEE SIGNAL-header implementation.
+// This wrapper adds a verification clock without changing the production
+// IeeeSignalHeader24 interface.  It calls the same typed rate-code function
+// used by that module; there is no second arithmetic reference implementation.
+
+import wifi80211a_transmitter.controller
+
+module Ieee80211aSignalFormal {
+    clock clk reset rst
+
+    in raw_rate : bits<3>
+    in length : u12
+
+    // These inferred locals are combinational aliases of the production
+    // functions; concise form does not create formal-only registers.
+    decoded_rate = wifi_decode_rate(raw_rate)
+    rate = decoded_rate.rate
+    valid = decoded_rate.valid
+        & (length != 0)
+    rate_code = ieee_signal_rate_code(rate)
+
+    assert rate_encoding @ clk {
+        ((rate == WifiRate.Continue) & (rate_code == 0))
+        | ((rate == WifiRate.Bpsk6) & (rate_code == 0b1101))
+        | ((rate == WifiRate.Qpsk12) & (rate_code == 0b0101))
+        | ((rate == WifiRate.Qam16_24) & (rate_code == 0b1001))
+    }
+    assert valid_rate @ clk { !valid | (rate != WifiRate.Continue) }
+    assert valid_length @ clk { !valid | (length != 0) }
+    cover bpsk_one_byte @ clk {
+        valid & (raw_rate == 1) & (length == 1)
+    }
+}

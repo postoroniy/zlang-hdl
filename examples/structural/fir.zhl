@@ -1,0 +1,12 @@
+// A regular compile-time-tap FIR. Coefficients are compile-time constants;
+// products and the balanced source-order sum remain real hardware.
+module FIRWitness<N=16> {
+    in samples : vec<N,u16>
+    out result : u32
+
+    coefficients : vec<N,u16> = generate(i in 0..N)
+        truncate<16>(extend<16>(i) * 3 + 1)
+    products = generate(i in 0..N)
+        extend<32>(samples[i]) * extend<32>(coefficients[i])
+    result = truncate<32>(reduce(+, products))
+}

@@ -1,0 +1,12 @@
+struct Packet {
+    data : u64
+    last : bit
+    vc   : u2
+}
+
+module PacketData {
+    in packet : Packet
+    out y     : u64
+
+    y = packet.data
+}

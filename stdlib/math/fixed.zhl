@@ -1,0 +1,94 @@
+// Reusable fixed-point combinational building blocks. Numeric semantics are
+// defined by the canonical fixed/ufixed types, not by backend code. Concrete
+// SF/UF spellings normalize to the same generic types.
+
+// These pure helpers retain the exact input type. They therefore work for any
+// comparable fixed/ufixed specialization without choosing a numerical profile.
+fn fixed_min<type T>(a : T, b : T) -> T {
+    mux(a < b, a, b)
+}
+
+fn fixed_max<type T>(a : T, b : T) -> T {
+    mux(a > b, a, b)
+}
+
+fn fixed_clamp<type T>(value : T, low : T, high : T) -> T {
+    fixed_max(low, fixed_min(value, high))
+}
+
+// Abs follows the language's exact unary-negation width rule.  Its inferred
+// result is widened when required to represent the magnitude of the most-
+// negative signed input; this helper never introduces an implicit narrowing or
+// saturation boundary.
+fn fixed_abs<type T>(value : T) {
+    mux(value < 0, -value, value)
+}
+
+// MAC retains the language's exact product and addition widths.  Its inferred
+// result type is therefore visible to optimization and may be quantized once
+// by the caller at the chosen numerical boundary.
+fn fixed_mac<type A, type B, type C>(a : A, b : B, accumulator : C) {
+    a * b + accumulator
+}
+
+// Explicit conversion helpers keep rounding and overflow visible at the call
+// site through the function name and retain FixedConvert in typed IR.
+fn fixed_quantize_floor_wrap<type T, type A>(value : A) -> T {
+    quantize<T>(value) { round floor overflow wrap }
+}
+
+fn fixed_quantize_toward_zero_wrap<type T, type A>(value : A) -> T {
+    quantize<T>(value) { round toward_zero overflow wrap }
+}
+
+fn fixed_quantize_away_zero_saturate<type T, type A>(value : A) -> T {
+    quantize<T>(value) { round away_zero overflow saturate }
+}
+
+fn fixed_quantize_nearest_even_saturate<type T, type A>(value : A) -> T {
+    quantize<T>(value) { round nearest_even overflow saturate }
+}
+module FixedAbs<W=16,F=8> {
+    in x : fixed<W,F>
+    out y : fixed<W,F>
+    y = mux(x < 0, truncate<W>(0 - x), x)
+}
+
+module FixedClamp<W=16,F=8> {
+    in x : fixed<W,F>
+    in low : fixed<W,F>
+    in high : fixed<W,F>
+    out y : fixed<W,F>
+    y = mux(x < low, low, mux(x > high, high, x))
+}
+
+module FixedMinMax<W=16,F=8> {
+    in a : fixed<W,F>
+    in b : fixed<W,F>
+    out minimum : fixed<W,F>
+    out maximum : fixed<W,F>
+    minimum = mux(a < b, a, b)
+    maximum = mux(a > b, a, b)
+}
+
+module FixedMAC<W=16,F=8> {
+    in a : fixed<W,F>
+    in b : fixed<W,F>
+    in accumulator : fixed<W*2,F*2>
+    out result : fixed<W*2+1,F*2>
+    result = a * b + accumulator
+}
+
+module FixedSaturatingAdd<W=16,F=8> {
+    in a : fixed_sat<W,F>
+    in b : fixed_sat<W,F>
+    out result : fixed_sat<W,F>
+    result = a + b
+}
+
+module UFixedSaturatingAdd<W=16,F=8> {
+    in a : ufixed_sat<W,F>
+    in b : ufixed_sat<W,F>
+    out result : ufixed_sat<W,F>
+    result = a + b
+}

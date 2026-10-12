@@ -1,0 +1,85 @@
+[build-system]
+requires = ["setuptools==84.0.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "zlang-hdl"
+dynamic = ["version"]
+description = "ZLang HDL: an experimental typed hardware design language and compiler"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+authors = [
+    {name = "Viacheslav Vinogradov"},
+]
+keywords = [
+    "hardware",
+    "hdl",
+    "systemverilog",
+    "formal-verification",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Electronic Design Automation (EDA)",
+]
+dependencies = [
+    "lark>=1.1,<2",
+    "egglog==14.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/postoroniy/zlang-hdl"
+Repository = "https://github.com/postoroniy/zlang-hdl.git"
+Issues = "https://github.com/postoroniy/zlang-hdl/issues"
+Documentation = "https://github.com/postoroniy/zlang-hdl/tree/main/docs"
+
+[project.optional-dependencies]
+native = [
+    "zlang-native-sim==0.1.0a23; platform_system == 'Linux' and platform_machine == 'x86_64'",
+]
+test = [
+    "build==1.6.1",
+    "PyYAML==6.0.3",
+    "pytest>=8,<10",
+    "pytest-xdist>=3.6,<4",
+    "setuptools>=77",
+    "z3-solver==5.1.0.0",
+]
+
+[project.scripts]
+zlang = "zlang.cli:main"
+zlang-lsp = "zlang.lsp.server:main"
+zlang-lock = "zlang.project_cli:main"
+zlang-verify = "zlang.verification_cli:main"
+
+[tool.setuptools.dynamic]
+version = {attr = "zlang._version.__version__"}
+
+[tool.setuptools.packages.find]
+include = ["zlang*"]
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-ra"
+markers = [
+    "performance: bounded compiler time/RSS regression checks",
+    "conformance: broad positive parser/semantic/canonical language-surface gate",
+    "toolchain_smoke: representative real external-tool acceptance gate",
+    "exhaustive_toolchain: exhaustive real-tool corpus/release acceptance",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Lark transformer callbacks receive grammar-owned ``meta``/``items``
+# arguments even when a particular production has no payload to consume.
+"zlang/parser/parser.py" = ["ARG002"]

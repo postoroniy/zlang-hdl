@@ -1,0 +1,97 @@
+from __future__ import annotations
+
+import hashlib
+from pathlib import Path
+import tomllib
+
+import pytest
+
+import zlang
+from zlang._version import __version__
+from zlang import cli
+
+
+ROOT = Path(__file__).resolve().parents[1]
+APACHE_2_0_CANONICAL_SHA256 = (
+    "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+)
+
+
+def test_root_license_is_unmodified_apache_2_0() -> None:
+    assert hashlib.sha256((ROOT / "LICENSE").read_bytes()).hexdigest() == (
+        APACHE_2_0_CANONICAL_SHA256
+    )
+
+
+def test_public_cli_reports_the_distribution_version(capsys) -> None:
+    with pytest.raises(SystemExit) as raised:
+        cli.main(["--version"])
+
+    assert raised.value.code == 0
+    assert capsys.readouterr().out == f"zlang {__version__}\n"
+
+
+def test_package_and_build_metadata_share_one_version_source() -> None:
+    configuration = tomllib.loads((ROOT / "pyproject.toml").read_text())
+
+    assert zlang.__version__ == __version__ == "0.1.0a23"
+    assert configuration["project"]["dynamic"] == ["version"]
+    assert configuration["project"]["license"] == "Apache-2.0"
+    assert configuration["project"]["requires-python"] == ">=3.12,<3.13"
+    assert configuration["project"]["name"] == "zlang-hdl"
+    assert configuration["project"]["scripts"]["zlang"] == "zlang.cli:main"
+    assert "zlangc" not in configuration["project"]["scripts"]
+    assert configuration["build-system"] == {
+        "requires": ["setuptools==84.0.0"],
+        "build-backend": "setuptools.build_meta",
+    }
+    assert configuration["tool"]["setuptools"]["dynamic"]["version"] == {
+        "attr": "zlang._version.__version__"
+    }
+    assert "tool" not in configuration or "maturin" not in configuration["tool"]
+    native = configuration["project"]["optional-dependencies"]["native"]
+    assert native == [
+        "zlang-native-sim==0.1.0a23; "
+        "platform_system == 'Linux' and platform_machine == 'x86_64'",
+    ]
+
+
+def test_public_language_identity_is_unambiguous() -> None:
+    assert zlang.PUBLIC_LANGUAGE_NAME == "ZLang HDL"
+    assert zlang.DISTRIBUTION_NAME == "zlang-hdl"
+    assert zlang.SOURCE_SUFFIX == ".zhl"
+    assert zlang.CLI_NAME == "zlang"
+    assert zlang.VSCODE_LANGUAGE_ID == "zlang-hdl"
+    assert zlang.MIME_TYPE == "text/x-zlang-hdl"
+
+
+def test_every_owned_hardware_source_uses_the_canonical_suffix() -> None:
+    roots = (
+        ROOT / "stdlib",
+        ROOT / "examples",
+        ROOT / "tests" / "fixtures",
+        ROOT / "docs" / "reproducers",
+        ROOT / "editors" / "vscode" / "zlang-hdl" / "examples",
+    )
+    legacy = tuple(path for root in roots for path in root.rglob("*.zl"))
+    sources = tuple(
+        path
+        for root in roots
+        for path in root.rglob("*.zhl")
+    )
+
+    assert legacy == ()
+    assert sources
+
+
+def test_80211ad_experiment_is_absent_from_community_sources() -> None:
+    # The private checkout may retain this experiment, but the Community
+    # projection must exclude it. A public export has no projection config and
+    # must not contain the experiment at all.
+    experiment = ROOT / "examples/projects/80211ad_phylayer"
+    projection = ROOT / "release/public-tree.toml"
+    if projection.is_file():
+        config = tomllib.loads(projection.read_text())
+        assert "examples/projects/80211ad_phylayer/**" in config["projection"]["exclude"]
+    else:
+        assert not experiment.exists()

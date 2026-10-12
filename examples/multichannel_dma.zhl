@@ -1,0 +1,97 @@
+import std.bus.reg
+import std.bus.axi_stream
+
+struct DMARequest { addr:uint<16> data:uint<32> write:bit }
+struct DMAResponse { data:uint<32> }
+struct DMAStatus { busy0:bit busy1:bit }
+
+module DMAChannel {
+    clock clk
+    reset rst
+    in start : bit
+    in base : uint<16>
+    in channel_id : uint<32>
+    in response_ready : bit
+    out busy : bit
+    out response_valid : bit
+    out response_data : uint<32>
+    interface mem : request_response<DMARequest,DMAResponse>{max_outstanding 2 ordering in_order}
+
+    reg address : uint<16> = 0
+    accepted : bit = mem.request.transfer
+    mem.request.valid = start
+    mem.request.payload = DMARequest{addr=truncate<16>(base+address) data=channel_id write=0}
+    mem.response.ready = response_ready
+    response_valid = mem.response.valid
+    response_data = mem.response.payload.data
+    address <- mux(accepted, truncate<16>(address+1), address)
+    busy = start
+}
+
+module DMAStreamProducer {
+    clock clk
+    reset rst
+    in valid : bit
+    in stream_data : uint<32>
+    out accepted : bit
+    interface stream : AXIStream<32>.source @clk
+    stream.t.valid = valid
+    stream.t.payload = AXIStreamBeat{data=stream_data keep=15 strb=15 last=1}
+    accepted = stream.t.ready
+}
+
+module DMAMemoryModel {
+    clock clk
+    reset rst
+    in accept : bit
+    interface mem : request_response<DMARequest,DMAResponse>{max_outstanding 2 ordering in_order}
+    mem.request.ready = accept
+    mem.response.valid = mem.request.transfer
+    mem.response.payload = DMAResponse{data=mem.request.payload.data}
+}
+
+module DMAStreamSink {
+    clock clk
+    reset rst
+    in ready : bit
+    interface stream : AXIStream<32>.sink @clk
+    out seen : bit
+    stream.t.ready = ready
+    seen = stream.t.transfer
+}
+
+module MultiChannelDMA {
+    clock clk
+    reset rst
+    in start0 : bit
+    in start1 : bit
+    in base0 : uint<16>
+    in base1 : uint<16>
+    in accept0 : bit
+    in accept1 : bit
+    in ready0 : bit
+    in ready1 : bit
+    out status : DMAStatus
+
+    inst channel0 : DMAChannel {
+        start=start0 base=base0 channel_id=0 response_ready=producer0.accepted
+    }
+    inst channel1 : DMAChannel {
+        start=start1 base=base1 channel_id=1 response_ready=producer1.accepted
+    }
+    inst producer0 : DMAStreamProducer {
+        valid=channel0.response_valid stream_data=channel0.response_data
+    }
+    inst producer1 : DMAStreamProducer {
+        valid=channel1.response_valid stream_data=channel1.response_data
+    }
+    inst memory0 : DMAMemoryModel { accept=accept0 }
+    inst memory1 : DMAMemoryModel { accept=accept1 }
+    inst sink0 : DMAStreamSink { ready=ready0 }
+    inst sink1 : DMAStreamSink { ready=ready1 }
+    connect channel0.mem -> memory0.mem { request_buffer 2 response_buffer 1 }
+    connect channel1.mem -> memory1.mem { request_buffer 2 response_buffer 1 }
+    connect producer0.stream -> sink0.stream
+    connect producer1.stream -> sink1.stream
+    status = DMAStatus{busy0=channel0.busy busy1=channel1.busy}
+}

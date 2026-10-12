@@ -1,0 +1,36 @@
+module Producer {
+    clock clk
+    reset rst
+    out tx:rv<u8>
+    tx.payload = 7
+    tx.valid = 1
+}
+
+module RequestFifo {
+    clock clk
+    reset rst
+    in rx:rv<u8>
+    out tx:rv<u8>
+    connect rx -> tx { buffer 2 }
+}
+
+module Consumer {
+    clock clk
+    reset rst
+    in rx:rv<u8>
+    out seen:u8
+    rx.ready = 1
+    seen = rx.payload
+}
+
+module ProtocolTop {
+    clock clk
+    reset rst
+    out seen:u8
+    inst producer:Producer
+    inst fifo:RequestFifo
+    inst consumer:Consumer
+    connect producer.tx -> fifo.rx
+    connect fifo.tx -> consumer.rx
+    seen = consumer.seen
+}

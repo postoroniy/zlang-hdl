@@ -1,0 +1,18 @@
+// ASIC compatibility fixtures use exactly the same vendor-neutral resource IR.
+resource AsicMultiplierMacro { class multiplier operation multiply capability hard_macro true limit multiplier_a 32 limit multiplier_b 32 binding systemverilog unsupported physical_primitive project_multiplier }
+resource AsicSRAMMacro { class block_memory operation synchronous_ram capability hard_macro true capability port_modes single.simple_dual capability synchronous_read true binding systemverilog unsupported physical_primitive project_sram }
+resource AsicPLLMacro { class clock_generator operation clock_multiply_divide capability hard_macro true capability outputs 4 capability lock true binding systemverilog unsupported physical_primitive project_pll }
+resource AsicStandardCellLogic { class standard_cell_logic operation combinational_logic capability characterized_library true binding systemverilog generic_rtl }
+target GenericAsicFamily {
+    provides AsicMultiplierMacro
+    provides AsicSRAMMacro
+    provides AsicPLLMacro
+    provides AsicStandardCellLogic
+}
+device generic_asic : GenericAsicFamily {
+    part generic-asic
+    inventory AsicMultiplierMacro 16
+    inventory AsicSRAMMacro 8
+    inventory AsicPLLMacro 2
+}
+module GenericAsicResourceLibrary {}

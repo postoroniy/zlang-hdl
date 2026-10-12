@@ -1,0 +1,65 @@
+// IEEE-authoritative packet-epoch scrambler for the bounded 6/12/24 Mbit/s
+// profile.  This stage has its own ready/valid interface, state epoch, oracle,
+// and reset contract, so it remains independently reusable and verifiable.
+
+import wifi80211a_transmitter.controller
+
+// Concise inferred locals below are immutable combinational values; only
+// lfsr_state and the FIFO are stored across cycles.
+module IeeeDataScrambler24 {
+    clock clk reset rst
+
+    in input : rv<WifiFramedWord>
+    out output : rv<WifiFramedWord>
+
+    reg lfsr_state : u7 = 0x4b
+    fifo words : fifo<WifiFramedWord,2>
+
+    s0 = input.payload.first ? 0x4b : lfsr_state
+    feedback_taps : vec<24,u7> = [
+        0x09, 0x12, 0x24, 0x48, 0x19, 0x32, 0x64, 0x41,
+        0x0b, 0x16, 0x2c, 0x58, 0x39, 0x72, 0x6d, 0x53,
+        0x2f, 0x5e, 0x35, 0x6a, 0x5d, 0x33, 0x66, 0x45
+    ]
+    // generate concisely describes the 24 independent LFSR tap evaluations;
+    // the result is still a statically bounded vector, not a runtime loop.
+    feedback = generate(i in 0..24)
+        parity(s0 & feedback_taps[i])
+    feedback_mask : bits<24> = feedback
+    next_state : u7 = feedback_mask[23:17]
+    scrambled = input.payload.data ^ feedback_mask
+    forced_data = scrambled & ~input.payload.meta.tail_mask
+    // `with` preserves every FrameBeat member and replaces only data.
+    result : WifiFramedWord = input.payload with { data = forced_data }
+
+    input.ready = words.ready
+    output.payload = words.front
+    output.valid = words.valid
+
+    accept: when input.transfer {
+        words.push(result)
+        lfsr_state <- next_state
+    }
+
+    retire: when output.transfer {
+        words.pop()
+    }
+}
+
+module IeeePacketFramerScrambler24 {
+    clock clk reset rst
+
+    in command : rv<WifiTxCommand>
+    in psdu : rv<WifiPsduBeat>
+    out signal : rv<bits<24>>
+    out data : rv<WifiFramedWord>
+
+    framer : IeeeDataFramer24
+    scrambler : IeeeDataScrambler24
+
+    command -> framer.command
+    psdu -> framer.psdu
+    framer.signal -> signal
+    framer.data -> scrambler.input
+    scrambler.output -> data
+}

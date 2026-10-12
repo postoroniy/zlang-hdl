@@ -1,0 +1,20 @@
+import std.target.xilinx.series7
+
+device xc7z030ffg676_1 : Xilinx7Series {
+    part xc7z030ffg676-1
+    inventory DSP48E1 400
+    inventory RAMB36E1 265
+    inventory RAMB18E1 530
+    inventory LUT6 78600
+    inventory FDRE 157200
+    inventory CARRY4 19650
+    inventory BUFG 32
+    inventory PLLE2_ADV 8
+    inventory MMCME2_ADV 8
+    dedicated_capacity DSP48E1 pcascade 4
+    dedicated_capacity RAMB36E1 memory_cascade 2
+    dedicated_capacity CARRY4 carry 19649
+}
+
+module Xc7z030TargetLibrary {
+}

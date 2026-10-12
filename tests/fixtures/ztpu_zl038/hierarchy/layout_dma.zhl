@@ -1,0 +1,131 @@
+// SPDX-License-Identifier: BSD-3-Clause
+
+import std.bus.axi_burst
+
+struct ZtpuLayoutAddressPair64 {
+    in_addr : u64
+    out_addr : u64
+}
+
+enum ZtpuLayoutDmaPhase {
+    Idle
+    ReadStart
+    ReadWait
+    WriteStart
+    WriteWait
+    Done
+}
+
+// The transaction controller is separate from the standard AXI helpers so the
+// layout sequencing remains visible and independently testable.
+module ZtpuLayoutDmaControl64x32 {
+    clock clk reset rst
+
+    in enable : bit
+    in layout : rv<ZtpuLayoutAddressPair64>
+
+    out read_start : bit
+    out read_address : u64
+    in read_data : rv<u32>
+    in read_last : bit
+    in read_resp : bits<2>
+
+    out write_start : bit
+    out write_address : u64
+    out write_data : u32
+    in write_done, write_error : bit
+
+    out busy, done, error : bit
+
+    reg input_address : u64 = 0
+    reg output_address : u64 = 0
+    reg buffered_data : u32 = 0
+    reg failed : bit = 0
+
+    read_failed : bit = read_data.transfer &
+        ((read_resp != 0) | (read_last == 0))
+
+    layout.ready = mux(enable, phase == ZtpuLayoutDmaPhase.Idle, 1)
+    read_data.ready = phase == ZtpuLayoutDmaPhase.ReadWait
+
+    read_start = phase == ZtpuLayoutDmaPhase.ReadStart
+    read_address = input_address
+    write_start = phase == ZtpuLayoutDmaPhase.WriteStart
+    write_address = output_address
+    write_data = buffered_data
+
+    busy = enable & (phase != ZtpuLayoutDmaPhase.Idle)
+    done = phase == ZtpuLayoutDmaPhase.Done
+    error = failed
+
+    when layout.transfer {
+        input_address <- layout.payload.in_addr
+        output_address <- layout.payload.out_addr
+    }
+    when read_data.transfer & !read_failed {
+        buffered_data <- read_data.payload
+    }
+    priority {
+        when layout.transfer { failed <- 0 }
+        when read_failed | write_error { failed <- 1 }
+    }
+
+    fsm phase : ZtpuLayoutDmaPhase = Idle {
+        Idle {
+            when layout.transfer -> ReadStart {}
+        }
+        ReadStart { -> ReadWait {} }
+        ReadWait {
+            priority {
+                when read_failed -> Done {}
+                when read_data.transfer -> WriteStart {}
+            }
+        }
+        WriteStart { -> WriteWait {} }
+        WriteWait {
+            priority {
+                when write_error -> Done {}
+                when write_done -> Done {}
+            }
+        }
+        Done { -> Idle {} }
+    }
+}
+
+// One layout entry copies one aligned 32-bit element. AXI ownership, payload
+// stability, alignment, RLAST/RRESP and BRESP handling come from the a16
+// standard-library single-beat helpers.
+module ZtpuLayoutDmaCopy64x32 {
+    clock clk reset rst
+    in enable : bit
+    in layout : rv<ZtpuLayoutAddressPair64>
+    out busy, done, error : bit
+    interface axi_read : AXI4BurstReadSubset<64,32>.master @clk
+    interface axi_write : AXI4BurstWriteSubset<64,32>.master @clk
+
+    reader : AXI4SingleBeatReader<64,32> {
+        start=control.read_start
+        address=control.read_address
+    }
+    writer : AXI4SingleBeatWriter<64,32> {
+        start=control.write_start
+        address=control.write_address
+        data=control.write_data
+    }
+    control : ZtpuLayoutDmaControl64x32 {
+        enable
+        read_last=axi_read.r.payload.last
+        read_resp=axi_read.r.payload.resp
+        write_done=writer.done
+        write_error=writer.error
+    }
+
+    layout -> control.layout
+    reader.data -> control.read_data
+    axi_read -> reader.axi
+    axi_write -> writer.axi
+
+    busy = control.busy
+    done = control.done
+    error = control.error
+}

@@ -1,0 +1,110 @@
+{
+  "records": [
+    {
+      "bram": 0,
+      "dsp": 4,
+      "ff": 16,
+      "fmax_mhz": 73.4322220590395,
+      "key": {
+        "architecture_template_identity": "std.arch.xilinx7_fir.Xilinx7SymmetricDSPCascade",
+        "backend": "direct_systemverilog",
+        "clock_period_ns": 10.0,
+        "implementation_graph_identity": "f4c6cff825f43bea7965d8456d5cbc6286557092fd4f90ddf30d294814ff30ca",
+        "pipeline_configuration_identity": "std.target.xilinx.series7.DSP48E1.unregistered",
+        "target_identity": "std.target.xilinx.xc7z030.xc7z030ffg676_1",
+        "target_part": "xc7z030ffg676-1",
+        "tool": "Vivado",
+        "tool_version": "2024.2"
+      },
+      "lut": 239,
+      "provenance": "target-aware FIR auto-candidate routed validation",
+      "stage": "routed_measurement",
+      "wns_ns": -3.618
+    },
+    {
+      "bram": 0,
+      "dsp": 4,
+      "ff": 16,
+      "fmax_mhz": 81.29420372327453,
+      "key": {
+        "architecture_template_identity": "std.arch.xilinx7_fir.Xilinx7SymmetricDSPCascade",
+        "backend": "direct_systemverilog",
+        "clock_period_ns": 10.0,
+        "implementation_graph_identity": "b024f2e6b8eee1ed48d5b478ab8530744af1003369148decfabf0a017c9a7fed",
+        "pipeline_configuration_identity": "std.target.xilinx.series7.DSP48E1.multiply_registered",
+        "target_identity": "std.target.xilinx.xc7z030.xc7z030ffg676_1",
+        "target_part": "xc7z030ffg676-1",
+        "tool": "Vivado",
+        "tool_version": "2024.2"
+      },
+      "lut": 240,
+      "provenance": "target-aware FIR auto-candidate routed validation",
+      "stage": "routed_measurement",
+      "wns_ns": -2.301
+    },
+    {
+      "bram": 0,
+      "dsp": 4,
+      "ff": 16,
+      "fmax_mhz": 103.17787866281469,
+      "key": {
+        "architecture_template_identity": "std.arch.xilinx7_fir.Xilinx7SymmetricDSPCascade",
+        "backend": "direct_systemverilog",
+        "clock_period_ns": 10.0,
+        "implementation_graph_identity": "a9ecfbaf5147fdb94f1a86fddc4b6b06729f838bc4bba6860fab0c7cadc4f3b8",
+        "pipeline_configuration_identity": "std.target.xilinx.series7.DSP48E1.multiply_output_registered",
+        "target_identity": "std.target.xilinx.xc7z030.xc7z030ffg676_1",
+        "target_part": "xc7z030ffg676-1",
+        "tool": "Vivado",
+        "tool_version": "2024.2"
+      },
+      "lut": 239,
+      "provenance": "target-aware FIR auto-candidate routed validation",
+      "stage": "routed_measurement",
+      "wns_ns": 0.308
+    },
+    {
+      "bram": 0,
+      "dsp": 4,
+      "ff": 16,
+      "fmax_mhz": 103.17787866281469,
+      "key": {
+        "architecture_template_identity": "std.arch.xilinx7_fir.Xilinx7SymmetricDSPCascade",
+        "backend": "direct_systemverilog",
+        "clock_period_ns": 10.0,
+        "implementation_graph_identity": "25918cc116fb2ecaa47d01c9b938d4e9b2d9394b7921a1934bc25e51029dade6",
+        "pipeline_configuration_identity": "std.target.xilinx.series7.DSP48E1.fully_pipelined",
+        "target_identity": "std.target.xilinx.xc7z030.xc7z030ffg676_1",
+        "target_part": "xc7z030ffg676-1",
+        "tool": "Vivado",
+        "tool_version": "2024.2"
+      },
+      "lut": 239,
+      "provenance": "target-aware FIR auto-candidate routed validation",
+      "stage": "routed_measurement",
+      "wns_ns": 0.308
+    },
+    {
+      "bram": 0,
+      "dsp": 4,
+      "ff": 37,
+      "fmax_mhz": 104.9538203190596,
+      "key": {
+        "architecture_template_identity": "std.arch.xilinx7_fir.Xilinx7SymmetricDSPCascade",
+        "backend": "direct_systemverilog",
+        "clock_period_ns": 10.0,
+        "implementation_graph_identity": "3c04df4653696e0bb4cd13bbaaa25e439c584bf46bdfbb308d284d9f7de52051",
+        "pipeline_configuration_identity": "std.target.xilinx.series7.DSP48E1.multiply_output_registered",
+        "target_identity": "std.target.xilinx.xc7z030.xc7z030ffg676_1",
+        "target_part": "xc7z030ffg676-1",
+        "tool": "Vivado",
+        "tool_version": "2024.2"
+      },
+      "lut": 255,
+      "provenance": "high-level exact-latency auto-pipeline routed validation",
+      "stage": "routed_measurement",
+      "wns_ns": 0.472
+    }
+  ],
+  "schema": "zlang-target-qor-v3"
+}

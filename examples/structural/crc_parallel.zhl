@@ -1,0 +1,148 @@
+// Reflected CRC-32 update with polynomial 0xedb88320. The coefficient
+// tables are the exact GF(2) linear transforms generated from the polynomial;
+// the source remains a pure generic parity network rather than a handwritten
+// XOR expression. Input bits are consumed least-significant first.
+fn crc32_masks_32() -> vec<32,bits<64>> {
+    [
+        0x04d101df04d101df,
+        0x09a203be09a203be,
+        0x1344077d1344077d,
+        0x26880efa26880efa,
+        0x4d101df44d101df4,
+        0x9a203be99a203be9,
+        0x3091760d3091760d,
+        0x6122ec1a6122ec1a,
+        0xc245d835c245d835,
+        0x805ab1b5805ab1b5,
+        0x046462b5046462b5,
+        0x08c8c56a08c8c56a,
+        0x11918ad411918ad4,
+        0x232315a9232315a9,
+        0x46462b5346462b53,
+        0x8c8c56a68c8c56a6,
+        0x1dc9ac921dc9ac92,
+        0x3b9359243b935924,
+        0x7726b2497726b249,
+        0xee4d6493ee4d6493,
+        0xd84bc8f9d84bc8f9,
+        0xb446902db446902d,
+        0x6c5c21846c5c2184,
+        0xd8b84309d8b84309,
+        0xb5a187ccb5a187cc,
+        0x6f920e466f920e46,
+        0xdf241c8cdf241c8c,
+        0xba9938c7ba9938c7,
+        0x71e3705171e37051,
+        0xe3c6e0a3e3c6e0a3,
+        0xc35cc098c35cc098,
+        0x826880ef826880ef
+    ]
+}
+fn crc32_output_32<O>(data : bits<128>, seed : bits<32>) -> bit {
+    source = concat(data[31:0], seed)
+    coefficients = crc32_masks_32()[O]
+    reduce(^, bitcast<vec<64,bit>>(source & coefficients))
+}
+
+fn crc32_masks_64() -> vec<32,bits<96>> {
+    [
+        0x04d101df481b4e5a481b4e5a,
+        0x09a203be90369cb590369cb5,
+        0x1344077d206d396b206d396b,
+        0x26880efa40da72d740da72d7,
+        0x4d101df481b4e5af81b4e5af,
+        0x9a203be90369cb5e0369cb5e,
+        0x3091760d4ec8d8e64ec8d8e6,
+        0x6122ec1a9d91b1cd9d91b1cd,
+        0xc245d8353b23639a3b23639a,
+        0x805ab1b53e5d896e3e5d896e,
+        0x046462b534a05c8634a05c86,
+        0x08c8c56a6940b90c6940b90c,
+        0x11918ad4d2817218d2817218,
+        0x232315a9a502e430a502e430,
+        0x46462b534a05c8604a05c860,
+        0x8c8c56a6940b90c0940b90c0,
+        0x1dc9ac92600c6fda600c6fda,
+        0x3b935924c018dfb5c018dfb5,
+        0x7726b2498031bf6a8031bf6a,
+        0xee4d649300637ed500637ed5,
+        0xd84bc8f948ddb3f048ddb3f0,
+        0xb446902dd9a029bbd9a029bb,
+        0x6c5c2184fb5b1d2cfb5b1d2c,
+        0xd8b84309f6b63a59f6b63a59,
+        0xb5a187cca5773ae8a5773ae8,
+        0x6f920e4602f53b8a02f53b8a,
+        0xdf241c8c05ea771505ea7715,
+        0xba9938c743cfa07143cfa071,
+        0x71e37051cf840eb8cf840eb8,
+        0xe3c6e0a39f081d709f081d70,
+        0xc35cc098760b74bb760b74bb,
+        0x826880efa40da72da40da72d
+    ]
+}
+
+fn crc32_output_64<O>(data : bits<128>, seed : bits<32>) -> bit {
+    source = concat(data[63:0], seed)
+    coefficients = crc32_masks_64()[O]
+    reduce(^, bitcast<vec<96,bit>>(source & coefficients))
+}
+
+fn crc32_masks_128() -> vec<32,bits<160>> {
+    [
+        0x04d101df481b4e5af182fa07eb46de2feb46de2f,
+        0x09a203be90369cb5e305f40fd68dbc5ed68dbc5e,
+        0x1344077d206d396bc60be81fad1b78bcad1b78bc,
+        0x26880efa40da72d78c17d03f5a36f1785a36f178,
+        0x4d101df481b4e5af182fa07eb46de2f1b46de2f1,
+        0x9a203be90369cb5e305f40fd68dbc5e268dbc5e2,
+        0x3091760d4ec8d8e6913c7bfd3af155ea3af155ea,
+        0x6122ec1a9d91b1cd2278f7fa75e2abd575e2abd5,
+        0xc245d8353b23639a44f1eff4ebc557abebc557ab,
+        0x805ab1b53e5d896e786125ee3ccc71783ccc7178,
+        0x046462b534a05c860140b1db92de3cde92de3cde,
+        0x08c8c56a6940b90c028163b725bc79bc25bc79bc,
+        0x11918ad4d28172180502c76e4b78f3794b78f379,
+        0x232315a9a502e4300a058edc96f1e6f296f1e6f2,
+        0x46462b534a05c860140b1db92de3cde42de3cde4,
+        0x8c8c56a6940b90c028163b725bc79bc95bc79bc9,
+        0x1dc9ac92600c6fdaa1ae8ce35cc9e9bc5cc9e9bc,
+        0x3b935924c018dfb5435d19c6b993d378b993d378,
+        0x7726b2498031bf6a86ba338d7327a6f07327a6f0,
+        0xee4d649300637ed50d74671ae64f4de1e64f4de1,
+        0xd84bc8f948ddb3f0eb6a343227d845ec27d845ec,
+        0xb446902dd9a029bb27569263a4f655f7a4f655f7,
+        0x6c5c2184fb5b1d2cbf2fdec0a2aa75c1a2aa75c1,
+        0xd8b84309f6b63a597e5fbd814554eb824554eb82,
+        0xb5a187cca5773ae80d3d810561ef092a61ef092a,
+        0x6f920e4602f53b8aebf9f80d2898cc7b2898cc7b,
+        0xdf241c8c05ea7715d7f3f01a513198f7513198f7,
+        0xba9938c743cfa0715e651a334925efc14925efc1,
+        0x71e37051cf840eb84d48ce61790d01ac790d01ac,
+        0xe3c6e0a39f081d709a919cc2f21a0359f21a0359,
+        0xc35cc098760b74bbc4a1c3820f72d89c0f72d89c,
+        0x826880efa40da72d78c17d03f5a36f17f5a36f17
+    ]
+}
+
+fn crc32_output_128<O>(data : bits<128>, seed : bits<32>) -> bit {
+    source = concat(data[127:0], seed)
+    coefficients = crc32_masks_128()[O]
+    reduce(^, bitcast<vec<160,bit>>(source & coefficients))
+}
+
+module CRCParallelWitness<N=32>
+where N == 32 || N == 64 || N == 128 {
+    in data : bits<128>
+    in seed : bits<32>
+    out crc : bits<32>
+
+    crc = if N == 32 {
+        pack(generate(output in 0..32) crc32_output_32<O=output>(data, seed))
+    } else {
+        if N == 64 {
+            pack(generate(output in 0..32) crc32_output_64<O=output>(data, seed))
+        } else {
+            pack(generate(output in 0..32) crc32_output_128<O=output>(data, seed))
+        }
+    }
+}

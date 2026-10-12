@@ -1,0 +1,15 @@
+// Exact fixed-latency dot-product experiment.  The compiler partitions the
+// typed reduction DAG and uses any remaining visible latency as exact output
+// compensation.  No compiler-selected implementation intent is used.
+module DotProductPipelined {
+    clock clk
+    reset rst
+
+    in  a : vec<8,u8>
+    in  b : vec<8,u8>
+    out y : u19
+
+    y = pipeline(8) {
+        sum(i in 0..8) a[i] * b[i]
+    }
+}

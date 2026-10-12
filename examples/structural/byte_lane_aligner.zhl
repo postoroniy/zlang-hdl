@@ -1,0 +1,9 @@
+// Correlated runtime indexes select a 32-byte window from 64 bytes.
+module ByteLaneAlignerWitness<N=32> {
+    in source : vec<64,u8>
+    in offset : u5
+    out aligned : vec<N,u8>
+
+    aligned = generate(i in 0..N)
+        source[truncate<6>(extend<6>(offset) + extend<6>(i))]
+}

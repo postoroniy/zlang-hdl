@@ -1,0 +1,80 @@
+// Bounded RTL witnesses for the compact whole-vector inverse-DFT source.
+// N=64 remains a semantic/canonical/simulator reference.  These N=8/N=16
+// modules exercise the same generic nested generate/reduce shape through the
+// physical backends without claiming that a combinational DFT is the intended
+// production FFT architecture.
+
+import std.math.complex
+
+struct IFFTComplexRaw16 {
+    i : s16
+    q : s16
+}
+
+struct IFFTRawMessage<N> {
+    new_message : bit
+    data : vec<N,IFFTComplexRaw16>
+}
+
+type IFFTSample = fixed<16,15>
+type IFFTScaledTwiddle = fixed<24,22>
+
+fn ifft_input_sample(value : IFFTComplexRaw16) -> Complex<IFFTSample> {
+    Complex {
+        re = fixed_raw(value.i)
+        im = fixed_raw(value.q)
+    }
+}
+
+fn ifft_scaled_twiddle<K,N>() -> Complex<IFFTScaledTwiddle> {
+    Complex {
+        re = quantize<IFFTScaledTwiddle>(cos((2 * pi() * K) / N) / N) {
+            round nearest_even
+            overflow saturate
+        }
+        im = quantize<IFFTScaledTwiddle>(sin((2 * pi() * K) / N) / N) {
+            round nearest_even
+            overflow saturate
+        }
+    }
+}
+
+fn ifft_bin<OUT,N>(
+    values : vec<N,Complex<IFFTSample>>
+) -> Complex<IFFTSample> {
+    complex_quantize_nearest_even_saturate<IFFTSample>(
+        sum(generate(k in 0..N)
+            values[k] * ifft_scaled_twiddle<K=OUT * k,N=N>())
+    )
+}
+
+fn ifft_output_sample(value : Complex<IFFTSample>) -> IFFTComplexRaw16 {
+    IFFTComplexRaw16 {
+        i = fixed_to_raw(value.re)
+        q = fixed_to_raw(value.im)
+    }
+}
+
+module IFFT8WholeVectorWitness {
+    in input : IFFTRawMessage<8>
+    out output : IFFTRawMessage<8>
+
+    samples = generate(k in 0..8) ifft_input_sample(input.data[k])
+    transformed = generate(n in 0..8) ifft_bin<OUT=n,N=8>(samples)
+    output = IFFTRawMessage {
+        new_message = input.new_message
+        data = generate(n in 0..8) ifft_output_sample(transformed[n])
+    }
+}
+
+module IFFT16WholeVectorWitness {
+    in input : IFFTRawMessage<16>
+    out output : IFFTRawMessage<16>
+
+    samples = generate(k in 0..16) ifft_input_sample(input.data[k])
+    transformed = generate(n in 0..16) ifft_bin<OUT=n,N=16>(samples)
+    output = IFFTRawMessage {
+        new_message = input.new_message
+        data = generate(n in 0..16) ifft_output_sample(transformed[n])
+    }
+}

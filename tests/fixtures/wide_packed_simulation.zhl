@@ -1,0 +1,25 @@
+// SPDX-License-Identifier: Apache-2.0
+
+// A wide register is storage, not a license for unbounded wide arithmetic.
+module WidePackedQueue {
+    clock clk reset rst
+    in write : bit
+    in index : u2
+    in data : bits<1067>
+    out read_data : bits<1067>
+
+    reg entries : vec<4,bits<1067>> = generate(i in 0..4) 0
+    read_data = entries[index]
+    when write { entries[index] <- data }
+}
+
+module WideIndexedCounters {
+    clock clk reset rst
+    in increment : bit
+    in index : u8
+    out count : u16
+
+    reg counts : vec<256,u16> = generate(i in 0..256) 0
+    count = counts[index]
+    when increment { counts[index] <- truncate<16>(counts[index] + 1) }
+}

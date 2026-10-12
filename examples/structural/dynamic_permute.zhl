@@ -1,0 +1,8 @@
+// Every output chooses an independent input at runtime.
+module DynamicPermuteWitness<N=8,IW=3> {
+    in data : vec<N,u8>
+    in index : vec<N,uint<IW>>
+    out result : vec<N,u8>
+
+    result = generate(i in 0..N) data[index[i]]
+}

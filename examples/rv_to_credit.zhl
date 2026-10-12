@@ -1,0 +1,9 @@
+module RvToCredit {
+  clock clk
+  reset rst
+
+  in rx: rv<u8>
+  out tx: credit<u8, 2>
+
+  connect rx -> tx { adapter rv_to_credit }
+}

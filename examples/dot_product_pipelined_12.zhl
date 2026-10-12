@@ -1,0 +1,15 @@
+// Comparison point for the eight-term dot product: eight coefficient cycles
+// plus four exact compensation cycles.  The compiler partitions the typed DAG;
+// any unused compute stages remain explicit latency compensation.
+module DotProductPipelined12 {
+    clock clk
+    reset rst
+
+    in  a : vec<8,u8>
+    in  b : vec<8,u8>
+    out y : u19
+
+    y = pipeline(12) {
+        sum(i in 0..8) a[i] * b[i]
+    }
+}

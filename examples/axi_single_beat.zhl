@@ -1,0 +1,57 @@
+// Bounded, source-owned single-beat AXI subset examples.
+import std.bus.axi_burst
+
+module AxiSingleBeatAddressExample {
+    in address : u32
+    out payload : AxiBurstAddress<32>
+    out valid : bit
+
+    command = axi_single_beat_address<32,32>(address)
+    payload = command.payload
+    valid = command.valid
+}
+
+module AxiSingleBeatAddress64Example {
+    in address : u64
+    out payload : AxiBurstAddress<64>
+    out valid : bit
+
+    command = axi_single_beat_address<64,64>(address)
+    payload = command.payload
+    valid = command.valid
+}
+
+module AxiSingleBeatReadExample {
+    clock clk reset rst
+    in start : bit
+    in address : u32
+    out busy : bit
+    out done : bit
+    out error : bit
+    out data : rv<u32>
+    interface axi : AXI4BurstReadSubset<32,32>.master @clk
+
+    reader : AXI4SingleBeatReader<32,32> { start address }
+    axi -> reader.axi
+    reader.data -> data
+    busy = reader.busy
+    done = reader.done
+    error = reader.error
+}
+
+module AxiSingleBeatWriteExample {
+    clock clk reset rst
+    in start : bit
+    in address : u32
+    in data : u32
+    out busy : bit
+    out done : bit
+    out error : bit
+    interface axi : AXI4BurstWriteSubset<32,32>.master @clk
+
+    writer : AXI4SingleBeatWriter<32,32> { start address data }
+    axi -> writer.axi
+    busy = writer.busy
+    done = writer.done
+    error = writer.error
+}

@@ -1,0 +1,51 @@
+name: Pinned EDA acceptance
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  BASH_ENV: ${{ github.workspace }}/.github/workflows/local-venv-env.sh
+
+concurrency:
+  group: eda-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  real-tools:
+    # Trusted main acceptance uses a disposable GitHub-hosted runner.
+    if: github.repository == 'postoroniy/zlang-hdl' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - name: Check out public snapshot
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Set up pinned open EDA tools
+        uses: YosysHQ/setup-oss-cad-suite@c7845bc0d335c8076aa22047e85972caa8a916df # v4
+        with:
+          github-token: ${{ github.token }}
+          version: "2026-09-22"
+      - name: Set up PDF inspection tools
+        uses: ./.github/actions/setup-pdf-tools
+      - name: Bootstrap the repository-owned EDA environment
+        run: make -s ci-bootstrap
+      - name: Audit and install the reviewed Linux native wheel
+        run: make -s native-release-install
+      - name: Run the complete regression with no unexpected skips
+        run: |
+          make -s ci-full-regression WORKERS=8 CI_JUNIT=build/eda.xml
+          make -s ci-performance-regression CI_JUNIT=build/eda-performance.xml
+          make -s ci-test-floor \
+            CI_DETERMINISTIC_JUNIT=build/eda.xml \
+            CI_PERFORMANCE_JUNIT=build/eda-performance.xml

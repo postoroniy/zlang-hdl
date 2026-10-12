@@ -1,0 +1,7 @@
+module ShiftMultiply {
+    in x : u8
+
+    out y : u16
+
+    y = x * 8
+}

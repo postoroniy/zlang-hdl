@@ -1,0 +1,71 @@
+{
+  "schema": 2,
+  "release": {
+    "channel": "alpha",
+    "repository": "https://github.com/postoroniy/zlang-hdl",
+    "version": "0.1.0a23"
+  },
+  "platform": {
+    "operating_system": "Linux",
+    "python": ">=3.12,<3.13",
+    "architecture": "x86_64"
+  },
+  "native_runtime": {
+    "version": "0.1.0a23",
+    "abi": "cp312-abi3",
+    "source_distribution": false,
+    "platforms": [
+      "manylinux_2_28_x86_64"
+    ]
+  },
+  "validation": {
+    "minimum_tests_passed": 4383,
+    "minimum_tests_collected": 4383,
+    "maximum_tests_skipped": 0,
+    "example_corpus": {
+      "source_files": 112,
+      "module_roots": 218,
+      "standalone_supported": 201,
+      "child_or_template_only": 17,
+      "direct_unsupported": 0
+    }
+  },
+  "eda_toolchain": {
+    "iverilog": "14.0",
+    "sby": "0.69",
+    "verilator": "5.053",
+    "vvp": "14.0",
+    "yosys": "0.69",
+    "z3": "5.1.0"
+  },
+  "documentation": {
+    "builder_sha256": "2b33c8bfb3c6ab377a3821a96cc7624e73e2a3449f26aeaec0376d673c24f86b",
+    "cover_height": 524,
+    "cover_sha256": "22c31a7a75b6db59293b6bf334d1499c891fb03ec5e45b5afac471116ab0d5d2",
+    "cover_width": 1983,
+    "examples": {
+      "linked_sources": 21,
+      "json_blocks": 1,
+      "python_blocks": 1,
+      "referenced_tops": 5,
+      "shell_blocks": 39,
+      "standalone_compiled": 20,
+      "syntax_fragments": 112,
+      "toml_blocks": 3,
+      "zlang_fences": 132
+    },
+    "format": "PDF-1.5",
+    "pages": 92,
+    "page_height_points": 841.89,
+    "page_width_points": 595.28,
+    "pdf": "docs/ZLang-HDL-Language-Reference.pdf",
+    "pdf_sha256": "a8977bc9ae2e41fb2788b333ef2b80bfb5c854df3c4b95bc9df08089ad8ef3f3",
+    "syntax_grammar_sha256": "9fb3b256b93f4678bfc68464818f257996e5022107ea88d51a7a8f2e4431a5b2",
+    "sources": {
+      "docs/language-quick-reference.md": "a352bb74843d05f2c7797b6e4e870e4271fd2db9a626022d02a7431bed204114",
+      "docs/language-reference.md": "290baa87aa917cb74ccd0184c38121d209decc162520938ebd9196a931c102dd"
+    },
+    "source_date_epoch": 1791813600
+  },
+  "generated_by": "tools/release_status.py"
+}

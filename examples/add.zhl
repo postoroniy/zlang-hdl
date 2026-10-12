@@ -1,0 +1,7 @@
+module Add {
+    in  a : u8
+    in  b : u8
+    out y : u9
+
+    y = a + b
+}

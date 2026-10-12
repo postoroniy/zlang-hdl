@@ -1,0 +1,38 @@
+import std.target.xilinx.series7
+
+// One exact signed product combined with one same-scale addend.  These are
+// target-neutral architecture declarations; DSP48E1 legality and emission are
+// selected from the resource definition and typed computation graph.
+architecture Xilinx7MultiplyAdd {
+    operation multiply_add
+    require_resource DSP48E1 1
+    latency 1
+    ii 1
+    use_pipeline unregistered
+}
+
+architecture Xilinx7MultiplyAddMREG {
+    operation multiply_add
+    require_resource DSP48E1 1
+    latency 2
+    ii 1
+    use_pipeline multiply_registered
+}
+
+architecture Xilinx7MultiplyAddMREGPREG {
+    operation multiply_add
+    require_resource DSP48E1 1
+    latency 3
+    ii 1
+    use_pipeline multiply_output_registered
+}
+
+architecture Xilinx7MultiplyAddFullyPipelined {
+    operation multiply_add
+    require_resource DSP48E1 1
+    latency 4
+    ii 1
+    use_pipeline fully_pipelined
+}
+
+module Xilinx7MultiplyAddArchitectureLibrary {}

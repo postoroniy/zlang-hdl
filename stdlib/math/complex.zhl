@@ -1,0 +1,65 @@
+// Ordinary generic ZLang source; the compiler and backends have no Complex
+// special case.
+struct Complex<type T> {
+    re : T
+    im : T
+}
+
+struct Butterfly<type S, type D> {
+    sum : S
+    difference : D
+}
+
+operator +<type A, type B>(a : Complex<A>, b : Complex<B>) {
+    Complex { re = a.re + b.re im = a.im + b.im }
+}
+
+operator -<type A, type B>(a : Complex<A>, b : Complex<B>) {
+    Complex { re = a.re - b.re im = a.im - b.im }
+}
+
+operator *<type A, type B>(a : Complex<A>, b : Complex<B>) {
+    Complex {
+        re = (a.re * b.re) - (a.im * b.im)
+        im = (a.re * b.im) + (a.im * b.re)
+    }
+}
+
+operator -<type T>(value : Complex<T>) {
+    Complex { re = -value.re im = -value.im }
+}
+
+// Discoverable stdlib spelling for the language-level exact nominal sum.
+// `sum(values)` and `complex_sum(values)` normalize to the same typed Reduce
+// with one frozen, overload-resolved balanced tree. No quantization occurs.
+fn complex_sum<type T,N>(values : vec<N,Complex<T>>) {
+    sum(values)
+}
+
+fn complex_quantize_nearest_even_saturate<type T, type A>(
+    value : Complex<A>
+) -> Complex<T> {
+    Complex {
+        re = quantize<T>(value.re) {
+            round nearest_even
+            overflow saturate
+        }
+        im = quantize<T>(value.im) {
+            round nearest_even
+            overflow saturate
+        }
+    }
+}
+
+// Profile-neutral quantized butterfly.  T is always explicit: the caller,
+// rather than this library, owns the numerical quantization boundary.
+fn butterfly_quantized<type T, type A, type B, type W>(
+    a : Complex<A>, b : Complex<B>, twiddle : Complex<W>
+) {
+    exact = b * twiddle
+    scaled = complex_quantize_nearest_even_saturate<T>(exact)
+    Butterfly {
+        sum = a + scaled
+        difference = a - scaled
+    }
+}

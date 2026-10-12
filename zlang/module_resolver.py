@@ -1,0 +1,487 @@
+"""Per-compilation resolution of dotted logical ZLang module imports.
+
+Source syntax names logical modules only.  Physical standard-library roots,
+project source trees, locked path dependencies, and populated Git caches are
+providers for one exact logical index; they are never reconstructed from a
+name during semantic analysis.
+
+The project/lock model intentionally depends on the small protocols in this
+module rather than the resolver depending on a particular lock-file schema.
+That keeps ordinary ``compile_source`` users on the existing std-only policy
+while allowing ``compile_file`` to inject an immutable project index later.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, replace
+from collections import OrderedDict
+import hashlib
+from pathlib import Path, PurePosixPath
+import re
+from threading import Lock
+from typing import Iterable, Protocol, runtime_checkable
+
+from zlang.common.graph import DependencyCycle, dependency_postorder
+from zlang.parser import parse
+from zlang.source_identity import SOURCE_SUFFIX, attach_source_identity
+from zlang.workspace_parse_cache import load_parse_index, publish_parse_index
+
+
+_COMPONENT = re.compile(r"[A-Za-z][A-Za-z0-9_]*\Z")
+_PARSED_SOURCE_MAX_ENTRIES = 64
+_PARSED_SOURCE_MAX_BYTES = 2 * 1024 * 1024
+_PARSED_SOURCE_CACHE: OrderedDict[tuple[str, str], tuple[object, int]] = OrderedDict()
+_PARSED_SOURCE_CACHE_BYTES = 0
+_PARSED_SOURCE_CACHE_LOCK = Lock()
+
+
+def _cached_parsed_source(logical_path: str, digest: str) -> object | None:
+    with _PARSED_SOURCE_CACHE_LOCK:
+        item = _PARSED_SOURCE_CACHE.get((logical_path, digest))
+        if item is not None:
+            _PARSED_SOURCE_CACHE.move_to_end((logical_path, digest))
+            return item[0]
+    return None
+
+
+def _remember_parsed_source(
+    logical_path: str, digest: str, parsed: object, source_bytes: int
+) -> None:
+    global _PARSED_SOURCE_CACHE_BYTES
+    if source_bytes > _PARSED_SOURCE_MAX_BYTES:
+        return
+    key = (logical_path, digest)
+    with _PARSED_SOURCE_CACHE_LOCK:
+        previous = _PARSED_SOURCE_CACHE.pop(key, None)
+        if previous is not None:
+            _PARSED_SOURCE_CACHE_BYTES -= previous[1]
+        _PARSED_SOURCE_CACHE[key] = (parsed, source_bytes)
+        _PARSED_SOURCE_CACHE_BYTES += source_bytes
+        while (
+            len(_PARSED_SOURCE_CACHE) > _PARSED_SOURCE_MAX_ENTRIES
+            or _PARSED_SOURCE_CACHE_BYTES > _PARSED_SOURCE_MAX_BYTES
+        ):
+            _, (_, removed_bytes) = _PARSED_SOURCE_CACHE.popitem(last=False)
+            _PARSED_SOURCE_CACHE_BYTES -= removed_bytes
+
+
+class ModuleResolutionError(ValueError):
+    """A logical import graph or one of its immutable sources is invalid."""
+
+
+@runtime_checkable
+class ModuleSourceRecord(Protocol):
+    """Resolver-facing shape shared by stdlib and project lock records."""
+
+    logical_path: str
+    source_path: Path
+    ast: object
+    digest: str
+    dependencies: tuple[str, ...]
+
+
+@runtime_checkable
+class ModuleResolver(Protocol):
+    """Resolve direct logical imports to a dependency-first source closure."""
+
+    def resolve(
+        self,
+        imports: Iterable[str],
+        *,
+        importer: str | None = None,  # noqa: ARG002 -- resolver protocol keyword
+    ) -> tuple[ModuleSourceRecord, ...]: ...
+
+
+@dataclass(frozen=True)
+class ModuleResolutionContext:
+    """Immutable resolver selection shared by one recursive semantic build."""
+
+    resolver: ModuleResolver
+
+
+@dataclass(frozen=True)
+class ResolvedModuleSource:
+    """One immutable indexed source used by resolver tests/project adapters.
+
+    ``source_root`` is the security boundary for the physical file.  Project
+    lock records may use their own concrete type as long as it satisfies
+    :class:`ModuleSourceRecord`; this class is not the lock-file data model.
+    """
+
+    logical_path: str
+    source_path: Path
+    source_root: Path
+    ast: object
+    digest: str
+    dependencies: tuple[str, ...]
+    package_identity: str | None = None
+    package_revision: str | None = None
+    # Editor tooling may replace a root-package source with an exact immutable
+    # in-memory snapshot.  Such records retain the physical path for source
+    # projection, but their digest is validated by the snapshot owner rather
+    # than by rereading the file on every resolver access.
+    validate_physical_digest: bool = True
+    pending_source: bytes | None = None
+    cached_imports: bool = False
+
+def annotate_source(record: ResolvedModuleSource) -> ResolvedModuleSource:
+    """Attach logical identity to declarations without changing source syntax."""
+
+    module = record.ast
+    if module is None:
+        return record
+    identity = record.logical_path
+    digest = record.digest
+
+    def annotate_unit(unit):
+        return replace(
+            unit,
+            source_identity=identity,
+            type_aliases=tuple(
+                replace(item, source_identity=identity) for item in unit.type_aliases
+            ),
+            source_hash=digest,
+            enums=tuple(replace(item, source_identity=identity) for item in unit.enums),
+            structs=tuple(replace(item, source_identity=identity) for item in unit.structs),
+            functions=tuple(replace(item, source_identity=identity) for item in unit.functions),
+            operators=tuple(replace(item, source_identity=identity) for item in unit.operators),
+            module_interfaces=tuple(
+                replace(item, source_identity=identity) for item in unit.module_interfaces
+            ),
+        )
+
+    annotated = annotate_unit(module)
+    return replace(
+        record,
+        ast=replace(
+            annotated,
+            submodules=tuple(annotate_unit(child) for child in module.submodules),
+        ),
+    )
+
+
+def validate_logical_module_path(path: str) -> tuple[str, ...]:
+    """Validate and return components of one public dotted module identity."""
+
+    parts = tuple(path.split("."))
+    if len(parts) < 2 or any(
+        not part
+        or part.startswith("_")
+        or _COMPONENT.fullmatch(part) is None
+        for part in parts
+    ):
+        raise ModuleResolutionError(f"invalid logical module path '{path}'")
+    return parts
+
+
+def load_indexed_module(
+    logical_path: str,
+    *,
+    source_root: Path,
+    relative_path: str | Path,
+    expected_digest: str | None = None,
+    package_identity: str | None = None,
+    package_revision: str | None = None,
+    defer_cached_ast: bool = False,
+) -> ResolvedModuleSource:
+    """Load one exact module-index entry with traversal/symlink containment.
+
+    The relative path is lock/manifest data, not source syntax.  Resolving the
+    candidate before reading rejects both lexical traversal and a symlink that
+    leaves the declared package source root.
+    """
+
+    validate_logical_module_path(logical_path)
+    relative = PurePosixPath(str(relative_path).replace("\\", "/"))
+    if (
+        relative.is_absolute()
+        or not relative.parts
+        or any(part in {"", ".", ".."} for part in relative.parts)
+        or relative.suffix != SOURCE_SUFFIX
+    ):
+        raise ModuleResolutionError(
+            f"invalid source path for logical module '{logical_path}': {relative_path}"
+        )
+    try:
+        root = source_root.resolve(strict=True)
+        source = (root / Path(*relative.parts)).resolve(strict=True)
+    except FileNotFoundError as error:
+        raise ModuleResolutionError(
+            f"source for logical module '{logical_path}' is unavailable: {relative_path}"
+        ) from error
+    try:
+        source.relative_to(root)
+    except ValueError:
+        raise ModuleResolutionError(
+            f"source for logical module '{logical_path}' escapes package root '{root}'"
+        ) from None
+    if not source.is_file():
+        raise ModuleResolutionError(
+            f"source for logical module '{logical_path}' is not a file: {source}"
+        )
+    try:
+        payload = source.read_bytes()
+        text = payload.decode("utf-8")
+    except (OSError, UnicodeDecodeError) as error:
+        raise ModuleResolutionError(
+            f"cannot read UTF-8 source for logical module '{logical_path}': {source}"
+        ) from error
+    digest = hashlib.sha256(payload).hexdigest()
+    if expected_digest is not None and digest != expected_digest:
+        raise ModuleResolutionError(
+            f"locked module '{logical_path}' is dirty: expected sha256:"
+            f"{expected_digest}, found sha256:{digest}"
+        )
+    parsed = _cached_parsed_source(logical_path, digest)
+    if parsed is None and defer_cached_ast:
+        cached_imports = load_parse_index(logical_path, digest)
+        if cached_imports is not None:
+            return ResolvedModuleSource(
+                logical_path,
+                source,
+                root,
+                None,
+                digest,
+                cached_imports,
+                package_identity,
+                package_revision,
+                True,
+                payload,
+                True,
+            )
+    if parsed is None:
+        parsed = attach_source_identity(parse(text), logical_path, digest)
+        _remember_parsed_source(logical_path, digest, parsed, len(payload))
+        publish_parse_index(
+            logical_path, digest, tuple(item.path for item in parsed.imports)
+        )
+    dependencies = tuple(item.path for item in parsed.imports)
+    return ResolvedModuleSource(
+        logical_path,
+        source,
+        root,
+        parsed,
+        digest,
+        dependencies,
+        package_identity,
+        package_revision,
+    )
+
+
+def _validated_record(record: ModuleSourceRecord) -> ModuleSourceRecord:
+    """Reject stale or physically escaped indexed records before use."""
+
+    logical = record.logical_path
+    validate_logical_module_path(logical)
+    source_path = Path(record.source_path)
+    root_value = getattr(record, "source_root", None)
+    if root_value is not None:
+        try:
+            root = Path(root_value).resolve(strict=True)
+            source = source_path.resolve(strict=True)
+            source.relative_to(root)
+        except FileNotFoundError as error:
+            raise ModuleResolutionError(
+                f"source for logical module '{logical}' is unavailable: {source_path}"
+            ) from error
+        except ValueError:
+            raise ModuleResolutionError(
+                f"source for logical module '{logical}' escapes package root '{root_value}'"
+            ) from None
+    if getattr(record, "validate_physical_digest", True):
+        try:
+            digest = hashlib.sha256(source_path.read_bytes()).hexdigest()
+        except OSError as error:
+            raise ModuleResolutionError(
+                f"source for logical module '{logical}' is unavailable: {source_path}"
+            ) from error
+        if digest != record.digest:
+            raise ModuleResolutionError(
+                f"locked module '{logical}' is dirty: expected sha256:{record.digest}, "
+                f"found sha256:{digest}"
+            )
+    if record.ast is None:
+        if not getattr(record, "cached_imports", False) or record.pending_source is None:
+            raise ModuleResolutionError(f"module index has no parsed source for '{logical}'")
+    else:
+        parsed_imports = tuple(item.path for item in record.ast.imports)
+        if parsed_imports != tuple(record.dependencies):
+            raise ModuleResolutionError(
+                f"module index dependency mismatch for '{logical}'"
+            )
+    return record
+
+
+def _materialize_record(record: ModuleSourceRecord) -> ModuleSourceRecord:
+    if record.ast is not None:
+        return record
+    if not isinstance(record, ResolvedModuleSource) or record.pending_source is None:
+        raise ModuleResolutionError(
+            f"module index has no parsed source for '{record.logical_path}'"
+        )
+    parsed = _cached_parsed_source(record.logical_path, record.digest)
+    if parsed is None:
+        try:
+            text = record.pending_source.decode("utf-8")
+            parsed = attach_source_identity(parse(text), record.logical_path, record.digest)
+        except UnicodeDecodeError as error:
+            raise ModuleResolutionError(
+                f"cached source for '{record.logical_path}' is not UTF-8"
+            ) from error
+    actual_imports = tuple(item.path for item in parsed.imports)
+    if actual_imports != record.dependencies:
+        raise ModuleResolutionError(
+            f"cached module index dependency mismatch for '{record.logical_path}'"
+        )
+    _remember_parsed_source(
+        record.logical_path, record.digest, parsed, len(record.pending_source)
+    )
+    return annotate_source(
+        replace(record, ast=parsed, pending_source=None, cached_imports=False)
+    )
+
+
+class StdlibModuleResolver:
+    """Compatibility resolver exposing only compiler-shipped ``std.*``."""
+
+    def resolve(
+        self,
+        imports: Iterable[str],
+        *,
+        importer: str | None = None,  # noqa: ARG002 -- resolver protocol keyword
+    ) -> tuple[ModuleSourceRecord, ...]:
+        # Import lazily to keep stdlib parsing as the sole owner of its physical
+        # checkout/install root policy and avoid an import cycle.
+        from zlang.stdlib import resolve_stdlib
+
+        requested = tuple(imports)
+        external = next((path for path in requested if not path.startswith("std.")), None)
+        if external is not None:
+            raise ModuleResolutionError(
+                f"external imports are unsupported without a locked project: '{external}'"
+            )
+        try:
+            return tuple(resolve_stdlib(requested))
+        except ValueError as error:
+            raise ModuleResolutionError(str(error)) from error
+
+
+class IndexedModuleResolver:
+    """Exact immutable root/dependency index with optional std fallback."""
+
+    def __init__(
+        self,
+        sources: Iterable[ModuleSourceRecord],
+        *,
+        package_namespaces: Iterable[str] = (),
+        include_stdlib: bool = True,
+    ) -> None:
+        index: dict[str, ModuleSourceRecord] = {}
+        casefolded: dict[str, str] = {}
+        for source in sources:
+            logical = source.logical_path
+            validate_logical_module_path(logical)
+            if logical == "std" or logical.startswith("std."):
+                raise ModuleResolutionError(
+                    "the 'std' namespace is reserved for the compiler-shipped library"
+                )
+            if logical in index:
+                raise ModuleResolutionError(
+                    f"conflicting logical module index entry '{logical}'"
+                )
+            previous = casefolded.get(logical.casefold())
+            if previous is not None and previous != logical:
+                raise ModuleResolutionError(
+                    f"case-folding logical module conflict: '{previous}' and '{logical}'"
+                )
+            index[logical] = source
+            casefolded[logical.casefold()] = logical
+
+        namespaces = tuple(sorted(set(package_namespaces)))
+        for namespace in namespaces:
+            validate_logical_module_path(namespace + ".module")
+            if namespace == "std" or namespace.startswith("std."):
+                raise ModuleResolutionError("the 'std' package namespace is reserved")
+        for index_, left in enumerate(namespaces):
+            for right in namespaces[index_ + 1 :]:
+                left_folded = left.casefold()
+                right_folded = right.casefold()
+                if (
+                    left_folded == right_folded
+                    or left_folded.startswith(right_folded + ".")
+                    or right_folded.startswith(left_folded + ".")
+                ):
+                    raise ModuleResolutionError(
+                        f"conflicting package namespaces '{left}' and '{right}'"
+                    )
+
+        self._index = index
+        self._namespaces = namespaces
+        self._stdlib = StdlibModuleResolver() if include_stdlib else None
+
+    def _load(self, logical: str) -> ModuleSourceRecord:
+        source = self._index.get(logical)
+        if source is not None:
+            return _validated_record(source)
+        if logical.startswith("std."):
+            if self._stdlib is None:
+                raise ModuleResolutionError(
+                    f"compiler-shipped import '{logical}' is unavailable in this resolver"
+                )
+            resolved = self._stdlib.resolve((logical,))
+            if not resolved:
+                raise ModuleResolutionError(f"unknown standard library module '{logical}'")
+            return resolved[-1]
+        owner = next(
+            (
+                namespace
+                for namespace in self._namespaces
+                if logical == namespace or logical.startswith(namespace + ".")
+            ),
+            None,
+        )
+        if owner is not None:
+            raise ModuleResolutionError(
+                f"unknown module '{logical}' in declared package '{owner}'"
+            )
+        raise ModuleResolutionError(f"undeclared logical import '{logical}'")
+
+    def resolve(
+        self,
+        imports: Iterable[str],
+        *,
+        importer: str | None = None,  # noqa: ARG002 -- resolver protocol keyword
+        materialize: bool = True,
+    ) -> tuple[ModuleSourceRecord, ...]:
+        loaded: dict[str, ModuleSourceRecord] = {}
+
+        def dependencies(logical: str) -> tuple[str, ...]:
+            validate_logical_module_path(logical)
+            source = loaded.get(logical)
+            if source is None:
+                source = self._load(logical)
+                loaded[logical] = source
+            return source.dependencies
+
+        try:
+            ordered = dependency_postorder(imports, dependencies)
+        except DependencyCycle as error:
+            raise ModuleResolutionError(f"logical import cycle: {error}") from error
+        if not materialize:
+            return tuple(loaded[logical] for logical in ordered)
+        return tuple(_materialize_record(loaded[logical]) for logical in ordered)
+
+
+__all__ = [
+    "IndexedModuleResolver",
+    "ModuleResolutionContext",
+    "ModuleResolutionError",
+    "ModuleResolver",
+    "ModuleSourceRecord",
+    "ResolvedModuleSource",
+    "StdlibModuleResolver",
+    "attach_source_identity",
+    "annotate_source",
+    "load_indexed_module",
+    "validate_logical_module_path",
+]

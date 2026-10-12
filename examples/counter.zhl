@@ -1,0 +1,10 @@
+module Counter {
+    clock clk
+    reset rst
+
+    reg count : u8 = 0
+    out y     : u8
+
+    y = count
+    count <- truncate<8>(count + 1)
+}

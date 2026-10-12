@@ -1,0 +1,19 @@
+// Compatibility stream profile separated from profile-neutral numerical math.
+// Raw ready/valid ports keep this numerical adapter independent of one
+// aggregate bus declaration.  This is the reusable kernel; aggregate-member
+// child binding remains a documented compiler boundary.
+import std.math.complex
+
+module ComplexQuantizeStream37_32To18_16 {
+    clock clk
+    reset rst
+    in input : rv<Complex<fixed<37,32>>>
+    out output : rv<Complex<fixed<18,16>>>
+
+    output.valid = input.valid
+    output.payload =
+        complex_quantize_nearest_even_saturate<fixed<18,16>>(
+            input.payload
+        )
+    input.ready = output.ready
+}

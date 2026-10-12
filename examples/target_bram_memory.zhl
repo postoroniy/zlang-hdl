@@ -1,0 +1,19 @@
+// Generic synchronous memory semantics with an optional manual Xilinx mapping.
+module TargetBRAMMemory {
+    clock clk
+    reset rst
+    in read_address : u10
+    in write_enable : bit
+    in write_address : u10
+    in write_data : u36
+    out read_data : u36
+    memory storage : mem<u36,1024> {
+        read_latency 1
+        collision read_first
+    }
+    storage.read_address = read_address
+    storage.write_enable = write_enable
+    storage.write_address = write_address
+    storage.write_data = write_data
+    read_data = storage.read_data
+}

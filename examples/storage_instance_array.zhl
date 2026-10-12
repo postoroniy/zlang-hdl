@@ -1,0 +1,108 @@
+// Two physical instances share one specialization but own independent FIFOs.
+module FifoLane {
+    clock clk
+    reset rst
+
+    in data : u8
+    in push : bit
+    in pop  : bit
+    out front : u8
+
+    fifo queue : fifo<u8,2>
+    queue.data = data
+    queue.push = push
+    queue.pop = pop
+    front = queue.front
+}
+
+module FifoLaneArray {
+    clock clk
+    reset rst
+
+    in data  : vec<2,u8>
+    in push  : vec<2,bit>
+    in pop   : vec<2,bit>
+    out front : vec<2,u8>
+
+    inst lane[2] : FifoLane
+
+    generate(i in 0..2) {
+        lane[i].data = data[i]
+        lane[i].push = push[i]
+        lane[i].pop = pop[i]
+    }
+
+    front = generate(i in 0..2) lane[i].front
+}
+
+// The same structural array lowering reuses the existing closed synchronous
+// memory component.  Each physical lane owns independent cells/read state.
+module MemoryLane {
+    clock clk
+    reset rst
+
+    in read_address  : u1
+    in write_enable  : bit
+    in write_address : u1
+    in write_data    : u8
+    out read_data    : u8
+
+    memory table : mem<u8,2> {
+        read_latency 1
+        collision write_first
+    }
+    table.read_address = read_address
+    table.write_enable = write_enable
+    table.write_address = write_address
+    table.write_data = write_data
+    read_data = table.read_data
+}
+
+module MemoryLaneArray {
+    clock clk
+    reset rst
+
+    in read_address  : vec<2,u1>
+    in write_enable  : vec<2,bit>
+    in write_address : vec<2,u1>
+    in write_data    : vec<2,u8>
+    out read_data    : vec<2,u8>
+
+    inst lane[2] : MemoryLane
+    generate(i in 0..2) {
+        lane[i].read_address = read_address[i]
+        lane[i].write_enable = write_enable[i]
+        lane[i].write_address = write_address[i]
+        lane[i].write_data = write_data[i]
+    }
+    read_data = generate(i in 0..2) lane[i].read_data
+}
+
+// Immutable contents are shared by specialization; the registered read state
+// is still owned independently by each physical lane.
+module RomLane {
+    clock clk
+    reset rst
+    in address : u1
+    out data : u8
+
+    rom table : rom<u8,2> {
+        read_latency 1
+        init generate(i in 0..2) truncate<8>(extend<8>(i) + 10)
+    }
+    table.read_address = address
+    data = table.read_data
+}
+
+module RomLaneArray {
+    clock clk
+    reset rst
+    in address : vec<2,u1>
+    out data : vec<2,u8>
+
+    inst lane[2] : RomLane
+    generate(i in 0..2) {
+        lane[i].address = address[i]
+    }
+    data = generate(i in 0..2) lane[i].data
+}

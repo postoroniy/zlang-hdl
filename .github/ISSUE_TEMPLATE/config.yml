@@ -1,0 +1,9 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Support and usage questions
+    url: https://github.com/postoroniy/zlang-hdl/discussions
+    about: Ask questions and discuss designs without opening a defect.
+  - name: Security vulnerability
+    url: https://github.com/postoroniy/zlang-hdl/security/advisories/new
+    about: Report security issues privately. Do not open a public issue.
+

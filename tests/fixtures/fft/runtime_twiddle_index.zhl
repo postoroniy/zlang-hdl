@@ -1,0 +1,44 @@
+// Historical minimal blocker extracted from the numerical radix-2 DIT SDF
+// stage.  It is retained here as an accepted regression fixture.
+// The full-period phase counter is state, while the twiddle table address is
+// its range-reduced low part.  Runtime vector reads now preserve the typed
+// register-derived expression and its proven 0..D-1 range.
+import std.math.complex
+
+module FFTSDFTwiddleLookup<type Twiddle,D=4,CW=3,IW=2> {
+    clock clk
+    reset rst
+
+    in advance : bit
+    in twiddles : vec<D,Complex<Twiddle>>
+    out selected : Complex<Twiddle>
+
+    reg phase_counter : uint<CW> = 0
+
+    twiddle_slot = truncate<IW>(phase_counter)
+    selected = twiddles[twiddle_slot]
+
+    rule step when advance {
+        phase_counter <-
+            phase_counter == ((D * 2) - 1)
+                ? 0
+                : truncate<CW>(phase_counter + 1)
+    }
+}
+
+module FFTSDFTwiddleLookupProbe {
+    clock clk
+    reset rst
+    in advance : bit
+    in twiddles : vec<4,Complex<fixed<16,14>>>
+    out selected : Complex<fixed<16,14>>
+
+    inst lookup : FFTSDFTwiddleLookup<
+        Twiddle=fixed<16,14>,D=4,CW=3,IW=2
+    > {
+        advance
+        twiddles
+    }
+
+    selected = lookup.selected
+}

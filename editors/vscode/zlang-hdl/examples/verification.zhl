@@ -1,0 +1,43 @@
+// Executable lexical/capability witness for first-class verification UX.
+// The declaration words below are contextual: they may still be ordinary
+// identifiers outside their declaration positions.
+module VerificationUxSyntax {
+    clock clk
+    reset rst
+
+    in legal : bit
+    out ok : bit
+
+    reg count : u2 = 0
+    count <- truncate<2>(count + 1)
+    ok = count <= 3
+
+    assert count_within @ clk {
+        count <= 3
+    }
+
+    cover reaches_three @ clk {
+        count == 3
+    }
+
+    contract public_behavior @ clk {
+        require legal_input {
+            legal
+        }
+
+        ensure output_ok {
+            ok
+        }
+
+        cover accepted {
+            ok & legal
+        }
+    }
+}
+
+module VerificationWordsRemainIdentifiers {
+    in assert, cover, contract, require, ensure : bit
+    out y : bit
+
+    y = assert & cover | contract & require | ensure
+}

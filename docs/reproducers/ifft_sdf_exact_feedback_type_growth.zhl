@@ -1,0 +1,34 @@
+// Minimal production-IFFT blocker: an exact radix-2 DIF-SDF feedback delay is
+// phase-polymorphic.  It first stores an input Sample and later stores the
+// exact difference of that delayed value and the next Sample.
+//
+// With Sample=fixed<16,15>, a fixed<17,15> cell can represent the first exact
+// difference.  Reading that cell through its declared fixed<17,15> type and
+// subtracting the next input, however, has the exact ZLang result type
+// fixed<18,15>.  The FIFO storage boundary consequently inserts a narrowing
+// FixedConvert back to fixed<17,15>.  Increasing CELL_W does not close the
+// recurrence: fixed<CELL_W,15> - fixed<16,15> is fixed<CELL_W+1,15>.
+//
+// Such narrowing is legal ordinary ZLang storage semantics, but it violates
+// the accepted production-IFFT contract, which permits no intermediate wrap,
+// saturation, rounding, or narrowing.  D=4 and D=8 therefore hit the same
+// type-level blocker before numerical/backend validation.
+module IFFTExactFeedbackTypeGrowth<D=4> {
+    clock clk
+    reset rst
+
+    in fire : bit
+    in sample : fixed<16,15>
+    out stored : fixed<17,15>
+
+    fifo feedback : fifo<fixed<17,15>,D>
+
+    exact_difference = feedback.front - sample
+
+    rule update_feedback when fire {
+        feedback.pop()
+        feedback.push(exact_difference)
+    }
+
+    stored = feedback.front
+}
