@@ -1,0 +1,16 @@
+import std.bus.reg
+import std.bus.axi_lite
+
+module AxiCsrTop {
+    clock clk
+    reset rst
+    interface axi : AXI4Lite<32,32>.slave @clk
+
+    inst frontend : AXI4LiteToRegBus<32,32>
+    inst csr      : RegBusCSRTarget<32,32>
+
+    connect axi -> frontend.axi
+    connect frontend.regbus -> csr.regbus
+    out done : bit
+    done = csr.done
+}

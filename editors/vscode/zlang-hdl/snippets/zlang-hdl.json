@@ -1,0 +1,78 @@
+{
+  "Clocked module": {
+    "prefix": "zmodule",
+    "description": "File scope: module with clock/reset and a typed pass-through; remove clock/reset for a combinational-only module.",
+    "body": [
+      "module ${1:ModuleName} {",
+      "\tclock ${2:clk} reset ${3:rst}",
+      "\tin ${4:x} : ${5:u8}",
+      "\tout ${6:y} : $5 = $4",
+      "\t$0",
+      "}"
+    ]
+  },
+  "Pure function": {
+    "prefix": "zfn",
+    "description": "File scope: pure function with an inferred final-expression result; the default u8 addition returns u9.",
+    "body": [
+      "fn ${1:add}(${2:a} : ${3:u8}, ${4:b} : $3) {",
+      "\t$2 + $4$0",
+      "}"
+    ]
+  },
+  "Register": {
+    "prefix": "zreg",
+    "description": "Module scope with clock/reset: reset-initialized register; use <- or a when rule to update it.",
+    "body": [
+      "reg ${1:count} : ${2:u8} = ${3:0}$0"
+    ]
+  },
+  "Named when rule": {
+    "prefix": "zwhen",
+    "description": "Module scope with clock/reset, enable:bit and count:u8 register: named atomic increment with explicit truncation.",
+    "body": [
+      "${1:step}: when ${2:enable} {",
+      "\t${3:count} <- truncate($3 + ${4:1})$0",
+      "}"
+    ]
+  },
+  "Fixed pipeline": {
+    "prefix": "zpipeline",
+    "description": "Expression position in a clock/reset module: fixed two-stage u9 sum when a and b are u8.",
+    "body": [
+      "pipeline(${1:2}) {",
+      "\t${2:a + b}$0",
+      "}"
+    ]
+  },
+  "Assertion": {
+    "prefix": "zassert",
+    "description": "Module scope with clock clk/reset and ok:bit: assertion declaration; compilation alone does not prove it.",
+    "body": [
+      "assert ${1:output_ok} @ ${2:clk} {",
+      "\t${3:ok}$0",
+      "}"
+    ]
+  },
+  "Contract": {
+    "prefix": "zcontract",
+    "description": "Module scope with clock clk/reset and legal, ok:bit: named assumption and guarantee; verification is separate.",
+    "body": [
+      "contract ${1:behavior} @ ${2:clk} {",
+      "\trequire ${3:legal_input} { ${4:legal} }",
+      "\tensure ${5:output_ok} { ${6:ok} }",
+      "\t$0",
+      "}"
+    ]
+  },
+  "Ready-valid pass-through": {
+    "prefix": "zrv",
+    "description": "Module scope: declare matching ready/valid ports and connect them without buffering or added latency.",
+    "body": [
+      "in ${1:rx} : rv<${2:u8}>",
+      "out ${3:tx} : rv<$2>",
+      "",
+      "connect $1 -> $3$0"
+    ]
+  }
+}

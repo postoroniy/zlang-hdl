@@ -1,0 +1,12 @@
+fn tap(sample : u8, coefficient : u8) -> u16 {
+    sample * coefficient
+}
+
+module FIR2 {
+    in samples      : vec<2, u8>
+    in coefficients : vec<2, u8>
+    out y           : u17
+
+    y = tap(samples[0], coefficients[0])
+      + tap(samples[1], coefficients[1])
+}

@@ -1,0 +1,17 @@
+module FifoBridge {
+  clock clk
+  reset rst
+
+  in rx: rv<u8>
+  out tx: rv<u8>
+
+  fifo queue: fifo<u8, 4>
+
+  queue.data = rx.payload
+  queue.push = rx.transfer
+  queue.pop = tx.transfer
+
+  rx.ready = queue.ready
+  tx.payload = queue.front
+  tx.valid = queue.valid
+}

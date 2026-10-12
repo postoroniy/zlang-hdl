@@ -1,0 +1,118 @@
+# Contributing to ZLang HDL
+
+Thank you for helping improve ZLang HDL. The project welcomes focused bug reports,
+documentation corrections, tests, and bounded compiler changes.
+
+## Before opening a change
+
+- Search existing issues and the [language support matrix](docs/language-reference.md#reference-syntax-support-matrix).
+- Keep one pull request focused on one independently testable change.
+- Discuss broad language, IR, backend, or formal-semantics changes in an issue
+  before implementation.
+- Do not weaken fail-closed diagnostics, formal expectations, or existing tests
+  to make a new feature pass.
+- State the origin and license of any third-party code, fixtures, algorithms, or
+  generated data included in the change.
+
+## Development setup
+
+ZLang's supported development environment is Linux x86-64 with CPython
+`>=3.12,<3.13`. The recommended `uv` workflow provisions that runtime without
+requiring a version-suffixed Python command from the host:
+
+```bash
+uv python install 3.12
+uv venv --python 3.12
+uv pip install -e '.[test]'
+.venv/bin/python -m pytest -q
+```
+
+Each checkout and Git worktree owns its own `.venv`; never borrow an
+interpreter from a sibling checkout.  The supported bootstrap command is
+`make venv`, followed by `source .venv/bin/activate` for interactive work.
+Make targets always select the local environment themselves and fail closed if
+an unrelated `VIRTUAL_ENV` is active.
+
+See the [installation chapter](docs/language-reference.md#reference-installing-toolchain) for a conventional
+`venv`/pip alternative, WSL2 setup and optional external EDA tools.
+
+Focused tests should be run serially while debugging. The repository Makefile
+provides the canonical local gates:
+
+```bash
+make static
+make test-fast
+make test
+```
+
+`WORKERS` is overridable, for example `make test WORKERS=4`; `PYTHON` is
+intentionally pinned to this checkout's `.venv`. `make release-candidate` runs the license
+and dependency audits, pinned-tool check, two-pass zero-skip regression, editor
+tests and reproducible package build, but never creates a tag or publishes
+anything.
+
+Tests requiring Verilator, Yosys, SymbiYosys, Z3, or Icarus Verilog must report tool
+absence explicitly. Release and dedicated toolchain jobs require the pinned
+tools and do not accept an unexpected skip.
+
+Before calling a source change complete:
+
+1. Compile the exact top with `--check`.
+2. Run focused parser, semantic, canonical, and simulator tests.
+3. Exercise production Direct-SV with strict Verilator.
+4. Run applicable formal tests without inventing new claims.
+5. Run the regression gate and `git diff --check` required by the change.
+
+## Building the language-reference PDF
+
+This is a documentation-maintainer workflow, not a prerequisite for installing
+or using ZLang. Install Pandoc, XeLaTeX, qpdf, and Poppler tools, then build
+the PDF with the cover asset supplied to the builder:
+
+```bash
+python tools/build_community_pdf.py --root . --cover /path/to/ZLang-HDL_cover.jpg
+python tools/build_community_pdf.py --root . --check
+```
+
+The builder validates examples and links and checks reproducibility. Review the
+rendered pages before publishing the generated artifact.
+
+## Pull requests
+
+A pull request should include:
+
+- the reason for the change and its user-visible behavior;
+- focused positive and negative tests;
+- backend, simulator, canonical-IR, and formal coverage where applicable;
+- documentation for changed public behavior;
+- a note describing compatibility and any deliberate deferral.
+
+All commits must satisfy the
+[Developer Certificate of Origin 1.1](https://developercertificate.org/).
+Add a sign-off using your real name and an email address you control:
+
+```text
+Signed-off-by: Your Name <you@example.com>
+```
+
+Git can add the line automatically:
+
+```bash
+git commit --signoff
+```
+
+By contributing original work, you certify its provenance through the DCO and
+agree that it is submitted under the repository's
+[Apache License 2.0](LICENSE), unless an existing subtree or file clearly
+documents another compatible license. In particular, contributions to
+`examples/projects/80211a_transmitter/` are submitted under that subtree's MIT
+license. Third-party material must retain its applicable copyright, license,
+and notice information; a DCO sign-off does not replace those obligations.
+
+The project does not require a Contributor License Agreement (CLA).
+
+## Conduct and security
+
+Participation is governed by the [Code of Conduct](CODE_OF_CONDUCT.md).
+Security issues must be reported privately according to [SECURITY.md](SECURITY.md),
+not through a public issue.

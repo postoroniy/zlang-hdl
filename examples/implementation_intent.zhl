@@ -1,0 +1,60 @@
+// Canonical scalar implementation-intent witnesses.  The three modules keep
+// distinct semantic regions: an untimed explicit reduction, a typed dot
+// reduction with a positive-latency policy, and a timed scalar product tree.
+
+module FirArchitecture {
+    in samples      : vec<4, u8>
+    in coefficients : vec<4, u8>
+    out y           : u19
+
+    y = implement {
+          samples[0] * coefficients[0]
+        + samples[1] * coefficients[1]
+        + samples[2] * coefficients[2]
+        + samples[3] * coefficients[3]
+        intent { minimize lut }
+    }
+}
+
+module ExploreCombined {
+    clock clk
+    reset rst
+
+    in a : vec<4, u3>
+    in b : vec<4, u3>
+    out y : u8
+
+    y = implement {
+        dot(a, b)
+        intent {
+            latency >= 1
+            dsp <= 4
+            minimize lut
+        }
+    }
+}
+
+module AutoPipelineProducts {
+    clock clk
+    reset rst
+
+    in a : u8
+    in b : u8
+    in c : u8
+    in d : u8
+    in e : u8
+    in f : u8
+    in g : u8
+    in h : u8
+    out y : u19
+
+    y = implement {
+        a * b + c * d + e * f + g * h
+        intent {
+            latency <= 3
+            ii == 1
+            dsp <= 4
+            fmax >= 100
+        }
+    }
+}

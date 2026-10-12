@@ -1,0 +1,5 @@
+include LICENSE NOTICE README.md
+recursive-include zlang *.json *.lark *.larkbin
+recursive-include stdlib *.zhl
+prune tests
+global-exclude __pycache__ *.py[cod]

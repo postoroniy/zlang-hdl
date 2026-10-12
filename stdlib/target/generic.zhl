@@ -1,0 +1,52 @@
+// Technology-independent resources. Ordinary RTL remains the implementation.
+resource GenericLUT { class logic operation combinational_logic capability implementation rtl limit inputs 6 binding systemverilog generic_rtl }
+resource GenericRegister {
+    port d input unsigned 1
+    port q output unsigned 1
+    class register
+    operation register
+    capability reset synchronous
+    pipeline_site storage location output latency 1 ii 1 local true delay_ps 0
+    pipeline_config registered latency 1 ii 1 enable storage
+    binding systemverilog generic_rtl
+}
+resource GenericMultiplier { class multiplier operation multiply capability signed true capability unsigned true binding systemverilog generic_rtl }
+resource GenericAdder { class adder operation add capability signed true capability unsigned true binding systemverilog generic_rtl }
+resource GenericMAC {
+    class dsp_mac
+    operation multiply_accumulate
+    capability signed true
+    capability unsigned true
+    pipeline_site multiply location multiply latency 1 ii 1 local false delay_ps 0
+    pipeline_site accumulate_output location accumulate_output latency 1 ii 1 local false delay_ps 0
+    pipeline_config unregistered latency 0 ii 1
+    pipeline_config multiply_registered latency 1 ii 1 enable multiply
+    pipeline_config multiply_output_registered latency 2 ii 1 enable multiply enable accumulate_output
+    binding systemverilog generic_rtl
+}
+resource GenericFIFOStorage { class fifo_storage operation fifo_storage capability implementation registers_or_memory capability simultaneous_push_pop true binding systemverilog generic_rtl }
+resource GenericSyncRAM { class block_memory operation synchronous_ram capability port_modes single.simple_dual capability synchronous_read true capability output_register optional capability initialization true capability read_during_write read_first.write_first binding systemverilog generic_rtl }
+resource GenericDualPortRAM { class block_memory operation dual_port_ram capability port_modes simple_dual.true_dual capability synchronous_read true binding systemverilog generic_rtl }
+resource GenericROM { class block_memory operation synchronous_rom capability synchronous_read true capability initialization true binding systemverilog generic_rtl }
+resource GenericClockSource { class clock_source operation clock_source capability outputs 1 binding systemverilog generic_rtl }
+resource GenericPLL { class clock_generator operation clock_multiply_divide capability phase configurable capability lock true binding systemverilog unsupported }
+resource GenericClockEnable { class clock_control operation clock_enable capability glitch_free_required true binding systemverilog generic_rtl }
+resource GenericCarry { class arithmetic_chain operation carry dedicated carry carry_out -> carry_in width 1 relation logical_chain fallback true binding systemverilog generic_rtl }
+
+target GenericFamily {
+    provides GenericLUT
+    provides GenericRegister
+    provides GenericMultiplier
+    provides GenericAdder
+    provides GenericMAC
+    provides GenericFIFOStorage
+    provides GenericSyncRAM
+    provides GenericDualPortRAM
+    provides GenericROM
+    provides GenericClockSource
+    provides GenericPLL
+    provides GenericClockEnable
+    provides GenericCarry
+}
+device generic : GenericFamily { part generic }
+module GenericTargetLibrary {}

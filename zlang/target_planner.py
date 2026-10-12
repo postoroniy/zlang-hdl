@@ -1,0 +1,731 @@
+"""Bounded high-level target-aware planning for the first fixed FIR slice."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, replace
+from hashlib import sha256
+import json
+from pathlib import Path
+from typing import Iterable
+
+from zlang.costs import (
+    CandidateCost,
+    CostExtractionError,
+    ExtractionResult,
+    MetricSource,
+    MetricValue,
+    SourcePolicy,
+    extract_best,
+)
+from zlang.ir import expressions as expr
+from zlang.ir.module import Module
+from zlang.ir.pipelines import (
+    MultiplierMapping,
+    PipelineCandidate,
+    PipelineConstraint,
+    PipelineEstimate,
+    PipelineExploration,
+    PipelineMetric,
+    PipelineRelation,
+    PipelineTree,
+    RegisterPlacement,
+)
+from zlang.ir.target import ImplementationGraph
+from zlang.ir.signed_reductions import (
+    recognize_signed_product_reduction,
+)
+from zlang.pipelines import pipeline_constraints_to_unified
+from zlang.target_timing import build_signed_product_timing_dag, delay_ff_cost
+from zlang.target_candidate_providers import CandidateRequest, candidate_provider_for
+from zlang.target_catalog import (
+    TargetArchitectureError,
+    load_architecture_templates,
+    load_target,
+)
+from zlang.target_mapping_selection import (
+    generic_implementation_graph,
+)
+from zlang.pipeline_scheduling import erase_pipeline_timing
+
+
+EVIDENCE_SCHEMA = "zlang-target-qor-v3"
+EVIDENCE_CATALOG_SCHEMA = "zlang-target-qor-catalog-v3"
+DEFAULT_EVIDENCE_CATALOG = Path(__file__).with_name("data") / "target_qor_catalog.json"
+
+
+@dataclass(frozen=True)
+class MeasurementKey:
+    target_identity: str
+    target_part: str
+    architecture_template_identity: str
+    implementation_graph_identity: str
+    pipeline_configuration_identity: str
+    backend: str
+    tool: str
+    tool_version: str
+    clock_period_ns: float
+
+    @property
+    def identity(self) -> str:
+        return sha256(repr((EVIDENCE_SCHEMA, self)).encode()).hexdigest()
+
+
+@dataclass(frozen=True)
+class QoREvidence:
+    key: MeasurementKey
+    stage: MetricSource
+    lut: int
+    ff: int
+    dsp: int
+    bram: int
+    fmax_mhz: float
+    wns_ns: float | None = None
+    provenance: str = ""
+
+    def __post_init__(self) -> None:
+        if self.stage not in {
+            MetricSource.SYNTHESIS_MEASUREMENT,
+            MetricSource.ROUTED_MEASUREMENT,
+        }:
+            raise ValueError("physical QoR evidence must be synthesis or routed")
+
+    @property
+    def identity(self) -> str:
+        return sha256(repr((EVIDENCE_SCHEMA, self)).encode()).hexdigest()
+
+
+@dataclass(frozen=True)
+class TargetCandidate:
+    name: str
+    graph: ImplementationGraph
+    cost: CandidateCost
+    evidence: QoREvidence | None = None
+    rejection_reasons: tuple[str, ...] = ()
+
+    @property
+    def identity(self) -> str:
+        return self.graph.identity
+
+    @property
+    def implementation_identity(self) -> str:
+        # Keep extraction deterministic across source spellings and evidence
+        # migrations.  Physical configurations with equal measured cost are
+        # ordered by the number of active pipeline sites before their stable
+        # configuration identity; the graph hash remains the immutable
+        # artifact identity exposed by ``identity``.
+        if self.graph.pipeline_configuration_identity is not None:
+            return (
+                f"{len(self.graph.active_pipeline_sites):04d}:"
+                f"{self.graph.pipeline_configuration_identity}:"
+                f"{self.graph.identity}"
+            )
+        return self.graph.identity
+
+    @property
+    def legal(self) -> bool:
+        return not self.rejection_reasons
+
+
+@dataclass(frozen=True)
+class TargetPlanningResult:
+    target: str | None
+    requirements: tuple[tuple[str, str, int], ...]
+    source_policy: SourcePolicy
+    generated_candidates: tuple[TargetCandidate, ...]
+    rejected_candidates: tuple[TargetCandidate, ...]
+    selected_candidate: TargetCandidate
+    extraction: ExtractionResult | None
+    search_bound: int = 5
+    # formal-aware selection evidence for complete value+schedule+resource candidates. This is
+    # orchestration metadata, not hardware identity.
+    formal_records: tuple[object, ...] = ()
+
+    @property
+    def selected_graph(self) -> ImplementationGraph:
+        return self.selected_candidate.graph
+
+    @property
+    def report(self) -> str:
+        return render_target_planner_report(self)
+
+
+def _requirements(module: Module):
+    fixed = tuple(
+        item for item in module.pipeline_explorations
+        if isinstance(item.source_expression, expr.FixedConvert)
+    )
+    if not fixed:
+        exact_regions = tuple(
+            (assignment.target.name, assignment.expression)
+            for assignment in module.assignments
+            if hasattr(assignment.target, "name")
+            and isinstance(assignment.expression, expr.Pipeline)
+            and assignment.expression.pipeline_plan is not None
+        )
+        if not exact_regions:
+            return None, (), None, None
+        if len(exact_regions) != 1:
+            # Each exact region is already independently scheduled and
+            # emitted by the generic direct-SV path.  Bounded resource
+            # covering currently selects one scalar region at a time; do not
+            # make an otherwise valid multi-output module fail merely because
+            # no single target candidate can represent all regions yet.
+            return None, (), None, None
+        output, scheduled = exact_regions[0]
+        source = erase_pipeline_timing(scheduled)
+        plan = scheduled.pipeline_plan
+        assert plan is not None
+        requested_latency = plan.requested_latency
+        assert requested_latency is not None
+        critical = plan.timing_dag.estimated_critical_delay_ps or 0
+        estimate = PipelineEstimate(
+            sum(item.cost.lut for item in plan.operations),
+            plan.inserted_registers * source.type.width,
+            sum(item.cost.dsp for item in plan.operations),
+            0 if critical == 0 else 1_000_000 // critical,
+        )
+        candidate = PipelineCandidate(
+            "exact_dag_partition",
+            scheduled,
+            PipelineTree.DAG,
+            RegisterPlacement.SCHEDULED_DAG,
+            MultiplierMapping.LOGIC,
+            (
+                "preserve_exact_typed_dag",
+                "partition_by_estimated_delay",
+                "balance_reconvergent_paths",
+            ),
+            requested_latency,
+            1,
+            estimate,
+            plan.cost_source,
+            pipeline_plan=plan,
+        )
+        constraints = (
+            PipelineConstraint(
+                PipelineMetric.LATENCY,
+                PipelineRelation.EXACT,
+                requested_latency,
+            ),
+            PipelineConstraint(
+                PipelineMetric.THROUGHPUT,
+                PipelineRelation.EXACT,
+                1,
+            ),
+        )
+        exploration = PipelineExploration(
+            output,
+            source.type,
+            source,
+            constraints,
+            (candidate,),
+            candidate.name,
+            1,
+        )
+        normalized = (
+            ("latency", "==", requested_latency),
+            ("ii", "==", 1),
+        )
+        return exploration, normalized, requested_latency, None
+    if len(fixed) != 1:
+        raise TargetArchitectureError(
+            "target-aware implementation selection accepts exactly one fixed "
+            "implementation region"
+        )
+    exploration = fixed[0]
+    exact = next((item.value for item in exploration.constraints
+                  if item.metric is PipelineMetric.LATENCY
+                  and item.relation is PipelineRelation.EXACT), None)
+    maximum = next((item.value for item in exploration.constraints
+                    if item.metric is PipelineMetric.LATENCY
+                    and item.relation is PipelineRelation.MAXIMUM), None)
+    normalized = tuple(
+        ("ii" if item.metric is PipelineMetric.THROUGHPUT else item.metric.value,
+         item.relation.value, item.value)
+        for item in exploration.constraints
+    )
+    return exploration, normalized, exact, maximum
+
+
+def _generic_candidate(module: Module, target, exploration, requirements) -> TargetCandidate:
+    selected = exploration.selected_candidate
+    graph = generic_implementation_graph(module, target)
+    if selected.pipeline_plan.scheduled_value_graph is not None:
+        scheduled = selected.pipeline_plan.scheduled_value_graph
+        if scheduled.clock_domain is None and len(module.clock_domains) == 1:
+            scheduled = replace(
+                scheduled, clock_domain=module.clock_domains[0].clock
+            )
+        graph = replace(
+            graph,
+            scheduled_value_graph=scheduled,
+        )
+    graph = replace(
+        graph,
+        latency=selected.latency,
+        initiation_interval=selected.initiation_interval,
+        policy_requirements=requirements,
+    )
+    conversion = exploration.source_expression
+    arithmetic = (
+        conversion.expression
+        if isinstance(conversion, expr.FixedConvert)
+        else conversion
+    )
+    reduction = (
+        recognize_signed_product_reduction(arithmetic)
+    )
+    if reduction is not None:
+        graph = replace(
+            graph,
+            semantic_region_identity=reduction.semantic_identity,
+            quantization=conversion,
+            source_origin=reduction.source_origin,
+            timing_dag=build_signed_product_timing_dag(
+                reduction, quantization=conversion,
+                output_latency=selected.latency,
+                target_identity=target.identity if target else None,
+            ),
+        )
+    # The compatibility fixed-output candidate used ``100 MHz`` as a
+    # placeholder before a real stage schedule existed.  That value is not a
+    # timing estimate and must never satisfy a target Fmax constraint.  A
+    # scheduled DAG carries a computed critical path; legacy output-delay
+    # candidates honestly report unknown frequency.
+    fmax_est = (
+        selected.estimate.fmax_mhz
+        if selected.pipeline_plan.scheduler != "legacy"
+        else None
+    )
+    cost = CandidateCost.estimate(
+        lut=selected.estimate.lut,
+        ff=selected.estimate.ff,
+        dsp=selected.estimate.dsp,
+        latency=selected.latency,
+        ii=selected.initiation_interval,
+        fmax_est=fmax_est,
+        structural_cost=len(selected.transformations),
+    )
+    return TargetCandidate("generic", graph, cost)
+
+
+def _candidate_cost(graph: ImplementationGraph, evidence: QoREvidence | None) -> CandidateCost:
+    compensation_ff = delay_ff_cost(graph.timing_dag)
+    if evidence is None:
+        return CandidateCost.estimate(
+            lut=max(1, graph.resources[-1].semantic_mappings[-1].expression.type.width
+                    if graph.resources[-1].semantic_mappings[-1].expression is not None else 48),
+            ff=compensation_ff,
+            dsp=len(graph.resources),
+            bram=0,
+            latency=graph.latency,
+            ii=graph.initiation_interval,
+            fmax_est=None,
+            structural_cost=len(graph.resources) + len(graph.dedicated_edges),
+        )
+    source = evidence.stage
+    return CandidateCost(
+        MetricValue(evidence.lut, source),
+        MetricValue(evidence.ff, source),
+        MetricValue(evidence.dsp, source),
+        MetricValue(evidence.bram, source),
+        MetricValue(graph.latency, MetricSource.STRUCTURAL_ESTIMATE),
+        MetricValue(graph.initiation_interval, MetricSource.STRUCTURAL_ESTIMATE),
+        MetricValue(evidence.fmax_mhz, source),
+        len(graph.resources) + len(graph.dedicated_edges),
+    )
+
+
+def _compatible_evidence(
+    records: Iterable[QoREvidence], graph: ImplementationGraph,
+    *, backend: str, tool: str, tool_version: str, clock_period_ns: float,
+) -> QoREvidence | None:
+    """Return evidence only for the exact immutable candidate identity.
+
+    Source spelling is intentionally absent from ``MeasurementKey``.  That is
+    safe because the key's implementation graph identity is the canonical
+    typed/physical contract.  No target/template-only fallback is permitted:
+    an ``implement`` candidate must never borrow a measurement for a different
+    semantic graph merely because its physical configuration happens to match.
+    """
+    matches = tuple(item for item in records if (
+        item.key.target_identity == graph.target_identity
+        and item.key.target_part == graph.target_part
+        and item.key.architecture_template_identity == graph.architecture_template_identity
+        and item.key.implementation_graph_identity == graph.identity
+        and item.key.pipeline_configuration_identity == graph.pipeline_configuration_identity
+        and item.key.backend == backend
+        and item.key.tool == tool
+        and item.key.tool_version == tool_version
+        and item.key.clock_period_ns == clock_period_ns
+    ))
+    if not matches:
+        return None
+    return max(matches, key=lambda item: (
+        item.stage is MetricSource.ROUTED_MEASUREMENT,
+        item.identity,
+    ))
+
+
+def _load_qor_evidence_file(selected: Path) -> tuple[QoREvidence, ...]:
+    """Load one immutable QoR evidence file after schema validation."""
+
+    payload = json.loads(selected.read_text())
+    if payload.get("schema") != EVIDENCE_SCHEMA:
+        raise ValueError(f"unsupported target QoR evidence schema in '{selected}'")
+    records = []
+    for item in payload.get("records", ()):
+        key = item["key"]
+        records.append(QoREvidence(
+            MeasurementKey(
+                key["target_identity"], key["target_part"],
+                key["architecture_template_identity"],
+                key["implementation_graph_identity"],
+                key["pipeline_configuration_identity"], key["backend"],
+                key["tool"], key["tool_version"], float(key["clock_period_ns"]),
+            ),
+            MetricSource(item["stage"]), int(item["lut"]), int(item["ff"]),
+            int(item["dsp"]), int(item["bram"]), float(item["fmax_mhz"]),
+            float(item["wns_ns"]) if item.get("wns_ns") is not None else None,
+            item.get("provenance", ""),
+        ))
+    return tuple(records)
+
+
+def load_qor_evidence(path: Path | None = None) -> tuple[QoREvidence, ...]:
+    """Load explicit evidence or the hash-pinned packaged evidence catalog.
+
+    An explicit path remains a complete override.  The default path is a
+    deterministic catalog rather than one arbitrarily privileged workload;
+    every packaged byte is checked before it can affect target selection.
+    """
+
+    if path is not None:
+        return _load_qor_evidence_file(path) if path.exists() else ()
+    if not DEFAULT_EVIDENCE_CATALOG.exists():
+        return ()
+    catalog = json.loads(DEFAULT_EVIDENCE_CATALOG.read_text())
+    if catalog.get("schema") != EVIDENCE_CATALOG_SCHEMA:
+        raise ValueError("unsupported packaged target QoR catalog schema")
+    records: list[QoREvidence] = []
+    seen_keys: set[str] = set()
+    for entry in catalog.get("entries", ()):
+        relative = entry.get("path")
+        expected_hash = entry.get("sha256")
+        if not isinstance(relative, str) or Path(relative).name != relative:
+            raise ValueError("packaged target QoR catalog contains an unsafe path")
+        selected = DEFAULT_EVIDENCE_CATALOG.parent / relative
+        if not selected.is_file():
+            raise ValueError(f"packaged target QoR evidence '{relative}' is missing")
+        actual_hash = sha256(selected.read_bytes()).hexdigest()
+        if actual_hash != expected_hash:
+            raise ValueError(
+                f"packaged target QoR evidence hash mismatch for '{relative}'"
+            )
+        for record in _load_qor_evidence_file(selected):
+            if record.key.identity in seen_keys:
+                raise ValueError(
+                    "packaged target QoR catalog repeats measurement key "
+                    f"'{record.key.identity}'"
+                )
+            seen_keys.add(record.key.identity)
+            records.append(record)
+    return tuple(records)
+
+
+def plan_target_pipeline(
+    module: Module,
+    *,
+    target: str | None,
+    objective: expr.CostMetric | str = expr.CostMetric.LUT,
+    source_policy: SourcePolicy | str = SourcePolicy.MEASURED_PREFERRED,
+    evidence: Iterable[QoREvidence] | None = None,
+    evidence_path: Path | None = None,
+    backend: str = "direct_systemverilog",
+    tool: str = "Vivado",
+    tool_version: str = "2024.2",
+    clock_period_ns: float = 10.0,
+    architecture: str | None = None,
+    required_architecture: bool = False,
+) -> TargetPlanningResult | None:
+    exploration, requirements, exact_latency, maximum_latency = _requirements(module)
+    if exploration is None:
+        return None
+    objective = expr.CostMetric(objective)
+    policy = SourcePolicy(source_policy)
+    selected_target = family = None
+    resources = ()
+    if target is not None and target != "generic":
+        selected_target, family, resources = load_target(target)
+    generic = _generic_candidate(module, selected_target, exploration, requirements)
+    generated: list[TargetCandidate] = [generic]
+    rejected: list[TargetCandidate] = []
+    evidence_records = tuple(evidence) if evidence is not None else load_qor_evidence(evidence_path)
+    if selected_target is not None:
+        operations = _candidate_operations(exploration.source_expression)
+        templates = tuple(
+            item
+            for operation in operations
+            for item in load_architecture_templates(operation=operation)
+        )
+        if architecture is not None:
+            templates = tuple(item for item in templates if architecture in {
+                item.identity, item.name,
+            })
+            if not templates:
+                raise TargetArchitectureError(
+                    f"unknown target-aware architecture '{architecture}'"
+                )
+        groups: dict[tuple[object, ...], list[object]] = {}
+        for item in templates:
+            groups.setdefault((
+                item.operation, item.resource_name, item.resource_count,
+                item.initiation_interval, item.dedicated_link,
+            ), []).append(item)
+        for group in sorted(groups.values(), key=lambda items: min(item.identity for item in items))[:8]:
+            template = min(group, key=lambda item: (len(item.identity), item.identity))
+            matches = tuple(item for item in resources if item.name == template.resource_name)
+            if len(matches) != 1:
+                rejected.append(replace(
+                    generic, name=template.name,
+                    rejection_reasons=(f"resource '{template.resource_name}' unavailable",),
+                ))
+                continue
+            resource = matches[0]
+            configurations = tuple(sorted(
+                resource.pipeline_configurations,
+                key=lambda item: (item.latency, item.name),
+            ))[:8]
+            for configuration in configurations:
+                name = f"{template.name}/{configuration.name}"
+                try:
+                    graph = candidate_provider_for(template.operation).build(
+                        CandidateRequest(
+                            module=module,
+                            target=selected_target,
+                            family=family,
+                            resources=resources,
+                            template=template,
+                            configuration=configuration,
+                            exact_latency=exact_latency,
+                            source_expression=exploration.source_expression,
+                        )
+                    )
+                    if graph.realization_backend != backend:
+                        raise TargetArchitectureError(
+                            f"architecture '{graph.architecture_template_identity}' "
+                            f"is realized by {graph.realization_backend}, not {backend}"
+                        )
+                        # Keep every successfully realized candidate in the
+                        # generated set.  Constraint legality (including
+                        # maximum/exact latency) is evaluated centrally by
+                        # the unified extractor below.  Rejecting a graph
+                        # here made the report depend on whether a source
+                        # policy came from one spelling rather than another,
+                        # and hid otherwise valid
+                        # target configurations from diagnostics.
+                    route = _compatible_evidence(
+                        evidence_records, graph, backend=backend, tool=tool,
+                        tool_version=tool_version, clock_period_ns=clock_period_ns,
+                    )
+                    cost = _candidate_cost(graph, route if policy is not SourcePolicy.ESTIMATE_ONLY else None)
+                    graph = replace(
+                        graph,
+                        policy_requirements=requirements,
+                        objective=objective.value,
+                        selected_cost=_cost_items(cost),
+                        evidence_identity=route.identity if route else None,
+                    )
+                    generated.append(TargetCandidate(name, graph, cost, route))
+                except (TargetArchitectureError, ValueError) as error:
+                    rejected.append(TargetCandidate(
+                        name, generic.graph, generic.cost, None, (str(error),),
+                    ))
+    eligible = tuple(
+        item for item in generated
+        if not (required_architecture and item.graph.is_generic)
+    )
+    try:
+        extraction = extract_best(
+            eligible,
+            objective=objective,
+            constraints=pipeline_constraints_to_unified(exploration.constraints),
+            source_policy=policy,
+            cost_fn=lambda item: item.cost,
+        )
+    except CostExtractionError as error:
+        if required_architecture:
+            raise TargetArchitectureError(
+                f"required target architecture has no legal candidate: {error}"
+            ) from error
+        raise TargetArchitectureError(str(error)) from error
+    for evaluation in extraction.evaluations:
+        if not evaluation.legal:
+            reasons = tuple(
+                item.reason for item in evaluation.constraints
+                if item.status != "satisfied"
+            ) or ("objective metric is unknown",)
+            rejected.append(replace(evaluation.candidate, rejection_reasons=reasons))
+    selected = extraction.selected
+    selected_graph = replace(
+        selected.graph,
+        selected_cost=_cost_items(extraction.selected_cost),
+    )
+    selected = replace(selected, graph=selected_graph)
+    generated = [selected if item.identity == selected.identity else item for item in generated]
+    return TargetPlanningResult(
+        selected_target.identity if selected_target else target,
+        requirements, policy, tuple(generated), tuple(rejected), selected,
+        extraction, min(64, 1 + 8 * 8),
+    )
+
+
+def _candidate_operations(source: expr.Expression) -> tuple[str, ...]:
+    """Choose source-shape-compatible provider families without text matching.
+
+    A bare product has its own exact ``multiply`` provider.  A product with an
+    explicit pre-add operand remains a ``multiply_add`` operation because the
+    target provider owns the DSP pre-adder binding.  Letting both providers
+    claim either shape would make tie-breaking rather than source semantics
+    decide the reported family.
+    """
+
+    arithmetic = source.expression if isinstance(source, expr.FixedConvert) else source
+    if isinstance(arithmetic, expr.Binary) and arithmetic.operator is expr.BinaryOperator.MULTIPLY:
+        if isinstance(arithmetic.left, expr.Add) or isinstance(arithmetic.right, expr.Add):
+            return ("multiply_add",)
+        return ("multiply",)
+    return (
+        "symmetric_fir_cascade",
+        "signed_product_reduction",
+        "multiply_add",
+    )
+
+
+def _cost_items(cost: CandidateCost) -> tuple[tuple[str, int | float | None, str], ...]:
+    return tuple(
+        (metric.value, cost.metric(metric).value, cost.metric(metric).source.value)
+        for metric in (
+            expr.CostMetric.LUT, expr.CostMetric.FF, expr.CostMetric.DSP,
+            expr.CostMetric.BRAM, expr.CostMetric.LATENCY,
+            expr.CostMetric.INITIATION_INTERVAL, expr.CostMetric.FMAX_EST,
+        )
+    )
+
+
+def render_target_planner_report(result: TargetPlanningResult) -> str:
+    objective = (
+        result.extraction.objective
+        if result.extraction is not None
+        else expr.CostMetric.LUT
+    )
+    objective_direction = (
+        "maximize" if objective is expr.CostMetric.FMAX_EST else "minimize"
+    )
+    lines = [
+        "Target-aware pipeline planner: scheduled scalar value graph",
+        f"target: {result.target or 'none'}",
+        "requirements: " + ", ".join(
+            f"{metric} {relation} {value}" for metric, relation, value in result.requirements
+        ),
+        f"source policy: {result.source_policy.value}; "
+        f"objective: {objective_direction} {objective.value}",
+        f"semantic region: {result.selected_candidate.graph.semantic_region_identity}",
+        f"selected realization backend: {result.selected_candidate.graph.realization_backend}",
+        f"candidates considered: {len(result.generated_candidates)}; search bound: {result.search_bound}",
+    ]
+    rejected_ids = {item.name: item.rejection_reasons for item in result.rejected_candidates}
+    for candidate in result.generated_candidates:
+        cost = candidate.cost
+        status = "selected" if candidate.identity == result.selected_candidate.identity else (
+            "rejected" if candidate.name in rejected_ids else "legal"
+        )
+        graph = candidate.graph
+        lines.append(
+            f"candidate {candidate.name}: {status}; backend={graph.realization_backend}; "
+            f"timing={graph.latency_knowledge}; latency={graph.latency}; "
+            f"ii={graph.initiation_interval}; lut={cost.lut.value}; ff={cost.ff.value}; "
+            f"dsp={cost.dsp.value}; bram={cost.bram.value}; fmax={cost.fmax_est.value}; "
+            f"evidence={cost.fmax_est.source.value}"
+        )
+        if candidate.name in rejected_ids:
+            lines.append("  rejected: " + "; ".join(rejected_ids[candidate.name]))
+    for candidate in result.rejected_candidates:
+        if candidate.name not in {item.name for item in result.generated_candidates}:
+            lines.append(
+                f"candidate {candidate.name}: rejected; " + "; ".join(candidate.rejection_reasons)
+            )
+    selected = result.selected_candidate
+    graph = selected.graph
+    scheduled = graph.scheduled_value_graph
+    lines.extend((
+        f"selected: {selected.name}",
+        f"architecture: {graph.architecture_template_identity}",
+        f"pipeline configuration: {graph.pipeline_configuration_identity or 'generic'}",
+        "pipeline sites: " + (", ".join(graph.active_pipeline_sites) or "none"),
+        f"resources: dsp={selected.cost.dsp.value} lut={selected.cost.lut.value} ff={selected.cost.ff.value}",
+        f"latency={graph.latency}; ii={graph.initiation_interval}",
+        f"fmax={selected.cost.fmax_est.value} MHz ({selected.cost.fmax_est.source.value})",
+        f"alignment delays: {len(graph.timing_dag.alignment_delays) if graph.timing_dag else 0}",
+        f"compensation cycles: {sum(item.cycles for item in graph.timing_dag.compensation_delays) if graph.timing_dag else 0}",
+        "physical bindings: " + (", ".join(graph.physical_binding_identities) or "generic"),
+        f"scheduled value graph: {scheduled.identity if scheduled is not None else 'legacy/unavailable'}",
+        "rewrite certificate: " + (
+            ", ".join(scheduled.rewrite_certificate)
+            if scheduled is not None and scheduled.rewrite_certificate
+            else "source_exact"
+        ),
+        "reason: " + (result.extraction.reason if result.extraction else "generic fallback"),
+    ))
+    if scheduled is not None:
+        semantic = dict(scheduled.operation_semantic_identities)
+        resources = {
+            item.operation_identity: item for item in scheduled.resource_bindings
+        }
+        for stage in range(scheduled.exact_latency):
+            lines.append(
+                f"physical stage {stage}: delay={scheduled.stage_delays_ps[stage]}ps"
+            )
+            for operation, assigned in scheduled.stage_assignment:
+                if assigned != stage:
+                    continue
+                binding = resources.get(operation)
+                lines.append(
+                    f"  operation {operation[:12]} semantic={semantic[operation][:12]} "
+                    + (
+                        f"resource={binding.resource_definition_identity}/"
+                        f"{binding.resource_instance_identity}"
+                        if binding is not None else "resource=generic_logic"
+                    )
+                )
+        lines.append(
+            "resource-local cuts: "
+            + (", ".join(scheduled.cut_identities) or "none")
+        )
+        lines.append(
+            "fabric alignment delays: "
+            + (", ".join(scheduled.alignment_delay_identities) or "none")
+        )
+        lines.append(
+            "fabric compensation delays: "
+            + (", ".join(scheduled.compensation_delay_identities) or "none")
+        )
+    if result.formal_records:
+        lines.append("physical candidate formal evidence:")
+        for record in result.formal_records:
+            status = getattr(record.status, "value", record.status)
+            lines.append(
+                "  "
+                f"rank={record.rank} candidate={record.candidate_identity} "
+                f"status={status or 'not-run'} "
+                f"eligible={str(record.eligible).lower()} "
+                f"route={record.formal_route}"
+            )
+    return "\n".join(lines) + "\n"
+
+
+__all__ = [
+    "DEFAULT_EVIDENCE_CATALOG", "EVIDENCE_CATALOG_SCHEMA",
+    "MeasurementKey", "QoREvidence", "TargetCandidate", "TargetPlanningResult",
+    "load_qor_evidence", "plan_target_pipeline", "render_target_planner_report",
+]

@@ -1,0 +1,21 @@
+module EngineCsr {
+  clock clk
+  reset rst
+
+  in engine_busy: bit
+  in engine_error: bit
+  out engine_start: bit
+
+  csr engine @ 0x5000_0000 {
+    CONTROL @ 0x00 {
+      start bit @0 pulse -> engine_start
+      reserved0 bits<31> @31:1 reserved
+    }
+
+    STATUS @ 0x04 {
+      busy bit @0 ro <- engine_busy
+      error bit @1 w1c = 0 <- sticky(engine_error) priority hardware
+      reserved1 bits<30> @31:2 reserved
+    }
+  }
+}

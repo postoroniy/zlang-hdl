@@ -1,0 +1,304 @@
+// Source-authored physical AXI4 pin boundary.  The lower-case ready/valid
+// ports are the typed transaction side; no public `axi__*` port is generated.
+// This transport deliberately does not make scheduling or memory decisions.
+import std.bus.axi4
+
+module AXI4MasterPins<AW=32,DW=32,RIW=4,WIW=4>
+where AW >= 1 && AW <= 64 && RIW >= 1 && RIW <= 32 &&
+      WIW >= 1 && WIW <= 32 && DW >= 8 && DW <= 1024 &&
+      is_power_of_two(DW) {
+    clock ACLK
+    async reset ARESETn @ACLK { polarity active_low }
+
+    in request_aw : rv<Axi4Address<AW,WIW>>
+    in request_w : rv<Axi4WriteData<DW>>
+    out response_b : rv<Axi4WriteResponse<WIW>>
+    in request_ar : rv<Axi4Address<AW,RIW>>
+    out response_r : rv<Axi4ReadData<DW,RIW>>
+
+    out AWID : bits<WIW> = request_aw.payload.id
+    out AWADDR : uint<AW> = request_aw.payload.addr
+    out AWLEN : u8 = request_aw.payload.len
+    out AWSIZE : u3 = request_aw.payload.size
+    out AWBURST : bits<2> = request_aw.payload.burst
+    out AWLOCK : bit = request_aw.payload.lock
+    out AWCACHE : bits<4> = request_aw.payload.cache
+    out AWPROT : bits<3> = request_aw.payload.prot
+    out AWQOS : bits<4> = request_aw.payload.qos
+    out AWREGION : bits<4> = request_aw.payload.region
+    out AWVALID : bit = request_aw.valid
+    in AWREADY : bit
+    request_aw.ready = AWREADY
+
+    out WDATA : bits<DW> = request_w.payload.data
+    out WSTRB : bits<DW/8> = request_w.payload.strb
+    out WLAST : bit = request_w.payload.last
+    out WVALID : bit = request_w.valid
+    in WREADY : bit
+    request_w.ready = WREADY
+
+    in BID : bits<WIW>
+    in BRESP : bits<2>
+    in BVALID : bit
+    out BREADY : bit = response_b.ready
+    response_b.payload = Axi4WriteResponse { id=BID resp=BRESP }
+    response_b.valid = BVALID
+
+    out ARID : bits<RIW> = request_ar.payload.id
+    out ARADDR : uint<AW> = request_ar.payload.addr
+    out ARLEN : u8 = request_ar.payload.len
+    out ARSIZE : u3 = request_ar.payload.size
+    out ARBURST : bits<2> = request_ar.payload.burst
+    out ARLOCK : bit = request_ar.payload.lock
+    out ARCACHE : bits<4> = request_ar.payload.cache
+    out ARPROT : bits<3> = request_ar.payload.prot
+    out ARQOS : bits<4> = request_ar.payload.qos
+    out ARREGION : bits<4> = request_ar.payload.region
+    out ARVALID : bit = request_ar.valid
+    in ARREADY : bit
+    request_ar.ready = ARREADY
+
+    in RID : bits<RIW>
+    in RDATA : bits<DW>
+    in RRESP : bits<2>
+    in RLAST : bit
+    in RVALID : bit
+    out RREADY : bit = response_r.ready
+    response_r.payload = Axi4ReadData {
+        id=RID data=RDATA resp=RRESP last=RLAST
+    }
+    response_r.valid = RVALID
+}
+
+module AXI4SubordinatePins<AW=32,DW=32,RIW=4,WIW=4>
+where AW >= 1 && AW <= 64 && RIW >= 1 && RIW <= 32 &&
+      WIW >= 1 && WIW <= 32 && DW >= 8 && DW <= 1024 &&
+      is_power_of_two(DW) {
+    clock ACLK
+    async reset ARESETn @ACLK { polarity active_low }
+
+    out request_aw : rv<Axi4Address<AW,WIW>>
+    out request_w : rv<Axi4WriteData<DW>>
+    in response_b : rv<Axi4WriteResponse<WIW>>
+    out request_ar : rv<Axi4Address<AW,RIW>>
+    in response_r : rv<Axi4ReadData<DW,RIW>>
+
+    in AWID : bits<WIW>
+    in AWADDR : uint<AW>
+    in AWLEN : u8
+    in AWSIZE : u3
+    in AWBURST : bits<2>
+    in AWLOCK : bit
+    in AWCACHE : bits<4>
+    in AWPROT : bits<3>
+    in AWQOS : bits<4>
+    in AWREGION : bits<4>
+    in AWVALID : bit
+    out AWREADY : bit = request_aw.ready
+    request_aw.payload = Axi4Address {
+        id=AWID addr=AWADDR len=AWLEN size=AWSIZE burst=AWBURST
+        lock=AWLOCK cache=AWCACHE prot=AWPROT qos=AWQOS region=AWREGION
+    }
+    request_aw.valid = AWVALID
+
+    in WDATA : bits<DW>
+    in WSTRB : bits<DW/8>
+    in WLAST : bit
+    in WVALID : bit
+    out WREADY : bit = request_w.ready
+    request_w.payload = Axi4WriteData {
+        data=WDATA strb=WSTRB last=WLAST
+    }
+    request_w.valid = WVALID
+
+    out BID : bits<WIW> = response_b.payload.id
+    out BRESP : bits<2> = response_b.payload.resp
+    out BVALID : bit = response_b.valid
+    in BREADY : bit
+    response_b.ready = BREADY
+
+    in ARID : bits<RIW>
+    in ARADDR : uint<AW>
+    in ARLEN : u8
+    in ARSIZE : u3
+    in ARBURST : bits<2>
+    in ARLOCK : bit
+    in ARCACHE : bits<4>
+    in ARPROT : bits<3>
+    in ARQOS : bits<4>
+    in ARREGION : bits<4>
+    in ARVALID : bit
+    out ARREADY : bit = request_ar.ready
+    request_ar.payload = Axi4Address {
+        id=ARID addr=ARADDR len=ARLEN size=ARSIZE burst=ARBURST
+        lock=ARLOCK cache=ARCACHE prot=ARPROT qos=ARQOS region=ARREGION
+    }
+    request_ar.valid = ARVALID
+
+    out RID : bits<RIW> = response_r.payload.id
+    out RDATA : bits<DW> = response_r.payload.data
+    out RRESP : bits<2> = response_r.payload.resp
+    out RLAST : bit = response_r.payload.last
+    out RVALID : bit = response_r.valid
+    in RREADY : bit
+    response_r.ready = RREADY
+}
+
+module AXI4MasterPinsWithUser<AW=32,DW=32,RIW=4,WIW=4,
+                              AWUW=1,WUW=1,BUW=1,ARUW=1,RUW=1>
+where AW >= 1 && AW <= 64 && RIW >= 1 && RIW <= 32 &&
+      WIW >= 1 && WIW <= 32 && DW >= 8 && DW <= 1024 &&
+      is_power_of_two(DW) && AWUW >= 1 && WUW >= 1 &&
+      BUW >= 1 && ARUW >= 1 && RUW >= 1 {
+    clock ACLK
+    async reset ARESETn @ACLK { polarity active_low }
+
+    in request_aw : rv<Axi4AddressUser<AW,WIW,AWUW>>
+    in request_w : rv<Axi4WriteDataUser<DW,WUW>>
+    out response_b : rv<Axi4WriteResponseUser<WIW,BUW>>
+    in request_ar : rv<Axi4AddressUser<AW,RIW,ARUW>>
+    out response_r : rv<Axi4ReadDataUser<DW,RIW,RUW>>
+
+    out AWID : bits<WIW> = request_aw.payload.id
+    out AWADDR : uint<AW> = request_aw.payload.addr
+    out AWLEN : u8 = request_aw.payload.len
+    out AWSIZE : u3 = request_aw.payload.size
+    out AWBURST : bits<2> = request_aw.payload.burst
+    out AWLOCK : bit = request_aw.payload.lock
+    out AWCACHE : bits<4> = request_aw.payload.cache
+    out AWPROT : bits<3> = request_aw.payload.prot
+    out AWQOS : bits<4> = request_aw.payload.qos
+    out AWREGION : bits<4> = request_aw.payload.region
+    out AWUSER : bits<AWUW> = request_aw.payload.user
+    out AWVALID : bit = request_aw.valid
+    in AWREADY : bit
+    request_aw.ready = AWREADY
+
+    out WDATA : bits<DW> = request_w.payload.data
+    out WSTRB : bits<DW/8> = request_w.payload.strb
+    out WLAST : bit = request_w.payload.last
+    out WUSER : bits<WUW> = request_w.payload.user
+    out WVALID : bit = request_w.valid
+    in WREADY : bit
+    request_w.ready = WREADY
+
+    in BID : bits<WIW>
+    in BRESP : bits<2>
+    in BUSER : bits<BUW>
+    in BVALID : bit
+    out BREADY : bit = response_b.ready
+    response_b.payload = Axi4WriteResponseUser {
+        id=BID resp=BRESP user=BUSER
+    }
+    response_b.valid = BVALID
+
+    out ARID : bits<RIW> = request_ar.payload.id
+    out ARADDR : uint<AW> = request_ar.payload.addr
+    out ARLEN : u8 = request_ar.payload.len
+    out ARSIZE : u3 = request_ar.payload.size
+    out ARBURST : bits<2> = request_ar.payload.burst
+    out ARLOCK : bit = request_ar.payload.lock
+    out ARCACHE : bits<4> = request_ar.payload.cache
+    out ARPROT : bits<3> = request_ar.payload.prot
+    out ARQOS : bits<4> = request_ar.payload.qos
+    out ARREGION : bits<4> = request_ar.payload.region
+    out ARUSER : bits<ARUW> = request_ar.payload.user
+    out ARVALID : bit = request_ar.valid
+    in ARREADY : bit
+    request_ar.ready = ARREADY
+
+    in RID : bits<RIW>
+    in RDATA : bits<DW>
+    in RRESP : bits<2>
+    in RLAST : bit
+    in RUSER : bits<RUW>
+    in RVALID : bit
+    out RREADY : bit = response_r.ready
+    response_r.payload = Axi4ReadDataUser {
+        id=RID data=RDATA resp=RRESP last=RLAST user=RUSER
+    }
+    response_r.valid = RVALID
+}
+
+module AXI4SubordinatePinsWithUser<AW=32,DW=32,RIW=4,WIW=4,
+                                   AWUW=1,WUW=1,BUW=1,ARUW=1,RUW=1>
+where AW >= 1 && AW <= 64 && RIW >= 1 && RIW <= 32 &&
+      WIW >= 1 && WIW <= 32 && DW >= 8 && DW <= 1024 &&
+      is_power_of_two(DW) && AWUW >= 1 && WUW >= 1 &&
+      BUW >= 1 && ARUW >= 1 && RUW >= 1 {
+    clock ACLK
+    async reset ARESETn @ACLK { polarity active_low }
+
+    out request_aw : rv<Axi4AddressUser<AW,WIW,AWUW>>
+    out request_w : rv<Axi4WriteDataUser<DW,WUW>>
+    in response_b : rv<Axi4WriteResponseUser<WIW,BUW>>
+    out request_ar : rv<Axi4AddressUser<AW,RIW,ARUW>>
+    in response_r : rv<Axi4ReadDataUser<DW,RIW,RUW>>
+
+    in AWID : bits<WIW>
+    in AWADDR : uint<AW>
+    in AWLEN : u8
+    in AWSIZE : u3
+    in AWBURST : bits<2>
+    in AWLOCK : bit
+    in AWCACHE : bits<4>
+    in AWPROT : bits<3>
+    in AWQOS : bits<4>
+    in AWREGION : bits<4>
+    in AWUSER : bits<AWUW>
+    in AWVALID : bit
+    out AWREADY : bit = request_aw.ready
+    request_aw.payload = Axi4AddressUser {
+        id=AWID addr=AWADDR len=AWLEN size=AWSIZE burst=AWBURST
+        lock=AWLOCK cache=AWCACHE prot=AWPROT qos=AWQOS region=AWREGION
+        user=AWUSER
+    }
+    request_aw.valid = AWVALID
+
+    in WDATA : bits<DW>
+    in WSTRB : bits<DW/8>
+    in WLAST : bit
+    in WUSER : bits<WUW>
+    in WVALID : bit
+    out WREADY : bit = request_w.ready
+    request_w.payload = Axi4WriteDataUser {
+        data=WDATA strb=WSTRB last=WLAST user=WUSER
+    }
+    request_w.valid = WVALID
+
+    out BID : bits<WIW> = response_b.payload.id
+    out BRESP : bits<2> = response_b.payload.resp
+    out BUSER : bits<BUW> = response_b.payload.user
+    out BVALID : bit = response_b.valid
+    in BREADY : bit
+    response_b.ready = BREADY
+
+    in ARID : bits<RIW>
+    in ARADDR : uint<AW>
+    in ARLEN : u8
+    in ARSIZE : u3
+    in ARBURST : bits<2>
+    in ARLOCK : bit
+    in ARCACHE : bits<4>
+    in ARPROT : bits<3>
+    in ARQOS : bits<4>
+    in ARREGION : bits<4>
+    in ARUSER : bits<ARUW>
+    in ARVALID : bit
+    out ARREADY : bit = request_ar.ready
+    request_ar.payload = Axi4AddressUser {
+        id=ARID addr=ARADDR len=ARLEN size=ARSIZE burst=ARBURST
+        lock=ARLOCK cache=ARCACHE prot=ARPROT qos=ARQOS region=ARREGION
+        user=ARUSER
+    }
+    request_ar.valid = ARVALID
+
+    out RID : bits<RIW> = response_r.payload.id
+    out RDATA : bits<DW> = response_r.payload.data
+    out RRESP : bits<2> = response_r.payload.resp
+    out RLAST : bit = response_r.payload.last
+    out RUSER : bits<RUW> = response_r.payload.user
+    out RVALID : bit = response_r.valid
+    in RREADY : bit
+    response_r.ready = RREADY
+}

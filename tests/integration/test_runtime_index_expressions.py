@@ -1,0 +1,198 @@
+import hashlib
+import os
+from pathlib import Path
+import shutil
+import subprocess
+
+import pytest
+
+from zlang.backend.manifest import BackendArtifact, MANIFEST_VERSION
+from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
+from zlang.compiler import compile_source
+from zlang.equivalence import (
+    artifact_hash,
+    emit_miter_with_metadata,
+    emit_reference_model,
+    make_equivalence_property,
+    publish_bindings,
+    run_equivalence_formal,
+)
+from tests.support.formal import formal_tools_available
+from zlang.ir import (
+    BindingMap,
+    BindingSide,
+    EquivalenceBinding,
+    EquivalenceMode,
+    EquivalenceStatus,
+    SignalRole,
+)
+
+
+SOURCE = """
+module RuntimeSelect {
+    in values : vec<4,u8>
+    in raw_index : u3
+    out y : u8
+    index = truncate<2>(raw_index)
+    y = values[index]
+}
+"""
+
+
+def _testbench() -> str:
+    return r"""
+module tb;
+  logic [3:0][7:0] values;
+  logic [2:0] raw_index;
+  wire [7:0] y;
+  RuntimeSelect dut(.values(values), .raw_index(raw_index), .y(y));
+  initial begin
+    values = 32'h281e140a;
+    raw_index = 0; #1; if (y !== 8'd10) $fatal(1, "index 0");
+    raw_index = 1; #1; if (y !== 8'd20) $fatal(1, "index 1");
+    raw_index = 2; #1; if (y !== 8'd30) $fatal(1, "index 2");
+    raw_index = 3; #1; if (y !== 8'd40) $fatal(1, "index 3");
+    raw_index = 7; #1; if (y !== 8'd40) $fatal(1, "truncated index");
+    $finish;
+  end
+endmodule
+"""
+
+
+def _run_verilator(files: list[Path], tmp_path: Path, tag: str) -> None:
+    bench = tmp_path / f"tb_{tag}.sv"
+    bench.write_text(_testbench())
+    obj = tmp_path / f"obj_{tag}"
+    environment = dict(os.environ)
+    environment["CCACHE_DISABLE"] = "1"
+    subprocess.run(
+        (
+            "verilator", "--binary", "--timing", "-Wall", "-Wno-fatal",
+            "--top-module", "tb", "--Mdir", str(obj),
+            *(str(path) for path in files), str(bench),
+        ),
+        check=True, capture_output=True, text=True, env=environment,
+    )
+    subprocess.run((str(obj / "Vtb"),), check=True, capture_output=True, text=True)
+
+
+@pytest.mark.skipif(shutil.which("verilator") is None, reason="Verilator unavailable")
+def test_direct_sv_runtime_expression_index_simulates(tmp_path: Path) -> None:
+    artifact = emit_sv_artifact(compile_source(SOURCE).ir)
+    rtl = tmp_path / "RuntimeSelect.sv"
+    rtl.write_text(artifact.text)
+    assert next(
+        binding
+        for binding in artifact.bindings
+        if binding.semantic_signal_id == "port:values"
+    ).width == 32
+    assert "values[2'(raw_index)]" in artifact.text
+    _run_verilator([rtl], tmp_path, "sv")
+
+
+
+
+
+
+def _semantic_equivalence_source(implementation: str):
+    module = compile_source(SOURCE).ir
+    expression = module.assignments[0].expression
+    reference = emit_reference_model(
+        "RuntimeSelectReference", "y", expression.type,
+        tuple((port.name, port.type) for port in module.inputs), expression,
+    )
+    property_ = make_equivalence_property(
+        expression, expression, candidate_class="guarded_rewrite",
+        reference_root="runtime-index-reference",
+        implementation_root="explicit-switch",
+        inputs=tuple(f"port:{port.name}" for port in module.inputs),
+        reference_output="port:y", implementation_output="port:y",
+    )
+    names = {f"port:{port.name}": port.name for port in module.inputs}
+    names["port:y"] = "y"
+    selected = "selected:runtime-index"
+    ref_bindings = publish_bindings(
+        module, side=BindingSide.REFERENCE, selected_ir_identity=selected,
+        backend="semantic_reference", artifact_hash_value=artifact_hash(reference),
+        rtl_names=names,
+    )
+    impl_bindings = publish_bindings(
+        module, side=BindingSide.IMPLEMENTATION, selected_ir_identity=selected,
+        backend="direct_systemverilog", artifact_hash_value=artifact_hash(implementation),
+        rtl_names=names,
+    )
+    miter = emit_miter_with_metadata(
+        property_, BindingMap((*ref_bindings, *impl_bindings)),
+        reference_module="RuntimeSelectReference",
+        implementation_module="RuntimeSelect",
+    )
+    return (
+        property_,
+        reference + "\n" + implementation + "\n" + miter.source,
+        miter.trace_metadata,
+    )
+
+
+EXPLICIT_SWITCH = r"""
+module RuntimeSelect(
+  input logic [31:0] values,
+  input logic [2:0] raw_index,
+  output logic [7:0] y
+);
+  always_comb begin
+    case (raw_index[1:0])
+      2'd0: y = values[7:0];
+      2'd1: y = values[15:8];
+      2'd2: y = values[23:16];
+      default: y = values[31:24];
+    endcase
+  end
+endmodule
+"""
+
+
+@pytest.mark.skipif(
+    len(formal_tools_available()) != 3,
+    reason="Yosys/SymbiYosys formal tools are unavailable",
+)
+def test_semantic_equivalence_runtime_select_matches_explicit_switch_with_real_solver() -> None:
+    property_, source, trace_metadata = _semantic_equivalence_source(EXPLICIT_SWITCH)
+    result = run_equivalence_formal(
+        property_, source, top="semantic_equivalence_" + property_.id.replace(".", "_"),
+        mode=EquivalenceMode.PROVE, depth=4, trace_metadata=trace_metadata,
+    )
+    assert result.status is EquivalenceStatus.PROVEN
+
+
+@pytest.mark.skipif(
+    len(formal_tools_available()) != 3,
+    reason="Yosys/SymbiYosys formal tools are unavailable",
+)
+def test_semantic_equivalence_rejects_the_retired_msb_first_runtime_selector() -> None:
+    retired = EXPLICIT_SWITCH.replace(
+        "2'd0: y = values[7:0];\n"
+        "      2'd1: y = values[15:8];\n"
+        "      2'd2: y = values[23:16];\n"
+        "      default: y = values[31:24];",
+        "2'd0: y = values[31:24];\n"
+        "      2'd1: y = values[23:16];\n"
+        "      2'd2: y = values[15:8];\n"
+        "      default: y = values[7:0];",
+    )
+    property_, source, trace_metadata = _semantic_equivalence_source(retired)
+    result = run_equivalence_formal(
+        property_, source, top="semantic_equivalence_" + property_.id.replace(".", "_"),
+        mode=EquivalenceMode.PROVE, depth=4, trace_metadata=trace_metadata,
+    )
+    assert result.status is EquivalenceStatus.FAILED
+
+
+def _cross_artifact(backend: str, module: str, body: str) -> BackendArtifact:
+    digest = hashlib.sha256(body.encode()).hexdigest()
+    identity = "selected:runtime-index"
+    bindings = (
+        EquivalenceBinding(MANIFEST_VERSION, BindingSide.IMPLEMENTATION, "port:values", identity, module, "values", 32, "unsigned", SignalRole.INPUT, None, None, backend, digest),
+        EquivalenceBinding(MANIFEST_VERSION, BindingSide.IMPLEMENTATION, "port:raw_index", identity, module, "raw_index", 3, "unsigned", SignalRole.INPUT, None, None, backend, digest),
+        EquivalenceBinding(MANIFEST_VERSION, BindingSide.IMPLEMENTATION, "port:y", identity, module, "y", 8, "unsigned", SignalRole.OUTPUT, None, None, backend, digest),
+    )
+    return BackendArtifact(backend, module, identity, digest, body, bindings)

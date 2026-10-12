@@ -1,0 +1,52 @@
+// Historical stage-shaped reproducer for the unified state/storage boundary.
+// It now elaborates through scheduled FIFO actions and a user register/rule.
+import std.math.complex
+
+module FFTSDFStage<type Sample,type Twiddle,D=4> {
+    clock clk
+    reset rst
+
+    in input : rv<Complex<Sample>>
+    out output : rv<Complex<Sample>>
+    in twiddle : Complex<Twiddle>
+
+    fifo samples : fifo<Complex<Sample>,D>
+    reg phase : bit = 0
+
+    input.ready = samples.ready
+    output.payload = samples.front
+    output.valid = samples.valid
+
+    rule enqueue when input.transfer {
+        samples.push(input.payload)
+        phase <- phase
+    }
+
+    rule dequeue when output.transfer {
+        samples.pop()
+    }
+}
+
+module FFTSDFStageProbe {
+    clock clk
+    reset rst
+    in input : rv<Complex<fixed<18,16>>>
+    out output : rv<Complex<fixed<18,16>>>
+    in twiddle : Complex<fixed<16,14>>
+
+    fifo samples : fifo<Complex<fixed<18,16>>,4>
+    reg phase : bit = 0
+
+    input.ready = samples.ready
+    output.payload = samples.front
+    output.valid = samples.valid
+
+    rule enqueue when input.transfer {
+        samples.push(input.payload)
+        phase <- phase
+    }
+
+    rule dequeue when output.transfer {
+        samples.pop()
+    }
+}

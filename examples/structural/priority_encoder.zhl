@@ -1,0 +1,15 @@
+// Lowest numbered asserted request wins. The nested reduction is intentional:
+// it exposes whether overlapping priority predicates are retained compactly.
+module PriorityEncoderWitness<N=16,IW=4> {
+    in requests : vec<N,bit>
+    out valid : bit
+    out selected : uint<IW>
+
+    winners = generate(i in 0..N)
+        (requests[i] & ~reduce(|, generate(j in 0..N)
+            (requests[j] & (extend<IW>(j) < extend<IW>(i)))))
+
+    valid = reduce(|, requests)
+    selected = reduce(|, generate(i in 0..N)
+        mux(winners[i], extend<IW>(i), 0))
+}

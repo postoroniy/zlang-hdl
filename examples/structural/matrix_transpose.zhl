@@ -1,0 +1,8 @@
+// Compile-time-only permutation: no runtime mux is semantically required.
+module MatrixTransposeWitness<N=8> {
+    in matrix : vec<N,vec<N,u8>>
+    out transposed : vec<N,vec<N,u8>>
+
+    transposed = generate(row in 0..N)
+        generate(column in 0..N) matrix[column][row]
+}

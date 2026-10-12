@@ -1,0 +1,15 @@
+// Native logic-state witness: the uninitialized register begins as U,
+// remains U while load is false, and is refreshed only by an accepted write.
+module LogicStateRegister {
+    clock clk reset rst
+    in load : bit
+    in value : u8
+    out observed : u8
+
+    reg stored : u8
+
+    when load {
+        stored <- value
+    }
+    observed = stored
+}

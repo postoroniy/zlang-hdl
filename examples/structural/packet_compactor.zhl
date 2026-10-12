@@ -1,0 +1,20 @@
+// Stable byte compaction. Each destination selects the unique source whose
+// inclusive prefix count equals destination+1.
+module PacketCompactorWitness<N=8,IW=3,CW=4> {
+    in data : vec<N,u8>
+    in valid : vec<N,bit>
+    out packed : vec<N,u8>
+    out count : uint<CW>
+
+    prefix = generate(i in 0..N)
+        truncate<CW>(reduce(+, generate(j in 0..N)
+            mux(extend<IW>(j) <= extend<IW>(i),
+                mux(valid[j], extend<CW>(1), extend<CW>(0)), 0)))
+
+    packed = generate(dst in 0..N)
+        reduce(|, generate(src in 0..N)
+            mux(valid[src] & (prefix[src] == extend<CW>(dst) + 1), data[src], 0))
+
+    count = truncate<CW>(reduce(+, generate(i in 0..N)
+        mux(valid[i], extend<CW>(1), extend<CW>(0))))
+}

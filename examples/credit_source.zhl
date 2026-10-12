@@ -1,0 +1,11 @@
+module CreditSource {
+  clock clk
+  reset rst
+
+  in payload_data: u8
+  in request: bit
+  out tx: credit<u8, 2>
+
+  tx.payload = payload_data
+  tx.send = request
+}

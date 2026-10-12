@@ -1,0 +1,43 @@
+import std.storage.core
+import std.coding.core
+
+fn capability_image<type T,N>() {
+    generate(i in 0..N) extend<8>(i)
+}
+
+fn capability_widen(x : u8) -> u9 {
+    extend<9>(x)
+}
+
+fn capability_apply<type A,type B,operation:fn(A)->B>(x : A) {
+    operation(x)
+}
+
+module GenericTableParametersCapability {
+    clock clk
+    reset rst
+
+    in address : u2
+    in value : u8
+    in values : vec<4,u8>
+    in order : vec<4,u2>
+    out direct : u8
+    out generated : u8
+    out widened : u9
+    out gathered : vec<4,u8>
+
+    image : vec<4,u8> = generate(i in 0..4) extend<8>(i)
+
+    inst rom0 : StorageRom<T=u8,N=4,IW=2,image=image>
+    inst rom1 : StorageGeneratedRom<
+        T=u8,N=4,IW=2,
+        producer=fn capability_image<T=u8,N=4>
+    >
+
+    rom0.address = address
+    rom1.address = address
+    direct = rom0.data
+    generated = rom1.data
+    widened = capability_apply<A=u8,B=u9,operation=fn capability_widen>(value)
+    gathered = table_gather<T=u8,N=4,IW=2>(values, order)
+}

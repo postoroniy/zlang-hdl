@@ -1,0 +1,119 @@
+name: Daily regression and random stress
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+    - cron: "37 15 * * *"
+  workflow_dispatch:
+    inputs:
+      master_seed:
+        description: "Optional exact master seed; defaults to today's UTC date"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  BASH_ENV: ${{ github.workspace }}/.github/workflows/local-venv-env.sh
+
+jobs:
+  seed:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      master_seed: ${{ steps.select.outputs.master_seed }}
+    steps:
+      - id: select
+        name: Select and record the run seed
+        env:
+          REQUESTED_SEED: ${{ inputs.master_seed }}
+        run: |
+          seed="${REQUESTED_SEED:-$(date -u +%Y%m%d)}"
+          printf 'master_seed=%s\n' "$seed" >> "$GITHUB_OUTPUT"
+          printf 'Master seed: %s\n' "$seed"
+          printf 'Master seed: `%s`\n' "$seed" >> "$GITHUB_STEP_SUMMARY"
+
+  deterministic:
+    needs: seed
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+      - uses: YosysHQ/setup-oss-cad-suite@c7845bc0d335c8076aa22047e85972caa8a916df # v4
+        with:
+          github-token: ${{ github.token }}
+          version: "2026-09-22"
+      - name: Set up PDF inspection tools
+        uses: ./.github/actions/setup-pdf-tools
+      - name: Bootstrap the repository-owned regression environment
+        run: make -s ci-bootstrap
+      - name: Audit and install the reviewed Linux native wheel
+        run: make -s native-release-install
+      - name: Run complete deterministic regression without skips
+        run: |
+          make -s ci-full-regression WORKERS=4 \
+            CI_JUNIT=build/daily-deterministic.xml
+          make -s ci-performance-regression \
+            CI_JUNIT=build/daily-performance.xml
+          make -s ci-test-floor \
+            CI_DETERMINISTIC_JUNIT=build/daily-deterministic.xml \
+            CI_PERFORMANCE_JUNIT=build/daily-performance.xml
+          printf 'Complete deterministic regression passed; seed `%s`.\n' \
+            '${{ needs.seed.outputs.master_seed }}' >> "$GITHUB_STEP_SUMMARY"
+      - name: Retain deterministic failure report
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: daily-deterministic-${{ github.run_id }}
+          path: |
+            build/daily-deterministic.xml
+            build/daily-performance.xml
+          if-no-files-found: warn
+          retention-days: 14
+
+  random:
+    needs: seed
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [expressions, diagnostics]
+        shard: [0, 1, 2, 3]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+      - uses: YosysHQ/setup-oss-cad-suite@c7845bc0d335c8076aa22047e85972caa8a916df # v4
+        with:
+          github-token: ${{ github.token }}
+          version: "2026-09-22"
+      - name: Bootstrap the repository-owned random-test environment
+        run: make -s ci-bootstrap
+      - name: Run deterministic random shard
+        run: >-
+          make -s ci-random-smoke
+          CI_RANDOM_SUITE="${{ matrix.suite }}"
+          CI_RANDOM_MASTER_SEED="${{ needs.seed.outputs.master_seed }}"
+          CI_RANDOM_TESTS=512
+          CI_RANDOM_SHARD="${{ matrix.shard }}"
+          CI_RANDOM_SHARDS=4
+      - name: Retain random failures
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: daily-random-${{ matrix.suite }}-${{ matrix.shard }}-${{ github.run_id }}
+          path: build/random-failures/
+          if-no-files-found: warn
+          retention-days: 14

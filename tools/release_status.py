@@ -1,0 +1,617 @@
+#!/usr/bin/env python3
+"""Validate the public release-status manifest against the live source tree."""
+
+from __future__ import annotations
+
+import argparse
+import ast
+import hashlib
+import json
+from pathlib import Path
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import tomllib
+import xml.etree.ElementTree as ET
+
+
+
+DEFAULT_STATUS = Path("release/status.json")
+CORPUS_TEST = Path("tests/systemverilog/test_example_coverage.py")
+COMMUNITY_PDF = Path("docs/ZLang-HDL-Language-Reference.pdf")
+COMMUNITY_PDF_SOURCES = (
+    Path("docs/language-reference.md"),
+    Path("docs/language-quick-reference.md"),
+)
+
+
+class StatusError(RuntimeError):
+    pass
+
+
+def _sha256(path: Path) -> str:
+    try:
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+    except OSError as exc:
+        raise StatusError(f"cannot read {path}: {exc}") from exc
+
+
+def _run_pdf_tool(command: tuple[str, ...]) -> str:
+    executable = shutil.which(command[0])
+    if executable is None:
+        raise StatusError(f"required PDF inspection tool is missing: {command[0]}")
+    completed = subprocess.run(
+        (executable, *command[1:]),
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    if completed.returncode != 0:
+        raise StatusError(
+            f"{command[0]} failed while validating the reviewed PDF: "
+            f"{completed.stderr.strip()}"
+        )
+    return completed.stdout
+
+
+def _actual_pdf_geometry(path: Path) -> tuple[int, str, tuple[tuple[float, float], ...]]:
+    """Inspect every PDF page rather than trusting recorded geometry fields."""
+
+    summary = _run_pdf_tool(("pdfinfo", str(path)))
+    fields = {
+        key.strip(): value.strip()
+        for line in summary.splitlines()
+        if ":" in line
+        for key, value in (line.split(":", 1),)
+    }
+    try:
+        pages = int(fields["Pages"])
+        version = fields["PDF version"]
+    except (KeyError, ValueError) as exc:
+        raise StatusError("pdfinfo omitted the page count or PDF version") from exc
+    details = _run_pdf_tool(
+        ("pdfinfo", "-f", "1", "-l", str(pages), "-box", str(path))
+    )
+    pattern = re.compile(
+        r"^Page\s+(\d+)\s+size:\s+"
+        r"([0-9]+(?:\.[0-9]+)?)\s+x\s+"
+        r"([0-9]+(?:\.[0-9]+)?)\s+pts(?:\s+.*)?$"
+    )
+    by_page: dict[int, tuple[float, float]] = {}
+    for line in details.splitlines():
+        match = pattern.match(line)
+        if match is None:
+            continue
+        page, width, height = match.groups()
+        by_page[int(page)] = (float(width), float(height))
+    expected_pages = set(range(1, pages + 1))
+    if set(by_page) != expected_pages:
+        raise StatusError("pdfinfo omitted geometry for one or more PDF pages")
+    return pages, version, tuple(by_page[index] for index in range(1, pages + 1))
+
+
+def _actual_cover_record(path: Path) -> tuple[str, int, int]:
+    """Return digest and raster geometry for the sole reviewed cover image."""
+
+    listing = _run_pdf_tool(("pdfimages", "-list", str(path)))
+    pattern = re.compile(r"^\s*(\d+)\s+\d+\s+image\s+(\d+)\s+(\d+)\s+")
+    images = [
+        tuple(map(int, match.groups()))
+        for line in listing.splitlines()
+        if (match := pattern.match(line)) is not None
+    ]
+    if len(images) != 1 or images[0][0] != 1:
+        raise StatusError(
+            "Community reference must contain exactly one image on the cover page"
+        )
+    _page, width, height = images[0]
+    with tempfile.TemporaryDirectory(prefix="zlang-pdf-cover.") as directory:
+        prefix = Path(directory) / "cover"
+        _run_pdf_tool(("pdfimages", "-all", str(path), str(prefix)))
+        extracted = tuple(sorted(Path(directory).glob("cover-*")))
+        if len(extracted) != 1:
+            raise StatusError(
+                "Community reference cover did not extract as exactly one raster"
+            )
+        digest = _sha256(extracted[0])
+    return digest, width, height
+
+
+def _check_documentation(root: Path, documentation: object) -> None:
+    if not isinstance(documentation, dict):
+        raise StatusError("release status is missing documentation metadata")
+    expected_keys = {
+        "builder_sha256",
+        "cover_height",
+        "cover_sha256",
+        "cover_width",
+        "examples",
+        "format",
+        "pages",
+        "page_height_points",
+        "page_width_points",
+        "pdf",
+        "pdf_sha256",
+        "source_date_epoch",
+        "sources",
+        "syntax_grammar_sha256",
+    }
+    if set(documentation) != expected_keys:
+        raise StatusError("documentation metadata has unexpected or missing fields")
+    examples = documentation.get("examples")
+    expected_example_keys = {
+        "json_blocks",
+        "linked_sources",
+        "python_blocks",
+        "referenced_tops",
+        "shell_blocks",
+        "standalone_compiled",
+        "syntax_fragments",
+        "toml_blocks",
+        "zlang_fences",
+    }
+    if not isinstance(examples, dict) or set(examples) != expected_example_keys:
+        raise StatusError("documentation example validation metadata is malformed")
+    if any(not isinstance(value, int) or value < 0 for value in examples.values()):
+        raise StatusError("documentation example validation counts must be non-negative")
+    if examples["zlang_fences"] <= 0 or examples["linked_sources"] <= 0:
+        raise StatusError("documentation example validation is unexpectedly empty")
+    if documentation.get("pdf") != COMMUNITY_PDF.as_posix():
+        raise StatusError("documentation.pdf must name the reviewed Community PDF")
+    pdf = root / COMMUNITY_PDF
+    try:
+        payload = pdf.read_bytes()
+    except OSError as exc:
+        raise StatusError(f"cannot read {pdf}: {exc}") from exc
+    if not payload.startswith(b"%PDF-1.5") or not payload.rstrip().endswith(b"%%EOF"):
+        raise StatusError("Community reference is not the reviewed PDF 1.5 envelope")
+    if len(payload) > 20 * 1024 * 1024:
+        raise StatusError("Community reference PDF exceeds the 20 MiB release bound")
+    if documentation.get("pdf_sha256") != hashlib.sha256(payload).hexdigest():
+        raise StatusError("Community reference PDF digest is stale")
+    if documentation.get("format") != "PDF-1.5":
+        raise StatusError("documentation format must be PDF-1.5")
+    for field, path in (
+        ("builder_sha256", Path("tools/build_community_pdf.py")),
+        (
+            "syntax_grammar_sha256",
+            Path("editors/vscode/zlang-hdl/syntaxes/zlang.tmLanguage.json"),
+        ),
+    ):
+        # The Community snapshot ships the reviewed PDF and its digest, but
+        # intentionally omits the host-only LaTeX/Pandoc build collateral.
+        if field == "builder_sha256" and not (root / path).exists():
+            continue
+        if documentation.get(field) != _sha256(root / path):
+            raise StatusError(f"documentation {field} is stale")
+    cover_sha256 = documentation.get("cover_sha256")
+    if not isinstance(cover_sha256, str) or re.fullmatch(
+        r"[0-9a-f]{64}", cover_sha256
+    ) is None:
+        raise StatusError("documentation cover digest is malformed")
+    source_date_epoch = documentation.get("source_date_epoch")
+    if not isinstance(source_date_epoch, int) or source_date_epoch <= 0:
+        raise StatusError("documentation source-date epoch must be a positive integer")
+    pages = documentation.get("pages")
+    if not isinstance(pages, int) or pages <= 0:
+        raise StatusError("documentation page count must be a positive integer")
+    for field in ("cover_width", "cover_height"):
+        value = documentation.get(field)
+        if not isinstance(value, int) or value <= 0:
+            raise StatusError(f"documentation {field} must be a positive integer")
+    for field in ("page_width_points", "page_height_points"):
+        value = documentation.get(field)
+        if not isinstance(value, (int, float)) or value <= 0:
+            raise StatusError(f"documentation {field} must be positive")
+    actual_pages, actual_version, page_geometry = _actual_pdf_geometry(pdf)
+    if actual_pages != pages:
+        raise StatusError(
+            f"documentation pages is stale: expected {pages}, got {actual_pages}"
+        )
+    if actual_version != documentation.get("format", "").removeprefix("PDF-"):
+        raise StatusError(
+            "documentation format does not match the reviewed PDF version"
+        )
+    expected_page_geometry = (
+        float(documentation["page_width_points"]),
+        float(documentation["page_height_points"]),
+    )
+    mismatched_page = next(
+        (
+            (index, geometry)
+            for index, geometry in enumerate(page_geometry, start=1)
+            if geometry != expected_page_geometry
+        ),
+        None,
+    )
+    if mismatched_page is not None:
+        page_number, geometry = mismatched_page
+        raise StatusError(
+            f"documentation page geometry mismatch on page {page_number}: "
+            f"expected {expected_page_geometry}, got {geometry}"
+        )
+    actual_cover_sha256, actual_cover_width, actual_cover_height = (
+        _actual_cover_record(pdf)
+    )
+    if actual_cover_sha256 != cover_sha256:
+        raise StatusError("documentation cover digest does not match the reviewed PDF")
+    if actual_cover_width != documentation["cover_width"]:
+        raise StatusError(
+            "documentation cover_width does not match the reviewed PDF cover"
+        )
+    if actual_cover_height != documentation["cover_height"]:
+        raise StatusError(
+            "documentation cover_height does not match the reviewed PDF cover"
+        )
+    sources = documentation.get("sources")
+    expected_sources = {path.as_posix() for path in COMMUNITY_PDF_SOURCES}
+    if not isinstance(sources, dict) or set(sources) != expected_sources:
+        raise StatusError("documentation sources must be the two public Markdown guides")
+    for source in COMMUNITY_PDF_SOURCES:
+        if sources[source.as_posix()] != _sha256(root / source):
+            raise StatusError(f"documentation source digest is stale: {source}")
+
+
+def _load_json(path: Path) -> dict:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise StatusError(f"cannot read {path}: {exc}") from exc
+    if not isinstance(value, dict):
+        raise StatusError(f"{path} must contain a JSON object")
+    return value
+
+
+def _dict_assignment_size(path: Path, name: str) -> int:
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    for node in tree.body:
+        target = None
+        value = None
+        if isinstance(node, ast.Assign) and len(node.targets) == 1:
+            target, value = node.targets[0], node.value
+        elif isinstance(node, ast.AnnAssign):
+            target, value = node.target, node.value
+        if (
+            isinstance(target, ast.Name)
+            and target.id == name
+            and isinstance(value, ast.Dict)
+        ):
+            return len(value.keys)
+    raise StatusError(f"cannot find literal {name} registry in {path}")
+
+
+def _example_counts(root: Path) -> dict[str, int]:
+    try:
+        from zlang.parser import parse
+    except ImportError as exc:
+        raise StatusError("ZLang must be importable to inspect the example corpus") from exc
+    # The repository is the release surface; count its checked-in examples.
+    sources = tuple(sorted((root / "examples").rglob("*.zhl")))
+    roots = 0
+    for path in sources:
+        syntax = parse(path.read_text(encoding="utf-8"))
+        roots += len(syntax.submodules) + 1
+    child = _dict_assignment_size(root / CORPUS_TEST, "CHILD_OR_TEMPLATE_ONLY")
+    unsupported = _dict_assignment_size(root / CORPUS_TEST, "DIRECT_UNSUPPORTED")
+    return {
+        "source_files": len(sources),
+        "module_roots": roots,
+        "standalone_supported": roots - child - unsupported,
+        "child_or_template_only": child,
+        "direct_unsupported": unsupported,
+    }
+
+
+def _project_version(root: Path, pyproject: dict) -> str | None:
+    project = pyproject.get("project", {})
+    direct = project.get("version")
+    if isinstance(direct, str):
+        return direct
+    if pyproject.get("build-system", {}).get("build-backend") == "maturin":
+        cargo_path = root / "Cargo.toml"
+        if not cargo_path.is_file():
+            return None
+        cargo = tomllib.loads(cargo_path.read_text(encoding="utf-8"))
+        cargo_version = cargo.get("package", {}).get("version")
+        if not isinstance(cargo_version, str):
+            return None
+        conversions = (("-alpha.", "a"), ("-beta.", "b"), ("-rc.", "rc"))
+        for source, replacement in conversions:
+            if source in cargo_version:
+                return cargo_version.replace(source, replacement)
+        return cargo_version
+    dynamic = pyproject.get("tool", {}).get("setuptools", {}).get("dynamic", {})
+    attribute = dynamic.get("version", {}).get("attr")
+    if not isinstance(attribute, str) or "." not in attribute:
+        return None
+    module_name, symbol = attribute.rsplit(".", 1)
+    module_path = root / f"{module_name.replace('.', '/')}.py"
+    tree = ast.parse(module_path.read_text(encoding="utf-8"), filename=str(module_path))
+    for node in tree.body:
+        if (
+            isinstance(node, ast.Assign)
+            and any(isinstance(target, ast.Name) and target.id == symbol for target in node.targets)
+            and isinstance(node.value, ast.Constant)
+            and isinstance(node.value.value, str)
+        ):
+            return node.value.value
+    return None
+
+
+def _junit_counts(path: Path) -> tuple[int, int, int, int]:
+    try:
+        root = ET.parse(path).getroot()
+    except (OSError, ET.ParseError) as exc:
+        raise StatusError(f"cannot read JUnit report {path}: {exc}") from exc
+    cases = root.findall(".//testcase")
+    failures = sum(case.find("failure") is not None for case in cases)
+    errors = sum(case.find("error") is not None for case in cases)
+    skipped = sum(case.find("skipped") is not None for case in cases)
+    passed = len(cases) - failures - errors - skipped
+    return passed, skipped, failures, errors
+
+
+def _combined_junit_counts(paths: tuple[Path, ...]) -> tuple[int, int, int, int]:
+    if not paths:
+        raise StatusError("at least one JUnit report is required")
+    resolved = tuple(path.resolve() for path in paths)
+    if len(set(resolved)) != len(resolved):
+        raise StatusError("the same JUnit report cannot be counted more than once")
+    counts = tuple(_junit_counts(path) for path in paths)
+    return (
+        sum(item[0] for item in counts),
+        sum(item[1] for item in counts),
+        sum(item[2] for item in counts),
+        sum(item[3] for item in counts),
+    )
+
+
+def _test_thresholds(validation: dict) -> tuple[int, int, int]:
+    minimum = validation.get("minimum_tests_passed")
+    minimum_collected = validation.get("minimum_tests_collected")
+    maximum_skipped = validation.get("maximum_tests_skipped")
+    if not isinstance(minimum, int) or minimum <= 0:
+        raise StatusError("minimum_tests_passed must be a positive integer")
+    if not isinstance(minimum_collected, int) or minimum_collected < minimum:
+        raise StatusError(
+            "minimum_tests_collected must be an integer at least as large as "
+            "minimum_tests_passed"
+        )
+    if not isinstance(maximum_skipped, int) or maximum_skipped < 0:
+        raise StatusError("maximum_tests_skipped must be a non-negative integer")
+    return minimum, minimum_collected, maximum_skipped
+
+
+def _check_junit_health(
+    reports: tuple[Path, ...], *, maximum_skipped: int, label: str
+) -> tuple[int, int]:
+    passed, skipped, failures, errors = _combined_junit_counts(reports)
+    if failures or errors:
+        raise StatusError(
+            f"{label} JUnit report contains {failures} failures and {errors} errors"
+        )
+    if skipped > maximum_skipped:
+        raise StatusError(
+            f"{skipped} {label} tests skipped; release allows at most "
+            f"{maximum_skipped}"
+        )
+    return passed, skipped
+
+
+def _check_junit_policy(
+    validation: dict,
+    reports: tuple[Path, ...],
+    *,
+    performance_reports: tuple[Path, ...] = (),
+) -> None:
+    deterministic_paths = {path.resolve() for path in reports}
+    performance_paths = {path.resolve() for path in performance_reports}
+    if deterministic_paths & performance_paths:
+        raise StatusError(
+            "the same JUnit report cannot be deterministic and performance evidence"
+        )
+    minimum, minimum_collected, maximum_skipped = _test_thresholds(validation)
+    passed, skipped = _check_junit_health(
+        reports, maximum_skipped=maximum_skipped, label="deterministic"
+    )
+    if passed + skipped < minimum_collected:
+        raise StatusError(
+            f"only {passed + skipped} deterministic tests collected; release requires "
+            f"{minimum_collected}"
+        )
+    if passed < minimum:
+        raise StatusError(
+            f"only {passed} deterministic tests passed; release requires {minimum}"
+        )
+    if performance_reports:
+        _check_junit_health(
+            performance_reports,
+            maximum_skipped=maximum_skipped,
+            label="performance",
+        )
+
+
+def validate_test_reports(
+    root: Path,
+    status_path: Path = DEFAULT_STATUS,
+    *,
+    junit: tuple[Path, ...],
+    performance_junit: tuple[Path, ...] = (),
+) -> None:
+    """Validate split-suite JUnit evidence without importing the compiler."""
+
+    root = root.resolve()
+    path = status_path if status_path.is_absolute() else root / status_path
+    status = _load_json(path)
+    if status.get("schema") != 2:
+        raise StatusError("release status schema must be 2")
+    validation = status.get("validation")
+    if not isinstance(validation, dict):
+        raise StatusError("release status is missing validation metadata")
+    _check_junit_policy(
+        validation, junit, performance_reports=performance_junit
+    )
+
+
+def _command_output(command: tuple[str, ...]) -> str:
+    executable = shutil.which(command[0])
+    if executable is None:
+        raise StatusError(f"required EDA tool is missing: {command[0]}")
+    completed = subprocess.run(
+        (executable, *command[1:]), capture_output=True, text=True, timeout=30
+    )
+    if completed.returncode != 0:
+        raise StatusError(
+            f"cannot query {command[0]}: {completed.stdout}{completed.stderr}"
+        )
+    return f"{completed.stdout}\n{completed.stderr}".strip()
+
+
+def _check_tools(expected: dict[str, str]) -> None:
+    commands = {
+        "iverilog": ("iverilog", "-V"),
+        "sby": ("sby", "--version"),
+        "verilator": ("verilator", "--version"),
+        "vvp": ("vvp", "-V"),
+        "yosys": ("yosys", "-V"),
+        "z3": ("z3", "--version"),
+    }
+    for name, command in commands.items():
+        version = expected.get(name)
+        if not isinstance(version, str) or not version:
+            raise StatusError(f"eda_toolchain.{name} has no expected version")
+        output = _command_output(command)
+        if re.search(rf"(?<![0-9]){re.escape(version)}(?![0-9])", output) is None:
+            raise StatusError(
+                f"{name} version mismatch: expected {version!r}, got {output!r}"
+            )
+    if shutil.which("yosys-smtbmc") is None:
+        raise StatusError("required EDA tool is missing: yosys-smtbmc")
+
+
+def validate(
+    root: Path,
+    status_path: Path = DEFAULT_STATUS,
+    *,
+    junit: Path | tuple[Path, ...] | None = None,
+    performance_junit: tuple[Path, ...] = (),
+    check_tools: bool = False,
+    tag: str | None = None,
+) -> None:
+    root = root.resolve()
+    path = status_path if status_path.is_absolute() else root / status_path
+    status = _load_json(path)
+    if status.get("schema") != 2:
+        raise StatusError("release status schema must be 2")
+    release = status.get("release")
+    validation = status.get("validation")
+    platform = status.get("platform")
+    native_runtime = status.get("native_runtime")
+    tools = status.get("eda_toolchain")
+    if not all(
+        isinstance(item, dict)
+        for item in (release, validation, platform, native_runtime, tools)
+    ):
+        raise StatusError("release status is missing required object sections")
+    _check_documentation(root, status.get("documentation"))
+    pyproject = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
+    project_version = _project_version(root, pyproject)
+    if release.get("version") != project_version:
+        raise StatusError(
+            f"release version {release.get('version')!r} does not match pyproject "
+            f"version {project_version!r}"
+        )
+    if release.get("repository") != "https://github.com/postoroniy/zlang-hdl":
+        raise StatusError("release repository must be postoroniy/zlang-hdl")
+    if release.get("channel") != "alpha":
+        raise StatusError("the first public release must remain alpha")
+    if tag is not None and tag != f"v{project_version}":
+        raise StatusError(
+            f"release tag {tag!r} does not match package version v{project_version}"
+        )
+    if platform != {
+        "operating_system": "Linux",
+        "python": ">=3.12,<3.13",
+        "architecture": "x86_64",
+    }:
+        raise StatusError("release platform contract has changed without review")
+    if native_runtime != {
+        "version": project_version,
+        "abi": "cp312-abi3",
+        "source_distribution": False,
+        "platforms": [
+            "manylinux_2_28_x86_64",
+        ],
+    }:
+        raise StatusError("native runtime release contract has changed without review")
+    actual_corpus = _example_counts(root)
+    if validation.get("example_corpus") != actual_corpus:
+        raise StatusError(
+            "example corpus status is stale: "
+            f"recorded={validation.get('example_corpus')!r}, actual={actual_corpus!r}"
+        )
+    _test_thresholds(validation)
+    if junit is not None:
+        reports = (junit,) if isinstance(junit, Path) else junit
+        _check_junit_policy(
+            validation, reports, performance_reports=performance_junit
+        )
+    elif performance_junit:
+        raise StatusError("performance JUnit requires deterministic --junit evidence")
+    if check_tools:
+        _check_tools(tools)
+
+
+def _parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("command", choices=("check", "check-junit"))
+    parser.add_argument("--root", type=Path, default=Path("."))
+    parser.add_argument("--status", type=Path, default=DEFAULT_STATUS)
+    parser.add_argument("--junit", type=Path, action="append")
+    parser.add_argument("--performance-junit", type=Path, action="append")
+    parser.add_argument("--check-tools", action="store_true")
+    parser.add_argument("--tag")
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _parser().parse_args(argv)
+    try:
+        reports = None if args.junit is None else tuple(args.junit)
+        performance_reports = (
+            () if args.performance_junit is None else tuple(args.performance_junit)
+        )
+        if args.command == "check-junit":
+            if reports is None:
+                raise StatusError("check-junit requires at least one --junit report")
+            if args.check_tools or args.tag is not None:
+                raise StatusError("check-junit does not accept --check-tools or --tag")
+            validate_test_reports(
+                args.root,
+                args.status,
+                junit=reports,
+                performance_junit=performance_reports,
+            )
+        else:
+            validate(
+                args.root,
+                args.status,
+                junit=reports,
+                performance_junit=performance_reports,
+                check_tools=args.check_tools,
+                tag=args.tag,
+            )
+    except StatusError as exc:
+        print(f"release-status: error: {exc}", file=sys.stderr)
+        return 1
+    if args.command == "check-junit":
+        print("release test reports valid")
+    else:
+        print("release status valid")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

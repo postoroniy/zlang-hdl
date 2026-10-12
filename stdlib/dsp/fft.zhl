@@ -1,0 +1,51 @@
+// Profile-neutral FFT helpers.  Butterfly arithmetic is exact and performs no
+// quantization; compile-time twiddle generation quantizes only to the explicit
+// caller-selected T.
+import std.math.complex
+
+struct FFTButterfly<type S, type D> {
+    sum : S
+    difference : D
+}
+
+fn fft_butterfly_exact<type A, type B, type W>(
+    a : Complex<A>, b : Complex<B>, twiddle : Complex<W>
+) {
+    exact = b * twiddle
+    FFTButterfly {
+        sum = a + exact
+        difference = a - exact
+    }
+}
+
+fn fft_bit_reverse<N>(value : bits<N>) {
+    bitcast<bits<N>>(
+        generate(i in 0..N) bitcast<vec<N,bit>>(value)[N - 1 - i]
+    )
+}
+
+fn fft_forward_twiddles<type T,N>() {
+    generate(k in 0..(N / 2)) Complex {
+        re = quantize<T>(cos((-2 * pi() * k) / N)) {
+            round nearest_even
+            overflow saturate
+        }
+        im = quantize<T>(sin((-2 * pi() * k) / N)) {
+            round nearest_even
+            overflow saturate
+        }
+    }
+}
+
+fn fft_inverse_twiddles<type T,N>() {
+    generate(k in 0..(N / 2)) Complex {
+        re = quantize<T>(cos((2 * pi() * k) / N)) {
+            round nearest_even
+            overflow saturate
+        }
+        im = quantize<T>(sin((2 * pi() * k) / N)) {
+            round nearest_even
+            overflow saturate
+        }
+    }
+}

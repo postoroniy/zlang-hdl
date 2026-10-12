@@ -1,0 +1,61 @@
+// Intel Cyclone V variable-precision DSP, M10K, ALM and clock resources.
+resource CycloneVVariableDSP {
+    class dsp_mac
+    operation multiply_accumulate
+    capability signed true
+    capability preadder true
+    capability accumulator_width 64
+    capability modes 3x9x9.2x18x18.1x27x27
+    capability cascade true
+    limit multiplier_a 27
+    limit multiplier_b 27
+    limit accumulator 64
+    pipeline_site input_preadd location input_preadd latency 1 ii 1 local true delay_ps 0
+    pipeline_site multiply location multiply latency 1 ii 1 local true delay_ps 0
+    pipeline_site accumulate_output location accumulate_output latency 1 ii 1 local true delay_ps 0
+    pipeline_config unregistered latency 0 ii 1
+    pipeline_config multiply_registered latency 1 ii 1 enable multiply setting multiplier_register 1
+    pipeline_config fully_pipelined latency 3 ii 1 enable input_preadd enable multiply enable accumulate_output setting input_register 1 setting multiplier_register 1 setting output_register 1
+    dedicated chain chain_out -> chain_in width 64 relation adjacent_dsp
+    binding systemverilog unsupported
+    physical_primitive cyclonev_mac
+    physical_site input_preadd input_register
+    physical_site multiply multiplier_register
+    physical_site accumulate_output output_register
+    physical_edge chain chainout chainin
+}
+resource CycloneVM10K {
+    class block_memory
+    operation synchronous_ram
+    capability capacity_bits 10240
+    capability port_modes single.simple_dual.true_dual
+    capability widths 1.2.4.5.8.10.16.20.32.40
+    capability synchronous_read true
+    capability output_register optional
+    capability byte_write_enable true
+    capability initialization mif.hex
+    pipeline_site output location memory_output latency 1 ii 1 local true delay_ps 0
+    pipeline_config core_registered latency 0 ii 1
+    pipeline_config output_registered latency 1 ii 1 enable output setting output_register 1
+    binding systemverilog unsupported
+    physical_primitive altsyncram
+    physical_site output outdata_reg
+}
+resource CycloneVALM { class logic operation combinational_logic capability inputs 8 capability arithmetic_chain true capability mlab_bits 640 binding systemverilog generic_rtl }
+resource CycloneVFF { class register operation register capability packed_with_alm true binding systemverilog generic_rtl }
+resource CycloneVFPLL { class clock_generator operation clock_multiply_divide capability outputs 9 capability phase configurable capability lock true binding systemverilog unsupported physical_primitive altera_pll }
+target IntelCycloneV {
+    provides CycloneVVariableDSP
+    provides CycloneVM10K
+    provides CycloneVALM
+    provides CycloneVFF
+    provides CycloneVFPLL
+}
+device cyclone_v_5csema5f31c6 : IntelCycloneV {
+    part 5CSEMA5F31C6
+    inventory CycloneVVariableDSP 87
+    inventory CycloneVM10K 397
+    inventory CycloneVFPLL 6
+    dedicated_capacity CycloneVVariableDSP chain 86
+}
+module IntelCycloneVTargetLibrary {}

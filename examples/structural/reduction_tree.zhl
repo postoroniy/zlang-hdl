@@ -1,0 +1,16 @@
+// Associative bitwise reductions and exact-width modular addition.
+module ReductionTreeWitness<N=32> {
+    in values : vec<N,u8>
+    out or_value : u8
+    out and_value : u8
+    out xor_value : u8
+    out sum_value : u16
+    out grouped_xor : u8
+
+    or_value = reduce(|, values)
+    and_value = reduce(&, values)
+    xor_value = reduce(^, values)
+    sum_value = truncate<16>(reduce(+, generate(i in 0..N) extend<16>(values[i])))
+    grouped_xor = reduce(^, generate(group in 0..(N / 8))
+        reduce(^, generate(item in 0..8) values[group * 8 + item]))
+}

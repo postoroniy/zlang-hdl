@@ -1,0 +1,46 @@
+// Pure bit-level coding helpers.  They are intentionally independent of any
+// packet protocol, polynomial convention, or Wi-Fi profile.
+fn coding_parity<N>(value : bits<N>) -> bit {
+    parity(value)
+}
+
+fn coding_reverse_bits<N>(value : bits<N>) {
+    bitcast<bits<N>>(
+        generate(i in 0..N) bitcast<vec<N,bit>>(value)[N - 1 - i]
+    )
+}
+
+// Fibonacci LFSR step: bit zero of the returned raw sequence is the feedback
+// bit and the old sequence shifts toward the MSB. Functions do not yet accept
+// declaration constraints, so the public module wrapper below is the checked
+// hardware boundary while this pure helper retains source compatibility.
+fn coding_lfsr_step<N>(state : bits<N>, taps : bits<N>) {
+    concat(state[N - 2:0], parity(state & taps))
+}
+
+module CodingLfsrStep<N=8> where N >= 2 {
+    in state : bits<N>
+    in polynomial_taps : bits<N>
+    out next_state : bits<N>
+
+    next_state = coding_lfsr_step<N=N>(state, polynomial_taps)
+}
+
+// Exact convolution/dot helper.  The normal numeric type rules determine the
+// widened result; this helper performs no narrowing or quantization.
+fn coding_convolution_dot<type T,N>(
+    samples : vec<N,T>, coefficients : vec<N,T>
+) {
+    dot(samples, coefficients)
+}
+
+// Runtime table gather with a statically proven selector range.  This helper
+// preserves source order and deliberately does not claim that `order` is a
+// bijective permutation: duplicate and omitted source elements are legal.
+// Each concrete specialization is accepted only when uint<IW>'s complete
+// range fits 0..N-1.
+fn table_gather<type T,N,IW>(
+    values : vec<N,T>, order : vec<N,uint<IW>>
+) {
+    generate(i in 0..N) values[order[i]]
+}

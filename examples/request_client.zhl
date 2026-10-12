@@ -1,0 +1,30 @@
+struct Request {
+  id: u2
+  data: u8
+}
+
+struct Response {
+  id: u2
+  data: u8
+}
+
+module RequestClient {
+  clock clk
+  reset rst
+
+  interface mem: request_response<Request, Response> {
+    max_outstanding 2
+    ordering out_of_order
+    match_by id
+  }
+
+  in request_payload: Request
+  in issue: bit
+  in accept_response: bit
+  out response_payload: Response
+
+  mem.request.payload = request_payload
+  mem.request.valid = issue
+  mem.response.ready = accept_response
+  response_payload = mem.response.payload
+}

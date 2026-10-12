@@ -1,0 +1,42 @@
+import std.target.xilinx.series7
+
+// Ordered two-product accumulator cascades.  The compiler matches the typed
+// SignedProductReduction descriptor; these declarations contain only resource,
+// timing and pipeline configuration intent.
+architecture Xilinx7SignedProductCascade {
+    operation signed_product_reduction
+    require_resource DSP48E1 2
+    require_dedicated pcascade
+    latency 1
+    ii 1
+    use_pipeline unregistered
+}
+
+architecture Xilinx7SignedProductCascadeMREG {
+    operation signed_product_reduction
+    require_resource DSP48E1 2
+    require_dedicated pcascade
+    latency 2
+    ii 1
+    use_pipeline multiply_registered
+}
+
+architecture Xilinx7SignedProductCascadeMREGPREG {
+    operation signed_product_reduction
+    require_resource DSP48E1 2
+    require_dedicated pcascade
+    latency 3
+    ii 1
+    use_pipeline multiply_output_registered
+}
+
+architecture Xilinx7SignedProductCascadeFullyPipelined {
+    operation signed_product_reduction
+    require_resource DSP48E1 2
+    require_dedicated pcascade
+    latency 4
+    ii 1
+    use_pipeline fully_pipelined
+}
+
+module Xilinx7SignedProductArchitectureLibrary {}

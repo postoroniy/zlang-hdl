@@ -1,0 +1,714 @@
+"""Stable public-language capabilities shared by tooling and documentation tests.
+
+This module is deliberately compiler-owned.  Editor metadata and documentation
+may describe this surface, but neither is allowed to invent compiler features.
+The lexical surface remains separate from capability evidence: semantic and
+backend legality still comes from typed analysis and fail-closed emitters.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class DocumentationRequirement:
+    """A stable marker required in the public support matrix."""
+
+    capability: str
+    document: str
+    markers: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class CapabilityWitness:
+    """One repository source/top pair that must remain semantically executable."""
+
+    source_path: str
+    top: str
+
+
+@dataclass(frozen=True)
+class PublicCapability:
+    """Evidence-backed status for one coherent public-language capability.
+
+    The phase fields intentionally use short human-readable status text rather
+    than booleans.  A capability may be semantically supported while one
+    backend or formal relation remains bounded or unavailable.
+    """
+
+    name: str
+    context: str
+    status: str
+    simulator: str
+    backend_independent_ir: str
+    direct_systemverilog: str
+    formal: str
+    witness: CapabilityWitness
+    limitations: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class PublicCapabilityRegistry:
+    """Versioned stable spellings and their minimum documentation contract."""
+
+    schema_version: int
+    keywords: tuple[str, ...]
+    types: tuple[str, ...]
+    intrinsics: tuple[str, ...]
+    modes: tuple[str, ...]
+    operators: tuple[str, ...]
+    capabilities: tuple[PublicCapability, ...]
+    documentation: tuple[DocumentationRequirement, ...]
+    production_backend: str = "direct_systemverilog"
+
+    def editor_surface(self) -> dict[str, list[str]]:
+        """Return the JSON-compatible surface consumed by lexical editors."""
+
+        return {
+            "keywords": list(self.keywords),
+            "types": list(self.types),
+            "intrinsics": list(self.intrinsics),
+            "modes": list(self.modes),
+            "operators": list(self.operators),
+        }
+
+    def capability_matrix(self) -> list[dict[str, object]]:
+        """Return deterministic JSON-compatible capability evidence.
+
+        This intentionally is not part of :meth:`editor_surface`; lexical
+        editors must not infer semantic or backend legality from highlighting.
+        """
+
+        return [
+            {
+                "name": item.name,
+                "context": item.context,
+                "status": item.status,
+                "simulator": item.simulator,
+                "backend_independent_ir": item.backend_independent_ir,
+                "direct_systemverilog": item.direct_systemverilog,
+                "formal": item.formal,
+                "witness": {
+                    "source_path": item.witness.source_path,
+                    "top": item.witness.top,
+                },
+                "limitations": list(item.limitations),
+            }
+            for item in self.capabilities
+        ]
+
+
+CAPABILITY_REGISTRY = PublicCapabilityRegistry(
+    schema_version=33,
+    keywords=(
+        "import", "module", "extern", "model", "struct", "enum", "union", "type", "fn", "operator", "equiv",
+        "protocol", "role", "channel", "member", "resource", "target", "device",
+        "port", "operation", "class", "capability", "limit", "architecture",
+        "register_site", "pipeline_site", "pipeline_config", "location", "local",
+        "delay_ps", "enable", "setting", "dedicated", "width", "relation",
+        "fallback", "binding", "physical_primitive", "physical_site", "physical_edge",
+        "provides", "part", "inventory", "dedicated_capacity", "require_resource",
+        "use_pipeline", "require_dedicated",
+        "in", "out", "clock", "reset", "async", "edge", "mode", "polarity",
+        "power_up", "release", "inst", "connect", "transform", "interface",
+        "wire", "rv", "credit", "packet", "vc_credit", "request_response",
+        "max_outstanding", "ordering", "match_by", "buffer", "request_buffer",
+        "response_buffer", "adapter", "crossing", "async_fifo", "arbiter", "policy",
+        "grant", "disable", "iff", "csr", "group", "split", "stride", "order",
+        "sticky", "rule", "when", "priority", "drive",
+        "fsm", "hold",
+        "fifo", "memory", "mem", "async_mem", "rom", "read_latency", "init",
+        "collision", "read_port", "write_port", "read_write_port",
+        "write_priority", "contents", "read_data", "reg", "delay",
+        "timing",
+        "pipeline", "choice", "auto", "implement", "intent", "require",
+        "minimize", "maximize", "generate", "map", "sum", "reduce", "dot", "quantize",
+        "round", "overflow", "with", "if", "else", "switch", "match", "mux",
+        "assume", "guarantee", "assert", "cover", "contract", "ensure",
+    ),
+    types=(
+        "bit", "char", "string", "uint", "sint", "bits", "uN", "sN", "fixed", "ufixed",
+        "fixed_sat", "ufixed_sat", "SF", "UF", "SF_Sat", "UF_Sat", "vec",
+        "fifo", "mem", "async_mem", "rom", "wire", "rv", "credit", "packet", "vc_credit",
+        "request_response",
+    ),
+    intrinsics=(
+        "truncate", "extend", "quantize", "pack", "unpack", "bitcast",
+        "reshape", "concat", "zeros", "ones", "parity", "enum_encode", "enum_valid",
+        "enum_decode",
+        "fixed_raw", "fixed_to_raw",
+        "fixed_truncate_wrap",
+        "fixed_truncate_saturate", "fixed_round_even_wrap",
+        "fixed_round_even_saturate", "length", "floor_log2", "ceil_log2", "index_width",
+        "is_power_of_two", "pi", "sin", "cos", "log2", "log", "exp", "sqrt", "mux",
+        "generate", "map", "sum", "reduce", "dot", "repeat", "delay", "pipeline",
+        "unsigned", "signed", "width", "same_type", "constant", "power_of_two",
+    ),
+    modes=(
+        "rw", "ro", "wo", "w1c", "pulse", "reserved", "on_read", "on_write",
+        "active_transfer", "post_accept",
+        "low_first", "high_first", "in_order", "out_of_order",
+        "fixed_priority", "round_robin", "beat", "packet", "sync_level",
+        "pulse_toggle", "handshake", "async_fifo", "rv_to_credit", "credit_to_rv",
+        "read_first", "write_first", "old", "new", "no_change", "clear",
+        "preserve", "hardware", "software", "mul_add",
+        "multiply", "multiply_add", "dsp_mac", "optional_yosys", "reduction", "reassociate",
+        "auto", "nearest_even", "toward_zero", "floor", "away_zero", "wrap",
+        "saturate", "lut", "ff", "dsp", "bram", "latency", "throughput", "ii",
+        "fmax", "fmax_est", "parallelism", "depth", "candidates",
+        "rising", "falling", "synchronous", "asynchronous", "active_high",
+        "active_low", "externally_synchronized", "unspecified",
+    ),
+    operators=(
+        "<=>", "<-", "->", "=>", "..", "==", "!=", "<=", ">=", "<", ">",
+        "&&", "||", "!", "~", "&", "|", "^", "<<", ">>", "+", "-", "*", "/",
+        "=", "?", ":",
+    ),
+    capabilities=(
+        PublicCapability(
+            "scalar-datapath", "pure value", "supported", "supported",
+            "supported", "supported", "semantic-reference equivalence relations",
+            CapabilityWitness("examples/all_syntax.zhl", "ScalarSyntax"),
+            ("runtime division and general Boolean &&/|| are not hardware operators",),
+        ),
+        PublicCapability(
+            "exact-literals-and-packed-constants", "pure value", "supported",
+            "supported", "supported", "supported",
+            "semantic-reference equivalence relations where eligible",
+            CapabilityWitness("examples/all_syntax.zhl", "AllSyntax"),
+            (
+                "compound expressions are never resized by context; zeros<N> "
+                "and ones<N> produce exact raw bits",
+            ),
+        ),
+        PublicCapability(
+            "fixed-point", "pure value", "supported", "supported",
+            "supported", "supported", "bounded semantic-reference equivalence relations",
+            CapabilityWitness("examples/all_syntax.zhl", "FixedSyntax"),
+            ("rescale, rounding, and overflow remain explicit",),
+        ),
+        PublicCapability(
+            "aggregates", "pure value", "supported", "supported",
+            "supported", "supported", "value relations only where bindable",
+            CapabilityWitness("examples/all_syntax.zhl", "StructSyntax"),
+            ("runtime reshape and enum representation casts fail closed",),
+        ),
+        PublicCapability(
+            "characters-strings-tuples", "pure value and aggregate storage",
+            "bounded", "supported", "supported", "supported",
+            "existing scalar/packed relations where eligible",
+            CapabilityWitness("examples/all_syntax.zhl", "TextTupleSyntax"),
+            (
+                "fixed non-empty ASCII byte strings and structural tuple arity 2..8; "
+                "no Unicode, dynamic strings, runtime tuple indexing, or nested patterns",
+            ),
+        ),
+        PublicCapability(
+            "tagged-unions", "pure value", "bounded", "supported",
+            "supported", "supported", "no dedicated formal family",
+            CapabilityWitness("examples/tagged_union.zhl", "TaggedUnionExample"),
+            ("flat scalar fields; no generic unions, top inputs, or raw decode",),
+        ),
+        PublicCapability(
+            "functional-datapath", "pure value", "supported", "supported",
+            "supported", "supported", "scalar/fixed relations where eligible",
+            CapabilityWitness("examples/all_syntax.zhl", "FunctionalSyntax"),
+            ("compile-time bounded; no runtime loops or implicit reassociation",),
+        ),
+        PublicCapability(
+            "compile-time-generation", "elaboration", "supported", "not applicable",
+            "supported after specialization", "supported after specialization",
+            "not applicable",
+            CapabilityWitness("examples/all_syntax.zhl", "CompileTimeSyntax"),
+            ("generated real values require explicit hardware quantization",),
+        ),
+        PublicCapability(
+            "concise-exact-lowering", "elaboration and pure/sequential value syntax",
+            "supported", "supported", "supported", "supported",
+            "inherits the properties of the normalized typed IR",
+            CapabilityWitness("examples/all_syntax.zhl", "ConciseLoweringSyntax"),
+            (
+                "contextual resize still requires an explicit typed boundary; "
+                "static ranges and parameter defaults remain compile-time only",
+            ),
+        ),
+        PublicCapability(
+            "typed-static-parameters", "elaboration", "bounded", "not applicable",
+            "supported after specialization", "supported after specialization",
+            "identity/cache participation; no new property family",
+            CapabilityWitness(
+                "tests/fixtures/generic_table_parameters.zhl",
+                "GenericTableParametersCapability",
+            ),
+            (
+                "named exact bit-packable constants and pure named functions only; "
+                "no defaults, closures, runtime dispatch, ports, or state",
+            ),
+        ),
+        PublicCapability(
+            "generic-rom-and-table-gather", "elaboration and storage", "bounded",
+            "supported", "supported", "supported", "existing storage safety only",
+            CapabilityWitness(
+                "tests/fixtures/generic_table_parameters.zhl",
+                "GenericTableParametersCapability",
+            ),
+            (
+                "immutable one-cycle ROM images and range-proven gather; gather "
+                "does not prove permutation bijection",
+            ),
+        ),
+        PublicCapability(
+            "sequential-state", "explicit per-state clock domain", "supported", "supported",
+            "supported", "supported",
+            "existing safety verification register/rule families retain one outer rule-fire observation",
+            CapabilityWitness("examples/all_syntax.zhl", "VectorStateUpdateSyntax"),
+            (
+                "recursive when/else when/else retains one Rule and ActionGroup; "
+                "it is runtime atomic effect selection, not compile-time if or "
+                "procedural control flow",
+                "an illegal selected FIFO/memory action suppresses the complete "
+                "group without readiness-selected fallback; active output writes "
+                "participate in whole-rule conflict scheduling",
+                "multiple domains have independent schedulers; cross-domain "
+                "atomicity is never inferred",
+            ),
+        ),
+        PublicCapability(
+            "registered-outputs-and-drive",
+            "explicit stored and transient module outputs",
+            "supported",
+            "supported",
+            "supported",
+            "supported",
+            "inherits register/rule safety properties where observable",
+            CapabilityWitness("examples/registered_output.zhl", "RegisteredOutput"),
+            (
+                "out reg is real state with hold behavior; drive is a transient "
+                "rule/FSM action and defaults to zero when no owning action fires",
+                "protocol ports cannot be out reg and drive cannot target stored state",
+            ),
+        ),
+        PublicCapability(
+            "physical-clock-reset", "one or more explicit physical domains", "bounded",
+            "supported", "supported", "supported",
+            (
+                "existing formal routes support exact rising/falling, "
+                "synchronous/raw-asynchronous, polarity, internal synchronized-release, "
+                "and externally synchronized-release "
+                "contracts when power_up is unspecified"
+            ),
+            CapabilityWitness("examples/all_syntax.zhl", "AsyncResetSyntax"),
+            (
+                "default synchronous active-high, raw asynchronous compatibility, "
+                "asynchronous assertion with fixed two-edge synchronized release, or "
+                "explicit externally synchronized release; registers without reset "
+                "values have no reset branch; "
+                "one reset per clock, one conditioner per synchronized-release "
+                "domain; no power-on reset or implicit reset crossing",
+            ),
+        ),
+        PublicCapability(
+            "multi-clock-stateful-logic", "explicit per-entity clock ownership",
+            "bounded", "supported", "supported", "supported",
+            "source goals use exact per-goal domains; automatic state families remain bounded",
+            CapabilityWitness(
+                "examples/multi_clock_stateful.zhl", "MultiClockStateful"
+            ),
+            (
+                "dynamic provenance cannot cross domains without sync_level, "
+                "pulse_toggle, handshake, or async_fifo; no cross-clock atomicity",
+            ),
+        ),
+        PublicCapability(
+            "encoded-enums-and-fsm", "explicit FSM clock domain", "supported", "supported",
+            "supported", "supported", "no enum/FSM-specific property family",
+            CapabilityWitness("examples/all_syntax.zhl", "FsmSyntax"),
+            ("FSM syntax lowers to enum state plus ordinary rules",),
+        ),
+        PublicCapability(
+            "vector-state-update", "one resolved domain per register", "bounded", "supported",
+            "supported", "supported", "register safety where observable",
+            CapabilityWitness("examples/all_syntax.zhl", "VectorStateUpdateSyntax"),
+            ("one range-proven element write; no nested paths or runtime-selected instances",),
+        ),
+        PublicCapability(
+            "fifo-storage", "one resolved domain per FIFO", "supported", "supported",
+            "supported", "supported", "existing safety verification FIFO family",
+            CapabilityWitness("examples/all_syntax.zhl", "FifoSyntax"),
+            ("bounded synchronous FIFO semantics",),
+        ),
+        PublicCapability(
+            "writable-memory", "explicit domain per logical port", "bounded", "supported",
+            "supported", "supported", "no memory-specific safety verification family",
+            CapabilityWitness("examples/all_syntax.zhl", "PortedMemorySyntax"),
+            (
+                "legacy arbitrary-width 1R1W remains compatible; named same-clock "
+                "ports support up to eight logical ports with explicit collision "
+                "and write priority; 1W+nR uses coherent replication and bounded "
+                "multiwrite uses register/mux logic; async_mem is exactly 1W1R "
+                "across distinct domains with one read-domain cycle; byte masks "
+                "retain ceil(W/8) clipped-lane semantics; no mixed widths, async "
+                "2RW, ECC, or automatic banking",
+            ),
+        ),
+        PublicCapability(
+            "ready-valid", "protocol", "supported", "supported",
+            "supported", "supported", "existing safety verification ready/valid family",
+            CapabilityWitness("examples/all_syntax.zhl", "ReadyValidSyntax"),
+            ("no implicit buffering, adaptation, or CDC",),
+        ),
+        PublicCapability(
+            "credit", "protocol", "supported", "supported",
+            "supported", "supported",
+            "existing safety verification sender/receiver credit family when the exact counter is bound",
+            CapabilityWitness("examples/all_syntax.zhl", "CreditSyntax"),
+            (
+                "sender credits and receiver adapter occupancy are explicit; "
+                "VC-credit has no safety verification accounting family",
+            ),
+        ),
+        PublicCapability(
+            "request-response", "protocol", "supported", "supported",
+            "supported", "supported",
+            "existing safety verification ledger and directional-buffer safety family",
+            CapabilityWitness("examples/all_syntax.zhl", "RequestResponseSyntax"),
+            (
+                "parent outstanding and request/response buffer occupancies are "
+                "typed formal observations; bounded in-order/out-of-order profiles; "
+                "no protocol-level equivalence route",
+            ),
+        ),
+        PublicCapability(
+            "aggregate-protocols", "protocol hierarchy", "bounded", "supported",
+            "supported", "supported", "no general aggregate property family",
+            CapabilityWitness("examples/all_syntax.zhl", "AggregateProtocolSyntax"),
+            (
+                "typed leaves and explicit ownership; adapters/crossings remain "
+                "explicit; scalar semantic-reference equivalence entry points reject aggregate protocol "
+                "endpoints rather than comparing leaves out of context",
+            ),
+        ),
+        PublicCapability(
+            "ahb-lite-stdlib", "source-authored standard bus", "bounded",
+            "supported", "supported", "supported",
+            "existing register/state and ready-valid properties where bindable",
+            CapabilityWitness("examples/ahb_csr_top.zhl", "AhbCsrTop"),
+            (
+                "single-manager, one-outstanding, aligned full-width transfers for "
+                "power-of-two data widths 8..1024; no subword strobes, burst engine, "
+                "multi-manager arbitration, CDC, or AHB-specific formal family; the "
+                "source bridge and the other reusable stateful standard-bus cores "
+                "inherit one exact enclosing clock/reset contract and reject "
+                "ambiguous multi-domain composition; flat pin adapters retain "
+                "their explicit physical domains",
+            ),
+        ),
+        PublicCapability(
+            "cdc", "multiple clock domains", "bounded", "supported",
+            "supported", "supported", "no CDC proof family",
+            CapabilityWitness("examples/multi_clock_stateful.zhl", "StatefulSyncLevel"),
+            (
+                "only frozen sync_level, pulse_toggle, handshake, and async_fifo "
+                "crossings; ordinary destination-domain state may consume an "
+                "explicit scalar crossing",
+            ),
+        ),
+        PublicCapability(
+            "csr", "one resolved domain per shared access bank", "bounded", "supported",
+            "supported", "supported", "existing safety verification CSR family",
+            CapabilityWitness("examples/all_syntax.zhl", "CsrSyntax"),
+            (
+                "source-authored bounded register-bank model with storage-independent "
+                "access observations, inline groups and exact 64-bit split views; blocks "
+                "sharing one canonical access ABI must share one domain",
+            ),
+        ),
+        PublicCapability(
+            "contracts", "verification", "supported", "supported",
+            "artifact generation", "artifact generation",
+            "safety verification and bounded cover execution when bound",
+            CapabilityWitness(
+                "editors/vscode/zlang-hdl/examples/verification.zhl",
+                "VerificationUxSyntax",
+            ),
+            (
+                "clocked same-cycle safety and bounded reachability only; "
+                "per-goal supported clock/reset routing does not imply cross-domain "
+                "proof semantics; liveness, temporal sequences, and source-level "
+                "equivalence controls are deferred",
+            ),
+        ),
+        PublicCapability(
+            "exploration", "implementation selection", "bounded", "not applicable",
+            "selected candidates", "selected candidates",
+            "formal-aware selection `available` is advisory; required policies require connected semantic-reference equivalence",
+            CapabilityWitness("examples/all_syntax.zhl", "ExplorationSyntax"),
+            (
+                "egglog, architecture enumeration, pipeline planning, cost "
+                "extraction, and proof gating are distinct stages; joint "
+                "--verify may add direct-SV semantic-reference equivalence evidence while formal-aware selection remains a "
+                "separate selection gate",
+            ),
+        ),
+        PublicCapability(
+            "bounded-intent-structural-exploration",
+            "eligible implement value roots",
+            "bounded",
+            "not applicable",
+            "selected typed alternatives",
+            "selected typed alternatives",
+            "selected alternatives retain exact-value provenance before implementation evidence",
+            CapabilityWitness("examples/all_syntax.zhl", "ExplorationSyntax"),
+            (
+                "site-local egglog saturation, structurally diverse extraction, and "
+                "provider expansion have deterministic count limits",
+                "session caching is keyed by the exact semantic root, rewrite policy, "
+                "limits, and compiler identity; no exhaustive/global optimality claim",
+            ),
+        ),
+        PublicCapability(
+            "capacity-one-temporal-sharing",
+            "single-domain ready/valid transform",
+            "bounded",
+            "supported",
+            "supported",
+            "supported",
+            "capacity-one transaction-stream BMC; unbounded proof is not claimed",
+            CapabilityWitness(
+                "examples/temporal_shared_multiply.zhl", "TemporalSharedMultiply"
+            ),
+            (
+                "exact integer a*b+c*d only, one shared multiplier, latency 4, "
+                "II 4, capacity 1, non-interleaved RETIRE_AND_RELOAD admission",
+                "required_bmc needs bounded_pass evidence; required_proven remains "
+                "fail-closed; no scalar II>1, modulo scheduling, memory, or CDC sharing",
+            ),
+        ),
+        PublicCapability(
+            "elastic-ready-valid-pipeline",
+            "single-domain ready/valid transform",
+            "bounded",
+            "supported",
+            "supported",
+            "supported",
+            "existing safety verification ready/valid stability only; semantic-reference equivalence unsupported",
+            CapabilityWitness(
+                "examples/elastic_pipeline_auto.zhl", "ElasticPipelineAuto"
+            ),
+            (
+                "one pure pipeline scheduling product-reduction kernel, global stall, II=1 and "
+                "variable wall-clock latency; no user state or independently "
+                "elastic stages; minimum unstalled latency is not a fixed-latency "
+                "equivalence relation",
+            ),
+        ),
+        PublicCapability(
+            "per-bit-native-logic-state",
+            "opt-in native simulation",
+            "bounded",
+            "supported",
+            "unchanged",
+            "unchanged",
+            "not a formal semantics replacement",
+            CapabilityWitness(
+                "examples/logic_state_register.zhl",
+                "LogicStateRegister",
+            ),
+            (
+                "0/1/U/X only; U denotes never-refreshed register bits; no Z, "
+                "electrical resolution, or Verilog event-region semantics",
+            ),
+        ),
+        PublicCapability(
+            "combinational-instance-arrays", "compile-time hierarchy", "bounded",
+            "supported", "supported", "supported", "no hierarchical semantic-reference equivalence",
+            CapabilityWitness("examples/indexed_instance_array.zhl", "IndexedInstanceArray"),
+            (
+                "one-dimensional and compile-time indexed; exact aggregate wire "
+                "outputs and output-only runtime projection are supported; no "
+                "runtime-selected input, protocol, action, or physical identity",
+            ),
+        ),
+        PublicCapability(
+            "runtime-instance-output-projection", "elaborated hierarchy", "bounded",
+            "supported", "supported", "supported", "no hierarchical semantic-reference equivalence",
+            CapabilityWitness(
+                "tests/fixtures/hierarchy/runtime_selected_instance_output.zhl",
+                "RuntimeSelectedInstanceOutputCapability",
+            ),
+            (
+                "read-only exact bit-packable wire outputs; every physical child "
+                "continues to execute independently",
+            ),
+        ),
+        PublicCapability(
+            "sequential-instance-arrays", "compile-time hierarchy", "bounded",
+            "supported", "supported", "supported", "no new recursive observation family",
+            CapabilityWitness("examples/sequential_instance_array.zhl", "StateLaneArray"),
+            (
+                "one matching domain; bounded nested scalar hierarchy preserves "
+                "each physical child identity",
+            ),
+        ),
+        PublicCapability(
+            "storage-instance-arrays", "compile-time hierarchy", "bounded",
+            "supported", "supported", "supported", "no hidden-cell observations",
+            CapabilityWitness("examples/storage_instance_array.zhl", "FifoLaneArray"),
+            (
+                "one FIFO, memory, or ROM per child; scheduled FIFO actions may "
+                "share the existing transition with ordinary register/rule state, "
+                "while legacy global storage plus user state fails closed; two flat "
+                "memory arrays may form replicated banked read ports without a "
+                "native multiport primitive",
+            ),
+        ),
+        PublicCapability(
+            "ready-valid-instance-arrays", "compile-time protocol hierarchy", "bounded",
+            "supported", "supported", "supported", "existing applicable safety only",
+            CapabilityWitness("examples/rv_fifo_instance_array.zhl", "RvBufferedLaneArray"),
+            (
+                "primitive ready/valid may coexist with scalar wire ports and one "
+                "FIFO; bounded direct same-domain nested ready/valid is supported; "
+                "no CDC",
+            ),
+        ),
+        PublicCapability(
+            "request-response-instance-arrays",
+            "compile-time protocol hierarchy",
+            "bounded",
+            "supported",
+            "supported",
+            "supported",
+            "existing applicable safety only",
+            CapabilityWitness(
+                "tests/fixtures/hierarchy/request_response_instance_array.zhl",
+                "RequestResponseArrayTop",
+            ),
+            (
+                "first-level, one-dimensional, in-order requester/responder "
+                "arrays with scalar side ports; no out-of-order or nested "
+                "request/response arrays",
+            ),
+        ),
+    ),
+    documentation=(
+        DocumentationRequirement(
+            "modules", "docs/language-reference.md", ('<a id="reference-getting-started-a-first-module"></a>',)
+        ),
+        DocumentationRequirement(
+            "scalars", "docs/language-reference.md", ('<a id="reference-types-and-numerics-scalar-families"></a>',)
+        ),
+        DocumentationRequirement(
+            "fixed-point", "docs/language-reference.md", ('<a id="reference-types-and-numerics-fixed-point"></a>',)
+        ),
+        DocumentationRequirement(
+            "aggregates", "docs/language-reference.md", ('<a id="reference-types-and-numerics-vectors-and-structs"></a>',)
+        ),
+        DocumentationRequirement(
+            "packing", "docs/language-reference.md", ('<a id="reference-types-and-numerics-slicing-concatenation-and-representation"></a>',)
+        ),
+        DocumentationRequirement(
+            "exact-literals-and-packed-constants", "docs/language-reference.md", ('<a id="reference-types-and-numerics-integer-width-rules"></a>',)
+        ),
+        DocumentationRequirement(
+            "characters-strings-tuples", "docs/language-reference.md", ('<a id="reference-types-and-numerics-characters-fixed-strings-and-tuples"></a>',)
+        ),
+        DocumentationRequirement(
+            "enums", "docs/language-reference.md", ('<a id="reference-types-and-numerics-nominal-enums"></a>',)
+        ),
+        DocumentationRequirement(
+            "tagged-unions", "docs/language-reference.md", ('<a id="reference-tagged-unions"></a>',)
+        ),
+        DocumentationRequirement(
+            "functions", "docs/language-reference.md", ('<a id="reference-expressions-functions-generics-pure-functions"></a>',)
+        ),
+        DocumentationRequirement(
+            "expressions", "docs/language-reference.md", ('<a id="reference-expressions-functions-generics-operators-and-selection"></a>',)
+        ),
+        DocumentationRequirement(
+            "functional-datapath", "docs/language-reference.md", ('<a id="reference-expressions-functions-generics-functional-datapath"></a>',)
+        ),
+        DocumentationRequirement(
+            "compile-time", "docs/language-reference.md", ('<a id="reference-expressions-functions-generics-compile-time-functions-and-selection"></a>',)
+        ),
+        DocumentationRequirement(
+            "typed-static-parameters", "docs/language-reference.md", ('<a id="reference-expressions-functions-generics-typed-constants-and-statically-selected-functions"></a>',)
+        ),
+        DocumentationRequirement(
+            "state", "docs/language-reference.md", ('<a id="reference-sequential-state-storage-registers-and-next-state"></a>',)
+        ),
+        DocumentationRequirement(
+            "per-bit-native-logic-state", "docs/language-reference.md", ("--logic-state",)
+        ),
+        DocumentationRequirement(
+            "registered-outputs-and-drive", "docs/language-reference.md", ('<a id="reference-sequential-state-storage-registers-and-next-state"></a>',)
+        ),
+        DocumentationRequirement(
+            "runtime-atomic-actions", "docs/language-reference.md", ('<a id="reference-sequential-state-storage-guarded-atomic-actions"></a>',)
+        ),
+        DocumentationRequirement(
+            "module-timing", "docs/language-reference.md", ('<a id="reference-sequential-state-storage-exact-module-timing-contracts"></a>',)
+        ),
+        DocumentationRequirement(
+            "physical-clock-reset", "docs/language-reference.md", ('<a id="reference-physical-clock-reset-contract"></a>',)
+        ),
+        DocumentationRequirement(
+            "named-module-interfaces", "docs/language-reference.md", ('<a id="reference-named-module-interfaces"></a>',)
+        ),
+        DocumentationRequirement(
+            "typed-external-modules", "docs/language-reference.md", ('<a id="reference-hierarchy-protocols-typed-external-modules"></a>',)
+        ),
+        DocumentationRequirement(
+            "storage", "docs/language-reference.md", ('<a id="reference-sequential-state-storage-writable-memories"></a>',)
+        ),
+        DocumentationRequirement(
+            "generic-rom-and-table-gather", "docs/language-reference.md", ('<a id="reference-sequential-state-storage-initialized-synchronous-roms"></a>',)
+        ),
+        DocumentationRequirement(
+            "protocols", "docs/language-reference.md", ('<a id="reference-hierarchy-protocols-ready-valid"></a>',)
+        ),
+        DocumentationRequirement(
+            "ahb-lite-stdlib", "docs/language-reference.md", ('<a id="reference-standard-bus-library"></a>',)
+        ),
+        DocumentationRequirement(
+            "composition", "docs/language-reference.md", ('<a id="reference-hierarchy-protocols-modules-and-instances"></a>',)
+        ),
+        DocumentationRequirement(
+            "instance-arrays", "docs/language-reference.md", ('<a id="reference-storage-instance-arrays"></a>',)
+        ),
+        DocumentationRequirement(
+            "elastic-ready-valid-pipeline", "docs/language-reference.md", ('<a id="reference-optimization-formal"></a>',)
+        ),
+        DocumentationRequirement(
+            "csr", "docs/language-reference.md", ('<a id="reference-hierarchy-protocols-csr-blocks"></a>',)
+        ),
+        DocumentationRequirement(
+            "contracts", "docs/language-reference.md", ('<a id="reference-optimization-formal-first-class-verification-goals-and-contracts"></a>',)
+        ),
+        DocumentationRequirement(
+            "rewrites", "docs/language-reference.md", ('<a id="reference-egraph-optimization-infrastructure"></a>',)
+        ),
+        DocumentationRequirement(
+            "exploration", "docs/language-reference.md", ('<a id="reference-optimization-formal-one-implementation-policy-path"></a>',)
+        ),
+        DocumentationRequirement(
+            "bounded-intent-structural-exploration", "docs/language-reference.md", ('<a id="reference-optimization-formal-one-implementation-policy-path"></a>',)
+        ),
+        DocumentationRequirement(
+            "capacity-one-temporal-sharing", "docs/language-reference.md", ('<a id="reference-optimization-formal"></a>',)
+        ),
+        DocumentationRequirement(
+            "compile-time-math", "docs/language-reference.md", ('<a id="reference-stdlib-fixed-point-math"></a>',)
+        ),
+    ),
+)
+
+
+__all__ = [
+    "CAPABILITY_REGISTRY",
+    "CapabilityWitness",
+    "DocumentationRequirement",
+    "PublicCapability",
+    "PublicCapabilityRegistry",
+]

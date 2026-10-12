@@ -1,0 +1,35 @@
+// Bounded II>1 ready/valid implementation-selection example.
+//
+// The selected candidate has one shared multiplier, latency 4, II 4, and
+// capacity 1.  It may retire one result and accept the next input on the same
+// edge, but never overlaps computation for two transactions.
+
+struct SharedMultiplyInput {
+    a : u16
+    b : u16
+    c : u16
+    d : u16
+}
+
+module TemporalSharedMultiply {
+    clock clk
+    reset rst
+
+    in input : rv<SharedMultiplyInput>
+    out output : rv<u33>
+
+    input -> output {
+        transform pipeline(auto) {
+            implement {
+                input.payload.a * input.payload.b
+                    + input.payload.c * input.payload.d
+                intent {
+                    latency <= 4
+                    ii <= 4
+                    dsp <= 1
+                    minimize dsp
+                }
+            }
+        }
+    }
+}

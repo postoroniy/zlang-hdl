@@ -1,0 +1,14 @@
+// Acceptance fixture for compile-time module values in the three scheduling
+// expressions needed by a future reusable numerical SDF stage.  It deliberately
+// stops before the numerical butterfly and storage architecture.
+module FFTSDFStageValueParameterExpression<D=4,STEP=2> {
+    in counter : uint<5>
+    in phase_index : uint<4>
+    out butterfly_phase : bit
+    out next_counter : uint<6>
+    out twiddle_slot : uint<8>
+
+    butterfly_phase = counter >= D
+    next_counter = counter == ((D * 2) - 1) ? 0 : counter + 1
+    twiddle_slot = phase_index * STEP
+}

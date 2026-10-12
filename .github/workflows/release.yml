@@ -1,0 +1,312 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Prospective release tag (must not exist yet)
+        required: true
+        type: string
+
+env:
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  BASH_ENV: ${{ github.workspace }}/.github/workflows/local-venv-env.sh
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      attestations: write
+      contents: read
+      id-token: write
+    steps:
+      - name: Check out exact tagged tree
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && 'main' || github.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Set up PDF inspection tools
+        uses: ./.github/actions/setup-pdf-tools
+      - name: Bootstrap the repository-owned release environment
+        run: make -s ci-bootstrap
+      - name: Verify annotated tag and GitHub signature
+        if: ${{ github.event_name == 'push' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          TAG: ${{ env.RELEASE_TAG }}
+        run: |
+          object_type="$(gh api "repos/$REPOSITORY/git/ref/tags/$TAG" --jq .object.type)"
+          test "$object_type" = tag
+          tag_sha="$(gh api "repos/$REPOSITORY/git/ref/tags/$TAG" --jq .object.sha)"
+          tag_commit="$(gh api "repos/$REPOSITORY/git/tags/$tag_sha" --jq .object.sha)"
+          test "$(gh api "repos/$REPOSITORY/git/tags/$tag_sha" --jq .verification.verified)" = true
+          test "$(gh api "repos/$REPOSITORY/git/tags/$tag_sha" --jq .verification.reason)" = valid
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          test "$(git rev-parse HEAD)" = "$tag_commit"
+          test "$(git rev-parse origin/main)" = "$tag_commit"
+      - name: Require the complete audited native release set
+        shell: bash
+        run: |
+          python tools/audit_native_binary.py \
+            --expected-version "${RELEASE_TAG#v}" \
+            --require-release-platforms release/native-wheels/zlang_native_sim-*.whl
+      - name: Audit the exact native SBOM for vulnerabilities
+        id: native_vulnerability_audit
+        shell: bash
+        env:
+          OSV_SCANNER_VERSION: "2.6.0"
+          OSV_SCANNER_IMAGE: "ghcr.io/google/osv-scanner:v2.6.0@sha256:b8cc6dc8805bb77fca4ada69c07cfef5a1e07784c22830e0bd49a440aa27d9fe"
+        run: |
+          mkdir -p build/native-vulnerability
+          printf '%s\n' "$OSV_SCANNER_IMAGE" \
+            > build/native-vulnerability/scanner-image.txt
+          wheels=(release/native-wheels/zlang_native_sim-*.whl)
+          test "${#wheels[@]}" -eq 1
+          python tools/audit_native_vulnerabilities.py extract "${wheels[0]}" \
+            --output build/native-vulnerability/zlang-native-sim.cdx.json
+          set +e
+          docker run --rm \
+            -v "$PWD/build/native-vulnerability:/scan:ro" \
+            "$OSV_SCANNER_IMAGE" scan --format=json --all-packages \
+            -L /scan/zlang-native-sim.cdx.json \
+            > build/native-vulnerability/osv-report.json \
+            2> build/native-vulnerability/osv-stderr.log
+          scanner_status="$?"
+          set -e
+          python tools/audit_native_vulnerabilities.py audit \
+            --sbom build/native-vulnerability/zlang-native-sim.cdx.json \
+            --report build/native-vulnerability/osv-report.json \
+            --exceptions release/native-vulnerability-exceptions.json \
+            --output build/native-vulnerability/audit.json \
+            --scanner-exit-code "$scanner_status" \
+            --scanner-version "$OSV_SCANNER_VERSION"
+      - name: Retain native vulnerability evidence
+        if: ${{ always() && steps.native_vulnerability_audit.outcome != 'skipped' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-${{ env.RELEASE_TAG }}-native-vulnerability-audit
+          path: build/native-vulnerability/
+          if-no-files-found: error
+          retention-days: 30
+      - name: Bind the candidate or signed tag to one release manifest
+        shell: bash
+        run: |
+          git fetch --force --tags origin
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
+            mode=candidate
+          else
+            mode=tagged
+          fi
+          make -s release-preflight \
+            TAG="$RELEASE_TAG" \
+            RELEASE_MODE="$mode" \
+            RELEASE_PREFLIGHT_REPORT=build/release-preflight.json
+      - name: Validate public tree
+        run: make -s public-check audit TAG="$RELEASE_TAG"
+      - name: Build one sdist and a byte-reproducible wheel
+        shell: bash
+        run: |
+          make -s package \
+            TAG="$RELEASE_TAG" \
+            BUILD_ROOT=build/release-package \
+            DIST_DIR=dist
+          python -m venv --without-pip build/wheel-venv
+          python -m pip --python build/wheel-venv/bin/python install \
+            --disable-pip-version-check pip==26.2.1 dist/zlang_hdl-*.whl
+          build/wheel-venv/bin/python -m pip check
+          python -m venv --without-pip build/sdist-venv
+          python -m pip --python build/sdist-venv/bin/python install \
+            --disable-pip-version-check pip==26.2.1 dist/*.tar.gz
+          build/sdist-venv/bin/python -m pip check
+          smoke_dir="$PWD/build/package-smoke"
+          mkdir -p "$smoke_dir"
+          printf '%s\n' \
+            'import std.math.complex' \
+            'module PackageSmoke { in x:u8 out y:u8 y=x }' \
+            > "$smoke_dir/package-smoke.zhl"
+          python tools/installed_distribution_smoke.py \
+            --version "${RELEASE_TAG#v}" \
+            --source "$smoke_dir/package-smoke.zhl" \
+            --environment "$PWD/build/wheel-venv" \
+            --environment "$PWD/build/sdist-venv"
+          for kind in wheel sdist; do
+            printf 'zlang-hdl==%s\n' "${RELEASE_TAG#v}" > "build/$kind-requirements.txt"
+            "build/$kind-venv/bin/python" -m pip freeze --all --exclude zlang-hdl \
+              | LC_ALL=C sort >> "build/$kind-requirements.txt"
+          done
+          diff -u build/wheel-requirements.txt build/sdist-requirements.txt
+          cp build/wheel-requirements.txt dist/release-requirements.txt
+      - name: Audit the exact published dependency and installer inventory
+        run: |
+          python tools/release_inventory.py \
+            --requirements dist/release-requirements.txt \
+            --project-version "${RELEASE_TAG#v}" \
+            --report build/release-inventory-audit.json
+      - name: Set up pinned Node.js for the Community VS Code extension
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22.23.2"
+          cache: npm
+          cache-dependency-path: editors/vscode/zlang-hdl/package-lock.json
+      - name: Require a fresh full locked editor advisory audit
+        shell: bash
+        run: |
+          report="$GITHUB_WORKSPACE/build/editor-npm-audit.json"
+          set +e
+          npm --prefix editors/vscode/zlang-hdl audit \
+            --package-lock-only --include=dev --include=optional --include=peer \
+            --audit-level=info --json > "$report"
+          scanner_exit_code=$?
+          set -e
+          python -m tools.audit_editor_vulnerabilities \
+            --lock editors/vscode/zlang-hdl/package-lock.json \
+            --report "$report" \
+            --scanner-exit-code "$scanner_exit_code"
+      - name: Test, build, audit, and exercise the exact-tag Community VSIX
+        run: >-
+          make -s ci-editor
+          CI_VSIX="$RUNNER_TEMP/zlang-hdl-0.1.0.vsix"
+      - name: Stage the accepted exact-tag Community VSIX
+        run: |
+          cp -- "$RUNNER_TEMP/zlang-hdl-0.1.0.vsix" \
+            "$RUNNER_TEMP/zlang-hdl-0.1.0.vsix.audit.json" dist/
+          mv -- dist/zlang-hdl-0.1.0.vsix.audit.json \
+            dist/zlang-hdl-0.1.0-vsix-audit.json
+      - name: Stage the exact reviewed language-reference PDF
+        run: >-
+          python tools/stage_release_pdf.py
+          --root .
+          --status release/status.json
+          --tag "$RELEASE_TAG"
+          --output dist
+      - name: Stage the release identity manifest
+        run: cp -- build/release-preflight.json dist/release-preflight.json
+      - name: Retain accepted dependency audit evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-${{ env.RELEASE_TAG }}-dependency-audits
+          path: |
+            build/release-inventory-audit.json
+            build/editor-npm-audit.json
+            build/native-vulnerability/audit.json
+            build/native-vulnerability/osv-report.json
+            build/native-vulnerability/osv-stderr.log
+          if-no-files-found: error
+          retention-days: 30
+      - name: Build release SBOM and checksums after inventory acceptance
+        shell: bash
+        run: |
+          cyclonedx-py requirements dist/release-requirements.txt \
+            --output-reproducible \
+            --output-format JSON \
+            --output-file "dist/zlang-hdl-${RELEASE_TAG}.cdx.json"
+          (cd dist && sha256sum zlang_hdl-*.whl zlang_hdl-*.tar.gz \
+            zlang_native_sim-*manylinux_2_28_x86_64.whl \
+            zlang-hdl-*.cdx.json release-preflight.json release-requirements.txt \
+            zlang-hdl-*.vsix zlang-hdl-*-vsix-audit.json \
+            zlang-hdl-*-language-reference.pdf | sort > SHA256SUMS)
+          (cd dist && sha256sum -c SHA256SUMS)
+      - name: Attest release checksums
+        if: ${{ github.event_name == 'push' }}
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-checksums: dist/SHA256SUMS
+      - name: Upload reviewed release artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-${{ env.RELEASE_TAG }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 30
+
+  eda:
+    # Exact-tag acceptance on a disposable GitHub-hosted runner.
+    needs: validate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    steps:
+      - name: Check out exact tagged tree
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Set up pinned open EDA tools
+        uses: YosysHQ/setup-oss-cad-suite@c7845bc0d335c8076aa22047e85972caa8a916df # v4
+        with:
+          github-token: ${{ github.token }}
+          version: "2026-09-22"
+      - name: Set up PDF inspection tools
+        uses: ./.github/actions/setup-pdf-tools
+      - name: Bootstrap the repository-owned release test environment
+        run: make -s ci-bootstrap
+      - name: Audit and install the reviewed Linux native wheel
+        run: make -s native-release-install TAG="$RELEASE_TAG"
+      - name: Run full regression twice with no unexpected skips
+        run: |
+          make -s ci-full-regression WORKERS=8 CI_PYTEST_MAXFAIL=1 \
+            CI_JUNIT=build/release-1.xml
+          make -s ci-performance-regression CI_PYTEST_MAXFAIL=1 \
+            CI_JUNIT=build/release-performance-1.xml
+          make -s ci-test-floor \
+            CI_DETERMINISTIC_JUNIT=build/release-1.xml \
+            CI_PERFORMANCE_JUNIT=build/release-performance-1.xml
+          make -s ci-full-regression WORKERS=8 CI_PYTEST_MAXFAIL=1 \
+            CI_JUNIT=build/release-2.xml
+          make -s ci-performance-regression CI_PYTEST_MAXFAIL=1 \
+            CI_JUNIT=build/release-performance-2.xml
+          make -s ci-test-floor \
+            CI_DETERMINISTIC_JUNIT=build/release-2.xml \
+            CI_PERFORMANCE_JUNIT=build/release-performance-2.xml
+
+  publish:
+    if: ${{ github.event_name == 'push' }}
+    needs: [validate, eda]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Check out exact tagged release notes
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Download validated release artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-${{ env.RELEASE_TAG }}
+          path: dist
+      - name: Extract curated notes from the changelog
+        env:
+          TAG: ${{ env.RELEASE_TAG }}
+        run: >-
+          python tools/release_notes.py
+          --changelog CHANGELOG.md
+          --tag "$TAG"
+          --output "$RUNNER_TEMP/release-notes.md"
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ env.RELEASE_TAG }}
+        run: >-
+          gh release create "$TAG" dist/*
+          --verify-tag
+          --notes-file "$RUNNER_TEMP/release-notes.md"
+          --prerelease
+          --title "ZLang HDL ${TAG}"

@@ -1,0 +1,8 @@
+// N independent word outputs select arbitrary runtime inputs.
+module CrossbarWitness<N=8,IW=3> {
+    in inputs : vec<N,u32>
+    in select : vec<N,uint<IW>>
+    out outputs : vec<N,u32>
+
+    outputs = generate(i in 0..N) inputs[select[i]]
+}

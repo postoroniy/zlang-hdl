@@ -1,0 +1,13 @@
+// A deliberately uneven arithmetic DAG used to demonstrate that fixed
+// pipeline contracts contain real internal computation boundaries.
+module GeneralExpressionPipeline {
+    clock clk reset rst
+
+    in a, b, c, d, e : u8
+    in f : u25
+    out y : u26
+
+    y = pipeline(3) {
+        (a * b + c * d) * e + f
+    }
+}

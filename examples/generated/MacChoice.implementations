@@ -1,0 +1,7 @@
+module MacChoice
+choice output=y selected=dsp_mac
+  proven_equivalence=mathematical,cycle_accurate
+  observable result=u17 latency=1 initiation_interval=1 protocol_events=none
+  alternative kind=mul_add operation=multiply_add multiply=u8*u8 addend=u16 result=u17 resource_hint=logic latency=1 initiation_interval=1 conditions=[integer_scalar_operands,full_precision_multiply,single_addend,initiation_interval_1]
+  alternative kind=dsp_mac operation=multiply_add multiply=u8*u8 addend=u16 result=u17 resource_hint=dsp latency=1 initiation_interval=1 conditions=[integer_scalar_operands,full_precision_multiply,single_addend,initiation_interval_1]
+  selection source_explicit=dsp_mac cost_source=none measured=false

@@ -1,0 +1,9 @@
+module RvBuffer {
+  clock clk
+  reset rst
+
+  in rx: rv<u8>
+  out tx: rv<u8>
+
+  connect rx -> tx { buffer 2 }
+}

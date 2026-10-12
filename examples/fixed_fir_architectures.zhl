@@ -1,0 +1,116 @@
+// Manual fixed-point FIR architecture study.
+//
+// Every variant implements one numerical contract:
+//   products = coefficients * samples
+//   acc      = sum(products)
+//   result   = quantize<fixed<16,14>>(acc) {
+//                  round nearest_even
+//                  overflow saturate
+//              }
+//
+// Inputs are raw SF2.10 values.  Quantization occurs exactly once, after the
+// full-precision eight-tap accumulation.
+
+module FixedFIRLinear {
+    clock clk
+    reset rst
+    in samples : vec<8,SF2.10>
+    in coefficients : vec<8,SF2.10>
+    out result : fixed<16,14>
+    reg result_reg : fixed<16,14> = 0
+
+    acc = (((((((samples[0] * coefficients[0])
+              + samples[1] * coefficients[1])
+              + samples[2] * coefficients[2])
+              + samples[3] * coefficients[3])
+              + samples[4] * coefficients[4])
+              + samples[5] * coefficients[5])
+              + samples[6] * coefficients[6])
+              + samples[7] * coefficients[7]
+    result_reg <- quantize<fixed<16,14>>(acc) {
+        round nearest_even
+        overflow saturate
+    }
+    result = result_reg
+}
+
+module FixedFIRBalanced {
+    clock clk
+    reset rst
+    in samples : vec<8,SF2.10>
+    in coefficients : vec<8,SF2.10>
+    out result : fixed<16,14>
+    reg result_reg : fixed<16,14> = 0
+
+    acc = dot(samples, coefficients)
+    result_reg <- quantize<fixed<16,14>>(acc) {
+        round nearest_even
+        overflow saturate
+    }
+    result = result_reg
+}
+
+module FixedFIRPipelinedTree {
+    clock clk
+    reset rst
+    in samples : vec<8,SF2.10>
+    in coefficients : vec<8,SF2.10>
+    out result : fixed<16,14>
+
+    reg pair0 : fixed<25,20> = 0
+    reg pair1 : fixed<25,20> = 0
+    reg pair2 : fixed<25,20> = 0
+    reg pair3 : fixed<25,20> = 0
+    reg half0 : fixed<26,20> = 0
+    reg half1 : fixed<26,20> = 0
+    reg acc   : fixed<27,20> = 0
+
+    pair0 <- samples[0] * coefficients[0] + samples[1] * coefficients[1]
+    pair1 <- samples[2] * coefficients[2] + samples[3] * coefficients[3]
+    pair2 <- samples[4] * coefficients[4] + samples[5] * coefficients[5]
+    pair3 <- samples[6] * coefficients[6] + samples[7] * coefficients[7]
+    half0 <- pair0 + pair1
+    half1 <- pair2 + pair3
+    acc <- half0 + half1
+
+    result = quantize<fixed<16,14>>(acc) {
+        round nearest_even
+        overflow saturate
+    }
+}
+
+module FixedFIRDspOriented {
+    clock clk
+    reset rst
+    in samples : vec<8,SF2.10>
+    in coefficients : vec<8,SF2.10>
+    out result : fixed<16,14>
+
+    // Register the full-width multiplier results so vendor synthesis can place
+    // the multiplier bank at DSP boundaries.  The accumulator remains exact.
+    reg product0 : fixed<24,20> = 0
+    reg product1 : fixed<24,20> = 0
+    reg product2 : fixed<24,20> = 0
+    reg product3 : fixed<24,20> = 0
+    reg product4 : fixed<24,20> = 0
+    reg product5 : fixed<24,20> = 0
+    reg product6 : fixed<24,20> = 0
+    reg product7 : fixed<24,20> = 0
+    reg acc : fixed<31,20> = 0
+
+    product0 <- samples[0] * coefficients[0]
+    product1 <- samples[1] * coefficients[1]
+    product2 <- samples[2] * coefficients[2]
+    product3 <- samples[3] * coefficients[3]
+    product4 <- samples[4] * coefficients[4]
+    product5 <- samples[5] * coefficients[5]
+    product6 <- samples[6] * coefficients[6]
+    product7 <- samples[7] * coefficients[7]
+    acc <- (((((((product0 + product1) + product2) + product3) + product4)
+             + product5) + product6) + product7)
+
+    result = quantize<fixed<16,14>>(acc) {
+        round nearest_even
+        overflow saturate
+    }
+}

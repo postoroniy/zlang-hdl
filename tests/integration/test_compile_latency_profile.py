@@ -1,0 +1,96 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Viacheslav Vinogradov
+"""The opt-in latency profiler must report real compiler stages, not estimates."""
+
+import json
+from pathlib import Path
+import subprocess
+import sys
+
+from tools.profile_compilation_latency import _Timeline
+
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+def test_nested_timing_accounts_for_repeat_calls_and_exclusive_time() -> None:
+    timeline = _Timeline()
+    with timeline.span("outer"):
+        with timeline.span("inner"):
+            pass
+        with timeline.span("inner"):
+            pass
+    report = timeline.aggregate()
+    assert report["inner"]["calls"] == 2
+    assert report["outer"]["calls"] == 1
+    assert report["outer"]["inclusive_ms"] >= report["inner"]["inclusive_ms"]
+    assert report["outer"]["exclusive_ms"] >= 0
+
+
+def test_sv_profile_uses_actual_cli_and_reports_requested_products(tmp_path: Path) -> None:
+    source = tmp_path / "counter.zhl"
+    source.write_bytes((ROOT / "examples/counter.zhl").read_bytes())
+    completed = subprocess.run(
+        (
+            sys.executable,
+            str(ROOT / "tools/profile_compilation_latency.py"),
+            str(source),
+            "--top",
+            "Counter",
+            "--mode",
+            "sv",
+        ),
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    result = json.loads(completed.stdout)
+    assert result["counters"]["rtl_bytes"] > 0
+    assert result["counters"]["canonical_nodes"] > 0
+    assert result["counters"]["ast_nodes"] > 0
+    assert result["counters"]["formal_product_built"] == 0
+    assert result["counters"]["documents_product_built"] == 0
+    assert result["counters"]["reports_product_built"] == 0
+    # The public module and the composed renderer's physical component are
+    # distinct immutable Module products.  Each exact object owns one plan;
+    # staging and final rendering must reuse the component plan.
+    assert result["counters"]["sv_materialization_plan_builds"] == 2
+    assert result["counters"]["sv_dag_plan_builds"] == 2
+    assert result["counters"]["instance_expression_calls"] >= 1
+    assert "product.formal" not in result["timings"]
+    assert result["timings"]["emit_systemverilog_artifact"]["calls"] == 1
+
+
+def test_profile_reports_session_structural_cache_reuse(tmp_path: Path) -> None:
+    source = tmp_path / "intent_cache.zhl"
+    source.write_text(
+        """
+module IntentCache {
+  in x:u8
+  out first:u8
+  out second:u8
+  first=implement { x|0 intent { minimize lut } }
+  second=implement { x|0 intent { minimize latency } }
+}
+"""
+    )
+    completed = subprocess.run(
+        (
+            sys.executable,
+            str(ROOT / "tools/profile_compilation_latency.py"),
+            str(source),
+            "--top",
+            "IntentCache",
+            "--mode",
+            "sv",
+        ),
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    counters = json.loads(completed.stdout)["counters"]
+
+    assert counters["intent_egraph_cache_misses"] == 1
+    assert counters["intent_egraph_cache_hits"] == 1
+    assert counters["intent_egraph_cache_waits"] == 0
+    assert counters["intent_egraph_cache_entries"] == 1

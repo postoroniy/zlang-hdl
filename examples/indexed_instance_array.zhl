@@ -1,0 +1,21 @@
+// Compile-time instance arrays are structurally unrolled. Every indexed lane
+// is a distinct physical instance of one shared specialization.
+module ArrayLane<W=8> {
+    in x : uint<W>
+    out y : uint<W + 1>
+
+    y = x + 1
+}
+
+module IndexedInstanceArray<N=4, W=8, LAST=3> {
+    in values : vec<N, uint<W>>
+    out y : uint<W + 1>
+
+    inst lane[N] : ArrayLane<W>
+
+    generate(i in 0..N) {
+        lane[i].x = values[i]
+    }
+
+    y = lane[LAST].y
+}

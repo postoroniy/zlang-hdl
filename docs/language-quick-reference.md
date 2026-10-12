@@ -1,0 +1,268 @@
+# ZLang HDL concise source-authoring reference
+
+This page is a concise guide to current executable ZLang HDL source, not a
+historical proposal. The compiler's typed IR defines semantics; generated
+SystemVerilog is not a second language specification.
+
+For an unfamiliar construct, consult the
+[syntax support matrix](language-reference.md#reference-syntax-support-matrix) and
+[known limitations](language-reference.md#reference-known-limitations). For exact
+width tables and backend limits, follow the linked topic guide.
+
+## Non-negotiable rules
+
+- Source files use `.zhl`. The old `.zl` suffix is rejected.
+- Run `zlang SOURCE --check`; highlighting is lexical and is not validation.
+- Native simulation needs a matching platform wheel and fails explicitly when
+  it is unavailable; there is no second Python execution engine.
+- Hardware assignments are concurrent. `=` drives the current cycle and `<-`
+  schedules next state at the active clock edge.
+- Assignment types are exact. There is no implicit resize, signedness change,
+  fixed-point rescale, protocol adapter, or clock-domain crossing.
+- Do not invent `let`, `const`, `var`, `return`, semicolons, C-style
+  `input`/`output`, or runtime procedural `if`.
+- `if` is compile-time elaboration only. Use `?:`, `mux`, or `switch` for pure
+  runtime values; use `when`/`else when`/`else`, `priority`, or `fsm` for state
+  actions.
+- Scalar `pipeline(auto)`, `architecture(auto)`, and `explore` are retired.
+  Compiler-selected scalar implementation uses `implement`.
+- `pipeline(N) { expression }` is exact N-cycle hardware, not an optimization
+  request. Protocol `transform pipeline(auto, ...)` is a separate bounded
+  ready/valid construct and remains supported.
+- Unsupported combinations must fail closed. Never work around a diagnostic by
+  guessing backend signal names or duplicating compiler semantics in source.
+
+## Smallest valid modules
+
+Combinational logic:
+
+```zlang
+module Add {
+    in a, b : u8
+    out y : u9 = a + b
+}
+```
+
+Sequential logic:
+
+```zlang
+module Accumulator {
+    clock clk reset rst
+    in enable : bit
+    in value : u8
+    out total : u9
+
+    reg state : u9 = 0
+    update: when enable {
+        state <- truncate<9>(state + extend<9>(value))
+    }
+    total = state
+}
+```
+
+All operands are read from one pre-edge snapshot. An accepted action group
+commits atomically; reset has priority. Multiple conflicting actions require an
+explicit `priority` relation or are rejected.
+
+Multiple domains use the same declarations with one `@clock` owner:
+
+```zlang
+module DualClock {
+    clock a reset ra @a
+    clock b reset rb @b
+    reg left : u32 @a = 0
+    reg right : u32 @b = 0
+    rule TickLeft @a when 1 { left <- truncate<32>(left + 1) }
+    rule TickRight @b when 1 { right <- truncate<32>(right + 2) }
+}
+```
+
+An omitted owner is accepted only when exactly one domain can be inferred.
+Dynamic provenance follows through local expressions; an explicit
+`sync_level`, `pulse_toggle`, `handshake`, or `async_fifo(N)` is the only way
+to cross domains.
+
+## Types, literals, and exact conversions
+
+Common scalar types are `bit`, `u8`, `s16`, `uint<N>`, `sint<N>`, and
+`bits<N>`. `char` is canonical `u8`; `string<N>` is canonical `vec<N,u8>`.
+Fixed point uses `fixed<W,F>`, `ufixed<W,F>`, or concise forms such as `SF8.8`
+and `SF_Sat8.8`.
+
+- Unsuffixed integer literals use minimum exact width unless they occur directly
+  at a concrete typed boundary.
+- `a + b` and `a - b` follow the documented exact result-width rules;
+  multiplication returns the full product width. Shifts preserve left width.
+- Use `extend<N>` and `truncate<N>` for width changes.
+- Use `quantize<T>` for explicit fixed-point rounding/overflow. Do not move a
+  quantization boundary into products or reductions.
+- Compile-time `pi`, `sin`, `cos`, `log2`, `log`, `exp`, and `sqrt` generate
+  constants only; non-integral results require explicit `quantize<T>`.
+- Use `bitcast<T>` only for equal-width representation changes. `pack`/`unpack`
+  are supported low-level compatibility forms.
+- `concat(a,b,...)` places the first operand at the MSB. Destination context
+  never changes operand widths.
+- Packed bit index zero is the LSB. `x[MSB:LSB]` uses an inclusive static slice;
+  vector ranges `values[first..past_last]` are half-open.
+- Indexed aggregates are packed LSB-first: `vec`/`string` element zero and tuple
+  `item0` occupy the least-significant component recursively. First-declared
+  struct fields and tagged-union tags remain at the MSB.
+
+See [types and numerics](language-reference.md#reference-types-and-numerics) before changing a width or a
+fixed-point type.
+
+## Aggregates and functions
+
+```zlang
+struct Pair<type T> { left : T right : T }
+
+fn duplicate_sum<type T>(a : T, b : T) {
+    exact = a + b
+    Pair { left = exact right = exact }
+}
+```
+
+Function bodies are pure and combinational. Bare body bindings are immutable,
+inferred, declaration-ordered locals; the final expression is the result.
+Return types may be explicit or inferred. Functions cannot capture module ports
+or contain state, protocols, delays, or pipelines.
+
+Supported aggregates include `vec<N,T>`, nominal `struct`, nominal `enum`,
+tagged `union`, and structural tuples `(T,U)`. Prefer inferred locals when the
+type is exact and obvious. Keep explicit types at public ports, state, raw/enum
+boundaries, narrowing, and fixed-point quantization.
+
+Generics are monomorphized. Type/value parameters and exact compile-time
+constraints are source declarations, not runtime hardware:
+
+```zlang
+module Queue<type T,D=4> where D >= 2 && is_power_of_two(D) {
+    // ...
+}
+```
+
+Imports are logical. For example `import std.bus.reg` resolves compiler-shipped
+`stdlib/bus/reg.zhl`; `import std.math.complex as cx` adds a source-local
+qualifier but does not create a runtime namespace.
+
+## State, hierarchy, and protocols
+
+- Declare one default synchronous domain with `clock clk reset rst`.
+- `async reset arst @clk` means asynchronous assertion and fixed two-edge
+  synchronized release. Do not emulate reset modes in user logic.
+- Add `release externally_synchronized` only when deassertion is already
+  synchronized outside; no internal 2FF is emitted.
+- `reg q:T = VALUE` resets to `VALUE`; `reg q:T` has no reset branch.
+- `out q:T` is a combinational output wire.
+- `out reg q:T [@clock] [= VALUE]` is real architectural state: it holds when
+  not updated and follows register clock/reset scheduling. It is not Verilog's
+  historical `output reg` declaration category.
+- `drive q = expression` is a transient rule/FSM-owned logical wire effect,
+  zero when no owning action fires. It is not tri-state, high-impedance,
+  electrical-strength, pad, analog, or multiple-driver-resolution behavior.
+- `reg`, `fifo`, `memory`, and `rom` retain explicit typed state/storage
+  semantics. Memory latency, collision, mask, and reset policies are not inferred.
+- A concise child declaration is `child : ChildModule`; `inst child : ChildModule`
+  remains accepted. Bind only typed ports/endpoints.
+- `rv<T>`, `credit<T,N>`, and `request_response` properties such as `.transfer`
+  are typed observations, not ordinary struct fields.
+- Use explicit `connect`/`source -> sink`, adapters, and CDC crossings. The
+  compiler never inserts these silently.
+- Top-level structs and tuples become recursively named leaf ports; vectors use
+  multidimensional packed arrays in the production Direct-SV ABI.
+
+Read [sequential state/storage](language-reference.md#reference-sequential-state-storage) and
+[hierarchy/protocols](language-reference.md#reference-hierarchy-protocols) before composing stateful children.
+
+## Functional datapath and implementation intent
+
+`generate`, `map`, `reduce`, `sum`, and `dot` are statically bounded functional
+hardware expressions. They are not runtime loops.
+
+Use exactly one `implement` region when the value is fixed and the compiler may
+choose among legal implementations:
+
+```zlang
+y = implement {
+    dot(samples, coefficients)
+    intent {
+        latency <= 4
+        ii == 1
+        dsp <= 8
+        fmax >= 100
+        minimize lut
+    }
+}
+```
+
+An Fmax constraint or objective compares candidates using their recorded
+evidence and provenance. It is not a guarantee of achieved device or silicon
+frequency; structural estimates, synthesis measurements, and routed
+measurements remain distinct.
+
+The expression is the hardware meaning. `intent` contains hard constraints and
+one supported objective; it does not name optimization passes. For an eligible
+pure value, the compiler retains the source plus a bounded, structurally
+distinct set of checked exact egglog alternatives, then applies the same intent
+to the resulting provider candidates. This is deterministic bounded
+exploration, not exhaustive optimality. Positive-latency candidates require a
+valid clock/reset context. `choice` is reserved for user-authored equivalent
+alternatives. Egglog supplies only frozen pure scalar value rewrites; it does
+not schedule pipelines, resources, protocols, or state.
+Selected project profiles may set bounded `intent-exploration` count limits;
+there is no source-level timeout. Exact roots can reuse checked in-memory
+session/workspace recipes, while constraints, ranking, target selection and
+formal evidence are always evaluated again.
+
+See [optimization and formal](language-reference.md#reference-optimization-formal) before adding or changing
+an implementation policy.
+
+## Verification
+
+```zlang
+contract arithmetic @ clk {
+    require legal_inputs { (a < 8) & (b < 8) }
+    ensure exact_output { y == a + b }
+    cover maximum { y == 14 }
+}
+```
+
+Named `assert`/`ensure` are same-cycle safety goals. `require` is an
+environment-owned precondition scoped to its contract. `cover` is bounded
+reachability; a missed cover is not an unreachability proof. BMC produces
+`bounded_pass`, never `proven`. Verification syntax does not legalize invalid
+hardware or feed optimizer range inference.
+
+Do not add liveness, arbitrary SVA/SMT, temporal sequences, new observation
+families or source-level semantic-reference equivalence controls. Use the existing
+[formal examples](../examples/verification/README.md) and compiler-owned routes.
+
+## Commands and completion check
+
+```sh
+zlang source.zhl --check
+zlang source.zhl --top Top --systemverilog build/Top.sv
+zlang source.zhl --top Top --target sky130-fd-sc-hd --systemverilog build/Top.sv
+zlang source.zhl --top Top --verify
+zlang sim source.zhl --top Top --clock clk --cycles 100
+zlang sim source.zhl --top Top --logic-state --clock clk --cycles 100
+zlang sim source.zhl --top Top --strict-uninitialized --clock clk --cycles 100
+zlang verify build/verify --mode bmc --depth 20 --work-dir build/verify-work
+zlang lock update --project zlang.toml
+zlang lsp
+```
+
+In a `--events` JSONL schedule, `"repeat": N` repeats one event lazily for a
+bounded positive number of steps (at most 1,000,000 expanded events) without a
+project-specific generator.
+
+Ordinary native simulation retains its deterministic two-state zero seed.
+`--logic-state` enables per-bit `0`/`1`/`U`/`X`: unreset state starts as `U`,
+an accepted unresolved write becomes `X`, and controlling values such as
+`U | 1` still resolve exactly. `--initial-reg` overrides selected initial
+registers and `--trace-signal` selects VCD signals; companion
+`__zlang_meta/*_u_mask` traces distinguish `U` from VCD's shared `x` spelling.
+`--strict-uninitialized` implies this mode and rejects observed `U` or `X`.
+Neither mode models `Z`, electrical resolution, or Verilog event regions.
+CLI VCD output is an event-index visualization: physical clock/reset levels
+match each compiled domain, but the JSONL schedule does not define analog time.

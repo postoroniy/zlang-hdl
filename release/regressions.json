@@ -1,0 +1,70 @@
+{
+  "entries": [
+    {
+      "id": "REL-005",
+      "source_paths": [
+        ".github/workflows/codeql.yml",
+        "editors/vscode/zlang-hdl/package-lock.json",
+        "pyproject.toml",
+        "tests/release/test_dependency_floor.py",
+        "tools/audit_dependency_floor.py",
+        "tools/release_preflight.py"
+      ],
+      "status": "included",
+      "summary": "Release review rejects dependency, action, build-tool, and EDA version downgrades relative to the previous public tag.",
+      "tests": [
+        "tests/release/test_dependency_floor.py::test_dependency_floor_accepts_equal_or_newer_versions",
+        "tests/release/test_dependency_floor.py::test_dependency_floor_rejects_release_candidate_downgrades"
+      ]
+    },
+    {
+      "id": "ZL-049",
+      "source_paths": [
+        "tests/simulation/test_native_jit_verification.py",
+        "zlang/simulation_plan_build.py",
+        "zlang/simulation_verification_plan.py"
+      ],
+      "status": "included",
+      "summary": "Native verification expressions bind registered-output reads to the same runtime state slots as ordinary hardware expressions.",
+      "tests": [
+        "tests/simulation/test_native_jit_verification.py::test_verification_reads_registered_output_through_its_runtime_state_slot"
+      ]
+    },
+    {
+      "id": "ZL-050",
+      "source_paths": [
+        "stdlib/bus/ahb_lite.zhl",
+        "stdlib/bus/apb.zhl",
+        "stdlib/bus/axi4.zhl",
+        "stdlib/bus/axi4_exclusive.zhl",
+        "stdlib/bus/axi4_subordinate.zhl",
+        "stdlib/bus/axi4_user_subordinate.zhl",
+        "stdlib/bus/axi_burst.zhl",
+        "stdlib/bus/axi_lite.zhl",
+        "stdlib/bus/axi_stream.zhl",
+        "stdlib/bus/reg.zhl",
+        "stdlib/bus/wishbone.zhl",
+        "tests/integration/test_ahb_lite.py",
+        "tests/semantic/test_ahb_lite.py",
+        "tests/semantic/test_standard_bus_reset_contracts.py",
+        "zlang/compilation_session.py",
+        "zlang/compiler.py",
+        "zlang/incremental_workspace.py",
+        "zlang/sim.py"
+      ],
+      "status": "included",
+      "summary": "Reusable source-authored standard-bus cores inherit one exact enclosing clock/reset contract while physical pin boundaries remain explicit and ambiguous or incompatible hierarchy remains fail-closed.",
+      "tests": [
+        "tests/integration/test_ahb_lite.py::test_source_bridge_uses_inherited_sync_reset_in_native_plan_and_rtl",
+        "tests/semantic/test_ahb_lite.py::test_ahb_lite_inherits_exact_parent_reset_contract",
+        "tests/semantic/test_ahb_lite.py::test_ahb_lite_rejects_ambiguous_multidomain_inheritance",
+        "tests/semantic/test_standard_bus_reset_contracts.py::test_composed_axi_core_inherits_domain_through_all_children",
+        "tests/semantic/test_standard_bus_reset_contracts.py::test_explicit_root_domain_compiles_an_inherited_core_without_a_wrapper",
+        "tests/semantic/test_standard_bus_reset_contracts.py::test_only_physical_bus_boundaries_declare_a_fixed_domain",
+        "tests/semantic/test_standard_bus_reset_contracts.py::test_register_bus_bridges_inherit_each_exact_parent_contract"
+      ]
+    }
+  ],
+  "release": "0.1.0a23",
+  "schema": 2
+}

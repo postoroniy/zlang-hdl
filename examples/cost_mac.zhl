@@ -1,0 +1,15 @@
+module CostMac {
+    clock clk
+    reset rst
+
+    in a : u8
+    in b : u8
+    in c : u16
+
+    out y : u17
+
+    y = choice(auto, minimize=lut, feedback=optional_yosys, lut<=200, ff<=17, dsp<=1, bram<=0, latency<=1, ii<=1) {
+        mul_add => pipeline(1) { a * b + c }
+        dsp_mac => pipeline(1) { a * b + c }
+    }
+}

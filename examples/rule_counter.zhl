@@ -1,0 +1,22 @@
+module RuleCounter {
+  clock clk
+  reset rst
+
+  in increment: bit
+  in clear: bit
+  out count_out: u8
+
+  reg count: u8 = 0
+
+  priority {
+    clear_count: when clear {
+      count <- 0
+    }
+
+    increment_count: when increment {
+      count <- truncate<8>(count + 1)
+    }
+  }
+
+  count_out = count
+}

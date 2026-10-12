@@ -1,0 +1,26 @@
+// Historical reproducer and current acceptance fixture for module type/value
+// specialization.  Both Sample and D must be concrete in child semantic IR.
+module FFTStageTypeProbe<type Sample,D=4> {
+    clock clk
+    reset rst
+    in sample : Sample
+    in push : bit
+    in pop : bit
+    out result : Sample
+    fifo samples : fifo<Sample,D>
+    samples.data = sample
+    samples.push = push
+    samples.pop = pop
+    result = samples.front
+}
+
+module FFTStageTypeProbeTop {
+    clock clk
+    reset rst
+    in sample : u8
+    in push : bit
+    in pop : bit
+    out result : u8
+    inst stage : FFTStageTypeProbe<Sample=u8,D=4> { sample push pop }
+    result = stage.result
+}

@@ -1,0 +1,286 @@
+// One reusable numerical radix-2 DIF SDF stage.
+//
+// The reusable stage is generic; FFTSDFStageNumericD4 is the concrete
+// user-facing D=4 entry point used by the validation commands.
+import std.math.complex
+
+fn fft_twiddles<type T,N>() {
+    generate(k in 0..(N / 2)) Complex {
+        re = quantize<T>(cos((-2 * pi() * k) / N)) {
+            round nearest_even
+            overflow saturate
+        }
+        im = quantize<T>(sin((-2 * pi() * k) / N)) {
+            round nearest_even
+            overflow saturate
+        }
+    }
+}
+
+module FFTSDFStageNumeric<
+    type S,
+    type W,
+    D=4,
+    CW=index_width(D * 2),
+    IW=index_width(D)
+> {
+    clock clk
+    reset rst
+
+    in input : rv<Complex<S>>
+    out output : rv<Complex<S>>
+
+    fifo feedback : fifo<Complex<S>,D>
+    rom twiddles : rom<Complex<W>,D> {
+        read_latency 1
+        init fft_twiddles<T=W,N=D * 2>()
+    }
+    reg phase : uint<CW> = 0
+    reg out_valid : bit = 0
+    reg out_re : S = 0
+    reg out_im : S = 0
+
+    // The ROM is synchronous.  On an accepted input, prefetch the twiddle for
+    // the phase that becomes current after the edge.  Under backpressure the
+    // current phase is held, so the same address is held as well.
+    phase_after_transfer : uint<CW> =
+        phase == ((D * 2) - 1) ? 0 : truncate(phase + 1)
+    // Storage controls are explicit expressions at the resource boundary.
+    twiddles.read_address = if D == 1 {
+        0
+    } else {
+        input.transfer
+            ? (phase == ((D * 2) - 1) ? 0 : truncate(phase + 1))
+            : truncate(phase)
+    }
+    selected_twiddle = twiddles.read_data
+
+    // Keep one typed conversion per architectural complex result.  The rules
+    // project these named values only after the conversion, so `.re` and `.im`
+    // share the same semantic FixedConvert boundary.
+    low_exact = feedback.front * selected_twiddle
+    low_quantized = complex_quantize_nearest_even_saturate<S>(low_exact)
+    high_sum_exact = feedback.front + input.payload
+    high_sum = complex_quantize_nearest_even_saturate<S>(high_sum_exact)
+    high_diff_exact = feedback.front - input.payload
+    high_diff = complex_quantize_nearest_even_saturate<S>(high_diff_exact)
+
+    input.ready = (out_valid == 0) | output.ready
+    output.valid = out_valid
+    output.payload = Complex { re = out_re im = out_im }
+
+    // Fill the D-entry delay during the first low half-period.  Once full,
+    // later low phases forward the twiddle-rotated feedback value and replace
+    // that entry with the next frame input.
+    rule fill when input.transfer & (phase < D) & (feedback.count < D) {
+        feedback.push(input.payload)
+        phase <- phase_after_transfer
+    }
+
+    rule low when input.transfer & (phase < D) & (feedback.count >= D) {
+        feedback.pop()
+        feedback.push(input.payload)
+        out_re <- low_quantized.re
+        out_im <- low_quantized.im
+        out_valid <- 1
+        phase <- phase_after_transfer
+    }
+
+    rule high when input.transfer & (phase >= D) {
+        feedback.pop()
+        feedback.push(high_diff)
+        out_re <- high_sum.re
+        out_im <- high_sum.im
+        out_valid <- 1
+        phase <- phase_after_transfer
+    }
+
+    rule retire when output.transfer {
+        out_valid <- 0
+    }
+
+    priority fill > low
+    priority fill > high
+    priority low > high
+    priority fill > retire
+    priority low > retire
+    priority high > retire
+}
+
+module FFTSDFStageNumericD4 {
+    clock clk
+    reset rst
+
+    in input : rv<Complex<fixed<18,16>>>
+    out output : rv<Complex<fixed<18,16>>>
+
+    inst stage : FFTSDFStageNumeric<
+        S=fixed<18,16>,W=fixed<16,14>,D=4
+    >
+
+    input -> stage.input
+    stage.output -> output
+}
+
+// A complete four-point streaming reference composed only from the reusable
+// numerical stage.  Frames are counted by accepted transfers.  The radix-2
+// DIF/SDF stream emits each four-sample transform in bit-reversed order
+// (0, 2, 1, 3) after the pipeline fill.
+module FFT4SDFReference {
+    clock clk
+    reset rst
+
+    in input : rv<Complex<fixed<18,16>>>
+    out output : rv<Complex<fixed<18,16>>>
+
+    inst stage_d2 : FFTSDFStageNumeric<
+        S=fixed<18,16>,W=fixed<16,14>,D=2
+    >
+    inst stage_d1 : FFTSDFStageNumeric<
+        S=fixed<18,16>,W=fixed<16,14>,D=1
+    >
+
+    input -> stage_d2.input
+    stage_d2.output -> stage_d1.input
+    stage_d1.output -> output
+}
+
+// Eight-point functional reference.  This is still the same continuous
+// streaming DIF-SDF contract: natural input samples produce bit-reversed bins
+// (0, 4, 2, 6, 1, 5, 3, 7), and later accepted samples advance prior frame
+// state.  No framing or implicit flush behavior is added by this wrapper.
+module FFT8SDFReference {
+    clock clk
+    reset rst
+
+    in input : rv<Complex<fixed<18,16>>>
+    out output : rv<Complex<fixed<18,16>>>
+
+    inst stage_d4 : FFTSDFStageNumeric<
+        S=fixed<18,16>,W=fixed<16,14>,D=4
+    >
+    inst stage_d2 : FFTSDFStageNumeric<
+        S=fixed<18,16>,W=fixed<16,14>,D=2
+    >
+    inst stage_d1 : FFTSDFStageNumeric<
+        S=fixed<18,16>,W=fixed<16,14>,D=1
+    >
+
+    input -> stage_d4.input
+    stage_d4.output -> stage_d2.input
+    stage_d2.output -> stage_d1.input
+    stage_d1.output -> output
+}
+
+// Sixteen-point functional reference.  Natural input order produces the
+// continuous radix-2 DIF bit-reversed stream
+// (0, 8, 4, 12, 2, 10, 6, 14, 1, 9, 5, 13, 3, 11, 7, 15).
+module FFT16SDFReference {
+    clock clk
+    reset rst
+
+    in input : rv<Complex<fixed<18,16>>>
+    out output : rv<Complex<fixed<18,16>>>
+
+    inst stage_d8 : FFTSDFStageNumeric<
+        S=fixed<18,16>,W=fixed<16,14>,D=8
+    >
+    inst stage_d4 : FFTSDFStageNumeric<
+        S=fixed<18,16>,W=fixed<16,14>,D=4
+    >
+    inst stage_d2 : FFTSDFStageNumeric<
+        S=fixed<18,16>,W=fixed<16,14>,D=2
+    >
+    inst stage_d1 : FFTSDFStageNumeric<
+        S=fixed<18,16>,W=fixed<16,14>,D=1
+    >
+
+    input -> stage_d8.input
+    stage_d8.output -> stage_d4.input
+    stage_d4.output -> stage_d2.input
+    stage_d2.output -> stage_d1.input
+    stage_d1.output -> output
+}
+
+// Thirty-two-point functional reference. Natural input order produces the
+// continuous radix-2 DIF five-bit bit-reversed output stream.
+module FFT32SDFReference {
+    clock clk
+    reset rst
+
+    in input : rv<Complex<fixed<18,16>>>
+    out output : rv<Complex<fixed<18,16>>>
+
+    inst stage_d16 : FFTSDFStageNumeric<
+        S=fixed<18,16>,W=fixed<16,14>,D=16
+    >
+    inst stage_d8 : FFTSDFStageNumeric<
+        S=fixed<18,16>,W=fixed<16,14>,D=8
+    >
+    inst stage_d4 : FFTSDFStageNumeric<
+        S=fixed<18,16>,W=fixed<16,14>,D=4
+    >
+    inst stage_d2 : FFTSDFStageNumeric<
+        S=fixed<18,16>,W=fixed<16,14>,D=2
+    >
+    inst stage_d1 : FFTSDFStageNumeric<
+        S=fixed<18,16>,W=fixed<16,14>,D=1
+    >
+
+    input -> stage_d16.input
+    stage_d16.output -> stage_d8.input
+    stage_d8.output -> stage_d4.input
+    stage_d4.output -> stage_d2.input
+    stage_d2.output -> stage_d1.input
+    stage_d1.output -> output
+}
+
+// Complete 512-point functional reference. Natural input order produces the
+// continuous radix-2 DIF nine-bit bit-reversed output stream. This wrapper adds
+// no framing, implicit flush, or physical-resource selection semantics.
+module FFT512SDFReference {
+    clock clk
+    reset rst
+
+    in input : rv<Complex<fixed<18,16>>>
+    out output : rv<Complex<fixed<18,16>>>
+
+    inst stage_d256 : FFTSDFStageNumeric<
+        S=fixed<18,16>,W=fixed<16,14>,D=256
+    >
+    inst stage_d128 : FFTSDFStageNumeric<
+        S=fixed<18,16>,W=fixed<16,14>,D=128
+    >
+    inst stage_d64 : FFTSDFStageNumeric<
+        S=fixed<18,16>,W=fixed<16,14>,D=64
+    >
+    inst stage_d32 : FFTSDFStageNumeric<
+        S=fixed<18,16>,W=fixed<16,14>,D=32
+    >
+    inst stage_d16 : FFTSDFStageNumeric<
+        S=fixed<18,16>,W=fixed<16,14>,D=16
+    >
+    inst stage_d8 : FFTSDFStageNumeric<
+        S=fixed<18,16>,W=fixed<16,14>,D=8
+    >
+    inst stage_d4 : FFTSDFStageNumeric<
+        S=fixed<18,16>,W=fixed<16,14>,D=4
+    >
+    inst stage_d2 : FFTSDFStageNumeric<
+        S=fixed<18,16>,W=fixed<16,14>,D=2
+    >
+    inst stage_d1 : FFTSDFStageNumeric<
+        S=fixed<18,16>,W=fixed<16,14>,D=1
+    >
+
+    input -> stage_d256.input
+    stage_d256.output -> stage_d128.input
+    stage_d128.output -> stage_d64.input
+    stage_d64.output -> stage_d32.input
+    stage_d32.output -> stage_d16.input
+    stage_d16.output -> stage_d8.input
+    stage_d8.output -> stage_d4.input
+    stage_d4.output -> stage_d2.input
+    stage_d2.output -> stage_d1.input
+    stage_d1.output -> output
+}

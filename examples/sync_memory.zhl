@@ -1,0 +1,21 @@
+module SyncMemory {
+  clock clk
+  reset rst
+
+  in read_address: u4
+  in write_enable: bit
+  in write_address: u4
+  in write_data: u8
+  out read_data: u8
+
+  memory table: mem<u8, 16> {
+    read_latency 1
+    collision read_first
+  }
+
+  table.read_address = read_address
+  table.write_enable = write_enable
+  table.write_address = write_address
+  table.write_data = write_data
+  read_data = table.read_data
+}

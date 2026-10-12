@@ -1,0 +1,13 @@
+module PacketFixedArbiter {
+    clock clk
+    reset rst
+
+    in  high_priority : packet<u8>
+    in  low_priority  : packet<u8>
+    out tx            : packet<u8>
+
+    arbiter [high_priority, low_priority] -> tx {
+        policy fixed_priority
+        grant packet
+    }
+}

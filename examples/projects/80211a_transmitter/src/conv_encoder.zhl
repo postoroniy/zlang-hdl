@@ -1,0 +1,98 @@
+// IEEE-authoritative K=7 convolutional encoder for the bounded 6/12/24 Mbit/s
+// profile.  Encoding is an independently reusable PHY stage with its own
+// history state, ready/valid boundary, and oracle coverage.
+
+import wifi80211a_transmitter.scrambler
+
+// FrameBeat.data bit zero is the earliest DATA bit. Encoded pairs are stored
+// with their first transmitted bit at the most-significant end.
+struct ConvolutionalResult24 {
+    encoded : bits<48>
+    history : u6
+}
+
+fn encoder_g0(stream : u30) -> bits<24> {
+    truncate<24>(
+        (stream >> 6)
+        ^ (stream >> 4)
+        ^ (stream >> 3)
+        ^ stream
+        ^ (stream >> 1)
+    )
+}
+
+fn encoder_g1(stream : u30) -> bits<24> {
+    truncate<24>(
+        (stream >> 6)
+        ^ (stream >> 4)
+        ^ (stream >> 3)
+        ^ stream
+        ^ (stream >> 5)
+    )
+}
+
+fn interleave24(g0 : bits<24>, g1 : bits<24>) -> bits<48> {
+    // generate is compile-time structural construction; it spells the 24
+    // transmitted encoder pairs without mutable indexing machinery.
+    bitcast<bits<48>>(
+        generate(i in 0..24) [
+            g1[23 - i],
+            g0[23 - i]
+        ]
+    )
+}
+
+fn ieee_convolutional_encode24(
+    word : bits<24>, history : u6
+) -> ConvolutionalResult24 {
+    stream = bitcast<u30>(concat(word, history))
+    ConvolutionalResult24 {
+        encoded = interleave24(encoder_g0(stream), encoder_g1(stream))
+        history = word[23:18]
+    }
+}
+
+// Raw scalar boundary retained as a small independently synthesizable witness
+// for the otherwise functional encoder.
+module IeeeConvolutionalEncode24 {
+    in word : bits<24>
+    in history : u6
+    out result : ConvolutionalResult24
+
+    result = ieee_convolutional_encode24(word, history)
+}
+
+// FrameBeat.first starts a fresh convolutional epoch. Struct destructuring
+// and field punning keep the metadata-preserving path explicit but concise.
+module IeeeConvolutionalEncoder24 {
+    clock clk reset rst
+
+    in input : rv<WifiFramedWord>
+    out output : rv<WifiEncodedWord>
+
+    reg history : u6 = 0
+    fifo words : fifo<WifiEncodedWord,2>
+
+    WifiFramedWord { data, meta, first, last } = input.payload
+    selected_history = first ? 0 : history
+    exact = ieee_convolutional_encode24(data, selected_history)
+    encoded = FrameBeat {
+        data = exact.encoded
+        meta
+        first
+        last
+    }
+
+    input.ready = words.ready & (meta.rate != WifiRate.Continue)
+    output.payload = words.front
+    output.valid = words.valid
+
+    accept: when input.transfer {
+        words.push(encoded)
+        history <- last ? 0 : exact.history
+    }
+
+    retire: when output.transfer {
+        words.pop()
+    }
+}

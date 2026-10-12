@@ -1,0 +1,31 @@
+module RuleLocalMemory {
+    clock clk
+    reset rst
+
+    in read_enable  : bit
+    in write_enable : bit
+    in address      : u2
+    in write_data   : u8
+
+    out read_data : u8
+    out touched   : bit
+
+    memory table : mem<u8,4> {
+        read_latency 1
+        collision write_first
+    }
+
+    reg did_access : bit = 0
+
+    rule fetch when read_enable {
+        table.read(address)
+        did_access <- 1
+    }
+
+    rule store when write_enable {
+        table.write(address, write_data)
+    }
+
+    read_data = table.read_data
+    touched = did_access
+}

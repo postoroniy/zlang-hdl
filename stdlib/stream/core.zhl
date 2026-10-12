@@ -1,0 +1,91 @@
+// Generic ready/valid building blocks.  These are ordinary ZLang modules;
+// state, transfer, and backpressure use the language's existing FIFO model.
+struct FrameBeat<type T, type M> {
+    data : T
+    meta : M
+    first : bit
+    last : bit
+}
+
+// One-entry elastic register slice.  A FIFO supplies the generic payload's
+// reset value without inventing a compiler-level default(T) operation.
+module RvRegisterSlice<type T> {
+    clock clk
+    reset rst
+
+    in input : rv<T>
+    out output : rv<T>
+
+    fifo storage : fifo<T,1>
+    storage.data = input.payload
+    storage.push = input.transfer
+    storage.pop = output.transfer
+    // A full slot may be replaced on the same accepted output transfer.
+    input.ready = storage.ready | output.transfer
+    output.payload = storage.front
+    output.valid = storage.valid
+}
+
+// A two-entry elastic skid buffer.  The second entry absorbs one transfer
+// after downstream ready deasserts; ordering and payload stability are the
+// ordinary FIFO guarantees.
+module RvSkidBuffer<type T> {
+    clock clk
+    reset rst
+
+    in input : rv<T>
+    out output : rv<T>
+
+    fifo storage : fifo<T,2>
+    storage.data = input.payload
+    storage.push = input.transfer
+    storage.pop = output.transfer
+    input.ready = storage.ready | output.transfer
+    output.payload = storage.front
+    output.valid = storage.valid
+}
+
+module RvFifo<type T,D=2> {
+    clock clk
+    reset rst
+
+    in input : rv<T>
+    out output : rv<T>
+
+    fifo storage : fifo<T,D>
+    storage.data = input.payload
+    storage.push = input.transfer
+    storage.pop = output.transfer
+    input.ready = storage.ready | output.transfer
+    output.payload = storage.front
+    output.valid = storage.valid
+}
+
+// Explicit two-way ready/valid routing for runtime-selected physical clients.
+// These modules route transactions; they do not create dynamic instances or
+// infer clock gating.  Wider fan-in/fan-out is built as a bounded tree so each
+// admission and backpressure edge remains visible in source.
+module RvMux2<type T> {
+    in select : bit
+    in input0 : rv<T>
+    in input1 : rv<T>
+    out output : rv<T>
+
+    input0.ready = ~select & output.ready
+    input1.ready = select & output.ready
+    output.payload = select ? input1.payload : input0.payload
+    output.valid = select ? input1.valid : input0.valid
+}
+
+module RvDemux2<type T> {
+    in select : bit
+    in input : rv<T>
+    out output0 : rv<T>
+    out output1 : rv<T>
+
+    input.ready = select ? output1.ready : output0.ready
+    output0.payload = input.payload
+    output0.valid = input.valid & ~select
+    output1.payload = input.payload
+    output1.valid = input.valid & select
+}

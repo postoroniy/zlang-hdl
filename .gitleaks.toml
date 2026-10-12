@@ -1,0 +1,8 @@
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Deterministic non-secret synthesis cache hashes"
+condition = "AND"
+paths = ['''examples/generated/CostMac\.synthesis$''']
+regexes = ['''cache_key=[0-9a-f]{64}''']

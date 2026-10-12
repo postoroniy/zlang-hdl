@@ -1,0 +1,44 @@
+import std.math.fixed
+
+struct PolyphaseResult {
+    phase0 : SF7.20
+    phase1 : SF7.20
+    phase2 : SF7.20
+    phase3 : SF7.20
+}
+
+module FixedFIRPhase {
+    clock clk
+    reset rst
+    in samples : vec<8,SF2.10>
+    in coefficients : vec<8,SF2.10>
+    out result : SF7.20
+    reg stage0 : SF7.20 = 0
+    reg stage1 : SF7.20 = 0
+    stage0 <- dot(samples, coefficients)
+    stage1 <- stage0
+    result = stage1
+}
+
+module FixedPointPolyphaseFIR {
+    clock clk
+    reset rst
+    in samples0 : vec<8,SF2.10>
+    in samples1 : vec<8,SF2.10>
+    in samples2 : vec<8,SF2.10>
+    in samples3 : vec<8,SF2.10>
+    in coefficients : vec<8,SF2.10>
+    out result : PolyphaseResult
+
+    inst phase0 : FixedFIRPhase { samples=samples0 coefficients }
+    inst phase1 : FixedFIRPhase { samples=samples1 coefficients }
+    inst phase2 : FixedFIRPhase { samples=samples2 coefficients }
+    inst phase3 : FixedFIRPhase { samples=samples3 coefficients }
+
+    result = PolyphaseResult {
+        phase0 = phase0.result
+        phase1 = phase1.result
+        phase2 = phase2.result
+        phase3 = phase3.result
+    }
+}

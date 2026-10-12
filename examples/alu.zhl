@@ -1,0 +1,15 @@
+module ALU {
+    in a  : u32
+    in b  : u32
+    in op : u3
+
+    out y : u32
+
+    y = switch op {
+        0 => truncate<32>(a + b)
+        1 => a - b
+        2 => a & b
+        3 => a | b
+        else => 0
+    }
+}

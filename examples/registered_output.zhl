@@ -1,0 +1,15 @@
+// Stored outputs are explicit state; transient rule outputs use `drive`.
+module RegisteredOutput {
+    clock clk
+    reset rst
+
+    in load : bit
+    in value : u8
+    out reg held : u8 = 0
+    out accepted : bit
+
+    when load {
+        held <- value
+        drive accepted = 1
+    }
+}

@@ -1,0 +1,1300 @@
+"""Deterministic physical partitioning for exact fixed scalar pipelines.
+
+The source ``pipeline(N)`` contract is already typed before this module runs.
+This scheduler never changes an arithmetic node, width, signedness, rounding or
+overflow policy.  It only inserts ordinary typed one-cycle :class:`Pipeline`
+boundaries and exact-width balancing paths.  The resulting graph is consumed
+unchanged by simulation and the production direct-SystemVerilog backend.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, replace
+from typing import Callable, Protocol
+
+from zlang.ir import expressions as expr
+from zlang.ir.expression_graph import ExpressionDagIndex
+from zlang.ir.functional import lower_reduction
+from zlang.ir.pipelines import (
+    PipelineCostSource,
+    PipelinePlan,
+    ScheduledOperationCost,
+    ScheduledPipelineOperation,
+    ScheduledPipelineStage,
+)
+from zlang.ir.scheduled import ScheduledValueGraph
+from zlang.ir.signed_reductions import expression_semantic_identity
+from zlang.ir.module import Assignment, EquivalenceRule, Module, Port, PortDirection
+from zlang.ir.target import (
+    ImplementationDelay,
+    ResourceDefinition,
+    TimingCut,
+    TimingDAG,
+    TimingEdge,
+    TimingNode,
+)
+from zlang.ir.traversal import (
+    ExpressionTraversalPolicy,
+    expression_children,
+    walk_expression,
+)
+from zlang.ir.types import (
+    FixedType,
+    HardwareType,
+    UFixedType,
+)
+from zlang.opt.capabilities import expression_capability, semantic_expression_op
+from zlang.resource_matching import (
+    DspMultiplyResourceMatcher,
+    ResourceMatcher,
+)
+from zlang.timing import timing_info, validate_timed_candidate
+from zlang.pipeline_schedule_graph import (
+    PipelineSchedulingError,
+    producer_stage as _producer_stage,
+    replace_direct_children as _replace_direct_children,
+    schedule_identity as _identity,
+)
+
+
+FIXED_PIPELINE_SCHEDULER = "dag_partition_v1"
+FIXED_PIPELINE_SCHEDULE_SCHEMA = "zlang-fixed-pipeline-schedule-v1"
+
+
+class OperationCostModel(Protocol):
+    """Backend-independent cost interface used before register placement."""
+
+    @property
+    def source(self) -> PipelineCostSource: ...
+
+    def cost(self, operation: expr.Expression, operation_class: str) -> ScheduledOperationCost: ...
+
+
+@dataclass(frozen=True)
+class StructuralOperationCostModel:
+    """Deterministic width-aware estimates, never synthesis measurements."""
+
+    source: PipelineCostSource = PipelineCostSource.STRUCTURAL_ESTIMATE
+
+    def cost(
+        self,
+        operation: expr.Expression,
+        operation_class: str,
+    ) -> ScheduledOperationCost:
+        width = operation.type.width
+        operand_widths = tuple(child.type.width for child in _operation_children(operation))
+        largest = max((*operand_widths, width), default=width)
+
+        if operation_class in {"multiply", "fixed_multiply"}:
+            smaller = min(operand_widths, default=width)
+            delay = 520 + 28 * largest + 8 * smaller
+            lut = max(1, smaller * largest)
+            resource = "logic_multiplier"
+        elif operation_class in {"add", "subtract", "fixed_add", "fixed_subtract"}:
+            delay = 110 + 18 * width
+            lut = width
+            resource = "logic_adder"
+        elif operation_class == "fixed_convert":
+            assert isinstance(operation, expr.FixedConvert)
+            discarded = max(0, operation.expression.type.width - operation.type.width)
+            rounding = 0 if discarded == 0 else {
+                expr.FixedRounding.FLOOR: 45,
+                expr.FixedRounding.TOWARD_ZERO: 90,
+                expr.FixedRounding.AWAY_ZERO: 130,
+                expr.FixedRounding.NEAREST_EVEN: 180,
+            }[operation.rounding]
+            saturation = 120 if operation.overflow is expr.FixedOverflow.SATURATE else 0
+            delay = 35 + 8 * largest + rounding + saturation
+            lut = max(1, width + discarded)
+            resource = "fixed_conversion"
+        elif operation_class in {"shift", "runtime_index"}:
+            constant_shift = (
+                isinstance(operation, expr.Binary)
+                and isinstance(operation.right, expr.Constant)
+            )
+            delay = 45 if constant_shift else 170 + 7 * largest
+            lut = 0 if constant_shift else width
+            resource = "routing" if constant_shift else "logic_mux"
+        elif operation_class in {"mux", "switch"}:
+            delay = 100 + 7 * width
+            lut = max(1, width)
+            resource = "logic_mux"
+        elif operation_class == "compare":
+            delay = 95 + 11 * largest
+            lut = max(1, largest)
+            resource = "logic_compare"
+        elif operation_class == "bitwise":
+            delay = 35 + 3 * width
+            lut = max(1, width)
+            resource = "logic_bitwise"
+        elif operation_class in {
+            "extend", "truncate", "slice", "concat", "bitcast", "pack",
+            "unpack", "field", "tuple_project", "vector_index", "reshape",
+            "enum_encode", "enum_valid", "enum_decode", "struct_construct",
+            "tuple_construct",
+        }:
+            delay = 0 if operation_class in {
+                "extend", "truncate", "slice", "concat", "bitcast", "pack",
+                "unpack", "field", "tuple_project", "vector_index", "reshape",
+                "enum_encode", "struct_construct", "tuple_construct",
+            } else 50 + 4 * largest
+            lut = 0 if delay == 0 else max(1, largest)
+            resource = "wiring" if delay == 0 else "logic_decode"
+        else:  # pragma: no cover - the closed classifier rejects first.
+            raise PipelineSchedulingError(
+                f"no structural pipeline cost for operation '{operation_class}'"
+            )
+        return ScheduledOperationCost(delay, lut, 0, resource, self.source)
+
+
+@dataclass(frozen=True)
+class TargetResourceOperationCostModel:
+    """Use source-described target segment costs, with an honest fallback.
+
+    A zero ``delay_ps`` means that the target library has not published a
+    timing estimate; it is never interpreted as a zero-delay DSP path.  In
+    that case the generic structural operation remains in the DAG and cannot
+    satisfy target-frequency policy merely because a primitive exists.
+    """
+
+    resources: tuple[ResourceDefinition, ...]
+    structural: StructuralOperationCostModel = StructuralOperationCostModel()
+    matchers: tuple[ResourceMatcher, ...] = (DspMultiplyResourceMatcher(),)
+
+    @property
+    def source(self) -> PipelineCostSource:
+        return (
+            PipelineCostSource.TARGET_ESTIMATE
+            if any(
+                site.estimated_delay_ps > 0
+                for resource in self.resources
+                for site in resource.pipeline_sites
+            )
+            else PipelineCostSource.STRUCTURAL_ESTIMATE
+        )
+
+    def cost(
+        self,
+        operation: expr.Expression,
+        operation_class: str,
+    ) -> ScheduledOperationCost:
+        generic = self.structural.cost(operation, operation_class)
+        matches = []
+        for resource in sorted(self.resources, key=lambda item: item.identity):
+            for matcher in self.matchers:
+                match = matcher.match(operation, operation_class, resource)
+                if match is not None:
+                    matches.append(match)
+        if matches:
+            # Keep the old matcher semantics: the first stable resource
+            # identity wins. Resource ranking belongs to implementation
+            # planning, not to the operation-cost adapter.
+            selected = min(
+                matches,
+                key=lambda item: (
+                    item.resource_identity,
+                    item.mapping,
+                ),
+            )
+            return ScheduledOperationCost(
+                selected.estimated_delay_ps,
+                selected.estimated_lut,
+                selected.estimated_dsp,
+                selected.resource_class,
+                PipelineCostSource.TARGET_ESTIMATE,
+                selected.resource_name,
+            )
+        return replace(generic, source=self.source)
+
+
+@dataclass(frozen=True)
+class _DagNode:
+    expression: expr.Expression
+    children: tuple[expr.Expression, ...]
+    semantic_identity: str
+    operation_class: str
+    ordinal: int
+    cost: ScheduledOperationCost
+
+
+@dataclass(frozen=True)
+class _Placement:
+    stage: int
+    arrival_ps: int
+
+
+@dataclass(frozen=True)
+class _ValueAlternative:
+    expression: expr.Expression
+    certificate: tuple[str, ...]
+
+
+def _cached_expression_identity(
+    cache: dict[int, str],
+    value: expr.Expression,
+) -> str:
+    """Return one semantic expression identity without repeating DAG walks."""
+
+    key = id(value)
+    result = cache.get(key)
+    if result is None:
+        result = expression_semantic_identity(value)
+        cache[key] = result
+    return result
+
+
+def _schedule_trivial_pipeline(
+    source: expr.Expression,
+    semantic_source: expr.Expression,
+    nodes: tuple[_DagNode, ...],
+    requested_latency: int,
+    allocate_instance: Callable[[], int],
+    model: OperationCostModel,
+    rewrite_certificate: tuple[str, ...],
+    domain: str | None,
+) -> expr.Pipeline:
+    """Publish the exact fixed-latency shape for a zero/one-operation DAG."""
+
+    scheduled = expr.Pipeline(
+        requested_latency,
+        source,
+        allocate_instance(),
+        source.type,
+        origin=source.origin,
+        domain=domain,
+    )
+    semantic_source_identity = expression_semantic_identity(semantic_source)
+    selected_value_identity = expression_semantic_identity(source)
+    scheduled_identity = expression_semantic_identity(scheduled)
+    operations = tuple(
+        ScheduledPipelineOperation(
+            _identity(
+                FIXED_PIPELINE_SCHEDULE_SCHEMA,
+                "operation",
+                node.semantic_identity,
+                node.ordinal,
+            ),
+            node.semantic_identity,
+            node.ordinal,
+            node.operation_class,
+            0,
+            tuple(
+                _identity(
+                    FIXED_PIPELINE_SCHEDULE_SCHEMA,
+                    "leaf",
+                    expression_semantic_identity(child),
+                )
+                for child in node.children
+            ),
+            tuple(child.type for child in node.children),
+            node.expression.type,
+            node.cost,
+            node.expression.origin,
+        )
+        for node in nodes
+    )
+    stages = tuple(
+        ScheduledPipelineStage(
+            index,
+            tuple(item.identity for item in operations) if index == 0 else (),
+            sum(item.cost.delay_ps for item in operations) if index == 0 else 0,
+        )
+        for index in range(requested_latency)
+    )
+    timing_nodes = tuple(
+        TimingNode(
+            item.identity,
+            item.operation,
+            item.identity,
+            item.semantic_identity,
+            estimated_delay_ps=item.cost.delay_ps,
+        )
+        for item in operations
+    )
+    cut_identity = _identity(
+        FIXED_PIPELINE_SCHEDULE_SCHEMA,
+        "trivial_output_cut",
+        selected_value_identity,
+        requested_latency,
+    )
+    timing_dag = TimingDAG(
+        timing_nodes,
+        (),
+        (
+            TimingCut(
+                cut_identity,
+                operations[0].identity if operations else selected_value_identity,
+                "generic",
+                requested_latency,
+            ),
+        ),
+        output_latency=requested_latency,
+        estimated_critical_delay_ps=stages[0].estimated_delay_ps,
+    )
+    graph = ScheduledValueGraph(
+        semantic_source_identity,
+        selected_value_identity,
+        tuple(item.identity for item in operations),
+        tuple((item.identity, item.semantic_identity) for item in operations),
+        (),
+        tuple((item.identity, item.stage) for item in operations),
+        tuple(item.estimated_delay_ps for item in stages),
+        requested_latency,
+        1,
+        model.source.value,
+        cut_identities=(cut_identity,),
+        rewrite_certificate=rewrite_certificate,
+        clock_domain=domain,
+    )
+    plan = PipelinePlan(
+        stage_boundaries=tuple(
+            f"stage_{index}" for index in range(requested_latency)
+        ),
+        inserted_registers=requested_latency,
+        scheduler=FIXED_PIPELINE_SCHEDULER,
+        requested_latency=requested_latency,
+        initiation_interval=1,
+        cost_source=model.source,
+        operations=operations,
+        stages=stages,
+        timing_dag=timing_dag,
+        source_expression_identity=semantic_source_identity,
+        scheduled_expression_identity=scheduled_identity,
+        timed_equivalence="verified",
+        scheduled_value_graph=graph,
+        selected_value_identity=selected_value_identity,
+        rewrite_certificate=rewrite_certificate,
+        source_expression=semantic_source,
+    )
+    return replace(scheduled, pipeline_plan=plan)
+
+
+def schedule_fixed_pipeline(
+    source_expression: expr.Expression,
+    requested_latency: int,
+    allocate_instance: Callable[[], int],
+    *,
+    cost_model: OperationCostModel | None = None,
+    semantic_source_expression: expr.Expression | None = None,
+    rewrite_certificate: tuple[str, ...] = (),
+    domain: str | None = None,
+) -> expr.Pipeline:
+    """Partition one exact pure expression into ``requested_latency`` cycles."""
+
+    if requested_latency < 1:
+        raise PipelineSchedulingError("pipeline latency must be positive")
+    model = cost_model or StructuralOperationCostModel()
+    source = _lower_executable_value(source_expression)
+    semantic_source = _lower_executable_value(
+        semantic_source_expression
+        if semantic_source_expression is not None
+        else source_expression
+    )
+    nodes, leaves = _build_dag(source, model)
+    # A single combinational operation has no useful internal cut.  Retain the
+    # established fixed-pipeline RTL shape (one enclosing N-cycle boundary),
+    # but still publish a complete schedule so exact-value rewrites and target
+    # planning remain observable and verifiable.
+    if len(nodes) <= 1:
+        return _schedule_trivial_pipeline(
+            source,
+            semantic_source,
+            nodes,
+            requested_latency,
+            allocate_instance,
+            model,
+            rewrite_certificate,
+            domain,
+        )
+    placements, stage_delays = _partition(nodes, requested_latency)
+
+    registered: dict[tuple[str, int], expr.Expression] = {}
+    combinational: dict[str, expr.Expression] = {}
+    alignment_records: dict[tuple[str, str, int, int], ImplementationDelay] = {}
+    compensation_records: list[ImplementationDelay] = []
+    captured_operations: set[str] = set()
+
+    expression_keys = {
+        id(node.expression): node.semantic_identity for node in nodes
+    }
+    expression_keys.update(
+        (id(leaf), expression_semantic_identity(leaf)) for leaf in leaves
+    )
+
+    node_by_expression = {node.semantic_identity: node for node in nodes}
+    operation_identity = {
+        node.semantic_identity: _identity(
+            FIXED_PIPELINE_SCHEDULE_SCHEMA,
+            "operation",
+            node.semantic_identity,
+            node.ordinal,
+        )
+        for node in nodes
+    }
+    leaf_identity = {
+        _cached_expression_identity(expression_keys, leaf): _identity(
+            FIXED_PIPELINE_SCHEDULE_SCHEMA,
+            "leaf",
+            _cached_expression_identity(expression_keys, leaf),
+        )
+        for leaf in leaves
+    }
+
+    def dynamic_leaf(value: expr.Expression) -> bool:
+        return not isinstance(value, (expr.Constant, expr.ParameterRef))
+
+    def delay_to(
+        value: expr.Expression,
+        current_latency: int,
+        target_latency: int,
+        *,
+        destination: str,
+        compensation: bool = False,
+        identity_value: expr.Expression | None = None,
+        record_delay: bool = True,
+    ) -> expr.Expression:
+        if target_latency < current_latency:
+            raise PipelineSchedulingError("pipeline schedule violates dependency order")
+        result = value
+        semantic_value = value if identity_value is None else identity_value
+        semantic_key = _cached_expression_identity(expression_keys, semantic_value)
+        source_identity = operation_identity.get(semantic_key)
+        if source_identity is None:
+            source_identity = leaf_identity[semantic_key]
+        for latency in range(current_latency + 1, target_latency + 1):
+            key = (semantic_key, latency)
+            cached = registered.get(key)
+            if cached is None:
+                cached = expr.Pipeline(
+                    1,
+                    result,
+                    allocate_instance(),
+                    semantic_value.type,
+                    origin=semantic_value.origin,
+                    domain=domain,
+                )
+                registered[key] = cached
+            result = cached
+        cycles = target_latency - current_latency
+        if cycles and record_delay:
+            record = ImplementationDelay(
+                identity=_identity(
+                    FIXED_PIPELINE_SCHEDULE_SCHEMA,
+                    "compensation" if compensation else "alignment",
+                    source_identity,
+                    destination,
+                    current_latency,
+                    target_latency,
+                    semantic_value.type.width,
+                ),
+                kind="compensation" if compensation else "alignment",
+                source_node=source_identity,
+                destination_node=destination,
+                cycles=cycles,
+                width=semantic_value.type.width,
+                ff_cost=cycles * semantic_value.type.width,
+                semantic_identity=expression_semantic_identity(semantic_value),
+                source_origin=(
+                    semantic_value.origin.render()
+                    if semantic_value.origin is not None else None
+                ),
+            )
+            if compensation:
+                compensation_records.append(record)
+            else:
+                alignment_records.setdefault(
+                    (source_identity, destination, current_latency, target_latency),
+                    record,
+                )
+        return result
+
+    def value_at_input(value: expr.Expression, stage: int, destination: str) -> expr.Expression:
+        value_key = _cached_expression_identity(expression_keys, value)
+        child_node = node_by_expression.get(value_key)
+        if child_node is None:
+            if not dynamic_leaf(value):
+                return value
+            return delay_to(value, 0, stage, destination=destination)
+        child_stage = placements[value_key].stage
+        if child_stage == stage:
+            return compute(value)
+        if child_stage > stage:
+            raise PipelineSchedulingError("consumer precedes its producer")
+        produced = delay_to(
+            compute(value), child_stage, child_stage + 1,
+            destination=operation_identity[value_key],
+            identity_value=value,
+            record_delay=False,
+        )
+        captured_operations.add(operation_identity[value_key])
+        return delay_to(
+            produced,
+            child_stage + 1,
+            stage,
+            destination=destination,
+            identity_value=value,
+        )
+
+    def compute(value: expr.Expression) -> expr.Expression:
+        value_key = _cached_expression_identity(expression_keys, value)
+        cached = combinational.get(value_key)
+        if cached is not None:
+            return cached
+        node = node_by_expression[value_key]
+        destination = operation_identity[value_key]
+        rewritten = tuple(
+            value_at_input(child, placements[value_key].stage, destination)
+            for child in node.children
+        )
+        result = _replace_direct_children(value, node.children, rewritten)
+        combinational[value_key] = result
+        return result
+
+    source_key = _cached_expression_identity(expression_keys, source)
+    root_node = node_by_expression.get(source_key)
+    if root_node is None:
+        # A constant pipeline still has reset/fill behavior and therefore must
+        # retain real state even though its source value is timeless.
+        # Preserve the public shape of the historical fixed-pipeline node for
+        # leaf values: one enclosing node records the complete requested
+        # latency, rather than exposing an implementation-only chain of
+        # one-cycle wrappers.  The scheduler plan below still records the
+        # empty operation DAG and exact timing contract.
+        scheduled: expr.Expression = expr.Pipeline(
+            requested_latency,
+            source,
+            allocate_instance(),
+            source.type,
+            origin=source.origin,
+            domain=domain,
+        )
+    else:
+        root_stage = placements[source_key].stage
+        scheduled = delay_to(
+            compute(source), root_stage, root_stage + 1,
+            destination=operation_identity[source_key],
+            identity_value=source,
+            record_delay=False,
+        )
+        captured_operations.add(operation_identity[source_key])
+        scheduled = delay_to(
+            scheduled,
+            root_stage + 1,
+            requested_latency,
+            destination="output",
+            compensation=True,
+            identity_value=source,
+        )
+
+    if not isinstance(scheduled, expr.Pipeline):
+        raise PipelineSchedulingError("fixed pipeline schedule has no output boundary")
+    erased = erase_pipeline_timing(scheduled)
+    if expression_semantic_identity(erased) != expression_semantic_identity(source):
+        raise PipelineSchedulingError(
+            "scheduled pipeline does not reconstruct the exact typed source expression"
+        )
+    relation = validate_timed_candidate(source, scheduled, value_equivalent=True)
+    if not relation.equivalent or relation.delta != requested_latency:
+        raise PipelineSchedulingError(
+            "scheduled pipeline failed exact timed-equivalence validation: "
+            f"{relation.proof}; delta={relation.delta}"
+        )
+    if timing_info(scheduled).latency != requested_latency:
+        raise PipelineSchedulingError("scheduled pipeline has the wrong structural latency")
+
+    operations = tuple(
+        ScheduledPipelineOperation(
+            identity=operation_identity[node.semantic_identity],
+            semantic_identity=node.semantic_identity,
+            ordinal=node.ordinal,
+            operation=node.operation_class,
+            stage=placements[node.semantic_identity].stage,
+            operand_identities=tuple(
+                operation_identity.get(
+                    _cached_expression_identity(expression_keys, child),
+                    leaf_identity.get(
+                        _cached_expression_identity(expression_keys, child), ""
+                    ),
+                )
+                for child in node.children
+            ),
+            operand_types=tuple(child.type for child in node.children),
+            result_type=node.expression.type,
+            cost=node.cost,
+            source_origin=node.expression.origin,
+        )
+        for node in nodes
+    )
+    stages = tuple(
+        ScheduledPipelineStage(
+            index,
+            tuple(
+                operation.identity
+                for operation in operations
+                if operation.stage == index
+            ),
+            stage_delays[index],
+        )
+        for index in range(requested_latency)
+    )
+    timing_nodes = tuple(
+        TimingNode(
+            operation.identity,
+            operation.operation,
+            operation.identity,
+            operation.semantic_identity,
+            latency=operation.stage,
+            estimated_delay_ps=operation.cost.delay_ps,
+            source_origin=(
+                operation.source_origin.render()
+                if operation.source_origin is not None else None
+            ),
+        )
+        for operation in operations
+    )
+    timing_edges = tuple(
+        TimingEdge(
+            _identity(
+                FIXED_PIPELINE_SCHEDULE_SCHEMA,
+                "edge",
+                operand,
+                operation.identity,
+                index,
+            ),
+            "semantic",
+            operand,
+            operation.identity,
+            latency=max(
+                0,
+                operation.stage - _producer_stage(
+                    operand, operations, leaf_identity
+                ),
+            ),
+        )
+        for operation in operations
+        for index, operand in enumerate(operation.operand_identities)
+    )
+    cuts = tuple(
+        TimingCut(
+            _identity(FIXED_PIPELINE_SCHEDULE_SCHEMA, "cut", operation.identity),
+            operation.identity,
+            "generic",
+            1,
+        )
+        for operation in operations
+        if operation.identity in captured_operations
+    )
+    all_pipeline_nodes = tuple(
+        node
+        for node in walk_expression(
+            scheduled,
+            policy=ExpressionTraversalPolicy.SELECTED_IMPLEMENTATION,
+        )
+        if isinstance(node, expr.Pipeline)
+    )
+    scheduled_identity = expression_semantic_identity(scheduled)
+    semantic_source_identity = expression_semantic_identity(semantic_source)
+    selected_value_identity = expression_semantic_identity(source)
+    dag = TimingDAG(
+        timing_nodes,
+        timing_edges,
+        cuts,
+        tuple(alignment_records.values()),
+        tuple(compensation_records),
+        requested_latency,
+        max(stage_delays, default=0),
+    )
+    scheduled_value_graph = ScheduledValueGraph(
+        source_expression_identity=semantic_source_identity,
+        selected_value_identity=selected_value_identity,
+        operation_identities=tuple(item.identity for item in operations),
+        operation_semantic_identities=tuple(
+            (item.identity, item.semantic_identity) for item in operations
+        ),
+        dependencies=tuple(
+            (item.source_node, item.destination_node, item.latency)
+            for item in timing_edges
+        ),
+        stage_assignment=tuple((item.identity, item.stage) for item in operations),
+        stage_delays_ps=stage_delays,
+        exact_latency=requested_latency,
+        initiation_interval=1,
+        cost_source=model.source.value,
+        cut_identities=tuple(item.identity for item in cuts),
+        alignment_delay_identities=tuple(
+            item.identity for item in alignment_records.values()
+        ),
+        compensation_delay_identities=tuple(
+            item.identity for item in compensation_records
+        ),
+        rewrite_certificate=rewrite_certificate,
+        clock_domain=domain,
+    )
+    plan = PipelinePlan(
+        stage_boundaries=tuple(f"stage_{index}" for index in range(requested_latency)),
+        inserted_registers=sum(node.stages for node in all_pipeline_nodes),
+        alignment_delays=tuple(
+            item.cycles for item in alignment_records.values()
+        ),
+        scheduler=FIXED_PIPELINE_SCHEDULER,
+        requested_latency=requested_latency,
+        initiation_interval=1,
+        cost_source=model.source,
+        operations=operations,
+        stages=stages,
+        timing_dag=dag,
+        source_expression_identity=semantic_source_identity,
+        scheduled_expression_identity=scheduled_identity,
+        timed_equivalence="verified",
+        scheduled_value_graph=scheduled_value_graph,
+        selected_value_identity=selected_value_identity,
+        rewrite_certificate=rewrite_certificate,
+        source_expression=semantic_source,
+    )
+    return replace(scheduled, pipeline_plan=plan, origin=source_expression.origin)
+
+
+def schedule_module_fixed_pipelines(
+    module: Module,
+    *,
+    cost_model: OperationCostModel | None = None,
+) -> Module:
+    """Materialize exact source pipeline contracts during implementation planning.
+
+    Semantic analysis owns the exact latency and typed value only.  Physical
+    register placement is deferred until this function, where a target-aware
+    cost model can be supplied.  The default remains the honest structural
+    model for targetless compilation.
+    """
+
+    existing_instances = tuple(
+        item.instance
+        for assignment in (*module.assignments, *module.next_assignments)
+        for item in walk_expression(
+            assignment.expression,
+            policy=ExpressionTraversalPolicy.SELECTED_IMPLEMENTATION,
+        )
+        if isinstance(item, (expr.Delay, expr.Pipeline))
+    )
+    next_instance = [max(existing_instances, default=-1) + 1]
+
+    def allocate() -> int:
+        result = next_instance[0]
+        next_instance[0] += 1
+        return result
+
+    def materialize(value: expr.Expression) -> expr.Expression:
+        if isinstance(value, expr.Pipeline) and value.pipeline_plan is None:
+            alternatives = _exact_value_alternatives(
+                value.expression,
+                module.equivalences,
+            )
+
+            def preview(item: _ValueAlternative) -> tuple[object, ...]:
+                instance = [0]
+
+                def allocate_preview() -> int:
+                    result = instance[0]
+                    instance[0] += 1
+                    return result
+
+                candidate = schedule_fixed_pipeline(
+                    item.expression,
+                    value.stages,
+                    allocate_preview,
+                    cost_model=cost_model,
+                    semantic_source_expression=value.expression,
+                    rewrite_certificate=item.certificate,
+                    domain=value.domain,
+                )
+                plan = candidate.pipeline_plan
+                assert plan is not None
+                critical = max(
+                    (stage.estimated_delay_ps for stage in plan.stages),
+                    default=0,
+                )
+                return (
+                    critical,
+                    sum(operation.cost.lut for operation in plan.operations),
+                    sum(operation.cost.dsp for operation in plan.operations),
+                    plan.selected_value_identity,
+                )
+
+            selected = min(alternatives, key=preview)
+            first = [value.instance]
+
+            def allocate_region() -> int:
+                if first:
+                    return first.pop()
+                return allocate()
+
+            return schedule_fixed_pipeline(
+                selected.expression,
+                value.stages,
+                allocate_region,
+                cost_model=cost_model,
+                semantic_source_expression=value.expression,
+                rewrite_certificate=selected.certificate,
+                domain=value.domain,
+            )
+        return value
+
+    assignments = tuple(
+        replace(item, expression=materialize(item.expression))
+        for item in module.assignments
+    )
+    next_assignments = tuple(
+        replace(item, expression=materialize(item.expression))
+        for item in module.next_assignments
+    )
+    children = tuple(
+        schedule_module_fixed_pipelines(child, cost_model=cost_model)
+        for child in module.children
+    )
+    return replace(
+        module,
+        assignments=assignments,
+        next_assignments=next_assignments,
+        children=children,
+    )
+
+
+def _exact_value_alternatives(
+    value: expr.Expression,
+    equivalences: tuple[EquivalenceRule, ...],
+) -> tuple[_ValueAlternative, ...]:
+    """Return bounded exact-typed egglog alternatives useful to scheduling.
+
+    The scheduler remains responsible for every clock/register decision.
+    Egglog is invoked only when the graph contains a known simplification
+    opportunity; commutation-only saturation cannot improve the current cost
+    model and would add substantial compile time to large FFT hierarchies.
+    """
+
+    source = _lower_executable_value(value)
+    original = _ValueAlternative(source, ())
+    if not _may_benefit_from_value_saturation(source):
+        return (original,)
+    try:
+        from zlang.opt.module_lowering import lower
+        from zlang.opt.rewrite_model import term_to_expression
+        from zlang.opt.saturation import saturate
+
+        inputs: dict[str, HardwareType] = {}
+        for item in walk_expression(
+            source,
+            policy=ExpressionTraversalPolicy.SELECTED_IMPLEMENTATION,
+        ):
+            if isinstance(item, expr.InputRef):
+                previous = inputs.setdefault(item.name, item.type)
+                if previous != item.type:
+                    raise PipelineSchedulingError(
+                        f"pipeline input '{item.name}' has inconsistent types"
+                    )
+        output_name = "__zlang_pipeline_value"
+        while output_name in inputs:
+            output_name += "_"
+        output = Port(PortDirection.OUTPUT, output_name, source.type)
+        temporary = Module(
+            "__ZLangPipelineValue",
+            (
+                *(Port(PortDirection.INPUT, name, type_)
+                  for name, type_ in sorted(inputs.items())),
+                output,
+            ),
+            (Assignment(output, source),),
+            equivalences=equivalences,
+        )
+        canonical = lower(temporary)
+        result = saturate(
+            canonical,
+            canonical.assignments[0].expression,
+            max_iterations=8,
+            max_terms=16,
+        )
+        certificates = {
+            certificate.selected_identity: certificate
+            for certificate in result.certificates
+        }
+        by_identity = {expression_semantic_identity(source): original}
+        for term in result.alternatives:
+            alternative = term_to_expression(term)
+            if source.origin is not None:
+                alternative = replace(alternative, origin=source.origin)
+            identity = expression_semantic_identity(alternative)
+            from hashlib import sha256
+            from zlang.opt.rewrite_model import render_term
+            term_identity = sha256(render_term(term).encode()).hexdigest()
+            certificate = certificates[term_identity]
+            by_identity.setdefault(
+                identity,
+                _ValueAlternative(
+                    alternative,
+                    (
+                        "checked_value_certificate=verified",
+                        f"checker={certificate.checker_version}",
+                        f"proof_source={certificate.source_identity}",
+                        f"proof_selected={certificate.selected_identity}",
+                        f"proof_normal_form={certificate.normal_form_identity}",
+                        f"selected_value={identity}",
+                        *(f"rewrite={name}" for name in certificate.active_rule_identities),
+                    ),
+                ),
+            )
+        return tuple(
+            (original, *(
+                by_identity[identity]
+                for identity in sorted(by_identity)
+                if identity != expression_semantic_identity(source)
+            ))
+        )
+    except (TypeError, ValueError):
+        # Ineligible e-graph forms remain valid exact source pipelines.  The
+        # fail-closed operation classifier below still diagnoses unsupported
+        # state/protocol/timing nodes.
+        return (original,)
+
+
+def _may_benefit_from_value_saturation(value: expr.Expression) -> bool:
+    for item in walk_expression(
+        value,
+        policy=ExpressionTraversalPolicy.SELECTED_IMPLEMENTATION,
+    ):
+        if isinstance(item, expr.Mux) and (
+            isinstance(item.condition, expr.Constant)
+            or item.when_true == item.when_false
+        ):
+            return True
+        if isinstance(item, (expr.Add, expr.Binary)):
+            children = _operation_children(item)
+            constants = tuple(
+                child for child in children if isinstance(child, expr.Constant)
+            )
+            if any(constant.value in {0, 1} for constant in constants):
+                return True
+            if (
+                isinstance(item, expr.Binary)
+                and item.operator is expr.BinaryOperator.MULTIPLY
+                and any(
+                    constant.value > 1
+                    and constant.value & (constant.value - 1) == 0
+                    for constant in constants
+                )
+            ):
+                return True
+    return False
+
+
+def erase_pipeline_timing(value: expr.Expression) -> expr.Expression:
+    """Remove only physical Pipeline nodes, preserving exact value structure."""
+
+    if isinstance(value, expr.Pipeline):
+        return erase_pipeline_timing(value.expression)
+    children = expression_children(
+        value,
+        policy=ExpressionTraversalPolicy.SELECTED_IMPLEMENTATION,
+    )
+    if not children:
+        return value
+    rewritten = tuple(erase_pipeline_timing(child) for child in children)
+    return _replace_direct_children(value, children, rewritten)
+
+
+def render_fixed_pipeline_plan(output: str, plan: PipelinePlan) -> str:
+    """Render one stable, evidence-honest fixed-pipeline report."""
+
+    if plan.scheduler == "legacy" or plan.requested_latency is None:
+        return ""
+    lines = [
+        f"pipeline output={output}",
+        f"requested_latency={plan.requested_latency}",
+        f"ii={plan.initiation_interval}",
+        f"scheduler={plan.scheduler}",
+        f"cost_source={plan.cost_source.value}",
+        f"selected_value={plan.selected_value_identity}",
+        "rewrite_certificate="
+        + (", ".join(plan.rewrite_certificate) or "source_exact"),
+    ]
+    by_identity = {item.identity: item for item in plan.operations}
+    for stage in plan.stages:
+        lines.append(f"stage {stage.index}")
+        lines.append("  operations:")
+        if not stage.operation_identities:
+            lines.append("    none (output compensation)")
+        else:
+            for identity in stage.operation_identities:
+                operation = by_identity[identity]
+                operands = ",".join(item[:12] for item in operation.operand_identities)
+                signature = ",".join(str(item) for item in operation.operand_types)
+                lines.append(
+                    f"    {operation.operation}<{signature}->{operation.result_type}> "
+                    f"({operands}) -> {identity[:12]} "
+                    f"delay={operation.cost.delay_ps}ps "
+                    f"resource={operation.cost.resource_class}"
+                )
+        balancing = tuple(
+            item for item in plan.timing_dag.alignment_delays
+            if item.destination_node in stage.operation_identities
+        )
+        lines.append(f"  balancing_registers={sum(item.cycles for item in balancing)}")
+        lines.append(f"  estimated_delay={stage.estimated_delay_ps / 1000:.3f}ns")
+    critical_stage = max(
+        plan.stages,
+        key=lambda item: (item.estimated_delay_ps, -item.index),
+    )
+    critical = critical_stage.estimated_delay_ps
+    fmax = 0 if critical == 0 else 1_000_000 // critical
+    lines.extend((
+        f"critical_stage={critical_stage.index}",
+        f"estimated_critical_delay={critical / 1000:.3f}ns",
+        f"estimated_fmax={fmax}MHz",
+        f"visible_latency={plan.requested_latency}",
+        f"ii={plan.initiation_interval}",
+        f"timed_equivalence={plan.timed_equivalence}",
+        f"physical_pipeline_register_nodes={plan.inserted_registers}",
+    ))
+    return "\n".join(lines) + "\n"
+
+
+def _lower_executable_value(value: expr.Expression) -> expr.Expression:
+    memo: dict[int, expr.Expression] = {}
+
+    def lower(current: expr.Expression) -> expr.Expression:
+        key = id(current)
+        cached = memo.get(key)
+        if cached is not None:
+            return cached
+        if isinstance(current, expr.Reduce):
+            result = lower(lower_reduction(current))
+        elif isinstance(current, expr.ImplementationChoice):
+            result = lower(current.selected_alternative.expression)
+        else:
+            children = expression_children(
+                current,
+                policy=ExpressionTraversalPolicy.SELECTED_IMPLEMENTATION,
+            )
+            if not children:
+                result = current
+            else:
+                rewritten = tuple(lower(child) for child in children)
+                result = _replace_direct_children(current, children, rewritten)
+        memo[key] = result
+        return result
+
+    return lower(value)
+
+
+def _build_dag(
+    root: expr.Expression,
+    cost_model: OperationCostModel,
+) -> tuple[tuple[_DagNode, ...], tuple[expr.Expression, ...]]:
+    nodes: dict[str, _DagNode] = {}
+    leaves: dict[str, expr.Expression] = {}
+    graph = ExpressionDagIndex(
+        (root,),
+        children=lambda value: expression_children(
+            value,
+            policy=ExpressionTraversalPolicy.SELECTED_IMPLEMENTATION,
+        ),
+    )
+    for value in graph:
+        semantic_identity = expression_semantic_identity(value)
+        operation_class = _operation_class(value)
+        if operation_class is None:
+            _validate_leaf(value)
+            leaves.setdefault(semantic_identity, value)
+            continue
+        children = _operation_children(value)
+        if semantic_identity not in nodes:
+            ordinal = len(nodes)
+            nodes[semantic_identity] = _DagNode(
+                value,
+                children,
+                semantic_identity,
+                operation_class,
+                ordinal,
+                cost_model.cost(value, operation_class),
+            )
+
+    return tuple(nodes.values()), tuple(leaves.values())
+
+
+def _partition(
+    nodes: tuple[_DagNode, ...],
+    stages: int,
+) -> tuple[dict[str, _Placement], tuple[int, ...]]:
+    if not nodes:
+        return {}, tuple(0 for _ in range(stages))
+    node_by_expression = {item.semantic_identity: item for item in nodes}
+    key_cache = {
+        id(item.expression): item.semantic_identity for item in nodes
+    }
+
+    def place(limit_ps: int) -> tuple[dict[str, _Placement], bool]:
+        result: dict[str, _Placement] = {}
+        for node in nodes:
+            dependencies = tuple(
+                result[_cached_expression_identity(key_cache, child)]
+                for child in node.children
+                if _cached_expression_identity(key_cache, child) in node_by_expression
+            )
+            stage = max((item.stage for item in dependencies), default=0)
+            arrival = node.cost.delay_ps + max(
+                (
+                    item.arrival_ps
+                    for item in dependencies
+                    if item.stage == stage
+                ),
+                default=0,
+            )
+            if arrival > limit_ps:
+                stage += 1
+                arrival = node.cost.delay_ps
+            result[node.semantic_identity] = _Placement(stage, arrival)
+            if stage >= stages:
+                return result, False
+        return result, True
+
+    maximum_single = max(item.cost.delay_ps for item in nodes)
+    critical: dict[str, int] = {}
+    for node in nodes:
+        critical[node.semantic_identity] = node.cost.delay_ps + max(
+            (
+                critical[_cached_expression_identity(key_cache, child)]
+                for child in node.children
+                if _cached_expression_identity(key_cache, child) in node_by_expression
+            ),
+            default=0,
+        )
+    lower = maximum_single
+    upper = max(critical.values())
+    while lower < upper:
+        middle = (lower + upper) // 2
+        _, feasible = place(middle)
+        if feasible:
+            upper = middle
+        else:
+            lower = middle + 1
+    placements, feasible = place(lower)
+    if not feasible:  # pragma: no cover - the full critical path is feasible.
+        raise PipelineSchedulingError("cannot partition expression at requested latency")
+    stage_delays = tuple(
+        max(
+            (
+                placement.arrival_ps
+                for placement in placements.values()
+                if placement.stage == stage
+            ),
+            default=0,
+        )
+        for stage in range(stages)
+    )
+    return placements, stage_delays
+
+
+def _operation_children(value: expr.Expression) -> tuple[expr.Expression, ...]:
+    return expression_children(
+        value,
+        policy=ExpressionTraversalPolicy.SELECTED_IMPLEMENTATION,
+    )
+
+
+def _operation_class(value: expr.Expression) -> str | None:
+    if isinstance(
+        value,
+        (expr.InputRef, expr.ParameterRef, expr.Constant, expr.RegisterRef),
+    ):
+        return None
+    operation = semantic_expression_op(value)
+    capability = expression_capability(operation) if operation is not None else None
+    if capability is None or not capability.schedulable_scalar:
+        if isinstance(value, (expr.Delay, expr.Pipeline)):
+            raise PipelineSchedulingError(
+                "nested delay/pipeline is not supported inside fixed pipeline scheduling"
+            )
+        if isinstance(value, expr.Call):
+            raise PipelineSchedulingError(
+                f"pipeline callable '{value.function}' was not expanded to concrete arithmetic"
+            )
+        raise PipelineSchedulingError(
+            f"pipeline scheduling does not support typed node {type(value).__name__}"
+        )
+    if isinstance(value, expr.Add):
+        return "fixed_add" if isinstance(value.type, (FixedType, UFixedType)) else "add"
+    if isinstance(value, expr.Binary):
+        if value.operator is expr.BinaryOperator.MULTIPLY:
+            return "fixed_multiply" if isinstance(value.type, (FixedType, UFixedType)) else "multiply"
+        if value.operator is expr.BinaryOperator.SUBTRACT:
+            return "fixed_subtract" if isinstance(value.type, (FixedType, UFixedType)) else "subtract"
+        if value.operator in {
+            expr.BinaryOperator.BIT_AND,
+            expr.BinaryOperator.BIT_OR,
+            expr.BinaryOperator.BIT_XOR,
+        }:
+            return "bitwise"
+        if value.operator in {
+            expr.BinaryOperator.SHIFT_LEFT,
+            expr.BinaryOperator.SHIFT_RIGHT,
+        }:
+            return "shift"
+        return "compare"
+    unary = {
+        expr.Extend: "extend",
+        expr.Truncate: "truncate",
+        expr.FixedConvert: "fixed_convert",
+        expr.FieldAccess: "field",
+        expr.TupleProject: "tuple_project",
+        expr.VectorIndex: "vector_index",
+        expr.Slice: "slice",
+        expr.Bitcast: "bitcast",
+        expr.Reshape: "reshape",
+        expr.Pack: "pack",
+        expr.Unpack: "unpack",
+        expr.EnumEncode: "enum_encode",
+        expr.EnumValid: "enum_valid",
+    }
+    for type_, name in unary.items():
+        if isinstance(value, type_):
+            return name
+    if isinstance(value, expr.EnumDecode):
+        return "enum_decode"
+    if isinstance(value, expr.Mux):
+        return "mux"
+    if isinstance(value, expr.Switch):
+        return "switch"
+    if isinstance(value, (expr.Concat, expr.VectorConcat)):
+        return "concat"
+    if isinstance(value, expr.StructConstruct):
+        return "struct_construct"
+    if isinstance(value, expr.TupleConstruct):
+        return "tuple_construct"
+    if isinstance(value, expr.RuntimeIndex):
+        return "runtime_index"
+    raise PipelineSchedulingError(
+        f"pipeline operation {operation.value} has no cost classification"
+    )
+
+
+def _validate_leaf(value: expr.Expression) -> None:
+    if isinstance(
+        value,
+        (expr.InputRef, expr.ParameterRef, expr.Constant, expr.RegisterRef),
+    ):
+        return
+    raise PipelineSchedulingError(
+        f"pipeline scheduling does not accept state/protocol leaf {type(value).__name__}"
+    )
+
+
+__all__ = [
+    "FIXED_PIPELINE_SCHEDULE_SCHEMA",
+    "FIXED_PIPELINE_SCHEDULER",
+    "OperationCostModel",
+    "PipelineSchedulingError",
+    "StructuralOperationCostModel",
+    "TargetResourceOperationCostModel",
+    "erase_pipeline_timing",
+    "render_fixed_pipeline_plan",
+    "schedule_fixed_pipeline",
+    "schedule_module_fixed_pipelines",
+]
