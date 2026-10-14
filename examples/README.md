@@ -29,7 +29,7 @@ Examples use the concise form when it preserves the point being taught:
 - use struct field punning (`Field { value }`) when the source name matches;
 - use concise child declarations and binding punning (`lane : Lane { input }`)
   when unambiguous; retain `inst` when it disambiguates a resource-like name or
-  the explicit declaration form is itself the subject;
+  a name such as `fifo` or `memory` is also a declaration keyword;
 - use `value -> endpoint` for direct aggregate endpoint wiring and `connect`
   when buffering, adaptation, or CDC policy is part of the example;
 - use `generate` for bounded compile-time structure, never for runtime work;

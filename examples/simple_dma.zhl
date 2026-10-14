@@ -50,13 +50,14 @@ module SimpleDMA<AW=8> {
     in accept:bit
     out busy:bit
 
-    inst engine:TransferEngine<AW> {
+    engine : TransferEngine<AW> {
         start
         base
         data
     }
 
-    inst memory:MemoryModel {
+    // `memory` is a storage keyword; `inst` is the unambiguous escape form.
+    inst memory : MemoryModel {
         accept
         data
     }

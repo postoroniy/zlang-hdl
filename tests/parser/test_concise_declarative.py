@@ -152,6 +152,51 @@ class ConciseDeclarativeSyntaxTests(unittest.TestCase):
             tuple((item.semantic_signal_id, item.rtl_path) for item in concise_artifact.bindings),
         )
 
+    def test_public_examples_use_explicit_instance_escape_only_for_keywords(self) -> None:
+        explicit_instances = []
+        for path in sorted((self.ROOT / "examples").rglob("*.zhl")):
+            if any("80211ad" in part for part in path.parts) or path.name == "test.zhl":
+                continue
+            for line in path.read_text().splitlines():
+                if line.lstrip().startswith("inst "):
+                    explicit_instances.append(
+                        (path.relative_to(self.ROOT).as_posix(), line.strip())
+                    )
+        self.assertEqual(
+            explicit_instances,
+            [
+                (
+                    "examples/hierarchical_protocol.zhl",
+                    "inst fifo:RequestFifo",
+                ),
+                (
+                    "examples/simple_dma.zhl",
+                    "inst memory : MemoryModel {",
+                ),
+            ],
+        )
+
+    def test_public_examples_use_bare_direct_connections_when_unambiguous(self) -> None:
+        policy_free_connects = []
+        for path in sorted((self.ROOT / "examples").rglob("*.zhl")):
+            if any("80211ad" in part for part in path.parts) or path.name == "test.zhl":
+                continue
+            for line in path.read_text().splitlines():
+                stripped = line.strip()
+                if stripped.startswith("connect ") and "{" not in stripped:
+                    policy_free_connects.append(
+                        (path.relative_to(self.ROOT).as_posix(), stripped)
+                    )
+        self.assertEqual(
+            policy_free_connects,
+            [
+                (
+                    "examples/hierarchical_protocol.zhl",
+                    "connect fifo.tx -> consumer.rx",
+                )
+            ],
+        )
+
     def test_top_aggregate_pass_through_expands_forward_and_ready_paths(self) -> None:
         prefix = """
         protocol Stream { role source role sink channel t:rv<u8> source -> sink }

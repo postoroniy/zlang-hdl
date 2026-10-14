@@ -27,10 +27,13 @@ module ProtocolTop {
     clock clk
     reset rst
     out seen:u8
-    inst producer:Producer
+    producer : Producer
+    // `fifo` is also a storage keyword, so this instance deliberately uses
+    // the explicit escape form instead of the otherwise preferred shorthand.
     inst fifo:RequestFifo
-    inst consumer:Consumer
-    connect producer.tx -> fifo.rx
+    consumer : Consumer
+    producer.tx -> fifo.rx
+    // A bare connection cannot begin with the `fifo` keyword.
     connect fifo.tx -> consumer.rx
     seen = consumer.seen
 }

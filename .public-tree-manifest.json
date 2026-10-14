@@ -424,7 +424,7 @@
     {
       "mode": "0644",
       "path": "examples/README.md",
-      "sha256": "072bacb4608292d0f05dc57b698575833a95800b774c107fff7d308012e5a6c5"
+      "sha256": "8e709166d188846049fdd82049439df167d674c74447fb18c616890c43c83fbd"
     },
     {
       "mode": "0644",
@@ -574,7 +574,7 @@
     {
       "mode": "0644",
       "path": "examples/fft/sdf_stage_numeric.zhl",
-      "sha256": "41e8203ac9a208e7505c19d25f16b4d397c4df46114bfb9726a464518627b90b"
+      "sha256": "b8b2262546376acbba34c62d6fa1147c6cc4ab385304a1eaaaa65901e16e240c"
     },
     {
       "mode": "0644",
@@ -754,7 +754,7 @@
     {
       "mode": "0644",
       "path": "examples/hierarchical_protocol.zhl",
-      "sha256": "9ee8f3d7d242e41a6a1c9f7f91455b0a2026b076c2631c64e297d33cd69f189a"
+      "sha256": "babe60709cdc398e279e4a5c34c44ac7e8d7d7c858aa419c072368e7c0da9c08"
     },
     {
       "mode": "0644",
@@ -969,12 +969,12 @@
     {
       "mode": "0644",
       "path": "examples/simple_dma.zhl",
-      "sha256": "a0ba1acd9085d54570fcd2e5c190ce91eb44911e7d2906504512a6d6b3d4b62e"
+      "sha256": "3433a33c4183fc2303c5ea60a0469da1fe736bb6d5143f5072ccc3a238c6d578"
     },
     {
       "mode": "0644",
       "path": "examples/storage_instance_array.zhl",
-      "sha256": "42784da3b22b50c59e838002170a531604dac0420c91a765ab01efd3d32862b9"
+      "sha256": "8bdddbb555b825c6c0967362094b16cf82a8b737bc0e11c51f611673ce9fe409"
     },
     {
       "mode": "0644",
@@ -2564,7 +2564,7 @@
     {
       "mode": "0644",
       "path": "tests/parser/test_concise_declarative.py",
-      "sha256": "b601a3740a6a36e3e0c4a30123c4206f28fd5dbf7138dc244228f786d0520c76"
+      "sha256": "f4b3957050866bbb83dba29749a63a509444dc7bf74278372748d893c6ebf50e"
     },
     {
       "mode": "0644",
