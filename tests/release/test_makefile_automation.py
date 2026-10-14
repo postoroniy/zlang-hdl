@@ -29,7 +29,7 @@ def test_makefile_exposes_bounded_test_and_release_entry_points() -> None:
     assert "release-review-clean:" in text
     assert (
         "release-review: release-review-clean review-commits release-sanity "
-        "test-release-twice" in text
+        "ci-fast-core ci-editor test-release-twice" in text
     )
     assert "-m tools.audit_review_commits --root ." in text
     assert (
@@ -71,6 +71,10 @@ def test_makefile_exposes_bounded_test_and_release_entry_points() -> None:
     assert "tools/materialize_native_test_extension.py" in text
     assert "tests/editor/test_vscode_package.py" in text
     assert "tools/audit_native_editor.py" in text
+    assert (
+        "editor-native-host-test: editor-test native-editor-audit "
+        "native-release-install"
+    ) in text
     assert "native-editor-build" not in text
     assert "native-editor-repro" not in text
     assert "npm --prefix editors/vscode/zlang-hdl run test:host" in text
@@ -131,6 +135,7 @@ def test_release_workflow_uses_curated_changelog_notes_and_native_set() -> None:
     assert workflow.count("CI_PYTEST_MAXFAIL=1") == 4
     assert "make -s ci-bootstrap" in workflow
     assert "make -s package" in workflow
+    assert 'make -s native-release-install TAG="$RELEASE_TAG"' in workflow
     assert "make -s ci-editor" in workflow
 
 

@@ -172,6 +172,8 @@ jobs:
           node-version: "22.23.2"
           cache: npm
           cache-dependency-path: editors/vscode/zlang-hdl/package-lock.json
+      - name: Audit and install the reviewed Linux native wheel for editor smoke
+        run: make -s native-release-install TAG="$RELEASE_TAG"
       - name: Require a fresh full locked editor advisory audit
         shell: bash
         run: |

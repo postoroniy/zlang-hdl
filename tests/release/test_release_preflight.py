@@ -20,7 +20,7 @@ from tools.release_preflight import (
     main,
     preflight,
 )
-from tools.release_status import _example_counts
+from tools.release_status import COMMUNITY_PDF_SOURCES, _example_counts
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -100,10 +100,12 @@ def release_repository(tmp_path_factory: pytest.TempPathFactory) -> Path:
     status["documentation"]["syntax_grammar_sha256"] = hashlib.sha256(
         grammar.read_bytes()
     ).hexdigest()
-    for source in (
-        "docs/language-reference.md",
-        "docs/language-quick-reference.md",
-    ):
+    # The release-status owner defines the exact PDF source projection.  Keep
+    # this synthetic repository aligned with that owner instead of maintaining
+    # a second list that silently becomes stale when the reference is split.
+    status["documentation"]["sources"] = {}
+    for path in COMMUNITY_PDF_SOURCES:
+        source = path.as_posix()
         status["documentation"]["sources"][source] = hashlib.sha256(
             (root / source).read_bytes()
         ).hexdigest()

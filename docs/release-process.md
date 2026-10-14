@@ -119,7 +119,8 @@ make release-review
 ```
 
 `release-review` rejects local modifications and untracked files, verifies the
-review-branch signatures and DCO trailers, runs `release-sanity`, and then runs
+review-branch signatures and DCO trailers, runs `release-sanity`, replays the
+exact `ci-fast-core` and `ci-editor` pull-request lanes, and then runs
 two independent zero-unexpected-skip suites against a freshly exported source
 tree and its own venv. It deliberately does **not** claim candidate readiness
 and does not publish, tag, push, install a global package, or use a sibling

@@ -35,7 +35,7 @@ _DIRECT_LANE_COMMANDS = (
 _JOB_TARGETS: dict[str, dict[str, tuple[str, ...]]] = {
     "ci.yml": {
         "fast-core": ("ci-bootstrap", "native-release-install", "ci-fast-core"),
-        "lexical-editor": ("ci-bootstrap", "ci-editor"),
+        "lexical-editor": ("ci-bootstrap", "native-release-install", "ci-editor"),
         "random-smoke": ("ci-bootstrap", "ci-random-smoke"),
         "full-regression": (
             "ci-bootstrap",
@@ -75,6 +75,7 @@ _JOB_TARGETS: dict[str, dict[str, tuple[str, ...]]] = {
             "release-preflight",
             "public-check",
             "package",
+            "native-release-install",
             "ci-editor",
         ),
         "eda": (

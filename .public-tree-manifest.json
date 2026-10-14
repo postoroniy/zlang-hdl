@@ -49,7 +49,7 @@
     {
       "mode": "0644",
       "path": ".github/workflows/ci.yml",
-      "sha256": "fccb822c814855515a68ab1062e709e7d09b42080f84900e46fa3c383ba0dc3a"
+      "sha256": "865a7f3b831c35db0a967daf17d9a16df1b3727bf622939fe9299b7f78d348df"
     },
     {
       "mode": "0644",
@@ -79,7 +79,7 @@
     {
       "mode": "0644",
       "path": ".github/workflows/release.yml",
-      "sha256": "99a24edac5ef8433133a05c573ad9f6cc4683f12242c6e1ed3a3d4c008646168"
+      "sha256": "96a6b0fc994a57902efbe3beef758ebc87da5f3ef7c2450c9828166e33c9a93d"
     },
     {
       "mode": "0644",
@@ -184,7 +184,7 @@
     {
       "mode": "0644",
       "path": "Makefile",
-      "sha256": "9570cd0eff129ff64ef4e7c25ed9bf2e57a438cd8425fce99fc628aea6ed0cb9"
+      "sha256": "5cfa3761b64f7b08ce31f49e634dc25cf57056f914dd9265e2935a7fb11dd3fa"
     },
     {
       "mode": "0644",
@@ -349,7 +349,7 @@
     {
       "mode": "0644",
       "path": "docs/release-process.md",
-      "sha256": "e918df9109a39b7573c38d8e35fa7026efda8afdcdc0227a41778d914293ab24"
+      "sha256": "aced8431eb997c510115f74064cfb132437277e1d8f464404ae44a8cf6a1b9dd"
     },
     {
       "mode": "0644",
@@ -2904,7 +2904,7 @@
     {
       "mode": "0644",
       "path": "tests/release/test_ci_contract.py",
-      "sha256": "092c3f6ae88dfba43dda29427b8bce6f532721dd812683f6773930cadab40a9e"
+      "sha256": "e1b677f956eeaadb997773cd521e52b6ffcffe0af83607bbe3c21ea40c0f677c"
     },
     {
       "mode": "0644",
@@ -2929,7 +2929,7 @@
     {
       "mode": "0644",
       "path": "tests/release/test_makefile_automation.py",
-      "sha256": "2f4349659fe6755652fecdcc9bdb4cec6e5923ac4c90c060918d54b9ed3cfe70"
+      "sha256": "24199ea3f4edbc0831a34001ac8ab1c07ded0018236f32478defbd7e52086870"
     },
     {
       "mode": "0644",
@@ -2974,7 +2974,7 @@
     {
       "mode": "0644",
       "path": "tests/release/test_release_preflight.py",
-      "sha256": "2675cdba7891e6b9fff5942184761a9e32bf302a316039c2e1a65c7f0aca3467"
+      "sha256": "4d2eaa831262ff6b0db3862f8a8f7b6999dad20cca05f61fe2d9c9ceef2dcc5d"
     },
     {
       "mode": "0644",
@@ -4249,7 +4249,7 @@
     {
       "mode": "0644",
       "path": "tools/audit_workflow_structure.py",
-      "sha256": "2e482d744c19380280c75f74fa907ec09b5e92ec1dd5dc716c2da83e34831ff5"
+      "sha256": "f212ea7e65941a23ca365f090fd187f1721aba2969725e638270c5bfa34d9808"
     },
     {
       "mode": "0644",

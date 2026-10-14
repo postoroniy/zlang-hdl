@@ -158,7 +158,10 @@ release-review-clean:
 review-commits:
 	$(call RUN_PYTHON,review-commits) -m tools.audit_review_commits --root .
 
-release-review: release-review-clean review-commits release-sanity test-release-twice
+# This is the pre-push public-branch gate.  Run the exact fast-core and editor
+# lanes used by pull requests before the two complete release regressions; a
+# hand-picked subset is not an acceptable substitute for the hosted contract.
+release-review: release-review-clean review-commits release-sanity ci-fast-core ci-editor test-release-twice
 
 # Fail quickly on release metadata, projection, workflow, PDF and editor issues
 # before provisioning and running two complete zero-skip regressions.
@@ -510,7 +513,7 @@ editor-host-test: editor-test
 		xvfb-run -a npm --prefix editors/vscode/zlang-hdl run test:host -- \
 		"$(abspath $(EDITOR_VSIX))"
 
-editor-native-host-test: editor-test native-editor-audit
+editor-native-host-test: editor-test native-editor-audit native-release-install
 	if [[ -e "$(EDITOR_NATIVE_VSIX)" ]]; then
 		echo "$(EDITOR_NATIVE_VSIX) already exists; choose a fresh EDITOR_NATIVE_VSIX" >&2
 		exit 2
