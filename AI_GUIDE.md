@@ -58,18 +58,26 @@ borrow a sibling checkout's virtual environment.
 - Width, signedness, fixed-point scale, quantization, reset, clock domain,
   latency, initiation interval, and protocol ownership are exact. Never insert
   an implicit conversion, CDC, or protocol adapter.
-- `zlang sim` always selects the native runtime; there is no user-selectable
-  reference engine. Native simulation normally uses deterministic two-state
-  startup. Use
+- `zlang sim` always selects the Rust native runtime; there is no user-selectable
+  reference engine and no Python execution fallback. Python compiles and
+  orchestrates plans and exposes immutable logic-value DTOs; Rust alone owns
+  registers, memories, evaluation, atomic edges, reset and trace state. Native
+  simulation normally uses deterministic two-state startup. Use
   `zlang sim --logic-state` for the per-bit `0`/`1`/`U`/`X` lattice: unreset
   registers start as `U` (never refreshed), accepted writes turn unresolved
   `U` into computed `X`, and exact controlling values still resolve uncertainty.
   `--initial-reg` supplies an explicit initial register value and
-  `--trace-signal` selects VCD signals; VCD writes both unresolved states as
-  `x` and emits `__zlang_meta/*_u_mask` companions to retain `U` provenance.
+  `--trace-signal` selects waveform signals. Prefer an `.fst` trace for the
+  native viewer; `.vcd` remains supported for interchange. Both standard
+  formats spell unresolved states as `x`, so ZLang emits hidden
+  `__zlang_meta/*_u_mask` companions to retain `U` provenance.
   `--strict-uninitialized` implies logic-state execution and rejects an
   observed `U` or `X`. This mode does not model `Z`, electrical strength or
   Verilog event-region semantics, and it does not change generated Direct-SV.
+  Use `--cycles/--clock` only for a simple single-clock run. Use JSONL
+  `--events` for explicit reset sequencing, changing inputs, multiple clocks or
+  coincident edges; add `--trace`/`--trace-signal` for FST or VCD and
+  `--compare-with` to replay the same schedule in Icarus or Verilator.
 - Runtime control uses expressions, `when`, `priority`, or `fsm`. Compile-time
   `if` elaborates structure; do not invent procedural software syntax.
 - `implement { expression intent { ... } }` selects among bounded exact-value

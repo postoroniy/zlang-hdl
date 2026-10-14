@@ -62,6 +62,22 @@ def test_lsp_client_bootstrap_is_standard_and_semantics_free() -> None:
     assert "void client.start()" not in client
 
 
+def test_native_debugger_and_waveform_surface_stays_bounded_and_four_state() -> None:
+    client = (EXT / "extension.js").read_text()
+    view = (EXT / "waveform_view.js").read_text()
+    control = (EXT / "waveform_wcp.js").read_text()
+    assert "zlang/prepareDebugBundle" in client
+    assert "Native debugging requires four-state logic" in client
+    assert "zlang-waveform-trace-v1" in client
+    assert "zlang/addTraceSignals" in client
+    assert "zlang-waveform-query-v2" in client
+    assert "zlang-waveform-indexer" in client
+    assert 'id="zoomIn"' in view and 'id="zoomOut"' in view
+    assert 'id="viewports"' in view and "state.viewports.length<4" in view
+    assert "x:'#ff5a62'" in view and "u:'#e9b949'" in view
+    assert "127.0.0.1" in control and "MAX_FRAME_BYTES" in control
+
+
 def test_editor_surface_has_no_known_phantom_claims() -> None:
     grammar = json.loads((EXT / "syntaxes" / "zlang.tmLanguage.json").read_text())
     surface = CAPABILITY_REGISTRY.editor_surface()

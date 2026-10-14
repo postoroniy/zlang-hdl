@@ -7,9 +7,9 @@ module WishboneCsrTop {
     interface wb : Wishbone<32,32>.slave @clk
     out done : bit
 
-    inst frontend : WishboneToRegBus<32,32>
-    inst csr : RegBusCSRTarget<32,32>
-    connect wb -> frontend.wb
-    connect frontend.regbus -> csr.regbus
+    frontend : WishboneToRegBus<32,32>
+    csr : RegBusCSRTarget<32,32>
+    wb -> frontend.wb
+    frontend.regbus -> csr.regbus
     done = csr.done
 }

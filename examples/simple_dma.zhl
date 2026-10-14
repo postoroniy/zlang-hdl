@@ -12,13 +12,13 @@ module TransferEngine<AW=8> {
     reg count:uint<AW> = 0
 
     rule advance when mem.response.transfer {
-        count <- truncate<AW>(count + 1)
+        count <- truncate(count + 1)
     }
 
     busy = start
     mem.request.valid = start
     mem.request.payload = MemRequest {
-        addr = truncate<8>(base + count)
+        addr = truncate(base + count)
         data
         write = 1
     }

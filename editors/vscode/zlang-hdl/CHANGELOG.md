@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Add a Linux-x64 event-level native simulation debugger and live waveform
+  panel backed by compiler-owned debug metadata and Rust DAP/waveform tools.
+- Add a readonly bounded VCD custom editor while retaining a universal
+  editor/LSP-only VSIX for other platforms.
+- Keep long enum lists stable in Outline and Sticky Scroll by consuming exact,
+  nested compiler-owned member ranges.
+
 ## 0.1.0
 
 - Bundle the exact language-client runtime into one deterministic file instead

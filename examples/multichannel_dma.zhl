@@ -20,11 +20,11 @@ module DMAChannel {
     reg address : uint<16> = 0
     accepted : bit = mem.request.transfer
     mem.request.valid = start
-    mem.request.payload = DMARequest{addr=truncate<16>(base+address) data=channel_id write=0}
+    mem.request.payload = DMARequest{addr=truncate(base+address) data=channel_id write=0}
     mem.response.ready = response_ready
     response_valid = mem.response.valid
     response_data = mem.response.payload.data
-    address <- mux(accepted, truncate<16>(address+1), address)
+    address <- mux(accepted, truncate(address+1), address)
     busy = start
 }
 
@@ -73,25 +73,25 @@ module MultiChannelDMA {
     in ready1 : bit
     out status : DMAStatus
 
-    inst channel0 : DMAChannel {
+    channel0 : DMAChannel {
         start=start0 base=base0 channel_id=0 response_ready=producer0.accepted
     }
-    inst channel1 : DMAChannel {
+    channel1 : DMAChannel {
         start=start1 base=base1 channel_id=1 response_ready=producer1.accepted
     }
-    inst producer0 : DMAStreamProducer {
+    producer0 : DMAStreamProducer {
         valid=channel0.response_valid stream_data=channel0.response_data
     }
-    inst producer1 : DMAStreamProducer {
+    producer1 : DMAStreamProducer {
         valid=channel1.response_valid stream_data=channel1.response_data
     }
-    inst memory0 : DMAMemoryModel { accept=accept0 }
-    inst memory1 : DMAMemoryModel { accept=accept1 }
-    inst sink0 : DMAStreamSink { ready=ready0 }
-    inst sink1 : DMAStreamSink { ready=ready1 }
+    memory0 : DMAMemoryModel { accept=accept0 }
+    memory1 : DMAMemoryModel { accept=accept1 }
+    sink0 : DMAStreamSink { ready=ready0 }
+    sink1 : DMAStreamSink { ready=ready1 }
     connect channel0.mem -> memory0.mem { request_buffer 2 response_buffer 1 }
     connect channel1.mem -> memory1.mem { request_buffer 2 response_buffer 1 }
-    connect producer0.stream -> sink0.stream
-    connect producer1.stream -> sink1.stream
+    producer0.stream -> sink0.stream
+    producer1.stream -> sink1.stream
     status = DMAStatus{busy0=channel0.busy busy1=channel1.busy}
 }

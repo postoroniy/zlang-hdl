@@ -1,5 +1,5 @@
 {
-  "config_sha256": "4b399369bed0fdcfc07e394ddb82b3ebef70a440020fbb0b2f5edeff4d62b0d9",
+  "config_sha256": "98cdb8fdc140e3cfec6d9b9c082466ac0955a4b26b025f1f944baefad31d31c6",
   "files": [
     {
       "mode": "0644",
@@ -104,7 +104,7 @@
     {
       "mode": "0644",
       "path": ".qwen/skills/zlang-hdl/SKILL.md",
-      "sha256": "ece7f6b1450d3c8bb78ca6efb4788072a39252aa99e1cae88de9dc0f9bf8354d"
+      "sha256": "3b6c8b7bc57102e532afb2c94dd981c9889ff8dbca10429dba7dd98bdd53b473"
     },
     {
       "mode": "0644",
@@ -114,7 +114,7 @@
     {
       "mode": "0644",
       "path": ".qwen/skills/zlang-hdl/references/language-and-rtl.md",
-      "sha256": "62b562b552551f08f13df359e5d7c6a9b040d576e6ab41f3968a9de56d1e950a"
+      "sha256": "8f36837c9da09e86c8498a6b7c30cfe4e7cdb6a7bd7a1fabd937b51c300bf686"
     },
     {
       "mode": "0644",
@@ -129,17 +129,17 @@
     {
       "mode": "0644",
       "path": ".qwen/skills/zlang-hdl/references/types-and-interfaces.md",
-      "sha256": "b65f06d6b95e72ae3156d821024b79ddd1b95fe919dee995972d414296089d16"
+      "sha256": "a295d4fb962f3e5e4c99e7d02c48f4fd2f1e964bf9ad1c48566390447b6252ed"
     },
     {
       "mode": "0644",
       "path": "AI_GUIDE.md",
-      "sha256": "a060c7ab69bdc96f298519af91865e7f482b3cab68ce88d946d9ae69a92e153d"
+      "sha256": "ff1c1792c1959527964341c264abe436b7236fce5d269451a6b871a119f0298e"
     },
     {
       "mode": "0644",
       "path": "CHANGELOG.md",
-      "sha256": "ce67ce0e95de18243ee43b296871a2bcfbba757e63625929efeea5991cc77f10"
+      "sha256": "d17cf4386ecec1d8698b3233fd426c55b89befb5eb826f3abed5afa5f2c876c6"
     },
     {
       "mode": "0644",
@@ -184,7 +184,7 @@
     {
       "mode": "0644",
       "path": "Makefile",
-      "sha256": "7c81f2bf08db484feff6bb3bc462c4386ecd13716c0f5a4cfcf4c286d4ff121a"
+      "sha256": "e7227b0973143060e6599bebf04904e94be96ee412af8dbfb835efa773764696"
     },
     {
       "mode": "0644",
@@ -194,7 +194,7 @@
     {
       "mode": "0644",
       "path": "README.md",
-      "sha256": "6dc8d64fbc927a9aa96e9e068537f160c516f98559a67d6a76fd19953ed3db57"
+      "sha256": "e24cc81d3a5cee215e74d173f7d18c5a91641ef5ca7774a3c26fcf169325cefb"
     },
     {
       "mode": "0644",
@@ -219,7 +219,7 @@
     {
       "mode": "0644",
       "path": "docs/ZLang-HDL-Language-Reference.pdf",
-      "sha256": "a8977bc9ae2e41fb2788b333ef2b80bfb5c854df3c4b95bc9df08089ad8ef3f3"
+      "sha256": "4bdfa455e922dc6d7d5624e54aa1a71037c6b518e363cf1b8d654848853bb228"
     },
     {
       "mode": "0644",
@@ -229,12 +229,12 @@
     {
       "mode": "0644",
       "path": "docs/language-quick-reference.md",
-      "sha256": "a352bb74843d05f2c7797b6e4e870e4271fd2db9a626022d02a7431bed204114"
+      "sha256": "8da2a3da72d89bef7a1a8becba8df73b770c36a6816e8a06c1c6c3a7e3feb09c"
     },
     {
       "mode": "0644",
       "path": "docs/language-reference.md",
-      "sha256": "290baa87aa917cb74ccd0184c38121d209decc162520938ebd9196a931c102dd"
+      "sha256": "6e445392d1474d5a31e0a6fda5d25b01cd2b8e25d3e310ca3a1ea36037f05a06"
     },
     {
       "mode": "0644",
@@ -258,13 +258,18 @@
     },
     {
       "mode": "0644",
+      "path": "docs/native-debugging.md",
+      "sha256": "169a87422d7eeaecd1ed52aa0d69d171bf73f60749bf7199041954be473623ae"
+    },
+    {
+      "mode": "0644",
       "path": "docs/release-process.md",
       "sha256": "e918df9109a39b7573c38d8e35fa7026efda8afdcdc0227a41778d914293ab24"
     },
     {
       "mode": "0644",
       "path": "docs/release-subsystem-map.md",
-      "sha256": "76b8d3628acb31aeab20c9f2ae6790f14002aafbea4ad89ed0c90896d08cfee2"
+      "sha256": "e6baea431de653283332a9debceacce6d2f8bebc1a46bda50e3e7b34b6474ac4"
     },
     {
       "mode": "0644",
@@ -304,12 +309,12 @@
     {
       "mode": "0644",
       "path": "editors/vscode/zlang-hdl/CHANGELOG.md",
-      "sha256": "0c38b9a5c2acdf268ce504a363330fdc9a1dc88282b0c7ede7e1322e827e0a06"
+      "sha256": "00d77af5758e6a75f51c271824967f488086bf1fe07e0546dd0223c88e5eb944"
     },
     {
       "mode": "0644",
       "path": "editors/vscode/zlang-hdl/README.md",
-      "sha256": "38cf05bd504824c94d4aaced168d7568abae373b7f84938fa63e22663fb82836"
+      "sha256": "ca30c6412313a06d317d122f33489bc0a92192a1087937852340cacdc2e50dc6"
     },
     {
       "mode": "0644",
@@ -324,7 +329,7 @@
     {
       "mode": "0644",
       "path": "editors/vscode/zlang-hdl/extension.js",
-      "sha256": "70e2d825d8f7ee1018e0e0f9d69901d1c54becf7bdbfd0feeae6793df3d707b8"
+      "sha256": "8533613054196d6f4b012d121724a1ba02004c37ebc83756095f40e688a2f90e"
     },
     {
       "mode": "0644",
@@ -339,7 +344,7 @@
     {
       "mode": "0644",
       "path": "editors/vscode/zlang-hdl/package.json",
-      "sha256": "58dac1892a2594d7d03b5724cdb526328ca99b769e0d2fa78002804b64098545"
+      "sha256": "5903815a662a184282ae20f2f4d28fde21bcbc4bfb75328647469940232cf454"
     },
     {
       "mode": "0644",
@@ -359,17 +364,17 @@
     {
       "mode": "0644",
       "path": "editors/vscode/zlang-hdl/syntaxes/zlang.tmLanguage.json",
-      "sha256": "9fb3b256b93f4678bfc68464818f257996e5022107ea88d51a7a8f2e4431a5b2"
+      "sha256": "cb8d1dd72efedbfa1a31969187added7d57e42ef75fbcb590433544d4c8ad698"
     },
     {
       "mode": "0644",
       "path": "editors/vscode/zlang-hdl/test/bundle.cjs",
-      "sha256": "c1e71b3c063c3e00ffbecce281d9ea7be6337306aec70555c997be9c16080486"
+      "sha256": "9819c46e2094c8c742e2f3084977481b9aaf999d4761aa4dda93f14721c8888e"
     },
     {
       "mode": "0644",
       "path": "editors/vscode/zlang-hdl/test/bundle.test.cjs",
-      "sha256": "fd7e62e0fb03f35971412c0c15c830173bf1f60c0258d2ea87b748435aa6bf38"
+      "sha256": "65df15808b3a58d2f465a669c22c839d8271be1f40efd8ae60a68fcf5b721d3b"
     },
     {
       "mode": "0644",
@@ -379,32 +384,52 @@
     {
       "mode": "0644",
       "path": "editors/vscode/zlang-hdl/test/host-smoke.cjs",
-      "sha256": "a294690e6647660c9a4e98d106e4ad8912ba20f04471f20c8d3a67d5363d3b8b"
+      "sha256": "4c88b19fc98dec806da44c17709fb5dd362b24124f0aed0a4d6a884fdaa9e260"
     },
     {
       "mode": "0644",
       "path": "editors/vscode/zlang-hdl/test/package.cjs",
-      "sha256": "e112b43b68cd63adabd4f5e791dbc7775f4ab83fe7ba0c0f23c8ba811f95c9ad"
+      "sha256": "f7852315119ecbab2d7cdd7b0e96be7a17fe5332faf2128a5ec72402e097fbdd"
     },
     {
       "mode": "0644",
       "path": "editors/vscode/zlang-hdl/test/run-host-smoke.cjs",
-      "sha256": "bc381513794d78221a0c40fde12d922c643e814b0fe832d058f2384cc3f59b5f"
+      "sha256": "c9d7157e3e4427caabef736a5b56a76f07191d696122684376fb855861801322"
     },
     {
       "mode": "0644",
       "path": "editors/vscode/zlang-hdl/test/tokenize.test.cjs",
-      "sha256": "e10bc67ce9ad816ee10dc4b33a71569a307a5fc86fa3870c061fc9ee976a6634"
+      "sha256": "326fc69aafcad7d54d9bf50f30562fba5880f26e9b3f31a669d33e944349375c"
+    },
+    {
+      "mode": "0644",
+      "path": "editors/vscode/zlang-hdl/test/wcp.test.cjs",
+      "sha256": "4dc28bfbdb91d25c103c2f2eaf16a35f82c1ab4693bb4bad7f0238142edcc5c4"
+    },
+    {
+      "mode": "0644",
+      "path": "editors/vscode/zlang-hdl/waveform_client.js",
+      "sha256": "7d03fc616d7dd7ff447a296f1f2ae86d8570a1e2767711b49b7df7714c47c54c"
+    },
+    {
+      "mode": "0644",
+      "path": "editors/vscode/zlang-hdl/waveform_view.js",
+      "sha256": "62bbaee261273193eb1a9c1792d465448ad031cb3b00dc9ceeec21f4c3c73ad8"
+    },
+    {
+      "mode": "0644",
+      "path": "editors/vscode/zlang-hdl/waveform_wcp.js",
+      "sha256": "6bcf171b57aeeb5f3f67bf22128d2f1e86ec0ac840d7a2975adb2364edb2fae9"
     },
     {
       "mode": "0644",
       "path": "examples/README.md",
-      "sha256": "8a450f0669c07aff3621f3ca0f4962d2ecc168cab01fb2f24b99b93cb4198aea"
+      "sha256": "072bacb4608292d0f05dc57b698575833a95800b774c107fff7d308012e5a6c5"
     },
     {
       "mode": "0644",
       "path": "examples/add.zhl",
-      "sha256": "d66f58309f7f2c2fc479ddb07220be791f54f966c9cbb9b8211664051ea6ddd3"
+      "sha256": "a8d09096ee76db9f853602d41a08792163d034c8742d81ac890478c054599182"
     },
     {
       "mode": "0644",
@@ -419,17 +444,17 @@
     {
       "mode": "0644",
       "path": "examples/alu.zhl",
-      "sha256": "6f16a7536db8422b0ae70660c04d9d854eb1d78476f19813970998ab0bb54861"
+      "sha256": "5e714547159b1d62803357c725bfb61fef455915eff620b9dbaf938e95a50f4a"
     },
     {
       "mode": "0644",
       "path": "examples/apb_csr_top.zhl",
-      "sha256": "a5034f6be7924341e792b189299cd507cd993d9096d371b2c49f2f90dda8bfba"
+      "sha256": "2d81ce4c5fcd15f50a7242545bc4e0a58e354cc46d4592447c933e4ca71bd1b1"
     },
     {
       "mode": "0644",
       "path": "examples/axi_csr_top.zhl",
-      "sha256": "2e1d15b5ff02c87135a7d5ef890f5646507c41f81567e5b26c0a0c474e5d3470"
+      "sha256": "4f5489873c021ea44a8a5a1d3c9f945209163dc5aea949006a30a29e34a1f31b"
     },
     {
       "mode": "0644",
@@ -484,7 +509,7 @@
     {
       "mode": "0644",
       "path": "examples/counter.zhl",
-      "sha256": "2fe5edf56f0e677f6da5d802f04762bed8e4cb39a423ff93b3e08dd8d5aa6777"
+      "sha256": "0aa24ab71aac840910294ce2b03a46ddc9f623170e72753d2cad22d0359ef22c"
     },
     {
       "mode": "0644",
@@ -574,7 +599,7 @@
     {
       "mode": "0644",
       "path": "examples/fixed_polyphase_fir.zhl",
-      "sha256": "6b12a328d90c008bb04d3770979071883bddb8b46148a0b6443d5f43f61c056a"
+      "sha256": "a344eab729df031546e8ead7d0f15797f1254871791c3aeed611616189c3032a"
     },
     {
       "mode": "0644",
@@ -734,7 +759,7 @@
     {
       "mode": "0644",
       "path": "examples/hierarchical_request_response.zhl",
-      "sha256": "1a0faa1baa86ef60e84617f22a4c142c362cb72a344306c68a966d3486c8b57c"
+      "sha256": "c8d8d9926c96f941b57e1c59eb81690025191451b3a16b8ea739b083ec844183"
     },
     {
       "mode": "0644",
@@ -749,7 +774,7 @@
     {
       "mode": "0644",
       "path": "examples/indexed_instance_array.zhl",
-      "sha256": "417e71e298433ef74b0777161fb1145494e24c1c1f6a509d09bfe7eaa92cf98d"
+      "sha256": "d121bef567da5214552a597d596f7f2271f73b4fc19de69555ea1233f1f2ea79"
     },
     {
       "mode": "0644",
@@ -774,12 +799,12 @@
     {
       "mode": "0644",
       "path": "examples/multi_clock_stateful.zhl",
-      "sha256": "5d76886ce667b94ef3dfcc603a3d93e8d583aee109817a2e01e3d1c939f5b2d3"
+      "sha256": "acae90a3f73f09e18ebd17c6d074a4c80e143b1f488b136041f4afb5bafe31a4"
     },
     {
       "mode": "0644",
       "path": "examples/multichannel_dma.zhl",
-      "sha256": "1776bec00161118d4a98505b0c4f19614896155fdc0b200e61bc1bc0e04087dd"
+      "sha256": "1b2fa1472a31ef4736fd63a495d0d41d8a6906112061e226daaa6821b6b7e810"
     },
     {
       "mode": "0644",
@@ -814,7 +839,7 @@
     {
       "mode": "0644",
       "path": "examples/projects/80211a_transmitter/README.md",
-      "sha256": "48ce74e84e5becfdffdf87d9d91e6d78c8f32754627575c40f015af9bd1689a2"
+      "sha256": "b6265b17f8e1e31ea3e3c191b811c815fd35ed4ca16f10452c754d1f273514ab"
     },
     {
       "mode": "0644",
@@ -894,12 +919,12 @@
     {
       "mode": "0644",
       "path": "examples/rule_action.zhl",
-      "sha256": "35cab89f4651cbfbc698afebc77a691c572e4f00d6bd5bf2bd8419104e5e4ff2"
+      "sha256": "d6350e8c20714bcb15ecc85a9f1b337d734d519c33adff35471af16a880ac774"
     },
     {
       "mode": "0644",
       "path": "examples/rule_counter.zhl",
-      "sha256": "cf60554826c6b89be4228c9df23dea99f3c6d9a609076e3a83412059dfafb067"
+      "sha256": "f70cc08481fa681f3e2fa2a5a62a6068e49748876bd7637d3631c31268dca0e2"
     },
     {
       "mode": "0644",
@@ -914,12 +939,12 @@
     {
       "mode": "0644",
       "path": "examples/rv_connect.zhl",
-      "sha256": "dea9d16efb1ca11e38d7452422afc5e8ffee92ad186c4b94c7ac6ce28fc33ab5"
+      "sha256": "27bd5f69ca42c02751fda1baa7e13f0fcbc0e844d070fad9d67eab53648549cb"
     },
     {
       "mode": "0644",
       "path": "examples/rv_fifo_instance_array.zhl",
-      "sha256": "19b6202979543628afb9fe53399f727c0b3c0eabaa703e4aba6605ff3af4cbfc"
+      "sha256": "0c8ef909abbe185efd79a64e628bb698c2d9f885dba0595177fe69e39602d5cf"
     },
     {
       "mode": "0644",
@@ -934,7 +959,7 @@
     {
       "mode": "0644",
       "path": "examples/sequential_instance_array.zhl",
-      "sha256": "09e5a2c8e4b8ce4650dd638a326f86b57cfcbec446ac0f5fbaed6b959f473b23"
+      "sha256": "c9bc3bd217c93ffafe36729807d5446462767f1081faad48f414a0f245f130f1"
     },
     {
       "mode": "0644",
@@ -944,7 +969,7 @@
     {
       "mode": "0644",
       "path": "examples/simple_dma.zhl",
-      "sha256": "e04239b81ab7425a06beee917fd169cc449a1ae1760e817b51c12f7f1d538074"
+      "sha256": "a0ba1acd9085d54570fcd2e5c190ce91eb44911e7d2906504512a6d6b3d4b62e"
     },
     {
       "mode": "0644",
@@ -954,7 +979,7 @@
     {
       "mode": "0644",
       "path": "examples/streaming_packet_engine.zhl",
-      "sha256": "82c20a25234b390a6fa8f303247dca6dc14f2cdf9c2eab419afe042383058ecc"
+      "sha256": "f8b6d8524d693c14103f8c44340e272d37264d170e51d72a29a879bf3f533e96"
     },
     {
       "mode": "0644",
@@ -974,7 +999,7 @@
     {
       "mode": "0644",
       "path": "examples/structural/cam.zhl",
-      "sha256": "c5fc2eb8e0bbfb0bcf5f2ae64df68c0b753326b3cbc4064a5c887a942f449c04"
+      "sha256": "9c4b13d482f8ed584340d95a9f3fe51dbc507f2aef11357f4df75320dac3370b"
     },
     {
       "mode": "0644",
@@ -994,7 +1019,7 @@
     {
       "mode": "0644",
       "path": "examples/structural/fir.zhl",
-      "sha256": "78de6d22c988d92c48c9535bd68d652e398f1231b4a8a4b3f2b6aa4fb38ecd5b"
+      "sha256": "fc300b32dc605490cad728ab8a2f95f20bb934f4e8da439af4d4e5daf789656d"
     },
     {
       "mode": "0644",
@@ -1014,27 +1039,27 @@
     {
       "mode": "0644",
       "path": "examples/structural/one_hot_mux.zhl",
-      "sha256": "7f379eac7c44845f0a3e74458260d4b0a557f83560806912a90c0c1f4b704867"
+      "sha256": "b661a2335e2b83923d82dc26a16a47eec285d34f304f79d4c55e3c2fe5634b16"
     },
     {
       "mode": "0644",
       "path": "examples/structural/packet_compactor.zhl",
-      "sha256": "90b47352c1148c3a5cd0d47edcee9acb370ee48565f39ded27d6c549514fef60"
+      "sha256": "c410de8d502fab3b80e7230f382730dd28bc1cfe21996416d25dd326ce8c8196"
     },
     {
       "mode": "0644",
       "path": "examples/structural/prefix_network.zhl",
-      "sha256": "32e0f8831c5a22ec5bd9f9e4bc643d1c49adc6ed96a94bec7653a6e6fb83eaec"
+      "sha256": "c576f07ff58c69628af233d44441541ed89e13afeab87a2444cfa44c567976d8"
     },
     {
       "mode": "0644",
       "path": "examples/structural/priority_encoder.zhl",
-      "sha256": "df87f8721257add5d7f1e767de92c88c648285aa9a111d91177c82150d162455"
+      "sha256": "101eab04c0f7b3872de6820ee350120c4270eeeaef04b10d3bfcededc679ba54"
     },
     {
       "mode": "0644",
       "path": "examples/structural/reduction_tree.zhl",
-      "sha256": "bd1e83a0794ef2d0427060fc5ae95f7d04845466015111ef93aa64ba69296b8f"
+      "sha256": "d53482535e64beeb763b1bb074d8b2fa7dde3b82f7985ad0412be0c113015ea2"
     },
     {
       "mode": "0644",
@@ -1044,7 +1069,7 @@
     {
       "mode": "0644",
       "path": "examples/structural/scatter_gather.zhl",
-      "sha256": "227691b073d5fe4019af56a9e1b353744612708dfdd46a654449d434c8782a2f"
+      "sha256": "b940fd3a7d913c8c9ce94f8d83526c00eee29bc4d165ec92885a06d70369f037"
     },
     {
       "mode": "0644",
@@ -1054,7 +1079,7 @@
     {
       "mode": "0644",
       "path": "examples/structural/wide_arbiter.zhl",
-      "sha256": "425f8b7eb494174dc2a09f4c2e082839b86dcd7a90710a6f24fc932293b8402c"
+      "sha256": "5a07fea1a791e77933b630dd72dde8eb1aed10087716d9d5dbe4911a1eed69d6"
     },
     {
       "mode": "0644",
@@ -1104,7 +1129,7 @@
     {
       "mode": "0644",
       "path": "examples/verification/bounded_counter.zhl",
-      "sha256": "fb7db074ced5ea24f56e1126e7c42880775ebd380a5adb2872e17bbd901e5f0e"
+      "sha256": "f00589e69b28f5ced4ef19610a9590007fce50add37cf211f4626015f9867a88"
     },
     {
       "mode": "0644",
@@ -1119,7 +1144,7 @@
     {
       "mode": "0644",
       "path": "examples/verification/rare_overflow_bug.zhl",
-      "sha256": "6f3c8d9559a911d383079cb18fbe8762756a8dd950c6637c5a7d9e4ddf967cc2"
+      "sha256": "2449d6e0ec024962ada785d69b57ac304cba1d19e7118e145df688a4bdde841e"
     },
     {
       "mode": "0644",
@@ -1129,12 +1154,12 @@
     {
       "mode": "0644",
       "path": "examples/verification/scoped_sum.zhl",
-      "sha256": "c8fcc40465f05cda609b057163adf6b53fc5981486c3c41618e1154c2626b406"
+      "sha256": "d76a741bcdaa5eb1b0156461a5315015f5e9e4c63e35b38c2614635ee176b89e"
     },
     {
       "mode": "0644",
       "path": "examples/wishbone_csr_top.zhl",
-      "sha256": "a449c43b32b3b29576f2d5685c0779a57a2e37ae233f895bc3f98e6ed5d31c21"
+      "sha256": "f9621d407425da8ab10ea5d58c12087579f3d5a14141dca6a2730da35dc56b9f"
     },
     {
       "mode": "0644",
@@ -1154,7 +1179,7 @@
     {
       "mode": "0644",
       "path": "pyproject.toml",
-      "sha256": "59b85a7322810b318d3aa43e214b858dcbc6291891106859a145547f81aa36e5"
+      "sha256": "14d0217156078827389f0ec612cebbfeac19536d52ea37e520c93a849c00ff12"
     },
     {
       "mode": "0644",
@@ -1163,18 +1188,18 @@
     },
     {
       "mode": "0644",
-      "path": "release/native-wheels/zlang_native_sim-0.1.0a23-cp312-abi3-manylinux_2_28_x86_64.whl",
-      "sha256": "e491a03fcb62d2c55b23bc904d3837a43b4a094fe91214cf5a308e1164006c97"
+      "path": "release/native-wheels/zlang_native_sim-0.1.0a24-cp312-abi3-manylinux_2_28_x86_64.whl",
+      "sha256": "e7415a7af471987b05fc0806d370789c69137505ea57be08174eaa7ed637c1c9"
     },
     {
       "mode": "0644",
       "path": "release/regressions.json",
-      "sha256": "336c29e8d9712932d0aefbfa2b263aca95295506f3d742b20244ead745761760"
+      "sha256": "513e37d49ab4600dae20f9500bd02dd1b60e33e43b4276dbeea8693e29266a4f"
     },
     {
       "mode": "0644",
       "path": "release/status.json",
-      "sha256": "2fbd26f934492c2f56097ca04dc122ba1131aa2a1837446dab5e5f03749e89f1"
+      "sha256": "97b43e6376155713939a14024a1909c9dd15ecc6ad1f62f88ebbe765d03e8493"
     },
     {
       "mode": "0644",
@@ -1484,7 +1509,7 @@
     {
       "mode": "0644",
       "path": "tests/editor/test_vscode_package.py",
-      "sha256": "311764d75f39888fd39a0aaaf21568e8d5412e9ab4d1e4a1b8b1b3ee6a06b50e"
+      "sha256": "b68d45a10702af3a539cddf0245fbc3732c63c129b1ce65bc6fe617d3af77161"
     },
     {
       "mode": "0644",
@@ -1494,7 +1519,7 @@
     {
       "mode": "0644",
       "path": "tests/editor/test_vscode_surface.py",
-      "sha256": "c46e646436c684ed2140c300d44d81079bd3762cbb2f76789c54394538e4a6ef"
+      "sha256": "44f9939ede462e4c151bd4951ccee5bf7e167413870b1a45ec813b5090749b10"
     },
     {
       "mode": "0644",
@@ -1699,7 +1724,7 @@
     {
       "mode": "0644",
       "path": "tests/integration/test_80211a_project_workflows.py",
-      "sha256": "07ae795db180f0bc2798579b615a0c0129173aaa254b077433de9cfd89915339"
+      "sha256": "f3785a750de4f1dc78ad84e787e305a0b8377c60acfde98a6aa2a2eb53c3ed13"
     },
     {
       "mode": "0644",
@@ -1794,7 +1819,7 @@
     {
       "mode": "0644",
       "path": "tests/integration/test_cli_diagnostics.py",
-      "sha256": "ea795f448e0bda7f63a34024c2545d01ba92c5cf006652c9466a5a6bfc99fd4c"
+      "sha256": "b4617cbd906f9c97e052dd78f5c8426d94368f398f1b4cbd333cd2b1e3d57d93"
     },
     {
       "mode": "0644",
@@ -1884,7 +1909,7 @@
     {
       "mode": "0644",
       "path": "tests/integration/test_encoded_enum_backends.py",
-      "sha256": "1772f35400663c3f7d161856d3be000100d12222b955495839756cf35a596842"
+      "sha256": "5359496bfda5a361d1fc0798395dd841bf1690ea0000f42622d3581b3e4bb0a3"
     },
     {
       "mode": "0644",
@@ -2118,6 +2143,11 @@
     },
     {
       "mode": "0644",
+      "path": "tests/integration/test_native_debug_bundle.py",
+      "sha256": "02000ed92273e2532ac00f269c47d36ea629eef46833129b2d234458c0745b31"
+    },
+    {
+      "mode": "0644",
       "path": "tests/integration/test_nested_instance_arrays.py",
       "sha256": "bf29cdcc2e33b26720e6448abafc730ecc2be0de0df9c75429fcbb64f2292340"
     },
@@ -2189,7 +2219,7 @@
     {
       "mode": "0644",
       "path": "tests/integration/test_projects.py",
-      "sha256": "5c1accf7cf50d09dce2e80179c26e1dc2b7d71a7f97cb9313b4b458d1573b069"
+      "sha256": "7924743fb03815f22b42837bbedc9ae40b8841cca7b0ec75693de5bd40fbb672"
     },
     {
       "mode": "0644",
@@ -2329,7 +2359,7 @@
     {
       "mode": "0644",
       "path": "tests/integration/test_simulation_state_access.py",
-      "sha256": "2a04b7fddcd95ac0d89564e2e0e0e91326416f623d89045d1a2f30b67584f6ae"
+      "sha256": "2465f18a6a8602a5c51dbac4b8e85c0fce95f319c35e95bc285be2fe7c4d43fe"
     },
     {
       "mode": "0644",
@@ -2479,12 +2509,12 @@
     {
       "mode": "0644",
       "path": "tests/lsp/test_server.py",
-      "sha256": "a24b8523ca8ecffabcf941a090fc39540fbe57a737b6d662087c1f439eafb1ba"
+      "sha256": "1986908b0e22fcbb59a76a4b6ea7837e36758e11ff2b99303ded15a40b5ad472"
     },
     {
       "mode": "0644",
       "path": "tests/packaging/test_stdlib_packaging.py",
-      "sha256": "3ad573b8dddfe722403c9e047d8fb1c02c38eda51bd484be072cee9e3a995dbe"
+      "sha256": "c93ff89b05becbb3435e8d02264ef18798294fa567d7f1f35d3c729551ebe6ee"
     },
     {
       "mode": "0644",
@@ -2534,7 +2564,7 @@
     {
       "mode": "0644",
       "path": "tests/parser/test_concise_declarative.py",
-      "sha256": "b24c90b6c24ea5f640a343d7bc7f2a630d4c0169af754481c5846a12b09d28bd"
+      "sha256": "b601a3740a6a36e3e0c4a30123c4206f28fd5dbf7138dc244228f786d0520c76"
     },
     {
       "mode": "0644",
@@ -2724,7 +2754,7 @@
     {
       "mode": "0644",
       "path": "tests/parser/test_types.py",
-      "sha256": "862506bea4eeb0439a4e09fa3d45e4f68f3e298d2488628492a6e43f7a2c6647"
+      "sha256": "1f0c91da3d9e1e1fc2fbbac12c559c6cea4dc6532b20d74bfaa9e58dbf4b60f4"
     },
     {
       "mode": "0644",
@@ -2789,7 +2819,7 @@
     {
       "mode": "0644",
       "path": "tests/release/test_installed_distribution_smoke.py",
-      "sha256": "b26377d12446eb7abb4cd8b330d70e96bc75d25c7c90915583e903e005f12333"
+      "sha256": "00dc29f489fae74095b4f26779574a9c9f37128481c576e6ad2180e171b6d421"
     },
     {
       "mode": "0644",
@@ -2809,7 +2839,7 @@
     {
       "mode": "0644",
       "path": "tests/release/test_native_binary_audit.py",
-      "sha256": "abf429f77772959872caaa86e4948ce31a6d8f8084a074df4a748cec2b90dc41"
+      "sha256": "760c43acc4e7a1b3925d83e6636e61fe234d501a9a61535adbf6a1030453ef57"
     },
     {
       "mode": "0644",
@@ -2839,17 +2869,17 @@
     {
       "mode": "0644",
       "path": "tests/release/test_release_notes.py",
-      "sha256": "57999af9c234af16e4698f00e9bae8b0c33ef1605a8302f9f17e246a67dfc5e3"
+      "sha256": "16332bb6808a4ca065c55ae690ef1eed2585403fca0427b3a03e616187f9fb99"
     },
     {
       "mode": "0644",
       "path": "tests/release/test_release_preflight.py",
-      "sha256": "92752bfe7956bfa1ebd228fc9386af2ef10848d5243e42a6355346f143001276"
+      "sha256": "2af0f02162a6a54f1af0def058e45ddeb40c031f4f56bb422eec4c27ead8a81a"
     },
     {
       "mode": "0644",
       "path": "tests/release/test_release_regressions.py",
-      "sha256": "ba30a9d5cdfacdf3b53a599ab105efac4a3f7d03dbe288ff937298d928574fec"
+      "sha256": "f7b9f552161c6e303cab5bf81ac2aa504bff5427490356898d8ba98c2a9f36b9"
     },
     {
       "mode": "0644",
@@ -2974,7 +3004,7 @@
     {
       "mode": "0644",
       "path": "tests/semantic/test_compilation_result_surface.py",
-      "sha256": "d63bb69076ffaf2cadba3d86bb6949ee0094ee2225fe268b3eaa1e1577f54de2"
+      "sha256": "6a9243ff13480a5e1655218cad664195e31646f5c9edba219942598f7bd9b189"
     },
     {
       "mode": "0644",
@@ -3074,7 +3104,7 @@
     {
       "mode": "0644",
       "path": "tests/semantic/test_encoded_enums.py",
-      "sha256": "c0fa0a1ec8518cae84d26864e26defafbdd28d98386f9e396516d6d5ad8dc728"
+      "sha256": "3bce2f23e0fcfbdf45f1e4cf53c276670dfe694d911c5d87aa2853da6ec7b5a5"
     },
     {
       "mode": "0644",
@@ -3204,7 +3234,7 @@
     {
       "mode": "0644",
       "path": "tests/semantic/test_formal_trace.py",
-      "sha256": "dbaaf956043e934d4fb40744b21b8c9e8937d5381ed9a2ff78a45ae3134d508f"
+      "sha256": "70d4a6e7d84a6a83d1d073f8d5662e89f16cc9055d07c04c02135dd030bb1cf8"
     },
     {
       "mode": "0644",
@@ -3544,7 +3574,7 @@
     {
       "mode": "0644",
       "path": "tests/semantic/test_state_selection_scaling.py",
-      "sha256": "e47bb23f33aa8df75b4f44d4e7d09cbd1a1b2a13c05c65d6a0bd497891467292"
+      "sha256": "6a09393d0c880ab55f8a825cfc570371939d829c0184f8950489ef49f67d5398"
     },
     {
       "mode": "0644",
@@ -3599,12 +3629,12 @@
     {
       "mode": "0644",
       "path": "tests/semantic/test_type_codec.py",
-      "sha256": "43edb1e615354509e3927c8849b247f94492c26cf79a42aff67b82113de7edf1"
+      "sha256": "84856fb1bb06f7a9ba36af4bca41928c1a7682cfb6db256cd9988fa1b6d46940"
     },
     {
       "mode": "0644",
       "path": "tests/semantic/test_types.py",
-      "sha256": "b305ef1e40417ad70298162a30123e17be96aa5ca3c64b35ae84a6fbd227b517"
+      "sha256": "90f0102fa67157665e3030f298531d99a9de7f209866768492b0c81d8a0d3c14"
     },
     {
       "mode": "0644",
@@ -3629,7 +3659,7 @@
     {
       "mode": "0644",
       "path": "tests/semantic/test_verification_bundle.py",
-      "sha256": "6a3d7a9befb0556db0a2028df5252d0d979cf4842aefb8f1daafda814731ceba"
+      "sha256": "f26ee499e82277b2f1fb4fa614df8e3e74ddabb2b6d272f678d7de6e1d5dd4ee"
     },
     {
       "mode": "0644",
@@ -3649,7 +3679,7 @@
     {
       "mode": "0644",
       "path": "tests/simulation/test_logic_state.py",
-      "sha256": "f2e551ef656ecdc1d1c88bc1af411929298166008514b912f6f771a651e42ef7"
+      "sha256": "169eb6079a3e509a511361e74ca9a50dd98513a58b45278cc3779520e9d48109"
     },
     {
       "mode": "0644",
@@ -3699,7 +3729,7 @@
     {
       "mode": "0644",
       "path": "tests/simulation/test_native_jit_protocols.py",
-      "sha256": "16580a1334ff41ade797d5634777f6d2f70e70691e8a7aad358e7c26aee64b56"
+      "sha256": "4a2d2b298273e2492078d3e2b4d88e6c23aaef509a8eaad9e22d1f438911492e"
     },
     {
       "mode": "0644",
@@ -3879,7 +3909,7 @@
     {
       "mode": "0644",
       "path": "tests/systemverilog/test_request_response_ledger.py",
-      "sha256": "a7d9ab6c0c133b420b89abdc09f3d8555553cf8f358a1381c543c07677a113ef"
+      "sha256": "6a0aa082b3d0e2f6e25d317de7d77f13e62f8a502ae83509fa9505c6e5be0fd8"
     },
     {
       "mode": "0644",
@@ -3910,6 +3940,11 @@
       "mode": "0644",
       "path": "tests/test_case_matrix.py",
       "sha256": "cf079c6dc099b7b6e4607d778974a24210137ce18489a133b0af31b690622111"
+    },
+    {
+      "mode": "0644",
+      "path": "tests/test_cli_hardening.py",
+      "sha256": "6c2e689fa3a5bf6d75da43db338fdf3e496552a69982af65c6caee5ab05f1be0"
     },
     {
       "mode": "0644",
@@ -3969,12 +4004,12 @@
     {
       "mode": "0644",
       "path": "tests/test_release_surface.py",
-      "sha256": "e993cb56ba5cba63903cb8f3c88499a31a8224bd4a6a57c34e44ef63536f30d7"
+      "sha256": "3c63182812aef23a4804428dfb44ebe6af05358cd751f006b15292b872523306"
     },
     {
       "mode": "0644",
       "path": "tests/test_request_response_hierarchy.py",
-      "sha256": "48d54b74f3bdac8aa5d60d7fdbd668dc4eafc448b6a4cab4224d30e057401def"
+      "sha256": "f3e7381310128318b2a216f9106230813de882e74adbf9c1aad72da30d5bba78"
     },
     {
       "mode": "0644",
@@ -3994,7 +4029,7 @@
     {
       "mode": "0644",
       "path": "tests/test_sim_cli.py",
-      "sha256": "6538a87be396fe7eb18f9cc5cf9a083bb4e89cda5a5bcb47af7265b21e85e436"
+      "sha256": "cc37b0ea290dc0dfbbd97f9c17418d2ed730c5133312b91400762c8d958f5097"
     },
     {
       "mode": "0644",
@@ -4084,7 +4119,7 @@
     {
       "mode": "0644",
       "path": "tools/audit_native_binary.py",
-      "sha256": "b3a228313d718abac272e415cdd03e7e91f86df7efd8c42d44dd895d54f96373"
+      "sha256": "7ecc63af602ffd11de2741fa5ce1c54e338f1838f692db63f1ebcfb0cd34970c"
     },
     {
       "mode": "0644",
@@ -4189,7 +4224,7 @@
     {
       "mode": "0644",
       "path": "tools/release_preflight.py",
-      "sha256": "89c8963836b6cdeb9d69a2b14de5816669a64e313052f174b547e39d15238df3"
+      "sha256": "f17f7d9dbeac9b52987f8080d05661723134f7f958e799614650437c3d5c549f"
     },
     {
       "mode": "0644",
@@ -4244,7 +4279,7 @@
     {
       "mode": "0644",
       "path": "zlang/_version.py",
-      "sha256": "4a80e3e23985d1aa910a780ef6eaba538cd1590c91fe2318fbb6514e2fdf8778"
+      "sha256": "fda76ccce64baecf1c17243e6655b5b2f61a833ae9ec01bfea641487443bd0ce"
     },
     {
       "mode": "0644",
@@ -4564,22 +4599,27 @@
     {
       "mode": "0644",
       "path": "zlang/cli_arguments.py",
-      "sha256": "9071832ec2470d4ded6634b4e9d79a366e99ee6c753383feca9b6460cc98957d"
+      "sha256": "0429ecb47b0348e60a928b6712bf6ae3ffe7f8d8cc9a1902a46ae356d8fa06ed"
     },
     {
       "mode": "0644",
       "path": "zlang/cli_command.py",
-      "sha256": "9478c284de3173d41a21a1750b60a8c0f84d5df6e7e853d3f3997764a4ab3528"
+      "sha256": "56b58b5e5afe0c52c78c30542d066a4ff13cfd07485b61b63ef0a5d436f10ff5"
+    },
+    {
+      "mode": "0644",
+      "path": "zlang/cli_diagnostics.py",
+      "sha256": "536b0806bbef1956ff20a8565791669b09ef47a0a8f390fe11a0ba7323fc4819"
     },
     {
       "mode": "0644",
       "path": "zlang/cli_publication.py",
-      "sha256": "b706924707d63546e30f921ff5b3d9573a7ac4b28f316a7fe65b7f8508ec2471"
+      "sha256": "73ddedf9adf61cd6743a602d29ce4eba69f7db82d40a53dcaed9ad3aecfde26c"
     },
     {
       "mode": "0644",
       "path": "zlang/cli_verification.py",
-      "sha256": "6e66966aa6fc76beb9bb53c51cb940d9703296a618688aa32e7c138d7c8b1542"
+      "sha256": "0aca7399f8df1bfc8f525f1efd57ac8c86559a7d33e5143b1377bb961bc7b17d"
     },
     {
       "mode": "0644",
@@ -4714,7 +4754,7 @@
     {
       "mode": "0644",
       "path": "zlang/diagnostics.py",
-      "sha256": "4765880b39a7435807ce1a8dcd4e2a4bc8e573131aa4dcef816c58a7b40434bc"
+      "sha256": "a7ae5e3dfa1258f5b55b24d8d25e176cddd0d2e472325188d8e7dc9e96e2981a"
     },
     {
       "mode": "0644",
@@ -4824,7 +4864,7 @@
     {
       "mode": "0644",
       "path": "zlang/formal_trace.py",
-      "sha256": "5a0246c338723d706a96f7f2f694c64cc8eb7a6332ca47bc1c70b0103c09d4a8"
+      "sha256": "1fe1732b9c716283db7b0952174f9062dd0b26f4062b96572bf61dd598ccab7a"
     },
     {
       "mode": "0644",
@@ -5124,12 +5164,12 @@
     {
       "mode": "0644",
       "path": "zlang/ir/type_codec.py",
-      "sha256": "fc09244c2717326bdcfa2e597b3717576148f6fa76b49e806fc529cf684a9a6c"
+      "sha256": "e87d1e024bc8437d5885fddfaf5228da15140faf1c67aececc9b05865e79bd3a"
     },
     {
       "mode": "0644",
       "path": "zlang/ir/types.py",
-      "sha256": "33de3553000d604fcd881779c43b27b37aa235e25d3d9527ac6aea3f4bf343fb"
+      "sha256": "72ddb0f877cf315565726b0d149614e0a4e9229e7bfecb41288e23163eb07e50"
     },
     {
       "mode": "0644",
@@ -5154,7 +5194,7 @@
     {
       "mode": "0644",
       "path": "zlang/lsp/server.py",
-      "sha256": "bda2b87c68d67235d3172960bc7570f978ce56deba98542c45077ce43085078a"
+      "sha256": "8d39ed8333d856e649e430d41fc6649b9675d98e591a162eed139f9005e9fd85"
     },
     {
       "mode": "0644",
@@ -5169,7 +5209,12 @@
     {
       "mode": "0644",
       "path": "zlang/module_resolver.py",
-      "sha256": "faaa4b72bf6f5b7484b66258e9c24833e22b23f0251c1511bcbd69989003d134"
+      "sha256": "7e9a07c256e3aaa9b87a378ef39f002541abcc2475b8a67eeac51d82a02e98c6"
+    },
+    {
+      "mode": "0644",
+      "path": "zlang/native_debug_bundle.py",
+      "sha256": "9241a6253bfff2a3861ad381e62f1e82ff4c13e3286ad89964f82b72d032ea87"
     },
     {
       "mode": "0644",
@@ -5214,7 +5259,7 @@
     {
       "mode": "0644",
       "path": "zlang/opt/ir.py",
-      "sha256": "7cea5b00a36ba726bd6b73f65c3bc8f3372e76fc544bc944bff1a2fc9210a819"
+      "sha256": "c2b954bf4d8530707d9e8d455295fa499f4039a611d741e3187367a44bbcd94e"
     },
     {
       "mode": "0644",
@@ -5294,17 +5339,17 @@
     {
       "mode": "0644",
       "path": "zlang/parser/grammar.lark",
-      "sha256": "f074e150ba2723c883e08b08f1c97e181cad43b9cea1da05f64b560b374eadd3"
+      "sha256": "bab0ed69a512b864a7051fc01319f2b16029355535d05c85115ac94d1942fc08"
     },
     {
       "mode": "0644",
       "path": "zlang/parser/lalr-1.3.1.larkbin",
-      "sha256": "faf684c891da8f1a98d42901501a65ab5581d5eb1c0b6c93155320b00d8df3e2"
+      "sha256": "6b78cdb5fcc95aa17c28b9d2f5bfec03449974f90caf2bed7854327b143d8616"
     },
     {
       "mode": "0644",
       "path": "zlang/parser/parser.py",
-      "sha256": "67861ff10bed019185e0bc4f0701d550670b9d4c4531384f24d5d882d5b5b56b"
+      "sha256": "4a054bb79d67aaea584ada84b8c28f155f4fb534df6cc8d70ba2b0c9d980276c"
     },
     {
       "mode": "0644",
@@ -5329,7 +5374,7 @@
     {
       "mode": "0644",
       "path": "zlang/parser/type_rules.py",
-      "sha256": "7f45265a89a2af6e2403a51604563ed0b7a19e80f0b47aa4fa6eef0a057beeef"
+      "sha256": "3a8129f010554246f099b8ef8271353d3b1b8f314c1296ce07760f1a1505f3e2"
     },
     {
       "mode": "0644",
@@ -5369,7 +5414,7 @@
     {
       "mode": "0644",
       "path": "zlang/project_cli.py",
-      "sha256": "5469d677d4e96c22f89bbe128a2c04567d738be3561dbe2bf350c943c020c048"
+      "sha256": "21cf6f7360bb2204c62c036230e6bdf271af6dc79eb95b46ab40864254907f74"
     },
     {
       "mode": "0644",
@@ -5514,7 +5559,7 @@
     {
       "mode": "0644",
       "path": "zlang/semantic/expression_calls.py",
-      "sha256": "b49248a4d3bff1f1a8fee08de6a83b326c7270d3b8ed8b24e1f803c494b5ee6e"
+      "sha256": "48ce06401b4bee3b0ec0898f991c3698071d73290283e4ff907e66490797bc60"
     },
     {
       "mode": "0644",
@@ -5529,7 +5574,7 @@
     {
       "mode": "0644",
       "path": "zlang/semantic/expression_control.py",
-      "sha256": "7873d51102491a6203c48126ab94a68eeedd82a05e12984011bdfcff964d8170"
+      "sha256": "1b1a41ee0e114f901cf72ac3471ddb395903b0bcd18456eefde412cbce682bbd"
     },
     {
       "mode": "0644",
@@ -5544,7 +5589,7 @@
     {
       "mode": "0644",
       "path": "zlang/semantic/expression_operators.py",
-      "sha256": "514944f14689feda5860b1ebfaad3b58b82464306c83975fe07e7c0e269fa3af"
+      "sha256": "71c44aefc6d2a8c806dbdb1b7a3b21b85835566e3caef23f1c354904700afd9e"
     },
     {
       "mode": "0644",
@@ -5584,7 +5629,7 @@
     {
       "mode": "0644",
       "path": "zlang/semantic/generic_binding.py",
-      "sha256": "0b67a23fc204f16908eab54ed7037240380085ee77c78814d3560976a5c8d767"
+      "sha256": "8b8ede476c4bbca54ad8b653a65576f63d688b4f054bf990afaa90c0bc87b3d2"
     },
     {
       "mode": "0644",
@@ -5724,7 +5769,7 @@
     {
       "mode": "0644",
       "path": "zlang/semantic/type_resolution.py",
-      "sha256": "64d5aed1c919b09b5eb2b33e4141e9d07941609b7b086d343103151d149f9baf"
+      "sha256": "09dc8a325b0d7c79e494500ed1eddd8d094c33f78c44728e1f22d354b80d6884"
     },
     {
       "mode": "0644",
@@ -5744,12 +5789,12 @@
     {
       "mode": "0644",
       "path": "zlang/sim.py",
-      "sha256": "1573c2b0bf2a7a83cf5bb606d98df4d2a2b2d4022cfc4f41f4fd559e69245c19"
+      "sha256": "0c26b27403adc10b53d51f1658e843af893757005ec431d051acc47a7a4b0918"
     },
     {
       "mode": "0644",
       "path": "zlang/sim_cli.py",
-      "sha256": "e67847b7b0efd4045e84f9deeeced13dab28c975b93e8e5847d8fd63635168c6"
+      "sha256": "d39a4a4db8dabb7bfde3156ecb18940fe8801d0106c1e67da9e5bdd2c419686d"
     },
     {
       "mode": "0644",
@@ -5789,7 +5834,7 @@
     {
       "mode": "0644",
       "path": "zlang/simulation_event_runner.py",
-      "sha256": "b0e9ee010016a533a08fadb310121cf27bae33906e3169d20f70e90784d145ed"
+      "sha256": "b56c03ec0d442f4b5e1dda9e919a9bd104174197aac753a846ebc668d926b943"
     },
     {
       "mode": "0644",
@@ -5824,17 +5869,12 @@
     {
       "mode": "0644",
       "path": "zlang/simulation_logic.py",
-      "sha256": "b58b65d84f538519a1d3f14a0e65b9075ffb570c97cae17171b34c2bfe62f35a"
-    },
-    {
-      "mode": "0644",
-      "path": "zlang/simulation_logic_machine.py",
-      "sha256": "c9f6fe5bfbc331046f3a7df01b068ddaee42f86fb7569368e70e5433fbfd1d63"
+      "sha256": "cd84adc0b31eb56a47ec43bfa054dc237749194f1c7a5c9858593fbbd8d45803"
     },
     {
       "mode": "0644",
       "path": "zlang/simulation_lowering.py",
-      "sha256": "db035b6caa1c2adbe0385189cfcdc51af86f45a6f5411af477ab1ca56e0dda9f"
+      "sha256": "d99e9d8876ff32e094d9607547f9adf07415a26085cbb0dcebc165af45bd7c82"
     },
     {
       "mode": "0644",
@@ -5849,7 +5889,7 @@
     {
       "mode": "0644",
       "path": "zlang/simulation_plan_build.py",
-      "sha256": "8f645e67b1688b7e5c8606ed072972e2b53f66b90b241a4d2793eec2870b9bcb"
+      "sha256": "35903c82f8f63aa16c8f8ab3cb67439f288252a834d77a9df6f5702d88633bdc"
     },
     {
       "mode": "0644",
@@ -5864,12 +5904,12 @@
     {
       "mode": "0644",
       "path": "zlang/simulation_plan_model.py",
-      "sha256": "096237aec78d20be1eb08b3487ee2501af0f502fcb5c652752a894d6c24b7115"
+      "sha256": "95a258de95819923a0cc2c0ef12898e8ac0533ee3b9ade51b33fe69f6c6e3aeb"
     },
     {
       "mode": "0644",
       "path": "zlang/simulation_plan_policy.py",
-      "sha256": "83e34fc466e552d4f733e03009993bf9bb6b950e755c7e02fbc8430b847ad96c"
+      "sha256": "886f56bf4aa2e736b279170cc1676ec5ce1bacfda2b982b950f4b015a1cfe6b4"
     },
     {
       "mode": "0644",
@@ -5934,7 +5974,7 @@
     {
       "mode": "0644",
       "path": "zlang/simulation_scheduler_lowering.py",
-      "sha256": "9f0af44b284a466863b3e5a45f76b7bcf26abfc96101b3906d98f9bd239ca076"
+      "sha256": "a55c68f29ec7d8836ac41285f3e9b5d30eb7d1d11ff4e40d01bef1b0a27e29bc"
     },
     {
       "mode": "0644",
@@ -6064,7 +6104,7 @@
     {
       "mode": "0644",
       "path": "zlang/toolchain.py",
-      "sha256": "355333e17e1c2a38424feb2480f6ad83b15192729b4840f916132f670c3e94aa"
+      "sha256": "b34373c1d43b1fbc9b171f6e83f5794c0c9e2f1c43c3b2b95133a825ff3de1ad"
     },
     {
       "mode": "0644",
@@ -6104,7 +6144,7 @@
     {
       "mode": "0644",
       "path": "zlang/tooling_symbols.py",
-      "sha256": "a96eda9c5573f6c92e14a1748111a589b203fe888438cb721914630e88a370f1"
+      "sha256": "7771ad2ec4c5920a493d4641845e754afcf666953e7ed1701768755a1683ea17"
     },
     {
       "mode": "0644",
@@ -6139,7 +6179,7 @@
     {
       "mode": "0644",
       "path": "zlang/verification_cli.py",
-      "sha256": "b4ff5734b1654949e2871c20e948f390be5720b8107e146823255def2e11c298"
+      "sha256": "156a188405e8e53684a962a3a5a4e2c298d13320995c1d27b690d112630bb019"
     },
     {
       "mode": "0644",
@@ -6199,7 +6239,7 @@
     {
       "mode": "0644",
       "path": "zlang/workspace.py",
-      "sha256": "ecea775b461bd2742b67caea80480a331210f3231b2dfccc8ca4451ac6888575"
+      "sha256": "c5c68fa27548ff8fefae07910dae4966db871119e712dfedc4ddefa4918d6e0f"
     },
     {
       "mode": "0644",

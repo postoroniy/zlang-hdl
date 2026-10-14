@@ -406,12 +406,31 @@ def _children_for_struct(
     )
 
 def _children_for_enum(
-    members: tuple[str, ...], fallback: ToolingOrigin | None
+    declaration: ast_nodes.EnumDecl,
+    fallback: ToolingOrigin | None,
 ) -> tuple[ToolingSymbol, ...]:
-    return tuple(
-        _make_symbol(member, "enum_member", fallback=fallback)
-        for member in members
-    )
+    """Project enum members with their parser-owned name spans.
+
+    Falling back to the declaration-unit envelope made every member of every
+    top-level enum overlap its siblings.  VS Code consumes document-symbol
+    ranges for Outline and Sticky Scroll, so those invalid child ranges could
+    pin an unrelated enum while the viewport moved.  The parser already owns
+    exact member spans; do not reconstruct them from source text.
+    """
+
+    symbols: list[ToolingSymbol] = []
+    for index, member in enumerate(declaration.members):
+        span = (
+            declaration.member_origins[index]
+            if index < len(declaration.member_origins)
+            else None
+        )
+        origin = _origin_from_source(
+            span,
+            construct=f"enum_member {member}",
+        ) or fallback
+        symbols.append(ToolingSymbol(member, "enum_member", origin, origin))
+    return tuple(symbols)
 
 def _symbol_for_item(
     item: object,
@@ -446,12 +465,13 @@ def _symbol_for_item(
         )
         return (symbol,)
     if isinstance(item, ast_nodes.EnumDecl):
+        enum_origin = _symbol_origin(item, "enum", item.name) or fallback
         return (_make_symbol(
             item.name,
             "enum",
             item,
             fallback=fallback,
-            children=_children_for_enum(item.members, fallback),
+            children=_children_for_enum(item, enum_origin),
         ),)
     if isinstance(item, ast_nodes.TaggedUnionDecl):
         children = tuple(

@@ -8,9 +8,10 @@ from __future__ import annotations
 
 from collections import OrderedDict
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 import threading
+from zlang.compilation_inputs import PhysicalCompilationInputs
 from zlang.incremental_workspace import IncrementalWorkspaceSession
 from zlang.source_identity import validate_source_path
 from zlang.persistent_simulation_plan import load_or_build as _load_simulation_plan
@@ -96,6 +97,25 @@ def _native_runtime():
     return _zlang_native_sim
 
 
+def write_fst_trace(
+    path: Path,
+    module: str,
+    widths: Mapping[str, int],
+    deltas: Iterable[tuple[int, Mapping[str, tuple[int, str]]]],
+) -> None:
+    """Write one compiler-owned native trace through the Rust FST owner."""
+
+    try:
+        _native_runtime().write_fst_trace(
+            Path(path),
+            module,
+            dict(widths),
+            [(timestamp, dict(changes)) for timestamp, changes in deltas],
+        )
+    except (ValueError, RuntimeError) as error:
+        raise SimulationRuntimeError(str(error)) from error
+
+
 @dataclass(frozen=True)
 class Program:
     """One compiled immutable simulation program, reusable across instances."""
@@ -106,6 +126,9 @@ class Program:
     selected_ir_identity: str | None = None
     strict_uninitialized: bool = False
     logic_state: bool = False
+    physical_inputs: PhysicalCompilationInputs | None = field(
+        default=None, repr=False, compare=False,
+    )
 
     @property
     def identity(self) -> str:
@@ -601,9 +624,11 @@ class Simulator:
             if port is None or port.protocol is InterfaceProtocol.WIRE:
                 self._trace_names.setdefault(name, name)
                 continue
-            for field in self._protocols.trace_fields(port):
-                self._trace_names[self._protocols.field_name(port, field)] = (
-                    f"{name}.{field}"
+            for protocol_field in self._protocols.trace_fields(port):
+                self._trace_names[
+                    self._protocols.field_name(port, protocol_field)
+                ] = (
+                    f"{name}.{protocol_field}"
                 )
         if selected is None and self._hidden_csr_ports:
             selected = list(self._trace_names)
@@ -733,6 +758,7 @@ def compile(
         selected_ir_identity=canonical_ir_identity(session.selection.optimization_ir),
         strict_uninitialized=strict_uninitialized,
         logic_state=logic_state,
+        physical_inputs=session.physical_inputs,
     )
 
 

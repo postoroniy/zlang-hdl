@@ -30,10 +30,10 @@ module FixedPointPolyphaseFIR {
     in coefficients : vec<8,SF2.10>
     out result : PolyphaseResult
 
-    inst phase0 : FixedFIRPhase { samples=samples0 coefficients }
-    inst phase1 : FixedFIRPhase { samples=samples1 coefficients }
-    inst phase2 : FixedFIRPhase { samples=samples2 coefficients }
-    inst phase3 : FixedFIRPhase { samples=samples3 coefficients }
+    phase0 : FixedFIRPhase { samples=samples0 coefficients }
+    phase1 : FixedFIRPhase { samples=samples1 coefficients }
+    phase2 : FixedFIRPhase { samples=samples2 coefficients }
+    phase3 : FixedFIRPhase { samples=samples3 coefficients }
 
     result = PolyphaseResult {
         phase0 = phase0.result

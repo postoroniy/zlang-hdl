@@ -1286,11 +1286,11 @@ def test_hierarchical_request_response_directional_buffers_use_storage(
             "    request_transfer = bus.request.transfer\n}",
         )
         .replace(
-            "    out response_seen: bit\n\n    inst requester",
+            "    out response_seen: bit\n\n    requester:",
             "    out response_seen: bit\n"
             "    out requester_response_transfer: bit\n"
             "    out responder_request_transfer: bit\n\n"
-            "    inst requester",
+            "    requester:",
         )
         .replace(
             "    response_seen = responder.response_seen\n}",
@@ -1299,7 +1299,7 @@ def test_hierarchical_request_response_directional_buffers_use_storage(
             "    responder_request_transfer = responder.request_transfer\n}",
         )
         .replace(
-            "connect requester.bus -> responder.bus",
+            "requester.bus -> responder.bus",
             "connect requester.bus -> responder.bus { "
             "request_buffer 2 response_buffer 1 }",
         ),

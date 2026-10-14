@@ -77,16 +77,27 @@ For project work, inspect `zlang.toml`/`zlang.lock` and pass `--project` or
 `--profile` when the design requires them. Compilation is offline/non-mutating;
 dependency fetching belongs to an explicit lock update, not ordinary compile.
 
-`zlang sim` always uses the native runtime; there is no reference-engine
-selector. Native simulation is deterministic two-state by default. `--logic-state`
+`zlang sim` always uses the Rust native runtime; there is no reference-engine
+selector and Python contains no evaluator fallback. Python prepares and
+orchestrates the plan while Rust owns execution, state, reset and tracing.
+Native simulation is deterministic two-state by default. `--logic-state`
 enables per-bit `0`/`1`/`U`/`X`; state without an initializer begins as `U`,
 while an accepted unresolved write produces `X`. Use `--initial-reg` for exact
 compiler-owned register-path overrides and repeat `--trace-signal` for a
-selective VCD. VCD represents both unresolved states as `x`, so ZLang emits
-`__zlang_meta/*_u_mask` companions for `U` provenance. The stricter
+selective waveform. Prefer `.fst` for native interactive traces; `.vcd`
+remains the interchange/formal compatibility format. Both represent unresolved
+states as `x`, so ZLang emits hidden `__zlang_meta/*_u_mask` companions for
+`U` provenance. The stricter
 `--strict-uninitialized` mode implies logic-state execution and rejects an
 observed `U` or `X`. These diagnostics do not model high impedance, electrical
 strength or Verilog event regions and never alter Direct-SV output.
+
+Use `--cycles/--clock` for a bounded simple single-clock run. Use JSONL
+`--events` when reset levels, inputs, multiple clocks or coincident edges must
+be explicit. Add `--trace` and repeat `--trace-signal` for FST or VCD; use
+`--compare-with iverilog|verilator` to replay the same schedule against
+generated Direct-SV. The comparison fails closed on mismatch, unresolved RTL,
+tool failure or timeout.
 
 Read these authoritative topic guides as needed:
 

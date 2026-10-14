@@ -52,6 +52,62 @@ async function replaceDocument(document, text) {
   assert.equal(await vscode.workspace.applyEdit(edit), true);
 }
 
+async function checkNativeDebugger(installedPath, scratch) {
+  const binaryRoot = path.join(installedPath, 'bin', 'linux-x64');
+  const adapter = path.join(binaryRoot, 'zlang-debug-adapter');
+  const indexer = path.join(binaryRoot, 'zlang-waveform-indexer');
+  const native = fs.existsSync(adapter) || fs.existsSync(indexer);
+  if (!native) return false;
+  for (const executable of [adapter, indexer]) {
+    assert.equal(fs.lstatSync(executable).isFile(), true);
+    fs.accessSync(executable, fs.constants.X_OK);
+  }
+
+  const source = path.join(scratch, 'debug-smoke.zhl');
+  const events = path.join(scratch, 'debug-events.jsonl');
+  fs.writeFileSync(source, [
+    'module DebugSmoke {',
+    '    clock clk reset rst',
+    '    in load : bit',
+    '    in value : u8',
+    '    out observed : u8',
+    '    reg stored : u8',
+    '    when load { stored <- value }',
+    '    observed = stored',
+    '}',
+    '',
+  ].join('\n'));
+  fs.writeFileSync(events, '{"set":{"load":1,"value":5},"edges":["clk"]}\n');
+  const document = await vscode.workspace.openTextDocument(vscode.Uri.file(source));
+  await vscode.window.showTextDocument(document, { preview: false });
+  const breakpoint = new vscode.SourceBreakpoint(
+    new vscode.Location(document.uri, new vscode.Position(6, 4)),
+  );
+  vscode.debug.addBreakpoints([breakpoint]);
+  try {
+    assert.equal(await vscode.debug.startDebugging(undefined, {
+      type: 'zlang-hdl', request: 'launch', name: 'ZLang native host smoke',
+      program: source, top: 'DebugSmoke', events,
+      traceSignals: ['observed'], stopOnEntry: true,
+    }), true, 'native debug session failed to start');
+    await settled('active ZLang debug session', () => vscode.debug.activeDebugSession?.type === 'zlang-hdl');
+    const session = vscode.debug.activeDebugSession;
+    await session.customRequest('next', { threadId: 1 });
+    const stack = await session.customRequest('stackTrace', { threadId: 1 });
+    assert.match(stack.stackFrames[0].name, /rule/,
+      'native debugger did not stop at the accepted rule event');
+    assert.equal(stack.stackFrames[0].line, 7);
+    const trace = await session.customRequest('zlang/waveformRange', { start: 0 });
+    assert.equal(trace.schema, 'zlang-waveform-trace-v1');
+    assert.equal(trace.deltas.length, 1);
+    assert.equal(trace.deltas[0].changes.observed.bits, '00000101');
+    await vscode.debug.stopDebugging(session);
+  } finally {
+    vscode.debug.removeBreakpoints([breakpoint]);
+  }
+  return true;
+}
+
 async function checkHost() {
   const started = Date.now();
   const phase = (name) => console.log(`ZLang editor host smoke phase ${name}: ${Date.now() - started} ms`);
@@ -79,7 +135,8 @@ async function checkHost() {
   assert.equal(manifest.version, '0.1.0');
   assert.equal(manifest.main, './dist/extension.js');
   assert.equal(manifest.engines.vscode, `^${toolchain.vscodeStable.version}`);
-  assert.equal(Object.hasOwn(manifest, 'activationEvents'), false);
+  assert.equal(manifest.activationEvents, undefined,
+    'VS Code derives activation from language/command/debug/editor contributions');
   assert.deepEqual(manifest.dependencies, { 'vscode-languageclient': toolchain.vscodeLanguageClient });
   assert.equal(fs.existsSync(path.join(installedPath, 'node_modules')), false,
     'node_modules must not be shipped');
@@ -157,6 +214,69 @@ async function checkHost() {
   assert.equal(definitionUri.toString(), document.uri.toString());
   assert.deepEqual(definitionRange.start, new vscode.Position(1, 7));
   phase('simple definition');
+
+  // Sticky Scroll and Outline consume the LanguageClient's hierarchical
+  // DocumentSymbol ranges. Exercise a viewport-sized enum list through the
+  // installed VSIX: enum-member ranges must remain inside their own enum and
+  // must never span later declarations.
+  const enumListPath = path.join(scratch, 'enum-list.zhl');
+  const enumListText = Array.from({ length: 80 }, (_, index) => [
+    `enum RegisterState${index} : u8 {`,
+    '    reserved',
+    `    active = ${index + 1}`,
+    '    reset',
+    '    priority',
+    '}',
+  ].join('\n')).join('\n');
+  fs.writeFileSync(enumListPath, `${enumListText}\n`);
+  const enumList = await vscode.workspace.openTextDocument(vscode.Uri.file(enumListPath));
+  await vscode.window.showTextDocument(enumList, { preview: false });
+  let enumSymbols;
+  const deadline = Date.now() + 5000;
+  do {
+    enumSymbols = await vscode.commands.executeCommand(
+      'vscode.executeDocumentSymbolProvider', enumList.uri,
+    );
+    if (enumSymbols?.length === 80) break;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  } while (Date.now() < deadline);
+  assert.equal(enumSymbols?.length, 80, 'installed LSP lost enum document symbols');
+  for (const [index, symbol] of enumSymbols.entries()) {
+    assert.equal(symbol.name, `RegisterState${index}`);
+    assert.equal(symbol.children.length, 4);
+    assert.deepEqual(symbol.children.map((child) => child.name), [
+      'reserved', 'active', 'reset', 'priority',
+    ]);
+    for (const child of symbol.children) {
+      assert.equal(symbol.range.contains(child.range), true,
+        `${child.name} range escaped ${symbol.name} and can corrupt Sticky Scroll`);
+      assert.equal(child.range.isEqual(child.selectionRange), true);
+    }
+    if (index + 1 < enumSymbols.length) {
+      assert.equal(symbol.range.intersection(enumSymbols[index + 1].range), undefined,
+        `${symbol.name} overlaps the next enum document symbol`);
+    }
+  }
+  phase('enum outline and sticky-scroll ranges');
+  let nativeDebugChecked = false;
+
+  if (manifest.contributes.customEditors) {
+    const vcdPath = path.join(scratch, 'custom-editor.vcd');
+    fs.writeFileSync(vcdPath, [
+      '$date deterministic $end', '$version ZLang HDL smoke $end',
+      '$timescale 1ns $end', '$scope module Smoke $end',
+      '$var wire 1 ! clk $end', '$upscope $end', '$enddefinitions $end',
+      '#0', '0!', '#1', '1!', '',
+    ].join('\n'));
+    await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(vcdPath));
+    await settled('waveform custom editor', () => (
+      vscode.window.tabGroups.activeTabGroup.activeTab?.input instanceof vscode.TabInputCustom
+    ));
+    const customInput = vscode.window.tabGroups.activeTabGroup.activeTab.input;
+    assert.equal(customInput.viewType, 'zlang-hdl.waveform');
+    editor = await vscode.window.showTextDocument(document, { preview: false });
+    phase('waveform custom editor');
+  }
 
   // Mirror dogfooding with the repository opened above a nested locked ZLang
   // project.  Only the root document is opened; declaration targets must be
@@ -366,6 +486,12 @@ async function checkHost() {
   await settled('snippet clock-name tabstop', () => document.getText(editor.selection) === 'clk');
   assert.equal(await document.save(), true);
 
+  // Run the DAP smoke last: starting and stopping a real debug session changes
+  // active editor/debug focus in ways that must not contaminate the language
+  // configuration, typing, or snippet assertions above.
+  nativeDebugChecked = await checkNativeDebugger(installedPath, scratch);
+  if (nativeDebugChecked) phase('native debugger and waveform');
+
   console.log(JSON.stringify({
     status: 'passed',
     vscode: vscode.version,
@@ -377,12 +503,19 @@ async function checkHost() {
       'isolated installed VSIX identity and standard LSP client manifest',
       'automatic .zhl association; no .zl or .zlh association',
       'activation-complete LanguageClient and real F12 definition provider',
+      'viewport-sized enum list with nested, non-overlapping Outline and Sticky Scroll ranges',
+      ...(manifest.contributes.customEditors ? [
+        'registered default FST/VCD custom editor; exercised VCD through the native indexer',
+      ] : []),
       'nested-project type/module F12 with unopened declaration targets',
       'same-file enum and nested-project type/module Shift+F12 from installed VSIX',
       'multi-document unsaved live edit with explicit and concise instances',
       'installed line/block comment configuration and editor actions',
       'bracket auto-closing and Enter indentation',
       'registered Clocked module snippet and working tabstops',
+      ...(nativeDebugChecked ? [
+        'Linux native DAP rule breakpoint, typed state, and live waveform trace',
+      ] : []),
     ],
     notChecked: [
       'rendered theme colors, font styling, and visual screenshot appearance',

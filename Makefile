@@ -34,6 +34,7 @@ PREVIOUS_TAG ?= $(shell if test -x "$(PYTHON)"; then "$(PYTHON)" -c 'import json
 RELEASE_PREFLIGHT_REPORT ?= build/release-preflight.json
 RELEASE_MODE ?= candidate
 EDITOR_VSIX ?= build/editor-release/zlang-hdl-0.1.0.vsix
+EDITOR_NATIVE_VSIX ?= build/editor-release/zlang-hdl-0.1.0-linux-x64.vsix
 STRUCTURAL_PROFILE ?= small
 STRUCTURAL_REPORT_DIR ?= build/structural
 CI_JUNIT ?=
@@ -53,9 +54,9 @@ FAST_TEST_PATHS := \
 	tests/parser tests/semantic tests/conformance tests/editor \
 	tests/packaging tests/release
 
-.PHONY: help venv env-check release-review-clean review-commits release-review release-sanity release-dependency-floor release-regressions release-preflight public-check static jit-check jit-audit jit-advisory-audit native-release-set native-release-install audit release-tools test-fast test test-structural \
+.PHONY: help venv env-check release-review-clean review-commits release-review release-sanity release-dependency-floor release-regressions release-preflight public-check static jit-check jit-audit jit-advisory-audit native-editor-build native-editor-repro native-release-set native-release-install audit release-tools test-fast test test-structural \
 	structural-baseline \
-	community-pdf-check test-release-twice editor-test editor-advisory-audit editor-host-test package release-candidate \
+	community-pdf-check test-release-twice editor-test editor-advisory-audit editor-host-test editor-native-host-test package release-candidate \
 	ci-bootstrap ci-fast-core ci-full-regression ci-performance-regression ci-hosted-edge \
 	ci-random-smoke ci-editor ci-test-floor ci-contract-smoke
 
@@ -63,7 +64,7 @@ LOCAL_ENV_TARGETS := \
 	release-dependency-floor release-regressions release-preflight public-check static jit-check jit-audit \
 	jit-advisory-audit native-release-set native-release-install audit release-tools test-fast test \
 	test-structural structural-baseline community-pdf-check test-release-twice \
-	editor-test editor-advisory-audit editor-host-test review-commits release-review release-sanity release-candidate \
+	editor-test editor-advisory-audit editor-host-test editor-native-host-test review-commits release-review release-sanity release-candidate \
 	ci-fast-core ci-full-regression ci-performance-regression ci-hosted-edge \
 	ci-random-smoke ci-editor ci-contract-smoke
 
@@ -82,6 +83,8 @@ help:
 		'make jit-check          run locked Rust format, Clippy, and unit gates' \
 		'make jit-audit          audit locked native sources/licenses and optional wheel' \
 		'make jit-advisory-audit audit locked native crates with pinned cargo-audit' \
+		'make native-editor-build build path-scrubbed Linux debugger/waveform tools' \
+		'make native-editor-repro double-build and compare native editor tools' \
 		'make native-release-set require the audited Linux native wheel' \
 		'make native-release-install install the audited release wheel into this worktree venv' \
 		'make audit              run REUSE and Python dependency audits' \
@@ -95,6 +98,7 @@ help:
 		'make editor-test        install locked editor dependencies and run its tests' \
 		'make editor-advisory-audit audit the complete locked editor dependency inventory' \
 		'make editor-host-test   build, audit and run the installed VSIX host smoke' \
+		'make editor-native-host-test build, audit and debug with the Linux-x64 VSIX' \
 		'make ci-contract-smoke  reproduce hosted workflow contracts locally' \
 		'make package            build one sdist and two byte-identical wheels' \
 		'make release-candidate  run the local non-publishing release gate'
@@ -239,6 +243,12 @@ jit-advisory-audit:
 	else
 		echo 'native Cargo.lock is intentionally absent from the Community source tree'
 	fi
+
+native-editor-build:
+	bash tools/build_native_editor_tools.sh
+
+native-editor-repro:
+	bash tools/audit_native_editor_reproducibility.sh
 
 native-release-set:
 	if [[ ! -d release/native-wheels ]]; then
@@ -500,6 +510,22 @@ editor-host-test: editor-test
 		--purpose "editor-vsix-host" -- \
 		xvfb-run -a npm --prefix editors/vscode/zlang-hdl run test:host -- \
 		"$(abspath $(EDITOR_VSIX))"
+
+editor-native-host-test: editor-test native-editor-build
+	if [[ -e "$(EDITOR_NATIVE_VSIX)" ]]; then
+		echo "$(EDITOR_NATIVE_VSIX) already exists; choose a fresh EDITOR_NATIVE_VSIX" >&2
+		exit 2
+	fi
+	mkdir -p "$(dir $(EDITOR_NATIVE_VSIX))"
+	npm --prefix editors/vscode/zlang-hdl run package:linux-x64 -- \
+		"$(abspath $(EDITOR_NATIVE_VSIX))"
+	$(call RUN_PYTHON,editor-native-audit) tests/editor/test_vscode_package.py \
+		"$(abspath $(EDITOR_NATIVE_VSIX))" \
+		> "$(abspath $(EDITOR_NATIVE_VSIX)).audit.json"
+	PYTHONPATH="$(CURDIR)" ZLANG_VENV="$(VENV)" "$(LOCAL_RUNNER)" \
+		--purpose "editor-native-vsix-host" -- \
+		xvfb-run -a npm --prefix editors/vscode/zlang-hdl run test:host -- \
+		"$(abspath $(EDITOR_NATIVE_VSIX))"
 
 package:
 	if [[ -e "$(BUILD_ROOT)" ]]; then \

@@ -10,7 +10,7 @@ module ReductionTreeWitness<N=32> {
     or_value = reduce(|, values)
     and_value = reduce(&, values)
     xor_value = reduce(^, values)
-    sum_value = truncate<16>(reduce(+, generate(i in 0..N) extend<16>(values[i])))
+    sum_value = truncate(reduce(+, generate(i in 0..N) extend<16>(values[i])))
     grouped_xor = reduce(^, generate(group in 0..(N / 8))
         reduce(^, generate(item in 0..8) values[group * 8 + item]))
 }

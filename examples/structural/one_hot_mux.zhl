@@ -12,6 +12,6 @@ module OneHotMuxWitness<N=16> {
     any_selected = reduce(|, select)
     collisions = generate(i in 0..N)
         (select[i] & reduce(|, generate(j in 0..N)
-            (select[j] & (extend<8>(j) < extend<8>(i)))))
+            (select[j] & (j < i))))
     multiple_selected = reduce(|, collisions)
 }

@@ -46,7 +46,7 @@ class RequestResponseHierarchyTests(unittest.TestCase):
 
     def test_directional_buffering_is_independent(self) -> None:
         source = self.source().replace(
-            "connect requester.bus -> responder.bus",
+            "requester.bus -> responder.bus",
             "connect requester.bus -> responder.bus { request_buffer 2 response_buffer 1 }",
         )
         module = analyze(parse(source))
@@ -56,7 +56,7 @@ class RequestResponseHierarchyTests(unittest.TestCase):
 
     def test_generic_buffer_on_request_response_is_rejected(self) -> None:
         source = self.source().replace(
-            "connect requester.bus -> responder.bus",
+            "requester.bus -> responder.bus",
             "connect requester.bus -> responder.bus { buffer 2 }",
         )
         with self.assertRaisesRegex(SemanticError, "ambiguous"):

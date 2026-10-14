@@ -8,6 +8,7 @@ const {
   extensionInstallArguments,
   hostLaunchArguments,
 } = require('./run-host-smoke.cjs');
+const { waveformHtml } = require('../waveform_view');
 
 async function main() {
   const first = await buildBundle();
@@ -44,6 +45,13 @@ async function main() {
     '--install-extension', '/tmp/zlang-hdl.vsix', '--force',
     '--extensions-dir', '/tmp/extensions',
   ]);
+  const waveform = waveformHtml();
+  for (const required of [
+    'Scopes &amp; signals', 'Signal / group', 'Ctrl+wheel',
+    'function drawViewport(', 'function receiveSearch(', 'function control(',
+    "vscode.postMessage({type:'ready'})",
+  ]) assert.ok(waveform.includes(required), `waveform UI omitted ${required}`);
+  assert.equal(waveform.includes('/home/'), false);
   console.log(`bundle ${first.bytes.length} bytes sha256=${sha256(first.bytes)} runtime-packages=${packages.length}`);
 }
 

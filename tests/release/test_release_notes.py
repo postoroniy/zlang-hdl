@@ -19,8 +19,8 @@ def test_current_release_notes_are_curated_from_exact_changelog_section() -> Non
     )
     assert "ABI v13" in notes
     assert "sole executable owner" in notes
-    assert "`bit`, `bits<W>`, and unsigned" in notes
-    assert "Native JSONL events" in notes
+    assert "`bit`, `bits<W>`, or unsigned" in notes
+    assert "JSONL events" in notes
     assert "ABI-v10" not in notes
     assert "0.1.0a10 —" not in notes
 

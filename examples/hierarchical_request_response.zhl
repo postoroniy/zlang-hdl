@@ -47,8 +47,8 @@ module HierarchicalRequestResponse {
     in data: u8
     out response_seen: bit
 
-    inst requester: Requester { fire accept_response }
-    inst responder: Responder { accept_request data }
-    connect requester.bus -> responder.bus
+    requester: Requester { fire accept_response }
+    responder: Responder { accept_request data }
+    requester.bus -> responder.bus
     response_seen = responder.response_seen
 }

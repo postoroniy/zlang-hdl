@@ -20,9 +20,16 @@ Examples use the concise form when it preserves the point being taught:
 
 - infer local expression types unless an annotation is the subject of the
   example;
+- write carry-growing arithmetic directly when its inferred result already
+  matches the destination (`u8 + u8` is `u9`); do not extend operands merely
+  to restate the operator's exact type;
+- use contextual `extend(value)`/`truncate(value)` at an explicitly typed
+  output, state update, field, argument, or return boundary; keep `<N>` when
+  the conversion has no such context or the width itself is being taught;
 - use struct field punning (`Field { value }`) when the source name matches;
-- use named instance binding punning (`inst lane : Lane { input }`) when it is
-  unambiguous;
+- use concise child declarations and binding punning (`lane : Lane { input }`)
+  when unambiguous; retain `inst` when it disambiguates a resource-like name or
+  the explicit declaration form is itself the subject;
 - use `value -> endpoint` for direct aggregate endpoint wiring and `connect`
   when buffering, adaptation, or CDC policy is part of the example;
 - use `generate` for bounded compile-time structure, never for runtime work;

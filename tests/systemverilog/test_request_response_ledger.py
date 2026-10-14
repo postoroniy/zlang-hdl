@@ -141,7 +141,7 @@ def test_request_and_response_count_projections_are_directionally_independent():
         source = UNBUFFERED.replace(
             "max_outstanding 1", "max_outstanding 2"
         ).replace(
-            "connect requester.bus -> responder.bus",
+            "requester.bus -> responder.bus",
             f"connect requester.bus -> responder.bus {{ {option} }}",
         )
         module = compile_source(

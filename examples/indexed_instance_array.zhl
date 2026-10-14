@@ -11,7 +11,7 @@ module IndexedInstanceArray<N=4, W=8, LAST=3> {
     in values : vec<N, uint<W>>
     out y : uint<W + 1>
 
-    inst lane[N] : ArrayLane<W>
+    lane[N] : ArrayLane<W>
 
     generate(i in 0..N) {
         lane[i].x = values[i]

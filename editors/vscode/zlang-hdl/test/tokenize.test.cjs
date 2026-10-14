@@ -98,7 +98,7 @@ test('nested type arguments and compile-time calls retain their own scopes', () 
   ).length, 2);
 
   for (const expression of [
-    'bits<index_width(8)>', 'fixed<index_width(8),1>',
+    'u<index_width(8)>', 'bits<index_width(8)>', 'fixed<index_width(8),1>',
     'string<index_width(8)>', 'fifo<u8,index_width(8)>',
     'credit<u8,index_width(8)>', 'Wrapper<index_width(8)>',
     'zeros<index_width(8)>', 'repeat<index_width(8)>(value)',
@@ -107,6 +107,11 @@ test('nested type arguments and compile-time calls retain their own scopes', () 
     const line = tokenize(`value = ${expression}`).lines[0];
     expectScope(line, 'index_width', 'support.function.builtin.compile-time.zlang');
   }
+  expectScope(
+    tokenize('in compact : u<8>').lines[0],
+    'u',
+    'support.type.scalar.zlang',
+  );
 });
 
 test('multiline generic declarations preserve types, defaults, and the next module', () => {
@@ -185,6 +190,48 @@ test('declarations and references stay distinct without reserving contextual nam
   expectScope(lines[6], 'behavior', 'entity.name.type.verification-scope.zlang');
   expectScope(lines[7], 'require', 'keyword.control.verification.zlang');
   expectScope(lines[7], 'assert', 'variable.other.readwrite.zlang');
+});
+
+test('explicitly backed enums keep contextual words as enum members', () => {
+  const { lines } = tokenize([
+    'enum Access : u8 { reserved }',
+    'enum Lifecycle : uint<8> { reset }',
+    'enum Order : bit { priority }',
+    'module Top { out a:u8 a=enum_encode(Access.reserved) }',
+  ].join('\n'));
+  expectScope(lines[0], 'reserved', 'constant.other.enum.member.zlang');
+  expectScope(lines[1], 'reset', 'constant.other.enum.member.zlang');
+  expectScope(lines[2], 'priority', 'constant.other.enum.member.zlang');
+  assert.ok(!tokenFor(lines[3], 'reserved').scopes.some(
+    (scope) => scope.startsWith('invalid.illegal.'),
+  ));
+});
+
+test('long enum lists close every lexical scope before viewport boundaries', () => {
+  const source = Array.from({ length: 80 }, (_, index) => [
+    `enum RegisterState${index} : u8 {`,
+    '    reserved',
+    `    active = ${index + 1}`,
+    '    reset',
+    '    priority',
+    '}',
+  ].join('\n')).join('\n');
+  const { lines, stack } = tokenize(`${source}\nmodule AfterEnums {`);
+  assert.equal(stack.depth, 1, 'an enum TextMate scope leaked past its closing brace');
+  for (let index = 0; index < 80; index += 1) {
+    const header = lines[index * 6];
+    expectScope(header, `RegisterState${index}`, 'entity.name.type.enum.zlang');
+    for (const [offset, member] of [[1, 'reserved'], [2, 'active'], [3, 'reset'], [4, 'priority']]) {
+      expectScope(lines[index * 6 + offset], member, 'constant.other.enum.member.zlang');
+    }
+    const closing = lines[index * 6 + 5];
+    assert.ok(closing.tokens.every((token) => (
+      token.text === '}' || !token.scopes.includes('meta.enum.declaration.zlang')
+    )));
+  }
+  const sentinel = lines.at(-1);
+  const name = expectScope(sentinel, 'AfterEnums', 'entity.name.type.module.zlang');
+  assert.ok(!name.scopes.includes('meta.enum.declaration.zlang'));
 });
 
 test('enable is a directive only within a resource, not a CSR field', () => {

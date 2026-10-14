@@ -15,11 +15,11 @@ module MultiClockStateful {
     reg datapath_state : u8 @datapath_clk = 0
 
     rule CountControl @control_clk when control_enable {
-        control_state <- truncate<8>(control_state + 1)
+        control_state <- truncate(control_state + 1)
     }
 
     rule CountDatapath @datapath_clk when 1 {
-        datapath_state <- truncate<8>(datapath_state + 2)
+        datapath_state <- truncate(datapath_state + 2)
     }
 
     control_count = control_state
@@ -41,7 +41,7 @@ module StatefulSyncLevel {
 
     reg observed : u8 @destination_clk = 0
     rule Observe @destination_clk when destination_enable {
-        observed <- truncate<8>(observed + 1)
+        observed <- truncate(observed + 1)
     }
 
     observed_cycles = observed

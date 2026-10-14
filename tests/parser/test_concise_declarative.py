@@ -134,13 +134,12 @@ class ConciseDeclarativeSyntaxTests(unittest.TestCase):
         self.assertEqual(explicit.instances[0].module, "Child")
 
     def test_axi_csr_concise_and_verbose_forms_have_identical_backend_identity(self) -> None:
-        verbose = (self.ROOT / "examples/axi_csr_top.zhl").read_text()
-        concise = (
-            verbose.replace("    interface axi :", "    axi :")
-            .replace("    inst frontend :", "    frontend :")
-            .replace("    inst csr      :", "    csr      :")
-            .replace("    connect axi ->", "    axi ->")
-            .replace("    connect frontend.regbus ->", "    frontend.regbus ->")
+        concise = (self.ROOT / "examples/axi_csr_top.zhl").read_text()
+        verbose = (
+            concise.replace("    frontend :", "    inst frontend :")
+            .replace("    csr      :", "    inst csr      :")
+            .replace("    axi ->", "    connect axi ->")
+            .replace("    frontend.regbus ->", "    connect frontend.regbus ->")
         )
         verbose_ir = compile_source(verbose, top="AxiCsrTop").ir
         concise_ir = compile_source(concise, top="AxiCsrTop").ir

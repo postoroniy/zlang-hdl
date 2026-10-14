@@ -389,7 +389,7 @@ def test_typed_reads_require_binary_but_logic_reads_remain_available(
         assert instance.get_logic("y").to_bits() == "uuuu"
 
 
-def test_logic_plan_v12_uses_native_runtime_abi_v13() -> None:
+def test_logic_plan_v12_and_runtime_abi_v13_are_explicit() -> None:
     from zlang.simulation_plan_policy import (
         SIMULATION_PLAN_SCHEMA,
         SIMULATION_RUNTIME_ABI,

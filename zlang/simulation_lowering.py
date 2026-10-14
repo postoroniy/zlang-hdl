@@ -446,6 +446,7 @@ def lower_to_primitive_plan(
     payload: dict[str, Any],
     *,
     max_nodes: int,
+    scheduler_fire_nodes: dict[str, int] | None = None,
 ) -> dict[str, Any]:  # noqa: C901, PLR0915
     """Return a plan whose executable surface is only the primitive VM."""
 
@@ -544,6 +545,7 @@ def lower_to_primitive_plan(
         payload,
         builder,
         next_by_domain,
+        scheduler_fire_nodes,
     )
     for action in scheduled_storage_actions:
         if action["kind"] != "register_write":

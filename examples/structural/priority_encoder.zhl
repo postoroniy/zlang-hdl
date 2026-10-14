@@ -7,9 +7,9 @@ module PriorityEncoderWitness<N=16,IW=4> {
 
     winners = generate(i in 0..N)
         (requests[i] & ~reduce(|, generate(j in 0..N)
-            (requests[j] & (extend<IW>(j) < extend<IW>(i)))))
+            (requests[j] & (j < i))))
 
     valid = reduce(|, requests)
     selected = reduce(|, generate(i in 0..N)
-        mux(winners[i], extend<IW>(i), 0))
+        mux(winners[i], i, 0))
 }

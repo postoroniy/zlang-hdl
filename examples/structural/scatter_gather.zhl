@@ -10,5 +10,5 @@ module ScatterGatherWitness<N=8,IW=3> {
     gathered = generate(i in 0..N) input[index[i]]
     scattered_or = generate(dst in 0..N)
         reduce(|, generate(src in 0..N)
-            mux(enable[src] & (index[src] == extend<IW>(dst)), input[src], 0))
+            mux(enable[src] & (index[src] == dst), input[src], 0))
 }

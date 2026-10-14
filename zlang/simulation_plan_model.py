@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import cached_property
 import hashlib
 import json
@@ -24,6 +24,12 @@ class SimulationPlan:
     payload: dict[str, Any]
     canonical_bytes: bytes
     identity: str
+    # Compiler-only debugger metadata.  These node IDs point into ``payload``
+    # but are deliberately absent from canonical bytes and plan identity: a
+    # debugger overlay must never perturb the production execution product.
+    scheduler_fire_nodes: tuple[tuple[str, int], ...] = field(
+        default=(), compare=False, repr=False
+    )
 
     @cached_property
     def execution_identity(self) -> str:

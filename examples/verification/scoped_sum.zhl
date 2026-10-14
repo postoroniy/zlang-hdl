@@ -4,7 +4,7 @@ module ScopedSum {
     out total : u33 = a + b
 
     // Outside the contract: no input restriction applies to these goals.
-    assert carry_preserved { total >= extend<33>(a) }
+    assert carry_preserved { total >= a }
     assert addition_commutes { total == b + a }
 
     contract bounded_request {

@@ -65,8 +65,12 @@ async function main() {
       extensionInstallArguments({ vsix, extensions }),
       { version: toolchain.vscodeStable.version },
     );
-    const installed = path.join(extensions, 'postoroniy.zlang-hdl-0.1.0');
-    assert.ok(fs.existsSync(installed), `installed extension is missing: ${installed}`);
+    const installedNames = fs.readdirSync(extensions).filter((name) =>
+      name === 'postoroniy.zlang-hdl-0.1.0'
+      || name === 'postoroniy.zlang-hdl-0.1.0-linux-x64');
+    assert.equal(installedNames.length, 1,
+      `expected one installed ZLang extension, found: ${installedNames.join(', ')}`);
+    const installed = path.join(extensions, installedNames[0]);
     const child = spawnSync(executable, hostLaunchArguments({
       extensions, userData, installed, workspace,
     }), {

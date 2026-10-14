@@ -23,9 +23,9 @@ module RvBufferedLaneArray {
     out output0 : rv<u8>
     out output1 : rv<u8>
 
-    inst lane[2] : RvBufferedLane
-    connect input0 -> lane[0].input
-    connect lane[0].output -> output0
-    connect input1 -> lane[1].input
-    connect lane[1].output -> output1
+    lane[2] : RvBufferedLane
+    input0 -> lane[0].input
+    lane[0].output -> output0
+    input1 -> lane[1].input
+    lane[1].output -> output1
 }
