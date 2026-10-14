@@ -12,6 +12,11 @@ import sys
 
 from zlang import sim
 from zlang._version import __version__
+from zlang.cli_diagnostics import print_cli_diagnostic
+from zlang.common.atomic_io import publish_text_atomically
+from zlang.diagnostics import DiagnosticError
+from zlang.source_identity import SourceExtensionError
+from zlang.workspace import WorkspaceError
 
 
 MAX_EXPANDED_EVENTS = 1_000_000
@@ -344,8 +349,7 @@ def _write_vcd(
     for time in sorted(timeline):
         lines.append(f"#{time}")
         lines.extend(timeline[time])
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    publish_text_atomically(path, "\n".join(lines) + "\n")
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -491,7 +495,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     if (arguments.logic_assignments or arguments.initial_registers) and not (
         arguments.logic_state or arguments.strict_uninitialized
     ):
-        parser.error("--set-logic/--initial-reg require --logic-state")
+        parser.error(
+            "--set-logic/--initial-reg require --logic-state or "
+            "--strict-uninitialized"
+        )
     if arguments.trace_signal and arguments.trace is None:
         parser.error("--trace-signal requires --trace")
     if arguments.compare_with is not None and (
@@ -589,6 +596,18 @@ def main(argv: Sequence[str] | None = None) -> int:
                         events=trace_events,
                     )
         assert outputs is not None
+    except (
+        DiagnosticError,
+        SourceExtensionError,
+        WorkspaceError,
+    ) as error:
+        print_cli_diagnostic(
+            error,
+            source=arguments.source,
+            project=arguments.project,
+            program="zlang sim",
+        )
+        return 1
     except (
         OSError,
         ValueError,

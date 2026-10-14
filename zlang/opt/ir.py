@@ -729,8 +729,8 @@ class CanonicalModule:
                 if (
                     len(node.operands) != 1
                     or not isinstance(self.expressions[node.operands[0]].type, EnumType)
-                    or not isinstance(node.type, BitsType)
-                    or node.type.width != self.expressions[node.operands[0]].type.width
+                    or node.type
+                    != self.expressions[node.operands[0]].type.encoding_type
                 ):
                     raise ValueError(
                         f"canonical enum encode %{node.id} has invalid types"
@@ -740,7 +740,8 @@ class CanonicalModule:
                 if (
                     len(node.operands) != 1
                     or not isinstance(enum_type, EnumType)
-                    or self.expressions[node.operands[0]].type != BitsType(enum_type.width)
+                    or self.expressions[node.operands[0]].type
+                    != enum_type.encoding_type
                     or node.type != BitType()
                 ):
                     raise ValueError(
@@ -750,7 +751,8 @@ class CanonicalModule:
                 if (
                     len(node.operands) != 2
                     or not isinstance(node.type, EnumType)
-                    or self.expressions[node.operands[0]].type != BitsType(node.type.width)
+                    or self.expressions[node.operands[0]].type
+                    != node.type.encoding_type
                     or self.expressions[node.operands[1]].type != node.type
                 ):
                     raise ValueError(

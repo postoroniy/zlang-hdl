@@ -12,6 +12,7 @@ class TypeParserTests(unittest.TestCase):
             module Types {
                 in address: Address
                 in sample: Sample
+                in concise_generic: u<32>
                 in mask: bits<64>
                 out narrowed: uint<8>
                 narrowed = truncate<8>(address)
@@ -28,7 +29,7 @@ class TypeParserTests(unittest.TestCase):
         )
         self.assertEqual(
             [port.type_name.text for port in module.ports],
-            ["Address", "Sample", "bits<64>", "uint<8>"],
+            ["Address", "Sample", "u<32>", "bits<64>", "uint<8>"],
         )
         self.assertEqual(
             module.assignments[0].expression,
@@ -56,6 +57,8 @@ class TypeParserTests(unittest.TestCase):
     def test_zero_width_generic_type_is_rejected(self) -> None:
         with self.assertRaises(ParseError):
             parse("module Bad { in a: uint<0> out y: u1 y = a }")
+        with self.assertRaises(ParseError):
+            parse("module Bad { in a: u<0> out y: u1 y = a }")
 
 
 if __name__ == "__main__":

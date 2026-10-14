@@ -1189,10 +1189,12 @@ def test_cli_emits_text_or_json_report_without_mutating_bundle(
     assert json.loads(output) == json.loads(report_path.read_text())
     assert json.loads(output)["results"][0]["status"] == "bounded_pass"
 
-    assert verification_main([
-        str(tmp_path / "bundle"), "--report",
-        str(tmp_path / "bundle" / "run.json"),
-    ]) == 2
+    with pytest.raises(SystemExit) as raised:
+        verification_main([
+            str(tmp_path / "bundle"), "--report",
+            str(tmp_path / "bundle" / "run.json"),
+        ])
+    assert raised.value.code == 2
     assert "outside the immutable bundle" in capsys.readouterr().err
     assert not (tmp_path / "bundle" / "run.json").exists()
 

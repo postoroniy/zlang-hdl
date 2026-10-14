@@ -263,11 +263,12 @@ class GenericBinder:
             return
 
         scalar = re.fullmatch(
-            r"(uint|sint|bits)<([A-Za-z_][A-Za-z0-9_]*)>", syntax.text
+            r"(u|uint|sint|bits)<([A-Za-z_][A-Za-z0-9_]*)>", syntax.text
         )
         if scalar is not None:
             family, width_name = scalar.groups()
             expected_class = {
+                "u": ir_types.UIntType,
                 "uint": ir_types.UIntType,
                 "sint": ir_types.SIntType,
                 "bits": ir_types.BitsType,

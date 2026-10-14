@@ -45,6 +45,7 @@ ARTIFACT_SINK_ATTRIBUTES = (
 
 OWNED_OUTPUT_DIRECTORY_ATTRIBUTES = (
     "verification_bundle",
+    "verification_work_dir",
     "simulation_state_bundle",
     "formal_cache",
     "synthesis_cache",
@@ -579,6 +580,12 @@ def _validate_compile_arguments(
         parser.error("--verify-require requires --verify")
     if arguments.formal_jobs < 1:
         parser.error("--formal-jobs must be positive")
+    if arguments.formal_depth < 1:
+        parser.error("--formal-depth must be positive")
+    if arguments.formal_max_candidates < 1:
+        parser.error("--formal-max-candidates must be positive")
+    if arguments.formal_timeout < 1:
+        parser.error("--formal-timeout must be positive")
     if arguments.verilator_lint and arguments.systemverilog is None:
         parser.error("--verilator-lint requires --systemverilog")
     if arguments.simulation_state_bundle is not None and arguments.systemverilog is None:

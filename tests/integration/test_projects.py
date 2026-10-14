@@ -176,6 +176,40 @@ def test_lock_and_compiler_cli_project_flow(tmp_path: Path) -> None:
     assert "module Top" in systemverilog.read_text()
 
 
+def test_lock_update_reports_source_path_and_span_for_syntax_error(
+    tmp_path: Path,
+) -> None:
+    manifest, _, dependency = _project(tmp_path)
+    dependency.write_text(
+        "module Identity {\n  in x:u8\n  out y:u8\n  y =\n}\n",
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "zlang.project_cli",
+            "update",
+            "--project",
+            str(manifest),
+        ],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert result.stderr.startswith(
+        f"zlang lock: {dependency.resolve()}:5:1: "
+        "error[ZL-PARSE-001]: syntax error at line 5, column 1:"
+    )
+    assert "Traceback" not in result.stderr
+    assert not manifest.with_name("zlang.lock").exists()
+
+
 def test_project_diagnostic_is_structured_and_never_fetches(tmp_path: Path) -> None:
     manifest, top, _ = _project(tmp_path)
     result = subprocess.run(

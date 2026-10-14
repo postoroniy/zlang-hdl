@@ -59,6 +59,14 @@ def test_shared_decoder_reports_cycles_window_state_and_typed_values(
         3,
         (0, 4),
     )
+    unsigned_state = EnumType(
+        "UnsignedState",
+        ("Idle", "Done"),
+        "unsigned-state-declaration",
+        3,
+        (0, 4),
+        "uint",
+    )
     decoded = decode_vcd_trace(
         _vcd(tmp_path / "trace.vcd"),
         cycle=5,
@@ -67,6 +75,13 @@ def test_shared_decoder_reports_cycles_window_state_and_typed_values(
             TraceBinding("signed", "signed_value", 8, SIntType(8), "signed"),
             TraceBinding("fixed", "fixed_value", 8, FixedType(8, 4), "signed"),
             TraceBinding("state", "state", 3, state, "unsigned"),
+            TraceBinding(
+                "unsigned_state",
+                "state",
+                3,
+                str(unsigned_state),
+                "unsigned",
+            ),
             TraceBinding("lanes", "lanes", 8, VecType(2, UIntType(4)), "unsigned"),
             TraceBinding("reset", "reset", 1, BitType(), "bit"),
             TraceBinding("comparison_valid", "comparison_valid", 3, "bits<3>", "bits"),
@@ -84,6 +99,9 @@ def test_shared_decoder_reports_cycles_window_state_and_typed_values(
         '{"raw":-8,"type":"fixed<8,4>","value":"-1/2"}'
     )
     assert values["state"] == '{"code":4,"enum":"State.Done"}'
+    assert values["unsigned_state"] == (
+        '{"code":4,"enum":"UnsignedState.Done"}'
+    )
     assert values["lanes"] == "[3,10]"
     assert values["unknown"] == "x"
 

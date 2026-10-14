@@ -167,6 +167,54 @@ def test_transitive_project_diagnostic_reports_imported_file_and_exact_span(
     }
 
 
+def test_project_parse_diagnostic_reports_the_actual_imported_file(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "project"
+    sources = project / "src"
+    sources.mkdir(parents=True)
+    manifest = project / "zlang.toml"
+    manifest.write_text(
+        'schema=1\n[project]\nname="demo"\nversion="1"\nsource-root="src"\n'
+    )
+    leaf = sources / "leaf.zhl"
+    leaf.write_text("module Leaf { out y:u8 y=0 }\n")
+    top = sources / "top.zhl"
+    top.write_text(
+        "import demo.leaf\n"
+        "module Top {\n"
+        "  out y:u8\n"
+        "  y = 0\n"
+        "}\n"
+    )
+    update_project_lock(manifest)
+    leaf.write_text(
+        "module Leaf {\n"
+        "  out y:u8\n"
+        "  y =\n"
+        "}\n"
+    )
+
+    text = _run(top)
+    structured = _run(top, "json")
+
+    assert text.returncode == structured.returncode == 1
+    assert text.stderr.startswith(
+        f"zlang: {leaf.resolve()}:4:1: error[ZL-PARSE-001]: "
+        "syntax error at line 4, column 1:"
+    )
+    assert str(top) not in text.stderr
+    payload = json.loads(structured.stderr)
+    assert payload["code"] == "ZL-PARSE-001"
+    assert payload["primary"]["source_unit"] == "demo.leaf"
+    assert payload["primary"]["span"] == {
+        "start_line": 4,
+        "start_column": 1,
+        "end_line": 4,
+        "end_column": 2,
+    }
+
+
 def test_json_top_selection_and_io_errors_have_stable_codes(tmp_path: Path) -> None:
     source = tmp_path / "good.zhl"
     source.write_text("module Good { out y:u8 y=0 }")

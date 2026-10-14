@@ -136,7 +136,8 @@ def _check_functional_and_operator_expression(
         )
         if isinstance(left.type, ir_types.EnumType) or isinstance(right.type, ir_types.EnumType):
             raise SemanticError(
-                "arithmetic is not defined for enum values"
+                "arithmetic is not defined for enum values; use enum_encode "
+                "and an explicit numeric conversion when required"
             )
         if isinstance(left.type, ir_types.StructType) or isinstance(right.type, ir_types.StructType):
             return expression_operators.resolve_operator(

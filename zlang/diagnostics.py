@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
+from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 from zlang.source import SourceOrigin
@@ -148,6 +149,7 @@ class DiagnosticError(ValueError):
         notes: Iterable[str] = (),
         fixes: Iterable[str] = (),
         machine_fixes: Iterable[DiagnosticFix] = (),
+        physical_source: Path | None = None,
     ) -> None:
         super().__init__(message)
         self.diagnostic = Diagnostic(
@@ -158,6 +160,7 @@ class DiagnosticError(ValueError):
             tuple(fixes),
         )
         self.machine_fixes = tuple(machine_fixes)
+        self.physical_source = physical_source
         if any(
             not isinstance(fix, DiagnosticFix) for fix in self.machine_fixes
         ):
@@ -182,6 +185,41 @@ class DiagnosticError(ValueError):
         return self.diagnostic.fixes
 
 
+def bind_diagnostic_source(
+    error: DiagnosticError,
+    *,
+    source_unit: str,
+    digest: str,
+    physical_source: Path,
+) -> DiagnosticError:
+    """Bind a source-less diagnostic to one validated indexed source.
+
+    Parsing happens before AST source identities can be attached.  The module
+    resolver is therefore the authoritative owner of this binding: it knows
+    the logical unit, exact bytes and validated physical path at the same time.
+    The physical path is presentation metadata and deliberately remains out of
+    the stable, relocatable diagnostic JSON payload.
+    """
+
+    primary = error.primary
+    if primary is not None:
+        primary = SourceOrigin(
+            primary.span,
+            primary.construct,
+            source_unit,
+            digest,
+        )
+    return type(error)(
+        str(error),
+        code=error.code,
+        primary=primary,
+        notes=error.notes,
+        fixes=error.fixes,
+        machine_fixes=error.machine_fixes,
+        physical_source=physical_source,
+    )
+
+
 def diagnostic_from_exception(
     error: BaseException,
     *,
@@ -200,5 +238,6 @@ __all__ = [
     "DiagnosticEdit",
     "DiagnosticError",
     "DiagnosticFix",
+    "bind_diagnostic_source",
     "diagnostic_from_exception",
 ]

@@ -88,9 +88,11 @@ EXPECTED = {
     # own source units.  Physical input bytes and module/dependency identities
     # deliberately participate in this eager surface, so this source-layout
     # change advances the digest while focused behavioral, RTL and source-map
-    # checks retain their separate contracts.  Two fresh processes reproduced
-    # the updated value before recapture.
-    "wifi": "6dfef30366e53ac5f82928b72ab783b9f23186bd592cb8c4b080516309e2219e",
+    # checks retain their separate contracts.  Encoded enum identities now
+    # also retain their exact bit/u backing type, which intentionally advances
+    # this enum-bearing eager-result surface without changing RTL behavior.
+    # Two fresh processes reproduced the updated value before recapture.
+    "wifi": "bac6f275dc51b5d06bfdd609337665f4654b8a0d136cead997baa253d99cd745",
 }
 
 
