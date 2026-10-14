@@ -11,6 +11,35 @@ incompatible input explicitly.
 
 ## Unreleased
 
+## 0.1.0a24 — 2026-10-14
+
+Alpha update making Rust the sole executable owner of native two-state and
+per-bit `0`/`1`/`U`/`X` simulation, extending nominal enum declarations, and
+hardening CLI diagnostics. Native runtime ABI v13 replaces ABI v12; the
+SimulationPlan hardware schema and Direct-SystemVerilog semantics are
+unchanged.
+
+### Added
+
+- Nominal enums accept exact `bit`, `bits<W>`, and unsigned
+  `uN`/`u<W>`/`uint<W>` backing types. Members may mix implicit and explicit
+  codes; implicit values start at zero or continue from the preceding resolved
+  value. `enum_encode` remains the explicit arithmetic boundary.
+
+### Changed
+
+- Rust is now the sole executable owner of both two-state and four-state native
+  simulation. Python retains orchestration and immutable logic-value DTOs but
+  contains no shadow state machine or fallback evaluator. Native JSONL events,
+  resets, memories, rollback, tracing, and U/X propagation use ABI v13.
+
+### Fixed
+
+- CLI parse, semantic, project-lock, simulation, verification, and toolchain
+  failures now retain the exact source file, line, column, stable diagnostic
+  code, and atomic output behavior instead of exposing internal exceptions or
+  attributing imported-source failures to the requested top-level file.
+
 ## 0.1.0a23 — 2026-10-13
 
 Corrective alpha restoring the reviewed dependency floors lost during the a21

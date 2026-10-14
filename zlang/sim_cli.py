@@ -575,10 +575,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     )
                 else:
                     if program.logic_state and not program.strict_uninitialized:
-                        instance._native.eval()
-                        assert instance._logic is not None
-                        instance._logic.evaluate()
-                        native_outputs = instance.outputs_logic()
+                        native_outputs = instance.eval()
                     else:
                         native_outputs = instance.eval()
                 if arguments.compare_with is None:

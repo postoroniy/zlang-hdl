@@ -124,8 +124,6 @@ class SimulationEventRunner:
                 except (ValueError, RuntimeError) as error:
                     simulator._raise_instrumentation_failure(error)
                     raise SimulationRuntimeError(str(error)) from error
-                assert simulator._logic is not None
-                simulator._logic.evaluation_event()
             results.append(simulator._step_outputs())
         return results
 

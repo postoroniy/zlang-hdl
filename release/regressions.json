@@ -1,71 +1,60 @@
 {
   "entries": [
     {
-      "id": "REL-005",
+      "id": "CLI-001",
       "source_paths": [
-        ".github/workflows/codeql.yml",
-        "editors/vscode/zlang-hdl/package-lock.json",
-        "pyproject.toml",
-        "tests/release/test_dependency_floor.py",
-        "tools/audit_dependency_floor.py",
-        "tools/release_preflight.py"
+        "tests/integration/test_cli_diagnostics.py",
+        "tests/integration/test_projects.py",
+        "tests/test_cli_hardening.py",
+        "zlang/cli_diagnostics.py",
+        "zlang/module_resolver.py",
+        "zlang/project_cli.py",
+        "zlang/workspace.py"
       ],
       "status": "included",
-      "summary": "Release review rejects dependency, action, build-tool, and EDA version downgrades relative to the previous public tag.",
+      "summary": "CLI and project commands preserve exact source attribution, stable diagnostics, and atomic publication across parser, semantic, lock, simulation, verification, and tool failures.",
       "tests": [
-        "tests/release/test_dependency_floor.py::test_dependency_floor_accepts_equal_or_newer_versions",
-        "tests/release/test_dependency_floor.py::test_dependency_floor_rejects_history_projection_downgrades"
+        "tests/integration/test_cli_diagnostics.py::test_project_parse_diagnostic_reports_the_actual_imported_file",
+        "tests/integration/test_cli_diagnostics.py::test_transitive_project_diagnostic_reports_imported_file_and_exact_span",
+        "tests/integration/test_projects.py::test_lock_update_reports_source_path_and_span_for_syntax_error",
+        "tests/test_cli_hardening.py::test_failed_verilator_launch_does_not_publish_final_rtl"
       ]
     },
     {
-      "id": "ZL-049",
+      "id": "SIM-001",
       "source_paths": [
-        "tests/simulation/test_native_jit_verification.py",
-        "zlang/simulation_plan_build.py",
-        "zlang/simulation_verification_plan.py"
+        "tests/simulation/test_logic_state.py",
+        "zlang/sim.py",
+        "zlang/simulation_logic.py"
       ],
       "status": "included",
-      "summary": "Native verification expressions bind registered-output reads to the same runtime state slots as ordinary hardware expressions.",
+      "summary": "Native ABI v13 makes Rust the sole executable owner of binary and per-bit 0/1/U/X simulation while Python retains immutable value DTOs and orchestration without a fallback evaluator.",
       "tests": [
-        "tests/simulation/test_native_jit_verification.py::test_verification_reads_registered_output_through_its_runtime_state_slot"
+        "tests/simulation/test_logic_state.py::test_controlling_values_resolve_u_and_x_per_bit",
+        "tests/simulation/test_logic_state.py::test_native_edge_failure_rolls_back_logic_state_and_trace",
+        "tests/simulation/test_logic_state.py::test_python_logic_surface_is_dto_only"
       ]
     },
     {
-      "id": "ZL-050",
+      "id": "ZL-052",
       "source_paths": [
-        "stdlib/bus/ahb_lite.zhl",
-        "stdlib/bus/apb.zhl",
-        "stdlib/bus/axi4.zhl",
-        "stdlib/bus/axi4_exclusive.zhl",
-        "stdlib/bus/axi4_subordinate.zhl",
-        "stdlib/bus/axi4_user_subordinate.zhl",
-        "stdlib/bus/axi_burst.zhl",
-        "stdlib/bus/axi_lite.zhl",
-        "stdlib/bus/axi_stream.zhl",
-        "stdlib/bus/reg.zhl",
-        "stdlib/bus/wishbone.zhl",
-        "tests/integration/test_ahb_lite.py",
-        "tests/semantic/test_ahb_lite.py",
-        "tests/semantic/test_standard_bus_reset_contracts.py",
-        "zlang/compilation_session.py",
-        "zlang/compiler.py",
-        "zlang/incremental_workspace.py",
-        "zlang/sim.py"
+        "tests/integration/test_encoded_enum_backends.py",
+        "tests/parser/test_enums.py",
+        "tests/semantic/test_encoded_enums.py",
+        "zlang/ir/types.py",
+        "zlang/parser/grammar.lark",
+        "zlang/semantic/type_resolution.py"
       ],
       "status": "included",
-      "summary": "Reusable source-authored standard-bus cores inherit one exact enclosing clock/reset contract while physical pin boundaries remain explicit and ambiguous or incompatible hierarchy remains fail-closed.",
+      "summary": "Nominal enums accept exact bit, raw-bits, and unsigned backing types with deterministic mixed implicit and explicit member codes; enum_encode remains the explicit arithmetic boundary.",
       "tests": [
-        "tests/integration/test_ahb_lite.py::test_source_bridge_uses_inherited_sync_reset_in_native_plan_and_rtl",
-        "tests/semantic/test_ahb_lite.py::test_ahb_lite_inherits_exact_parent_reset_contract",
-        "tests/semantic/test_ahb_lite.py::test_ahb_lite_rejects_ambiguous_multidomain_inheritance",
-        "tests/semantic/test_standard_bus_reset_contracts.py::test_composed_axi_core_inherits_domain_through_all_children",
-        "tests/semantic/test_standard_bus_reset_contracts.py::test_explicit_root_domain_compiles_an_inherited_core_without_a_wrapper",
-        "tests/semantic/test_standard_bus_reset_contracts.py::test_only_physical_bus_boundaries_declare_a_fixed_domain",
-        "tests/semantic/test_standard_bus_reset_contracts.py::test_register_bus_bridges_inherit_each_exact_parent_contract"
+        "tests/integration/test_encoded_enum_backends.py::test_direct_sv_uint_backed_enum_preserves_numeric_boundary",
+        "tests/parser/test_enums.py::test_explicit_enum_preserves_backing_type_and_sparse_codes",
+        "tests/semantic/test_encoded_enums.py::test_implicit_enum_codes_follow_the_previous_resolved_code"
       ]
     }
   ],
-  "previous_tag": null,
-  "release": "0.1.0a23",
+  "previous_tag": "v0.1.0a23",
+  "release": "0.1.0a24",
   "schema": 1
 }

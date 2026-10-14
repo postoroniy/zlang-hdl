@@ -14,8 +14,10 @@ from zipfile import ZipFile, ZipInfo
 
 ALLOWED_LICENSE_IDS = frozenset(
     {
+        "0BSD",
         "Apache-2.0",
         "BSD-2-Clause",
+        "BSD-3-Clause",
         "LLVM-exception",
         "MIT",
         "Unicode-3.0",
@@ -145,10 +147,6 @@ def _sbom_inventory(archive: ZipFile) -> dict[tuple[str, str], frozenset[str]]:
         licenses = component.get("licenses")
         if not isinstance(name, str) or not isinstance(version, str):
             raise NativeBinaryAuditError("wheel SBOM component has no name/version")
-        if purl != f"pkg:cargo/{name}@{version}":
-            raise NativeBinaryAuditError(
-                "wheel SBOM component has no exact Cargo package URL"
-            )
         if not isinstance(licenses, list) or len(licenses) != 1:
             raise NativeBinaryAuditError("wheel SBOM component has invalid licenses")
         license_record = licenses[0]
@@ -158,6 +156,23 @@ def _sbom_inventory(archive: ZipFile) -> dict[tuple[str, str], frozenset[str]]:
         if not isinstance(expression, str):
             raise NativeBinaryAuditError(
                 "wheel SBOM component has no license expression"
+            )
+        exact_purl = f"pkg:cargo/{name}@{version}"
+        if name == "zlang-simulation-core":
+            if not isinstance(purl, str) or not purl.startswith(
+                exact_purl + "?download_url=file://"
+            ):
+                raise NativeBinaryAuditError(
+                    "wheel SBOM internal simulation core has no exact local Cargo URL"
+                )
+            if license_ids(expression) != frozenset({"Apache-2.0"}):
+                raise NativeBinaryAuditError(
+                    "wheel SBOM internal simulation core is not Apache-2.0"
+                )
+            continue
+        if purl != exact_purl:
+            raise NativeBinaryAuditError(
+                "wheel SBOM component has no exact Cargo package URL"
             )
         key = (name, version)
         if key in result:
