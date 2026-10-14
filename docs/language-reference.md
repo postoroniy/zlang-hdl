@@ -125,8 +125,8 @@ python -m pip install -e '.[test]'
 ```
 
 This fallback needs a compatible interpreter and `venv` support from the host.
-Do not replace or upgrade the operating system's own Python merely to install
-ZLang; use `uv` or an isolated virtual environment.
+ZLang should be installed with `uv` or an isolated virtual environment, leaving
+the operating system's own Python unchanged.
 
 <a id="reference-installing-toolchain-windows-through-wsl2"></a>
 ### Windows through WSL2
@@ -155,8 +155,8 @@ uv run --no-sync zlang examples/add.zhl --check
 ```
 
 `uv run --no-sync` uses the already-created project environment without
-changing dependencies. In scripts, either activate the environment first or
-use `uv run --no-sync`; do not depend on a user's interactive shell state.
+changing dependencies. Scripts should either activate the environment first or
+use `uv run --no-sync`, making them independent of interactive shell state.
 
 <a id="reference-installing-toolchain-check-and-run-zlang"></a>
 ### Check and run ZLang
@@ -223,8 +223,8 @@ or add its `bin` directory to `PATH`:
 export PATH="/absolute/path/to/oss-cad-suite/bin:$PATH"
 ```
 
-Use an absolute installation path. Do not copy individual binaries out of the
-suite because Yosys and SymbiYosys also use adjacent data and support files.
+Use an absolute installation path and keep the suite intact because Yosys and
+SymbiYosys also use adjacent data and support files.
 See the upstream OSS CAD Suite release page linked above for supported
 archives and platform details.
 
@@ -2060,9 +2060,9 @@ A simple ordered chain may instead be written as:
 priority first > second > third
 ```
 
-This syntax expands to the existing adjacent edges `first > second` and
-`second > third`. It does not invent extra edges or infer priority from source
-order; retain the block/pair form for any other priority graph.
+This syntax expands to the adjacent edges `first > second` and
+`second > third`. Only declared edges participate; source order adds no
+priority. Use the block/pair form for any other priority graph.
 
 <a id="reference-sequential-state-storage-fifos"></a>
 ### FIFOs
@@ -2092,8 +2092,9 @@ rule replace when rotate {
 }
 ```
 
-Do not mix rule-owned actions with globally driven `.push`/`.pop` controls. An
-illegal resource action suppresses the whole rule.
+Rule-owned FIFO actions and globally driven `.push`/`.pop` controls are mutually
+exclusive ownership forms. An illegal resource action suppresses the whole
+rule.
 
 Rule scheduling selects the lexicographically highest-priority **legal atomic
 set**, not each rule independently. Thus a push on a full FIFO may fire with a
@@ -3990,8 +3991,8 @@ have at most one objective.
 
 If an objective is omitted, selection defaults to `minimize lut`. Frequency may
 only be maximized; resources and latency may only be minimized. II has no
-objective form. Constraints are filters, not requests to invent a new
-architecture: for example, `ii <= 4` may select an existing II=1 choice.
+objective form. Constraints filter the available architectures rather than
+creating new ones: for example, `ii <= 4` may select an existing II=1 choice.
 
 `pipeline(N) { expression }` is different from `implement`. It always specifies
 exactly `N` cycles of visible latency. An `implement` block instead allows the
@@ -4126,9 +4127,9 @@ module SharedMultiply {
 Only one transaction is active. While computation or an unconsumed result is
 present, new input is blocked. When `output.valid && output.ready` retires a
 result, the block may accept the next input on the same edge; this is why the
-implemented contract is II 4 rather than II 5. A stalled output remains valid
-with stable payload, and input readiness remains low until retirement is
-possible.
+`RETIRE_AND_RELOAD` schedule has II 4 rather than II 5. A stalled output
+remains valid with stable payload, and input readiness remains low until
+retirement is possible.
 
 This is not general HLS. It does not support overlapping transactions, modulo
 scheduling, arbitrary arithmetic graphs, more products, fixed-point temporal
@@ -4768,8 +4769,8 @@ canonical typed value IR
 
 Egglog changes only pure zero-latency values. It does not insert registers or
 name FPGA primitives. The scheduler assigns exact cycles and alignment delays,
-but does not invent algebraic equalities. Resource matchers bind already typed
-operations or subgraphs to source-described resources. `ScheduledValueGraph`
+and applies only registered exact algebraic equalities. Resource matchers bind
+already typed operations or subgraphs to source-described resources. `ScheduledValueGraph`
 is the authoritative physical bridge consumed by verification and RTL emission.
 
 The production rewrite path has one bounded egglog engine. For an eligible
@@ -5424,8 +5425,7 @@ than emitting a partial module. Public port names are stable; private helper
 names are not a source-language interface and should not be referenced by user
 code.
 
-The former `--experimental-systemverilog` option is not supported. Use
-`--systemverilog` for file output or the bare command for stdout.
+Use `--systemverilog` for file output or the bare command for stdout.
 
 <a id="reference-direct-systemverilog"></a>
 ## Direct-SV
@@ -5541,9 +5541,8 @@ zlang examples/simple_dma.zhl --top SimpleDMA \
 verilator --lint-only --top-module SimpleDMA build/SimpleDMA.sv
 ```
 
-The retired hidden `--experimental-systemverilog` option is deliberately
-rejected. `--systemverilog` is an explicit artifact sink: it writes only the requested SV file and
-leave stdout empty. A bare `zlang SOURCE` invocation emits the production
+`--systemverilog` is an explicit artifact sink: it writes only the requested
+SV file and leaves stdout empty. A bare `zlang SOURCE` invocation emits the production
 Direct-SV artifact to stdout. Diagnostics remain on stderr.
 
 Use `--verbose` when an explicit success confirmation is useful:
@@ -6213,7 +6212,8 @@ The JSON object has `schema`, `severity`, `code`, `message`, `primary`,
 `str(error)`. Categories initially carrying specific codes include parsing,
 imports, width assignment, timing alignment, domain crossing, protocol
 ownership/type, top selection, I/O, and backend binding failures. Unmigrated
-errors use a stable generic category rather than inventing meaning from text.
+errors use a stable generic category rather than inferring semantic meaning
+from diagnostic text.
 
 Backend output can additionally publish a hash-bound
 [generated source map](#reference-generated-source-maps). External-tool attribution is

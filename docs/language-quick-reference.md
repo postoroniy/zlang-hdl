@@ -18,8 +18,8 @@ exact width tables and supported forms, follow the linked topic guide.
   schedules next state at the active clock edge.
 - Assignment types are exact. There is no implicit resize, signedness change,
   fixed-point rescale, protocol adapter, or clock-domain crossing.
-- Do not invent `let`, `const`, `var`, `return`, semicolons, C-style
-  `input`/`output`, or runtime procedural `if`.
+- ZLang has no `let`, `const`, `var`, `return`, semicolons, C-style
+  `input`/`output`, or runtime procedural `if` syntax.
 - `if` is compile-time elaboration only. Use `?:`, `mux`, or `switch` for pure
   runtime values; use `when`/`else when`/`else`, `priority`, or `fsm` for state
   actions.
@@ -28,8 +28,8 @@ exact width tables and supported forms, follow the linked topic guide.
 - `pipeline(N) { expression }` is exact N-cycle hardware, not an optimization
   request. Protocol `transform pipeline(auto, ...)` is a separate bounded
   ready/valid construct and remains supported.
-- Unsupported combinations fail with a diagnostic. Do not work around one by
-  guessing generated signal names.
+- Unsupported combinations fail with a diagnostic. Generated signal names are
+  not a source-language interface.
 
 ## Smallest valid modules
 
@@ -93,8 +93,8 @@ and `SF_Sat8.8`.
 - `a + b` and `a - b` follow the documented exact result-width rules;
   multiplication returns the full product width. Shifts preserve left width.
 - Use `extend<N>` and `truncate<N>` for width changes.
-- Use `quantize<T>` for explicit fixed-point rounding/overflow. Do not move a
-  quantization boundary into products or reductions.
+- `quantize<T>` provides explicit fixed-point rounding/overflow. Its placement
+  is part of the computation and cannot be moved into products or reductions.
 - Compile-time `pi`, `sin`, `cos`, `log2`, `log`, `exp`, and `sqrt` generate
   constants only; non-integral results require explicit `quantize<T>`.
 - Use `bitcast<T>` only for equal-width representation changes. `pack`/`unpack`
@@ -148,7 +148,8 @@ qualifier but does not create a runtime namespace.
 
 - Declare one default synchronous domain with `clock clk reset rst`.
 - `async reset arst @clk` means asynchronous assertion and fixed two-edge
-  synchronized release. Do not emulate reset modes in user logic.
+  synchronized release. Reset modes are expressed by the clock/reset
+  declarations rather than user logic.
 - Add `release externally_synchronized` only when deassertion is already
   synchronized outside; no internal 2FF is emitted.
 - `reg q:T = VALUE` resets to `VALUE`; `reg q:T` has no reset branch.

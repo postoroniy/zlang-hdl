@@ -1,5 +1,5 @@
 {
-  "config_sha256": "ca754c759a0c23c13c1a104393f333c8112f149ca35844eba94dd61678d1d3eb",
+  "config_sha256": "d213ff5af4a62db21b7f2a93f94a01921ef66ecbf5ec0c7e67e7a31e90bfde53",
   "files": [
     {
       "mode": "0644",
@@ -219,7 +219,7 @@
     {
       "mode": "0644",
       "path": "docs/ZLang-HDL-Language-Reference.pdf",
-      "sha256": "4bdfa455e922dc6d7d5624e54aa1a71037c6b518e363cf1b8d654848853bb228"
+      "sha256": "0cab8913fb7fe2cb6dfced2a53fffbbf7fe244146bda9c7dddbb074f0200ce83"
     },
     {
       "mode": "0644",
@@ -229,12 +229,12 @@
     {
       "mode": "0644",
       "path": "docs/language-quick-reference.md",
-      "sha256": "8da2a3da72d89bef7a1a8becba8df73b770c36a6816e8a06c1c6c3a7e3feb09c"
+      "sha256": "c3cfa95fe115f8249e2fc6b18cccb5d910c45be5fd1017713249a6c310168e38"
     },
     {
       "mode": "0644",
       "path": "docs/language-reference.md",
-      "sha256": "6e445392d1474d5a31e0a6fda5d25b01cd2b8e25d3e310ca3a1ea36037f05a06"
+      "sha256": "7489e20eaaa868b3414f8353be773165402fb80585510d9d2359bc01b1fc82bf"
     },
     {
       "mode": "0644",
@@ -260,6 +260,91 @@
       "mode": "0644",
       "path": "docs/native-debugging.md",
       "sha256": "4448856777b665959a58295e08156975f18d304a4933b6474a1213ae1442a73d"
+    },
+    {
+      "mode": "0644",
+      "path": "docs/reference/01-why-zlang.md",
+      "sha256": "017cfe4e3e2845635b0c17f205d35dada034a53ca821a990caed913935ead7ed"
+    },
+    {
+      "mode": "0644",
+      "path": "docs/reference/02-quick-start.md",
+      "sha256": "5bd6426c16255425371e6c087bfbf1d52faee16e457d062b63fff5436c86275c"
+    },
+    {
+      "mode": "0644",
+      "path": "docs/reference/03-implementation-intent.md",
+      "sha256": "015a69ac99cdd7b1ed1985a58af325c1c0ebfe41dac9874620b66e4b5ad918f4"
+    },
+    {
+      "mode": "0644",
+      "path": "docs/reference/04-simulation-verification.md",
+      "sha256": "3ad9928de172d68a8457d91044f99a18686c41bc6d15cda86a6f1eb2d2990022"
+    },
+    {
+      "mode": "0644",
+      "path": "docs/reference/05-types.md",
+      "sha256": "70609b6e6cf29ab24cde86413ea1aad136c221bb75babcd8532831b46dd48e7d"
+    },
+    {
+      "mode": "0644",
+      "path": "docs/reference/06-expressions.md",
+      "sha256": "7d4593d0633142b52edfe2b2d3049639da3ecf3bd72797cf4851f54d36b9027e"
+    },
+    {
+      "mode": "0644",
+      "path": "docs/reference/07-state-clocks.md",
+      "sha256": "b4bc4c8a75f0f08190781eeb34edb89b153ca87bbda9ee74ba04472cf9597b37"
+    },
+    {
+      "mode": "0644",
+      "path": "docs/reference/08-hierarchy-protocols.md",
+      "sha256": "2ce8292b14671a8299a72d72b52224bd3c9e119065460e4c2293fdb030487e5c"
+    },
+    {
+      "mode": "0644",
+      "path": "docs/reference/09-storage.md",
+      "sha256": "ad99761fc074263927bc05cdf5d2c7eaf00c105360d71cef443ce945d8fe7a3f"
+    },
+    {
+      "mode": "0644",
+      "path": "docs/reference/10-stdlib-buses.md",
+      "sha256": "db8f66c52ecd58c614db669bab989c9203743a69e8064b46535cb863b2abb8b2"
+    },
+    {
+      "mode": "0644",
+      "path": "docs/reference/11-projects.md",
+      "sha256": "5b40fbc9b755390bd36be5221e4ba88172e68fde8f6704ad1f670c83954c567f"
+    },
+    {
+      "mode": "0644",
+      "path": "docs/reference/12-profiles-targets.md",
+      "sha256": "fb81f8a8edca302306955eddeb6ccbc75817709ca7e194598f9ce27232fbfe18"
+    },
+    {
+      "mode": "0644",
+      "path": "docs/reference/13-rtl.md",
+      "sha256": "b5fcce04c4b11bfb24137c40cae55160abd5aaa3e009536139ea4ec39ec15bfe"
+    },
+    {
+      "mode": "0644",
+      "path": "docs/reference/14-installation.md",
+      "sha256": "3a625665da5af65511802ffa6fa48710b3bf0982131f3c5333a7a775c48813c2"
+    },
+    {
+      "mode": "0644",
+      "path": "docs/reference/15-limitations.md",
+      "sha256": "d29af4cc11a4cfc8091ef9aeef0772983f360667708786ccec1e9ec7b2b6fa0c"
+    },
+    {
+      "mode": "0644",
+      "path": "docs/reference/README.md",
+      "sha256": "6b309d8682aa6f91a3f1ac93d8b71e2fe835ac2bd8174f5a2e207e337e9a1d48"
+    },
+    {
+      "mode": "0644",
+      "path": "docs/reference/appendix-quick-reference.md",
+      "sha256": "4dc18728d8ac64c3082ec6f48647dab984b374931884854d807ac8bc315d44ac"
     },
     {
       "mode": "0644",
@@ -1214,7 +1299,7 @@
     {
       "mode": "0644",
       "path": "release/status.json",
-      "sha256": "84465d83b57eda884d59006c3882b558529e50b4dac472ada5abf36f52a12fc4"
+      "sha256": "de663bbd40c161d3f13f6fa127c56e2b6053b347b33978576804cb84683ca1cf"
     },
     {
       "mode": "0644",
@@ -4254,7 +4339,7 @@
     {
       "mode": "0644",
       "path": "tools/release_status.py",
-      "sha256": "13617ec525c137580f31d56e78bbf6b88d8a3ae309a0c44e500a4913c0659ccb"
+      "sha256": "fcf4140fb40075a38f936d24fc1e7b013b557eba44143a0e158a4225cf3d94ee"
     },
     {
       "mode": "0755",
