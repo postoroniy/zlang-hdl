@@ -42,10 +42,13 @@ VERILATOR = shutil.which("verilator")
 # pop/push and reset-suppressed public handshakes), unbuffered
 # request/response, directional request/response FIFOs with a stateful
 # mixed-port child, and source-authored aggregate bus/CSR hierarchy.
+# The concise-example pass changed only source-owned binding locations for
+# ProtocolTop and SimpleDMA. Their RTL digests and binding counts remain fixed;
+# the JSON digests below deliberately bind the updated source-map origins.
 EXPECTED_ARTIFACTS = {
     ("hierarchical_protocol.zhl", "ProtocolTop"): (
         "f5d21496e9bf9f2ab7ec2bc22425eed42112200c9ab1de1339bab221973377f9",
-        "93fe3622edfcf7f4184ac2e11a06f39a7af1a3fbb3a7affa5c8173be11cd502a",
+        "27b5be46635bc51a1ee27525a50e8088a96927cc96ba6e9624da246f43cb50e5",
         19,
     ),
     ("hierarchical_request_response.zhl", "HierarchicalRequestResponse"): (
@@ -58,7 +61,7 @@ EXPECTED_ARTIFACTS = {
         # rule and therefore use the explicitly distinct helper family after
         # ordinary ready/valid FIFOs gained full pop/push replacement.
         "e3bfb9419d22d605c8fa636e8e8c7b6e841eceaff3fa14271983eed8631ae3b2",
-        "5300f768dc79b674ae3dc926e8bc1963ad187d9b2e6ec5421d9f447eb3c934d1",
+        "3d9b6e563d959b50cf2840b7a793c577ff7ae472079cacdf5ae1778d331c6e80",
         29,
     ),
     ("axi_csr_top.zhl", "AxiCsrTop"): (

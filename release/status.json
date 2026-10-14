@@ -18,9 +18,37 @@
       "manylinux_2_28_x86_64"
     ]
   },
+  "native_editor": {
+    "contracts": {
+      "debug_adapter": "zlang-debug-adapter-v1",
+      "debug_bundle": "zlang-native-debug-bundle-v1",
+      "waveform_query": "zlang-waveform-query-v2",
+      "waveform_trace": "zlang-waveform-trace-v1"
+    },
+    "executables": [
+      {
+        "name": "zlang-debug-adapter",
+        "path": "release/native-editor/linux-x64/zlang-debug-adapter",
+        "sha256": "aa2d424527706b48203bb49450757bb1e8e9527dfaf156d0930602fdf0096c05",
+        "size": 6293336
+      },
+      {
+        "name": "zlang-waveform-indexer",
+        "path": "release/native-editor/linux-x64/zlang-waveform-indexer",
+        "sha256": "32a89041e8b818940fb050e8f9e0e5e4eef3900486f6168c21be86193a666d03",
+        "size": 1186280
+      }
+    ],
+    "platform": "linux-x64",
+    "source_distribution": false,
+    "third_party_licenses": {
+      "path": "release/native-editor/THIRD_PARTY_LICENSES.md",
+      "sha256": "f8b67cabb37b33b8f6541663a9f7f4f59028387e0adf672b5df887ce0ad84e17"
+    }
+  },
   "validation": {
-    "minimum_tests_passed": 4477,
-    "minimum_tests_collected": 4477,
+    "minimum_tests_passed": 4485,
+    "minimum_tests_collected": 4485,
     "maximum_tests_skipped": 0,
     "example_corpus": {
       "source_files": 112,

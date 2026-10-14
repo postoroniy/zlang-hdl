@@ -1,5 +1,5 @@
 {
-  "config_sha256": "98cdb8fdc140e3cfec6d9b9c082466ac0955a4b26b025f1f944baefad31d31c6",
+  "config_sha256": "ca754c759a0c23c13c1a104393f333c8112f149ca35844eba94dd61678d1d3eb",
   "files": [
     {
       "mode": "0644",
@@ -49,7 +49,7 @@
     {
       "mode": "0644",
       "path": ".github/workflows/ci.yml",
-      "sha256": "88c49aacbf202108d6d30049e3382912b3bdbf657f0b38b79450165ffbb56690"
+      "sha256": "fccb822c814855515a68ab1062e709e7d09b42080f84900e46fa3c383ba0dc3a"
     },
     {
       "mode": "0644",
@@ -79,7 +79,7 @@
     {
       "mode": "0644",
       "path": ".github/workflows/release.yml",
-      "sha256": "562f21fb41ff09cd3c8f50ddcbd13e75c9096dd9d2075b3035d136abc527d84c"
+      "sha256": "99a24edac5ef8433133a05c573ad9f6cc4683f12242c6e1ed3a3d4c008646168"
     },
     {
       "mode": "0644",
@@ -139,7 +139,7 @@
     {
       "mode": "0644",
       "path": "CHANGELOG.md",
-      "sha256": "d17cf4386ecec1d8698b3233fd426c55b89befb5eb826f3abed5afa5f2c876c6"
+      "sha256": "1de9215fbad053a72bce915ece67acdd133cd7c0f74deeb74d637d1fd536273a"
     },
     {
       "mode": "0644",
@@ -184,7 +184,7 @@
     {
       "mode": "0644",
       "path": "Makefile",
-      "sha256": "e7227b0973143060e6599bebf04904e94be96ee412af8dbfb835efa773764696"
+      "sha256": "9570cd0eff129ff64ef4e7c25ed9bf2e57a438cd8425fce99fc628aea6ed0cb9"
     },
     {
       "mode": "0644",
@@ -259,7 +259,7 @@
     {
       "mode": "0644",
       "path": "docs/native-debugging.md",
-      "sha256": "169a87422d7eeaecd1ed52aa0d69d171bf73f60749bf7199041954be473623ae"
+      "sha256": "4448856777b665959a58295e08156975f18d304a4933b6474a1213ae1442a73d"
     },
     {
       "mode": "0644",
@@ -309,12 +309,12 @@
     {
       "mode": "0644",
       "path": "editors/vscode/zlang-hdl/CHANGELOG.md",
-      "sha256": "00d77af5758e6a75f51c271824967f488086bf1fe07e0546dd0223c88e5eb944"
+      "sha256": "4dbfc269ce1135e63d8589d4effaf1c843c631e96d288f38d051230bc3dbc7ca"
     },
     {
       "mode": "0644",
       "path": "editors/vscode/zlang-hdl/README.md",
-      "sha256": "ca30c6412313a06d317d122f33489bc0a92192a1087937852340cacdc2e50dc6"
+      "sha256": "b8c15c4dba089f707130d5d1d3ae9f2c23327acc7e19bca292fd0c8498db7f6b"
     },
     {
       "mode": "0644",
@@ -389,7 +389,7 @@
     {
       "mode": "0644",
       "path": "editors/vscode/zlang-hdl/test/package.cjs",
-      "sha256": "f7852315119ecbab2d7cdd7b0e96be7a17fe5332faf2128a5ec72402e097fbdd"
+      "sha256": "a8bb2c08fa6283635d01ab37e9d34d2f12154b242f1b1c2b38f9874096f5cef3"
     },
     {
       "mode": "0644",
@@ -614,7 +614,7 @@
     {
       "mode": "0644",
       "path": "examples/generated/Add.opt",
-      "sha256": "04eb4893ddfb09da8f67966557f35ad7b546f732c1201c8084bf8ffe35b4b9f9"
+      "sha256": "1508a07efaa38b391a64cb566d6c659bbeaeed40c0e123e4b9fba1d8e3649e43"
     },
     {
       "mode": "0644",
@@ -1183,6 +1183,21 @@
     },
     {
       "mode": "0644",
+      "path": "release/native-editor/THIRD_PARTY_LICENSES.md",
+      "sha256": "f8b67cabb37b33b8f6541663a9f7f4f59028387e0adf672b5df887ce0ad84e17"
+    },
+    {
+      "mode": "0755",
+      "path": "release/native-editor/linux-x64/zlang-debug-adapter",
+      "sha256": "aa2d424527706b48203bb49450757bb1e8e9527dfaf156d0930602fdf0096c05"
+    },
+    {
+      "mode": "0755",
+      "path": "release/native-editor/linux-x64/zlang-waveform-indexer",
+      "sha256": "32a89041e8b818940fb050e8f9e0e5e4eef3900486f6168c21be86193a666d03"
+    },
+    {
+      "mode": "0644",
       "path": "release/native-vulnerability-exceptions.json",
       "sha256": "c029323d7823967c53b121200dd21185493ea60f68d99e585192bc3f9b304bfb"
     },
@@ -1194,12 +1209,12 @@
     {
       "mode": "0644",
       "path": "release/regressions.json",
-      "sha256": "513e37d49ab4600dae20f9500bd02dd1b60e33e43b4276dbeea8693e29266a4f"
+      "sha256": "eaacde1193e432eaee9cee5d79c33719e7aa1a1d34f9d9171a42a2d51990b584"
     },
     {
       "mode": "0644",
       "path": "release/status.json",
-      "sha256": "97b43e6376155713939a14024a1909c9dd15ecc6ad1f62f88ebbe765d03e8493"
+      "sha256": "84465d83b57eda884d59006c3882b558529e50b4dac472ada5abf36f52a12fc4"
     },
     {
       "mode": "0644",
@@ -1404,7 +1419,7 @@
     {
       "mode": "0644",
       "path": "tests/backend/test_composed_emitter_decomposition.py",
-      "sha256": "8d9ad26884fde76d953e3a27b690b0a9930cd04e0dd16c1640b6e2b42048099f"
+      "sha256": "d5514370dac40f9389b901ce0168220516ae76cc1c62335217760064d6a42dab"
     },
     {
       "mode": "0644",
@@ -1509,7 +1524,7 @@
     {
       "mode": "0644",
       "path": "tests/editor/test_vscode_package.py",
-      "sha256": "b68d45a10702af3a539cddf0245fbc3732c63c129b1ce65bc6fe617d3af77161"
+      "sha256": "41c39bcfa9102534a94a5b0543b69728028b03d72021653ae6ed9bc44a59d07f"
     },
     {
       "mode": "0644",
@@ -2829,7 +2844,7 @@
     {
       "mode": "0644",
       "path": "tests/release/test_makefile_automation.py",
-      "sha256": "2900fbb26cf23ec2142131e7be08f657e33c98d5c37b617b7d2ab35d07515641"
+      "sha256": "2f4349659fe6755652fecdcc9bdb4cec6e5923ac4c90c060918d54b9ed3cfe70"
     },
     {
       "mode": "0644",
@@ -2874,12 +2889,12 @@
     {
       "mode": "0644",
       "path": "tests/release/test_release_preflight.py",
-      "sha256": "2af0f02162a6a54f1af0def058e45ddeb40c031f4f56bb422eec4c27ead8a81a"
+      "sha256": "2675cdba7891e6b9fff5942184761a9e32bf302a316039c2e1a65c7f0aca3467"
     },
     {
       "mode": "0644",
       "path": "tests/release/test_release_regressions.py",
-      "sha256": "f7b9f552161c6e303cab5bf81ac2aa504bff5427490356898d8ba98c2a9f36b9"
+      "sha256": "3175afb49c4ba5754109087096ab96d10e46f2e91e686c2900bd133c8c339e7b"
     },
     {
       "mode": "0644",
@@ -4123,6 +4138,11 @@
     },
     {
       "mode": "0644",
+      "path": "tools/audit_native_editor.py",
+      "sha256": "084a3bf299f09cda6811e0507a2b5106c5e3d03f560ba374f72fc9cfcdd06b57"
+    },
+    {
+      "mode": "0644",
       "path": "tools/audit_native_vulnerabilities.py",
       "sha256": "e00aefb0c230a1432a8505882202be8d4368cd8fc3271af357c267aea2f75a41"
     },
@@ -4224,7 +4244,7 @@
     {
       "mode": "0644",
       "path": "tools/release_preflight.py",
-      "sha256": "f17f7d9dbeac9b52987f8080d05661723134f7f958e799614650437c3d5c549f"
+      "sha256": "3696ee921d30804e86391f371915c399d893dfad56d86f261f1e96152fb9ec5e"
     },
     {
       "mode": "0644",
@@ -4234,7 +4254,7 @@
     {
       "mode": "0644",
       "path": "tools/release_status.py",
-      "sha256": "1370bb2e097061dd604744e4b0c78f86f89d5fbb5f081f50187699bd081c782b"
+      "sha256": "13617ec525c137580f31d56e78bbf6b88d8a3ae309a0c44e500a4913c0659ccb"
     },
     {
       "mode": "0755",

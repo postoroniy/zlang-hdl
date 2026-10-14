@@ -84,14 +84,20 @@ npm --prefix editors/vscode/zlang-hdl run package -- \
   "$vsix_dir/zlang-hdl-0.1.0.vsix"
 ```
 
-For the development Linux-x64 debugger package, first build the reviewed,
-path-scrubbed Rust executables and use the platform-specific packaging target:
+For the Linux-x64 debugger package, the release snapshot already contains the
+two reviewed, path-scrubbed native executables. Package those exact bytes with
+the platform-specific target:
 
 ```sh
-make native-editor-build
+make native-editor-audit
 npm --prefix editors/vscode/zlang-hdl run package:linux-x64 -- \
   "$vsix_dir/zlang-hdl-0.1.0-linux-x64.vsix"
 ```
+
+Ordinary users should install the matching prebuilt Linux-x64 VSIX from the
+GitHub release instead of rebuilding it. The public repository contains the
+executables and their reviewed license inventory, but no Rust implementation
+source or private release-host build scripts.
 
 Choose a new output filename; packaging refuses to overwrite an existing VSIX.
 The build uses pinned `esbuild` and `@vscode/vsce` in an isolated staging

@@ -2,8 +2,8 @@
 
 > a24 status: compiler debug-bundle support and the Linux-x64 native adapter /
 > waveform implementation are a bounded preview. The universal VSIX remains
-> editor/LSP-only; an enhanced Linux-x64 VSIX must pass its separate binary
-> reproducibility and packaging gates before it may be distributed.
+> editor/LSP-only. The enhanced Linux-x64 VSIX contains two reviewed native
+> executables and no Rust implementation source.
 
 ZLang HDL keeps one language implementation. The Python compiler and
 `zlang-lsp` parse, type-check, select implementations, and publish an immutable
@@ -78,20 +78,19 @@ at one million events, and may spill beneath VS Code `globalStorageUri`.
 ## Packaging boundary
 
 The universal VSIX remains editor/LSP-only. The enhanced Linux-x64 VSIX adds
-stripped `zlang-debug-adapter` and `zlang-waveform-indexer` ELF executables. It ships
-no Rust/TypeScript source, Cargo metadata, debug symbols, source maps, runtime
-downloader, or private build paths. The native build uses deterministic path
-remapping and the package audit rejects host-path leakage.
+the stripped `zlang-debug-adapter` and `zlang-waveform-indexer` ELF
+executables. It ships no Rust/TypeScript source, Cargo metadata, debug symbols,
+source maps, runtime downloader, or private build paths. The two binaries are
+admitted by exact path, size and SHA-256 in `release/status.json`; public CI
+audits those bytes before placing them in the VSIX.
 
-From a private source checkout:
+Install the platform package downloaded from the matching GitHub release:
 
 ```sh
-make native-editor-build
-npm --prefix editors/vscode/zlang-hdl ci --ignore-scripts
-npm --prefix editors/vscode/zlang-hdl run package:linux-x64 -- \
-  "$PWD/build/zlang-hdl-linux-x64.vsix"
-.venv/bin/python tests/editor/test_vscode_package.py \
-  "$PWD/build/zlang-hdl-linux-x64.vsix"
+code --install-extension zlang-hdl-0.1.0-linux-x64.vsix --force
 ```
 
-These commands prepare local evidence only; they do not publish an extension.
+The public source checkout can reproduce the package envelope from the same
+reviewed executable bytes with `make editor-native-host-test`. Rebuilding the
+native Rust implementation is deliberately a release-host operation and is
+not presented as a public-source command.

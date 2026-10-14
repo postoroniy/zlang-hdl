@@ -17,6 +17,10 @@ import tempfile
 import tomllib
 import xml.etree.ElementTree as ET
 
+try:
+    from tools.audit_native_editor import NativeEditorAuditError, audit_native_editor
+except ModuleNotFoundError:  # Direct ``python tools/release_status.py`` execution.
+    from audit_native_editor import NativeEditorAuditError, audit_native_editor
 
 
 DEFAULT_STATUS = Path("release/status.json")
@@ -545,6 +549,7 @@ def validate(
     validation = status.get("validation")
     platform = status.get("platform")
     native_runtime = status.get("native_runtime")
+    native_editor = status.get("native_editor")
     tools = status.get("eda_toolchain")
     if not all(
         isinstance(item, dict)
@@ -582,6 +587,12 @@ def validate(
         ],
     }:
         raise StatusError("native runtime release contract has changed without review")
+    alpha = re.fullmatch(r"0\.1\.0a([0-9]+)", project_version)
+    if native_editor is not None or (alpha is not None and int(alpha.group(1)) >= 24):
+        try:
+            audit_native_editor(root, path)
+        except NativeEditorAuditError as exc:
+            raise StatusError(str(exc)) from exc
     actual_corpus = _example_counts(root)
     if validation.get("example_corpus") != actual_corpus:
         raise StatusError(

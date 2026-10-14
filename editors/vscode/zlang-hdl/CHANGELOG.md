@@ -4,8 +4,9 @@
 
 - Add a Linux-x64 event-level native simulation debugger and live waveform
   panel backed by compiler-owned debug metadata and Rust DAP/waveform tools.
-- Add a readonly bounded VCD custom editor while retaining a universal
-  editor/LSP-only VSIX for other platforms.
+- Add a readonly bounded FST/VCD custom editor while retaining a universal
+  editor/LSP-only VSIX for other platforms. The Linux-x64 VSIX carries the two
+  reviewed native executables and no Rust source or runtime downloader.
 - Keep long enum lists stable in Outline and Sticky Scroll by consuming exact,
   nested compiler-owned member ranges.
 

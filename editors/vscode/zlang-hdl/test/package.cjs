@@ -48,7 +48,7 @@ async function main() {
       delete manifest.contributes.configuration.properties['zlang.waveform.wcp.port'];
       manifest.categories = manifest.categories.filter((item) => item === 'Programming Languages');
     } else {
-      const binaryRoot = path.resolve(repository, 'native-runtime/target/release');
+      const binaryRoot = path.resolve(repository, 'release/native-editor', target);
       const destinationRoot = path.join(stage, 'bin', target);
       fs.mkdirSync(destinationRoot, { recursive: true });
       for (const name of ['zlang-debug-adapter', 'zlang-waveform-indexer']) {
@@ -57,6 +57,10 @@ async function main() {
         fs.copyFileSync(source, path.join(destinationRoot, name));
         fs.chmodSync(path.join(destinationRoot, name), 0o755);
       }
+      fs.copyFileSync(
+        path.resolve(repository, 'release/native-editor/THIRD_PARTY_LICENSES.md'),
+        path.join(stage, 'THIRD_PARTY_NOTICES_NATIVE.txt'),
+      );
     }
     manifest.main = './dist/extension.js';
     delete manifest.files;

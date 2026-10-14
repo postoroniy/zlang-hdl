@@ -47,6 +47,7 @@ CI_RANDOM_TESTS ?= 128
 CI_RANDOM_SHARD ?=
 CI_RANDOM_SHARDS ?=
 CI_VSIX ?= build/ci-editor/zlang-hdl-0.1.0.vsix
+CI_NATIVE_VSIX ?= build/ci-editor/zlang-hdl-0.1.0-linux-x64.vsix
 CI_BUILD_ROOT ?= build/ci-fast-package
 CI_PYTEST_MAXFAIL ?=
 
@@ -54,7 +55,7 @@ FAST_TEST_PATHS := \
 	tests/parser tests/semantic tests/conformance tests/editor \
 	tests/packaging tests/release
 
-.PHONY: help venv env-check release-review-clean review-commits release-review release-sanity release-dependency-floor release-regressions release-preflight public-check static jit-check jit-audit jit-advisory-audit native-editor-build native-editor-repro native-release-set native-release-install audit release-tools test-fast test test-structural \
+.PHONY: help venv env-check release-review-clean review-commits release-review release-sanity release-dependency-floor release-regressions release-preflight public-check static jit-check jit-audit jit-advisory-audit native-editor-audit native-release-set native-release-install audit release-tools test-fast test test-structural \
 	structural-baseline \
 	community-pdf-check test-release-twice editor-test editor-advisory-audit editor-host-test editor-native-host-test package release-candidate \
 	ci-bootstrap ci-fast-core ci-full-regression ci-performance-regression ci-hosted-edge \
@@ -62,7 +63,7 @@ FAST_TEST_PATHS := \
 
 LOCAL_ENV_TARGETS := \
 	release-dependency-floor release-regressions release-preflight public-check static jit-check jit-audit \
-	jit-advisory-audit native-release-set native-release-install audit release-tools test-fast test \
+	jit-advisory-audit native-editor-audit native-release-set native-release-install audit release-tools test-fast test \
 	test-structural structural-baseline community-pdf-check test-release-twice \
 	editor-test editor-advisory-audit editor-host-test editor-native-host-test review-commits release-review release-sanity release-candidate \
 	ci-fast-core ci-full-regression ci-performance-regression ci-hosted-edge \
@@ -83,8 +84,7 @@ help:
 		'make jit-check          run locked Rust format, Clippy, and unit gates' \
 		'make jit-audit          audit locked native sources/licenses and optional wheel' \
 		'make jit-advisory-audit audit locked native crates with pinned cargo-audit' \
-		'make native-editor-build build path-scrubbed Linux debugger/waveform tools' \
-		'make native-editor-repro double-build and compare native editor tools' \
+		'make native-editor-audit validate the reviewed Linux debugger/waveform executables' \
 		'make native-release-set require the audited Linux native wheel' \
 		'make native-release-install install the audited release wheel into this worktree venv' \
 		'make audit              run REUSE and Python dependency audits' \
@@ -162,7 +162,7 @@ release-review: release-review-clean review-commits release-sanity test-release-
 
 # Fail quickly on release metadata, projection, workflow, PDF and editor issues
 # before provisioning and running two complete zero-skip regressions.
-release-sanity: release-dependency-floor release-regressions community-pdf-check public-check static ci-contract-smoke editor-advisory-audit
+release-sanity: release-dependency-floor release-regressions community-pdf-check public-check native-editor-audit static ci-contract-smoke editor-advisory-audit
 
 release-dependency-floor:
 	if [[ -n "$(PREVIOUS_TAG)" ]]; then
@@ -244,11 +244,8 @@ jit-advisory-audit:
 		echo 'native Cargo.lock is intentionally absent from the Community source tree'
 	fi
 
-native-editor-build:
-	bash tools/build_native_editor_tools.sh
-
-native-editor-repro:
-	bash tools/audit_native_editor_reproducibility.sh
+native-editor-audit:
+	$(call RUN_PYTHON,native-editor-audit) tools/audit_native_editor.py --root .
 
 native-release-set:
 	if [[ ! -d release/native-wheels ]]; then
@@ -369,6 +366,8 @@ ci-random-smoke:
 
 ci-editor:
 	$(MAKE) --no-print-directory editor-host-test EDITOR_VSIX="$(CI_VSIX)"
+	$(MAKE) --no-print-directory editor-native-host-test \
+		EDITOR_NATIVE_VSIX="$(CI_NATIVE_VSIX)"
 
 # The aggregate lane deliberately runs without site-packages.  It validates
 # retained evidence only and cannot accidentally grow a compiler dependency.
@@ -511,7 +510,7 @@ editor-host-test: editor-test
 		xvfb-run -a npm --prefix editors/vscode/zlang-hdl run test:host -- \
 		"$(abspath $(EDITOR_VSIX))"
 
-editor-native-host-test: editor-test native-editor-build
+editor-native-host-test: editor-test native-editor-audit
 	if [[ -e "$(EDITOR_NATIVE_VSIX)" ]]; then
 		echo "$(EDITOR_NATIVE_VSIX) already exists; choose a fresh EDITOR_NATIVE_VSIX" >&2
 		exit 2
@@ -599,4 +598,4 @@ package:
 
 # This target prepares and validates local candidate artifacts. It deliberately
 # does not create commits/tags, upload artifacts, or publish a GitHub release.
-release-candidate: release-preflight release-sanity native-release-install jit-check jit-audit jit-advisory-audit audit release-tools test-release-twice editor-host-test package
+release-candidate: release-preflight release-sanity native-release-install native-editor-audit jit-check jit-audit jit-advisory-audit audit release-tools test-release-twice editor-host-test editor-native-host-test package

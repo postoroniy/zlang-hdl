@@ -60,6 +60,31 @@
       "tests": [
         "tests/lsp/test_server.py::test_document_symbol_enum_members_have_exact_nested_ranges"
       ]
+    },
+    {
+      "id": "ZL-055",
+      "source_paths": [
+        "tests/integration/test_cli_diagnostics.py",
+        "tests/test_cli_hardening.py",
+        "zlang/cli_arguments.py",
+        "zlang/cli_command.py",
+        "zlang/cli_diagnostics.py",
+        "zlang/cli_publication.py",
+        "zlang/cli_verification.py",
+        "zlang/module_resolver.py",
+        "zlang/verification_cli.py",
+        "zlang/workspace.py"
+      ],
+      "status": "included",
+      "summary": "CLI and project failures retain the authoritative source span, validate bounded/output contracts before work, clean temporary verification state, and publish artifacts atomically without tracebacks or partial final files.",
+      "tests": [
+        "tests/integration/test_cli_diagnostics.py::test_project_parse_diagnostic_reports_the_actual_imported_file",
+        "tests/integration/test_cli_diagnostics.py::test_transitive_project_diagnostic_reports_imported_file_and_exact_span",
+        "tests/test_cli_hardening.py::test_compile_rejects_invalid_formal_bounds_before_compilation",
+        "tests/test_cli_hardening.py::test_failed_verilator_launch_does_not_publish_final_rtl",
+        "tests/test_cli_hardening.py::test_implicit_verification_work_directory_is_cleaned_on_source_error",
+        "tests/test_cli_hardening.py::test_sim_source_diagnostics_retain_file_and_span"
+      ]
     }
   ],
   "previous_tag": "v0.1.0a23",

@@ -156,6 +156,7 @@ def test_current_candidate_binds_release_sources_native_wheel_and_git(
         "ZL-052",
         "ZL-053",
         "ZL-054",
+        "ZL-055",
     ]
     assert report["dependency_floor"]["schema"] == 1
     assert report["dependency_floor"]["previous_ref"] == "v0.1.0a23"

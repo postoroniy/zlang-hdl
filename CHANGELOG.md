@@ -54,6 +54,15 @@ unchanged.
 
 ### Fixed
 
+- Project, imported-source, `zlang sim`, and lock-update failures now retain the
+  actual source file and exact span across cached and transitive compilation;
+  syntax and semantic errors are reported without a Python traceback or a
+  misleading top-level-file location.
+- CLI preflight validates formal bounds and output/work-directory separation
+  before compilation, cleans implicit verification work after failure, and
+  publishes RTL and reports atomically. Missing Verilator and publication I/O
+  failures now remain concise diagnostics and never leave a final partial
+  artifact.
 - Explicitly backed enum declarations keep contextual words such as
   `reserved`, `reset`, and `priority` scoped as enum members in VS Code and do
   not produce LSP diagnostics.

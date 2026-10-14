@@ -34,7 +34,7 @@ def test_makefile_exposes_bounded_test_and_release_entry_points() -> None:
     assert "-m tools.audit_review_commits --root ." in text
     assert (
         "release-sanity: release-dependency-floor release-regressions "
-        "community-pdf-check public-check static ci-contract-smoke "
+        "community-pdf-check public-check native-editor-audit static ci-contract-smoke "
         "editor-advisory-audit" in text
     )
     assert "release-dependency-floor:" in text
@@ -47,8 +47,9 @@ def test_makefile_exposes_bounded_test_and_release_entry_points() -> None:
     assert "release-preflight: release-regressions" in text
     assert "tools/release_regressions.py" in text
     assert (
-        "release-candidate: release-preflight release-sanity native-release-install jit-check jit-audit "
-        "jit-advisory-audit audit release-tools test-release-twice" in text
+        "release-candidate: release-preflight release-sanity native-release-install "
+        "native-editor-audit jit-check jit-audit jit-advisory-audit audit release-tools "
+        "test-release-twice" in text
     )
     assert "tools/release_preflight.py" in text
     assert 'PYTHONPATH="$(CURDIR)" $(call RUN_PYTHON,release-preflight) tools/release_preflight.py' in text
@@ -69,6 +70,9 @@ def test_makefile_exposes_bounded_test_and_release_entry_points() -> None:
     assert "Python wheel/sdist version does not match the release tag" in text
     assert "tools/materialize_native_test_extension.py" in text
     assert "tests/editor/test_vscode_package.py" in text
+    assert "tools/audit_native_editor.py" in text
+    assert "native-editor-build" not in text
+    assert "native-editor-repro" not in text
     assert "npm --prefix editors/vscode/zlang-hdl run test:host" in text
     assert "editor-advisory-audit: editor-test" in text
     assert "-m tools.audit_editor_vulnerabilities" in text
@@ -122,7 +126,7 @@ def test_release_workflow_uses_curated_changelog_notes_and_native_set() -> None:
     assert 'RELEASE_MODE="$mode"' in workflow
     assert "release-preflight.json" in workflow
     assert "if: ${{ github.event_name == 'push' }}\n    needs: [validate, eda]" in workflow
-    assert "Test, build, audit, and exercise the exact-tag Community VSIX" in workflow
+    assert "Test, build, audit, and exercise both exact-tag Community VSIX packages" in workflow
     assert "zlang-hdl-*-language-reference.pdf" in workflow
     assert workflow.count("CI_PYTEST_MAXFAIL=1") == 4
     assert "make -s ci-bootstrap" in workflow

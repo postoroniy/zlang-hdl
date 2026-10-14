@@ -15,7 +15,6 @@ import warnings
 from xml.etree import ElementTree as ET
 from zipfile import BadZipFile, ZipFile, ZipInfo
 
-
 ROOT = Path(__file__).resolve().parents[2]
 EXT = ROOT / "editors" / "vscode" / "zlang-hdl"
 TOOLCHAIN = json.loads((EXT / "editor-toolchain.json").read_text(encoding="utf-8"))
@@ -41,6 +40,8 @@ GENERATED_RUNTIME = {
     "extension/dist/extension.js",
     "extension/THIRD_PARTY_NOTICES.txt",
 }
+NATIVE_NOTICE = "extension/THIRD_PARTY_NOTICES_NATIVE.txt"
+NATIVE_NOTICE_SOURCE = ROOT / "release" / "native-editor" / "THIRD_PARTY_LICENSES.md"
 RUNTIME_PACKAGES = {
     "balanced-match": "4.0.4",
     "brace-expansion": "5.0.12",
@@ -346,7 +347,8 @@ def audit_vsix(path: Path) -> dict:
         present_native = native_binaries & set(names)
         _require(not present_native or present_native == native_binaries,
                  "incomplete native debugger payload")
-        allowed = set(STATIC_ASSETS) | GENERATED_RUNTIME | present_native | {
+        native_notice = {NATIVE_NOTICE} if present_native else set()
+        allowed = set(STATIC_ASSETS) | GENERATED_RUNTIME | present_native | native_notice | {
             "extension.vsixmanifest", "[Content_Types].xml"
         }
         _require(set(names) == allowed, "unexpected extension payload")
@@ -386,6 +388,9 @@ def audit_vsix(path: Path) -> dict:
                  f"native tool is not a Linux x86-64 ELF: {name}")
         _require(b"/home/" not in binary and b"/Users/" not in binary,
                  f"native tool leaks a private build path: {name}")
+    if native:
+        _require(members[NATIVE_NOTICE] == NATIVE_NOTICE_SOURCE.read_bytes(),
+                 "native third-party notice differs from reviewed inventory")
     return {
         "extension_id": "postoroniy.zlang-hdl", "version": "0.1.0",
         "file_count": len(members), "files": sorted(members),
@@ -461,6 +466,10 @@ class VSCodePackageTests(unittest.TestCase):
         return self.archive_path
 
     def test_source_metadata_and_lock_are_runtime_pinned(self) -> None:
+        if str(ROOT) not in sys.path:
+            sys.path.insert(0, str(ROOT))
+        from tools.audit_native_editor import audit_native_editor
+
         package = _json((EXT / "package.json").read_bytes())
         lock = _json((EXT / "package-lock.json").read_bytes())
         validate_metadata(package, native=True)
@@ -470,6 +479,12 @@ class VSCodePackageTests(unittest.TestCase):
         broken["packages"]["node_modules/@vscode/vsce"]["version"] = "3.9.1"
         with self.assertRaises(VSIXAuditError):
             validate_lock(package, broken)
+        native = audit_native_editor(ROOT)
+        self.assertEqual(native["platform"], "linux-x64")
+        self.assertEqual(
+            [record["name"] for record in native["executables"]],
+            ["zlang-debug-adapter", "zlang-waveform-indexer"],
+        )
 
     def test_installation_guide_uses_the_registered_lsp_setting(self) -> None:
         guide = (ROOT / "README.md").read_text(encoding="utf-8")
