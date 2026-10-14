@@ -3004,7 +3004,7 @@
     {
       "mode": "0644",
       "path": "tests/semantic/test_compilation_result_surface.py",
-      "sha256": "6a9243ff13480a5e1655218cad664195e31646f5c9edba219942598f7bd9b189"
+      "sha256": "0b4b1ef2ff53830fc5f09bcfbaf7850ddff1b00a1885e918057fea691e1cbdc3"
     },
     {
       "mode": "0644",
