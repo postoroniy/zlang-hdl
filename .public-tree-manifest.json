@@ -139,7 +139,7 @@
     {
       "mode": "0644",
       "path": "CHANGELOG.md",
-      "sha256": "1de9215fbad053a72bce915ece67acdd133cd7c0f74deeb74d637d1fd536273a"
+      "sha256": "9ef313c1f5a82dbe61ed6c502fe5abb5087e3f492e4162c1d0cf557453c0867e"
     },
     {
       "mode": "0644",
@@ -184,7 +184,7 @@
     {
       "mode": "0644",
       "path": "Makefile",
-      "sha256": "5cfa3761b64f7b08ce31f49e634dc25cf57056f914dd9265e2935a7fb11dd3fa"
+      "sha256": "cd6d68a7909d414b3568e205ed64a40636186963d3239509dbecd9d8f16b9cfe"
     },
     {
       "mode": "0644",
@@ -1289,17 +1289,17 @@
     {
       "mode": "0644",
       "path": "release/native-wheels/zlang_native_sim-0.1.0a24-cp312-abi3-manylinux_2_28_x86_64.whl",
-      "sha256": "e7415a7af471987b05fc0806d370789c69137505ea57be08174eaa7ed637c1c9"
+      "sha256": "6e17c01f69fe39e2081fb7c4dcd73cc13c63e7dcd23d2803107b019a2df5c571"
     },
     {
       "mode": "0644",
       "path": "release/regressions.json",
-      "sha256": "eaacde1193e432eaee9cee5d79c33719e7aa1a1d34f9d9171a42a2d51990b584"
+      "sha256": "090efa6b7f58987013242fb07cf07c38c043c4f9e2762b1ac8c7382112e01e63"
     },
     {
       "mode": "0644",
       "path": "release/status.json",
-      "sha256": "de663bbd40c161d3f13f6fa127c56e2b6053b347b33978576804cb84683ca1cf"
+      "sha256": "b5dd6db1b29f06fc0b23b276449f0e9796dcd950aa665a91ab56653a6acb1a94"
     },
     {
       "mode": "0644",
@@ -2904,7 +2904,7 @@
     {
       "mode": "0644",
       "path": "tests/release/test_ci_contract.py",
-      "sha256": "e1b677f956eeaadb997773cd521e52b6ffcffe0af83607bbe3c21ea40c0f677c"
+      "sha256": "8fc946e81a31f9252fe59062ff4475a359fc456a9b0cffb1875c076389316684"
     },
     {
       "mode": "0644",
@@ -2939,7 +2939,7 @@
     {
       "mode": "0644",
       "path": "tests/release/test_native_binary_audit.py",
-      "sha256": "760c43acc4e7a1b3925d83e6636e61fe234d501a9a61535adbf6a1030453ef57"
+      "sha256": "3d0e12a10ad6c166a89fceeb7a6001943ef45cc980b43d81845319862c5ed9d5"
     },
     {
       "mode": "0644",
@@ -2974,12 +2974,12 @@
     {
       "mode": "0644",
       "path": "tests/release/test_release_preflight.py",
-      "sha256": "4d2eaa831262ff6b0db3862f8a8f7b6999dad20cca05f61fe2d9c9ceef2dcc5d"
+      "sha256": "855da2227f3e8ad0842c2b6712685efba1c81940b387baf0b8bbab6b9b14e9ba"
     },
     {
       "mode": "0644",
       "path": "tests/release/test_release_regressions.py",
-      "sha256": "3175afb49c4ba5754109087096ab96d10e46f2e91e686c2900bd133c8c339e7b"
+      "sha256": "5b87ae613dd40553726a9af274d025006c3605431456705c208184b844ab51c8"
     },
     {
       "mode": "0644",
@@ -4219,7 +4219,7 @@
     {
       "mode": "0644",
       "path": "tools/audit_native_binary.py",
-      "sha256": "7ecc63af602ffd11de2741fa5ce1c54e338f1838f692db63f1ebcfb0cd34970c"
+      "sha256": "9cfad44ff0c074098df20c74a08d69e210440055c9670ff189dfb62eaf7679d5"
     },
     {
       "mode": "0644",

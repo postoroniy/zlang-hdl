@@ -33,6 +33,7 @@ def _write_wheel(
     version: str = "0.1.0a16",
     payload_platform: str | None = None,
     include_simulation_core: bool = False,
+    include_waveform_core: bool = False,
 ) -> None:
     distribution = f"zlang_native_sim-{version}.dist-info"
     with ZipFile(path, "w") as archive:
@@ -79,6 +80,17 @@ def _write_wheel(
                                 "licenses": [{"expression": "Apache-2.0"}],
                             }
                         ] if include_simulation_core else []),
+                        *([
+                            {
+                                "name": "zlang-waveform-core",
+                                "version": "0.1.0-alpha.24",
+                                "purl": (
+                                    "pkg:cargo/zlang-waveform-core@"
+                                    "0.1.0-alpha.24?download_url=file://waveform-core"
+                                ),
+                                "licenses": [{"expression": "Apache-2.0"}],
+                            }
+                        ] if include_waveform_core else []),
                     ],
                 }
             ),
@@ -93,6 +105,20 @@ def test_native_binary_audit_accepts_the_exact_internal_simulation_core(
         wheel,
         platform="manylinux_2_28_x86_64",
         include_simulation_core=True,
+    )
+
+    assert audit_native_binary(wheel).platform == "linux_x86_64"
+
+
+def test_native_binary_audit_accepts_the_exact_internal_waveform_core(
+    tmp_path: Path,
+) -> None:
+    wheel = tmp_path / "native.whl"
+    _write_wheel(
+        wheel,
+        platform="manylinux_2_28_x86_64",
+        include_simulation_core=True,
+        include_waveform_core=True,
     )
 
     assert audit_native_binary(wheel).platform == "linux_x86_64"

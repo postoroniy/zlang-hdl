@@ -27,6 +27,10 @@ ALLOWED_LICENSE_IDS = frozenset(
 )
 MAX_WHEEL_BYTES = 16 * 1024 * 1024
 MAX_SBOM_BYTES = 4 * 1024 * 1024
+_INTERNAL_RUNTIME_COMPONENTS = {
+    "zlang-simulation-core": "simulation-core",
+    "zlang-waveform-core": "waveform-core",
+}
 RELEASE_PLATFORMS = frozenset({"linux_x86_64"})
 _INVENTORY_ROW = re.compile(
     r"^\| `(?P<name>[^`]+)` \| `(?P<version>[^`]+)` \| "
@@ -158,16 +162,16 @@ def _sbom_inventory(archive: ZipFile) -> dict[tuple[str, str], frozenset[str]]:
                 "wheel SBOM component has no license expression"
             )
         exact_purl = f"pkg:cargo/{name}@{version}"
-        if name == "zlang-simulation-core":
-            if not isinstance(purl, str) or not purl.startswith(
-                exact_purl + "?download_url=file://"
-            ):
+        internal_path = _INTERNAL_RUNTIME_COMPONENTS.get(name)
+        if internal_path is not None:
+            if purl != f"{exact_purl}?download_url=file://{internal_path}":
                 raise NativeBinaryAuditError(
-                    "wheel SBOM internal simulation core has no exact local Cargo URL"
+                    f"wheel SBOM internal component {name!r} has no exact local "
+                    "Cargo URL"
                 )
             if license_ids(expression) != frozenset({"Apache-2.0"}):
                 raise NativeBinaryAuditError(
-                    "wheel SBOM internal simulation core is not Apache-2.0"
+                    f"wheel SBOM internal component {name!r} is not Apache-2.0"
                 )
             continue
         if purl != exact_purl:
