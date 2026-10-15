@@ -1,5 +1,5 @@
 {
-  "config_sha256": "d213ff5af4a62db21b7f2a93f94a01921ef66ecbf5ec0c7e67e7a31e90bfde53",
+  "config_sha256": "eadee384d5f7a1096d6b01c919c7352be2aef6ce959cd29867f55513508d6d2d",
   "files": [
     {
       "mode": "0644",
@@ -133,13 +133,18 @@
     },
     {
       "mode": "0644",
+      "path": ".vscode/settings.json",
+      "sha256": "0e929d6834897dad4e0e1f7bfa933e5459f59289b9868c10a6948639dbe9e9a2"
+    },
+    {
+      "mode": "0644",
       "path": "AI_GUIDE.md",
       "sha256": "ff1c1792c1959527964341c264abe436b7236fce5d269451a6b871a119f0298e"
     },
     {
       "mode": "0644",
       "path": "CHANGELOG.md",
-      "sha256": "fb724de761d4b548922e6a78f08dc3c70cd1fb57511854d927b169bd70575518"
+      "sha256": "186ef5b484a50fc2156c78bd68bb5cfb4613cbd10dd150a3160e95cb8d34e7e6"
     },
     {
       "mode": "0644",
@@ -184,7 +189,7 @@
     {
       "mode": "0644",
       "path": "Makefile",
-      "sha256": "cd6d68a7909d414b3568e205ed64a40636186963d3239509dbecd9d8f16b9cfe"
+      "sha256": "5114b639d9513ce165093d964088e47455a3a0346e63cfda34fea1a556711831"
     },
     {
       "mode": "0644",
@@ -194,12 +199,12 @@
     {
       "mode": "0644",
       "path": "README.md",
-      "sha256": "e24cc81d3a5cee215e74d173f7d18c5a91641ef5ca7774a3c26fcf169325cefb"
+      "sha256": "ad28d0d43642fd27e93632863eaa22814367afa33df2f37be4f2029d8e32d783"
     },
     {
       "mode": "0644",
       "path": "REUSE.toml",
-      "sha256": "6da17617de9ebd3e3f665bd2f2822881d287763c7056b9022e337e2355ebdf05"
+      "sha256": "f9221fcc16b359ef38ca3bf7069ce8d2467faf8974c5a0ee09661abd4d3273fe"
     },
     {
       "mode": "0644",

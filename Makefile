@@ -73,6 +73,7 @@ $(LOCAL_ENV_TARGETS): env-check
 
 help:
 	@printf '%s\n' \
+		'make venv               install the checkout compiler, test tools, and audited native runtime' \
 		'make release-review     validate a clean public review branch before merge' \
 		'make review-commits     require signed, DCO-complete public review commits' \
 		'make release-sanity     run fast release metadata, projection, static and editor gates' \
@@ -133,6 +134,11 @@ venv:
 		"$(PYTHON)" -m pip install --disable-pip-version-check --no-build-isolation -e '.[test]'
 		"$(PYTHON)" -m pip install --disable-pip-version-check $(RELEASE_PYTHON_TOOLS)
 	fi
+	# A supported checkout is immediately usable for both compilation and
+	# simulation.  The recursive target retains the single audited owner for
+	# native-wheel selection and ABI/version validation.
+	VIRTUAL_ENV="$(VENV)" $(MAKE) --no-print-directory native-release-install \
+		TAG="v$$($(PYTHON) -c 'from zlang._version import __version__; print(__version__)')"
 
 env-check:
 	if [[ ! -x "$(PYTHON)" ]]; then

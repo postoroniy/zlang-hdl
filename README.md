@@ -35,12 +35,15 @@ source .venv/bin/activate
 Every checkout owns its own `.venv`; the Make gates reject an ambient or sibling
 environment. `uv` is used when available to provision CPython 3.12, otherwise
 `make venv` validates a local Python 3.12 interpreter before creating the
-environment.
+environment. The target installs the compiler from the current checkout and the
+matching reviewed native-runtime wheel into that same environment. After this
+one command, checking, RTL generation, LSP and native simulation are available;
+there is no separate simulator installation step on supported Linux x86-64.
 
 ### VS Code and the language server
 
-`make venv` installs the `zlang-lsp` executable into this checkout. Verify it
-before configuring the editor:
+`make venv` installs the `zlang-lsp` executable into this checkout whether or
+not VS Code is already installed. Verify it before configuring the editor:
 
 ```bash
 .venv/bin/zlang-lsp --version
@@ -50,24 +53,36 @@ The VSIX contains the VS Code client, syntax support and snippets; it does not
 embed the Python compiler or language-server executable. VS Code must be pointed
 at the `zlang-lsp` installed by the release wheel or this checkout's `.venv`.
 
-Install the reviewed VS Code extension from the matching GitHub release:
+To use the current checkout before a matching GitHub Release is published,
+build and install its Linux-x64 VSIX with Node.js 22. This package includes the
+reviewed debugger and waveform-viewer executables already tracked in the public
+repository:
 
 ```bash
-mkdir -p build/editor
-curl --fail --location \
-  --output build/editor/zlang-hdl-0.1.0.vsix \
-  https://github.com/postoroniy/zlang-hdl/releases/download/v0.1.0a24/zlang-hdl-0.1.0.vsix
-code --install-extension "$PWD/build/editor/zlang-hdl-0.1.0.vsix" --force
+mkdir -p build/tmp
+vsix_dir="$(mktemp -d "$PWD/build/tmp/editor-vsix.XXXXXX")"
+npm --prefix editors/vscode/zlang-hdl ci --ignore-scripts
+npm --prefix editors/vscode/zlang-hdl test
+make native-editor-audit
+npm --prefix editors/vscode/zlang-hdl run package:linux-x64 -- \
+  "$vsix_dir/zlang-hdl-0.1.0-linux-x64.vsix"
+code --install-extension \
+  "$vsix_dir/zlang-hdl-0.1.0-linux-x64.vsix" --force
 ```
 
-Then set **ZLang HDL: LSP Path** in the trusted VS Code workspace to:
+After a version is published, the matching GitHub Release provides the same
+Linux-x64 VSIX as a downloadable asset. Do not substitute a VSIX from another
+ZLang version.
+
+This repository's tracked workspace settings point the extension at:
 
 ```text
 ${workspaceFolder}/.venv/bin/zlang-lsp
 ```
 
-Equivalently, add this property to the workspace's existing
-`.vscode/settings.json` without replacing its other settings:
+For another ZLang workspace, set **ZLang HDL: LSP Path** to that project's
+environment, or add this property to its existing `.vscode/settings.json`
+without replacing other settings:
 
 ```json
 {
@@ -84,8 +99,8 @@ To build the extension from the clone instead of downloading the reviewed VSIX,
 install Node.js 22 and follow the
 [local extension build instructions](editors/vscode/zlang-hdl/README.md#build-and-install-locally).
 
-For an ordinary release-wheel installation, install the commands in an isolated
-environment:
+For an ordinary published release, download both matching wheel assets and
+install them together in an isolated environment:
 
 ```bash
 uv tool install --python '>=3.12,<3.13' \
@@ -101,6 +116,25 @@ versioned plan/ABI remains compiler-owned and does not alter language or RTL
 semantics. See the
 [native simulation section](docs/language-reference.md#reference-native-simulation)
 and the installation chapter for PATH, pip/venv and WSL2 details.
+
+To verify the same two-wheel installation directly from a clean source clone,
+build the reproducible package set and install only its two `.whl` files into a
+fresh environment:
+
+```bash
+mkdir -p build/tmp
+package_root="$(mktemp -d "$PWD/build/tmp/package.XXXXXX")"
+make package \
+  BUILD_ROOT="$package_root/build" \
+  DIST_DIR="$package_root/dist"
+python3 -m venv "$package_root/install"
+"$package_root/install/bin/python" -m pip install \
+  "$package_root/dist"/*.whl
+"$package_root/install/bin/zlang" --version
+"$package_root/install/bin/zlang-lsp" --version
+"$package_root/install/bin/zlang" sim examples/add.zhl --top Add \
+  --set a=200 --set b=55 --json
+```
 
 Check a design without emitting RTL:
 
@@ -146,10 +180,12 @@ changes binary inputs, `set_logic` supplies packed four-state input spelling,
 edges. `repeat` reuses the event lazily and is bounded by the one-million-event
 run limit:
 
-```jsonl
-{"reset":{"rst":true},"edges":["clk"]}
-{"reset":{"rst":false},"set":{"enable":1},"edges":["clk"]}
-{"set":{"enable":0},"edges":["clk"],"repeat":8}
+```bash
+mkdir -p build
+printf '%s\n' \
+  '{"reset":{"rst":true},"edges":["clk"]}' \
+  '{"reset":{"rst":false},"edges":["clk"],"repeat":9}' \
+  > build/counter-events.jsonl
 ```
 
 Run the schedule and record a selective FST waveform (clock/reset signals are
@@ -159,7 +195,7 @@ remains supported for external/formal-tool compatibility:
 ```bash
 .venv/bin/zlang sim examples/counter.zhl --top Counter \
   --events build/counter-events.jsonl \
-  --trace build/counter.fst --trace-signal count --json
+  --trace build/counter.fst --trace-signal y --json
 ```
 
 Ordinary simulation starts uninitialized state from deterministic binary zero.
@@ -178,9 +214,11 @@ timeout. Supply a new empty artifact directory only when the generated RTL,
 testbench and logs should be retained:
 
 ```bash
+mkdir -p build/tmp
+compare_dir="$(mktemp -d "$PWD/build/tmp/add-compare.XXXXXX")"
 .venv/bin/zlang sim examples/add.zhl --top Add \
   --set a=200 --set b=55 --compare-with verilator \
-  --compare-artifacts build/add-compare --json
+  --compare-artifacts "$compare_dir" --json
 ```
 
 Multi-clock designs must use `--events`; clocks listed together in one `edges`
@@ -296,6 +334,7 @@ Create and replay an immutable verification bundle:
 .venv/bin/zlang verify build/verify \
   --mode bmc \
   --depth 20 \
+  --format json \
   --report build/verification-report.json
 ```
 
@@ -334,7 +373,7 @@ without copying mutable pass totals into multiple files.
 Run focused tests serially while debugging. Run the complete suite in parallel:
 
 ```bash
-.venv/bin/python -m pytest -q path/to/test_file.py
+.venv/bin/python -m pytest -q tests/test_sim_cli.py
 .venv/bin/python -m pytest -n 16 --dist=loadscope -q
 .venv/bin/python -m compileall -q zlang tests
 git diff --check

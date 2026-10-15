@@ -4,6 +4,7 @@ version = 1
 path = [
   ".public-tree-manifest.json",
   ".qwen/**",
+  ".vscode/settings.json",
   ".gitattributes",
   ".github/**",
   ".gitignore",
