@@ -100,12 +100,16 @@ class EnumDecl:
 class TaggedUnionFieldDecl:
     name: str
     type_name: TypeSyntax
+    origin: SourceSpan | None = field(default=None, compare=False, repr=False)
+    name_origin: SourceSpan | None = field(default=None, compare=False, repr=False)
 
 
 @dataclass(frozen=True)
 class TaggedUnionVariantDecl:
     name: str
     fields: tuple[TaggedUnionFieldDecl, ...] = ()
+    origin: SourceSpan | None = field(default=None, compare=False, repr=False)
+    name_origin: SourceSpan | None = field(default=None, compare=False, repr=False)
 
 
 @dataclass(frozen=True)
@@ -116,6 +120,7 @@ class TaggedUnionDecl:
     variants: tuple[TaggedUnionVariantDecl, ...]
     source_identity: str | None = field(default=None, compare=False)
     origin: SourceSpan | None = field(default=None, compare=False)
+    name_origin: SourceSpan | None = field(default=None, compare=False, repr=False)
 
 
 @dataclass(frozen=True)
@@ -140,6 +145,8 @@ class ResourcePortDecl:
     direction: str
     signedness: str
     width: int
+    origin: SourceSpan | None = field(default=None, compare=False, repr=False)
+    name_origin: SourceSpan | None = field(default=None, compare=False, repr=False)
 
 
 @dataclass(frozen=True)
@@ -242,6 +249,8 @@ class ProtocolChannelDecl:
     source_role: str
     sink_role: str
     domain: str | None = None
+    origin: SourceSpan | None = field(default=None, compare=False, repr=False)
+    name_origin: SourceSpan | None = field(default=None, compare=False, repr=False)
 
 
 @dataclass(frozen=True)
@@ -250,12 +259,16 @@ class ProtocolDecl:
     roles: tuple[str, ...] = ()
     channels: tuple[ProtocolChannelDecl, ...] = ()
     parameters: tuple["ModuleParameter", ...] = ()
+    origin: SourceSpan | None = field(default=None, compare=False, repr=False)
+    name_origin: SourceSpan | None = field(default=None, compare=False, repr=False)
 
 
 @dataclass(frozen=True)
 class StructFieldDecl:
     name: str
     type_name: TypeSyntax
+    origin: SourceSpan | None = field(default=None, compare=False, repr=False)
+    name_origin: SourceSpan | None = field(default=None, compare=False, repr=False)
 
 
 @dataclass(frozen=True)
@@ -717,6 +730,7 @@ class CsrBlockDecl:
     split_registers: tuple[CsrSplitRegisterDecl, ...] = ()
     domain: str | None = None
     origin: SourceSpan | None = field(default=None, compare=False)
+    name_origin: SourceSpan | None = field(default=None, compare=False, repr=False)
 
 
 @dataclass(frozen=True)
@@ -1220,6 +1234,7 @@ class VerificationScopeDecl:
     goals: tuple[VerificationGoalDecl, ...]
     clock: str | None = None
     origin: SourceSpan | None = field(default=None, compare=False)
+    name_origin: SourceSpan | None = field(default=None, compare=False, repr=False)
 
 
 @dataclass(frozen=True)
@@ -1444,6 +1459,7 @@ class FsmDecl:
     states: tuple[FsmStateDecl, ...]
     origin: SourceSpan | None = field(default=None, compare=False)
     domain: str | None = None
+    name_origin: SourceSpan | None = field(default=None, compare=False, repr=False)
 
 
 @dataclass(frozen=True)
@@ -1579,6 +1595,7 @@ class ModuleInterfaceDecl:
     timing: ModuleTimingDecl | None = None
     source_identity: str | None = field(default=None, compare=False)
     origin: SourceSpan | None = field(default=None, compare=False)
+    name_origin: SourceSpan | None = field(default=None, compare=False, repr=False)
 
 
 @dataclass(frozen=True)
@@ -1664,3 +1681,4 @@ class Module:
     parameter_constraint: Expression | None = None
     # Exact module-name span for compiler-owned definition/navigation records.
     name_origin: SourceSpan | None = field(default=None, compare=False, repr=False)
+    origin: SourceSpan | None = field(default=None, compare=False, repr=False)

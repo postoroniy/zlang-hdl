@@ -86,8 +86,8 @@ jobs:
           set +e
           docker run --rm \
             -v "$PWD/build/native-vulnerability:/scan:ro" \
-            "$OSV_SCANNER_IMAGE" scan --format=json --all-packages \
-            -L /scan/zlang-native-sim.cdx.json \
+            "$OSV_SCANNER_IMAGE" scan source --format=json --all-packages \
+            --sbom /scan/zlang-native-sim.cdx.json \
             > build/native-vulnerability/osv-report.json \
             2> build/native-vulnerability/osv-stderr.log
           scanner_status="$?"

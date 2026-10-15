@@ -524,6 +524,109 @@ def test_document_symbol_enum_members_have_exact_nested_ranges(
             assert parent_start <= child_start < child_end <= parent_end
 
 
+def test_document_symbol_container_ranges_never_escape_or_overlap(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "Containers.zhl"
+    declarations: list[str] = []
+    for index in range(24):
+        declarations.extend((
+            (
+                f"struct Record{index} {{\n"
+                "    first : u8\n"
+                "    second : u8\n"
+                "}"
+            ),
+            (
+                f"enum State{index} : u8 {{\n"
+                "    reserved\n"
+                "    reset\n"
+                "}"
+            ),
+            (
+                f"union Message{index} {{\n"
+                "    Empty\n"
+                "    Data { value : u8 valid : bit }\n"
+                "}"
+            ),
+        ))
+    declarations.extend((
+        (
+            "protocol Stream {\n"
+            "    role source\n"
+            "    role sink\n"
+            "    channel data : u8 source -> sink\n"
+            "}"
+        ),
+        "interface Boundary { in a, b : u8 out y : u8 }",
+        (
+            "resource Logic {\n"
+            "    port a input unsigned 8\n"
+            "    port y output unsigned 8\n"
+            "    operation boolean\n"
+            "}"
+        ),
+        "module Add { in a, b : u8 out y : u9 y = a + b }",
+    ))
+    text = "\n".join(declarations) + "\n"
+    source.write_text(text, encoding="utf-8")
+    uri = path_to_uri(source)
+    server = LspServer()
+    server.dispatch({
+        "jsonrpc": "2.0",
+        "method": "textDocument/didOpen",
+        "params": {"textDocument": {"uri": uri, "version": 1, "text": text}},
+    })
+    response = server.dispatch({
+        "jsonrpc": "2.0",
+        "id": 62,
+        "method": "textDocument/documentSymbol",
+        "params": {"textDocument": {"uri": uri}},
+    })
+    symbols = response[0]["result"]
+    assert len(symbols) == 76
+    assert [symbol["name"] for symbol in symbols[-4:]] == [
+        "Stream", "Boundary", "Logic", "Add",
+    ]
+
+    def point(value: dict[str, int]) -> tuple[int, int]:
+        return value["line"], value["character"]
+
+    def assert_tree(symbol: dict[str, object]) -> None:
+        symbol_range = symbol["range"]
+        assert isinstance(symbol_range, dict)
+        selection = symbol["selectionRange"]
+        assert isinstance(selection, dict)
+        start, end = point(symbol_range["start"]), point(symbol_range["end"])
+        selection_start = point(selection["start"])
+        selection_end = point(selection["end"])
+        assert start <= selection_start < selection_end <= end
+        previous_end: tuple[int, int] | None = None
+        children = symbol.get("children", [])
+        assert isinstance(children, list)
+        for child in children:
+            assert isinstance(child, dict)
+            child_range = child["range"]
+            child_start = point(child_range["start"])
+            child_end = point(child_range["end"])
+            assert start <= child_start < child_end <= end
+            assert (child_start, child_end) != (start, end)
+            if previous_end is not None:
+                assert previous_end <= child_start
+            previous_end = child_end
+            assert_tree(child)
+
+    previous_end: tuple[int, int] | None = None
+    for symbol in symbols:
+        symbol_range = symbol["range"]
+        start = point(symbol_range["start"])
+        end = point(symbol_range["end"])
+        if previous_end is not None:
+            assert previous_end <= start
+        previous_end = end
+        assert_tree(symbol)
+
+
 def test_document_symbol_unknown_or_closed_document_is_a_request_error(
     tmp_path: Path,
 ) -> None:

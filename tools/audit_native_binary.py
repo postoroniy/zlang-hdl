@@ -51,6 +51,16 @@ class NativeBinaryInfo:
     platform: str
 
 
+def exact_cargo_component_purl(name: str, version: str) -> str:
+    """Return the only accepted Cargo purl for one native-runtime component."""
+
+    base = f"pkg:cargo/{name}@{version}"
+    internal_path = _INTERNAL_RUNTIME_COMPONENTS.get(name)
+    if internal_path is None:
+        return base
+    return f"{base}?download_url=file://{internal_path}"
+
+
 def license_ids(expression: str) -> frozenset[str]:
     """Return reviewed SPDX identifiers from a simple license expression."""
 
@@ -161,10 +171,9 @@ def _sbom_inventory(archive: ZipFile) -> dict[tuple[str, str], frozenset[str]]:
             raise NativeBinaryAuditError(
                 "wheel SBOM component has no license expression"
             )
-        exact_purl = f"pkg:cargo/{name}@{version}"
         internal_path = _INTERNAL_RUNTIME_COMPONENTS.get(name)
         if internal_path is not None:
-            if purl != f"{exact_purl}?download_url=file://{internal_path}":
+            if purl != exact_cargo_component_purl(name, version):
                 raise NativeBinaryAuditError(
                     f"wheel SBOM internal component {name!r} has no exact local "
                     "Cargo URL"
@@ -174,7 +183,7 @@ def _sbom_inventory(archive: ZipFile) -> dict[tuple[str, str], frozenset[str]]:
                     f"wheel SBOM internal component {name!r} is not Apache-2.0"
                 )
             continue
-        if purl != exact_purl:
+        if purl != exact_cargo_component_purl(name, version):
             raise NativeBinaryAuditError(
                 "wheel SBOM component has no exact Cargo package URL"
             )

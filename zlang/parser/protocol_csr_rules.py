@@ -237,6 +237,7 @@ class ProtocolAndCsrRules:
             ),
             str(items[1]) if items[1] is not None else None,
             self._span(meta),
+            self._token_span(items[0]),
         )
 
     def csr_position(self, items: list[object]) -> tuple[str, int, int]:
@@ -402,6 +403,7 @@ class ProtocolAndCsrRules:
             ),
             domain,
             self._span(meta),
+            self._token_span(items[0]),
         )
 
 

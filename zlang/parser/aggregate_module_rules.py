@@ -207,13 +207,23 @@ class AggregateCallableModuleRules:
             member_origins=tuple(item[2] for item in members),
         )
 
-    def tagged_union_field(self, items: list[object]) -> ast_nodes.TaggedUnionFieldDecl:
-        return ast_nodes.TaggedUnionFieldDecl(str(items[0]), items[1])
+    @v_args(meta=True)
+    def tagged_union_field(
+        self, meta: object, items: list[object]
+    ) -> ast_nodes.TaggedUnionFieldDecl:
+        return ast_nodes.TaggedUnionFieldDecl(
+            str(items[0]), items[1], self._span(meta), self._token_span(items[0])
+        )
 
-    def tagged_union_variant(self, items: list[object]) -> ast_nodes.TaggedUnionVariantDecl:
+    @v_args(meta=True)
+    def tagged_union_variant(
+        self, meta: object, items: list[object]
+    ) -> ast_nodes.TaggedUnionVariantDecl:
         return ast_nodes.TaggedUnionVariantDecl(
             str(items[0]),
             tuple(item for item in items[1:] if isinstance(item, ast_nodes.TaggedUnionFieldDecl)),
+            self._span(meta),
+            self._token_span(items[0]),
         )
 
     @v_args(meta=True)
@@ -224,10 +234,16 @@ class AggregateCallableModuleRules:
             str(items[0]),
             tuple(item for item in items[1:] if isinstance(item, ast_nodes.TaggedUnionVariantDecl)),
             origin=self._span(meta),
+            name_origin=self._token_span(items[0]),
         )
 
-    def struct_field(self, items: list[object]) -> ast_nodes.StructFieldDecl:
-        return ast_nodes.StructFieldDecl(str(items[0]), items[1])
+    @v_args(meta=True)
+    def struct_field(
+        self, meta: object, items: list[object]
+    ) -> ast_nodes.StructFieldDecl:
+        return ast_nodes.StructFieldDecl(
+            str(items[0]), items[1], self._span(meta), self._token_span(items[0])
+        )
 
     @v_args(meta=True)
     def struct_decl(self, meta: object, items: list[object]) -> ast_nodes.StructDecl:
@@ -414,10 +430,11 @@ class AggregateCallableModuleRules:
             ),
             timing=timings[0] if timings else None,
             origin=self._span(meta),
+            name_origin=self._token_span(items[0]),
         )
 
     @v_args(meta=True)
-    def module(self, _meta: object, items: list[object]) -> ast_nodes.Module:
+    def module(self, meta: object, items: list[object]) -> ast_nodes.Module:
         name = str(items[0])
         body: list[object] = []
         for item in items[1:]:
@@ -522,6 +539,7 @@ class AggregateCallableModuleRules:
             ),
             parameter_constraint=parameter_constraint,
             name_origin=self._token_span(items[0]),
+            origin=self._span(meta),
         )
 
     def module_where(self, items: list[object]) -> tuple[str, object]:

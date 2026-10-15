@@ -449,6 +449,7 @@ class StateRules:
             tuple(item for item in items[4:] if isinstance(item, ast_nodes.FsmStateDecl)),
             self._span(meta),
             domain,
+            self._token_span(items[0]),
         )
 
     @v_args(meta=True)
@@ -462,6 +463,7 @@ class StateRules:
             tuple(item for item in items[4:] if isinstance(item, ast_nodes.FsmStateDecl)),
             self._span(meta),
             domain,
+            self._token_span(items[0]),
         )
 
     @v_args(meta=True)
