@@ -48,8 +48,14 @@ async function main() {
   ]);
   const waveform = waveformHtml();
   for (const required of [
-    'Scopes &amp; signals', 'Signal / group', 'Ctrl+wheel',
+    'Scopes &amp; signals', 'Signal / group', 'Shift+wheel',
     'function drawViewport(', 'function receiveSearch(', 'function control(',
+    "container.addEventListener('wheel'", 'previousLevel', 'function revealTime(',
+    'function beginMiddlePan(', 'function moveMiddlePan(', 'function setVerticalScroll(',
+    'middle drag', "container.addEventListener('auxclick'", 'middlePanning',
+    'selectedSignalId', 'function selectSignalAtY(', 'function signalIdsForChangeJump(',
+    'signal: all displayed', 'selected change',
+    'Jump to the next change of any displayed signal',
     "vscode.postMessage({type:'ready'})",
   ]) assert.ok(waveform.includes(required), `waveform UI omitted ${required}`);
   assert.equal(waveform.includes('/home/'), false);

@@ -464,7 +464,7 @@
     {
       "mode": "0644",
       "path": "editors/vscode/zlang-hdl/test/bundle.test.cjs",
-      "sha256": "6ce74b339f5284079a5a83fb0636c230e43f4caa9711040291a3b5a07ba4c70a"
+      "sha256": "23e032587f2848bf9966140a6c1b0ca196090b70003e6004a3114da86e7a32fa"
     },
     {
       "mode": "0644",
@@ -504,7 +504,7 @@
     {
       "mode": "0644",
       "path": "editors/vscode/zlang-hdl/waveform_view.js",
-      "sha256": "e9e1a03dec6efef4f4fd27efb3279932d8dcd5e5239de8203ede52505ac3ea41"
+      "sha256": "616b3dc699226a6dc4d804f11184381546655876c1c0c558437ea34470b078e0"
     },
     {
       "mode": "0644",
