@@ -11,7 +11,7 @@ incompatible input explicitly.
 
 ## Unreleased
 
-## 0.1.0a24 — 2026-10-14
+## 0.1.0a24 — 2026-10-15
 
 Alpha update consolidating native simulation ownership in the audited Rust
 runtime, extending nominal enum backing/value declarations, and publishing a
