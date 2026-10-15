@@ -112,6 +112,71 @@ There is no silent fallback to an RTL simulator. Native simulation requires the
 matching Linux x86-64/WSL2 wheel described in the installation chapter; an
 unsupported design or missing runtime produces an error.
 
+### Debug native simulation in VS Code
+
+The Linux-x64 ZLang HDL extension debugs the same native simulation plan used
+by `zlang sim`. It does not generate stimulus. Give the debugger either the
+same JSONL event schedule used by the command line or a bounded single-clock
+`clock` plus `cycles` launch.
+
+Stable project vectors normally belong in `simulation/`. Temporary or generated
+experiments belong under ignored `build/` output. A project-specific generator
+may produce the JSONL file, but the debugger does not run an arbitrary generator
+as part of launch. This keeps a failing vector replayable from the terminal,
+VS Code, and native-versus-RTL comparison.
+
+For example, save this schedule as `build/rule-action-events.jsonl`:
+
+```jsonl
+{"reset":{"rst":true},"set":{"enable":0},"edges":["clk"]}
+{"reset":{"rst":false},"edges":["clk"]}
+{"set":{"enable":1},"edges":["clk"],"repeat":2}
+{"set":{"enable":0},"edges":["clk"]}
+```
+
+Then add a `.vscode/launch.json` configuration:
+
+```json
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "zlang-hdl",
+      "request": "launch",
+      "name": "Debug RuleAction",
+      "program": "${workspaceFolder}/examples/rule_action.zhl",
+      "top": "RuleAction",
+      "events": "${workspaceFolder}/build/rule-action-events.jsonl",
+      "logicState": true,
+      "strictUninitialized": false,
+      "initialRegisters": {},
+      "traceSignals": ["fired", "count"],
+      "stopOnEntry": true
+    }
+  ]
+}
+```
+
+Save the relevant `.zhl` files before launch. Source breakpoints are verified
+only on executable rules, FSM transitions, and verification clauses. One step
+executes one complete atomic simulation/reset/clock event. Continue runs until
+a verified source or data breakpoint, an exception, or the end of the bounded
+schedule. Registers and memories are read-only while paused; input ports may be
+changed. Assertion, protocol, strict-U/X, and runtime failures appear as debugger
+exceptions with source attribution.
+
+Use **ZLang HDL: Open Live Waveform** for the active session. Signals listed in
+`traceSignals` have history from event zero; a signal added during execution is
+recorded from that point forward. Restart when complete history is needed. The
+readonly waveform editor also opens saved FST and VCD files independently of a
+debug session.
+
+In the waveform view, click a row to select it. Change navigation and the
+Left/Right keys then follow transitions of that signal only. Mouse-wheel zooms
+around the pointer, Shift+wheel pans in time, and middle-button drag pans in
+time or scrolls the signal list. Waveform time retains the event-index meaning
+described above.
+
 <a id="reference-getting-started"></a>
 
 ### Source-level verification

@@ -131,6 +131,40 @@ zlang lock --version
 zlang verify --version
 ```
 
+### Install the VS Code extension, LSP, and native debugger
+
+The Python wheel installs `zlang-lsp`; the VSIX supplies the VS Code client,
+syntax support, and snippets. The Linux-x64 VSIX additionally contains the
+reviewed native debugger and waveform viewer. Install compiler/native wheels
+and the VSIX from the same release.
+
+Verify the installed LSP command first:
+
+```sh
+zlang-lsp --version
+```
+
+Install the downloaded Linux-x64 package:
+
+```sh
+code --install-extension zlang-hdl-0.1.0-linux-x64.vsix --force
+```
+
+For a source checkout, `make venv` installs the checkout compiler, its matching
+reviewed native wheel, test tools, and `zlang-lsp` into `.venv`. Point VS Code
+at that exact server in `.vscode/settings.json`:
+
+```json
+{
+  "zlang.lsp.path": "${workspaceFolder}/.venv/bin/zlang-lsp"
+}
+```
+
+Reload the VS Code window and inspect **View: Output -> ZLang HDL** if startup
+fails. The universal VSIX remains editor/LSP-only; use the Linux-x64 package
+when native debugging and the waveform viewer are required. The simulation
+chapter provides a complete launch configuration and JSONL stimulus example.
+
 Check a design and emit production Direct-SV without installing any
 external EDA program:
 
