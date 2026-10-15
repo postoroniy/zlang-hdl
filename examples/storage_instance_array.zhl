@@ -24,7 +24,7 @@ module FifoLaneArray {
     in pop   : vec<2,bit>
     out front : vec<2,u8>
 
-    inst lane[2] : FifoLane
+    lane[2] : FifoLane
 
     generate(i in 0..2) {
         lane[i].data = data[i]
@@ -68,7 +68,7 @@ module MemoryLaneArray {
     in write_data    : vec<2,u8>
     out read_data    : vec<2,u8>
 
-    inst lane[2] : MemoryLane
+    lane[2] : MemoryLane
     generate(i in 0..2) {
         lane[i].read_address = read_address[i]
         lane[i].write_enable = write_enable[i]
@@ -100,7 +100,7 @@ module RomLaneArray {
     in address : vec<2,u1>
     out data : vec<2,u8>
 
-    inst lane[2] : RomLane
+    lane[2] : RomLane
     generate(i in 0..2) {
         lane[i].address = address[i]
     }

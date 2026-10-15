@@ -8,6 +8,8 @@ import sys
 from typing import Sequence
 
 from zlang._version import __version__
+from zlang.cli_diagnostics import print_cli_diagnostic
+from zlang.diagnostics import DiagnosticError
 from zlang.workspace import WorkspaceError, update_project_lock
 
 
@@ -37,8 +39,14 @@ def main(
     arguments = parser.parse_args(argv)
     try:
         lock = update_project_lock(arguments.project)
+    except DiagnosticError as error:
+        print_cli_diagnostic(error, program=prog)
+        return 1
     except WorkspaceError as error:
         print(f"{prog}: error: {error}", file=sys.stderr)
+        return 1
+    except OSError as error:
+        print_cli_diagnostic(error, program=prog)
         return 1
     if arguments.verbose:
         modules = sum(len(package.modules) for package in lock.packages)

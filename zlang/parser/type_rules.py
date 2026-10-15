@@ -41,7 +41,7 @@ class TypeRules:
         origin = self._span(meta)
         if len(items) == 1:
             text = str(items[0])
-            match = re.fullmatch(r"(uint|sint|bits)<([0-9]+)>", text)
+            match = re.fullmatch(r"(u|uint|sint|bits)<([0-9]+)>", text)
             if match is not None and int(match.group(2)) < 1:
                 raise ParseError("generic hardware type width must be positive")
             return ast_nodes.TypeName(
@@ -49,7 +49,7 @@ class TypeRules:
                 origin=origin,
                 named_origins=self._type_name_components(origin),
             )
-        if str(items[0]) in {"uint", "sint", "bits"} and str(items[1]).isdigit() and int(str(items[1])) < 1:
+        if str(items[0]) in {"u", "uint", "sint", "bits"} and str(items[1]).isdigit() and int(str(items[1])) < 1:
             raise ParseError("generic hardware type width must be positive")
         return ast_nodes.TypeName(
             f"{items[0]}<{','.join(str(item) for item in items[1:])}>",

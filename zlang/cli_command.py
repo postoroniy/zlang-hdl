@@ -10,6 +10,7 @@ from pathlib import Path
 
 from zlang import compiler as compiler_api
 from zlang import source_identity as source_api
+from zlang.cli_diagnostics import print_cli_diagnostic
 from zlang.backend import systemverilog as sv_backend
 from zlang.simulation_state import SimulationStateError
 from zlang.backend.external import load_profile_external_mappings
@@ -27,8 +28,6 @@ from zlang import platform_constraints as constraint_api
 from zlang import cli_arguments
 from zlang import cli_publication
 from zlang import cli_verification
-from zlang import diagnostics as diagnostic_api
-from zlang import workspace as workspace_api
 from zlang.compilation_products import CompilationResult, SemanticCheckResult
 from zlang.compilation_session import CompilationSession, SessionTopSelectionError
 from zlang.opt.identity import canonical_ir_identity
@@ -36,90 +35,6 @@ from zlang.parser import ParseError, parse
 from zlang.semantic import SemanticError
 
 
-def fallback_diagnostic(error: BaseException) -> diagnostic_api.Diagnostic:
-    """Attach stable codes to public exceptions not migrated at their source."""
-
-    if isinstance(error, source_api.SourceExtensionError):
-        return diagnostic_api.Diagnostic(
-            "ZL-SOURCE-EXTENSION",
-            str(error),
-            fixes=(f"rename the source file to use '{source_api.SOURCE_SUFFIX}'",),
-        )
-    if isinstance(error, compiler_api.TopSelectionError):
-        code = "ZL-TOP-001"
-    elif isinstance(error, workspace_api.WorkspaceError):
-        code = "ZL-PROJECT-001"
-    elif isinstance(error, OSError):
-        code = "ZL-IO-001"
-    else:
-        code = "ZL-ERROR-001"
-    return diagnostic_api.diagnostic_from_exception(error, code=code)
-
-
-def print_cli_diagnostic(
-    error: BaseException,
-    diagnostic_format: str,
-    *,
-    legacy_message: str | None = None,
-    source: Path | None = None,
-    project: Path | None = None,
-) -> None:
-    """Write one diagnostic with a compiler-owned code and source location."""
-
-    diagnostic = fallback_diagnostic(error)
-    if legacy_message is not None:
-        diagnostic = diagnostic_api.Diagnostic(
-            diagnostic.code,
-            legacy_message,
-            diagnostic.primary,
-            diagnostic.notes,
-            diagnostic.fixes,
-        )
-    if diagnostic_format == "json":
-        print(diagnostic.to_json(), file=sys.stderr)
-        return
-
-    location = diagnostic_location(diagnostic, source=source, project=project)
-    prefix = f"{source_api.CLI_NAME}: "
-    if location is not None:
-        prefix += f"{location}: "
-    print(
-        f"{prefix}error[{diagnostic.code}]: {diagnostic.message}",
-        file=sys.stderr,
-    )
-
-
-def diagnostic_location(
-    diagnostic: diagnostic_api.Diagnostic,
-    *,
-    source: Path | None,
-    project: Path | None,
-) -> str | None:
-    """Resolve a logical compiler origin to a physical CLI source location."""
-
-    origin = diagnostic.primary
-    if origin is None:
-        return None
-    source_path = source
-    source_unit = origin.source_unit
-    if source_path is not None and source_unit not in {None, source_path.name}:
-        resolved_source: Path | None = None
-        try:
-            workspace = workspace_api.load_project_workspace(source_path, project=project)
-        except (OSError, ValueError):
-            workspace = None
-        if workspace is not None:
-            resolved_source = workspace.source_path_for_unit(source_unit)
-        source_path = resolved_source
-    rendered_source = (
-        str(source_path)
-        if source_path is not None
-        else (source_unit or "<unknown-source>")
-    )
-    return (
-        f"{rendered_source}:{origin.span.start_line}:"
-        f"{origin.span.start_column}"
-    )
 @dataclass(frozen=True)
 class CompiledSource:
     result: CompilationResult | SemanticCheckResult | _CliCompilation
@@ -374,6 +289,7 @@ def compile_source_request(
                     notes=error.notes,
                     fixes=error.fixes,
                     machine_fixes=error.machine_fixes,
+                    physical_source=error.physical_source,
                 ) from error
             raise
     assert result is not None
@@ -392,9 +308,31 @@ def run_compile_command(effective_argv: list[str]) -> int:
                 / f"{arguments.verification_bundle.name}.work"
             )
         else:
-            verification_work_directory = Path(tempfile.mkdtemp(
+            with tempfile.TemporaryDirectory(
                 prefix="zlang-verification-work-"
-            ))
+            ) as temporary:
+                return _run_compile_request(
+                    parser,
+                    arguments,
+                    constraint_requested,
+                    Path(temporary),
+                )
+    return _run_compile_request(
+        parser,
+        arguments,
+        constraint_requested,
+        verification_work_directory,
+    )
+
+
+def _run_compile_request(
+    parser: argparse.ArgumentParser,
+    arguments: argparse.Namespace,
+    constraint_requested: bool,
+    verification_work_directory: Path | None,
+) -> int:
+    """Execute one validated request under its caller-owned scratch lifetime."""
+
     try:
         compiled = compile_source_request(arguments, verification_work_directory)
     except UnicodeDecodeError as error:
@@ -586,8 +524,6 @@ def run_compile_command(effective_argv: list[str]) -> int:
             parser.error(str(error))
         except SimulationStateError as error:
             parser.error(str(error))
-    if arguments.formal_depth < 1:
-        parser.error("--formal-depth must be positive")
     verification = cli_verification._run_requested_verification(
         parser,
         arguments,
@@ -597,37 +533,47 @@ def run_compile_command(effective_argv: list[str]) -> int:
     if verification.stop:
         return verification.exit_code
     verification_exit_code = verification.exit_code
-    published = cli_publication._publish_requested_artifacts(
-        parser,
-        arguments,
-        result,
-        constraint_requested=constraint_requested,
-        selected_platform_profile=selected_platform_profile,
-        systemverilog_output=systemverilog_output,
-        direct_systemverilog=direct_systemverilog,
-        direct_artifact=direct_artifact,
-        simulation_state_bundle=simulation_state_bundle,
-        source_digest=source_digest,
-        synthesis_report=synthesis_report,
-        saturation_report=saturation_report,
-        verification=verification,
-    )
-    cli_publication._publish_build_manifest(
-        parser,
-        arguments,
-        result,
-        source_bytes=source_bytes,
-        direct_artifact=direct_artifact,
-        systemverilog_output=systemverilog_output,
-        direct_companion_paths=published.companion_paths,
-        constraint_products=published.constraints,
-        source_map=published.source_map,
-        evidence_records=published.evidence,
-        rendered_evidence=published.rendered_evidence,
-        synthesis_feedback=synthesis_feedback,
-        tool_executions=published.tool_executions,
-        selected_platform_profile=selected_platform_profile,
-    )
+    try:
+        published = cli_publication._publish_requested_artifacts(
+            parser,
+            arguments,
+            result,
+            constraint_requested=constraint_requested,
+            selected_platform_profile=selected_platform_profile,
+            systemverilog_output=systemverilog_output,
+            direct_systemverilog=direct_systemverilog,
+            direct_artifact=direct_artifact,
+            simulation_state_bundle=simulation_state_bundle,
+            source_digest=source_digest,
+            synthesis_report=synthesis_report,
+            saturation_report=saturation_report,
+            verification=verification,
+        )
+        cli_publication._publish_build_manifest(
+            parser,
+            arguments,
+            result,
+            source_bytes=source_bytes,
+            direct_artifact=direct_artifact,
+            systemverilog_output=systemverilog_output,
+            direct_companion_paths=published.companion_paths,
+            constraint_products=published.constraints,
+            source_map=published.source_map,
+            evidence_records=published.evidence,
+            rendered_evidence=published.rendered_evidence,
+            synthesis_feedback=synthesis_feedback,
+            tool_executions=published.tool_executions,
+            selected_platform_profile=selected_platform_profile,
+        )
+    except OSError as error:
+        print_cli_diagnostic(
+            error,
+            arguments.diagnostic_format,
+            legacy_message=f"cannot publish requested artifacts: {error}",
+            source=arguments.source,
+            project=arguments.project,
+        )
+        return 2
     if arguments.verbose:
         written_paths: list[Path] = []
         for attribute in cli_arguments.ARTIFACT_SINK_ATTRIBUTES:

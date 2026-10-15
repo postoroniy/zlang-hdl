@@ -124,10 +124,21 @@ def _canonical_scalar_type(text: str) -> HardwareType | None:
         if not separator or not colon or not name or not identity:
             return None
         explicit_width: int | None = None
-        width_match = re.search(r":bits<([1-9][0-9]*)>$", members_text)
-        if width_match:
-            explicit_width = int(width_match.group(1))
-            members_text = members_text[:width_match.start()]
+        explicit_backing_kind: str | None = None
+        backing_match = re.search(
+            r":(bit|bits<[1-9][0-9]*>|u[1-9][0-9]*)$", members_text
+        )
+        if backing_match:
+            backing = _canonical_scalar_type(backing_match.group(1))
+            if not isinstance(backing, (BitType, BitsType, UIntType)):
+                return None
+            explicit_width = backing.width
+            explicit_backing_kind = (
+                "bit" if isinstance(backing, BitType)
+                else "uint" if isinstance(backing, UIntType)
+                else "bits"
+            )
+            members_text = members_text[:backing_match.start()]
         members = _split_top_level(members_text)
         if not members or any(not item for item in members):
             return None
@@ -143,7 +154,12 @@ def _canonical_scalar_type(text: str) -> HardwareType | None:
                 names.append(member)
                 codes.append(int(code, 10))
             return EnumType(
-                name, tuple(names), identity, explicit_width, tuple(codes)
+                name,
+                tuple(names),
+                identity,
+                explicit_width,
+                tuple(codes),
+                explicit_backing_kind,
             )
         except (TypeError, ValueError):
             return None

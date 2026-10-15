@@ -37,6 +37,53 @@ environment. `uv` is used when available to provision CPython 3.12, otherwise
 `make venv` validates a local Python 3.12 interpreter before creating the
 environment.
 
+### VS Code and the language server
+
+`make venv` installs the `zlang-lsp` executable into this checkout. Verify it
+before configuring the editor:
+
+```bash
+.venv/bin/zlang-lsp --version
+```
+
+The VSIX contains the VS Code client, syntax support and snippets; it does not
+embed the Python compiler or language-server executable. VS Code must be pointed
+at the `zlang-lsp` installed by the release wheel or this checkout's `.venv`.
+
+Install the reviewed VS Code extension from the matching GitHub release:
+
+```bash
+mkdir -p build/editor
+curl --fail --location \
+  --output build/editor/zlang-hdl-0.1.0.vsix \
+  https://github.com/postoroniy/zlang-hdl/releases/download/v0.1.0a24/zlang-hdl-0.1.0.vsix
+code --install-extension "$PWD/build/editor/zlang-hdl-0.1.0.vsix" --force
+```
+
+Then set **ZLang HDL: LSP Path** in the trusted VS Code workspace to:
+
+```text
+${workspaceFolder}/.venv/bin/zlang-lsp
+```
+
+Equivalently, add this property to the workspace's existing
+`.vscode/settings.json` without replacing its other settings:
+
+```json
+{
+  "zlang.lsp.path": "${workspaceFolder}/.venv/bin/zlang-lsp"
+}
+```
+
+Reload the VS Code window and open a `.zhl` file. Diagnostics, hover, completion,
+F12 definition, Shift+F12 references and rename are provided by the compiler-owned
+language server. Startup failures are reported in **View: Output → ZLang HDL**.
+The extension requires VS Code 1.141 or newer.
+
+To build the extension from the clone instead of downloading the reviewed VSIX,
+install Node.js 22 and follow the
+[local extension build instructions](editors/vscode/zlang-hdl/README.md#build-and-install-locally).
+
 For an ordinary release-wheel installation, install the commands in an isolated
 environment:
 
@@ -68,21 +115,80 @@ mkdir -p build
 .venv/bin/zlang examples/add.zhl --systemverilog build/Add.sv --verbose
 ```
 
-Run a persistent native simulation directly from ZLang source:
+### Native simulation
+
+Native simulation requires the matching `zlang-native-sim` a24 wheel. The
+runtime is not an optional accelerator: it is the sole executable owner of
+both ordinary two-state and opt-in `0`/`1`/`U`/`X` behavior. If the wheel is
+missing or its ABI does not match the compiler, `zlang sim` fails explicitly;
+it never falls back to a Python interpreter or silently invokes an RTL tool.
+
+For a combinational top, assign inputs with repeatable `--set` options and ask
+for JSON output:
+
+```bash
+.venv/bin/zlang sim examples/add.zhl --top Add \
+  --set a=200 --set b=55 --json
+```
+
+For a single-clock sequential top, `--cycles` applies the named clock once per
+event. Resettable designs should normally use the explicit JSONL event form
+shown below so reset assertion and release are part of the reproducible input:
 
 ```bash
 .venv/bin/zlang sim examples/counter.zhl \
   --top Counter --clock clk --cycles 100 --json
 ```
 
-Use `zlang sim --help` for input assignment, JSONL multi-clock events, VCD
-tracing, and optional cycle-by-cycle comparison with generated RTL in Icarus
-or Verilator.
+Each non-empty line in an event file is one atomic simulation event. `set`
+changes binary inputs, `set_logic` supplies packed four-state input spelling,
+`reset` changes physical reset pins, and `edges` lists all coincident clock
+edges. `repeat` reuses the event lazily and is bounded by the one-million-event
+run limit:
+
+```jsonl
+{"reset":{"rst":true},"edges":["clk"]}
+{"reset":{"rst":false},"set":{"enable":1},"edges":["clk"]}
+{"set":{"enable":0},"edges":["clk"],"repeat":8}
+```
+
+Run the schedule and record a selective FST waveform (clock/reset signals are
+always included). FST is preferred for interactive native traces; `.vcd`
+remains supported for external/formal-tool compatibility:
+
+```bash
+.venv/bin/zlang sim examples/counter.zhl --top Counter \
+  --events build/counter-events.jsonl \
+  --trace build/counter.fst --trace-signal count --json
+```
+
+Ordinary simulation starts uninitialized state from deterministic binary zero.
+Use `--logic-state` when the distinction between never-written `U` and computed
+unknown `X` matters. Use repeatable `--initial-reg NAME=01ux` overrides for a
+specific initial state and `--set-logic NAME=01ux` for packed input values.
+`--strict-uninitialized` implies four-state execution and turns an observed
+`U` or `X` into a runtime failure. Standard FST/VCD spell both unresolved
+states as `x`; ZLang adds hidden `__zlang_meta/*_u_mask` companions so its
+waveform query service and viewer retain U provenance.
+
+For differential checking, the same event schedule can be replayed against
+generated SystemVerilog in Icarus or Verilator. The comparison fails closed on
+an output mismatch, missing sample, unresolved RTL value, tool error, or
+timeout. Supply a new empty artifact directory only when the generated RTL,
+testbench and logs should be retained:
 
 ```bash
 .venv/bin/zlang sim examples/add.zhl --top Add \
-  --set a=200 --set b=55 --compare-with verilator --json
+  --set a=200 --set b=55 --compare-with verilator \
+  --compare-artifacts build/add-compare --json
 ```
+
+Multi-clock designs must use `--events`; clocks listed together in one `edges`
+array commit atomically from the same pre-edge snapshot. See the
+[native simulation chapter](docs/language-reference.md#reference-native-simulation)
+for the Python API, reset semantics, four-state behavior, limits, tracing, and
+differential-validation details. `zlang sim --help` is the exact CLI option
+reference.
 
 With Verilator installed, a strict lint smoke is:
 

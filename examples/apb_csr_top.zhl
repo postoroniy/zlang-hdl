@@ -6,11 +6,11 @@ module ApbCsrTop {
     reset rst
     interface apb : APB<32,32>.slave @clk
 
-    inst frontend : APBToRegBus<32,32>
-    inst csr      : RegBusCSRTarget<32,32>
+    frontend : APBToRegBus<32,32>
+    csr      : RegBusCSRTarget<32,32>
 
-    connect apb -> frontend.apb
-    connect frontend.regbus -> csr.regbus
+    apb -> frontend.apb
+    frontend.regbus -> csr.regbus
     out done : bit
     done = csr.done
 }

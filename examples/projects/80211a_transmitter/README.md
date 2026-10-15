@@ -135,15 +135,15 @@ zlang sim src/transmitter.zhl --top Ieee80211aTransmitter \
   --compare-with verilator --json > build/simulation.json
 ```
 
-Generate a selective VCD from the same schedule. Physical `clk` and `rst` are
-always included, even when data/state signals are selected explicitly. The VCD
+Generate a selective FST from the same schedule. Physical `clk` and `rst` are
+always included, even when data/state signals are selected explicitly. The trace
 faithfully visualizes event ordering and compiled clock/reset polarity; its two
 1 ns ticks per JSONL event are not a claim about analog radio timing:
 
 ```sh
 zlang sim src/transmitter.zhl --top Ieee80211aTransmitter \
   --events simulation/demo-events.jsonl \
-  --trace build/wifi80211a.vcd \
+  --trace build/wifi80211a.fst \
   --trace-signal '$zlang_protocol:command:valid' \
   --trace-signal '$zlang_protocol:psdu:valid' \
   --trace-signal '$zlang_protocol:output:payload' \
@@ -151,8 +151,10 @@ zlang sim src/transmitter.zhl --top Ieee80211aTransmitter \
   --trace-signal '$zlang_protocol:output:ready' \
   --trace-signal 'packet_mapper.encoder_interleaver.framer.remaining_bytes' \
   --json > build/simulation.json
-gtkwave build/wifi80211a.vcd
 ```
+
+Open `build/wifi80211a.fst` in the ZLang HDL VS Code waveform editor. Use a
+`.vcd` suffix instead when interoperating with a VCD-only external tool.
 
 Run the bounded formal wrapper directly through the normal compiler command:
 

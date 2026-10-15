@@ -382,6 +382,33 @@ def test_vcd_tracks_falling_edge_active_low_reset_and_repeated_events(
     assert list(blocks) == sorted(blocks)
 
 
+def test_fst_is_the_preferred_native_trace_format(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    trace = tmp_path / "counter.fst"
+    assert main([
+        "sim", str(ROOT / "examples/counter.zhl"), "--top", "Counter",
+        "--clock", "clk", "--cycles", "3", "--trace", str(trace), "--json",
+    ]) == 0
+    assert json.loads(capsys.readouterr().out) == {"y": 3}
+    assert trace.is_file()
+    assert trace.stat().st_size > 0
+
+
+def test_trace_rejects_formats_other_than_fst_and_vcd(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    trace = tmp_path / "counter.ghw"
+    assert main([
+        "sim", str(ROOT / "examples/counter.zhl"), "--top", "Counter",
+        "--clock", "clk", "--cycles", "1", "--trace", str(trace), "--json",
+    ]) == 2
+    assert "preferred .fst or compatible .vcd" in capsys.readouterr().err
+    assert not trace.exists()
+
+
 def test_vcd_tracks_coincident_clock_edges_once(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],

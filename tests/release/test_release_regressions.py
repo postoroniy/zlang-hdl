@@ -49,17 +49,17 @@ def _write(root: Path, payload: dict[str, object]) -> None:
 def test_current_release_binds_included_fixes_to_permanent_tests() -> None:
     report = validate_regression_ledger(
         ROOT,
-        release="0.1.0a23",
-        previous_tag=None,
+        release="0.1.0a24",
+        previous_tag="v0.1.0a23",
     )
     assert report == {
         "schema": 1,
-        "entries": 3,
-        "included": ["REL-005", "ZL-049", "ZL-050"],
+        "entries": 5,
+        "included": ["SIM-001", "ZL-052", "ZL-053", "ZL-054", "ZL-055"],
         "dispositions": {
             "deferred": 0,
             "excluded_experiment": 0,
-            "included": 3,
+            "included": 5,
             "private_only": 0,
         },
     }
@@ -69,12 +69,13 @@ def test_missing_or_renamed_regression_test_fails_closed(tmp_path: Path) -> None
     root = _copy_ledger_tree(tmp_path)
     payload = _payload(root)
     payload["entries"][0]["tests"][0] += "_missing"
+    payload["entries"][0]["tests"].sort()
     _write(root, payload)
     with pytest.raises(RegressionLedgerError, match="does not resolve"):
         validate_regression_ledger(
             root,
-            release="0.1.0a23",
-            previous_tag=None,
+            release="0.1.0a24",
+            previous_tag="v0.1.0a23",
         )
 
 
@@ -82,12 +83,13 @@ def test_missing_release_source_fails_closed(tmp_path: Path) -> None:
     root = _copy_ledger_tree(tmp_path)
     payload = _payload(root)
     payload["entries"][0]["source_paths"][-1] = "zlang/missing.py"
+    payload["entries"][0]["source_paths"].sort()
     _write(root, payload)
     with pytest.raises(RegressionLedgerError, match="does not exist"):
         validate_regression_ledger(
             root,
-            release="0.1.0a23",
-            previous_tag=None,
+            release="0.1.0a24",
+            previous_tag="v0.1.0a23",
         )
 
 
@@ -96,13 +98,13 @@ def test_release_and_previous_tag_are_exact(tmp_path: Path) -> None:
     with pytest.raises(RegressionLedgerError, match="version does not match"):
         validate_regression_ledger(
             root,
-            release="0.1.0a24",
-            previous_tag=None,
+            release="0.1.0a23",
+            previous_tag="v0.1.0a23",
         )
     with pytest.raises(RegressionLedgerError, match="baseline does not match"):
         validate_regression_ledger(
             root,
-            release="0.1.0a23",
+            release="0.1.0a24",
             previous_tag="v0.1.0a22",
         )
 
@@ -115,23 +117,23 @@ def test_nonincluded_fix_requires_reason_and_durable_follow_up(tmp_path: Path) -
         "status": "deferred",
         "summary": "Deferred example",
         "reason": "Requires a separately reviewed semantic change.",
-        "follow_up": "ZL-049",
+        "follow_up": "ZL-052",
     }
     _write(root, payload)
     report = validate_regression_ledger(
         root,
-        release="0.1.0a23",
-        previous_tag=None,
+        release="0.1.0a24",
+        previous_tag="v0.1.0a23",
     )
-    assert report["included"] == ["ZL-049", "ZL-050"]
+    assert report["included"] == ["ZL-052", "ZL-053", "ZL-054", "ZL-055"]
 
     del payload["entries"][0]["follow_up"]
     _write(root, payload)
     with pytest.raises(RegressionLedgerError, match="unknown or missing fields"):
         validate_regression_ledger(
             root,
-            release="0.1.0a23",
-            previous_tag=None,
+            release="0.1.0a24",
+            previous_tag="v0.1.0a23",
         )
 
 
@@ -143,16 +145,17 @@ def test_duplicate_or_unsorted_identities_fail_closed(tmp_path: Path) -> None:
     with pytest.raises(RegressionLedgerError, match="unique and sorted"):
         validate_regression_ledger(
             root,
-            release="0.1.0a23",
-            previous_tag=None,
+            release="0.1.0a24",
+            previous_tag="v0.1.0a23",
         )
 
 
 def test_cli_reports_the_validated_inclusion_count(capsys: pytest.CaptureFixture[str]) -> None:
     assert main([
         "--root", str(ROOT),
-        "--release", "0.1.0a23",
+        "--release", "0.1.0a24",
+        "--previous-tag", "v0.1.0a23",
     ]) == 0
     assert capsys.readouterr().out == (
-        "release regressions valid: 3 entries, 3 included\n"
+        "release regressions valid: 5 entries, 5 included\n"
     )

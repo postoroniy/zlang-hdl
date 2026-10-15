@@ -7,11 +7,18 @@ from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 import json
 from itertools import islice
+import os
 from pathlib import Path
 import sys
+import tempfile
 
 from zlang import sim
 from zlang._version import __version__
+from zlang.cli_diagnostics import print_cli_diagnostic
+from zlang.common.atomic_io import publish_text_atomically
+from zlang.diagnostics import DiagnosticError
+from zlang.source_identity import SourceExtensionError
+from zlang.workspace import WorkspaceError
 
 
 MAX_EXPANDED_EVENTS = 1_000_000
@@ -233,91 +240,67 @@ def _control_levels(
     return clocks, resets
 
 
-def _write_vcd(
-    path: Path,
+@dataclass(frozen=True)
+class _PreparedWaveform:
+    module: str
+    widths: tuple[tuple[str, int], ...]
+    traced_names: tuple[str, ...]
+    mask_names: tuple[tuple[str, str], ...]
+    timeline: tuple[tuple[int, tuple[tuple[str, str], ...]], ...]
+
+
+def _prepare_waveform(
     instance: sim.Simulator,
     samples: list[dict[str, object]],
-    *,
-    events: Sequence[Mapping[str, object]] = (),
-) -> None:
-    widths = instance.trace_widths
+    events: Sequence[Mapping[str, object]],
+) -> _PreparedWaveform:
+    trace_widths = instance.trace_widths
     clocks, resets = _control_levels(instance)
-    traced_names = sorted(
+    traced_names = tuple(sorted(
         {name for sample in samples for name in sample if name != "$event"}
-    )
-    missing = [name for name in traced_names if name not in widths]
+    ))
+    missing = [name for name in traced_names if name not in trace_widths]
     if missing:
         raise sim.SimulationRuntimeError(
             f"trace signal '{missing[0]}' has no compiler-owned packed width"
         )
-    control_names = sorted(set(clocks) | set(resets))
-    names = sorted(set(traced_names) | set(control_names))
-    widths = {**widths, **dict.fromkeys(control_names, 1)}
+    control_names = tuple(sorted(set(clocks) | set(resets)))
+    widths = {name: trace_widths[name] for name in traced_names}
+    widths.update(dict.fromkeys(control_names, 1))
     logic_trace = any(
         isinstance(value, sim.LogicVector)
         for sample in samples
         for name, value in sample.items()
         if name != "$event"
     )
-    identifiers = {name: _vcd_identifier(index) for index, name in enumerate(names)}
-    u_identifiers = {
-        name: _vcd_identifier(len(names) + index)
-        for index, name in enumerate(traced_names)
-    }
-    lines = [
-        "$date deterministic $end",
-        "$version ZLang HDL simulation $end",
-        (
-            "$comment Event-index visualization: each simulation event occupies "
-            "two 1ns ticks; clock and reset transitions represent compiler event "
-            "semantics, not analog timing. $end"
-        ),
-        "$timescale 1ns $end",
-        f"$scope module {instance.program.module.name} $end",
-    ]
-    lines.extend(
-        f"$var wire {widths[name]} {identifiers[name]} {name} $end"
-        for name in names
-    )
-    lines.append("$upscope $end")
-    if logic_trace:
-        lines.append("$scope module __zlang_meta $end")
-        lines.extend(
-            f"$var wire {widths[name]} {u_identifiers[name]} {name}_u_mask $end"
-            for name in traced_names
-        )
-        lines.append("$upscope $end")
-    lines.append("$enddefinitions $end")
+    mask_names = {
+        name: f"__zlang_meta__{name}_u_mask" for name in traced_names
+    } if logic_trace else {}
+    widths.update({mask: widths[name] for name, mask in mask_names.items()})
+    timeline: dict[int, list[tuple[str, str]]] = {}
 
-    timeline: dict[int, list[str]] = {}
-
-    def change(time: int, text: str) -> None:
-        timeline.setdefault(time, []).append(text)
+    def change(time: int, name: str, bits: str) -> None:
+        timeline.setdefault(time, []).append((name, bits))
 
     for name, (idle, _active) in clocks.items():
-        change(0, f"b{idle} {identifiers[name]}")
+        change(0, name, str(idle))
     reset_levels = {name: idle for name, (idle, _active) in resets.items()}
     for name, value in reset_levels.items():
-        change(0, f"b{value} {identifiers[name]}")
-
+        change(0, name, str(value))
     for sample in samples:
         time = 2 * int(sample["$event"])
         for name in traced_names:
             value = sample.get(name, 0)
             if isinstance(value, sim.LogicVector):
                 bits = value.to_bits()
+                change(time, name, bits)
                 change(
                     time,
-                    f"b{bits.replace('u', 'x')} {identifiers[name]}"
+                    mask_names[name],
+                    "".join("1" if item == "u" else "0" for item in bits),
                 )
-                u_mask = "".join("1" if item == "u" else "0" for item in bits)
-                change(time, f"b{u_mask} {u_identifiers[name]}")
             else:
-                change(
-                    time,
-                    f"b{int(value):0{widths[name]}b} {identifiers[name]}",
-                )
-
+                change(time, name, f"{int(value):0{widths[name]}b}")
     for event_index, event in enumerate(events, 1):
         reset_updates = event.get("reset", {})
         if isinstance(reset_updates, dict):
@@ -329,7 +312,7 @@ def _write_vcd(
                 value = active if asserted else idle
                 if reset_levels[name] != value:
                     reset_levels[name] = value
-                    change(2 * event_index - 1, f"b{value} {identifiers[name]}")
+                    change(2 * event_index - 1, name, str(value))
         raw_edges = event.get("edges", ())
         if not isinstance(raw_edges, Sequence) or isinstance(raw_edges, (str, bytes)):
             continue
@@ -338,14 +321,134 @@ def _write_vcd(
             if name not in clocks:
                 continue
             idle, active = clocks[name]
-            change(2 * event_index, f"b{active} {identifiers[name]}")
-            change(2 * event_index + 1, f"b{idle} {identifiers[name]}")
+            change(2 * event_index, name, str(active))
+            change(2 * event_index + 1, name, str(idle))
+    return _PreparedWaveform(
+        module=instance.program.module.name,
+        widths=tuple(sorted(widths.items())),
+        traced_names=traced_names,
+        mask_names=tuple(sorted(mask_names.items())),
+        timeline=tuple(
+            (time, tuple(changes)) for time, changes in sorted(timeline.items())
+        ),
+    )
 
-    for time in sorted(timeline):
+
+def _write_vcd(
+    path: Path,
+    instance: sim.Simulator,
+    samples: list[dict[str, object]],
+    *,
+    events: Sequence[Mapping[str, object]] = (),
+) -> None:
+    prepared = _prepare_waveform(instance, samples, events)
+    widths = dict(prepared.widths)
+    mask_names = dict(prepared.mask_names)
+    names = sorted(set(widths) - set(mask_names.values()))
+    identifiers = {name: _vcd_identifier(index) for index, name in enumerate(names)}
+    u_identifiers = {
+        name: _vcd_identifier(len(names) + index)
+        for index, name in enumerate(prepared.traced_names)
+    }
+    lines = [
+        "$date deterministic $end",
+        "$version ZLang HDL simulation $end",
+        (
+            "$comment Event-index visualization: each simulation event occupies "
+            "two 1ns ticks; clock and reset transitions represent compiler event "
+            "semantics, not analog timing. $end"
+        ),
+        "$timescale 1ns $end",
+        f"$scope module {prepared.module} $end",
+    ]
+    lines.extend(
+        f"$var wire {widths[name]} {identifiers[name]} {name} $end"
+        for name in names
+    )
+    lines.append("$upscope $end")
+    if mask_names:
+        lines.append("$scope module __zlang_meta $end")
+        lines.extend(
+            f"$var wire {widths[name]} {u_identifiers[name]} {name}_u_mask $end"
+            for name in prepared.traced_names
+        )
+        lines.append("$upscope $end")
+    lines.append("$enddefinitions $end")
+
+    reverse_masks = {mask: name for name, mask in mask_names.items()}
+    for time, changes in prepared.timeline:
         lines.append(f"#{time}")
-        lines.extend(timeline[time])
+        for name, bits in changes:
+            identifier = (
+                u_identifiers[reverse_masks[name]]
+                if name in reverse_masks
+                else identifiers[name]
+            )
+            lines.append(f"b{bits.replace('u', 'x')} {identifier}")
+    publish_text_atomically(path, "\n".join(lines) + "\n")
+
+
+def _write_fst(
+    path: Path,
+    instance: sim.Simulator,
+    samples: list[dict[str, object]],
+    *,
+    events: Sequence[Mapping[str, object]] = (),
+) -> None:
+    prepared = _prepare_waveform(instance, samples, events)
+    widths = dict(prepared.widths)
+    timeline = [
+        (
+            time,
+            {
+                name: (widths[name], bits)
+                for name, bits in changes
+            },
+        )
+        for time, changes in prepared.timeline
+    ]
+
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    temporary_name: str | None = None
+    try:
+        descriptor, temporary_name = tempfile.mkstemp(
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+        )
+        os.close(descriptor)
+        sim.write_fst_trace(
+            Path(temporary_name),
+            prepared.module,
+            widths,
+            timeline,
+        )
+        os.replace(temporary_name, path)
+        temporary_name = None
+    finally:
+        if temporary_name is not None:
+            try:
+                os.unlink(temporary_name)
+            except FileNotFoundError:
+                pass
+
+
+def _write_trace(
+    path: Path,
+    instance: sim.Simulator,
+    samples: list[dict[str, object]],
+    *,
+    events: Sequence[Mapping[str, object]] = (),
+) -> None:
+    suffix = path.suffix.lower()
+    if suffix == ".fst":
+        _write_fst(path, instance, samples, events=events)
+    elif suffix == ".vcd":
+        _write_vcd(path, instance, samples, events=events)
+    else:
+        raise sim.SimulationRuntimeError(
+            "--trace output must use the preferred .fst or compatible .vcd suffix"
+        )
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -455,7 +558,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     output_options.add_argument(
         "--trace",
         type=Path,
-        help="write simulation transitions plus physical clocks/resets as VCD",
+        help=(
+            "write simulation transitions plus physical clocks/resets as FST "
+            "(preferred) or VCD, selected by file suffix"
+        ),
     )
     output_options.add_argument(
         "--trace-signal",
@@ -463,7 +569,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         default=[],
         metavar="NAME",
         help=(
-            "include only this data/state signal in VCD output; may be repeated "
+            "include only this data/state signal in waveform output; may be repeated "
             "(physical clocks/resets are always included)"
         ),
     )
@@ -491,7 +597,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     if (arguments.logic_assignments or arguments.initial_registers) and not (
         arguments.logic_state or arguments.strict_uninitialized
     ):
-        parser.error("--set-logic/--initial-reg require --logic-state")
+        parser.error(
+            "--set-logic/--initial-reg require --logic-state or "
+            "--strict-uninitialized"
+        )
     if arguments.trace_signal and arguments.trace is None:
         parser.error("--trace-signal requires --trace")
     if arguments.compare_with is not None and (
@@ -568,10 +677,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     )
                 else:
                     if program.logic_state and not program.strict_uninitialized:
-                        instance._native.eval()
-                        assert instance._logic is not None
-                        instance._logic.evaluate()
-                        native_outputs = instance.outputs_logic()
+                        native_outputs = instance.eval()
                     else:
                         native_outputs = instance.eval()
                 if arguments.compare_with is None:
@@ -582,13 +688,25 @@ def main(argv: Sequence[str] | None = None) -> int:
                         if program.logic_state
                         else instance.drain_trace()
                     )
-                    _write_vcd(
+                    _write_trace(
                         arguments.trace,
                         instance,
                         samples,
                         events=trace_events,
                     )
         assert outputs is not None
+    except (
+        DiagnosticError,
+        SourceExtensionError,
+        WorkspaceError,
+    ) as error:
+        print_cli_diagnostic(
+            error,
+            source=arguments.source,
+            project=arguments.project,
+            program="zlang sim",
+        )
+        return 1
     except (
         OSError,
         ValueError,

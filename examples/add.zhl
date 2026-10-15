@@ -3,5 +3,7 @@ module Add {
     in  b : u8
     out y : u9
 
+    // u8 + u8 is already u9: carry growth is part of the operator type, so
+    // extending either operand would only obscure the exact arithmetic.
     y = a + b
 }

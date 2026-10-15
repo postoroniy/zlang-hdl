@@ -216,6 +216,28 @@ def test_workflow_contract_rejects_direct_hosted_commands(tmp_path: Path) -> Non
     assert any("must not bypass its Make lane" in item for item in failures)
 
 
+def test_editor_workflow_contract_requires_native_runtime_install(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "ci.yml"
+    path.write_text(
+        "jobs:\n"
+        "  lexical-editor:\n"
+        "    steps:\n"
+        "      - run: make -s ci-bootstrap\n"
+        "      - run: make -s ci-editor\n",
+        encoding="utf-8",
+    )
+
+    failures = hosted_lane_contract_failures(path)
+
+    assert any(
+        "job 'lexical-editor' must invoke Make target 'native-release-install'"
+        in item
+        for item in failures
+    )
+
+
 def test_workflow_contract_requires_pdf_tools_for_status_lanes(
     tmp_path: Path,
 ) -> None:

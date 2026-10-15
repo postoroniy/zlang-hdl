@@ -24,6 +24,7 @@ def lower_scheduler_actions(
     payload: dict[str, Any],
     builder: PrimitiveBuilder,
     next_by_domain: dict[str, dict[str, int]],
+    scheduler_fire_nodes: dict[str, int] | None = None,
 ) -> list[dict[str, Any]]:
     """Lower the compiler-minimized scheduler truth table and its actions."""
 
@@ -116,6 +117,8 @@ def lower_scheduler_actions(
                         "and", matches, atom(index, expected, actual), 1
                     )
             fire = builder.binary("or", fire, matches, 1)
+        if scheduler_fire_nodes is not None:
+            scheduler_fire_nodes[str(group["name"])] = fire
         for action in group["actions"]:
             commit = builder.binary(
                 "and", fire, _condition(builder, action["activation"]), 1

@@ -114,7 +114,7 @@ module FFTSDFStageNumericD4 {
     in input : rv<Complex<fixed<18,16>>>
     out output : rv<Complex<fixed<18,16>>>
 
-    inst stage : FFTSDFStageNumeric<
+    stage : FFTSDFStageNumeric<
         S=fixed<18,16>,W=fixed<16,14>,D=4
     >
 
@@ -133,10 +133,10 @@ module FFT4SDFReference {
     in input : rv<Complex<fixed<18,16>>>
     out output : rv<Complex<fixed<18,16>>>
 
-    inst stage_d2 : FFTSDFStageNumeric<
+    stage_d2 : FFTSDFStageNumeric<
         S=fixed<18,16>,W=fixed<16,14>,D=2
     >
-    inst stage_d1 : FFTSDFStageNumeric<
+    stage_d1 : FFTSDFStageNumeric<
         S=fixed<18,16>,W=fixed<16,14>,D=1
     >
 
@@ -156,13 +156,13 @@ module FFT8SDFReference {
     in input : rv<Complex<fixed<18,16>>>
     out output : rv<Complex<fixed<18,16>>>
 
-    inst stage_d4 : FFTSDFStageNumeric<
+    stage_d4 : FFTSDFStageNumeric<
         S=fixed<18,16>,W=fixed<16,14>,D=4
     >
-    inst stage_d2 : FFTSDFStageNumeric<
+    stage_d2 : FFTSDFStageNumeric<
         S=fixed<18,16>,W=fixed<16,14>,D=2
     >
-    inst stage_d1 : FFTSDFStageNumeric<
+    stage_d1 : FFTSDFStageNumeric<
         S=fixed<18,16>,W=fixed<16,14>,D=1
     >
 
@@ -182,16 +182,16 @@ module FFT16SDFReference {
     in input : rv<Complex<fixed<18,16>>>
     out output : rv<Complex<fixed<18,16>>>
 
-    inst stage_d8 : FFTSDFStageNumeric<
+    stage_d8 : FFTSDFStageNumeric<
         S=fixed<18,16>,W=fixed<16,14>,D=8
     >
-    inst stage_d4 : FFTSDFStageNumeric<
+    stage_d4 : FFTSDFStageNumeric<
         S=fixed<18,16>,W=fixed<16,14>,D=4
     >
-    inst stage_d2 : FFTSDFStageNumeric<
+    stage_d2 : FFTSDFStageNumeric<
         S=fixed<18,16>,W=fixed<16,14>,D=2
     >
-    inst stage_d1 : FFTSDFStageNumeric<
+    stage_d1 : FFTSDFStageNumeric<
         S=fixed<18,16>,W=fixed<16,14>,D=1
     >
 
@@ -211,19 +211,19 @@ module FFT32SDFReference {
     in input : rv<Complex<fixed<18,16>>>
     out output : rv<Complex<fixed<18,16>>>
 
-    inst stage_d16 : FFTSDFStageNumeric<
+    stage_d16 : FFTSDFStageNumeric<
         S=fixed<18,16>,W=fixed<16,14>,D=16
     >
-    inst stage_d8 : FFTSDFStageNumeric<
+    stage_d8 : FFTSDFStageNumeric<
         S=fixed<18,16>,W=fixed<16,14>,D=8
     >
-    inst stage_d4 : FFTSDFStageNumeric<
+    stage_d4 : FFTSDFStageNumeric<
         S=fixed<18,16>,W=fixed<16,14>,D=4
     >
-    inst stage_d2 : FFTSDFStageNumeric<
+    stage_d2 : FFTSDFStageNumeric<
         S=fixed<18,16>,W=fixed<16,14>,D=2
     >
-    inst stage_d1 : FFTSDFStageNumeric<
+    stage_d1 : FFTSDFStageNumeric<
         S=fixed<18,16>,W=fixed<16,14>,D=1
     >
 
@@ -245,31 +245,31 @@ module FFT512SDFReference {
     in input : rv<Complex<fixed<18,16>>>
     out output : rv<Complex<fixed<18,16>>>
 
-    inst stage_d256 : FFTSDFStageNumeric<
+    stage_d256 : FFTSDFStageNumeric<
         S=fixed<18,16>,W=fixed<16,14>,D=256
     >
-    inst stage_d128 : FFTSDFStageNumeric<
+    stage_d128 : FFTSDFStageNumeric<
         S=fixed<18,16>,W=fixed<16,14>,D=128
     >
-    inst stage_d64 : FFTSDFStageNumeric<
+    stage_d64 : FFTSDFStageNumeric<
         S=fixed<18,16>,W=fixed<16,14>,D=64
     >
-    inst stage_d32 : FFTSDFStageNumeric<
+    stage_d32 : FFTSDFStageNumeric<
         S=fixed<18,16>,W=fixed<16,14>,D=32
     >
-    inst stage_d16 : FFTSDFStageNumeric<
+    stage_d16 : FFTSDFStageNumeric<
         S=fixed<18,16>,W=fixed<16,14>,D=16
     >
-    inst stage_d8 : FFTSDFStageNumeric<
+    stage_d8 : FFTSDFStageNumeric<
         S=fixed<18,16>,W=fixed<16,14>,D=8
     >
-    inst stage_d4 : FFTSDFStageNumeric<
+    stage_d4 : FFTSDFStageNumeric<
         S=fixed<18,16>,W=fixed<16,14>,D=4
     >
-    inst stage_d2 : FFTSDFStageNumeric<
+    stage_d2 : FFTSDFStageNumeric<
         S=fixed<18,16>,W=fixed<16,14>,D=2
     >
-    inst stage_d1 : FFTSDFStageNumeric<
+    stage_d1 : FFTSDFStageNumeric<
         S=fixed<18,16>,W=fixed<16,14>,D=1
     >
 

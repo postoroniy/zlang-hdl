@@ -134,13 +134,12 @@ class ConciseDeclarativeSyntaxTests(unittest.TestCase):
         self.assertEqual(explicit.instances[0].module, "Child")
 
     def test_axi_csr_concise_and_verbose_forms_have_identical_backend_identity(self) -> None:
-        verbose = (self.ROOT / "examples/axi_csr_top.zhl").read_text()
-        concise = (
-            verbose.replace("    interface axi :", "    axi :")
-            .replace("    inst frontend :", "    frontend :")
-            .replace("    inst csr      :", "    csr      :")
-            .replace("    connect axi ->", "    axi ->")
-            .replace("    connect frontend.regbus ->", "    frontend.regbus ->")
+        concise = (self.ROOT / "examples/axi_csr_top.zhl").read_text()
+        verbose = (
+            concise.replace("    frontend :", "    inst frontend :")
+            .replace("    csr      :", "    inst csr      :")
+            .replace("    axi ->", "    connect axi ->")
+            .replace("    frontend.regbus ->", "    connect frontend.regbus ->")
         )
         verbose_ir = compile_source(verbose, top="AxiCsrTop").ir
         concise_ir = compile_source(concise, top="AxiCsrTop").ir
@@ -151,6 +150,51 @@ class ConciseDeclarativeSyntaxTests(unittest.TestCase):
         self.assertEqual(
             tuple((item.semantic_signal_id, item.rtl_path) for item in verbose_artifact.bindings),
             tuple((item.semantic_signal_id, item.rtl_path) for item in concise_artifact.bindings),
+        )
+
+    def test_public_examples_use_explicit_instance_escape_only_for_keywords(self) -> None:
+        explicit_instances = []
+        for path in sorted((self.ROOT / "examples").rglob("*.zhl")):
+            if any("80211ad" in part for part in path.parts) or path.name == "test.zhl":
+                continue
+            for line in path.read_text().splitlines():
+                if line.lstrip().startswith("inst "):
+                    explicit_instances.append(
+                        (path.relative_to(self.ROOT).as_posix(), line.strip())
+                    )
+        self.assertEqual(
+            explicit_instances,
+            [
+                (
+                    "examples/hierarchical_protocol.zhl",
+                    "inst fifo:RequestFifo",
+                ),
+                (
+                    "examples/simple_dma.zhl",
+                    "inst memory : MemoryModel {",
+                ),
+            ],
+        )
+
+    def test_public_examples_use_bare_direct_connections_when_unambiguous(self) -> None:
+        policy_free_connects = []
+        for path in sorted((self.ROOT / "examples").rglob("*.zhl")):
+            if any("80211ad" in part for part in path.parts) or path.name == "test.zhl":
+                continue
+            for line in path.read_text().splitlines():
+                stripped = line.strip()
+                if stripped.startswith("connect ") and "{" not in stripped:
+                    policy_free_connects.append(
+                        (path.relative_to(self.ROOT).as_posix(), stripped)
+                    )
+        self.assertEqual(
+            policy_free_connects,
+            [
+                (
+                    "examples/hierarchical_protocol.zhl",
+                    "connect fifo.tx -> consumer.rx",
+                )
+            ],
         )
 
     def test_top_aggregate_pass_through_expands_forward_and_ready_paths(self) -> None:

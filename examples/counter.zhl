@@ -6,5 +6,5 @@ module Counter {
     out y     : u8
 
     y = count
-    count <- truncate<8>(count + 1)
+    count <- truncate(count + 1)
 }

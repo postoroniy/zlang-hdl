@@ -83,7 +83,7 @@ def test_project_documentation_uses_zlang_commands_without_task_runner() -> None
     assert "zlang sim src/transmitter.zhl" in readme
     assert "--compare-with verilator" in readme
     assert "--compare-artifacts" not in readme
-    assert "--trace build/wifi80211a.vcd" in readme
+    assert "--trace build/wifi80211a.fst" in readme
     assert "zlang src/formal.zhl" in readme
     assert "--profile portable" in readme
     assert "--constraints-sdc build/Ieee80211aTransmitter.sdc" in readme

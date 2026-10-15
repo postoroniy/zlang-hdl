@@ -111,17 +111,20 @@ def lint_with_verilator(
     executable = verilator_executable or shutil.which("verilator")
     if executable is None:
         raise ToolchainError("Verilator executable was not found")
-    completed = subprocess.run(
-        [
-            executable,
-            "--lint-only",
-            "--top-module",
-            top_module,
-            *(str(path) for path in verilog_files),
-        ],
-        text=True,
-        capture_output=True,
-    )
+    try:
+        completed = subprocess.run(
+            [
+                executable,
+                "--lint-only",
+                "--top-module",
+                top_module,
+                *(str(path) for path in verilog_files),
+            ],
+            text=True,
+            capture_output=True,
+        )
+    except OSError as error:
+        raise ToolchainError(f"cannot execute Verilator: {error}") from error
     if completed.returncode != 0:
         detail = completed.stderr.strip() or completed.stdout.strip()
         generated_text = None

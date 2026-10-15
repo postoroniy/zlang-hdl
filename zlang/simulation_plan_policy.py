@@ -7,7 +7,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 SIMULATION_PLAN_SCHEMA = "zlang-simulation-plan-v12"
-SIMULATION_RUNTIME_ABI = "zlang-native-simulation-abi-v12"
+SIMULATION_RUNTIME_ABI = "zlang-native-simulation-abi-v13"
 CRANELIFT_VERSION = "0.135.2"
 MAX_PLAN_BYTES = 16_777_216
 MAX_PLAN_NODES = 32_768

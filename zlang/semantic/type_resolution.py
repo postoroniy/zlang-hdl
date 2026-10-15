@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 
 _UNSIGNED_PATTERN = re.compile(r"u([1-9][0-9]*)\Z")
 _SIGNED_PATTERN = re.compile(r"s([1-9][0-9]*)\Z")
-_GENERIC_PATTERN = re.compile(r"(uint|sint|bits)<(.+)>\Z")
+_GENERIC_PATTERN = re.compile(r"(u|uint|sint|bits)<(.+)>\Z")
 
 def apply_compile_time_real_intrinsic(
     name: str,
@@ -81,7 +81,7 @@ def builtin_type(name: str) -> ir_types.HardwareType | None:
     if not width_text.isdigit():
         return None
     width = int(width_text)
-    if family == "uint":
+    if family in {"u", "uint"}:
         return ir_types.UIntType(width)
     if family == "sint":
         return ir_types.SIntType(width)
@@ -204,6 +204,7 @@ class TypeResolver:
                 )
             explicit_width: int | None = None
             explicit_codes: tuple[int, ...] | None = None
+            explicit_backing_kind: ir_types.EnumBackingKind | None = None
             encodings = declaration.encodings or tuple(
                 None for _ in declaration.members
             )
@@ -214,31 +215,34 @@ class TypeResolver:
             if declaration.backing_type is None:
                 if any(code is not None for code in encodings):
                     raise SemanticError(
-                        f"enum '{declaration.name}' member codes require an explicit bits<W> backing type"
+                        f"enum '{declaration.name}' member codes require an explicit "
+                        "bit, bits<W>, or unsigned integer "
+                        "(uN/u<W>/uint<W>) backing type"
                     )
             else:
                 backing = self.resolve(declaration.backing_type)
-                if not isinstance(backing, ir_types.BitsType):
+                if not isinstance(
+                    backing,
+                    (ir_types.BitType, ir_types.BitsType, ir_types.UIntType),
+                ):
                     raise SemanticError(
-                        f"enum '{declaration.name}' backing type must be bits<W>, got {backing}"
-                    )
-                missing_code = next(
-                    (
-                        member for member, code in zip(
-                            declaration.members, encodings, strict=True
-                        )
-                        if code is None
-                    ),
-                    None,
-                )
-                if missing_code is not None:
-                    raise SemanticError(
-                        f"explicit enum '{declaration.name}' member '{missing_code}' requires a code"
+                        f"enum '{declaration.name}' backing type must be bit, "
+                        f"bits<W>, or an unsigned integer "
+                        f"(uN/u<W>/uint<W>), got {backing}"
                     )
                 explicit_width = backing.width
-                explicit_codes = tuple(
-                    int(code) for code in encodings if code is not None
+                explicit_backing_kind = (
+                    "bit" if isinstance(backing, ir_types.BitType)
+                    else "uint" if isinstance(backing, ir_types.UIntType)
+                    else "bits"
                 )
+                resolved_codes: list[int] = []
+                next_code = 0
+                for code in encodings:
+                    resolved = next_code if code is None else int(code)
+                    resolved_codes.append(resolved)
+                    next_code = resolved + 1
+                explicit_codes = tuple(resolved_codes)
                 duplicate_code = next(
                     (
                         code for code in explicit_codes
@@ -264,6 +268,7 @@ class TypeResolver:
                 f"{owner}::enum::{declaration.name}",
                 explicit_width,
                 explicit_codes,
+                explicit_backing_kind,
             )
             self._enum_declarations[declaration.name] = declaration
             self._enums[declaration.name] = enum_type
@@ -518,10 +523,15 @@ class TypeResolver:
         if vector:
             length = self._eval_width(vector.group(1))
             return ir_types.VecType(length, self.resolve(ast.TypeName(vector.group(2).strip())))
-        match = re.fullmatch(r"(uint|sint|bits)<(.+)>", name)
+        match = re.fullmatch(r"(u|uint|sint|bits)<(.+)>", name)
         if match:
             width = self._eval_width(match.group(2))
-            return {"uint": ir_types.UIntType, "sint": ir_types.SIntType, "bits": ir_types.BitsType}[match.group(1)](width)
+            return {
+                "u": ir_types.UIntType,
+                "uint": ir_types.UIntType,
+                "sint": ir_types.SIntType,
+                "bits": ir_types.BitsType,
+            }[match.group(1)](width)
         concise_fixed = re.fullmatch(r"(SF_Sat|UF_Sat|SF|UF)([1-9][0-9]*)\.([0-9]+)", name)
         if concise_fixed:
             family, integer_text, fraction_text = concise_fixed.groups()

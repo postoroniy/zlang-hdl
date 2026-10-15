@@ -10,7 +10,7 @@ from zlang.compiler import compile_source
 from zlang.implementation_regions import canonical_type_data
 from zlang.ir.expressions import EnumDecode, EnumEncode, EnumValid, Switch
 from zlang.ir.formal import generate_properties
-from zlang.ir.types import BitType, BitsType, EnumType
+from zlang.ir.types import BitType, BitsType, EnumType, UIntType
 from zlang.opt import OptimizationStage, lower, restore
 from zlang.opt.identity import canonical_ir_identity
 from zlang.opt.ir import ExpressionOp
@@ -158,15 +158,7 @@ def test_encoded_enum_intrinsics_remain_visible_through_function_traversals() ->
     (
         (
             "enum E { A=0 B=1 } module M { out y:E y=E.A }",
-            "member codes require an explicit bits<W> backing type",
-        ),
-        (
-            "enum E : u3 { A=0 B=1 } module M { out y:E y=E.A }",
-            "backing type must be bits<W>",
-        ),
-        (
-            "enum E : bits<3> { A=0 B } module M { out y:E y=E.A }",
-            "member 'B' requires a code",
+            "member codes require an explicit bit, bits<W>, or unsigned integer",
         ),
         (
             "enum E : bits<3> { A=1 B=1 } module M { out y:E y=E.A }",
@@ -209,6 +201,103 @@ def test_enum_intrinsic_result_types_are_exact() -> None:
     assert module.assignments[0].expression.type == BitsType(3)
     assert module.assignments[1].expression.type == BitType()
     assert module.assignments[0].expression.expression.type == module.enums[0]
+
+
+@pytest.mark.parametrize(
+    "backing,expected_type",
+    (
+        ("bit", BitType()),
+        ("bits<8>", BitsType(8)),
+        ("u8", UIntType(8)),
+        ("u<8>", UIntType(8)),
+        ("uint<8>", UIntType(8)),
+    ),
+)
+def test_explicit_enum_backing_controls_intrinsic_type(
+    backing: str, expected_type
+) -> None:
+    module = _compile(
+        f"enum E : {backing} {{ A B=10 C=120 D }} "
+        f"module M {{ out encoded:{backing} encoded=enum_encode(E.D) }}"
+    ) if backing != "bit" else _compile(
+        "enum E : bit { A B } module M { out encoded:bit "
+        "encoded=enum_encode(E.B) }"
+    )
+    enum_type = module.enums[0]
+    assert enum_type.encoding_type == expected_type
+    assert module.assignments[0].expression.type == expected_type
+    assert enum_type.codes == (
+        (0, 1) if backing == "bit" else (0, 10, 120, 121)
+    )
+
+
+def test_uint_backed_enum_encoding_is_explicit_numeric_boundary() -> None:
+    module = _compile(
+        "enum E : u8 { A B=10 C=120 D } "
+        "module M { out y:u9 y=enum_encode(E.D)+1 }"
+    )
+    assert module.enums[0].codes == (0, 10, 120, 121)
+    assert simulate(module) == {"y": 122}
+    assert restore(lower(module, stage=OptimizationStage.HIGH_LEVEL)) == module
+
+
+def test_uint_backed_enum_decode_and_membership_use_exact_backing() -> None:
+    module = _compile(
+        "enum E : uint<8> { A B=10 C=120 D } "
+        "module M { in raw:uint<8> out encoded:uint<8> out valid:bit "
+        "value:E=enum_decode<E>(raw,E.A) "
+        "encoded=enum_encode(value) valid=enum_valid<E>(raw) }"
+    )
+    assert simulate(module, raw=121) == {"encoded": 121, "valid": 1}
+    assert simulate(module, raw=11) == {"encoded": 0, "valid": 0}
+
+
+def test_raw_backed_enum_still_requires_explicit_numeric_conversion() -> None:
+    with pytest.raises(SemanticError, match="addition is not defined for bits<8>"):
+        _compile(
+            "enum E : bits<8> { A B=10 } "
+            "module M { out y:u9 y=enum_encode(E.B)+1 }"
+        )
+
+
+def test_raw_backed_enum_can_cross_an_explicit_numeric_bitcast() -> None:
+    module = _compile(
+        "enum E : bits<8> { A B=10 } "
+        "module M { out y:u9 y=bitcast<u8>(enum_encode(E.B))+1 }"
+    )
+    assert simulate(module) == {"y": 11}
+
+
+def test_implicit_enum_codes_follow_the_previous_resolved_code() -> None:
+    enum_type = _compile(
+        "enum E : u8 { A B=10 C=120 D } module M { out y:E y=E.D }"
+    ).enums[0]
+    assert enum_type.codes == (0, 10, 120, 121)
+    assert str(enum_type).endswith("A=0,B=10,C=120,D=121:u8@compilation:M::enum::E>")
+
+
+@pytest.mark.parametrize(
+    "source,message",
+    (
+        (
+            "enum E : bit { A B C } module M { out y:E y=E.A }",
+            "code 2 does not fit bit",
+        ),
+        (
+            "enum E : u2 { A=3 B } module M { out y:E y=E.A }",
+            "code 4 does not fit u2",
+        ),
+        (
+            "enum E : s8 { A B } module M { out y:E y=E.A }",
+            "backing type must be bit, bits<W>, or an unsigned integer",
+        ),
+    ),
+)
+def test_enum_backing_and_implicit_codes_fail_closed(
+    source: str, message: str
+) -> None:
+    with pytest.raises(SemanticError, match=message):
+        _compile(source)
 
 
 def test_sparse_code_table_participates_in_canonical_type_identity() -> None:

@@ -57,7 +57,10 @@ async function buildBundle() {
   }
   for (const input of Object.keys(result.metafile.inputs)) {
     const normalized = input.replaceAll('\\', '/');
-    assert.ok(normalized === 'extension.js' || normalized.includes('/node_modules/') || normalized.startsWith('node_modules/'),
+    assert.ok([
+      'extension.js', 'waveform_client.js', 'waveform_view.js', 'waveform_wcp.js',
+    ].includes(normalized)
+      || normalized.includes('/node_modules/') || normalized.startsWith('node_modules/'),
       `unexpected bundle input: ${input}`);
   }
   return { bytes: Buffer.from(output), metafile: result.metafile };

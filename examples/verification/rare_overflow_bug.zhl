@@ -12,7 +12,7 @@ module RareOverflowBug {
         increment_count: when increment & (
             (count < 9) | (key == 0xC0DE_F00D_1234_5678)
         ) {
-            count <- truncate<4>(count + 1)
+            count <- truncate(count + 1)
         }
     }
 

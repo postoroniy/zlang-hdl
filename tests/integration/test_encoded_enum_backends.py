@@ -56,6 +56,28 @@ module EncodedEnumStateRTL {
 """
 
 
+UINT_SOURCE = """
+enum Status : uint<8> {
+    Idle
+    Started = 10
+    Waiting = 120
+    Complete
+}
+
+module UnsignedEncodedEnumRTL {
+    in raw : uint<8>
+    out encoded : uint<8>
+    out next_code : uint<9>
+    out valid : bit
+
+    status : Status = enum_decode<Status>(raw, Status.Idle)
+    encoded = enum_encode(status)
+    next_code = enum_encode(status) + 1
+    valid = enum_valid<Status>(raw)
+}
+"""
+
+
 HARNESS = r'''
 #include "VEncodedEnumRTL.h"
 #include "verilated.h"
@@ -128,6 +150,19 @@ def test_direct_sv_sparse_enum_artifact_is_deterministic() -> None:
         if binding.semantic_signal_id == "port:result"
     )
     assert (result.width, result.canonical_type) == (4, "bits<4>")
+
+
+def test_direct_sv_uint_backed_enum_preserves_numeric_boundary() -> None:
+    artifact = emit_artifact(compile_source(UINT_SOURCE).ir)
+    repeated = emit_artifact(compile_source(UINT_SOURCE).ir)
+    assert repeated.text == artifact.text
+    assert repeated.artifact_hash == artifact.artifact_hash
+    bindings = {
+        item.semantic_signal_id: (item.width, item.canonical_type)
+        for item in artifact.bindings
+    }
+    assert bindings["port:encoded"] == (8, "u8")
+    assert bindings["port:next_code"] == (9, "u9")
 
 
 @pytest.mark.skipif(shutil.which("verilator") is None, reason="Verilator unavailable")

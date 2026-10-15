@@ -15,6 +15,7 @@ class HardwareTypeTests(unittest.TestCase):
                 in b: bit
                 in u: AddressAgain
                 in s: sint<23>
+                in ug: u<32>
                 in v: bits<64>
                 out bo: bit
                 out uo: uint<32>
@@ -34,6 +35,7 @@ class HardwareTypeTests(unittest.TestCase):
                 BitType(),
                 UIntType(32),
                 SIntType(23),
+                UIntType(32),
                 BitsType(64),
                 BitType(),
                 UIntType(32),
@@ -50,6 +52,13 @@ class HardwareTypeTests(unittest.TestCase):
         """
         module = analyze(parse(source))
         self.assertEqual(module.inputs[0].type, UIntType(17))
+
+    def test_concise_generic_unsigned_spelling_uses_width_parameters(self) -> None:
+        module = analyze(
+            parse("module Generic<W=8> { in x:u<W> out y:u<W> y=x }")
+        )
+        self.assertEqual(module.inputs[0].type, UIntType(8))
+        self.assertEqual(module.outputs[0].type, UIntType(8))
 
     def test_unsigned_addition_uses_widest_operand_plus_carry(self) -> None:
         source = "module Sum { in a: u8 in b: u16 out y: u17 y = a + b }"

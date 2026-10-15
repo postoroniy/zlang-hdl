@@ -48,14 +48,19 @@ ZTPU_CANONICAL_IDENTITIES = {
     # expanded-tree compatibility serializer.  Independent fresh-process
     # captures proved that no other canonical node changed for these scalar
     # witnesses.
-    "fsm": "high-level:27502fc0adea30f0d129b52d3aa1bcdd2665809a754b7750462752bd38e59e8b",
+    # Encoded enum identities now include their exact bit/u backing type.  The
+    # FSM witness therefore changes identity even though its schedule and RTL
+    # remain unchanged; two fresh-process compilations reproduced this value.
+    "fsm": "high-level:24ee6a45af1e0856faa45deefda39889096089859209e3fb83008c92def93f58",
     "flat": "high-level:12d52261ecdcd6b60b00c20826080ceda77f52ccf3f43337a2a51d37e8c807c6",
     # ZL-048 keeps specialization identity declaration/binding/content owned.
     # ZL-050 then made every reusable standard-bus core inherit the enclosing
     # exact physical domain instead of declaring the historical clk/rst pair.
     # A clean pre-slice/current comparison proved this expected source-owned
     # hierarchy identity change alongside the focused behavioral regressions.
-    "hierarchy": "high-level:7cf3d73adc465cd445db64cdf0ab961dd12b7cc70f056424ce3d7e53c5f066c1",
+    # The hierarchy includes the same explicitly encoded FSM-state backing
+    # type, so its canonical content identity advances for the same reason.
+    "hierarchy": "high-level:a96c53a3253a08773776f899cd853a79f0c1feadae9332f10aaccea37b7a8de9",
 }
 
 

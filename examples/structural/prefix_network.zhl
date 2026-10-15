@@ -6,9 +6,10 @@ module PrefixNetworkWitness<N=16> {
 
     prefix_or = generate(i in 0..N)
         reduce(|, generate(j in 0..N)
-            (flags[j] & (extend<8>(j) <= extend<8>(i))))
+            (flags[j] & (j <= i)))
+    // Widen the 0/1 contribution explicitly so the reduction is u8.
     prefix_count = generate(i in 0..N)
-        truncate<8>(reduce(+, generate(j in 0..N)
-            mux(extend<8>(j) <= extend<8>(i),
+        truncate(reduce(+, generate(j in 0..N)
+            mux(j <= i,
                 mux(flags[j], extend<8>(1), extend<8>(0)), 0)))
 }

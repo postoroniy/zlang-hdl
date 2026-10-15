@@ -17,14 +17,35 @@ import tempfile
 import tomllib
 import xml.etree.ElementTree as ET
 
+try:
+    from tools.audit_native_editor import NativeEditorAuditError, audit_native_editor
+except ModuleNotFoundError:  # Direct ``python tools/release_status.py`` execution.
+    from audit_native_editor import NativeEditorAuditError, audit_native_editor
 
 
 DEFAULT_STATUS = Path("release/status.json")
 CORPUS_TEST = Path("tests/systemverilog/test_example_coverage.py")
 COMMUNITY_PDF = Path("docs/ZLang-HDL-Language-Reference.pdf")
-COMMUNITY_PDF_SOURCES = (
-    Path("docs/language-reference.md"),
-    Path("docs/language-quick-reference.md"),
+COMMUNITY_PDF_SOURCES = tuple(
+    Path("docs/reference") / name
+    for name in (
+        "01-why-zlang.md",
+        "02-quick-start.md",
+        "03-implementation-intent.md",
+        "04-simulation-verification.md",
+        "05-types.md",
+        "06-expressions.md",
+        "07-state-clocks.md",
+        "08-hierarchy-protocols.md",
+        "09-storage.md",
+        "10-stdlib-buses.md",
+        "11-projects.md",
+        "12-profiles-targets.md",
+        "13-rtl.md",
+        "14-installation.md",
+        "15-limitations.md",
+        "appendix-quick-reference.md",
+    )
 )
 
 
@@ -249,7 +270,7 @@ def _check_documentation(root: Path, documentation: object) -> None:
     sources = documentation.get("sources")
     expected_sources = {path.as_posix() for path in COMMUNITY_PDF_SOURCES}
     if not isinstance(sources, dict) or set(sources) != expected_sources:
-        raise StatusError("documentation sources must be the two public Markdown guides")
+        raise StatusError("documentation sources must match the public PDF projection")
     for source in COMMUNITY_PDF_SOURCES:
         if sources[source.as_posix()] != _sha256(root / source):
             raise StatusError(f"documentation source digest is stale: {source}")
@@ -545,6 +566,7 @@ def validate(
     validation = status.get("validation")
     platform = status.get("platform")
     native_runtime = status.get("native_runtime")
+    native_editor = status.get("native_editor")
     tools = status.get("eda_toolchain")
     if not all(
         isinstance(item, dict)
@@ -582,6 +604,12 @@ def validate(
         ],
     }:
         raise StatusError("native runtime release contract has changed without review")
+    alpha = re.fullmatch(r"0\.1\.0a([0-9]+)", project_version)
+    if native_editor is not None or (alpha is not None and int(alpha.group(1)) >= 24):
+        try:
+            audit_native_editor(root, path)
+        except NativeEditorAuditError as exc:
+            raise StatusError(str(exc)) from exc
     actual_corpus = _example_counts(root)
     if validation.get("example_corpus") != actual_corpus:
         raise StatusError(

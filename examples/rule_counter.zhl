@@ -14,7 +14,7 @@ module RuleCounter {
     }
 
     increment_count: when increment {
-      count <- truncate<8>(count + 1)
+      count <- truncate(count + 1)
     }
   }
 

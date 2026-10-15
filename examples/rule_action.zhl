@@ -8,7 +8,7 @@ module RuleAction {
   reg count: u8 = 0
 
   when enable {
-    count <- truncate<8>(count + 1)
+    count <- truncate(count + 1)
     drive fired = 1
   }
 }

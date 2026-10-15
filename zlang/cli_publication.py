@@ -5,12 +5,14 @@ import argparse
 import hashlib
 import shutil
 import subprocess
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
 from zlang import build_manifest as manifest_api
 from zlang import build_publication as publication_api
 from zlang.common import stable_digest
+from zlang.common.atomic_io import publish_text_atomically
 from zlang.backend import companions as companion_api
 from zlang.backend import manifest as backend_manifest
 from zlang.backend import source_map as source_map_api
@@ -31,12 +33,15 @@ from zlang.cli_verification import VerificationProducts as _VerificationProducts
 def _query_tool_version(executable: str, argument: str) -> str:
     """Query a tool only after that exact tool has executed successfully."""
 
-    completed = subprocess.run(
-        [executable, argument],
-        text=True,
-        capture_output=True,
-        timeout=30,
-    )
+    try:
+        completed = subprocess.run(
+            [executable, argument],
+            text=True,
+            capture_output=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return "version-unreported"
     if completed.returncode != 0:
         return "version-unreported"
     output = (completed.stdout.strip() or completed.stderr.strip()).splitlines()
@@ -156,28 +161,36 @@ def _publish_requested_artifacts(
     tool_executions: list[manifest_api.ToolExecutionRecord] = []
     if systemverilog_output is not None:
         systemverilog_output.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            direct_companion_paths = companion_api.publish_companion_bundle(
-                direct_artifact.companions if direct_artifact else (),
-                systemverilog_output.parent,
-            )
-        except companion_api.CompanionArtifactError as error:
-            parser.error(str(error))
-        systemverilog_output.write_text(direct_systemverilog)
         if arguments.verilator_lint:
             verilator_executable = arguments.verilator or shutil.which("verilator")
             if verilator_executable is None:
                 parser.error("--verilator-lint requires Verilator on PATH")
             try:
-                toolchain_api.lint_with_verilator(
-                    (
-                        systemverilog_output,
-                        *((arguments.contracts_sva,) if arguments.contracts_sva else ()),
-                    ),
-                    result.ir.name,
-                    verilator_executable,
-                )
-            except toolchain_api.ToolchainError as error:
+                with tempfile.TemporaryDirectory(
+                    prefix=".zlang-verilator-",
+                    dir=systemverilog_output.parent,
+                ) as temporary:
+                    staging = Path(temporary)
+                    staged_systemverilog = staging / systemverilog_output.name
+                    publish_text_atomically(staged_systemverilog, direct_systemverilog)
+                    companion_api.publish_companion_bundle(
+                        direct_artifact.companions if direct_artifact else (),
+                        staging,
+                    )
+                    staged_inputs = [staged_systemverilog]
+                    if arguments.contracts_sva is not None:
+                        staged_contracts = staging / arguments.contracts_sva.name
+                        publish_text_atomically(staged_contracts, result.contracts_sva)
+                        staged_inputs.append(staged_contracts)
+                    toolchain_api.lint_with_verilator(
+                        tuple(staged_inputs),
+                        result.ir.name,
+                        verilator_executable,
+                    )
+            except (
+                companion_api.CompanionArtifactError,
+                toolchain_api.ToolchainError,
+            ) as error:
                 parser.error(str(error))
             tool_executions.append(_tool_execution(
                 role="rtl_lint",
@@ -188,6 +201,14 @@ def _publish_requested_artifacts(
                     "<rtl-inputs>",
                 ),
             ))
+        try:
+            direct_companion_paths = companion_api.publish_companion_bundle(
+                direct_artifact.companions if direct_artifact else (),
+                systemverilog_output.parent,
+            )
+        except companion_api.CompanionArtifactError as error:
+            parser.error(str(error))
+        publish_text_atomically(systemverilog_output, direct_systemverilog)
     if arguments.simulation_state_bundle is not None:
         assert simulation_state_bundle is not None
         assert systemverilog_output is not None
@@ -203,13 +224,15 @@ def _publish_requested_artifacts(
             parser.error(str(error))
     if arguments.implementation_manifest is not None:
         arguments.implementation_manifest.parent.mkdir(parents=True, exist_ok=True)
-        arguments.implementation_manifest.write_text(direct_artifact.to_json())
+        publish_text_atomically(
+            arguments.implementation_manifest, direct_artifact.to_json()
+        )
     if arguments.source_map is not None or arguments.generated_navigation_bundle is not None:
         assert direct_artifact is not None
         source_map = source_map_api.build_generated_source_map(result.ir, direct_artifact)
         if arguments.source_map is not None:
             arguments.source_map.parent.mkdir(parents=True, exist_ok=True)
-            arguments.source_map.write_text(source_map.to_json())
+            publish_text_atomically(arguments.source_map, source_map.to_json())
     if arguments.generated_navigation_bundle is not None:
         assert direct_artifact is not None
         assert source_map is not None
@@ -249,12 +272,14 @@ def _publish_requested_artifacts(
         path = getattr(arguments, attribute)
         if path is not None:
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(contents())
+            publish_text_atomically(path, contents())
     for attribute in ("optimization_ir", "high_level_ir"):
         path = getattr(arguments, attribute)
         if path is not None:
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(render_optimization_ir(getattr(result, attribute)))
+            publish_text_atomically(
+                path, render_optimization_ir(getattr(result, attribute))
+            )
 
     evidence_records: tuple[manifest_api.EvidenceRecord, ...] = ()
     rendered_evidence = None
@@ -289,7 +314,9 @@ def _publish_requested_artifacts(
                     ),
                 )
                 arguments.evidence_report.parent.mkdir(parents=True, exist_ok=True)
-                arguments.evidence_report.write_text(rendered_evidence.content)
+                publish_text_atomically(
+                    arguments.evidence_report, rendered_evidence.content
+                )
         except (
             evidence_api.EvidenceReportError,
             orchestration_api.FormalOrchestrationError,

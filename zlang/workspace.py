@@ -29,7 +29,7 @@ from zlang.dependencies import (
     LockedModule,
     LockedPackage,
 )
-from zlang.diagnostics import DiagnosticError
+from zlang.diagnostics import DiagnosticError, bind_diagnostic_source
 from zlang.module_resolver import (
     IndexedModuleResolver,
     ModuleResolutionError,
@@ -427,21 +427,11 @@ def _index_package(
             try:
                 parsed = parse(overlay)
             except DiagnosticError as error:
-                diagnostic = error.diagnostic
-                primary = diagnostic.primary
-                if primary is not None:
-                    primary = replace(
-                        primary,
-                        source_unit=logical,
-                        digest=digest,
-                    )
-                raise type(error)(
-                    diagnostic.message,
-                    code=diagnostic.code,
-                    primary=primary,
-                    notes=diagnostic.notes,
-                    fixes=diagnostic.fixes,
-                    machine_fixes=error.machine_fixes,
+                raise bind_diagnostic_source(
+                    error,
+                    source_unit=logical,
+                    digest=digest,
+                    physical_source=resolved,
                 ) from error
             parsed = attach_source_identity(parsed, logical, digest)
             record = ResolvedModuleSource(

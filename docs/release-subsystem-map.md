@@ -1,6 +1,6 @@
 # Community release subsystem map
 
-This map groups the prospective `v0.1.0a23` source candidate by review domain.
+This map groups the prospective `v0.1.0a24` source candidate by review domain.
 It is a navigation aid, not release evidence and not a substitute for the
 regression ledger, exact-tree preflight, or hosted candidate workflow.
 
@@ -66,6 +66,21 @@ identity tests.
 
 Review owners: tooling session/query/navigation/diagnostic owners, LSP protocol
 tests, installed VSIX host smoke, and documentation example validation.
+
+## Native simulation and debug preview
+
+- ABI v13 makes Rust the sole executable owner of binary and per-bit
+  `0`/`1`/`U`/`X` simulation. Python retains compilation, orchestration and
+  immutable value-boundary DTOs; there is no shadow interpreter or fallback.
+- JSONL event schedules remain the reproducible reset/multi-clock boundary;
+  VCD and Icarus/Verilator comparison consume that same event sequence.
+- Compiler debug bundles and the Linux-x64 DAP/waveform implementation remain a
+  bounded preview. The universal VSIX is still editor/LSP-only unless the
+  enhanced platform package separately passes binary admission.
+
+Review owners: simulation plan/lowering, the private Rust runtime workspace,
+PyO3 boundary, native-versus-RTL differential tests, debug-bundle identity,
+DAP transcript tests and platform-specific package audit.
 
 ## Release and security
 

@@ -9,7 +9,7 @@ module BoundedCounter {
     priority {
         clear_count: when clear { count <- 0 }
         increment_count: when increment & (count < 9) {
-            count <- truncate<4>(count + 1)
+            count <- truncate(count + 1)
         }
     }
 

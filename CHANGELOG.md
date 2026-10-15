@@ -11,6 +11,65 @@ incompatible input explicitly.
 
 ## Unreleased
 
+## 0.1.0a24 — 2026-10-14
+
+Alpha update consolidating native simulation ownership in the audited Rust
+runtime, extending nominal enum backing/value declarations, and publishing a
+complete reproducible simulation workflow. Native runtime ABI v13 replaces the
+previous runtime contract;
+the SimulationPlan hardware schema and Direct-SystemVerilog semantics remain
+unchanged.
+
+### Added
+
+- Nominal enums may use exact `bit`, `bits<W>`, or unsigned
+  `uN`/`u<W>`/`uint<W>`
+  backing types and may mix implicit and explicit member codes. Implicit values
+  start at zero or
+  continue from the preceding resolved code. `enum_encode` returns the exact
+  backing type, providing an explicit arithmetic boundary for unsigned-backed
+  enums while direct arithmetic on nominal enum values remains rejected.
+- Compiler-owned native debug bundles, event-level DAP contracts, and bounded
+  waveform range contracts provide the source/identity boundary for the
+  Linux-x64 debugger and waveform preview. They do not alter production plan,
+  RTL, semantic, or implementation identity, and the universal VSIX remains
+  editor/LSP-only.
+- The Linux-x64 waveform editor reads VCD and FST through one bounded native
+  query service. It provides lazy signal loading, hierarchy/filtering, drag
+  ordering, nested groups, exact/pattern/edge value search, up to four
+  viewports, persistent layouts, and an opt-in loopback-only Waveform Control
+  Protocol v0 endpoint. GHW is intentionally unsupported.
+
+### Changed
+
+- Rust is now the sole executable owner of both two-state and per-bit
+  `0`/`1`/`U`/`X` simulation. Python retains compilation, orchestration and
+  immutable logic-value DTOs but no shadow state machine or fallback evaluator.
+  ABI mismatch and a missing native wheel continue to fail explicitly.
+- Native-simulation guidance now covers combinational inputs, single-clock
+  cycles, explicit reset and multi-clock JSONL events, bounded repeats,
+  four-state initialization, preferred compact FST or compatible VCD output,
+  differential Icarus/Verilator
+  replay, artifact retention, and failure semantics.
+
+### Fixed
+
+- Project, imported-source, `zlang sim`, and lock-update failures now retain the
+  actual source file and exact span across cached and transitive compilation;
+  syntax and semantic errors are reported without a Python traceback or a
+  misleading top-level-file location.
+- CLI preflight validates formal bounds and output/work-directory separation
+  before compilation, cleans implicit verification work after failure, and
+  publishes RTL and reports atomically. Missing Verilator and publication I/O
+  failures now remain concise diagnostics and never leave a final partial
+  artifact.
+- Explicitly backed enum declarations keep contextual words such as
+  `reserved`, `reset`, and `priority` scoped as enum members in VS Code and do
+  not produce LSP diagnostics.
+- Enum members publish their exact parser-owned document-symbol ranges instead
+  of the whole declaration-unit range, keeping long enum lists stable in
+  Outline and Sticky Scroll.
+
 ## 0.1.0a23 — 2026-10-13
 
 Corrective alpha restoring the reviewed dependency floors lost during the a21
@@ -36,6 +95,10 @@ remain unchanged.
   active-high and asynchronous active-low systems reuse the same protocol
   implementation, while absent, ambiguous, or mismatched state ownership
   remains fail-closed.
+- Project diagnostics now retain the exact indexed source path and span.
+  `zlang lock update` reports source syntax errors without exposing a Python
+  parser traceback, and `zlang SOURCE --check` no longer attributes an error in
+  an imported or sibling module to the requested top-level file.
 
 ## 0.1.0a22 — 2026-10-11
 

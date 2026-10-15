@@ -91,7 +91,7 @@ def _check_call_intrinsic(
             raise SemanticError(
                 f"enum_encode requires a nominal enum input, got {operand.type}"
             )
-        result_type = ir_types.BitsType(operand.type.width)
+        result_type = operand.type.encoding_type
         if expected is not None and expected != result_type:
             raise SemanticError(
                 f"enum_encode produces {result_type}, expected exact {expected}"
@@ -124,7 +124,7 @@ def _check_call_intrinsic(
                 f"{expression.function} expects {expected_arity} argument"
                 f"{'s' if expected_arity != 1 else ''}"
             )
-        raw_type = ir_types.BitsType(enum_type.width)
+        raw_type = enum_type.encoding_type
         raw = context.expressions.check(
             expression.arguments[0], inputs, raw_type, context
         )

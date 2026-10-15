@@ -151,7 +151,7 @@
       "patterns": [
         {
           "name": "meta.enum.declaration.zlang",
-          "begin": "\\b(enum)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*(\\{)",
+          "begin": "\\b(enum)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*(?::\\s*[A-Za-z_][A-Za-z0-9_]*(?:\\s*<\\s*[0-9]+\\s*>)?\\s*)?(\\{)",
           "beginCaptures": {"1": {"name": "storage.type.enum.zlang"}, "2": {"name": "entity.name.type.enum.zlang"}, "3": {"name": "punctuation.section.block.begin.zlang"}},
           "end": "(\\})",
           "endCaptures": {"1": {"name": "punctuation.section.block.end.zlang"}},
@@ -225,7 +225,7 @@
         {"match": "\\b(role|channel|member)\\s+([A-Za-z_][A-Za-z0-9_]*)", "captures": {"1": {"name": "keyword.declaration.protocol.zlang"}, "2": {"name": "entity.name.type.protocol.zlang"}}},
         {"match": "\\b(class|operation|capability|limit|provides|require_resource|use_pipeline|require_dedicated|part|inventory|dedicated_capacity)\\s+([A-Za-z_][A-Za-z0-9_]*)", "captures": {"1": {"name": "keyword.other.directive.target.zlang"}, "2": {"name": "entity.name.constant.target.zlang"}}},
         {"match": "\\b(port|register_site|pipeline_site|pipeline_config|dedicated|binding|physical_primitive|physical_site|physical_edge)\\s+([A-Za-z_][A-Za-z0-9_]*)", "captures": {"1": {"name": "keyword.other.directive.target.zlang"}, "2": {"name": "entity.name.tag.target.zlang"}}},
-        {"match": "\\b([A-Za-z_][A-Za-z0-9_]*)\\s*(:)(?=\\s*(?:bit|[us][1-9][0-9]*|uint\\s*<|sint\\s*<|bits\\s*<|fixed(?:_sat)?\\s*<|ufixed(?:_sat)?\\s*<|vec\\s*<|fifo\\s*<|mem\\s*<|async_mem\\s*<|rom\\s*<|wire\\s*<|rv\\s*<|credit\\s*<|packet\\s*<|vc_credit\\s*<|request_response\\s*<|(?:SF|UF)(?:_Sat)?[1-9]|[A-Z][A-Za-z0-9_]*))", "captures": {"1": {"name": "variable.other.definition.zlang"}, "2": {"name": "punctuation.separator.type.zlang"}}}
+        {"match": "\\b([A-Za-z_][A-Za-z0-9_]*)\\s*(:)(?=\\s*(?:bit|[us][1-9][0-9]*|u\\s*<|uint\\s*<|sint\\s*<|bits\\s*<|fixed(?:_sat)?\\s*<|ufixed(?:_sat)?\\s*<|vec\\s*<|fifo\\s*<|mem\\s*<|async_mem\\s*<|rom\\s*<|wire\\s*<|rv\\s*<|credit\\s*<|packet\\s*<|vc_credit\\s*<|request_response\\s*<|(?:SF|UF)(?:_Sat)?[1-9]|[A-Z][A-Za-z0-9_]*))", "captures": {"1": {"name": "variable.other.definition.zlang"}, "2": {"name": "punctuation.separator.type.zlang"}}}
       ]
     },
     "resource-declarations": {
@@ -257,7 +257,7 @@
     "csr-layout": {
       "patterns": [
         {"match": "^\\s*([A-Z][A-Za-z0-9_]*)\\s*(?=@)", "captures": {"1": {"name": "entity.name.section.csr.zlang"}}},
-        {"match": "^\\s*([a-z_][A-Za-z0-9_]*)\\s*(?=(?:bit|[us][1-9][0-9]*|uint\\s*<|sint\\s*<|bits\\s*<|fixed(?:_sat)?\\s*<|ufixed(?:_sat)?\\s*<|(?:SF|UF)(?:_Sat)?[1-9]|[A-Z][A-Za-z0-9_]*)\\s+@)", "captures": {"1": {"name": "variable.other.definition.csr.zlang"}}}
+        {"match": "^\\s*([a-z_][A-Za-z0-9_]*)\\s*(?=(?:bit|[us][1-9][0-9]*|u\\s*<|uint\\s*<|sint\\s*<|bits\\s*<|fixed(?:_sat)?\\s*<|ufixed(?:_sat)?\\s*<|(?:SF|UF)(?:_Sat)?[1-9]|[A-Z][A-Za-z0-9_]*)\\s+@)", "captures": {"1": {"name": "variable.other.definition.csr.zlang"}}}
       ]
     },
     "generic-parameters": {
@@ -406,7 +406,7 @@
         },
         {
           "name": "meta.type.scalar-generic.zlang",
-          "begin": "\\b(uint|sint|bits)(\\s*)(<)",
+          "begin": "\\b(u|uint|sint|bits)(\\s*)(<)",
           "beginCaptures": {"1": {"name": "support.type.scalar.zlang"}, "3": {"name": "punctuation.definition.type.begin.zlang"}},
           "end": "(>)",
           "endCaptures": {"1": {"name": "punctuation.definition.type.end.zlang"}},

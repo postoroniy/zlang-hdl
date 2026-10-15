@@ -4,7 +4,6 @@
 
 const crypto = require('node:crypto');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const { createVSIX } = require('@vscode/vsce');
 const { buildBundle, extension, thirdPartyNotices } = require('./bundle.cjs');
@@ -16,13 +15,21 @@ const staticAssets = [
 ];
 
 async function main() {
-  if (process.argv.length !== 3 || !path.isAbsolute(process.argv[2]) || !process.argv[2].endsWith('.vsix')) {
-    throw new Error('Usage: npm run package -- /absolute/output/zlang-hdl-0.1.0.vsix');
+  const targetIndex = process.argv.indexOf('--target');
+  const target = targetIndex === -1 ? null : process.argv[targetIndex + 1];
+  const positional = process.argv.slice(2).filter((item, index, values) => (
+    item !== '--target' && values[index - 1] !== '--target'
+  ));
+  if (positional.length !== 1 || !path.isAbsolute(positional[0]) || !positional[0].endsWith('.vsix')) {
+    throw new Error('Usage: npm run package[:linux-x64] -- /absolute/output/zlang-hdl.vsix');
   }
-  const output = path.resolve(process.argv[2]);
+  if (target !== null && target !== 'linux-x64') throw new Error(`Unsupported VSIX target: ${target}`);
+  const output = path.resolve(positional[0]);
   const reservation = fs.openSync(output, 'wx');
   fs.closeSync(reservation);
-  const stage = fs.mkdtempSync(path.join(os.tmpdir(), 'zlang-editor-package-'));
+  const scratch = path.join(repository, 'build', 'tmp');
+  fs.mkdirSync(scratch, { recursive: true });
+  const stage = fs.mkdtempSync(path.join(scratch, 'zlang-editor-package-'));
   try {
     for (const relative of staticAssets) {
       const source = path.join(extension, relative);
@@ -32,6 +39,29 @@ async function main() {
       fs.copyFileSync(source, destination);
     }
     const manifest = JSON.parse(fs.readFileSync(path.join(extension, 'package.json'), 'utf8'));
+    if (target === null) {
+      delete manifest.contributes.debuggers;
+      delete manifest.contributes.customEditors;
+      delete manifest.contributes.menus;
+      manifest.contributes.commands = [];
+      delete manifest.contributes.configuration.properties['zlang.waveform.wcp.enabled'];
+      delete manifest.contributes.configuration.properties['zlang.waveform.wcp.port'];
+      manifest.categories = manifest.categories.filter((item) => item === 'Programming Languages');
+    } else {
+      const binaryRoot = path.resolve(repository, 'release/native-editor', target);
+      const destinationRoot = path.join(stage, 'bin', target);
+      fs.mkdirSync(destinationRoot, { recursive: true });
+      for (const name of ['zlang-debug-adapter', 'zlang-waveform-indexer']) {
+        const source = path.join(binaryRoot, name);
+        if (!isReviewedExecutable(source)) throw new Error(`Missing reviewed native tool: ${source}`);
+        fs.copyFileSync(source, path.join(destinationRoot, name));
+        fs.chmodSync(path.join(destinationRoot, name), 0o755);
+      }
+      fs.copyFileSync(
+        path.resolve(repository, 'release/native-editor/THIRD_PARTY_LICENSES.md'),
+        path.join(stage, 'THIRD_PARTY_NOTICES_NATIVE.txt'),
+      );
+    }
     manifest.main = './dist/extension.js';
     delete manifest.files;
     delete manifest.devDependencies;
@@ -48,7 +78,7 @@ async function main() {
       'extension.js', 'package-lock.json', 'editor-toolchain.json', 'test/**', 'examples/**',
       'node_modules/**', '**/*.map', '**/*.ts', '**/*.d.ts',
     ].join('\n') + '\n');
-    await createVSIX({ cwd: stage, packagePath: output, dependencies: false });
+    await createVSIX({ cwd: stage, packagePath: output, dependencies: false, target: target ?? undefined });
     const bytes = fs.readFileSync(output);
     const sha256 = crypto.createHash('sha256').update(bytes).digest('hex');
     console.log(`SHA256 ${sha256}  ${output}`);
@@ -58,6 +88,15 @@ async function main() {
     throw error;
   } finally {
     fs.rmSync(stage, { recursive: true, force: true });
+  }
+}
+
+function isReviewedExecutable(candidate) {
+  try {
+    const stat = fs.lstatSync(candidate);
+    return stat.isFile() && (stat.mode & 0o111) !== 0;
+  } catch {
+    return false;
   }
 }
 

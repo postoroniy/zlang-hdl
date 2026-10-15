@@ -24,6 +24,7 @@ from urllib.parse import unquote, urlparse
 from urllib.request import url2pathname
 
 from zlang._version import __version__
+from zlang.native_debug_bundle import build_native_debug_bundle
 from zlang.lsp.protocol import (
     JSON_RPC_VERSION,
     LspProtocolError,
@@ -827,6 +828,16 @@ class LspServer:
             except (OSError, ValueError) as error:
                 return [_error(request_id, -32603, str(error))]
             return [_response(request_id, result)]
+        if method == "zlang/prepareDebugBundle":
+            if not has_id:
+                return []
+            try:
+                result = self._prepare_debug_bundle(params)
+            except LspProtocolError as error:
+                return [_error(request_id, -32602, str(error))]
+            except (OSError, RuntimeError, ValueError) as error:
+                return [_error(request_id, -32603, str(error))]
+            return [_response(request_id, result)]
         if has_id:
             return [_error(request_id, -32601, f"method not found: {method}")]
         return []
@@ -852,6 +863,41 @@ class LspServer:
             _symbol_to_lsp(symbol)
             for symbol in document_symbols(state.text)
         ]
+
+    def _prepare_debug_bundle(self, params: object) -> dict[str, object]:
+        state = self._open_document(params, "prepareDebugBundle")
+        dirty = tuple(
+            item.path
+            for item in self.documents.values()
+            if item.path.suffix == ".zhl"
+            and (
+                not item.path.is_file()
+                or item.path.read_text(encoding="utf-8") != item.text
+            )
+        )
+        if dirty:
+            raise LspProtocolError(
+                "Save All before debugging; the debug bundle requires exact "
+                "saved .zhl source digests"
+            )
+        request = _mapping(params)
+        top = request.get("top")
+        project = request.get("project")
+        profile = request.get("profile")
+        for value, label in ((top, "top"), (project, "project"), (profile, "profile")):
+            if value is not None and not isinstance(value, str):
+                raise LspProtocolError(f"debug {label} must be a string")
+        logic_state = request.get("logicState", True)
+        if not isinstance(logic_state, bool):
+            raise LspProtocolError("debug logicState must be a boolean")
+        bundle = build_native_debug_bundle(
+            state.path,
+            top=top,
+            project=project,
+            profile=profile,
+            logic_state=logic_state,
+        )
+        return bundle.to_data()
 
     def _hover(self, params: object) -> dict[str, Any] | None:
         self._sync_editor_workspace()

@@ -10,7 +10,7 @@ example before emitting source.
 | Family | Spellings | Use |
 | --- | --- | --- |
 | Control | `bit` | One-bit control; distinct from integers and raw bits. |
-| Unsigned integer | `u8`, `u16`, `u32`, `uint<N>` | Arithmetic and ordering on an exact unsigned width. |
+| Unsigned integer | `u8`, `u<N>`, `uint<N>` | Arithmetic and ordering on an exact unsigned width. |
 | Signed integer | `s8`, `s16`, `s32`, `sint<N>` | Two's-complement arithmetic on an exact signed width. |
 | Raw representation | `bits<N>` | Encodings, masks, and fields without integer arithmetic. |
 | Fixed point | `fixed<W,F>`, `ufixed<W,F>` | Signed/unsigned fixed point with wrapping target narrowing. |
@@ -30,8 +30,13 @@ normalizes to its canonical type and does not create a nominal wrapper.
 - `struct` is a nominal named product; first-declared fields occupy the most
   significant packed region. Construct with `Type { field=value ... }`, update
   with `value { field=new_value }`, and select with `value.field`.
-- `enum` is nominal control state. Use qualified members and `enum_encode`,
-  `enum_valid<T>`, and total `enum_decode<T>` at raw boundaries.
+- `enum` is nominal control state. An explicit backing may be `bit`, `bits<W>`,
+  or unsigned `uN`/`u<W>`/`uint<W>`; omitted member codes auto-increment from zero or
+  the preceding explicit code. Use qualified members and `enum_encode`,
+  `enum_valid<T>`, and
+  total `enum_decode<T>` at representation boundaries. Direct enum arithmetic
+  is rejected. `enum_encode` of an unsigned-backed enum is numeric; `bit`/`bits<W>`
+  encodings need an explicit `bitcast<uW>` before arithmetic.
 - `union` is a nominal tagged union. Construct a named variant and consume it
   with an exhaustive `match`; do not inspect the tag as an integer. Union values
   may cross module inputs and outputs.

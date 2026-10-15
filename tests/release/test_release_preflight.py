@@ -20,7 +20,7 @@ from tools.release_preflight import (
     main,
     preflight,
 )
-from tools.release_status import _example_counts
+from tools.release_status import COMMUNITY_PDF_SOURCES, _example_counts
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -87,7 +87,7 @@ def release_repository(tmp_path_factory: pytest.TempPathFactory) -> Path:
     changelog = root / "CHANGELOG.md"
     changelog_text = changelog.read_text(encoding="utf-8")
     unreleased_start = changelog_text.index("## Unreleased")
-    release_start = changelog_text.index("## 0.1.0a23", unreleased_start)
+    release_start = changelog_text.index("## 0.1.0a24", unreleased_start)
     changelog_text = (
         changelog_text[:unreleased_start]
         + "## Unreleased\n\n"
@@ -100,10 +100,12 @@ def release_repository(tmp_path_factory: pytest.TempPathFactory) -> Path:
     status["documentation"]["syntax_grammar_sha256"] = hashlib.sha256(
         grammar.read_bytes()
     ).hexdigest()
-    for source in (
-        "docs/language-reference.md",
-        "docs/language-quick-reference.md",
-    ):
+    # The release-status owner defines the exact PDF source projection.  Keep
+    # this synthetic repository aligned with that owner instead of maintaining
+    # a second list that silently becomes stale when the reference is split.
+    status["documentation"]["sources"] = {}
+    for path in COMMUNITY_PDF_SOURCES:
+        source = path.as_posix()
         status["documentation"]["sources"][source] = hashlib.sha256(
             (root / source).read_bytes()
         ).hexdigest()
@@ -122,6 +124,17 @@ def release_repository(tmp_path_factory: pytest.TempPathFactory) -> Path:
         env=_release_commit_environment(root),
     )
     _git(root, "branch", "-M", "main")
+    _git(
+        root,
+        "tag", "-a", "v0.1.0a23", "-m", "fixture previous public release",
+        env=_release_commit_environment(root),
+    )
+    _git(
+        root,
+        "-c", "commit.gpgsign=false", "commit", "--allow-empty", "-qm",
+        "a24 candidate",
+        env=_release_commit_environment(root),
+    )
     _git(root, "update-ref", "refs/remotes/origin/main", "HEAD")
     return root
 
@@ -131,31 +144,34 @@ def test_current_candidate_binds_release_sources_native_wheel_and_git(
 ) -> None:
     report = preflight(
         release_repository,
-        tag="v0.1.0a23",
-        previous_tag=None,
+        tag="v0.1.0a24",
+        previous_tag="v0.1.0a23",
         mode="candidate",
         require_clean=False,
     )
     assert report["schema"] == 4
-    assert report["version"] == "0.1.0a23"
-    assert report["tag"] == "v0.1.0a23"
-    assert report["previous_tag"] is None
+    assert report["version"] == "0.1.0a24"
+    assert report["tag"] == "v0.1.0a24"
+    assert report["previous_tag"] == "v0.1.0a23"
     assert report["regressions"]["included"] == [
-            "REL-005", "ZL-049", "ZL-050",
+        "SIM-001",
+        "ZL-052",
+        "ZL-053",
+        "ZL-054",
+        "ZL-055",
     ]
-    assert report["dependency_floor"] == {
-        "status": "not_applicable_bootstrap",
-        "baseline": None,
-        "downgrades": [],
-    }
+    assert report["dependency_floor"]["schema"] == 1
+    assert report["dependency_floor"]["previous_ref"] == "v0.1.0a23"
+    assert report["dependency_floor"]["compared"] > 0
+    assert report["dependency_floor"]["downgrades"] == []
     assert "release/regressions.json" in report["identities"]
-    assert report["git"]["previous_commit"] is None
+    assert report["git"]["previous_commit"]
     assert report["native_wheels"] == [
         {
-            "file": "zlang_native_sim-0.1.0a23-cp312-abi3-manylinux_2_28_x86_64.whl",
+            "file": "zlang_native_sim-0.1.0a24-cp312-abi3-manylinux_2_28_x86_64.whl",
             "platform": "linux_x86_64",
-            "sha256": "e491a03fcb62d2c55b23bc904d3837a43b4a094fe91214cf5a308e1164006c97",
-            "version": "0.1.0a23",
+            "sha256": "e7415a7af471987b05fc0806d370789c69137505ea57be08174eaa7ed637c1c9",
+            "version": "0.1.0a24",
         }
     ]
 
@@ -169,18 +185,18 @@ def test_candidate_date_uses_the_timezone_recorded_in_the_commit(
     monkeypatch.setenv("TZ", timezone)
     report = preflight(
         release_repository,
-        tag="v0.1.0a23",
-        previous_tag=None,
+        tag="v0.1.0a24",
+        previous_tag="v0.1.0a23",
         mode="candidate",
         require_clean=False,
     )
-    assert report["version"] == "0.1.0a23"
+    assert report["version"] == "0.1.0a24"
 
 
 @pytest.mark.parametrize(
     ("tag", "previous", "message"),
     (
-        ("v0.1.0a23", "v0.1.0a21", "immediately follow"),
+        ("v0.1.0a24", "v0.1.0a21", "immediately follow"),
         ("v0.2.0a1", "v0.1.0a22", "different bases"),
         ("v0.1.0", "v0.1.0a22", "alpha tag"),
     ),
@@ -198,8 +214,8 @@ def test_tagged_mode_rejects_an_absent_or_lightweight_release_tag(
     with pytest.raises(ReleasePreflightError, match="annotated tag"):
         preflight(
             release_repository,
-            tag="v0.1.0a23",
-            previous_tag=None,
+            tag="v0.1.0a24",
+            previous_tag="v0.1.0a23",
             mode="tagged",
             require_clean=False,
         )
@@ -213,8 +229,8 @@ def test_candidate_mode_rejects_a_non_main_checkout(
         with pytest.raises(ReleasePreflightError, match="checked-out branch 'main'"):
             preflight(
                 release_repository,
-                tag="v0.1.0a23",
-                previous_tag=None,
+                tag="v0.1.0a24",
+                previous_tag="v0.1.0a23",
                 mode="candidate",
                 require_clean=False,
             )
@@ -222,7 +238,7 @@ def test_candidate_mode_rejects_a_non_main_checkout(
         _git(release_repository, "switch", "main")
 
 
-def test_bootstrap_mode_rejects_more_than_one_commit(
+def test_previous_tag_is_required_for_nonbootstrap_candidate(
     release_repository: Path,
 ) -> None:
     original = _git(release_repository, "rev-parse", "HEAD")
@@ -236,10 +252,10 @@ def test_bootstrap_mode_rejects_more_than_one_commit(
     )
     _git(release_repository, "update-ref", "refs/remotes/origin/main", "HEAD")
     try:
-        with pytest.raises(ReleasePreflightError, match="one-commit"):
+        with pytest.raises(ReleasePreflightError, match="baseline does not match"):
             preflight(
                 release_repository,
-                tag="v0.1.0a23",
+                tag="v0.1.0a24",
                 previous_tag=None,
                 mode="candidate",
                 require_clean=False,
@@ -255,7 +271,8 @@ def test_cli_writes_stable_sorted_json(
     output = tmp_path / "preflight.json"
     assert main([
         "--root", str(release_repository),
-        "--tag", "v0.1.0a23",
+        "--tag", "v0.1.0a24",
+        "--previous-tag", "v0.1.0a23",
         "--output", str(output),
     ]) == 0
     payload = output.read_text(encoding="utf-8")

@@ -2,30 +2,15 @@
 
 from __future__ import annotations
 
-from itertools import product
 from pathlib import Path
-from typing import Callable
 
 import pytest
 
 import zlang
+import zlang.simulation_logic as logic_values
 from zlang.sim import LogicVector, SimulationRuntimeError
 from zlang.sim_cli import main as sim_main
-from zlang.simulation_logic import (
-    LogicBit,
-    logic_and,
-    logic_add,
-    logic_compare,
-    logic_equal,
-    logic_mul,
-    logic_not,
-    logic_or,
-    logic_select,
-    logic_shift,
-    logic_sub,
-    logic_truthy,
-    logic_xor,
-)
+from zlang.simulation_primitives import int_from_limbs as _limbs_to_int
 
 
 def _source(tmp_path: Path, name: str, body: str) -> Path:
@@ -34,74 +19,19 @@ def _source(tmp_path: Path, name: str, body: str) -> Path:
     return path
 
 
-def _concrete_values(value: LogicVector) -> tuple[int, ...]:
-    unknown_bits = [
-        index for index in range(value.width) if value.unknown & (1 << index)
-    ]
-    concrete: list[int] = []
-    base = value.value & ~value.unknown
-    for assignments in product((0, 1), repeat=len(unknown_bits)):
-        item = base
-        for index, bit_value in zip(unknown_bits, assignments, strict=True):
-            item |= bit_value << index
-        concrete.append(item)
-    return tuple(concrete)
-
-
-def _abstract_concrete_results(
-    results: tuple[int, ...], width: int, unknown_kind: LogicBit
-) -> LogicVector:
-    known_value = 0
-    unknown = 0
-    unknown_value = 0
-    for index in range(width):
-        bits = {(result >> index) & 1 for result in results}
-        if len(bits) == 1:
-            known_value |= next(iter(bits)) << index
-        else:
-            unknown |= 1 << index
-            if unknown_kind is LogicBit.UNKNOWN:
-                unknown_value |= 1 << index
-    return LogicVector(width, known_value | unknown_value, unknown)
-
-
-def _same_unknown_kind_vectors(width: int, kind: LogicBit) -> tuple[LogicVector, ...]:
-    marker = kind.value
-    return tuple(
-        LogicVector.parse("".join(bits), width)
-        for bits in product(("0", "1", marker), repeat=width)
-    )
-
-
-def _assert_sound_abstract_binary(
-    logic_operation: Callable[[LogicVector, LogicVector], LogicVector],
-    concrete_operation: Callable[[int, int], int],
-    left: LogicVector,
-    right: LogicVector,
-    *,
-    width: int,
-    unknown_kind: LogicBit,
-) -> None:
-    concrete = tuple(
-        concrete_operation(left_value, right_value) & ((1 << width) - 1)
-        for left_value in _concrete_values(left)
-        for right_value in _concrete_values(right)
-    )
-    expected = _abstract_concrete_results(concrete, width, unknown_kind)
-    actual = logic_operation(left, right)
-    falsely_known = expected.unknown & ~actual.unknown
-    assert falsely_known == 0, (left.to_bits(), right.to_bits(), actual, expected)
-    known_mask = actual.mask & ~actual.unknown
-    assert (actual.value & known_mask) == (expected.value & known_mask), (
-        left.to_bits(),
-        right.to_bits(),
-        actual,
-        expected,
-    )
-    if unknown_kind is LogicBit.UNINITIALIZED:
-        assert actual.value & actual.unknown == 0
-    else:
-        assert actual.value & actual.unknown == actual.unknown
+def test_python_logic_surface_is_dto_only() -> None:
+    assert logic_values.__all__ == ["LogicBit", "LogicVector"]
+    assert not (Path(zlang.__file__).parent / "simulation_logic_machine.py").exists()
+    assert not {
+        "accepted_write",
+        "logic_add",
+        "logic_and",
+        "logic_compare",
+        "logic_equal",
+        "logic_mul",
+        "logic_select",
+        "logic_shift",
+    } & vars(logic_values).keys()
 
 
 def test_controlling_values_resolve_u_and_x_per_bit(tmp_path: Path) -> None:
@@ -123,179 +53,6 @@ def test_controlling_values_resolve_u_and_x_per_bit(tmp_path: Path) -> None:
         outputs = instance.eval()
         assert outputs["with_ones"] == LogicVector.parse("1111", 4)
         assert outputs["with_zeroes"] == LogicVector.parse("0000", 4)
-
-
-def test_one_bit_logic_truth_tables_preserve_u_x_provenance() -> None:
-    bits = tuple(LogicBit)
-    tables = {
-        logic_and: (
-            "0000",
-            "01ux",
-            "0uux",
-            "0xxx",
-        ),
-        logic_or: (
-            "01ux",
-            "1111",
-            "u1ux",
-            "x1xx",
-        ),
-        logic_xor: (
-            "01ux",
-            "10ux",
-            "uuux",
-            "xxxx",
-        ),
-    }
-    for operation, rows in tables.items():
-        for left_index, left in enumerate(bits):
-            for right_index, right in enumerate(bits):
-                actual = operation(
-                    LogicVector.filled(left, 1), LogicVector.filled(right, 1)
-                )
-                assert actual.to_bits() == rows[left_index][right_index]
-
-    assert {
-        bit: logic_not(LogicVector.filled(bit, 1)).to_bits() for bit in bits
-    } == {
-        LogicBit.ZERO: "1",
-        LogicBit.ONE: "0",
-        LogicBit.UNINITIALIZED: "u",
-        LogicBit.UNKNOWN: "x",
-    }
-    assert {
-        bit: logic_truthy(LogicVector.filled(bit, 1)).to_bits() for bit in bits
-    } == {
-        LogicBit.ZERO: "0",
-        LogicBit.ONE: "1",
-        LogicBit.UNINITIALIZED: "u",
-        LogicBit.UNKNOWN: "x",
-    }
-
-
-@pytest.mark.parametrize("unknown_kind", [LogicBit.UNINITIALIZED, LogicBit.UNKNOWN])
-def test_small_logic_arithmetic_is_sound_over_all_concretizations(
-    unknown_kind: LogicBit,
-) -> None:
-    values = _same_unknown_kind_vectors(2, unknown_kind)
-    operations = (
-        (lambda left, right: logic_add(left, right, 2), lambda left, right: left + right),
-        (lambda left, right: logic_sub(left, right, 2), lambda left, right: left - right),
-        (lambda left, right: logic_mul(left, right, 2), lambda left, right: left * right),
-        (logic_and, lambda left, right: left & right),
-        (logic_or, lambda left, right: left | right),
-        (logic_xor, lambda left, right: left ^ right),
-    )
-    for logic_operation, concrete_operation in operations:
-        for left in values:
-            for right in values:
-                _assert_sound_abstract_binary(
-                    logic_operation,
-                    concrete_operation,
-                    left,
-                    right,
-                    width=2,
-                    unknown_kind=unknown_kind,
-                )
-
-
-@pytest.mark.parametrize("unknown_kind", [LogicBit.UNINITIALIZED, LogicBit.UNKNOWN])
-def test_small_logic_comparisons_and_shifts_are_sound_over_all_concretizations(
-    unknown_kind: LogicBit,
-) -> None:
-    values = _same_unknown_kind_vectors(2, unknown_kind)
-    comparisons = (
-        (logic_equal, lambda left, right: int(left == right)),
-        (
-            lambda left, right: logic_compare(
-                left, right, signed=False, or_equal=False
-            ),
-            lambda left, right: int(left < right),
-        ),
-        (
-            lambda left, right: logic_compare(
-                left, right, signed=False, or_equal=True
-            ),
-            lambda left, right: int(left <= right),
-        ),
-    )
-    for logic_operation, concrete_operation in comparisons:
-        for left in values:
-            for right in values:
-                _assert_sound_abstract_binary(
-                    logic_operation,
-                    concrete_operation,
-                    left,
-                    right,
-                    width=1,
-                    unknown_kind=unknown_kind,
-                )
-
-    shifts = (
-        (
-            lambda value, amount: logic_shift(
-                value, amount, 2, left=True, arithmetic=False
-            ),
-            lambda value, amount: value << amount,
-        ),
-        (
-            lambda value, amount: logic_shift(
-                value, amount, 2, left=False, arithmetic=False
-            ),
-            lambda value, amount: value >> amount,
-        ),
-    )
-    for logic_operation, concrete_operation in shifts:
-        for value in values:
-            for amount in values:
-                _assert_sound_abstract_binary(
-                    logic_operation,
-                    concrete_operation,
-                    value,
-                    amount,
-                    width=2,
-                    unknown_kind=unknown_kind,
-                )
-
-
-@pytest.mark.parametrize("unknown_kind", [LogicBit.UNINITIALIZED, LogicBit.UNKNOWN])
-def test_small_logic_select_matches_all_concretizations(
-    unknown_kind: LogicBit,
-) -> None:
-    conditions = _same_unknown_kind_vectors(1, unknown_kind)
-    values = _same_unknown_kind_vectors(2, unknown_kind)
-    for condition in conditions:
-        concrete_conditions = _concrete_values(condition)
-        for yes in values:
-            for no in values:
-                concrete = tuple(
-                    yes_value if condition_value else no_value
-                    for condition_value in concrete_conditions
-                    for yes_value in _concrete_values(yes)
-                    for no_value in _concrete_values(no)
-                )
-                expected = _abstract_concrete_results(concrete, 2, unknown_kind)
-                assert logic_select(condition, yes, no) == expected
-
-
-def test_logic_arithmetic_shift_compare_and_select_are_width_exact() -> None:
-    known_three = LogicVector.parse("0011", 4)
-    assert logic_add(known_three, LogicVector.parse("0101", 4), 4).to_bits() == "1000"
-    assert logic_sub(known_three, LogicVector.parse("0101", 4), 4).to_bits() == "1110"
-    assert logic_mul(known_three, LogicVector.parse("0010", 4), 4).to_bits() == "0110"
-    assert logic_shift(
-        known_three, LogicVector.parse("01", 2), 4, left=True, arithmetic=False
-    ).to_bits() == "0110"
-    assert logic_equal(LogicVector.parse("u0", 2), LogicVector.parse("u1", 2)).to_bits() == "0"
-    assert logic_compare(
-        LogicVector.parse("0011", 4), LogicVector.parse("0100", 4),
-        signed=False, or_equal=False,
-    ).to_bits() == "1"
-    assert logic_select(
-        LogicVector.parse("u", 1),
-        LogicVector.parse("0u", 2),
-        LogicVector.parse("0u", 2),
-    ).to_bits() == "0u"
 
 
 def test_known_logic_mode_matches_the_binary_native_path_exhaustively(
@@ -454,7 +211,9 @@ def test_unknown_stateful_control_fails_without_committing(tmp_path: Path) -> No
         assert instance.get_logic("q").to_bits() == "0111"
 
 
-def test_logic_memory_sync_writes_only_changed_cell(tmp_path: Path) -> None:
+def test_logic_memory_write_is_owned_by_native_four_state_runtime(
+    tmp_path: Path,
+) -> None:
     source = _source(
         tmp_path,
         "logic_memory_sync",
@@ -469,43 +228,16 @@ def test_logic_memory_sync_writes_only_changed_cell(tmp_path: Path) -> None:
         """,
     )
 
-    class RecordingNative:
-        def __init__(self, wrapped: object) -> None:
-            self.wrapped = wrapped
-            self.batches: list[list[tuple[object, ...]]] = []
-
-        def __getattr__(self, name: str) -> object:
-            return getattr(self.wrapped, name)
-
-        def write_state_batch(self, edits: list[tuple[object, ...]]) -> None:
-            self.batches.append(edits)
-            self.wrapped.write_state_batch(edits)  # type: ignore[attr-defined]
-
     with zlang.sim.load(source, top="LogicMemorySync", logic_state=True) as instance:
-        native = RecordingNative(instance._native)
-        instance._native = native
         instance.set("write", 1)
         instance.set("address", 7)
         instance.set_logic("data", "uuuuuuuu")
         instance.edge("clk")
-        memory_edits = [
-            edit
-            for batch in native.batches
-            for edit in batch
-            if edit[0] == "memory"
-        ]
-        assert len(memory_edits) == 1
-        assert memory_edits[0][:3] == ("memory", "table", 7)
-        native.batches.clear()
+        value, unknown, width = instance._native.get_logic_memory("table", 7)
+        assert LogicVector(width, _limbs_to_int(value), _limbs_to_int(unknown)).to_bits() == "xxxxxxxx"
         instance.edge("clk")
-        repeated_edits = [
-            edit
-            for batch in native.batches
-            for edit in batch
-            if edit[0] == "memory"
-        ]
-        assert len(repeated_edits) == 1
-        assert repeated_edits[0][:3] == ("memory", "table", 7)
+        value, unknown, width = instance._native.get_logic_memory("table", 7)
+        assert LogicVector(width, _limbs_to_int(value), _limbs_to_int(unknown)).to_bits() == "xxxxxxxx"
 
 
 def test_native_edge_failure_rolls_back_logic_state_and_trace(tmp_path: Path) -> None:
@@ -657,11 +389,11 @@ def test_typed_reads_require_binary_but_logic_reads_remain_available(
         assert instance.get_logic("y").to_bits() == "uuuu"
 
 
-def test_logic_plan_and_runtime_use_v12() -> None:
+def test_logic_plan_v12_and_runtime_abi_v13_are_explicit() -> None:
     from zlang.simulation_plan_policy import (
         SIMULATION_PLAN_SCHEMA,
         SIMULATION_RUNTIME_ABI,
     )
 
     assert SIMULATION_PLAN_SCHEMA == "zlang-simulation-plan-v12"
-    assert SIMULATION_RUNTIME_ABI == "zlang-native-simulation-abi-v12"
+    assert SIMULATION_RUNTIME_ABI == "zlang-native-simulation-abi-v13"

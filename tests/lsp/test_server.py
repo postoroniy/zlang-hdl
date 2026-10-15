@@ -164,6 +164,39 @@ def test_stdio_publishes_exact_output_error_and_register_warning(
     }
 
 
+def test_contextual_words_are_legal_enum_members_in_lsp_diagnostics(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "ContextualEnumMembers.zhl"
+    text = (
+        "enum Access : u8 { reserved }\n"
+        "enum Lifecycle : uint<8> { reset }\n"
+        "enum Order : bit { priority }\n"
+        "module Top {\n"
+        "  out a:u8 out b:u8 out c:bit\n"
+        "  a=enum_encode(Access.reserved)\n"
+        "  b=enum_encode(Lifecycle.reset)\n"
+        "  c=enum_encode(Order.priority)\n"
+        "}\n"
+    )
+    source.write_text(text, encoding="utf-8")
+    server = LspServer()
+
+    published = server.dispatch({
+        "jsonrpc": "2.0",
+        "method": "textDocument/didOpen",
+        "params": {
+            "textDocument": {
+                "uri": path_to_uri(source),
+                "version": 1,
+                "text": text,
+            },
+        },
+    })
+
+    assert published[0]["params"]["diagnostics"] == []
+
+
 def test_wire_state_update_reports_exact_target_without_unsafe_quick_fix(
     tmp_path: Path,
 ) -> None:
@@ -415,6 +448,80 @@ def test_document_symbol_nested_and_malformed_current_text(tmp_path: Path) -> No
         "params": {"textDocument": {"uri": uri}},
     })
     assert malformed == [{"jsonrpc": "2.0", "id": 2, "result": []}]
+
+
+def test_document_symbol_enum_members_have_exact_nested_ranges(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "Enums.zhl"
+    text = (
+        "enum Access : u8 {\n"
+        "    reserved\n"
+        "    ready = 10\n"
+        "}\n"
+        "enum Lifecycle : bit {\n"
+        "    reset\n"
+        "    priority\n"
+        "}\n"
+    )
+    source.write_text(text, encoding="utf-8")
+    uri = path_to_uri(source)
+    server = LspServer()
+    server.dispatch({
+        "jsonrpc": "2.0",
+        "method": "textDocument/didOpen",
+        "params": {"textDocument": {"uri": uri, "version": 1, "text": text}},
+    })
+    response = server.dispatch({
+        "jsonrpc": "2.0",
+        "id": 61,
+        "method": "textDocument/documentSymbol",
+        "params": {"textDocument": {"uri": uri}},
+    })
+    symbols = response[0]["result"]
+    assert [symbol["name"] for symbol in symbols] == ["Access", "Lifecycle"]
+    assert [child["name"] for child in symbols[0]["children"]] == [
+        "reserved", "ready",
+    ]
+    assert [child["range"] for child in symbols[0]["children"]] == [
+        {
+            "start": {"line": 1, "character": 4},
+            "end": {"line": 1, "character": 12},
+        },
+        {
+            "start": {"line": 2, "character": 4},
+            "end": {"line": 2, "character": 9},
+        },
+    ]
+    assert [child["range"] for child in symbols[1]["children"]] == [
+        {
+            "start": {"line": 5, "character": 4},
+            "end": {"line": 5, "character": 9},
+        },
+        {
+            "start": {"line": 6, "character": 4},
+            "end": {"line": 6, "character": 12},
+        },
+    ]
+    for symbol in symbols:
+        parent_start = (
+            symbol["range"]["start"]["line"],
+            symbol["range"]["start"]["character"],
+        )
+        parent_end = (
+            symbol["range"]["end"]["line"],
+            symbol["range"]["end"]["character"],
+        )
+        for child in symbol["children"]:
+            child_start = (
+                child["range"]["start"]["line"],
+                child["range"]["start"]["character"],
+            )
+            child_end = (
+                child["range"]["end"]["line"],
+                child["range"]["end"]["character"],
+            )
+            assert parent_start <= child_start < child_end <= parent_end
 
 
 def test_document_symbol_unknown_or_closed_document_is_a_request_error(

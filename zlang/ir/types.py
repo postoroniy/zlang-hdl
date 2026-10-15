@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import Literal
+
+
+EnumBackingKind = Literal["bit", "bits", "uint"]
 
 
 class FixedOverflowPolicy(str, Enum):
@@ -97,13 +101,14 @@ class UFixedType:
 
 @dataclass(frozen=True)
 class EnumType:
-    """Nominal enumeration with an ordinal or explicit raw-bit ABI."""
+    """Nominal enumeration with an ordinal or explicit scalar encoding ABI."""
 
     name: str
     members: tuple[str, ...]
     declaration_identity: str
     explicit_width: int | None = None
     explicit_codes: tuple[int, ...] | None = None
+    explicit_backing_kind: EnumBackingKind | None = None
 
     def __post_init__(self) -> None:
         if not self.name:
@@ -120,6 +125,17 @@ class EnumType:
             raise ValueError(
                 f"enum '{self.name}' explicit width and codes must be provided together"
             )
+        if self.explicit_width is not None and self.explicit_backing_kind is None:
+            object.__setattr__(self, "explicit_backing_kind", "bits")
+        if self.explicit_backing_kind not in {None, "bit", "bits", "uint"}:
+            raise ValueError(
+                f"enum '{self.name}' has unsupported explicit backing kind "
+                f"'{self.explicit_backing_kind}'"
+            )
+        if self.explicit_backing_kind is not None and self.explicit_width is None:
+            raise ValueError(
+                f"enum '{self.name}' explicit backing requires explicit codes"
+            )
         if self.explicit_width is not None:
             if self.explicit_width < 1:
                 raise ValueError(f"enum '{self.name}' explicit width must be positive")
@@ -133,7 +149,11 @@ class EnumType:
             limit = 1 << self.explicit_width
             if any(code < 0 or code >= limit for code in self.explicit_codes):
                 raise ValueError(
-                    f"enum '{self.name}' explicit codes must fit bits<{self.explicit_width}>"
+                    f"enum '{self.name}' explicit codes must fit {self.encoding_type}"
+                )
+            if self.explicit_backing_kind == "bit" and self.explicit_width != 1:
+                raise ValueError(
+                    f"enum '{self.name}' bit backing must have width one"
                 )
 
     @property
@@ -151,6 +171,16 @@ class EnumType:
             if self.explicit_codes is not None
             else tuple(range(len(self.members)))
         )
+
+    @property
+    def encoding_type(self) -> BitType | BitsType | UIntType:
+        """Return the exact scalar representation used by encode/decode operations."""
+
+        if self.explicit_backing_kind == "bit":
+            return BitType()
+        if self.explicit_backing_kind == "uint":
+            return UIntType(self.width)
+        return BitsType(self.width)
 
     def member_code(self, member: str) -> int:
         try:
@@ -175,7 +205,7 @@ class EnumType:
             )
         )
         if self.explicit_width is not None:
-            members += f":bits<{self.explicit_width}>"
+            members += f":{self.encoding_type}"
         return f"enum<{self.name}:{members}@{self.declaration_identity}>"
 
 

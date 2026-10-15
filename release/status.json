@@ -3,7 +3,7 @@
   "release": {
     "channel": "alpha",
     "repository": "https://github.com/postoroniy/zlang-hdl",
-    "version": "0.1.0a23"
+    "version": "0.1.0a24"
   },
   "platform": {
     "operating_system": "Linux",
@@ -11,16 +11,44 @@
     "architecture": "x86_64"
   },
   "native_runtime": {
-    "version": "0.1.0a23",
+    "version": "0.1.0a24",
     "abi": "cp312-abi3",
     "source_distribution": false,
     "platforms": [
       "manylinux_2_28_x86_64"
     ]
   },
+  "native_editor": {
+    "contracts": {
+      "debug_adapter": "zlang-debug-adapter-v1",
+      "debug_bundle": "zlang-native-debug-bundle-v1",
+      "waveform_query": "zlang-waveform-query-v2",
+      "waveform_trace": "zlang-waveform-trace-v1"
+    },
+    "executables": [
+      {
+        "name": "zlang-debug-adapter",
+        "path": "release/native-editor/linux-x64/zlang-debug-adapter",
+        "sha256": "aa2d424527706b48203bb49450757bb1e8e9527dfaf156d0930602fdf0096c05",
+        "size": 6293336
+      },
+      {
+        "name": "zlang-waveform-indexer",
+        "path": "release/native-editor/linux-x64/zlang-waveform-indexer",
+        "sha256": "32a89041e8b818940fb050e8f9e0e5e4eef3900486f6168c21be86193a666d03",
+        "size": 1186280
+      }
+    ],
+    "platform": "linux-x64",
+    "source_distribution": false,
+    "third_party_licenses": {
+      "path": "release/native-editor/THIRD_PARTY_LICENSES.md",
+      "sha256": "f8b67cabb37b33b8f6541663a9f7f4f59028387e0adf672b5df887ce0ad84e17"
+    }
+  },
   "validation": {
-    "minimum_tests_passed": 4383,
-    "minimum_tests_collected": 4383,
+    "minimum_tests_passed": 4485,
+    "minimum_tests_collected": 4485,
     "maximum_tests_skipped": 0,
     "example_corpus": {
       "source_files": 112,
@@ -39,33 +67,47 @@
     "z3": "5.1.0"
   },
   "documentation": {
-    "builder_sha256": "2b33c8bfb3c6ab377a3821a96cc7624e73e2a3449f26aeaec0376d673c24f86b",
+    "builder_sha256": "e47733fc76057e506f5c0342cb787146c84e3d072b8ce0df39348fee0ec423c4",
     "cover_height": 524,
     "cover_sha256": "22c31a7a75b6db59293b6bf334d1499c891fb03ec5e45b5afac471116ab0d5d2",
     "cover_width": 1983,
     "examples": {
-      "linked_sources": 21,
-      "json_blocks": 1,
+      "linked_sources": 13,
+      "json_blocks": 2,
       "python_blocks": 1,
       "referenced_tops": 5,
-      "shell_blocks": 39,
-      "standalone_compiled": 20,
-      "syntax_fragments": 112,
-      "toml_blocks": 3,
-      "zlang_fences": 132
+      "shell_blocks": 33,
+      "standalone_compiled": 15,
+      "syntax_fragments": 91,
+      "toml_blocks": 4,
+      "zlang_fences": 106
     },
     "format": "PDF-1.5",
-    "pages": 92,
+    "pages": 54,
     "page_height_points": 841.89,
     "page_width_points": 595.28,
     "pdf": "docs/ZLang-HDL-Language-Reference.pdf",
-    "pdf_sha256": "a8977bc9ae2e41fb2788b333ef2b80bfb5c854df3c4b95bc9df08089ad8ef3f3",
-    "syntax_grammar_sha256": "9fb3b256b93f4678bfc68464818f257996e5022107ea88d51a7a8f2e4431a5b2",
+    "pdf_sha256": "0cab8913fb7fe2cb6dfced2a53fffbbf7fe244146bda9c7dddbb074f0200ce83",
+    "syntax_grammar_sha256": "cb8d1dd72efedbfa1a31969187added7d57e42ef75fbcb590433544d4c8ad698",
     "sources": {
-      "docs/language-quick-reference.md": "a352bb74843d05f2c7797b6e4e870e4271fd2db9a626022d02a7431bed204114",
-      "docs/language-reference.md": "290baa87aa917cb74ccd0184c38121d209decc162520938ebd9196a931c102dd"
+      "docs/reference/01-why-zlang.md": "017cfe4e3e2845635b0c17f205d35dada034a53ca821a990caed913935ead7ed",
+      "docs/reference/02-quick-start.md": "5bd6426c16255425371e6c087bfbf1d52faee16e457d062b63fff5436c86275c",
+      "docs/reference/03-implementation-intent.md": "015a69ac99cdd7b1ed1985a58af325c1c0ebfe41dac9874620b66e4b5ad918f4",
+      "docs/reference/04-simulation-verification.md": "3ad9928de172d68a8457d91044f99a18686c41bc6d15cda86a6f1eb2d2990022",
+      "docs/reference/05-types.md": "70609b6e6cf29ab24cde86413ea1aad136c221bb75babcd8532831b46dd48e7d",
+      "docs/reference/06-expressions.md": "7d4593d0633142b52edfe2b2d3049639da3ecf3bd72797cf4851f54d36b9027e",
+      "docs/reference/07-state-clocks.md": "b4bc4c8a75f0f08190781eeb34edb89b153ca87bbda9ee74ba04472cf9597b37",
+      "docs/reference/08-hierarchy-protocols.md": "2ce8292b14671a8299a72d72b52224bd3c9e119065460e4c2293fdb030487e5c",
+      "docs/reference/09-storage.md": "ad99761fc074263927bc05cdf5d2c7eaf00c105360d71cef443ce945d8fe7a3f",
+      "docs/reference/10-stdlib-buses.md": "db8f66c52ecd58c614db669bab989c9203743a69e8064b46535cb863b2abb8b2",
+      "docs/reference/11-projects.md": "5b40fbc9b755390bd36be5221e4ba88172e68fde8f6704ad1f670c83954c567f",
+      "docs/reference/12-profiles-targets.md": "fb81f8a8edca302306955eddeb6ccbc75817709ca7e194598f9ce27232fbfe18",
+      "docs/reference/13-rtl.md": "b5fcce04c4b11bfb24137c40cae55160abd5aaa3e009536139ea4ec39ec15bfe",
+      "docs/reference/14-installation.md": "3a625665da5af65511802ffa6fa48710b3bf0982131f3c5333a7a775c48813c2",
+      "docs/reference/15-limitations.md": "d29af4cc11a4cfc8091ef9aeef0772983f360667708786ccec1e9ec7b2b6fa0c",
+      "docs/reference/appendix-quick-reference.md": "4dc18728d8ac64c3082ec6f48647dab984b374931884854d807ac8bc315d44ac"
     },
-    "source_date_epoch": 1791813600
+    "source_date_epoch": 1791901800
   },
   "generated_by": "tools/release_status.py"
 }

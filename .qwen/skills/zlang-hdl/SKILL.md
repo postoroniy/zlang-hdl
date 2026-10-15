@@ -122,9 +122,15 @@ Use the repository environment and explicit top:
 The command is `zlang`, not `zlangc`. There is no supported Clash/Haskell output
 path. A backend failure or missing tool is never a successful result.
 
-`zlang sim` is the sole simulation command and always uses the native runtime.
-The hidden `--engine native` spelling is migration compatibility, not a second
-mode; removed reference/Python/JIT engine names must fail.
+`zlang sim` is the sole simulation command and always uses the Rust native
+runtime. Python owns compilation/orchestration and logic-value DTOs, not an
+executable fallback. The hidden `--engine native` spelling is migration
+compatibility, not a second mode; removed reference/Python/JIT engine names
+must fail. Use `--events` for explicit reset and multi-clock schedules,
+`--logic-state`/`--strict-uninitialized` for U/X diagnostics,
+`--trace`/`--trace-signal` for preferred FST or compatible VCD, and
+`--compare-with` for differential RTL
+validation.
 
 ## Non-negotiable semantic guardrails
 

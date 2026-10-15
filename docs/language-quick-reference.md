@@ -1,26 +1,25 @@
 # ZLang HDL concise source-authoring reference
 
-This page is a concise guide to current executable ZLang HDL source, not a
-historical proposal. The compiler's typed IR defines semantics; generated
-SystemVerilog is not a second language specification.
+This page is a concise guide to writing and running ZLang HDL. Source-language
+rules define the hardware; generated SystemVerilog is an output format, not a
+second language specification.
 
-For an unfamiliar construct, consult the
-[syntax support matrix](language-reference.md#reference-syntax-support-matrix) and
-[known limitations](language-reference.md#reference-known-limitations). For exact
-width tables and backend limits, follow the linked topic guide.
+For an unfamiliar construct, consult the detailed language chapter and
+[known limitations](language-reference.md#reference-known-limitations). For
+exact width tables and supported forms, follow the linked topic guide.
 
 ## Non-negotiable rules
 
 - Source files use `.zhl`. The old `.zl` suffix is rejected.
 - Run `zlang SOURCE --check`; highlighting is lexical and is not validation.
 - Native simulation needs a matching platform wheel and fails explicitly when
-  it is unavailable; there is no second Python execution engine.
+  it is unavailable.
 - Hardware assignments are concurrent. `=` drives the current cycle and `<-`
   schedules next state at the active clock edge.
 - Assignment types are exact. There is no implicit resize, signedness change,
   fixed-point rescale, protocol adapter, or clock-domain crossing.
-- Do not invent `let`, `const`, `var`, `return`, semicolons, C-style
-  `input`/`output`, or runtime procedural `if`.
+- ZLang has no `let`, `const`, `var`, `return`, semicolons, C-style
+  `input`/`output`, or runtime procedural `if` syntax.
 - `if` is compile-time elaboration only. Use `?:`, `mux`, or `switch` for pure
   runtime values; use `when`/`else when`/`else`, `priority`, or `fsm` for state
   actions.
@@ -29,8 +28,8 @@ width tables and backend limits, follow the linked topic guide.
 - `pipeline(N) { expression }` is exact N-cycle hardware, not an optimization
   request. Protocol `transform pipeline(auto, ...)` is a separate bounded
   ready/valid construct and remains supported.
-- Unsupported combinations must fail closed. Never work around a diagnostic by
-  guessing backend signal names or duplicating compiler semantics in source.
+- Unsupported combinations fail with a diagnostic. Generated signal names are
+  not a source-language interface.
 
 ## Smallest valid modules
 
@@ -94,8 +93,8 @@ and `SF_Sat8.8`.
 - `a + b` and `a - b` follow the documented exact result-width rules;
   multiplication returns the full product width. Shifts preserve left width.
 - Use `extend<N>` and `truncate<N>` for width changes.
-- Use `quantize<T>` for explicit fixed-point rounding/overflow. Do not move a
-  quantization boundary into products or reductions.
+- `quantize<T>` provides explicit fixed-point rounding/overflow. Its placement
+  is part of the computation and cannot be moved into products or reductions.
 - Compile-time `pi`, `sin`, `cos`, `log2`, `log`, `exp`, and `sqrt` generate
   constants only; non-integral results require explicit `quantize<T>`.
 - Use `bitcast<T>` only for equal-width representation changes. `pack`/`unpack`
@@ -149,7 +148,8 @@ qualifier but does not create a runtime namespace.
 
 - Declare one default synchronous domain with `clock clk reset rst`.
 - `async reset arst @clk` means asynchronous assertion and fixed two-edge
-  synchronized release. Do not emulate reset modes in user logic.
+  synchronized release. Reset modes are expressed by the clock/reset
+  declarations rather than user logic.
 - Add `release externally_synchronized` only when deassertion is already
   synchronized outside; no internal 2FF is emitted.
 - `reg q:T = VALUE` resets to `VALUE`; `reg q:T` has no reset branch.
@@ -195,27 +195,21 @@ y = implement {
 }
 ```
 
-An Fmax constraint or objective compares candidates using their recorded
-evidence and provenance. It is not a guarantee of achieved device or silicon
-frequency; structural estimates, synthesis measurements, and routed
-measurements remain distinct.
+An Fmax constraint or objective compares available implementation choices. It
+is not a guarantee of achieved device or silicon frequency; estimates,
+synthesis measurements, and routed measurements are distinct.
 
 The expression is the hardware meaning. `intent` contains hard constraints and
-one supported objective; it does not name optimization passes. For an eligible
-pure value, the compiler retains the source plus a bounded, structurally
-distinct set of checked exact egglog alternatives, then applies the same intent
-to the resulting provider candidates. This is deterministic bounded
-exploration, not exhaustive optimality. Positive-latency candidates require a
-valid clock/reset context. `choice` is reserved for user-authored equivalent
-alternatives. Egglog supplies only frozen pure scalar value rewrites; it does
-not schedule pipelines, resources, protocols, or state.
-Selected project profiles may set bounded `intent-exploration` count limits;
-there is no source-level timeout. Exact roots can reuse checked in-memory
-session/workspace recipes, while constraints, ranking, target selection and
-formal evidence are always evaluated again.
+one supported objective; it does not name optimization passes. Search is
+bounded and deterministic rather than an exhaustive optimality guarantee.
+Positive-latency choices require a valid clock/reset context. `choice` is
+reserved for user-authored equivalent alternatives. Project profiles may set
+the documented `intent-exploration` count limits; there is no source-level
+timeout.
 
-See [optimization and formal](language-reference.md#reference-optimization-formal) before adding or changing
-an implementation policy.
+See [implementation intent, frequency, and II](language-reference.md#reference-implementation-intent)
+for every accepted metric/objective, synthesis clock control, project-profile
+configuration, and the exact ready/valid II>1 boundary.
 
 ## Verification
 
@@ -233,9 +227,9 @@ reachability; a missed cover is not an unreachability proof. BMC produces
 `bounded_pass`, never `proven`. Verification syntax does not legalize invalid
 hardware or feed optimizer range inference.
 
-Do not add liveness, arbitrary SVA/SMT, temporal sequences, new observation
-families or source-level semantic-reference equivalence controls. Use the existing
-[formal examples](../examples/verification/README.md) and compiler-owned routes.
+Liveness, arbitrary SVA/SMT, temporal sequences, and source-level equivalence
+controls are outside this syntax. Start from the existing
+[formal examples](../examples/verification/README.md).
 
 ## Commands and completion check
 
@@ -249,20 +243,37 @@ zlang sim source.zhl --top Top --logic-state --clock clk --cycles 100
 zlang sim source.zhl --top Top --strict-uninitialized --clock clk --cycles 100
 zlang verify build/verify --mode bmc --depth 20 --work-dir build/verify-work
 zlang lock update --project zlang.toml
-zlang lsp
 ```
 
 In a `--events` JSONL schedule, `"repeat": N` repeats one event lazily for a
 bounded positive number of steps (at most 1,000,000 expanded events) without a
 project-specific generator.
 
+Use `--cycles` only for a one-clock top that does not need an explicit reset
+sequence. Resettable or multi-clock designs should use JSONL so pin levels,
+inputs and coincident edges are reproducible:
+
+```jsonl
+{"reset":{"rst":true},"edges":["clk"]}
+{"reset":{"rst":false},"set":{"enable":1},"edges":["clk"]}
+{"set":{"enable":0},"edges":["clk"],"repeat":4}
+```
+
+Run it with `--events events.jsonl`; add `--trace build/run.fst` and repeated
+`--trace-signal NAME` options for a selective waveform. Add
+`--compare-with verilator` or `--compare-with iverilog` to replay the same
+events against generated Direct-SV. Any mismatch, unresolved RTL output, tool
+failure, or timeout is an error, not a warning.
+
 Ordinary native simulation retains its deterministic two-state zero seed.
 `--logic-state` enables per-bit `0`/`1`/`U`/`X`: unreset state starts as `U`,
 an accepted unresolved write becomes `X`, and controlling values such as
 `U | 1` still resolve exactly. `--initial-reg` overrides selected initial
-registers and `--trace-signal` selects VCD signals; companion
-`__zlang_meta/*_u_mask` traces distinguish `U` from VCD's shared `x` spelling.
+registers and `--trace-signal` selects waveform signals. Prefer `.fst` for
+native interactive traces; `.vcd` remains supported for interchange. Hidden
+`__zlang_meta/*_u_mask` traces distinguish `U` from the formats' shared `x`
+spelling.
 `--strict-uninitialized` implies this mode and rejects observed `U` or `X`.
 Neither mode models `Z`, electrical resolution, or Verilog event regions.
-CLI VCD output is an event-index visualization: physical clock/reset levels
+CLI FST/VCD output is an event-index visualization: physical clock/reset levels
 match each compiled domain, but the JSONL schedule does not define analog time.

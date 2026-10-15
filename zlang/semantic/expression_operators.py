@@ -278,7 +278,10 @@ def build_binary(
             ir_expr.BinaryOperator.EQUAL,
             ir_expr.BinaryOperator.NOT_EQUAL,
         }:
-            raise SemanticError("arithmetic is not defined for enum values")
+            raise SemanticError(
+                "arithmetic is not defined for enum values; use enum_encode "
+                "and an explicit numeric conversion when required"
+            )
     if operator is ir_expr.BinaryOperator.SUBTRACT:
         try:
             rule = ir_numeric.subtraction_rule(left.type, right.type)

@@ -15,6 +15,12 @@ not contain a second parser, type checker, semantic provider, compiler or AI
 service. Lexical highlighting remains useful when the server is unavailable;
 server-backed facts are not inferred from TextMate scopes.
 
+The universal VSIX intentionally remains editor/LSP-only. A separate
+Linux-x64 package adds the a24 native simulator debugger and waveform
+viewer. Those features consume a compiler-owned debug bundle; they do not add
+an extension-side parser or type checker. Maintainers keep the detailed
+architecture in the repository's `docs/native-debugging.md`.
+
 ## Identity and appearance
 
 Extension ID: `postoroniy.zlang-hdl`; language ID: `zlang-hdl`.
@@ -70,11 +76,28 @@ The extension supports the current stable VS Code release and later compatible
 are dev-only and are not shipped inside the VSIX.
 
 ```sh
-cd editors/vscode/zlang-hdl
-npm ci --ignore-scripts
-npm test
-npm run package -- /tmp/zlang-hdl-vscode1.vsix
+mkdir -p build/tmp
+vsix_dir="$(mktemp -d "$PWD/build/tmp/editor-vsix.XXXXXX")"
+npm --prefix editors/vscode/zlang-hdl ci --ignore-scripts
+npm --prefix editors/vscode/zlang-hdl test
+npm --prefix editors/vscode/zlang-hdl run package -- \
+  "$vsix_dir/zlang-hdl-0.1.0.vsix"
 ```
+
+For the Linux-x64 debugger package, the release snapshot already contains the
+two reviewed, path-scrubbed native executables. Package those exact bytes with
+the platform-specific target:
+
+```sh
+make native-editor-audit
+npm --prefix editors/vscode/zlang-hdl run package:linux-x64 -- \
+  "$vsix_dir/zlang-hdl-0.1.0-linux-x64.vsix"
+```
+
+Ordinary users should install the matching prebuilt Linux-x64 VSIX from the
+GitHub release instead of rebuilding it. The public repository contains the
+executables and their reviewed license inventory, but no Rust implementation
+source or private release-host build scripts.
 
 Choose a new output filename; packaging refuses to overwrite an existing VSIX.
 The build uses pinned `esbuild` and `@vscode/vsce` in an isolated staging
@@ -87,14 +110,46 @@ tests, compiler artifacts or credentials. It does not publish or create tags.
 From the repository root, inspect the actual package and install it:
 
 ```sh
-.venv/bin/python tests/editor/test_vscode_package.py /tmp/zlang-hdl-vscode1.vsix
-code --install-extension /tmp/zlang-hdl-vscode1.vsix
+.venv/bin/python tests/editor/test_vscode_package.py \
+  "$vsix_dir/zlang-hdl-0.1.0.vsix"
+code --install-extension "$vsix_dir/zlang-hdl-0.1.0.vsix" --force
 ```
 
 Alternatively use **Extensions: Install from VSIX**. Remove any old manually
 copied `zlang-hdl` extension before installing, to avoid loading two local copies.
 For testing, use separate `--user-data-dir` and `--extensions-dir` directories;
 do not replace your everyday profile. Reload the window after an update.
+
+## Waveform viewer
+
+The Linux-x64 package opens `.fst` and `.vcd` files in the ZLang HDL waveform
+editor. FST is preferred for compact native traces; VCD remains supported for
+external and formal-tool interoperability. The left pane groups the native
+query service's signal catalog by scope;
+selecting a signal adds it to the synchronized value and waveform panes. The
+canvas draws scalar high/low levels, labelled bus segments and distinct `U` and
+`X` states instead of rendering an event/value text list.
+
+- **Fit**, **+** and **-** control the event range.
+- Mouse-wheel pans; **Ctrl+wheel** zooms around the pointer.
+- Dragging pans continuously; double-click restores the complete trace.
+- Click places cursor A; **Shift+click** places marker B and reports the delta.
+- The arrow buttons or Left/Right keys move to the previous/next transition.
+- Values may be displayed as hexadecimal, binary, unsigned or signed.
+- Signals load lazily, and hierarchy filtering keeps large traces bounded.
+- Drag rows to reorder them; named nested groups can be collapsed or renamed.
+- Split the plot into as many as four independently zoomed/panned viewports.
+- Search exact values, bit patterns, any changes, rising edges, or falling edges.
+
+The horizontal unit is the simulator event index. It is deliberately not
+presented as analog time. FST/VCD parsing, U-mask restoration, bounded range
+queries, and value search remain in the bundled Rust tool; the webview owns
+only viewport and presentation state. GHW is intentionally unsupported.
+
+Waveform Control Protocol v0 automation is opt-in and trusted-workspace only.
+Set `zlang.waveform.wcp.enabled` to bind a loopback-only listener; use
+`zlang.waveform.wcp.port` for a fixed port or leave it at `0` for an ephemeral
+port reported in the ZLang HDL output channel.
 
 ## Validation
 
@@ -111,7 +166,9 @@ contextual identifiers, comments, byte escapes and incomplete editor input.
 Python tests compile expanded snippets in their documented contexts. The VSIX
 audit verifies its exact 13-file inventory, bounded compressed and expanded
 sizes, the bundled language-client runtime, dependency notices and license bytes.
-CI performs these checks without publishing credentials.
+CI performs these checks without publishing credentials. The Linux-x64 audit
+also requires exactly two stripped ELF tools and rejects Rust/TypeScript source,
+Cargo metadata, source maps, and host-specific build paths.
 
 `npm run test:host -- /absolute/package.vsix` is a dev-only extension-host gate.
 It downloads the exact stable version recorded in `editor-toolchain.json`,

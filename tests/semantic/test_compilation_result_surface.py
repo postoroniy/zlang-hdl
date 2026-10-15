@@ -64,7 +64,13 @@ module ScalarRom<D=4> {
 # stable; the hierarchy fixture additionally carries the intentional ZL-048
 # declaration/binding/content-owned specialization identity.
 EXPECTED = {
-    "add": "667a1da22e2850aefec1afde4249179246e9a43f99ed58726b093b8a36799b0b",
+    # The a24 example-polish slice adds two explanatory comment lines before
+    # the assignment in add.zhl.  The eager result deliberately retains source
+    # origins and physical-input bytes, so this source-facing compatibility
+    # digest advances even though typed IR equality, canonical value identity,
+    # emitted RTL and BackendArtifact identity remain unchanged.  Two fresh
+    # processes reproduced this value before recapture.
+    "add": "58604b0146f1edcdfbb9a9fb2737c32a6df4f7407a97d7a70fe5d73819388d6a",
     "stateful_protocol": "9bd0500d44afe4bd17e77ba3e406fe378e4b30d476eeeed9b65261bff4984180",
     "fixed_dsp": "1bedb847fb9bfe59f22fc53fa28a11ce7151f4a6a4d48cf37b76f7b72e2fd81d",
     "csr": "885be490e9b873ba51e9356dbea8a86a78759b1a143be0835740dde57bf0405b",
@@ -88,9 +94,11 @@ EXPECTED = {
     # own source units.  Physical input bytes and module/dependency identities
     # deliberately participate in this eager surface, so this source-layout
     # change advances the digest while focused behavioral, RTL and source-map
-    # checks retain their separate contracts.  Two fresh processes reproduced
-    # the updated value before recapture.
-    "wifi": "6dfef30366e53ac5f82928b72ab783b9f23186bd592cb8c4b080516309e2219e",
+    # checks retain their separate contracts.  Encoded enum identities now
+    # also retain their exact bit/u backing type, which intentionally advances
+    # this enum-bearing eager-result surface without changing RTL behavior.
+    # Two fresh processes reproduced the updated value before recapture.
+    "wifi": "bac6f275dc51b5d06bfdd609337665f4654b8a0d136cead997baa253d99cd745",
 }
 
 

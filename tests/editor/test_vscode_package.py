@@ -15,7 +15,6 @@ import warnings
 from xml.etree import ElementTree as ET
 from zipfile import BadZipFile, ZipFile, ZipInfo
 
-
 ROOT = Path(__file__).resolve().parents[2]
 EXT = ROOT / "editors" / "vscode" / "zlang-hdl"
 TOOLCHAIN = json.loads((EXT / "editor-toolchain.json").read_text(encoding="utf-8"))
@@ -41,6 +40,8 @@ GENERATED_RUNTIME = {
     "extension/dist/extension.js",
     "extension/THIRD_PARTY_NOTICES.txt",
 }
+NATIVE_NOTICE = "extension/THIRD_PARTY_NOTICES_NATIVE.txt"
+NATIVE_NOTICE_SOURCE = ROOT / "release" / "native-editor" / "THIRD_PARTY_LICENSES.md"
 RUNTIME_PACKAGES = {
     "balanced-match": "4.0.4",
     "brace-expansion": "5.0.12",
@@ -102,6 +103,7 @@ def _contributes() -> dict:
             "path": "./syntaxes/zlang.tmLanguage.json",
         }],
         "snippets": [{"language": "zlang-hdl", "path": "./snippets/zlang-hdl.json"}],
+        "commands": [],
         "configuration": {
             "title": "ZLang HDL",
             "properties": {
@@ -118,7 +120,74 @@ def _contributes() -> dict:
     }
 
 
-def validate_metadata(package: dict, *, packaged: bool = False) -> None:
+def _validate_native_contributes(contributes: dict) -> None:
+    common = copy.deepcopy(contributes)
+    commands = common.pop("commands", [])
+    debuggers = common.pop("debuggers", [])
+    editors = common.pop("customEditors", [])
+    menus = common.pop("menus", {})
+    properties = common.get("configuration", {}).get("properties", {})
+    wcp_enabled = properties.pop("zlang.waveform.wcp.enabled", None)
+    wcp_port = properties.pop("zlang.waveform.wcp.port", None)
+    common["commands"] = []
+    _require(common == _contributes(), "incorrect language registration")
+    _require(wcp_enabled == {
+        "type": "boolean",
+        "default": False,
+        "description": (
+            "Enable the loopback-only Waveform Control Protocol v0 listener "
+            "in trusted workspaces."
+        ),
+    }, "incorrect WCP enable setting")
+    _require(wcp_port == {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 65535,
+        "default": 0,
+        "description": "Loopback WCP port. Zero selects an ephemeral port.",
+    }, "incorrect WCP port setting")
+    _require(
+        {item.get("command") for item in commands} == {
+            "zlang-hdl.startSimulation",
+            "zlang-hdl.openWaveform",
+            "zlang-hdl.openLiveWaveform",
+            "zlang-hdl.addTraceSignals",
+        },
+        "incorrect native command registration",
+    )
+    _require(
+        len(debuggers) == 1
+        and debuggers[0].get("type") == "zlang-hdl"
+        and debuggers[0].get("languages") == ["zlang-hdl"]
+        and debuggers[0].get("configurationAttributes", {}).get("launch", {}).get("required")
+        == ["program", "top"],
+        "incorrect debugger registration",
+    )
+    _require(
+        editors == [{
+            "viewType": "zlang-hdl.waveform",
+            "displayName": "ZLang HDL Waveform",
+            "selector": [
+                {"filenamePattern": "*.vcd"},
+                {"filenamePattern": "*.fst"},
+            ],
+            "priority": "default",
+        }],
+        "incorrect waveform editor registration",
+    )
+    _require(
+        menus == {"editor/title": [{
+            "command": "zlang-hdl.startSimulation",
+            "when": "resourceLangId == zlang-hdl",
+            "group": "navigation",
+        }]},
+        "incorrect native editor menu",
+    )
+
+
+def validate_metadata(
+    package: dict, *, packaged: bool = False, native: bool = True,
+) -> None:
     _require(
         (package.get("publisher"), package.get("name"), package.get("version"))
         == ("postoroniy", "zlang-hdl", "0.1.0"),
@@ -135,7 +204,10 @@ def validate_metadata(package: dict, *, packaged: bool = False) -> None:
         "vscode-languageclient": TOOLCHAIN["vscodeLanguageClient"]
     },
              "incorrect runtime dependency")
-    _require(package.get("contributes") == _contributes(), "incorrect language registration")
+    if native:
+        _validate_native_contributes(package.get("contributes", {}))
+    else:
+        _require(package.get("contributes") == _contributes(), "incorrect language registration")
     _require(package.get("capabilities") == {
         "untrustedWorkspaces": {
             "supported": False,
@@ -197,15 +269,22 @@ def _xml(data: bytes, label: str) -> ET.Element:
         raise VSIXAuditError(f"invalid XML in {label}: {error}") from error
 
 
-def _validate_xml(members: dict[str, bytes], package: dict) -> None:
+def _validate_xml(
+    members: dict[str, bytes], package: dict, *, native: bool = False,
+) -> None:
     root = _xml(members["extension.vsixmanifest"], "VSIX manifest")
     ns = {"v": VSIX_NS}
     _require(root.tag == f"{{{VSIX_NS}}}PackageManifest"
              and root.get("Version") == "2.0.0", "incorrect VSIX manifest root")
     identities = root.findall("v:Metadata/v:Identity", ns)
-    _require(len(identities) == 1 and identities[0].attrib == {
-        "Language": "en-US", "Id": "zlang-hdl", "Version": "0.1.0", "Publisher": "postoroniy",
-    }, "incorrect VSIX XML identity")
+    expected_identity = {
+        "Language": "en-US", "Id": "zlang-hdl", "Version": "0.1.0",
+        "Publisher": "postoroniy",
+    }
+    if native:
+        expected_identity["TargetPlatform"] = "linux-x64"
+    _require(len(identities) == 1 and identities[0].attrib == expected_identity,
+             "incorrect VSIX XML identity")
     for name, expected in (("License", "extension/LICENSE.txt"),
                            ("DisplayName", package["displayName"])):
         values = root.findall(f"v:Metadata/v:{name}", ns)
@@ -237,7 +316,7 @@ def _validate_xml(members: dict[str, bytes], package: dict) -> None:
 
 def audit_vsix(path: Path) -> dict:
     """Audit without extraction, installation, credentials, or network access."""
-    _require(path.stat().st_size <= 250_000, "VSIX exceeds package size bound")
+    _require(path.stat().st_size <= 32_000_000, "VSIX exceeds package size bound")
     with ZipFile(path) as archive:
         entries = archive.infolist()
         names = [entry.filename for entry in entries]
@@ -251,30 +330,42 @@ def audit_vsix(path: Path) -> dict:
             _require(not entry.is_dir() and stat.S_IFMT(entry.external_attr >> 16)
                      in {0, stat.S_IFREG}, f"non-regular ZIP entry: {name}")
             _require(not entry.flag_bits & 1, f"encrypted ZIP entry: {name}")
-            _require(entry.file_size <= 600_000, f"oversized ZIP entry: {name}")
+            entry_limit = 32_000_000 if name.startswith(
+                "extension/bin/linux-x64/"
+            ) else 600_000
+            _require(entry.file_size <= entry_limit, f"oversized ZIP entry: {name}")
         _require(set(STATIC_ASSETS) <= set(names), "missing static extension asset")
         _require(GENERATED_RUNTIME <= set(names), "missing bundled runtime asset")
         _require(not any(name.startswith("extension/node_modules/") for name in names),
                  "node_modules tree shipped")
         _require(not any(name.startswith("extension/vendor/") for name in names),
                  "legacy vendor tree shipped")
-        allowed = set(STATIC_ASSETS) | GENERATED_RUNTIME | {
+        native_binaries = {
+            "extension/bin/linux-x64/zlang-debug-adapter",
+            "extension/bin/linux-x64/zlang-waveform-indexer",
+        }
+        present_native = native_binaries & set(names)
+        _require(not present_native or present_native == native_binaries,
+                 "incomplete native debugger payload")
+        native_notice = {NATIVE_NOTICE} if present_native else set()
+        allowed = set(STATIC_ASSETS) | GENERATED_RUNTIME | present_native | native_notice | {
             "extension.vsixmanifest", "[Content_Types].xml"
         }
         _require(set(names) == allowed, "unexpected extension payload")
-        _require(len(names) <= 20, "VSIX file-count bound exceeded")
-        _require(sum(entry.file_size for entry in entries) <= 750_000,
+        _require(len(names) <= 22, "VSIX file-count bound exceeded")
+        _require(sum(entry.file_size for entry in entries) <= 64_000_000,
                  "expanded VSIX exceeds package bound")
         members = {name: archive.read(name) for name in names}
 
     package = _json(members["extension/package.json"])
-    validate_metadata(package, packaged=True)
+    native = bool(present_native)
+    validate_metadata(package, packaged=True, native=native)
     source_package = _json((EXT / "package.json").read_bytes())
-    validate_metadata(source_package)
+    validate_metadata(source_package, native=True)
     validate_lock(source_package, _json((EXT / "package-lock.json").read_bytes()))
     grammar = _json(members["extension/syntaxes/zlang.tmLanguage.json"])
     _require(grammar.get("scopeName") == "source.zlang", "incorrect TextMate scope")
-    _validate_xml(members, package)
+    _validate_xml(members, package, native=native)
     for name, source in STATIC_ASSETS.items():
         if name == "extension/package.json":
             continue
@@ -289,6 +380,17 @@ def audit_vsix(path: Path) -> dict:
         re.search(rb"/home/[A-Za-z0-9._-]+/", text) is None,
         "host-specific path shipped",
     )
+    _require(not any(name.endswith((".rs", ".ts", ".map", "Cargo.toml", "Cargo.lock"))
+                     for name in names), "native implementation source shipped")
+    for name in present_native:
+        binary = members[name]
+        _require(binary.startswith(b"\x7fELF\x02\x01\x01"),
+                 f"native tool is not a Linux x86-64 ELF: {name}")
+        _require(b"/home/" not in binary and b"/Users/" not in binary,
+                 f"native tool leaks a private build path: {name}")
+    if native:
+        _require(members[NATIVE_NOTICE] == NATIVE_NOTICE_SOURCE.read_bytes(),
+                 "native third-party notice differs from reviewed inventory")
     return {
         "extension_id": "postoroniy.zlang-hdl", "version": "0.1.0",
         "file_count": len(members), "files": sorted(members),
@@ -305,6 +407,16 @@ def _source_members() -> dict[str, bytes]:
                if name != "extension/package.json"}
     package = _json((EXT / "package.json").read_bytes())
     package["main"] = "./dist/extension.js"
+    package["contributes"].pop("debuggers", None)
+    package["contributes"].pop("customEditors", None)
+    package["contributes"].pop("menus", None)
+    package["contributes"]["commands"] = []
+    package["contributes"]["configuration"]["properties"].pop(
+        "zlang.waveform.wcp.enabled", None
+    )
+    package["contributes"]["configuration"]["properties"].pop(
+        "zlang.waveform.wcp.port", None
+    )
     for field in ("files", "devDependencies", "scripts"):
         package.pop(field, None)
     members["extension/package.json"] = json.dumps(package, indent=2).encode() + b"\n"
@@ -354,24 +466,35 @@ class VSCodePackageTests(unittest.TestCase):
         return self.archive_path
 
     def test_source_metadata_and_lock_are_runtime_pinned(self) -> None:
+        if str(ROOT) not in sys.path:
+            sys.path.insert(0, str(ROOT))
+        from tools.audit_native_editor import audit_native_editor
+
         package = _json((EXT / "package.json").read_bytes())
         lock = _json((EXT / "package-lock.json").read_bytes())
-        validate_metadata(package)
+        validate_metadata(package, native=True)
         validate_lock(package, lock)
         self.assertIn("vscode-languageclient", package["dependencies"])
         broken = copy.deepcopy(lock)
         broken["packages"]["node_modules/@vscode/vsce"]["version"] = "3.9.1"
         with self.assertRaises(VSIXAuditError):
             validate_lock(package, broken)
+        native = audit_native_editor(ROOT)
+        self.assertEqual(native["platform"], "linux-x64")
+        self.assertEqual(
+            [record["name"] for record in native["executables"]],
+            ["zlang-debug-adapter", "zlang-waveform-indexer"],
+        )
 
     def test_installation_guide_uses_the_registered_lsp_setting(self) -> None:
-        guide = (ROOT / "docs" / "language-reference.md").read_text(
-            encoding="utf-8"
-        )
+        guide = (ROOT / "README.md").read_text(encoding="utf-8")
+        extension_guide = (EXT / "README.md").read_text(encoding="utf-8")
         properties = _contributes()["configuration"]["properties"]
         self.assertIn('"zlang.lsp.path"', guide)
+        self.assertIn("zlang.lsp.path", extension_guide)
         self.assertIn("zlang.lsp.path", properties)
         self.assertNotIn("zlang.server.path", guide)
+        self.assertNotIn("zlang.server.path", extension_guide)
 
     def test_installation_guide_has_managed_python_wsl_and_verified_tools(self) -> None:
         guide = (ROOT / "docs" / "language-reference.md").read_text(

@@ -20,7 +20,9 @@
   },
   "main": "./extension.js",
   "categories": [
-    "Programming Languages"
+    "Programming Languages",
+    "Debuggers",
+    "Visualization"
   ],
   "keywords": [
     "zlang",
@@ -51,8 +53,9 @@
     "snippets/zlang-hdl.json"
   ],
   "scripts": {
-    "test": "node --check extension.js && node test/tokenize.test.cjs && node test/bundle.test.cjs",
+    "test": "node --check extension.js && node test/tokenize.test.cjs && node test/wcp.test.cjs && node test/bundle.test.cjs",
     "package": "node test/package.cjs",
+    "package:linux-x64": "node test/package.cjs --target linux-x64",
     "test:host": "node test/run-host-smoke.cjs",
     "check:latest-vscode": "node test/check-latest-vscode.cjs"
   },
@@ -90,6 +93,86 @@
         "path": "./syntaxes/zlang.tmLanguage.json"
       }
     ],
+    "commands": [
+      {
+        "command": "zlang-hdl.startSimulation",
+        "title": "ZLang HDL: Start Native Simulation Debugger"
+      },
+      {
+        "command": "zlang-hdl.openWaveform",
+        "title": "ZLang HDL: Open Waveform"
+      },
+      {
+        "command": "zlang-hdl.openLiveWaveform",
+        "title": "ZLang HDL: Open Live Waveform"
+      },
+      {
+        "command": "zlang-hdl.addTraceSignals",
+        "title": "ZLang HDL: Add Live Trace Signals"
+      }
+    ],
+    "debuggers": [
+      {
+        "type": "zlang-hdl",
+        "label": "ZLang HDL Native Simulation",
+        "languages": ["zlang-hdl"],
+        "configurationAttributes": {
+          "launch": {
+            "required": ["program", "top"],
+            "properties": {
+              "program": {"type": "string", "description": "Saved root .zhl source"},
+              "top": {"type": "string", "description": "Top module"},
+              "project": {"type": "string", "description": "Optional zlang.toml path"},
+              "profile": {"type": "string", "description": "Optional implementation profile"},
+              "events": {"type": "string", "description": "Bounded JSONL stimulus"},
+              "clock": {"type": "string", "description": "Clock used with cycles"},
+              "cycles": {"type": "integer", "minimum": 0, "maximum": 1000000},
+              "logicState": {"type": "boolean", "default": true},
+              "strictUninitialized": {"type": "boolean", "default": false},
+              "initialRegisters": {"type": "object", "default": {}},
+              "traceSignals": {"type": "array", "items": {"type": "string"}, "default": []},
+              "stopOnEntry": {"type": "boolean", "default": true}
+            }
+          }
+        },
+        "initialConfigurations": [
+          {
+            "type": "zlang-hdl",
+            "request": "launch",
+            "name": "Debug ZLang HDL",
+            "program": "${file}",
+            "top": "Top",
+            "project": "${workspaceFolder}/zlang.toml",
+            "profile": "portable",
+            "logicState": true,
+            "strictUninitialized": false,
+            "initialRegisters": {},
+            "traceSignals": [],
+            "stopOnEntry": true
+          }
+        ]
+      }
+    ],
+    "customEditors": [
+      {
+        "viewType": "zlang-hdl.waveform",
+        "displayName": "ZLang HDL Waveform",
+        "selector": [
+          {"filenamePattern": "*.vcd"},
+          {"filenamePattern": "*.fst"}
+        ],
+        "priority": "default"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "zlang-hdl.startSimulation",
+          "when": "resourceLangId == zlang-hdl",
+          "group": "navigation"
+        }
+      ]
+    },
     "configuration": {
       "title": "ZLang HDL",
       "properties": {
@@ -97,6 +180,18 @@
           "type": "string",
           "default": "",
           "description": "Direct path or PATH command for the Community zlang-lsp executable. Use ${workspaceFolder}/.venv/bin/zlang-lsp for a repository checkout."
+        },
+        "zlang.waveform.wcp.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable the loopback-only Waveform Control Protocol v0 listener in trusted workspaces."
+        },
+        "zlang.waveform.wcp.port": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65535,
+          "default": 0,
+          "description": "Loopback WCP port. Zero selects an ephemeral port."
         }
       }
     }

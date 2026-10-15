@@ -22,6 +22,7 @@ from threading import Lock
 from typing import Iterable, Protocol, runtime_checkable
 
 from zlang.common.graph import DependencyCycle, dependency_postorder
+from zlang.diagnostics import DiagnosticError, bind_diagnostic_source
 from zlang.parser import parse
 from zlang.source_identity import SOURCE_SUFFIX, attach_source_identity
 from zlang.workspace_parse_cache import load_parse_index, publish_parse_index
@@ -250,7 +251,16 @@ def load_indexed_module(
                 True,
             )
     if parsed is None:
-        parsed = attach_source_identity(parse(text), logical_path, digest)
+        try:
+            parsed = parse(text)
+        except DiagnosticError as error:
+            raise bind_diagnostic_source(
+                error,
+                source_unit=logical_path,
+                digest=digest,
+                physical_source=source,
+            ) from error
+        parsed = attach_source_identity(parsed, logical_path, digest)
         _remember_parsed_source(logical_path, digest, parsed, len(payload))
         publish_parse_index(
             logical_path, digest, tuple(item.path for item in parsed.imports)
@@ -323,11 +333,20 @@ def _materialize_record(record: ModuleSourceRecord) -> ModuleSourceRecord:
     if parsed is None:
         try:
             text = record.pending_source.decode("utf-8")
-            parsed = attach_source_identity(parse(text), record.logical_path, record.digest)
         except UnicodeDecodeError as error:
             raise ModuleResolutionError(
                 f"cached source for '{record.logical_path}' is not UTF-8"
             ) from error
+        try:
+            parsed = parse(text)
+        except DiagnosticError as error:
+            raise bind_diagnostic_source(
+                error,
+                source_unit=record.logical_path,
+                digest=record.digest,
+                physical_source=record.source_path,
+            ) from error
+        parsed = attach_source_identity(parsed, record.logical_path, record.digest)
     actual_imports = tuple(item.path for item in parsed.imports)
     if actual_imports != record.dependencies:
         raise ModuleResolutionError(

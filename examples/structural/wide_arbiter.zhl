@@ -7,11 +7,11 @@ module WideArbiterWitness<N=16,IW=4> {
 
     grant_vector = generate(i in 0..N)
         (requests[i] & ~reduce(|, generate(j in 0..N)
-            (requests[j] & (extend<IW>(j) < extend<IW>(i)))))
+            (requests[j] & (j < i))))
     grants = grant_vector
     any_grant = reduce(|, grant_vector)
     selected = reduce(|, generate(i in 0..N)
-        mux(grant_vector[i], extend<IW>(i), 0))
+        mux(grant_vector[i], i, 0))
 }
 
 // Stateful round-robin arbitration is currently expressed naturally for

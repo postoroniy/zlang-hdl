@@ -68,7 +68,7 @@ def canonical_type_data(type_: HardwareType) -> dict[str, object]:
             "overflow": type_.overflow.value,
         }
     if isinstance(type_, EnumType):
-        return {
+        data: dict[str, object] = {
             "kind": "enum",
             "name": type_.name,
             "members": list(type_.members),
@@ -76,6 +76,9 @@ def canonical_type_data(type_: HardwareType) -> dict[str, object]:
             "explicit_width": type_.explicit_width,
             "codes": list(type_.codes),
         }
+        if type_.explicit_backing_kind not in {None, "bits"}:
+            data["explicit_backing"] = type_.explicit_backing_kind
+        return data
     if isinstance(type_, StructType):
         return {
             "kind": "struct",
@@ -152,16 +155,19 @@ def canonical_type_from_data(value: object) -> HardwareType:
             ),
         )
     if kind == "enum":
+        enum_keys = {
+            "kind",
+            "name",
+            "members",
+            "declaration_identity",
+            "explicit_width",
+            "codes",
+        }
+        if "explicit_backing" in data:
+            enum_keys.add("explicit_backing")
         _keys(
             data,
-            {
-                "kind",
-                "name",
-                "members",
-                "declaration_identity",
-                "explicit_width",
-                "codes",
-            },
+            enum_keys,
         )
         members = _string_list(data["members"], "enum members")
         codes = _integer_list(data["codes"], "enum codes")
@@ -174,6 +180,11 @@ def canonical_type_from_data(value: object) -> HardwareType:
         declaration_identity = _string(
             data["declaration_identity"], "enum declaration identity"
         )
+        explicit_backing_kind = (
+            _string(data["explicit_backing"], "enum explicit backing")
+            if "explicit_backing" in data
+            else None
+        )
         return _construct(
             "enum hardware type",
             lambda: EnumType(
@@ -182,6 +193,7 @@ def canonical_type_from_data(value: object) -> HardwareType:
                 declaration_identity,
                 explicit_width,
                 codes if explicit_width is not None else None,
+                explicit_backing_kind,
             ),
         )
     if kind == "struct":

@@ -34,6 +34,14 @@ from zlang.ir.types import (
             "Sparse", ("A", "B"), "enum.sparse", explicit_width=3,
             explicit_codes=(1, 6),
         ),
+        EnumType(
+            "Unsigned", ("A", "B"), "enum.unsigned", explicit_width=8,
+            explicit_codes=(0, 10), explicit_backing_kind="uint",
+        ),
+        EnumType(
+            "Flag", ("Off", "On"), "enum.flag", explicit_width=1,
+            explicit_codes=(0, 1), explicit_backing_kind="bit",
+        ),
         StructType(
             "Pair",
             (StructField("left", UIntType(8)), StructField("right", BitsType(3))),
@@ -62,6 +70,18 @@ def test_ordinal_enum_codec_rejects_nonordinal_codes() -> None:
                 "codes": [1, 2],
             }
         )
+
+
+def test_enum_backing_family_participates_in_canonical_type_data() -> None:
+    raw = EnumType(
+        "Mode", ("A", "B"), "enum.mode", 8, (0, 10), "bits"
+    )
+    unsigned = EnumType(
+        "Mode", ("A", "B"), "enum.mode", 8, (0, 10), "uint"
+    )
+    assert "explicit_backing" not in canonical_type_data(raw)
+    assert canonical_type_data(unsigned)["explicit_backing"] == "uint"
+    assert canonical_type_data(raw) != canonical_type_data(unsigned)
 
 
 @pytest.mark.parametrize(

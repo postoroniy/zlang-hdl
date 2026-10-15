@@ -9,7 +9,7 @@ module StateLane {
     reg count : u8 = 0
 
     when enable {
-        count <- truncate<8>(count + step)
+        count <- truncate(count + step)
     }
 
     value = count
@@ -23,7 +23,7 @@ module StateLaneArray {
     in steps   : vec<2,u8>
     out values : vec<2,u8>
 
-    inst lane[2] : StateLane
+    lane[2] : StateLane
 
     generate(i in 0..2) {
         lane[i].enable = enables[i]

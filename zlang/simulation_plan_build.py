@@ -366,10 +366,12 @@ def _build_leaf_simulation_plan(
         "scheduler_guards": transition_plan.scheduler_guards,
         "scheduler_activations": transition_plan.scheduler_activations,
     }
+    scheduler_fire_nodes: dict[str, int] = {}
     try:
         payload = simulation_lowering.lower_to_primitive_plan(
             payload,
             max_nodes=max_nodes,
+            scheduler_fire_nodes=scheduler_fire_nodes,
         )
     except simulation_lowering.PrimitiveLoweringError as error:
         raise SimulationPlanError(str(error)) from error
@@ -380,4 +382,9 @@ def _build_leaf_simulation_plan(
         )
     payload["identity"] = identity
     _validate_plan_payload(payload, policy=policy)
-    return SimulationPlan(payload, canonical_bytes, identity)
+    return SimulationPlan(
+        payload,
+        canonical_bytes,
+        identity,
+        tuple(sorted(scheduler_fire_nodes.items())),
+    )

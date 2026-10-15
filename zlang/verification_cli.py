@@ -22,6 +22,50 @@ def _write_atomically(path: Path, content: str) -> None:
     publish_text_atomically(path, content)
 
 
+def _resolved(path: Path) -> Path:
+    try:
+        return path.expanduser().resolve(strict=False)
+    except (OSError, RuntimeError) as error:
+        raise verification_bundle.VerificationBundleError(
+            f"cannot resolve verification path '{path}': {error}"
+        ) from error
+
+
+def _paths_overlap(left: Path, right: Path) -> bool:
+    return left == right or left.is_relative_to(right) or right.is_relative_to(left)
+
+
+def _preflight_arguments(
+    parser: argparse.ArgumentParser,
+    arguments: argparse.Namespace,
+) -> None:
+    if arguments.depth < 1:
+        parser.error("--depth must be positive")
+    if arguments.timeout_seconds < 1:
+        parser.error("--timeout must be positive")
+    if arguments.jobs < 1:
+        parser.error("--jobs must be positive")
+
+    bundle = _resolved(arguments.bundle)
+    if arguments.report is not None:
+        report = _resolved(arguments.report)
+        if report == bundle or report.is_relative_to(bundle):
+            parser.error("--report must be outside the immutable bundle")
+    owned = tuple(
+        (option, _resolved(path))
+        for option, path in (
+            ("--work-dir", arguments.work_dir),
+            ("--cache", arguments.cache),
+        )
+        if path is not None
+    )
+    for option, path in owned:
+        if _paths_overlap(path, bundle):
+            parser.error(f"{option} must not overlap the immutable bundle")
+    if len(owned) == 2 and _paths_overlap(owned[0][1], owned[1][1]):
+        parser.error("--work-dir and --cache must not overlap")
+
+
 def main(
     argv: Sequence[str] | None = None,
     *,
@@ -64,6 +108,7 @@ def main(
         help="reuse and atomically publish decisive verification job results",
     )
     arguments = parser.parse_args(argv)
+    _preflight_arguments(parser, arguments)
     try:
         bundle = verification_bundle.load_verification_bundle(arguments.bundle)
         config = verification_bundle.VerificationRunConfig(
@@ -115,16 +160,6 @@ def main(
             )
         rendered = report.to_json() if arguments.report_format == "json" else report.to_text()
         if arguments.report is not None:
-            try:
-                report_path = arguments.report.resolve()
-                bundle_path = arguments.bundle.resolve()
-                report_path.relative_to(bundle_path)
-            except ValueError:
-                pass
-            else:
-                raise verification_bundle.VerificationBundleError(
-                    "run reports must be written outside the immutable bundle"
-                )
             _write_atomically(arguments.report, rendered)
     except (
         compiler_verification_report.CompilerVerificationReportError,

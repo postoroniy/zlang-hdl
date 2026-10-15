@@ -8,6 +8,7 @@ import tempfile
 from dataclasses import dataclass, replace
 from pathlib import Path
 
+from zlang.common.atomic_io import publish_text_atomically
 from zlang.backend.systemverilog import SystemVerilogEmissionError
 from zlang import candidate_equivalence as candidate_api
 from zlang.compilation_products import CompilationResult
@@ -178,8 +179,7 @@ def _run_requested_verification(
                     parser.error(
                         "--verification-report must be outside the immutable bundle"
                     )
-            arguments.verification_report.parent.mkdir(parents=True, exist_ok=True)
-            arguments.verification_report.write_text(rendered)
+            publish_text_atomically(arguments.verification_report, rendered)
         print(rendered, end="")
         verification_exit_code = public_report.exit_code
     if verification_temporary is not None:
