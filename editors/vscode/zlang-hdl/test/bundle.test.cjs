@@ -3,6 +3,7 @@
 
 const assert = require('node:assert/strict');
 const path = require('node:path');
+const vm = require('node:vm');
 const { buildBundle, runtimePackages, sha256, thirdPartyNotices } = require('./bundle.cjs');
 const {
   extensionInstallArguments,
@@ -52,6 +53,12 @@ async function main() {
     "vscode.postMessage({type:'ready'})",
   ]) assert.ok(waveform.includes(required), `waveform UI omitted ${required}`);
   assert.equal(waveform.includes('/home/'), false);
+  const inlineScript = waveform.match(/<script nonce="[^"]+">([\s\S]*?)<\/script>/);
+  assert.ok(inlineScript, 'waveform UI omitted its inline webview script');
+  assert.doesNotThrow(
+    () => new vm.Script(inlineScript[1], { filename: 'zlang-waveform-webview.js' }),
+    'generated waveform webview script must parse before VS Code loads it',
+  );
   console.log(`bundle ${first.bytes.length} bytes sha256=${sha256(first.bytes)} runtime-packages=${packages.length}`);
 }
 
