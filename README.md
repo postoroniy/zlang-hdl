@@ -228,6 +228,41 @@ for the Python API, reset semantics, four-state behavior, limits, tracing, and
 differential-validation details. `zlang sim --help` is the exact CLI option
 reference.
 
+### Debug native simulation in VS Code
+
+The Linux-x64 VSIX includes a native debugger for the same simulation engine
+used by `zlang sim`. It does not generate test vectors. Give it either the same
+JSONL event schedule used by the CLI, or a simple bounded `clock` and `cycles`
+launch. Project-owned reusable schedules normally live under `simulation/`;
+temporary or generated experiments belong under ignored `build/` output.
+
+A minimal `.vscode/launch.json` entry is:
+
+```json
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "zlang-hdl",
+      "request": "launch",
+      "name": "Debug RuleAction",
+      "program": "${workspaceFolder}/examples/rule_action.zhl",
+      "top": "RuleAction",
+      "events": "${workspaceFolder}/build/rule-action-events.jsonl",
+      "traceSignals": ["fired", "count"],
+      "stopOnEntry": true
+    }
+  ]
+}
+```
+
+Breakpoints are accepted on executable rules, FSM transitions, and
+verification clauses. One debugger step executes one complete atomic
+simulation/reset/clock event. The live waveform panel shows the signals traced
+by that same session. See [Debugging native simulation in VS Code](docs/native-debugging.md)
+for a runnable event file, all launch fields, four-state inputs, data
+breakpoints, waveform controls, project profiles, and troubleshooting.
+
 With Verilator installed, a strict lint smoke is:
 
 ```bash

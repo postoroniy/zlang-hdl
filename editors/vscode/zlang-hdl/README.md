@@ -120,6 +120,49 @@ copied `zlang-hdl` extension before installing, to avoid loading two local copie
 For testing, use separate `--user-data-dir` and `--extensions-dir` directories;
 do not replace your everyday profile. Reload the window after an update.
 
+## Native debugger
+
+The Linux-x64 VSIX contributes debug type `zlang-hdl`. It executes the same
+native simulation plan and JSONL event schedule as `zlang sim`; the extension
+does not invent test vectors. Keep stable project stimulus under
+`simulation/`, or put transient/generated schedules under ignored `build/`
+output.
+
+After installing the matching native wheel and Linux-x64 VSIX, save all `.zhl`
+files and add a launch configuration:
+
+```json
+{
+  "type": "zlang-hdl",
+  "request": "launch",
+  "name": "Debug ZLang HDL",
+  "program": "${workspaceFolder}/examples/rule_action.zhl",
+  "top": "RuleAction",
+  "events": "${workspaceFolder}/build/rule-action-events.jsonl",
+  "logicState": true,
+  "strictUninitialized": false,
+  "initialRegisters": {},
+  "traceSignals": ["fired", "count"],
+  "stopOnEntry": true
+}
+```
+
+Each JSONL line is one atomic event. It may contain binary `set` assignments,
+packed four-state `set_logic` assignments, physical `reset` levels, coincident
+clock `edges`, and a positive bounded `repeat`. Instead of `events`, a simple
+launch may provide `clock` plus bounded `cycles`; the two forms are mutually
+exclusive.
+
+Source breakpoints are verified only on compiler-published rules, FSM
+transitions, and verification clauses. One step completes one atomic hardware
+event. Registers and memories are read-only; inputs may be changed while
+paused. Assertion, protocol, strict-U/X, and runtime failures appear as DAP
+exceptions. Use **ZLang HDL: Open Live Waveform** to follow the active session.
+
+The complete runnable example, test-vector schema, project launch fields, and
+troubleshooting are in
+[`docs/native-debugging.md`](../../../docs/native-debugging.md).
+
 ## Waveform viewer
 
 The Linux-x64 package opens `.fst` and `.vcd` files in the ZLang HDL waveform
@@ -131,10 +174,12 @@ canvas draws scalar high/low levels, labelled bus segments and distinct `U` and
 `X` states instead of rendering an event/value text list.
 
 - **Fit**, **+** and **-** control the event range.
-- Mouse-wheel pans; **Ctrl+wheel** zooms around the pointer.
-- Dragging pans continuously; double-click restores the complete trace.
+- Mouse-wheel zooms around the pointer; **Shift+wheel** pans in time.
+- Hold the middle mouse button and drag left/right to pan in time or up/down to
+  scroll signals; double-click restores the complete trace.
+- Click a signal row to select and highlight it. **Change**, its direction
+  buttons, and Left/Right navigate changes of that selected signal only.
 - Click places cursor A; **Shift+click** places marker B and reports the delta.
-- The arrow buttons or Left/Right keys move to the previous/next transition.
 - Values may be displayed as hexadecimal, binary, unsigned or signed.
 - Signals load lazily, and hierarchy filtering keeps large traces bounded.
 - Drag rows to reorder them; named nested groups can be collapsed or renamed.

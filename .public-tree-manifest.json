@@ -199,7 +199,7 @@
     {
       "mode": "0644",
       "path": "README.md",
-      "sha256": "ad28d0d43642fd27e93632863eaa22814367afa33df2f37be4f2029d8e32d783"
+      "sha256": "5effd76d1eb93d40aff03540525ea9606b8e12ca22141e006e3a62582682e26f"
     },
     {
       "mode": "0644",
@@ -264,7 +264,7 @@
     {
       "mode": "0644",
       "path": "docs/native-debugging.md",
-      "sha256": "4448856777b665959a58295e08156975f18d304a4933b6474a1213ae1442a73d"
+      "sha256": "36373d1a3c3dff4d2f165968445516757757090c4b0ab26c552b73c7d3dd379e"
     },
     {
       "mode": "0644",
@@ -404,7 +404,7 @@
     {
       "mode": "0644",
       "path": "editors/vscode/zlang-hdl/README.md",
-      "sha256": "b8c15c4dba089f707130d5d1d3ae9f2c23327acc7e19bca292fd0c8498db7f6b"
+      "sha256": "f32dc055d1771e1fd8b7fba8ad9a44c818d7003417a62d42bb57fd994e6c0c5f"
     },
     {
       "mode": "0644",
