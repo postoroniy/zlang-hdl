@@ -155,6 +155,7 @@ def test_current_candidate_binds_release_sources_native_wheel_and_git(
     assert report["previous_tag"] == "v0.1.0a23"
     assert report["regressions"]["included"] == [
         "SIM-001",
+        "SIM-002",
         "ZL-052",
         "ZL-053",
         "ZL-054",
@@ -170,7 +171,7 @@ def test_current_candidate_binds_release_sources_native_wheel_and_git(
         {
             "file": "zlang_native_sim-0.1.0a24-cp312-abi3-manylinux_2_28_x86_64.whl",
             "platform": "linux_x86_64",
-            "sha256": "e7415a7af471987b05fc0806d370789c69137505ea57be08174eaa7ed637c1c9",
+            "sha256": "6e17c01f69fe39e2081fb7c4dcd73cc13c63e7dcd23d2803107b019a2df5c571",
             "version": "0.1.0a24",
         }
     ]

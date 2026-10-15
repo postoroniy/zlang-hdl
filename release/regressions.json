@@ -18,6 +18,21 @@
       ]
     },
     {
+      "id": "SIM-002",
+      "source_paths": [
+        "release/native-wheels/zlang_native_sim-0.1.0a24-cp312-abi3-manylinux_2_28_x86_64.whl",
+        "tests/release/test_native_binary_audit.py",
+        "tests/test_sim_cli.py",
+        "tools/audit_native_binary.py"
+      ],
+      "status": "included",
+      "summary": "The reviewed Linux native runtime wheel exports the Rust-owned FST writer required by zlang sim, while binary auditing accepts only the exact Apache-2.0 internal simulation and waveform workspace components.",
+      "tests": [
+        "tests/release/test_native_binary_audit.py::test_native_binary_audit_accepts_the_exact_internal_waveform_core",
+        "tests/test_sim_cli.py::test_fst_is_the_preferred_native_trace_format"
+      ]
+    },
+    {
       "id": "ZL-052",
       "source_paths": [
         "tests/integration/test_encoded_enum_backends.py",

@@ -321,6 +321,8 @@ ci-full-regression:
 		-n "$(WORKERS)" --dist=loadscope -q -m 'not performance' \
 		$(if $(CI_PYTEST_MAXFAIL),--maxfail="$(CI_PYTEST_MAXFAIL)") \
 		--junitxml="$(CI_JUNIT)"
+	$(call RUN_PYTHON,ci-full-floor) -m tools.release_status check-junit \
+		--root . --junit "$(CI_JUNIT)"
 
 ci-performance-regression:
 	if [[ -z "$(CI_JUNIT)" ]]; then

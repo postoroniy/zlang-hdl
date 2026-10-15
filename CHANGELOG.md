@@ -54,6 +54,10 @@ unchanged.
 
 ### Fixed
 
+- The reviewed Linux native wheel now exports the Rust-owned FST writer used by
+  `zlang sim --trace FILE.fst`; release auditing accepts only the two exact
+  Apache-2.0 workspace components embedded with local Cargo package URLs, and
+  the full CLI regression verifies that the distributed wheel writes FST.
 - Project, imported-source, `zlang sim`, and lock-update failures now retain the
   actual source file and exact span across cached and transitive compilation;
   syntax and semantic errors are reported without a Python traceback or a

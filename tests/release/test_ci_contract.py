@@ -59,6 +59,11 @@ def test_makefile_owns_every_hosted_lane_entry_point() -> None:
         "community-pdf-check " in text
     )
     assert "ci-contract-smoke" in text
+    full_regression = text.split("ci-full-regression:", 1)[1].split(
+        "\nci-performance-regression:", 1
+    )[0]
+    assert "-m tools.release_status check-junit" in full_regression
+    assert '--junit "$(CI_JUNIT)"' in full_regression
     release_twice = text.split("test-release-twice:", 1)[1].split(
         "\neditor-test:", 1
     )[0]
