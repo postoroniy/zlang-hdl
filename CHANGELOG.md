@@ -56,8 +56,9 @@ unchanged.
 
 - The reviewed Linux native wheel now exports the Rust-owned FST writer used by
   `zlang sim --trace FILE.fst`; release auditing accepts only the two exact
-  Apache-2.0 workspace components embedded with local Cargo package URLs, and
-  the full CLI regression verifies that the distributed wheel writes FST.
+  Apache-2.0 workspace components embedded with local Cargo package URLs,
+  scans the embedded CycloneDX document as an SBOM, and the full CLI regression
+  verifies that the distributed wheel writes FST.
 - Project, imported-source, `zlang sim`, and lock-update failures now retain the
   actual source file and exact span across cached and transitive compilation;
   syntax and semantic errors are reported without a Python traceback or a
@@ -70,9 +71,10 @@ unchanged.
 - Explicitly backed enum declarations keep contextual words such as
   `reserved`, `reset`, and `priority` scoped as enum members in VS Code and do
   not produce LSP diagnostics.
-- Enum members publish their exact parser-owned document-symbol ranges instead
-  of the whole declaration-unit range, keeping long enum lists stable in
-  Outline and Sticky Scroll.
+- Struct fields, enum members, tagged-union variants and fields, protocols,
+  interfaces, resources, modules, and their nested symbols publish exact,
+  non-overlapping parser-owned ranges. Long mixed declaration files therefore
+  remain stable in VS Code Outline and Sticky Scroll.
 
 ## 0.1.0a23 — 2026-10-13
 

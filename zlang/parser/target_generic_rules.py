@@ -76,9 +76,13 @@ class TargetAndGenericRules:
     def qualified_name(self, items: list[object]) -> str:
         return str(items[0])
 
-    def resource_port(self, items: list[object]) -> tuple[str, ast_nodes.ResourcePortDecl]:
+    @v_args(meta=True)
+    def resource_port(
+        self, meta: object, items: list[object]
+    ) -> tuple[str, ast_nodes.ResourcePortDecl]:
         return ("resource_port", ast_nodes.ResourcePortDecl(
-            str(items[0]), str(items[1]), str(items[2]), self._parse_number(items[3])
+            str(items[0]), str(items[1]), str(items[2]), self._parse_number(items[3]),
+            self._span(meta), self._token_span(items[0]),
         ))
 
     def resource_operation(self, items: list[object]) -> tuple[str, str]:
@@ -246,20 +250,31 @@ class TargetAndGenericRules:
     def target_role_name(self, _items: list[object]) -> str:
         return "target"
 
-    @staticmethod
     def _protocol_channel_item(
-        items: list[object],
+        self, meta: object, items: list[object],
     ) -> tuple[str, ast_nodes.ProtocolChannelDecl]:
         domain = str(items[4]) if len(items) > 4 and items[4] is not None else None
-        return ("channel", ast_nodes.ProtocolChannelDecl(str(items[0]), items[1], str(items[2]), str(items[3]), domain))
+        return ("channel", ast_nodes.ProtocolChannelDecl(
+            str(items[0]), items[1], str(items[2]), str(items[3]), domain,
+            self._span(meta), self._token_span(items[0]),
+        ))
 
-    def protocol_channel(self, items: list[object]) -> tuple[str, ast_nodes.ProtocolChannelDecl]:
-        return self._protocol_channel_item(items)
+    @v_args(meta=True)
+    def protocol_channel(
+        self, meta: object, items: list[object]
+    ) -> tuple[str, ast_nodes.ProtocolChannelDecl]:
+        return self._protocol_channel_item(meta, items)
 
-    def protocol_member(self, items: list[object]) -> tuple[str, ast_nodes.ProtocolChannelDecl]:
-        return self._protocol_channel_item(items)
+    @v_args(meta=True)
+    def protocol_member(
+        self, meta: object, items: list[object]
+    ) -> tuple[str, ast_nodes.ProtocolChannelDecl]:
+        return self._protocol_channel_item(meta, items)
 
-    def protocol_decl(self, items: list[object]) -> ast_nodes.ProtocolDecl:
+    @v_args(meta=True)
+    def protocol_decl(
+        self, meta: object, items: list[object]
+    ) -> ast_nodes.ProtocolDecl:
         name = str(items[0])
         parameters = next(
             (item for item in items[1:] if isinstance(item, tuple) and all(isinstance(p, ast_nodes.ModuleParameter) for p in item)),
@@ -268,7 +283,10 @@ class TargetAndGenericRules:
         body = [item for item in items[1:] if item is not parameters and item is not None]
         roles = tuple(item[1] for item in body if item[0] == "role")
         channels = tuple(item[1] for item in body if item[0] == "channel")
-        return ast_nodes.ProtocolDecl(name, roles, channels, parameters)
+        return ast_nodes.ProtocolDecl(
+            name, roles, channels, parameters,
+            self._span(meta), self._token_span(items[0]),
+        )
 
     def parameter_number(self, items: list[object]) -> int:
         return self._parse_number(items[0])

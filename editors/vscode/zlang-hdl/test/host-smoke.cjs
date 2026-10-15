@@ -216,48 +216,75 @@ async function checkHost() {
   phase('simple definition');
 
   // Sticky Scroll and Outline consume the LanguageClient's hierarchical
-  // DocumentSymbol ranges. Exercise a viewport-sized enum list through the
-  // installed VSIX: enum-member ranges must remain inside their own enum and
-  // must never span later declarations.
-  const enumListPath = path.join(scratch, 'enum-list.zhl');
-  const enumListText = Array.from({ length: 80 }, (_, index) => [
+  // DocumentSymbol ranges. Exercise a viewport-sized mixed declaration list
+  // through the installed VSIX: no field, member, or union variant may inherit
+  // an enclosing file/declaration range or overlap the next owner.
+  const containerListPath = path.join(scratch, 'container-list.zhl');
+  const repeatedContainers = Array.from({ length: 30 }, (_, index) => [
+    `struct Record${index} {`,
+    '    first : u8',
+    '    second : u8',
+    '}',
     `enum RegisterState${index} : u8 {`,
     '    reserved',
     `    active = ${index + 1}`,
     '    reset',
     '    priority',
     '}',
+    `union Message${index} {`,
+    '    Empty',
+    '    Data { value : u8 valid : bit }',
+    '}',
   ].join('\n')).join('\n');
-  fs.writeFileSync(enumListPath, `${enumListText}\n`);
-  const enumList = await vscode.workspace.openTextDocument(vscode.Uri.file(enumListPath));
-  await vscode.window.showTextDocument(enumList, { preview: false });
-  let enumSymbols;
+  const containerListText = [
+    repeatedContainers,
+    'protocol Stream {',
+    '    role source',
+    '    role sink',
+    '    channel data : u8 source -> sink',
+    '}',
+    'interface Boundary { in a, b : u8 out y : u8 }',
+    'resource Logic {',
+    '    port a input unsigned 8',
+    '    port y output unsigned 8',
+    '    operation boolean',
+    '}',
+    'module Add { in a, b : u8 out y : u9 y = a + b }',
+  ].join('\n');
+  fs.writeFileSync(containerListPath, `${containerListText}\n`);
+  const containerList = await vscode.workspace.openTextDocument(
+    vscode.Uri.file(containerListPath),
+  );
+  await vscode.window.showTextDocument(containerList, { preview: false });
+  let containerSymbols;
   const deadline = Date.now() + 5000;
   do {
-    enumSymbols = await vscode.commands.executeCommand(
-      'vscode.executeDocumentSymbolProvider', enumList.uri,
+    containerSymbols = await vscode.commands.executeCommand(
+      'vscode.executeDocumentSymbolProvider', containerList.uri,
     );
-    if (enumSymbols?.length === 80) break;
+    if (containerSymbols?.length === 94) break;
     await new Promise((resolve) => setTimeout(resolve, 50));
   } while (Date.now() < deadline);
-  assert.equal(enumSymbols?.length, 80, 'installed LSP lost enum document symbols');
-  for (const [index, symbol] of enumSymbols.entries()) {
-    assert.equal(symbol.name, `RegisterState${index}`);
-    assert.equal(symbol.children.length, 4);
-    assert.deepEqual(symbol.children.map((child) => child.name), [
-      'reserved', 'active', 'reset', 'priority',
-    ]);
-    for (const child of symbol.children) {
+  assert.equal(containerSymbols?.length, 94,
+    'installed LSP lost mixed container document symbols');
+  const assertNestedRanges = (symbol) => {
+    for (const child of symbol.children ?? []) {
       assert.equal(symbol.range.contains(child.range), true,
         `${child.name} range escaped ${symbol.name} and can corrupt Sticky Scroll`);
-      assert.equal(child.range.isEqual(child.selectionRange), true);
+      assert.equal(symbol.range.isEqual(child.range), false,
+        `${child.name} inherited the complete ${symbol.name} range`);
+      assert.equal(child.range.contains(child.selectionRange), true);
+      assertNestedRanges(child);
     }
-    if (index + 1 < enumSymbols.length) {
-      assert.equal(symbol.range.intersection(enumSymbols[index + 1].range), undefined,
-        `${symbol.name} overlaps the next enum document symbol`);
+  };
+  for (const [index, symbol] of containerSymbols.entries()) {
+    assertNestedRanges(symbol);
+    if (index + 1 < containerSymbols.length) {
+      assert.equal(symbol.range.intersection(containerSymbols[index + 1].range), undefined,
+        `${symbol.name} overlaps the next container document symbol`);
     }
   }
-  phase('enum outline and sticky-scroll ranges');
+  phase('container outline and sticky-scroll ranges');
   let nativeDebugChecked = false;
 
   if (manifest.contributes.customEditors) {
@@ -503,7 +530,7 @@ async function checkHost() {
       'isolated installed VSIX identity and standard LSP client manifest',
       'automatic .zhl association; no .zl or .zlh association',
       'activation-complete LanguageClient and real F12 definition provider',
-      'viewport-sized enum list with nested, non-overlapping Outline and Sticky Scroll ranges',
+      'viewport-sized mixed containers with nested, non-overlapping Outline and Sticky Scroll ranges',
       ...(manifest.contributes.customEditors ? [
         'registered default FST/VCD custom editor; exercised VCD through the native indexer',
       ] : []),

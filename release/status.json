@@ -47,8 +47,8 @@
     }
   },
   "validation": {
-    "minimum_tests_passed": 4422,
-    "minimum_tests_collected": 4422,
+    "minimum_tests_passed": 4424,
+    "minimum_tests_collected": 4424,
     "maximum_tests_skipped": 0,
     "example_corpus": {
       "source_files": 112,

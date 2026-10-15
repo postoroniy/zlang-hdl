@@ -13,9 +13,17 @@ import re
 import sys
 
 if __package__:
-    from tools.audit_native_binary import NativeBinaryAuditError, read_native_sbom
+    from tools.audit_native_binary import (
+        NativeBinaryAuditError,
+        exact_cargo_component_purl,
+        read_native_sbom,
+    )
 else:
-    from audit_native_binary import NativeBinaryAuditError, read_native_sbom
+    from audit_native_binary import (
+        NativeBinaryAuditError,
+        exact_cargo_component_purl,
+        read_native_sbom,
+    )
 
 
 SCHEMA = 1
@@ -106,7 +114,9 @@ def parse_cyclonedx_inventory(path: Path) -> frozenset[Package]:
         context = f"CycloneDX components[{index}]"
         component = _object(raw_component, context)
         package = _package(component.get("name"), component.get("version"), context)
-        if component.get("purl") != f"pkg:cargo/{package.name}@{package.version}":
+        if component.get("purl") != exact_cargo_component_purl(
+            package.name, package.version
+        ):
             raise NativeVulnerabilityAuditError(
                 f"{context}.purl does not identify the exact Cargo package"
             )

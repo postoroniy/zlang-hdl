@@ -247,7 +247,13 @@ def test_document_symbols_project_parser_structure_and_ranges() -> None:
     assert [item.name for item in top.children] == ["a", "y"]
     assert top.children[0].range is not None
     assert top.children[0].range.start_line == 2
-    assert top.children[0].selection_range == top.children[0].range
+    assert top.children[0].selection_range is not None
+    assert (
+        top.children[0].selection_range.start_line,
+        top.children[0].selection_range.start_column,
+        top.children[0].selection_range.end_line,
+        top.children[0].selection_range.end_column,
+    ) == (2, 8, 2, 9)
     assert top.children[1].kind == "field"
 
 

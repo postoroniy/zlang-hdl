@@ -20,15 +20,19 @@
     {
       "id": "SIM-002",
       "source_paths": [
+        ".github/workflows/release.yml",
         "release/native-wheels/zlang_native_sim-0.1.0a24-cp312-abi3-manylinux_2_28_x86_64.whl",
         "tests/release/test_native_binary_audit.py",
+        "tests/release/test_native_vulnerability_audit.py",
         "tests/test_sim_cli.py",
-        "tools/audit_native_binary.py"
+        "tools/audit_native_binary.py",
+        "tools/audit_native_vulnerabilities.py"
       ],
       "status": "included",
-      "summary": "The reviewed Linux native runtime wheel exports the Rust-owned FST writer required by zlang sim, while binary auditing accepts only the exact Apache-2.0 internal simulation and waveform workspace components.",
+      "summary": "The reviewed Linux native runtime wheel exports the Rust-owned FST writer required by zlang sim, while binary and vulnerability auditing accept only the exact Apache-2.0 internal simulation and waveform workspace components and scan the embedded CycloneDX document as an SBOM.",
       "tests": [
         "tests/release/test_native_binary_audit.py::test_native_binary_audit_accepts_the_exact_internal_waveform_core",
+        "tests/release/test_native_vulnerability_audit.py::test_internal_runtime_components_require_exact_local_cargo_purls",
         "tests/test_sim_cli.py::test_fst_is_the_preferred_native_trace_format"
       ]
     },
@@ -68,11 +72,18 @@
       "source_paths": [
         "editors/vscode/zlang-hdl/test/host-smoke.cjs",
         "tests/lsp/test_server.py",
+        "tests/test_tooling_api.py",
+        "zlang/ast/nodes.py",
+        "zlang/parser/aggregate_module_rules.py",
+        "zlang/parser/protocol_csr_rules.py",
+        "zlang/parser/state_rules.py",
+        "zlang/parser/target_generic_rules.py",
         "zlang/tooling_symbols.py"
       ],
       "status": "included",
-      "summary": "Enum document symbols use parser-owned member spans nested within their declaration, preventing overlapping Outline and Sticky Scroll scopes while navigating long enum lists.",
+      "summary": "All collapsible declaration containers use exact parser-owned, nested, non-overlapping document-symbol spans, preventing struct, enum, tagged-union, protocol, interface, resource, module, CSR, FSM, and verification scopes from corrupting VS Code Outline or Sticky Scroll ownership.",
       "tests": [
+        "tests/lsp/test_server.py::test_document_symbol_container_ranges_never_escape_or_overlap",
         "tests/lsp/test_server.py::test_document_symbol_enum_members_have_exact_nested_ranges"
       ]
     },

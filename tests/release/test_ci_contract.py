@@ -64,6 +64,12 @@ def test_makefile_owns_every_hosted_lane_entry_point() -> None:
     )[0]
     assert "-m tools.release_status check-junit" in full_regression
     assert '--junit "$(CI_JUNIT)"' in full_regression
+    release_workflow = (ROOT / ".github/workflows/release.yml").read_text(
+        encoding="utf-8"
+    )
+    assert '"$OSV_SCANNER_IMAGE" scan source --format=json --all-packages' in release_workflow
+    assert "--sbom /scan/zlang-native-sim.cdx.json" in release_workflow
+    assert "-L /scan/zlang-native-sim.cdx.json" not in release_workflow
     release_twice = text.split("test-release-twice:", 1)[1].split(
         "\neditor-test:", 1
     )[0]

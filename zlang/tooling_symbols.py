@@ -328,9 +328,9 @@ class ToolingSymbol:
     """Compiler-parser-owned structure projected for document symbols only.
 
     This is intentionally not an AST or typed-IR export.  ``range`` and
-    ``selection_range`` are compiler source origins; when a legacy AST node
-    does not retain a narrower origin, the containing declaration origin is
-    used rather than estimating character offsets from source text.
+    ``selection_range`` are compiler source origins.  Nested symbols are
+    published only from exact parser-owned spans: substituting a container's
+    range for a child corrupts VS Code Outline and Sticky Scroll ownership.
     """
 
     name: str
@@ -390,24 +390,52 @@ def _make_symbol(
         if node is None
         else _symbol_origin(node, kind, name)
     ) or fallback
-    return ToolingSymbol(name, kind, origin, origin, children)
+    selection = (
+        None
+        if node is None
+        else _origin_from_source(
+            getattr(node, "name_origin", None),
+            construct=f"{kind} {name}",
+        )
+    ) or origin
+    return ToolingSymbol(name, kind, origin, selection, children)
 
-def _children_for_struct(
-    fields: tuple[object, ...], fallback: ToolingOrigin | None
-) -> tuple[ToolingSymbol, ...]:
+
+def _symbols_for_port(port: ast_nodes.PortDecl) -> tuple[ToolingSymbol, ...]:
+    """Project grouped ports without publishing overlapping sibling ranges."""
+
+    names = port.names or (port.name,)
+    symbols: list[ToolingSymbol] = []
+    for index, name in enumerate(names):
+        name_origin = (
+            _origin_from_source(
+                port.name_origins[index], construct=f"field {name}"
+            )
+            if index < len(port.name_origins)
+            else None
+        )
+        # A grouped declaration has one shared declaration span.  Its exact
+        # lexer-owned name spans are the only non-overlapping child ranges.
+        range_origin = name_origin if len(names) > 1 else (
+            _symbol_origin(port, "field", name) or name_origin
+        )
+        symbols.append(
+            ToolingSymbol(name, "field", range_origin, name_origin or range_origin)
+        )
+    return tuple(symbols)
+
+def _children_for_struct(fields: tuple[object, ...]) -> tuple[ToolingSymbol, ...]:
     return tuple(
         _make_symbol(
             str(getattr(field, "name")),
             "field",
             field,
-            fallback=fallback,
         )
         for field in fields
     )
 
 def _children_for_enum(
     declaration: ast_nodes.EnumDecl,
-    fallback: ToolingOrigin | None,
 ) -> tuple[ToolingSymbol, ...]:
     """Project enum members with their parser-owned name spans.
 
@@ -428,9 +456,76 @@ def _children_for_enum(
         origin = _origin_from_source(
             span,
             construct=f"enum_member {member}",
-        ) or fallback
+        )
         symbols.append(ToolingSymbol(member, "enum_member", origin, origin))
     return tuple(symbols)
+
+
+def _position(origin: ToolingOrigin) -> tuple[int, int, int, int]:
+    return (
+        origin.start_line,
+        origin.start_column,
+        origin.end_line,
+        origin.end_column,
+    )
+
+
+def _contains(parent: ToolingOrigin, child: ToolingOrigin) -> bool:
+    parent_start = (parent.start_line, parent.start_column)
+    parent_end = (parent.end_line, parent.end_column)
+    child_start = (child.start_line, child.start_column)
+    child_end = (child.end_line, child.end_column)
+    return parent_start <= child_start < child_end <= parent_end
+
+
+def _overlaps(left: ToolingOrigin, right: ToolingOrigin) -> bool:
+    left_start = (left.start_line, left.start_column)
+    left_end = (left.end_line, left.end_column)
+    right_start = (right.start_line, right.start_column)
+    right_end = (right.end_line, right.end_column)
+    return left_start < right_end and right_start < left_end
+
+
+def _validated_symbol(symbol: ToolingSymbol) -> ToolingSymbol | None:
+    """Fail closed on ranges that can make one symbol own unrelated source."""
+
+    if symbol.range is None:
+        return None
+    selection = symbol.selection_range
+    if selection is None or not _contains(symbol.range, selection):
+        selection = symbol.range
+    children: list[ToolingSymbol] = []
+    for child in sorted(
+        (value for value in map(_validated_symbol, symbol.children) if value),
+        key=lambda value: _position(value.range),  # type: ignore[arg-type]
+    ):
+        assert child.range is not None
+        if (
+            _position(child.range) == _position(symbol.range)
+            or not _contains(symbol.range, child.range)
+        ):
+            continue
+        if children and _overlaps(children[-1].range, child.range):  # type: ignore[arg-type]
+            continue
+        children.append(child)
+    return ToolingSymbol(
+        symbol.name, symbol.kind, symbol.range, selection, tuple(children)
+    )
+
+
+def _validated_symbols(
+    symbols: tuple[ToolingSymbol, ...],
+) -> tuple[ToolingSymbol, ...]:
+    result: list[ToolingSymbol] = []
+    for symbol in sorted(
+        (value for value in map(_validated_symbol, symbols) if value),
+        key=lambda value: _position(value.range),  # type: ignore[arg-type]
+    ):
+        assert symbol.range is not None
+        if result and _overlaps(result[-1].range, symbol.range):  # type: ignore[arg-type]
+            continue
+        result.append(symbol)
+    return tuple(result)
 
 def _symbol_for_item(
     item: object,
@@ -448,11 +543,7 @@ def _symbol_for_item(
             )
         return ()
     if isinstance(item, ast_nodes.PortDecl):
-        names = item.names or (item.name,)
-        return tuple(
-            _make_symbol(name, "field", item, fallback=fallback)
-            for name in names
-        )
+        return _symbols_for_port(item)
     if isinstance(item, ast_nodes.TypeAlias):
         return (_make_symbol(item.name, "type", item, fallback=fallback),)
     if isinstance(item, ast_nodes.StructDecl):
@@ -461,17 +552,16 @@ def _symbol_for_item(
             "struct",
             item,
             fallback=fallback,
-            children=_children_for_struct(item.fields, fallback),
+            children=_children_for_struct(item.fields),
         )
         return (symbol,)
     if isinstance(item, ast_nodes.EnumDecl):
-        enum_origin = _symbol_origin(item, "enum", item.name) or fallback
         return (_make_symbol(
             item.name,
             "enum",
             item,
             fallback=fallback,
-            children=_children_for_enum(item, enum_origin),
+            children=_children_for_enum(item),
         ),)
     if isinstance(item, ast_nodes.TaggedUnionDecl):
         children = tuple(
@@ -479,8 +569,7 @@ def _symbol_for_item(
                 variant.name,
                 "struct",
                 variant,
-                fallback=fallback,
-                children=_children_for_struct(variant.fields, fallback),
+                children=_children_for_struct(variant.fields),
             )
             for variant in item.variants
         )
@@ -495,16 +584,16 @@ def _symbol_for_item(
         ),)
     if isinstance(item, ast_nodes.ModuleInterfaceDecl):
         children = tuple(
-            _make_symbol(port.name, "field", port, fallback=fallback)
+            symbol
             for port in item.ports
-            for _ in (0,)
+            for symbol in _symbols_for_port(port)
         )
         return (_make_symbol(
             item.name, "interface", item, fallback=fallback, children=children
         ),)
     if isinstance(item, ast_nodes.ProtocolDecl):
         children = tuple(
-            _make_symbol(channel.name, "field", fallback=fallback)
+            _make_symbol(channel.name, "field", channel)
             for channel in item.channels
         )
         return (_make_symbol(
@@ -512,7 +601,7 @@ def _symbol_for_item(
         ),)
     if isinstance(item, ast_nodes.ResourceDefinitionDecl):
         children = tuple(
-            _make_symbol(port.name, "field", fallback=fallback)
+            _make_symbol(port.name, "field", port)
             for port in item.ports
         )
         return (_make_symbol(
@@ -541,9 +630,8 @@ def _symbol_for_item(
                 register.name,
                 "field",
                 register,
-                fallback=fallback,
                 children=tuple(
-                    _make_symbol(field.name, "field", field, fallback=fallback)
+                    _make_symbol(field.name, "field", field)
                     for field in register.fields
                 ),
             )
@@ -561,7 +649,7 @@ def _symbol_for_item(
             item,
             fallback=fallback,
             children=tuple(
-                _make_symbol(state.member, "enum_member", state, fallback=fallback)
+                _make_symbol(state.member, "enum_member", state)
                 for state in item.states
             ),
         ),)
@@ -580,7 +668,7 @@ def _symbol_for_item(
         return (_make_symbol(item.name, "object", item, fallback=fallback),)
     if isinstance(item, ast_nodes.VerificationScopeDecl):
         children = tuple(
-            _make_symbol(goal.name, "event", goal, fallback=fallback)
+            _make_symbol(goal.name, "event", goal)
             for goal in item.goals
         )
         return (_make_symbol(
@@ -660,10 +748,36 @@ def _module_symbols(module: ast_nodes.Module) -> tuple[ToolingSymbol, ...]:
         _make_symbol(
             module.name,
             "module",
+            module,
             fallback=module_origin,
             children=tuple(children),
         ),
     )
+
+
+def _declaration_symbols(module: ast_nodes.Module) -> tuple[ToolingSymbol, ...]:
+    """Project file-scope declarations independently of the physical modules."""
+
+    items: tuple[object, ...] = (
+        *module.type_aliases,
+        *module.enums,
+        *module.tagged_unions,
+        *module.structs,
+        *module.functions,
+        *module.operators,
+        *module.equivalences,
+        *module.protocols,
+        *module.resource_definitions,
+        *module.target_families,
+        *module.target_instances,
+        *module.architecture_templates,
+        *module.module_interfaces,
+    )
+    return _validated_symbols(tuple(
+        symbol
+        for item in items
+        for symbol in _symbol_for_item(item, None)
+    ))
 
 def document_symbols(source_text: str) -> tuple[ToolingSymbol, ...]:
     """Return parser-owned document symbols for the current source text.
@@ -681,8 +795,9 @@ def document_symbols(source_text: str) -> tuple[ToolingSymbol, ...]:
         carrier = _module_symbols(syntax)[0]
         symbols = list(carrier.children)
     else:
-        symbols = list(_module_symbols(syntax))
+        symbols = list(_declaration_symbols(syntax))
+        symbols.extend(_module_symbols(syntax))
     symbols.extend(
         symbol for item in syntax.submodules for symbol in _module_symbols(item)
     )
-    return tuple(symbols)
+    return _validated_symbols(tuple(symbols))
