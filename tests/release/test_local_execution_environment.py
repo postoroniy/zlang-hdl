@@ -98,6 +98,51 @@ def test_env_check_rejects_stale_checkout_distribution_metadata(
     )
     assert completed.returncode == 2
     assert "stale checkout distribution metadata" in completed.stderr
+    assert "run 'make venv' to quarantine it below build/tmp" in completed.stderr
+
+
+def test_venv_bootstrap_quarantines_stale_checkout_distribution_metadata(
+    tmp_path: Path,
+) -> None:
+    metadata = tmp_path / "zlang_hdl.egg-info"
+    metadata.mkdir()
+    package_info = metadata / "PKG-INFO"
+    package_info.write_text(
+        "Metadata-Version: 2.4\nName: zlang-hdl\nVersion: 0.1.0a1\n",
+        encoding="utf-8",
+    )
+
+    completed = subprocess.run(
+        (
+            sys.executable,
+            "-m",
+            "tools.check_local_environment",
+            "--root",
+            str(tmp_path),
+            "--quarantine-stale-metadata",
+            "--tmp-root",
+            str(tmp_path / "build" / "tmp"),
+        ),
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    quarantines = tuple(
+        (tmp_path / "build" / "tmp").glob("stale-checkout-metadata.*")
+    )
+    assert len(quarantines) == 1
+    quarantine = quarantines[0]
+    assert quarantine.parent == tmp_path / "build" / "tmp"
+    assert str(quarantine) in completed.stderr
+    assert not metadata.exists()
+    preserved = quarantine / "zlang_hdl.egg-info" / "PKG-INFO"
+    assert preserved.read_text(encoding="utf-8") == (
+        "Metadata-Version: 2.4\nName: zlang-hdl\nVersion: 0.1.0a1\n"
+    )
+    assert _stale_checkout_metadata(tmp_path) == ()
 
 
 def test_python_workflows_require_the_local_venv_hook() -> None:

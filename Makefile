@@ -117,6 +117,8 @@ venv:
 			python3 -m venv "$(VENV)"
 		fi
 	fi
+	"$(PYTHON)" -m tools.check_local_environment --root "$(CURDIR)" \
+		--quarantine-stale-metadata --tmp-root "$(TMP_ROOT)"
 	# Install the exact build backend first: a newly created Python venv is not
 	# guaranteed to include setuptools, while the editable install below avoids
 	# a separate build-isolation environment.

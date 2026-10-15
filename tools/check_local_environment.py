@@ -7,6 +7,7 @@ import argparse
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 import sys
+import tempfile
 
 
 def _is_within(path: Path, root: Path) -> bool:
@@ -23,19 +24,53 @@ def _stale_checkout_metadata(root: Path) -> tuple[Path, ...]:
     return tuple(sorted(root.glob("zlang_hdl.egg-info")))
 
 
+def _quarantine_stale_checkout_metadata(root: Path, tmp_root: Path) -> Path | None:
+    """Move legacy checkout metadata aside without deleting recovery evidence."""
+
+    stale_metadata = _stale_checkout_metadata(root)
+    if not stale_metadata:
+        return None
+    tmp_root.mkdir(parents=True, exist_ok=True)
+    quarantine = Path(
+        tempfile.mkdtemp(prefix="stale-checkout-metadata.", dir=tmp_root)
+    ).resolve()
+    for metadata in stale_metadata:
+        metadata.replace(quarantine / metadata.name)
+    return quarantine
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", required=True, type=Path)
-    parser.add_argument("--venv", required=True, type=Path)
+    parser.add_argument("--venv", type=Path)
+    parser.add_argument("--quarantine-stale-metadata", action="store_true")
+    parser.add_argument("--tmp-root", type=Path)
     arguments = parser.parse_args(argv)
     root = arguments.root.resolve()
+
+    if arguments.quarantine_stale_metadata:
+        if arguments.tmp_root is None:
+            parser.error("--tmp-root is required with --quarantine-stale-metadata")
+        quarantine = _quarantine_stale_checkout_metadata(
+            root, arguments.tmp_root.resolve()
+        )
+        if quarantine is not None:
+            print(
+                "quarantined stale checkout distribution metadata under "
+                f"{quarantine}",
+                file=sys.stderr,
+            )
+        return 0
+
+    if arguments.venv is None:
+        parser.error("--venv is required unless --quarantine-stale-metadata is used")
     venv = arguments.venv.resolve()
 
     stale_metadata = _stale_checkout_metadata(root)
     if stale_metadata:
         parser.error(
             "stale checkout distribution metadata can shadow the local venv: "
-            f"{stale_metadata[0]}; move it below build/tmp and run 'make venv'"
+            f"{stale_metadata[0]}; run 'make venv' to quarantine it below build/tmp"
         )
 
     if not _is_within(venv, root):

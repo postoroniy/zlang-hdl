@@ -26,6 +26,10 @@ def test_makefile_exposes_bounded_test_and_release_entry_points() -> None:
     assert "PYTHON := $(VENV)/bin/python" in text
     assert "env-check:" in text
     assert "make venv" in text
+    assert (
+        '"$(PYTHON)" -m tools.check_local_environment --root "$(CURDIR)"'
+    ) in text
+    assert "--quarantine-stale-metadata --tmp-root \"$(TMP_ROOT)\"" in text
     assert "release-review-clean:" in text
     assert (
         "release-review: release-review-clean review-commits release-sanity "
