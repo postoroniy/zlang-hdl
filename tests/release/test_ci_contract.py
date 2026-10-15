@@ -126,14 +126,23 @@ def test_bootstrap_isolates_external_release_tool_builds() -> None:
         for line in completed.stdout.splitlines()
         if " -m pip install " in line
     ]
-    assert len(pip_commands) == 3
+    # The bootstrap owns three package-index installs.  A fourth command comes
+    # from the deliberately recursive native-release-install target, which
+    # installs the already reviewed local wheel without resolving dependencies.
+    assert len(pip_commands) == 4
     editable = next(line for line in pip_commands if " -e '.[test]'" in line)
     release_tools = next(
         line for line in pip_commands if "reuse==" in line and " -e '.[test]'" not in line
     )
+    native_runtime = next(
+        line for line in pip_commands if 'purpose "native-release-install"' in line
+    )
     assert "--no-build-isolation" in editable
     assert "--no-build-isolation" not in release_tools
     assert "reuse==5.1.1" in release_tools
+    assert "--force-reinstall --no-deps" in completed.stdout
+    assert '"${wheels[0]}"' in completed.stdout
+    assert "native-release-install" in native_runtime
 
 
 def test_split_suite_floor_runs_without_site_packages(tmp_path: Path) -> None:

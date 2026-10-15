@@ -2909,7 +2909,7 @@
     {
       "mode": "0644",
       "path": "tests/release/test_ci_contract.py",
-      "sha256": "7942df6606ca0d9280ccce026d89bf486956400c6b2f5746335d9ab92a055cc9"
+      "sha256": "be5c240ea2f00b5e36bd7c468c5ae1f9a00b8964ff1ed1bc3f5d69ef38f9bd7c"
     },
     {
       "mode": "0644",
