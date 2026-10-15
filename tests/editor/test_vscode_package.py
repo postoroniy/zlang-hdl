@@ -495,6 +495,11 @@ class VSCodePackageTests(unittest.TestCase):
         self.assertIn("zlang.lsp.path", properties)
         self.assertNotIn("zlang.server.path", guide)
         self.assertNotIn("zlang.server.path", extension_guide)
+        self.assertIn(
+            "https://github.com/postoroniy/zlang-hdl/blob/main/docs/native-debugging.md",
+            extension_guide,
+        )
+        self.assertNotIn("../../../docs/native-debugging.md", extension_guide)
 
     def test_installation_guide_has_managed_python_wsl_and_verified_tools(self) -> None:
         guide = (ROOT / "docs" / "language-reference.md").read_text(

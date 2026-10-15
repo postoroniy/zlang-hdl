@@ -404,7 +404,7 @@
     {
       "mode": "0644",
       "path": "editors/vscode/zlang-hdl/README.md",
-      "sha256": "f32dc055d1771e1fd8b7fba8ad9a44c818d7003417a62d42bb57fd994e6c0c5f"
+      "sha256": "f12bf955ed075134038dd550326c157661b54d8d2bb4d2eecb25ccc0d3f47cbb"
     },
     {
       "mode": "0644",
@@ -1614,7 +1614,7 @@
     {
       "mode": "0644",
       "path": "tests/editor/test_vscode_package.py",
-      "sha256": "41c39bcfa9102534a94a5b0543b69728028b03d72021653ae6ed9bc44a59d07f"
+      "sha256": "a7f06615e6b1f56392cfc72fb36c5684e057dca3c17d981e130da6d8b32af9cf"
     },
     {
       "mode": "0644",

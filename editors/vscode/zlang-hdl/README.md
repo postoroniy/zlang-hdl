@@ -161,7 +161,7 @@ exceptions. Use **ZLang HDL: Open Live Waveform** to follow the active session.
 
 The complete runnable example, test-vector schema, project launch fields, and
 troubleshooting are in
-[`docs/native-debugging.md`](../../../docs/native-debugging.md).
+[`docs/native-debugging.md`](https://github.com/postoroniy/zlang-hdl/blob/main/docs/native-debugging.md).
 
 ## Waveform viewer
 
