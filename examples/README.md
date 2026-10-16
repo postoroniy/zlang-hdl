@@ -83,6 +83,7 @@ Comments should explain those choices rather than restating each expression.
 | Source | Purpose |
 | --- | --- |
 | [`complex_fft_butterfly.zhl`](complex_fft_butterfly.zhl) | Typed complex fixed-point butterfly. |
+| [`fft/complex_multiply_three_dsp.zhl`](fft/complex_multiply_three_dsp.zhl) | The same complex `a*b` selects three or four DSPs through `implement` intent and bounded bilinear exploration. |
 | [`cost_mac.zhl`](cost_mac.zhl) | MAC candidate costs with DSP use available. |
 | [`cost_mac_no_dsp.zhl`](cost_mac_no_dsp.zhl) | The same candidate surface with DSP forbidden. |
 | [`dot_builtin.zhl`](dot_builtin.zhl) | Built-in dot-product expression. |

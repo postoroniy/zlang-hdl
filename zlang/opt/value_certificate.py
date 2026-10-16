@@ -1,8 +1,8 @@
 """Proof-only admission of exact typed egglog value alternatives.
 
-This checker never enumerates architecture/value candidates or runs egglog. It
-normalizes only through the active, frozen local equalities and replays the
-local transformations independently of the e-graph extraction result.
+This checker never enumerates architecture/value candidates or runs egglog.
+It replays active local equalities, or checks bounded bilinear coefficients
+and every finite-width range, independently of the extraction result.
 """
 
 from __future__ import annotations
@@ -23,6 +23,15 @@ from zlang.opt.rewrite_spec import RewriteRule, TypedRewriteSpec
 
 
 CHECKER_VERSION = "exact-local-value-v1"
+BILINEAR_CHECKER_VERSION = "exact-bilinear-value-v1"
+
+
+def _checker_version(specs):
+    return (
+        BILINEAR_CHECKER_VERSION
+        if any(spec.rule is RewriteRule.BILINEAR_FACTOR for spec in specs)
+        else CHECKER_VERSION
+    )
 
 
 class ValueCertificateError(ValueError):
@@ -168,6 +177,16 @@ def _normal_form(
     return visit(root), tuple(steps)
 
 
+def _proof_form(root, specs, source_rules):
+    bilinear = next((spec for spec in specs if spec.rule is RewriteRule.BILINEAR_FACTOR), None)
+    if bilinear is not None:
+        from zlang.opt.bilinear_polynomial import read_bilinear
+        signature = read_bilinear(root).signature
+        return signature, ((bilinear.identity, render_term(root), signature),)
+    normalized, steps = _normal_form(root, specs, source_rules)
+    return render_term(normalized), steps
+
+
 def checked_value_certificate(
     source: Term,
     candidate: Term,
@@ -178,15 +197,15 @@ def checked_value_certificate(
     term_to_expression(source)
     term_to_expression(candidate)
     specs = tuple(sorted(active_specs, key=lambda item: item.identity))
-    source_form, source_steps = _normal_form(source, specs, source_rules)
-    selected_form, selected_steps = _normal_form(candidate, specs, source_rules)
-    if render_term(source_form) != render_term(selected_form):
+    source_form, source_steps = _proof_form(source, specs, source_rules)
+    selected_form, selected_steps = _proof_form(candidate, specs, source_rules)
+    if source_form != selected_form:
         raise ValueCertificateError(
             "typed candidate has no exact local-rewrite proof of source equality"
         )
     certificate = CheckedValueCertificate(
-        CHECKER_VERSION, _identity(source), _identity(candidate),
-        _identity(source_form), tuple(spec.identity for spec in specs),
+        _checker_version(specs), _identity(source), _identity(candidate),
+        sha256(source_form.encode()).hexdigest(), tuple(spec.identity for spec in specs),
         source_steps, selected_steps,
     )
     verify_checked_value_certificate(
@@ -204,16 +223,16 @@ def verify_checked_value_certificate(
 ) -> None:
     """Replay the proof without consuming egglog's reported e-class relation."""
     specs = tuple(sorted(active_specs, key=lambda item: item.identity))
-    if certificate.checker_version != CHECKER_VERSION or (
+    if certificate.checker_version != _checker_version(specs) or (
         certificate.source_identity, certificate.selected_identity,
         certificate.active_rule_identities,
     ) != (_identity(source), _identity(candidate), tuple(item.identity for item in specs)):
         raise ValueCertificateError("value certificate identity or checker version mismatch")
-    source_form, source_steps = _normal_form(source, specs, source_rules)
-    selected_form, selected_steps = _normal_form(candidate, specs, source_rules)
+    source_form, source_steps = _proof_form(source, specs, source_rules)
+    selected_form, selected_steps = _proof_form(candidate, specs, source_rules)
     if (
-        render_term(source_form) != render_term(selected_form)
-        or certificate.normal_form_identity != _identity(source_form)
+        source_form != selected_form
+        or certificate.normal_form_identity != sha256(source_form.encode()).hexdigest()
         or certificate.source_steps != source_steps
         or certificate.selected_steps != selected_steps
     ):
@@ -221,6 +240,6 @@ def verify_checked_value_certificate(
 
 
 __all__ = [
-    "CHECKER_VERSION", "ValueCertificateError", "checked_value_certificate",
+    "CHECKER_VERSION", "BILINEAR_CHECKER_VERSION", "ValueCertificateError", "checked_value_certificate",
     "verify_checked_value_certificate",
 ]

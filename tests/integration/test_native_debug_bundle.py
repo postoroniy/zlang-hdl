@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from zlang.lsp.server import LspServer, path_to_uri
@@ -15,6 +16,65 @@ from zlang.simulation_plan_model import SimulationPlan
 
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def test_debug_site_covers_typed_actions_without_changing_the_execution_plan() -> None:
+    from zlang import sim
+
+    source = ROOT / "examples/rule_action.zhl"
+    program = sim.compile(source, top="RuleAction", logic_state=True)
+    bundle = build_native_debug_bundle(source, top="RuleAction")
+    site = next(item for item in bundle.sites if item.kind == "rule")
+    assert (site.start_line, site.end_line) == (10, 12)
+    assert bundle.plan_bytes == program.plan.to_bytes()
+    assert bundle.plan_identity == program.plan.identity
+    assert bundle.selected_ir_identity == program.selected_ir_identity
+
+
+def test_debug_action_ranges_stop_before_the_following_rule(tmp_path: Path) -> None:
+    source = tmp_path / "IndependentActions.zhl"
+    source.write_text(
+        "module IndependentActions {\n"
+        "  clock clk reset rst\n"
+        "  in a, b : bit\n"
+        "  out reg x : u8 = 0\n"
+        "  out reg y : u8 = 0\n"
+        "  when a {\n"
+        "    x <- 1\n"
+        "  }\n"
+        "  when b {\n"
+        "    y <- 2\n"
+        "  }\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    sites = sorted(build_native_debug_bundle(source).sites, key=lambda site: site.start_line)
+    assert [(site.start_line, site.end_line) for site in sites] == [(6, 7), (9, 10)]
+
+
+def test_checked_in_rule_action_launch_replays_documented_steps() -> None:
+    from zlang import sim
+    from zlang.sim_cli import _read_events
+
+    configuration = json.loads((ROOT / ".vscode/launch.json").read_text())["configurations"][0]
+    assert configuration["type"] == "zlang-hdl"
+    assert configuration["request"] == "launch"
+    assert configuration["stopOnEntry"] is True
+    assert configuration["logicState"] is True
+    source = Path(configuration["program"].replace("${workspaceFolder}", str(ROOT)))
+    events = Path(configuration["events"].replace("${workspaceFolder}", str(ROOT)))
+    bundle = build_native_debug_bundle(source, top=configuration["top"])
+    assert set(configuration["traceSignals"]) <= {item.name for item in bundle.signals}
+    observed = []
+    fired = []
+    with sim.compile(source, top=configuration["top"], logic_state=True).create() as instance:
+        assert instance.get_logic("count").to_bits() == "0" * 8
+        for event in _read_events(events):
+            instance.run_events((event,))
+            observed.append(instance.get_logic("count").require_binary(name="count"))
+            fired.append(instance.get_logic("fired").require_binary(name="fired"))
+    assert observed == [0, 0, 1, 2, 2]
+    assert fired == [0, 0, 1, 1, 0]
 
 
 def _open(server: LspServer, source: Path, text: str) -> None:

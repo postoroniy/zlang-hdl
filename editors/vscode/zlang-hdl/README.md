@@ -1,5 +1,11 @@
 # ZLang HDL for Visual Studio Code
 
+The Linux-x64 waveform workspace provides a hierarchy browser, grouped signals,
+multiple time viewports, A/B cursors, bookmarks, digital measurements, and
+portable `.zvw.json` sessions for saved VCD/FST and live debugger traces. The
+[waveform workspace guide](https://github.com/postoroniy/zlang-hdl/blob/main/docs/waveform-workspace.md)
+explains its controls, sessions, and event-time semantics.
+
 Lightweight Community editing support for ZLang HDL `.zhl` files:
 
 - syntax highlighting for types, generics, state, protocols and verification;
@@ -70,6 +76,17 @@ semantic authority.
 
 ## Build and install locally
 
+From the repository root, `make editor-install` builds a fresh, audited VSIX
+from this checkout and installs it with `code --install-extension ... --force`.
+Linux x86-64 includes the native debugger/viewer; other hosts get editor/LSP
+support only. `make venv` also runs this step on local hosts with `code` on PATH
+(not in CI); opt out with `INSTALL_EDITOR=0`. Node.js 22 is required for building.
+Set `VSCODE=/path/to/code` to select another CLI executable.
+
+After installation, run **Developer: Reload Window** and close/reopen waveform
+tabs. Installing another VSIX does not replace JavaScript in an already open
+webview. The extension version alone is not a build identity.
+
 From a repository checkout, use Node 22 and the checked-in dependency lockfile.
 The extension supports the current stable VS Code release and later compatible
 1.x releases; the checked toolchain currently names VS Code 1.141.0. Build tools
@@ -128,21 +145,24 @@ does not invent test vectors. Keep stable project stimulus under
 `simulation/`, or put transient/generated schedules under ignored `build/`
 output.
 
-After installing the matching native wheel and Linux-x64 VSIX, save all `.zhl`
-files and add a launch configuration:
+The source clone includes `.vscode/launch.json` and
+`examples/rule_action.events.jsonl`. After installing the matching native wheel
+and Linux-x64 VSIX, open the repository folder, save all `.zhl` files, select
+**Debug RuleAction**, and press **F5**. In another workspace, add a matching
+launch configuration:
 
 ```json
 {
   "type": "zlang-hdl",
   "request": "launch",
-  "name": "Debug ZLang HDL",
+  "name": "Debug RuleAction",
   "program": "${workspaceFolder}/examples/rule_action.zhl",
   "top": "RuleAction",
-  "events": "${workspaceFolder}/build/rule-action-events.jsonl",
+  "events": "${workspaceFolder}/examples/rule_action.events.jsonl",
   "logicState": true,
   "strictUninitialized": false,
   "initialRegisters": {},
-  "traceSignals": ["fired", "count"],
+  "traceSignals": ["enable", "fired", "count"],
   "stopOnEntry": true
 }
 ```
@@ -153,6 +173,9 @@ clock `edges`, and a positive bounded `repeat`. Instead of `events`, a simple
 launch may provide `clock` plus bounded `cycles`; the two forms are mutually
 exclusive.
 
+Click the source gutter or press **F9** on a rule such as `when enable` in
+`examples/rule_action.zhl`, then use **F5 / Continue** to stop after it fires.
+No `debug.allowBreakpointsEverywhere` setting is required.
 Source breakpoints are verified only on compiler-published rules, FSM
 transitions, and verification clauses. One step completes one atomic hardware
 event. Registers and memories are read-only; inputs may be changed while
@@ -164,6 +187,22 @@ troubleshooting are in
 [`docs/native-debugging.md`](https://github.com/postoroniy/zlang-hdl/blob/main/docs/native-debugging.md).
 
 ## Waveform viewer
+
+While native simulation is paused, right-click a value or field in **Variables**
+or **Watch** and choose **Add to Waveform**. The live panel opens with typed
+rows: enums retain their member codes, aggregates expose fields/indices, and
+tagged unions distinguish active, inactive and unknown variants. Interfaces
+appear as channel groups with individual field directions, not packed structs.
+For memory, select individual cells or their fields. Recording starts at the
+next event; restart for full history. See the [debugging guide](https://github.com/postoroniy/zlang-hdl/blob/main/docs/native-debugging.md#live-and-saved-waveforms)
+for the complete workflow and the raw-metadata boundary of saved VCD/FST files.
+
+Live views have the same row presentation, groups, clipboard, search, cursors,
+measurements and split viewports as saved files. **Save Session / Load Session**
+also support explicit live layout templates. Workspace autosave restores live
+arrangements after reopening, and restart clears samples without discarding
+groups or styles. **Refresh** never executes a simulation event. **Add signals**
+opens the trace selector; **Export Trace** saves FST/VCD for later inspection.
 
 The Linux-x64 package opens `.fst` and `.vcd` files in the ZLang HDL waveform
 editor. FST is preferred for compact native traces; VCD remains supported for
@@ -203,7 +242,15 @@ From the repository root:
 ```sh
 .venv/bin/python -m pytest -q tests/editor tests/conformance
 npm --prefix editors/vscode/zlang-hdl test
+make editor-static
 ```
+
+`npm test` and both VSIX packaging commands run the static gate first. `make editor-static`
+reruns only that gate using the installed locked editor dependencies. It checks
+syntax, undefined names and unused locals/parameters in the Node modules and
+the composed, unminified browser runtime. Cross-domain browser references are
+resolved together; application names are not globally exempted. The pinned
+parser is a development dependency and is not included in either VSIX.
 
 Tests reuse `examples/all_syntax.zhl` and compiler-owned capability metadata.
 Real TextMate/Oniguruma tests cover nested generic calls, complete operators,

@@ -61,6 +61,8 @@ class LogicVector:
 
     @classmethod
     def filled(cls, bit: LogicBit, width: int) -> "LogicVector":
+        if not isinstance(bit, LogicBit):
+            raise ValueError("filled logic value must be a LogicBit")
         mask = (1 << width) - 1
         if bit is LogicBit.ZERO:
             return cls(width, 0, 0)

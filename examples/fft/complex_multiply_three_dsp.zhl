@@ -1,0 +1,35 @@
+// Same exact source operation, different implementation budgets.
+// Bounded bilinear exploration shares products across both result components.
+import std.math.complex
+
+module ComplexMultiply3DSP {
+    clock clk reset rst
+    in a, b : Complex<s16>
+    out product : Complex<s33>
+
+    product = implement {
+        a * b
+        intent {
+            dsp <= 3
+            latency == 1
+            ii == 1
+            minimize lut
+        }
+    }
+}
+
+module ComplexMultiply4DSP {
+    clock clk reset rst
+    in a, b : Complex<s16>
+    out product : Complex<s33>
+
+    product = implement {
+        a * b
+        intent {
+            latency == 1
+            ii == 1
+            dsp == 4
+            minimize lut
+        }
+    }
+}

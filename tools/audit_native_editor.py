@@ -18,7 +18,7 @@ import sys
 EXPECTED_CONTRACTS = {
     "debug_adapter": "zlang-debug-adapter-v1",
     "debug_bundle": "zlang-native-debug-bundle-v1",
-    "waveform_query": "zlang-waveform-query-v2",
+    "waveform_query": "zlang-waveform-query-v3",
     "waveform_trace": "zlang-waveform-trace-v1",
 }
 EXPECTED_EXECUTABLES = (
@@ -62,6 +62,10 @@ def _audit_elf(path: Path) -> None:
             raise NativeEditorAuditError(
                 f"{path.name} contains a private build/source path marker"
             )
+    if re.search(rb"(?:[A-Za-z0-9_-]+-core|debug-adapter|waveform-indexer)/src/", payload):
+        raise NativeEditorAuditError(
+            f"{path.name} contains a private workspace source path"
+        )
     try:
         completed = subprocess.run(
             ("readelf", "-d", str(path)),
@@ -126,6 +130,23 @@ def audit_native_editor(
                 f"native editor identity is stale: {record['name']}"
             )
         _audit_elf(executable)
+        expected = EXPECTED_CONTRACTS[
+            "debug_adapter" if record["name"] == "zlang-debug-adapter"
+            else "waveform_query"
+        ]
+        try:
+            version = subprocess.run(
+                (str(executable), "--version"), check=False,
+                capture_output=True, text=True, timeout=10,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise NativeEditorAuditError(
+                f"cannot inspect {record['name']} protocol: {exc}"
+            ) from exc
+        if version.returncode != 0 or version.stdout.strip() != expected:
+            raise NativeEditorAuditError(
+                f"native editor executable protocol mismatch: {record['name']}"
+            )
         accepted.append({"name": record["name"], "sha256": digest, "size": size})
     notice = native["third_party_licenses"]
     if not isinstance(notice, dict) or set(notice) != {"path", "sha256"}:

@@ -43,7 +43,12 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", required=True, type=Path)
     parser.add_argument("--venv", type=Path)
-    parser.add_argument("--quarantine-stale-metadata", action="store_true")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
+        "--bootstrap", action="store_true",
+        help="validate interpreter ownership before project dependencies are installed",
+    )
+    mode.add_argument("--quarantine-stale-metadata", action="store_true")
     parser.add_argument("--tmp-root", type=Path)
     arguments = parser.parse_args(argv)
     root = arguments.root.resolve()
@@ -67,7 +72,7 @@ def main(argv: list[str] | None = None) -> int:
     venv = arguments.venv.resolve()
 
     stale_metadata = _stale_checkout_metadata(root)
-    if stale_metadata:
+    if stale_metadata and not arguments.bootstrap:
         parser.error(
             "stale checkout distribution metadata can shadow the local venv: "
             f"{stale_metadata[0]}; run 'make venv' to quarantine it below build/tmp"
@@ -80,11 +85,16 @@ def main(argv: list[str] | None = None) -> int:
             "Python is not running from the requested local virtual environment; "
             "run 'make venv' then 'source .venv/bin/activate'"
         )
+    if sys.implementation.name != "cpython" or not (3, 12) <= sys.version_info < (3, 13):
+        parser.error("this worktree requires CPython 3.12; preserve the incompatible venv and rerun 'make venv'")
     executable = Path(sys.executable).absolute()
     try:
         executable.relative_to(venv)
     except ValueError:
         parser.error("Python executable is not below the local virtual environment")
+
+    if arguments.bootstrap:
+        return 0
 
     import zlang
 

@@ -617,6 +617,10 @@ class _SemanticEquivalenceCandidateVerifierBase:
                     "semantic-reference equivalence physical candidate has an invalid implementation graph"
                 )
             recipe["physical_graph_identity"] = physical_graph.identity
+            from zlang.formal_joint_value import rtl_arithmetic_policy
+            policy = rtl_arithmetic_policy(physical_graph, config.solver)
+            if policy is not None:
+                tool_route["rtl_arithmetic"] = policy
         return self.artifact_provider.get_or_prepare(
             FormalArtifactNamespace.SEMANTIC_EQUIVALENCE,
             "direct-systemverilog-candidate-equivalence-preparation-v1",
@@ -659,9 +663,13 @@ class _SemanticEquivalenceCandidateVerifierBase:
                 "semantic-reference equivalence candidate/reference canonical types differ"
             )
         if isinstance(implementation.type, (StructType, TupleType, VecType)):
-            raise FormalCandidateUnavailable(
-                "semantic-reference equivalence formal-aware exploration currently requires a scalar result"
-            )
+            from zlang.formal_joint_value import flatten_joint_equivalence
+            try:
+                reference, implementation, physical_module, physical_graph = flatten_joint_equivalence(
+                    reference, implementation, physical_module, physical_graph,
+                )
+            except ValueError as error:
+                raise FormalCandidateUnavailable(str(error)) from error
         inputs = _input_refs(implementation)
         reference_inputs = _input_refs(reference)
         if inputs != reference_inputs:
@@ -848,6 +856,8 @@ class _SemanticEquivalenceCandidateVerifierBase:
                 "ii": property_.implementation_ii,
             }
         )
+        from zlang.formal_joint_value import rtl_arithmetic_policy
+        arithmetic_policy = rtl_arithmetic_policy(physical_graph, config.solver)
         return PreparedCandidateEquivalence(
             property_,
             source,
@@ -862,6 +872,7 @@ class _SemanticEquivalenceCandidateVerifierBase:
                 "rtl_build_identity": implementation_artifact.build_identity,
                 "reference_build_identity": reference_artifact.build_identity,
                 "manifest_version": implementation_artifact.manifest_version,
+                **({"rtl_arithmetic": arithmetic_policy} if arithmetic_policy else {}),
             }),
             "direct_systemverilog",
             reference_artifact,
@@ -898,6 +909,8 @@ class SemanticEquivalenceDirectSystemVerilogCandidateVerifier(_SemanticEquivalen
             or dependency_context_identity(candidate)
         )
         physical_graph = getattr(candidate, "implementation_graph", None)
+        from zlang.formal_joint_value import rtl_arithmetic_policy
+        arithmetic_policy = rtl_arithmetic_policy(physical_graph, config.solver)
         return {
             "schema": "zlang-semantic_equivalence-direct-systemverilog-proof-bundle-v1",
             "rtl_naming": RTL_NAMING_SCHEMA,
@@ -920,6 +933,7 @@ class SemanticEquivalenceDirectSystemVerilogCandidateVerifier(_SemanticEquivalen
                 if isinstance(physical_graph, ImplementationGraph)
                 else None
             ),
+            **({"rtl_arithmetic": arithmetic_policy} if arithmetic_policy else {}),
         }
 
     def cache_identity(
@@ -986,6 +1000,8 @@ class SemanticEquivalenceDirectSystemVerilogCandidateVerifier(_SemanticEquivalen
             expected_mode,
         )
         with manager:
+            from zlang.formal_joint_value import rtl_arithmetic_policy
+            arithmetic_policy = rtl_arithmetic_policy(bundle.implementation_artifact.implementation, config.solver)
             result = run_equivalence_formal(
                 bundle.property,
                 bundle.source,
@@ -1002,6 +1018,7 @@ class SemanticEquivalenceDirectSystemVerilogCandidateVerifier(_SemanticEquivalen
                 timeout_seconds=config.timeout_seconds,
                 work_directory=work_directory,
                 trace_metadata=bundle.trace_metadata,
+                **({"rtl_arithmetic": True} if arithmetic_policy else {}),
             )
         return {
             "status": FormalStatus(result.status.value),

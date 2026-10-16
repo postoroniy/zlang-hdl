@@ -10,12 +10,24 @@ const {
   hostLaunchArguments,
 } = require('./run-host-smoke.cjs');
 const { waveformHtml } = require('../waveform_view');
+const { WaveformTileCache } = require('../waveform_cache');
+const { waveformSearchBounds } = require('../waveform_navigation');
+const { waveformMeasurement } = require('../waveform_measurement');
+const {
+  WAVEFORM_SESSION_SCHEMA, rebindSessionLayout, serializeSessionLayout,
+} = require('../waveform_session');
 
 async function main() {
   const first = await buildBundle();
   const second = await buildBundle();
   assert.equal(sha256(first.bytes), sha256(second.bytes), 'runtime bundle is not deterministic');
   assert.deepEqual(first.bytes, second.bytes, 'runtime bundle bytes changed between builds');
+  assert.deepEqual(first.waveform, second.waveform, 'waveform browser bundle is not deterministic');
+  assert.ok(first.waveform.length < 150_000);
+  assert.equal(first.waveform.includes('sourceMappingURL='), false);
+  assert.equal(first.waveform.includes('waveformProfile'), false,
+    'private browser profiling probes must not enter the packaged waveform');
+  assert.equal(first.waveform.includes('/home/'), false);
   assert.ok(first.bytes.length < 600_000, `runtime bundle is unexpectedly large: ${first.bytes.length}`);
   const text = first.bytes.toString('utf8');
   assert.equal(text.includes('sourceMappingURL='), false);
@@ -46,17 +58,40 @@ async function main() {
     '--install-extension', '/tmp/zlang-hdl.vsix', '--force',
     '--extensions-dir', '/tmp/extensions',
   ]);
-  const waveform = waveformHtml();
+  assert.deepEqual(waveformSearchBounds(3.6, 0, 21, false), { start: 4, end: 21 });
+  assert.deepEqual(waveformSearchBounds(3.6, 0, 21, true), { start: 0, end: 3 });
+  assert.deepEqual(waveformSearchBounds(4, 0, 21, false), { start: 5, end: 21 });
+  assert.deepEqual(waveformSearchBounds(4, 0, 21, true), { start: 0, end: 3 });
+  assert.equal(waveformSearchBounds(21, 0, 21, false), null);
+  assert.equal(waveformSearchBounds(0, 0, 21, true), null);
+  assert.equal(WAVEFORM_SESSION_SCHEMA, 'zlang-waveform-session-v1');
+  const cache = new WaveformTileCache(48);
+  cache.set('a', { value: 'one' });
+  cache.set('b', { value: 'two' });
+  assert.deepEqual(cache.get('a'), { value: 'one' });
+  cache.set('c', { value: 'a payload which forces deterministic eviction' });
+  assert.ok(cache.bytes <= 48);
+  const catalog = [{ id: 'v1', name: 'Top.count', width: 8 }];
+  const serialized = serializeSessionLayout([
+    { id: 'row-1', type: 'signal', signalId: 'v1', format: 'unsigned' },
+  ], new Map(catalog.map((item) => [item.id, item])));
+  assert.deepEqual(serialized[0].signal, { name: 'Top.count', width: 8 });
+  assert.equal(rebindSessionLayout(serialized, catalog)[0].signalId, 'v1');
+  assert.equal(rebindSessionLayout(serialized, [])[0].unresolved.name, 'Top.count');
+  const measurement = waveformMeasurement({width:1,start_bits:'0',end_bits:'0',
+    rising:1,falling:1,transitions:2,high_ticks:4,low_ticks:4,unknown_ticks:0},
+  0,8,{time_domain:'zlang_event_ticks',ticks_per_event:2});
+  assert.deepEqual(
+    { rising: measurement.rising, falling: measurement.falling, high: measurement.highTicks,
+      low: measurement.lowTicks, events: measurement.eventDelta },
+    { rising: 1, falling: 1, high: 4, low: 4, events: 4 },
+  );
+  const waveform = waveformHtml(first.waveform.toString('utf8'));
   for (const required of [
-    'Scopes &amp; signals', 'Signal / group', 'Shift+wheel',
-    'function drawViewport(', 'function receiveSearch(', 'function control(',
-    "container.addEventListener('wheel'", 'previousLevel', 'function revealTime(',
-    'function beginMiddlePan(', 'function moveMiddlePan(', 'function setVerticalScroll(',
-    'middle drag', "container.addEventListener('auxclick'", 'middlePanning',
-    'selectedSignalId', 'function selectSignalAtY(', 'function signalIdsForChangeJump(',
-    'signal: all displayed', 'selected change',
-    'Jump to the next change of any displayed signal',
-    "vscode.postMessage({type:'ready'})",
+    'Design Browser', 'Signal / group', 'Inspector &amp; Measurements', 'Shift+wheel',
+    'middle drag', 'signal: all displayed', 'selected change',
+    'Jump to the next change of the selected signal',
+    'zlang-waveform-session-v1', 'Enter X', 'Enter U',
   ]) assert.ok(waveform.includes(required), `waveform UI omitted ${required}`);
   assert.equal(waveform.includes('/home/'), false);
   const inlineScript = waveform.match(/<script nonce="[^"]+">([\s\S]*?)<\/script>/);

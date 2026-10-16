@@ -54,7 +54,11 @@ class SimulationEventRunner:
             protocol_ports,
             request_responses,
         )
-        encoded, snapshots = self._encode_events(events, external_values)
+        encoded, snapshots = self._encode_events(
+            events,
+            external_values,
+            capture_protocol_values=bool(protocol_ports or request_responses),
+        )
         try:
             raw_results = simulator._native.run_events(encoded)
         except (ValueError, RuntimeError) as error:
@@ -154,6 +158,8 @@ class SimulationEventRunner:
         self,
         events: Iterable[Mapping[str, object]],
         external_values: dict[str, object],
+        *,
+        capture_protocol_values: bool,
     ) -> tuple[list[object], list[dict[str, object]]]:
         encoded_events: list[object] = []
         snapshots: list[dict[str, object]] = []
@@ -176,7 +182,8 @@ class SimulationEventRunner:
             if len(selected_edges) != len(set(selected_edges)):
                 raise SimulationRuntimeError("one event cannot contain a clock twice")
             encoded_events.append((packed_updates, packed_resets, selected_edges))
-            snapshots.append(dict(external_values))
+            if capture_protocol_values:
+                snapshots.append(dict(external_values))
         return encoded_events, snapshots
 
     def _encode_updates(

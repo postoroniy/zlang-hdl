@@ -5,7 +5,7 @@ timing, pipeline, and cost layers.  It does not create new equivalence rules.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field, fields, is_dataclass
+from dataclasses import dataclass, field, fields, is_dataclass, replace
 from enum import Enum
 from hashlib import sha256
 from typing import Any, Callable, Iterable
@@ -16,6 +16,7 @@ from zlang.candidate_expression import (
 )
 from zlang.costs import (
     CandidateCost,
+    MetricValue,
     CostExtractionError,
     ExtractionResult,
     SourcePolicy,
@@ -384,6 +385,18 @@ def explore(
             expand_architectures,
         )
         for parent in candidates:
+            if context is not None:
+                from zlang.bilinear_product import bilinear_pipeline_candidates
+                for joint in bilinear_pipeline_candidates(parent.expression, context):
+                    if joint.latency != 0:
+                        continue
+                    expanded.append(_candidate(
+                        joint.expression, (*parent.stages, joint.name),
+                        CandidateCost.estimate(lut=joint.estimate.lut, dsp=joint.estimate.dsp),
+                        architecture=joint, value_relation=parent.value_relation,
+                        provenance=(*parent.provenance, "bounded parallel bilinear products"),
+                        selected_value_identity=parent.selected_value_identity,
+                    ))
             for architecture in expand_architectures(parent.expression):
                 if architecture.implementation is ArchitectureImplementation.GENERIC:
                     continue
@@ -483,6 +496,10 @@ def explore(
         for parent in candidates:
             pipeline_candidates = []
             pipeline_failures: list[str] = []
+            from zlang.bilinear_product import bilinear_pipeline_candidates
+            pipeline_candidates.extend(bilinear_pipeline_candidates(
+                parent.expression, context, request.root, parent.provenance,
+            ))
             try:
                 generated = explore_pipeline(
                     context.output,
@@ -495,7 +512,8 @@ def explore(
             except PipelineExplorationError as error:
                 pipeline_failures.append(f"specialized: {error}")
             else:
-                pipeline_candidates.extend(generated.candidates)
+                if not pipeline_candidates:
+                    pipeline_candidates.extend(generated.candidates)
             # Preserve the validated sum/product and target-DSP catalog as the
             # specialized architecture family.  The general DAG scheduler is
             # a bounded fallback, not a duplicate replacement catalog.
@@ -574,6 +592,9 @@ def explore(
             complete, termination, truncated, "pipeline expansion"
         )
 
+    if isinstance(request.root, ir_expr.StructConstruct):
+        candidates = [replace(candidate, semantic_identity=source.semantic_identity)
+                      for candidate in candidates]
     try:
         extraction = extract_best(
             candidates,
@@ -724,6 +745,8 @@ def render_result(result: ExplorationResult) -> str:
             f"limited={'yes' if structural.truncated else 'no'}"
         )
     )
+    if structural is not None and structural.value_search:
+        structural_line += "; " + " ".join(f"{key}={value}" for key, value in structural.value_search)
     return "\n".join(
         (
             "Implementation selection: result"
@@ -777,11 +800,18 @@ def _value_candidates(
         candidates: list[ExplorationCandidate] = []
         for alternative in explored.alternatives:
             certificate = alternative.certificate
+            cost = estimate_expression_cost(alternative.expression)
+            if isinstance(alternative.expression, ir_expr.StructConstruct):
+                from zlang.bilinear_product import bilinear_products
+                if bilinear_products(alternative.expression):
+                    # Unbound inferred multiplies do not establish a physical
+                    # zero-DSP guarantee. Retain source but fail closed for DSP budgets.
+                    cost = replace(cost, dsp=MetricValue(None, cost.dsp.source))
             candidates.append(
                 _candidate(
                     alternative.expression,
                     ("source",) if alternative.is_source else ("value",),
-                    estimate_expression_cost(alternative.expression),
+                    cost,
                     value_relation=(
                         "exact_source_value"
                         if certificate is None

@@ -97,6 +97,28 @@ def _native_runtime():
     return _zlang_native_sim
 
 
+def _compiled_native_program(plan: SimulationPlan) -> object:
+    """Reuse exact executable code across native simulation entry points.
+
+    Source provenance remains owned by each caller's current plan/module.
+    Check runtime availability and ABI even on a cache hit; failed compiles
+    never enter the existing bounded LRU.
+    """
+
+    runtime = _native_runtime()
+    cache_key = f"native:{plan.execution_identity}"
+    with _PROGRAM_CACHE_LOCK:
+        native = _PROGRAM_CACHE.get(cache_key)
+        if native is None:
+            native = runtime.compile_plan_bytes(plan.to_bytes())
+            _PROGRAM_CACHE[cache_key] = native
+            while len(_PROGRAM_CACHE) > _PROGRAM_CACHE_ENTRIES:
+                _PROGRAM_CACHE.popitem(last=False)
+        else:
+            _PROGRAM_CACHE.move_to_end(cache_key)
+        return native
+
+
 def write_fst_trace(
     path: Path,
     module: str,
@@ -503,13 +525,6 @@ class Simulator:
             raise SimulationRuntimeError(str(error)) from error
 
     def outputs_logic(self) -> dict[str, LogicVector]:
-        if not self.program.logic_state:
-            return {
-                port.name: self.get_logic(port.name)
-                for port in self._ports.values()
-                if port.direction is PortDirection.OUTPUT
-                and port.protocol is InterfaceProtocol.WIRE
-            }
         return {
             port.name: self.get_logic(port.name)
             for port in self._ports.values()
@@ -737,20 +752,10 @@ def compile(
     else:
         plan = _load_simulation_plan(session)
     _COMPILATION_WORKSPACE.refresh(session)
-    runtime = _native_runtime()
-    cache_key = f"native:{plan.execution_identity}"
-    with _PROGRAM_CACHE_LOCK:
-        native = _PROGRAM_CACHE.get(cache_key)
-        if native is None:
-            try:
-                native = runtime.compile_plan_bytes(plan.to_bytes())
-            except (ValueError, RuntimeError) as error:
-                raise JitUnsupportedFeatureError(str(error)) from error
-            _PROGRAM_CACHE[cache_key] = native
-            while len(_PROGRAM_CACHE) > _PROGRAM_CACHE_ENTRIES:
-                _PROGRAM_CACHE.popitem(last=False)
-        else:
-            _PROGRAM_CACHE.move_to_end(cache_key)
+    try:
+        native = _compiled_native_program(plan)
+    except (ValueError, RuntimeError) as error:
+        raise JitUnsupportedFeatureError(str(error)) from error
     return Program(
         plan=plan,
         module=session.planning.module,

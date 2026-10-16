@@ -1,5 +1,5 @@
 {
-  "config_sha256": "eadee384d5f7a1096d6b01c919c7352be2aef6ce959cd29867f55513508d6d2d",
+  "config_sha256": "7ffc8208c5f6a2bdb13d4bb7ae88c92fa746b07bcc3e2fd2da08d55c2b58f49e",
   "files": [
     {
       "mode": "0644",
@@ -94,7 +94,7 @@
     {
       "mode": "0644",
       "path": ".gitignore",
-      "sha256": "83387f2b65712ecab53a31356b41fc56a58b7d919eb4f834f3191cb10b704488"
+      "sha256": "137ed8051ee0a51e7d23e907ea1d6a4d5076796c2b3efc4cb1692a867590ead5"
     },
     {
       "mode": "0644",
@@ -133,6 +133,11 @@
     },
     {
       "mode": "0644",
+      "path": ".vscode/launch.json",
+      "sha256": "11d528501ad59c8afc7afb7aaecea8f6169c054bc82ba20f875c91fd414a6d1b"
+    },
+    {
+      "mode": "0644",
       "path": ".vscode/settings.json",
       "sha256": "0e929d6834897dad4e0e1f7bfa933e5459f59289b9868c10a6948639dbe9e9a2"
     },
@@ -144,7 +149,7 @@
     {
       "mode": "0644",
       "path": "CHANGELOG.md",
-      "sha256": "186ef5b484a50fc2156c78bd68bb5cfb4613cbd10dd150a3160e95cb8d34e7e6"
+      "sha256": "bfbba587f1b8d7ff15b5dcf17a45102da6033e4e0fe704841c033f49ed82add8"
     },
     {
       "mode": "0644",
@@ -189,7 +194,7 @@
     {
       "mode": "0644",
       "path": "Makefile",
-      "sha256": "5114b639d9513ce165093d964088e47455a3a0346e63cfda34fea1a556711831"
+      "sha256": "9cebc256520126e2849a6b72e98b4849fa2cfe234fb68d302d0695611cbef34a"
     },
     {
       "mode": "0644",
@@ -199,12 +204,12 @@
     {
       "mode": "0644",
       "path": "README.md",
-      "sha256": "5effd76d1eb93d40aff03540525ea9606b8e12ca22141e006e3a62582682e26f"
+      "sha256": "eb09a5b2081d335ab10ce0be221920ad2354b6deb25ba70e5ef9544ce51d3aa4"
     },
     {
       "mode": "0644",
       "path": "REUSE.toml",
-      "sha256": "f9221fcc16b359ef38ca3bf7069ce8d2467faf8974c5a0ee09661abd4d3273fe"
+      "sha256": "759f4731303ad4173a22659707a5d1283ae80e2ae4f1b281d211349c88cc9393"
     },
     {
       "mode": "0644",
@@ -224,7 +229,7 @@
     {
       "mode": "0644",
       "path": "docs/ZLang-HDL-Language-Reference.pdf",
-      "sha256": "9f7ac06b4bf7ec554a811a68098c140473dbd75ec93bb6d46713fdc65022a038"
+      "sha256": "4fdcc4f8fca6608edb543522ca4ebc471496bc839295c10f510c36f41cca8ecf"
     },
     {
       "mode": "0644",
@@ -239,7 +244,7 @@
     {
       "mode": "0644",
       "path": "docs/language-reference.md",
-      "sha256": "7489e20eaaa868b3414f8353be773165402fb80585510d9d2359bc01b1fc82bf"
+      "sha256": "df427e83b1855ccdb824669229385227a1c5aa02daddf71ba5f978638fb12f79"
     },
     {
       "mode": "0644",
@@ -264,7 +269,7 @@
     {
       "mode": "0644",
       "path": "docs/native-debugging.md",
-      "sha256": "36373d1a3c3dff4d2f165968445516757757090c4b0ab26c552b73c7d3dd379e"
+      "sha256": "6113ab24c7947570992ff251ac310e53787f601a0fc7ca675e8833f243d57b5e"
     },
     {
       "mode": "0644",
@@ -284,7 +289,7 @@
     {
       "mode": "0644",
       "path": "docs/reference/04-simulation-verification.md",
-      "sha256": "0eaac74de2f02dcc0fb0b7dfa7649d7ca6858a393afdacef23e4240739b24c20"
+      "sha256": "951bc79a647d17b20d8adff79372474981f283df921f5bc2bdfff517ebb58888"
     },
     {
       "mode": "0644",
@@ -354,7 +359,7 @@
     {
       "mode": "0644",
       "path": "docs/release-process.md",
-      "sha256": "aced8431eb997c510115f74064cfb132437277e1d8f464404ae44a8cf6a1b9dd"
+      "sha256": "a2839bf67222b1c8a8190ec29e1404a0a27af9bcc65add7ef83e6ed09874ea4b"
     },
     {
       "mode": "0644",
@@ -398,18 +403,28 @@
     },
     {
       "mode": "0644",
+      "path": "docs/waveform-workspace.md",
+      "sha256": "bc075cef048875c88587668492c53e089d853d8561c6f9e3261828f685bdf880"
+    },
+    {
+      "mode": "0644",
       "path": "editors/vscode/zlang-hdl/CHANGELOG.md",
       "sha256": "4dbfc269ce1135e63d8589d4effaf1c843c631e96d288f38d051230bc3dbc7ca"
     },
     {
       "mode": "0644",
       "path": "editors/vscode/zlang-hdl/README.md",
-      "sha256": "f12bf955ed075134038dd550326c157661b54d8d2bb4d2eecb25ccc0d3f47cbb"
+      "sha256": "c4c61f26a489e8d53b28d1303b456c313a94f41e45f8f21448e6cb21bc33af85"
+    },
+    {
+      "mode": "0644",
+      "path": "editors/vscode/zlang-hdl/debug_waveform.js",
+      "sha256": "e8dd88e8f36b71081dea3f16d70c941016bf8bb8173354b67dddcee6d3923263"
     },
     {
       "mode": "0644",
       "path": "editors/vscode/zlang-hdl/editor-toolchain.json",
-      "sha256": "dc4bc9b3a422e49b57aed8186acf68b51687a7933b55a92fbb276d858e3e6c78"
+      "sha256": "953e98a9842b1ee68dfcfabb993deb40c087824115ff90e67f7bc630b3d8ef10"
     },
     {
       "mode": "0644",
@@ -419,7 +434,7 @@
     {
       "mode": "0644",
       "path": "editors/vscode/zlang-hdl/extension.js",
-      "sha256": "8533613054196d6f4b012d121724a1ba02004c37ebc83756095f40e688a2f90e"
+      "sha256": "56d1e07f451ad565a996283293601996d2da49615a97fe1e737019be85fd62ee"
     },
     {
       "mode": "0644",
@@ -429,12 +444,12 @@
     {
       "mode": "0644",
       "path": "editors/vscode/zlang-hdl/package-lock.json",
-      "sha256": "0003de5596e27b6c8b83b0b0544221794291c5fe4e393e5e97c881494d4c2f29"
+      "sha256": "55fb44faa203ace001709a55f0aade4ff640d87f4b82cf1730d06b73dc30e949"
     },
     {
       "mode": "0644",
       "path": "editors/vscode/zlang-hdl/package.json",
-      "sha256": "5903815a662a184282ae20f2f4d28fde21bcbc4bfb75328647469940232cf454"
+      "sha256": "b6f2dd54eb2869e3baca657ca203e581fe53b5a392f68a7e82d2ee5565198cef"
     },
     {
       "mode": "0644",
@@ -459,12 +474,12 @@
     {
       "mode": "0644",
       "path": "editors/vscode/zlang-hdl/test/bundle.cjs",
-      "sha256": "9819c46e2094c8c742e2f3084977481b9aaf999d4761aa4dda93f14721c8888e"
+      "sha256": "1bd5004c8f699ffa697bababd8a4599ed20242ac202999ab121538a817d64e88"
     },
     {
       "mode": "0644",
       "path": "editors/vscode/zlang-hdl/test/bundle.test.cjs",
-      "sha256": "23e032587f2848bf9966140a6c1b0ca196090b70003e6004a3114da86e7a32fa"
+      "sha256": "3337dde4ee6c861e6c957e60f03d2d38425285ed29cb40db9a7324aa02cc44a1"
     },
     {
       "mode": "0644",
@@ -473,18 +488,43 @@
     },
     {
       "mode": "0644",
+      "path": "editors/vscode/zlang-hdl/test/debug-waveform.test.cjs",
+      "sha256": "123715e9a8e3609bd3638bb9ae756a5605e123b71c13d96b89578f8cab898e7f"
+    },
+    {
+      "mode": "0644",
+      "path": "editors/vscode/zlang-hdl/test/host-log.test.cjs",
+      "sha256": "eb9d39df5686ce9d9437c929111443a5941e297c59c7e460bf8ef47415551815"
+    },
+    {
+      "mode": "0644",
       "path": "editors/vscode/zlang-hdl/test/host-smoke.cjs",
-      "sha256": "2ede95f9dbafbb2d464920f8a026b49bfcdf89b210bf3aad8153cd1820854b34"
+      "sha256": "b12a5a3d24f195ca6289c6198f1a7692e67a2becc4e2517fadf3350f7c5ae02f"
+    },
+    {
+      "mode": "0644",
+      "path": "editors/vscode/zlang-hdl/test/javascript-static.cjs",
+      "sha256": "da0fbcc8f1d6ec71c1cb71e2bd0b455b27a750684365cae97fd54920c21e6d5a"
+    },
+    {
+      "mode": "0644",
+      "path": "editors/vscode/zlang-hdl/test/javascript-static.test.cjs",
+      "sha256": "76c2dc1237819f86e833dd8d13bb5f30239304ac57f095e9317be2d1e8ee1984"
     },
     {
       "mode": "0644",
       "path": "editors/vscode/zlang-hdl/test/package.cjs",
-      "sha256": "a8bb2c08fa6283635d01ab37e9d34d2f12154b242f1b1c2b38f9874096f5cef3"
+      "sha256": "f9465ca513ecc0b43bf9726e308afb335fc37691485f1452b0f3ce0b3d206e66"
+    },
+    {
+      "mode": "0644",
+      "path": "editors/vscode/zlang-hdl/test/rule-action-host.cjs",
+      "sha256": "f44463756578432feca7ac3fab262a0e087d7e1855491cc70df71b5bef1f4753"
     },
     {
       "mode": "0644",
       "path": "editors/vscode/zlang-hdl/test/run-host-smoke.cjs",
-      "sha256": "c9d7157e3e4427caabef736a5b56a76f07191d696122684376fb855861801322"
+      "sha256": "d1fc1323d4955dafed2eb63e51dc782ff68611632bee582065dd06478f64deb1"
     },
     {
       "mode": "0644",
@@ -493,23 +533,203 @@
     },
     {
       "mode": "0644",
+      "path": "editors/vscode/zlang-hdl/test/typed-waveform-browser.cjs",
+      "sha256": "859df8bb2f92e0f70cfe862129e9823e1285cfae91af9d1b1528ca0822ac15aa"
+    },
+    {
+      "mode": "0644",
+      "path": "editors/vscode/zlang-hdl/test/typed-waveform-host.cjs",
+      "sha256": "e33782a994188335066339bb83596bee8ce4243c4245882fe571e1847459f0de"
+    },
+    {
+      "mode": "0644",
+      "path": "editors/vscode/zlang-hdl/test/waveform-assets.cjs",
+      "sha256": "81269fe4fe34eb14a761353110851dcb9a39065ae4ec71575396ef5712ad4c7e"
+    },
+    {
+      "mode": "0644",
+      "path": "editors/vscode/zlang-hdl/test/waveform-browser.cjs",
+      "sha256": "7b478e2ebc85f17f4b403ae3030dfa82db2c76dcbcf9238de9d64e812b32d20d"
+    },
+    {
+      "mode": "0644",
+      "path": "editors/vscode/zlang-hdl/test/waveform-client-native.cjs",
+      "sha256": "aa47914b7f270a05a58a72ce19c2a58ef2ced0efb7ab65c07c612bce70791be5"
+    },
+    {
+      "mode": "0644",
+      "path": "editors/vscode/zlang-hdl/test/waveform-client.test.cjs",
+      "sha256": "8c658ddad95627bd2d1f67838b73de3f003a54d416968c1f80316cfc65a45e9c"
+    },
+    {
+      "mode": "0644",
+      "path": "editors/vscode/zlang-hdl/test/waveform-clipboard.test.cjs",
+      "sha256": "f37ba8c406fea7579910c4ba00e72e44590d809ddf8052ae834354977b76aa1a"
+    },
+    {
+      "mode": "0644",
+      "path": "editors/vscode/zlang-hdl/test/waveform-fixtures.cjs",
+      "sha256": "969a952f27d1bdafb9eb7284ce31d64b3e1ff555c96c51f32b87727148a10842"
+    },
+    {
+      "mode": "0644",
+      "path": "editors/vscode/zlang-hdl/test/waveform-host.cjs",
+      "sha256": "40aee68e93c97c78f8865545ca74f9f956d00d8b8d1be317c1296b75225bce73"
+    },
+    {
+      "mode": "0644",
+      "path": "editors/vscode/zlang-hdl/test/waveform-live-ui.test.cjs",
+      "sha256": "7d74b5b2bc324e96c8cb2f4d5f8349ebb052727e7f195e62d5b742f363ffd8dd"
+    },
+    {
+      "mode": "0644",
+      "path": "editors/vscode/zlang-hdl/test/waveform-model.test.cjs",
+      "sha256": "7ef16cd23c264565c57f8c1e85068e10ac622f311c205570e4fd2def607bacf2"
+    },
+    {
+      "mode": "0644",
+      "path": "editors/vscode/zlang-hdl/test/waveform-pan.cjs",
+      "sha256": "8f7c728ec702277f96d95b0c12a40035a4b045ff09996124e90ba528b094f0ba"
+    },
+    {
+      "mode": "0644",
       "path": "editors/vscode/zlang-hdl/test/wcp.test.cjs",
-      "sha256": "4dc28bfbdb91d25c103c2f2eaf16a35f82c1ab4693bb4bad7f0238142edcc5c4"
+      "sha256": "c091554740bf9d5db0d2826d5b6a9b5b41bbf2e5148e3d7bf4c5e3998b04be1b"
+    },
+    {
+      "mode": "0644",
+      "path": "editors/vscode/zlang-hdl/waveform_app.js",
+      "sha256": "affbced2762628be7fe8d2087f29751e51d4989ae877a7cec946ca389423471a"
+    },
+    {
+      "mode": "0644",
+      "path": "editors/vscode/zlang-hdl/waveform_browser.js",
+      "sha256": "5c07bb6b0e843e75e66d7ce375b0cbf5300f53d8cecb627a26a446dcc0ed4ae3"
+    },
+    {
+      "mode": "0644",
+      "path": "editors/vscode/zlang-hdl/waveform_cache.js",
+      "sha256": "9909525189cf37cad3e183cae7661eb1a359bfa268dcf679793a86adfd45c9d2"
+    },
+    {
+      "mode": "0644",
+      "path": "editors/vscode/zlang-hdl/waveform_channel.js",
+      "sha256": "e6741159528fc747032a9b007af18e977043b5192049f56d5d001f000cac4f61"
     },
     {
       "mode": "0644",
       "path": "editors/vscode/zlang-hdl/waveform_client.js",
-      "sha256": "7d03fc616d7dd7ff447a296f1f2ae86d8570a1e2767711b49b7df7714c47c54c"
+      "sha256": "6efa45fe3317339f265189f1122a26c6dd1227942b4036f6d26b7dfb94853ca5"
+    },
+    {
+      "mode": "0644",
+      "path": "editors/vscode/zlang-hdl/waveform_clipboard.js",
+      "sha256": "6a07e3ae1cfc2513c565e31625c9077cfd0e1801a71d1971b8e75647daf78027"
+    },
+    {
+      "mode": "0644",
+      "path": "editors/vscode/zlang-hdl/waveform_clipboard_ui.js",
+      "sha256": "3acd2fdd895c7c36151726e98f352e8730d3082cf6151ea4e69068faa2734c96"
+    },
+    {
+      "mode": "0644",
+      "path": "editors/vscode/zlang-hdl/waveform_controls.js",
+      "sha256": "bfb52f5da883a7a07973781fc4ebf38d980d32c9bb990863cc781a0e67174c2c"
+    },
+    {
+      "mode": "0644",
+      "path": "editors/vscode/zlang-hdl/waveform_dialog.js",
+      "sha256": "9203c220305e7951c6faf0d6fb0108b2052a6fcc68dcd9147cef7c35f45d2a86"
+    },
+    {
+      "mode": "0644",
+      "path": "editors/vscode/zlang-hdl/waveform_document.js",
+      "sha256": "27eafc0e8b3ab45a2b4c2cfbb456c0c40cbe4e317afcb7d45b0aeb62be52ffd0"
+    },
+    {
+      "mode": "0644",
+      "path": "editors/vscode/zlang-hdl/waveform_holders.js",
+      "sha256": "b04ccc19fd227f6d8d4e25cc1bfb8163283bf0f541765a68dde9cb49a0bb3b83"
+    },
+    {
+      "mode": "0644",
+      "path": "editors/vscode/zlang-hdl/waveform_inspector.js",
+      "sha256": "dea33a7001111afb57c836bf8f54cfa2fecb0d45cf62c3b1fbe1a73c504e1434"
+    },
+    {
+      "mode": "0644",
+      "path": "editors/vscode/zlang-hdl/waveform_live.js",
+      "sha256": "39d2acaf664031fa760a0d7712f2abab6ea17dfce16e7959ea8ecf0c429e3f7f"
+    },
+    {
+      "mode": "0644",
+      "path": "editors/vscode/zlang-hdl/waveform_live_ui.js",
+      "sha256": "23eb36276ca98fdbc298cda2185ca4113321139b91ec16e820fad60120f3bfb7"
+    },
+    {
+      "mode": "0644",
+      "path": "editors/vscode/zlang-hdl/waveform_measurement.js",
+      "sha256": "06444a11be07ebf7fdbd1559baba83d25d02073ef511915123facde78582a105"
+    },
+    {
+      "mode": "0644",
+      "path": "editors/vscode/zlang-hdl/waveform_navigation.js",
+      "sha256": "59b58efdaa0968f1c2e5bc7685bfaea04732aea1cac661c47ebb55ff724e5f65"
+    },
+    {
+      "mode": "0644",
+      "path": "editors/vscode/zlang-hdl/waveform_presentation.js",
+      "sha256": "2ca78d97101f6306c55a6e7c9d9dfe07fff3b633a18b90c45530894b5b728e72"
+    },
+    {
+      "mode": "0644",
+      "path": "editors/vscode/zlang-hdl/waveform_queries.js",
+      "sha256": "4b91821f7977fe1373e32041dee41dd00c425228e7a7feaeb6b5f0475f571d1f"
+    },
+    {
+      "mode": "0644",
+      "path": "editors/vscode/zlang-hdl/waveform_renderer.js",
+      "sha256": "bdb88aaea2a73bdbfed5c6097fe32f79c3edbd37603d0c33488c7e57495e4b1d"
+    },
+    {
+      "mode": "0644",
+      "path": "editors/vscode/zlang-hdl/waveform_rows.js",
+      "sha256": "482ed8dd8290f671571e64375c55a0f371eba5698254eec217592e65047f19e6"
+    },
+    {
+      "mode": "0644",
+      "path": "editors/vscode/zlang-hdl/waveform_session.js",
+      "sha256": "de1234175ab575569304753b968a16ac89a87154970d3ea0a3da9d5e8d3c443f"
+    },
+    {
+      "mode": "0644",
+      "path": "editors/vscode/zlang-hdl/waveform_session_io.js",
+      "sha256": "e0bf27692033c3092043d29f007e0e063901172f94226c4ce13256edc9ffb469"
+    },
+    {
+      "mode": "0644",
+      "path": "editors/vscode/zlang-hdl/waveform_session_ui.js",
+      "sha256": "472c8f9be9be003534f4d16d2580bbfc5fe7fa9a0077c4af182e05d899f2e8b4"
     },
     {
       "mode": "0644",
       "path": "editors/vscode/zlang-hdl/waveform_view.js",
-      "sha256": "616b3dc699226a6dc4d804f11184381546655876c1c0c558437ea34470b078e0"
+      "sha256": "4aa7002acec700de510b7a48f0f994d6076031226ec4d9dec166f30976dd9bb4"
+    },
+    {
+      "mode": "0644",
+      "path": "editors/vscode/zlang-hdl/waveform_viewport.js",
+      "sha256": "cc8d7ee81e13b4443ab73ef926f97ffddcfecaf7b9df6092801398af1b14bfa5"
     },
     {
       "mode": "0644",
       "path": "editors/vscode/zlang-hdl/waveform_wcp.js",
-      "sha256": "6bcf171b57aeeb5f3f67bf22128d2f1e86ec0ac840d7a2975adb2364edb2fae9"
+      "sha256": "a0d05904fa1229c25d245f262327bde54fa356fec6bea89dea4aa00962e4b62e"
+    },
+    {
+      "mode": "0644",
+      "path": "editors/vscode/zlang-hdl/waveform_workspace.js",
+      "sha256": "89e98064734a71cd387bf60412a1e74ac13965eab5657b7e2e3c4384b63cf88c"
     },
     {
       "mode": "0644",
@@ -1008,6 +1228,11 @@
     },
     {
       "mode": "0644",
+      "path": "examples/rule_action.events.jsonl",
+      "sha256": "4d44ccb2e8d06759713577362967e69790edf9c015257841a1a30250c470d59a"
+    },
+    {
+      "mode": "0644",
       "path": "examples/rule_action.zhl",
       "sha256": "d6350e8c20714bcb15ecc85a9f1b337d734d519c33adff35471af16a880ac774"
     },
@@ -1279,12 +1504,12 @@
     {
       "mode": "0755",
       "path": "release/native-editor/linux-x64/zlang-debug-adapter",
-      "sha256": "aa2d424527706b48203bb49450757bb1e8e9527dfaf156d0930602fdf0096c05"
+      "sha256": "14dd691025e942589a4ea2a04be23069acf3c9905ac70a33beabf8c0c6f265dc"
     },
     {
       "mode": "0755",
       "path": "release/native-editor/linux-x64/zlang-waveform-indexer",
-      "sha256": "32a89041e8b818940fb050e8f9e0e5e4eef3900486f6168c21be86193a666d03"
+      "sha256": "7b4ad64adb2ee7d4d06b44ec12cc15b1b47d085cbb91a3d85dec6afec0cb25e3"
     },
     {
       "mode": "0644",
@@ -1299,12 +1524,12 @@
     {
       "mode": "0644",
       "path": "release/regressions.json",
-      "sha256": "658d8663e5b151835a9157350e5803ddeda2f89d2ecdf2d87db32b573d88f0ac"
+      "sha256": "3fe4d2e40d4cedc68d3c2851f51df68a5034e4eb7a4c023a7e644885bb5b38e9"
     },
     {
       "mode": "0644",
       "path": "release/status.json",
-      "sha256": "4fa51d4221a560a654b883a71299390ed9dc675efd1fbf86a82f228d4f48b193"
+      "sha256": "58edaf2d27ab586f6ebcc98ea29498d23bf023d5009a21efc8b16542421c976c"
     },
     {
       "mode": "0644",
@@ -1614,7 +1839,7 @@
     {
       "mode": "0644",
       "path": "tests/editor/test_vscode_package.py",
-      "sha256": "a7f06615e6b1f56392cfc72fb36c5684e057dca3c17d981e130da6d8b32af9cf"
+      "sha256": "aa8bfbeb0dc9f608e466c6aa9c828f7a9990ffd32f6aaf39e20606cd3cbdaf32"
     },
     {
       "mode": "0644",
@@ -1624,7 +1849,7 @@
     {
       "mode": "0644",
       "path": "tests/editor/test_vscode_surface.py",
-      "sha256": "44f9939ede462e4c151bd4951ccee5bf7e167413870b1a45ec813b5090749b10"
+      "sha256": "b6d8d59a1afe0dd3aec80f972fffae9f7be1d87736985a7245795f7409c1842d"
     },
     {
       "mode": "0644",
@@ -2249,7 +2474,17 @@
     {
       "mode": "0644",
       "path": "tests/integration/test_native_debug_bundle.py",
-      "sha256": "02000ed92273e2532ac00f269c47d36ea629eef46833129b2d234458c0745b31"
+      "sha256": "560b581ce66843cabc15dfbe996b086a5a58857737c0aaed4643bc87e7a37bb7"
+    },
+    {
+      "mode": "0644",
+      "path": "tests/integration/test_native_debug_catalog.py",
+      "sha256": "6b2db44d563d4da4f26c137e76226cd70a0ce5a968da61a741685919db72e943"
+    },
+    {
+      "mode": "0644",
+      "path": "tests/integration/test_native_debug_controls.py",
+      "sha256": "f1e555b0b6df7003c79b64449e8e36af3968f97c1e139a13b1c79f6685fecf0a"
     },
     {
       "mode": "0644",
@@ -2908,8 +3143,13 @@
     },
     {
       "mode": "0644",
+      "path": "tests/release/test_bootstrap.py",
+      "sha256": "457b0a26afcebb5c9ef82d44c6ce20e76bd72217bc151c06bb64e540b912b881"
+    },
+    {
+      "mode": "0644",
       "path": "tests/release/test_ci_contract.py",
-      "sha256": "be5c240ea2f00b5e36bd7c468c5ae1f9a00b8964ff1ed1bc3f5d69ef38f9bd7c"
+      "sha256": "3ecec1a23f32ae3c53017fce98e37e0c2e7d2fc4d42dcf84a40ddc69fb3f7a98"
     },
     {
       "mode": "0644",
@@ -2929,12 +3169,12 @@
     {
       "mode": "0644",
       "path": "tests/release/test_local_execution_environment.py",
-      "sha256": "3ea916adc52f2d086cb5db84ef7b017a4953d3e804f96e5f113fa2f428025a11"
+      "sha256": "80f08bf754b77beb431ca280826200b890370fe444dc4e012673438bdee4aec0"
     },
     {
       "mode": "0644",
       "path": "tests/release/test_makefile_automation.py",
-      "sha256": "24199ea3f4edbc0831a34001ac8ab1c07ded0018236f32478defbd7e52086870"
+      "sha256": "909eb9b39bb48ae8c834c77fc586440d1f1e73493bd0b27bf056b9748332671f"
     },
     {
       "mode": "0644",
@@ -2950,6 +3190,11 @@
       "mode": "0644",
       "path": "tests/release/test_native_vulnerability_audit.py",
       "sha256": "65f160fe65ea7fe00b024f60e042c6befa7fb34e8826891d4e5d5f943f21b170"
+    },
+    {
+      "mode": "0644",
+      "path": "tests/release/test_native_vulnerability_workflow.py",
+      "sha256": "e4fe84240235f2c493b15918d673f52c1ff3ad281d1400a449c966dadf44e99e"
     },
     {
       "mode": "0644",
@@ -2979,12 +3224,12 @@
     {
       "mode": "0644",
       "path": "tests/release/test_release_preflight.py",
-      "sha256": "855da2227f3e8ad0842c2b6712685efba1c81940b387baf0b8bbab6b9b14e9ba"
+      "sha256": "5ead5ec63348d589940b7121f72357edf5e78e2e4a350ff5e5007e31429f5a8e"
     },
     {
       "mode": "0644",
       "path": "tests/release/test_release_regressions.py",
-      "sha256": "5b87ae613dd40553726a9af274d025006c3605431456705c208184b844ab51c8"
+      "sha256": "a0948fcd81dbd2e82917d54f5e02b909278fa28e446530a6b4ce01cd52f2fe43"
     },
     {
       "mode": "0644",
@@ -3783,8 +4028,13 @@
     },
     {
       "mode": "0644",
+      "path": "tests/simulation/test_event_encoding.py",
+      "sha256": "4d38e1a470d1ab2c8e9f23d08540d91ad10d96bb77521f89a7f57e21869929ee"
+    },
+    {
+      "mode": "0644",
       "path": "tests/simulation/test_logic_state.py",
-      "sha256": "169eb6079a3e509a511361e74ca9a50dd98513a58b45278cc3779520e9d48109"
+      "sha256": "313b2600d0ee70a73789d3b3e47fa8cde51c9e17c20f4a60abc61311acabeeb0"
     },
     {
       "mode": "0644",
@@ -3845,6 +4095,16 @@
       "mode": "0644",
       "path": "tests/simulation/test_native_jit_verification.py",
       "sha256": "b913b5cada4ea8ae1ce5b892c70c6bfa565500072b1431b5dfb06b4618e9319b"
+    },
+    {
+      "mode": "0644",
+      "path": "tests/simulation/test_native_program_cache.py",
+      "sha256": "03344994f69b12a3943620f6d5acb49a1a574e41fbc9b2ce23bb8d0efdfd0fd7"
+    },
+    {
+      "mode": "0644",
+      "path": "tests/simulation/test_native_union_padding.py",
+      "sha256": "a70264d6f7590889954a0f3d598a629f6884cd054c4d4ba29e3c5e3c039034d4"
     },
     {
       "mode": "0644",
@@ -4134,7 +4394,7 @@
     {
       "mode": "0644",
       "path": "tests/test_sim_cli.py",
-      "sha256": "cc37b0ea290dc0dfbbd97f9c17418d2ed730c5133312b91400762c8d958f5097"
+      "sha256": "2a9306ac921f52fbeed74d8031efd3bb19c1b364907951274a3dff98c20078fc"
     },
     {
       "mode": "0644",
@@ -4229,7 +4489,7 @@
     {
       "mode": "0644",
       "path": "tools/audit_native_editor.py",
-      "sha256": "084a3bf299f09cda6811e0507a2b5106c5e3d03f560ba374f72fc9cfcdd06b57"
+      "sha256": "8fb2e87df52be04e83c342c0425c10bb842bad4b861ecf0e10000167b49d5274"
     },
     {
       "mode": "0644",
@@ -4263,8 +4523,13 @@
     },
     {
       "mode": "0644",
+      "path": "tools/bootstrap_local_env.sh",
+      "sha256": "3529c2d65d42e5bf3efc5260bad189b6349534859e75a248524fd1bd0bb0c6e5"
+    },
+    {
+      "mode": "0644",
       "path": "tools/check_local_environment.py",
-      "sha256": "6ead4c41da572ff2cba45c0ac20232f4b09100a32bd064b587e43f724750d444"
+      "sha256": "51d28918149a41149f31b8585bdd77e53e7997fccef0ffe64fa8011970e2a8c3"
     },
     {
       "mode": "0644",
@@ -4649,7 +4914,7 @@
     {
       "mode": "0644",
       "path": "zlang/backend/systemverilog/storage.py",
-      "sha256": "3ff8a1bd2ffdfb353c19557cba676bbb60dc5ef0d254b4f425d54c5b777f229f"
+      "sha256": "9b97f400d1b48a0b659261e99ef4b63bdfb9c93698ceee6cd46655f842154041"
     },
     {
       "mode": "0644",
@@ -4869,7 +5134,7 @@
     {
       "mode": "0644",
       "path": "zlang/equivalence.py",
-      "sha256": "ace5cee67f28498b00430335929f6ed7f706330a37d541781cff0957de6c4b6c"
+      "sha256": "ba8b45011c8d6eba5208abf63e3a60048dc03400563dba6156742d37d51a2b19"
     },
     {
       "mode": "0644",
@@ -5324,12 +5589,22 @@
     {
       "mode": "0644",
       "path": "zlang/native_debug_bundle.py",
-      "sha256": "9241a6253bfff2a3861ad381e62f1e82ff4c13e3286ad89964f82b72d032ea87"
+      "sha256": "ea283dbfd4af7e2cc8a4bbd21490f737294a42f82ea1ee722341965d9dfa1c27"
+    },
+    {
+      "mode": "0644",
+      "path": "zlang/native_debug_catalog.py",
+      "sha256": "39b68b64e8a8f4163dca64eb0d2ca2eeab631d41ca2c7ab4e04b58279ba7be9a"
+    },
+    {
+      "mode": "0644",
+      "path": "zlang/native_debug_types.py",
+      "sha256": "2942faa91909c52d32b39a164464074d5bbeac896f31bd24d45d35c3b4e316f2"
     },
     {
       "mode": "0644",
       "path": "zlang/native_simulation.py",
-      "sha256": "69be6b3c5fcab109e37cd74acad530d71bb78aa1a6d82adb7565067002831dd9"
+      "sha256": "0c1539d32553b742cb3a3e1e3154d5c3f065a038129df15d2e9d8b6ec8a02b3a"
     },
     {
       "mode": "0644",
@@ -5899,12 +6174,12 @@
     {
       "mode": "0644",
       "path": "zlang/sim.py",
-      "sha256": "0c26b27403adc10b53d51f1658e843af893757005ec431d051acc47a7a4b0918"
+      "sha256": "e6d35733dc37f9d2ba1f2035dd0aece56ab98dc8fc1f11166d58fe968e064f9c"
     },
     {
       "mode": "0644",
       "path": "zlang/sim_cli.py",
-      "sha256": "d39a4a4db8dabb7bfde3156ecb18940fe8801d0106c1e67da9e5bdd2c419686d"
+      "sha256": "fca0c8fd675dd23c4e3c96f3f3b8eea01ae5521f78b28dd33b8cc746dbf06d5f"
     },
     {
       "mode": "0644",
@@ -5944,7 +6219,7 @@
     {
       "mode": "0644",
       "path": "zlang/simulation_event_runner.py",
-      "sha256": "b56c03ec0d442f4b5e1dda9e919a9bd104174197aac753a846ebc668d926b943"
+      "sha256": "871d9b4313416142f8f5a6ceae3d29217392e7d50dfcdebf0f95ce0e355f81f1"
     },
     {
       "mode": "0644",
@@ -5979,12 +6254,12 @@
     {
       "mode": "0644",
       "path": "zlang/simulation_logic.py",
-      "sha256": "cd84adc0b31eb56a47ec43bfa054dc237749194f1c7a5c9858593fbbd8d45803"
+      "sha256": "35e7b419c623badc8f410f9fa3090b6c17552191c2eb06d86cc5c5d75a870e59"
     },
     {
       "mode": "0644",
       "path": "zlang/simulation_lowering.py",
-      "sha256": "d99e9d8876ff32e094d9607547f9adf07415a26085cbb0dcebc165af45bd7c82"
+      "sha256": "bff2fd826c6e26e22f1be128b412bdc672a6ce21f52b69989567a249c4f8ff7d"
     },
     {
       "mode": "0644",
@@ -5999,7 +6274,7 @@
     {
       "mode": "0644",
       "path": "zlang/simulation_plan_build.py",
-      "sha256": "35903c82f8f63aa16c8f8ab3cb67439f288252a834d77a9df6f5702d88633bdc"
+      "sha256": "863ff77054a5641412dcf85856a8dfb45d8875fca4be05d6bfb16ffd1740ecf0"
     },
     {
       "mode": "0644",
@@ -6089,7 +6364,7 @@
     {
       "mode": "0644",
       "path": "zlang/simulation_state.py",
-      "sha256": "e7df51dde1fb46f4ab409321556f9ddad10ca5c494425cc8a54a4addca14d20a"
+      "sha256": "a757a14bf4d8bb5ca7860288a66e473812f29abfec9585990061bc159af1cdad"
     },
     {
       "mode": "0644",

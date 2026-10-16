@@ -341,6 +341,11 @@ def defer_one_root_pipeline_to_physical_formal_selection(
 ) -> bool:
     """Return whether planning can build the complete physical candidate."""
 
+    if len(module.assignments) == 1 and len(module.pipeline_explorations) == 1:
+        from zlang.bilinear_product import is_bilinear_pipeline
+        if is_bilinear_pipeline(module.pipeline_explorations[0].selected_candidate):
+            return True
+
     pipelines = tuple(
         item.expression
         for item in module.assignments
@@ -704,10 +709,14 @@ def gate_physical_target_candidates(
     from zlang.formal_exploration import gate_candidates
     from zlang.pipeline_scheduling import erase_pipeline_timing
 
+    joint_combinational = result.selected_graph.latency == 0 and bool(result.selected_graph.resources) and all(
+        dict(resource.configuration).get("parallel_bilinear") == 1
+        for resource in result.selected_graph.resources
+    )
     assignments = tuple(
         assignment
         for assignment in module.assignments
-        if isinstance(assignment.expression, ir_expr.Pipeline)
+        if (isinstance(assignment.expression, ir_expr.Pipeline) or joint_combinational)
         and hasattr(assignment.target, "name")
     )
     selected_quantization = result.selected_graph.quantization
@@ -725,12 +734,15 @@ def gate_physical_target_candidates(
             code="ZL-FORMAL-PHYSICAL-CANDIDATE",
         )
     source_assignment = assignments[0]
-    plan = source_assignment.expression.pipeline_plan
+    plan = getattr(source_assignment.expression, "pipeline_plan", None)
     reference = (
         plan.source_expression
         if plan is not None and plan.source_expression is not None
         else erase_pipeline_timing(source_assignment.expression)
     )
+    if joint_combinational:
+        reference = next(item.source_expression for item in module.pipeline_explorations
+                         if item.output == source_assignment.target.name)
     selected_value = erase_pipeline_timing(source_assignment.expression)
     if (
         selected_quantization is not None
@@ -754,7 +766,7 @@ def gate_physical_target_candidates(
     for evaluation in result.extraction.evaluations:
         target_candidate = evaluation.candidate
         implementation = source_assignment.expression
-        if implementation.stages != target_candidate.graph.latency:
+        if isinstance(implementation, ir_expr.Pipeline) and implementation.stages != target_candidate.graph.latency:
             implementation = replace(
                 implementation,
                 stages=target_candidate.graph.latency,
@@ -788,7 +800,7 @@ def gate_physical_target_candidates(
         clock_domain_contract=domain,
         unavailable_reason=(
             None
-            if domain is not None
+            if domain is not None or (joint_combinational and not module.clock_domains)
             else "physical target candidate requires exactly one formal domain"
         ),
     )

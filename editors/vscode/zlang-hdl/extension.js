@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Thin Community client for the repository's standard zlang-lsp process.
 'use strict';
+const {addVariableToWaveform} = require('./debug_waveform');
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -12,14 +13,18 @@ const vscode = require('vscode');
 const { LanguageClient, TransportKind } = require('vscode-languageclient/node');
 const { waveformHtml } = require('./waveform_view');
 const { WaveformQueryClient } = require('./waveform_client');
+const { WaveformDocument, watchWaveformFile } = require('./waveform_document');
+const { parseWaveformClipboard, encodeWaveformClipboard } = require('./waveform_clipboard');
+const { createWaveformChannel } = require('./waveform_channel');
+const { LiveWaveformFeed } = require('./waveform_live');
+const {saveSession,readSession,exportLiveTrace}=require('./waveform_session_io');
 const { WaveformControlServer } = require('./waveform_wcp');
 
 const LANGUAGE_ID = 'zlang-hdl';
 const CONFIGURATION_SECTION = 'zlang.lsp';
 const SERVER_PATH_SETTING = 'path';
 const DEBUG_ADAPTER_SCHEMA = 'zlang-debug-adapter-v1';
-const WAVEFORM_TRACE_SCHEMA = 'zlang-waveform-trace-v1';
-const WAVEFORM_QUERY_SCHEMA = 'zlang-waveform-query-v2';
+const WAVEFORM_QUERY_SCHEMA = 'zlang-waveform-query-v3';
 
 let client;
 let output;
@@ -27,7 +32,11 @@ let nativeTools;
 let nativeToolsError;
 let liveWaveformPanel;
 let liveWaveformChannel;
+let liveWaveformFeed;
 let activeWaveformChannel;
+let activeWaveformUri;
+const pendingWaveformSessions = new Map();
+const openWaveformChannels = new Map();
 let waveformControlServer;
 
 function workspaceRoot() {
@@ -218,164 +227,215 @@ class ZLangDebugAdapterFactory {
   }
 }
 
-function createWaveformChannel(webview, receive) {
-  let ready = false;
-  let latest;
-  let sequence = 0;
-  const pending = new Map();
-  webview.onDidReceiveMessage((message) => {
-    if (message?.type === 'ready') {
-      ready = true;
-      if (latest !== undefined) void webview.postMessage(latest);
-      return;
-    }
-    if (message?.type === 'controlResult') {
-      const request = pending.get(message.requestId);
-      if (request !== undefined) {
-        pending.delete(message.requestId);
-        if (message.error) request.reject(new Error(message.error));
-        else request.resolve(message.result);
-      }
-      return;
-    }
-    receive?.(message);
-  });
-  return {
-    post(payload) {
-      latest = payload;
-      return ready ? webview.postMessage(payload) : Promise.resolve(false);
-    },
-    request(command) {
-      const requestId = `control-${++sequence}`;
-      return new Promise((resolve, reject) => {
-        pending.set(requestId, { resolve, reject });
-        void webview.postMessage({ type: 'control', requestId, command });
-      });
-    },
-  };
+async function exchangeWaveformClipboard(message,channel){
+  try{
+    let result;
+    if(message.action==='read'){
+      const text=await vscode.env.clipboard.readText();result={text:encodeWaveformClipboard(parseWaveformClipboard(text))};
+    }else if(message.action==='write'){
+      const text=encodeWaveformClipboard(parseWaveformClipboard(message.text));
+      await vscode.env.clipboard.writeText(text);result={written:true};
+    }else throw new Error('Unknown waveform clipboard action');
+    await channel.post({type:'queryResult',requestId:message.requestId,result});
+  }catch(error){await channel.post({type:'queryError',requestId:message.requestId,error:error.message});}
 }
 
-function rowsFromChanges(signals, changes, idField = 'name') {
-  const byKey = new Map(signals.map((item) => [item[idField], {
-    name: item.name, width: item.width, values: [],
-  }]));
-  for (const change of changes) {
-    const row = byKey.get(change.id ?? change.name);
-    if (row) row.values.push({ event: change.timestamp ?? change.event, bits: change.bits });
-  }
-  return [...byKey.values()];
-}
-
-class WaveformDocument {
-  constructor(uri, executable) {
-    this.uri = uri;
-    this.client = new WaveformQueryClient(executable);
-  }
-  dispose() { void this.client.close(); }
-}
 class WaveformEditorProvider {
   constructor(context) { this.context = context; }
-  openCustomDocument(uri) { return new WaveformDocument(uri, nativeTools.indexer); }
+  openCustomDocument(uri) {
+    return new WaveformDocument(uri,new WaveformQueryClient(nativeTools.indexer),
+      changed=>watchWaveformFile(vscode,uri,changed));
+  }
   async resolveCustomEditor(document, panel) {
     panel.webview.options = { enableScripts: true };
     const layoutKey = `waveform.layout:${document.uri.toString()}`;
+    const panelKey='panel-'+(++document.panelSequence);
     const channel = createWaveformChannel(panel.webview, async (message) => {
+      if(message?.type==='clipboard'){await exchangeWaveformClipboard(message,channel);return;}
       try {
-        if (message?.type === 'range') {
-          const result = await document.client.request('range', {
-            signals: message.signals, start: message.start, end: message.end,
-          });
-          await channel.post({
-            type: 'rangeResult', requestId: message.requestId,
-            viewport: message.viewport, result,
-          });
-        } else if (message?.type === 'search') {
-          const result = await document.client.request('search', { query: message.query });
+        if(message?.type==='saveSession'){await saveSession(vscode,channel,document.uri);}
+        else if(message?.type==='loadSession'){await loadWaveformSession(this.context);}
+        else if (message?.type === 'search') {
+          const result = await document.queries.request(panelKey+'search','search', { query: message.query });
           await channel.post({ type: 'searchResult', requestId: message.requestId, result });
+        } else if (message?.type === 'statistics') {
+          const result = await document.cachedRequest('statistics', {
+            signals: message.signals, start: message.start, end: message.end,
+          },panelKey+'statistics');
+          await channel.post({ type: 'statisticsResult', requestId: message.requestId, result });
+        } else if (message?.type === 'valueAt') {
+          const result = await document.cachedRequest('value_at', {
+            signals: message.signals, timestamp: message.timestamp,
+          },panelKey+(message.purpose||'valueAt'));
+          await channel.post({ type: 'valueResult', requestId: message.requestId, result });
+        } else if (message?.type === 'renderRange') {
+          const result = await document.cachedRequest('render_range', {
+            signals: message.signals, start: message.start, end: message.end,
+            pixels: message.pixels,
+          },panelKey+(message.overview?'overview':'viewport-'+message.viewport));
+          await channel.post({
+            type: 'renderResult', requestId: message.requestId,
+            viewport: message.viewport, overview: Boolean(message.overview), result,
+          });
         } else if (message?.type === 'persist') {
           await this.context.workspaceState.update(layoutKey, message.layout);
+          await channel.post({type:'layoutSaved',revision:message.revision});
         } else if (message?.type === 'reload') {
-          const catalog = await document.client.request('reload');
-          await channel.post({
-            type: 'catalog', catalog,
-            layout: this.context.workspaceState.get(layoutKey),
-          });
+          await document.reload();
         } else if (message?.type === 'load' && typeof message.source === 'string') {
           const uri = vscode.Uri.file(message.source);
           await vscode.commands.executeCommand('vscode.openWith', uri, 'zlang-hdl.waveform');
         }
       } catch (error) {
+        if(message?.type==='reload')return; // The document notifies every editor.
         await channel.post({
           type: 'queryError', requestId: message?.requestId, error: error.message,
         });
       }
     });
-    panel.webview.html = waveformHtml(panel.webview);
+    const traceSubscription=document.subscribe(message=>{void channel.post(message);});
+    panel.webview.html = waveformHtml(fs.readFileSync(
+      path.join(this.context.extensionPath, 'dist', 'waveform.js'), 'utf8',
+    ));
     activeWaveformChannel = channel;
+    activeWaveformUri = document.uri;
+    openWaveformChannels.set(document.uri.toString(),channel);
     panel.onDidChangeViewState(() => {
-      if (panel.active) activeWaveformChannel = channel;
+      if (panel.active && panel.viewColumn === vscode.window.tabGroups.activeTabGroup.viewColumn) {
+        activeWaveformChannel = channel;
+        activeWaveformUri = document.uri;
+      }
     });
     panel.onDidDispose(() => {
-      if (activeWaveformChannel === channel) activeWaveformChannel = undefined;
+      traceSubscription.dispose();
+      channel.dispose();
+      if(openWaveformChannels.get(document.uri.toString())===channel)
+        openWaveformChannels.delete(document.uri.toString());
+      if (activeWaveformChannel === channel) {
+        activeWaveformChannel = undefined;
+        activeWaveformUri = undefined;
+      }
     });
     try {
-      const catalog = await document.client.request('open', { path: document.uri.fsPath });
+      const catalog = await document.open();
       await channel.post({
-        type: 'catalog', catalog,
+        type: 'catalog', catalog, fileChanged:document.changed,
         layout: this.context.workspaceState.get(layoutKey),
       });
+      const pending = pendingWaveformSessions.get(document.uri.toString());
+      if (pending !== undefined) {
+        pendingWaveformSessions.delete(document.uri.toString());
+        await channel.request({ command: 'import_session', session: pending });
+      }
     } catch (error) {
       await channel.post({ type: 'queryError', error: `Cannot index waveform: ${error.message}` });
     }
   }
 }
 
-async function refreshLiveWaveform(session) {
-  if (liveWaveformPanel === undefined || session?.type !== 'zlang-hdl') return;
-  try {
-    const trace = await session.customRequest('zlang/waveformRange', { start: 0 });
-    if (trace.schema !== WAVEFORM_TRACE_SCHEMA) {
-      throw new Error(`Unsupported waveform schema: ${trace.schema}`);
-    }
-    const names = new Map();
-    for (const delta of trace.deltas) {
-      for (const name of Object.keys(delta.changes)) names.set(name, { name });
-    }
-    const changes = trace.deltas.flatMap((delta) => Object.entries(delta.changes).map(
-      ([name, value]) => ({ name, event: delta.event, bits: value.bits }),
-    ));
-    await liveWaveformChannel?.post({
-      summary: `${names.size} signals, ${trace.deltas.length} delta events (event-index time)`,
-      signals: rowsFromChanges([...names.values()], changes),
-    });
-  } catch (error) {
-    await liveWaveformChannel?.post({
-      summary: `Cannot read live trace: ${error.message}`, signals: [],
-    });
-  }
+async function saveWaveformSession() {
+  await saveSession(vscode,activeWaveformChannel,activeWaveformUri);
 }
 
-function openLiveWaveform() {
+async function loadWaveformSession(context) {
+  const loaded=await readSession(vscode);
+  if(!loaded)return;
+  const {session,uri,kind}=loaded;
+  if(kind==='live'){
+    if(vscode.debug.activeDebugSession?.type!=='zlang-hdl')
+      throw new Error('Start a ZLang HDL debug session before loading a live waveform template.');
+    await openLiveWaveform(context);
+    await liveWaveformChannel.request({command:'import_session',session});
+    return;
+  }
+  const tracePath = path.isAbsolute(session.trace)
+    ? session.trace : path.resolve(path.dirname(uri.fsPath), session.trace);
+  const traceUri = vscode.Uri.file(tracePath);
+  const existing=openWaveformChannels.get(traceUri.toString());
+  if (existing!==undefined) {
+    await vscode.commands.executeCommand('vscode.openWith',traceUri,'zlang-hdl.waveform');
+    await existing.request({ command: 'import_session', session });
+    return;
+  }
+  pendingWaveformSessions.set(traceUri.toString(), session);
+  await vscode.commands.executeCommand('vscode.openWith', traceUri, 'zlang-hdl.waveform');
+}
+
+async function refreshLiveWaveform(session) {
+  if(vscode.debug.activeDebugSession?.id!==session?.id)return;
+  await liveWaveformFeed?.update(session);
+}
+
+async function openLiveWaveform(context) {
+  if(vscode.debug.activeDebugSession?.type!=='zlang-hdl')
+    throw new Error('Start a ZLang HDL debug session before opening live waveforms.');
   if (liveWaveformPanel === undefined) {
-    liveWaveformPanel = vscode.window.createWebviewPanel(
+    const panel = vscode.window.createWebviewPanel(
       'zlang-hdl.liveWaveform', 'ZLang HDL Live Waveform', vscode.ViewColumn.Beside,
-      { enableScripts: true },
+      { enableScripts: true, retainContextWhenHidden: true },
     );
-    liveWaveformChannel = createWaveformChannel(liveWaveformPanel.webview);
-    liveWaveformPanel.webview.html = waveformHtml(liveWaveformPanel.webview);
-    liveWaveformPanel.onDidDispose(() => {
-      liveWaveformPanel = undefined;
-      liveWaveformChannel = undefined;
+    let feed;
+    const channel = createWaveformChannel(panel.webview, async message=>{
+      if(message?.type==='clipboard'){await exchangeWaveformClipboard(message,channel);return;}
+      const commands={renderRange:'render_range',statistics:'statistics',valueAt:'value_at',search:'search'};
+      try {
+        if(message?.type==='persist'){
+          await feed.persist(message.layout,message.sessionId);
+          await channel.post({type:'layoutSaved',revision:message.revision,sessionId:message.sessionId});return;
+        }
+        if(message?.type==='saveSession'){await saveSession(vscode,channel);return;}
+        if(message?.type==='loadSession'){await loadWaveformSession(context);return;}
+        if(message?.type==='addTraceSignals'){await vscode.commands.executeCommand('zlang-hdl.addTraceSignals');return;}
+        if(message?.type==='exportTrace'){await exportLiveTrace(vscode,vscode.debug.activeDebugSession);return;}
+        if(message?.type==='load'){
+          if(typeof message.source!=='string'||!['.fst','.vcd'].includes(path.extname(message.source).toLowerCase()))
+            throw new Error('Open a VCD or FST waveform file.');
+          await vscode.commands.executeCommand('vscode.openWith',vscode.Uri.file(message.source),'zlang-hdl.waveform');return;
+        }
+        const session=vscode.debug.activeDebugSession;
+        if(session?.type!=='zlang-hdl'||session.id!==feed.sessionId)
+          throw new Error('The live debugger session is no longer active');
+        if(message?.type==='reload'){await feed.update(session);return;}
+        if(!commands[message?.type])return;
+        const {type,requestId,purpose,...fields}=message;
+        delete fields.viewport;delete fields.overview;
+        const result=await feed.request(commands[type],fields,purpose||type);
+        await channel.post({type:'queryResult',requestId,result});
+      }catch(error){await channel.post({type:'queryError',requestId:message?.requestId,error:error.message});}
+    });
+    feed = new LiveWaveformFeed(payload => channel.post(payload),context.workspaceState);
+    liveWaveformPanel=panel;liveWaveformChannel=channel;liveWaveformFeed=feed;
+    panel.webview.html = waveformHtml(fs.readFileSync(
+      path.join(context.extensionPath, 'dist', 'waveform.js'), 'utf8',
+    ));
+    panel.onDidDispose(() => {
+      feed.dispose();channel.dispose();
+      if(activeWaveformChannel===channel){activeWaveformChannel=undefined;activeWaveformUri=undefined;}
+      if(liveWaveformPanel===panel){liveWaveformFeed=undefined;liveWaveformPanel=undefined;liveWaveformChannel=undefined;}
+    });
+    panel.onDidChangeViewState(()=>{
+      if(panel.active&&panel.viewColumn===vscode.window.tabGroups.activeTabGroup.viewColumn){
+        activeWaveformChannel=channel;activeWaveformUri=undefined;
+      }
     });
   } else {
-    liveWaveformPanel.reveal(vscode.ViewColumn.Beside);
+    liveWaveformPanel.reveal();
   }
-  void refreshLiveWaveform(vscode.debug.activeDebugSession);
+  activeWaveformChannel=liveWaveformChannel;activeWaveformUri=undefined;
+  await refreshLiveWaveform(vscode.debug.activeDebugSession);
 }
 
 function registerNativeSurface(context) {
   if (nativeTools === null) return;
   context.subscriptions.push(
+    vscode.debug.registerDebugAdapterTrackerFactory('zlang-hdl',{
+      createDebugAdapterTracker(session){
+        const end=()=>liveWaveformFeed?.end(session.id);
+        return {onWillReceiveMessage(message){
+          if(message.type==='request'&&['disconnect','terminate'].includes(message.command))end();
+        },onExit:end};
+      },
+    }),
     vscode.debug.registerDebugConfigurationProvider(
       'zlang-hdl', new ZLangDebugConfigurationProvider(context),
     ),
@@ -384,7 +444,9 @@ function registerNativeSurface(context) {
     ),
     vscode.window.registerCustomEditorProvider(
       'zlang-hdl.waveform', new WaveformEditorProvider(context),
-      { supportsMultipleEditorsPerDocument: true },
+      // Keep the bounded workspace/query state when another editor is active.
+      { supportsMultipleEditorsPerDocument: true,
+        webviewOptions: { retainContextWhenHidden: true } },
     ),
     vscode.commands.registerCommand('zlang-hdl.openWaveform', async () => {
       const selected = await vscode.window.showOpenDialog({
@@ -394,7 +456,11 @@ function registerNativeSurface(context) {
         'vscode.openWith', selected[0], 'zlang-hdl.waveform',
       );
     }),
-    vscode.commands.registerCommand('zlang-hdl.openLiveWaveform', openLiveWaveform),
+    vscode.commands.registerCommand('zlang-hdl.openLiveWaveform', () => openLiveWaveform(context)),
+    vscode.commands.registerCommand('zlang-hdl.addToWaveform', (item) =>
+      addVariableToWaveform(vscode, context, openLiveWaveform, item)),
+    vscode.commands.registerCommand('zlang-hdl.saveWaveformSession', saveWaveformSession),
+    vscode.commands.registerCommand('zlang-hdl.loadWaveformSession', ()=>loadWaveformSession(context)),
     vscode.commands.registerCommand('zlang-hdl.addTraceSignals', async () => {
       const session = vscode.debug.activeDebugSession;
       if (session?.type !== 'zlang-hdl') {
@@ -404,7 +470,7 @@ function registerNativeSurface(context) {
       const selected = await vscode.window.showQuickPick(
         catalog.signals.filter((item) => item.kind !== 'memory').map((item) => ({
           label: item.name,
-          description: `${item.kind}, ${item.width}-bit${item.traced ? ', already traced' : ''}`,
+          description: `${item.type_hint || item.kind}${item.traced ? ', already traced' : ''}`,
           picked: item.traced,
         })),
         { canPickMany: true, title: 'Add signals to the live trace' },
@@ -413,7 +479,7 @@ function registerNativeSurface(context) {
         await session.customRequest('zlang/addTraceSignals', {
           signals: selected.map((item) => item.label),
         });
-        openLiveWaveform();
+        openLiveWaveform(context);
       }
     }),
     vscode.commands.registerCommand('zlang-hdl.startSimulation', async () => {
@@ -427,6 +493,14 @@ function registerNativeSurface(context) {
       if (event.event === 'zlang/waveformUpdated') void refreshLiveWaveform(event.session);
     }),
   );
+  for(const [action,fallback] of [['cut','editor.action.clipboardCutAction'],
+    ['copy','editor.action.clipboardCopyAction'],['paste','editor.action.clipboardPasteAction']]){
+    context.subscriptions.push(vscode.commands.registerCommand('zlang-hdl.'+action+'WaveformRows',async()=>{
+      if(!activeWaveformChannel)throw new Error('Open and focus a ZLang HDL waveform first.');
+      const result=await activeWaveformChannel.request({command:'edit_rows',action});
+      if(!result.handled)await vscode.commands.executeCommand(fallback);
+    }));
+  }
   const wcp = vscode.workspace.getConfiguration('zlang.waveform.wcp');
   if (wcp.get('enabled', false) && vscode.workspace.isTrusted) {
     waveformControlServer = new WaveformControlServer(async (command) => {

@@ -17,7 +17,7 @@ from zlang.ir import csr as ir_csr
 from zlang.ir import expressions as ir_expr
 from zlang.ir.cdc import CrossingKind
 from zlang.ir.packing import unpack_runtime
-from zlang.sim import Program, SimulationRuntimeError, Simulator, _native_runtime
+from zlang.sim import Program, SimulationRuntimeError, Simulator, _compiled_native_program
 from zlang.simulation_errors import (
     ProtocolViolation,
     SimulationError,
@@ -26,6 +26,7 @@ from zlang.simulation_errors import (
     VerificationRequirementViolation,
 )
 from zlang.simulation_plan_build import build_simulation_plan
+from zlang.simulation_plan_policy import JitUnsupportedFeatureError
 from zlang.simulation_csr import csr_field_state_register_name
 from zlang.simulation_primitives import int_from_limbs
 from zlang.verification_monitor import VerificationMonitor, VerificationSampleResult
@@ -44,9 +45,10 @@ def _program(module: Module) -> Program:
             _PROGRAM_CACHE.move_to_end(key)
             return cached[1]
     plan = build_simulation_plan(module)
-    runtime = _native_runtime()
     try:
-        compiled = runtime.compile_plan_bytes(plan.to_bytes())
+        compiled = _compiled_native_program(plan)
+    except JitUnsupportedFeatureError:
+        raise
     except (ValueError, RuntimeError) as error:
         raise SimulationError(str(error)) from error
     program = Program(plan, module, compiled)

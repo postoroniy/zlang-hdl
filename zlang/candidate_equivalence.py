@@ -366,6 +366,8 @@ def _semantic_equivalence_execution_recipe(
     mode: EquivalenceMode,
     toolchain: FormalToolchainContext,
 ) -> dict[str, object]:
+    from zlang.formal_joint_value import rtl_arithmetic_policy
+    arithmetic_policy = rtl_arithmetic_policy(prepared.implementation_artifact.implementation, config.solver)
     return {
         "schema": "zlang-candidate-semantic_equivalence-execution-v2",
         "property": prepared.property_identity,
@@ -383,6 +385,7 @@ def _semantic_equivalence_execution_recipe(
         "timeout_seconds": config.timeout_seconds,
         "engine": config.engine,
         "solver": config.solver,
+        **({"rtl_arithmetic": arithmetic_policy} if arithmetic_policy else {}),
     }
 
 
@@ -394,6 +397,8 @@ def _execute_semantic_equivalence(
     toolchain: FormalToolchainContext,
 ) -> EquivalenceResult:
     recipe = _semantic_equivalence_execution_recipe(prepared, config, mode, toolchain)
+    from zlang.formal_joint_value import rtl_arithmetic_policy
+    arithmetic_policy = rtl_arithmetic_policy(prepared.implementation_artifact.implementation, config.solver)
     return provider.get_or_prepare(
         FormalArtifactNamespace.SEMANTIC_EQUIVALENCE,
         "candidate-equivalence-result-v2",
@@ -411,6 +416,7 @@ def _execute_semantic_equivalence(
             timeout_seconds=config.timeout_seconds,
             work_directory=config.work_directory,
             trace_metadata=prepared.trace_metadata,
+            **({"rtl_arithmetic": True} if arithmetic_policy else {}),
         ),
         encode=equivalence_result_to_data,
         decode=equivalence_result_from_data,

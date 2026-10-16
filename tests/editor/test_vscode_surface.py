@@ -36,6 +36,7 @@ def test_extension_json_and_registration_are_valid() -> None:
     assert language["id"] == "zlang-hdl"
     assert language["aliases"] == ["ZLang HDL", "ZLang"]
     assert language["extensions"] == [".zhl"]
+    assert package["contributes"]["breakpoints"] == [{"language": "zlang-hdl"}]
     assert package["contributes"]["grammars"][0]["language"] == "zlang-hdl"
     assert package["contributes"]["grammars"][0]["path"].endswith("zlang.tmLanguage.json")
     assert configuration["comments"] == {
@@ -62,19 +63,35 @@ def test_lsp_client_bootstrap_is_standard_and_semantics_free() -> None:
     assert "void client.start()" not in client
 
 
+def test_editor_tests_require_javascript_static_and_negative_fixture_gates() -> None:
+    package = json.loads((EXT / "package.json").read_text())
+    assert package["scripts"]["static"] == "node test/javascript-static.cjs"
+    assert package["scripts"]["test"].startswith(
+        "npm run static && node test/javascript-static.test.cjs &&"
+    )
+    assert "node test/waveform-live-ui.test.cjs" in package["scripts"]["test"]
+    assert package["scripts"]["prepackage"] == "npm run static"
+    assert package["scripts"]["prepackage:linux-x64"] == "npm run static"
+
+
 def test_native_debugger_and_waveform_surface_stays_bounded_and_four_state() -> None:
     client = (EXT / "extension.js").read_text()
     view = (EXT / "waveform_view.js").read_text()
+    viewport = (EXT / "waveform_viewport.js").read_text()
+    application = (EXT / "waveform_app.js").read_text()
     control = (EXT / "waveform_wcp.js").read_text()
+    live = (EXT / "waveform_live.js").read_text()
     assert "zlang/prepareDebugBundle" in client
     assert "Native debugging requires four-state logic" in client
-    assert "zlang-waveform-trace-v1" in client
+    assert "zlang-waveform-trace-v1" in live
     assert "zlang/addTraceSignals" in client
-    assert "zlang-waveform-query-v2" in client
+    assert "zlang-waveform-query-v3" in client
     assert "zlang-waveform-indexer" in client
+    assert client.count("retainContextWhenHidden: true") == 2
     assert 'id="zoomIn"' in view and 'id="zoomOut"' in view
-    assert 'id="viewports"' in view and "state.viewports.length<4" in view
-    assert "x:'#ff5a62'" in view and "u:'#e9b949'" in view
+    assert 'id="viewports"' in view and "state.viewports.length < 4" in application
+    assert 'x: "#ff5a62"' in application and 'u: "#e9b949"' in application
+    assert 'function beginMiddlePan(' in viewport
     assert "127.0.0.1" in control and "MAX_FRAME_BYTES" in control
 
 

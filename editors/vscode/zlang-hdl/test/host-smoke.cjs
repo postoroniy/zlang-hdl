@@ -7,6 +7,9 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const vscode = require('vscode');
+const {checkWaveformHost}=require('./waveform-host.cjs');
+const {checkTypedWaveformHost}=require('./typed-waveform-host.cjs');
+const {checkRuleActionHost}=require('./rule-action-host.cjs');
 const toolchain = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../editor-toolchain.json'), 'utf8'));
 
 const extensionId = 'postoroniy.zlang-hdl';
@@ -77,7 +80,9 @@ async function checkNativeDebugger(installedPath, scratch) {
     '}',
     '',
   ].join('\n'));
-  fs.writeFileSync(events, '{"set":{"load":1,"value":5},"edges":["clk"]}\n');
+  fs.writeFileSync(events, [5,9,17].map(value=>JSON.stringify({
+    set:{load:1,value},edges:['clk'],
+  })).join('\n')+'\n');
   const document = await vscode.workspace.openTextDocument(vscode.Uri.file(source));
   await vscode.window.showTextDocument(document, { preview: false });
   const breakpoint = new vscode.SourceBreakpoint(
@@ -99,12 +104,16 @@ async function checkNativeDebugger(installedPath, scratch) {
     assert.equal(stack.stackFrames[0].line, 7);
     const trace = await session.customRequest('zlang/waveformRange', { start: 0 });
     assert.equal(trace.schema, 'zlang-waveform-trace-v1');
-    assert.equal(trace.deltas.length, 1);
-    assert.equal(trace.deltas[0].changes.observed.bits, '00000101');
+    assert.equal(trace.deltas.length, 2);
+    assert.equal(trace.deltas[0].event,0);
+    assert.equal(trace.deltas[1].changes.observed.bits, '00000101');
+    await checkWaveformHost(session,scratch);
     await vscode.debug.stopDebugging(session);
   } finally {
     vscode.debug.removeBreakpoints([breakpoint]);
   }
+  await checkTypedWaveformHost(scratch);
+  await checkRuleActionHost();
   return true;
 }
 
@@ -135,6 +144,9 @@ async function checkHost() {
   assert.equal(manifest.version, '0.1.0');
   assert.equal(manifest.main, './dist/extension.js');
   assert.equal(manifest.engines.vscode, `^${toolchain.vscodeStable.version}`);
+  assert.deepEqual(manifest.contributes.breakpoints,
+    manifest.contributes.debuggers ? [{language:languageId}] : undefined,
+    'source breakpoints must be registered only with the native debugger');
   assert.equal(manifest.activationEvents, undefined,
     'VS Code derives activation from language/command/debug/editor contributions');
   assert.deepEqual(manifest.dependencies, { 'vscode-languageclient': toolchain.vscodeLanguageClient });
@@ -542,6 +554,7 @@ async function checkHost() {
       'registered Clocked module snippet and working tabstops',
       ...(nativeDebugChecked ? [
         'Linux native DAP rule breakpoint, typed state, and live waveform trace',
+        'F9 on a rule body → Continue → active stack frame and automatic source-line highlight',
       ] : []),
     ],
     notChecked: [

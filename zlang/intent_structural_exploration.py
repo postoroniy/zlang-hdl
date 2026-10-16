@@ -39,7 +39,7 @@ from zlang.opt.saturation import (
     replay_checked_alternative,
     saturate,
 )
-from zlang.opt.value_certificate import CHECKER_VERSION
+from zlang.opt.value_certificate import CHECKER_VERSION, BILINEAR_CHECKER_VERSION
 
 
 _CACHE_SCHEMA = "zlang-intent-structural-cache-v1"
@@ -89,6 +89,7 @@ class StructuralExplorationStats:
     saturated: bool
     truncated: bool
     rejection_reasons: tuple[str, ...] = ()
+    value_search: tuple[tuple[str, int], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -111,6 +112,7 @@ class IntentStructuralExplorationKey:
                 "saturation": SATURATION_ENGINE_SCHEMA,
                 "rewrite_policy": INTENT_STRUCTURAL_REWRITE_POLICY,
                 "checker": CHECKER_VERSION,
+                "bilinear_checker": BILINEAR_CHECKER_VERSION,
                 "egglog": _EGGLOG_VERSION,
             }
         ),
@@ -324,7 +326,10 @@ def _compute_recipe(
     max_raw_extractions: int,
     max_structural_alternatives: int,
 ) -> StructuralExplorationRecipe:
-    inputs = candidate_input_refs(root)
+    from zlang.ir.joint_values import joint_value_boundary
+    boundary = joint_value_boundary(root)
+    value_root = root if boundary is None else boundary.packed
+    inputs = candidate_input_refs(value_root)
     output_name = "__zlang_explore_result"
     while output_name in inputs:
         output_name += "_"
@@ -332,11 +337,11 @@ def _compute_recipe(
         Port(PortDirection.INPUT, name, type_)
         for name, type_ in sorted(inputs.items())
     )
-    output = Port(PortDirection.OUTPUT, output_name, root.type)
+    output = Port(PortDirection.OUTPUT, output_name, value_root.type)
     module = Module(
         "__ZLangExplore",
         (*ports, output),
-        (Assignment(output, root),),
+        (Assignment(output, value_root),),
         equivalences=equivalences,
     )
     canonical = lower(module)
@@ -348,6 +353,7 @@ def _compute_recipe(
         max_eclasses=max_eclasses,
         max_enodes=max_enodes,
         include_commutative_aliases=False,
+        include_bilinear=boundary is not None,
     )
 
     source = _alternative(root, None)
@@ -360,6 +366,8 @@ def _compute_recipe(
     for term in saturation.alternatives:
         origin_free = _origin_free_term(term)
         expression = term_to_expression(origin_free)
+        if boundary is not None:
+            expression = boundary.restore(expression)
         if root.origin is not None:
             expression = replace(expression, origin=root.origin)
         term_identity = sha256(render_term(term).encode()).hexdigest()
@@ -403,8 +411,10 @@ def _compute_recipe(
         len(diverse) + 1,
         len(retained) + 1,
         saturation.saturated,
-        saturation.truncated or structural_truncated,
+        saturation.truncated or structural_truncated
+        or bool(dict(saturation.search_accounting).get("bilinear_limited")),
         saturation.rejection_reasons,
+        saturation.search_accounting,
     )
     return StructuralExplorationRecipe(
         source_term,
@@ -428,6 +438,8 @@ def _materialize_recipe(
     equivalences: tuple[EquivalenceRule, ...],
     recipe: StructuralExplorationRecipe,
 ) -> IntentStructuralExploration:
+    from zlang.ir.joint_values import joint_value_boundary
+    boundary = joint_value_boundary(root)
     source = _alternative(root, None)
     alternatives = [source]
     for item in recipe.alternatives:
@@ -437,8 +449,11 @@ def _materialize_recipe(
             item.certificate,
             equivalences,
             include_commutative_aliases=False,
+            include_bilinear=boundary is not None,
         )
         expression = term_to_expression(item.term)
+        if boundary is not None:
+            expression = boundary.restore(expression)
         if root.origin is not None:
             expression = replace(expression, origin=root.origin)
         if expression_semantic_identity(expression) != item.selected_value_identity:

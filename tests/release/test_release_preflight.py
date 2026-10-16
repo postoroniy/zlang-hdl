@@ -156,6 +156,9 @@ def test_current_candidate_binds_release_sources_native_wheel_and_git(
     assert report["regressions"]["included"] == [
         "SIM-001",
         "SIM-002",
+        "VSIX-001",
+        "VSIX-002",
+        "VSIX-003",
         "ZL-052",
         "ZL-053",
         "ZL-054",

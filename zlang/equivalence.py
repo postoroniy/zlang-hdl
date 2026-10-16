@@ -851,27 +851,6 @@ def emit_miter_with_metadata(
     return MiterEmission("\n".join(lines), trace_metadata)
 
 
-def emit_miter(
-    property_: EquivalenceProperty,
-    bindings: BindingMap,
-    *,
-    reference_module: str,
-    implementation_module: str,
-    clock_name: str = "clock",
-    reset_name: str = "reset",
-) -> str:
-    """Emit the established miter source without trace metadata."""
-
-    return emit_miter_with_metadata(
-        property_,
-        bindings,
-        reference_module=reference_module,
-        implementation_module=implementation_module,
-        clock_name=clock_name,
-        reset_name=reset_name,
-    ).source
-
-
 def _type_from_binding(binding: EquivalenceBinding) -> str:
     if binding.signedness == "signed":
         return f"logic signed [{binding.width - 1}:0]"
@@ -968,6 +947,7 @@ def run_equivalence_formal(property_: EquivalenceProperty, source: str, *, top: 
                            timeout_seconds: int = 120,
                            work_directory: Path | None = None,
                            trace_metadata: MiterTraceMetadata,
+                           rtl_arithmetic: bool = False,
                            ) -> EquivalenceResult:
     """Execute a published equivalence miter while preserving semantic-reference equivalence statuses."""
     if (
@@ -993,6 +973,11 @@ def run_equivalence_formal(property_: EquivalenceProperty, source: str, *, top: 
             reason=property_.comparison_window.bmc_unreached_reason(depth),
         )
     from zlang.formal import run_verilog_formal
+    if rtl_arithmetic:
+        if solver != "z3":
+            raise EquivalenceError("checked RTL arithmetic preparation requires Z3")
+        from zlang.formal_rtl_arithmetic import run_rtl_arithmetic_formal
+        run_verilog_formal = run_rtl_arithmetic_formal
     from zlang.ir.formal import ProofMode
     if (
         property_.relation_kind is EquivalenceRelation.SAME_CYCLE_VALUE

@@ -11,7 +11,7 @@ from stable identities deliberately.
 from __future__ import annotations
 
 import base64
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import hashlib
 import json
 from pathlib import Path
@@ -20,11 +20,13 @@ from typing import Mapping
 from zlang import sim
 from zlang.compilation_inputs import PhysicalCompilationInputs
 from zlang.ir.module import Module
+from zlang.native_debug_catalog import build_debug_catalog
+from zlang.native_debug_types import DebugSignal, TYPED_CATALOG_SCHEMA
 from zlang.source import SourceOrigin
 
 
 DEBUG_BUNDLE_SCHEMA = "zlang-native-debug-bundle-v1"
-DEBUG_OVERLAY_SCHEMA = "zlang-debug-overlay-v1"
+DEBUG_OVERLAY_SCHEMA = "zlang-debug-overlay-v3"
 
 
 def _digest(value: object) -> str:
@@ -47,26 +49,6 @@ class DebugSourceUnit:
         return {
             **self.identity_data(),
             "presentation_path": self.presentation_path,
-        }
-
-
-@dataclass(frozen=True, order=True)
-class DebugSignal:
-    name: str
-    kind: str
-    width: int
-    type_data: str
-    direction: str | None = None
-    depth: int | None = None
-
-    def to_data(self) -> dict[str, object]:
-        return {
-            "direction": self.direction,
-            "depth": self.depth,
-            "kind": self.kind,
-            "name": self.name,
-            "type": self.type_data,
-            "width": self.width,
         }
 
 
@@ -145,6 +127,7 @@ class NativeDebugBundle:
             **self.identity_data(),
             "identity": self.identity,
             "overlay_schema": DEBUG_OVERLAY_SCHEMA,
+            "catalog_schema": TYPED_CATALOG_SCHEMA,
             "overlay_identity": self.overlay_identity,
             "plan": base64.b64encode(self.plan_bytes).decode("ascii"),
             "sources": [item.to_data() for item in self.sources],
@@ -203,6 +186,21 @@ def _module_sites(
                 clock=group.domain or transition.domain or module.clock,
             )
             if item is not None:
+                # A group's origin may cover only its guard. Include its own
+                # typed action locations so F9 on an update/drive line binds
+                # to that atomic action, never a neighbouring rule or callee.
+                ends = [(item.end_line, item.end_column)]
+                for action in group.actions:
+                    origin = action.source_origin
+                    if (
+                        origin is not None
+                        and group.source_origin is not None
+                        and origin.source_unit == group.source_origin.source_unit
+                        and origin.digest == group.source_origin.digest
+                    ):
+                        ends.append((origin.span.end_line, origin.span.end_column))
+                end_line, end_column = max(ends)
+                item = replace(item, end_line=end_line, end_column=end_column)
                 result.append(item)
     for scope in module.verification_scopes:
         for clause in (*scope.requirements, *scope.goals):
@@ -224,29 +222,6 @@ def _module_sites(
             instrumentation_events=instrumentation_events,
         ))
     return tuple(sorted(set(result)))
-
-
-def _signal_catalog(plan: Mapping[str, object]) -> tuple[DebugSignal, ...]:
-    result: list[DebugSignal] = []
-    for item in plan["ports"]:  # type: ignore[index]
-        result.append(DebugSignal(
-            str(item["name"]),
-            "port",
-            int(item["width"]),
-            str(item["api_type"]["kind"]),
-            str(item["direction"]),
-        ))
-    for item in plan["registers"]:  # type: ignore[index]
-        result.append(DebugSignal(
-            str(item["name"]), "register", int(item["width"]),
-            "packed", None,
-        ))
-    for item in plan["memories"]:  # type: ignore[index]
-        result.append(DebugSignal(
-            str(item["name"]), "memory", int(item["width"]),
-            "packed", None, int(item["depth"]),
-        ))
-    return tuple(sorted(result))
 
 
 def _source_units(
@@ -319,7 +294,7 @@ def build_native_debug_bundle(
         instrumentation_events=instrumentation_events,
     )
     sources = _source_units(plan, source_path, program.physical_inputs)
-    signals = _signal_catalog(plan)
+    signals = build_debug_catalog(program.module, plan)
     clocks = tuple(sorted(DebugClockReset(
         str(item["clock"]),
         None if item["reset"] is None else str(item["reset"]),
@@ -331,6 +306,8 @@ def build_native_debug_bundle(
     overlay_identity = _digest({
         "schema": DEBUG_OVERLAY_SCHEMA,
         "sites": [item.to_data() for item in sites],
+        "catalog_schema": TYPED_CATALOG_SCHEMA,
+        "signals": [item.to_data() for item in signals],
     })
     identity_payload = {
         "clocks": [item.to_data() for item in clocks],

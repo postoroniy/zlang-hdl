@@ -174,6 +174,12 @@ the exact-main identity preflight plus native audits, external-tool inventory,
 an installed-VSIX host smoke, and reproducible package construction in addition
 to the review checks.
 
+For waveform changes, run `make editor-waveform-test` and review its retained
+screenshots under `build/tmp/waveform-browser.*`. Human visual acceptance of
+empty, normal, dense, U/X/Z, and split-viewport views is mandatory before
+publication; passing pixel/query assertions is not visual acceptance. The
+Linux-x64 installed-host gate also exercises saved VCD/FST and live stepping.
+
 Release commands never borrow a sibling worktree's interpreter. Every run uses
 the candidate's `.venv` and creates collision-safe transient files below that
 candidate's `build/tmp`; `KEEP_TMP=1` retains a failed run's scratch directory.

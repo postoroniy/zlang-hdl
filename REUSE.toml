@@ -5,6 +5,7 @@ path = [
   ".public-tree-manifest.json",
   ".qwen/**",
   ".vscode/settings.json",
+  ".vscode/launch.json",
   ".gitattributes",
   ".github/**",
   ".gitignore",

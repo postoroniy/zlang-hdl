@@ -119,6 +119,50 @@ by `zlang sim`. It does not generate stimulus. Give the debugger either the
 same JSONL event schedule used by the command line or a bounded single-clock
 `clock` plus `cycles` launch.
 
+#### Debug without an event file
+
+The declared `count = 0` supplies the initial state; this experiment does not
+assert reset. Clocks, resets, registers and memories are read-only in
+Variables. Use JSONL for explicit reset sequences, multiple clocks or
+repeatable input changes. `events` and `clock`/`cycles` are mutually exclusive.
+The session ends after 20 clock events. Restart restores initial state rather
+than replaying manual edits.
+
+For an interactive single-clock experiment, use the launch entry below:
+
+1. Save `examples/rule_action.zhl`, select **RuleAction - manual inputs**, and
+   press **F5**. The session stops before the first clock event.
+2. Under **Variables > Ports**, right-click `enable`, choose **Set Value**,
+   and enter `1`. Two **F10** steps produce `count = 1`, then `2` under
+   **Registers**. Each step completes one hardware event, not one source line.
+3. Set `enable` to `0` and step again: `count` holds at `2`.
+4. Set `enable` back to `1`, use **F9** on `when enable` or its `count <- ...`
+   action, then **F5 / Continue**. The next enabled event stops with `count = 3`
+   and highlights the selected source line.
+5. Open **ZLang HDL: Open Live Waveform** and keep **Follow Live** on to
+   watch the same events. Input edits alone do not advance the clock; the
+   waveform samples them when another event executes.
+
+Add this entry to the `configurations` array in `.vscode/launch.json`, without
+an `events` field:
+
+```json
+{
+  "type": "zlang-hdl",
+  "request": "launch",
+  "name": "RuleAction - manual inputs",
+  "program": "${workspaceFolder}/examples/rule_action.zhl",
+  "top": "RuleAction",
+  "clock": "clk",
+  "cycles": 20,
+  "logicState": true,
+  "stopOnEntry": true,
+  "traceSignals": ["enable", "fired", "count"]
+}
+```
+
+#### Debug with a reproducible event schedule
+
 Stable project vectors normally belong in `simulation/`. Temporary or generated
 experiments belong under ignored `build/` output. A project-specific generator
 may produce the JSONL file, but the debugger does not run an arbitrary generator
@@ -176,6 +220,41 @@ Left/Right keys then follow transitions of that signal only. Mouse-wheel zooms
 around the pointer, Shift+wheel pans in time, and middle-button drag pans in
 time or scrolls the signal list. Waveform time retains the event-index meaning
 described above.
+
+#### Python simulation without an event file
+
+A Python testbench can supply inputs and clock/reset operations directly:
+
+```python
+from zlang import sim
+
+with sim.load("examples/rule_action.zhl", top="RuleAction", logic_state=True) as dut:
+    dut.set("enable", 0)
+    dut.reset("rst", asserted=True)
+    dut.edge("clk")
+    assert dut.get("count") == 0
+
+    dut.reset("rst", asserted=False)
+    dut.edge("clk")
+    for enable, expected in [(1, 1), (1, 2), (0, 2)]:
+        dut.set("enable", enable)
+        dut.edge("clk")
+        count = dut.get("count")
+        print(f"enable={enable}, count={count}")
+        assert count == expected
+```
+
+Save it as `tb_rule_action.py` in the repository root and run
+`.venv/bin/python tb_rule_action.py` there. The final three counts are `1`, `2`,
+`2`. For Python source breakpoints in VS Code, select this checkout's
+`.venv/bin/python` in the Python Debugger. F10 steps Python statements;
+`dut.edge("clk")` advances one hardware event.
+
+This API creates a separate native instance, not a connection to the ZLang
+debug session. ZLang source breakpoints and **Open Live Waveform** do not
+follow a Python-driven instance. To use them, choose the manual-input launch
+above or replay a Python-generated JSONL schedule. The debugger does not run
+the Python testbench itself.
 
 <a id="reference-getting-started"></a>
 

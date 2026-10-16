@@ -114,16 +114,19 @@ def test_dependency_pins_have_one_repository_owner() -> None:
 
 def test_bootstrap_isolates_external_release_tool_builds() -> None:
     completed = subprocess.run(
-        ("make", "-n", "venv"),
+        ("make", "-n", "venv", "native-release-install"),
         cwd=ROOT,
         check=True,
         capture_output=True,
         text=True,
     )
 
+    # The bootstrap runner is deliberately opaque to make -n: inspecting it
+    # must not execute provisioning or recursive Make. Check both pip and uv.
+    bootstrap = (ROOT / "tools/bootstrap_local_env.sh").read_text()
     pip_commands = [
         line.strip()
-        for line in completed.stdout.splitlines()
+        for line in (bootstrap + "\n" + completed.stdout).splitlines()
         if " -m pip install " in line
     ]
     # The bootstrap owns three package-index installs.  A fourth command comes
@@ -132,14 +135,16 @@ def test_bootstrap_isolates_external_release_tool_builds() -> None:
     assert len(pip_commands) == 4
     editable = next(line for line in pip_commands if " -e '.[test]'" in line)
     release_tools = next(
-        line for line in pip_commands if "reuse==" in line and " -e '.[test]'" not in line
+        line for line in pip_commands if '"$@"' in line
     )
     native_runtime = next(
         line for line in pip_commands if 'purpose "native-release-install"' in line
     )
     assert "--no-build-isolation" in editable
     assert "--no-build-isolation" not in release_tools
-    assert "reuse==5.1.1" in release_tools
+    assert "reuse==5.1.1" in completed.stdout
+    uv_editable = next(line for line in bootstrap.splitlines() if "uv pip" in line and " -e '.[test]'" in line)
+    assert "--no-build-isolation" in uv_editable
     assert "--force-reinstall --no-deps" in completed.stdout
     assert '"${wheels[0]}"' in completed.stdout
     assert "native-release-install" in native_runtime

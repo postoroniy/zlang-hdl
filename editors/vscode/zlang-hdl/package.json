@@ -53,8 +53,12 @@
     "snippets/zlang-hdl.json"
   ],
   "scripts": {
-    "test": "node --check extension.js && node test/tokenize.test.cjs && node test/wcp.test.cjs && node test/bundle.test.cjs",
+    "static": "node test/javascript-static.cjs",
+    "test": "npm run static && node test/javascript-static.test.cjs && node test/host-log.test.cjs && node test/tokenize.test.cjs && node test/wcp.test.cjs && node test/waveform-model.test.cjs && node test/waveform-client.test.cjs && node test/waveform-clipboard.test.cjs && node test/debug-waveform.test.cjs && node test/waveform-live-ui.test.cjs && node test/bundle.test.cjs",
+    "test:waveform": "node test/waveform-browser.cjs",
+    "prepackage": "npm run static",
     "package": "node test/package.cjs",
+    "prepackage:linux-x64": "npm run static",
     "package:linux-x64": "node test/package.cjs --target linux-x64",
     "test:host": "node test/run-host-smoke.cjs",
     "check:latest-vscode": "node test/check-latest-vscode.cjs"
@@ -63,6 +67,8 @@
     "@vscode/test-electron": "3.1.0",
     "@vscode/vsce": "4.0.0",
     "esbuild": "0.28.2",
+    "playwright": "1.62.1",
+    "typescript": "6.0.3",
     "vscode-oniguruma": "2.0.1",
     "vscode-textmate": "9.3.2"
   },
@@ -95,6 +101,21 @@
     ],
     "commands": [
       {
+        "command": "zlang-hdl.cutWaveformRows",
+        "title": "ZLang HDL: Cut Waveform Rows",
+        "enablement": "activeCustomEditorId == zlang-hdl.waveform || activeWebviewPanelId == zlang-hdl.liveWaveform"
+      },
+      {
+        "command": "zlang-hdl.copyWaveformRows",
+        "title": "ZLang HDL: Copy Waveform Rows",
+        "enablement": "activeCustomEditorId == zlang-hdl.waveform || activeWebviewPanelId == zlang-hdl.liveWaveform"
+      },
+      {
+        "command": "zlang-hdl.pasteWaveformRows",
+        "title": "ZLang HDL: Paste Waveform Rows",
+        "enablement": "activeCustomEditorId == zlang-hdl.waveform || activeWebviewPanelId == zlang-hdl.liveWaveform"
+      },
+      {
         "command": "zlang-hdl.startSimulation",
         "title": "ZLang HDL: Start Native Simulation Debugger"
       },
@@ -107,31 +128,105 @@
         "title": "ZLang HDL: Open Live Waveform"
       },
       {
+        "command": "zlang-hdl.addToWaveform",
+        "title": "Add to Waveform"
+      },
+      {
         "command": "zlang-hdl.addTraceSignals",
         "title": "ZLang HDL: Add Live Trace Signals"
+      },
+      {
+        "command": "zlang-hdl.saveWaveformSession",
+        "title": "ZLang HDL: Save Waveform Session"
+      },
+      {
+        "command": "zlang-hdl.loadWaveformSession",
+        "title": "ZLang HDL: Load Waveform Session"
       }
+    ],
+    "keybindings": [
+      {
+        "command": "zlang-hdl.cutWaveformRows", "key": "ctrl+x", "mac": "cmd+x",
+        "when": "webviewFocus && (activeCustomEditorId == zlang-hdl.waveform || activeWebviewPanelId == zlang-hdl.liveWaveform)"
+      },
+      {
+        "command": "zlang-hdl.copyWaveformRows", "key": "ctrl+c", "mac": "cmd+c",
+        "when": "webviewFocus && (activeCustomEditorId == zlang-hdl.waveform || activeWebviewPanelId == zlang-hdl.liveWaveform)"
+      },
+      {
+        "command": "zlang-hdl.pasteWaveformRows", "key": "ctrl+v", "mac": "cmd+v",
+        "when": "webviewFocus && (activeCustomEditorId == zlang-hdl.waveform || activeWebviewPanelId == zlang-hdl.liveWaveform)"
+      }
+    ],
+    "breakpoints": [
+      {"language": "zlang-hdl"}
     ],
     "debuggers": [
       {
         "type": "zlang-hdl",
         "label": "ZLang HDL Native Simulation",
-        "languages": ["zlang-hdl"],
+        "languages": [
+          "zlang-hdl"
+        ],
         "configurationAttributes": {
           "launch": {
-            "required": ["program", "top"],
+            "required": [
+              "program",
+              "top"
+            ],
             "properties": {
-              "program": {"type": "string", "description": "Saved root .zhl source"},
-              "top": {"type": "string", "description": "Top module"},
-              "project": {"type": "string", "description": "Optional zlang.toml path"},
-              "profile": {"type": "string", "description": "Optional implementation profile"},
-              "events": {"type": "string", "description": "Bounded JSONL stimulus"},
-              "clock": {"type": "string", "description": "Clock used with cycles"},
-              "cycles": {"type": "integer", "minimum": 0, "maximum": 1000000},
-              "logicState": {"type": "boolean", "default": true},
-              "strictUninitialized": {"type": "boolean", "default": false},
-              "initialRegisters": {"type": "object", "default": {}},
-              "traceSignals": {"type": "array", "items": {"type": "string"}, "default": []},
-              "stopOnEntry": {"type": "boolean", "default": true}
+              "program": {
+                "type": "string",
+                "description": "Saved root .zhl source"
+              },
+              "top": {
+                "type": "string",
+                "description": "Top module"
+              },
+              "project": {
+                "type": "string",
+                "description": "Optional zlang.toml path"
+              },
+              "profile": {
+                "type": "string",
+                "description": "Optional implementation profile"
+              },
+              "events": {
+                "type": "string",
+                "description": "Bounded JSONL stimulus"
+              },
+              "clock": {
+                "type": "string",
+                "description": "Clock used with cycles"
+              },
+              "cycles": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 1000000
+              },
+              "logicState": {
+                "type": "boolean",
+                "default": true
+              },
+              "strictUninitialized": {
+                "type": "boolean",
+                "default": false
+              },
+              "initialRegisters": {
+                "type": "object",
+                "default": {}
+              },
+              "traceSignals": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "default": []
+              },
+              "stopOnEntry": {
+                "type": "boolean",
+                "default": true
+              }
             }
           }
         },
@@ -158,17 +253,37 @@
         "viewType": "zlang-hdl.waveform",
         "displayName": "ZLang HDL Waveform",
         "selector": [
-          {"filenamePattern": "*.vcd"},
-          {"filenamePattern": "*.fst"}
+          {
+            "filenamePattern": "*.vcd"
+          },
+          {
+            "filenamePattern": "*.fst"
+          }
         ],
         "priority": "default"
       }
     ],
     "menus": {
+      "debug/variables/context": [
+        {"command":"zlang-hdl.addToWaveform", "when":"debugType == zlang-hdl", "group":"zlang@1"}
+      ],
+      "debug/watch/context": [
+        {"command":"zlang-hdl.addToWaveform", "when":"debugType == zlang-hdl", "group":"zlang@1"}
+      ],
       "editor/title": [
         {
           "command": "zlang-hdl.startSimulation",
           "when": "resourceLangId == zlang-hdl",
+          "group": "navigation"
+        },
+        {
+          "command": "zlang-hdl.saveWaveformSession",
+          "when": "activeCustomEditorId == zlang-hdl.waveform",
+          "group": "navigation"
+        },
+        {
+          "command": "zlang-hdl.loadWaveformSession",
+          "when": "activeCustomEditorId == zlang-hdl.waveform",
           "group": "navigation"
         }
       ]
@@ -184,7 +299,7 @@
         "zlang.waveform.wcp.enabled": {
           "type": "boolean",
           "default": false,
-          "description": "Enable the loopback-only Waveform Control Protocol v0 listener in trusted workspaces."
+          "description": "Enable the loopback-only Waveform Control Protocol listener in trusted workspaces. WCP v0 remains compatible; v1 adds sessions, selections, cursors, bookmarks and measurements."
         },
         "zlang.waveform.wcp.port": {
           "type": "integer",

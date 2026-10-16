@@ -19,6 +19,8 @@ from egglog import Expr as EggExpr
 from egglog.deconstruct import get_callable_args, get_callable_fn
 from egglog.egraph import to_runtime_expr
 
+from zlang.common.serialization import stable_digest
+
 from zlang.ir.callables import CallableExpansionError, expand_callable_calls
 from zlang.ir.expressions import (
     BinaryOperator,
@@ -53,7 +55,6 @@ from zlang.opt.egraph import (
 from zlang.opt.expression_lowering import lower_expression_graph
 from zlang.opt.expression_restoration import restore_expression
 from zlang.opt.ir import (
-    CanonicalExpression,
     CanonicalModule,
     EquivalenceMode,
     ExpressionOp,
@@ -76,6 +77,7 @@ from zlang.opt.rewrite_model import (
     render_term,
     term_constant_value,
     term_to_expression,
+    term_from_nodes as _term_from_root,
 )
 from zlang.opt.rewrite_model import (
     render_saturation as render_saturation,
@@ -97,7 +99,7 @@ class SaturationError(ValueError):
 
 
 SATURATION_ENGINE_SCHEMA = "zlang-egglog-exact-value-v1"
-INTENT_STRUCTURAL_REWRITE_POLICY = "zlang-intent-structural-rewrites-v1"
+INTENT_STRUCTURAL_REWRITE_POLICY = "zlang-intent-structural-rewrites-v4"
 
 
 _MAX_GRAPH_SNAPSHOT_NODES = 16_384
@@ -109,6 +111,7 @@ def _extract_root_graph(
     max_terms: int,
     *,
     max_enodes: int,
+    canonical_order: bool = False,
 ) -> tuple[Term, ...]:
     """Decode a root-scoped egglog graph without its termdag/Python extractor.
 
@@ -164,6 +167,23 @@ def _extract_root_graph(
     # relaxation.  A saturated class may refer back to itself (x == x | 0),
     # but positive node costs keep its finite leaf cheaper.  Root alternatives
     # are the graph-owned root nodes instantiated with those representatives.
+    decoded: dict[tuple[str, tuple[str, ...]], tuple[str, Any]] = {}
+
+    def representative(node, children):
+        key = (node["op"], tuple(child[1] for child in children))
+        if key not in decoded:
+            if len(decoded) >= node_limit * 4:
+                raise SaturationError("egglog representative decoding exceeded its work bound")
+            value = decode(node["op"], tuple(child[2] for child in children))
+            # RuntimeExpr.__str__ invokes egglog's expensive Python pretty
+            # printer. Joint exploration uses a stable constructor key instead;
+            # preserve historical ordering for all existing scalar searches.
+            ordering = stable_digest({"op": key[0], "children": key[1]}) if canonical_order else str(value)
+            decoded[key] = (ordering, value)
+        ordering, value = decoded[key]
+        return (float(node.get("cost", 1.0)) + sum(child[0] for child in children),
+                ordering, value)
+
     best: dict[str, tuple[float, str, Any]] = {}
     for _ in range(len(classes) + 1):
         changed = False
@@ -171,11 +191,7 @@ def _extract_root_graph(
             children = tuple(best.get(nodes[child]["eclass"]) for child in node["children"])
             if any(child is None for child in children):
                 continue
-            value = decode(node["op"], tuple(child[2] for child in children if child))
-            item = (
-                float(node.get("cost", 1.0)) + sum(child[0] for child in children if child),
-                str(value), value,
-            )
+            item = representative(node, children)
             previous = best.get(node["eclass"])
             if previous is None or item[:2] < previous[:2]:
                 best[node["eclass"]] = item
@@ -189,11 +205,7 @@ def _extract_root_graph(
         children = tuple(best.get(nodes[child]["eclass"]) for child in node["children"])
         if any(child is None for child in children):
             continue
-        value = decode(node["op"], tuple(child[2] for child in children if child))
-        item = (
-            float(node.get("cost", 1.0)) + sum(child[0] for child in children if child),
-            str(value), value,
-        )
+        item = representative(node, children)
         root_values[item[1]] = item
     selected = tuple(
         sorted(root_values.values(), key=lambda item: (item[0], item[1]))[:max_terms + 1]
@@ -212,30 +224,6 @@ def _require_pure_value_root(module: CanonicalModule, root: NodeId) -> None:
         )
     except EGraphAdapterError as error:
         raise SaturationError(str(error)) from error
-
-
-def _term_from_root(
-    nodes: tuple[CanonicalExpression, ...],
-    root: NodeId,
-) -> Term:
-    cache: dict[NodeId, Term] = {}
-
-    def build(node_id: NodeId) -> Term:
-        if node_id in cache:
-            return cache[node_id]
-        node = nodes[node_id]
-        term = Term(
-            node.category,
-            node.op,
-            node.type,
-            tuple(build(operand) for operand in node.operands),
-            node.attributes,
-            node.origins,
-        )
-        cache[node_id] = term
-        return term
-
-    return build(root)
 
 
 def _power_of_two_shift(term: Term) -> int | None:
@@ -333,6 +321,7 @@ def saturate(
     max_eclasses: int = 4_096,
     max_enodes: int = _MAX_GRAPH_SNAPSHOT_NODES,
     include_commutative_aliases: bool = True,
+    include_bilinear: bool = False,
 ) -> SaturationResult:
     """Saturate one pure scalar root with the pinned egglog engine.
 
@@ -375,10 +364,13 @@ def saturate(
         raise SaturationError(str(error)) from error
     original = _term_from_root(adapter_nodes, adapter_root)
     egg_root = _term_to_egg(original)
+    search_accounting: list[tuple[str, int]] = []
     compiled, disabled = _compile_egg_rewrites(
         module.equivalences,
         original,
         include_commutative_aliases=include_commutative_aliases,
+        include_bilinear=include_bilinear,
+        search_accounting=search_accounting,
     )
     graph = EGraph(*(
         engine_rule
@@ -427,6 +419,7 @@ def saturate(
                 egg_root,
                 max_terms + 1,
                 max_enodes=max_enodes,
+                canonical_order=include_bilinear,
             )
         except (SaturationError, ValueError, TypeError, KeyError) as error:
             extracted = ()
@@ -536,6 +529,7 @@ def saturate(
         eclass_count,
         enode_count,
         admitted_certificates,
+        tuple(search_accounting),
     )
 
 
@@ -546,6 +540,7 @@ def replay_checked_alternative(
     equivalences: tuple[EquivalenceRule, ...],
     *,
     include_commutative_aliases: bool = True,
+    include_bilinear: bool = False,
 ) -> None:
     """Replay one cached alternative through the current exact rule set.
 
@@ -559,12 +554,22 @@ def replay_checked_alternative(
         equivalences,
         source,
         include_commutative_aliases=include_commutative_aliases,
+        include_bilinear=False,
     )
+    specs = tuple(item.spec for item in compiled)
+    if include_bilinear:
+        from zlang.opt.rewrite_spec import bilinear_rewrite_spec
+        names = tuple(name for name in certificate.active_rule_identities
+                      if name.startswith("bilinear_factor."))
+        extra = tuple(bilinear_rewrite_spec(index) for index in range(len(names)))
+        if names != tuple(spec.identity for spec in extra):
+            raise ValueError("cached bilinear rewrite registrations are invalid")
+        specs = (*specs, *extra)
     verify_checked_value_certificate(
         certificate,
         source,
         candidate,
-        tuple(item.spec for item in compiled),
+        specs,
         equivalences,
     )
 
@@ -596,6 +601,8 @@ def _compile_egg_rewrites(
     original: Term,
     *,
     include_commutative_aliases: bool = True,
+    include_bilinear: bool = False,
+    search_accounting: list[tuple[str, int]] | None = None,
 ) -> tuple[tuple[_CompiledRewrite, ...], tuple[RewriteRegistration, ...]]:
     """Build the exact bounded rule set used for one typed root.
 
@@ -623,6 +630,21 @@ def _compile_egg_rewrites(
         compiled.append(_CompiledRewrite(spec, engine_rule))
 
     arithmetic = _typed_arithmetic_egg_rewrites(original)
+    if include_bilinear and original.op is ExpressionOp.CONCAT:
+        from zlang.opt.bilinear_search import explore_bilinear
+        from zlang.opt.rewrite_spec import bilinear_rewrite_spec
+        searched = explore_bilinear(original)
+        if search_accounting is not None:
+            search_accounting.extend((
+                ("bilinear_basis_tests", searched.basis_tests),
+                ("bilinear_alternatives", len(searched.alternatives)),
+                ("bilinear_limited", int(searched.truncated)),
+            ))
+        for index, alternative in enumerate(searched.alternatives):
+            spec = bilinear_rewrite_spec(index)
+            compiled.append(_CompiledRewrite(
+                spec, rewrite(_term_to_egg(original)).to(_term_to_egg(alternative)),
+            ))
     if not include_commutative_aliases:
         arithmetic = tuple(
             item

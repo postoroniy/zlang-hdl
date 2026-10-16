@@ -43,6 +43,15 @@ class EventSchedule(Sequence[Mapping[str, object]]):
     records: tuple[_EventRecord, ...]
     event_count: int
 
+    @classmethod
+    def for_cycles(cls, clock: str, count: int) -> EventSchedule:
+        """Retain a repeated clock schedule without one mapping per cycle."""
+
+        if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+            raise ValueError("cycle count must be a non-negative integer")
+        records = (_EventRecord({"edges": (clock,)}, count, 0),) if count else ()
+        return cls(records, count)
+
     def __len__(self) -> int:
         return self.event_count
 
@@ -168,14 +177,11 @@ def _comparison_events(
         events = _read_events(arguments.events)
         return events.with_first_updates(initial)
     if arguments.cycles is not None:
-        count = max(arguments.cycles, 1)
-        return tuple(
-            {
-                **({"set": initial} if index == 0 and initial else {}),
-                **({"edges": (arguments.clock,)} if arguments.cycles else {}),
-            }
-            for index in range(count)
-        )
+        if arguments.cycles:
+            return EventSchedule.for_cycles(
+                arguments.clock, arguments.cycles,
+            ).with_first_updates(initial)
+        return ({"set": initial} if initial else {},)
     return ({"set": initial} if initial else {},)
 
 
@@ -668,18 +674,15 @@ def main(argv: Sequence[str] | None = None) -> int:
                         trace_events
                     )
                 elif arguments.cycles is not None:
-                    trace_events = tuple(
-                        {"edges": (arguments.clock,)}
-                        for _ in range(arguments.cycles)
-                    )
+                    if arguments.trace is not None:
+                        trace_events = EventSchedule.for_cycles(
+                            arguments.clock, arguments.cycles,
+                        )
                     native_outputs = instance.run_cycles(
                         arguments.clock, arguments.cycles
                     )
                 else:
-                    if program.logic_state and not program.strict_uninitialized:
-                        native_outputs = instance.eval()
-                    else:
-                        native_outputs = instance.eval()
+                    native_outputs = instance.eval()
                 if arguments.compare_with is None:
                     outputs = native_outputs
                 if arguments.trace is not None:

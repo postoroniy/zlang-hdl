@@ -639,7 +639,7 @@ class SimulationStateSession:
         *,
         catalog: SimulationStateCatalog | None = None,
     ) -> None:
-        from zlang.sim import Program, _native_runtime
+        from zlang.sim import Program, _compiled_native_program
         from zlang.simulation_expression_plan import _memory_read_register_name
         from zlang.simulation_plan_build import build_simulation_plan
 
@@ -668,7 +668,7 @@ class SimulationStateSession:
         try:
             plan = build_simulation_plan(module)
             self._simulator = Program(
-                plan, module, _native_runtime().compile_plan_bytes(plan.to_bytes())
+                plan, module, _compiled_native_program(plan)
             ).create()
         except (ValueError, RuntimeError, ImportError) as error:
             raise SimulationStateError(

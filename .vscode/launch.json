@@ -1,0 +1,18 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "zlang-hdl",
+      "request": "launch",
+      "name": "Debug RuleAction",
+      "program": "${workspaceFolder}/examples/rule_action.zhl",
+      "top": "RuleAction",
+      "events": "${workspaceFolder}/examples/rule_action.events.jsonl",
+      "logicState": true,
+      "strictUninitialized": false,
+      "initialRegisters": {},
+      "traceSignals": ["clk", "rst", "enable", "fired", "count"],
+      "stopOnEntry": true
+    }
+  ]
+}

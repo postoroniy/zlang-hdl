@@ -337,6 +337,78 @@ def test_sim_jsonl_repeat_keeps_one_record_in_memory(tmp_path: Path) -> None:
         _read_events(events)
 
 
+def test_cycles_without_trace_do_not_allocate_per_cycle_schedule(
+    tmp_path, monkeypatch, capsys,
+) -> None:
+    source = _source(
+        tmp_path, "cycle_memory",
+        "module CycleMemory { clock clk reset rst out y:u8 "
+        "reg q:u8=0 q <- truncate<8>(q+1) y=q }",
+    )
+    program = sim.compile(source)
+    monkeypatch.setattr(sim, "compile", lambda *args, **kwargs: program)
+    tracemalloc.start()
+    try:
+        assert main([
+            "sim", str(source), "--clock", "clk", "--cycles", "100000", "--json",
+        ]) == 0
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    assert json.loads(capsys.readouterr().out) == {"y": 100_000 % 256}
+    assert peak < 1_000_000
+
+
+def test_cycles_trace_schedule_is_compact_and_has_exact_event_count(
+    tmp_path, monkeypatch, capsys,
+) -> None:
+    from zlang import sim_cli
+
+    source = ROOT / "examples/counter.zhl"
+    original = sim_cli._write_trace
+    schedules = []
+
+    def write_trace(*args, events):
+        schedules.append(events)
+        return original(*args, events=events)
+
+    monkeypatch.setattr(sim_cli, "_write_trace", write_trace)
+    trace = tmp_path / "cycles.vcd"
+    assert main([
+        "sim", str(source), "--clock", "clk", "--cycles", "3",
+        "--trace", str(trace), "--json",
+    ]) == 0
+    assert json.loads(capsys.readouterr().out) == {"y": 3}
+    schedule, = schedules
+    assert isinstance(schedule, sim_cli.EventSchedule)
+    assert len(schedule.records) == 1
+    assert len(schedule) == 3
+    assert schedule[0] is schedule[-1]
+    assert schedule[0] == {"edges": ("clk",)}
+    clocks = _vcd_identifiers(trace.read_text())
+    blocks = _vcd_time_blocks(trace.read_text())
+    assert all(f"b1 {clocks['clk']}" in blocks[time] for time in (2, 4, 6))
+
+
+@pytest.mark.parametrize("count", (0, 1, 100_000))
+def test_cycle_comparison_schedule_preserves_initial_event_without_expansion(count):
+    from argparse import Namespace
+    from zlang.sim_cli import EventSchedule, _comparison_events
+
+    events = _comparison_events(Namespace(
+        assignments=[("step", 7)], events=None, cycles=count, clock="clk",
+    ))
+    assert len(events) == max(count, 1)
+    assert events[0] == {
+        "set": {"step": 7}, **({"edges": ("clk",)} if count else {}),
+    }
+    if count:
+        assert isinstance(events, EventSchedule)
+        assert len(events.records) <= 2
+    if count > 1:
+        assert events[1] == {"edges": ("clk",)}
+
+
 def test_vcd_tracks_falling_edge_active_low_reset_and_repeated_events(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],

@@ -233,6 +233,16 @@ _FORMAL_TOOLCHAIN_OVERRIDE: ContextVar[FormalToolchainContext | None] = (
 )
 
 
+def resolve_formal_toolchain(*, engine="sby", solver="z3", route="smtbmc", toolchain=None):
+    """Reuse the exact scoped discovery snapshot across preparation and execution."""
+    context = toolchain or _FORMAL_TOOLCHAIN_OVERRIDE.get()
+    if context is None:
+        context = FormalToolchainContext.discover(engine=engine, solver=solver, route=route)
+    if context.engine != engine or context.solver != solver or context.route != route:
+        raise FormalError("formal toolchain context does not match the requested route")
+    return context
+
+
 @contextmanager
 def use_formal_toolchain(context: FormalToolchainContext):
     """Reuse one compiler-owned discovery snapshot through legacy runners.
@@ -405,17 +415,7 @@ def run_verilog_formal(source: str, *, top: str, property_id: str,
     engine_route = formal_engine_route(route)
     mode_name = "bmc" if mode is ProofMode.BMC else "prove"
     engine_route.validate_request(solver=solver, mode=mode_name)
-    context = toolchain or _FORMAL_TOOLCHAIN_OVERRIDE.get()
-    if context is None:
-        context = FormalToolchainContext.discover(
-            engine=engine, solver=solver, route=route
-        )
-    if (
-        context.engine != engine
-        or context.solver != solver
-        or context.route != route
-    ):
-        raise FormalError("formal toolchain context does not match the requested route")
+    context = resolve_formal_toolchain(engine=engine, solver=solver, route=route, toolchain=toolchain)
     missing = context.missing
     if missing:
         return FormalResult(property_id, FormalStatus.SKIPPED, mode, engine, solver, depth,

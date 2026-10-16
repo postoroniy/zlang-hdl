@@ -35,9 +35,6 @@ from zlang.simulation_transition_plan import TransitionPlanBuilder
 from zlang.simulation_verification_plan import VerificationOverlayBuilder
 
 
-_NATIVE_PLAN_OPS = {"fifo_ref", "memory_port_read", "rom_lookup"}
-
-
 def _unsupported_module_features(module: object) -> tuple[str, ...]:
     features: list[str] = []
     if any(port.protocol is not InterfaceProtocol.WIRE for port in module.ports):

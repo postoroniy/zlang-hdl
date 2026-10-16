@@ -99,6 +99,10 @@ def emit_target(module: ir_module.Module, graph: ImplementationGraph, *, simulat
         boundary = sv_boundary._build_top_boundary_plan(module)
         with top_boundary_scope(boundary):
             if emitters == {"dsp48e1_explicit"}:
+                if graph.resources and all(dict(item.configuration).get("parallel_bilinear") == 1
+                                           for item in graph.resources):
+                    from zlang.backend.systemverilog.bilinear import emit_parallel_products
+                    return emit_parallel_products(module, graph, simulation_model)
                 # Signed-product graphs carry one explicit accumulator mode per
                 # resource instance. This is a graph/configuration property, not a
                 # source-name or RTL-text heuristic. Keep the older symmetric FIR

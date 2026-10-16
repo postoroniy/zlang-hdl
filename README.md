@@ -39,6 +39,27 @@ environment. The target installs the compiler from the current checkout and the
 matching reviewed native-runtime wheel into that same environment. After this
 one command, checking, RTL generation, LSP and native simulation are available;
 there is no separate simulator installation step on supported Linux x86-64.
+On a local host with the `code` command and Node.js 22 available, `make venv`
+also builds, audits and installs this checkout's VS Code extension. CI skips
+that host installation. Use `make venv INSTALL_EDITOR=0` to leave your installed
+extension unchanged. If Node.js 22 or npm is unavailable, Python/LSP/native
+installation still completes; install those editor prerequisites and run
+`make editor-install` afterward.
+Initial provisioning needs access to the Python package index and, for editor
+packaging, the npm registry, or suitable prepopulated local caches.
+
+`make -n venv` only prints the bootstrap command; it does not provision an
+environment, install packages, or update VS Code. A real bootstrap rejects an
+active sibling environment, an environment outside this checkout, or an
+existing non-CPython-3.12 interpreter before installing packages. For a foreign
+active environment, run `deactivate`, then retry `make venv`. An incompatible
+local `.venv` must be moved aside before retrying; it is not deleted automatically.
+Stale checkout distribution metadata is preserved below `build/tmp` rather
+than allowed to shadow the installed version. If the optional VS Code install
+fails after Python setup, the error identifies that stage: retry
+`make editor-install`, or use `make venv INSTALL_EDITOR=0` for Python/native/LSP
+setup only. `KEEP_TMP=1 make venv` retains and prints bootstrap scratch paths
+for troubleshooting.
 
 ### VS Code and the language server
 
@@ -53,22 +74,19 @@ The VSIX contains the VS Code client, syntax support and snippets; it does not
 embed the Python compiler or language-server executable. VS Code must be pointed
 at the `zlang-lsp` installed by the release wheel or this checkout's `.venv`.
 
-To use the current checkout before a matching GitHub Release is published,
-build and install its Linux-x64 VSIX with Node.js 22. This package includes the
-reviewed debugger and waveform-viewer executables already tracked in the public
-repository:
+To refresh the editor without reinstalling the Python environment, use Node.js
+22 and run:
 
 ```bash
-mkdir -p build/tmp
-vsix_dir="$(mktemp -d "$PWD/build/tmp/editor-vsix.XXXXXX")"
-npm --prefix editors/vscode/zlang-hdl ci --ignore-scripts
-npm --prefix editors/vscode/zlang-hdl test
-make native-editor-audit
-npm --prefix editors/vscode/zlang-hdl run package:linux-x64 -- \
-  "$vsix_dir/zlang-hdl-0.1.0-linux-x64.vsix"
-code --install-extension \
-  "$vsix_dir/zlang-hdl-0.1.0-linux-x64.vsix" --force
+make editor-install
 ```
+
+This always creates a fresh VSIX below `build/tmp` and installs it with
+`--force`, including when the extension version is unchanged. On Linux x86-64
+it includes the reviewed debugger and waveform binaries; other hosts receive
+the editor/LSP-only package. Set `VSCODE=/path/to/code` if the CLI has another
+name or location. Then run **Developer: Reload Window** and close/reopen existing
+waveform tabs: an open webview keeps its old JavaScript until reloaded.
 
 After a version is published, the matching GitHub Release provides the same
 Linux-x64 VSIX as a downloadable asset. Do not substitute a VSIX from another
@@ -236,7 +254,39 @@ JSONL event schedule used by the CLI, or a simple bounded `clock` and `cycles`
 launch. Project-owned reusable schedules normally live under `simulation/`;
 temporary or generated experiments belong under ignored `build/` output.
 
-A minimal `.vscode/launch.json` entry is:
+The clone includes a ready-to-run
+[Debug RuleAction configuration](.vscode/launch.json) and
+[event schedule](examples/rule_action.events.jsonl). No FST generation or
+handwritten launch configuration is needed for this example.
+
+#### Start the debugger
+
+After `make venv`, open the repository **folder** in VS Code. To refresh an
+already installed extension, run:
+
+```bash
+make editor-install
+code .
+```
+
+Run **Developer: Reload Window** after installing. The workspace uses its own
+`.venv/bin/zlang-lsp`; the Linux-x64 VSIX supplies the native debug adapter.
+
+1. Open [`examples/rule_action.zhl`](examples/rule_action.zhl) and **Save All**.
+2. Open **Run and Debug** (`Ctrl+Shift+D`) and select **Debug RuleAction**.
+3. Press **F5**. `stopOnEntry` pauses before the first event.
+4. Run **Ctrl+Shift+P → ZLang HDL: Open Live Waveform** and place the panel
+   beside the source. Keep **Follow Live** enabled to follow the current event.
+5. Press **F10 / Step Over** to execute one complete event at a time.
+
+To stop when the rule fires, click the gutter to the left of line 10
+(`when enable`) or put the caret on that line and press **F9**. Press
+**F5 / Continue** after the entry stop: execution stops after the first enabled
+event with `count = 1`; Continue again stops with `count = 2`. Breakpoints are
+supported on rules, FSM transitions and verification clauses, not arbitrary
+declarations. No `debug.allowBreakpointsEverywhere` setting is needed.
+
+The checked-in configuration is:
 
 ```json
 {
@@ -248,20 +298,132 @@ A minimal `.vscode/launch.json` entry is:
       "name": "Debug RuleAction",
       "program": "${workspaceFolder}/examples/rule_action.zhl",
       "top": "RuleAction",
-      "events": "${workspaceFolder}/build/rule-action-events.jsonl",
-      "traceSignals": ["fired", "count"],
+      "events": "${workspaceFolder}/examples/rule_action.events.jsonl",
+      "logicState": true,
+      "strictUninitialized": false,
+      "initialRegisters": {},
+      "traceSignals": ["enable", "fired", "count"],
       "stopOnEntry": true
     }
   ]
 }
 ```
 
-Breakpoints are accepted on executable rules, FSM transitions, and
-verification clauses. One debugger step executes one complete atomic
-simulation/reset/clock event. The live waveform panel shows the signals traced
-by that same session. See [Debugging native simulation in VS Code](docs/native-debugging.md)
-for a runnable event file, all launch fields, four-state inputs, data
-breakpoints, waveform controls, project profiles, and troubleshooting.
+#### Test vectors and stepping
+
+The debugger reads these checked-in events; it does not generate stimulus:
+
+```jsonl
+{"reset":{"rst":true},"set":{"enable":0},"edges":["clk"]}
+{"reset":{"rst":false},"edges":["clk"]}
+{"set":{"enable":1},"edges":["clk"],"repeat":2}
+{"set":{"enable":0},"edges":["clk"]}
+```
+
+Inputs and resets retain their values until changed. `repeat: 2` executes that
+event twice, so four JSONL lines describe five debugger steps:
+
+| After F10 | Event | `count` |
+|---|---|---:|
+| 1 | Assert reset | 0 |
+| 2 | Release reset | 0 |
+| 3 | `enable = 1` | 1 |
+| 4 | Repeat the enabled clock event | 2 |
+| 5 | `enable = 0`; hold state | 2 |
+
+This example declares `count` with `= 0`, so it also starts at zero before the
+first event. Uninitialized registers without a reset value show `U` in this
+four-state launch. One step executes an entire atomic simulation event, not one
+source line. **F5 / Continue** runs until a
+breakpoint, failure or the end of the schedule. Place a breakpoint on
+`when enable` to stop after a firing rule; only executable rules, FSM transitions
+and verification clauses accept source breakpoints. **Restart** replays the
+schedule from the beginning; **Shift+F5** stops the session. Increase `repeat`
+in the event file and relaunch for a longer run.
+
+The same schedule can be checked without the editor:
+
+```bash
+.venv/bin/zlang sim examples/rule_action.zhl --top RuleAction \
+  --events examples/rule_action.events.jsonl --logic-state --json
+```
+
+#### Debug without a JSONL file
+
+For a short interactive experiment, add this entry to the `configurations`
+array in `.vscode/launch.json`, without an `events` field:
+
+```json
+{
+  "type": "zlang-hdl",
+  "request": "launch",
+  "name": "RuleAction - manual inputs",
+  "program": "${workspaceFolder}/examples/rule_action.zhl",
+  "top": "RuleAction",
+  "clock": "clk",
+  "cycles": 20,
+  "logicState": true,
+  "stopOnEntry": true,
+  "traceSignals": ["enable", "fired", "count"]
+}
+```
+
+Save the source, select **RuleAction - manual inputs**, and press **F5**.
+While stopped, open **Variables → Ports**, right-click `enable`, choose
+**Set Value**, and enter `1`. Two **F10** steps produce `count = 1`, then `2`
+under **Registers**. Set `enable` to `0` and step again: `count` holds at `2`.
+To test a source breakpoint, set `enable` back to `1`, press **F9** on
+`when enable` or its `count <- ...` action, and **F5 / Continue**: the next
+enabled event stops with `count = 3` and highlights that line. Open
+**ZLang HDL: Open Live Waveform** to watch these same events.
+
+This uses the register's declared `= 0` initial value, not a reset sequence.
+Clocks and resets are read-only in Variables; use JSONL for explicit reset,
+multiple clocks or repeatable input changes. `events` and `clock`/`cycles` are
+mutually exclusive. The run is bounded to 20 clock events. Restart restores
+initial state; it does not replay manual edits.
+
+Python can also supply inputs directly through `zlang.sim`, without JSONL.
+That creates a separate native instance: Python breakpoints work in its
+testbench, but ZLang source breakpoints and the live debugger waveform are not
+attached to it. See the [runnable Python example](docs/native-debugging.md#python-simulation-without-an-event-file)
+and [manual-input walkthrough](docs/native-debugging.md#debug-without-an-event-file).
+
+#### Observe and add waveform signals
+
+`enable`, `fired` and `count` are recorded from event zero by `traceSignals`.
+While paused, expand **Variables → Ports** or **Registers**, right-click a
+value or field and choose **Add to Waveform**. The command also works in
+**Watch** for an exact signal path. Structs/vectors expose child fields,
+enums show their member names, tagged unions distinguish active and inactive
+fields, and interfaces appear as channel groups. **Type** preserves these
+typed displays; Hex/Binary show the packed bits.
+
+A signal added during execution starts recording at the next event; earlier
+history is not recorded. Use **Restart** for complete history. A saved `.fst`
+or `.vcd` tab is independent of the debugger: use **Open Live Waveform** to
+watch steps as they execute.
+
+- Select a signal row, then use **Change ◀/▶** or **Left/Right** to inspect
+  its transitions. Moving a waveform cursor does not execute the simulator.
+- Use the mouse wheel to zoom, **Shift+wheel** to pan in time, or middle-button
+  drag to pan horizontally and scroll signals vertically.
+- Keep **Follow Live** on to move cursor A and its value column to the latest
+  debugger event. Clocks and resets are traced automatically with their
+  declared edge and polarity, and appear under **Variables → Clocks and resets**.
+  Native trace ticks visualize events, not physical timing.
+
+Live and saved waveform views share grouping, duplicate rows, Cut/Copy/Paste,
+colors, row height, search, cursors, bookmarks, measurements and split viewports.
+**Save Session / Load Session** preserve the layout; live sessions save a layout
+template, not simulator state. **Refresh** rereads live history without stepping.
+**Add signals** selects more live traces; **Export Trace** saves FST/VCD for
+later inspection. Closing the live panel or restarting does not discard its
+workspace arrangement.
+
+See [Debugging native simulation in VS Code](docs/native-debugging.md) for
+all launch fields, four-state inputs, data breakpoints, project profiles and
+troubleshooting.
 
 With Verilator installed, a strict lint smoke is:
 

@@ -11,6 +11,46 @@ incompatible input explicitly.
 
 ## Unreleased
 
+### Fixed
+
+- Source breakpoints inside rule/FSM action bodies bind to their typed action
+  range and highlight the requested line when hit. The stopped source position
+  stays fixed while inspecting values or editing breakpoints and clears when
+  execution resumes.
+- Live debugger waveforms include clock/reset controls with the declared edge
+  and polarity. Reset-only and coincident-clock events, restart, and saved
+  VCD/FST export retain the same event-tick transitions.
+  Ending a debug session stops live polling and drains queued DAP requests
+  before the client closes its transport.
+- Closing a saved waveform stops new native queries immediately, flushes one
+  shutdown request and EOF, and tolerates repeated disposal. Final replies are
+  drained before reporting process exit; transport failures remain visible.
+- Live waveform additions count hidden rows and channel copies against session
+  limits, keeping saved layouts reloadable. Disconnected WCP clients no longer
+  leave socket errors unhandled.
+- Waveform pan/zoom preserves unchanged signal rows and updates values in place.
+  Saved-trace rendering visits only viewport changes plus the preceding state,
+  preserving U/X masks and short pulses without rescanning the full trace.
+- The Linux-x64 VS Code extension registers `.zhl` source breakpoints, enabling
+  gutter clicks and F9 without `debug.allowBreakpointsEverywhere`. Continue
+  stops after the selected rule, FSM transition or verification event.
+- Live waveform layouts now autosave and survive panel reopening and debugger
+  restart, including groups, styles, bookmarks and split views. Saved and live
+  views share session controls; live layouts use explicit templates and offer
+  read-only Refresh, signal selection and FST/VCD export.
+- Native simulation aligns short tagged-union payloads with the packed ABI,
+  matching SystemVerilog and field projection. Debugger values can be added to
+  the live waveform with compiler-owned enum, aggregate and interface metadata.
+
+- Waveforms refresh during time panning, use the selected signal for change
+  navigation, and preserve missing signals as removable faded holders on reload.
+  Rows support independent presentation and Cut/Copy/Paste. Live debugger and
+  saved waveform workspaces keep their state while switching editors.
+- `make venv` refreshes the local VS Code extension when available;
+  `make editor-install` rebuilds and installs the current checkout explicitly.
+- Native editor packaging rejects private source paths in diagnostic metadata;
+  reviewed executables use anonymous, reproducible source-location labels.
+
 ## 0.1.0a24 — 2026-10-15
 
 Alpha update consolidating native simulation ownership in the audited Rust

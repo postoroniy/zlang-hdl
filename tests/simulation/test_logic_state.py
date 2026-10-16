@@ -13,6 +13,27 @@ from zlang.sim_cli import main as sim_main
 from zlang.simulation_primitives import int_from_limbs as _limbs_to_int
 
 
+@pytest.mark.parametrize("bit", tuple(logic_values.LogicBit))
+@pytest.mark.parametrize("width", (1, 4, 65))
+def test_filled_logic_vector_accepts_each_explicit_logic_bit(bit, width) -> None:
+    assert LogicVector.filled(bit, width).to_bits() == bit.value * width
+
+
+@pytest.mark.parametrize("invalid", (None, "u", "x", "typo", 0, 1, False, object()))
+def test_filled_logic_vector_rejects_non_logic_bit_arguments(invalid) -> None:
+    with pytest.raises(ValueError, match="LogicBit"):
+        LogicVector.filled(invalid, 4)
+
+
+@pytest.mark.parametrize("logic_state", (False, True))
+def test_outputs_logic_preserves_known_values_in_both_native_modes(
+    tmp_path, logic_state,
+) -> None:
+    source = _source(tmp_path, "logic_outputs", "module Outputs { out y:u4=9 }")
+    with zlang.sim.load(source, logic_state=logic_state) as instance:
+        assert instance.outputs_logic() == {"y": LogicVector.known(9, 4)}
+
+
 def _source(tmp_path: Path, name: str, body: str) -> Path:
     path = tmp_path / f"{name}.zhl"
     path.write_text(body, encoding="utf-8")

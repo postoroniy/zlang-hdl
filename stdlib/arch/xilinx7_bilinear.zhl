@@ -1,0 +1,60 @@
+import std.target.xilinx.series7
+
+// Parallel independent full-width products; one optional joint output stage.
+architecture Xilinx7ParallelProducts1 {
+    operation parallel_bilinear
+    require_resource DSP48E1 1
+    latency 1
+    ii 1
+    use_pipeline unregistered
+}
+architecture Xilinx7ParallelProducts2 {
+    operation parallel_bilinear
+    require_resource DSP48E1 2
+    latency 1
+    ii 1
+    use_pipeline unregistered
+}
+architecture Xilinx7ParallelProducts3 {
+    operation parallel_bilinear
+    require_resource DSP48E1 3
+    latency 1
+    ii 1
+    use_pipeline unregistered
+}
+architecture Xilinx7ParallelProducts4 {
+    operation parallel_bilinear
+    require_resource DSP48E1 4
+    latency 1
+    ii 1
+    use_pipeline unregistered
+}
+architecture Xilinx7ParallelProducts5 {
+    operation parallel_bilinear
+    require_resource DSP48E1 5
+    latency 1
+    ii 1
+    use_pipeline unregistered
+}
+architecture Xilinx7ParallelProducts6 {
+    operation parallel_bilinear
+    require_resource DSP48E1 6
+    latency 1
+    ii 1
+    use_pipeline unregistered
+}
+architecture Xilinx7ParallelProducts7 {
+    operation parallel_bilinear
+    require_resource DSP48E1 7
+    latency 1
+    ii 1
+    use_pipeline unregistered
+}
+architecture Xilinx7ParallelProducts8 {
+    operation parallel_bilinear
+    require_resource DSP48E1 8
+    latency 1
+    ii 1
+    use_pipeline unregistered
+}
+module Xilinx7BilinearArchitectureLibrary {}

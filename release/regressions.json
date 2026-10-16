@@ -37,6 +37,58 @@
       ]
     },
     {
+      "id": "VSIX-001",
+      "source_paths": [
+        "editors/vscode/zlang-hdl/extension.js",
+        "editors/vscode/zlang-hdl/test/waveform-host.cjs",
+        "editors/vscode/zlang-hdl/test/waveform-pan.cjs",
+        "tests/editor/test_vscode_package.py",
+        "tests/editor/test_vscode_surface.py",
+        "tools/audit_native_editor.py"
+      ],
+      "status": "included",
+      "summary": "Saved and live waveform workspaces preserve bounded state across editor switches, update during panning, and reject private native source locations before publication.",
+      "tests": [
+        "tests/editor/test_vscode_package.py::VSCodePackageTests::test_native_elf_rejects_private_source_locations",
+        "tests/editor/test_vscode_surface.py::test_native_debugger_and_waveform_surface_stays_bounded_and_four_state"
+      ]
+    },
+    {
+      "id": "VSIX-002",
+      "source_paths": [
+        ".vscode/launch.json",
+        "editors/vscode/zlang-hdl/test/rule-action-host.cjs",
+        "editors/vscode/zlang-hdl/waveform_live.js",
+        "editors/vscode/zlang-hdl/waveform_live_ui.js",
+        "tests/integration/test_native_debug_catalog.py",
+        "tests/integration/test_native_debug_controls.py",
+        "zlang/native_debug_bundle.py",
+        "zlang/native_debug_catalog.py"
+      ],
+      "status": "included",
+      "summary": "Live debugger traces expose read-only clock/reset controls with exact declared edge and polarity, preserve both clock fronts and reset-only events, match exported VCD/FST event ticks, and drain pending live requests during shutdown.",
+      "tests": [
+        "tests/integration/test_native_debug_controls.py::test_disconnect_drains_late_live_requests_until_transport_eof",
+        "tests/integration/test_native_debug_controls.py::test_rule_action_live_controls_and_step_results"
+      ]
+    },
+    {
+      "id": "VSIX-003",
+      "source_paths": [
+        "editors/vscode/zlang-hdl/test/rule-action-host.cjs",
+        "tests/integration/test_native_debug_bundle.py",
+        "tests/integration/test_native_debug_controls.py",
+        "zlang/native_debug_bundle.py"
+      ],
+      "status": "included",
+      "summary": "Breakpoints on rule/FSM action lines bind to compiler-owned typed action ranges and publish the exact requested source line for VS Code's native stopped-frame highlight, without changing execution or hardware identities.",
+      "tests": [
+        "tests/integration/test_native_debug_bundle.py::test_debug_action_ranges_stop_before_the_following_rule",
+        "tests/integration/test_native_debug_bundle.py::test_debug_site_covers_typed_actions_without_changing_the_execution_plan",
+        "tests/integration/test_native_debug_controls.py::test_source_breakpoint_highlights_requested_line_until_execution_resumes"
+      ]
+    },
+    {
       "id": "ZL-052",
       "source_paths": [
         "tests/integration/test_encoded_enum_backends.py",

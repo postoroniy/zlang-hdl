@@ -6,5 +6,6 @@
   },
   "vscodeLanguageClient": "10.1.2",
   "esbuild": "0.28.2",
-  "vscodeTestElectron": "3.1.0"
+  "vscodeTestElectron": "3.1.0",
+  "typescript": "6.0.3"
 }

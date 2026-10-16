@@ -7,6 +7,7 @@ const fs = require('node:fs');
 const moduleBuiltin = require('node:module').builtinModules;
 const path = require('node:path');
 const esbuild = require('esbuild');
+const { buildWaveformBundle } = require('./waveform-assets.cjs');
 
 const extension = path.resolve(__dirname, '..');
 const toolchain = JSON.parse(fs.readFileSync(path.join(extension, 'editor-toolchain.json'), 'utf8'));
@@ -24,6 +25,7 @@ function assertToolchain() {
   assert.equal(manifest.dependencies['vscode-languageclient'], toolchain.vscodeLanguageClient);
   assert.equal(manifest.devDependencies.esbuild, toolchain.esbuild);
   assert.equal(manifest.devDependencies['@vscode/test-electron'], toolchain.vscodeTestElectron);
+  assert.equal(manifest.devDependencies.typescript, toolchain.typescript);
   assert.equal(installedClient.version, toolchain.vscodeLanguageClient);
   assert.equal(installedEsbuild.version, toolchain.esbuild);
   assert.equal(installedTest.version, toolchain.vscodeTestElectron);
@@ -58,12 +60,17 @@ async function buildBundle() {
   for (const input of Object.keys(result.metafile.inputs)) {
     const normalized = input.replaceAll('\\', '/');
     assert.ok([
-      'extension.js', 'waveform_client.js', 'waveform_view.js', 'waveform_wcp.js',
+      'extension.js', 'waveform_cache.js', 'waveform_channel.js', 'waveform_client.js',
+      'debug_waveform.js',
+      'waveform_live.js', 'waveform_view.js', 'waveform_wcp.js', 'waveform_session_io.js',
+      'waveform_document.js',
+      'waveform_clipboard.js',
+      'waveform_measurement.js', 'waveform_navigation.js', 'waveform_session.js',
     ].includes(normalized)
       || normalized.includes('/node_modules/') || normalized.startsWith('node_modules/'),
       `unexpected bundle input: ${input}`);
   }
-  return { bytes: Buffer.from(output), metafile: result.metafile };
+  return { bytes: Buffer.from(output), waveform: buildWaveformBundle(), metafile: result.metafile };
 }
 
 function licenseFile(packageDirectory) {

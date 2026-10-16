@@ -418,9 +418,9 @@ class _Builder:
         fields = list(variant["fields"])
         used = sum(int(field["type"]["width"]) for field in fields)
         pieces = [self.constant(tag, int(type_["tag_width"]))]
+        pieces.extend(operands)
         if payload_width > used:
             pieces.append(self.constant(0, payload_width - used))
-        pieces.extend(operands)
         return self.concat(tuple(pieces), int(type_["width"]))
 
     def _union_field(self, node: dict[str, Any], source: int) -> int:

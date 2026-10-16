@@ -3,12 +3,16 @@ SHELL := /bin/bash
 .SHELLFLAGS := -eu -o pipefail -c
 
 VENV ?= $(CURDIR)/.venv
-VENV := $(abspath $(VENV))
+# abspath treats spaces as list separators; keep checkout paths intact.
+VENV := $(if $(filter /%,$(firstword $(VENV))),$(VENV),$(CURDIR)/$(VENV))
 PYTHON := $(VENV)/bin/python
 PYTHON_SCRIPTS := $(VENV)/bin
 TMP_ROOT ?= $(CURDIR)/build/tmp
 LOCAL_RUNNER := $(CURDIR)/tools/run_local_env.sh
 RUN_PYTHON = ZLANG_VENV="$(VENV)" "$(LOCAL_RUNNER)" --purpose "$(1)" -- "$(PYTHON)"
+# Shell-mediated bootstrap must inherit the chosen Make executable without a
+# recursive $(MAKE) reference in its .ONESHELL recipe (which bypasses -n).
+export MAKE
 CARGO_AUDIT ?= cargo-audit
 CARGO_AUDIT_VERSION ?= 0.22.2
 PIP_VERSION ?= 26.2.1
@@ -35,6 +39,10 @@ RELEASE_PREFLIGHT_REPORT ?= build/release-preflight.json
 RELEASE_MODE ?= candidate
 EDITOR_VSIX ?= build/editor-release/zlang-hdl-0.1.0.vsix
 EDITOR_NATIVE_VSIX ?= build/editor-release/zlang-hdl-0.1.0-linux-x64.vsix
+VSCODE ?= code
+INSTALL_EDITOR ?= 1
+WAVEFORM_INDEXER ?= $(CURDIR)/release/native-editor/linux-x64/zlang-waveform-indexer
+EDITOR_BROWSER_ROOT ?= $(CURDIR)/build/editor-browsers
 STRUCTURAL_PROFILE ?= small
 STRUCTURAL_REPORT_DIR ?= build/structural
 CI_JUNIT ?=
@@ -55,9 +63,9 @@ FAST_TEST_PATHS := \
 	tests/parser tests/semantic tests/conformance tests/editor \
 	tests/packaging tests/release
 
-.PHONY: help venv env-check release-review-clean review-commits release-review release-sanity release-dependency-floor release-regressions release-preflight public-check static jit-check jit-audit jit-advisory-audit native-editor-audit native-release-set native-release-install audit release-tools test-fast test test-structural \
+.PHONY: help venv env-check editor-install release-review-clean review-commits release-review release-sanity release-dependency-floor release-regressions release-preflight public-check static jit-check jit-audit jit-advisory-audit native-editor-audit native-release-set native-release-install audit release-tools test-fast test test-structural \
 	structural-baseline \
-	community-pdf-check test-release-twice editor-test editor-advisory-audit editor-host-test editor-native-host-test package release-candidate \
+	community-pdf-check test-release-twice editor-static editor-test editor-advisory-audit editor-host-test editor-native-host-test editor-waveform-test package release-candidate \
 	ci-bootstrap ci-fast-core ci-full-regression ci-performance-regression ci-hosted-edge \
 	ci-random-smoke ci-editor ci-test-floor ci-contract-smoke
 
@@ -65,7 +73,7 @@ LOCAL_ENV_TARGETS := \
 	release-dependency-floor release-regressions release-preflight public-check static jit-check jit-audit \
 	jit-advisory-audit native-editor-audit native-release-set native-release-install audit release-tools test-fast test \
 	test-structural structural-baseline community-pdf-check test-release-twice \
-	editor-test editor-advisory-audit editor-host-test editor-native-host-test review-commits release-review release-sanity release-candidate \
+	editor-install editor-static editor-test editor-advisory-audit editor-host-test editor-native-host-test editor-waveform-test review-commits release-review release-sanity release-candidate \
 	ci-fast-core ci-full-regression ci-performance-regression ci-hosted-edge \
 	ci-random-smoke ci-editor ci-contract-smoke
 
@@ -73,7 +81,8 @@ $(LOCAL_ENV_TARGETS): env-check
 
 help:
 	@printf '%s\n' \
-		'make venv               install the checkout compiler, test tools, and audited native runtime' \
+		'make venv               install compiler/runtime and refresh VS Code when available locally' \
+		'make editor-install     build, audit and install this checkout VSIX; reload VS Code afterward' \
 		'make release-review     validate a clean public review branch before merge' \
 		'make review-commits     require signed, DCO-complete public review commits' \
 		'make release-sanity     run fast release metadata, projection, static and editor gates' \
@@ -97,50 +106,21 @@ help:
 		'make community-pdf-check validate PDF and release-status identities' \
 		'make test-release-twice run deterministic/performance partitions twice' \
 		'make editor-test        install locked editor dependencies and run its tests' \
+		'make editor-static      check JS scopes and unused names with installed editor dependencies' \
 		'make editor-advisory-audit audit the complete locked editor dependency inventory' \
 		'make editor-host-test   build, audit and run the installed VSIX host smoke' \
 		'make editor-native-host-test build, audit and debug with the Linux-x64 VSIX' \
+		'make editor-waveform-test test the generated viewer with real Rust queries and Chromium' \
 		'make ci-contract-smoke  reproduce hosted workflow contracts locally' \
 		'make package            build one sdist and two byte-identical wheels' \
 		'make release-candidate  run the local non-publishing release gate'
 
 venv:
-	mkdir -p "$(TMP_ROOT)"
-	run_tmp="$$(mktemp -d "$(TMP_ROOT)/venv.XXXXXX")"
-	trap 'rm -rf -- "$$run_tmp"' EXIT
-	export TMPDIR="$$run_tmp" TMP="$$run_tmp" TEMP="$$run_tmp" PYTHONNOUSERSITE=1
-	if [[ ! -x "$(PYTHON)" ]]; then
-		if command -v uv >/dev/null; then
-			uv venv --python 3.12 "$(VENV)"
-		else
-			python3 -c 'import sys; assert (3, 12) <= sys.version_info < (3, 13), sys.version'
-			python3 -m venv "$(VENV)"
-		fi
-	fi
-	"$(PYTHON)" -m tools.check_local_environment --root "$(CURDIR)" \
-		--quarantine-stale-metadata --tmp-root "$(TMP_ROOT)"
-	# Install the exact build backend first: a newly created Python venv is not
-	# guaranteed to include setuptools, while the editable install below avoids
-	# a separate build-isolation environment.
-	if command -v uv >/dev/null; then
-		uv pip install --python "$(PYTHON)" "pip==$(PIP_VERSION)" "setuptools==$(SETUPTOOLS_VERSION)"
-		uv pip install --python "$(PYTHON)" -e '.[test]'
-		uv pip install --python "$(PYTHON)" $(RELEASE_PYTHON_TOOLS)
-	else
-		"$(PYTHON)" -m pip install --disable-pip-version-check --upgrade \
-			"pip==$(PIP_VERSION)" "setuptools==$(SETUPTOOLS_VERSION)"
-		# The repository build backend is installed above, so the local editable
-		# package does not need a second isolated build environment.  Keep external
-		# release tools in a separate command: sdists such as reuse own different
-		# build backends and must retain normal PEP 517 build isolation.
-		"$(PYTHON)" -m pip install --disable-pip-version-check --no-build-isolation -e '.[test]'
-		"$(PYTHON)" -m pip install --disable-pip-version-check $(RELEASE_PYTHON_TOOLS)
-	fi
-	# A supported checkout is immediately usable for both compilation and
-	# simulation.  The recursive target retains the single audited owner for
-	# native-wheel selection and ABI/version validation.
-	VIRTUAL_ENV="$(VENV)" $(MAKE) --no-print-directory native-release-install \
-		TAG="v$$($(PYTHON) -c 'from zlang._version import __version__; print(__version__)')"
+	ZLANG_VENV="$(VENV)" ZLANG_TMP_ROOT="$(TMP_ROOT)" \
+		ZLANG_INSTALL_EDITOR="$(INSTALL_EDITOR)" ZLANG_VSCODE="$(VSCODE)" \
+		ZLANG_BOOTSTRAP_PIP_VERSION="$(PIP_VERSION)" \
+		ZLANG_BOOTSTRAP_SETUPTOOLS_VERSION="$(SETUPTOOLS_VERSION)" \
+		"$(SHELL)" tools/bootstrap_local_env.sh $(RELEASE_PYTHON_TOOLS)
 
 env-check:
 	if [[ ! -x "$(PYTHON)" ]]; then
@@ -275,6 +255,8 @@ native-release-install: native-release-set
 	test "$${#wheels[@]}" -eq 1 && test -f "$${wheels[0]}"
 	$(call RUN_PYTHON,native-release-install) -m pip install --disable-pip-version-check \
 		--force-reinstall --no-deps "$${wheels[0]}"
+	$(call RUN_PYTHON,native-release-runtime) -c \
+		'from zlang.sim import _native_runtime; _native_runtime()'
 
 audit:
 	mkdir -p "$(TMP_ROOT)"
@@ -489,9 +471,37 @@ test-release-twice:
 		--root . --junit "$$report_root/release-2.xml" \
 		--performance-junit "$$report_root/release-performance-2.xml"
 
+editor-install: editor-test
+	if ! command -v "$(VSCODE)" >/dev/null; then
+		echo 'VS Code CLI is unavailable; install code or set VSCODE=/path/to/code.' >&2; exit 2
+	fi
+	mkdir -p "$(TMP_ROOT)"
+	editor_dir="$$(mktemp -d "$(TMP_ROOT)/editor-install.XXXXXX")"
+	if [[ "$$(uname -s):$$(uname -m)" == Linux:x86_64 ]]; then
+		$(MAKE) --no-print-directory native-editor-audit
+		package_script=package:linux-x64
+		vsix="$$editor_dir/zlang-hdl-0.1.0-linux-x64.vsix"
+	else
+		package_script=package
+		vsix="$$editor_dir/zlang-hdl-0.1.0.vsix"
+	fi
+	"$(LOCAL_RUNNER)" --purpose editor-install-package -- \
+		npm --prefix editors/vscode/zlang-hdl run "$$package_script" -- "$$vsix"
+	$(call RUN_PYTHON,editor-install-audit) tests/editor/test_vscode_package.py "$$vsix"
+	"$(LOCAL_RUNNER)" --purpose editor-install-code -- \
+		"$(VSCODE)" --install-extension "$$vsix" --force
+	printf 'Installed this checkout VSIX: %s\n' "$$vsix"
+	printf '%s\n' 'In VS Code run Developer: Reload Window, then close and reopen existing waveform tabs.'
+
+editor-static:
+	"$(LOCAL_RUNNER)" --purpose editor-static -- \
+		npm --prefix editors/vscode/zlang-hdl run static
+
 editor-test:
-	npm --prefix editors/vscode/zlang-hdl ci --ignore-scripts
-	npm --prefix editors/vscode/zlang-hdl test
+	"$(LOCAL_RUNNER)" --purpose editor-dependencies -- \
+		npm --prefix editors/vscode/zlang-hdl ci --ignore-scripts
+	"$(LOCAL_RUNNER)" --purpose editor-tests -- \
+		npm --prefix editors/vscode/zlang-hdl test
 
 editor-advisory-audit: editor-test
 	mkdir -p "$(TMP_ROOT)"
@@ -523,7 +533,15 @@ editor-host-test: editor-test
 		xvfb-run -a npm --prefix editors/vscode/zlang-hdl run test:host -- \
 		"$(abspath $(EDITOR_VSIX))"
 
-editor-native-host-test: editor-test native-editor-audit native-release-install
+editor-waveform-test: editor-test native-editor-audit
+	PLAYWRIGHT_BROWSERS_PATH="$(EDITOR_BROWSER_ROOT)" "$(LOCAL_RUNNER)" \
+		--purpose waveform-browser-install -- \
+		node editors/vscode/zlang-hdl/node_modules/playwright/cli.js install chromium
+	PLAYWRIGHT_BROWSERS_PATH="$(EDITOR_BROWSER_ROOT)" ZLANG_WAVEFORM_INDEXER="$(WAVEFORM_INDEXER)" \
+		"$(LOCAL_RUNNER)" --purpose waveform-browser -- \
+		npm --prefix editors/vscode/zlang-hdl run test:waveform
+
+editor-native-host-test: editor-test native-editor-audit native-release-install editor-waveform-test
 	if [[ -e "$(EDITOR_NATIVE_VSIX)" ]]; then
 		echo "$(EDITOR_NATIVE_VSIX) already exists; choose a fresh EDITOR_NATIVE_VSIX" >&2
 		exit 2

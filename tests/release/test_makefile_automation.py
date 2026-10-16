@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -26,10 +27,16 @@ def test_makefile_exposes_bounded_test_and_release_entry_points() -> None:
     assert "PYTHON := $(VENV)/bin/python" in text
     assert "env-check:" in text
     assert "make venv" in text
+    assert "INSTALL_EDITOR ?= 1" in text
+    assert "editor-install: editor-test" in text
+    bootstrap = (ROOT / "tools/bootstrap_local_env.sh").read_text()
+    assert '"$make_command" --no-print-directory editor-install' in bootstrap
+    assert '[[ "$install_editor" == 1 && -z "${CI:-}" ]]' in bootstrap
+    assert "tools/bootstrap_local_env.sh" in text
     assert (
-        '"$(PYTHON)" -m tools.check_local_environment --root "$(CURDIR)"'
-    ) in text
-    assert "--quarantine-stale-metadata --tmp-root \"$(TMP_ROOT)\"" in text
+        '"$python" -m tools.check_local_environment --root "$root"'
+    ) in bootstrap
+    assert '--quarantine-stale-metadata --tmp-root "$tmp_root"' in bootstrap
     assert "release-review-clean:" in text
     assert (
         "release-review: release-review-clean review-commits release-sanity "
@@ -113,6 +120,66 @@ def test_makefile_exposes_bounded_test_and_release_entry_points() -> None:
     assert "gh release create" not in text
     assert "git tag" not in text
     assert "git push" not in text
+
+
+def test_editor_install_uses_a_fresh_audited_vsix_even_at_the_same_version(
+    tmp_path: Path,
+) -> None:
+    # Exercise the actual Make recipe without installing into the tester's
+    # VS Code profile or running network-dependent package provisioning.
+    (tmp_path / "Makefile").write_text(
+        f"include {MAKEFILE}\n"
+        "env-check editor-test native-editor-audit:\n\t@:\n",
+        encoding="utf-8",
+    )
+    log = tmp_path / "commands.jsonl"
+    runner = tmp_path / "runner"
+    runner.write_text(
+        f"#!{sys.executable}\n"
+        "import json, os, pathlib, subprocess, sys\n"
+        "args = sys.argv[1:]\n"
+        "purpose = args[args.index('--purpose') + 1]\n"
+        "command = args[args.index('--') + 1:]\n"
+        "with open(os.environ['ZLANG_EDITOR_INSTALL_TEST_LOG'], 'a') as log:\n"
+        "    log.write(json.dumps({'purpose': purpose, 'args': command}) + '\\n')\n"
+        "if purpose == 'editor-install-package':\n"
+        "    pathlib.Path(command[-1]).write_bytes(b'fresh VSIX fixture')\n"
+        "elif purpose == 'editor-install-audit':\n"
+        "    assert pathlib.Path(command[-1]).read_bytes() == b'fresh VSIX fixture'\n"
+        "else:\n"
+        "    subprocess.run(command, check=True)\n",
+        encoding="utf-8",
+    )
+    code = tmp_path / "code"
+    code.write_text(
+        f"#!{sys.executable}\n"
+        "import pathlib, sys\n"
+        "assert sys.argv[1] == '--install-extension'\n"
+        "assert pathlib.Path(sys.argv[2]).is_file()\n"
+        "assert sys.argv[3] == '--force'\n",
+        encoding="utf-8",
+    )
+    runner.chmod(0o755)
+    code.chmod(0o755)
+    for _ in range(2):
+        result = subprocess.run(
+            (
+                "make", "-s", "editor-install", f"LOCAL_RUNNER={runner}",
+                f"VSCODE={code}", f"PYTHON={sys.executable}",
+            ),
+            cwd=tmp_path, capture_output=True, text=True, check=False,
+            env=os.environ | {"ZLANG_EDITOR_INSTALL_TEST_LOG": str(log)},
+        )
+        assert result.returncode == 0, result.stderr
+        assert "Developer: Reload Window" in result.stdout
+    commands = [json.loads(line) for line in log.read_text().splitlines()]
+    assert [entry["purpose"] for entry in commands] == [
+        "editor-install-package", "editor-install-audit", "editor-install-code",
+    ] * 2
+    packages = [Path(entry["args"][-1]) for entry in commands
+                if entry["purpose"] == "editor-install-package"]
+    assert packages[0] != packages[1]
+    assert all(file.parent.parent == tmp_path / "build" / "tmp" for file in packages)
 
 
 def test_release_workflow_uses_curated_changelog_notes_and_native_set() -> None:

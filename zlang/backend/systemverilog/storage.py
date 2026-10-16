@@ -312,10 +312,7 @@ def _emit_fifo(module: ir_module.Module) -> str:
         )
     width, count_width = sv_rendering._width(fifo.element_type), fifo.count_width
     ptr_width = max(1, (fifo.depth - 1).bit_length())
-    if scalar_wire:
-        ports = sv_boundary._physical_port_declarations(module)
-    else:
-        ports = sv_boundary._physical_port_declarations(module)
+    ports = sv_boundary._physical_port_declarations(module)
     name = fifo.name
     if fifo.data is None or fifo.push is None or fifo.pop is None:
         raise SystemVerilogEmissionError(

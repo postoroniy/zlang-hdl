@@ -17,14 +17,25 @@ const staticAssets = [
 async function main() {
   const targetIndex = process.argv.indexOf('--target');
   const target = targetIndex === -1 ? null : process.argv[targetIndex + 1];
+  const nativeIndex=process.argv.indexOf('--development-native-root');
+  const developmentRoot=nativeIndex===-1?null:process.argv[nativeIndex+1];
   const positional = process.argv.slice(2).filter((item, index, values) => (
-    item !== '--target' && values[index - 1] !== '--target'
+    !['--target','--development-native-root'].includes(item)
+    && !['--target','--development-native-root'].includes(values[index-1])
   ));
   if (positional.length !== 1 || !path.isAbsolute(positional[0]) || !positional[0].endsWith('.vsix')) {
     throw new Error('Usage: npm run package[:linux-x64] -- /absolute/output/zlang-hdl.vsix');
   }
   if (target !== null && target !== 'linux-x64') throw new Error(`Unsupported VSIX target: ${target}`);
   const output = path.resolve(positional[0]);
+  if(developmentRoot!==null){
+    const root=fs.realpathSync(developmentRoot);
+    const relative=path.relative(repository,root);
+    if(target!=='linux-x64'||relative.startsWith('..')||path.isAbsolute(relative)
+      ||!['native-runtime/target/','build/tmp/'].some(prefix=>relative.replaceAll('\\','/').startsWith(prefix))
+      ||!output.startsWith(path.join(repository,'build','tmp')+path.sep))
+      throw new Error('Development native tools and VSIX must remain in the checkout build directories');
+  }
   const reservation = fs.openSync(output, 'wx');
   fs.closeSync(reservation);
   const scratch = path.join(repository, 'build', 'tmp');
@@ -40,20 +51,31 @@ async function main() {
     }
     const manifest = JSON.parse(fs.readFileSync(path.join(extension, 'package.json'), 'utf8'));
     if (target === null) {
+      delete manifest.contributes.breakpoints;
       delete manifest.contributes.debuggers;
       delete manifest.contributes.customEditors;
       delete manifest.contributes.menus;
+      delete manifest.contributes.keybindings;
       manifest.contributes.commands = [];
       delete manifest.contributes.configuration.properties['zlang.waveform.wcp.enabled'];
       delete manifest.contributes.configuration.properties['zlang.waveform.wcp.port'];
       manifest.categories = manifest.categories.filter((item) => item === 'Programming Languages');
     } else {
-      const binaryRoot = path.resolve(repository, 'release/native-editor', target);
+      const binaryRoot = developmentRoot===null
+        ? path.resolve(repository, 'release/native-editor', target) : fs.realpathSync(developmentRoot);
       const destinationRoot = path.join(stage, 'bin', target);
       fs.mkdirSync(destinationRoot, { recursive: true });
       for (const name of ['zlang-debug-adapter', 'zlang-waveform-indexer']) {
         const source = path.join(binaryRoot, name);
         if (!isReviewedExecutable(source)) throw new Error(`Missing reviewed native tool: ${source}`);
+        if(developmentRoot===null){
+          const status=JSON.parse(fs.readFileSync(path.join(repository,'release/status.json'),'utf8'));
+          const record=status.native_editor.executables.find(item=>item.name===name);
+          const bytes=fs.readFileSync(source);
+          if(!record||record.size!==bytes.length
+            ||record.sha256!==crypto.createHash('sha256').update(bytes).digest('hex'))
+            throw new Error(`Native tool differs from reviewed release identity: ${name}`);
+        }
         fs.copyFileSync(source, path.join(destinationRoot, name));
         fs.chmodSync(path.join(destinationRoot, name), 0o755);
       }
@@ -63,6 +85,7 @@ async function main() {
       );
     }
     manifest.main = './dist/extension.js';
+    if(developmentRoot!==null)manifest.zlangDevelopmentNativeBuild=true;
     delete manifest.files;
     delete manifest.devDependencies;
     delete manifest.scripts;
@@ -70,6 +93,7 @@ async function main() {
     const bundle = await buildBundle();
     fs.mkdirSync(path.join(stage, 'dist'));
     fs.writeFileSync(path.join(stage, 'dist', 'extension.js'), bundle.bytes);
+    fs.writeFileSync(path.join(stage, 'dist', 'waveform.js'), bundle.waveform);
     fs.writeFileSync(path.join(stage, 'THIRD_PARTY_NOTICES.txt'), thirdPartyNotices());
     for (const relative of ['LICENSE', 'NOTICE']) {
       fs.copyFileSync(path.join(repository, relative), path.join(stage, relative));

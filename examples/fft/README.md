@@ -1,6 +1,11 @@
 # FFT validation examples
 
-These sources are deliberately split into two bounded validation designs:
+These sources cover exact multiplication and bounded FFT validation designs:
+
+- `complex_multiply_three_dsp.zhl` compares exact signed 16-bit complex
+  multiplication using three versus four real products. Both have latency 1
+  and II=1. Both write only `a * b`; `implement` explores exact bilinear
+  structures and applies the DSP budget to the complete joint result.
 
 - `complex_multiply_pipeline_auto.zhl` contains two independently selectable
   pure scalar kernels, `FFTComplexMultiplyRealAuto` and
@@ -21,6 +26,104 @@ These sources are deliberately split into two bounded validation designs:
   composes the same reusable stage at `D=4`, `D=2`, and `D=1`. The bounded
   `FFT16SDFReference` extends that composition with a leading `D=8` stage, and
   `FFT32SDFReference` adds the corresponding leading `D=16` stage.
+
+## Three DSP48E1 slices instead of four
+
+[`complex_multiply_three_dsp.zhl`](complex_multiply_three_dsp.zhl) contains two
+tops with identical `Complex<s16>` inputs and exact `Complex<s33>` outputs:
+
+| Top | Real products | Xilinx 7-series synthesis | Latency / II |
+| --- | ---: | ---: | --- |
+| `ComplexMultiply3DSP` | 3 | 3 DSP48E1 | 1 / 1 |
+| `ComplexMultiply4DSP` | 4 | 4 DSP48E1 | 1 / 1 |
+
+The source contains no hand-written Gauss formula:
+
+```zlang
+product = implement {
+    a * b
+    intent {
+        dsp <= 3
+        latency == 1
+        ii == 1
+        minimize lut
+    }
+}
+```
+
+The four-DSP top changes only the DSP requirement to `dsp == 4`. Overloaded
+operators are expanded before exploration, so the optimizer does not recognize
+the name `Complex` or its field names. It searches bounded bilinear coefficient
+decompositions shared across the output fields. Other signed struct overloads
+use the same mechanism, including operations other than multiplication.
+
+The search adds checked equalities to the local value e-graph; extraction
+retains structurally distinct alternatives before implementation selection.
+The previous local rewrite rules alone do not find this reduction. This is
+bounded value exploration, not exhaustive algebra discovery or general HLS.
+
+This first search accepts 2–4 signed output fields and at most six signed
+input leaves of 1–16 bits, with a bipartition of at most three leaves on each
+side. It tests at most 4,096 rank-one bases, retains at most eight alternatives,
+and searches ranks up to three with coefficients −1, 0 and 1. The existing
+intent saturation, extraction and implementation-candidate caps apply as well.
+Reaching a bound keeps the original value and the checked alternatives already
+found; it does not relax an impossible DSP constraint. Unsupported conversions,
+overflowing intermediates, state and protocol boundaries are not rewritten.
+
+Intermediate additions and products retain full signed precision. A final
+narrowing back to the original `s33` field is admitted only after a range and
+polynomial certificate proves it lossless. There is no quantization or
+saturation. Shared products remain single DAG nodes and physical resources.
+Both tops accept fresh inputs every clock without time-sharing.
+
+Without a target, DSP counts are architecture estimates. With the target below,
+each unique product receives a validated explicit DSP48E1 binding. The synthesis
+tests check actual Yosys cell counts; `dsp <= 3` is not a promise of three DSPs
+on an arbitrary device, nor a whole-module budget outside this `implement` site.
+
+Generate the two implementations:
+
+```sh
+mkdir -p build/complex-multiply
+.venv/bin/zlang examples/fft/complex_multiply_three_dsp.zhl \
+  --top ComplexMultiply3DSP \
+  --target xc7z030ffg676-1 \
+  --systemverilog build/complex-multiply/three.sv
+.venv/bin/zlang examples/fft/complex_multiply_three_dsp.zhl \
+  --top ComplexMultiply4DSP \
+  --target xc7z030ffg676-1 \
+  --systemverilog build/complex-multiply/four.sv
+```
+
+With the release-pinned OSS CAD Suite on `PATH`, count the mapped cells:
+
+```sh
+yosys -p 'read_verilog -sv build/complex-multiply/three.sv; synth_xilinx -family xc7 -top ComplexMultiply3DSP -flatten -noiopad -noclkbuf; check; stat'
+yosys -p 'read_verilog -sv build/complex-multiply/four.sv; synth_xilinx -family xc7 -top ComplexMultiply4DSP -flatten -noiopad -noclkbuf; check; stat'
+```
+
+The three-product form adds pre-add/subtract work, parts of which synthesis may
+absorb into the DSPs. Fewer DSPs alone do not establish a total-area or timing
+win. No Vivado placement/routing or achieved Fmax is claimed by this comparison.
+
+The full 16-bit value transformation is checked independently using exact
+polynomial identities and a range proof for every finite-width intermediate;
+the tests also check the integer identity with Z3. Full-width RTL BMC and
+unbounded equivalence run through the existing DSP48E1 formal model. Proof
+preparation reads the actual flattened RTL, proves local finite-bitvector
+widening equalities with Z3, and checks generated arithmetic helpers through
+a Yosys/Z3 round-trip. SBY then checks the original reset, state, latency and
+output comparison by basecase and temporal induction. No data assumptions or
+free cutpoints replace the original circuit. The reference retains all four
+source products; the implementation contains the three bound DSP products.
+
+This checked word-level preparation avoids the timeout of the raw monolithic
+bit-vector miter. It does not substitute the compiler's algebra certificate
+for RTL verification. Tests require counterexamples for corrupted arithmetic,
+DSP inputs, signed widths, reset polarity and latency. `required_proven`
+accepts only the completed unbounded result; a timeout or an unsupported
+preparation remains fail-closed.
 
 ## Pure complex multiply
 

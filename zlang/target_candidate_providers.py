@@ -195,6 +195,20 @@ class SymmetricFirCascadeProvider:
         )
 
 
+@dataclass(frozen=True)
+class ParallelBilinearProvider:
+    operation: str = "parallel_bilinear"
+
+    def build(self, request: CandidateRequest) -> ImplementationGraph:
+        resource = _exact_resource(request)
+        if not capabilities_satisfied(resource, (
+            PhysicalBindingRequirement("systemverilog", "dsp48e1_explicit", "DSP48E1"),
+        )):
+            raise TargetArchitectureError("parallel products require an explicit DSP48E1 binding")
+        from zlang.target_mapping_bilinear import map_parallel_bilinear
+        return map_parallel_bilinear(request)
+
+
 def _exact_resource(request: CandidateRequest) -> ResourceDefinition:
     matches = tuple(
         item for item in request.resources if item.name == request.template.resource_name
@@ -211,6 +225,7 @@ _PROVIDERS: tuple[TargetCandidateProvider, ...] = (
     MultiplyProvider(),
     MultiplyAddProvider(),
     SymmetricFirCascadeProvider(),
+    ParallelBilinearProvider(),
 )
 _PROVIDERS_BY_OPERATION = {provider.operation: provider for provider in _PROVIDERS}
 

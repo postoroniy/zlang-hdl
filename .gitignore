@@ -18,7 +18,9 @@
 !.qwen/skills/zlang-hdl/
 !.qwen/skills/zlang-hdl/**
 .tmp/
-.vscode/
+/.vscode/*
+!/.vscode/settings.json
+!/.vscode/launch.json
 build/
 dist/
 htmlcov/

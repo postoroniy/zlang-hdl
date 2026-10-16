@@ -20,6 +20,7 @@ class RewriteRule(str, Enum):
     MULTIPLY_POWER_OF_TWO = "multiply_power_of_two"
     ADD_COMMUTE = "add_commute"
     MULTIPLY_COMMUTE = "multiply_commute"
+    BILINEAR_FACTOR = "bilinear_factor"
 
 
 @dataclass(frozen=True)
@@ -139,10 +140,20 @@ def builtin_rewrite_spec(identity: str) -> TypedRewriteSpec:
         raise ValueError(f"unknown built-in rewrite '{identity}'") from error
 
 
+def bilinear_rewrite_spec(index: int) -> TypedRewriteSpec:
+    """Identity of one bounded bilinear equality registration, not its proof."""
+    if isinstance(index, bool) or not isinstance(index, int) or not 0 <= index < 8:
+        raise ValueError("bilinear rewrite index exceeds the hard alternative bound")
+    return TypedRewriteSpec.builtin(
+        f"bilinear_factor.{index}", RewriteRule.BILINEAR_FACTOR, ("bilinear_factor", None),
+    )
+
+
 __all__ = [
     "BUILTIN_REWRITE_SPECS",
     "RewriteRegistration",
     "RewriteRule",
     "TypedRewriteSpec",
     "builtin_rewrite_spec",
+    "bilinear_rewrite_spec",
 ]

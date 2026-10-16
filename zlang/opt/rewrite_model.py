@@ -53,6 +53,19 @@ def term_constant_value(term: Term) -> int | None:
     return value if isinstance(value, int) else None
 
 
+def term_from_nodes(nodes: tuple[CanonicalExpression, ...], root: NodeId) -> Term:
+    """Retain canonical DAG sharing when constructing an immutable value term."""
+    cache: dict[NodeId, Term] = {}
+    def build(node_id: NodeId) -> Term:
+        if node_id not in cache:
+            node = nodes[node_id]
+            cache[node_id] = Term(node.category, node.op, node.type,
+                                 tuple(build(operand) for operand in node.operands),
+                                 node.attributes, node.origins)
+        return cache[node_id]
+    return build(root)
+
+
 @dataclass(frozen=True)
 class EquivalenceClass:
     id: int
@@ -94,6 +107,7 @@ class SaturationResult:
     eclass_count: int = 1
     enode_count: int = 1
     certificates: tuple[CheckedValueCertificate, ...] = ()
+    search_accounting: tuple[tuple[str, int], ...] = ()
 
     @property
     def original(self) -> Term:
@@ -214,4 +228,5 @@ __all__ = [
     "render_term",
     "term_constant_value",
     "term_to_expression",
+    "term_from_nodes",
 ]

@@ -150,9 +150,11 @@ class TargetPlanningResult:
 
 
 def _requirements(module: Module):
+    from zlang.bilinear_product import is_bilinear_pipeline
     fixed = tuple(
         item for item in module.pipeline_explorations
         if isinstance(item.source_expression, expr.FixedConvert)
+        or is_bilinear_pipeline(item.selected_candidate)
     )
     if not fixed:
         exact_regions = tuple(
@@ -306,11 +308,24 @@ def _generic_candidate(module: Module, target, exploration, requirements) -> Tar
         fmax_est=fmax_est,
         structural_cost=len(selected.transformations),
     )
+    from zlang.bilinear_product import is_bilinear_pipeline
+    if is_bilinear_pipeline(selected):
+        # A target-side unbound fallback cannot certify any physical DSP budget.
+        cost = replace(cost, dsp=MetricValue(None, MetricSource.STRUCTURAL_ESTIMATE))
     return TargetCandidate("generic", graph, cost)
 
 
 def _candidate_cost(graph: ImplementationGraph, evidence: QoREvidence | None) -> CandidateCost:
     compensation_ff = delay_ff_cost(graph.timing_dag)
+    if evidence is None and graph.resources and all(
+        dict(node.configuration).get("parallel_bilinear") == 1 for node in graph.resources
+    ):
+        from zlang.ir.expression_graph import ExpressionDagIndex
+        nodes = ExpressionDagIndex((graph.quantization,))
+        lut = sum(node.type.width for node in nodes if isinstance(node, expr.Add)
+                  or (isinstance(node, expr.Binary) and node.operator is expr.BinaryOperator.SUBTRACT))
+        return CandidateCost.estimate(lut=lut, ff=graph.latency * graph.quantization.type.width,
+                                      dsp=len(graph.resources), latency=graph.latency, ii=1)
     if evidence is None:
         return CandidateCost.estimate(
             lut=max(1, graph.resources[-1].semantic_mappings[-1].expression.type.width
@@ -451,6 +466,11 @@ def plan_target_pipeline(
     exploration, requirements, exact_latency, maximum_latency = _requirements(module)
     if exploration is None:
         return None
+    from zlang.bilinear_product import is_bilinear_pipeline
+    if is_bilinear_pipeline(exploration.selected_candidate) and target in {None, "generic"}:
+        # Native/generic execution consumes the selected value and timing, not
+        # a pretend physical DSP cover. An explicit target is needed for that.
+        return None
     objective = expr.CostMetric(objective)
     policy = SourcePolicy(source_policy)
     selected_target = family = None
@@ -463,11 +483,20 @@ def plan_target_pipeline(
     evidence_records = tuple(evidence) if evidence is not None else load_qor_evidence(evidence_path)
     if selected_target is not None:
         operations = _candidate_operations(exploration.source_expression)
+        candidate_source = exploration.source_expression
+        if operations == ("parallel_bilinear",):
+            candidate_source = exploration.selected_candidate.expression
+            if isinstance(candidate_source, expr.Pipeline):
+                candidate_source = candidate_source.expression
         templates = tuple(
             item
             for operation in operations
             for item in load_architecture_templates(operation=operation)
         )
+        if operations == ("parallel_bilinear",):
+            from zlang.bilinear_product import bilinear_products
+            count = len(bilinear_products(candidate_source))
+            templates = tuple(item for item in templates if item.resource_count == count)
         if architecture is not None:
             templates = tuple(item for item in templates if architecture in {
                 item.identity, item.name,
@@ -508,7 +537,7 @@ def plan_target_pipeline(
                             template=template,
                             configuration=configuration,
                             exact_latency=exact_latency,
-                            source_expression=exploration.source_expression,
+                            source_expression=candidate_source,
                         )
                     )
                     if graph.realization_backend != backend:
@@ -590,6 +619,10 @@ def _candidate_operations(source: expr.Expression) -> tuple[str, ...]:
     decide the reported family.
     """
 
+    if isinstance(source, expr.StructConstruct):
+        from zlang.bilinear_product import bilinear_products
+        if bilinear_products(source):
+            return ("parallel_bilinear",)
     arithmetic = source.expression if isinstance(source, expr.FixedConvert) else source
     if isinstance(arithmetic, expr.Binary) and arithmetic.operator is expr.BinaryOperator.MULTIPLY:
         if isinstance(arithmetic.left, expr.Add) or isinstance(arithmetic.right, expr.Add):

@@ -145,6 +145,43 @@ def test_venv_bootstrap_quarantines_stale_checkout_distribution_metadata(
     assert _stale_checkout_metadata(tmp_path) == ()
 
 
+def test_bootstrap_validation_does_not_require_installed_project_metadata(tmp_path: Path) -> None:
+    root = tmp_path / "uninstalled-checkout"
+    root.mkdir()
+    venv = root / ".venv"
+    subprocess.run([sys.executable, "-m", "venv", "--without-pip", str(venv)], check=True)
+    completed = _run(
+        str(venv / "bin/python"), str(ROOT / "tools/check_local_environment.py"),
+        "--root", str(root), "--venv", str(venv), "--bootstrap",
+    )
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_bootstrap_validation_rejects_a_system_interpreter_in_local_bin(tmp_path: Path) -> None:
+    root = tmp_path / "not-a-venv"
+    bin_dir = root / ".venv/bin"
+    bin_dir.mkdir(parents=True)
+    interpreter = bin_dir / "python"
+    interpreter.symlink_to(Path(sys.executable).resolve())
+    completed = _run(
+        str(interpreter), str(ROOT / "tools/check_local_environment.py"),
+        "--root", str(root), "--venv", str(root / ".venv"), "--bootstrap",
+    )
+    assert completed.returncode != 0
+    assert "not running from the requested local virtual environment" in completed.stderr
+
+
+def test_bootstrap_validation_cannot_be_bypassed_by_quarantine_mode(tmp_path: Path) -> None:
+    completed = _run(
+        sys.executable, str(ROOT / "tools/check_local_environment.py"),
+        "--root", str(tmp_path), "--bootstrap", "--quarantine-stale-metadata",
+        "--tmp-root", str(tmp_path / "build/tmp"),
+    )
+    assert completed.returncode == 2
+    assert "not allowed with argument" in completed.stderr
+    assert not (tmp_path / "build").exists()
+
+
 def test_python_workflows_require_the_local_venv_hook() -> None:
     completed = _run(sys.executable, str(WORKFLOW_AUDIT), "--root", str(ROOT))
     assert completed.returncode == 0, completed.stderr

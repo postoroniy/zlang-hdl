@@ -437,6 +437,81 @@ There is no silent fallback to an RTL simulator. Native simulation requires the
 matching Linux x86-64/WSL2 wheel described in the installation chapter; an
 unsupported design or missing runtime produces an error.
 
+### Debug without an event file
+
+The Linux-x64 VS Code extension supports interactive native simulation without
+JSONL. Add this entry to the `configurations` array in `.vscode/launch.json`,
+without an `events` field:
+
+```json
+{
+  "type": "zlang-hdl",
+  "request": "launch",
+  "name": "RuleAction - manual inputs",
+  "program": "${workspaceFolder}/examples/rule_action.zhl",
+  "top": "RuleAction",
+  "clock": "clk",
+  "cycles": 20,
+  "logicState": true,
+  "stopOnEntry": true,
+  "traceSignals": ["enable", "fired", "count"]
+}
+```
+
+Save the source, select **RuleAction - manual inputs**, and press **F5**.
+Under **Variables > Ports**, right-click `enable`, choose **Set Value**, and
+enter `1`. Two **F10** steps produce `count = 1`, then `2` under **Registers**.
+Set `enable` to `0` and step again: `count` holds at `2`. Each step completes
+one hardware event, not one source statement.
+
+Set `enable` back to `1`, use **F9** on `when enable` or its `count <- ...`
+action, then **F5 / Continue**. The next enabled event stops with `count = 3`
+and highlights that source line. Use **ZLang HDL: Open Live Waveform** with
+**Follow Live** to observe these same events. Input edits do not advance the
+clock; their next recorded samples appear when another event executes.
+
+This example uses the register's declared `= 0` initial value and does not
+assert reset. Clocks, resets, registers and memories are read-only in
+Variables. Use JSONL for explicit reset sequences, multiple clocks or
+repeatable input changes. `events` and `clock`/`cycles` are mutually exclusive.
+The session ends after 20 clock events; Restart restores initial state rather
+than replaying manual edits. The [debugging guide](native-debugging.md)
+covers both launch modes and their waveform controls.
+
+### Python simulation without an event file
+
+For programmatic input and clock/reset control, save this Python testbench as
+`tb_rule_action.py` in the repository root:
+
+```python
+from zlang import sim
+
+with sim.load("examples/rule_action.zhl", top="RuleAction", logic_state=True) as dut:
+    dut.set("enable", 0)
+    dut.reset("rst", asserted=True)
+    dut.edge("clk")
+    assert dut.get("count") == 0
+
+    dut.reset("rst", asserted=False)
+    dut.edge("clk")
+    for enable, expected in [(1, 1), (1, 2), (0, 2)]:
+        dut.set("enable", enable)
+        dut.edge("clk")
+        count = dut.get("count")
+        print(f"enable={enable}, count={count}")
+        assert count == expected
+```
+
+Run `.venv/bin/python tb_rule_action.py` from the repository root; the final
+three counts are `1`, `2`, `2`. The VS Code Python Debugger can stop on Python
+lines using this checkout's `.venv/bin/python`. F10 steps Python statements;
+`dut.edge("clk")` advances one hardware event.
+
+This API creates a separate native instance. ZLang source breakpoints and
+**Open Live Waveform** do not follow it. For those features, use the manual
+`zlang-hdl` launch above or replay a Python-generated JSONL schedule. The
+ZLang debugger does not execute the Python testbench itself.
+
 <a id="reference-getting-started"></a>
 ## Getting started
 

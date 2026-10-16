@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const net = require('node:net');
 const { spawnSync } = require('node:child_process');
 const { downloadAndUnzipVSCode, runVSCodeCommand } = require('@vscode/test-electron');
 const { toolchain } = require('./bundle.cjs');
@@ -29,6 +30,9 @@ function hostLaunchArguments({ extensions, userData, installed, workspace }) {
     // GitHub-hosted runners cannot use Chromium's setuid sandbox because the
     // downloaded chrome-sandbox is not installed root-owned with mode 4755.
     '--no-sandbox',
+    '--disable-extension', 'GitHub.copilot-chat',
+    // Keep the test inside xvfb even when the interactive host uses Wayland.
+    '--ozone-platform=x11',
     '--disable-workspace-trust', '--disable-telemetry', '--skip-release-notes',
     '--extensions-dir', extensions, '--user-data-dir', userData,
     '--extensionDevelopmentPath', installed,
@@ -41,6 +45,23 @@ function extensionInstallArguments({ vsix, extensions }) {
     '--no-sandbox',
     '--install-extension', vsix, '--force', '--extensions-dir', extensions,
   ];
+}
+
+function assertCleanTransportLogs(userData) {
+  const logs=path.join(userData,'logs');
+  assert.ok(fs.existsSync(logs),'VS Code host did not create diagnostic logs');
+  const visit=directory=>{
+    for(const entry of fs.readdirSync(directory,{withFileTypes:true})){
+      const file=path.join(directory,entry.name);
+      if(entry.isDirectory())visit(file);
+      else if(entry.isFile()&&entry.name.endsWith('.log')){
+        assert.doesNotMatch(fs.readFileSync(file,'utf8'),
+          /Unexpected SIGPIPE|Error: (?:write )?EPIPE|DAP session is disconnected/,
+          `VS Code transport failed despite successful functional checks: ${file}`);
+      }
+    }
+  };
+  visit(logs);
 }
 
 async function main() {
@@ -57,8 +78,15 @@ async function main() {
     fs.mkdirSync(workspace);
     const settings = path.join(workspace, '.vscode');
     fs.mkdirSync(settings);
+    const port=await new Promise((resolve,reject)=>{
+      const probe=net.createServer();probe.once('error',reject);
+      probe.listen(0,'127.0.0.1',()=>{const selected=probe.address().port;probe.close(()=>resolve(selected));});
+    });
     fs.writeFileSync(path.join(settings, 'settings.json'), `${JSON.stringify({
       'zlang.lsp.path': executableOnPath('zlang-lsp'),
+      'debug.allowBreakpointsEverywhere':false,
+      'zlang.waveform.wcp.enabled':true,
+      'zlang.waveform.wcp.port':port,
     }, null, 2)}\n`);
     const executable = await downloadAndUnzipVSCode(toolchain.vscodeStable.version);
     await runVSCodeCommand(
@@ -75,16 +103,18 @@ async function main() {
       extensions, userData, installed, workspace,
     }), {
       encoding: 'utf8',
-      env: { ...process.env, ZLANG_EDITOR_SMOKE_EXTENSION: installed },
+      env: { ...process.env, ZLANG_EDITOR_SMOKE_EXTENSION: installed,ZLANG_EDITOR_SMOKE_WCP_PORT:String(port) },
       stdio: 'inherit',
     });
     assert.equal(child.status, 0, `VS Code host smoke failed with status ${child.status}`);
+    assertCleanTransportLogs(userData);
   } finally {
-    fs.rmSync(root, { recursive: true, force: true });
+    if(process.env.KEEP_TMP==='1')console.log('Retained VS Code host evidence: '+root);
+    else fs.rmSync(root, { recursive: true, force: true });
   }
 }
 
-module.exports = { extensionInstallArguments, hostLaunchArguments };
+module.exports = { extensionInstallArguments, hostLaunchArguments, assertCleanTransportLogs };
 
 if (require.main === module) {
   main().catch((error) => { console.error(error); process.exitCode = 1; });

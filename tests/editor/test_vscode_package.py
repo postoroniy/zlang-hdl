@@ -8,9 +8,11 @@ import json
 from pathlib import Path
 import re
 import stat
+import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 import warnings
 from xml.etree import ElementTree as ET
 from zipfile import BadZipFile, ZipFile, ZipInfo
@@ -24,6 +26,8 @@ PINS = {
     "esbuild": TOOLCHAIN["esbuild"],
     "vscode-oniguruma": "2.0.1",
     "vscode-textmate": "9.3.2",
+    "playwright": "1.62.1",
+    "typescript": TOOLCHAIN["typescript"],
 }
 STATIC_ASSETS = {
     "extension/LICENSE.txt": ROOT / "LICENSE",
@@ -38,6 +42,7 @@ STATIC_ASSETS = {
 }
 GENERATED_RUNTIME = {
     "extension/dist/extension.js",
+    "extension/dist/waveform.js",
     "extension/THIRD_PARTY_NOTICES.txt",
 }
 NATIVE_NOTICE = "extension/THIRD_PARTY_NOTICES_NATIVE.txt"
@@ -123,20 +128,25 @@ def _contributes() -> dict:
 def _validate_native_contributes(contributes: dict) -> None:
     common = copy.deepcopy(contributes)
     commands = common.pop("commands", [])
+    breakpoints = common.pop("breakpoints", [])
     debuggers = common.pop("debuggers", [])
     editors = common.pop("customEditors", [])
     menus = common.pop("menus", {})
+    keybindings = common.pop("keybindings", [])
     properties = common.get("configuration", {}).get("properties", {})
     wcp_enabled = properties.pop("zlang.waveform.wcp.enabled", None)
     wcp_port = properties.pop("zlang.waveform.wcp.port", None)
     common["commands"] = []
     _require(common == _contributes(), "incorrect language registration")
+    _require(breakpoints == [{"language": "zlang-hdl"}],
+             "incorrect source breakpoint registration")
     _require(wcp_enabled == {
         "type": "boolean",
         "default": False,
         "description": (
-            "Enable the loopback-only Waveform Control Protocol v0 listener "
-            "in trusted workspaces."
+            "Enable the loopback-only Waveform Control Protocol listener in trusted "
+            "workspaces. WCP v0 remains compatible; v1 adds sessions, selections, "
+            "cursors, bookmarks and measurements."
         ),
     }, "incorrect WCP enable setting")
     _require(wcp_port == {
@@ -152,9 +162,28 @@ def _validate_native_contributes(contributes: dict) -> None:
             "zlang-hdl.openWaveform",
             "zlang-hdl.openLiveWaveform",
             "zlang-hdl.addTraceSignals",
+            "zlang-hdl.addToWaveform",
+            "zlang-hdl.saveWaveformSession",
+            "zlang-hdl.loadWaveformSession",
+            "zlang-hdl.cutWaveformRows",
+            "zlang-hdl.copyWaveformRows",
+            "zlang-hdl.pasteWaveformRows",
         },
         "incorrect native command registration",
     )
+    waveform_scope = (
+        "activeCustomEditorId == zlang-hdl.waveform || "
+        "activeWebviewPanelId == zlang-hdl.liveWaveform"
+    )
+    _require(keybindings == [
+        {"command": f"zlang-hdl.{action}WaveformRows", "key": f"ctrl+{key}",
+         "mac": f"cmd+{key}", "when": f"webviewFocus && ({waveform_scope})"}
+        for action, key in (("cut", "x"), ("copy", "c"), ("paste", "v"))
+    ], "incorrect scoped waveform clipboard keybindings")
+    for command in commands:
+        if command.get("command", "").endswith("WaveformRows"):
+            _require(command.get("enablement") == waveform_scope,
+                     "waveform clipboard command escaped its editor scope")
     _require(
         len(debuggers) == 1
         and debuggers[0].get("type") == "zlang-hdl"
@@ -176,9 +205,20 @@ def _validate_native_contributes(contributes: dict) -> None:
         "incorrect waveform editor registration",
     )
     _require(
-        menus == {"editor/title": [{
+        menus == {
+            "debug/variables/context": [{"command":"zlang-hdl.addToWaveform", "when":"debugType == zlang-hdl", "group":"zlang@1"}],
+            "debug/watch/context": [{"command":"zlang-hdl.addToWaveform", "when":"debugType == zlang-hdl", "group":"zlang@1"}],
+            "editor/title": [{
             "command": "zlang-hdl.startSimulation",
             "when": "resourceLangId == zlang-hdl",
+            "group": "navigation",
+        }, {
+            "command": "zlang-hdl.saveWaveformSession",
+            "when": "activeCustomEditorId == zlang-hdl.waveform",
+            "group": "navigation",
+        }, {
+            "command": "zlang-hdl.loadWaveformSession",
+            "when": "activeCustomEditorId == zlang-hdl.waveform",
             "group": "navigation",
         }]},
         "incorrect native editor menu",
@@ -219,6 +259,8 @@ def validate_metadata(
         "virtualWorkspaces": False,
     }, "incorrect workspace capabilities")
     if packaged:
+        _require(not package.get("zlangDevelopmentNativeBuild"),
+                 "development native build is not a release artifact")
         _require("devDependencies" not in package, "development dependencies shipped")
         _require("files" not in package, "source-only files manifest shipped")
         _require("scripts" not in package, "development scripts shipped")
@@ -372,6 +414,9 @@ def audit_vsix(path: Path) -> dict:
         _require(members[name] == source.read_bytes(), f"packaged bytes differ from source: {name}")
     bundle = members["extension/dist/extension.js"]
     _require(bundle and b"sourceMappingURL=" not in bundle, "invalid bundled runtime")
+    waveform = members["extension/dist/waveform.js"]
+    _require(waveform and b"sourceMappingURL=" not in waveform,
+             "invalid waveform browser asset")
     notices = members["extension/THIRD_PARTY_NOTICES.txt"].decode("utf-8")
     for name, version in RUNTIME_PACKAGES.items():
         _require(f"{name}@{version}" in notices, f"notice omits {name}@{version}")
@@ -388,6 +433,12 @@ def audit_vsix(path: Path) -> dict:
                  f"native tool is not a Linux x86-64 ELF: {name}")
         _require(b"/home/" not in binary and b"/Users/" not in binary,
                  f"native tool leaks a private build path: {name}")
+        status = _json((ROOT / "release/status.json").read_bytes())
+        record = next(item for item in status["native_editor"]["executables"]
+                      if item["name"] == name.rsplit("/", 1)[-1])
+        _require(hashlib.sha256(binary).hexdigest() == record["sha256"]
+                 and len(binary) == record["size"],
+                 f"native tool differs from reviewed identity: {name}")
     if native:
         _require(members[NATIVE_NOTICE] == NATIVE_NOTICE_SOURCE.read_bytes(),
                  "native third-party notice differs from reviewed inventory")
@@ -407,9 +458,11 @@ def _source_members() -> dict[str, bytes]:
                if name != "extension/package.json"}
     package = _json((EXT / "package.json").read_bytes())
     package["main"] = "./dist/extension.js"
+    package["contributes"].pop("breakpoints", None)
     package["contributes"].pop("debuggers", None)
     package["contributes"].pop("customEditors", None)
     package["contributes"].pop("menus", None)
+    package["contributes"].pop("keybindings", None)
     package["contributes"]["commands"] = []
     package["contributes"]["configuration"]["properties"].pop(
         "zlang.waveform.wcp.enabled", None
@@ -421,6 +474,7 @@ def _source_members() -> dict[str, bytes]:
         package.pop(field, None)
     members["extension/package.json"] = json.dumps(package, indent=2).encode() + b"\n"
     members["extension/dist/extension.js"] = b"module.exports = {};\n"
+    members["extension/dist/waveform.js"] = b"(()=>{})();\n"
     members["extension/THIRD_PARTY_NOTICES.txt"] = (
         "\n".join(f"{name}@{version}" for name, version in RUNTIME_PACKAGES.items()) + "\n"
     ).encode()
@@ -465,10 +519,23 @@ class VSCodePackageTests(unittest.TestCase):
                     archive.writestr(name, data)
         return self.archive_path
 
+    def test_native_metadata_requires_exact_source_breakpoint_language(self) -> None:
+        package = _json((EXT / "package.json").read_bytes())
+        for registration in (None, [], [{"language": "plaintext"}],
+                             [{"language": "zlang-hdl", "when": "false"}]):
+            with self.subTest(registration=registration):
+                broken = copy.deepcopy(package)
+                if registration is None:
+                    broken["contributes"].pop("breakpoints", None)
+                else:
+                    broken["contributes"]["breakpoints"] = registration
+                with self.assertRaisesRegex(VSIXAuditError, "source breakpoint registration"):
+                    validate_metadata(broken, native=True)
+
     def test_source_metadata_and_lock_are_runtime_pinned(self) -> None:
         if str(ROOT) not in sys.path:
             sys.path.insert(0, str(ROOT))
-        from tools.audit_native_editor import audit_native_editor
+        from tools.audit_native_editor import NativeEditorAuditError, audit_native_editor
 
         package = _json((EXT / "package.json").read_bytes())
         lock = _json((EXT / "package-lock.json").read_bytes())
@@ -485,6 +552,32 @@ class VSCodePackageTests(unittest.TestCase):
             [record["name"] for record in native["executables"]],
             ["zlang-debug-adapter", "zlang-waveform-indexer"],
         )
+        run = subprocess.run
+
+        def old_protocol(arguments, **kwargs):
+            if arguments[-1] == "--version":
+                return subprocess.CompletedProcess(arguments, 0, "obsolete-protocol\n", "")
+            return run(arguments, **kwargs)
+
+        with patch("tools.audit_native_editor.subprocess.run", side_effect=old_protocol):
+            with self.assertRaisesRegex(NativeEditorAuditError, "protocol mismatch"):
+                audit_native_editor(ROOT)
+
+    def test_native_elf_rejects_private_source_locations(self) -> None:
+        from tools.audit_native_editor import NativeEditorAuditError, _audit_elf
+
+        header = bytearray(64)
+        header[:7] = b"\x7fELF\x02\x01\x01"
+        header[16:18] = (3).to_bytes(2, "little")
+        header[18:20] = (62).to_bytes(2, "little")
+        executable = self.archive_path.with_suffix(".elf")
+        for marker in (b"hidden-core/src/runtime.rs", b"debug-adapter/src/example.rs",
+                       b"waveform-indexer/src/example.rs", b"/home/example/build"):
+            with self.subTest(marker=marker):
+                executable.write_bytes(header + marker)
+                executable.chmod(0o755)
+                with self.assertRaisesRegex(NativeEditorAuditError, "source path"):
+                    _audit_elf(executable)
 
     def test_installation_guide_uses_the_registered_lsp_setting(self) -> None:
         guide = (ROOT / "README.md").read_text(encoding="utf-8")

@@ -12,8 +12,8 @@ clock/reset sequence. Stimulus comes from either:
 - a user-authored JSONL event file, normally kept in a project's
   `simulation/` directory;
 - a JSONL file produced by the project's existing test-vector generator; or
-- a simple bounded `clock` plus `cycles` launch for a design that needs no
-  explicit reset or per-event input changes.
+- a bounded `clock` plus `cycles` launch, with ordinary input ports editable
+  while paused. This mode does not generate a reset sequence.
 
 The same JSONL file can be used by the command-line simulator, the VS Code
 debugger, and native-versus-RTL comparison. Keeping stimulus outside the
@@ -41,8 +41,11 @@ snapshot differ.
 
 ## Quick start
 
-The following schedule drives [`examples/rule_action.zhl`](../examples/rule_action.zhl).
-Create `build/rule-action-events.jsonl`:
+The clone includes [`.vscode/launch.json`](../.vscode/launch.json) and
+[`examples/rule_action.events.jsonl`](../examples/rule_action.events.jsonl)
+for [`examples/rule_action.zhl`](../examples/rule_action.zhl). Open the repository
+folder in VS Code; there is no event file to generate before pressing F5.
+The checked-in schedule is:
 
 ```jsonl
 {"reset":{"rst":true},"set":{"enable":0},"edges":["clk"]}
@@ -51,7 +54,8 @@ Create `build/rule-action-events.jsonl`:
 {"set":{"enable":0},"edges":["clk"]}
 ```
 
-Create or extend `.vscode/launch.json`:
+The checked-in launch configuration is shown below. In another workspace, add
+an equivalent entry to its existing `.vscode/launch.json`:
 
 ```json
 {
@@ -63,27 +67,61 @@ Create or extend `.vscode/launch.json`:
       "name": "Debug RuleAction",
       "program": "${workspaceFolder}/examples/rule_action.zhl",
       "top": "RuleAction",
-      "events": "${workspaceFolder}/build/rule-action-events.jsonl",
+      "events": "${workspaceFolder}/examples/rule_action.events.jsonl",
       "logicState": true,
       "strictUninitialized": false,
       "initialRegisters": {},
-      "traceSignals": ["fired", "count"],
+      "traceSignals": ["clk", "rst", "enable", "fired", "count"],
       "stopOnEntry": true
     }
   ]
 }
 ```
 
-Open `examples/rule_action.zhl`, place a breakpoint on `when enable`, select
-**Run and Debug → Debug RuleAction**, and press **F5**. A verified breakpoint
-stops after the atomic rule event; Variables shows the current typed values and
-the previous/current values associated with that event. **Step Over** advances
-one complete simulation event, not one source statement.
+Open `examples/rule_action.zhl`, **Save All**, select
+**Run and Debug → Debug RuleAction**, and press **F5**. The session pauses before
+the first event. **F10 / Step Over** advances one complete simulation event,
+not one source statement. The five steps produce `count = 0, 0, 1, 2, 2`:
+reset, release, two enabled increments, then hold. The declared `= 0` also sets
+the initial `count` value to zero; uninitialized state without a reset value is `U`.
+Click the gutter to the left of line 10 (`when enable`), or place the caret on
+that line (or the `count <- ...` line inside it) and press **F9**, to toggle a
+source breakpoint. Press **F5 / Continue**
+after the entry stop: the debugger stops after event three with `count = 1`;
+Continue again stops after event four with `count = 2`. The breakpoint is solid
+red once verified; a hollow marker means that line has no executable site.
+On a hit, VS Code highlights the selected source line and shows its execution
+arrow (the exact colors follow your theme). The highlight marks the completed
+atomic event, not a partially executed statement. It stays while you inspect
+values and clears when execution resumes. Several breakpoints in one action
+stop once at the first selected line; they do not split the hardware event.
+No `debug.allowBreakpointsEverywhere` setting is needed. **Restart** starts
+over; **Shift+F5** ends the session.
 
 Use **ZLang HDL: Open Live Waveform** from the Command Palette to inspect the
-active session. Signals named in `traceSignals` have history from event zero.
-Signals added while the session is running start at the event where they were
-added; restart the session when complete history is required.
+active session beside the source. Keep **Follow Live** enabled so cursor A and
+its value column follow each step. Signals named in `traceSignals` have history
+from event zero. While paused, right-click a value in **Variables** or **Watch**
+and choose **Add to Waveform**. A newly added signal records from the next
+event; restart the session when complete history is required. A saved FST/VCD
+tab is separate from this live view and does not follow debugger steps.
+
+Clocks and resets are recorded automatically from event zero, even when omitted
+from `traceSignals`. For RuleAction, the live viewer includes `clk` and `rst`;
+they are also available under **Variables → Clocks and resets** and in
+**ZLang HDL: Add Live Trace Signals**. A saved layout still controls which rows
+are displayed. If it predates these controls, or a row was removed, click **＋**
+beside `clk` or `rst` in the live Design Browser to show it again.
+
+Clock pulses follow the declared rising or falling edge. Reset levels follow
+the declared active-high or active-low polarity; JSONL `true` means *asserted*,
+not necessarily a physical `1`. Within event `n`, reset changes appear at tick
+`2n−1`, the clock edge and resulting values at `2n`, and the clock returns to
+idle at `2n+1`. Coincident clocks share the same edge tick. This is an event
+visualization, not a physical delay or frequency model. The clock/reset scope
+is read-only: change reset through the event file, not by editing its displayed
+value. After updating compiler and VSIX together, reload the VS Code window and
+start a new debug session.
 
 ## JSONL event files
 
@@ -104,7 +142,7 @@ Before opening VS Code, validate the exact stimulus from the terminal:
 
 ```sh
 .venv/bin/zlang sim examples/rule_action.zhl --top RuleAction \
-  --events build/rule-action-events.jsonl --json
+  --events examples/rule_action.events.jsonl --logic-state --json
 ```
 
 For generated vectors, make the generator write the same JSONL schema and
@@ -113,25 +151,82 @@ Transient or large generated schedules belong under ignored `build/` output.
 The debugger never runs an arbitrary vector-generator command as part of
 launch.
 
-For a simple single-clock run, replace `events` with both `clock` and a bounded
-`cycles` count:
+## Debug without an event file
+
+For an interactive single-clock experiment, add this entry to the
+`configurations` array in `.vscode/launch.json`. It needs no JSONL file:
 
 ```json
 {
   "type": "zlang-hdl",
   "request": "launch",
-  "name": "Run 100 clock events",
-  "program": "${workspaceFolder}/examples/counter.zhl",
-  "top": "Counter",
+  "name": "RuleAction - manual inputs",
+  "program": "${workspaceFolder}/examples/rule_action.zhl",
+  "top": "RuleAction",
   "clock": "clk",
-  "cycles": 100,
-  "traceSignals": ["y"]
+  "cycles": 20,
+  "logicState": true,
+  "stopOnEntry": true,
+  "traceSignals": ["enable", "fired", "count"]
 }
 ```
 
-`events` and `clock`/`cycles` are mutually exclusive. Prefer JSONL when reset,
-multiple clocks, input changes, coincident edges, or a reproducible protocol
-exchange matters.
+1. Save `examples/rule_action.zhl`, select **RuleAction - manual inputs**, and
+   press **F5**. The debugger stops before the first clock event.
+2. Expand **Variables > Ports**, right-click `enable`, choose **Set Value**,
+   and enter `1`.
+3. Press **F10** twice. **Registers > count** shows `1`, then `2`.
+4. Change `enable` to `0` and step again. `count` holds at `2`.
+5. Set `enable` back to `1`, place an **F9** breakpoint on `when enable` or
+   its `count <- ...` action, then press **F5 / Continue**. The next enabled
+   event stops with `count = 3` and highlights the selected source line.
+6. Open **ZLang HDL: Open Live Waveform** and keep **Follow Live** on to
+   observe the same events. Editing an input does not advance the clock; its
+   next recorded sample appears when another event executes.
+
+`count` starts at its declared `= 0`; this example does not assert reset.
+Clocks, resets, registers and memories are read-only in Variables. Use JSONL
+for reset assertion/release, coincident clocks, automated input changes or a
+reproducible protocol exchange. `events` and `clock`/`cycles` are mutually
+exclusive. The session ends after 20 clock events; increase `cycles` and
+relaunch for a longer experiment. Restart restores the declared initial state,
+not a recording of manual input edits.
+
+## Python simulation without an event file
+
+For programmatic stimulus, a Python testbench can drive the native simulator
+directly. Save this as `tb_rule_action.py` in the repository root:
+
+```python
+from zlang import sim
+
+with sim.load("examples/rule_action.zhl", top="RuleAction", logic_state=True) as dut:
+    dut.set("enable", 0)
+    dut.reset("rst", asserted=True)
+    dut.edge("clk")
+    assert dut.get("count") == 0
+
+    dut.reset("rst", asserted=False)
+    dut.edge("clk")
+    for enable, expected in [(1, 1), (1, 2), (0, 2)]:
+        dut.set("enable", enable)
+        dut.edge("clk")
+        count = dut.get("count")
+        print(f"enable={enable}, count={count}")
+        assert count == expected
+```
+
+Run it from the repository root with `.venv/bin/python tb_rule_action.py`.
+The final three counts are `1`, `2`, `2`. In VS Code, use the Python Debugger
+with this checkout's `.venv/bin/python` to put breakpoints in the Python file.
+F10 there steps Python statements; `dut.edge("clk")` advances one hardware
+event.
+
+This Python API creates a separate simulation instance. It does not connect
+to a running ZLang debug session: `.zhl` breakpoints and **Open Live Waveform**
+do not follow it. For those features, use a `zlang-hdl` launch with manual
+inputs as above, or replay a Python-generated JSONL schedule. The ZLang
+debugger does not execute the Python testbench itself.
 
 ## Breakpoints, stepping, and values
 
@@ -154,6 +249,57 @@ exchange matters.
 
 ## Live and saved waveforms
 
+While paused, expand a port, register, or memory in **Variables**. Right-click
+the value or one of its fields and choose **Add to Waveform**. The same command
+is available on a signal in **Watch**. Watch accepts exact published signal
+paths, such as `packet.mode` or `buffer[3].value`, not arbitrary expressions.
+The live panel opens automatically. **ZLang HDL: Add Live Trace Signals** offers
+a multi-select list of whole ports/registers/interfaces.
+
+- Adding a struct, tuple or vector adds its packed row and typed child rows.
+  Select a field/index instead when only that part is needed. Large arrays are
+  paged in Variables; whole selections exceeding 4096 trace rows are rejected.
+- Enum rows show their declared member and exact code, including sparse codes.
+  Invalid codes are labelled invalid; U/X values are not decoded as members.
+- Signed integers retain signedness. Fixed-point rows show the exact scaled
+  value as `raw/2^fraction` together with its raw bits. Select Hex/Binary to
+  inspect the packed representation. Struct/tuple/vector fields use the same
+  compiler-owned layout as execution, with no host-word-width truncation.
+- Tagged unions show the tag and per-variant fields. Inactive fields say
+  **inactive variant**; an unknown tag says **unknown variant**. These labels
+  are presentation states, not extra logic values or guessed payloads.
+- Interfaces are groups, not packed structs. Their payload/control fields keep
+  their individual directions and clock domains. Ready/valid includes payload,
+  valid and ready; aggregate bus interfaces retain their channel groups.
+- Expand a memory and select individual cells/fields. The entire memory is not
+  implicitly recorded. Registers and memory remain read-only in the debugger.
+
+**Type** is the default format for these added live rows. Adding a signal during
+a run starts recording at the next atomic event. Earlier history is **not
+recorded**, rather than U or X; restart for complete history. A whole selection
+is validated before its trace configuration changes. Multiple field rows share
+one recorded backing value.
+
+Typed metadata is a debugger overlay, independent of the production simulation
+plan and RTL. The compiler and native adapter must support the same overlay
+version; update the matching VSIX when updating the compiler. Saved VCD/FST
+exports currently contain recorded raw backing signals. They do not preserve
+the live catalog's nominal struct/union types; external enum metadata is used
+only when actually present in the file. Session sidecars save presentation,
+not type guesses or waveform samples.
+
+The [waveform workspace guide](waveform-workspace.md) covers hierarchy browsing,
+groups, multiple viewports, measurements, navigation, and portable sessions.
+
+Live and saved views share these controls, including the 16-color palette, row
+height, duplicate rows, Cut/Copy/Paste, search and measurements. In the live
+toolbar, **Add signals** opens the trace selector and **Refresh** only refreshes
+recorded data; it never advances or restarts simulation. **Save Session** saves
+a layout template for another live session; **Load Session** restores it using
+exact recorded signal names and widths. The workspace also recovers the layout
+when the panel is reopened. **Export Trace** saves FST/VCD data for inspection
+after the debug session ends. Late-added history is still not backfilled.
+
 The live panel follows the current debug session. The readonly waveform editor
 opens saved `.fst` and `.vcd` files independently of a debug session. FST is
 preferred for compact native traces; VCD remains useful for interchange with
@@ -168,8 +314,9 @@ external RTL and formal tools.
 - Click places cursor A; **Shift+click** places marker B.
 - Double-click restores the complete trace.
 
-Waveform time is event-index visualization: two 1 ns ticks represent one
-simulation event. It is not an analog timing claim.
+Native waveform time is event-index visualization: two ticks represent one
+simulation event. Native traces are labelled `zlang_event_ticks` and have no
+physical frequency measurement. External VCD/FST retains its declared timescale.
 
 ## Project launches
 
@@ -230,7 +377,8 @@ The contracts are versioned independently:
   the production plan;
 - `zlang-debug-adapter-v1` identifies the DAP executable contract;
 - `zlang-waveform-trace-v1` identifies live range-query results.
-- `zlang-waveform-query-v2` identifies bounded readonly FST/VCD file queries.
+- `zlang-waveform-query-v3` identifies bounded readonly FST/VCD hierarchy,
+  value, search and digital-measurement queries.
 
 Presentation paths do not participate in stable compiler identities. Debug
 sites and probes do not alter semantic identity, selected implementation
