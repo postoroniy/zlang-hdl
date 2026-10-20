@@ -180,6 +180,24 @@ def _check_functional_and_operator_expression(
                 return simplified
         return ir_expr.Add(left, right, result_type)
     if isinstance(expression, ast.BinaryExpr):
+        if expression.operator is ast.BinaryOperator.MODULO:
+            try:
+                value = compile_time_evaluation.compile_time_integer_value(
+                    expression, inputs, context
+                )
+            except SemanticError as error:
+                if error.code == "ZL-SEMANTIC-MODULO-ZERO":
+                    raise
+                raise SemanticError(
+                    "modulo '%' requires compile-time integer operands; runtime "
+                    f"remainder is not supported: {error}",
+                    code="ZL-SEMANTIC-COMPILE-TIME-MODULO",
+                ) from error
+            literal = ast.NumberExpr(abs(value), origin=expression.origin)
+            if value < 0:
+                literal = ast.UnaryExpr(ast.BinaryOperator.SUBTRACT, literal,
+                                        origin=expression.origin)
+            return context.expressions.check(literal, inputs, expected, context)
         return _check_binary(expression, inputs, context)
     if isinstance(expression, ast.UnaryExpr):
         if (

@@ -1,6 +1,75 @@
 {
   "entries": [
     {
+      "id": "CI-001",
+      "source_paths": [
+        ".github/dependabot.yml",
+        ".github/workflows/codeql.yml",
+        "editors/vscode/zlang-hdl/editor-toolchain.json",
+        "tests/editor/test_vscode_package.py",
+        "tests/semantic/test_formal_bitvector_rewrite.py",
+        "tools/audit_workflow_structure.py",
+        "tools/release_status.py"
+      ],
+      "status": "included",
+      "summary": "Dependency updates retain coherent CodeQL steps, solver/status and editor/lock pins; preparation failure tests are independent of ambient EDA discovery.",
+      "tests": [
+        "tests/editor/test_vscode_package.py::VSCodePackageTests::test_playwright_manifest_and_lock_must_match_reviewed_toolchain",
+        "tests/release/test_ci_contract.py::test_dependabot_groups_codeql_and_defers_incompatible_compiler_api",
+        "tests/release/test_ci_contract.py::test_solver_pin_rejects_stale_missing_ranged_or_duplicate_dependencies",
+        "tests/release/test_ci_contract.py::test_workflow_audit_rejects_mixed_or_unpinned_codeql",
+        "tests/semantic/test_formal_bitvector_rewrite.py::test_preparation_failure_is_unknown_not_a_proof"
+      ]
+    },
+    {
+      "id": "FORMAL-001",
+      "source_paths": [
+        "tests/integration/test_formal_evidence_integrity.py",
+        "tests/semantic/test_equivalence_replay_integrity.py",
+        "zlang/candidate_equivalence.py",
+        "zlang/equivalence_replay_integrity.py",
+        "zlang/formal_candidate.py",
+        "zlang/formal_joint_value.py"
+      ],
+      "status": "included",
+      "summary": "Frozen and cached formal evidence reconstructs the typed miter and checks exact source, top, artifacts and physical operand/output bindings before reuse.",
+      "tests": [
+        "tests/integration/test_formal_evidence_integrity.py::test_result_cache_checks_current_harness_before_warm_reuse",
+        "tests/integration/test_formal_evidence_integrity.py::test_warm_preparation_cannot_reuse_stale_operand_identity",
+        "tests/integration/test_formal_evidence_integrity.py::test_warm_preparation_rejects_changed_actual_output",
+        "tests/semantic/test_equivalence_replay_integrity.py::test_execution_recipe_checks_in_memory_integrity",
+        "tests/semantic/test_equivalence_replay_integrity.py::test_replay_rejects_modified_source_contract"
+      ]
+    },
+    {
+      "id": "FORMAL-002",
+      "source_paths": [
+        "tests/integration/test_formal_evidence_integrity.py",
+        "zlang/backend/systemverilog/target.py",
+        "zlang/formal_primitive_models.py"
+      ],
+      "status": "included",
+      "summary": "DSP48E1 verification observes full physical operand and accumulator bits independently of descriptive width hints, and rejects stale primitive models even when their local hashes are updated.",
+      "tests": [
+        "tests/integration/test_formal_evidence_integrity.py::test_dsp_model_uses_physical_ports_not_width_hints",
+        "tests/integration/test_formal_evidence_integrity.py::test_missing_primitive_model_is_rejected",
+        "tests/integration/test_formal_evidence_integrity.py::test_ordinary_dsp_named_port_is_not_a_primitive_dependency",
+        "tests/integration/test_formal_evidence_integrity.py::test_rehashed_stale_model_is_not_accepted"
+      ]
+    },
+    {
+      "id": "FORMAL-003",
+      "source_paths": [
+        "tests/integration/test_formal_work_directory.py",
+        "zlang/formal.py"
+      ],
+      "status": "included",
+      "summary": "Proof and cover execution resolves retained work directories and invokes the local SBY configuration without duplicating relative path prefixes.",
+      "tests": [
+        "tests/integration/test_formal_work_directory.py::test_formal_work_directory_paths"
+      ]
+    },
+    {
       "id": "SIM-001",
       "source_paths": [
         "tests/integration/test_native_debug_bundle.py",
@@ -162,6 +231,30 @@
         "tests/test_cli_hardening.py::test_failed_verilator_launch_does_not_publish_final_rtl",
         "tests/test_cli_hardening.py::test_implicit_verification_work_directory_is_cleaned_on_source_error",
         "tests/test_cli_hardening.py::test_sim_source_diagnostics_retain_file_and_span"
+      ]
+    },
+    {
+      "id": "ZL-056",
+      "source_paths": [
+        "tests/integration/test_compile_time_modulo_backend.py",
+        "tests/parser/test_compile_time_modulo.py",
+        "tests/semantic/test_compile_time_modulo.py",
+        "zlang/ast/nodes.py",
+        "zlang/parser/expression_rules.py",
+        "zlang/parser/grammar.lark",
+        "zlang/semantic/compile_time_evaluation.py",
+        "zlang/semantic/expression_control.py",
+        "zlang/semantic/expression_support.py",
+        "zlang/semantic/type_resolution.py"
+      ],
+      "status": "included",
+      "summary": "Compile-time integer modulo supports generic arguments, static indices and conditions with floor semantics, source-located zero-divisor diagnostics and native/RTL parity; runtime remainder stays unsupported.",
+      "tests": [
+        "tests/integration/test_compile_time_modulo_backend.py::test_nr_pss_modulo_native_and_generated_rtl_agree",
+        "tests/parser/test_compile_time_modulo.py::test_generic_arguments_accept_parenthesized_negative_modulo_operands",
+        "tests/semantic/test_compile_time_modulo.py::test_modulo_has_the_same_floor_semantics_in_all_compile_time_contexts",
+        "tests/semantic/test_compile_time_modulo.py::test_runtime_modulo_is_rejected_even_when_optimization_could_cancel_operands",
+        "tests/semantic/test_compile_time_modulo.py::test_zero_divisor_is_a_source_diagnostic"
       ]
     }
   ],

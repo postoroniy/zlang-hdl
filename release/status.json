@@ -64,7 +64,7 @@
     "verilator": "5.053",
     "vvp": "14.0",
     "yosys": "0.69",
-    "z3": "5.1.0"
+    "z3": "5.3.1"
   },
   "documentation": {
     "builder_sha256": "e47733fc76057e506f5c0342cb787146c84e3d072b8ce0df39348fee0ec423c4",

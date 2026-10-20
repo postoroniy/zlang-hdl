@@ -37,6 +37,8 @@ def select_compile_time_module_items(
     *,
     functional_range_limit: int,
     total_generated_limit: int,
+    source_unit: str | None = None,
+    source_digest: str | None = None,
 ) -> ast.Module:
     """Select compile-time module branches before ordinary module checking."""
 
@@ -76,7 +78,8 @@ def select_compile_time_module_items(
         semantic_context.AnalysisServices(
             compile_time_budget=compile_time_budget,
         ),
-        semantic_context.ExpressionScope(allow_delay=False),
+        semantic_context.ExpressionScope(allow_delay=False, source_unit=source_unit,
+                                         source_digest=source_digest),
     )
     selected: list[object] = []
     visible_names = {

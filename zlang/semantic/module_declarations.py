@@ -277,6 +277,8 @@ class DeclarationAndCallablePreparer:
             selected_budget,
             functional_range_limit=semantic_limits.FUNCTIONAL_RANGE,
             total_generated_limit=semantic_limits.TOTAL_GENERATED,
+            source_unit=effective_source_unit,
+            source_digest=effective_source_digest,
         )
         schema_names = {schema.name for schema in protocol_schemas}
         for declaration in module.protocols:

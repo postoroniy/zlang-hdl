@@ -548,6 +548,15 @@ def _check_tools(expected: dict[str, str]) -> None:
         raise StatusError("required EDA tool is missing: yosys-smtbmc")
 
 
+def _check_solver_pin(pyproject: dict, tools: dict) -> None:
+    """The installed Python solver also supplies the CLI used by formal lanes."""
+    dependencies = pyproject.get("project", {}).get("optional-dependencies", {}).get("test", ())
+    pins = [item for item in dependencies if re.match(r"z3[-_]solver\b", item, re.I)]
+    match = re.fullmatch(r"z3-solver==([0-9]+\.[0-9]+\.[0-9]+)\.[0-9]+", pins[0]) if len(pins) == 1 else None
+    if match is None or match[1] != tools.get("z3"):
+        raise StatusError("pyproject test z3-solver pin must match eda_toolchain.z3")
+
+
 def validate(
     root: Path,
     status_path: Path = DEFAULT_STATUS,
@@ -575,6 +584,7 @@ def validate(
         raise StatusError("release status is missing required object sections")
     _check_documentation(root, status.get("documentation"))
     pyproject = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
+    _check_solver_pin(pyproject, tools)
     project_version = _project_version(root, pyproject)
     if release.get("version") != project_version:
         raise StatusError(

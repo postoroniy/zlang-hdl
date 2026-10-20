@@ -303,6 +303,7 @@ width_expression: width_atom WIDTH_OP width_atom (WIDTH_OP width_atom)*
            | NAME "(" (NUMBER|NAME) ")" -> intrinsic_width
            | NAME
            | "(" width_expression ")" -> parenthesized_width
+           | "(" width_atom ")"       -> parenthesized_width
            | WIDTH_SIGN width_atom       -> signed_width
 
 ?expr: conditional
@@ -470,15 +471,15 @@ RESIZE_OP.3: /(?:truncate|extend)(?![A-Za-z0-9_])/
 // state can legally see both (notably between items in a concise callable
 // body).  In a unary-only state the contextual lexer still emits unary '-'.
 ADD_OP.6: "+" | "-"
-PRODUCT_OP: "*" | "/"
+PRODUCT_OP: "*" | "/" | "%"
 SHIFT_OP.4: "<<" | ">>"
-WIDTH_OP: "<<" | "+" | "-" | "*" | "/"
+WIDTH_OP: "<<" | "+" | "-" | "*" | "/" | "%"
 WIDTH_SIGN: "+" | "-"
 COMPARISON_OP.2: "==" | "!=" | "<=" | ">=" | "<" | ">"
 REDUCE_OP.4: "+" | "*" | "&" | "|" | "^"
 BUILTIN_TYPE.2: /(?:(?:uint|u|sint|bits)<(?:[1-9][0-9]*|[A-Z][A-Za-z0-9_]*(?:[+\-*\/](?:[A-Z][A-Za-z0-9_]*|[0-9]+))*)>|bit|char|[us][1-9][0-9]*)/
 FIXED_SHORT_TYPE.4: /(?:SF_Sat|UF_Sat|SF|UF)[1-9][0-9]*\.[0-9]+/
-FIXED_GENERIC_TYPE_VALUE.5: /(?:fixed|ufixed|fixed_sat|ufixed_sat)<[A-Za-z0-9_()+*\/\-\s]+,[A-Za-z0-9_()+*\/\-\s]+>/
+FIXED_GENERIC_TYPE_VALUE.5: /(?:fixed|ufixed|fixed_sat|ufixed_sat)<[A-Za-z0-9_()+*%\/\-\s]+,[A-Za-z0-9_()+*%\/\-\s]+>/
 GENERIC_TYPE_VALUE.5: /[A-Z][A-Za-z0-9_]*<[^<>]*(?:<[^<>]*>[^<>]*)*>/
 VEC_GENERIC_TYPE_VALUE.5: /vec<[0-9]+,[^<>]+>/
 STRUCT_NAME.2: /[A-Z][A-Za-z0-9_]*/

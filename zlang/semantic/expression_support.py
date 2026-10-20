@@ -96,6 +96,7 @@ def _constant_parameter_expression_text(
         ast.BinaryOperator.SUBTRACT,
         ast.BinaryOperator.MULTIPLY,
         ast.BinaryOperator.DIVIDE,
+        ast.BinaryOperator.MODULO,
         ast.BinaryOperator.SHIFT_LEFT,
     }:
         left = _constant_parameter_expression_text(expression.left, context)

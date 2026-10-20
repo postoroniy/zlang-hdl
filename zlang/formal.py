@@ -431,7 +431,7 @@ def run_verilog_formal(source: str, *, top: str, property_id: str,
         temporary_workspace = tempfile.TemporaryDirectory(prefix="zlang-formal-")
         root = Path(temporary_workspace.name)
     else:
-        root = Path(work_directory)
+        root = Path(work_directory).resolve()
         root.mkdir(parents=True, exist_ok=True)
     try:
         verilog = root / f"{top}.v"
@@ -449,7 +449,7 @@ def run_verilog_formal(source: str, *, top: str, property_id: str,
             *auxiliary_names, "",
         )))
         try:
-            completed = subprocess.run(("sby", "-f", str(config)), cwd=root,
+            completed = subprocess.run(("sby", "-f", config.name), cwd=root,
                                        capture_output=True, text=True,
                                        timeout=timeout_seconds)
         except subprocess.TimeoutExpired as error:
@@ -604,7 +604,7 @@ def run_verilog_cover(
         temporary_workspace = tempfile.TemporaryDirectory(prefix="zlang-cover-")
         root = Path(temporary_workspace.name)
     else:
-        root = Path(work_directory)
+        root = Path(work_directory).resolve()
         root.mkdir(parents=True, exist_ok=True)
     try:
         verilog = root / f"{top}.v"
@@ -623,7 +623,7 @@ def run_verilog_cover(
         )))
         try:
             completed = subprocess.run(
-                ("sby", "-f", str(config)),
+                ("sby", "-f", config.name),
                 cwd=root,
                 capture_output=True,
                 text=True,

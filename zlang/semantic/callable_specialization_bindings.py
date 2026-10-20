@@ -137,7 +137,8 @@ class SpecializationArgumentBinder:
                         )
                 except (TypeError, ValueError, SemanticError) as error:
                     raise SemanticError(
-                        f"value parameter '{name}' requires an integer"
+                        f"value parameter '{name}' requires an integer: {error}",
+                        code=error.code if isinstance(error, SemanticError) else SemanticError.default_code,
                     ) from error
         if len(arguments) != len(declaration.parameters):
             callable_name = (

@@ -107,7 +107,7 @@ def test_editor_surface_has_no_known_phantom_claims() -> None:
         "namespace", "function", "property", "case", "return",
         "let", "const", "var", "bool", "int", "Tuple", "Vec", "comb", "seq",
         "formal", "eventually", "ready_valid", "credit_based",
-        "resize", "zero_extend", "sign_extend", "domain", ":=", "::", "%",
+        "resize", "zero_extend", "sign_extend", "domain", ":=", "::",
     )
     for word in phantom:
         assert word not in tokens, f"phantom editor token remains: {word}"

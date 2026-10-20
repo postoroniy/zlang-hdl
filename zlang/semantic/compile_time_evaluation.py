@@ -15,6 +15,7 @@ from zlang.ir import module as ir_module
 from zlang.ir import types as ir_types
 
 from . import compile_time_real as ct_real
+from . import expression_origins
 from . import limits as semantic_limits
 from . import symbols as semantic_symbols
 from . import type_resolution
@@ -222,6 +223,12 @@ def compile_time_integer_value(
             return context.scope.index_bindings[expression.name]
         if expression.name in context.environment.parameters:
             return context.environment.parameters[expression.name]
+        symbol = inputs.get(expression.name)
+        if (isinstance(symbol, ir_module.LocalValue) and symbol.compile_time
+                and isinstance(symbol.expression, ir_expr.Constant)
+                and isinstance(symbol.expression.type, (
+                    ir_types.BitType, ir_types.BitsType, ir_types.UIntType, ir_types.SIntType))):
+            return symbol.expression.value
         raise SemanticError(
             f"compile-time condition references runtime value '{expression.name}'"
         )
@@ -266,6 +273,12 @@ def compile_time_integer_value(
             return left - right
         if operator is ast.BinaryOperator.MULTIPLY:
             return left * right
+        if operator is ast.BinaryOperator.MODULO:
+            if right == 0:
+                raise SemanticError("compile-time modulo by zero",
+                    code="ZL-SEMANTIC-MODULO-ZERO",
+                    primary=expression_origins.semantic_origin(expression, context))
+            return left % right
         if operator is ast.BinaryOperator.DIVIDE:
             if right == 0 or left % right:
                 raise SemanticError("compile-time division must be exact and non-zero")

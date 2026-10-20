@@ -588,18 +588,12 @@ def _dsp48e1_simulation_model() -> str:
   logic [24:0] d_value;
   logic [17:0] b_value;
   logic signed [24:0] preadd;
+  logic signed [24:0] a_gated, d_gated;
   logic signed [42:0] product_comb;
   logic signed [42:0] product;
   logic signed [47:0] result_value;
-  localparam integer ZLANG_PRODUCT_WIDTH = ZLANG_PRE_WIDTH + ZLANG_B_WIDTH;
-  logic signed [ZLANG_A_WIDTH-1:0] a_narrow;
-  logic signed [ZLANG_D_WIDTH-1:0] d_narrow;
-  logic signed [ZLANG_B_WIDTH-1:0] b_narrow;
-  logic signed [ZLANG_PRE_WIDTH-1:0] preadd_narrow;
-  logic signed [ZLANG_PRODUCT_WIDTH-1:0] product_narrow;
-  logic signed [ZLANG_ACC_WIDTH-1:0] pcin_narrow;
-  logic signed [ZLANG_ACC_WIDTH-1:0] product_acc_narrow;
-  logic signed [ZLANG_ACC_WIDTH-1:0] result_narrow;
+  // ZLANG_* widths are descriptive metadata only. Functional behavior uses
+  // the physical ports: narrowing here would conceal broken sign extension.
   always @(posedge CLK) begin
     if (RSTA) a_q <= 0; else if (CEA1) a_q <= A;
     if (RSTD) d_q <= 0; else if (CED) d_q <= D;
@@ -608,32 +602,21 @@ def _dsp48e1_simulation_model() -> str:
   assign a_value = AREG == 0 ? A : a_q;
   assign d_value = DREG == 0 ? D : d_q;
   assign b_value = BREG == 0 ? B : b_q;
-  assign a_narrow = $signed(a_value[ZLANG_A_WIDTH-1:0]);
-  assign d_narrow = $signed(d_value[ZLANG_D_WIDTH-1:0]);
-  assign b_narrow = $signed(b_value[ZLANG_B_WIDTH-1:0]);
-  assign preadd_narrow =
-    ZLANG_PRE_WIDTH'($signed(a_narrow)) +
-    ZLANG_PRE_WIDTH'($signed(d_narrow));
-  assign preadd = {{(25-ZLANG_PRE_WIDTH){preadd_narrow[ZLANG_PRE_WIDTH-1]}},
-                   preadd_narrow};
-  assign product_narrow = $signed(preadd_narrow) * $signed(b_narrow);
-  assign product_comb = {{(43-ZLANG_PRODUCT_WIDTH){
-                           product_narrow[ZLANG_PRODUCT_WIDTH-1]}},
-                         product_narrow};
+  assign a_gated = INMODE[1] ? 25'sd0 : $signed(a_value[24:0]);
+  assign d_gated = INMODE[2] ? $signed(d_value) : 25'sd0;
+  assign preadd = USE_DPORT == "TRUE"
+    ? (INMODE[3] ? d_gated - a_gated : d_gated + a_gated)
+    : a_gated;
+  assign product_comb = $signed(preadd) * $signed(b_value);
   always @(posedge CLK) begin
     if (RSTM) product_q <= 0; else if (CEM) product_q <= product_comb;
   end
   assign product = MREG == 0 ? product_comb : product_q;
-  assign pcin_narrow = $signed(PCIN[ZLANG_ACC_WIDTH-1:0]);
-  assign product_acc_narrow = ZLANG_ACC_WIDTH'($signed(product));
-  assign result_narrow = ALUMODE == 4'b0011
-    ? pcin_narrow - product_acc_narrow
+  assign result_value = ALUMODE == 4'b0011
+    ? $signed(PCIN) - 48'($signed(product))
     : (ALUMODE == 4'b0001 && CARRYIN)
-      ? product_acc_narrow - pcin_narrow
-      : pcin_narrow + product_acc_narrow;
-  assign result_value = {{(48-ZLANG_ACC_WIDTH){
-                           result_narrow[ZLANG_ACC_WIDTH-1]}},
-                         result_narrow};
+      ? 48'($signed(product)) - $signed(PCIN)
+      : (OPMODE == 7'b0000101 ? 48'sd0 : $signed(PCIN)) + 48'($signed(product));
   always @(posedge CLK) begin
     if (RSTP) p_q <= 0; else if (CEP) p_q <= result_value;
   end

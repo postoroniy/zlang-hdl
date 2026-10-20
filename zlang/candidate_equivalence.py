@@ -20,7 +20,7 @@ from zlang.candidate_sites import (
     selected_candidate_sites,
 )
 from zlang.common import ObjectReader, stable_digest
-from zlang.equivalence import run_equivalence_formal
+from zlang.equivalence import artifact_hash, run_equivalence_formal
 from zlang.equivalence_result_codec import (
     equivalence_result_from_data,
     equivalence_result_to_data,
@@ -366,10 +366,18 @@ def _semantic_equivalence_execution_recipe(
     mode: EquivalenceMode,
     toolchain: FormalToolchainContext,
 ) -> dict[str, object]:
+    from zlang.equivalence_replay_integrity import (
+        REPLAY_INTEGRITY_SCHEMA,
+        validate_prepared_equivalence_source,
+    )
+    validate_prepared_equivalence_source(prepared)
     from zlang.formal_joint_value import rtl_arithmetic_policy
     arithmetic_policy = rtl_arithmetic_policy(prepared.implementation_artifact.implementation, config.solver)
     return {
-        "schema": "zlang-candidate-semantic_equivalence-execution-v2",
+        "schema": "zlang-candidate-semantic_equivalence-execution-v3",
+        "replay_integrity": REPLAY_INTEGRITY_SCHEMA,
+        "source_hash": artifact_hash(prepared.source),
+        "top": prepared.top,
         "property": prepared.property_identity,
         "candidate": prepared.property.implementation_root,
         "backend": "direct_systemverilog",
@@ -401,7 +409,7 @@ def _execute_semantic_equivalence(
     arithmetic_policy = rtl_arithmetic_policy(prepared.implementation_artifact.implementation, config.solver)
     return provider.get_or_prepare(
         FormalArtifactNamespace.SEMANTIC_EQUIVALENCE,
-        "candidate-equivalence-result-v2",
+        "candidate-equivalence-result-v3",
         recipe,
         lambda: run_equivalence_formal(
             prepared.property,
@@ -444,7 +452,7 @@ def _candidate_job_work_directory(
     if config.work_directory is None:
         return None
     identity = FormalArtifactRecipe(
-        FormalArtifactNamespace.SEMANTIC_EQUIVALENCE, "candidate-equivalence-result-v2", recipe
+        FormalArtifactNamespace.SEMANTIC_EQUIVALENCE, "candidate-equivalence-result-v3", recipe
     ).digest
     return (
         Path(config.work_directory).resolve(strict=False)
@@ -557,6 +565,8 @@ def _execute_candidate_equivalence(
         item: PreparedCandidateEquivalenceSite | FrozenCandidateEquivalenceSite,
     ) -> CandidateEquivalenceExecutionReport:
         prepared = item.direct_systemverilog
+        from zlang.equivalence_replay_integrity import validate_prepared_equivalence_source
+        validate_prepared_equivalence_source(prepared)
         selected = item.selected if isinstance(item, PreparedCandidateEquivalenceSite) else None
         work_directories: dict[str, str] = {}
 

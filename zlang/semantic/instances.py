@@ -19,6 +19,7 @@ from zlang.ir import module as ir_module
 from zlang.ir import types as ir_types
 from zlang.ir.constants import ConstantExpressionError, constant_runtime_value
 from zlang.ir.signed_reductions import expression_semantic_identity
+from zlang.source import SourceOrigin
 
 from . import callables as semantic_callables
 from . import compile_time_evaluation
@@ -340,9 +341,16 @@ class InstanceSpecializer:
                 types[key] = resolved_type
                 resolved[key] = str(resolved_type)
             else:
-                resolved[key] = self._resolve_value_argument(
-                    declaration, key, value
-                )
+                try:
+                    resolved[key] = self._resolve_value_argument(declaration, key, value)
+                except SemanticError as error:
+                    if error.primary is not None or declaration.origin is None:
+                        raise
+                    raise SemanticError(str(error), code=error.code,
+                        primary=SourceOrigin(declaration.origin, f"instance {declaration.name}",
+                            self.context.source_unit, self.context.source_digest),
+                        notes=error.notes, fixes=error.fixes,
+                        machine_fixes=error.machine_fixes) from error
         return resolved, types, deferred
 
     def _resolve_value_argument(

@@ -163,14 +163,14 @@ CAPABILITY_REGISTRY = PublicCapabilityRegistry(
     operators=(
         "<=>", "<-", "->", "=>", "..", "==", "!=", "<=", ">=", "<", ">",
         "&&", "||", "!", "~", "&", "|", "^", "<<", ">>", "+", "-", "*", "/",
-        "=", "?", ":",
+        "%", "=", "?", ":",
     ),
     capabilities=(
         PublicCapability(
             "scalar-datapath", "pure value", "supported", "supported",
             "supported", "supported", "semantic-reference equivalence relations",
             CapabilityWitness("examples/all_syntax.zhl", "ScalarSyntax"),
-            ("runtime division and general Boolean &&/|| are not hardware operators",),
+            ("runtime division/remainder and general Boolean &&/|| are not hardware operators",),
         ),
         PublicCapability(
             "exact-literals-and-packed-constants", "pure value", "supported",

@@ -7,7 +7,8 @@ import tomllib
 
 import pytest
 
-from tools.audit_workflow_structure import hosted_lane_contract_failures
+from tools.audit_workflow_structure import codeql_version_failures, hosted_lane_contract_failures
+from tools.release_status import StatusError, _check_solver_pin
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -83,7 +84,8 @@ def test_dependency_pins_have_one_repository_owner() -> None:
     test_dependencies = set(project["project"]["optional-dependencies"]["test"])
     assert "build==1.6.1" in test_dependencies
     assert "PyYAML==6.0.3" in test_dependencies
-    assert "z3-solver==5.1.0.0" in test_dependencies
+    status = json.loads((ROOT / "release/status.json").read_text(encoding="utf-8"))
+    _check_solver_pin(project, status["eda_toolchain"])
 
     makefile = MAKEFILE.read_text(encoding="utf-8")
     for pin in (
@@ -110,6 +112,49 @@ def test_dependency_pins_have_one_repository_owner() -> None:
         "wheel==",
     ):
         assert obsolete_or_duplicated not in migrated
+
+
+@pytest.mark.parametrize("dependencies", (
+    ["z3-solver==5.1.0.0"], [], ["z3-solver>=5.3.1"],
+    ["z3-solver==5.3.1.0", "z3-solver==5.3.1.1"],
+))
+def test_solver_pin_rejects_stale_missing_ranged_or_duplicate_dependencies(dependencies) -> None:
+    project = {"project": {"optional-dependencies": {"test": dependencies}}}
+    with pytest.raises(StatusError, match="z3-solver pin must match"):
+        _check_solver_pin(project, {"z3": "5.3.1"})
+
+
+def test_codeql_actions_use_one_reviewed_revision() -> None:
+    assert not codeql_version_failures(ROOT / ".github/workflows/codeql.yml")
+
+
+@pytest.mark.parametrize("analyze_ref", ("b" * 40, "v4", ""))
+def test_workflow_audit_rejects_mixed_or_unpinned_codeql(tmp_path, analyze_ref) -> None:
+    workflows = tmp_path / ".github/workflows"
+    workflows.mkdir(parents=True)
+    path = workflows / "codeql.yml"
+    path.write_text(
+        "jobs:\n  analyze:\n    steps:\n"
+        f"      - uses: github/codeql-action/init@{'a' * 40}\n"
+        f"      - uses: github/codeql-action/analyze@{analyze_ref}\n",
+        encoding="utf-8",
+    )
+    assert codeql_version_failures(path)
+    completed = subprocess.run(
+        ("python", "-m", "tools.audit_workflow_structure", "--root", str(tmp_path)),
+        cwd=ROOT, capture_output=True, text=True, check=False,
+    )
+    assert completed.returncode != 0
+    assert "CodeQL actions" in completed.stderr
+
+
+def test_dependabot_groups_codeql_and_defers_incompatible_compiler_api() -> None:
+    import yaml
+
+    config = yaml.safe_load((ROOT / ".github/dependabot.yml").read_text())
+    updates = {item["package-ecosystem"]: item for item in config["updates"]}
+    assert "github/codeql-action/*" in updates["github-actions"]["groups"]["codeql"]["patterns"]
+    assert {"dependency-name": "typescript", "update-types": ["version-update:semver-major"]} in updates["npm"]["ignore"]
 
 
 def test_bootstrap_isolates_external_release_tool_builds() -> None:

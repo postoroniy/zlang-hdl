@@ -172,6 +172,26 @@ def _job_actions(job: object) -> tuple[str, ...]:
     )
 
 
+def codeql_version_failures(path: Path) -> tuple[str, ...]:
+    """CodeQL init/analyze/upload steps share versioned configuration per job."""
+    try:
+        jobs = _workflow_jobs(path)
+    except ValueError as exc:
+        return (str(exc),)
+    failures: list[str] = []
+    for name, job in jobs.items():
+        actions = tuple(
+            action for action in _job_actions(job)
+            if action.startswith("github/codeql-action/")
+        )
+        refs = {action.partition("@")[2] for action in actions}
+        if any(re.fullmatch(r"[0-9a-f]{40}", ref) is None for ref in refs):
+            failures.append(f"{path}: job {name!r}: CodeQL actions require full commit pins")
+        if len(refs) > 1:
+            failures.append(f"{path}: job {name!r}: all CodeQL actions must use the same revision")
+    return tuple(failures)
+
+
 def hosted_lane_contract_failures(path: Path) -> tuple[str, ...]:
     contracts = _JOB_TARGETS.get(path.name)
     if contracts is None:
@@ -223,6 +243,7 @@ def main(argv: list[str] | None = None) -> int:
         if duplicate_failures:
             continue
         failures += unsafe_repo_tool_invocations(path)
+        failures += codeql_version_failures(path)
         failures += hosted_lane_contract_failures(path)
     if failures:
         parser.error("\n".join(failures))

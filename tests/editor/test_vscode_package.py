@@ -26,7 +26,7 @@ PINS = {
     "esbuild": TOOLCHAIN["esbuild"],
     "vscode-oniguruma": "2.0.1",
     "vscode-textmate": "9.3.2",
-    "playwright": "1.62.1",
+    "playwright": TOOLCHAIN["playwright"],
     "typescript": TOOLCHAIN["typescript"],
 }
 STATIC_ASSETS = {
@@ -532,6 +532,18 @@ class VSCodePackageTests(unittest.TestCase):
                 with self.assertRaisesRegex(VSIXAuditError, "source breakpoint registration"):
                     validate_metadata(broken, native=True)
 
+    def test_playwright_manifest_and_lock_must_match_reviewed_toolchain(self) -> None:
+        package = _json((EXT / "package.json").read_bytes())
+        lock = _json((EXT / "package-lock.json").read_bytes())
+        self.assertEqual(package["devDependencies"]["playwright"], TOOLCHAIN["playwright"])
+        altered = copy.deepcopy(package)
+        altered["devDependencies"]["playwright"] = "0.0.1"
+        with self.assertRaisesRegex(VSIXAuditError, "dev dependencies must be pinned"):
+            validate_metadata(altered, native=True)
+        lock["packages"]["node_modules/playwright"]["version"] = "0.0.1"
+        with self.assertRaisesRegex(VSIXAuditError, "unlocked direct dependency: playwright"):
+            validate_lock(package, lock)
+
     def test_source_metadata_and_lock_are_runtime_pinned(self) -> None:
         if str(ROOT) not in sys.path:
             sys.path.insert(0, str(ROOT))
@@ -605,9 +617,13 @@ class VSCodePackageTests(unittest.TestCase):
         status = json.loads((ROOT / "release/status.json").read_text(encoding="utf-8"))
         self.assertEqual(
             {tool: status["eda_toolchain"][tool] for tool in ("verilator", "yosys", "z3")},
-            {"verilator": "5.053", "yosys": "0.69", "z3": "5.1.0"},
+            {"verilator": "5.053", "yosys": "0.69", "z3": "5.3.1"},
         )
         self.assertNotIn("python3.12", guide)
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        for label, tool in (("Verilator", "verilator"), ("Yosys", "yosys"),
+                            ("SymbiYosys", "sby"), ("Z3", "z3")):
+            self.assertIn(f"{label} {status['eda_toolchain'][tool]}", readme)
 
     def test_source_derived_archive_is_accepted_and_hashed(self) -> None:
         path = self.archive(_source_members())

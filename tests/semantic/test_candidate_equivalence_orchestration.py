@@ -16,7 +16,6 @@ from zlang.candidate_sites import (
     CandidateSiteRecord,
     SelectedCandidateSite,
 )
-from zlang.equivalence import MiterTraceMetadata
 from zlang.formal_candidate import PreparedCandidateEquivalence
 from zlang.formal_orchestration import CandidateEquivalencePlanReference
 from zlang.ir.comparison_window import ComparisonWindow
@@ -28,6 +27,7 @@ from zlang.ir.equivalence import (
     SignalRole,
 )
 from zlang.ir.types import BitType
+from tests.prepared_equivalence_fixtures import prepared_miter_fields
 
 
 CANDIDATE = "selected:candidate"
@@ -58,12 +58,13 @@ def _prepared() -> PreparedCandidateEquivalence:
     implementation = _artifact(
         "direct_systemverilog", "Implementation", BindingSide.IMPLEMENTATION
     )
+    source, top, harness_hash, metadata = prepared_miter_fields(property_, reference, implementation)
     return PreparedCandidateEquivalence(
-        property_, "module semantic_equivalence_candidate; endmodule\n", "semantic_equivalence_candidate",
-        reference.artifact_hash, implementation.artifact_hash, "d" * 64,
+        property_, source, top,
+        reference.artifact_hash, implementation.artifact_hash, harness_hash,
         property_.id, "e" * 64, "f" * 64, "direct_systemverilog",
         reference, implementation, (),
-        MiterTraceMetadata("reference_result", "implementation_result"),
+        metadata,
     )
 
 

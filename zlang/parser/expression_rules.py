@@ -371,8 +371,7 @@ class ExpressionRules:
         origin = self._span(meta)
         for index in range(1, len(items), 2):
             expression = ast_nodes.BinaryExpr(
-                ast_nodes.BinaryOperator.MULTIPLY
-                if str(items[index]) == "*" else ast_nodes.BinaryOperator.DIVIDE,
+                ast_nodes.BinaryOperator(str(items[index])),
                 expression,
                 items[index + 1],
                 origin=origin,

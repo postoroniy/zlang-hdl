@@ -140,6 +140,10 @@ module Queue<type T,D=4> where D >= 2 && is_power_of_two(D) {
 }
 ```
 
+Integer `%` is compile-time only: it may appear in generic arguments, static
+indices and compile-time `if`. It uses floor modulo (`-5 % 3 == 1`); zero
+divisors are errors.
+
 Imports are logical. For example `import std.bus.reg` resolves compiler-shipped
 `stdlib/bus/reg.zhl`; `import std.math.complex as cx` adds a source-local
 qualifier but does not create a runtime namespace.

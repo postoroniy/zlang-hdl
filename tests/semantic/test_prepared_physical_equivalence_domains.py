@@ -17,7 +17,7 @@ from zlang.formal_candidate import (
     prepared_candidate_equivalence_to_data,
     validate_prepared_equivalence_domains,
 )
-from zlang.equivalence import MiterTraceMetadata
+from tests.prepared_equivalence_fixtures import prepared_miter_fields
 from zlang.ir import (
     Assignment,
     BitType,
@@ -109,13 +109,14 @@ def _bundle(domain: ClockDomain) -> PreparedCandidateEquivalence:
         BindingSide.IMPLEMENTATION,
     )
     property_ = _property(domain)
+    source, top, harness_hash, metadata = prepared_miter_fields(property_, reference, implementation)
     return PreparedCandidateEquivalence(
         property_,
-        "module semantic_equivalence_physical_domain; endmodule\n",
-        "semantic_equivalence_physical_domain",
+        source,
+        top,
         reference.artifact_hash,
         implementation.artifact_hash,
-        "d" * 64,
+        harness_hash,
         property_.id,
         "e" * 64,
         "f" * 64,
@@ -123,9 +124,7 @@ def _bundle(domain: ClockDomain) -> PreparedCandidateEquivalence:
         reference,
         implementation,
         (),
-        MiterTraceMetadata(
-            "reference_result", "implementation_result", "reset", "valid"
-        ),
+        metadata,
     )
 
 

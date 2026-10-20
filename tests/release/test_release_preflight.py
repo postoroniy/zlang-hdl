@@ -154,6 +154,10 @@ def test_current_candidate_binds_release_sources_native_wheel_and_git(
     assert report["tag"] == "v0.1.0a24"
     assert report["previous_tag"] == "v0.1.0a23"
     assert report["regressions"]["included"] == [
+        "CI-001",
+        "FORMAL-001",
+        "FORMAL-002",
+        "FORMAL-003",
         "SIM-001",
         "SIM-002",
         "VSIX-001",
@@ -163,6 +167,7 @@ def test_current_candidate_binds_release_sources_native_wheel_and_git(
         "ZL-053",
         "ZL-054",
         "ZL-055",
+        "ZL-056",
     ]
     assert report["dependency_floor"]["schema"] == 1
     assert report["dependency_floor"]["previous_ref"] == "v0.1.0a23"

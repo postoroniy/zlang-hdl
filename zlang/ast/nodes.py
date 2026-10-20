@@ -780,6 +780,7 @@ class BinaryOperator(str, Enum):
     SUBTRACT = "-"
     MULTIPLY = "*"
     DIVIDE = "/"
+    MODULO = "%"
     BIT_AND = "&"
     BIT_OR = "|"
     BIT_XOR = "^"

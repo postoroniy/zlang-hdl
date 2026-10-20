@@ -426,7 +426,8 @@ class TypeResolver:
                     return left >> right
                 if isinstance(node.op, pyast.Mod):
                     if right == 0:
-                        raise SemanticError(f"constant {description} division by zero")
+                        raise SemanticError(f"constant {description} modulo by zero",
+                                            code="ZL-SEMANTIC-MODULO-ZERO")
                     return left % right
                 if isinstance(node.op, pyast.BitAnd):
                     return left & right

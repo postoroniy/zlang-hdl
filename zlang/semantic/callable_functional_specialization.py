@@ -65,7 +65,9 @@ def _compile_time_expr_from_python(
         pyast.Sub: functional_regions.CompileTimeOperator.SUBTRACT,
         pyast.Mult: functional_regions.CompileTimeOperator.MULTIPLY,
         pyast.FloorDiv: functional_regions.CompileTimeOperator.FLOOR_DIVIDE,
-        pyast.Mod: functional_regions.CompileTimeOperator.MODULO,
+        # Modulo needs concrete binders: primitive simulation plans have no
+        # remainder opcode. Unsupported lifting falls back to the existing
+        # bounded concrete specialization, where integer modulo is folded.
     }
     if isinstance(node, pyast.BinOp):
         operator = operators.get(type(node.op))

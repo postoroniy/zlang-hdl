@@ -49,8 +49,8 @@ _GRAMMAR = files("zlang.parser").joinpath("grammar.lark").read_text()
 _PARSER: Lark | None = None
 _PARSER_LOCK = Lock()
 _PARSER_TABLE_LARK_VERSION = "1.3.1"
-_PARSER_TABLE_GRAMMAR_SHA256 = "bab0ed69a512b864a7051fc01319f2b16029355535d05c85115ac94d1942fc08"
-_PARSER_TABLE_SHA256 = "6b78cdb5fcc95aa17c28b9d2f5bfec03449974f90caf2bed7854327b143d8616"
+_PARSER_TABLE_GRAMMAR_SHA256 = "3a56a40ea988a7f45cf64de2ea8051a581de71d058fab81dcc089f258315de48"
+_PARSER_TABLE_SHA256 = "370de8c5e30c768c91d08eefb27049d9c614bc1ed330e491a87c0c20d5e89ff4"
 
 
 def _load_packaged_parser() -> Lark | None:

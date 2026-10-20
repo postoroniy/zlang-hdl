@@ -11,8 +11,26 @@ incompatible input explicitly.
 
 ## Unreleased
 
+### Added
+
+- Compile-time integer `%` supports generic value arguments, static indices
+  and compile-time `if`, including negative operands with floor-modulo
+  semantics. Zero divisors report source diagnostics; runtime remainder
+  remains unsupported.
+
 ### Fixed
 
+- CI dependency checks bind the Python Z3 pin to the reviewed solver version
+  and the Playwright manifest/lock to the editor toolchain. CodeQL steps use
+  one pinned revision and update together. Preparation-failure unit tests no
+  longer depend on EDA tools being installed.
+- Frozen formal evidence reconstructs the typed miter before accepting retained
+  source or cached results. Changed assertions, harnesses, bindings, top modules
+  and obsolete DSP models fail validation instead of reusing earlier evidence.
+- The DSP48E1 verification model uses physical operand and accumulator bits;
+  descriptive width parameters cannot conceal malformed sign extension.
+- Formal proof and cover runs accept relative, nested and spaced work paths
+  without depending on the caller's working directory.
 - Source breakpoints inside rule/FSM action bodies bind to their typed action
   range and highlight the requested line when hit. The stopped source position
   stays fixed while inspecting values or editing breakpoints and clears when

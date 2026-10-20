@@ -227,6 +227,35 @@ def _proof_bundle_fingerprint(
     return result
 
 
+def _physical_candidate_recipe(candidate, implementation):
+    """Bind actual typed DUT operands and outputs before any preparation index."""
+    graph = getattr(candidate, "implementation_graph", None)
+    if graph is None:
+        return {}
+    if not isinstance(graph, ImplementationGraph):
+        raise FormalCandidateUnavailable("physical candidate has an invalid implementation graph")
+    module = getattr(candidate, "module", None)
+    if not isinstance(module, Module):
+        raise FormalCandidateUnavailable("physical candidate requires an exact typed module")
+    if isinstance(implementation.type, (StructType, TupleType, VecType)):
+        from zlang.formal_joint_value import validate_physical_joint_value
+        try:
+            validate_physical_joint_value(module, implementation)
+        except ValueError as error:
+            raise FormalCandidateUnavailable(str(error)) from error
+    from zlang.opt.module_lowering import lower
+    from zlang.opt.identity import canonical_ir_identity
+    return {
+        "physical_graph_identity": graph.identity,
+        "physical_module_identity": canonical_ir_identity(lower(module)),
+        "physical_operand_identities": tuple(
+            (node.identity, mapping.resource_port,
+             expression_semantic_identity(mapping.expression) if mapping.expression is not None else None)
+            for node in graph.resources for mapping in node.semantic_mappings
+        ),
+    }
+
+
 def _formal_selection_work_directory(
     candidate: object,
     candidate_key: str,
@@ -474,6 +503,8 @@ def _decode_prepared_candidate(value: object) -> PreparedCandidateEquivalence:
         result.reference_artifact,
         result.implementation_artifact,
     )
+    from zlang.equivalence_replay_integrity import validate_prepared_equivalence_source
+    validate_prepared_equivalence_source(result)
     return result
 
 
@@ -583,8 +614,12 @@ class _SemanticEquivalenceCandidateVerifierBase:
             "emitter": "zlang-direct-systemverilog",
             "manifest_version": MANIFEST_VERSION,
         }
+        from zlang.equivalence_replay_integrity import REPLAY_INTEGRITY_SCHEMA
+        from zlang.formal_primitive_models import primitive_model_policy
+        tool_route["replay_integrity"] = REPLAY_INTEGRITY_SCHEMA
+        tool_route["primitive_models"] = primitive_model_policy()
         recipe = {
-            "schema": "zlang-semantic_equivalence-candidate-backend-preparation-v1",
+            "schema": "zlang-semantic_equivalence-candidate-backend-preparation-v2",
             "rtl_naming": RTL_NAMING_SCHEMA,
             "backend": "direct_systemverilog",
             "candidate": self._key(candidate),
@@ -612,16 +647,12 @@ class _SemanticEquivalenceCandidateVerifierBase:
         }
         physical_graph = getattr(candidate, "implementation_graph", None)
         if physical_graph is not None:
-            if not isinstance(physical_graph, ImplementationGraph):
-                raise FormalCandidateUnavailable(
-                    "semantic-reference equivalence physical candidate has an invalid implementation graph"
-                )
-            recipe["physical_graph_identity"] = physical_graph.identity
+            recipe.update(_physical_candidate_recipe(candidate, implementation))
             from zlang.formal_joint_value import rtl_arithmetic_policy
             policy = rtl_arithmetic_policy(physical_graph, config.solver)
             if policy is not None:
                 tool_route["rtl_arithmetic"] = policy
-        return self.artifact_provider.get_or_prepare(
+        bundle = self.artifact_provider.get_or_prepare(
             FormalArtifactNamespace.SEMANTIC_EQUIVALENCE,
             "direct-systemverilog-candidate-equivalence-preparation-v1",
             recipe,
@@ -630,6 +661,9 @@ class _SemanticEquivalenceCandidateVerifierBase:
             decode=_decode_prepared_candidate,
             fingerprint=_proof_bundle_fingerprint,
         )
+        from zlang.equivalence_replay_integrity import validate_prepared_equivalence_source
+        validate_prepared_equivalence_source(bundle)
+        return bundle
 
 
     def _prepare_candidate_equivalence(
@@ -909,10 +943,14 @@ class SemanticEquivalenceDirectSystemVerilogCandidateVerifier(_SemanticEquivalen
             or dependency_context_identity(candidate)
         )
         physical_graph = getattr(candidate, "implementation_graph", None)
+        from zlang.equivalence_replay_integrity import REPLAY_INTEGRITY_SCHEMA
+        from zlang.formal_primitive_models import primitive_model_policy
         from zlang.formal_joint_value import rtl_arithmetic_policy
         arithmetic_policy = rtl_arithmetic_policy(physical_graph, config.solver)
         return {
-            "schema": "zlang-semantic_equivalence-direct-systemverilog-proof-bundle-v1",
+            "schema": "zlang-semantic_equivalence-direct-systemverilog-proof-bundle-v2",
+            "replay_integrity": REPLAY_INTEGRITY_SCHEMA,
+            "primitive_models": primitive_model_policy(),
             "rtl_naming": RTL_NAMING_SCHEMA,
             "candidate": self._key(candidate),
             "candidate_semantics": expression_semantic_identity(implementation),
@@ -928,11 +966,7 @@ class SemanticEquivalenceDirectSystemVerilogCandidateVerifier(_SemanticEquivalen
             "dependency_identity": dependency_identity,
             "backend": "direct_systemverilog",
             "manifest_version": MANIFEST_VERSION,
-            "physical_graph_identity": (
-                physical_graph.identity
-                if isinstance(physical_graph, ImplementationGraph)
-                else None
-            ),
+            **_physical_candidate_recipe(candidate, implementation),
             **({"rtl_arithmetic": arithmetic_policy} if arithmetic_policy else {}),
         }
 
@@ -1049,6 +1083,11 @@ def _validate_candidate_artifact(
 ) -> None:
     """Require complete, physically published candidate ports before proving."""
 
+    from zlang.formal_primitive_models import validate_primitive_models
+    try:
+        validate_primitive_models(artifact)
+    except ValueError as error:
+        raise FormalCandidateUnavailable(str(error)) from error
     artifact.binding_map().validate()
     by_id = {item.semantic_signal_id: item for item in artifact.bindings}
     missing = tuple(sorted(set(expected_semantic_ids) - set(by_id)))

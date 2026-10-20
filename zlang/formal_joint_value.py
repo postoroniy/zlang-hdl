@@ -13,10 +13,27 @@ from importlib.metadata import PackageNotFoundError, version
 from zlang.ir import expressions as e
 from zlang.ir.module import Assignment, Port, PortDirection
 from zlang.ir.joint_values import joint_value_boundary
+from zlang.ir.signed_reductions import expression_semantic_identity
 from zlang.target_mapping_identity import _semantic_mapping_identity
 
 
 RTL_ARITHMETIC_PROOF_SCHEMA = "zlang-rtl-arithmetic-normalization-v1"
+
+
+def validate_physical_joint_value(module, implementation):
+    """Do not replace an actual DUT output with a caller's claimed expression."""
+    from zlang.candidate_expression import candidate_input_refs
+    if (
+        len(module.assignments) != 1 or len(module.outputs) != 1
+        or module.assignments[0].target != module.outputs[0]
+        or module.outputs[0].type != implementation.type
+        or expression_semantic_identity(module.assignments[0].expression)
+        != expression_semantic_identity(implementation)
+    ):
+        raise ValueError("joint physical equivalence requires the exact actual output assignment")
+    ports = {port.name: port.type for port in module.inputs}
+    if any(ports.get(name) != type_ for name, type_ in candidate_input_refs(implementation).items()):
+        raise ValueError("joint physical equivalence input binding/type mismatch")
 
 
 def rtl_arithmetic_policy(implementation, solver):
@@ -78,6 +95,8 @@ def flatten_joint_equivalence(reference, implementation, module=None, graph=None
             ),
         )
 
+    if module is not None:
+        validate_physical_joint_value(module, implementation)
     implementation = pack(implementation)
     if module is not None:
         if len(module.assignments) != 1 or len(module.outputs) != 1:

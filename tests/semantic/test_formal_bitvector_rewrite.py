@@ -130,6 +130,8 @@ def test_missing_optional_python_binding_keeps_raw_formal_route(monkeypatch):
 
 def test_preparation_failure_is_unknown_not_a_proof(tmp_path, monkeypatch):
     import zlang.formal_rtl_arithmetic as preparation
+    from zlang.common.tool_inventory import ToolInventory
+    from zlang.formal import FormalToolchainContext
     from zlang.ir.formal import FormalStatus, ProofMode
 
     def unavailable(*args, **kwargs):
@@ -145,6 +147,14 @@ def test_preparation_failure_is_unknown_not_a_proof(tmp_path, monkeypatch):
         depth=6,
         timeout_seconds=1,
         work_directory=tmp_path,
+        # No tool is executed: normalization deliberately fails first. Do not
+        # depend on EDA discovery in the tool-less fast lane.
+        toolchain=FormalToolchainContext(
+            "sby", "z3", ToolInventory(
+                ("yosys", "sby", "yosys-smtbmc", "z3"),
+                ("yosys", "sby", "yosys-smtbmc", "z3"),
+            ),
+        ),
     )
     assert result.status is FormalStatus.UNKNOWN
     assert "deliberate proof budget exhaustion" in result.reason
