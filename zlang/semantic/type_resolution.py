@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import ast as pyast
+from dataclasses import replace
 import re
 from fractions import Fraction
 from typing import TYPE_CHECKING
@@ -155,6 +156,10 @@ class TypeResolver:
         type_bindings: dict[str, ir_types.HardwareType] | None = None,
         identity_namespace: str | None = None,
         tagged_unions: tuple[ast.TaggedUnionDecl, ...] = (),
+        *,
+        source_unit: str | None = None,
+        source_digest: str | None = None,
+        source_digests: dict[str, str] | None = None,
     ) -> None:
         self._aliases: dict[str, ast.TypeSyntax] = {}
         self._alias_declarations: dict[str, ast.TypeAlias] = {}
@@ -168,6 +173,9 @@ class TypeResolver:
         self._parameter_values = dict(parameter_values or {})
         self._type_bindings = dict(type_bindings or {})
         self._identity_namespace = identity_namespace
+        self._source_unit = source_unit
+        self._source_digest = source_digest
+        self._source_digests = dict(source_digests or {})
         # Set by the owning semantic context once optional editor metadata is
         # enabled.  Type resolution remains fully semantic; this reference is
         # only an observational sink for authoritative definition records.
@@ -220,7 +228,9 @@ class TypeResolver:
                         "(uN/u<W>/uint<W>) backing type"
                     )
             else:
-                backing = self.resolve(declaration.backing_type)
+                backing = self.resolve(
+                    declaration.backing_type, source_unit=declaration.source_identity
+                )
                 if not isinstance(
                     backing,
                     (ir_types.BitType, ir_types.BitsType, ir_types.UIntType),
@@ -296,7 +306,49 @@ class TypeResolver:
                 raise SemanticError(f"duplicate tagged union '{name}'")
             raise SemanticError(f"type name '{name}' is already a tagged union")
 
-    def resolve(self, syntax: ast.TypeSyntax) -> ir_types.HardwareType:
+    def resolve(
+        self, syntax: ast.TypeSyntax, *, source_unit: str | None = None
+    ) -> ir_types.HardwareType:
+        """Resolve a type, retaining the innermost source-owned failure range."""
+
+        try:
+            return self._resolve_syntax(syntax, source_unit=source_unit)
+        except SemanticError as error:
+            # Keep the original exception, code, notes, edits and traceback.
+            # Outer uses must never overwrite an error in a type's definition.
+            if error.primary is None and syntax.origin is not None:
+                if source_unit is None and self._active:
+                    name = self._active[-1]
+                    generic = self._generic_parts(name)
+                    base = generic[0] if generic is not None else name
+                    declaration = (
+                        self._alias_declarations.get(base)
+                        or self._structs.get(base)
+                        or self._tagged_union_declarations.get(base)
+                    )
+                    source_unit = getattr(declaration, "source_identity", None)
+                context = self._definition_context
+                unit = source_unit or (
+                    context.scope.source_unit if context is not None else self._source_unit
+                )
+                digests = (
+                    context.environment.source_digests
+                    if context is not None else self._source_digests
+                )
+                digest = digests.get(unit) if unit is not None else None
+                if digest is None and context is not None and unit == context.scope.source_unit:
+                    digest = context.scope.source_digest
+                if digest is None and unit == self._source_unit:
+                    digest = self._source_digest
+                error.diagnostic = replace(
+                    error.diagnostic,
+                    primary=SourceOrigin(syntax.origin, "type annotation", unit, digest),
+                )
+            raise
+
+    def _resolve_syntax(
+        self, syntax: ast.TypeSyntax, *, source_unit: str | None
+    ) -> ir_types.HardwareType:
         if self._definition_context is not None:
             record_named_type_definition(self._definition_context, syntax, self)
         if isinstance(syntax, ast.VectorTypeName):
@@ -305,9 +357,13 @@ class TypeResolver:
                 length = self._eval_width(length)
             if length < 1:
                 raise SemanticError("vector width must be positive")
-            return ir_types.VecType(length, self.resolve(syntax.element_type))
+            return ir_types.VecType(
+                length, self.resolve(syntax.element_type, source_unit=source_unit)
+            )
         if isinstance(syntax, ast.TupleTypeName):
-            return ir_types.TupleType(tuple(self.resolve(item) for item in syntax.elements))
+            return ir_types.TupleType(tuple(
+                self.resolve(item, source_unit=source_unit) for item in syntax.elements
+            ))
         if syntax.text in self._type_bindings:
             return self._type_bindings[syntax.text]
         builtin = self._resolve_builtin(syntax.text)
@@ -617,7 +673,7 @@ class TypeResolver:
                         values[parameter.name] = resolved_value
                         canonical_arguments.append(str(resolved_value))
                 nested = TypeResolver(
-                    tuple(ast.TypeAlias(k, v) for k, v in self._aliases.items()),
+                    tuple(self._alias_declarations.values()),
                     tuple(self._structs.values()),
                     tuple(self._enum_declarations.values()),
                     tuple(declaration.parameters),
@@ -627,6 +683,11 @@ class TypeResolver:
                     tagged_unions=tuple(
                         self._tagged_union_declarations.values()
                     ),
+                    source_unit=declaration.source_identity or self._source_unit,
+                    source_digest=self._source_digests.get(
+                        declaration.source_identity or self._source_unit
+                    ),
+                    source_digests=self._source_digests,
                 )
                 fields = tuple(ir_types.StructField(field.name, nested.resolve(field.type_name)) for field in declaration.fields)
                 result = ir_types.StructType(

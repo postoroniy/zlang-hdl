@@ -106,6 +106,22 @@
       ]
     },
     {
+      "id": "SIM-003",
+      "source_paths": [
+        "tests/simulation/differential.py",
+        "tests/simulation/test_comparison_deadlines.py",
+        "zlang/simulation_compare.py"
+      ],
+      "status": "included",
+      "summary": "External RTL comparison separates bounded compilation from execution, preserves legacy caller deadlines, retains phase-labelled timeout output, and rejects invalid limits or mismatched values without publishing success.",
+      "tests": [
+        "tests/simulation/test_comparison_deadlines.py::test_build_budget_is_separate_and_legacy_timeout_is_preserved",
+        "tests/simulation/test_comparison_deadlines.py::test_expired_command_retains_phase_and_partial_tool_log",
+        "tests/simulation/test_comparison_deadlines.py::test_separate_build_deadline_does_not_hide_value_mismatch",
+        "tests/simulation/test_comparison_deadlines.py::test_timeout_cannot_publish_success_or_run_after_failed_build"
+      ]
+    },
+    {
       "id": "VSIX-001",
       "source_paths": [
         "editors/vscode/zlang-hdl/extension.js",
@@ -255,6 +271,30 @@
         "tests/semantic/test_compile_time_modulo.py::test_modulo_has_the_same_floor_semantics_in_all_compile_time_contexts",
         "tests/semantic/test_compile_time_modulo.py::test_runtime_modulo_is_rejected_even_when_optimization_could_cancel_operands",
         "tests/semantic/test_compile_time_modulo.py::test_zero_divisor_is_a_source_diagnostic"
+      ]
+    },
+    {
+      "id": "ZL-057",
+      "source_paths": [
+        "tests/lsp/test_declaration_diagnostics.py",
+        "tests/semantic/test_declaration_origins.py",
+        "zlang/semantic/hierarchy.py",
+        "zlang/semantic/module_declarations.py",
+        "zlang/semantic/module_state_storage.py",
+        "zlang/semantic/port_analysis.py",
+        "zlang/semantic/state.py",
+        "zlang/semantic/storage_validation.py",
+        "zlang/semantic/type_resolution.py",
+        "zlang/source_identity.py"
+      ],
+      "status": "included",
+      "summary": "Semantic declaration failures preserve exact compiler-owned source spans through editor changes, nested and imported type resolution, and clock/reset validation; standalone checks do not invent or suppress inherited domain contracts.",
+      "tests": [
+        "tests/lsp/test_declaration_diagnostics.py::test_ahb_source_requires_a_root_contract_but_points_to_address",
+        "tests/lsp/test_declaration_diagnostics.py::test_bus_child_still_inherits_its_parent_contract",
+        "tests/lsp/test_declaration_diagnostics.py::test_declaration_diagnostics_follow_edits_and_clear",
+        "tests/lsp/test_declaration_diagnostics.py::test_imported_type_error_retains_definition_file_and_digest",
+        "tests/semantic/test_declaration_origins.py::test_type_origin_binding_preserves_all_exception_metadata"
       ]
     }
   ],

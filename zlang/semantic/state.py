@@ -299,7 +299,10 @@ class RuleAnalyzer:
                 if target is not None:
                     target_domains.add(target.domain)
             rule_domain = hardware.state_domains.resolve(
-                "rule", declaration.name, declaration.domain, target_domains
+                "rule", declaration.name, declaration.domain, target_domains,
+                origin=expression_origins.semantic_origin(
+                    declaration.guard, module_context
+                ),
             )
             guard = module_context.expressions.check(
                 declaration.guard, value_symbols, ir_types.BitType(), module_context

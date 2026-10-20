@@ -38,9 +38,22 @@ class StateDomainResolver:
         name: str,
         requested: str | None,
         inferred: Iterable[str | None] = (),
+        *,
+        origin: SourceOrigin | None = None,
     ) -> str:
         if not self.clock_domains:
-            raise SemanticError(f"{kind} '{name}' requires a clock and reset")
+            raise SemanticError(
+                f"{kind} '{name}' requires a clock and reset",
+                primary=origin,
+                notes=(
+                    "A child module can inherit its enclosing clock/reset contract; "
+                    "checking it as a standalone top has no enclosing contract.",
+                ),
+                fixes=(
+                    "instantiate this module beneath an explicit clock/reset owner, "
+                    "or supply an explicit root clock/reset contract",
+                ),
+            )
         domains_by_clock = {
             domain.clock: domain for domain in self.clock_domains
         }
@@ -50,6 +63,7 @@ class StateDomainResolver:
                     f"{kind} '{name}' references unknown clock domain "
                     f"'{requested}'",
                     code="ZL-DOMAIN-UNKNOWN",
+                    primary=origin,
                 )
             return requested
         candidates = {item for item in inferred if item is not None}
@@ -61,6 +75,7 @@ class StateDomainResolver:
                 f"clock-domain mismatch while inferring {kind} '{name}': "
                 f"dynamic values belong to {rendered}",
                 code="ZL-DOMAIN-CROSSING",
+                primary=origin,
                 fixes=("insert an explicit supported clock-domain crossing",),
             )
         if len(self.clock_domains) == 1:
@@ -72,6 +87,7 @@ class StateDomainResolver:
             f"ambiguous clock domain for {kind} '{name}'; available domains: "
             f"{available}",
             code="ZL-DOMAIN-AMBIGUOUS",
+            primary=origin,
             fixes=(
                 f"annotate the declaration with @{self.clock_domains[0].clock} "
                 "or another listed domain",

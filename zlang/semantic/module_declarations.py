@@ -226,6 +226,9 @@ class DeclarationAndCallablePreparer:
             specialization_type_bindings,
             enum_identity_namespace,
             tagged_unions=module.tagged_unions,
+            source_unit=effective_source_unit,
+            source_digest=effective_source_digest,
+            source_digests=source_digests,
         )
         module = concise_module_items.normalize_concise_module_items(
             module,
@@ -303,6 +306,9 @@ class DeclarationAndCallablePreparer:
                     effective_source_unit or module.source_identity or module.name
                 ),
                 tagged_unions=module.tagged_unions,
+                source_unit=effective_source_unit,
+                source_digest=effective_source_digest,
+                source_digests=source_digests,
             )
             for channel in declaration.channels:
                 if channel.name in member_names:
@@ -385,11 +391,15 @@ class DeclarationAndCallablePreparer:
                 parameter_names.add(parameter.name)
                 parameters.append(
                     ir_module.FunctionParameter(
-                        parameter.name, type_resolver.resolve(parameter.type_name)
+                        parameter.name, type_resolver.resolve(
+                            parameter.type_name, source_unit=declaration.source_identity
+                        )
                     )
                 )
             declared_return_type = (
-                type_resolver.resolve(declaration.return_type)
+                type_resolver.resolve(
+                    declaration.return_type, source_unit=declaration.source_identity
+                )
                 if declaration.return_type is not None
                 else None
             )

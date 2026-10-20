@@ -160,6 +160,7 @@ def test_current_candidate_binds_release_sources_native_wheel_and_git(
         "FORMAL-003",
         "SIM-001",
         "SIM-002",
+        "SIM-003",
         "VSIX-001",
         "VSIX-002",
         "VSIX-003",
@@ -168,6 +169,7 @@ def test_current_candidate_binds_release_sources_native_wheel_and_git(
         "ZL-054",
         "ZL-055",
         "ZL-056",
+        "ZL-057",
     ]
     assert report["dependency_floor"]["schema"] == 1
     assert report["dependency_floor"]["previous_ref"] == "v0.1.0a23"

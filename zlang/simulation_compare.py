@@ -13,6 +13,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import shutil
@@ -330,6 +331,7 @@ def _run_bounded(
     *,
     directory: Path,
     timeout: float,
+    phase: Literal["compile", "run"],
 ) -> subprocess.CompletedProcess[str]:
     process = subprocess.Popen(
         tuple(command),
@@ -343,12 +345,24 @@ def _run_bounded(
     try:
         stdout, stderr = process.communicate(timeout=timeout)
     except subprocess.TimeoutExpired as error:
-        os.killpg(process.pid, signal.SIGKILL)
-        process.communicate()
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass  # The process may exit between the timeout and killpg.
+        stdout, stderr = process.communicate()
+        (directory / f"{phase}.log").write_text(
+            f"timeout after {timeout:g} seconds\nstdout:\n{stdout}\nstderr:\n{stderr}",
+            encoding="utf-8",
+        )
         raise SimulationComparisonError(
-            f"external simulation command exceeded {timeout:g} seconds: "
+            f"external simulation {phase} command exceeded {timeout:g} seconds: "
             + " ".join(command)
+            + f"\npartial stdout:\n{stdout[-4096:]}\npartial stderr:\n{stderr[-4096:]}"
         ) from error
+    (directory / f"{phase}.log").write_text(
+        "stdout:\n" + stdout + "\nstderr:\n" + stderr,
+        encoding="utf-8",
+    )
     return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
 
 
@@ -499,6 +513,19 @@ def _sha256(path: Path) -> str:
         return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
+def _positive_timeout(value: object, *, name: str) -> float:
+    try:
+        seconds = (
+            float(value) if isinstance(value, (int, float)) and not isinstance(value, bool)
+            else 0.0
+        )
+    except OverflowError:
+        seconds = 0.0
+    if not math.isfinite(seconds) or seconds <= 0:
+        raise SimulationComparisonError(f"{name} must be a finite positive number")
+    return seconds
+
+
 def compare_program(
     program: Program,
     events: Sequence[Mapping[str, object]],
@@ -506,11 +533,20 @@ def compare_program(
     simulator: ExternalSimulator,
     artifact_directory: Path | None = None,
     timeout: float = 120,
+    build_timeout: float | None = None,
 ) -> SimulationComparison:
-    """Compare one native event trace with Icarus or Verilator Direct-SV."""
+    """Compare native and Direct-SV traces with bounded external commands.
 
-    if isinstance(timeout, bool) or timeout <= 0:
-        raise SimulationComparisonError("comparison timeout must be positive")
+    ``timeout`` bounds execution.  An explicit ``build_timeout`` independently
+    bounds RTL/C++ compilation; omission preserves the historical per-command
+    timeout used by the CLI and existing API callers.
+    """
+
+    timeout = _positive_timeout(timeout, name="comparison timeout")
+    build_timeout = (
+        timeout if build_timeout is None
+        else _positive_timeout(build_timeout, name="comparison build timeout")
+    )
     normalized_events = tuple(events)
     native_outputs, native_trace = _native_trace(program, normalized_events)
     packed_events = _packed_events(program.module, normalized_events)
@@ -528,10 +564,8 @@ def compare_program(
         )
         publish_companion_bundle(artifact.companions, directory)
         compile_command, run_command = _tool_commands(simulator, directory=directory)
-        compiled = _run_bounded(compile_command, directory=directory, timeout=timeout)
-        (directory / "compile.log").write_text(
-            "stdout:\n" + compiled.stdout + "\nstderr:\n" + compiled.stderr,
-            encoding="utf-8",
+        compiled = _run_bounded(
+            compile_command, directory=directory, timeout=build_timeout, phase="compile",
         )
         if compiled.returncode != 0:
             shutil.rmtree(directory / "build", ignore_errors=True)
@@ -539,10 +573,8 @@ def compare_program(
                 f"{simulator} failed to compile generated RTL: "
                 + (compiled.stderr.strip() or compiled.stdout.strip())
             )
-        executed = _run_bounded(run_command, directory=directory, timeout=timeout)
-        (directory / "run.log").write_text(
-            "stdout:\n" + executed.stdout + "\nstderr:\n" + executed.stderr,
-            encoding="utf-8",
+        executed = _run_bounded(
+            run_command, directory=directory, timeout=timeout, phase="run",
         )
         if executed.returncode != 0:
             shutil.rmtree(directory / "build", ignore_errors=True)

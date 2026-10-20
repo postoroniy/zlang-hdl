@@ -23,6 +23,7 @@ from zlang.source import SourceOrigin
 from .errors import SemanticError
 from . import actions as semantic_actions
 from . import expression_domains
+from . import observations
 from .module_validation import reject_dependency_cycles
 from .storage_symbols import FifoSymbol, MemoryPortSymbol, MemorySymbol, RomSymbol
 
@@ -62,8 +63,11 @@ class StorageDeclarationAnalyzer:
         memory_declarations: dict[str, ast.MemoryDecl] = {}
         rom_declarations: dict[str, ast.RomDecl] = {}
         for declaration in module.fifos:
+            origin = observations.declaration_origin(
+                declaration.origin, f"FIFO {declaration.name}", preparation.expression_context
+            )
             storage_domain = state_domains.resolve(
-                "FIFO", declaration.name, declaration.domain
+                "FIFO", declaration.name, declaration.domain, origin=origin,
             )
             if declaration.name in (
                 symbols.keys()
@@ -92,6 +96,9 @@ class StorageDeclarationAnalyzer:
             fifo_declarations[symbol.name] = declaration
 
         for declaration in module.memories:
+            origin = observations.declaration_origin(
+                declaration.origin, f"memory {declaration.name}", preparation.expression_context
+            )
             if declaration.async_memory and declaration.domain is not None:
                 raise SemanticError(
                     f"async memory '{declaration.name}' declares domains on its ports, "
@@ -170,6 +177,11 @@ class StorageDeclarationAnalyzer:
                                 "memory port",
                                 f"{declaration.name}.{port.name}",
                                 port.domain,
+                                origin=observations.declaration_origin(
+                                    port.origin or declaration.origin,
+                                    f"memory port {declaration.name}.{port.name}",
+                                    preparation.expression_context,
+                                ),
                             ),
                         ))
                     if len({port.domain for port in resolved_ports}) != 2:
@@ -190,6 +202,7 @@ class StorageDeclarationAnalyzer:
                     storage_domain = state_domains.resolve(
                         "memory", declaration.name, declaration.domain,
                         explicit_domains,
+                        origin=origin,
                     )
                     port_symbols = tuple(
                         MemoryPortSymbol(
@@ -199,6 +212,11 @@ class StorageDeclarationAnalyzer:
                                 "memory port",
                                 f"{declaration.name}.{port.name}",
                                 port.domain or storage_domain,
+                                origin=observations.declaration_origin(
+                                    port.origin or declaration.origin,
+                                    f"memory port {declaration.name}.{port.name}",
+                                    preparation.expression_context,
+                                ),
                             ),
                         )
                         for port in declaration.ports
@@ -233,7 +251,7 @@ class StorageDeclarationAnalyzer:
                         f"async memory '{declaration.name}' requires named ports"
                     )
                 storage_domain = state_domains.resolve(
-                    "memory", declaration.name, declaration.domain
+                    "memory", declaration.name, declaration.domain, origin=origin,
                 )
             symbol = MemorySymbol(
                 declaration.name,
@@ -247,8 +265,11 @@ class StorageDeclarationAnalyzer:
             memory_declarations[symbol.name] = declaration
 
         for declaration in module.roms:
+            origin = observations.declaration_origin(
+                declaration.origin, f"ROM {declaration.name}", preparation.expression_context
+            )
             storage_domain = state_domains.resolve(
-                "ROM", declaration.name, declaration.domain
+                "ROM", declaration.name, declaration.domain, origin=origin,
             )
             if declaration.name in (
                 symbols.keys()

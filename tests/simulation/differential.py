@@ -25,9 +25,15 @@ def run_differential(
     events: Sequence[Mapping[str, object]],
     directory: Path,
     timeout: int = 120,
+    build_timeout: int = 120,
     root_domain: ClockDomain | None = None,
 ) -> DifferentialTrace:
-    """Execute exact events through production native and Verilator paths."""
+    """Compare exact events; execution and RTL/C++ build have separate bounds.
+
+    A short event trace does not imply a fast Verilator/C++ build on a loaded
+    runner.  Keep the standard 120-second build bound when a test tightens the
+    execution timeout.  Neither deadline can turn a mismatch into success.
+    """
 
     result = compare_program(
         sim.compile(source, top=top, root_domain=root_domain),
@@ -35,6 +41,7 @@ def run_differential(
         simulator="verilator",
         artifact_directory=directory / "simulation-comparison",
         timeout=timeout,
+        build_timeout=build_timeout,
     )
     return DifferentialTrace(
         result.plan_identity,

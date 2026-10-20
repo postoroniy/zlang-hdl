@@ -20,6 +20,12 @@ incompatible input explicitly.
 
 ### Fixed
 
+- Semantic declaration errors retain the offending type, port, register or
+  storage location in editor diagnostics, including imported type definitions
+  and unsaved line shifts. Inherited clock/reset contracts remain unchanged.
+- Native/RTL differential tests bound Verilator/C++ compilation separately
+  from simulation execution. Timed-out tools retain phase-labelled logs and
+  partial output instead of discarding the build diagnostics.
 - CI dependency checks bind the Python Z3 pin to the reviewed solver version
   and the Playwright manifest/lock to the editor toolchain. CodeQL steps use
   one pinned revision and update together. Preparation-failure unit tests no

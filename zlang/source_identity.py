@@ -34,6 +34,9 @@ def attach_source_identity(module: object, logical_path: str, digest: str) -> ob
         module,
         source_identity=logical_path,
         source_hash=digest,
+        type_aliases=tuple(
+            replace(item, source_identity=logical_path) for item in module.type_aliases
+        ),
         enums=tuple(
             replace(item, source_identity=logical_path) for item in module.enums
         ),

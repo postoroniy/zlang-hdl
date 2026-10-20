@@ -38,8 +38,14 @@ def analyze_ports(
     ports: list[ir_module.Port] = []
     origins: dict[str, SourceOrigin | None] = {}
     for declaration in module.ports:
+        origin = observations.declaration_origin(
+            declaration.name_origins[0]
+            if declaration.name_origins else declaration.origin,
+            f"port {declaration.name}",
+            expression_context,
+        )
         if declaration.name in symbols:
-            raise SemanticError(f"duplicate port '{declaration.name}'")
+            raise SemanticError(f"duplicate port '{declaration.name}'", primary=origin)
         direction = (
             ir_module.PortDirection.INPUT
             if declaration.direction is ast.Direction.INPUT
@@ -56,12 +62,6 @@ def analyze_ports(
             payload_syntax = syntax
             capacity = None
             virtual_channels = None
-        origin = observations.declaration_origin(
-            declaration.name_origins[0]
-            if declaration.name_origins else declaration.origin,
-            f"port {declaration.name}",
-            expression_context,
-        )
         port = ir_module.Port(
             direction=direction,
             name=declaration.name,
@@ -90,7 +90,7 @@ def analyze_ports(
                 f"{port.type} because it contains an enum-valued field; "
                 "use an internal child interface"
             )
-            raise SemanticError(message)
+            raise SemanticError(message, primary=origin)
         if protocol is ir_interfaces.InterfaceProtocol.VC_CREDIT:
             if (
                 virtual_channels is None
@@ -99,21 +99,25 @@ def analyze_ports(
             ):
                 raise SemanticError(
                     f"vc_credit interface '{port.name}' virtual-channel count "
-                    "must be a power of two and at least 2"
+                    "must be a power of two and at least 2",
+                    primary=origin,
                 )
             if capacity is None or capacity < 1:
                 raise SemanticError(
                     f"vc_credit interface '{port.name}' requires at least one "
-                    "credit per virtual channel"
+                    "credit per virtual channel",
+                    primary=origin,
                 )
         if declaration.domain is not None and declaration.domain not in module.clocks:
             raise SemanticError(
                 f"port '{declaration.name}' references unknown clock domain "
-                f"'{declaration.domain}'"
+                f"'{declaration.domain}'",
+                primary=origin,
             )
         if clock_domain_count > 1 and port.domain is None:
             raise SemanticError(
-                f"port '{declaration.name}' requires an explicit clock domain"
+                f"port '{declaration.name}' requires an explicit clock domain",
+                primary=origin,
             )
         symbols[port.name] = port
         origins[port.name] = origin

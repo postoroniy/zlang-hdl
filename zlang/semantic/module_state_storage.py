@@ -67,14 +67,24 @@ class StateStoragePreparer:
         registers: list[ir_module.Register] = []
         register_symbols: dict[str, ir_module.Register] = {}
         for declaration in module.registers:
+            declaration_origin = _observations.declaration_origin(
+                declaration.name_origin or declaration.origin,
+                f"register {declaration.name}",
+                pure_context,
+            )
             if declaration.name in symbols or declaration.name in register_symbols:
-                raise SemanticError(f"duplicate state or port name '{declaration.name}'")
+                raise SemanticError(
+                    f"duplicate state or port name '{declaration.name}'",
+                    primary=declaration_origin,
+                )
             if declaration.name in hardware.timing_names:
                 raise SemanticError(
-                    f"register name '{declaration.name}' conflicts with clock or reset"
+                    f"register name '{declaration.name}' conflicts with clock or reset",
+                    primary=declaration_origin,
                 )
             register_domain = hardware.state_domains.resolve(
-                "register", declaration.name, declaration.domain
+                "register", declaration.name, declaration.domain,
+                origin=declaration_origin,
             )
             type_ = type_resolver.resolve(declaration.type_name)
             initial = None
@@ -90,13 +100,9 @@ class StateStoragePreparer:
                 if initial.type != type_ or not expression_coercion.is_constant_expression(initial_analysis):
                     raise SemanticError(
                         f"initial value for register '{declaration.name}' must be a "
-                        f"constant of type {type_}"
+                        f"constant of type {type_}",
+                        primary=declaration_origin,
                     )
-            declaration_origin = _observations.declaration_origin(
-                declaration.name_origin or declaration.origin,
-                f"register {declaration.name}",
-                pure_context,
-            )
             register = ir_module.Register(
                 declaration.name,
                 type_,
