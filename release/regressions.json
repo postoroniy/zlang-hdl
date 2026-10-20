@@ -70,6 +70,28 @@
       ]
     },
     {
+      "id": "FORMAL-004",
+      "source_paths": [
+        "tests/integration/test_equivalence_preparation.py",
+        "tests/integration/test_signed_product_pipeline_physical.py",
+        "zlang/candidate_equivalence.py",
+        "zlang/equivalence.py",
+        "zlang/formal.py",
+        "zlang/formal_candidate.py",
+        "zlang/formal_configuration.py"
+      ],
+      "status": "included",
+      "summary": "Equivalence preparation flattens actual RTL bindings for Yosys width reduction without narrowing physical models or weakening BMC, and versions frozen bundles and all proof cache boundaries.",
+      "tests": [
+        "tests/integration/test_equivalence_preparation.py::test_equivalence_requests_flatten_without_changing_obligations",
+        "tests/integration/test_equivalence_preparation.py::test_flattened_dsp_miter_uses_actual_port_widths",
+        "tests/integration/test_equivalence_preparation.py::test_low_level_formal_flatten_is_explicit",
+        "tests/integration/test_equivalence_preparation.py::test_pre_flatten_frozen_bundle_is_rejected",
+        "tests/integration/test_equivalence_preparation.py::test_preparation_policy_versions_every_cache_boundary",
+        "tests/integration/test_signed_product_pipeline_physical.py::test_planning_phase_formal_selection_checks_complete_dsp_graph_and_detects_mutations"
+      ]
+    },
+    {
       "id": "SIM-001",
       "source_paths": [
         "tests/integration/test_native_debug_bundle.py",

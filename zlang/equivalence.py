@@ -1039,6 +1039,7 @@ def run_equivalence_formal(property_: EquivalenceProperty, source: str, *, top: 
                                 mode=proof_mode, depth=depth, solver=solver,
                                 source_origin=property_.source_origin,
                                 systemverilog=True,
+                                flatten=True,
                                 timeout_seconds=timeout_seconds,
                                 work_directory=work_directory,
                                 trace_bindings=tuple(trace_bindings),

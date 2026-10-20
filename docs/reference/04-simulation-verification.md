@@ -74,6 +74,13 @@ before the first event. The width must match exactly. `--strict-uninitialized`
 implies logic-state execution and fails when a typed observation requires an
 unresolved `U` or `X`; it does not alter compilation or Direct-SV.
 
+Both modes execute the selected implementation. U/X tags describe diagnostic
+uncertainty, not additional physical hardware values. Legal exact binary
+optimizations can change U/X propagation, so the waveform is not a record of
+every operand in the original source spelling. Strict mode checks unresolved
+typed observations and stateful controls; resolved cancellation or controlling
+values need not fail. Traces and `get_logic()` retain tags for inspection.
+
 ### Waveforms and differential RTL comparison
 
 `--trace PATH.fst` writes the preferred compact native waveform;

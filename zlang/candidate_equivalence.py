@@ -366,6 +366,7 @@ def _semantic_equivalence_execution_recipe(
     mode: EquivalenceMode,
     toolchain: FormalToolchainContext,
 ) -> dict[str, object]:
+    from zlang.formal_configuration import EQUIVALENCE_PREPARATION_SCHEMA
     from zlang.equivalence_replay_integrity import (
         REPLAY_INTEGRITY_SCHEMA,
         validate_prepared_equivalence_source,
@@ -374,7 +375,8 @@ def _semantic_equivalence_execution_recipe(
     from zlang.formal_joint_value import rtl_arithmetic_policy
     arithmetic_policy = rtl_arithmetic_policy(prepared.implementation_artifact.implementation, config.solver)
     return {
-        "schema": "zlang-candidate-semantic_equivalence-execution-v3",
+        "schema": "zlang-candidate-semantic_equivalence-execution-v4",
+        "equivalence_preparation": EQUIVALENCE_PREPARATION_SCHEMA,
         "replay_integrity": REPLAY_INTEGRITY_SCHEMA,
         "source_hash": artifact_hash(prepared.source),
         "top": prepared.top,

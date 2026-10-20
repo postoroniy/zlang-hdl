@@ -11,6 +11,11 @@ from zlang.ir.formal import (
 from zlang.formal_routes import formal_engine_route
 
 
+# Inlining the actual RTL lets Yosys propagate real port bindings before
+# word-width reduction. This changes proof preparation, never DUT semantics.
+EQUIVALENCE_PREPARATION_SCHEMA = "zlang-equivalence-flattened-preparation-v1"
+
+
 def emit_sby(
     design: FormalDesign,
     *,

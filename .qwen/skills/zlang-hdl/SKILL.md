@@ -40,7 +40,7 @@ Use this order:
 
 1. the user's current request and applicable `AGENTS.md`;
 2. grammar, typed semantics, validators, and passing tests in this checkout;
-3. `zlang/public_capabilities.py` and `docs/syntax-support-matrix.md`;
+3. `zlang/public_capabilities.py` and the language reference's support matrix;
 4. `docs/language-quick-reference.md` and the relevant topic guide;
 5. compiling examples and source-authored `stdlib/**/*.zhl`;
 6. editor grammar only for lexical behavior.
@@ -50,16 +50,17 @@ For model-independent repository practice, start with
 assistants; this skill adds Qwen discovery and task routing rather than a
 second language specification.
 
-`docs/language-guide.md` is an index, not a root-level file. Do not create a
-duplicate. `examples/all_syntax.zhl` is a representative language tour, not an
-exhaustive capability contract. Historical development history/design-freeze prose does
-not override current executable behavior.
+Before writing `.zhl`, read the shared
+[quick reference](../../../docs/language-quick-reference.md): operator scopes,
+exact conversions, enum boundaries, state, intent, simulation and commands.
+Use the [full reference](../../../docs/language-reference.md) for details;
+do not create a parallel AI-only language specification.
 
-`docs/README.md` classifies maintained guides and dated evidence when it is
-present in the private source tree. In a slim Community projection where
-that map is absent, use `AI_GUIDE.md`, the two language references, the formal
-guide, capability registry and `release/status.json`. Treat the status file as
-checked-in candidate identity, not proof that a tag or release was published.
+`examples/all_syntax.zhl` is a representative tour, not an exhaustive capability
+contract. Historical development/design-freeze prose does not override current
+executable behavior. Treat `release/status.json` as checked-in candidate
+identity, not proof that a tag or release was published. Additional files or
+algorithms in another checkout do not establish support in this distribution.
 
 Read only the reference relevant to the task:
 
@@ -141,7 +142,10 @@ validation.
   `if`, implicit casts, protocol adapters, or CDC.
 - Compile-time `if` elaborates. Runtime values use `?:`/`mux`/`switch`; runtime
   effects use `when`/`else when`/`else`, `priority`, or `fsm`.
-- `implement { expression intent { ... } }` is the scalar compiler-selection
+- Integer `%` is compile-time floor modulo, not runtime remainder. Follow
+  [the integer-expression contract](../../../docs/compile-time-integers.md)
+  for generic arguments, static indices, negative operands and zero divisors.
+- `implement { expression intent { ... } }` is the pure-value compiler-selection
   surface. `pipeline(N)` is exact N-cycle hardware. Scalar `pipeline(auto)`,
   `architecture(auto)`, and `explore` are retired. Protocol
   `transform pipeline(auto, ...)` is a separate bounded ready/valid feature.

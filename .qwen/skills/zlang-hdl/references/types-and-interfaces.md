@@ -29,7 +29,7 @@ normalizes to its canonical type and does not create a nominal wrapper.
   least-significant packed component.
 - `struct` is a nominal named product; first-declared fields occupy the most
   significant packed region. Construct with `Type { field=value ... }`, update
-  with `value { field=new_value }`, and select with `value.field`.
+  with `value with { field=new_value }`, and select with `value.field`.
 - `enum` is nominal control state. An explicit backing may be `bit`, `bits<W>`,
   or unsigned `uN`/`u<W>`/`uint<W>`; omitted member codes auto-increment from zero or
   the preceding explicit code. Use qualified members and `enum_encode`,
@@ -69,7 +69,7 @@ bindings and source map.
 | `pack(x)` / `unpack<T>(x)` | Low-level compatibility boundary; prefer `bitcast` for equal-width typed conversion. |
 | `concat(a,b,...)` | Concatenation with the first operand at the most-significant side. |
 | `reshape<T>(x)` | Shape change with an exact equal total packed width, for example `reshape<vec<2,vec<4,u8>>>(flat)`. |
-| `repeat<N>(x)`, `zeros<N>()`, `ones<N>()` | Compile-time-sized construction. |
+| `repeat<N>(x)`, `zeros<N>`, `ones<N>` | Compile-time-sized construction; zero/one fills have no call parentheses. |
 | `x[i]`, `x[MSB:LSB]` | Element/bit selection and inclusive static packed slice. A runtime packed index requires a compiler-proven in-range unsigned interval. |
 | `x[offset +: WIDTH]` | LSB-based fixed-width packed window; `WIDTH` is compile-time and the complete runtime offset range must fit. |
 | `values[first..past_last]` | Half-open vector range. |

@@ -44,7 +44,8 @@ def test_execution_recipe_checks_in_memory_integrity(field):
     tools = FormalToolchainContext.discover(engine="sby", solver="z3")
     config = FormalExplorationConfig()
     recipe = _semantic_equivalence_execution_recipe(prepared, config, EquivalenceMode.PROVE, tools)
-    assert recipe["schema"] == "zlang-candidate-semantic_equivalence-execution-v3"
+    assert recipe["schema"] == "zlang-candidate-semantic_equivalence-execution-v4"
+    assert recipe["equivalence_preparation"] == "zlang-equivalence-flattened-preparation-v1"
     assert recipe["source_hash"] == artifact_hash(prepared.source)
     assert recipe["top"] == prepared.top
     altered = prepared.source.replace("assert", "assume") if field == "source" else "wrong"

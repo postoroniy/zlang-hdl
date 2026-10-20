@@ -49,11 +49,16 @@ repository:
 ```sh
 git clone https://github.com/postoroniy/zlang-hdl.git
 cd zlang-hdl
-uv venv --python '>=3.12,<3.13'
-uv pip install -e '.[test]'
+make venv
 source .venv/bin/activate
 zlang --version
 ```
+
+`make venv` installs the checkout compiler and its matching reviewed native
+wheel into one local environment. On a supported host with VS Code and Node.js
+22, it also installs the matching extension. Use `INSTALL_EDITOR=0` to leave
+the installed extension unchanged. Installing only `.[test]` does not install
+the native runtime and is not equivalent to this complete setup.
 
 The commands below use `zlang` directly: it is on `PATH` after `uv tool
 install`, or after activating the checkout's virtual environment with

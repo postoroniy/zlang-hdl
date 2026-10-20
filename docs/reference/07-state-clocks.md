@@ -112,6 +112,12 @@ unknown), while a non-write holds `U`. Exact controlling values still resolve:
 `--strict-uninitialized` implies logic-state execution and turns a typed read
 of either `U` or `X` into an error that identifies which state was observed.
 
+Observations belong to the selected implementation. Exact binary optimization
+need not preserve the original expression's U/X propagation, and strict mode
+does not diagnose every cancelled operand in the source. U/X tags are not an
+algebraic hardware domain; unknown stateful guards or memory addresses still
+fail rather than choosing a deterministic branch or location.
+
 Python callers may use `set_logic`, `get_logic`, `outputs_logic`, and
 `Program.create(initial_registers=...)`. Packed spellings are MSB-first,
 case-insensitive `0`, `1`, `u`, or `x`; a single character broadcasts to the

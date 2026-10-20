@@ -35,6 +35,9 @@ The following restrictions are part of the current user-facing contract.
 
 - ZLang has no runtime procedural `if`, mutable local variables, implicit
   numeric casts, implicit fixed-point rescaling, or general HLS scheduler.
+- Integer `%` is compile-time only. Runtime and fixed-point remainder are
+  unsupported; ports, registers and ordinary function arguments are not
+  compile-time operands.
 - Runtime-selected instance inputs/protocols, general cross-module atomic
   scheduling, full AXI4, automatic CDC insertion, and arbitrary stateful
   elastic pipelines are unsupported.

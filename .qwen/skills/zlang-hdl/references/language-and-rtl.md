@@ -8,7 +8,7 @@ storage, numeric behavior, simulation, or direct-SystemVerilog integration.
 - `.zhl` is the canonical suffix; `.zl` is rejected.
 - Hardware assignments are concurrent. `=` drives now and `<-` schedules one
   atomic next-edge update from the immutable pre-edge snapshot.
-- Ordinary body bindings are immutable, declaration-ordered, and may infer
+- Pure-function body bindings are immutable, declaration-ordered, and may infer
   their exact type. The final function expression is its result.
 - `if` is compile-time specialization only. Use `?:`, `mux`, or `switch` for
   runtime values and atomic `when`/`priority`/`fsm` for effects.
@@ -39,6 +39,17 @@ state/protocol/timing. Generic functions/modules are monomorphized by exact
 type/value/callable arguments. `generate`, `map`, `reduce`, `sum`, and `dot` are
 compile-time-bounded hardware expressions, not runtime loops.
 
+Integer `%` is evaluated only during elaboration: use it with integer
+constants, specialized value parameters and generated indices, including in
+generic arguments and compile-time `if`. It has the precedence of `*`/`/`
+and is left-associative. Floor modulo gives `-5 % 3 == 1` and `5 % -3 == -1`.
+An evaluated zero divisor is a source error; an unselected compile-time branch
+is not evaluated. Ports, registers and ordinary function parameters remain
+runtime values even when initialized or called with constants. There is no
+runtime or fixed-point remainder operator. See
+[`docs/compile-time-integers.md`](../../../../docs/compile-time-integers.md)
+for a complete PSS sequence example.
+
 Prefer source-authored stdlib declarations under `stdlib/**/*.zhl`; buses are
 ordinary typed modules/protocols, never backend name dispatch. Logical imports
 such as `import std.bus.ahb_lite` and qualified imports must resolve through the
@@ -62,7 +73,7 @@ project/compiler resolver rather than relative filesystem guesses.
   children; it does not select which child executes.
 
 The public top ABI recursively exposes struct and tuple leaves and preserves
-vectors as native unpacked arrays. Use BackendArtifact logical bindings; never
+vector leaves as multidimensional packed arrays. Use BackendArtifact logical bindings; never
 guess flattened signal names.
 
 ## Compile and validate
@@ -92,6 +103,11 @@ states as `x`, so ZLang emits hidden `__zlang_meta/*_u_mask` companions for
 observed `U` or `X`. These diagnostics do not model high impedance, electrical
 strength or Verilog event regions and never alter Direct-SV output.
 
+Simulation executes the selected implementation, not a second source evaluator.
+Exact binary rewrites may change U/X propagation. Strict mode checks typed
+observations and stateful controls, not every syntactic operand; `get_logic`
+and traces can retain diagnostic tags. U/X is not an e-graph equality domain.
+
 Use `--cycles/--clock` for a bounded simple single-clock run. Use JSONL
 `--events` when reset levels, inputs, multiple clocks or coincident edges must
 be explicit. Add `--trace` and repeat `--trace-signal` for FST or VCD; use
@@ -99,11 +115,12 @@ be explicit. Add `--trace` and repeat `--trace-signal` for FST or VCD; use
 generated Direct-SV. The comparison fails closed on mismatch, unresolved RTL,
 tool failure or timeout.
 
-Read these authoritative topic guides as needed:
+Use the shared [quick reference](../../../../docs/language-quick-reference.md)
+and these sections of the [language reference](../../../../docs/language-reference.md):
 
-- `docs/types-and-numerics.md`
-- `docs/expressions-functions-generics.md`
-- `docs/sequential-state-storage.md`
-- `docs/hierarchy-protocols.md`
-- `docs/projects-dependencies.md`
-- `docs/direct-systemverilog.md`
+- [Types and conversions](../../../../docs/language-reference.md#reference-types-and-numerics)
+- [Expressions and generics](../../../../docs/language-reference.md#reference-expressions-functions-generics)
+- [State and storage](../../../../docs/language-reference.md#reference-sequential-state-storage)
+- [Hierarchy and protocols](../../../../docs/language-reference.md#reference-hierarchy-protocols)
+- [Projects and locks](../../../../docs/language-reference.md#reference-projects-dependencies)
+- [RTL generation](../../../../docs/language-reference.md#reference-generate-systemverilog)

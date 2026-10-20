@@ -225,6 +225,11 @@ specific initial state and `--set-logic NAME=01ux` for packed input values.
 states as `x`; ZLang adds hidden `__zlang_meta/*_u_mask` companions so its
 waveform query service and viewer retain U provenance.
 
+Simulation observes the selected implementation. Legal binary-equivalent
+optimization may change U/X propagation; strict mode checks typed observations
+and stateful controls, not every source operand. It does not reject a value
+whose uncertainty has been resolved by an exact controlling value or cancellation.
+
 For differential checking, the same event schedule can be replayed against
 generated SystemVerilog in Icarus or Verilator. The comparison fails closed on
 an output mismatch, missing sample, unresolved RTL value, tool error, or
@@ -454,6 +459,9 @@ The validated language includes:
   and fixed-string types;
 - pure functions, generics, compile-time generation, reductions, ROM images, and
   deterministic specialization;
+- [compile-time integer `%`](docs/compile-time-integers.md) for generic value
+  arguments, static indices and compile-time `if`, with floor-modulo semantics;
+  runtime remainder is unsupported;
 - per-domain registers, rules, FSMs, fixed pipelines, FIFOs, synchronous
   memories, hierarchy, and instance arrays inside single- or multi-clock
   modules, including explicit stored `out reg` ports and transient rule/FSM
@@ -556,6 +564,7 @@ to generated Direct-SV formal harnesses without guessing RTL names.
 
 - [Complete language reference](docs/language-reference.md)
 - [Concise language quick reference](docs/language-quick-reference.md)
+- [Compile-time integer modulo and PSS sequence example](docs/compile-time-integers.md)
 - [Printable PDF reference](docs/ZLang-HDL-Language-Reference.pdf)
 - [Formal verification workflow and evidence](docs/formal-verification.md)
 - [Standard-library formal coverage](docs/stdlib-formal-coverage.md)

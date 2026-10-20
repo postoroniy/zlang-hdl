@@ -110,6 +110,26 @@ and `SF_Sat8.8`.
 See [types and numerics](language-reference.md#reference-types-and-numerics) before changing a width or a
 fixed-point type.
 
+### Operators at a glance
+
+- Arithmetic: `+`, binary `-`, `*`, unary `-`. Built-in integer families do
+  not mix signed and unsigned operands implicitly. For example, `u8 + u8`
+  is `u9`, `u8 - u8` is modular `u8`, `s8 - s8` is `s9`, and `s8 * s8` is
+  `s16`. Assignment does not narrow any of these results.
+- Bitwise: `&`, `|`, `^`, `~`; logical `!` requires `bit`. Runtime Boolean
+  control combines `bit` values with `&` and `|`, not `&&` and `||`.
+- Shifts: `<<`, `>>` preserve the left operand's width and require an unsigned
+  shift amount. Right shift of a signed integer is arithmetic.
+- Comparisons: `==`, `!=`, `<`, `<=`, `>`, `>=` return `bit`. Ordering is
+  numeric; raw bits and enums do not acquire integer ordering implicitly.
+- Selection: `condition ? a : b`, `mux`, `switch`, and tagged-union `match`.
+  Runtime conditions are `bit`; branches must have one exact result type.
+- `/` and integer `%` are compile-time only. `&&` and `||` belong to the
+  bounded compile-time/guard sublanguages, not runtime hardware truthiness.
+
+See [operator precedence and typing](language-reference.md#reference-expressions-functions-generics-operators-and-selection)
+for mixed widths, fixed-point rules and overload resolution.
+
 ## Aggregates and functions
 
 ```zlang
@@ -131,6 +151,16 @@ tagged `union`, and structural tuples `(T,U)`. Prefer inferred locals when the
 type is exact and obvious. Keep explicit types at public ports, state, raw/enum
 boundaries, narrowing, and fixed-point quantization.
 
+Struct updates use `value with { field = replacement }`, not a second struct
+constructor. Enum backing may be `bit`, `bits<W>` or an unsigned integer type.
+Omitted member codes start at zero or increment the preceding explicit code.
+Use `Enum.Member`, exhaustive `switch`, and `enum_encode` for a numeric
+boundary; raw encodings use `enum_valid<T>` and total `enum_decode<T>` with a
+same-enum fallback. A raw-bit encoding needs an explicit numeric `bitcast`
+before arithmetic. Top-level enum inputs and arbitrary `unpack<Enum>` are not
+supported. Enum members such as `reserved`, `reset` and `priority` are valid
+contextual identifiers; lexical highlighting is not a reserved-name rule.
+
 Generics are monomorphized. Type/value parameters and exact compile-time
 constraints are source declarations, not runtime hardware:
 
@@ -141,8 +171,12 @@ module Queue<type T,D=4> where D >= 2 && is_power_of_two(D) {
 ```
 
 Integer `%` is compile-time only: it may appear in generic arguments, static
-indices and compile-time `if`. It uses floor modulo (`-5 % 3 == 1`); zero
-divisors are errors.
+indices and compile-time `if`. It has the precedence of multiplication and
+division and uses floor modulo (`-5 % 3 == 1`, `5 % -3 == -1`). An evaluated
+zero divisor is an error.
+Ports, registers and ordinary function arguments are not compile-time operands;
+there is no runtime remainder. See the
+[complete contract and PSS example](compile-time-integers.md).
 
 Imports are logical. For example `import std.bus.reg` resolves compiler-shipped
 `stdlib/bus/reg.zhl`; `import std.math.complex as cx` adds a source-local
@@ -182,6 +216,24 @@ Read [sequential state/storage](language-reference.md#reference-sequential-state
 
 `generate`, `map`, `reduce`, `sum`, and `dot` are statically bounded functional
 hardware expressions. They are not runtime loops.
+
+Common built-ins by purpose:
+
+- Width/representation: `extend`, `truncate`, `bitcast`, `pack`, `unpack`,
+  `concat`, `reshape`, `zeros<N>`, `ones<N>`, and `parity`.
+- Fixed point: `quantize<T>`, `fixed_raw<T>`, `fixed_to_raw`, and the explicit
+  `fixed_truncate_*` / `fixed_round_even_*` compatibility conversions.
+- Enum boundaries: `enum_encode`, `enum_valid<T>`, `enum_decode<T>`.
+- Compile-time shape: `length`, `floor_log2`, `ceil_log2`, `index_width`,
+  `is_power_of_two`; compile-time numerical constants also use `pi`, `sin`,
+  `cos`, `log2`, `log`, `exp`, and `sqrt`.
+- Collections: `generate`, `map`, `reduce`, `sum`, `dot`, and `repeat`.
+- Timing: `delay<N>(value)` and `pipeline(N) { value }` add exact cycles;
+  they are not ordinary pure-function calls or architecture-search requests.
+
+These are context-sensitive operations, not a promise of arbitrary operand
+types. Use the linked type/expression chapters for exact signatures. Imported
+stdlib helpers and user-defined functions are separate from compiler intrinsics.
 
 Use exactly one `implement` region when the value is fixed and the compiler may
 choose among legal implementations:
@@ -246,8 +298,13 @@ zlang sim source.zhl --top Top --clock clk --cycles 100
 zlang sim source.zhl --top Top --logic-state --clock clk --cycles 100
 zlang sim source.zhl --top Top --strict-uninitialized --clock clk --cycles 100
 zlang verify build/verify --mode bmc --depth 20 --work-dir build/verify-work
-zlang lock update --project zlang.toml
 ```
+
+Ordinary project compilation validates the checked-in lock read-only. Run
+`zlang lock update --project zlang.toml` only after dependency declarations,
+dependency source contents, exact Git revisions or other resolution inputs
+change. A project with no dependencies needs no lock-update prerequisite for
+simulation or RTL generation. Compilation never fetches or rewrites the lock.
 
 In a `--events` JSONL schedule, `"repeat": N` repeats one event lazily for a
 bounded positive number of steps (at most 1,000,000 expanded events) without a
@@ -278,6 +335,11 @@ native interactive traces; `.vcd` remains supported for interchange. Hidden
 `__zlang_meta/*_u_mask` traces distinguish `U` from the formats' shared `x`
 spelling.
 `--strict-uninitialized` implies this mode and rejects observed `U` or `X`.
+Simulation executes the selected implementation in both modes. U/X tags are
+diagnostics, not physical values; legal binary-equivalent optimization may
+change their propagation. Strict mode checks typed observations and stateful
+controls, not every syntactic operand in the original expression. Traces and
+`get_logic()` may retain unresolved tags for inspection.
 Neither mode models `Z`, electrical resolution, or Verilog event regions.
 CLI FST/VCD output is an event-index visualization: physical clock/reset levels
 match each compiled domain, but the JSONL schedule does not define analog time.

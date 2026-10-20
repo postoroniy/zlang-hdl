@@ -30,7 +30,7 @@ planner/backend.
 
 ## Source policy
 
-Use `implement` for compiler-selected scalar alternatives:
+Use `implement` for compiler-selected pure-value alternatives:
 
 ```zlang
 y = implement {
@@ -64,12 +64,12 @@ semantics, latency, II, shared DAG nodes, and reconvergent alignment.
 - semantic-reference equivalence compares a selected implementation against the compiler-owned semantic
   reference with exact timing windows where supported.
 - formal-aware selection gates candidate selection according to its explicit policy.
-- retired cross-backend equivalence/Clash cross-backend execution is retired. Historical retired cross-backend equivalence records are not
+- Cross-backend execution is retired with Clash. Historical records are not
   current evidence and must never gate selection.
 
 The narrow capacity-one ready/valid `a*b+c*d` implementation has its own
-transaction-stream BMC route. It proves the bounded accepted/retired
-transaction relation for latency 4, II 4, one shared multiplier, and
+transaction-stream BMC route. It checks the accepted/retired transaction
+relation through the stated bound for latency 4, II 4, one shared multiplier, and
 same-edge retire/reload. `required_bmc` accepts that candidate only after an
 actual `bounded_pass`; `required_proven` rejects it because no unbounded proof
 is claimed. General variable-latency or interleaved stream equivalence remains
@@ -102,7 +102,9 @@ Never relabel BMC, representation invariants, compiler structural validation,
 estimated Fmax, or synthesis success as stronger evidence. Verification does not
 legalize unsafe hardware or feed range inference.
 
-Read the hands-on [`docs/formal-verification.md`](../../../../docs/formal-verification.md),
-`docs/optimization-formal.md`,
-`docs/egraph-optimization-infrastructure.md`, and the relevant
-`examples/verification/` witness before changing these paths.
+Read the hands-on [formal guide](../../../../docs/formal-verification.md),
+[implementation intent](../../../../docs/language-reference.md#reference-implementation-intent),
+and the relevant [verification witness](../../../../examples/verification/README.md)
+before changing these paths. Search bounds, candidate families and proof
+qualification must be verified in this checkout; they are not inferred from a
+library type name or a previous development report.

@@ -64,12 +64,14 @@ success, run retired Clash tests, or claim release acceptance from a focused
 suite. Preserve unrelated dirty/untracked work and generated artifacts outside
 tracked source.
 
-Read `docs/testing.md`, `docs/compiler-library-audit.md`,
-`docs/backends-tooling.md`, and `docs/tooling-integration-api.md` when those
-surfaces are touched.
+Use the [contribution workflow](../../../../CONTRIBUTING.md),
+[release procedure](../../../../docs/release-process.md), current Make targets
+and focused tests for the affected owner. These references exist in the public
+distribution as well as the integration checkout.
 
-For documentation changes, use `docs/README.md` to distinguish maintained
-guides from dated evidence. Check all tracked Markdown links, but preserve
-historical versions, measurements and tool results. Current release/tool claims
-must come from `release/status.json`; public documentation must not turn a
-checked-in candidate identity into a publication claim.
+For documentation changes, distinguish maintained guides from explicitly dated
+evidence. Check tracked Markdown links, but preserve historical versions,
+measurements and tool results. Current release/tool claims must come from
+`release/status.json`; a checked-in candidate identity is not a publication
+claim. Do not copy source or claims from a broader checkout without checking
+this distribution's executable support and projection boundary.

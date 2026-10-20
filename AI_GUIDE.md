@@ -22,8 +22,8 @@ Historical design-freeze documents explain past decisions; they do not
 override the current compiler. Generated SystemVerilog is an implementation
 artifact, not the definition of ZLang semantics.
 
-The private source tree's `docs/README.md` map distinguishes live product
-guidance from dated engineering evidence. Do not “repair” an old measurement,
+Use maintained product guides for current behavior and explicitly dated
+engineering records for historical evidence. Do not “repair” an old measurement,
 engineering checkpoint, release note, or backend comparison by replacing its
 recorded values with current ones. Fix current claims in the maintained guides
 and add an explicit supersession note when an archive could be mistaken for
@@ -78,8 +78,19 @@ borrow a sibling checkout's virtual environment.
   `--events` for explicit reset sequencing, changing inputs, multiple clocks or
   coincident edges; add `--trace`/`--trace-signal` for FST or VCD and
   `--compare-with` to replay the same schedule in Icarus or Verilator.
+- Native simulation executes the selected implementation. U/X tags are
+  diagnostics, not physical values or an algebraic equality domain. Legal
+  binary rewrites may change their propagation. Strict mode rejects unresolved
+  typed observations and stateful controls; it does not promise to diagnose
+  every operand in the original source spelling.
 - Runtime control uses expressions, `when`, `priority`, or `fsm`. Compile-time
   `if` elaborates structure; do not invent procedural software syntax.
+- Integer `%` is compile-time only: generic value arguments, static indices,
+  compile-time `if`, and constant integer expressions. It uses floor modulo
+  (`-5 % 3 == 1`, `5 % -3 == -1`); an evaluated zero divisor is an error.
+  Ports, registers and ordinary function arguments cannot be modulo operands,
+  even with constant callers or reset initializers. No runtime remainder is
+  inferred. See [the complete contract and example](docs/compile-time-integers.md).
 - `implement { expression intent { ... } }` selects among bounded exact-value
   and physical implementation candidates. Egglog owns pure value equivalence;
   scheduling, resource binding, ready/valid flow, and formal evidence have
@@ -88,7 +99,10 @@ borrow a sibling checkout's virtual environment.
   the documented capacity-one ready/valid `a*b+c*d` candidate.
 - Direct SystemVerilog is the only production RTL backend.
 
-Start with [the concise language reference](docs/language-quick-reference.md).
+Before authoring source, use [the concise language reference](docs/language-quick-reference.md)
+as the shared AI quick reference: it lists operator scopes, conversions,
+intrinsics, enum boundaries, state and runnable commands. Read detailed linked
+sections for exact signatures and eligibility instead of guessing from a name.
 Read [formal verification](docs/formal-verification.md) before changing or
 claiming verification behavior.
 

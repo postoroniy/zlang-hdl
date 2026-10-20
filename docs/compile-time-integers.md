@@ -5,6 +5,11 @@ value arguments, static indices, compile-time `if` conditions, and expressions
 whose operands are constants or specialized integer parameters. It has the
 same precedence as `*` and `/`, with left-associative product chains.
 
+The [expression chapter](language-reference.md#reference-expressions-functions-generics-compile-time-integer-modulo)
+also includes this example; the
+[quick reference](language-quick-reference.md#aggregates-and-functions) summarizes
+the operator's scope.
+
 ```zlang
 fn nr_pss_chip<ID,K>() -> s2 {
     mseq = 0x42afa51b8fe1de592044c5d6c19a9cf6
@@ -12,7 +17,7 @@ fn nr_pss_chip<ID,K>() -> s2 {
 }
 
 module PssChip {
-    out chip:s2 = nr_pss_chip<ID=2,K=126>()
+    out chip : s2 = nr_pss_chip<ID=2,K=126>()
 }
 ```
 
@@ -21,6 +26,12 @@ divisor. For example, `-5 % 3 == 1`, `5 % -3 == -1`, and `-5 % -3 == -2`.
 With a positive divisor `D`, the result is in `0..D-1`, including for a
 negative dividend. A zero divisor is an error in an evaluated expression;
 unselected compile-time `if` branches are not evaluated.
+
+Generic value arguments can themselves contain `%`, such as
+`nr_pss_chip<ID=2,K=(126 + 1) % 127>()`. A condition such as `if K % 2 == 0`
+selects a branch during specialization, not a runtime circuit. Static index
+results still undergo the normal bounds checks; `%` does not enable unchecked
+indexing or change hardware arithmetic widths.
 
 Both operands must be compile-time integers. Input ports, registers and
 ordinary function arguments are runtime values, even if a caller supplies a

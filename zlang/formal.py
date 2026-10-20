@@ -397,6 +397,7 @@ def run_verilog_formal(source: str, *, top: str, property_id: str,
                        solver: str = "z3", engine: str = "sby",
                        route: str = "smtbmc",
                        source_origin=None, systemverilog: bool = False,
+                       flatten: bool = False,
                        timeout_seconds: int = 120,
                        work_directory: Path | None = None,
                        auxiliary_files: Mapping[str, str | bytes] | None = None,
@@ -426,6 +427,8 @@ def run_verilog_formal(source: str, *, top: str, property_id: str,
         raise FormalError("formal depth must be positive")
     if timeout_seconds < 1:
         raise FormalError("formal timeout must be positive")
+    if not isinstance(flatten, bool):
+        raise FormalError("formal flatten option must be boolean")
     temporary_workspace = None
     if work_directory is None:
         temporary_workspace = tempfile.TemporaryDirectory(prefix="zlang-formal-")
@@ -445,7 +448,8 @@ def run_verilog_formal(source: str, *, top: str, property_id: str,
             *engine_route.sby_options, "", "[engines]",
             engine_route.engine_line(solver=solver), "", "[script]",
             f"read_verilog {'-sv ' if systemverilog else ''}-formal {verilog.name}",
-            f"prep -top {top}", "", "[files]", verilog.name,
+            f"prep -top {top}" + (" -flatten" if flatten else ""),
+            "", "[files]", verilog.name,
             *auxiliary_names, "",
         )))
         try:

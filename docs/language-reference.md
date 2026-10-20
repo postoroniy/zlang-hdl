@@ -87,11 +87,16 @@ repository:
 ```sh
 git clone https://github.com/postoroniy/zlang-hdl.git
 cd zlang-hdl
-uv venv --python '>=3.12,<3.13'
-uv pip install -e '.[test]'
+make venv
 source .venv/bin/activate
 zlang --version
 ```
+
+`make venv` installs the checkout compiler and its matching reviewed native
+wheel into one local environment. On a supported host with VS Code and Node.js
+22, it also installs the matching extension. Use `INSTALL_EDITOR=0` to leave
+the installed extension unchanged. Installing only `.[test]` does not install
+the native runtime and is not equivalent to this complete setup.
 
 The commands below use `zlang` directly: it is on `PATH` after `uv tool
 install`, or after activating the checkout's virtual environment with
@@ -385,6 +390,13 @@ Packed four-state spellings are MSB-first strings containing `0`, `1`, `u`, or
 before the first event. The width must match exactly. `--strict-uninitialized`
 implies logic-state execution and fails when a typed observation requires an
 unresolved `U` or `X`; it does not alter compilation or Direct-SV.
+
+Both modes execute the selected implementation. U/X tags describe diagnostic
+uncertainty, not additional physical hardware values. Legal exact binary
+optimizations can change U/X propagation, so the waveform is not a record of
+every operand in the original source spelling. Strict mode checks unresolved
+typed observations and stateful controls; resolved cancellation or controlling
+values need not fail. Traces and `get_logic()` retain tags for inspection.
 
 ### FST/VCD waveforms and differential RTL comparison
 
@@ -1236,8 +1248,8 @@ a timing construct. Assignment requires an exact canonical target type.
 From highest to lowest precedence:
 
 1. calls, parentheses, aggregate selection, conversions, functional forms;
-2. unary `-` and logical `!`;
-3. `*`, and compile-time `/`;
+2. unary `-`, logical `!`, and bitwise `~`;
+3. `*`, and compile-time `/` and integer `%` (left-associative);
 4. `+`, binary `-`;
 5. `<<`, `>>`;
 6. `&`, then `^`, then `|`;
@@ -1251,6 +1263,9 @@ logical `!` accepts exactly `bit` and returns `bit`; it is equivalent to an
 exact comparison with zero. `/`, `&&`, and `||` are available only where the
 compile-time/equivalence sublanguage accepts them; they do not infer runtime
 divider or general truthiness for multi-bit hardware values.
+Integer `%` is likewise compile-time only; it never infers a runtime remainder.
+Bitwise `~` accepts `bit`, raw bits, and signed/unsigned integers, preserving
+their exact type and width. It is not fixed-point negation.
 
 Two-way runtime selection can use `?:` or `mux`:
 
@@ -1440,6 +1455,38 @@ The compiler retains a typed binding record containing the canonical constant
 value or exact callable identity, dependency closure, evaluator schema, and
 content digest. Source spelling is absent from semantic, artifact, and cache
 identity. Defaults for constant/function parameters are unsupported.
+
+<a id="reference-expressions-functions-generics-compile-time-integer-modulo"></a>
+### Compile-time integer modulo
+
+Use `%` with integer constants, specialized value parameters and generated
+indices. It is accepted in generic value arguments, static indices and
+compile-time `if` conditions. For example, this pure function selects a chip
+from a constant PSS sequence; each specialization produces a constant `s2`:
+
+```zlang
+fn nr_pss_chip<ID,K>() -> s2 {
+    mseq = 0x42afa51b8fe1de592044c5d6c19a9cf6
+    mseq[(K + 43 * ID) % 127] ? -1 : 1
+}
+
+module PssChip {
+    out chip : s2 = nr_pss_chip<ID=2,K=126>()
+}
+```
+
+Modulo uses floor-division semantics: a nonzero result has the divisor's sign.
+Thus `-5 % 3` is `1`, `5 % -3` is `-1`, and `-5 % -3` is `-2`. With a positive
+divisor `D`, the result lies between `0` and `D-1`, even for negative dividends.
+The arithmetic is compile-time integer arithmetic; any resulting width or
+index must still satisfy the destination's normal type and bounds checks.
+
+An evaluated zero divisor is a source error. An unselected compile-time `if`
+branch is not evaluated. Both operands must be compile-time integers: input
+ports, registers and ordinary function arguments remain runtime values even
+with reset initializers or constant callers. Runtime and fixed-point remainder
+are unsupported; `%` does not infer a divider. Generated specializations remain
+subject to the usual elaboration limits.
 
 <a id="reference-expressions-functions-generics-compile-time-functions-and-selection"></a>
 ### Compile-time functions and selection
@@ -1801,6 +1848,12 @@ unknown), while a non-write holds `U`. Exact controlling values still resolve:
 `U | 1` and `X | 1` are `1`, while `U & 0` and `X & 0` are `0`.
 `--strict-uninitialized` implies logic-state execution and turns a typed read
 of either `U` or `X` into an error that identifies which state was observed.
+
+Observations belong to the selected implementation. Exact binary optimization
+need not preserve the original expression's U/X propagation, and strict mode
+does not diagnose every cancelled operand in the source. U/X tags are not an
+algebraic hardware domain; unknown stateful guards or memory addresses still
+fail rather than choosing a deterministic branch or location.
 
 Python callers may use `set_logic`, `get_logic`, `outputs_logic`, and
 `Program.create(initial_registers=...)`. Packed spellings are MSB-first,
@@ -3541,7 +3594,8 @@ Runnable integrated examples are [AXI4-Lite CSR](../examples/axi_csr_top.zhl),
 [streaming packet engine](../examples/streaming_packet_engine.zhl). The bounded
 burst helpers are exposed by the
 [ZTPU AXI burst witness](../examples/ztpu_axi_burst.zhl). Python models in
-`zlang/standard_bus.py` remain independent test oracles only.
+`tests/support/standard_bus.py` are independent test oracles, not compiler
+runtime implementations.
 
 The AHB-Lite contract follows the
 [Arm AMBA 3 AHB-Lite protocol](https://documentation-service.arm.com/static/5f914801f86e16515cdc2a27)
@@ -6953,6 +7007,9 @@ The following restrictions are part of the current user-facing contract.
 
 - ZLang has no runtime procedural `if`, mutable local variables, implicit
   numeric casts, implicit fixed-point rescaling, or general HLS scheduler.
+- Integer `%` is compile-time only. Runtime and fixed-point remainder are
+  unsupported; ports, registers and ordinary function arguments are not
+  compile-time operands.
 - Runtime-selected instance inputs/protocols, general cross-module atomic
   scheduling, full AXI4, automatic CDC insertion, and arbitrary stateful
   elastic pipelines are unsupported.

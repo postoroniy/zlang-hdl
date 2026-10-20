@@ -43,6 +43,7 @@ from zlang.formal_artifact_provider import (
     FormalArtifactProvider,
 )
 from zlang.formal import use_formal_toolchain
+from zlang.formal_configuration import EQUIVALENCE_PREPARATION_SCHEMA
 from zlang.formal_exploration import (
     FormalExplorationConfig,
     FormalExplorationError,
@@ -447,7 +448,7 @@ def _encode_prepared_candidate(
             bundle.implementation_artifact,
         )
     return {
-        "schema": "zlang-prepared-candidate-equivalence-v2",
+        "schema": "zlang-prepared-candidate-equivalence-v3",
         "property": _property_data(bundle.property),
         "source": bundle.source,
         "top": bundle.top,
@@ -475,7 +476,7 @@ def _decode_prepared_candidate(value: object) -> PreparedCandidateEquivalence:
         "reference_artifact", "implementation_artifact", "input_semantic_ids",
         "trace_metadata",
     }
-    if set(value) != expected or value["schema"] != "zlang-prepared-candidate-equivalence-v2":
+    if set(value) != expected or value["schema"] != "zlang-prepared-candidate-equivalence-v3":
         raise ValueError("prepared candidate equivalence schema/fields are invalid")
     inputs = value["input_semantic_ids"]
     if not isinstance(inputs, list) or not all(isinstance(item, str) for item in inputs):
@@ -613,6 +614,7 @@ class _SemanticEquivalenceCandidateVerifierBase:
         tool_route = {
             "emitter": "zlang-direct-systemverilog",
             "manifest_version": MANIFEST_VERSION,
+            "equivalence_preparation": EQUIVALENCE_PREPARATION_SCHEMA,
         }
         from zlang.equivalence_replay_integrity import REPLAY_INTEGRITY_SCHEMA
         from zlang.formal_primitive_models import primitive_model_policy
@@ -903,6 +905,7 @@ class _SemanticEquivalenceCandidateVerifierBase:
             assumptions_identity,
             stable_digest({
                 "schema": "zlang-semantic_equivalence-direct-systemverilog-artifact-route-v1",
+                "equivalence_preparation": EQUIVALENCE_PREPARATION_SCHEMA,
                 "rtl_build_identity": implementation_artifact.build_identity,
                 "reference_build_identity": reference_artifact.build_identity,
                 "manifest_version": implementation_artifact.manifest_version,
@@ -949,6 +952,7 @@ class SemanticEquivalenceDirectSystemVerilogCandidateVerifier(_SemanticEquivalen
         arithmetic_policy = rtl_arithmetic_policy(physical_graph, config.solver)
         return {
             "schema": "zlang-semantic_equivalence-direct-systemverilog-proof-bundle-v2",
+            "equivalence_preparation": EQUIVALENCE_PREPARATION_SCHEMA,
             "replay_integrity": REPLAY_INTEGRITY_SCHEMA,
             "primitive_models": primitive_model_policy(),
             "rtl_naming": RTL_NAMING_SCHEMA,

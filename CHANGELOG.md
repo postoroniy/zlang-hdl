@@ -20,6 +20,10 @@ incompatible input explicitly.
 
 ### Fixed
 
+- RTL equivalence preparation flattens the actual bound hierarchy before
+  width reduction, avoiding oversized DSP solver operands without narrowing
+  the primitive model or relaxing proof depth, deadlines or reset contracts.
+  Preparation and execution caches reject incompatible lowering recipes.
 - Semantic declaration errors retain the offending type, port, register or
   storage location in editor diagnostics, including imported type definitions
   and unsaved line shifts. Inherited clock/reset contracts remain unchanged.
