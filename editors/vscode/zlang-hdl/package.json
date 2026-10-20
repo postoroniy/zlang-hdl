@@ -67,7 +67,7 @@
     "@vscode/test-electron": "3.1.0",
     "@vscode/vsce": "4.0.0",
     "esbuild": "0.28.2",
-    "playwright": "1.62.1",
+    "playwright": "1.64.1",
     "typescript": "6.0.3",
     "vscode-oniguruma": "2.0.1",
     "vscode-textmate": "9.3.2"
