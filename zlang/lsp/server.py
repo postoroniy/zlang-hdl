@@ -25,6 +25,16 @@ from urllib.request import url2pathname
 
 from zlang._version import __version__
 from zlang.native_debug_bundle import build_native_debug_bundle
+from zlang.lsp.diagnostic_publication import (
+    DiagnosticPublications,
+    diagnostic_source,
+    diagnostic_to_lsp,
+)
+from zlang.lsp.positions import (
+    lsp_character_to_compiler as _lsp_character_to_compiler,
+    origin_to_range,
+    utf16_units as _utf16_units,
+)
 from zlang.lsp.protocol import (
     JSON_RPC_VERSION,
     LspProtocolError,
@@ -44,7 +54,6 @@ from zlang.lsp.request_values import (
 from zlang.tooling import (
     EditorDocumentSnapshot,
     EditorWorkspaceSnapshot,
-    ToolingDiagnostic,
     ToolingDefinition,
     ToolingError,
     ToolingHover,
@@ -174,57 +183,6 @@ def _request_position(params: object) -> tuple[int, int]:
     return _integer(position, "line"), _integer(position, "character")
 
 
-def _utf16_units(value: str) -> int:
-    """Return the LSP-default UTF-16 code-unit length of text."""
-
-    return len(value.encode("utf-16-le")) // 2
-
-
-def _compiler_character_to_lsp(
-    source_text: str,
-    line: int,
-    column: int,
-) -> int:
-    """Convert one compiler code-point column to an LSP UTF-16 character."""
-
-    lines = source_text.splitlines(keepends=True)
-    line_index = line - 1
-    if line_index < 0 or line_index >= len(lines):
-        raise LspProtocolError("compiler source range is outside the document")
-    line_text = lines[line_index].rstrip("\r\n")
-    code_point_index = column - 1
-    if code_point_index < 0 or code_point_index > len(line_text):
-        raise LspProtocolError("compiler source range is outside the document")
-    return _utf16_units(line_text[:code_point_index])
-
-
-def _lsp_character_to_compiler(
-    source_text: str,
-    line: int,
-    character: int,
-) -> int:
-    """Convert an LSP UTF-16 character offset to a code-point index."""
-
-    lines = source_text.splitlines(keepends=True)
-    if line < 0 or line >= len(lines):
-        raise LspProtocolError("LSP position is outside the document")
-    line_text = lines[line].rstrip("\r\n")
-    if character < 0:
-        raise LspProtocolError("LSP position is outside the document")
-    units = 0
-    for index, value in enumerate(line_text):
-        if units == character:
-            return index
-        units += _utf16_units(value)
-        if units > character:
-            raise LspProtocolError(
-                "LSP position splits a UTF-16 surrogate pair"
-            )
-    if units == character:
-        return len(line_text)
-    raise LspProtocolError("LSP position is outside the document")
-
-
 def uri_to_path(uri: str) -> Path:
     """Convert a local ``file://`` URI to a path without guessing remotes."""
 
@@ -255,64 +213,6 @@ def path_to_uri(path: Path | str) -> str:
     if not candidate.is_absolute():
         candidate = candidate.resolve()
     return candidate.as_uri()
-
-
-def origin_to_range(
-    origin: Any,
-    source_text: str | None = None,
-) -> dict[str, dict[str, int]]:
-    """Convert a compiler/tooling origin to a zero-based LSP range.
-
-    Compiler spans are one-based.  Missing origins are represented by the
-    conventional zero-length range at the start of the document; the semantic
-    diagnostic itself is still preserved in ``data``.
-    """
-
-    if origin is None:
-        start_line = start_character = end_line = end_character = 0
-    else:
-        start_line = max(0, int(origin.start_line) - 1)
-        end_line = max(0, int(origin.end_line) - 1)
-        if source_text is None:
-            start_character = max(0, int(origin.start_column) - 1)
-            end_character = max(0, int(origin.end_column) - 1)
-        else:
-            start_character = _compiler_character_to_lsp(
-                source_text,
-                int(origin.start_line),
-                int(origin.start_column),
-            )
-            end_character = _compiler_character_to_lsp(
-                source_text,
-                int(origin.end_line),
-                int(origin.end_column),
-            )
-    return {
-        "start": {"line": start_line, "character": start_character},
-        "end": {"line": end_line, "character": end_character},
-    }
-
-
-def diagnostic_to_lsp(
-    diagnostic: ToolingDiagnostic,
-    source_text: str | None = None,
-) -> dict[str, Any]:
-    """Map one compiler-owned tooling diagnostic without changing its meaning."""
-
-    origin = diagnostic.primary
-    return {
-        "range": origin_to_range(origin, source_text),
-        "severity": 1 if diagnostic.severity == "error" else 2,
-        "code": diagnostic.code,
-        "source": "zlang",
-        "message": diagnostic.message,
-        "data": {
-            "source_unit": None if origin is None else origin.source_unit,
-            "construct": None if origin is None else origin.construct,
-            "notes": list(diagnostic.notes),
-            "fixes": list(diagnostic.fixes),
-        },
-    }
 
 
 def _lsp_range(value: object) -> dict[str, dict[str, int]]:
@@ -618,15 +518,16 @@ class LspServer:
         self._log = log if log is not None else sys.stderr
         self._clock = _clock
         self._reported_environment_errors: set[str] = set()
+        self._diagnostic_publications = DiagnosticPublications()
 
     def _environment_failure_messages(
         self,
         error: BaseException,
     ) -> list[dict[str, Any]]:
         message = str(error)
-        print(f"{SERVER_NAME}: {message}", file=self._log)
         if message in self._reported_environment_errors:
             return []
+        print(f"{SERVER_NAME}: {message}", file=self._log)
         self._reported_environment_errors.add(message)
         return [
             _message("window/logMessage", message),
@@ -720,6 +621,15 @@ class LspServer:
             return self._did_change(params)
         if method == "textDocument/didClose":
             return self._did_close(params)
+        if method == "workspace/didChangeWatchedFiles":
+            try:
+                changed = self._project_files_changed(params)
+            except LspProtocolError as error:
+                return self._environment_failure_messages(error)
+            return [
+                outbound for state in tuple(self.documents.values())
+                for outbound in self._publish_document(state)
+            ] if changed else []
         if method == "textDocument/documentSymbol":
             if not has_id:
                 return []
@@ -1066,7 +976,10 @@ class LspServer:
         actions: list[dict[str, Any]] = []
         seen: set[str] = set()
         for tooling_diagnostic in record.diagnostics:
-            current = diagnostic_to_lsp(tooling_diagnostic, state.text)
+            path, text = diagnostic_source(tooling_diagnostic, state.path, self.tooling_session)
+            if path != state.path.resolve():
+                continue
+            current = diagnostic_to_lsp(tooling_diagnostic, text)
             if not _ranges_intersect(requested_range, current["range"]):
                 continue
             if not _client_requested_diagnostic(
@@ -1182,7 +1095,46 @@ class LspServer:
         # text digest and every reuse revalidates the source/dependency
         # environment.  Invalidating here made F12 preview navigation compile
         # the same unchanged mapper/IFFT file on every visit.
-        return [_publish(uri, [])]
+        return self._publish_groups(uri, {})
+
+    def _project_files_changed(self, params: object) -> bool:
+        changes = _mapping(params).get("changes")
+        if not isinstance(changes, list):
+            raise LspProtocolError("watched file changes must be a list")
+        changed = False
+        for change in changes:
+            item = _mapping(change)
+            path = uri_to_path(_string(item, "uri"))
+            if _integer(item, "type") not in {1, 2, 3}:
+                raise LspProtocolError("watched file change type must be 1, 2 or 3")
+            changed |= path.name in {"zlang.toml", "zlang.lock"}
+        if changed:
+            # Metadata can change dependency closure and nearest-project
+            # ownership (including creation/deletion of a nested manifest).
+            # Conservatively invalidate this bounded open-document session;
+            # rebuilding it never fetches or rewrites project metadata.
+            self.tooling_session.clear()
+            self._reported_environment_errors.clear()
+        return changed
+
+    def _publish_groups(self, root: str, groups: dict) -> list[dict[str, Any]]:
+        return [
+            _publish(uri, diagnostics)
+            for uri, diagnostics in self._diagnostic_publications.replace(root, groups).items()
+        ]
+
+    def _affected_document_uris(self, state: DocumentState) -> set[str]:
+        # A missing/broken project must still get checked so its environment
+        # failure is reported. Scheduling must not require a valid manifest or
+        # membership in its source root, and must never drop the edited root.
+        try:
+            paths = set(self._sync_editor_workspace().overlays_for(state.path))
+        except (ToolingError, OSError, ValueError):
+            paths = set()
+        return {state.uri, *(
+            candidate.uri for candidate in self.documents.values()
+            if candidate.path in paths
+        )}
 
     def _publish_document(self, state: DocumentState) -> list[dict[str, Any]]:
         digest = hashlib.sha256(state.text.encode("utf-8")).hexdigest()
@@ -1206,9 +1158,9 @@ class LspServer:
                     required_module=state.navigation_top,
                 )
             if symbol_proof is not None:
-                return [_publish(state.uri, warnings)]
+                return self._publish_groups(state.uri, {state.uri: warnings})
             if self.tooling_session.trivia_diagnostic_proof(state.path, state.text):
-                return [_publish(state.uri, warnings)]
+                return self._publish_groups(state.uri, {state.uri: warnings})
             record = check_snapshot(
                 state.path,
                 state.text,
@@ -1216,16 +1168,24 @@ class LspServer:
                 top=state.navigation_top,
                 _session=self.tooling_session,
             )
+            grouped: dict[str, list[dict[str, Any]]] = {state.uri: warnings}
+            for item in record.diagnostics:
+                path, text = diagnostic_source(item, state.path, self.tooling_session)
+                # Unspecialized generic sources remain navigation targets, not
+                # independently invalid hardware builds.
+                if is_unspecialized_generic_diagnostic(text, item):
+                    continue
+                grouped.setdefault(path_to_uri(path), []).append(diagnostic_to_lsp(item, text))
         except ToolingError as error:
             return [
-                _publish(state.uri, []),
+                *self._publish_groups(state.uri, {state.uri: []}),
                 *self._environment_failure_messages(error),
             ]
         except (OSError, ValueError) as error:
             # Path/project failures are explicit environment limitations.  Do
             # not present them as a successful semantic check.
             return [
-                _publish(state.uri, []),
+                *self._publish_groups(state.uri, {state.uri: []}),
                 *self._environment_failure_messages(error),
             ]
         except Exception as error:  # pragma: no cover - defensive process boundary
@@ -1234,39 +1194,13 @@ class LspServer:
                 file=self._log,
             )
             return [
-                _publish(state.uri, []),
+                *self._publish_groups(state.uri, {state.uri: []}),
                 _message(
                     "window/logMessage",
                     "compiler integration failed; see the language-server log",
                 ),
             ]
-        grouped: dict[str, list[dict[str, Any]]] = {state.uri: warnings}
-        for item in record.diagnostics:
-            target = state
-            unit = item.primary.source_unit if item.primary is not None else None
-            if unit is not None:
-                path = self.tooling_session.source_path_for_unit(state.path, unit)
-                if path is not None:
-                    target = next(
-                        (
-                            candidate
-                            for candidate in self.documents.values()
-                            if candidate.path == path
-                        ),
-                        state,
-                    )
-            # Generic module declarations are checked for each concrete
-            # specialization.  Opening the unspecialized library source is an
-            # editor navigation action, not an invalid hardware build.
-            if is_unspecialized_generic_diagnostic(target.text, item):
-                continue
-            grouped.setdefault(target.uri, []).append(
-                diagnostic_to_lsp(item, target.text)
-            )
-        return [
-            _publish(uri, grouped[uri])
-            for uri in sorted(grouped, key=lambda uri: (uri != state.uri, uri))
-        ]
+        return self._publish_groups(state.uri, grouped)
 
     def run(self, input_stream: BinaryIO, output_stream: BinaryIO) -> int:
         """Run framed JSON-RPC with serial compiler ownership and debounce."""
@@ -1380,20 +1314,21 @@ class LspServer:
                 continue
             method = message.get("method")
             params = message.get("params", {})
+            if method == "workspace/didChangeWatchedFiles":
+                try:
+                    if self._project_files_changed(params):
+                        scheduler.replace(self.documents)
+                except LspProtocolError as error:
+                    for outbound in self._environment_failure_messages(error):
+                        write_message(output_stream, outbound)
+                continue
             if method == "textDocument/didOpen":
                 for outbound in self._did_open(params, publish=False):
                     write_message(output_stream, outbound)
                 uri = _best_effort_uri(params)
                 if uri in self.documents:
                     state = self.documents[uri]
-                    paths = set(
-                        self._sync_editor_workspace().overlays_for(state.path)
-                    )
-                    scheduler.replace(
-                        candidate.uri
-                        for candidate in self.documents.values()
-                        if candidate.path in paths
-                    )
+                    scheduler.replace(self._affected_document_uris(state))
                 continue
             if method == "textDocument/didChange":
                 for outbound in self._did_change(params, publish=False):
@@ -1401,14 +1336,7 @@ class LspServer:
                 uri = _best_effort_uri(params)
                 if uri in self.documents:
                     state = self.documents[uri]
-                    paths = set(
-                        self._sync_editor_workspace().overlays_for(state.path)
-                    )
-                    scheduler.replace(
-                        candidate.uri
-                        for candidate in self.documents.values()
-                        if candidate.path in paths
-                    )
+                    scheduler.replace(self._affected_document_uris(state))
                 continue
             if method == "textDocument/didClose":
                 uri = _best_effort_uri(params)

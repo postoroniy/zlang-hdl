@@ -287,6 +287,10 @@ class ToolingDiagnostic:
     fixes: tuple[str, ...]
     machine_fixes: tuple[ToolingDiagnosticFix, ...] = ()
     severity: str = "error"
+    # Presentation-only binding retained from the compiler diagnostic. These
+    # fields do not participate in semantic or hardware identities.
+    source_path: Path | None = None
+    source_digest: str | None = None
 
     def __post_init__(self) -> None:
         if self.severity not in {"error", "warning"}:

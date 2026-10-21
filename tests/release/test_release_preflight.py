@@ -159,6 +159,7 @@ def test_current_candidate_binds_release_sources_native_wheel_and_git(
         "FORMAL-002",
         "FORMAL-003",
         "FORMAL-004",
+        "LSP-001",
         "SIM-001",
         "SIM-002",
         "SIM-003",

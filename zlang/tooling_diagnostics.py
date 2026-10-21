@@ -242,6 +242,7 @@ def _diagnostic(
     machine_fixes: tuple[DiagnosticFix, ...] = (),
     source_path: Path | None = None,
     source_text: str | None = None,
+    physical_source: Path | None = None,
 ) -> tooling_symbols.ToolingDiagnostic:
     origin = value.primary
     primary = tooling_symbols._origin_from_source(origin)
@@ -266,6 +267,8 @@ def _diagnostic(
         value.notes,
         value.fixes,
         projected_fixes,
+        source_path=physical_source,
+        source_digest=getattr(origin, "digest", None),
     )
 
 def _module_identity(module: object) -> str:
@@ -326,6 +329,7 @@ def check_snapshot(
                     machine_fixes=tuple(getattr(error, "machine_fixes", ())),
                     source_path=source_path,
                     source_text=source_text,
+                    physical_source=getattr(error, "physical_source", None),
                 ),
             ),
         )

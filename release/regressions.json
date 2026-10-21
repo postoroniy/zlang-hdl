@@ -92,6 +92,30 @@
       ]
     },
     {
+      "id": "LSP-001",
+      "source_paths": [
+        "editors/vscode/zlang-hdl/extension.js",
+        "tests/lsp/test_diagnostic_lifecycle.py",
+        "zlang/lsp/diagnostic_publication.py",
+        "zlang/lsp/positions.py",
+        "zlang/lsp/server.py",
+        "zlang/module_resolver.py",
+        "zlang/stdlib.py",
+        "zlang/tooling_diagnostics.py",
+        "zlang/tooling_session.py",
+        "zlang/tooling_symbols.py"
+      ],
+      "status": "included",
+      "summary": "LSP handles empty/EOF spans, binds closed-import diagnostics to exact sources, retires stale markers and rechecks manifest/lock lifecycle changes without fetching or rewriting metadata.",
+      "tests": [
+        "tests/lsp/test_diagnostic_lifecycle.py::test_closed_external_import_is_bound_by_the_compiler_resolver",
+        "tests/lsp/test_diagnostic_lifecycle.py::test_closed_import_uses_its_own_file_and_clears_after_fix",
+        "tests/lsp/test_diagnostic_lifecycle.py::test_empty_and_eof_positions_round_trip",
+        "tests/lsp/test_diagnostic_lifecycle.py::test_lock_create_delete_and_manifest_changes_recheck_read_only",
+        "tests/lsp/test_diagnostic_lifecycle.py::test_stdio_empty_diagnostic_and_lock_creation_recover_without_restart"
+      ]
+    },
+    {
       "id": "SIM-001",
       "source_paths": [
         "tests/integration/test_native_debug_bundle.py",

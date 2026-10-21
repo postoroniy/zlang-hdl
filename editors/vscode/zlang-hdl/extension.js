@@ -543,10 +543,14 @@ async function activate(context) {
     run: { command, transport: TransportKind.stdio },
     debug: { command, transport: TransportKind.stdio },
   };
+  // A lock can be created after the editor opened the project. Observe all
+  // metadata lifecycle events; the server rechecks without resolving/writing it.
+  const projectFiles = vscode.workspace.createFileSystemWatcher('**/{zlang.toml,zlang.lock}');
+  context.subscriptions.push(projectFiles);
   const clientOptions = {
     documentSelector: [{ scheme: 'file', language: LANGUAGE_ID }],
     outputChannel: output,
-    synchronize: { configurationSection: CONFIGURATION_SECTION },
+    synchronize: { configurationSection: CONFIGURATION_SECTION, fileEvents: projectFiles },
   };
   client = new LanguageClient(
     'zlangHdlLanguageServer',

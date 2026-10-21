@@ -69,10 +69,19 @@ for virtual environments, installs packages, or downloads a server.
 Because this setting selects a local executable, VS Code activates the extension
 only for trusted workspaces. Review a project before granting workspace trust.
 
-The initial client supports local `file://` documents and full-document
-synchronization. It deliberately does not add parser recovery, unsaved
-dependency overlays, or generated-RTL navigation; the compiler/LSP remain the
-semantic authority.
+The client supports local `file://` documents and full-document synchronization.
+Compiler-owned snapshots include open root-package import buffers; external
+dependencies remain locked saved inputs. Diagnostics in closed imports point to
+their own files, not the importing module. The compiler/LSP remain the semantic
+authority; the extension does not add parser recovery or generated-RTL navigation.
+
+Projects with `zlang.toml` require `zlang.lock`, even with zero dependencies.
+Restore a clone's checked-in lock and exact dependency sources/cache. For a new
+project, run `zlang lock update --project path/to/zlang.toml` once to create it;
+repeat only after resolution inputs change. LSP never fetches or rewrites it.
+Manifest/lock creation, changes and deletion automatically trigger a debounced
+recheck of open ZLang files. Missing locks and malformed manifests appear in
+the **ZLang HDL** output channel; they are not source errors at line 1.
 
 ## Build and install locally
 

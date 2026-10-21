@@ -161,6 +161,9 @@ class ToolingSession:
         """Resolve one compiler logical unit within the source's project."""
 
         try:
+            source_path = Path(source).expanduser().resolve()
+            if source_unit in {source_path.name, str(source_path)}:
+                return source_path
             # Prefer the atomic editor view.  This route deliberately does not
             # parse bytes from disk: an imported open buffer may currently be
             # malformed, or an autosave may have replaced its physical bytes,
@@ -183,10 +186,13 @@ class ToolingSession:
                         return document.path
 
             location = tooling_workspace.discover_project(source)
-            if location is None:
-                return None
-            index = self._workspace_index_for(location.manifest_path)
-            return index.source_path_for_unit(source_unit)
+            if location is not None:
+                index = self._workspace_index_for(location.manifest_path)
+                path = index.source_path_for_unit(source_unit)
+                if path is not None:
+                    return path
+            resolved = tooling_workspace.resolve_direct_imports(source, (source_unit,))
+            return resolved[0].source_path if resolved else None
         except (models.ToolingError, OSError, ValueError):
             return None
 

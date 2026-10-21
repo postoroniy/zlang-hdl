@@ -17,6 +17,7 @@ import sys
 from typing import Iterable, Iterator
 
 from zlang.common.graph import DependencyCycle, dependency_postorder
+from zlang.diagnostics import DiagnosticError, bind_diagnostic_source
 from zlang.parser import parse
 from zlang.source_identity import SOURCE_GLOB, SOURCE_SUFFIX, attach_source_identity
 
@@ -148,11 +149,17 @@ def available_stdlib_modules() -> tuple[str, ...]:
 def load_stdlib_source(path: str) -> StdlibSource:
     source_path = _locate(path)
     try:
-        source = source_path.read_text(encoding="utf-8")
+        source = source_path.read_bytes().decode("utf-8")
     except FileNotFoundError as exc:
         raise ValueError(f"standard library source is missing: {source_path}") from exc
     digest = hashlib.sha256(source.encode("utf-8")).hexdigest()
-    module = attach_source_identity(parse(source), path, digest)
+    try:
+        parsed = parse(source)
+    except DiagnosticError as error:
+        raise bind_diagnostic_source(
+            error, source_unit=path, digest=digest, physical_source=source_path,
+        ) from error
+    module = attach_source_identity(parsed, path, digest)
     dependencies = tuple(declaration.path for declaration in module.imports)
     return StdlibSource(path, source_path, module, digest, dependencies)
 

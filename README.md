@@ -167,6 +167,27 @@ mkdir -p build
 .venv/bin/zlang examples/add.zhl --systemverilog build/Add.sv --verbose
 ```
 
+### Projects and lock files
+
+Without a `zlang.toml`, standalone sources (including `std.*` imports) need no
+project lock. When a manifest is present, compilation and LSP require its
+`zlang.lock`, even for a project with zero dependencies. They validate it
+read-only: neither fetches dependencies nor creates or rewrites the lock.
+
+For a cloned project, restore its checked-in lock and exact dependency sources;
+Git dependencies also need their local cache. `make venv` installs tools, not
+project locks. For a **new** project without a lock, create the initial one:
+
+```bash
+.venv/bin/zlang lock update --project path/to/zlang.toml
+```
+
+After that, run `zlang lock update` only when dependency declarations, dependency
+source contents, exact Git revisions or other resolution inputs change. A
+missing/stale lock is an environment error, not a source error at line 1.
+The VS Code client watches manifest/lock creation, changes and deletion and
+rechecks open ZLang documents; no editor restart or dummy source edit is needed.
+
 ### Native simulation
 
 Native simulation requires the matching `zlang-native-sim` a24 wheel. The

@@ -20,6 +20,9 @@ incompatible input explicitly.
 
 ### Fixed
 
+- LSP accepts empty/EOF spans, routes closed-import diagnostics to their exact
+  source snapshots, and clears retired markers without crashing the worker.
+  Manifest/lock lifecycle changes trigger read-only rechecks of open documents.
 - RTL equivalence preparation flattens the actual bound hierarchy before
   width reduction, avoiding oversized DSP solver operands without narrowing
   the primitive model or relaxing proof depth, deadlines or reset contracts.

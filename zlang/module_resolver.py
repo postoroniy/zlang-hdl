@@ -381,6 +381,10 @@ class StdlibModuleResolver:
             )
         try:
             return tuple(resolve_stdlib(requested))
+        except DiagnosticError:
+            # Preserve compiler source/digest binding for imported syntax
+            # errors instead of converting them to source-less resolver text.
+            raise
         except ValueError as error:
             raise ModuleResolutionError(str(error)) from error
 

@@ -61,6 +61,9 @@ def test_lsp_client_bootstrap_is_standard_and_semantics_free() -> None:
     assert "async function activate(context)" in client
     assert "await client.start()" in client
     assert "void client.start()" not in client
+    assert "createFileSystemWatcher('**/{zlang.toml,zlang.lock}')" in client
+    assert "context.subscriptions.push(projectFiles)" in client
+    assert "fileEvents: projectFiles" in client
 
 
 def test_editor_tests_require_javascript_static_and_negative_fixture_gates() -> None:

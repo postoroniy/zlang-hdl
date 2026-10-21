@@ -10,6 +10,7 @@ const vscode = require('vscode');
 const {checkWaveformHost}=require('./waveform-host.cjs');
 const {checkTypedWaveformHost}=require('./typed-waveform-host.cjs');
 const {checkRuleActionHost}=require('./rule-action-host.cjs');
+const {checkProjectMetadata}=require('./project-metadata-host.cjs');
 const toolchain = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../editor-toolchain.json'), 'utf8'));
 
 const extensionId = 'postoroniy.zlang-hdl';
@@ -184,6 +185,8 @@ async function checkHost() {
     'Never run the smoke in the extension source workspace');
   assert.equal(inside(installedPath, workspace), false);
   const scratch = fs.mkdtempSync(path.join(workspace, 'zlang-editor-smoke-'));
+  await checkProjectMetadata(scratch, settled);
+  phase('manifest/lock watcher recovery');
   const sourceText = 'module Smoke {\n    in x : u8\n    out y : u8 = x\n}\n';
   const documents = {};
   for (const suffix of ['zhl', 'zl', 'zlh']) {
@@ -542,6 +545,7 @@ async function checkHost() {
       'isolated installed VSIX identity and standard LSP client manifest',
       'automatic .zhl association; no .zl or .zlh association',
       'activation-complete LanguageClient and real F12 definition provider',
+      'manifest/lock creation, deletion and repair recheck without source edits or restart',
       'viewport-sized mixed containers with nested, non-overlapping Outline and Sticky Scroll ranges',
       ...(manifest.contributes.customEditors ? [
         'registered default FST/VCD custom editor; exercised VCD through the native indexer',

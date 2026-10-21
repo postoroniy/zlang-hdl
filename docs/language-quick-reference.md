@@ -300,11 +300,14 @@ zlang sim source.zhl --top Top --strict-uninitialized --clock clk --cycles 100
 zlang verify build/verify --mode bmc --depth 20 --work-dir build/verify-work
 ```
 
-Ordinary project compilation validates the checked-in lock read-only. Run
-`zlang lock update --project zlang.toml` only after dependency declarations,
-dependency source contents, exact Git revisions or other resolution inputs
-change. A project with no dependencies needs no lock-update prerequisite for
-simulation or RTL generation. Compilation never fetches or rewrites the lock.
+Ordinary project compilation validates the checked-in lock read-only. Every
+`zlang.toml` project requires `zlang.lock`, including zero-dependency projects.
+Restore the checked-in lock when cloning; for a new project without one, create
+it explicitly with `zlang lock update --project zlang.toml`. Thereafter run that
+command only after dependency declarations, dependency source contents, exact
+Git revisions or other resolution inputs change, not before each simulation or
+RTL build. Compilation never fetches or rewrites the lock. Standalone sources
+without a manifest need no lock. See [project setup](../README.md#projects-and-lock-files).
 
 In a `--events` JSONL schedule, `"repeat": N` repeats one event lazily for a
 bounded positive number of steps (at most 1,000,000 expanded events) without a
