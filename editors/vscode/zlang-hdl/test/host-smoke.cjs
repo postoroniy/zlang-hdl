@@ -186,6 +186,9 @@ async function checkHost() {
   assert.equal(inside(installedPath, workspace), false);
   const scratch = fs.mkdtempSync(path.join(workspace, 'zlang-editor-smoke-'));
   await checkProjectMetadata(scratch, settled);
+  // A recursive watcher may miss a newly-created directory or be excluded by
+  // workspace settings. Metadata for an open source still requires rechecking.
+  await checkProjectMetadata(scratch, settled, {excludeRecursive:true});
   phase('manifest/lock watcher recovery');
   const sourceText = 'module Smoke {\n    in x : u8\n    out y : u8 = x\n}\n';
   const documents = {};

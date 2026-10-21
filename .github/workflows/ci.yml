@@ -65,6 +65,14 @@ jobs:
           make -s ci-editor
           CI_VSIX="$RUNNER_TEMP/zlang-hdl-0.1.0.vsix"
           CI_NATIVE_VSIX="$RUNNER_TEMP/zlang-hdl-0.1.0-linux-x64.vsix"
+      - name: Retain editor watcher and LSP failure logs
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: editor-host-failure-${{ github.run_id }}
+          path: build/editor-host-logs/
+          if-no-files-found: warn
+          retention-days: 14
       - name: Retain the successfully audited Community VSIX packages
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

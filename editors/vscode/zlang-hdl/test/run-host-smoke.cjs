@@ -6,6 +6,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const net = require('node:net');
+const crypto = require('node:crypto');
 const { spawnSync } = require('node:child_process');
 const { downloadAndUnzipVSCode, runVSCodeCommand } = require('@vscode/test-electron');
 const { toolchain } = require('./bundle.cjs');
@@ -34,6 +35,7 @@ function hostLaunchArguments({ extensions, userData, installed, workspace }) {
     // Keep the test inside xvfb even when the interactive host uses Wayland.
     '--ozone-platform=x11',
     '--disable-workspace-trust', '--disable-telemetry', '--skip-release-notes',
+    '--log', 'trace',
     '--extensions-dir', extensions, '--user-data-dir', userData,
     '--extensionDevelopmentPath', installed,
     '--extensionTestsPath', path.join(__dirname, 'host-smoke.cjs'), workspace,
@@ -64,6 +66,23 @@ function assertCleanTransportLogs(userData) {
   visit(logs);
 }
 
+function retainHostFailure(root, vsix, error,
+  destination = path.resolve(__dirname, '../../../../build/editor-host-logs')) {
+  // Copy only diagnostic evidence, never the installed VSIX or workspace.
+  // The outer local runner removes TMPDIR even when the child fails.
+  fs.mkdirSync(destination, {recursive:true});
+  const evidence = fs.mkdtempSync(path.join(destination, `${path.basename(vsix, '.vsix')}.`));
+  const logs = path.join(root, 'user-data', 'logs');
+  if (fs.existsSync(logs)) fs.cpSync(logs, path.join(evidence, 'logs'), {recursive:true});
+  fs.writeFileSync(path.join(evidence, 'failure.json'), JSON.stringify({
+    vscode:toolchain.vscodeStable.version, vsix:path.basename(vsix),
+    sha256:crypto.createHash('sha256').update(fs.readFileSync(vsix)).digest('hex'),
+    error:String(error), stack:error.stack,
+  }, null, 2)+'\n');
+  console.error('Retained VS Code failure logs: '+evidence);
+  return evidence;
+}
+
 async function main() {
   assert.equal(process.argv.length, 3, 'Usage: npm run test:host -- /absolute/path/to/zlang-hdl.vsix');
   const vsix = path.resolve(process.argv[2]);
@@ -84,6 +103,7 @@ async function main() {
     });
     fs.writeFileSync(path.join(settings, 'settings.json'), `${JSON.stringify({
       'zlang.lsp.path': executableOnPath('zlang-lsp'),
+      'zlangHdlLanguageServer.trace.server':'verbose',
       'debug.allowBreakpointsEverywhere':false,
       'zlang.waveform.wcp.enabled':true,
       'zlang.waveform.wcp.port':port,
@@ -99,22 +119,38 @@ async function main() {
     assert.equal(installedNames.length, 1,
       `expected one installed ZLang extension, found: ${installedNames.join(', ')}`);
     const installed = path.join(extensions, installedNames[0]);
-    const child = spawnSync(executable, hostLaunchArguments({
-      extensions, userData, installed, workspace,
-    }), {
-      encoding: 'utf8',
-      env: { ...process.env, ZLANG_EDITOR_SMOKE_EXTENSION: installed,ZLANG_EDITOR_SMOKE_WCP_PORT:String(port) },
-      stdio: 'inherit',
-    });
+    const logs = path.join(userData, 'logs');
+    fs.mkdirSync(logs, {recursive:true});
+    const consoleFile = path.join(logs, 'host-console.log');
+    const consoleFd = fs.openSync(consoleFile, 'wx');
+    let child;
+    try {
+      child = spawnSync(executable, hostLaunchArguments({
+        extensions, userData, installed, workspace,
+      }), {
+        env: { ...process.env, ZLANG_EDITOR_SMOKE_EXTENSION: installed,ZLANG_EDITOR_SMOKE_WCP_PORT:String(port),
+          ZLANG_EDITOR_SMOKE_METADATA_LOG:path.join(logs, 'project-metadata.jsonl') },
+        stdio: ['ignore', consoleFd, consoleFd],
+      });
+    } finally { fs.closeSync(consoleFd); }
+    const consoleText = fs.readFileSync(consoleFile, 'utf8');
+    if (child.status !== 0) console.error(consoleText.slice(-65536));
+    else for (const line of consoleText.split('\n'))
+      if (/^ZLang (?:editor host smoke|metadata lifecycle):?|^\{"status":"passed"/.test(line))
+        console.log(line);
     assert.equal(child.status, 0, `VS Code host smoke failed with status ${child.status}`);
     assertCleanTransportLogs(userData);
+  } catch (error) {
+    try { retainHostFailure(root, vsix, error); }
+    catch (retentionError) { console.error('Could not retain host failure logs:', retentionError); }
+    throw error;
   } finally {
     if(process.env.KEEP_TMP==='1')console.log('Retained VS Code host evidence: '+root);
     else fs.rmSync(root, { recursive: true, force: true });
   }
 }
 
-module.exports = { extensionInstallArguments, hostLaunchArguments, assertCleanTransportLogs };
+module.exports = { extensionInstallArguments, hostLaunchArguments, assertCleanTransportLogs, retainHostFailure };
 
 if (require.main === module) {
   main().catch((error) => { console.error(error); process.exitCode = 1; });

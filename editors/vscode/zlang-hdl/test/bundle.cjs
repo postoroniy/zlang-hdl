@@ -60,7 +60,7 @@ async function buildBundle() {
   for (const input of Object.keys(result.metafile.inputs)) {
     const normalized = input.replaceAll('\\', '/');
     assert.ok([
-      'extension.js', 'waveform_cache.js', 'waveform_channel.js', 'waveform_client.js',
+      'extension.js', 'project_metadata.js', 'waveform_cache.js', 'waveform_channel.js', 'waveform_client.js',
       'debug_waveform.js',
       'waveform_live.js', 'waveform_view.js', 'waveform_wcp.js', 'waveform_session_io.js',
       'waveform_document.js',

@@ -61,9 +61,14 @@ def test_lsp_client_bootstrap_is_standard_and_semantics_free() -> None:
     assert "async function activate(context)" in client
     assert "await client.start()" in client
     assert "void client.start()" not in client
+    assert "watchProjectMetadata(vscode.workspace" in client
     assert "createFileSystemWatcher('**/{zlang.toml,zlang.lock}')" in client
+    assert "fileEvents:workspaceFiles" in client
     assert "context.subscriptions.push(projectFiles)" in client
-    assert "fileEvents: projectFiles" in client
+    assert "workspace/didChangeWatchedFiles" in client
+    assert client.index("await projectFiles.start()") > client.index("await client.start()")
+    shutdown = client.split("async function deactivate()", 1)[1]
+    assert shutdown.index("projectFiles?.dispose()") < shutdown.index("running.stop()")
 
 
 def test_editor_tests_require_javascript_static_and_negative_fixture_gates() -> None:
@@ -75,6 +80,26 @@ def test_editor_tests_require_javascript_static_and_negative_fixture_gates() -> 
     assert "node test/waveform-live-ui.test.cjs" in package["scripts"]["test"]
     assert package["scripts"]["prepackage"] == "npm run static"
     assert package["scripts"]["prepackage:linux-x64"] == "npm run static"
+
+
+def test_project_metadata_lifecycle_has_watcher_independent_host_coverage_and_failure_logs() -> None:
+    package = json.loads((EXT / "package.json").read_text())
+    assert "test/project-metadata.test.cjs" in package["scripts"]["test"]
+    host = (EXT / "test/host-smoke.cjs").read_text()
+    assert "checkProjectMetadata(scratch, settled);" in host
+    assert "checkProjectMetadata(scratch, settled, {excludeRecursive:true})" in host
+    lifecycle = (EXT / "test/project-metadata-host.cjs").read_text()
+    assert "lock deletion recheck without source edit', clear, 15000" in lifecycle
+    assert "ZLANG_EDITOR_SMOKE_METADATA_LOG" in lifecycle
+    runner = (EXT / "test/run-host-smoke.cjs").read_text()
+    assert "retainHostFailure(root, vsix, error)" in runner
+    assert "zlangHdlLanguageServer.trace.server" in runner
+    ci = (ROOT / ".github/workflows/ci.yml").read_text()
+    step = ci.split("- name: Retain editor watcher and LSP failure logs", 1)[1].split(
+        "- name:", 1
+    )[0]
+    assert "if: failure()" in step
+    assert "path: build/editor-host-logs/" in step
 
 
 def test_native_debugger_and_waveform_surface_stays_bounded_and_four_state() -> None:

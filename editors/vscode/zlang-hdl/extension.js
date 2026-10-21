@@ -11,6 +11,7 @@ const vscode = require('vscode');
 // Development resolves the pinned package normally.  Production packaging
 // bundles it into the single generated extension entrypoint.
 const { LanguageClient, TransportKind } = require('vscode-languageclient/node');
+const {watchProjectMetadata} = require('./project_metadata');
 const { waveformHtml } = require('./waveform_view');
 const { WaveformQueryClient } = require('./waveform_client');
 const { WaveformDocument, watchWaveformFile } = require('./waveform_document');
@@ -27,6 +28,7 @@ const DEBUG_ADAPTER_SCHEMA = 'zlang-debug-adapter-v1';
 const WAVEFORM_QUERY_SCHEMA = 'zlang-waveform-query-v3';
 
 let client;
+let projectFiles;
 let output;
 let nativeTools;
 let nativeToolsError;
@@ -545,12 +547,24 @@ async function activate(context) {
   };
   // A lock can be created after the editor opened the project. Observe all
   // metadata lifecycle events; the server rechecks without resolving/writing it.
-  const projectFiles = vscode.workspace.createFileSystemWatcher('**/{zlang.toml,zlang.lock}');
+  projectFiles = watchProjectMetadata(vscode.workspace,
+    file => vscode.Uri.file(file).toString(),
+    params => client.sendNotification('workspace/didChangeWatchedFiles', params),
+    message => output.debug(`[project-metadata] ${message}`));
   context.subscriptions.push(projectFiles);
+  // Retain workspace-wide notifications for metadata outside open-source
+  // ancestry (for example closed dependency projects). The narrow stat
+  // observer above makes open-project recovery independent of this feed.
+  const workspaceFiles = vscode.workspace.createFileSystemWatcher('**/{zlang.toml,zlang.lock}');
+  context.subscriptions.push(workspaceFiles);
+  for (const [kind, subscribe] of [['create', workspaceFiles.onDidCreate],
+    ['change', workspaceFiles.onDidChange], ['delete', workspaceFiles.onDidDelete]])
+    context.subscriptions.push(subscribe(uri =>
+      output.debug(`[project-metadata] recursive ${kind} ${uri.toString()}`)));
   const clientOptions = {
     documentSelector: [{ scheme: 'file', language: LANGUAGE_ID }],
     outputChannel: output,
-    synchronize: { configurationSection: CONFIGURATION_SECTION, fileEvents: projectFiles },
+    synchronize: { configurationSection: CONFIGURATION_SECTION, fileEvents:workspaceFiles },
   };
   client = new LanguageClient(
     'zlangHdlLanguageServer',
@@ -564,12 +578,15 @@ async function activate(context) {
     // Returning while start() is still registering capabilities creates a
     // real F12 race: the first request sees no definition provider at all.
     await client.start();
+    await projectFiles.start();
   } catch (error) {
     reportStartupError(error);
   }
 }
 
 async function deactivate() {
+  projectFiles?.dispose();
+  projectFiles = undefined;
   await waveformControlServer?.stop();
   if (client === undefined) return undefined;
   const running = client;

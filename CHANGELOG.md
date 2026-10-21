@@ -23,6 +23,10 @@ incompatible input explicitly.
 - LSP accepts empty/EOF spans, routes closed-import diagnostics to their exact
   source snapshots, and clears retired markers without crashing the worker.
   Manifest/lock lifecycle changes trigger read-only rechecks of open documents.
+  Editor metadata observation no longer depends on the recursive workspace
+  watcher: lock deletion, recreation and atomic replacement also recheck when
+  that feed is not ready or excluded. Failed VSIX host checks retain watcher,
+  LSP and diagnostic logs in CI.
 - RTL equivalence preparation flattens the actual bound hierarchy before
   width reduction, avoiding oversized DSP solver operands without narrowing
   the primitive model or relaxing proof depth, deadlines or reset contracts.

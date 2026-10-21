@@ -95,6 +95,8 @@
       "id": "LSP-001",
       "source_paths": [
         "editors/vscode/zlang-hdl/extension.js",
+        "editors/vscode/zlang-hdl/project_metadata.js",
+        "editors/vscode/zlang-hdl/test/project-metadata.test.cjs",
         "tests/lsp/test_diagnostic_lifecycle.py",
         "zlang/lsp/diagnostic_publication.py",
         "zlang/lsp/positions.py",
@@ -106,8 +108,9 @@
         "zlang/tooling_symbols.py"
       ],
       "status": "included",
-      "summary": "LSP handles empty/EOF spans, binds closed-import diagnostics to exact sources, retires stale markers and rechecks manifest/lock lifecycle changes without fetching or rewriting metadata.",
+      "summary": "LSP handles empty/EOF spans, binds closed-import diagnostics to exact sources, retires stale markers and rechecks manifest/lock lifecycle changes without fetching or rewriting metadata, independently of recursive workspace watcher readiness.",
       "tests": [
+        "tests/editor/test_vscode_surface.py::test_project_metadata_lifecycle_has_watcher_independent_host_coverage_and_failure_logs",
         "tests/lsp/test_diagnostic_lifecycle.py::test_closed_external_import_is_bound_by_the_compiler_resolver",
         "tests/lsp/test_diagnostic_lifecycle.py::test_closed_import_uses_its_own_file_and_clears_after_fix",
         "tests/lsp/test_diagnostic_lifecycle.py::test_empty_and_eof_positions_round_trip",
