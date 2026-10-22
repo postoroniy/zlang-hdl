@@ -92,6 +92,24 @@
       ]
     },
     {
+      "id": "FORMAL-005",
+      "source_paths": [
+        "tests/integration/test_rtl_arithmetic_cones.py",
+        "tests/semantic/test_formal_bitvector_rewrite.py",
+        "zlang/formal_bitvector_rewrite.py",
+        "zlang/formal_joint_value.py",
+        "zlang/formal_rtl_arithmetic.py"
+      ],
+      "status": "included",
+      "summary": "Checked RTL preparation exposes only the high field of packed extensions, stabilizes arithmetic names and prunes unreachable declarations; connected opaque cells fail closed and incompatible proof recipes cannot reuse evidence.",
+      "tests": [
+        "tests/integration/test_rtl_arithmetic_cones.py::test_proof_naming_changes_only_arithmetic_metadata",
+        "tests/integration/test_rtl_arithmetic_cones.py::test_unused_empty_contract_is_pruned_but_connected_blackbox_fails_closed",
+        "tests/semantic/test_formal_bitvector_rewrite.py::test_packed_extension_preserves_overflow_in_the_high_field",
+        "tests/semantic/test_formal_bitvector_rewrite.py::test_packed_outer_extension_exposes_only_the_high_field"
+      ]
+    },
+    {
       "id": "LSP-001",
       "source_paths": [
         "editors/vscode/zlang-hdl/extension.js",
@@ -116,6 +134,24 @@
         "tests/lsp/test_diagnostic_lifecycle.py::test_empty_and_eof_positions_round_trip",
         "tests/lsp/test_diagnostic_lifecycle.py::test_lock_create_delete_and_manifest_changes_recheck_read_only",
         "tests/lsp/test_diagnostic_lifecycle.py::test_stdio_empty_diagnostic_and_lock_creation_recover_without_restart"
+      ]
+    },
+    {
+      "id": "LSP-002",
+      "source_paths": [
+        "tests/lsp/test_generic_default_diagnostics.py",
+        "tests/lsp/test_standalone_stdlib_navigation.py",
+        "zlang/semantic/module_declarations.py",
+        "zlang/semantic/type_resolution.py",
+        "zlang/tooling_workspace.py"
+      ],
+      "status": "included",
+      "summary": "Unspecialized templates with derived defaults do not emit false editor errors; standalone stdlib navigation requires the exact retained compiler closure, not a project lock.",
+      "tests": [
+        "tests/lsp/test_generic_default_diagnostics.py::test_declared_earlier_parameter_requires_specialization",
+        "tests/lsp/test_generic_default_diagnostics.py::test_invalid_defaults_are_not_reclassified_or_hidden",
+        "tests/lsp/test_standalone_stdlib_navigation.py::test_standalone_stdlib_definition_without_project_lock",
+        "tests/lsp/test_standalone_stdlib_navigation.py::test_standalone_stdlib_navigation_rejects_unretained_source"
       ]
     },
     {
@@ -171,6 +207,37 @@
       ]
     },
     {
+      "id": "SIM-004",
+      "source_paths": [
+        "tests/simulation/test_resettable_write_controls.py",
+        "zlang/simulation_edge_lowering.py",
+        "zlang/simulation_lowering.py"
+      ],
+      "status": "included",
+      "summary": "Native resettable register plans retain source write controls, reset priority, U/X control errors and atomic rollback without changing the runtime ABI.",
+      "tests": [
+        "tests/simulation/test_resettable_write_controls.py::test_reset_overrides_unknown_write_control_and_false_guard_holds",
+        "tests/simulation/test_resettable_write_controls.py::test_resettable_known_controls_match_actual_direct_sv",
+        "tests/simulation/test_resettable_write_controls.py::test_resettable_unknown_write_enable_rolls_back_even_when_output_is_known"
+      ]
+    },
+    {
+      "id": "SIM-005",
+      "source_paths": [
+        "tests/integration/test_comparison_stimulus.py",
+        "tests/integration/test_comparison_work_directory.py",
+        "zlang/simulation_compare.py",
+        "zlang/simulation_comparison_testbench.py"
+      ],
+      "status": "included",
+      "summary": "Native/RTL comparison resolves safe work directories before execution and replays hashed sparse-update stimuli without unrolling one executable block per event.",
+      "tests": [
+        "tests/integration/test_comparison_stimulus.py::test_long_comparison_stimulus_and_exact_sparse_update_semantics",
+        "tests/integration/test_comparison_work_directory.py::test_comparison_nested_work_directory",
+        "tests/integration/test_comparison_work_directory.py::test_comparison_work_directory_still_rejects_symlink_and_nonempty"
+      ]
+    },
+    {
       "id": "VSIX-001",
       "source_paths": [
         "editors/vscode/zlang-hdl/extension.js",
@@ -220,6 +287,19 @@
         "tests/integration/test_native_debug_bundle.py::test_debug_action_ranges_stop_before_the_following_rule",
         "tests/integration/test_native_debug_bundle.py::test_debug_site_covers_typed_actions_without_changing_the_execution_plan",
         "tests/integration/test_native_debug_controls.py::test_source_breakpoint_highlights_requested_line_until_execution_resumes"
+      ]
+    },
+    {
+      "id": "VSIX-004",
+      "source_paths": [
+        "editors/vscode/zlang-hdl/syntaxes/zlang.tmLanguage.json",
+        "editors/vscode/zlang-hdl/test/tokenize.test.cjs",
+        "tests/editor/test_vscode_surface.py"
+      ],
+      "status": "included",
+      "summary": "TextMate module parameter scopes close before inline or multiline where constraints, comments and nested typed parameters; normal body and following-module scopes remain intact.",
+      "tests": [
+        "tests/editor/test_vscode_surface.py::test_module_generic_where_has_bounded_tokenization_regressions"
       ]
     },
     {
@@ -344,6 +424,180 @@
         "tests/lsp/test_declaration_diagnostics.py::test_declaration_diagnostics_follow_edits_and_clear",
         "tests/lsp/test_declaration_diagnostics.py::test_imported_type_error_retains_definition_file_and_digest",
         "tests/semantic/test_declaration_origins.py::test_type_origin_binding_preserves_all_exception_metadata"
+      ]
+    },
+    {
+      "id": "ZL-058",
+      "source_paths": [
+        "tests/integration/test_fixed_signed_unsigned_saturation.py",
+        "zlang/backend/systemverilog/expression.py"
+      ],
+      "status": "included",
+      "summary": "Signed-to-unsigned saturation clamps before losing the source sign and avoids an unsigned lower comparison, with exhaustive native/actual-RTL and mutation controls.",
+      "tests": [
+        "tests/integration/test_fixed_signed_unsigned_saturation.py::test_saturate_actual_rtl_all_inputs",
+        "tests/integration/test_fixed_signed_unsigned_saturation.py::test_saturate_native_verilator",
+        "tests/integration/test_fixed_signed_unsigned_saturation.py::test_saturate_sign_mutation_has_actual_rtl_counterexample"
+      ]
+    },
+    {
+      "id": "ZL-059",
+      "source_paths": [
+        "tests/semantic/test_constant_predicate_values.py",
+        "tests/semantic/test_instance_default_inference.py",
+        "tests/semantic/test_typed_constant_constraints.py",
+        "zlang/backend/expression_constant_folding.py",
+        "zlang/ir/constants.py",
+        "zlang/semantic/callable_specialization_bindings.py",
+        "zlang/semantic/compile_time_evaluation.py",
+        "zlang/semantic/instances.py",
+        "zlang/semantic/module_declarations.py"
+      ],
+      "status": "included",
+      "summary": "Generic constants, exact predicates and callee-owned derived defaults preserve typed numerical semantics; implementation-only module defaults no longer force premature sibling-input inference.",
+      "tests": [
+        "tests/semantic/test_constant_predicate_values.py::test_constant_predicate_never_accepts_runtime_guard_even_if_result_cancels",
+        "tests/semantic/test_instance_default_inference.py::test_unrelated_default_does_not_evaluate_forward_sibling",
+        "tests/semantic/test_typed_constant_constraints.py::test_callable_derived_default_cannot_capture_caller_parameter",
+        "tests/semantic/test_typed_constant_constraints.py::test_typed_constant_where_accepts_exact_integer_value"
+      ]
+    },
+    {
+      "id": "ZL-060",
+      "source_paths": [
+        "tests/integration/test_storage_control_locals.py",
+        "tests/semantic/test_storage_control_locals.py",
+        "zlang/compilation_selection.py",
+        "zlang/semantic/module_behavior.py",
+        "zlang/semantic/storage_validation.py"
+      ],
+      "status": "included",
+      "summary": "FIFO, memory and ROM controls consume elaborated immutable locals and selected-IR inlining preserves those expression roots, exact ranges, domains and feedback rejection.",
+      "tests": [
+        "tests/integration/test_storage_control_locals.py::test_rom_alias_actual_rtl_proven",
+        "tests/integration/test_storage_control_locals.py::test_storage_alias_native_direct_sv",
+        "tests/semantic/test_storage_control_locals.py::test_combinational_memory_feedback_through_local_is_rejected",
+        "tests/semantic/test_storage_control_locals.py::test_global_storage_controls_accept_typed_locals",
+        "tests/semantic/test_storage_control_locals.py::test_rom_local_range_is_checked_not_only_its_type"
+      ]
+    },
+    {
+      "id": "ZL-061",
+      "source_paths": [
+        "tests/semantic/test_compile_time_bitwise_conditions.py",
+        "zlang/semantic/compile_time_evaluation.py"
+      ],
+      "status": "included",
+      "summary": "Compile-time integer bitwise predicates share exact arithmetic semantics across conditions, constraints and generated masks while runtime operands remain rejected.",
+      "tests": [
+        "tests/semantic/test_compile_time_bitwise_conditions.py::test_bitwise_compile_time_if_never_admits_runtime_operands",
+        "tests/semantic/test_compile_time_bitwise_conditions.py::test_parameter_bitwise_if_matches_independent_integers"
+      ]
+    },
+    {
+      "id": "ZL-062",
+      "source_paths": [
+        "tests/semantic/test_callable_default_input_types.py",
+        "zlang/semantic/callables.py",
+        "zlang/semantic/generic_binding.py"
+      ],
+      "status": "included",
+      "summary": "Composite callable input types resolve declaration-owned derived generic defaults without capturing caller parameters; explicit arguments and exact input widths retain precedence.",
+      "tests": [
+        "tests/semantic/test_callable_default_input_types.py::test_derived_default_in_exact_input_type",
+        "tests/semantic/test_callable_default_input_types.py::test_input_default_cannot_capture_same_named_caller_parameter",
+        "tests/semantic/test_callable_default_input_types.py::test_wrong_input_width_still_rejects"
+      ]
+    },
+    {
+      "id": "ZL-063",
+      "source_paths": [
+        "tests/integration/test_callable_lexical_indices_rtl.py",
+        "tests/semantic/test_callable_lexical_indices.py",
+        "zlang/semantic/callable_functional_specialization.py",
+        "zlang/semantic/callables.py"
+      ],
+      "status": "included",
+      "summary": "Callable indices and range refinements remain lexical to the callee; functional specialization restores its typed body parameters rather than capturing caller binders.",
+      "tests": [
+        "tests/integration/test_callable_lexical_indices_rtl.py::test_callable_index_scope_actual_rtl_proven",
+        "tests/semantic/test_callable_lexical_indices.py::test_callee_cannot_capture_undeclared_caller_index",
+        "tests/semantic/test_callable_lexical_indices.py::test_callee_does_not_inherit_same_named_caller_index_range"
+      ]
+    },
+    {
+      "id": "ZL-064",
+      "source_paths": [
+        "tests/integration/test_guard_refinement_budget_rtl.py",
+        "tests/semantic/test_guard_refinement_budget.py",
+        "zlang/ir/callables.py",
+        "zlang/semantic/state.py"
+      ],
+      "status": "included",
+      "summary": "Optional guard refinement retains a fully validated opaque call on expansion-budget exhaustion without inventing index bounds; mandatory analyses still fail closed.",
+      "tests": [
+        "tests/integration/test_guard_refinement_budget_rtl.py::test_large_guard_actual_rtl_proven",
+        "tests/semantic/test_guard_refinement_budget.py::test_budget_fallback_revalidates_entire_retained_graph",
+        "tests/semantic/test_guard_refinement_budget.py::test_mandatory_analysis_does_not_accept_an_incomplete_view"
+      ]
+    },
+    {
+      "id": "ZL-065",
+      "source_paths": [
+        "tests/semantic/test_deep_expression_lowering.py",
+        "zlang/opt/expression_lowering.py"
+      ],
+      "status": "included",
+      "summary": "Canonical expression lowering traverses deep pure DAGs without Python recursion while retaining exact types, deterministic numbering, sharing and cycle rejection.",
+      "tests": [
+        "tests/semantic/test_deep_expression_lowering.py::test_deep_chain_preserves_all_typed_operations",
+        "tests/semantic/test_deep_expression_lowering.py::test_invalid_cyclic_ir_fails_without_recursive_diagnostic",
+        "tests/semantic/test_deep_expression_lowering.py::test_shared_and_copied_diamonds_preserve_numbering"
+      ]
+    },
+    {
+      "id": "ZL-066",
+      "source_paths": [
+        "tests/integration/test_packed_reduction_widths.py",
+        "tests/integration/test_packed_struct_widths.py",
+        "tests/integration/test_single_bit_vector_projection.py",
+        "zlang/backend/systemverilog/expression.py",
+        "zlang/backend/systemverilog/module_rendering.py"
+      ],
+      "status": "included",
+      "summary": "Direct-SV sizes packed reduction elements and struct fields to exact typed widths and projects singleton bit vectors as scalar values across supported RTL frontends.",
+      "tests": [
+        "tests/integration/test_packed_reduction_widths.py::test_packed_parity_elements_match_universal_rtl_reference",
+        "tests/integration/test_packed_struct_widths.py::test_widened_subtraction_in_aggregate_actual_rtl",
+        "tests/integration/test_single_bit_vector_projection.py::test_single_bit_vector_projection_universal_actual_rtl"
+      ]
+    },
+    {
+      "id": "ZL-067",
+      "source_paths": [
+        "tests/backend/test_copied_function_regions.py",
+        "zlang/backend/systemverilog/module_rendering.py"
+      ],
+      "status": "included",
+      "summary": "Copied pure functional regions share their local producer, closed complex captures are emitted once outside loops, and conflicting aliases or distinct captures are not silently merged.",
+      "tests": [
+        "tests/backend/test_copied_function_regions.py::test_alias_conflict_still_fails_closed",
+        "tests/backend/test_copied_function_regions.py::test_closed_region_owns_complex_capture_once_before_its_loop",
+        "tests/backend/test_copied_function_regions.py::test_copied_function_regions_have_one_local_producer",
+        "tests/backend/test_copied_function_regions.py::test_distinct_captures_are_not_merged"
+      ]
+    },
+    {
+      "id": "ZL-068",
+      "source_paths": [
+        "tests/systemverilog/test_reserved_release_identifier.py",
+        "zlang/backend/identifiers.py"
+      ],
+      "status": "included",
+      "summary": "SystemVerilog release identifiers are escaped on physical ports and hierarchical bindings while source identity and collision rejection are preserved.",
+      "tests": [
+        "tests/systemverilog/test_reserved_release_identifier.py::test_release_mangling_collision_is_not_silently_aliased",
+        "tests/systemverilog/test_reserved_release_identifier.py::test_release_port_and_hierarchy_use_physical_names_only"
       ]
     }
   ],

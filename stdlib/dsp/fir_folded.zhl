@@ -1,0 +1,144 @@
+import std.dsp.fir_coefficients
+
+// Constant indices keep selection valid for every N, including non-powers of
+// two. This is a bit-exact selector, not a numeric conversion or a table load.
+fn fir_folded_select<W,F,N,IW>(values:vec<N,fixed<W,F>>, index:uint<IW>) -> fixed<W,F> {
+    bitcast<fixed<W,F>>(reduce(|, generate(i in 0..N)
+        mux(index == i, bitcast<bits<W>>(values[i]), zeros<W>)))
+}
+
+// The external bank owner holds coefficients while this datapath is busy.
+// One accepted window, one logical product, one full-precision accumulator.
+module FirFoldedRuntimeExact<SW,SF,CW,CF,N,IW=index_width(N),PW=SW+CW,
+                             AW=PW+ceil_log2(N)>
+where N >= 1 && N <= 32 && IW == index_width(N)
+   && PW == SW+CW && AW == PW+ceil_log2(N) {
+    clock clk reset rst
+    in input : rv<fixed<SW,SF>>
+    in coefficients : vec<N,fixed<CW,CF>>
+    in block_input : bit
+    out output : rv<fixed<AW,SF+CF>>
+    out idle : bit
+    reg pending : bit = 0
+    reg result : fixed<AW,SF+CF> = 0
+    available = ~pending | output.ready
+    output.valid = pending
+    output.payload = result
+
+    if N == 1 {
+        idle = available
+        input.ready = available & ~block_input
+        when available { pending <- input.valid & ~block_input }
+        when input.transfer { result <- input.payload * coefficients[0] }
+    } else {
+        reg busy : bit = 0
+        reg tap : uint<IW> = 0
+        reg window : vec<N,fixed<SW,SF>> = generate(i in 0..N) 0
+        reg accumulator : fixed<AW,SF+CF> = 0
+        ready_for_window = ~busy & available
+        idle = ready_for_window
+        input.ready = ready_for_window & ~block_input
+        // Arithmetic mode depends only on occupied/busy state. Ready/valid
+        // controls acceptance, not the multiplier's data-selection path.
+        operand = busy ? fir_folded_select<W=SW,F=SF,N=N,IW=IW>(window,tap)
+            : input.payload
+        coefficient = busy
+            ? fir_folded_select<W=CW,F=CF,N=N,IW=IW>(coefficients,tap)
+            : coefficients[0]
+        product = operand * coefficient
+        first = bitcast<fixed<AW,SF+CF>>(
+            extend<AW>(bitcast<sint<PW>>(product)))
+        // Each prefix has at most N full signed products. The accumulator's
+        // ceil_log2(N) headroom makes this carry-bit removal exact; fractional
+        // bits never change and there is no intermediate quantization.
+        accumulated = bitcast<fixed<AW,SF+CF>>(
+            truncate<AW>(bitcast<sint<AW>>(accumulator)
+                + bitcast<sint<PW>>(product)))
+        when busy {
+            accumulator <- accumulated
+            when tap == N-1 {
+                busy <- 0
+                pending <- 1
+                result <- accumulated
+            } else { tap <- truncate(tap + 1) }
+        } else when input.transfer {
+            busy <- 1
+            tap <- 1
+            pending <- 0
+            accumulator <- first
+            window <- generate(i in 0..N)
+                if i == 0 { input.payload } else { window[i-1] }
+        } else when output.transfer { pending <- 0 }
+    }
+}
+
+module RvFirFoldedExact<SW,SF,CW,CF,N,coefficients:vec<N,fixed<CW,CF>>>
+where N >= 1 && N <= 32 {
+    clock clk reset rst
+    in input : rv<fixed<SW,SF>>
+    out output : rv<fixed<SW+CW+ceil_log2(N),SF+CF>>
+    core : FirFoldedRuntimeExact<SW=SW,SF=SF,CW=CW,CF=CF,N=N>
+    connect input -> core.input
+    connect core.output -> output
+    core.coefficients = coefficients
+    core.block_input = 0
+}
+
+module RvFirFoldedReloadableExact<SW,SF,CW,CF,N,
+                               initial_coefficients:vec<N,fixed<CW,CF>>>
+where N >= 1 && N <= 32 {
+    clock clk reset rst
+    in input : rv<fixed<SW,SF>>
+    in reload : rv<fixed<CW,CF>>
+    in commit : bit
+    out commit_ready : bit
+    out output : rv<fixed<SW+CW+ceil_log2(N),SF+CF>>
+    bank : FirCoefficientBanks<CW=CW,CF=CF,N=N,initial_coefficients=initial_coefficients>
+    core : FirFoldedRuntimeExact<SW=SW,SF=SF,CW=CW,CF=CF,N=N>
+    connect input -> core.input
+    connect reload -> bank.reload
+    connect core.output -> output
+    bank.commit = commit
+    bank.idle = core.idle
+    commit_ready = bank.commit_ready
+    core.block_input = bank.block_input
+    core.coefficients = bank.coefficients
+}
+
+// The only quantization is after the exact core's pending-result register.
+module RvFirFoldedNearestEvenSaturate<SW,SF,CW,CF,N,OW,OF,
+                                    coefficients:vec<N,fixed<CW,CF>>>
+where N >= 1 && N <= 32 {
+    clock clk reset rst
+    in input : rv<fixed<SW,SF>>
+    out output : rv<fixed<OW,OF>>
+    core : RvFirFoldedExact<SW=SW,SF=SF,CW=CW,CF=CF,N=N,coefficients=coefficients>
+    connect input -> core.input
+    core.output.ready = output.ready
+    output.valid = core.output.valid
+    output.payload = quantize<fixed<OW,OF>>(core.output.payload) {
+        round nearest_even overflow saturate
+    }
+}
+
+module RvFirFoldedReloadableNearestEvenSaturate<SW,SF,CW,CF,N,OW,OF,
+                                              initial_coefficients:vec<N,fixed<CW,CF>>>
+where N >= 1 && N <= 32 {
+    clock clk reset rst
+    in input : rv<fixed<SW,SF>>
+    in reload : rv<fixed<CW,CF>>
+    in commit : bit
+    out commit_ready : bit
+    out output : rv<fixed<OW,OF>>
+    core : RvFirFoldedReloadableExact<SW=SW,SF=SF,CW=CW,CF=CF,N=N,
+                                     initial_coefficients=initial_coefficients>
+    connect input -> core.input
+    connect reload -> core.reload
+    core.commit = commit
+    commit_ready = core.commit_ready
+    core.output.ready = output.ready
+    output.valid = core.output.valid
+    output.payload = quantize<fixed<OW,OF>>(core.output.payload) {
+        round nearest_even overflow saturate
+    }
+}

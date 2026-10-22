@@ -17,7 +17,7 @@ from zlang.ir.signed_reductions import expression_semantic_identity
 from zlang.target_mapping_identity import _semantic_mapping_identity
 
 
-RTL_ARITHMETIC_PROOF_SCHEMA = "zlang-rtl-arithmetic-normalization-v1"
+RTL_ARITHMETIC_PROOF_SCHEMA = "zlang-rtl-arithmetic-normalization-v2"
 
 
 def validate_physical_joint_value(module, implementation):

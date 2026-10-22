@@ -65,6 +65,7 @@ def _resolved_module_value_parameters(
                 description=f"value parameter '{parameter.name}'",
                 allow_zero=True,
                 allow_negative=True,
+                unspecialized_parameters=frozenset(unresolved),
             )
         values[parameter.name] = value
         resolver._parameter_values[parameter.name] = value
@@ -76,6 +77,7 @@ def _check_module_parameter_constraint(
     type_resolver: type_resolution.TypeResolver,
     parameter_values: dict[str, int],
     unresolved_parameter_names: frozenset[str],
+    constant_bindings: dict[str, ir_expr.Expression] | None,
     source_unit: str | None,
     source_digest: str | None,
 ) -> None:
@@ -93,6 +95,7 @@ def _check_module_parameter_constraint(
         semantic_context.AnalysisServices(),
         semantic_context.ExpressionScope(
             allow_delay=False,
+            compile_time_constants=dict(constant_bindings or {}),
             source_unit=source_unit,
             source_digest=source_digest,
         ),
@@ -246,6 +249,7 @@ class DeclarationAndCallablePreparer:
         type_resolver._parameter_values.update(parameter_values)
         _check_module_parameter_constraint(
             module, type_resolver, parameter_values, unresolved_parameter_names,
+            specialization_constant_bindings,
             effective_source_unit, effective_source_digest,
         )
         module = replace(

@@ -1,0 +1,124 @@
+struct FarrowSample<SW,SF,MF> {
+    sample : fixed<SW,SF>
+    mu_raw : uint<MF>
+}
+
+// The extra zero bit makes mu a nonnegative signed fixed-point operand.
+// Product and addition widths are exact; there is no intermediate conversion.
+fn farrow_horner_step<B,F,MF,I>(
+    value:fixed<B+I*(MF+2),F+I*MF>, addend:fixed<B,F>, mu_raw:uint<MF>) {
+    mu = bitcast<fixed<MF+1,MF>>(concat(0b0,bitcast<bits<MF>>(mu_raw)))
+    aligned = bitcast<fixed<B+(I+1)*MF,F+(I+1)*MF>>(
+        concat(bitcast<bits<B>>(addend),zeros<(I+1)*MF>))
+    aligned + mu*value
+}
+
+module RvFarrowFixedExact<SW,SF,CW,CF,M,K,MF,J=M+1,
+                         B=SW+CW+ceil_log2(K),F=SF+CF,
+                         coefficients:vec<J,vec<K,fixed<CW,CF>>>>
+where M >= 0 && M <= 3 && K >= 1 && K <= 8 && MF >= 1
+   && J == M+1 && B == SW+CW+ceil_log2(K) && F == SF+CF {
+    clock clk reset rst
+    in input : rv<FarrowSample<SW,SF,MF>>
+    out output : rv<fixed<B+M*(MF+2),F+M*MF>>
+
+    reg valid : vec<J,bit> = generate(i in 0..J) 0
+    reg mus : vec<J,uint<MF>> = generate(i in 0..J) 0
+    reg dots : vec<J,vec<J,fixed<B,F>>> = generate(i in 0..J)
+        generate(j in 0..J) 0
+    advance = ~valid[M] | output.ready
+    input.ready = advance
+    output.valid = valid[M]
+    current : fixed<SW,SF> = input.valid ? input.payload.sample : 0
+    // The last lane has no consumers and is eliminated by ordinary RTL
+    // synthesis. A nonempty source vector also admits the K=1 specialization.
+    reg history : vec<K,fixed<SW,SF>> = generate(i in 0..K) 0
+    samples = generate(i in 0..K) if i == 0 {current} else {history[i-1]}
+    when input.transfer {
+        history <- generate(i in 0..K) if i == 0 {input.payload.sample} else {history[i-1]}
+    }
+    subfilters = generate(j in 0..J) dot(samples,coefficients[j])
+    when advance {
+        valid <- generate(i in 0..J) if i == 0 {input.valid} else {valid[i-1]}
+        mus <- generate(i in 0..J) if i == 0 {
+            input.valid ? input.payload.mu_raw : 0
+        } else {mus[i-1]}
+        dots <- generate(i in 0..J) if i == 0 {subfilters} else {dots[i-1]}
+    }
+    if M == 0 {
+        output.payload = dots[0][0]
+    } else {
+        reg h1 : fixed<B+MF+2,F+MF> = 0
+        when advance {
+            h1 <- farrow_horner_step<B=B,F=F,MF=MF,I=0>(dots[0][M],dots[0][M-1],mus[0])
+        }
+        if M == 1 {
+            output.payload = h1
+        } else {
+            reg h2 : fixed<B+2*(MF+2),F+2*MF> = 0
+            when advance {
+                h2 <- farrow_horner_step<B=B,F=F,MF=MF,I=1>(h1,dots[1][M-2],mus[1])
+            }
+            if M == 2 {
+                output.payload = h2
+            } else {
+                reg h3 : fixed<B+3*(MF+2),F+3*MF> = 0
+                when advance {
+                    h3 <- farrow_horner_step<B=B,F=F,MF=MF,I=2>(h2,dots[2][0],mus[2])
+                }
+                output.payload = h3
+            }
+        }
+    }
+}
+
+module RvFarrowFixedNearestEvenSaturate<SW,SF,CW,CF,M,K,MF,OW,OF,J=M+1,
+                                      coefficients:vec<J,vec<K,fixed<CW,CF>>>>
+where M >= 0 && M <= 3 && K >= 1 && K <= 8 && MF >= 1 && J == M+1 {
+    clock clk reset rst
+    in input : rv<FarrowSample<SW,SF,MF>>
+    out output : rv<fixed<OW,OF>>
+    core : RvFarrowFixedExact<SW=SW,SF=SF,CW=CW,CF=CF,M=M,K=K,MF=MF,
+                              coefficients=coefficients>
+    input -> core.input
+    core.output.ready = output.ready
+    output.valid = core.output.valid
+    output.payload = quantize<fixed<OW,OF>>(core.output.payload) {
+        round nearest_even overflow saturate
+    }
+}
+
+// Stored binary coefficients, nearest-even Q2.16 approximations. The cubic
+// polynomial approximates Lagrange delay 1+mu; thirds are not exact rationals.
+fn farrow_lagrange_linear_q16() -> vec<2,vec<2,fixed<18,16>>> {
+    [[1,0],[-1,1]]
+}
+
+fn farrow_lagrange_cubic_q16() -> vec<4,vec<4,fixed<18,16>>> {
+    [[0,1,0,0],
+     [-0.3333282470703125,-0.5,1,-0.1666717529296875],
+     [0.5,-1,0.5,0],
+     [-0.1666717529296875,0.5,-0.5,0.1666717529296875]]
+}
+
+module RvFarrowLagrangeLinear<SW,SF,MF> where MF >= 1 {
+    clock clk reset rst
+    in input : rv<FarrowSample<SW,SF,MF>>
+    out output : rv<fixed<SW+MF+21,SF+MF+16>>
+    taps = farrow_lagrange_linear_q16()
+    core : RvFarrowFixedExact<SW=SW,SF=SF,CW=18,CF=16,M=1,K=2,MF=MF,
+                              coefficients=taps>
+    input -> core.input
+    core.output -> output
+}
+
+module RvFarrowLagrangeCubic<SW,SF,MF> where MF >= 1 {
+    clock clk reset rst
+    in input : rv<FarrowSample<SW,SF,MF>>
+    out output : rv<fixed<SW+3*MF+26,SF+3*MF+16>>
+    taps = farrow_lagrange_cubic_q16()
+    core : RvFarrowFixedExact<SW=SW,SF=SF,CW=18,CF=16,M=3,K=4,MF=MF,
+                              coefficients=taps>
+    input -> core.input
+    core.output -> output
+}

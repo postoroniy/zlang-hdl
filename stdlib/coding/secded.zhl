@@ -1,0 +1,86 @@
+// Extended Hamming: data LSB first in increasing non-power-of-two positions;
+// Hamming parity in positions 1,2,4,... and overall parity in the final bit.
+enum SecdedStatus { clean corrected detected_uncorrectable }
+
+struct SecdedDecoded<K,R> {
+    data : bits<K>
+    syndrome : uint<R>
+    status : SecdedStatus
+    data_valid : bit
+}
+
+// Compile-time column mask; bit i belongs to parity equation J iff the
+// one-based Hamming position i+1 has bit J set.
+fn secded_column_mask<H,J>() -> bits<H> {
+    bitcast<bits<H>>(generate(i in 0..H)
+        if ((i+1) & (1 << J)) != 0 { 0b1 } else { 0b0 })
+}
+
+fn secded_encode<K,Q=ceil_log2(K+1),R=ceil_log2(K+Q+1),H=K+R>(
+    data:bits<K>) -> bits<H+1> {
+    base = bitcast<bits<H>>(generate(i in 0..H)
+        if is_power_of_two(i+1) { bitcast<bit>(0b0) }
+        else { data[i-1-floor_log2(i+1)] })
+    checks = generate(j in 0..R)
+        parity(base & secded_column_mask<H=H,J=j>())
+    hamming = bitcast<bits<H>>(generate(i in 0..H)
+        if is_power_of_two(i+1) { checks[floor_log2(i+1)] }
+        else { base[i] })
+    concat(parity(hamming),hamming)
+}
+
+fn secded_decode<K,Q=ceil_log2(K+1),R=ceil_log2(K+Q+1),H=K+R>(
+    received:bits<H+1>) -> SecdedDecoded<K,R> {
+    hamming = received[H-1:0]
+    syndrome = bitcast<uint<R>>(generate(j in 0..R)
+        parity(hamming & secded_column_mask<H=H,J=j>()))
+    odd = parity(received)
+    syndrome_valid = if H == (1 << R)-1 { bitcast<bit>(0b1) }
+        else { syndrome <= H }
+    correctable = odd & syndrome_valid
+    bad = ((syndrome != 0) & ~odd) | ~syndrome_valid
+    corrected = bitcast<bits<H>>(generate(i in 0..H)
+        (hamming[i] ^ (correctable & (syndrome == i+1))))
+    data = reduce(|, generate(i in 0..H)
+        if is_power_of_two(i+1) { zeros<K> }
+        else { extend<K>(bitcast<bits<1>>(corrected[i])) << (i-1-floor_log2(i+1)) })
+    SecdedDecoded {
+        data
+        syndrome
+        status = bad ? SecdedStatus.detected_uncorrectable
+            : (odd ? SecdedStatus.corrected : SecdedStatus.clean)
+        data_valid = ~bad
+    }
+}
+
+module RvSecdedEncode<K,Q=ceil_log2(K+1),R=ceil_log2(K+Q+1),H=K+R>
+where K >= 1 && K <= 64 && Q == ceil_log2(K+1) && H == K+R
+   && (1 << R) >= K+R+1 && (1 << (R-1)) < K+R {
+    clock clk reset rst
+    in input : rv<bits<K>>
+    out output : rv<bits<H+1>>
+    reg pending : bit = 0
+    reg result : bits<H+1> = 0
+    input.ready = ~pending | output.ready
+    output.valid = pending
+    output.payload = result
+    when input.ready { pending <- input.valid }
+    when input.transfer { result <- secded_encode<K=K,R=R,H=H>(input.payload) }
+}
+
+module RvSecdedDecode<K,Q=ceil_log2(K+1),R=ceil_log2(K+Q+1),H=K+R>
+where K >= 1 && K <= 64 && Q == ceil_log2(K+1) && H == K+R
+   && (1 << R) >= K+R+1 && (1 << (R-1)) < K+R {
+    clock clk reset rst
+    in input : rv<bits<H+1>>
+    out output : rv<SecdedDecoded<K,R>>
+    reg pending : bit = 0
+    reg result : SecdedDecoded<K,R> = SecdedDecoded {
+        data = 0 syndrome = 0 status = SecdedStatus.clean data_valid = 0
+    }
+    input.ready = ~pending | output.ready
+    output.valid = pending
+    output.payload = result
+    when input.ready { pending <- input.valid }
+    when input.transfer { result <- secded_decode<K=K,R=R,H=H>(input.payload) }
+}

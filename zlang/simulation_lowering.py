@@ -504,6 +504,16 @@ def lower_to_primitive_plan(
     ]
     next_by_domain: dict[str, dict[str, int]] = {}
     refresh_by_domain: dict[str, dict[str, int | None]] = {}
+    # Source write predicates also control initialized registers. Omitting them
+    # turns an unknown guard into an unconditional X-valued state write. Keep
+    # storage-managed synthetic registers with their existing finalizer owner.
+    source_write_targets = {item["target"] for item in payload["direct_next"]}
+    source_write_targets.update(
+        action["target"]
+        for transition in payload["transitions"]
+        for action in transition["actions"]
+        if action["kind"] == "register_write"
+    )
     for register in registers:
         domain = register["domain"]
         if domain is None:
@@ -511,7 +521,7 @@ def lower_to_primitive_plan(
         next_by_domain.setdefault(domain, {})[register["name"]] = builder.emit(
             "load_state", register["width"], attributes={"name": register["name"]}
         )
-        if not register["resettable"]:
+        if not register["resettable"] or register["name"] in source_write_targets:
             refresh_by_domain.setdefault(domain, {})[register["name"]] = None
 
     def condition(identifier: int | None) -> int:

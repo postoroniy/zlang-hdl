@@ -1,0 +1,118 @@
+// Parallel decimation bank: phase p owns coefficients p, p+R, p+2R, ... .
+// Full precision is retained across the phase dots and final reduction.
+module RvPolyphaseFirDecimatorExact<SW,SF,CW,CF,R,K,N=R*K,H=N-1,
+                                   PW=index_width(R),coefficients:vec<N,fixed<CW,CF>>>
+where R >= 1 && K >= 1 && N == R*K && H == N-1 && PW == index_width(R) {
+    clock clk reset rst
+    in input : rv<fixed<SW,SF>>
+    out output : rv<fixed<SW+CW+ceil_log2(N),SF+CF>>
+    reg phase : uint<PW> = 0
+    reg pending : bit = 0
+    reg result : fixed<SW+CW+ceil_log2(N),SF+CF> = 0
+    input.ready = ~pending | output.ready
+    output.valid = pending
+    output.payload = result
+    due = phase == R-1
+    when input.ready { pending <- input.valid & due }
+    when input.transfer { phase <- due ? 0 : truncate<PW>(phase + 1) }
+    if N == 1 {
+        when input.transfer { result <- dot([input.payload], coefficients) }
+    } else {
+        reg history : vec<H,fixed<SW,SF>> = generate(i in 0..H) 0
+        samples : vec<N,fixed<SW,SF>> = generate(i in 0..N)
+            if i == 0 { input.payload } else { history[i-1] }
+        partials = generate(p in 0..R) dot(
+            generate(k in 0..K) samples[p+R*k],
+            generate(k in 0..K) coefficients[p+R*k]
+        )
+        // Only redundant guard bits from the two-level tree are removed.
+        exact = quantize<fixed<SW+CW+ceil_log2(N),SF+CF>>(sum(partials)) {
+            round floor overflow wrap
+        }
+        when input.transfer {
+            history <- generate(i in 0..H)
+                if i == 0 { input.payload } else { history[i-1] }
+            when due { result <- exact }
+        }
+    }
+}
+
+module RvPolyphaseFirDecimatorNearestEvenSaturate<SW,SF,CW,CF,R,K,OW,OF,
+                                                N=R*K,coefficients:vec<N,fixed<CW,CF>>>
+where R >= 1 && K >= 1 && N == R*K {
+    clock clk reset rst
+    in input : rv<fixed<SW,SF>>
+    out output : rv<fixed<OW,OF>>
+    inst core : RvPolyphaseFirDecimatorExact<SW=SW,SF=SF,CW=CW,CF=CF,R=R,K=K,
+                                              coefficients=coefficients>
+    connect input -> core.input
+    core.output.ready = output.ready
+    output.valid = core.output.valid
+    output.payload = quantize<fixed<OW,OF>>(core.output.payload) {
+        round nearest_even overflow saturate
+    }
+}
+
+// Every accepted sample produces one stored batch of R exact phase sums.
+// Coefficient p+R*k multiplies the kth accepted sample in that phase.
+fn fir_interpolation_batch<SW,SF,CW,CF,R,K,N=R*K>(
+    samples:vec<K,fixed<SW,SF>>, coefficients:vec<N,fixed<CW,CF>>) {
+    generate(p in 0..R) dot(samples,
+        generate(k in 0..K) coefficients[p+R*k])
+}
+
+module RvPolyphaseFirInterpolatorExact<SW,SF,CW,CF,R,K,N=R*K,H=K-1,
+                                     PW=index_width(R),AW=SW+CW+ceil_log2(K),
+                                     coefficients:vec<N,fixed<CW,CF>>>
+where R >= 1 && K >= 1 && N == R*K && H == K-1
+   && PW == index_width(R) && AW == SW+CW+ceil_log2(K) {
+    clock clk reset rst
+    in input : rv<fixed<SW,SF>>
+    out output : rv<fixed<AW,SF+CF>>
+    reg phase : uint<PW> = 0
+    reg pending : bit = 0
+    reg batch : vec<R,fixed<AW,SF+CF>> = generate(p in 0..R) 0
+    last = phase == R-1
+    input.ready = ~pending | (last & output.ready)
+    output.valid = pending
+    output.payload = bitcast<fixed<AW,SF+CF>>(reduce(|,
+        generate(p in 0..R) mux(phase == p, bitcast<bits<AW>>(batch[p]), zeros<AW>)))
+    when input.transfer {
+        phase <- 0
+        pending <- 1
+    } else when output.transfer {
+        when last { pending <- 0 } else { phase <- truncate<PW>(phase + 1) }
+    }
+    if K == 1 {
+        when input.transfer {
+            batch <- fir_interpolation_batch<SW=SW,SF=SF,CW=CW,CF=CF,R=R,K=K>(
+                [input.payload], coefficients)
+        }
+    } else {
+        reg history : vec<H,fixed<SW,SF>> = generate(i in 0..H) 0
+        samples : vec<K,fixed<SW,SF>> = generate(i in 0..K)
+            if i == 0 { input.payload } else { history[i-1] }
+        when input.transfer {
+            batch <- fir_interpolation_batch<SW=SW,SF=SF,CW=CW,CF=CF,R=R,K=K>(
+                samples, coefficients)
+            history <- generate(i in 0..H)
+                if i == 0 { input.payload } else { history[i-1] }
+        }
+    }
+}
+
+module RvPolyphaseFirInterpolatorNearestEvenSaturate<SW,SF,CW,CF,R,K,OW,OF,
+                                                  N=R*K,coefficients:vec<N,fixed<CW,CF>>>
+where R >= 1 && K >= 1 && N == R*K {
+    clock clk reset rst
+    in input : rv<fixed<SW,SF>>
+    out output : rv<fixed<OW,OF>>
+    core : RvPolyphaseFirInterpolatorExact<SW=SW,SF=SF,CW=CW,CF=CF,R=R,K=K,
+                                         coefficients=coefficients>
+    input -> core.input
+    core.output.ready = output.ready
+    output.valid = core.output.valid
+    output.payload = quantize<fixed<OW,OF>>(core.output.payload) {
+        round nearest_even overflow saturate
+    }
+}

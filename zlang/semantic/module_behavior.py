@@ -62,12 +62,6 @@ class ModuleBehaviorAnalyzer:
         module_context = state_storage.expression_context
         value_symbols = state_storage.value_symbols
         request_response_symbols = hardware.request_response_symbols
-        storage_product = storage_validation.StorageAnalyzer().analyze(
-            context,
-            preparation,
-            state_storage,
-            evaluator_schema=semantic_limits.COMPILE_TIME_EVALUATOR_SCHEMA,
-        )
         instance_specializer = semantic_instances.InstanceSpecializer(
             semantic_instances.InstanceAnalysisContext(
                 module=module,
@@ -160,6 +154,17 @@ class ModuleBehaviorAnalyzer:
                 name=declaration.target,
                 kind="value",
             )
+
+        # Storage controls may read immutable locals, just like next-state
+        # expressions. Resource symbols already exist in state_storage, so
+        # checking their controls after local elaboration creates no second
+        # name resolver and retains domain/range/dependency validation.
+        storage_product = storage_validation.StorageAnalyzer().analyze(
+            context,
+            preparation,
+            state_storage,
+            evaluator_schema=semantic_limits.COMPILE_TIME_EVALUATOR_SCHEMA,
+        )
 
         next_assignments: list[ir_module.NextAssignment] = []
         assigned_registers: set[str] = set()

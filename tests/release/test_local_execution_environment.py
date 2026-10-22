@@ -37,8 +37,12 @@ def test_runner_uses_unique_worktree_local_scratch() -> None:
         "print(json.dumps({'prefix': sys.prefix, 'tmp': os.environ['TMPDIR'], "
         "'tmp_alias': os.environ['TMP'], 'temp': os.environ['TEMP']}))"
     )
-    first = _run(str(RUNNER), "--purpose", "environment-test", "--", sys.executable, "-c", command)
-    second = _run(str(RUNNER), "--purpose", "environment-test", "--", sys.executable, "-c", command)
+    # This case tests default cleanup, independent of an outer diagnostic run
+    # deliberately retaining its own artifacts through KEEP_TMP=1.
+    environment = os.environ.copy()
+    environment.pop("KEEP_TMP", None)
+    first = _run(str(RUNNER), "--purpose", "environment-test", "--", sys.executable, "-c", command, env=environment)
+    second = _run(str(RUNNER), "--purpose", "environment-test", "--", sys.executable, "-c", command, env=environment)
     assert first.returncode == second.returncode == 0
     first_values = json.loads(first.stdout)
     second_values = json.loads(second.stdout)

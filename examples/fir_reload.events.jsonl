@@ -1,0 +1,9 @@
+{"reset":{"rst":true},"set":{"input":{"payload":0,"valid":0},"reload":{"payload":0,"valid":0},"commit":0,"output":{"ready":1}},"edges":["clk"]}
+{"reset":{"rst":false},"set":{"input":{"payload":8,"valid":1},"reload":{"payload":4,"valid":1}},"edges":["clk"]}
+{"set":{"input":{"payload":16,"valid":1},"reload":{"payload":-4,"valid":1}},"edges":["clk"]}
+{"set":{"input":{"payload":24,"valid":1},"reload":{"payload":2,"valid":1},"output":{"ready":0},"commit":1},"edges":["clk"]}
+{"set":{"reload":{"payload":0,"valid":0}},"edges":["clk"]}
+{"set":{"output":{"ready":1}},"edges":["clk"]}
+{"set":{"commit":0},"edges":["clk"]}
+{"set":{"input":{"payload":32,"valid":1}},"edges":["clk"]}
+{"set":{"input":{"payload":0,"valid":0}},"edges":["clk"]}

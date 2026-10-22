@@ -1,0 +1,5 @@
+{"reset":{"rst":true},"set":{"input":{"payload":{"data":0,"last":0},"valid":0},"mirror":{"ready":1},"checksum":{"ready":1}},"edges":["clk"]}
+{"reset":{"rst":false},"set":{"input":{"payload":{"data":97,"last":0},"valid":1}},"edges":["clk"]}
+{"set":{"input":{"payload":{"data":98,"last":0},"valid":1}},"edges":["clk"]}
+{"set":{"input":{"payload":{"data":99,"last":1},"valid":1}},"edges":["clk"]}
+{"set":{"input":{"payload":{"data":0,"last":0},"valid":0}},"edges":["clk"],"repeat":4}

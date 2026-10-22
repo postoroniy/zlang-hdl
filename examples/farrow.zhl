@@ -1,0 +1,13 @@
+import std.dsp.farrow
+
+// Four-edge cubic fractional delay with one final output conversion.
+module FarrowCubic {
+    clock clk reset rst
+    in input : rv<FarrowSample<16,14,16>>
+    out output : rv<fixed<16,14>>
+    taps = farrow_lagrange_cubic_q16()
+    core : RvFarrowFixedNearestEvenSaturate<SW=16,SF=14,CW=18,CF=16,
+        M=3,K=4,MF=16,OW=16,OF=14,coefficients=taps>
+    input -> core.input
+    core.output -> output
+}

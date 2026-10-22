@@ -1,0 +1,12 @@
+import std.dsp.cic
+
+// Three modular output samples per accepted input. Caller owns IW headroom;
+// the nominal constant-input gain is (R*M)^N/R = 12, without compensation.
+module CicInterpolatorExample {
+    clock clk reset rst
+    in input : rv<s8>
+    out output : rv<s16>
+    filter : RvCicInterpolator<SW=8,IW=16,R=3,N=2,M=2>
+    input -> filter.input
+    filter.output -> output
+}

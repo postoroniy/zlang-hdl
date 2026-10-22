@@ -1,0 +1,7 @@
+{"reset":{"rst":true},"set":{"input":{"payload":{"sample":0,"mu_raw":0},"valid":0},"output":{"ready":1}},"edges":["clk"]}
+{"reset":{"rst":false},"set":{"input":{"payload":{"sample":16384,"mu_raw":0},"valid":1}},"edges":["clk"]}
+{"set":{"input":{"payload":{"sample":0,"mu_raw":32768},"valid":1}},"edges":["clk"]}
+{"set":{"input":{"payload":{"sample":-16384,"mu_raw":65535},"valid":1}},"edges":["clk"]}
+{"set":{"input":{"payload":{"sample":8192,"mu_raw":16384},"valid":1}},"edges":["clk"]}
+{"set":{"input":{"payload":{"sample":0,"mu_raw":0},"valid":0},"output":{"ready":0}},"edges":["clk"],"repeat":2}
+{"set":{"output":{"ready":1}},"edges":["clk"],"repeat":8}

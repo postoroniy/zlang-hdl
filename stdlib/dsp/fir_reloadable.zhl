@@ -1,0 +1,72 @@
+import std.dsp.fir_coefficients
+
+// Exact parallel datapath. External bank owner freezes coefficients on commit.
+module FirRuntimeExact<SW,SF,CW,CF,N,H=N-1>where N >= 1 && H == N-1 {
+    clock clk reset rst
+    in input : rv<fixed<SW,SF>>
+    in coefficients : vec<N,fixed<CW,CF>>
+    in block_input : bit
+    out output : rv<fixed<SW+CW+ceil_log2(N),SF+CF>>
+    out idle : bit
+    reg pending : bit = 0
+    reg result : fixed<SW+CW+ceil_log2(N),SF+CF> = 0
+    available = ~pending | output.ready
+    idle = available
+    input.ready = available & ~block_input
+    output.valid = pending
+    output.payload = result
+    when available { pending <- input.valid & ~block_input }
+    if N == 1 {
+        when input.transfer { result <- dot([input.payload],coefficients) }
+    } else {
+        reg history : vec<H,fixed<SW,SF>> = generate(i in 0..H) 0
+        samples : vec<N,fixed<SW,SF>> = generate(i in 0..N)
+            if i == 0 { input.payload } else { history[i-1] }
+        when input.transfer {
+            result <- dot(samples,coefficients)
+            history <- generate(i in 0..H)
+                if i == 0 { input.payload } else { history[i-1] }
+        }
+    }
+}
+
+module RvFirReloadableExact<SW,SF,CW,CF,N,initial_coefficients:vec<N,fixed<CW,CF>>>
+where N >= 1 {
+    clock clk reset rst
+    in input : rv<fixed<SW,SF>>
+    in reload : rv<fixed<CW,CF>>
+    in commit : bit
+    out commit_ready : bit
+    out output : rv<fixed<SW+CW+ceil_log2(N),SF+CF>>
+    bank : FirCoefficientBanks<CW=CW,CF=CF,N=N,initial_coefficients=initial_coefficients>
+    core : FirRuntimeExact<SW=SW,SF=SF,CW=CW,CF=CF,N=N>
+    connect input -> core.input
+    connect reload -> bank.reload
+    connect core.output -> output
+    bank.commit = commit
+    bank.idle = core.idle
+    commit_ready = bank.commit_ready
+    core.block_input = bank.block_input
+    core.coefficients = bank.coefficients
+}
+
+module RvFirReloadableNearestEvenSaturate<SW,SF,CW,CF,N,OW,OF,
+                                       initial_coefficients:vec<N,fixed<CW,CF>>>
+where N >= 1 {
+    clock clk reset rst
+    in input : rv<fixed<SW,SF>>
+    in reload : rv<fixed<CW,CF>>
+    in commit : bit
+    out commit_ready : bit
+    out output : rv<fixed<OW,OF>>
+    core : RvFirReloadableExact<SW=SW,SF=SF,CW=CW,CF=CF,N=N,initial_coefficients=initial_coefficients>
+    connect input -> core.input
+    connect reload -> core.reload
+    core.commit = commit
+    commit_ready = core.commit_ready
+    core.output.ready = output.ready
+    output.valid = core.output.valid
+    output.payload = quantize<fixed<OW,OF>>(core.output.payload) {
+        round nearest_even overflow saturate
+    }
+}

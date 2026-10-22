@@ -1,0 +1,12 @@
+import std.dsp.cordic
+
+// Signed binary turns: -32768=-1/2 turn, 16384=1/4 turn.
+// Concise instance/connection forms; one requested angle per accepted beat.
+module Cordic {
+    clock clk reset rst
+    in input : rv<s16>
+    out output : rv<SinCos<fixed<16,14>>>
+    rotation : RvCordicSinCos<P=16,N=14>
+    input -> rotation.input
+    rotation.output -> output
+}

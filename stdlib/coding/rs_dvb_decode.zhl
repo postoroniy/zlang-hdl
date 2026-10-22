@@ -1,0 +1,252 @@
+import std.coding.rs_dvb_decoder_math
+import std.coding.rs_dvb_decoder_kernels
+import std.coding.rs_dvb_framing
+
+enum RsDvbDecodePhase {
+    receive bm_start bm_delta bm_ratio bm_update bm_finish locator_check
+    omega_start omega_accum omega_store scan_start scan_poly scan_ratio
+    scan_correct scan_advance roots_check recheck status_wait drain
+}
+
+// One frame, one shared variable GF multiplier. Polynomial evaluation and
+// BM updates are explicit sequential datapaths, not automatic scheduling.
+// Packet storage is registers; no BRAM or fixed decode latency is promised.
+module RvRsDvb204188Decode {
+    clock clk reset rst
+    in input : rv<RsByteBeat>
+    out status : rv<RsFrameStatus>
+    out output : rv<RsByteBeat>
+    framing : RsDvbFraming<N=204>
+    reg phase : RsDvbDecodePhase = RsDvbDecodePhase.receive
+    reg packet : vec<204,bits<8>> = generate(i in 0..204) 0
+    reg syndromes : vec<16,bits<8>> = generate(i in 0..16) 0
+    reg bm : RsDvbBmState = RsDvbBmState {
+        locator = generate(i in 0..17) if i == 0 {1} else {0}
+        previous_locator = generate(i in 0..17) if i == 0 {1} else {0}
+        degree=0 distance=1 previous=1
+    }
+    reg old_locator : vec<17,bits<8>> = generate(i in 0..17) 0
+    reg step : u5 = 0
+    reg tap : u5 = 0
+    reg accumulator : bits<8> = 0
+    reg delta : bits<8> = 0
+    reg ratio : bits<8> = 0
+    reg evaluator : vec<17,bits<8>> = generate(i in 0..17) 0
+    reg polynomial : u2 = 0
+    reg omega_value : bits<8> = 0
+    reg denominator : bits<8> = 0
+    reg exponent : u8 = 0
+    reg point : bits<8> = 1
+    reg reciprocal_point : bits<8> = 1
+    reg roots : u4 = 0
+    reg position : u8 = 0
+    reg result_status : RsStatus = RsStatus.clean
+
+    receiving = phase == RsDvbDecodePhase.receive
+    framing.valid = input.valid & receiving
+    framing.first = input.payload.first
+    framing.last = input.payload.last
+    input.ready = framing.ready & receiving
+    successful = (result_status == RsStatus.clean) | (result_status == RsStatus.corrected)
+    status.valid = phase == RsDvbDecodePhase.status_wait
+    status.payload = RsFrameStatus {
+        status=result_status
+        correction_count = result_status == RsStatus.corrected ? roots : 0
+    }
+    draining = phase == RsDvbDecodePhase.drain
+    output.valid = draining
+    output.payload = RsByteBeat {
+        data = draining ? packet[0] : zeros<8>
+        first = draining & (position == 0)
+        last = draining & (position == 187)
+    }
+    release = (status.transfer & ~successful) | (output.transfer & (position == 187))
+    framing.release = release
+
+    select_math : RsDvbSelectKernel
+    select_math.packet=packet select_math.index=position
+    syndrome_math : RsDvbSyndromeKernel
+    syndrome_math.active=(receiving & framing.take) | (phase == RsDvbDecodePhase.recheck)
+    syndrome_math.state=syndromes
+    syndrome_math.data=receiving ? input.payload.data : select_math.value
+    inverse_math : RsDvbInverseKernel
+    inverse_math.value=phase == RsDvbDecodePhase.bm_ratio ? bm.previous :
+        (phase == RsDvbDecodePhase.scan_ratio ? denominator : zeros<8>)
+    derivative = generate(i in 0..17) if i == 16 {zeros<8>} else {
+        if i%2 == 0 {bm.locator[i+1]} else {zeros<8>}
+    }
+    coefficients = polynomial == 0 ? bm.locator : (polynomial == 1 ? evaluator : derivative)
+    selected_locator=rs_dvb_select<N=17,IW=5>(bm.locator,tap)
+    selected_syndrome=rs_dvb_select<N=16,IW=5>(syndromes,truncate<5>(step-tap))
+    selected_previous=rs_dvb_select<N=17,IW=5>(bm.previous_locator,truncate<5>(tap-bm.distance))
+    selected_coefficient=rs_dvb_select<N=17,IW=5>(coefficients,tap)
+    delta_phase=phase == RsDvbDecodePhase.bm_delta
+    update_phase=phase == RsDvbDecodePhase.bm_update
+    omega_phase=phase == RsDvbDecodePhase.omega_accum
+    bm_ratio_phase=phase == RsDvbDecodePhase.bm_ratio
+    scan_ratio_phase=phase == RsDvbDecodePhase.scan_ratio
+    scan_correct_phase=phase == RsDvbDecodePhase.scan_correct
+    multiply_math : RsDvbMultiplyKernel
+    multiply_math.a = (delta_phase | omega_phase) ? selected_locator :
+        (update_phase ? ratio : (bm_ratio_phase ? delta :
+        (scan_ratio_phase ? omega_value : (scan_correct_phase ? point : accumulator))))
+    multiply_math.b = (delta_phase | omega_phase) ? selected_syndrome :
+        (update_phase ? selected_previous : ((bm_ratio_phase | scan_ratio_phase)
+            ? inverse_math.result.value : (scan_correct_phase ? ratio : reciprocal_point)))
+    term = multiply_math.product
+    accumulated = accumulator ^ ((tap <= step) & (omega_phase | (tap <= bm.degree)) ? term : zeros<8>)
+    evaluated = term ^ selected_coefficient
+    restart_polynomial = (tap == 0) & ((polynomial == 1) |
+        ((polynomial == 0) & (evaluated == 0) & (exponent < 204) & (roots != 8)))
+    replace_previous = (delta != 0) & (bm.degree <= (step >> 1))
+
+    starting_bm=phase == RsDvbDecodePhase.bm_start
+    finishing_bm=phase == RsDvbDecodePhase.bm_finish
+    checking_locator=phase == RsDvbDecodePhase.locator_check
+    starting_omega=phase == RsDvbDecodePhase.omega_start
+    storing_omega=phase == RsDvbDecodePhase.omega_store
+    starting_scan=phase == RsDvbDecodePhase.scan_start
+    scanning=phase == RsDvbDecodePhase.scan_poly
+    advancing_scan=phase == RsDvbDecodePhase.scan_advance
+    checking_roots=phase == RsDvbDecodePhase.roots_check
+    rechecking=phase == RsDvbDecodePhase.recheck
+    bad_locator=(bm.degree == 0) | (bm.degree > 8)
+    bad_root=(exponent >= 204) | (roots == 8)
+    wrong_roots=extend<5>(roots) != bm.degree
+    final_polynomial=scanning & (tap == 0)
+    bad_solve=(delta_phase & (tap == 16) & (bm.previous == 0)) |
+        (checking_locator & bad_locator) |
+        (final_polynomial & (((polynomial == 0) & (evaluated == 0) & bad_root) |
+                            ((polynomial >= 2) & (evaluated == 0)))) |
+        (scan_correct_phase & (term == 0)) | (checking_roots & wrong_roots)
+    corrected=scan_correct_phase & (term != 0)
+    advance_point=advancing_scan & (exponent != 254)
+
+    next_phase = (release ? RsDvbDecodePhase.receive :
+            (receiving ? (framing.complete ? ((framing.malformed | (bitcast<bits<128>>(syndromes) == 0)) ? RsDvbDecodePhase.status_wait : RsDvbDecodePhase.bm_start) : phase) :
+            (bad_solve ? RsDvbDecodePhase.status_wait :
+            (starting_bm ? RsDvbDecodePhase.bm_delta :
+            (delta_phase ? (tap == 16 ? RsDvbDecodePhase.bm_ratio : phase) :
+            (bm_ratio_phase ? RsDvbDecodePhase.bm_update :
+            (update_phase ? (tap == 16 ? RsDvbDecodePhase.bm_finish : phase) :
+            (finishing_bm ? (step == 15 ? RsDvbDecodePhase.locator_check : RsDvbDecodePhase.bm_start) :
+            (checking_locator ? RsDvbDecodePhase.omega_start :
+            (starting_omega ? RsDvbDecodePhase.omega_accum :
+            (omega_phase ? (tap == 16 ? RsDvbDecodePhase.omega_store : phase) :
+            (storing_omega ? (step == 15 ? RsDvbDecodePhase.scan_start : RsDvbDecodePhase.omega_start) :
+            (starting_scan ? RsDvbDecodePhase.scan_poly :
+            (final_polynomial ? (polynomial == 0 ? (evaluated != 0 ? RsDvbDecodePhase.scan_advance : phase) : (polynomial == 1 ? phase : RsDvbDecodePhase.scan_ratio)) :
+            (scan_ratio_phase ? RsDvbDecodePhase.scan_correct :
+            (scan_correct_phase ? RsDvbDecodePhase.scan_advance :
+            (advancing_scan ? (exponent == 254 ? RsDvbDecodePhase.roots_check : RsDvbDecodePhase.scan_start) :
+            (checking_roots ? RsDvbDecodePhase.recheck :
+            (rechecking ? (position == 203 ? RsDvbDecodePhase.status_wait : phase) :
+            (status.transfer ? RsDvbDecodePhase.drain :
+            phase))))))))))))))))))))
+
+    // Each register has one update owner. Disabled owners retain state;
+    // in particular the packet is not rewritten during arithmetic-only phases.
+    rule store_phase when 1 {
+        phase <- next_phase
+    }
+    rule store_packet when release | (receiving & framing.take) | corrected | output.transfer {
+        packet <- generate(i in 0..204) if i == 203 {
+            release ? zeros<8> : ((receiving & framing.take) ? input.payload.data :
+                (corrected ? (exponent == 203-i ? packet[i] ^ term : packet[i]) :
+                (output.transfer ? zeros<8> : packet[i])))
+        } else {
+            release ? zeros<8> : ((receiving & framing.take) ? packet[i+1] :
+                (corrected ? (exponent == 203-i ? packet[i] ^ term : packet[i]) :
+                (output.transfer ? packet[i+1] : packet[i])))
+        }
+    }
+    rule store_syndromes when release | (checking_roots & ~wrong_roots) | (receiving & framing.take) | rechecking {
+        syndromes <- generate(i in 0..16)
+            (release | (checking_roots & ~wrong_roots) ? zeros<8> :
+                (((receiving & framing.take) | rechecking) ? syndrome_math.value[i] : syndromes[i]))
+    }
+    rule store_bm when release | update_phase | finishing_bm {
+        bm <- RsDvbBmState {
+            locator=generate(i in 0..17) if i == 0 {
+                release ? 1 : ((update_phase & (i == tap) & (tap >= bm.distance) & (delta != 0))
+                    ? bm.locator[i] ^ term : bm.locator[i])
+            } else {
+                release ? 0 : ((update_phase & (i == tap) & (tap >= bm.distance) & (delta != 0))
+                    ? bm.locator[i] ^ term : bm.locator[i])
+            }
+            previous_locator=generate(i in 0..17) if i == 0 {
+                release ? 1 : ((finishing_bm & replace_previous) ? old_locator[i] : bm.previous_locator[i])
+            } else {
+                release ? 0 : ((finishing_bm & replace_previous) ? old_locator[i] : bm.previous_locator[i])
+            }
+            degree=release ? 0 : ((finishing_bm & replace_previous)
+                ? truncate<5>(step+1-bm.degree) : bm.degree)
+            distance=release ? 1 : (finishing_bm
+                ? (replace_previous ? 1 : truncate<5>(bm.distance+1)) : bm.distance)
+            previous=release ? 1 : ((finishing_bm & replace_previous) ? delta : bm.previous)
+        }
+    }
+    rule store_old_locator when release | bm_ratio_phase {
+        old_locator <- generate(i in 0..17) (release ? zeros<8> : (bm_ratio_phase ? bm.locator[i] : old_locator[i]))
+    }
+    rule store_step when release | (checking_locator & ~bad_locator) | ((finishing_bm | storing_omega) & (step != 15)) {
+        step <- release | (checking_locator & ~bad_locator) ? 0 :
+            (((finishing_bm | storing_omega) & (step != 15)) ? truncate<5>(step+1) : step)
+    }
+    rule store_tap when release | starting_bm | bm_ratio_phase | starting_omega | starting_scan | scanning | delta_phase | update_phase | omega_phase {
+        tap <- (release | starting_bm | bm_ratio_phase | starting_omega ? 0 :
+            (starting_scan | (scanning & restart_polynomial) ? 16 :
+            ((delta_phase | update_phase | omega_phase) & (tap != 16) ? truncate<5>(tap+1) :
+            (scanning & (tap != 0) ? truncate<5>(tap-1) :
+            tap))))
+    }
+    rule store_accumulator when release | starting_bm | starting_omega | starting_scan | delta_phase | omega_phase | scanning {
+        accumulator <- (release | starting_bm | starting_omega | starting_scan ? zeros<8> :
+            (delta_phase | omega_phase ? accumulated :
+            (scanning ? (restart_polynomial ? zeros<8> : evaluated) :
+            accumulator)))
+    }
+    rule store_delta when release | (delta_phase & (tap == 16)) {
+        delta <- release ? zeros<8> : ((delta_phase & (tap == 16)) ? accumulated : delta)
+    }
+    rule store_ratio when release | bm_ratio_phase | scan_ratio_phase {
+        ratio <- release ? zeros<8> : ((bm_ratio_phase | scan_ratio_phase) ? term : ratio)
+    }
+    rule store_evaluator when release | storing_omega {
+        evaluator <- generate(i in 0..17) (release ? zeros<8> :
+            ((storing_omega & (i == step)) ? accumulator : evaluator[i]))
+    }
+    rule store_polynomial when release | starting_scan | (final_polynomial & restart_polynomial) {
+        polynomial <- (release | starting_scan) ? 0 :
+            ((final_polynomial & restart_polynomial) ? (polynomial == 0 ? 1 : 2) : polynomial)
+    }
+    rule store_omega_value when release | (final_polynomial & (polynomial == 1)) {
+        omega_value <- release ? zeros<8> : ((final_polynomial & (polynomial == 1)) ? evaluated : omega_value)
+    }
+    rule store_denominator when release | (final_polynomial & (polynomial >= 2)) {
+        denominator <- release ? zeros<8> : ((final_polynomial & (polynomial >= 2)) ? evaluated : denominator)
+    }
+    rule store_exponent when release | advance_point {
+        exponent <- release ? 0 : (advance_point ? truncate<8>(exponent+1) : exponent)
+    }
+    rule store_point when release | advance_point {
+        point <- release ? 1 : (advance_point ? gf256_mul(point,2) : point)
+    }
+    rule store_reciprocal_point when release | advance_point {
+        reciprocal_point <- release ? 1 : (advance_point ? gf256_mul(reciprocal_point,0x8e) : reciprocal_point)
+    }
+    rule store_roots when release | corrected {
+        roots <- release ? 0 : (corrected ? truncate<4>(roots+1) : roots)
+    }
+    rule store_position when release | (checking_roots & ~wrong_roots) | rechecking | output.transfer {
+        position <- (release | (checking_roots & ~wrong_roots) | (rechecking & (position == 203))) ? 0 :
+            ((rechecking | output.transfer) ? truncate<8>(position+1) : position)
+    }
+    rule store_result_status when release | (receiving & framing.complete) | bad_solve | (rechecking & (position == 203)) {
+        result_status <- (release ? RsStatus.clean :
+            (receiving & framing.complete ? (framing.malformed ? RsStatus.malformed : (bitcast<bits<128>>(syndromes) == 0 ? RsStatus.clean : result_status)) :
+            (bad_solve ? RsStatus.detected_uncorrectable :
+            (rechecking & (position == 203) ? (bitcast<bits<128>>(syndrome_math.value) == 0 ? RsStatus.corrected : RsStatus.detected_uncorrectable) :
+            result_status))))
+    }
+}

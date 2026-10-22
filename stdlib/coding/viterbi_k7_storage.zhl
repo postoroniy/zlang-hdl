@@ -1,0 +1,20 @@
+// Isolated source-owned RAM: the controller owns state/rules in its parent.
+// This uses the existing 1R1W primitive, not a new memory mapping/provider.
+module ViterbiK7Storage<type T,N,AW>
+where N >= 2 && is_power_of_two(N) && AW == floor_log2(N) {
+    clock clk reset rst
+    in write,read : bit
+    in write_address,read_address : uint<AW>
+    in write_data : T
+    out read_data : T
+    memory storage : mem<T,N> {
+        write_port store read_port load read_latency 1 collision old
+        reset { contents preserve read_data clear }
+    }
+    storage.store.enable = write
+    storage.store.address = write_address
+    storage.store.data = write_data
+    storage.load.read_enable = read
+    storage.load.address = read_address
+    read_data = storage.load.data
+}

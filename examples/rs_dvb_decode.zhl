@@ -1,0 +1,12 @@
+import std.coding.rs_dvb_decode
+
+module DvbRsDecoder {
+    clock clk reset rst
+    in input : rv<RsByteBeat>
+    out status : rv<RsFrameStatus>
+    out output : rv<RsByteBeat>
+    core : RvRsDvb204188Decode
+    input -> core.input
+    core.status -> status
+    core.output -> output
+}

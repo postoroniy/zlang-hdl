@@ -83,6 +83,15 @@ class CheckedBitvectorRewriter:
             raise ArithmeticProofUnavailable(
                 "RTL arithmetic normalization node bound exceeded"
             )
+        # Normalize the actual outer carrier before Z3 turns zero extension
+        # into concat. This retains the exact narrowing/overflow boundary.
+        replacement = self._outer_widening(expression)
+        if replacement is not None:
+            value = self._visit(replacement, depth + 1)
+            if len(self._memo) >= self.max_nodes:
+                raise ArithmeticProofUnavailable("RTL arithmetic normalization node bound exceeded")
+            self._memo[key] = (expression, value)
+            return value
         children = tuple(
             self._visit(child, depth + 1) for child in expression.children()
         )
@@ -95,22 +104,39 @@ class CheckedBitvectorRewriter:
         # solver-owned modular identity and does not require a no-overflow claim.
         value = z3.simplify(value, elim_sign_ext=False, bv_extract_prop=True)
         kind = value.decl().kind()
-        if kind in (z3.Z3_OP_SIGN_EXT, z3.Z3_OP_ZERO_EXT):
-            child = value.arg(0)
-            if child.decl().kind() in _ARITHMETIC:
-                extend = z3.SignExt if kind == z3.Z3_OP_SIGN_EXT else z3.ZeroExt
-                operands = tuple(
-                    z3.simplify(
-                        extend(value.size() - item.size(), item), elim_sign_ext=False
-                    )
-                    for item in child.children()
-                )
-                candidate = _arithmetic(child.decl().kind(), operands)
-                replacement = self._checked_widening(value, candidate)
-                if replacement is not None:
-                    value = self._visit(replacement, depth + 1)
+        if (kind == z3.Z3_OP_CONCAT and value.num_args() == 2
+                and z3.is_bv_value(value.arg(0)) and value.arg(0).as_long() == 0):
+            # Recover the same exact unsigned carrier, not a range assumption.
+            value = z3.ZeroExt(value.arg(0).size(), value.arg(1))
+        replacement = self._outer_widening(value)
+        if replacement is not None:
+            value = self._visit(replacement, depth + 1)
+        if len(self._memo) >= self.max_nodes:
+            raise ArithmeticProofUnavailable("RTL arithmetic normalization node bound exceeded")
         self._memo[key] = (expression, value)
         return value
+
+    def _outer_widening(self, value):
+        kind = value.decl().kind()
+        if kind not in (z3.Z3_OP_SIGN_EXT, z3.Z3_OP_ZERO_EXT):
+            return None
+        child = value.arg(0)
+        extend = z3.SignExt if kind == z3.Z3_OP_SIGN_EXT else z3.ZeroExt
+        if child.decl().kind() == z3.Z3_OP_CONCAT:
+            # Extend only the connected high field, never a lower field.
+            parts = child.children()
+            candidate = z3.Concat(extend(value.size()-child.size(), parts[0]), *parts[1:])
+        elif child.decl().kind() == kind:
+            candidate = extend(value.size()-child.arg(0).size(), child.arg(0))
+        elif child.decl().kind() in _ARITHMETIC:
+            operands = tuple(
+                z3.simplify(extend(value.size()-item.size(), item), elim_sign_ext=False)
+                for item in child.children()
+            )
+            candidate = _arithmetic(child.decl().kind(), operands)
+        else:
+            return None
+        return self._checked_widening(value, candidate)
 
     def _checked_widening(self, source, replacement):
         key = source.get_id()

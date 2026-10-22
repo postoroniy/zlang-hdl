@@ -32,6 +32,14 @@ from zlang.opt.ir import (
 from zlang.opt.lowering_errors import CanonicalizationError
 
 
+_ExpressionDescription = tuple[
+    NodeCategory,
+    ExpressionOp,
+    tuple[expr.Expression, ...],
+    tuple[tuple[str, object], ...],
+]
+
+
 def _signedness(type_: HardwareType) -> Signedness:
     if isinstance(type_, BitType):
         return Signedness.CONTROL
@@ -80,11 +88,40 @@ class _ExpressionBuilder:
         return (expression.origin,) if expression.origin is not None else ()
 
     def lower(self, expression: expr.Expression, scope: str = "module") -> NodeId:
+        # Explicit postorder preserves the existing left-to-right numbering,
+        # metadata and provenance, without consuming Python frames per edge.
+        stack: list[tuple[expr.Expression, _ExpressionDescription | None]] = [
+            (expression, None)
+        ]
+        active: set[int] = set()
+        while stack:
+            current, description = stack.pop()
+            if (id(current), scope) in self._lowered_objects:
+                continue
+            if description is None:
+                if id(current) in active:
+                    raise CanonicalizationError("cyclic semantic expression DAG")
+                description = self._describe(current, scope)
+                active.add(id(current))
+                stack.append((current, description))
+                stack.extend((child, None) for child in reversed(description[2]))
+            else:
+                category, op, children, attributes = description
+                operands = tuple(self._lowered_objects[(id(child), scope)] for child in children)
+                self._record(current, scope, category, op, operands, attributes)
+                active.remove(id(current))
+        return self._lowered_objects[(id(expression), scope)]
+
+    def _record(
+        self,
+        expression: expr.Expression,
+        scope: str,
+        category: NodeCategory,
+        op: ExpressionOp,
+        operands: tuple[NodeId, ...],
+        attributes: tuple[tuple[str, object], ...],
+    ) -> NodeId:
         object_key = (id(expression), scope)
-        cached_object = self._lowered_objects.get(object_key)
-        if cached_object is not None:
-            return cached_object
-        category, op, operands, attributes = self._describe(expression, scope)
         metadata = self._metadata(expression, op, operands)
         # A retained call is one compact use-site of a shared callable body.
         # Keep distinct source call sites as distinct canonical nodes so a
@@ -135,12 +172,7 @@ class _ExpressionBuilder:
         self,
         expression: expr.Expression,
         scope: str,
-    ) -> tuple[
-        NodeCategory,
-        ExpressionOp,
-        tuple[NodeId, ...],
-        tuple[tuple[str, object], ...],
-    ]:
+    ) -> _ExpressionDescription:
         if isinstance(expression, expr.InputRef):
             return self._leaf(NodeCategory.VALUE, ExpressionOp.INPUT, name=expression.name)
         if isinstance(expression, expr.ParameterRef):
@@ -712,20 +744,15 @@ class _ExpressionBuilder:
         self,
         op: ExpressionOp,
         operands: tuple[expr.Expression, ...],
-        scope: str,
+        _scope: str,
         *,
         category: NodeCategory = NodeCategory.VALUE,
         **attributes: object,
-    ) -> tuple[
-        NodeCategory,
-        ExpressionOp,
-        tuple[NodeId, ...],
-        tuple[tuple[str, object], ...],
-    ]:
+    ) -> _ExpressionDescription:
         return (
             category,
             op,
-            tuple(self.lower(operand, scope) for operand in operands),
+            operands,
             tuple(attributes.items()),
         )
 

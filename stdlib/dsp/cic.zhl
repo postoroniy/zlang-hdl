@@ -1,0 +1,94 @@
+// Modular arithmetic is intentional: all state and differences wrap at W bits.
+module CicIntegrator<W> where W >= 1 {
+    clock clk reset rst
+    in input : sint<W>
+    in advance : bit
+    out integrated : sint<W>
+    reg state : sint<W> = 0
+    next_value = truncate<W>(state + input)
+    integrated = next_value
+    when advance { state <- next_value }
+}
+
+module CicComb<W,M> where W >= 1 && M >= 1 {
+    clock clk reset rst
+    in input : sint<W>
+    in advance : bit
+    out difference : sint<W>
+    reg history : vec<M,sint<W>> = generate(i in 0..M) 0
+    difference = truncate<W>(input - history[M-1])
+    when advance {
+        history <- generate(i in 0..M)
+            if i == 0 { input } else { history[i-1] }
+    }
+}
+
+// No gain compensation: DC gain is (R*M)^N. IW is caller-owned headroom.
+module RvCicDecimator<SW,IW,R,N,M=1,CW=index_width(R)>
+where SW >= 1 && IW >= SW && R >= 1 && N >= 1 && M >= 1
+   && CW == index_width(R) {
+    clock clk reset rst
+    in input : rv<sint<SW>>
+    out output : rv<sint<IW>>
+    reg phase : uint<CW> = 0
+    reg pending : bit = 0
+    reg result : sint<IW> = 0
+    due = phase == R-1
+    input.ready = ~pending | output.ready
+    output.valid = pending
+    output.payload = result
+    when input.ready { pending <- input.valid & due }
+    when input.transfer {
+        phase <- due ? 0 : truncate<CW>(phase + 1)
+        when due { result <- comb[N-1].difference }
+    }
+    integrator[N] : CicIntegrator<W=IW>
+    comb[N] : CicComb<W=IW,M=M>
+    generate(i in 0..N) {
+        integrator[i].input = if i == 0 {
+            extend<IW>(input.payload)
+        } else { integrator[i-1].integrated }
+        integrator[i].advance = input.transfer
+        comb[i].input = if i == 0 {
+            integrator[N-1].integrated
+        } else { comb[i-1].difference }
+        comb[i].advance = input.transfer & due
+    }
+}
+
+// Low-rate combs, zero insertion, then high-rate integrators. All IW-bit
+// operations wrap explicitly. No gain compensation: DC gain is (R*M)^N/R.
+module RvCicInterpolator<SW,IW,R,N,M=1,CW=index_width(R)>
+where SW >= 1 && IW >= SW && R >= 1 && N >= 1 && M >= 1
+   && CW == index_width(R) {
+    clock clk reset rst
+    in input : rv<sint<SW>>
+    out output : rv<sint<IW>>
+    reg phase : uint<CW> = 0
+    reg pending : bit = 0
+    reg result : sint<IW> = 0
+    last = phase == R-1
+    input.ready = ~pending | (last & output.ready)
+    output.valid = pending
+    output.payload = result
+    advance = input.transfer | (output.transfer & ~last)
+    when input.transfer {
+        phase <- 0
+        pending <- 1
+    } else when output.transfer {
+        when last { pending <- 0 } else { phase <- truncate<CW>(phase + 1) }
+    }
+    when advance { result <- integrator[N-1].integrated }
+    comb[N] : CicComb<W=IW,M=M>
+    integrator[N] : CicIntegrator<W=IW>
+    generate(i in 0..N) {
+        comb[i].input = if i == 0 {
+            extend<IW>(input.payload)
+        } else { comb[i-1].difference }
+        comb[i].advance = input.transfer
+        integrator[i].input = if i == 0 {
+            input.transfer ? comb[N-1].difference : 0
+        } else { integrator[i-1].integrated }
+        integrator[i].advance = advance
+    }
+}

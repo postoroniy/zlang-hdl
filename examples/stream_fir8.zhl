@@ -1,0 +1,20 @@
+// Eight-tap impulse response, one accepted sample per unstalled cycle.
+// Coefficients are immutable compile-time values. Output rounding happens
+// once, after exact products and balanced accumulation; stalls hold history.
+import std.dsp.fir
+
+module StreamFir8 {
+    clock clk reset rst
+    in input : rv<fixed<16,12>>
+    out output : rv<fixed<16,12>>
+
+    taps : vec<8,fixed<16,14>> = [
+        0.03125, 0.09375, 0.15625, 0.21875,
+        0.21875, 0.15625, 0.09375, 0.03125
+    ]
+    filter : RvFirFixedNearestEvenSaturate<
+        SW=16,SF=12,CW=16,CF=14,N=8,OW=16,OF=12,coefficients=taps
+    >
+    input -> filter.input
+    filter.output -> output
+}

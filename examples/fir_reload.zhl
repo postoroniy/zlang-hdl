@@ -1,0 +1,19 @@
+import std.dsp.fir_reloadable
+
+// Raw simulator values use three sample and two coefficient fractional bits.
+module ReloadableFir {
+    clock clk reset rst
+    in input : rv<fixed<8,3>>
+    in reload : rv<fixed<6,2>>
+    in commit : bit
+    out commit_ready : bit
+    out output : rv<fixed<16,5>>
+    initial : vec<3,fixed<6,2>> = [0.75,-1.25,1.75]
+    filter : RvFirReloadableExact<SW=8,SF=3,CW=6,CF=2,N=3,
+                                  initial_coefficients=initial>
+    input -> filter.input
+    reload -> filter.reload
+    filter.output -> output
+    filter.commit = commit
+    commit_ready = filter.commit_ready
+}

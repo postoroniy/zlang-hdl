@@ -164,6 +164,22 @@ class SpecializationArgumentBinder:
             if parameter.kind == "value" and parameter.name not in value_bindings:
                 if isinstance(parameter.default, int):
                     value_bindings[parameter.name] = parameter.default
+                elif parameter.default is not None:
+                    # Match module defaults: derived value defaults resolve
+                    # against this callee's already inferred/explicit values.
+                    # An unresolved callee name must not capture a caller's
+                    # coincidentally equal parameter name.
+                    value_bindings[parameter.name] = context.environment.type_resolver._eval_constant_integer(
+                        str(parameter.default),
+                        description=f"value parameter '{parameter.name}' default",
+                        allow_zero=True, allow_negative=True,
+                        local_values=value_bindings,
+                        allow_resolver_parameters=False,
+                        unspecialized_parameters=frozenset(
+                            item.name for item in declaration.generic_parameters
+                            if item.kind == "value" and item.name not in value_bindings
+                        ),
+                    )
                 else:
                     raise SemanticError(
                         f"cannot infer value parameter '{parameter.name}'"

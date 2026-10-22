@@ -1,0 +1,9 @@
+{"reset":{"rst":true},"set":{"input":{"payload":0,"valid":0},"output":{"ready":1}},"edges":["clk"]}
+{"reset":{"rst":false},"set":{"input":{"payload":0,"valid":1}},"edges":["clk"]}
+{"set":{"input":{"payload":16384,"valid":1}},"edges":["clk"]}
+{"set":{"input":{"payload":-16384,"valid":1}},"edges":["clk"]}
+{"set":{"input":{"payload":-32768,"valid":1}},"edges":["clk"]}
+{"set":{"input":{"payload":8192,"valid":1}},"edges":["clk"]}
+{"set":{"input":{"payload":0,"valid":0}},"edges":["clk"],"repeat":12}
+{"set":{"output":{"ready":0}},"edges":["clk"],"repeat":3}
+{"set":{"output":{"ready":1}},"edges":["clk"],"repeat":8}

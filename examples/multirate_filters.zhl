@@ -1,0 +1,26 @@
+import std.dsp.cic
+import std.dsp.polyphase
+
+// All state uses explicit 32-bit modular arithmetic; DC gain is 4^3=64.
+module CicDecimator {
+    clock clk reset rst
+    in input : rv<s16>
+    out output : rv<s32>
+    filter : RvCicDecimator<SW=16,IW=32,R=4,N=3,M=1>
+    input -> filter.input
+    filter.output -> output
+}
+
+// Two phases of four taps. A single final conversion follows the exact sum.
+module PolyphaseFir {
+    clock clk reset rst
+    in input : rv<fixed<16,12>>
+    out output : rv<fixed<16,12>>
+    taps : vec<8,fixed<16,14>> = [
+        0.03125,0.09375,0.15625,0.21875,0.21875,0.15625,0.09375,0.03125
+    ]
+    filter : RvPolyphaseFirDecimatorNearestEvenSaturate<
+        SW=16,SF=12,CW=16,CF=14,R=2,K=4,OW=16,OF=12,coefficients=taps>
+    input -> filter.input
+    filter.output -> output
+}

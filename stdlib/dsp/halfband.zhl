@@ -1,0 +1,102 @@
+// Pure compile-time validation. The empty contract instance creates no state
+// or datapath; an invalid immutable prototype rejects at specialization.
+module HalfbandPrototypeContract<valid:bit> where valid == 1 {}
+
+fn halfband_prototype_valid<N,CW,CF>(coefficients:vec<N,fixed<CW,CF>>) -> bit {
+    reduce(&, generate(i in 0..N)
+        ((coefficients[i] == coefficients[N-1-i]) &
+        (if i != ((N-1)/2) && (i%2) == (((N-1)/2)%2) {
+            coefficients[i] == 0
+        } else { bitcast<bit>(1) })))
+}
+
+// Symmetric pairs use SW+1 exact pre-adders. Structurally zero taps have no
+// multiplier. Only redundant accumulation guards are removed at the end.
+fn halfband_exact<SW,SF,CW,CF,N,C=(N-1)/2,Q=(C+(C%2))/2,AW=SW+CW+ceil_log2(N)>(
+    samples:vec<N,fixed<SW,SF>>, coefficients:vec<N,fixed<CW,CF>>) -> fixed<AW,SF+CF> {
+    pairs = generate(i in 0..Q)
+        (samples[2*i+1-(C%2)]+samples[N-1-(2*i+1-(C%2))])
+    weights = generate(i in 0..Q) coefficients[2*i+1-(C%2)]
+    center = samples[C]*coefficients[C]
+    quantize<fixed<AW,SF+CF>>(dot(pairs,weights)+center) { round floor overflow wrap }
+}
+
+module RvHalfbandDecimatorExact<SW,SF,CW,CF,N,H=N-1,AW=SW+CW+ceil_log2(N),
+                                coefficients:vec<N,fixed<CW,CF>>>
+where N >= 3 && N%2 == 1 && H == N-1 && AW == SW+CW+ceil_log2(N) {
+    clock clk reset rst
+    in input : rv<fixed<SW,SF>>
+    out output : rv<fixed<AW,SF+CF>>
+    prototype_valid = halfband_prototype_valid<N=N,CW=CW,CF=CF>(coefficients)
+    coefficient_contract : HalfbandPrototypeContract<valid=prototype_valid>
+    reg history : vec<H,fixed<SW,SF>> = generate(i in 0..H) 0
+    reg phase : bit = 0
+    reg pending : bit = 0
+    reg result : fixed<AW,SF+CF> = 0
+    input.ready = ~pending | output.ready
+    output.valid = pending
+    output.payload = result
+    samples = generate(i in 0..N) if i == 0 { input.payload } else { history[i-1] }
+    when input.ready { pending <- input.valid & phase }
+    when input.transfer {
+        phase <- ~phase
+        history <- generate(i in 0..H) if i == 0 { input.payload } else { history[i-1] }
+        when phase { result <- halfband_exact<SW=SW,SF=SF,CW=CW,CF=CF,N=N>(samples,coefficients) }
+    }
+}
+
+module RvHalfbandInterpolatorExact<SW,SF,CW,CF,N,K=(N+1)/2,H=K-1,
+                                  AW=SW+CW+ceil_log2(N),coefficients:vec<N,fixed<CW,CF>>>
+where N >= 3 && N%2 == 1 && K == (N+1)/2 && H == K-1 && AW == SW+CW+ceil_log2(N) {
+    clock clk reset rst
+    in input : rv<fixed<SW,SF>>
+    out output : rv<fixed<AW,SF+CF>>
+    prototype_valid = halfband_prototype_valid<N=N,CW=CW,CF=CF>(coefficients)
+    coefficient_contract : HalfbandPrototypeContract<valid=prototype_valid>
+    reg history : vec<H,fixed<SW,SF>> = generate(i in 0..H) 0
+    reg phase : bit = 0
+    reg pending : bit = 0
+    reg batch : vec<2,fixed<AW,SF+CF>> = [0,0]
+    input.ready = ~pending | (phase & output.ready)
+    output.valid = pending
+    output.payload = phase ? batch[1] : batch[0]
+    samples = generate(i in 0..K) if i == 0 { input.payload } else { history[i-1] }
+    values = generate(p in 0..2) halfband_exact<SW=SW,SF=SF,CW=CW,CF=CF,N=N>(
+        generate(i in 0..N) if i%2 == p { samples[i>>1] } else {
+            bitcast<fixed<SW,SF>>(zeros<SW>)
+        }, coefficients)
+    when input.transfer {
+        history <- generate(i in 0..H) if i == 0 { input.payload } else { history[i-1] }
+        batch <- values
+        phase <- 0
+        pending <- 1
+    } else when output.transfer {
+        when phase { pending <- 0 } else { phase <- 1 }
+    }
+}
+
+module RvHalfbandDecimatorNearestEvenSaturate<SW,SF,CW,CF,N,OW,OF,
+                                             coefficients:vec<N,fixed<CW,CF>>>
+where N >= 3 && N%2 == 1 {
+    clock clk reset rst
+    in input : rv<fixed<SW,SF>>
+    out output : rv<fixed<OW,OF>>
+    core : RvHalfbandDecimatorExact<SW=SW,SF=SF,CW=CW,CF=CF,N=N,coefficients=coefficients>
+    input -> core.input
+    core.output.ready = output.ready
+    output.valid = core.output.valid
+    output.payload = quantize<fixed<OW,OF>>(core.output.payload) { round nearest_even overflow saturate }
+}
+
+module RvHalfbandInterpolatorNearestEvenSaturate<SW,SF,CW,CF,N,OW,OF,
+                                                coefficients:vec<N,fixed<CW,CF>>>
+where N >= 3 && N%2 == 1 {
+    clock clk reset rst
+    in input : rv<fixed<SW,SF>>
+    out output : rv<fixed<OW,OF>>
+    core : RvHalfbandInterpolatorExact<SW=SW,SF=SF,CW=CW,CF=CF,N=N,coefficients=coefficients>
+    input -> core.input
+    core.output.ready = output.ready
+    output.valid = core.output.valid
+    output.payload = quantize<fixed<OW,OF>>(core.output.payload) { round nearest_even overflow saturate }
+}

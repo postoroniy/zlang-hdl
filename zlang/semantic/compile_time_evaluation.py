@@ -13,6 +13,7 @@ from zlang.ast import nodes as ast
 from zlang.ir import expressions as ir_expr
 from zlang.ir import module as ir_module
 from zlang.ir import types as ir_types
+from zlang.ir.constants import constant_runtime_value
 
 from . import compile_time_real as ct_real
 from . import expression_origins
@@ -223,6 +224,13 @@ def compile_time_integer_value(
             return context.scope.index_bindings[expression.name]
         if expression.name in context.environment.parameters:
             return context.environment.parameters[expression.name]
+        constant = context.scope.compile_time_constants.get(expression.name)
+        if constant is not None and isinstance(constant.type, (
+            ir_types.BitType, ir_types.BitsType, ir_types.UIntType, ir_types.SIntType
+        )):
+            # Required typed constants are already fully evaluated and exact.
+            # Do not reinterpret raw fixed-point bits as mathematical integers.
+            return constant_runtime_value(constant)
         symbol = inputs.get(expression.name)
         if (isinstance(symbol, ir_module.LocalValue) and symbol.compile_time
                 and isinstance(symbol.expression, ir_expr.Constant)
@@ -273,6 +281,15 @@ def compile_time_integer_value(
             return left - right
         if operator is ast.BinaryOperator.MULTIPLY:
             return left * right
+        # The compile-time grammar and integer-width evaluator already admit
+        # these integer operators. Do not reinterpret them as finite-width
+        # hardware operations: value parameters are exact signed integers.
+        if operator is ast.BinaryOperator.BIT_AND:
+            return left & right
+        if operator is ast.BinaryOperator.BIT_OR:
+            return left | right
+        if operator is ast.BinaryOperator.BIT_XOR:
+            return left ^ right
         if operator is ast.BinaryOperator.MODULO:
             if right == 0:
                 raise SemanticError("compile-time modulo by zero",

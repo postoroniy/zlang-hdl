@@ -242,6 +242,10 @@ class CallableExpansionError(ValueError):
     """A typed call graph cannot be expanded within the requested bounds."""
 
 
+class CallableExpansionNodeLimit(CallableExpansionError):
+    """The unchanged logical-node budget prevents complete expansion."""
+
+
 class CallableReachabilityError(ValueError):
     """Executable typed IR references an invalid callable graph."""
 
@@ -569,7 +573,7 @@ def expand_callable_calls(
         nonlocal nodes
         nodes += amount
         if nodes > max_nodes:
-            raise CallableExpansionError(
+            raise CallableExpansionNodeLimit(
                 f"callable expansion exceeds {max_nodes} expression nodes"
             )
 
@@ -730,6 +734,7 @@ __all__ = [
     "DEFAULT_CALLABLE_EXPANSION_DEPTH",
     "DEFAULT_CALLABLE_EXPANSION_NODES",
     "CallableExpansionError",
+    "CallableExpansionNodeLimit",
     "CallableReachabilityError",
     "CallableUse",
     "CallableKind",

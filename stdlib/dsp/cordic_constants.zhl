@@ -1,0 +1,29 @@
+// Immutable Q48 tables, schema cordic-rotation-q48-v1, i=0..13 / N=1..14.
+// Rounded nearest-even from rational atan/pi and inverse-square-root intervals.
+// Coarser admitted P/F rounding cells are independently certified in tests.
+fn cordic_angles_q48() -> vec<14,u49> {
+    [35184372088832,20770547670515,10974586953444,5570871696862,
+     2796246208089,1399486241028,699913886760,349978300884,
+     174991820497,87496244017,43748163730,21874087080,10937044192,5468522177]
+}
+
+fn cordic_inverse_gains_q48() -> vec<14,u49> {
+    [199032864766430,178020406149704,172705161898962,171371511346592,
+     171037778777976,170954325355697,170933460728127,170928244491664,
+     170926940427575,170926614411241,170926532907138,170926512531111,
+     170926507437105,170926506163603]
+}
+
+fn cordic_angle<P,I>() -> sint<P+1> {
+    table = cordic_angles_q48()
+    bitcast<sint<P+1>>(quantize<ufixed<P+1,P>>(
+        bitcast<ufixed<49,48>>(table[I])
+    ) { round nearest_even overflow saturate })
+}
+
+fn cordic_inverse_gain<F,N>() -> sint<F+3> {
+    table = cordic_inverse_gains_q48()
+    bitcast<sint<F+3>>(quantize<fixed<F+3,F>>(
+        bitcast<ufixed<49,48>>(table[N-1])
+    ) { round nearest_even overflow saturate })
+}

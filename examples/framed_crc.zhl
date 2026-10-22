@@ -1,0 +1,18 @@
+// Broadcast each accepted byte to the CRC engine and an independent mirror.
+// Stalling either path cannot lose a byte or deliver it twice to the other.
+import std.stream.composition
+import std.coding.crc
+
+module FramedCrc {
+    clock clk reset rst
+    in input : rv<CrcByteBeat>
+    out mirror : rv<CrcByteBeat>
+    out checksum : rv<bits<32>>
+
+    broadcast : RvFork2<T=CrcByteBeat>
+    crc : RvCrc32Byte
+    input -> broadcast.input
+    broadcast.output0 -> crc.input
+    broadcast.output1 -> mirror
+    crc.output -> checksum
+}

@@ -421,6 +421,27 @@ class InstanceSpecializer:
             else:
                 payload = syntax
             scalar_inputs.extend((name, payload) for name in port.names or (port.name,))
+        # Defaults used only in the implementation need no input inference.
+        # In particular, do not evaluate forward sibling bindings merely to
+        # infer an internal counter-width default. Resolve without defaults so
+        # input-dependent parameters still infer from their actual port types.
+        explicit_resolver = type_resolution.TypeResolver(
+            child.type_aliases,
+            child.structs,
+            child.enums,
+            child.parameters,
+            {name: value for name, value in resolved.items() if isinstance(value, int)},
+            types,
+            self.context.enum_identity_namespace,
+            tagged_unions=child.tagged_unions,
+        )
+        try:
+            for _, syntax in scalar_inputs:
+                explicit_resolver.resolve(syntax)
+        except SemanticError:
+            pass  # At least one input pattern still needs exact inference.
+        else:
+            return
         bindings: dict[str, ast.Expression] = {}
         candidates = tuple(
             (*declaration.bindings, *(

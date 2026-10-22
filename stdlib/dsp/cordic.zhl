@@ -1,0 +1,70 @@
+import std.dsp.nco
+import std.dsp.cordic_constants
+
+struct CordicState<P,F> {
+    x : sint<F+3>
+    y : sint<F+3>
+    z : sint<P+1>
+}
+
+// Simultaneous old-x/old-y updates; signed shifts round toward -infinity.
+fn cordic_rotation_step<P,F,I>(x:sint<F+3>, y:sint<F+3>, z:sint<P+1>) -> CordicState<P,F> {
+    positive = z >= 0
+    angle = cordic_angle<P=P,I=I>()
+    CordicState {
+        x = truncate(positive ? x - (y >> I) : x + (y >> I))
+        y = truncate(positive ? y + (x >> I) : y - (x >> I))
+        z = truncate(positive ? z - angle : z + angle)
+    }
+}
+
+// Fixed rotation-only profiles. Full pipeline freezes under output backpressure.
+// N+2 unstalled rising edges, II=1; output rounding is the only final conversion.
+module RvCordicSinCos<P=16,N=P-2,OW=16,OF=14,G=4,F=OF+G,W=F+3,STAGES=N+1>
+where (P == 8 || P == 12 || P == 16) && N >= 1 && N <= P-2
+   && OW == 16 && OF == 14 && G == 4 && F == OF+G && W == F+3
+   && STAGES == N+1 {
+    clock clk reset rst
+    in input : rv<sint<P>>
+    out output : rv<SinCos<fixed<OW,OF>>>
+
+    reg xs : vec<STAGES,sint<W>> = generate(i in 0..STAGES) 0
+    reg ys : vec<STAGES,sint<W>> = generate(i in 0..STAGES) 0
+    reg zs : vec<STAGES,sint<P+1>> = generate(i in 0..STAGES) 0
+    reg valid : vec<STAGES,bit> = generate(i in 0..STAGES) 0
+    reg pending : bit = 0
+    reg sine : fixed<OW,OF> = 0
+    reg cosine : fixed<OW,OF> = 0
+    advance = ~pending | output.ready
+    input.ready = advance
+    output.valid = pending
+    output.payload = SinCos { sine cosine }
+
+    // Extend BEFORE half-turn reduction, including the most-negative angle.
+    wide : sint<P+1> = input.valid ? extend(input.payload) : 0
+    negative_axis = (wide > (1 << (P-2))) | (wide < -(1 << (P-2)))
+    reduced : sint<P+1> = truncate(wide > (1 << (P-2))
+        ? wide - (1 << (P-1))
+        : (wide < -(1 << (P-2)) ? wide + (1 << (P-1)) : wide + 0))
+    inverse = cordic_inverse_gain<F=F,N=N>()
+    initial_x = negative_axis ? truncate<W>(-inverse) : inverse
+    initial_y : sint<W> = 0
+    next_stage : vec<STAGES,CordicState<P,F>> = generate(i in 0..STAGES) if i == 0 {
+        CordicState { x = initial_x y = initial_y z = reduced }
+    } else {
+        cordic_rotation_step<P=P,F=F,I=i-1>(xs[i-1],ys[i-1],zs[i-1])
+    }
+    when advance {
+        xs <- generate(i in 0..STAGES) next_stage[i].x
+        ys <- generate(i in 0..STAGES) next_stage[i].y
+        zs <- generate(i in 0..STAGES) next_stage[i].z
+        valid <- generate(i in 0..STAGES) if i == 0 { input.valid } else { valid[i-1] }
+        pending <- valid[N]
+        sine <- quantize<fixed<OW,OF>>(bitcast<fixed<W,F>>(ys[N])) {
+            round nearest_even overflow saturate
+        }
+        cosine <- quantize<fixed<OW,OF>>(bitcast<fixed<W,F>>(xs[N])) {
+            round nearest_even overflow saturate
+        }
+    }
+}

@@ -617,7 +617,7 @@ class VSCodePackageTests(unittest.TestCase):
         status = json.loads((ROOT / "release/status.json").read_text(encoding="utf-8"))
         self.assertEqual(
             {tool: status["eda_toolchain"][tool] for tool in ("verilator", "yosys", "z3")},
-            {"verilator": "5.053", "yosys": "0.69", "z3": "5.3.1"},
+            {"verilator": "5.053", "yosys": "0.70", "z3": "5.3.1"},
         )
         self.assertNotIn("python3.12", guide)
         readme = (ROOT / "README.md").read_text(encoding="utf-8")

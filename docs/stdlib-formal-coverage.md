@@ -23,9 +23,9 @@ immutable bundles. ABC PDR supplies a separate unbounded safety route; Pono
 and btormc supply separate bounded BTOR routes. Their records are
 qualification evidence only: they are not accepted by the public
 `zlang verify --route` option and cannot satisfy required-formal selection.
-The Avy/AIGER route is retained as a visible observation because the pinned
-Avy build in OSS CAD Suite 2026-09-30 reproducibly crashes on one positive
-property; that incomplete observation is never counted as a required gate.
+The Avy/AIGER route remains observational after a reproducible crash in the
+2026-09-30 qualification. Updating the suite pin does not automatically
+promote that engine; incomplete observations never count as required gates.
 BTOR failures are mapped back through exact compiler bindings using route-owned
 rising-clock frames because BTOR witness VCDs do not carry the SMT route's
 `smt_step` marker.
@@ -88,3 +88,23 @@ asynchronous reset goals. For generic entities, any future result applies only
 to its recorded finite parameter matrix and assumptions. Use `PROVEN` only
 for a successful inductive result; a finite-depth result remains
 `BOUNDED_PASS(depth)`. `UNKNOWN`, timeout and unsupported are never success.
+
+## New stream, DSP and coding sources
+
+The source library includes buffered fork/join, CRC-32, immutable/reloadable/
+folded FIR, rotation/vectoring CORDIC, ROM/interpolated NCO, CIC, polyphase
+and halfband filters, plus scrambler/convolutional coding. SECDED, Farrow,
+DVB RS(204,188) encode/decode and framed K=7 Viterbi are also present as source.
+Their numerical,
+latency and backpressure contracts are in the [stream](stdlib-stream-dsp.md),
+[FIR](stdlib-reloadable-fir.md) and [multirate](stdlib-multirate-coding.md) guides.
+The additional [SECDED](stdlib-secded.md), [Farrow](stdlib-farrow.md),
+[RS](stdlib-rs-dvb.md) and [Viterbi](stdlib-viterbi.md) guides define their
+finite numerical, error-radius and framing guarantees.
+
+Source availability is not a universal formal proof. The public source update
+does not add per-IP formal test suites or proof bundles: the existing nightly
+contracts above remain unchanged. Newly discovered executable declarations
+therefore enter the published inventory as `unverified` until their own
+checked, specialization-specific evidence is supplied. Previously recorded
+endpoint proofs do not qualify the new declarations.

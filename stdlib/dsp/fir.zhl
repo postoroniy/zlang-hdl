@@ -1,0 +1,53 @@
+// Immutable coefficient FIR. Exact products and the language's balanced dot
+// reduction precede the only output register. No implementation intent or
+// target-specific architecture is needed to use this parallel II=1 component.
+// H is a checked derived dimension because vec lengths use literal/parameter
+// names; callers leave it at N-1. It does not select a different architecture.
+module RvFirFixedExact<SW,SF,CW,CF,N,H=N-1,coefficients:vec<N,fixed<CW,CF>>>
+where N >= 1 && H == N-1 {
+    clock clk reset rst
+    in input : rv<fixed<SW,SF>>
+    out output : rv<fixed<SW+CW+ceil_log2(N),SF+CF>>
+
+    reg pending : bit = 0
+    reg result : fixed<SW+CW+ceil_log2(N),SF+CF> = 0
+    input.ready = ~pending | output.ready
+    output.valid = pending
+    output.payload = result
+    when input.ready { pending <- input.valid }
+
+    if N == 1 {
+        when input.transfer {
+            result <- dot([input.payload], coefficients)
+        }
+    } else {
+        reg history : vec<H,fixed<SW,SF>> = generate(i in 0..H) 0
+        samples : vec<N,fixed<SW,SF>> = generate(i in 0..N)
+            if i == 0 { input.payload } else { history[i-1] }
+        when input.transfer {
+            result <- dot(samples, coefficients)
+            history <- generate(i in 0..H)
+                if i == 0 { input.payload } else { history[i-1] }
+        }
+    }
+}
+
+// One explicit numerical boundary after full-precision accumulation. This
+// wrapper is combinational after the core's output register: no extra cycle.
+module RvFirFixedNearestEvenSaturate<SW,SF,CW,CF,N,OW,OF,
+                                   coefficients:vec<N,fixed<CW,CF>>>
+where N >= 1 {
+    clock clk reset rst
+    in input : rv<fixed<SW,SF>>
+    out output : rv<fixed<OW,OF>>
+
+    inst core : RvFirFixedExact<SW=SW,SF=SF,CW=CW,CF=CF,N=N,
+                                coefficients=coefficients>
+    connect input -> core.input
+    core.output.ready = output.ready
+    output.valid = core.output.valid
+    output.payload = quantize<fixed<OW,OF>>(core.output.payload) {
+        round nearest_even
+        overflow saturate
+    }
+}

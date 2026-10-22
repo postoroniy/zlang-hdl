@@ -1,0 +1,142 @@
+import std.coding.viterbi_k7_math
+import std.coding.viterbi_k7_storage
+
+struct ViterbiSoftPair { q0:u3 q1:u3 first:bit last:bit }
+struct ViterbiHardPair { pair:bits<2> first:bit last:bit }
+struct ViterbiDecodedBit { data:bit first:bit last:bit }
+struct ViterbiFrameStatus<MW,CW> { malformed:bit decoded_bits:uint<CW> path_metric:uint<MW> }
+enum ViterbiK7Phase { receive trace_request trace_apply status_wait output_request output_hold }
+
+// One frame, 64 parallel ACS lanes, full survivor RAM and complete traceback.
+// No tail bits or final-state-zero assumption. Drain uses one bit per two
+// unstalled edges; input ACS accepts one received pair per edge.
+module RvViterbiK7Soft<MAX_BITS=4096,MW=ceil_log2(14*MAX_BITS+1),
+                       AW=index_width(MAX_BITS),D=1<<AW,CW=index_width(MAX_BITS+1)>
+where MAX_BITS >= 1 && MAX_BITS <= 4096 && MW == ceil_log2(14*MAX_BITS+1)
+   && AW == index_width(MAX_BITS) && D == (1<<AW) && CW == index_width(MAX_BITS+1) {
+    clock clk reset rst
+    in input : rv<ViterbiSoftPair>
+    out status : rv<ViterbiFrameStatus<MW,CW>>
+    out output : rv<ViterbiDecodedBit>
+    reg phase : ViterbiK7Phase = ViterbiK7Phase.receive
+    reg metrics : vec<64,uint<MW>> = generate(i in 0..64) 0
+    reg reachable : bits<64> = 1
+    reg count : uint<CW> = 0
+    reg length : uint<CW> = 0
+    reg final_metric : uint<MW> = 0
+    reg trace_state : u6 = 0
+    reg trace_position : uint<AW> = 0
+    reg output_position : uint<AW> = 0
+    reg malformed : bit = 0
+    reg skipping : bit = 0
+
+    survivors : ViterbiK7Storage<T=bits<64>,N=D,AW=AW>
+    decoded : ViterbiK7Storage<T=bit,N=D,AW=AW>
+    receiving = phase == ViterbiK7Phase.receive
+    active = ~skipping | input.payload.first
+    marker_bad = input.payload.first != (count == 0)
+    overlong = (count == MAX_BITS-1) & ~input.payload.last
+    take = input.valid & receiving & active & ~marker_bad & ~overlong
+    input.ready = receiving
+    decisions = viterbi_k7_decisions<MW=MW>(metrics,reachable,input.payload.q0,input.payload.q1)
+    best = viterbi_k7_minimum<MW=MW>(decisions)
+
+    survivors.write = take
+    survivors.write_address = truncate<AW>(count)
+    survivors.write_data = bitcast<bits<64>>(generate(i in 0..64) decisions[i].predecessor_lsb)
+    survivors.read = phase == ViterbiK7Phase.trace_request
+    survivors.read_address = trace_position
+    picked = bitcast<vec<64,bit>>(survivors.read_data)[trace_state]
+    decoded.write = phase == ViterbiK7Phase.trace_apply
+    decoded.write_address = trace_position
+    decoded.write_data = trace_state[5]
+    decoded.read = phase == ViterbiK7Phase.output_request
+    decoded.read_address = output_position
+
+    presenting = phase == ViterbiK7Phase.output_hold
+    last_output = extend<CW>(output_position) == truncate<CW>(length-1)
+    output.valid = presenting
+    output.payload = ViterbiDecodedBit {
+        data = presenting ? decoded.read_data : bitcast<bit>(0)
+        first = presenting & (output_position == 0)
+        last = presenting & last_output
+    }
+    status.valid = phase == ViterbiK7Phase.status_wait
+    status.payload = ViterbiFrameStatus {
+        malformed
+        decoded_bits = malformed ? 0 : length
+        path_metric = malformed ? 0 : final_metric
+    }
+    clear_frame = (status.transfer & malformed) | (output.transfer & last_output)
+    when clear_frame {
+        phase <- ViterbiK7Phase.receive
+        metrics <- generate(i in 0..64) 0
+        reachable <- 1
+        count <- 0
+        length <- 0
+        final_metric <- 0
+        trace_state <- 0
+        trace_position <- 0
+        output_position <- 0
+        malformed <- 0
+    } else when receiving {
+        when input.transfer {
+            when active {
+                when marker_bad | overlong {
+                    malformed <- 1
+                    skipping <- ~input.payload.last
+                    phase <- ViterbiK7Phase.status_wait
+                } else {
+                    metrics <- generate(i in 0..64) decisions[i].metric
+                    reachable <- bitcast<bits<64>>(generate(i in 0..64) decisions[i].valid)
+                    count <- truncate<CW>(count+1)
+                    skipping <- 0
+                    when input.payload.last {
+                        length <- truncate<CW>(count+1)
+                        final_metric <- best.metric
+                        trace_state <- best.node
+                        trace_position <- truncate<AW>(count)
+                        phase <- ViterbiK7Phase.trace_request
+                    }
+                }
+            } else when input.payload.last { skipping <- 0 }
+        }
+    } else when phase == ViterbiK7Phase.trace_request {
+        phase <- ViterbiK7Phase.trace_apply
+    } else when phase == ViterbiK7Phase.trace_apply {
+        trace_state <- bitcast<u6>(concat(trace_state[4:0],picked))
+        when trace_position == 0 {
+            output_position <- 0
+            phase <- ViterbiK7Phase.status_wait
+        } else {
+            trace_position <- truncate<AW>(trace_position-1)
+            phase <- ViterbiK7Phase.trace_request
+        }
+    } else when phase == ViterbiK7Phase.status_wait {
+        when status.transfer { phase <- ViterbiK7Phase.output_request }
+    } else when phase == ViterbiK7Phase.output_request {
+        phase <- ViterbiK7Phase.output_hold
+    } else when output.transfer {
+        output_position <- truncate<AW>(output_position+1)
+        phase <- ViterbiK7Phase.output_request
+    }
+}
+
+module RvViterbiK7Hard<MAX_BITS=4096,MW=ceil_log2(14*MAX_BITS+1),CW=index_width(MAX_BITS+1)>
+where MAX_BITS >= 1 && MAX_BITS <= 4096 && MW == ceil_log2(14*MAX_BITS+1)
+   && CW == index_width(MAX_BITS+1) {
+    clock clk reset rst
+    in input : rv<ViterbiHardPair>
+    out status : rv<ViterbiFrameStatus<MW,CW>>
+    out output : rv<ViterbiDecodedBit>
+    core : RvViterbiK7Soft<MAX_BITS=MAX_BITS>
+    core.input.payload = ViterbiSoftPair {
+        q0 = input.payload.pair[1] ? 7 : 0
+        q1 = input.payload.pair[0] ? 7 : 0
+        first = input.payload.first last = input.payload.last
+    }
+    core.input.valid = input.valid
+    input.ready = core.input.ready
+    core.status -> status
+    core.output -> output
+}

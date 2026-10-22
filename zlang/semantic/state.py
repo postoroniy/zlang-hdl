@@ -335,6 +335,7 @@ class RuleAnalyzer:
                 ),
                 module_context,
                 purpose=f"rule '{declaration.name}' guard refinement",
+                refinement_only=True,
             )
             rule_context = module_context.with_scope(
                 range_refinements=expression_ranges.guard_range_refinements(
@@ -478,6 +479,7 @@ class RuleAnalyzer:
                         ),
                         module_context,
                         purpose=f"rule '{declaration.name}' conditional refinement",
+                        refinement_only=True,
                     )
                     combined_analysis = expression_operators.build_binary(
                         ir_expr.BinaryOperator.BIT_AND,

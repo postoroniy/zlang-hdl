@@ -364,6 +364,13 @@ def _context_for_callable_body(
 
     selected = _context_for_source_declaration(context, source_unit)
     return selected.with_scope(
+        # Caller loop names/refinements are lexical facts, not callee inputs.
+        # Explicit generic values are bound before entering this scope; lifted
+        # symbolic parameters are reintroduced by functional specialization.
+        index_bindings={},
+        index_types={},
+        functional_symbolic_values={},
+        range_refinements={},
         functional_binder_ordinals={},
         next_functional_binder_ordinal=[0],
         functional_binder_nesting=(),
@@ -419,8 +426,13 @@ def _expand_analysis_calls(
     *,
     purpose: str,
     functions: tuple[ir_module.Function, ...] | list[ir_module.Function] = (),
+    refinement_only: bool = False,
 ) -> ir_expr.Expression:
-    """Create an exact temporary analysis view of retained callable bodies."""
+    """Expand an analysis view, optionally retaining opaque range predicates.
+
+    Range refinement is conservative: an unexpanded call supplies no bounds.
+    Mandatory analyses still require complete expansion within the same limits.
+    """
 
     if functions and not context.services.callables.function_definitions:
         context.services.callables.function_definitions.update(
@@ -448,5 +460,19 @@ def _expand_analysis_calls(
             expression,
             (*function_definitions, *callable_definitions),
         )
+    except ir_callables.CallableExpansionNodeLimit as error:
+        if refinement_only:
+            # Budget exhaustion must not hide an invalid retained call graph.
+            # No inferred fact is substituted into the executable expression.
+            try:
+                ir_callables.reachable_callable_definitions(
+                    (*function_definitions, *callable_definitions), (expression,)
+                )
+            except ir_callables.CallableReachabilityError as graph_error:
+                raise SemanticError(
+                    f"cannot analyze {purpose}: {graph_error}"
+                ) from graph_error
+            return expression
+        raise SemanticError(f"cannot analyze {purpose}: {error}") from error
     except ir_callables.CallableExpansionError as error:
         raise SemanticError(f"cannot analyze {purpose}: {error}") from error

@@ -1,0 +1,134 @@
+import std.dsp.cordic_constants
+
+struct CartesianFixed<SW,SF> {
+    x : fixed<SW,SF>
+    y : fixed<SW,SF>
+}
+
+struct PolarFixed<P,SW,SF> {
+    phase : sint<P>
+    magnitude : ufixed<SW,SF>
+    angle_defined : bit
+}
+
+struct VectoringState<W,Z> {
+    x : sint<W>
+    y : sint<W>
+    z : sint<Z>
+}
+
+fn cordic_vector_step<W,Z,A,I>(x:sint<W>, y:sint<W>, z:sint<Z>) -> VectoringState<W,Z> {
+    angle = extend<Z>(cordic_angle<P=A,I=I>())
+    VectoringState {
+        x = truncate(y >= 0 ? x + (y >> I) : x - (y >> I))
+        y = truncate(y >= 0 ? y - (x >> I) : y + (x >> I))
+        z = truncate(y >= 0 ? z + angle : z - angle)
+    }
+}
+
+// Three bounded profiles. Phase is binary turns; magnitude is gain-corrected.
+// Pre-normalization, N rotations, gain and conversion: N+3 edges, II=1.
+module RvCordicVectoring<SW=16,SF=SW-2,P=SW,N=P-2,F=SF+4,W=F+4,
+                         A=P+4,Z=A+2,S=N+1,B=index_width(SW+1),MW=W+F+3+SW>
+where (SW == 8 || SW == 12 || SW == 16) && SF == SW-2 && P == SW
+   && N == P-2 && F == SF+4 && W == F+4 && A == P+4 && Z == A+2
+   && S == N+1 && B == index_width(SW+1) && MW == W+F+3+SW {
+    clock clk reset rst
+    in input : rv<CartesianFixed<SW,SF>>
+    out output : rv<PolarFixed<P,SW,SF>>
+
+    reg xs : vec<S,sint<W>> = generate(i in 0..S) 0
+    reg ys : vec<S,sint<W>> = generate(i in 0..S) 0
+    reg zs : vec<S,sint<Z>> = generate(i in 0..S) 0
+    reg exponents : vec<S,uint<B>> = generate(i in 0..S) 0
+    reg defined : vec<S,bit> = generate(i in 0..S) 0
+    reg axes : vec<S,bit> = generate(i in 0..S) 0
+    reg axis_phases : vec<S,sint<P>> = generate(i in 0..S) 0
+    reg axis_magnitudes : vec<S,uint<SW>> = generate(i in 0..S) 0
+    reg valid : vec<S,bit> = generate(i in 0..S) 0
+    reg gain_value : sint<MW> = 0
+    reg gain_phase : sint<Z> = 0
+    reg gain_defined : bit = 0
+    reg gain_axis : bit = 0
+    reg gain_axis_phase : sint<P> = 0
+    reg gain_axis_magnitude : uint<SW> = 0
+    reg gain_valid : bit = 0
+    reg pending : bit = 0
+    reg phase : sint<P> = 0
+    reg magnitude : ufixed<SW,SF> = 0
+    reg angle_defined : bit = 0
+
+    advance = ~pending | output.ready
+    input.ready = advance
+    output.valid = pending
+    output.payload = PolarFixed { phase magnitude angle_defined }
+    raw_x : sint<W> = input.valid ? extend<W>(bitcast<sint<SW>>(input.payload.x)) : 0
+    raw_y : sint<W> = input.valid ? extend<W>(bitcast<sint<SW>>(input.payload.y)) : 0
+    ax : uint<SW> = truncate(bitcast<uint<W>>(raw_x < 0 ? truncate<W>(-raw_x) : raw_x))
+    ay : uint<SW> = truncate(bitcast<uint<W>>(raw_y < 0 ? truncate<W>(-raw_y) : raw_y))
+    largest = ax > ay ? ax : ay
+    levels : vec<SW,uint<B>> = generate(i in 0..SW) (largest >= (1 << i) ? 1 : 0)
+    exponent : uint<B> = largest == 0 ? 0 : truncate(sum(levels) - 1)
+    shift : u8 = extend(F - exponent)
+    left = raw_x < 0
+    normalized_x : sint<W> = truncate((left ? truncate<W>(-raw_x) : raw_x) << shift)
+    normalized_y : sint<W> = truncate((left ? truncate<W>(-raw_y) : raw_y) << shift)
+    start_phase : sint<Z> = left ? (raw_y >= 0 ? (1 << (A-1)) : -(1 << (A-1))) : 0
+    on_axis = (raw_x == 0) | (raw_y == 0)
+    exact_phase : sint<P> = raw_y == 0 ? (left ? -(1 << (P-1)) : 0)
+        : (raw_x == 0 ? (raw_y > 0 ? (1 << (P-2)) : -(1 << (P-2))) : 0)
+    next_stage : vec<S,VectoringState<W,Z>> = generate(i in 0..S) if i == 0 {
+        VectoringState { x = normalized_x y = normalized_y z = start_phase }
+    } else {
+        cordic_vector_step<W=W,Z=Z,A=A,I=i-1>(xs[i-1],ys[i-1],zs[i-1])
+    }
+    inverse = cordic_inverse_gain<F=F,N=N>()
+    product = xs[N] * inverse
+    rounded_phase = bitcast<sint<P+2>>(quantize<fixed<P+2,P>>(
+        bitcast<fixed<Z,A>>(gain_phase)
+    ) { round nearest_even overflow wrap })
+    corrected_magnitude = quantize<ufixed<SW,SF>>(
+        bitcast<fixed<MW,2*F+SF>>(gain_value)
+    ) { round nearest_even overflow saturate }
+    when advance {
+        xs <- generate(i in 0..S) next_stage[i].x
+        ys <- generate(i in 0..S) next_stage[i].y
+        zs <- generate(i in 0..S) next_stage[i].z
+        exponents <- generate(i in 0..S) if i == 0 { exponent } else { exponents[i-1] }
+        defined <- generate(i in 0..S) if i == 0 { largest != 0 } else { defined[i-1] }
+        axes <- generate(i in 0..S) if i == 0 { on_axis } else { axes[i-1] }
+        axis_phases <- generate(i in 0..S) if i == 0 { exact_phase } else { axis_phases[i-1] }
+        axis_magnitudes <- generate(i in 0..S) if i == 0 { largest } else { axis_magnitudes[i-1] }
+        valid <- generate(i in 0..S) if i == 0 { input.valid } else { valid[i-1] }
+        gain_value <- truncate(extend<MW>(product) << exponents[N])
+        gain_phase <- zs[N]
+        gain_defined <- defined[N]
+        gain_axis <- axes[N]
+        gain_axis_phase <- axis_phases[N]
+        gain_axis_magnitude <- axis_magnitudes[N]
+        gain_valid <- valid[N]
+        pending <- gain_valid
+        phase <- gain_defined ? (gain_axis ? gain_axis_phase : truncate<P>(rounded_phase)) : 0
+        magnitude <- gain_axis ? bitcast<ufixed<SW,SF>>(gain_axis_magnitude) : corrected_magnitude
+        angle_defined <- gain_defined
+    }
+}
+
+struct Atan2Result<P> {
+    phase : sint<P>
+    angle_defined : bit
+}
+
+module RvAtan2<SW=16,SF=SW-2,P=SW> {
+    clock clk reset rst
+    in input : rv<CartesianFixed<SW,SF>>
+    out output : rv<Atan2Result<P>>
+    core : RvCordicVectoring<SW=SW,SF=SF,P=P>
+    connect input -> core.input
+    core.output.ready = output.ready
+    output.valid = core.output.valid
+    output.payload = Atan2Result {
+        phase = core.output.payload.phase
+        angle_defined = core.output.payload.angle_defined
+    }
+}

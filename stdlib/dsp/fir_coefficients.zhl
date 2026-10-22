@@ -1,0 +1,38 @@
+// One owner of coefficient epochs. Loading never changes the active bank.
+module FirCoefficientBanks<CW,CF,N,IW=index_width(N+1),
+                          initial_coefficients:vec<N,fixed<CW,CF>>>
+where N >= 1 && IW == index_width(N+1) {
+    clock clk reset rst
+    in reload : rv<fixed<CW,CF>>
+    in commit : bit
+    in idle : bit
+    out commit_ready : bit
+    out block_input : bit
+    out coefficients : vec<N,fixed<CW,CF>>
+    reg bank0 : vec<N,fixed<CW,CF>> = initial_coefficients
+    reg bank1 : vec<N,fixed<CW,CF>> = initial_coefficients
+    reg active : bit = 0
+    reg count : uint<IW> = 0
+    complete = count == N
+    reload.ready = ~complete
+    switch_ready = complete & idle
+    commit_ready = switch_ready
+    block_input = complete & commit
+    coefficients = active ? bank1 : bank0
+    when commit & switch_ready {
+        active <- ~active
+        count <- 0
+    } else when reload.transfer {
+        count <- truncate(count + 1)
+        // A complete ordered load shifts exactly N values into the inactive
+        // bank. Partial contents are never selected. One bank-wide enable
+        // avoids an address decoder and a separate enabled register per tap.
+        when active {
+            bank0 <- generate(i in 0..N)
+                if i == N-1 { reload.payload } else { bank0[i+1] }
+        } else {
+            bank1 <- generate(i in 0..N)
+                if i == N-1 { reload.payload } else { bank1[i+1] }
+        }
+    }
+}

@@ -210,6 +210,7 @@ def test_sim_cli_compares_native_with_external_rtl_and_retains_evidence(
     assert manifest["native_trace"] == manifest["rtl_trace"] == [{"y": 255}]
     assert {path.name for path in evidence.iterdir()} == {
         "compare_tb.sv",
+        "zlang-compare-events.hex",
         "comparison.json",
         "compile.log",
         "design.sv",

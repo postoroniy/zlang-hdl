@@ -1,0 +1,74 @@
+import std.coding.gf256
+
+// Total constant-index selection, including out-of-range zero. Callers own
+// bounded indices; no illegal dynamic vector access is masked after the fact.
+fn rs_dvb_select<N,IW>(values:vec<N,bits<8>>,index:uint<IW>) -> bits<8> {
+    reduce(|,generate(i in 0..N) (index == i ? values[i] : zeros<8>))
+}
+
+struct RsDvbBmState {
+    locator:vec<17,bits<8>>
+    previous_locator:vec<17,bits<8>>
+    degree:u5
+    distance:u5
+    previous:bits<8>
+}
+
+fn rs_dvb_discrepancy(state:RsDvbBmState,syndromes:vec<16,bits<8>>,step:u5) -> bits<8> {
+    reduce(^,generate(i in 0..17) if i == 0 {
+        gf256_mul(state.locator[0],rs_dvb_select<N=16,IW=5>(syndromes,step))
+    } else {
+        ((i <= state.degree) & (i <= step)
+            ? gf256_mul(state.locator[i],rs_dvb_select<N=16,IW=5>(syndromes,truncate<5>(step-i)))
+            : zeros<8>)
+    })
+}
+
+// The controller initializes previous=1 and only replaces it with a nonzero
+// discrepancy. It checks that invariant before invoking this update.
+fn rs_dvb_bm_update(state:RsDvbBmState,step:u5,delta:bits<8>) -> RsDvbBmState {
+    reciprocal = gf256_inverse(state.previous)
+    ratio = gf256_mul(delta,reciprocal.value)
+    replace_previous = (delta != 0) & (extend<6>(state.degree) <= extend<6>(step >> 1))
+    updated = generate(i in 0..17) (state.locator[i] ^
+        (i >= state.distance ? gf256_mul(ratio,rs_dvb_select<N=17,IW=5>(
+            state.previous_locator,truncate<5>(i-state.distance))) : zeros<8>))
+    RsDvbBmState {
+        locator = delta == 0 ? state.locator : updated
+        previous_locator = replace_previous ? state.locator : state.previous_locator
+        degree = replace_previous ? truncate<5>(step+1-state.degree) : state.degree
+        distance = replace_previous ? 1 : truncate<5>(state.distance+1)
+        previous = replace_previous ? delta : state.previous
+    }
+}
+
+fn rs_dvb_omega_coefficient(locator:vec<17,bits<8>>,syndromes:vec<16,bits<8>>,index:u5) -> bits<8> {
+    reduce(^,generate(i in 0..17) if i == 0 {
+        gf256_mul(locator[0],rs_dvb_select<N=16,IW=5>(syndromes,index))
+    } else { (i <= index
+        ? gf256_mul(locator[i],rs_dvb_select<N=16,IW=5>(syndromes,truncate<5>(index-i)))
+        : zeros<8>) })
+}
+
+// Ascending coefficients, degree at most16. Callers explicitly zero-pad
+// lower degrees; the fixed input type cannot silently discard coefficients.
+fn rs_dvb_poly_value(coefficients:vec<17,bits<8>>,x:bits<8>) -> bits<8> {
+    p16 = coefficients[16]
+    p15 = gf256_mul(p16,x) ^ coefficients[15]
+    p14 = gf256_mul(p15,x) ^ coefficients[14]
+    p13 = gf256_mul(p14,x) ^ coefficients[13]
+    p12 = gf256_mul(p13,x) ^ coefficients[12]
+    p11 = gf256_mul(p12,x) ^ coefficients[11]
+    p10 = gf256_mul(p11,x) ^ coefficients[10]
+    p9 = gf256_mul(p10,x) ^ coefficients[9]
+    p8 = gf256_mul(p9,x) ^ coefficients[8]
+    p7 = gf256_mul(p8,x) ^ coefficients[7]
+    p6 = gf256_mul(p7,x) ^ coefficients[6]
+    p5 = gf256_mul(p6,x) ^ coefficients[5]
+    p4 = gf256_mul(p5,x) ^ coefficients[4]
+    p3 = gf256_mul(p4,x) ^ coefficients[3]
+    p2 = gf256_mul(p3,x) ^ coefficients[2]
+    p1 = gf256_mul(p2,x) ^ coefficients[1]
+    p0 = gf256_mul(p1,x) ^ coefficients[0]
+    p0
+}

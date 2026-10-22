@@ -1,0 +1,67 @@
+// Phase is measured in binary turns: 2^PW units are one full revolution.
+// Phase advances on accepted tuning words, not on idle clocks.
+fn phase_advance<PW>(phase:uint<PW>, increment:uint<PW>) -> uint<PW> {
+    truncate<PW>(phase + increment)
+}
+
+struct SinCos<type T> {
+    sine : T
+    cosine : T
+}
+
+fn nco_sincos_table<OW,OF,D>() {
+    generate(i in 0..D) SinCos {
+        sine = quantize<fixed<OW,OF>>(sin((2 * pi() * i) / D)) {
+            round nearest_even overflow saturate
+        }
+        cosine = quantize<fixed<OW,OF>>(cos((2 * pi() * i) / D)) {
+            round nearest_even overflow saturate
+        }
+    }
+}
+
+module RvPhaseAccumulator<PW,INITIAL=0>
+where PW >= 1 && INITIAL >= 0 && INITIAL < (1 << PW) {
+    clock clk reset rst
+    in input : rv<uint<PW>>
+    out output : rv<uint<PW>>
+    reg phase : uint<PW> = INITIAL
+    reg result : uint<PW> = 0
+    reg pending : bit = 0
+    input.ready = ~pending | output.ready
+    output.valid = pending
+    output.payload = result
+    when input.ready { pending <- input.valid }
+    when input.transfer {
+        result <- phase
+        phase <- phase_advance<PW=PW>(phase, input.payload)
+    }
+}
+
+// One paired synchronous ROM; holding its address holds a backpressured sample.
+module RvNcoSinCos<PW,AW,OW,OF,INITIAL=0,D=1<<AW>
+where PW >= AW && AW >= 2 && D == (1 << AW) && D <= 4096
+   && OW >= 2 && OF >= 0 && OF < OW
+   && INITIAL >= 0 && INITIAL < (1 << PW) {
+    clock clk reset rst
+    in input : rv<uint<PW>>
+    out output : rv<SinCos<fixed<OW,OF>>>
+    reg phase : uint<PW> = INITIAL
+    reg held_address : uint<AW> = 0
+    reg pending : bit = 0
+    rom table : rom<SinCos<fixed<OW,OF>>,D> {
+        read_latency 1
+        init nco_sincos_table<OW=OW,OF=OF,D=D>()
+    }
+    address = bitcast<uint<AW>>(phase[PW-1:PW-AW])
+    table.read_address = input.transfer
+        ? bitcast<uint<AW>>(phase[PW-1:PW-AW]) : held_address
+    input.ready = ~pending | output.ready
+    output.valid = pending
+    output.payload = table.read_data
+    when input.ready { pending <- input.valid }
+    when input.transfer {
+        held_address <- address
+        phase <- phase_advance<PW=PW>(phase, input.payload)
+    }
+}

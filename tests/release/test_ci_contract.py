@@ -6,6 +6,7 @@ import subprocess
 import tomllib
 
 import pytest
+import yaml
 
 from tools.audit_workflow_structure import codeql_version_failures, hosted_lane_contract_failures
 from tools.release_status import StatusError, _check_solver_pin
@@ -13,6 +14,22 @@ from tools.release_status import StatusError, _check_solver_pin
 
 ROOT = Path(__file__).resolve().parents[2]
 MAKEFILE = ROOT / "Makefile"
+
+
+def test_oss_cad_workflows_match_reviewed_suite_pin() -> None:
+    status = json.loads((ROOT / "release/status.json").read_text(encoding="utf-8"))
+    suite = status["oss_cad_suite"]
+    assert len(suite["linux_x64_sha256"]) == 64
+    assert all(c in "0123456789abcdef" for c in suite["linux_x64_sha256"])
+    setups = 0
+    for path in sorted((ROOT / ".github/workflows").glob("*.yml")):
+        workflow = yaml.load(path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
+        for job in workflow.get("jobs", {}).values():
+            for step in job.get("steps", ()):
+                if step.get("uses", "").startswith("YosysHQ/setup-oss-cad-suite@"):
+                    assert step["with"]["version"] == suite["version"], path
+                    setups += 1
+    assert setups > 0
 
 
 def _junit(path: Path, name: str) -> None:

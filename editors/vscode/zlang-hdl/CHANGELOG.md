@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Keep module-body syntax highlighting stable after generic `where` constraints,
+  whether the constraint is inline, on a new line or follows a comment.
+
 - Add a Linux-x64 event-level native simulation debugger and live waveform
   panel backed by compiler-owned debug metadata and Rust DAP/waveform tools.
 - Add a readonly bounded FST/VCD custom editor while retaining a universal

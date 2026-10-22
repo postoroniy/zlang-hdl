@@ -282,7 +282,7 @@ def test_inline_packed_alias_is_allocated_away_from_public_leaf_names() -> None:
     assert "input wire logic [7:0] zlang_top_core_y" in public
     assert "output logic [7:0] y_value" in public
     assert "logic [7:0] zlang_packed_y;" in public
-    assert "assign zlang_packed_y = {zlang_top_core_y};" in public
+    assert "assign zlang_packed_y = {8'(zlang_top_core_y)};" in public
     assert "assign y_value = zlang_packed_y;" in public
     assert "_zlang_core" not in public
     assert repeated.text == artifact.text
@@ -327,7 +327,7 @@ def test_removed_wrapper_needs_no_instance_name_beside_colliding_port() -> None:
 
     assert "input wire logic [7:0] zlang_top_core" in public
     assert "logic [7:0] zlang_packed_y;" in public
-    assert "assign zlang_packed_y = {zlang_top_core};" in public
+    assert "assign zlang_packed_y = {8'(zlang_top_core)};" in public
     assert "assign y_value = zlang_packed_y;" in public
     assert "_zlang_core" not in public
     assert repeated.text == artifact.text
@@ -343,7 +343,7 @@ def test_inline_packed_alias_avoids_source_owned_collision_deterministically() -
 
     assert match is not None
     alias = match.group(1)
-    assert f"assign {alias} = {{zlang_packed_y}};" in artifact.text
+    assert f"assign {alias} = {{8'(zlang_packed_y)}};" in artifact.text
     assert f"assign y_value = {alias};" in artifact.text
     assert artifact.text == repeated.text
     assert artifact.artifact_hash == repeated.artifact_hash

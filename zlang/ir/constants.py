@@ -9,6 +9,8 @@ consumer.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from functools import reduce
+import operator
 
 
 from zlang.ir import expressions as expr
@@ -21,6 +23,37 @@ from zlang.ir.types import HardwareType, StructType, TupleType, VecType
 
 class ConstantExpressionError(ValueError):
     """A typed expression is not a recursively specialization-time constant."""
+
+
+def constant_comparison(operation, left: int, right: int) -> int | None:
+    """Compare canonical same-format scalar constants, not packed aggregates."""
+    if operation is expr.BinaryOperator.EQUAL:
+        return int(left == right)
+    if operation is expr.BinaryOperator.NOT_EQUAL:
+        return int(left != right)
+    if operation is expr.BinaryOperator.LESS:
+        return int(left < right)
+    if operation is expr.BinaryOperator.LESS_EQUAL:
+        return int(left <= right)
+    if operation is expr.BinaryOperator.GREATER:
+        return int(left > right)
+    if operation is expr.BinaryOperator.GREATER_EQUAL:
+        return int(left >= right)
+    return None
+
+
+def constant_bitwise(operation, left: int, right: int, type_) -> int | None:
+    """One exact packed-width bitwise constant owner, shared with the backend."""
+    if operation is expr.BinaryOperator.BIT_AND:
+        combine = operator.and_
+    elif operation is expr.BinaryOperator.BIT_OR:
+        combine = operator.or_
+    elif operation is expr.BinaryOperator.BIT_XOR:
+        combine = operator.xor
+    else:
+        return None
+    raw = combine(packing.pack_runtime(type_, left), packing.pack_runtime(type_, right))
+    return packing.unpack_runtime(type_, raw)
 
 
 def constant_runtime_value(expression: expr.Expression) -> object:
@@ -48,6 +81,24 @@ def _constant_runtime_value(
 
     if isinstance(expression, expr.Constant):
         return expression.value
+    if isinstance(expression, expr.Binary):
+        left, right = evaluate(expression.left), evaluate(expression.right)
+        if not isinstance(left, int) or not isinstance(right, int):
+            raise ConstantExpressionError("constant predicate requires scalar operands")
+        result = constant_comparison(expression.operator, left, right)
+        if result is None:
+            result = constant_bitwise(expression.operator, left, right, expression.operand_type)
+        if result is not None:
+            return result
+    if isinstance(expression, expr.Reduce):
+        operation = {expr.ReductionOperator.BIT_AND: expr.BinaryOperator.BIT_AND,
+                     expr.ReductionOperator.BIT_OR: expr.BinaryOperator.BIT_OR,
+                     expr.ReductionOperator.BIT_XOR: expr.BinaryOperator.BIT_XOR}.get(expression.operator)
+        if operation is not None:
+            values = _vector_items(expression.collection.type, evaluate(expression.collection), "predicate reduction")
+            if not values or not all(isinstance(value, int) for value in values):
+                raise ConstantExpressionError("constant bitwise reduction requires nonempty scalar values")
+            return reduce(lambda a, b: constant_bitwise(operation, a, b, expression.type), values)
     if isinstance(expression, expr.EnumEncode):
         return evaluate(expression.expression)
     if isinstance(expression, expr.EnumValid):

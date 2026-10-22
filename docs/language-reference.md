@@ -3675,11 +3675,29 @@ directory name and is not a Python or user-package import.
 | `std.math.complex` | Generic `Complex<T>`/`Butterfly<S,D>`, nominal operators, explicit complex quantization |
 | `std.math.complex_fixed_18_16` | Compatibility Q2.16 complex multiply profile |
 | `std.stream.core` | Generic `FrameBeat<T,M>`, ready/valid register slice, skid buffer, FIFO wrapper, and explicit two-way mux/demux |
+| `std.stream.composition` | Buffered broadcast `RvFork2<T>` and ordered `RvJoin2<A,B>` with `StreamPair<A,B>` |
 | `std.stream.serialization` | Bounded power-of-two vector serializer and raw bit collector |
 | `std.stream.complex_fixed` | Compatibility Q5.32-to-Q2.16 complex stream quantizer |
 | `std.dsp.fft` | Exact FFT butterfly, bit reversal, and compile-time twiddle helpers |
+| `std.dsp.fir` | Parallel II=1 immutable-coefficient fixed-point FIR, exact or final nearest-even/saturating output |
+| `std.dsp.fir_reloadable` / `std.dsp.fir_folded` | Atomic two-bank reload and explicit one-MAC FIR variants |
+| `std.dsp.nco` | Binary-turn phase accumulator and synchronous paired sine/cosine ROM |
+| `std.dsp.nco_linear` | Two-edge II=1 linear interpolation between paired ROM endpoints |
+| `std.dsp.cordic` | Rotation-only sin/cos, signed binary turns, global-stall pipeline |
+| `std.dsp.cordic_vectoring` | Normalized vectoring, atan2 and unsigned magnitude |
+| `std.dsp.cic` | Explicit-width modular CIC decimation/interpolation |
+| `std.dsp.polyphase` | Exact or explicitly quantized polyphase FIR decimation/interpolation |
+| `std.dsp.halfband` | Checked symmetric ×2 decimation/interpolation with exact pre-adders |
+| `std.dsp.farrow` | Exact stored-coefficient fractional delay, linear/cubic Lagrange and final conversion |
 | `std.storage` / `std.storage.core` | Bounded delay/FIFO plus raw-bit reorder and ordered ping-pong storage wrappers |
 | `std.coding` / `std.coding.core` | Parity, bit reversal, checked polynomial-tap LFSR step, and exact convolution helpers |
+| `std.coding.crc` | Exact reflected polynomial step and framed byte-stream CRC-32 |
+| `std.coding.scrambler` | x^7+x^4+1 24-bit kernel with explicit restart/clear controls |
+| `std.coding.convolutional` | Rate-1/2 K=7 24-bit kernel with explicit history controls |
+| `std.coding.secded` | Extended-Hamming functions and one-stage ready/valid encode/decode, K=1…64 |
+| `std.coding.gf256` | Exact polynomial-basis GF(256) arithmetic, polynomial 0x11D |
+| `std.coding.rs_dvb` / `std.coding.rs_dvb_decode` | Framed systematic DVB RS(204,188) encoder / errors-only decoder |
+| `std.coding.viterbi_k7` | Framed K=7 hard/3-bit-soft Viterbi core and word adapter |
 | `std.bus.reg` | RegBus and the source-authoritative CSR target |
 | `std.bus.axi_lite` | AXI4-Lite protocol and RegBus frontend |
 | `std.bus.axi_burst` | Bounded no-ID AXI burst profile, read/write views, and single-outstanding burst/single-beat helpers |
@@ -3697,6 +3715,137 @@ directory name and is not a Python or user-package import.
 | `std.arch.xilinx7_memory` | Bounded Series-7 storage/resource mapping descriptions |
 | `std.arch.xilinx7_multiply` | Series-7 hard-multiplier architecture descriptions |
 | `std.arch.xilinx7_signed_product` | Signed product-reduction architecture descriptions |
+
+### Buffered stream composition, CRC and FIR
+
+`RvFork2<T>` stores one accepted item and tracks its delivery to `output0`
+and `output1` separately. Each consumer receives it exactly once even if the
+other stalls. The last delivery may retire on the edge accepting a replacement.
+`RvJoin2<A,B>` stores one item per input and pairs their acceptance order in
+`StreamPair<A,B> { left:A, right:B }`. Both lanes can refill on pair retirement.
+Reset discards pending items; neither component performs CDC or type conversion.
+
+`crc_step_reflected<W>` takes W-bit raw state, one data bit and W-bit reflected
+polynomial, and returns W-bit raw state without initialization/finalization.
+`RvCrc32Byte` accepts `CrcByteBeat { data:bits<8>, last:bit }` through `input`
+and emits one 32-bit checksum on `output` for each accepted last byte. It uses
+LSB-first byte order, reflected polynomial `0xEDB88320`, raw init and final XOR
+`0xFFFFFFFF`. A pending result blocks the next frame except on simultaneous
+retire/accept. Reset drops a partial frame and pending result; empty frames
+have no representation.
+
+`RvFirFixedExact<SW,SF,CW,CF,N,coefficients>` takes signed fixed-point samples
+and immutable compile-time `vec<N,fixed<CW,CF>>` coefficients. Pass named
+arguments with a typed local vector, as in `coefficients=taps`. N must be at
+least one; the checked derived dimension H defaults to N-1. Coefficient zero
+multiplies the current accepted sample. Later coefficients multiply previous
+accepted samples; history advances only on `input.transfer`. Products and
+balanced `dot` accumulation remain exact, giving
+`fixed<SW+CW+ceil_log2(N),SF+CF>`. N=1 has no history storage.
+
+The FIR has one buffered output stage: unstalled latency one, II=1, and
+same-edge retire/refill. Backpressure holds output and history; reset clears
+validity and zeroes history. `RvFirFixedNearestEvenSaturate` additionally takes
+OW/OF and converts only the final exact result to `fixed<OW,OF>` using
+nearest-even rounding and saturation, without an extra pipeline stage.
+Coefficient reload, decimation/interpolation, folded scheduling and automatic
+symmetry detection are not part of these modules.
+
+Separate `std.dsp.fir_reloadable` modules expose serial inactive-bank loading
+and atomic `commit/commit_ready`. A full bank activates only after computation
+and retirement of the old result; the switch edge accepts no sample or
+coefficient. History survives commit, while reset restores initial coefficients
+and clears history/loading/results. Separate `std.dsp.fir_folded` modules use
+one logical MAC for N=1…32, with unstalled latency=II=N and no overlapping
+sample computations. Both families provide exact and single-final-conversion
+variants. See [their complete contracts and commands](stdlib-reloadable-fir.md).
+
+The [stream/DSP guide](stdlib-stream-dsp.md) gives complete commands for
+`framed_crc.zhl` and `stream_fir8.zhl` with checked-in stimulus events.
+
+### Oscillators, decimation and coding
+
+`std.dsp.nco` provides a modular accepted-sample phase accumulator and paired
+synchronous-ROM sine/cosine. `std.dsp.cic` makes decimation rate, stage count,
+differential delay and modular internal/output width explicit.
+`std.dsp.polyphase` groups immutable FIR coefficients by phase, retaining exact
+products and accumulation before an optional single final quantization.
+`std.coding.scrambler` and `std.coding.convolutional` expose the same 24-bit
+kernels used by the 802.11a project, plus one-result stream wrappers with
+explicit restart/tail controls. No compiler dispatch recognizes these names.
+The [multirate/coding guide](stdlib-multirate-coding.md) defines phase units,
+coefficient/bit order, latency and reset/stall contracts with runnable stimuli.
+`std.dsp.cordic` provides `RvCordicSinCos<P=16,N=P-2>`: input `rv<sint<P>>`
+encodes signed binary turns, output `rv<SinCos<fixed<16,14>>>`. P is 8/12/16,
+1<=N<=P-2, guard bits G=4. Unstalled latency is N+2 rising edges, II=1;
+output backpressure freezes every stage and reset clears all in-flight work.
+Only the final coordinate conversion rounds nearest-even/saturates. This is an
+approximation, not correctly rounded sin/cos; the guide gives error bounds and
+the runnable `examples/cordic.zhl` schedule. Vectoring is a separate module:
+`std.dsp.cordic_vectoring` provides `RvCordicVectoring` and `RvAtan2`, with
+SW=P=8/12/16, SF=SW-2 and N=P-2. The former returns phase, unsigned magnitude
+and `angle_defined`; the latter omits magnitude. Unstalled latency is N+3 edges,
+II=1, with global stall. Zero input has phase/magnitude zero and undefined
+angle; the negative x axis is the negative half-turn code. See the guide for
+normalization, nearest-even conversion and universal profile error bounds.
+
+`std.dsp.polyphase` also provides exact/final-quantized interpolation:
+`y[n*R+p] = sum_k h[p+R*k]*x[n-k]`, R ordered outputs per accepted input,
+first output after one edge, input II=R. Exact width is
+SW+CW+ceil_log2(K), scale SF+CF. Coefficients define gain without hidden R scaling.
+`std.dsp.nco_linear` provides two-edge, II=1 linear ROM endpoint interpolation.
+`std.dsp.cic` additionally provides modular interpolation, with explicit IW,
+R/N/M and nominal gain (R*M)^N/R. `std.dsp.halfband` supplies checked symmetric
+×2 decimation/interpolation, exact SW+1 pre-adders and optional final conversion.
+Their [numerical and stream contracts](stdlib-multirate-coding.md) define
+phase order, zero insertion, stalls, reset and runnable examples. None adds
+automatic scheduling, coefficient reload to multirate filters, implicit CDC,
+or a new `implement` feature.
+
+### Fractional delay and framed error correction
+
+`std.dsp.farrow` provides `RvFarrowFixedExact`, linear/cubic Lagrange profiles
+and final nearest-even/saturating conversion. Each accepted beat carries sample
+and `mu_raw:uint<MF>`, representing μ=mu_raw/2^MF in [0,1). M=0…3 and K=1…8;
+one registered subfilter stage plus M Horner stages give latency M+1, II=1
+under global stall. History advances only on acceptance. With
+B=SW+CW+ceil_log2(K), F=SF+CF, exact output is
+`fixed<B+M*(MF+2),F+M*MF>`. Exactness is relative to the stored binary
+coefficients; linear delay μ and cubic delay 1+μ are separate from pipeline
+latency. This is not a resampling controller. See the
+[coefficient/error contracts and runnable example](stdlib-farrow.md).
+
+`std.coding.secded` provides pure encode/decode and elastic one-stage wrappers
+for K=1…64. Hamming parity occupies power-of-two positions, data fills the
+remaining positions from the low bit, and overall parity is last. Decode
+reports clean, corrected or detected-uncorrectable, with a separate data-valid
+flag. Every single error is corrected and every double error detected; larger
+patterns have no guarantee. See [layout, status and example](stdlib-secded.md).
+
+`std.coding.gf256` uses polynomial basis with primitive polynomial 0x11D.
+`std.coding.rs_dvb` encodes complete 188-byte frames as systematic 204-byte
+codewords; `std.coding.rs_dvb_decode` accepts complete codewords before
+checking/correcting and emitting 188 payload bytes. Status precedes payload;
+detected failures emit no trusted payload. The fixed DVB profile is
+RS(255,239) shortened by 51 leading zero symbols, with roots α⁰…α¹⁵ and
+primitive element 0x02. Errors-only decoding corrects up to eight erroneous
+symbols; beyond that radius even zero post-correction syndromes do not rule
+out miscorrection. No erasures or interleaving are implicit. See
+[byte order, framing and runnable examples](stdlib-rs-dvb.md).
+
+`std.coding.viterbi_k7` exposes one K=7 rate-1/2 ACS engine for hard or 3-bit
+soft received pairs, using the existing encoder recurrence and G0/G1 order.
+It buffers complete survivor history for 1…4096 decoded bits, then performs
+traceback and ordered output. Ties prefer the smaller predecessor and final
+state. Initial state is zero; final state minimizes metric and is not assumed
+zero. The word adapter preserves transmission order without inserting tail
+bits. Minimum-metric decoding is not universal error detection. See
+[pair/word interfaces, metric bounds and examples](stdlib-viterbi.md).
+
+These source contracts are not claims of universal formal coverage or of
+refreshed installed packages. Consult the
+[formal coverage report](stdlib-formal-coverage.md) for executed evidence;
+declarations without associated evidence remain unverified.
 
 Imports are resolved transitively and cycles are rejected. External path/Git
 packages use the pinned `zlang.toml`/`zlang.lock` project resolver.

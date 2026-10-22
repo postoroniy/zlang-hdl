@@ -60,9 +60,9 @@ class EngineReplay:
 QUALIFICATION_ROUTES = (
     EngineQualification("smtbmc", "z3", ProofMode.PROVE),
     EngineQualification("abc-pdr", "pdr", ProofMode.PROVE),
-    # The pinned Avy build in OSS CAD Suite 2026-09-30 segfaults on one generated
-    # property in the positive witness.  Keep its evidence visible without
-    # weakening the required independent-engine gate.
+    # Avy was quarantined after a crash in the 2026-09-30 qualification.
+    # A toolchain pin update is not an implicit engine-policy promotion:
+    # retain its current evidence without weakening the required-engine gate.
     EngineQualification("aiger-avy", "avy", ProofMode.PROVE, required=False),
     EngineQualification("btor-pono", "pono", ProofMode.BMC),
     EngineQualification("btor-btormc", "btormc", ProofMode.BMC),

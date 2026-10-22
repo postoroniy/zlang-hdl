@@ -1,0 +1,80 @@
+import std.dsp.nco
+
+struct NcoSegment<type T> {
+    left : SinCos<T>
+    right : SinCos<T>
+}
+
+// Build one entry, not a complete table nested inside each segment entry.
+fn nco_linear_endpoint<EW,EF,D,I>() {
+    SinCos {
+        sine = quantize<fixed<EW,EF>>(sin((2*pi()*I)/D)) { round nearest_even overflow saturate }
+        cosine = quantize<fixed<EW,EF>>(cos((2*pi()*I)/D)) { round nearest_even overflow saturate }
+    }
+}
+
+fn nco_segment_table<EW,EF,D>() {
+    generate(i in 0..D) NcoSegment {
+        left = nco_linear_endpoint<EW=EW,EF=EF,D=D,I=i>()
+        right = nco_linear_endpoint<EW=EW,EF=EF,D=D,I=(i+1)%D>()
+    }
+}
+
+// Caller supplies the checked full-product/sum widths from the module below.
+// Raw shifts align binary points exactly; only the final conversion rounds.
+fn nco_linear_component<BW,FW,EW,EF,OW,OF,MW,RW>(
+    left:fixed<EW,EF>, right:fixed<EW,EF>, fraction:uint<BW>) -> fixed<OW,OF> {
+    delta = bitcast<sint<EW>>(right) - bitcast<sint<EW>>(left)
+    weight = bitcast<sint<BW+1>>(concat(0b0,bitcast<bits<BW>>(fraction)))
+    product = delta * weight
+    base = extend<MW>(bitcast<sint<EW>>(left)) << FW
+    aligned = base + product
+    quantize<fixed<OW,OF>>(bitcast<fixed<RW,EF+FW>>(aligned)) {
+        round nearest_even overflow saturate
+    }
+}
+
+// Two-edge global-stall pipeline. The paired endpoint ROM is synchronous.
+module RvNcoSinCosLinear<PW,AW,OW,OF,INITIAL=0,D=1<<AW,FW=PW-AW,
+                         BW=index_width(1<<FW),EF=OF+4,EW=EF+2,MW=EW+BW+2,RW=MW+1>
+where PW >= AW && AW >= 2 && D == (1 << AW) && D <= 4096
+   && OW >= 2 && OF >= 0 && OF < OW
+   && INITIAL >= 0 && INITIAL < (1 << PW) && FW == PW-AW
+   && BW == index_width(1<<FW) && EF == OF+4 && EW == EF+2
+   && MW == EW+BW+2 && RW == MW+1 {
+    clock clk reset rst
+    in input : rv<uint<PW>>
+    out output : rv<SinCos<fixed<OW,OF>>>
+    reg phase : uint<PW> = INITIAL
+    reg held_address : uint<AW> = 0
+    reg fraction : uint<BW> = 0
+    reg rom_valid : bit = 0
+    reg pending : bit = 0
+    reg sine : fixed<OW,OF> = 0
+    reg cosine : fixed<OW,OF> = 0
+    advance = ~pending | output.ready
+    input.ready = advance
+    output.valid = pending
+    output.payload = SinCos { sine cosine }
+    rom table : rom<NcoSegment<fixed<EW,EF>>,D> {
+        read_latency 1
+        init nco_segment_table<EW=EW,EF=EF,D=D>()
+    }
+    address = bitcast<uint<AW>>(phase[PW-1:PW-AW])
+    table.read_address = input.transfer ? address : held_address
+    when input.transfer {
+        held_address <- address
+        fraction <- truncate<BW>(phase & ((1 << FW)-1))
+        phase <- phase_advance<PW=PW>(phase,input.payload)
+    }
+    when advance {
+        rom_valid <- input.valid
+        pending <- rom_valid
+        when rom_valid {
+            sine <- nco_linear_component<BW=BW,FW=FW,EW=EW,EF=EF,OW=OW,OF=OF,MW=MW,RW=RW>(
+                table.read_data.left.sine,table.read_data.right.sine,fraction)
+            cosine <- nco_linear_component<BW=BW,FW=FW,EW=EW,EF=EF,OW=OW,OF=OF,MW=MW,RW=RW>(
+                table.read_data.left.cosine,table.read_data.right.cosine,fraction)
+        }
+    }
+}

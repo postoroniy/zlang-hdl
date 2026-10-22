@@ -1,0 +1,65 @@
+// Matches the existing encoder's bit-zero-first history convention.
+struct ViterbiK7Trellis { pair:bits<2> next:u6 }
+
+fn viterbi_k7_trellis(history:u6,value:bit) -> ViterbiK7Trellis {
+    stream = concat(value,bitcast<bits<6>>(history))
+    ViterbiK7Trellis {
+        pair = concat(parity(stream & 0b1011011),parity(stream & 0b1111001))
+        next = bitcast<u6>(concat(value,history[5:1]))
+    }
+}
+
+struct ViterbiK7Decision<MW> { metric:uint<MW> valid:bit predecessor_lsb:bit }
+
+fn viterbi_k7_branch_metric(expected:bits<2>,q0:u3,q1:u3) -> u4 {
+    (expected[1] ? (q0 ^ 7) : q0) + (expected[0] ? (q1 ^ 7) : q1)
+}
+
+fn viterbi_k7_select<MW>(expected0:bits<2>,expected1:bits<2>,
+    m0:uint<MW>,m1:uint<MW>,v0:bit,v1:bit,q0:u3,q1:u3) -> ViterbiK7Decision<MW> {
+    cost0 = viterbi_k7_branch_metric(expected0,q0,q1)
+    cost1 = viterbi_k7_branch_metric(expected1,q0,q1)
+    sum0 = m0+cost0
+    sum1 = m1+cost1
+    choose1 = v1 & (~v0 | (sum1 < sum0))
+    ViterbiK7Decision {
+        metric = truncate<MW>(choose1 ? sum1 : sum0)
+        valid = v0 | v1
+        predecessor_lsb = choose1
+    }
+}
+
+// Callers supply an even predecessor P and input U=0/1. Metrics are exact
+// while the frame-bound range certificate holds; the full sums drive choice.
+fn viterbi_k7_acs<MW,P,U>(m0:uint<MW>,m1:uint<MW>,v0:bit,v1:bit,q0:u3,q1:u3)
+    -> ViterbiK7Decision<MW> {
+    p = extend<6>(P)
+    a = viterbi_k7_trellis(p,U!=0)
+    b = viterbi_k7_trellis(p | 1,U!=0)
+    viterbi_k7_select<MW=MW>(a.pair,b.pair,m0,m1,v0,v1,q0,q1)
+}
+
+struct ViterbiK7Minimum<MW> { metric:uint<MW> node:u6 valid:bit }
+
+// A closed min-selection algebra for the source-defined balanced sum tree.
+// The node number makes ties independent of tree shape; invalid is separate.
+operator +<MW>(a:ViterbiK7Minimum<MW>,b:ViterbiK7Minimum<MW>) -> ViterbiK7Minimum<MW> {
+    choose_b = b.valid & (~a.valid | (b.metric < a.metric) |
+        ((b.metric == a.metric) & (b.node < a.node)))
+    choose_b ? b : a
+}
+
+fn viterbi_k7_decisions<MW>(metrics:vec<64,uint<MW>>,reachable:bits<64>,q0:u3,q1:u3)
+    -> vec<64,ViterbiK7Decision<MW>> {
+    generate(i in 0..64) viterbi_k7_acs<MW=MW,P=(i%32)*2,U=(i-i%32)/32>(
+        metrics[(i & 31)<<1],metrics[((i & 31)<<1)|1],
+        reachable[(i & 31)<<1],reachable[((i & 31)<<1)|1],q0,q1)
+}
+
+fn viterbi_k7_minimum_entry<MW>(value:ViterbiK7Decision<MW>,node:u6) -> ViterbiK7Minimum<MW> {
+    ViterbiK7Minimum { metric=value.metric node valid=value.valid }
+}
+
+fn viterbi_k7_minimum<MW>(decisions:vec<64,ViterbiK7Decision<MW>>) -> ViterbiK7Minimum<MW> {
+    sum(generate(i in 0..64) viterbi_k7_minimum_entry<MW=MW>(decisions[i],i))
+}

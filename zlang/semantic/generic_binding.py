@@ -136,7 +136,17 @@ class GenericBinder:
             tuple(resolver._structs.values()),
             tuple(resolver._enum_declarations.values()),
             tuple(parameters.values()),
-            {**resolver._parameter_values, **value_bindings},
+            {
+                # Exact composite input widths may use an earlier-derived
+                # default before the argument binder's final default pass.
+                # Keep defaults lazy so direct structural inference retains
+                # precedence. Callee names must never capture caller values.
+                **{name: value for name, value in resolver._parameter_values.items()
+                   if name not in parameters},
+                **{name: parameter.default for name, parameter in parameters.items()
+                   if parameter.kind == "value" and parameter.default is not None},
+                **value_bindings,
+            },
             {**resolver._type_bindings, **type_bindings},
             resolver._identity_namespace,
         ).resolve(syntax)

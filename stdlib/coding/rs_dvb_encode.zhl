@@ -1,0 +1,53 @@
+import std.coding.rs_dvb_arithmetic
+import std.coding.rs_dvb_framing
+
+// Complete-frame, non-overlapped systematic RS(204,188). The explicit shift
+// buffer is register storage, not a claim of inferred BRAM or hidden memory.
+module RvRsDvb204188Encode {
+    clock clk reset rst
+    in input : rv<RsByteBeat>
+    out status : rv<RsFrameStatus>
+    out output : rv<RsByteBeat>
+    framing : RsDvbFraming<N=188>
+    reg message : vec<188,bits<8>> = generate(i in 0..188) 0
+    reg parity : vec<16,bits<8>> = generate(i in 0..16) 0
+    reg draining : bit = 0
+    reg position : u8 = 0
+
+    framing.valid = input.valid
+    framing.first = input.payload.first
+    framing.last = input.payload.last
+    input.ready = framing.ready
+    status.valid = framing.complete & ~draining
+    status.payload = RsFrameStatus {
+        status = framing.malformed ? RsStatus.malformed : RsStatus.clean
+        correction_count = 0
+    }
+    output.valid = draining
+    output.payload = RsByteBeat {
+        data = draining ? (position < 188 ? message[0] : parity[0]) : zeros<8>
+        first = draining & (position == 0)
+        last = draining & (position == 203)
+    }
+    release = (status.transfer & framing.malformed) | (output.transfer & (position == 203))
+    framing.release = release
+    when release {
+        message <- generate(i in 0..188) 0
+        parity <- generate(i in 0..16) 0
+        draining <- 0
+        position <- 0
+    } else {
+        when status.transfer { draining <- 1 }
+        when framing.take {
+            message <- generate(i in 0..188) if i == 187 {input.payload.data} else {message[i+1]}
+            parity <- rs_dvb_parity_step(parity,input.payload.data)
+        } else when output.transfer {
+            position <- truncate<8>(position+1)
+            when position < 188 {
+                message <- generate(i in 0..188) if i == 187 {zeros<8>} else {message[i+1]}
+            } else {
+                parity <- generate(i in 0..16) if i == 15 {zeros<8>} else {parity[i+1]}
+            }
+        }
+    }
+}

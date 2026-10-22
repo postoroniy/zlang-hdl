@@ -13,6 +13,7 @@ from dataclasses import fields, is_dataclass, replace
 from zlang.fixed_point import quantize_rational
 from zlang.ir import expressions as expr
 from zlang.ir import packing
+from zlang.ir.constants import constant_comparison, constant_bitwise
 from zlang.ir.functional_regions import CompileTimeExpr, evaluate_compile_time
 from zlang.ir.types import (
     FixedType,
@@ -471,12 +472,9 @@ def _evaluate_binary(
         return left_value - right_value
     if operator is expr.BinaryOperator.MULTIPLY:
         return left_value * right_value
-    if operator is expr.BinaryOperator.BIT_AND:
-        return _unsigned_raw(left_value, operand_type) & _unsigned_raw(right_value, operand_type)
-    if operator is expr.BinaryOperator.BIT_OR:
-        return _unsigned_raw(left_value, operand_type) | _unsigned_raw(right_value, operand_type)
-    if operator is expr.BinaryOperator.BIT_XOR:
-        return _unsigned_raw(left_value, operand_type) ^ _unsigned_raw(right_value, operand_type)
+    bitwise = constant_bitwise(operator, left_value, right_value, operand_type)
+    if bitwise is not None:
+        return bitwise
     if operator is expr.BinaryOperator.SHIFT_LEFT:
         return _unsigned_raw(left_value, operand_type) << max(0, right_value)
     if operator is expr.BinaryOperator.SHIFT_RIGHT:
@@ -485,19 +483,7 @@ def _evaluate_binary(
         return left_value >> right_value if _is_signed(operand_type) else (
             _unsigned_raw(left_value, operand_type) >> right_value
         )
-    if operator is expr.BinaryOperator.EQUAL:
-        return int(left_value == right_value)
-    if operator is expr.BinaryOperator.NOT_EQUAL:
-        return int(left_value != right_value)
-    if operator is expr.BinaryOperator.LESS:
-        return int(left_value < right_value)
-    if operator is expr.BinaryOperator.LESS_EQUAL:
-        return int(left_value <= right_value)
-    if operator is expr.BinaryOperator.GREATER:
-        return int(left_value > right_value)
-    if operator is expr.BinaryOperator.GREATER_EQUAL:
-        return int(left_value >= right_value)
-    return None
+    return constant_comparison(operator, left_value, right_value)
 
 
 def _typed_value(value: int, type_: HardwareType) -> int:

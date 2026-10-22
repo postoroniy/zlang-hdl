@@ -1,0 +1,38 @@
+struct RsByteBeat { data:bits<8> first:bit last:bit }
+enum RsStatus { clean corrected detected_uncorrectable malformed }
+struct RsFrameStatus { status:RsStatus correction_count:uint<4> }
+
+// Marker/count ownership only. Storage and coding arithmetic belong to the
+// caller. After a malformed unterminated frame, discard until last or first.
+module RsDvbFraming<N> where N == 188 || N == 204 {
+    clock clk reset rst
+    in valid,first,last,release : bit
+    out ready,take,complete,malformed : bit
+    reg count : u8 = 0
+    reg pending : bit = 0
+    reg failed : bit = 0
+    reg skipping : bit = 0
+    available = ~pending
+    ready = available
+    active = ~skipping | first
+    marker_bad = first != (count == 0)
+    take = valid & available & active & ~marker_bad
+    complete = pending
+    malformed = failed
+    when release {
+        count <- 0
+        pending <- 0
+        failed <- 0
+    } else when valid & available {
+        when active {
+            when marker_bad | last | (count == N-1) {
+                pending <- 1
+                failed <- marker_bad | ~last | (count != N-1)
+                skipping <- ~last
+            } else {
+                count <- truncate<8>(count+1)
+                skipping <- 0
+            }
+        } else when last { skipping <- 0 }
+    }
+}

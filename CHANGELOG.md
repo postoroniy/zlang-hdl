@@ -11,14 +11,133 @@ incompatible input explicitly.
 
 ## Unreleased
 
+## 0.1.0a24 — 2026-10-23
+
+Alpha update consolidating native simulation ownership in the audited Rust
+runtime, extending nominal enum backing/value declarations, and publishing a
+complete reproducible simulation workflow. Native runtime ABI v13 replaces the
+previous runtime contract;
+the SimulationPlan hardware schema and Direct-SystemVerilog semantics remain
+unchanged.
+
 ### Added
+
+- Extended-Hamming SECDED for payload widths 1…64, with pure encode/decode
+  functions and one-stage ready/valid wrappers. Result validity distinguishes
+  corrected data from detected uncorrectable words.
+- Exact Farrow fractional-delay filters with M=0…3, K=1…8, accepted-sample
+  history and an M+1-edge globally stalled pipeline. Linear/cubic Lagrange
+  profiles use explicit binary coefficients; output rounding is final-only.
+- Polynomial-basis GF(256) arithmetic and full-frame systematic DVB
+  RS(204,188) encoding with explicit status-before-payload framing.
+- Errors-only DVB RS(204,188) decoding with explicit iterative BM/Chien/
+  Forney phases, checked shortening positions and post-correction syndromes.
+  Status precedes payload; detected failures never emit trusted data.
+- Framed K=7 Viterbi with one hard/3-bit-soft ACS engine, RAM survivor
+  history, full traceback and deterministic path ties. Explicit word markers
+  preserve the current encoder's G0/G1 transmission order without tail bits.
+
+- Normalized CORDIC vectoring/atan2/magnitude, atomic two-bank coefficient
+  reload and explicit one-MAC folded FIR. Separate exact and final-quantized
+  FIR variants preserve their numerical and accepted-sample contracts.
+- Polyphase FIR and CIC interpolation, linearly interpolated ROM NCO, and
+  symmetric halfband ×2 decimation/interpolation with checked coefficients.
+  Each component has explicit latency, backpressure and numerical boundaries.
+
+- Rotation-only `RvCordicSinCos` for signed P=8/12/16 binary-turn angles and
+  `fixed<16,14>` outputs, with explicit iteration/accuracy bounds, N+2-edge
+  globally stalled pipeline and runnable stimulus.
+
+- Accepted-sample NCO/ROM sine-cosine, explicit-width modular CIC decimation,
+  exact polyphase FIR decimation and reusable 24-bit scrambler/K=7 encoding.
+  The 802.11a project now imports the same pure coding kernels.
+
+- Buffered `RvFork2`/`RvJoin2`, framed byte-stream CRC-32, and immutable-
+  coefficient parallel fixed-point FIR with exact or final nearest-even/
+  saturating output. Standalone examples include JSONL stimulus.
 
 - Compile-time integer `%` supports generic value arguments, static indices
   and compile-time `if`, including negative operands with floor-modulo
   semantics. Zero divisors report source diagnostics; runtime remainder
   remains unsupported.
 
+- Nominal enums may use exact `bit`, `bits<W>`, or unsigned
+  `uN`/`u<W>`/`uint<W>`
+  backing types and may mix implicit and explicit member codes. Implicit values
+  start at zero or
+  continue from the preceding resolved code. `enum_encode` returns the exact
+  backing type, providing an explicit arithmetic boundary for unsigned-backed
+  enums while direct arithmetic on nominal enum values remains rejected.
+- Compiler-owned native debug bundles, event-level DAP contracts, and bounded
+  waveform range contracts provide the source/identity boundary for the
+  Linux-x64 debugger and waveform preview. They do not alter production plan,
+  RTL, semantic, or implementation identity, and the universal VSIX remains
+  editor/LSP-only.
+- The Linux-x64 waveform editor reads VCD and FST through one bounded native
+  query service. It provides lazy signal loading, hierarchy/filtering, drag
+  ordering, nested groups, exact/pattern/edge value search, up to four
+  viewports, persistent layouts, and an opt-in loopback-only Waveform Control
+  Protocol v0 endpoint. GHW is intentionally unsupported.
+
+### Changed
+
+- Rust is now the sole executable owner of both two-state and per-bit
+  `0`/`1`/`U`/`X` simulation. Python retains compilation, orchestration and
+  immutable logic-value DTOs but no shadow state machine or fallback evaluator.
+  ABI mismatch and a missing native wheel continue to fail explicitly.
+- Native-simulation guidance now covers combinational inputs, single-clock
+  cycles, explicit reset and multi-clock JSONL events, bounded repeats,
+  four-state initialization, preferred compact FST or compatible VCD output,
+  differential Icarus/Verilator
+  replay, artifact retention, and failure semantics.
+
 ### Fixed
+
+- Compile-time conditions evaluate the existing integer `&`, `|` and `^`
+  operators. Composite callable input types resolve earlier explicit generic
+  arguments and derived defaults without capturing caller parameters.
+- Callable loop indices and index refinements have declaration-local scope;
+  a caller's `generate` binder cannot be captured or shadow a callee binder.
+- Optional guard-range inference retains opaque calls when its expansion
+  budget is exhausted, without inventing index bounds or relaxing mandatory
+  validation. Canonical expression lowering handles deep DAGs without relying
+  on the Python recursion limit.
+- Direct-SV function materialization deduplicates copied pure regions and
+  evaluates closed complex captures once before their loops. Packed reduction
+  elements retain their explicit result widths across RTL frontends.
+- Packed singleton bit-vector projections use the scalar RTL value rather
+  than an illegal bit select on a scalar declaration.
+- Packed struct fields retain their exact typed widths, including conditional
+  narrowing, so supported RTL frontends cannot shift adjacent field mappings.
+- The SystemVerilog reserved-name policy escapes `release` on physical ports
+  and instance bindings, retaining source names and collision rejection.
+- Native/RTL comparisons resolve relative artifact directories before tool
+  execution, retaining nonempty-directory and symlink rejection.
+- Native/RTL comparison playback uses hashed data stimuli instead of
+  replicating executable testbench code for every sample in a long trace.
+
+- Generic module headers close their syntax-highlighting parameter scope
+  before inline or multiline `where` constraints, including adjacent comments
+  and nested coefficient types. The scope no longer spills into the body.
+- Direct-SV signed-to-unsigned saturation clamps negative values before
+  casting away their sign. Unsigned sources avoid a redundant lower clamp.
+- Storage controls resolve immutable locals before validation and retain
+  them in selected RTL/native plans. Resettable native register writes retain
+  their source write controls.
+- Typed integer/bit constants are available to specialization constraints;
+  constant predicates and derived callable defaults use the existing exact
+  compile-time semantics without capturing caller parameters.
+- RTL proof preparation keeps arithmetic naming stable and removes only
+  unreachable library declarations. Changed preparation policies invalidate
+  incompatible formal evidence; connected opaque cells remain unsupported.
+
+- Opening an unspecialized module with a default derived from a required
+  earlier parameter no longer shows a false LSP error. Concrete compilation
+  still requires specialization; undeclared and invalid defaults remain errors.
+
+- Go to Definition resolves imported stdlib declarations for standalone files,
+  while retaining exact compilation-closure checks. Project locks are not a
+  prerequisite for navigating compiler-shipped modules.
 
 - LSP accepts empty/EOF spans, routes closed-import diagnostics to their exact
   source snapshots, and clears retired markers without crashing the worker.
@@ -85,49 +204,6 @@ incompatible input explicitly.
   `make editor-install` rebuilds and installs the current checkout explicitly.
 - Native editor packaging rejects private source paths in diagnostic metadata;
   reviewed executables use anonymous, reproducible source-location labels.
-
-## 0.1.0a24 — 2026-10-15
-
-Alpha update consolidating native simulation ownership in the audited Rust
-runtime, extending nominal enum backing/value declarations, and publishing a
-complete reproducible simulation workflow. Native runtime ABI v13 replaces the
-previous runtime contract;
-the SimulationPlan hardware schema and Direct-SystemVerilog semantics remain
-unchanged.
-
-### Added
-
-- Nominal enums may use exact `bit`, `bits<W>`, or unsigned
-  `uN`/`u<W>`/`uint<W>`
-  backing types and may mix implicit and explicit member codes. Implicit values
-  start at zero or
-  continue from the preceding resolved code. `enum_encode` returns the exact
-  backing type, providing an explicit arithmetic boundary for unsigned-backed
-  enums while direct arithmetic on nominal enum values remains rejected.
-- Compiler-owned native debug bundles, event-level DAP contracts, and bounded
-  waveform range contracts provide the source/identity boundary for the
-  Linux-x64 debugger and waveform preview. They do not alter production plan,
-  RTL, semantic, or implementation identity, and the universal VSIX remains
-  editor/LSP-only.
-- The Linux-x64 waveform editor reads VCD and FST through one bounded native
-  query service. It provides lazy signal loading, hierarchy/filtering, drag
-  ordering, nested groups, exact/pattern/edge value search, up to four
-  viewports, persistent layouts, and an opt-in loopback-only Waveform Control
-  Protocol v0 endpoint. GHW is intentionally unsupported.
-
-### Changed
-
-- Rust is now the sole executable owner of both two-state and per-bit
-  `0`/`1`/`U`/`X` simulation. Python retains compilation, orchestration and
-  immutable logic-value DTOs but no shadow state machine or fallback evaluator.
-  ABI mismatch and a missing native wheel continue to fail explicitly.
-- Native-simulation guidance now covers combinational inputs, single-clock
-  cycles, explicit reset and multi-clock JSONL events, bounded repeats,
-  four-state initialization, preferred compact FST or compatible VCD output,
-  differential Icarus/Verilator
-  replay, artifact retention, and failure semantics.
-
-### Fixed
 
 - The reviewed Linux native wheel now exports the Rust-owned FST writer used by
   `zlang sim --trace FILE.fst`; release auditing accepts only the two exact

@@ -4,6 +4,7 @@
 from itertools import product
 import json
 import subprocess
+import time
 
 import z3
 
@@ -99,3 +100,74 @@ def test_yosys_arithmetic_encoding_matches_exhaustive_rtl(tmp_path):
             for expression in expressions
         ]
         assert expected == [int(value, 16) for value in values]
+
+
+def test_proof_naming_changes_only_arithmetic_metadata(tmp_path, monkeypatch):
+    from hashlib import sha256
+    import zlang.formal_rtl_arithmetic as owner
+    from zlang.formal_joint_value import RTL_ARITHMETIC_PROOF_SCHEMA
+
+    source = """module miter(input clk,rst,input signed [15:0] a,b,c);
+ wire signed [31:0] p=a*b,q=a*c;
+ wire signed [32:0] sum=$signed(p)+$signed(q);
+ reg signed [39:0] value;
+ reg started=0;
+ always @(posedge clk) begin
+   started<=1;
+   if(!started) assume(rst);
+   if(rst) value<=0; else value<=sum;
+   if(started && $past(rst)) assert(value==0);
+ end
+ endmodule
+"""
+    scripts = []
+    execute = owner._yosys
+
+    def observed(script, *args):
+        scripts.append(script)
+        return execute(script, *args)
+
+    monkeypatch.setattr(owner, "_yosys", observed)
+    prepared = owner.normalize_rtl_arithmetic(
+        source, top="miter", work_directory=tmp_path,
+        deadline=time.monotonic()+30,
+    )
+    root = tmp_path / "rtl_arithmetic"
+    proof = json.loads((root / "proof.json").read_text())
+    before = json.loads((root / "original.json").read_text())["modules"]["miter"]
+    after = json.loads((root / "normalized.json").read_text())["modules"]["miter"]
+    roots = {record["cell"] for record in proof["roots"]}
+    assert roots and proof["assumptions_added"] == 0
+    assert proof["schema"] == RTL_ARITHMETIC_PROOF_SCHEMA
+    assert proof["source_hash"] == sha256(source.encode()).hexdigest()
+    assert all(after["cells"][key] == cell for key, cell in before["cells"].items() if key not in roots)
+    assert before["ports"] == after["ports"]
+    assert any(cell["type"] == "$dff" for cell in before["cells"].values())
+    assert any(cell["type"] in ("$check", "$assert", "$assume") for cell in before["cells"].values())
+    final_script = scripts[-1]
+    names = final_script.split("autoname ", 1)[1].split(";", 1)[0].split()
+    assert set(names) == {f"t:{kind}" for kind in ("$add", "$sub", "$mul", "$neg", "$pos", "$eq", "$ne")}
+    assert prepared.source == (root / "normalized.v").read_text()
+
+
+def test_unused_empty_contract_is_pruned_but_connected_blackbox_fails_closed(tmp_path):
+    from zlang.formal_rtl_arithmetic import run_rtl_arithmetic_formal
+    from zlang.ir.formal import ProofMode, FormalStatus
+
+    for connected in (False, True):
+        definition = "module Contract(input x,output y); endmodule\n" if connected else "module Contract(); endmodule\n"
+        binding = "wire opaque; Contract unknown(a[0],opaque);" if connected else ""
+        assertion = "opaque==a[0]" if connected else "sum==wide_a+wide_b"
+        source = definition+f"""module miter(input clk,input [2:0] a,b);
+ wire [3:0] wide_a=a,wide_b=b;
+ wire [3:0] sum=a+b;
+ {binding}
+ always @(posedge clk) assert({assertion}); endmodule
+"""
+        result = run_rtl_arithmetic_formal(source, top="miter", property_id="empty.contract",
+            mode=ProofMode.PROVE, depth=8, timeout_seconds=30, solver="z3",
+            systemverilog=True, flatten=True, work_directory=tmp_path/str(connected))
+        assert result.status is (FormalStatus.UNKNOWN if connected else FormalStatus.PROVEN), result.reason
+        if not connected:
+            design = json.loads((tmp_path/str(connected)/"rtl_arithmetic/original.json").read_text())
+            assert set(design["modules"]) == {"miter"}

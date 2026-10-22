@@ -135,6 +135,54 @@ test('multiline generic declarations preserve types, defaults, and the next modu
   assert.ok(!next.scopes.includes('meta.declaration.parameters.zlang'));
 });
 
+test('module parameter lists close before inline or multiline where constraints', () => {
+  for (const separator of [' ', '', '\n', ' /* header */ ', ' // header\n']) {
+    const { lines, stack } = tokenize([
+      `module Bounded<SW,SF,CW,CF,N,H=N-1>${separator}where N >= 1 && H == N-1 {`,
+      '    clock clk reset rst',
+      '    in input : rv<fixed<SW,SF>>',
+      '    out output : rv<fixed<SW+CW+ceil_log2(N),SF+CF>>',
+      '    reg pending : bit = 0',
+      '    when input.transfer { pending <- input.valid }',
+      '}',
+      'module Next { out y : bit = 0 }',
+    ].join('\n'));
+    const constraint = lines.find((line) => line.text.includes('where N'));
+    expectScope(constraint, 'where', 'keyword.control.zlang');
+    expectScope(constraint, '>=', 'keyword.operator.comparison.zlang');
+    const clock = lines.find((line) => line.text.includes('clock clk'));
+    expectScope(clock, 'clk', 'variable.other.definition.hardware.zlang');
+    const input = lines.find((line) => line.text.includes('in input'));
+    expectScope(input, 'input', 'variable.parameter.port.zlang');
+    const next = expectScope(lines.at(-1), 'Next', 'entity.name.type.module.zlang');
+    assert.ok(!next.scopes.includes('meta.declaration.parameters.zlang'));
+    for (const line of lines.slice(lines.indexOf(constraint))) {
+      const start = line === constraint ? line.text.indexOf('where') : 0;
+      assert.ok(line.tokens.filter((token) => token.end > start).every(
+        (token) => !token.scopes.includes('meta.declaration.parameters.zlang')),
+        `Generic parameter scope leaked into ${line.text}`);
+    }
+    assert.equal(stack.depth, tokenize('').stack.depth);
+  }
+});
+
+test('nested typed parameters finish before where without swallowing the body', () => {
+  const { lines } = tokenize([
+    'module Bounded<SW,SF,N,coefficients:vec<N,fixed<SW,SF>>>where N >= 1 {',
+    '    in a : fixed<SW,SF>',
+    '    out y : fixed<SW,SF>',
+    '    y = a',
+    '}',
+    'module Next { out y : bit = 0 }',
+  ].join('\n'));
+  expectScope(lines[0], 'vec', 'support.type.vector.zlang');
+  expectScope(lines[0], 'fixed', 'support.type.fixed.zlang');
+  expectScope(lines[0], 'where', 'keyword.control.zlang');
+  expectScope(lines[1], 'a', 'variable.parameter.port.zlang');
+  expectScope(lines[3], 'y', 'variable.other.readwrite.zlang');
+  assert.ok(!tokenFor(lines[5], 'Next').scopes.includes('meta.declaration.parameters.zlang'));
+});
+
 test('user, hardware, conversion, compile-time, and guard calls retain style categories', () => {
   const { lines } = tokenize([
     'fn widen(x : u8) { extend<9>(x) }',

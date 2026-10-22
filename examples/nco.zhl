@@ -1,0 +1,11 @@
+import std.dsp.nco
+
+// Concise instance/connection forms; one tuning word requests one sample.
+module Nco {
+    clock clk reset rst
+    in input : rv<u16>
+    out output : rv<SinCos<fixed<16,14>>>
+    oscillator : RvNcoSinCos<PW=16,AW=6,OW=16,OF=14>
+    input -> oscillator.input
+    oscillator.output -> output
+}

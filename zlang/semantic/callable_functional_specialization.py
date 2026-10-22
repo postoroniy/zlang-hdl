@@ -484,7 +484,7 @@ class FunctionalCallableSpecializer:
                 },
             ).with_scope(
                 functional_symbolic_values={
-                    **context.scope.functional_symbolic_values,
+                    **body_context.scope.functional_symbolic_values,
                     **lifted,
                 },
                 index_types={

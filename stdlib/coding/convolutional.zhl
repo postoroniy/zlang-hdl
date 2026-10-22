@@ -1,0 +1,53 @@
+// IEEE 802.11 K=7 rate-1/2 kernel, 24 source bits, bit zero first.
+// Encoded pairs retain the project's transmission order at the MSB end.
+struct ConvolutionalResult24 {
+    encoded : bits<48>
+    history : u6
+}
+
+fn encoder_g0(stream : u30) -> bits<24> {
+    truncate<24>((stream >> 6) ^ (stream >> 4) ^ (stream >> 3) ^ stream ^ (stream >> 1))
+}
+
+fn encoder_g1(stream : u30) -> bits<24> {
+    truncate<24>((stream >> 6) ^ (stream >> 4) ^ (stream >> 3) ^ stream ^ (stream >> 5))
+}
+
+fn interleave24(g0 : bits<24>, g1 : bits<24>) -> bits<48> {
+    bitcast<bits<48>>(generate(i in 0..24) [g1[23-i], g0[23-i]])
+}
+
+fn ieee_convolutional_encode24(word:bits<24>, history:u6) -> ConvolutionalResult24 {
+    stream = bitcast<u30>(concat(word, history))
+    ConvolutionalResult24 {
+        encoded = interleave24(encoder_g0(stream), encoder_g1(stream))
+        history = word[23:18]
+    }
+}
+
+struct ConvolutionalWord24 {
+    data : bits<24>
+    restart : bit
+    finish : bit
+}
+
+// No implicit tail insertion, puncturing or rate selection. Finish clears the
+// history AFTER this word; restart clears it BEFORE this word.
+module RvConvolutionalK7_24 {
+    clock clk reset rst
+    in input : rv<ConvolutionalWord24>
+    out output : rv<bits<48>>
+    reg history : u6 = 0
+    reg result : bits<48> = 0
+    reg pending : bit = 0
+    selected : u6 = input.payload.restart ? 0 : history
+    exact = ieee_convolutional_encode24(input.payload.data, selected)
+    input.ready = ~pending | output.ready
+    output.valid = pending
+    output.payload = result
+    when input.ready { pending <- input.valid }
+    when input.transfer {
+        history <- input.payload.finish ? 0 : exact.history
+        result <- exact.encoded
+    }
+}

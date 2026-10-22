@@ -189,3 +189,39 @@ def test_missing_tools_respect_scoped_discovery_without_preparation(
         )
     assert result.status is FormalStatus.SKIPPED
     assert "missing formal tools" in result.reason
+
+
+@pytest.mark.parametrize("signed", (False, True))
+@pytest.mark.parametrize("width", (1, 2, 4, 16))
+def test_packed_outer_extension_exposes_only_the_high_field(signed, width):
+    a, b, low = z3.BitVecs("a b low", width)
+    cast = z3.SignExt if signed else z3.ZeroExt
+    high = cast(1, a)+cast(1, b)
+    original = cast(3, z3.Concat(high, low))
+    owner = rewriter()
+    normalized = owner.normalize(original)
+    expected = z3.Concat(cast(4, a)+cast(4, b), low)
+    assert z3.is_true(z3.simplify(normalized == expected, som=True))
+    for lemma in owner.lemmas:
+        solver = z3.SolverFor("QF_BV")
+        solver.set(timeout=3000)
+        solver.add(z3.parse_smt2_string(lemma.query))
+        assert solver.check() == z3.unsat
+    solver = z3.SolverFor("QF_BV")
+    solver.set(timeout=3000)
+    solver.add(original != normalized)
+    assert solver.check() == z3.unsat
+
+
+@pytest.mark.parametrize("signed", (False, True))
+def test_packed_extension_preserves_overflow_in_the_high_field(signed):
+    a, b, low = z3.BitVecs("a b low", 3)
+    cast = z3.SignExt if signed else z3.ZeroExt
+    original = cast(4, z3.Concat(a+b, low))
+    actual = rewriter().normalize(original)
+    solver = z3.SolverFor("QF_BV")
+    solver.add(actual != original)
+    assert solver.check() == z3.unsat
+    solver = z3.SolverFor("QF_BV")
+    solver.add(actual != z3.Concat(cast(4, a)+cast(4, b), low))
+    assert solver.check() == z3.sat

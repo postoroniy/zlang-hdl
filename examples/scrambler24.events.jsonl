@@ -1,0 +1,4 @@
+{"reset":{"rst":true},"set":{"input":{"payload":{"data":0,"restart":0,"clear_mask":0},"valid":0},"output":{"ready":1}},"edges":["clk"]}
+{"reset":{"rst":false},"set":{"input":{"payload":{"data":0,"restart":1,"clear_mask":0},"valid":1},"output":{"ready":1}},"edges":["clk"]}
+{"set":{"input":{"payload":{"data":0,"restart":0,"clear_mask":16515072},"valid":1},"output":{"ready":1}},"edges":["clk"]}
+{"set":{"input":{"payload":{"data":0,"restart":0,"clear_mask":0},"valid":0},"output":{"ready":1}},"edges":["clk"],"repeat":2}

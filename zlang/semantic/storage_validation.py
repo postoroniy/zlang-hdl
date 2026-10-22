@@ -764,7 +764,11 @@ class StorageAnalyzer:
                     f"ROM '{name}.read_address' has type {read_address.type}, "
                     f"expected exact {address_type}"
                 )
-            address_range = expression_ranges.static_value_range(read_address)
+            address_range = expression_ranges.static_value_range(
+                expression_support._expand_immutable_locals(
+                    read_address, value_symbols, work_budget=module_context.services
+                )
+            )
             if address_range is None or address_range.minimum < 0 or address_range.maximum >= symbol.depth:
                 described = (
                     "unknown"

@@ -854,6 +854,13 @@ class EdgeProgramFinalizer:
                     value,
                     register["width"],
                 )
+                if refresh is not None:
+                    # A reset is a definite refresh even if the ordinary
+                    # write guard is unknown. Outside reset the exact source
+                    # predicate remains a native state-control obligation.
+                    refresh = builder.select(
+                        effective_reset, builder.constant(1, 1), refresh, 1,
+                    )
             effects.append({
                 "op": "commit_state",
                 "target": name,

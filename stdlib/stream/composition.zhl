@@ -1,0 +1,50 @@
+import std.stream.core
+
+// Buffered broadcast. A register slice owns the generic payload; flags track which
+// consumers still need this item, independently of their ready signals.
+module RvFork2<type T> {
+    clock clk reset rst
+    in input : rv<T>
+    out output0 : rv<T>
+    out output1 : rv<T>
+
+    inst slot : RvRegisterSlice<T=T>
+    reg delivered0 : bit = 0
+    reg delivered1 : bit = 0
+    output0.payload = slot.output.payload
+    output1.payload = slot.output.payload
+    output0.valid = slot.output.valid & ~delivered0
+    output1.valid = slot.output.valid & ~delivered1
+    retiring = slot.output.valid & (delivered0 | output0.transfer)
+                          & (delivered1 | output1.transfer)
+    connect input -> slot.input
+    slot.output.ready = retiring
+    // Retire (with or without replacement) starts a new delivery epoch.
+    delivered0 <- retiring ? 0 : (delivered0 | output0.transfer)
+    delivered1 <- retiring ? 0 : (delivered1 | output1.transfer)
+}
+
+struct StreamPair<type A, type B> {
+    left : A
+    right : B
+}
+
+// Independent one-entry lanes zip by acceptance order, not arrival cycle.
+module RvJoin2<type A, type B> {
+    clock clk reset rst
+    in input0 : rv<A>
+    in input1 : rv<B>
+    out output : rv<StreamPair<A,B>>
+
+    inst left_slot : RvRegisterSlice<T=A>
+    inst right_slot : RvRegisterSlice<T=B>
+    connect input0 -> left_slot.input
+    connect input1 -> right_slot.input
+    left_slot.output.ready = output.ready & right_slot.output.valid
+    right_slot.output.ready = output.ready & left_slot.output.valid
+    output.valid = left_slot.output.valid & right_slot.output.valid
+    output.payload = StreamPair {
+        left = left_slot.output.payload
+        right = right_slot.output.payload
+    }
+}

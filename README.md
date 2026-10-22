@@ -538,8 +538,9 @@ combination is supported or that measured FPGA timing is guaranteed.
 | Verilator | Optional lint and behavioral RTL validation |
 | Yosys/SymbiYosys/Z3 | Optional bounded/proven safety and equivalence execution |
 
-The current GitHub-hosted external-tool configuration is Verilator 5.053, Yosys
-0.69, SymbiYosys 0.69, Z3 5.3.1, and Icarus Verilog/VVP 14.0. These are
+The candidate external-tool pin is OSS CAD Suite 2026-10-21: Verilator 5.053,
+Yosys 0.70, SymbiYosys 0.70, and Icarus Verilog/VVP 14.0, with Z3 5.3.1
+from the repository virtual environment ahead of the suite's bundled solver. These are
 evidence versions, not compatibility bounds; see the
 [installation chapter](docs/language-reference.md#reference-installing-toolchain-verify-the-installation) and
 machine-readable [`release/status.json`](release/status.json).
@@ -588,12 +589,27 @@ to generated Direct-SV formal harnesses without guessing RTL names.
 - [Compile-time integer modulo and PSS sequence example](docs/compile-time-integers.md)
 - [Printable PDF reference](docs/ZLang-HDL-Language-Reference.pdf)
 - [Formal verification workflow and evidence](docs/formal-verification.md)
+- [Stream composition, CRC and parallel FIR](docs/stdlib-stream-dsp.md)
+- [Reloadable and one-MAC folded FIR](docs/stdlib-reloadable-fir.md)
+- [CORDIC, NCO, multirate filters and coding](docs/stdlib-multirate-coding.md)
+- [Extended-Hamming SECDED](docs/stdlib-secded.md)
+- [Farrow fractional-delay filters](docs/stdlib-farrow.md)
+- [DVB RS(204,188) encoding and decoding](docs/stdlib-rs-dvb.md)
+- [Framed hard/soft K=7 Viterbi](docs/stdlib-viterbi.md)
 - [Standard-library formal coverage](docs/stdlib-formal-coverage.md)
 - [Non-publishing candidate and signed release process](docs/release-process.md)
 
 The compiler-owned capability registry and release CI are authoritative for
 executable support. Documentation should describe semantics and boundaries
 without copying mutable pass totals into multiple files.
+
+The a24 candidate includes the stream/DSP components, SECDED, Farrow,
+DVB Reed–Solomon and Viterbi described in the Markdown guides and rebuilt
+PDF. Candidate compiler packages and both VSIX variants are built from the
+reviewed public source tree; the native runtime remains ABI v13. Local
+candidate preparation does not publish a release or create a tag.
+Editing or pulling the grammar does not update an installed VSIX. Run
+`make editor-install` and reload VS Code to use the current highlighting.
 
 ## Development
 

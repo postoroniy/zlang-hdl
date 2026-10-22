@@ -953,6 +953,23 @@ def inline_locals(module: IrModule) -> IrModule:
             )
             for register in module.registers
         ),
+        # Controls are expression roots too. Dropping locals without expanding
+        # these leaves dangling InputRefs in both RTL and native plans. Do not
+        # traverse ROM images or physical/resource identity metadata here.
+        fifos=tuple(
+            replace(fifo, data=walk(fifo.data), push=walk(fifo.push), pop=walk(fifo.pop))
+            for fifo in module.fifos
+        ),
+        memories=tuple(
+            replace(
+                memory,
+                **{name: walk(getattr(memory, name)) for name in (
+                    "read_address", "write_enable", "write_address", "write_data", "write_mask")},
+                ports=tuple(walk(port) for port in memory.ports),
+            )
+            for memory in module.memories
+        ),
+        roms=tuple(replace(rom, read_address=walk(rom.read_address)) for rom in module.roms),
         instance_bindings=tuple(
             replace(binding, expression=walk(binding.expression))
             for binding in module.instance_bindings

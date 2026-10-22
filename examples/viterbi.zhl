@@ -1,0 +1,12 @@
+import std.coding.viterbi_k7
+
+module ViterbiFrame {
+    clock clk reset rst
+    in input : rv<ViterbiHardPair>
+    out status : rv<ViterbiFrameStatus<10,6>>
+    out output : rv<ViterbiDecodedBit>
+    decoder : RvViterbiK7Hard<MAX_BITS=48>
+    input -> decoder.input
+    decoder.status -> status
+    decoder.output -> output
+}

@@ -45,6 +45,10 @@ VERILATOR = shutil.which("verilator")
 # The concise-example pass changed only source-owned binding locations for
 # ProtocolTop and SimpleDMA. Their RTL digests and binding counts remain fixed;
 # the JSON digests below deliberately bind the updated source-map origins.
+# ZL-066 gives packed struct fields explicit typed sizes. A legacy/current
+# renderer audit reproduced every prior digest: only those casts changed RTL,
+# with artifact/build hash links changing in manifests. Public ABI, origins,
+# semantic bindings and their counts are unchanged; ProtocolTop is byte-stable.
 EXPECTED_ARTIFACTS = {
     ("hierarchical_protocol.zhl", "ProtocolTop"): (
         "f5d21496e9bf9f2ab7ec2bc22425eed42112200c9ab1de1339bab221973377f9",
@@ -52,21 +56,21 @@ EXPECTED_ARTIFACTS = {
         19,
     ),
     ("hierarchical_request_response.zhl", "HierarchicalRequestResponse"): (
-        "1db32dac9bbd1efdc3a4a320d224b764ddcf36d3823163b0e4c7e19597327d5f",
-        "53490762ed38db2948b077383e087eb2ea598ad57a4471c00ec6208ba90f0f96",
+        "390546313c4a6390175ed575a42e344608987d9a2d2d07b2b9176bc2c6c46ef6",
+        "08284b7fd3441d18a21b06177b17c4ff74d1d38af096d8cf53a1de12786b3eca",
         27,
     ),
     ("simple_dma.zhl", "SimpleDMA"): (
         # Request/response buffers retain their frozen conservative admission
         # rule and therefore use the explicitly distinct helper family after
         # ordinary ready/valid FIFOs gained full pop/push replacement.
-        "e3bfb9419d22d605c8fa636e8e8c7b6e841eceaff3fa14271983eed8631ae3b2",
-        "3d9b6e563d959b50cf2840b7a793c577ff7ae472079cacdf5ae1778d331c6e80",
+        "222ccfa5783d0b57bcc411b78e5dc9292738df858078a323aafb14aaa7e072ff",
+        "c89ce516749c1aba655703e2453dcf359c3c0c1bda53c393c92605ed21bef25a",
         29,
     ),
     ("axi_csr_top.zhl", "AxiCsrTop"): (
-        "7002bac351f88f79d1910ff046c213c14c3769b11b35f76bb4b36ac1e8de826a",
-        "abbef4ad5d4607e2633f19b1ff91153515a1a92c2bf0039213279ca679470402",
+        "caf942ee439d84901a92b1746fafd49a0e690937f58411c84a224a6953fa9e65",
+        "3b70d602e02729b88d14eb9b7217f0015dffe82e861740f4134754d63c439df1",
         77,
     ),
 }

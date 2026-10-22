@@ -23,11 +23,11 @@ import tempfile
 from typing import Iterator, Literal
 
 from zlang.backend.companions import publish_companion_bundle
-from zlang.backend.identifiers import rtl_identifier
 from zlang.backend.systemverilog import emit_artifact
 from zlang.ir.interfaces import InterfaceProtocol
 from zlang.ir.module import Module, PortDirection
 from zlang.sim import Program, SimulationRuntimeError, Simulator, _pack_value
+from zlang.simulation_comparison_testbench import STIMULUS_FILE,render_testbench
 
 
 SIMULATION_COMPARISON_SCHEMA = "zlang-simulation-comparison-v1"
@@ -219,111 +219,6 @@ def _native_trace(
     return tuple(outputs), tuple(trace)
 
 
-def _domain_levels(module: Module) -> tuple[dict[str, int], dict[str, tuple[int, int]]]:
-    clocks: dict[str, int] = {}
-    resets: dict[str, tuple[int, int]] = {}
-    for domain in module.clock_domains:
-        clocks[domain.clock] = 1 if domain.edge.value == "falling" else 0
-        if domain.reset is not None:
-            active_low = domain.reset_polarity.value == "active_low"
-            levels = (0, 1) if active_low else (1, 0)
-            previous = resets.setdefault(domain.reset, levels)
-            if previous != levels:
-                raise SimulationComparisonError(
-                    f"reset '{domain.reset}' has inconsistent polarity"
-                )
-    if module.clock is not None:
-        clocks.setdefault(module.clock, 0)
-    if module.reset is not None:
-        resets.setdefault(module.reset, (1, 0))
-    return clocks, resets
-
-
-def _sv_literal(width: int, value: int) -> str:
-    return f"{width}'h{value & ((1 << width) - 1):x}"
-
-
-def _render_testbench(
-    module: Module,
-    rtl_module: str,
-    events: Sequence[Mapping[str, object]],
-) -> str:
-    leaves = module.top_physical_abi.leaves
-    inputs = {leaf.external_name: leaf for leaf in leaves if leaf.direction is PortDirection.INPUT}
-    outputs = tuple(leaf for leaf in leaves if leaf.direction is PortDirection.OUTPUT)
-    clocks, resets = _domain_levels(module)
-    lines = [
-        "`timescale 1ns/1ps",
-        "module zlang_compare_tb;",
-    ]
-    for leaf in leaves:
-        name = rtl_identifier(leaf.external_name)
-        width = leaf.width
-        packed = "" if width == 1 else f" [{width - 1}:0]"
-        lines.append(f"  logic{packed} {name};")
-    lines.append(f"  {rtl_module} dut (")
-    for index, leaf in enumerate(leaves):
-        separator = "," if index + 1 < len(leaves) else ""
-        name = rtl_identifier(leaf.external_name)
-        lines.append(f"    .{name}({name}){separator}")
-    lines.extend(("  );", "", "  initial begin"))
-    for leaf in inputs.values():
-        lines.append(
-            f"    {rtl_identifier(leaf.external_name)} = {_sv_literal(leaf.width, 0)};"
-        )
-    for clock, inactive in sorted(clocks.items()):
-        lines.append(f"    {rtl_identifier(clock)} = 1'b{inactive};")
-    for reset, (_, inactive) in sorted(resets.items()):
-        lines.append(f"    {rtl_identifier(reset)} = 1'b{inactive};")
-    lines.append("    #1;")
-    for event_index, event in enumerate(events):
-        for name, value in sorted(event["set"].items()):
-            try:
-                leaf = inputs[name]
-            except KeyError as error:
-                raise SimulationComparisonError(
-                    f"physical event update '{name}' is not an input"
-                ) from error
-            lines.append(
-                f"    {rtl_identifier(name)} = {_sv_literal(leaf.width, int(value))};"
-            )
-        for name, asserted in sorted(event["reset"].items()):
-            if not isinstance(asserted, bool):
-                raise SimulationComparisonError("reset event values must be boolean")
-            try:
-                active, inactive = resets[name]
-            except KeyError as error:
-                raise SimulationComparisonError(f"unknown reset '{name}'") from error
-            lines.append(
-                f"    {rtl_identifier(name)} = 1'b{active if asserted else inactive};"
-            )
-        lines.append("    #1;")
-        selected = tuple(event["edges"])
-        if len(selected) != len(set(selected)):
-            raise SimulationComparisonError("one event cannot contain a clock twice")
-        for clock in selected:
-            try:
-                inactive = clocks[clock]
-            except KeyError as error:
-                raise SimulationComparisonError(f"unknown clock '{clock}'") from error
-            lines.append(f"    {rtl_identifier(clock)} = 1'b{1 - inactive};")
-        if selected:
-            lines.append("    #1;")
-            for clock in selected:
-                lines.append(f"    {rtl_identifier(clock)} = 1'b{clocks[clock]};")
-            lines.append("    #1;")
-        for leaf in outputs:
-            name = rtl_identifier(leaf.external_name)
-            lines.extend(
-                (
-                    f"    if ((^{name}) === 1'bx)",
-                    f'      $display("sample {event_index} {leaf.external_name} X");',
-                    "    else",
-                    f'      $display("sample {event_index} {leaf.external_name} %0h", {name});',
-                )
-            )
-    lines.extend(("    $finish;", "  end", "endmodule", ""))
-    return "\n".join(lines)
 
 
 def _run_bounded(
@@ -500,6 +395,10 @@ def _comparison_directory(path: Path | None) -> Iterator[tuple[Path, bool]]:
         raise SimulationComparisonError(
             f"comparison artifact directory '{destination}' must not be a symlink"
         )
+    # Commands execute with this directory as cwd. Keep executable/artifact
+    # paths absolute rather than resolving a relative prefix twice. Check the
+    # caller's final component for symlinks before canonicalizing it.
+    destination = destination.resolve()
     if destination.exists() and any(destination.iterdir()):
         raise SimulationComparisonError(
             f"comparison artifact directory '{destination}' must be empty"
@@ -557,11 +456,16 @@ def compare_program(
     with _comparison_directory(artifact_directory) as (directory, retained):
         design_path = directory / "design.sv"
         testbench_path = directory / "compare_tb.sv"
+        stimulus_path = directory / STIMULUS_FILE
+        try:
+            testbench = render_testbench(program.module, artifact.module, packed_events)
+        except ValueError as error:
+            raise SimulationComparisonError(str(error)) from error
+        if STIMULUS_FILE in {item.logical_path for item in artifact.companions}:
+            raise SimulationComparisonError('comparison stimulus conflicts with RTL companion')
         design_path.write_text(artifact.text, encoding="utf-8")
-        testbench_path.write_text(
-            _render_testbench(program.module, artifact.module, packed_events),
-            encoding="utf-8",
-        )
+        testbench_path.write_text(testbench.text, encoding="utf-8")
+        stimulus_path.write_text(testbench.stimulus, encoding="utf-8")
         publish_companion_bundle(artifact.companions, directory)
         compile_command, run_command = _tool_commands(simulator, directory=directory)
         compiled = _run_bounded(
@@ -610,6 +514,7 @@ def compare_program(
             "files": {
                 "design.sv": _sha256(design_path),
                 "compare_tb.sv": _sha256(testbench_path),
+                STIMULUS_FILE: _sha256(stimulus_path),
                 **{
                     companion.logical_path: companion.file_hash
                     for companion in artifact.companions

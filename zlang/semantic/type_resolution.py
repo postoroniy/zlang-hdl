@@ -381,6 +381,7 @@ class TypeResolver:
         positive_description: str | None = None,
         local_values: dict[str, int] | None = None,
         allow_resolver_parameters: bool = True,
+        unspecialized_parameters: frozenset[str] = frozenset(),
     ) -> int:
         try:
             tree = pyast.parse(text, mode="eval")
@@ -449,6 +450,15 @@ class TypeResolver:
                             return visit(pyast.parse(value, mode="eval").body)
                         finally:
                             resolving.remove(node.id)
+                if node.id in unspecialized_parameters:
+                    # The module owner supplies only earlier required value
+                    # parameters. This is a specialization requirement, not an
+                    # undeclared name; ordinary compilation still fails closed.
+                    raise SemanticError(
+                        f"unresolved compile-time parameter '{node.id}' in {description}",
+                        code="ZL-GENERIC-SPECIALIZATION-REQUIRED",
+                        fixes=("provide concrete value specialization arguments",),
+                    )
                 raise SemanticError(
                     f"unresolved compile-time parameter '{node.id}' in {description}"
                 )

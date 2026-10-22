@@ -106,6 +106,43 @@ sections for exact signatures and eligibility instead of guessing from a name.
 Read [formal verification](docs/formal-verification.md) before changing or
 claiming verification behavior.
 
+For buffered broadcast/join, framed CRC-32 and parallel fixed-point FIR, use
+the source-authored components in [the stream/DSP guide](docs/stdlib-stream-dsp.md).
+For ROM/interpolated NCO, rotation-only CORDIC, modular CIC, polyphase/halfband
+decimation/interpolation and 24-bit coding, use the explicit
+[numerical contracts and runnable examples](docs/stdlib-multirate-coding.md).
+Phase/sample counters advance on accepted transfers, not arbitrary clocks;
+CIC wrapping and final FIR quantization are distinct numerical boundaries.
+CORDIC uses signed binary turns, N+2 unstalled edges and a globally stalled
+pipeline; its fixed<16,14> result is an approximation with documented bounds,
+not a correctly rounded transcendental intrinsic.
+For vectoring/atan2/magnitude and configurable FIR, follow the
+[vectoring contract](docs/stdlib-multirate-coding.md#vectoring-atan2-and-magnitude)
+and [reload/folded contracts](docs/stdlib-reloadable-fir.md). Vectoring
+uses N+3 edges; a folded FIR explicitly uses latency=II=N, not automatic HLS.
+FIR history advances on accepted samples, not every event. Preserve its full
+dot result and explicit final quantization. Only the separate reloadable FIR
+variants expose coefficient loading/commit; partial banks never activate.
+Interpolators emit their ordered output phases under output-transfer control;
+they do not advance state through an output stall. CIC gains and FIR/halfband
+coefficients carry no implicit gain compensation. These components need no
+new optimizer provider, scheduling feature or implicit CDC.
+
+For [SECDED](docs/stdlib-secded.md), payload widths are 1…64: one bit is
+correctable and two are detectable; larger error patterns have no guarantee.
+[Farrow](docs/stdlib-farrow.md) uses raw unsigned fractional delay, exact stored
+binary coefficients and an M+1-edge pipeline; it is not a resampling controller.
+[DVB RS](docs/stdlib-rs-dvb.md) is the fixed shortened (204,188) profile with
+51 leading zero symbols, not another RS convention. Its errors-only decoder
+corrects up to eight symbols; beyond that miscorrection is possible.
+[Viterbi](docs/stdlib-viterbi.md) shares one K=7 hard/3-bit-soft engine, stores
+the complete frame and does not assume a zero final encoder state or insert
+tail bits. Framed coding status precedes payload; honor `data_valid` and
+failure status rather than treating arbitrary decoded data as trustworthy.
+Use the runnable examples in these guides. Source availability is not evidence
+that an installed wheel/VSIX or a checked-in PDF has been refreshed, nor that
+a specialization has executed formal qualification.
+
 ## Evidence before claims
 
 Use the smallest relevant sequence:

@@ -1,0 +1,22 @@
+import std.coding.scrambler
+import std.coding.convolutional
+
+// Explicit restart and tail mask, without a Wi-Fi packet/rate controller.
+module Scrambler24 {
+    clock clk reset rst
+    in input : rv<ScramblerWord24>
+    out output : rv<bits<24>>
+    coder : RvScrambler7_24<SEED=0x4b>
+    input -> coder.input
+    coder.output -> output
+}
+
+// Caller supplies any tail bits; finish only clears history after this word.
+module ConvolutionalEncoder24 {
+    clock clk reset rst
+    in input : rv<ConvolutionalWord24>
+    out output : rv<bits<48>>
+    coder : RvConvolutionalK7_24
+    input -> coder.input
+    coder.output -> output
+}

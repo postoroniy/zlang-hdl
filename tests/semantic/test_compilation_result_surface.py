@@ -98,7 +98,11 @@ EXPECTED = {
     # also retain their exact bit/u backing type, which intentionally advances
     # this enum-bearing eager-result surface without changing RTL behavior.
     # Two fresh processes reproduced the updated value before recapture.
-    "wifi": "bac6f275dc51b5d06bfdd609337665f4654b8a0d136cead997baa253d99cd745",
+    # Extracting coding kernels changes two retained project source snapshots.
+    # Replacing ONLY those physical-input bytes with their previous values
+    # reproduces the complete previous digest; all other eager-result fields
+    # are unchanged. Two fresh processes reproduce the new value.
+    "wifi": "f145b7645775e929bcf4884fb837041f3ff5c25321107ec66d1d0ce16acc940e",
 }
 
 

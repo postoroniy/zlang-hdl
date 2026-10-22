@@ -1,0 +1,20 @@
+import std.coding.secded
+
+// 32 data bits, six Hamming parity bits and one overall parity bit.
+module Secded32Encode {
+    clock clk reset rst
+    in input : rv<bits<32>>
+    out output : rv<bits<39>>
+    core : RvSecdedEncode<K=32>
+    input -> core.input
+    core.output -> output
+}
+
+module Secded32Decode {
+    clock clk reset rst
+    in input : rv<bits<39>>
+    out output : rv<SecdedDecoded<32,6>>
+    core : RvSecdedDecode<K=32>
+    input -> core.input
+    core.output -> output
+}

@@ -33,6 +33,35 @@ exact width tables and supported forms, follow the linked topic guide.
 
 ## Smallest valid modules
 
+For buffered streams and numerical components, see
+[stream composition, CRC and FIR](stdlib-stream-dsp.md):
+`std.stream.composition` provides `RvFork2`/`RvJoin2`, `std.coding.crc`
+provides `RvCrc32Byte`, and `std.dsp.fir` provides exact and explicitly
+quantized parallel FIR. FIR has one elastic output stage, II=1, immutable
+coefficients, and history that advances only on `input.transfer`.
+
+[`std.dsp.nco`, `std.dsp.nco_linear`, `std.dsp.cordic`, `std.dsp.cic`,
+`std.dsp.polyphase`, `std.dsp.halfband` and coding blocks](stdlib-multirate-coding.md)
+provide explicit accepted-sample phase, decimation/interpolation, wrap/quantization and bit-order
+contracts. These are source-authored stdlib components, not new language syntax.
+For [vectoring CORDIC](stdlib-multirate-coding.md#vectoring-atan2-and-magnitude)
+and [atomic FIR reload and one-MAC folded FIR](stdlib-reloadable-fir.md), use
+their separate numerical, coefficient-epoch and latency/II contracts.
+
+Additional source-authored modules:
+
+- [SECDED](stdlib-secded.md): K=1…64, single-bit correction, double-bit
+  detection, one elastic stage.
+- [Farrow](stdlib-farrow.md): M=0…3, K=1…8, raw unsigned μ, exact stored
+  coefficients, M+1 edges and optional final-only quantization.
+- [DVB RS(204,188)](stdlib-rs-dvb.md): framed systematic encoder and errors-only
+  decoder, up to eight erroneous symbols; status before payload.
+- [K=7 Viterbi](stdlib-viterbi.md): hard/3-bit-soft pairs, full-frame traceback,
+  deterministic ties, no assumed zero final state or implicit tail bits.
+
+These limits describe the source contracts, not universal proof coverage or
+the contents of an older installed package. See each guide's status and example.
+
 Combinational logic:
 
 ```zlang

@@ -14,7 +14,7 @@ SYSTEMVERILOG_RESERVED = frozenset({
     "event",
     "for", "function", "generate", "if", "input", "integer", "interface",
     "join", "join_any", "join_none", "local", "logic", "matches", "module",
-    "output", "packed", "parameter", "reg", "sequence", "struct", "table",
+    "output", "packed", "parameter", "reg", "release", "sequence", "struct", "table",
     "typedef", "unpacked", "wire",
 })
 

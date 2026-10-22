@@ -73,11 +73,10 @@ def _source_path_for_origin(
             candidate = index.source_path_for_unit(unit)
             if candidate is not None:
                 return candidate
-            # ``WorkspaceIndex`` intentionally exposes project/dependency
-            # modules only.  Declaration targets may also live in the exact
-            # stdlib closure retained by ``PhysicalCompilationInputs``.  Ask
-            # the same resolver that built the compilation, then accept the
-            # answer only when it is one of those locked physical inputs.
+        # Stdlib declarations also belong to standalone-file compilations,
+        # which have no project index. Resolve only compiler-owned std units
+        # and require membership in the exact retained physical input closure.
+        if unit.startswith("std."):
             resolved = resolve_direct_imports(source, (unit,))
             candidate = resolved[0].source_path if resolved else None
             if candidate is not None:

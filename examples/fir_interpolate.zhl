@@ -1,0 +1,13 @@
+import std.dsp.polyphase
+
+// Two outputs per accepted sample; coefficients set the gain explicitly.
+module InterpolatingFir {
+    clock clk reset rst
+    in input : rv<fixed<8,3>>
+    out output : rv<fixed<16,5>>
+    taps : vec<6,fixed<6,2>> = [0.75,-1.25,1.75,0.25,-1,0.5]
+    filter : RvPolyphaseFirInterpolatorExact<SW=8,SF=3,CW=6,CF=2,
+                                            R=2,K=3,coefficients=taps>
+    input -> filter.input
+    filter.output -> output
+}

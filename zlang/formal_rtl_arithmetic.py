@@ -145,6 +145,8 @@ def normalize_rtl_arithmetic(
     (root / "original.v").write_text(source)
     _yosys(
         f"read_verilog -sv -formal original.v; prep -top {top} -flatten; "
+        # Remove only unreachable declarations, not connected opaque cells.
+        f"hierarchy -check -top {top} -purge_lib; "
         "check -assert; write_json -noscopeinfo original.json",
         root,
         deadline,
@@ -259,6 +261,8 @@ def normalize_rtl_arithmetic(
     _yosys(
         f"read_json normalized.json; read_verilog -sv helpers.v; "
         f"hierarchy -check -top {top}; flatten; opt_clean; check -assert; "
+        # Stable arithmetic metadata; state/property names are untouched.
+        "autoname t:$add t:$sub t:$mul t:$neg t:$pos t:$eq t:$ne; "
         "write_verilog normalized.v",
         root,
         deadline,

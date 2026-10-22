@@ -55,6 +55,32 @@ ordinary typed modules/protocols, never backend name dispatch. Logical imports
 such as `import std.bus.ahb_lite` and qualified imports must resolve through the
 project/compiler resolver rather than relative filesystem guesses.
 
+For `std.stream.composition`, `std.coding.crc` and `std.dsp.fir`, follow the
+shared [stream/DSP guide](../../../../docs/stdlib-stream-dsp.md). It owns
+buffering, frame/accepted-sample ordering, immutable coefficient arguments,
+exact FIR widths and the single final conversion. Reuse these ordinary
+modules rather than introducing name-specific compiler paths.
+
+Use the [multirate/numerical guide](../../../../docs/stdlib-multirate-coding.md)
+for rotation/vectoring CORDIC, ROM/interpolated NCO, CIC, polyphase and halfband
+filters, and 24-bit coding. Use the
+[reload/folded FIR guide](../../../../docs/stdlib-reloadable-fir.md) for atomic
+coefficient epochs and explicit one-MAC latency/II=N. Samples/history advance
+on accepted transfers; preserve exact widths and the single final conversion.
+These modules neither expand `implement` nor perform implicit CDC.
+
+Use the shared [SECDED](../../../../docs/stdlib-secded.md),
+[Farrow](../../../../docs/stdlib-farrow.md),
+[DVB Reed–Solomon](../../../../docs/stdlib-rs-dvb.md) and
+[Viterbi](../../../../docs/stdlib-viterbi.md) contracts for the newer coding
+and delay components. SECDED guarantees only single-bit correction/double-bit
+detection. Farrow uses stored binary coefficients and raw unsigned μ, with
+final-only quantization. RS is specifically shortened (204,188), GF polynomial
+0x11D, roots α⁰…α¹⁵, errors-only correction up to eight symbols. Viterbi uses
+the existing encoder recurrence/wire order and never assumes a zero final state.
+Honor framed status/data validity; source availability and mathematical
+contracts do not establish executed formal evidence or refreshed artifacts.
+
 ## State, hierarchy, and protocols
 
 - `clock clk reset rst` is the default synchronous domain.

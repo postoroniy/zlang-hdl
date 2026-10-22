@@ -29,7 +29,7 @@ jobs:
         uses: YosysHQ/setup-oss-cad-suite@c7845bc0d335c8076aa22047e85972caa8a916df # v4
         with:
           github-token: ${{ github.token }}
-          version: "2026-09-22"
+          version: "2026-10-21"
       - name: Install Community test dependencies
         run: |
           python -m pip install --disable-pip-version-check -e '.[test]'

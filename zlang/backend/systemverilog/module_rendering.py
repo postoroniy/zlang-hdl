@@ -84,12 +84,21 @@ def _function_region_emission(
     a stable local and emit its procedural producer before the final result.
     """
 
-    regions = _FUNCTIONAL_REGION_PLANNER.regions(body)
+    composition = _FUNCTIONAL_REGION_PLANNER.composition_plan(body)
+    regions = tuple(node.region for node in composition.nodes)
     if not regions:
         return body, [], []
     used = set(reserved_names)
     aliases = materialization.ExpressionAliasMap()
-    for region in regions:
+    unique_nodes = []
+    for node in composition.nodes:
+        region = node.region
+        # Renaming/copying can retain two objects for one pure region. The
+        # alias map is semantic, so allocate AND emit that producer only once
+        # in this function's procedural scope. Keep conflicting aliases an
+        # error; do not weaken the map's invariant or merge state resources.
+        if region in aliases:
+            continue
         identity = signed_reductions.expression_semantic_identity(region)
         aliases[region] = identifiers.allocate_private_rtl_identifier(
             f"zlang_fn_region_{identity[:10]}",
@@ -98,13 +107,38 @@ def _function_region_emission(
             ),
             used=used,
         )
+        unique_nodes.append(node)
+    regions = tuple(node.region for node in unique_nodes)
     declarations = [
         f"    logic{(' signed' if isinstance(region.type, (ir_types.SIntType, ir_types.FixedType)) else '')} "
         f"{sv_rendering._range(sv_rendering._width(region.type))}{aliases[region]};"
         for region in regions
     ]
     statements: list[str] = []
-    for region in regions:
+    for node in unique_nodes:
+        region = node.region
+        # Closed function regions must not re-evaluate a large captured DAG
+        # in every virtual iteration when a frontend unrolls the loop. Own
+        # each pure capture once in this function. Never hoist a capture from
+        # a region with free lexical binders into the enclosing scope.
+        if not node.free_binders:
+            for _, captured in region.captures:
+                if isinstance(captured, (expr.InputRef, expr.Constant)) or captured in aliases:
+                    continue
+                value = materialization.replace_materialized(captured, aliases, keep=captured)
+                if any(isinstance(item, (expr.FunctionalCaptureRef, expr.FunctionalTableLookup,
+                                         expr.FunctionalRegion))
+                       for item in materialization.walk_expression(value)):
+                    continue
+                identity = signed_reductions.expression_semantic_identity(captured)
+                name = identifiers.allocate_private_rtl_identifier(
+                    f"zlang_fn_capture_{identity[:10]}",
+                    semantic_identity=f"function-capture:{identity}", used=used,
+                )
+                signed = ' signed' if isinstance(captured.type, (ir_types.SIntType, ir_types.FixedType)) else ''
+                declarations.append(f"    logic{signed} {sv_rendering._range(sv_rendering._width(captured.type))}{name};")
+                statements.append(f"    {name} = {sv_expression._expression(value)};")
+                aliases[captured] = name
         rewritten = materialization.replace_materialized(
             region,
             aliases,

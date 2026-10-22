@@ -202,6 +202,11 @@ def _vector_index_expression(
     projection = _constant_vector_projection(expression)
     if projection is not None:
         root, lsb, width = projection
+        # A packed vec<1,bit> is declared as scalar logic, not logic[0:0].
+        # Its sole constant projection is the value itself; scalar postfix
+        # selects are rejected by supported SystemVerilog frontends.
+        if sv_rendering._width(root.type) == 1 and lsb == 0 and width == 1:
+            return _expression(root)
         return sv_rendering._slice(_expression(root), lsb + width - 1, lsb)
     element_width = sv_rendering._width(vector.element_type)
     if isinstance(expression, expr.VectorIndex) and isinstance(expression.index, int):
@@ -292,24 +297,36 @@ def _fixed_convert(expression: expr.FixedConvert) -> str:
         minimum = -(1 << (expression.type.width - 1)) if target_signed else 0
         maximum = ((1 << (expression.type.width - 1)) - 1 if target_signed
                    else (1 << expression.type.width) - 1)
+        # Retain a signed source until after the lower clamp. Casting a
+        # negative rounded value to unsigned first turns it into a huge
+        # positive value and incorrectly selects the upper saturation bound.
+        comparison_signed = source_signed or target_signed
         converted = (
             f"$signed({work_width}'({converted}))"
-            if target_signed
+            if comparison_signed
             else f"$unsigned({work_width}'({converted}))"
         )
         minimum_literal = (
             f"-{work_width}'sd{-minimum}"
-            if minimum < 0 else f"{work_width}'d{minimum}"
+            if minimum < 0 else (
+                f"{work_width}'sd0" if comparison_signed else f"{work_width}'d0"
+            )
         )
         maximum_literal = (
             f"{work_width}'sd{maximum}"
-            if target_signed else f"{work_width}'d{maximum}"
+            if comparison_signed else f"{work_width}'d{maximum}"
         )
-        converted = (
-            f"(({converted}) < {minimum_literal} ? {minimum_literal} : "
-            f"(({converted}) > {maximum_literal} ? {maximum_literal} : "
-            f"({converted})))"
+        upper_clamp = (
+            f"(({converted}) > {maximum_literal} ? {maximum_literal} : ({converted}))"
         )
+        if comparison_signed:
+            converted = (
+                f"(({converted}) < {minimum_literal} ? {minimum_literal} : {upper_clamp})"
+            )
+        else:
+            # An unsigned source cannot be negative. An unsigned '< 0' is
+            # both redundant and a fatal UNSIGNED diagnostic in Verilator.
+            converted = upper_clamp
     sized = f"{expression.type.width}'({converted})"
     return f"$signed({sized})" if target_signed else sized
 
@@ -545,7 +562,10 @@ def _render_expression(expression: expr.Expression) -> str:
         )
     if isinstance(expression, expr.StructConstruct):
         return "{" + sv_rendering._comma_join(
-            tuple(_expression(value) for _, value in expression.fields)
+            tuple(
+                f"{sv_rendering._width(value.type)}'({_expression(value)})"
+                for _, value in expression.fields
+            )
         ) + "}"
     if isinstance(expression, expr.TupleConstruct):
         return "{" + sv_rendering._comma_join(tuple(
@@ -640,7 +660,13 @@ def _render_expression(expression: expr.Expression) -> str:
             # SystemVerilog concatenations list the MSB first, whereas ZLang
             # indexed aggregates place element zero at the LSB.
             return "{" + sv_rendering._comma_join(tuple(
-                _expression(element) for element in reversed(expression.elements)
+                # Reduction trees can contain wider shift carriers. Their
+                # packed element is nevertheless exactly the typed result
+                # width. Make that boundary self-determined, as for tuples,
+                # rather than letting a frontend infer the carrier width.
+                (f"{sv_rendering._width(element.type)}'({_expression(element)})"
+                 if isinstance(element, expr.Reduce) else _expression(element))
+                for element in reversed(expression.elements)
             )) + "}"
         return _balanced_expression(expression.elements)
     if isinstance(expression, expr.Call):

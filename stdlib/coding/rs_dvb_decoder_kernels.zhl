@@ -1,0 +1,50 @@
+import std.coding.rs_dvb_decoder_math
+import std.coding.rs_dvb_arithmetic
+import std.coding.rs_dvb_decoder_inverse
+
+module RsDvbMultiplyKernel {
+    in a,b:bits<8>
+    out product:bits<8>
+    product=((a == 0) | (b == 0)) ? zeros<8> : gf256_mul(a,b)
+}
+
+// Pure combinational boundaries, with no hidden registers or scheduling.
+module RsDvbBmKernel {
+    in state:RsDvbBmState
+    in syndromes:vec<16,bits<8>>
+    in step:u5
+    in delta:bits<8>
+    out updated:RsDvbBmState
+    out discrepancy,omega:bits<8>
+    updated=rs_dvb_bm_update(state,step,delta)
+    discrepancy=rs_dvb_discrepancy(state,syndromes,step)
+    omega=rs_dvb_omega_coefficient(state.locator,syndromes,step)
+}
+
+module RsDvbPolyKernel {
+    in coefficients:vec<17,bits<8>>
+    in x:bits<8>
+    out value:bits<8>
+    value=rs_dvb_poly_value(coefficients,x)
+}
+
+module RsDvbInverseKernel {
+    in value:bits<8>
+    out result:Gf256Inverse
+    result=Gf256Inverse { value=rs_dvb_inverse_value(value) valid=value!=0 }
+}
+
+module RsDvbSyndromeKernel {
+    in active:bit
+    in state:vec<16,bits<8>>
+    in data:bits<8>
+    out value:vec<16,bits<8>>
+    value=active ? rs_dvb_syndrome_step(state,data) : state
+}
+
+module RsDvbSelectKernel {
+    in packet:vec<204,bits<8>>
+    in index:u8
+    out value:bits<8>
+    value=rs_dvb_select<N=204,IW=8>(packet,index)
+}

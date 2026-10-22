@@ -1,0 +1,45 @@
+// One reflected polynomial step, exact W-bit raw state. Initialization,
+// bit ordering across words, and final conditioning belong to the caller.
+fn crc_step_reflected<W>(state : bits<W>, data_bit : bit,
+                         polynomial : bits<W>) -> bits<W> {
+    (state >> 1) ^ ((state[0] ^ data_bit) ? polynomial : 0)
+}
+
+struct CrcByteBeat {
+    data : bits<8>
+    last : bit
+}
+
+// CRC-32/ISO-HDLC: reflected 0xEDB88320, raw init/final XOR 0xFFFFFFFF.
+// A last byte publishes exactly one checksum. The next frame waits for the
+// result slot, with same-edge result retirement / first-byte acceptance.
+module RvCrc32Byte {
+    clock clk reset rst
+    in input : rv<CrcByteBeat>
+    out output : rv<bits<32>>
+
+    reg state : bits<32> = 0xFFFFFFFF
+    reg checksum : bits<32> = 0
+    reg pending : bit = 0
+    input.ready = ~pending | output.transfer
+    output.payload = checksum
+    output.valid = pending
+
+    // Explicit unrolling fixes byte bit order; every step retains 32 bits.
+    step0 : bits<32> = crc_step_reflected<W=32>(state, input.payload.data[0], 0xEDB88320)
+    step1 = crc_step_reflected<W=32>(step0, input.payload.data[1], 0xEDB88320)
+    step2 = crc_step_reflected<W=32>(step1, input.payload.data[2], 0xEDB88320)
+    step3 = crc_step_reflected<W=32>(step2, input.payload.data[3], 0xEDB88320)
+    step4 = crc_step_reflected<W=32>(step3, input.payload.data[4], 0xEDB88320)
+    step5 = crc_step_reflected<W=32>(step4, input.payload.data[5], 0xEDB88320)
+    step6 = crc_step_reflected<W=32>(step5, input.payload.data[6], 0xEDB88320)
+    step7 = crc_step_reflected<W=32>(step6, input.payload.data[7], 0xEDB88320)
+    pending <- (input.transfer & input.payload.last)
+        ? 1 : (output.transfer ? 0 : pending)
+    when input.transfer {
+        state <- input.payload.last ? 0xFFFFFFFF : step7
+        when input.payload.last {
+            checksum <- step7 ^ 0xFFFFFFFF
+        }
+    }
+}

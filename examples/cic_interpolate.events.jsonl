@@ -1,0 +1,6 @@
+{"reset":{"rst":true},"set":{"input":{"payload":0,"valid":0},"output":{"ready":1}},"edges":["clk"]}
+{"reset":{"rst":false},"set":{"input":{"payload":1,"valid":1}},"edges":["clk"]}
+{"set":{"input":{"payload":0,"valid":0}},"edges":["clk"]}
+{"set":{"output":{"ready":0}},"repeat":2,"edges":["clk"]}
+{"set":{"input":{"payload":0,"valid":1},"output":{"ready":1}},"repeat":9,"edges":["clk"]}
+{"set":{"input":{"payload":0,"valid":0}},"repeat":4,"edges":["clk"]}

@@ -1,0 +1,23 @@
+import std.dsp.halfband
+
+// Coefficients define the gain, including the center coefficient explicitly.
+module HalfbandDecimatorExample {
+    clock clk reset rst
+    in input : rv<fixed<8,3>>
+    out output : rv<fixed<17,5>>
+    taps : vec<7,fixed<6,2>> = [0.75,0,-1.25,1.5,-1.25,0,0.75]
+    filter : RvHalfbandDecimatorExact<SW=8,SF=3,CW=6,CF=2,N=7,coefficients=taps>
+    input -> filter.input
+    filter.output -> output
+}
+
+// The same prototype, without implicit gain x2, produces two ordered phases.
+module HalfbandInterpolatorExample {
+    clock clk reset rst
+    in input : rv<fixed<8,3>>
+    out output : rv<fixed<17,5>>
+    taps : vec<7,fixed<6,2>> = [0.75,0,-1.25,1.5,-1.25,0,0.75]
+    filter : RvHalfbandInterpolatorExact<SW=8,SF=3,CW=6,CF=2,N=7,coefficients=taps>
+    input -> filter.input
+    filter.output -> output
+}

@@ -1,0 +1,45 @@
+import std.coding.viterbi_k7_core
+
+struct ViterbiK7Word48 { data:bits<48> first:bit last:bit }
+
+// The existing encoder emits its first G0/G1 pair in bits 47:46. Frame
+// markers are explicit; finish on the encoder is not a transmitted tail.
+module RvViterbiK7Word48<MAX_BITS=4096,MW=ceil_log2(14*MAX_BITS+1),CW=index_width(MAX_BITS+1)>
+where MAX_BITS >= 24 && MAX_BITS <= 4096 && MW == ceil_log2(14*MAX_BITS+1)
+   && CW == index_width(MAX_BITS+1) {
+    clock clk reset rst
+    in input : rv<ViterbiK7Word48>
+    out status : rv<ViterbiFrameStatus<MW,CW>>
+    out output : rv<ViterbiDecodedBit>
+    core : RvViterbiK7Hard<MAX_BITS=MAX_BITS>
+    reg pending : bit = 0
+    reg word : bits<48> = 0
+    reg position : u5 = 0
+    reg frame_first : bit = 0
+    reg frame_last : bit = 0
+    final_pair = position == 23
+    input.ready = core.input.ready & (~pending | (final_pair & ~frame_last))
+    core.input.valid = pending
+    core.input.payload = ViterbiHardPair {
+        pair = word[47:46]
+        first = frame_first & (position == 0)
+        last = frame_last & final_pair
+    }
+    core.status -> status
+    core.output -> output
+    // This endpoint is manually driven, not a connection-owned transfer
+    // projection. The adapter owns valid and observes the child's ready.
+    pair_taken = pending & core.input.ready
+    when input.transfer {
+        pending <- 1
+        word <- input.payload.data
+        position <- 0
+        frame_first <- input.payload.first
+        frame_last <- input.payload.last
+    } else when pair_taken {
+        when final_pair { pending <- 0 } else {
+            word <- word << 2
+            position <- truncate<5>(position+1)
+        }
+    }
+}

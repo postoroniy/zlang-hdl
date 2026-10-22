@@ -43,6 +43,56 @@ Comments should explain those choices rather than restating each expression.
 
 ## Standalone examples
 
+Stream composition/DSP introductions:
+
+- [`framed_crc.zhl`](framed_crc.zhl): broadcast a framed byte stream to a mirror
+  and CRC-32 engine; [ready-to-run events](framed_crc.events.jsonl).
+- [`stream_fir8.zhl`](stream_fir8.zhl): immutable-coefficient parallel FIR with
+  one final nearest-even/saturating conversion; [impulse events](stream_fir8.events.jsonl).
+- [`farrow.zhl`](farrow.zhl): cubic fractional delay with per-sample μ and
+  final-only output rounding; [events](farrow.events.jsonl) and
+  [numerical/pipeline contract](../docs/stdlib-farrow.md).
+- [`fir_reload.zhl`](fir_reload.zhl): candidate parallel FIR with inactive-bank
+  loading and an explicit commit after result retirement;
+  [events](fir_reload.events.jsonl) and
+  [bank/handshake contract](../docs/stdlib-reloadable-fir.md).
+- [`fir_folded.zhl`](fir_folded.zhl): explicitly sequential three-tap FIR,
+  latency/II=3, with [raw fixed-point events](fir_folded.events.jsonl).
+- [`fir_interpolate.zhl`](fir_interpolate.zhl): parallel phase sums with two
+  ordered outputs per accepted input; [events](fir_interpolate.events.jsonl).
+- [`cic_interpolate.zhl`](cic_interpolate.zhl): modular ×3 CIC interpolation,
+  explicit state width and no gain compensation; [events](cic_interpolate.events.jsonl).
+- [`halfband.zhl`](halfband.zhl): exact ×2 decimation and interpolation with
+  checked symmetric coefficients; [events](halfband.events.jsonl).
+- [`nco_linear.zhl`](nco_linear.zhl): two-edge fractional ROM interpolation;
+  the existing [NCO events](nco.events.jsonl) also supply its phase increments.
+
+See [commands and numerical/stream contracts](../docs/stdlib-stream-dsp.md).
+
+### Oscillators, multirate filters and coding
+
+- [`cordic.zhl`](cordic.zhl): rotation-only signed-turn sin/cos pipeline;
+  [`cordic.events.jsonl`](cordic.events.jsonl) requests five angles and drains it.
+- [`nco.zhl`](nco.zhl): accepted-sample phase accumulator with paired ROM
+  sine/cosine; [`events`](nco.events.jsonl).
+- [`multirate_filters.zhl`](multirate_filters.zhl): explicit-width CIC and
+  exact-accumulating polyphase FIR decimators; [`events`](multirate_filters.events.jsonl).
+- [`coding_blocks.zhl`](coding_blocks.zhl): extracted 24-bit scrambler and K=7
+  convolutional encoder; [`scrambler events`](scrambler24.events.jsonl) and
+  [`encoder events`](convolutional24.events.jsonl).
+- [`secded.zhl`](secded.zhl): 32-bit extended-Hamming encoding/decoding,
+  [single/double-error events](secded32.events.jsonl) and
+  [layout/status contract](../docs/stdlib-secded.md).
+- [`rs_dvb.zhl`](rs_dvb.zhl): framed DVB RS(204,188) encoding;
+  [events](rs_dvb.events.jsonl) and [byte/framing contract](../docs/stdlib-rs-dvb.md).
+- [`rs_dvb_decode.zhl`](rs_dvb_decode.zhl): correct two corrupted symbols and
+  recover the188-byte ramp; [events](rs_dvb_decode.events.jsonl) and
+  [decoder/cycle contract](../docs/stdlib-rs-dvb.md#decoder).
+- [`viterbi.zhl`](viterbi.zhl): framed K=7 hard-decision decoding;
+  [events](viterbi.events.jsonl) and [soft/traceback/word contract](../docs/stdlib-viterbi.md).
+
+See [complete commands and sample/bit-order contracts](../docs/stdlib-multirate-coding.md).
+
 ### Language, values, and basic hardware
 
 | Source | Purpose |

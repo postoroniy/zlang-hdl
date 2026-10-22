@@ -106,7 +106,7 @@ jobs:
         uses: YosysHQ/setup-oss-cad-suite@c7845bc0d335c8076aa22047e85972caa8a916df # v4
         with:
           github-token: ${{ github.token }}
-          version: "2026-09-22"
+          version: "2026-10-21"
       - name: Bootstrap the repository-owned random-test environment
         run: make -s ci-bootstrap
       - name: Run reproducible PR random cases
@@ -141,7 +141,7 @@ jobs:
         uses: YosysHQ/setup-oss-cad-suite@c7845bc0d335c8076aa22047e85972caa8a916df # v4
         with:
           github-token: ${{ github.token }}
-          version: "2026-09-22"
+          version: "2026-10-21"
       - name: Set up PDF inspection tools
         uses: ./.github/actions/setup-pdf-tools
       - name: Bootstrap the repository-owned regression environment
@@ -179,7 +179,7 @@ jobs:
         uses: YosysHQ/setup-oss-cad-suite@c7845bc0d335c8076aa22047e85972caa8a916df # v4
         with:
           github-token: ${{ github.token }}
-          version: "2026-09-22"
+          version: "2026-10-21"
       - name: Set up PDF inspection tools
         uses: ./.github/actions/setup-pdf-tools
       - name: Bootstrap the repository-owned performance environment
@@ -215,7 +215,7 @@ jobs:
       - uses: YosysHQ/setup-oss-cad-suite@c7845bc0d335c8076aa22047e85972caa8a916df # v4
         with:
           github-token: ${{ github.token }}
-          version: "2026-09-22"
+          version: "2026-10-21"
       - name: Bootstrap the repository-owned hosted-edge environment
         run: make -s ci-bootstrap
       - name: Recheck hosted lifecycle, formal counterexample, and packaging

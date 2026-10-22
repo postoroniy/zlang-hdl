@@ -1,0 +1,46 @@
+// x^7+x^4+1, DATA bit zero first. Tap masks are the 24-step linear expansion
+// of feedback = state[0] ^ state[3], state' = {feedback,state[6:1]}.
+struct ScramblerResult24 {
+    data : bits<24>
+    state : u7
+}
+
+fn scrambler7_taps24() -> vec<24,u7> {
+    [
+        0x09, 0x12, 0x24, 0x48, 0x19, 0x32, 0x64, 0x41,
+        0x0b, 0x16, 0x2c, 0x58, 0x39, 0x72, 0x6d, 0x53,
+        0x2f, 0x5e, 0x35, 0x6a, 0x5d, 0x33, 0x66, 0x45
+    ]
+}
+
+fn coding_scramble7_24(word:bits<24>, state:u7, clear_mask:bits<24>) -> ScramblerResult24 {
+    taps = scrambler7_taps24()
+    mask = bitcast<bits<24>>(generate(i in 0..24) parity(state & taps[i]))
+    ScramblerResult24 {
+        data = (word ^ mask) & ~clear_mask
+        state = mask[23:17]
+    }
+}
+
+struct ScramblerWord24 {
+    data : bits<24>
+    restart : bit
+    clear_mask : bits<24>
+}
+
+// Explicit per-word restart and tail clearing. No packet metadata/rate policy.
+module RvScrambler7_24<SEED=0x4b> where SEED >= 1 && SEED < 128 {
+    clock clk reset rst
+    in input : rv<ScramblerWord24>
+    out output : rv<bits<24>>
+    reg state : u7 = SEED
+    reg result : bits<24> = 0
+    reg pending : bit = 0
+    selected : u7 = input.payload.restart ? SEED : state
+    exact = coding_scramble7_24(input.payload.data, selected, input.payload.clear_mask)
+    input.ready = ~pending | output.ready
+    output.valid = pending
+    output.payload = result
+    when input.ready { pending <- input.valid }
+    when input.transfer { state <- exact.state result <- exact.data }
+}

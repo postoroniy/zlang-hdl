@@ -1,0 +1,34 @@
+// Polynomial-basis GF(256), primitive polynomial x^8+x^4+x^3+x^2+1.
+// Values are raw polynomial coefficients, least-significant term first.
+fn gf256_mul(a:bits<8>,b:bits<8>) -> bits<8> {
+    polynomial = bitcast<bits<15>>(extend<15>(0x11d))
+    product = reduce(^,generate(i in 0..8)
+        (b[i] ? (extend<15>(a) << i) : zeros<15>))
+    r14 = product ^ (product[14] ? (polynomial << 6) : zeros<15>)
+    r13 = r14 ^ (r14[13] ? (polynomial << 5) : zeros<15>)
+    r12 = r13 ^ (r13[12] ? (polynomial << 4) : zeros<15>)
+    r11 = r12 ^ (r12[11] ? (polynomial << 3) : zeros<15>)
+    r10 = r11 ^ (r11[10] ? (polynomial << 2) : zeros<15>)
+    r9 = r10 ^ (r10[9] ? (polynomial << 1) : zeros<15>)
+    r8 = r9 ^ (r9[8] ? polynomial : zeros<15>)
+    truncate<8>(r8)
+}
+
+struct Gf256Inverse { value:bits<8> valid:bit }
+
+// Zero has no multiplicative inverse. Its returned value is zero and invalid.
+fn gf256_inverse(a:bits<8>) -> Gf256Inverse {
+    a2 = gf256_mul(a,a)
+    a4 = gf256_mul(a2,a2)
+    a8 = gf256_mul(a4,a4)
+    a16 = gf256_mul(a8,a8)
+    a32 = gf256_mul(a16,a16)
+    a64 = gf256_mul(a32,a32)
+    a128 = gf256_mul(a64,a64)
+    a6 = gf256_mul(a2,a4)
+    a14 = gf256_mul(a6,a8)
+    a30 = gf256_mul(a14,a16)
+    a62 = gf256_mul(a30,a32)
+    a126 = gf256_mul(a62,a64)
+    Gf256Inverse { value=gf256_mul(a126,a128) valid=a!=0 }
+}

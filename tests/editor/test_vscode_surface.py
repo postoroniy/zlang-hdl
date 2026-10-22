@@ -483,3 +483,15 @@ def test_binary_literals_share_typed_value_and_unterminated_comment_is_diagnosti
     assert decimal == binary == hexadecimal
     with pytest.raises(ParseError, match="syntax error"):
         parse("/* unterminated\nmodule M { out y:u8 y=0 }")
+
+
+def test_module_generic_where_has_bounded_tokenization_regressions() -> None:
+    grammar = json.loads((EXT / "syntaxes/zlang.tmLanguage.json").read_text())
+    module = grammar["repository"]["generic-parameters"]["patterns"][0]
+    assert "where\\b" in module["end"]
+    assert "//" in module["end"] and "/\\*" in module["end"]
+    keywords = json.dumps(grammar["repository"]["keywords"])
+    assert "where" in keywords
+    tests = (EXT / "test/tokenize.test.cjs").read_text()
+    assert "module parameter lists close before inline or multiline where constraints" in tests
+    assert "nested typed parameters finish before where without swallowing the body" in tests

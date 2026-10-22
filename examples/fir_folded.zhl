@@ -1,0 +1,12 @@
+import std.dsp.fir_folded
+
+// Three taps share one logical multiplier. Raw sample/coefficient scale is 3/2.
+module FoldedFir {
+    clock clk reset rst
+    in input : rv<fixed<8,3>>
+    out output : rv<fixed<16,5>>
+    taps : vec<3,fixed<6,2>> = [0.75,-1.25,1.75]
+    filter : RvFirFoldedExact<SW=8,SF=3,CW=6,CF=2,N=3,coefficients=taps>
+    input -> filter.input
+    filter.output -> output
+}

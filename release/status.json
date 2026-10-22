@@ -51,19 +51,23 @@
     "minimum_tests_collected": 4424,
     "maximum_tests_skipped": 0,
     "example_corpus": {
-      "source_files": 113,
-      "module_roots": 220,
-      "standalone_supported": 203,
+      "source_files": 130,
+      "module_roots": 241,
+      "standalone_supported": 224,
       "child_or_template_only": 17,
       "direct_unsupported": 0
     }
   },
+  "oss_cad_suite": {
+    "version": "2026-10-21",
+    "linux_x64_sha256": "dde9f1700dece195a98a9b15845a4f4043b2aab1dacf9be498bbad0c3be1f247"
+  },
   "eda_toolchain": {
     "iverilog": "14.0",
-    "sby": "0.69",
+    "sby": "0.70",
     "verilator": "5.053",
     "vvp": "14.0",
-    "yosys": "0.69",
+    "yosys": "0.70",
     "z3": "5.3.1"
   },
   "documentation": {
@@ -72,7 +76,7 @@
     "cover_sha256": "22c31a7a75b6db59293b6bf334d1499c891fb03ec5e45b5afac471116ab0d5d2",
     "cover_width": 1983,
     "examples": {
-      "linked_sources": 14,
+      "linked_sources": 15,
       "json_blocks": 6,
       "python_blocks": 2,
       "referenced_tops": 5,
@@ -83,12 +87,12 @@
       "zlang_fences": 107
     },
     "format": "PDF-1.5",
-    "pages": 58,
+    "pages": 60,
     "page_height_points": 841.89,
     "page_width_points": 595.28,
     "pdf": "docs/ZLang-HDL-Language-Reference.pdf",
-    "pdf_sha256": "9ebfba95edb1e88436ba8e535505aa18a6623fc80b94a2a182b9f3378c0a3987",
-    "syntax_grammar_sha256": "cb8d1dd72efedbfa1a31969187added7d57e42ef75fbcb590433544d4c8ad698",
+    "pdf_sha256": "6f56f12cbca7da5236eaa761ed108c3ac4f2aa4d542e9edce159600b2429d985",
+    "syntax_grammar_sha256": "a46c11a27ce5b8b8bafb4759438134cba47fdf1283b7b2e31c5a77a0e682d0cc",
     "sources": {
       "docs/reference/01-why-zlang.md": "017cfe4e3e2845635b0c17f205d35dada034a53ca821a990caed913935ead7ed",
       "docs/reference/02-quick-start.md": "5bd6426c16255425371e6c087bfbf1d52faee16e457d062b63fff5436c86275c",
@@ -99,7 +103,7 @@
       "docs/reference/07-state-clocks.md": "ddfc6617b27060a5f925351c19f59aa3cd429e2f108ff3c2176e1e5dbf54d295",
       "docs/reference/08-hierarchy-protocols.md": "2ce8292b14671a8299a72d72b52224bd3c9e119065460e4c2293fdb030487e5c",
       "docs/reference/09-storage.md": "ad99761fc074263927bc05cdf5d2c7eaf00c105360d71cef443ce945d8fe7a3f",
-      "docs/reference/10-stdlib-buses.md": "db8f66c52ecd58c614db669bab989c9203743a69e8064b46535cb863b2abb8b2",
+      "docs/reference/10-stdlib-buses.md": "5c980ba15dee0fdc378bd1a17560554db7d026c6230e685f351336ea5ed7ad8a",
       "docs/reference/11-projects.md": "5b40fbc9b755390bd36be5221e4ba88172e68fde8f6704ad1f670c83954c567f",
       "docs/reference/12-profiles-targets.md": "fb81f8a8edca302306955eddeb6ccbc75817709ca7e194598f9ce27232fbfe18",
       "docs/reference/13-rtl.md": "b5fcce04c4b11bfb24137c40cae55160abd5aaa3e009536139ea4ec39ec15bfe",
@@ -107,7 +111,7 @@
       "docs/reference/15-limitations.md": "d0b306c3bceae0db2c054f869e3332c8ccbc2ffd59a0be2f278cd731993182f4",
       "docs/reference/appendix-quick-reference.md": "88ca8403043414f21ba3a57075376b400353669fcca87cce16c0fe24a99fc01d"
     },
-    "source_date_epoch": 1792042957
+    "source_date_epoch": 1792708445
   },
   "generated_by": "tools/release_status.py"
 }

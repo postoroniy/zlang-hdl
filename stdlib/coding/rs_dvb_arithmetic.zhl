@@ -1,0 +1,23 @@
+import std.coding.gf256
+
+// Highest-degree first, omitting the monic coefficient of the degree-16
+// generator product (x+alpha^0)...(x+alpha^15), alpha=0x02.
+fn rs_dvb_parity_coefficients() -> vec<16,bits<8>> {
+    [59,13,104,189,68,209,30,8,163,65,41,229,98,50,36,59]
+}
+
+fn rs_dvb_roots() -> vec<16,bits<8>> {
+    [1,2,4,8,16,32,64,128,29,58,116,232,205,135,19,38]
+}
+
+fn rs_dvb_parity_step(state:vec<16,bits<8>>,data:bits<8>) -> vec<16,bits<8>> {
+    coefficients = rs_dvb_parity_coefficients()
+    feedback = data ^ state[0]
+    generate(i in 0..16) (gf256_mul(feedback,coefficients[i]) ^
+        (if i == 15 {zeros<8>} else {state[i+1]}))
+}
+
+fn rs_dvb_syndrome_step(state:vec<16,bits<8>>,data:bits<8>) -> vec<16,bits<8>> {
+    roots = rs_dvb_roots()
+    generate(i in 0..16) (gf256_mul(state[i],roots[i]) ^ data)
+}
