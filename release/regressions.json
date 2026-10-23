@@ -22,12 +22,32 @@
       ]
     },
     {
+      "id": "CI-002",
+      "source_paths": [
+        ".github/workflows/secret-scan.yml",
+        ".gitleaks.toml",
+        "tests/release/test_release_preflight.py",
+        "tests/release/test_secret_scan.py"
+      ],
+      "status": "included",
+      "summary": "Pinned full-history secret scanning excludes only complete documentation hash fields and exact synthesis cache-hash matches, not whole files; default detection and self-test failure semantics remain enabled, with redacted finding locations.",
+      "tests": [
+        "tests/release/test_release_preflight.py::test_candidate_rejects_missing_documentation_or_security_regression",
+        "tests/release/test_release_preflight.py::test_current_candidate_binds_release_sources_native_wheel_and_git",
+        "tests/release/test_secret_scan.py::test_secret_scan_retains_full_history_self_test_pinning_and_redacted_locations",
+        "tests/release/test_secret_scan.py::test_source_hash_exception_accepts_only_the_documented_fields",
+        "tests/release/test_secret_scan.py::test_source_hash_exception_does_not_hide_other_paths_fields_or_secrets",
+        "tests/release/test_secret_scan.py::test_synthesis_hash_exception_does_not_exempt_other_secrets"
+      ]
+    },
+    {
       "id": "DOC-001",
       "source_paths": [
         "docs/expressions-functions-generics.md",
         "docs/language-overview.md",
         "docs/types-and-numerics.md",
         "tests/release/test_manual_pdf_links.py",
+        "tests/release/test_release_preflight.py",
         "tools/documentation_pdf.py",
         "tools/release_status.py"
       ],
@@ -35,7 +55,9 @@
       "summary": "Manual release validation rejects detached punctuation and split CLI/range tokens; the host renderer permits only internal safe breaks, and language examples and bounded-support descriptions remain consistent.",
       "tests": [
         "tests/release/test_manual_pdf_links.py::test_rendered_manual_allows_member_access_paths_and_ellipsis",
-        "tests/release/test_manual_pdf_links.py::test_rendered_manual_rejects_detached_punctuation_and_split_tokens"
+        "tests/release/test_manual_pdf_links.py::test_rendered_manual_rejects_detached_punctuation_and_split_tokens",
+        "tests/release/test_release_preflight.py::test_candidate_rejects_missing_documentation_or_security_regression",
+        "tests/release/test_release_preflight.py::test_current_candidate_binds_release_sources_native_wheel_and_git"
       ]
     },
     {

@@ -155,6 +155,8 @@ def test_current_candidate_binds_release_sources_native_wheel_and_git(
     assert report["previous_tag"] == "v0.1.0a23"
     assert report["regressions"]["included"] == [
         "CI-001",
+        "CI-002",
+        "DOC-001",
         "FORMAL-001",
         "FORMAL-002",
         "FORMAL-003",
@@ -193,7 +195,16 @@ def test_current_candidate_binds_release_sources_native_wheel_and_git(
     assert report["dependency_floor"]["previous_ref"] == "v0.1.0a23"
     assert report["dependency_floor"]["compared"] > 0
     assert report["dependency_floor"]["downgrades"] == []
-    assert "release/regressions.json" in report["identities"]
+    assert report["regressions"]["entries"] == 36
+    assert report["regressions"]["dispositions"] == {
+        "deferred": 0,
+        "excluded_experiment": 0,
+        "included": 36,
+        "private_only": 0,
+    }
+    assert report["identities"]["release/regressions.json"] == hashlib.sha256(
+        (release_repository / "release/regressions.json").read_bytes()
+    ).hexdigest()
     assert report["git"]["previous_commit"]
     assert report["native_wheels"] == [
         {
@@ -220,6 +231,29 @@ def test_candidate_date_uses_the_timezone_recorded_in_the_commit(
         require_clean=False,
     )
     assert report["version"] == "0.1.0a24"
+
+
+@pytest.mark.parametrize("identity", ("CI-002", "DOC-001"))
+def test_candidate_rejects_missing_documentation_or_security_regression(
+    release_repository: Path, identity: str,
+) -> None:
+    ledger = release_repository / "release/regressions.json"
+    original = ledger.read_bytes()
+    payload = json.loads(original)
+    entry = next(entry for entry in payload["entries"] if entry["id"] == identity)
+    entry["tests"][0] += "_missing"
+    try:
+        ledger.write_text(json.dumps(payload), encoding="utf-8")
+        with pytest.raises(ReleasePreflightError, match="does not resolve"):
+            preflight(
+                release_repository,
+                tag="v0.1.0a24",
+                previous_tag="v0.1.0a23",
+                mode="candidate",
+                require_clean=False,
+            )
+    finally:
+        ledger.write_bytes(original)
 
 
 @pytest.mark.parametrize(

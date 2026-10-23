@@ -1,8 +1,24 @@
 [extend]
 useDefault = true
 
-[allowlist]
+# The default generic-api-key rule also matches "api" in these documentation
+# filenames. These whole JSON fields contain source SHA-256 digests, not keys.
+# Inherit the default rule; do not exempt the file, other fields or other rules.
+[[rules]]
+id = "generic-api-key"
+
+[[rules.allowlists]]
+description = "Documentation source hashes in the release inventory"
+condition = "AND"
+regexTarget = "line"
+paths = ['''^release/status\.json$''']
+regexes = ['''^\s*"docs/(stdlib-api|tooling-integration-api)\.md": "[0-9a-f]{64}",?\s*$''']
+
+# A global path allowlist skips the entire file in Gitleaks 8.24.3, regardless
+# of a global condition. Restrict this existing exception to the matched hash.
+[[rules.allowlists]]
 description = "Deterministic non-secret synthesis cache hashes"
 condition = "AND"
-paths = ['''examples/generated/CostMac\.synthesis$''']
-regexes = ['''cache_key=[0-9a-f]{64}''']
+regexTarget = "match"
+paths = ['''^examples/generated/CostMac\.synthesis$''']
+regexes = ['''^cache_key=[0-9a-f]{64}\s*$''']

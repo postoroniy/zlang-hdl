@@ -84,7 +84,7 @@
     {
       "mode": "0644",
       "path": ".github/workflows/secret-scan.yml",
-      "sha256": "98fd30cdfc55ddc3ad18bd1d83458c8151e4ba638b4e6d74b374ce50e6366bb4"
+      "sha256": "2b731980d8179c06dada0442c96f30f8b4f16fa4ec1b360cb405de8cc047fa19"
     },
     {
       "mode": "0644",
@@ -99,7 +99,7 @@
     {
       "mode": "0644",
       "path": ".gitleaks.toml",
-      "sha256": "07a8f9c50324015497773645f7a61348118365f1d9153705e518ba6c97ed34da"
+      "sha256": "977ae871c8a458e4af55f4ac2cc978d949b67ad2532e958c51ae57f8f896fe98"
     },
     {
       "mode": "0644",
@@ -149,7 +149,7 @@
     {
       "mode": "0644",
       "path": "CHANGELOG.md",
-      "sha256": "25ab0f138b5f169d83500caa90bb7a7d4ae8b9c00663e68826eab7882a3ccea1"
+      "sha256": "99456d30a13fd1766404fa2b0ea7f50dfbb9b365b3818d595cd9987dcedcc9cc"
     },
     {
       "mode": "0644",
@@ -1979,7 +1979,7 @@
     {
       "mode": "0644",
       "path": "release/regressions.json",
-      "sha256": "a16522bec65a4c1d2852966bb1cb943847431044976399b537828c0b76a2f255"
+      "sha256": "cfdc4cdbacfeb510c941137b2b891a0abac752cc4b7e54f27ab17015ba5e3ab1"
     },
     {
       "mode": "0644",
@@ -3974,12 +3974,12 @@
     {
       "mode": "0644",
       "path": "tests/release/test_release_preflight.py",
-      "sha256": "d6b44d44a8a8049b68f33737c7611338ef1c8ef5f620dcd768351bbea1ae1a9a"
+      "sha256": "fcbda736e08c9510d7ed41930628ae657edab830934efc1fd460af43ea22864b"
     },
     {
       "mode": "0644",
       "path": "tests/release/test_release_regressions.py",
-      "sha256": "8afd333d1b0d3fc9b61a4a90cf703f9d06a1c96e14ad781b0440aa667ba652b3"
+      "sha256": "60231477c7146bee7dc42e35f2707bc7d22a007a687df9828a07f243afedd1e6"
     },
     {
       "mode": "0644",
@@ -3990,6 +3990,11 @@
       "mode": "0644",
       "path": "tests/release/test_review_commit_audit.py",
       "sha256": "1909920db3a73a6623cb21855ff21173eee4910c8eee865ecd01cada2d483cb2"
+    },
+    {
+      "mode": "0644",
+      "path": "tests/release/test_secret_scan.py",
+      "sha256": "c0b74324b66e4633965612d3137e581812649ea39ee89b792e5abbaebc46d47d"
     },
     {
       "mode": "0644",

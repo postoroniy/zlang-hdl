@@ -20,6 +20,11 @@ incompatible input explicitly.
 
 ### Fixed
 
+- Secret scanning distinguishes the two documentation source SHA-256 fields
+  in release metadata from API credentials. The exception is restricted to the
+  exact file and whole hash fields; default rules and full-history scanning
+  remain enabled. Redacted findings now include locations for diagnosis.
+  The synthesis cache-hash exception no longer bypasses scanning its whole file.
 - Manual PDF layout keeps sentence punctuation attached to inline code and
   preserves CLI prefixes and multi-character operators. Release checks reject
   detached punctuation and split tokens. Language examples now use a meaningful
