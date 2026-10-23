@@ -21,7 +21,7 @@ history after a word; it does not transmit tail bits.
 
 Equal-cost paths select the smaller predecessor; equal final metrics select
 the smaller state number. Reachability is separate from the metric, whose
-width is ceil_log2(14·MAX_BITS+1). There is no metric saturation or numerical
+width is `ceil_log2(14*MAX_BITS+1)`. There is no metric saturation or numerical
 sentinel. The result is a minimum-metric path, not a promise to detect an
 incorrectly decoded message.
 
@@ -29,7 +29,7 @@ incorrectly decoded message.
 
 Set first on the first accepted pair and last on the final accepted pair.
 `status:rv<ViterbiFrameStatus<MW,CW>>` reports malformed, decoded_bits and
-path_metric; MW=ceil_log2(14·MAX_BITS+1), CW=index_width(MAX_BITS+1).
+path_metric; `MW=ceil_log2(14*MAX_BITS+1)`, `CW=index_width(MAX_BITS+1)`.
 Malformed frames report zero length/metric and have no payload. Missing or
 unexpected first, or reaching capacity without last, is malformed. An
 unterminated bad frame is discarded until last or a new first marker after

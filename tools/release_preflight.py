@@ -34,6 +34,7 @@ from tools.release_regressions import (
     validate_regression_ledger,
 )
 from tools.release_status import StatusError, validate as validate_release_status
+from tools.documentation_manifest import load_manuals
 
 
 SCHEMA = 4
@@ -255,7 +256,8 @@ def preflight(
         path: _sha256(root / path)
         for path in (
             "CHANGELOG.md",
-            "docs/ZLang-HDL-Language-Reference.pdf",
+            *(manual.pdf.as_posix() for manual in load_manuals(root)),
+            "docs/manuals.toml",
             "editors/vscode/zlang-hdl/package-lock.json",
             "editors/vscode/zlang-hdl/package.json",
             "pyproject.toml",
@@ -267,6 +269,9 @@ def preflight(
             "zlang/_version.py",
         )
     }
+    expected_pdfs = {manual.pdf.as_posix() for manual in load_manuals(root)}
+    if {name for name in identities if name.endswith(".pdf")} != expected_pdfs:
+        raise ReleasePreflightError("preflight must bind exactly the manifest-owned PDF set")
     return {
         "schema": SCHEMA,
         "mode": mode,

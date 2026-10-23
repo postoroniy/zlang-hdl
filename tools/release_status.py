@@ -19,34 +19,18 @@ import xml.etree.ElementTree as ET
 
 try:
     from tools.audit_native_editor import NativeEditorAuditError, audit_native_editor
+    from tools.documentation_manifest import MANIFEST, DocumentationError, load_manuals
+    from tools.documentation_sources import assert_public, entrypoint_markdown, validate_markdown_links
+    from tools.documentation_pdf import validate_text_layout, verify_pdf_links
 except ModuleNotFoundError:  # Direct ``python tools/release_status.py`` execution.
     from audit_native_editor import NativeEditorAuditError, audit_native_editor
+    from documentation_manifest import MANIFEST, DocumentationError, load_manuals
+    from documentation_sources import assert_public, entrypoint_markdown, validate_markdown_links
+    from documentation_pdf import validate_text_layout, verify_pdf_links
 
 
 DEFAULT_STATUS = Path("release/status.json")
 CORPUS_TEST = Path("tests/systemverilog/test_example_coverage.py")
-COMMUNITY_PDF = Path("docs/ZLang-HDL-Language-Reference.pdf")
-COMMUNITY_PDF_SOURCES = tuple(
-    Path("docs/reference") / name
-    for name in (
-        "01-why-zlang.md",
-        "02-quick-start.md",
-        "03-implementation-intent.md",
-        "04-simulation-verification.md",
-        "05-types.md",
-        "06-expressions.md",
-        "07-state-clocks.md",
-        "08-hierarchy-protocols.md",
-        "09-storage.md",
-        "10-stdlib-buses.md",
-        "11-projects.md",
-        "12-profiles-targets.md",
-        "13-rtl.md",
-        "14-installation.md",
-        "15-limitations.md",
-        "appendix-quick-reference.md",
-    )
-)
 
 
 class StatusError(RuntimeError):
@@ -141,7 +125,7 @@ def _actual_cover_record(path: Path) -> tuple[str, int, int]:
     return digest, width, height
 
 
-def _check_documentation(root: Path, documentation: object) -> None:
+def _check_manual(root: Path, documentation: object, manual, version: str) -> None:
     if not isinstance(documentation, dict):
         raise StatusError("release status is missing documentation metadata")
     expected_keys = {
@@ -159,9 +143,13 @@ def _check_documentation(root: Path, documentation: object) -> None:
         "source_date_epoch",
         "sources",
         "syntax_grammar_sha256",
+        "title",
+        "version",
     }
     if set(documentation) != expected_keys:
         raise StatusError("documentation metadata has unexpected or missing fields")
+    if documentation["title"] != manual.title or documentation["version"] != version:
+        raise StatusError("documentation book title/version mapping is stale")
     examples = documentation.get("examples")
     expected_example_keys = {
         "json_blocks",
@@ -180,9 +168,9 @@ def _check_documentation(root: Path, documentation: object) -> None:
         raise StatusError("documentation example validation counts must be non-negative")
     if examples["zlang_fences"] <= 0 or examples["linked_sources"] <= 0:
         raise StatusError("documentation example validation is unexpectedly empty")
-    if documentation.get("pdf") != COMMUNITY_PDF.as_posix():
+    if documentation.get("pdf") != manual.pdf.as_posix():
         raise StatusError("documentation.pdf must name the reviewed Community PDF")
-    pdf = root / COMMUNITY_PDF
+    pdf = root / manual.pdf
     try:
         payload = pdf.read_bytes()
     except OSError as exc:
@@ -257,6 +245,10 @@ def _check_documentation(root: Path, documentation: object) -> None:
     actual_cover_sha256, actual_cover_width, actual_cover_height = (
         _actual_cover_record(pdf)
     )
+    cover_text = " ".join(_run_pdf_tool(("pdftotext", "-f", "1", "-l", "1", str(pdf), "-")).split())
+    expected_brand = f"ZLang HDL {manual.title} Community Release v{version}"
+    if expected_brand not in cover_text:
+        raise StatusError("documentation rendered book title/version mapping is stale")
     if actual_cover_sha256 != cover_sha256:
         raise StatusError("documentation cover digest does not match the reviewed PDF")
     if actual_cover_width != documentation["cover_width"]:
@@ -268,12 +260,68 @@ def _check_documentation(root: Path, documentation: object) -> None:
             "documentation cover_height does not match the reviewed PDF cover"
         )
     sources = documentation.get("sources")
-    expected_sources = {path.as_posix() for path in COMMUNITY_PDF_SOURCES}
+    expected_sources = {path.as_posix() for path in (manual.entrypoint, *manual.sources)}
     if not isinstance(sources, dict) or set(sources) != expected_sources:
         raise StatusError("documentation sources must match the public PDF projection")
-    for source in COMMUNITY_PDF_SOURCES:
+    for source in (manual.entrypoint, *manual.sources):
         if sources[source.as_posix()] != _sha256(root / source):
             raise StatusError(f"documentation source digest is stale: {source}")
+
+
+def _check_documentation(root: Path, documentation: object, version: str | None = None) -> None:
+    if not isinstance(documentation, dict) or set(documentation) != {
+        "manifest", "manifest_sha256", "manuals", "build_sources"
+    }:
+        raise StatusError("documentation must record the complete schema-3 manual set")
+    if version is None:
+        version = _load_json(root / DEFAULT_STATUS)["release"]["version"]
+    try:
+        manuals = load_manuals(root)
+        validate_markdown_links(root)
+    except DocumentationError as exc:
+        raise StatusError(str(exc)) from exc
+    if documentation["manifest"] != MANIFEST.as_posix() or documentation["manifest_sha256"] != _sha256(root / MANIFEST):
+        raise StatusError("documentation manual manifest identity is stale")
+    records = documentation["manuals"]
+    if not isinstance(records, dict) or set(records) != {m.identity for m in manuals}:
+        raise StatusError("documentation requires exactly three manual records")
+    build_sources = documentation["build_sources"]
+    expected_build_sources = {
+        "tools/build_community_pdf.py", "tools/documentation_sources.py",
+        "tools/documentation_manifest.py", "tools/document_stdlib.py",
+        "tools/documentation_pdf.py",
+        "LICENSES/Bitstream-Vera.txt",
+    }
+    if not isinstance(build_sources, dict) or set(build_sources) != expected_build_sources:
+        raise StatusError("documentation build source inventory is malformed")
+    for name, expected in build_sources.items():
+        if not isinstance(expected, str) or re.fullmatch(r"[0-9a-f]{64}", expected) is None:
+            raise StatusError("documentation build digest is malformed")
+        if not (root / name).is_file() and name == "tools/build_community_pdf.py":
+            continue  # The audited host renderer is not shipped in the public tree.
+        if _sha256(root / name) != expected:
+            raise StatusError(f"documentation build identity is stale: {name}")
+    for manual in manuals:
+        _check_manual(root, records[manual.identity], manual, version)
+        try:
+            for source in (manual.entrypoint, *manual.sources):
+                assert_public((root / source).read_text(encoding="utf-8"), source)
+            if (root / manual.entrypoint).read_text(encoding="utf-8") != entrypoint_markdown(root, manual):
+                raise DocumentationError(f"manual index is stale: {manual.entrypoint}")
+        except DocumentationError as exc:
+            raise StatusError(str(exc)) from exc
+    try:
+        from tools.document_stdlib import api_markdown
+    except ModuleNotFoundError:
+        from document_stdlib import api_markdown
+    if (root / "docs/stdlib-api.md").read_text(encoding="utf-8") != api_markdown(root):
+        raise StatusError("compiler-derived stdlib API inventory is stale")
+    try:
+        verify_pdf_links({manual.pdf.name: root / manual.pdf for manual in manuals}, _run_pdf_tool)
+        for manual in manuals:
+            validate_text_layout(_run_pdf_tool(("pdftotext", "-layout", str(root / manual.pdf), "-")))
+    except DocumentationError as exc:
+        raise StatusError(str(exc)) from exc
 
 
 def _load_json(path: Path) -> dict:
@@ -502,8 +550,8 @@ def validate_test_reports(
     root = root.resolve()
     path = status_path if status_path.is_absolute() else root / status_path
     status = _load_json(path)
-    if status.get("schema") != 2:
-        raise StatusError("release status schema must be 2")
+    if status.get("schema") != 3:
+        raise StatusError("release status schema must be 3")
     validation = status.get("validation")
     if not isinstance(validation, dict):
         raise StatusError("release status is missing validation metadata")
@@ -569,8 +617,8 @@ def validate(
     root = root.resolve()
     path = status_path if status_path.is_absolute() else root / status_path
     status = _load_json(path)
-    if status.get("schema") != 2:
-        raise StatusError("release status schema must be 2")
+    if status.get("schema") != 3:
+        raise StatusError("release status schema must be 3")
     release = status.get("release")
     validation = status.get("validation")
     platform = status.get("platform")
@@ -582,7 +630,7 @@ def validate(
         for item in (release, validation, platform, native_runtime, tools)
     ):
         raise StatusError("release status is missing required object sections")
-    _check_documentation(root, status.get("documentation"))
+    _check_documentation(root, status.get("documentation"), release.get("version"))
     pyproject = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
     _check_solver_pin(pyproject, tools)
     project_version = _project_version(root, pyproject)

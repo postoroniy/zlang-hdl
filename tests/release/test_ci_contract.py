@@ -45,7 +45,7 @@ def _status_root(path: Path) -> Path:
     (release / "status.json").write_text(
         json.dumps(
             {
-                "schema": 2,
+                "schema": 3,
                 "validation": {
                     "minimum_tests_passed": 2,
                     "minimum_tests_collected": 2,

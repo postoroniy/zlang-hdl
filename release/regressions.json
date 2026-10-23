@@ -22,6 +22,23 @@
       ]
     },
     {
+      "id": "DOC-001",
+      "source_paths": [
+        "docs/expressions-functions-generics.md",
+        "docs/language-overview.md",
+        "docs/types-and-numerics.md",
+        "tests/release/test_manual_pdf_links.py",
+        "tools/documentation_pdf.py",
+        "tools/release_status.py"
+      ],
+      "status": "included",
+      "summary": "Manual release validation rejects detached punctuation and split CLI/range tokens; the host renderer permits only internal safe breaks, and language examples and bounded-support descriptions remain consistent.",
+      "tests": [
+        "tests/release/test_manual_pdf_links.py::test_rendered_manual_allows_member_access_paths_and_ellipsis",
+        "tests/release/test_manual_pdf_links.py::test_rendered_manual_rejects_detached_punctuation_and_split_tokens"
+      ]
+    },
+    {
       "id": "FORMAL-001",
       "source_paths": [
         "tests/integration/test_formal_evidence_integrity.py",

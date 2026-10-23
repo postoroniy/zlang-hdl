@@ -54,9 +54,10 @@ def test_current_release_binds_included_fixes_to_permanent_tests() -> None:
     )
     assert report == {
         "schema": 1,
-        "entries": 34,
+        "entries": 35,
         "included": [
             "CI-001",
+            "DOC-001",
             "FORMAL-001",
             "FORMAL-002",
             "FORMAL-003",
@@ -94,7 +95,7 @@ def test_current_release_binds_included_fixes_to_permanent_tests() -> None:
         "dispositions": {
             "deferred": 0,
             "excluded_experiment": 0,
-            "included": 34,
+            "included": 35,
             "private_only": 0,
         },
     }
@@ -154,6 +155,7 @@ def test_nonincluded_fix_requires_reason_and_durable_follow_up(tmp_path: Path) -
         "reason": "Requires a separately reviewed semantic change.",
         "follow_up": "ZL-052",
     }
+    payload["entries"].sort(key=lambda entry: entry["id"])
     _write(root, payload)
     report = validate_regression_ledger(
         root,
@@ -161,6 +163,7 @@ def test_nonincluded_fix_requires_reason_and_durable_follow_up(tmp_path: Path) -
         previous_tag="v0.1.0a23",
     )
     assert report["included"] == [
+        "DOC-001",
         "FORMAL-001",
         "FORMAL-002",
         "FORMAL-003",
@@ -196,7 +199,8 @@ def test_nonincluded_fix_requires_reason_and_durable_follow_up(tmp_path: Path) -
         "ZL-068",
     ]
 
-    del payload["entries"][0]["follow_up"]
+    deferred = next(entry for entry in payload["entries"] if entry["id"] == "EDITOR-001")
+    del deferred["follow_up"]
     _write(root, payload)
     with pytest.raises(RegressionLedgerError, match="unknown or missing fields"):
         validate_regression_ledger(
@@ -226,5 +230,5 @@ def test_cli_reports_the_validated_inclusion_count(capsys: pytest.CaptureFixture
         "--previous-tag", "v0.1.0a23",
     ]) == 0
     assert capsys.readouterr().out == (
-        "release regressions valid: 34 entries, 34 included\n"
+        "release regressions valid: 35 entries, 35 included\n"
     )

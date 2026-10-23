@@ -79,3 +79,11 @@ or endorsed by those owners.
 
 Use of the ZLang HDL project name and any project branding is described in
 TRADEMARKS.md. That policy does not assert registration of the name or a logo.
+
+Documentation fonts
+-------------------
+
+The three manuals embed DejaVu font subsets. Bitstream Vera copyright and
+permission notices are retained in LICENSES/Bitstream-Vera.txt and in each PDF.
+DejaVu changes are in the public domain; the font notice does not change the
+license of the ZLang compiler or user-authored generated hardware.

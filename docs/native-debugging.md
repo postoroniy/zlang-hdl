@@ -110,7 +110,7 @@ Clocks and resets are recorded automatically from event zero, even when omitted
 from `traceSignals`. For RuleAction, the live viewer includes `clk` and `rst`;
 they are also available under **Variables → Clocks and resets** and in
 **ZLang HDL: Add Live Trace Signals**. A saved layout still controls which rows
-are displayed. If it predates these controls, or a row was removed, click **＋**
+are displayed. If it predates these controls, or a row was removed, click **+**
 beside `clk` or `rst` in the live Design Browser to show it again.
 
 Clock pulses follow the declared rising or falling edge. Reset levels follow
@@ -423,8 +423,9 @@ an ephemeral one. The output channel reports the chosen address. The listener
 does not bind non-loopback interfaces and accepts only the documented v0
 greeting and command set.
 
-Time is event-index visualization: two 1 ns ticks per simulation event. It
-is not an analog timing model. Trace storage is delta encoded, chunked, capped
+Time is event-index visualization: two event-domain ticks per simulation event.
+It is not an analog timing model or physical frequency measurement. Trace
+storage is delta encoded, chunked, capped
 at one million events, and may spill beneath VS Code `globalStorageUri`.
 
 ## Packaging boundary

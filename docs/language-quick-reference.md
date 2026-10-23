@@ -4,6 +4,9 @@ This page is a concise guide to writing and running ZLang HDL. Source-language
 rules define the hardware; generated SystemVerilog is an output format, not a
 second language specification.
 
+Full details: [Language Reference](language-reference.md),
+[Standard Library Guide](stdlib.md), [User Guide](user-guide.md).
+
 For an unfamiliar construct, consult the detailed language chapter and
 [known limitations](language-reference.md#reference-known-limitations). For
 exact width tables and supported forms, follow the linked topic guide.
@@ -14,8 +17,10 @@ exact width tables and supported forms, follow the linked topic guide.
 - Run `zlang SOURCE --check`; highlighting is lexical and is not validation.
 - Native simulation needs a matching platform wheel and fails explicitly when
   it is unavailable.
-- Hardware assignments are concurrent. `=` drives the current cycle and `<-`
-  schedules next state at the active clock edge.
+- Combinational connections such as `y = a + b` are continuously defined;
+  state updates such as `count <- next_count` schedule next state at the active
+  clock edge. The `=` token also appears in immutable bindings and initializers;
+  it does not imply a state update.
 - Assignment types are exact. There is no implicit resize, signedness change,
   fixed-point rescale, protocol adapter, or clock-domain crossing.
 - ZLang has no `let`, `const`, `var`, `return`, semicolons, C-style
@@ -336,7 +341,7 @@ it explicitly with `zlang lock update --project zlang.toml`. Thereafter run that
 command only after dependency declarations, dependency source contents, exact
 Git revisions or other resolution inputs change, not before each simulation or
 RTL build. Compilation never fetches or rewrites the lock. Standalone sources
-without a manifest need no lock. See [project setup](../README.md#projects-and-lock-files).
+without a manifest need no lock. See [project setup](projects-dependencies.md#reference-projects-dependencies).
 
 In a `--events` JSONL schedule, `"repeat": N` repeats one event lazily for a
 bounded positive number of steps (at most 1,000,000 expanded events) without a

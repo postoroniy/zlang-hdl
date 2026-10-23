@@ -44,9 +44,9 @@ owns the file, choose **Reopen Editor With → ZLang HDL Waveform**. The
 [simulation guide](reference/04-simulation-verification.md) explains how to generate traces.
 
 The Design Browser shows the trace hierarchy. Expand scopes or filter by name.
-Large signal lists load in pages of 200. Click **＋** beside a signal or
+Large signal lists load in pages of 200. Click **+** beside a signal or
 double-click its name to add a row. Each addition creates another independent
-row, even when that signal is already displayed. A scope's **＋** adds its direct
+row, even when that signal is already displayed. A scope's **+** adds its direct
 signals; **Deep** includes descendants. A selection exceeding 4096 signal rows
 (including copies) is rejected, so choose a smaller scope.
 Ctrl/Cmd-click or Shift-click browser rows to select several and drag them into
@@ -85,9 +85,9 @@ Clipboard transfers are bounded to 1 MiB and the usual row/group limits.
 Enum display uses trace-provided labels when available. A custom mnemonic map
 uses exact bit strings, for example `{"00":"Idle","01":"Header","10":"Payload"}`.
 
-**Split＋** creates up to four time viewports. Click one to make it active.
+**Split+** creates up to four time viewports. Click one to make it active.
 With **Sync** enabled, panning or zooming applies the same interval to all
-viewports. Otherwise each retains its own range. **Split－** removes the active
+viewports. Otherwise each retains its own range. **Split−** removes the active
 viewport.
 
 ## Navigate the trace
@@ -137,7 +137,7 @@ event. The Inspector shows event deltas and no physical frequency. External
 traces with a declared physical timescale also show seconds and `1 / Δt`.
 Traces without a physical timescale remain in trace ticks.
 
-**＋ Bookmark** records cursor A with a label. Click it to jump, double-click to
+**+ Bookmark** records cursor A with a label. Click it to jump, double-click to
 rename, or use **×** to delete it. **◀ M / M ▶** move between bookmarks. Sessions
 support up to 256 bookmarks; colors can also be set in the session or through WCP.
 
@@ -231,7 +231,7 @@ than silent rounding.
 
 ## Troubleshooting
 
-- **No waves in a saved file:** expand the Design Browser and click **＋**
+- **No waves in a saved file:** expand the Design Browser and click **+**
   beside a signal, then **Fit**. An empty signal list does not display every
   signal automatically. If simulation replaced the file, wait for it to finish
   and click **Reload**.

@@ -203,7 +203,7 @@ jobs:
             dist/zlang-hdl-0.1.0-vsix-audit.json
           mv -- dist/zlang-hdl-0.1.0-linux-x64.vsix.audit.json \
             dist/zlang-hdl-0.1.0-linux-x64-vsix-audit.json
-      - name: Stage the exact reviewed language-reference PDF
+      - name: Stage the exact reviewed three-manual set
         run: >-
           python tools/stage_release_pdf.py
           --root .
@@ -235,7 +235,8 @@ jobs:
             zlang_native_sim-*manylinux_2_28_x86_64.whl \
             zlang-hdl-*.cdx.json release-preflight.json release-requirements.txt \
             zlang-hdl-*.vsix zlang-hdl-*-vsix-audit.json \
-            zlang-hdl-*-language-reference.pdf | sort > SHA256SUMS)
+            ZLang-HDL-Language-Reference.pdf ZLang-HDL-Standard-Library-Guide.pdf \
+            ZLang-HDL-User-Guide.pdf | sort > SHA256SUMS)
           (cd dist && sha256sum -c SHA256SUMS)
       - name: Attest release checksums
         if: ${{ github.event_name == 'push' }}

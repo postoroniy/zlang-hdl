@@ -20,7 +20,8 @@ from tools.release_preflight import (
     main,
     preflight,
 )
-from tools.release_status import COMMUNITY_PDF_SOURCES, _example_counts
+from tools.release_status import _example_counts
+from tools.documentation_manifest import load_manuals
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -97,18 +98,17 @@ def release_repository(tmp_path_factory: pytest.TempPathFactory) -> Path:
     status_path = root / "release/status.json"
     status = json.loads(status_path.read_text(encoding="utf-8"))
     grammar = root / "editors/vscode/zlang-hdl/syntaxes/zlang.tmLanguage.json"
-    status["documentation"]["syntax_grammar_sha256"] = hashlib.sha256(
-        grammar.read_bytes()
-    ).hexdigest()
+    for record in status["documentation"]["manuals"].values():
+        record["syntax_grammar_sha256"] = hashlib.sha256(grammar.read_bytes()).hexdigest()
     # The release-status owner defines the exact PDF source projection.  Keep
     # this synthetic repository aligned with that owner instead of maintaining
     # a second list that silently becomes stale when the reference is split.
-    status["documentation"]["sources"] = {}
-    for path in COMMUNITY_PDF_SOURCES:
-        source = path.as_posix()
-        status["documentation"]["sources"][source] = hashlib.sha256(
-            (root / source).read_bytes()
-        ).hexdigest()
+    for manual in load_manuals(root):
+        record = status["documentation"]["manuals"][manual.identity]
+        record["sources"] = {
+            path.as_posix(): hashlib.sha256((root / path).read_bytes()).hexdigest()
+            for path in (manual.entrypoint, *manual.sources)
+        }
     status["validation"]["example_corpus"] = _example_counts(root)
     status_path.write_text(
         json.dumps(status, indent=2, sort_keys=True) + "\n",

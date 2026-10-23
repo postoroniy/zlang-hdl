@@ -37,8 +37,9 @@ def test_release_status_rejects_stale_pdf_geometry(
             # The release-host-only builder is absent from public exports,
             # matching release_status's existing source-availability policy.
             continue
-        status["documentation"][key] = hashlib.sha256(path.read_bytes()).hexdigest()
-    status["documentation"][field] = value
+        for record in status["documentation"]["manuals"].values():
+            record[key] = hashlib.sha256(path.read_bytes()).hexdigest()
+    status["documentation"]["manuals"]["language-reference"][field] = value
     stale = tmp_path / "status.json"
     stale.write_text(json.dumps(status), encoding="utf-8")
 

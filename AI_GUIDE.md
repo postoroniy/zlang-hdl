@@ -8,6 +8,12 @@ second language specification for a particular model.
 
 ## Sources of truth
 
+Use [Language Reference](docs/language-reference.md) for semantics,
+[Standard Library Guide](docs/stdlib.md) for API contracts, and
+[User Guide](docs/user-guide.md) for tools/workflows. The
+[quick reference](docs/language-quick-reference.md) is a router and cheat sheet,
+not another specification. All PDF chapters come from those same topic sources.
+
 Use this order when sources disagree:
 
 1. the user's request and the nearest applicable `AGENTS.md`;

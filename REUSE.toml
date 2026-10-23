@@ -31,6 +31,19 @@ SPDX-FileCopyrightText = "2026 Viacheslav Vinogradov"
 SPDX-License-Identifier = "Apache-2.0"
 
 [[annotations]]
+path = [
+  "docs/ZLang-HDL-Language-Reference.pdf",
+  "docs/ZLang-HDL-Standard-Library-Guide.pdf",
+  "docs/ZLang-HDL-User-Guide.pdf",
+]
+precedence = "override"
+SPDX-FileCopyrightText = [
+  "2026 Viacheslav Vinogradov",
+  "2003 Bitstream, Inc.",
+]
+SPDX-License-Identifier = "Apache-2.0 AND Bitstream-Vera"
+
+[[annotations]]
 path = ["CODE_OF_CONDUCT.md"]
 precedence = "override"
 SPDX-FileCopyrightText = [

@@ -53,7 +53,9 @@ second language specification.
 Before writing `.zhl`, read the shared
 [quick reference](../../../docs/language-quick-reference.md): operator scopes,
 exact conversions, enum boundaries, state, intent, simulation and commands.
-Use the [full reference](../../../docs/language-reference.md) for details;
+Use the [Language Reference](../../../docs/language-reference.md) for semantics,
+the [Standard Library Guide](../../../docs/stdlib.md) for component contracts,
+and the [User Guide](../../../docs/user-guide.md) for installation/debug workflows;
 do not create a parallel AI-only language specification.
 
 `examples/all_syntax.zhl` is a representative tour, not an exhaustive capability

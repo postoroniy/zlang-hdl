@@ -1,0 +1,2 @@
+{"reset":{"rst":true},"edges":["clk"]}
+{"reset":{"rst":false},"edges":["clk"],"repeat":20}

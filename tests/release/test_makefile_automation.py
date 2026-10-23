@@ -202,7 +202,9 @@ def test_release_workflow_uses_curated_changelog_notes_and_native_set() -> None:
     assert "release-preflight.json" in workflow
     assert "if: ${{ github.event_name == 'push' }}\n    needs: [validate, eda]" in workflow
     assert "Test, build, audit, and exercise both exact-tag Community VSIX packages" in workflow
-    assert "zlang-hdl-*-language-reference.pdf" in workflow
+    assert "ZLang-HDL-Language-Reference.pdf" in workflow
+    assert "ZLang-HDL-Standard-Library-Guide.pdf" in workflow
+    assert "ZLang-HDL-User-Guide.pdf" in workflow
     assert workflow.count("CI_PYTEST_MAXFAIL=1") == 4
     assert "make -s ci-bootstrap" in workflow
     assert "make -s package" in workflow
@@ -253,7 +255,7 @@ def test_hosted_workflows_delegate_acceptance_to_make_lanes(
     (release_root / "release" / "status.json").write_text(
         json.dumps(
             {
-                "schema": 2,
+                "schema": 3,
                 "validation": {
                     "minimum_tests_passed": 2,
                     "minimum_tests_collected": 2,

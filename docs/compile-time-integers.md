@@ -5,10 +5,9 @@ value arguments, static indices, compile-time `if` conditions, and expressions
 whose operands are constants or specialized integer parameters. It has the
 same precedence as `*` and `/`, with left-associative product chains.
 
-The [expression chapter](language-reference.md#reference-expressions-functions-generics-compile-time-integer-modulo)
-also includes this example; the
-[quick reference](language-quick-reference.md#aggregates-and-functions) summarizes
-the operator's scope.
+The [quick reference](language-quick-reference.md#aggregates-and-functions)
+summarizes the operator's scope. This example selects a chip from a constant
+PSS sequence; each specialization produces a constant `s2`:
 
 ```zlang
 fn nr_pss_chip<ID,K>() -> s2 {
@@ -23,7 +22,7 @@ module PssChip {
 
 Modulo uses floor-division semantics: a nonzero result has the sign of the
 divisor. For example, `-5 % 3 == 1`, `5 % -3 == -1`, and `-5 % -3 == -2`.
-With a positive divisor `D`, the result is in `0..D-1`, including for a
+With a positive divisor `D`, the result `r` satisfies `0 <= r < D`, including for a
 negative dividend. A zero divisor is an error in an evaluated expression;
 unselected compile-time `if` branches are not evaluated.
 

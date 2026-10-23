@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 name: Set up PDF inspection tools
-description: Install the Poppler commands required by fail-closed release validation.
+description: Install Poppler and QPDF for fail-closed manual-set validation.
 
 runs:
   using: composite
@@ -12,7 +12,8 @@ runs:
       run: |
         set -euo pipefail
         sudo apt-get update
-        sudo apt-get install --yes --no-install-recommends poppler-utils
+        sudo apt-get install --yes --no-install-recommends poppler-utils qpdf
         command -v pdfinfo
         command -v pdfimages
+        command -v qpdf
         dpkg-query --show --showformat='poppler-utils=${Version}\n' poppler-utils

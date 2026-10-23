@@ -592,7 +592,7 @@ class VSCodePackageTests(unittest.TestCase):
                     _audit_elf(executable)
 
     def test_installation_guide_uses_the_registered_lsp_setting(self) -> None:
-        guide = (ROOT / "README.md").read_text(encoding="utf-8")
+        guide = (ROOT / "docs/installing-toolchain.md").read_text(encoding="utf-8")
         extension_guide = (EXT / "README.md").read_text(encoding="utf-8")
         properties = _contributes()["configuration"]["properties"]
         self.assertIn('"zlang.lsp.path"', guide)
@@ -607,7 +607,7 @@ class VSCodePackageTests(unittest.TestCase):
         self.assertNotIn("../../../docs/native-debugging.md", extension_guide)
 
     def test_installation_guide_has_managed_python_wsl_and_verified_tools(self) -> None:
-        guide = (ROOT / "docs" / "language-reference.md").read_text(
+        guide = (ROOT / "docs" / "installing-toolchain.md").read_text(
             encoding="utf-8"
         )
         self.assertIn("uv tool install --python '>=3.12,<3.13'", guide)
@@ -621,9 +621,11 @@ class VSCodePackageTests(unittest.TestCase):
         )
         self.assertNotIn("python3.12", guide)
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
-        for label, tool in (("Verilator", "verilator"), ("Yosys", "yosys"),
-                            ("SymbiYosys", "sby"), ("Z3", "z3")):
-            self.assertIn(f"{label} {status['eda_toolchain'][tool]}", readme)
+        # Exact pins have one owner; the short README routes to that record,
+        # while the installation chapter retains the executable checks.
+        self.assertIn("release/status.json", readme)
+        for command in ("verilator --version", "yosys -V", "sby --version", "z3 --version"):
+            self.assertIn(command, guide)
 
     def test_source_derived_archive_is_accepted_and_hashed(self) -> None:
         path = self.archive(_source_members())

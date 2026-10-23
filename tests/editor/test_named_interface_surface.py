@@ -22,8 +22,11 @@ def test_named_module_interface_is_registry_owned_and_documented() -> None:
     text = (ROOT / requirement.document).read_text()
     for marker in requirement.markers:
         assert marker in text
-    assert "request_response" in text
-    assert "does not support" in text
+    chapter = (ROOT / "docs/named-module-interfaces.md").read_text()
+    for marker in requirement.markers:
+        assert marker in chapter
+    assert "request_response" in chapter
+    assert "does not support" in chapter
 
 
 def test_editor_distinguishes_named_interfaces_from_aggregate_ports() -> None:

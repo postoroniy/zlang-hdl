@@ -11,6 +11,24 @@ incompatible input explicitly.
 
 ## Unreleased
 
+### Added
+
+- Three manifest-driven manuals: Language Reference, Standard Library Guide
+  and User Guide. Canonical Markdown chapters also build the PDFs; schema-3
+  documentation metadata, portable inter-book navigation and whole-set release
+  checks replace independently maintained condensed reference chapters.
+
+### Fixed
+
+- Manual PDF layout keeps sentence punctuation attached to inline code and
+  preserves CLI prefixes and multi-character operators. Release checks reject
+  detached punctuation and split tokens. Language examples now use a meaningful
+  arithmetic assertion and exhaustive union match; indexing and AXI4 limitations
+  agree with their documented bounded support.
+- Native simulation documentation consistently uses reset assertion booleans,
+  including active-low pins, and distinguishes declared initial values from
+  uninitialized U startup.
+
 ## 0.1.0a24 — 2026-10-23
 
 Alpha update consolidating native simulation ownership in the audited Rust

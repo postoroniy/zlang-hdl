@@ -1,0 +1,78 @@
+schema = 1
+
+[[manuals]]
+id = "language-reference"
+title = "Language Reference"
+description = "Syntax, exact types, state, timing, protocols and verification contracts"
+entrypoint = "docs/language-reference.md"
+pdf = "docs/ZLang-HDL-Language-Reference.pdf"
+sources = [
+  "docs/language-overview.md",
+  "docs/types-and-numerics.md",
+  "docs/expressions-functions-generics.md",
+  "docs/compile-time-integers.md",
+  "docs/sequential-state-storage.md",
+  "docs/physical-clock-reset-contract.md",
+  "docs/hierarchy-protocols.md",
+  "docs/named-module-interfaces.md",
+  "docs/tagged-unions.md",
+  "docs/parameterized-aggregate-protocol.md",
+  "docs/implementation-intent.md",
+  "docs/optimization-formal.md",
+  "docs/storage-instance-arrays.md",
+  "docs/source-product-identity.md",
+  "docs/syntax-support-matrix.md",
+  "docs/known-limitations.md",
+  "docs/language-quick-reference.md",
+]
+
+[[manuals]]
+id = "standard-library"
+title = "Standard Library Guide"
+description = "Source APIs, numerical and stream contracts, examples and recipes"
+entrypoint = "docs/stdlib.md"
+pdf = "docs/ZLang-HDL-Standard-Library-Guide.pdf"
+sources = [
+  "docs/stdlib-overview.md",
+  "docs/standard-bus-library.md",
+  "docs/stdlib-stream-dsp.md",
+  "docs/stdlib-reloadable-fir.md",
+  "docs/stdlib-multirate-coding.md",
+  "docs/stdlib-secded.md",
+  "docs/stdlib-farrow.md",
+  "docs/stdlib-rs-dvb.md",
+  "docs/stdlib-viterbi.md",
+  "docs/stdlib-recipes.md",
+  "docs/stdlib-formal-coverage.md",
+  "docs/stdlib-api.md",
+]
+
+[[manuals]]
+id = "user-guide"
+title = "User Guide"
+description = "Installation, projects, simulation, debugging, waveforms and RTL workflows"
+entrypoint = "docs/user-guide.md"
+pdf = "docs/ZLang-HDL-User-Guide.pdf"
+sources = [
+  "docs/tutorial.md",
+  "docs/getting-started.md",
+  "docs/installing-toolchain.md",
+  "docs/projects-dependencies.md",
+  "docs/native-jit-simulation.md",
+  "docs/native-debugging.md",
+  "docs/waveform-workspace.md",
+  "docs/backends-tooling.md",
+  "docs/implementation-profiles.md",
+  "docs/target-platform-architecture-description.md",
+  "docs/low-level-target-resource-library.md",
+  "docs/high-level-target-aware-architecture-pipeline-planner.md",
+  "docs/platform-constraint-publication.md",
+  "docs/direct-systemverilog.md",
+  "docs/formal-verification.md",
+  "docs/whole-build-manifests.md",
+  "docs/structured-diagnostics.md",
+  "docs/generated-source-maps.md",
+  "docs/generated-navigation-bundles.md",
+  "docs/tooling-integration-api.md",
+  "docs/zlang-lsp.md",
+]
