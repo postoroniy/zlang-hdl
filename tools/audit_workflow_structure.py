@@ -222,6 +222,17 @@ def hosted_lane_contract_failures(path: Path) -> tuple[str, ...]:
                     f"{path}: job {job_name!r} requires complete Git history "
                     "(checkout fetch-depth: 0) for Community ancestry validation"
                 )
+        if "ci-full-regression" in targets:
+            # Match the qualified full CI lane. Unset WORKERS inherits the
+            # local Make default, which oversubscribes hosted EDA runners.
+            for command in commands:
+                for line in command.replace("\\\n", " ").splitlines():
+                    if re.search(r"\bmake\s+(?:-s\s+)?ci-full-regression(?:\s|$)", line):
+                        if re.findall(r"(?:^|\s)WORKERS=(\S+)", line) != ["4"]:
+                            failures.append(
+                                f"{path}: job {job_name!r} requires explicit WORKERS=4 "
+                                "for each complete regression; LSP deadlines stay unchanged"
+                            )
         for target in targets:
             if re.search(rf"\bmake\s+(?:-s\s+)?{re.escape(target)}(?:\s|$)", combined) is None:
                 failures.append(

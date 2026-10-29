@@ -60,6 +60,21 @@
       ]
     },
     {
+      "id": "CI-004",
+      "source_paths": [
+        ".github/workflows/eda.yml",
+        ".github/workflows/release.yml",
+        "tests/release/test_ci_contract.py",
+        "tools/audit_workflow_structure.py"
+      ],
+      "status": "included",
+      "summary": "Hosted complete EDA/release regressions use the qualified four-worker CI configuration, avoiding LSP process starvation without changing deadlines, suite selection, proof limits or floors; EDA retains JUnit reports on failure.",
+      "tests": [
+        "tests/release/test_ci_contract.py::test_eda_retains_both_regression_reports_even_on_failure",
+        "tests/release/test_ci_contract.py::test_full_regression_lanes_require_qualified_worker_count"
+      ]
+    },
+    {
       "id": "DOC-001",
       "source_paths": [
         "docs/expressions-functions-generics.md",

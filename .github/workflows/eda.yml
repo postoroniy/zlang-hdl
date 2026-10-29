@@ -43,10 +43,22 @@ jobs:
         run: make -s ci-bootstrap
       - name: Audit and install the reviewed Linux native wheel
         run: make -s native-release-install
+      # Match full CI: EDA subprocesses share the runner with LSP deadline tests.
+      # More pytest workers can starve short-lived LSP startup and shutdown.
       - name: Run the complete regression with no unexpected skips
         run: |
-          make -s ci-full-regression WORKERS=8 CI_JUNIT=build/eda.xml
+          make -s ci-full-regression WORKERS=4 CI_JUNIT=build/eda.xml
           make -s ci-performance-regression CI_JUNIT=build/eda-performance.xml
           make -s ci-test-floor \
             CI_DETERMINISTIC_JUNIT=build/eda.xml \
             CI_PERFORMANCE_JUNIT=build/eda-performance.xml
+      - name: Retain EDA regression reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: eda-regression-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            build/eda.xml
+            build/eda-performance.xml
+          if-no-files-found: warn
+          retention-days: 14

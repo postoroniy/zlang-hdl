@@ -287,14 +287,14 @@ jobs:
         run: make -s native-release-install TAG="$RELEASE_TAG"
       - name: Run full regression twice with no unexpected skips
         run: |
-          make -s ci-full-regression WORKERS=8 CI_PYTEST_MAXFAIL=1 \
+          make -s ci-full-regression WORKERS=4 CI_PYTEST_MAXFAIL=1 \
             CI_JUNIT=build/release-1.xml
           make -s ci-performance-regression CI_PYTEST_MAXFAIL=1 \
             CI_JUNIT=build/release-performance-1.xml
           make -s ci-test-floor \
             CI_DETERMINISTIC_JUNIT=build/release-1.xml \
             CI_PERFORMANCE_JUNIT=build/release-performance-1.xml
-          make -s ci-full-regression WORKERS=8 CI_PYTEST_MAXFAIL=1 \
+          make -s ci-full-regression WORKERS=4 CI_PYTEST_MAXFAIL=1 \
             CI_JUNIT=build/release-2.xml
           make -s ci-performance-regression CI_PYTEST_MAXFAIL=1 \
             CI_JUNIT=build/release-performance-2.xml

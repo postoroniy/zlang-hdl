@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import re
 import subprocess
 import tomllib
 
@@ -368,3 +369,42 @@ def test_ancestry_lanes_require_complete_checkout_history(tmp_path, filename, jo
         mutated.write_text(yaml.safe_dump(workflow))
         assert any("complete Git history" in failure
                    for failure in hosted_lane_contract_failures(mutated))
+
+
+@pytest.mark.parametrize("filename, job", [
+    ("ci.yml", "full-regression"), ("eda.yml", "real-tools"),
+    ("daily-regression.yml", "deterministic"), ("release.yml", "eda"),
+])
+def test_full_regression_lanes_require_qualified_worker_count(tmp_path, filename, job):
+    source = ROOT / ".github/workflows" / filename
+    workflow = yaml.load(source.read_text(), Loader=yaml.BaseLoader)
+    assert not hosted_lane_contract_failures(source)
+    checked = 0
+    for step in workflow["jobs"][job]["steps"]:
+        command = step.get("run", "")
+        if "make -s ci-full-regression" not in command:
+            continue
+        for occurrence in re.finditer(r"\bWORKERS=4\b", command):
+            checked += 1
+            for replacement in ("", "WORKERS=8", "WORKERS=16", "WORKERS=auto"):
+                step["run"] = (command[:occurrence.start()] + replacement
+                               + command[occurrence.end():])
+                mutated = tmp_path / filename
+                mutated.write_text(yaml.safe_dump(workflow))
+                assert any("requires explicit WORKERS=4" in failure
+                           for failure in hosted_lane_contract_failures(mutated))
+            step["run"] = command
+    assert checked == (2 if filename == "release.yml" else 1)
+
+
+def test_eda_retains_both_regression_reports_even_on_failure():
+    path = ROOT / ".github/workflows/eda.yml"
+    workflow = yaml.load(path.read_text(), Loader=yaml.BaseLoader)
+    uploads = [step for step in workflow["jobs"]["real-tools"]["steps"]
+               if step.get("uses", "").startswith("actions/upload-artifact@")]
+    assert len(uploads) == 1
+    assert uploads[0]["if"] == "always()"
+    assert set(uploads[0]["with"]["path"].split()) == {
+        "build/eda.xml", "build/eda-performance.xml",
+    }
+    assert "${{ github.run_attempt }}" in uploads[0]["with"]["name"]

@@ -157,6 +157,7 @@ def test_current_candidate_binds_release_sources_native_wheel_and_git(
         "CI-001",
         "CI-002",
         "CI-003",
+        "CI-004",
         "DOC-001",
         "FORMAL-001",
         "FORMAL-002",
@@ -203,11 +204,11 @@ def test_current_candidate_binds_release_sources_native_wheel_and_git(
     assert report["dependency_floor"]["previous_ref"] == "v0.1.0a23"
     assert report["dependency_floor"]["compared"] > 0
     assert report["dependency_floor"]["downgrades"] == []
-    assert report["regressions"]["entries"] == 44
+    assert report["regressions"]["entries"] == 45
     assert report["regressions"]["dispositions"] == {
         "deferred": 0,
         "excluded_experiment": 0,
-        "included": 44,
+        "included": 45,
         "private_only": 0,
     }
     assert report["identities"]["release/regressions.json"] == hashlib.sha256(

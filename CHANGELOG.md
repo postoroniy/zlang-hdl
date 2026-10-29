@@ -30,6 +30,10 @@ incompatible input explicitly.
 
 ### Fixed
 
+- Hosted EDA and release regression concurrency matches the qualified four-worker
+  full CI lane; LSP deadlines and test coverage remain unchanged. EDA JUnit
+  reports are retained even when the regression fails (CI-004).
+
 - Hosted ancestry-gated CI lanes fetch complete Git history. Community history
   validation rejects shallow repositories even when the public baseline is
   visible, preserving detection of older denied ancestors.
